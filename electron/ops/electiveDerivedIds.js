@@ -547,3 +547,30 @@ export function deriveElectiveAssignmentId(runId, camperId, occurrenceId) {
     opaque('occurrence_id', occurrenceId),
   ])}`
 }
+
+// LINKED ELECTIVE BUNDLE CHOICE derivation version (T301,
+// docs/adr/2026-09-29-linked-elective-bundles.md D3), separate from V and
+// PREFERENCE_V for the same reason PREFERENCE_V is separate from V: a
+// different id kind with its own shape, and bumping the shared V would
+// re-key camper ids along with everything else V governs.
+const BUNDLE_CHOICE_V = 1
+
+// Key: (run_id, bundle_id, tier_id). A linked bundle's per-tier expansion
+// (T301, ADR D3). Keyed on the bundle's own opaque, never-renamed id — NOT
+// its label — so renaming a bundle never re-keys its choices, and two
+// bundles of one activity that transiently share a label (decision 3 permits
+// more than one bundle per activity) still derive distinct ids. Every
+// component is an opaque surrogate (run_id, bundle_id, tier_id are all
+// randomUUID-derived), so the result matches OPAQUE and needs no carve-out in
+// derivedChoiceId() the way the label-keyed deriveElectiveChoiceId needed
+// CHOICE_ID_PREFIX — smaller blast radius, and the reason this is its own
+// function rather than a tier parameter grafted onto deriveElectiveChoiceId,
+// which would also break R2's contract that that function's key is exactly
+// (run_id, normalized label).
+export function deriveLinkedElectiveChoiceId(runId, bundleId, tierId) {
+  return `elbc${BUNDLE_CHOICE_V}:${join([
+    opaque('run_id', runId),
+    opaque('bundle_id', bundleId),
+    opaque('tier_id', tierId),
+  ])}`
+}

@@ -102,6 +102,26 @@ export const PARENT_SCOPED_ENTITIES = {
     parentTable: 'elective_sets',
     parentKey: 'elective_set_id',
   },
+  // T301 (docs/adr/2026-09-29-linked-elective-bundles.md): elective_sets'
+  // SECOND child, sibling to elective_set_activities above — parent-scoped
+  // by elective_set_id, a real FK (D1).
+  elective_bundles: {
+    table: 'elective_bundles',
+    parentTable: 'elective_sets',
+    parentKey: 'elective_set_id',
+  },
+  // elective_bundles' two children, parent-scoped by bundle_id — a soft
+  // pointer (D1), same posture as elective_choice_offerings.choice_id below.
+  elective_bundle_periods: {
+    table: 'elective_bundle_periods',
+    parentTable: 'elective_bundles',
+    parentKey: 'bundle_id',
+  },
+  elective_bundle_tiers: {
+    table: 'elective_bundle_tiers',
+    parentTable: 'elective_bundles',
+    parentKey: 'bundle_id',
+  },
   // Events internal sub-schedule Slice 2 (docs/adr/2026-08-22-event-
   // internal-subschedule.md): all three of events' children, parent-scoped
   // by event_id (mirroring special_day_time_blocks/special_day_slots above).
@@ -214,6 +234,9 @@ export const DOMAIN_SNAPSHOT_ORDER = [
   'special_day_slots', // references special_days.id NOT NULL; group_id/time_block_id/activity_id/location_id have no declared FK
   'elective_sets', // T41 slice 1; references camps.id only
   'elective_set_activities', // references elective_sets.id NOT NULL; activity_id has no declared FK
+  'elective_bundles', // T301; references elective_sets.id NOT NULL; activity_id has no declared FK
+  'elective_bundle_periods', // T301; bundle_id/day_id/time_block_id have no declared FK (soft, D1)
+  'elective_bundle_tiers', // T301; bundle_id/tier_id have no declared FK (soft, D1)
   'events', // Events overlay placement Slice 1; references camps.id only
   'event_time_blocks', // Events internal sub-schedule Slice 2; references events.id NOT NULL
   'event_groups', // Events internal sub-schedule Slice 2; references events.id NOT NULL

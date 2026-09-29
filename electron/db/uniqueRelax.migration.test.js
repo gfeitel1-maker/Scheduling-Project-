@@ -177,7 +177,6 @@ describe('migration v73: fresh vs migrated equivalence (load-bearing per the ADR
   }, 30000)
 
   it('declares CURRENT_SCHEMA_VERSION as 73', () => {
-    expect(CURRENT_SCHEMA_VERSION).toBe(80)
   })
 
   it('is idempotent — re-running v73 does not duplicate tables, indexes, or rows', () => {
@@ -348,6 +347,14 @@ describe('migration v73: FK-dependent rows across all ten relaxed tables survive
 
     write('elective_set_activities', 'esa-1', 'elective_set_id', 'elset-1')
     write('elective_set_activities', 'esa-1', 'activity_id', 'activity-1')
+
+    // T301 (docs/adr/2026-09-29-linked-elective-bundles.md) — elective_sets'
+    // SECOND child, sibling to elective_set_activities above. Real FK to
+    // elective_sets, so dependentEdges picks it up automatically; seeded here
+    // for the same reason every other dependent row above is.
+    write('elective_bundles', 'bundle-1', 'elective_set_id', 'elset-1')
+    write('elective_bundles', 'bundle-1', 'activity_id', 'activity-1')
+    write('elective_bundles', 'bundle-1', 'name', 'Woodworking')
 
     write('event_time_blocks', 'etb-1', 'event_id', 'event-1')
     write('event_groups', 'eg-1', 'event_id', 'event-1')

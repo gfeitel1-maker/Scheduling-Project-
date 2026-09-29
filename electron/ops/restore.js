@@ -62,6 +62,14 @@ export const RESTORE_DECISIONS = Object.freeze({
   elective_sets: 'refused: no setup UI yet (T41 slice 1 is data-shape only) — revisit with the setup-CRUD follow-on',
   elective_set_activities: 'refused: rebuilt with its parent elective set, not on its own',
 
+  // T301 (docs/adr/2026-09-29-linked-elective-bundles.md): slice 1 is
+  // storage + derivation only, same posture as elective_sets above — no
+  // authoring UI yet (that is slice 2), so there is no restore entry point
+  // to build for yet.
+  elective_bundles: 'refused: no setup UI yet (T301 slice 1 is storage + derivation only) — revisit with slice 2\'s authoring control',
+  elective_bundle_periods: 'refused: rebuilt with its parent bundle, not on its own',
+  elective_bundle_tiers: 'refused: rebuilt with its parent bundle, not on its own',
+
   // Events overlay placement Slice 1 (docs/adr/2026-08-22-events-overlay-
   // placement.md): same posture as elective_sets/special_days above — no
   // trash-can delete UI on EventScreen in this slice (create/edit

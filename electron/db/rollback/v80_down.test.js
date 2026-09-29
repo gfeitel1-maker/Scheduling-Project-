@@ -12,7 +12,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { getSchemaVersion, initSchema } from '../localDb.js'
+import { CURRENT_SCHEMA_VERSION, getSchemaVersion, initSchema } from '../localDb.js'
 import { rollbackV80 } from './v80_down.js'
 
 const files = []
@@ -106,13 +106,16 @@ describe('rollbackV80', () => {
   })
 
   // Reopening the app re-adds both columns, empty — the claim the CLI message
-  // makes, checked rather than asserted in prose.
+  // makes, checked rather than asserted in prose. CURRENT_SCHEMA_VERSION, not
+  // a hardcoded 80 — a full reinit chases every migration past v80 too (a
+  // hardcoded literal here would break at the next version bump for a reason
+  // unrelated to this file, the same class of tripwire T301 fixed on sight).
   it('lets initSchema re-add both columns cleanly, with no minimum set', () => {
     const db = migratedDb()
     seed(db)
     rollbackV80(db)
     initSchema(db)
-    expect(getSchemaVersion(db)).toBe(80)
+    expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
     const rows = db.prepare('SELECT min_mode, min_to_run FROM elective_set_activities').all()
     expect(rows).toHaveLength(4)
     expect(rows.every((r) => r.min_mode === 'none' && r.min_to_run === null)).toBe(true)

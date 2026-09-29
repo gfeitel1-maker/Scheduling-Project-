@@ -483,6 +483,12 @@ export const MOCK_WRITE_ALLOWLIST = {
     'elective_set_id', 'activity_id', 'capacity_mode', 'capacity_limit', 'status',
     'min_mode', 'min_to_run',
   ],
+  // T301 (docs/adr/2026-09-29-linked-elective-bundles.md) — hand-transcribed
+  // mirror of PROJECTIONS.elective_bundles/elective_bundle_periods/
+  // elective_bundle_tiers.fields, same discipline as elective_sets above.
+  elective_bundles: ['elective_set_id', 'activity_id', 'name', 'scope_mode', 'sort_order'],
+  elective_bundle_periods: ['bundle_id', 'day_id', 'time_block_id'],
+  elective_bundle_tiers: ['bundle_id', 'tier_id'],
   // T108 (day-overrides re-point, ADR 2026-08-21-day-overrides-repoint-
   schedule_weeks: ['camp_id', 'name', 'sort_order', 'is_archived'],
   schedule_templates: ['kind', 'camp_id', 'week_id', 'name'],

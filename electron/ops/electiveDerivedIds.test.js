@@ -8,6 +8,7 @@ import {
   deriveElectivePreferenceId,
   deriveElectiveAssignmentId,
   deriveImportedElectiveRunId,
+  deriveLinkedElectiveChoiceId,
   opaque,
 } from './electiveDerivedIds.js'
 
@@ -726,6 +727,64 @@ describe('deriveCamperId', () => {
     it('holds the arrival to the same opaque alphabet as every other component', () => {
       expect(() => deriveCamperId('camp-1', { submissionKey: SUB, arrivalId: 'run 1' })).toThrow(/opaque/i)
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// T301 (docs/adr/2026-09-29-linked-elective-bundles.md D3) — the linked
+// elective BUNDLE's per-tier choice id. Keyed on the bundle's own opaque id,
+// NOT its label, so renaming a bundle never re-keys its choices and two
+// bundles that transiently share a label still derive distinct ids — the
+// exact collision deriveElectiveChoiceId (label-keyed) has.
+// ---------------------------------------------------------------------------
+describe('deriveLinkedElectiveChoiceId (T301, ADR D3)', () => {
+  it('pins its output', () => {
+    expect(deriveLinkedElectiveChoiceId('run-1', 'bundle-1', 'tier-1')).toBe(
+      'elbc1:5.run-18.bundle-16.tier-1'
+    )
+  })
+
+  // THE PROPERTY D3 EXISTS FOR: a bundle serving more than one tier must
+  // expand into one choice PER TIER, so two tiers of the SAME bundle must
+  // never collide on one id.
+  it('gives two different tiers of the SAME bundle two different ids', () => {
+    const a = deriveLinkedElectiveChoiceId('run-1', 'bundle-1', 'tier-1')
+    const b = deriveLinkedElectiveChoiceId('run-1', 'bundle-1', 'tier-2')
+    expect(a).not.toBe(b)
+  })
+
+  it('is a function of (run, bundle, tier) alone — two calls with the same triple always agree', () => {
+    expect(deriveLinkedElectiveChoiceId('run-1', 'bundle-1', 'tier-1')).toBe(
+      deriveLinkedElectiveChoiceId('run-1', 'bundle-1', 'tier-1')
+    )
+  })
+
+  it('separates two different bundles even when run and tier agree', () => {
+    expect(deriveLinkedElectiveChoiceId('run-1', 'bundle-1', 'tier-1')).not.toBe(
+      deriveLinkedElectiveChoiceId('run-1', 'bundle-2', 'tier-1')
+    )
+  })
+
+  // Order-sensitivity, component-boundary injectivity, and non-opaque
+  // component rejection are all generic properties of `join`/`opaque` this
+  // file already proves once, generically, in `describe('injectivity')` and
+  // `describe('component rejection (§2.2)')` above — this function is built
+  // from the same two primitives every other id kind in this module uses, and
+  // no other per-function describe block (deriveElectivePreferenceId,
+  // deriveImportedElectiveRunId) re-proves them for itself either. Re-testing
+  // them here would be redundant with an already-established guarantee, not
+  // a new one.
+
+  // THE BLIND SPOT a unit test of this function ALONE cannot see: whether its
+  // OUTPUT actually composes as a valid choice_id elsewhere in the chain. D3
+  // claims deriveElectiveChoiceOfferingId needs no change because this
+  // function's output matches OPAQUE — checked here by execution, the same
+  // way this file's own cross-product block already guards
+  // deriveElectiveChoiceId's composability (that block's own comment: "the
+  // integration scenario caught this; the unit tests could not").
+  it('composes as a choice_id component of deriveElectiveChoiceOfferingId with no change to that function', () => {
+    const bundleChoiceId = deriveLinkedElectiveChoiceId('run-1', 'bundle-1', 'tier-1')
+    expect(() => deriveElectiveChoiceOfferingId(bundleChoiceId, 'occ-1', 'act-1')).not.toThrow()
   })
 })
 

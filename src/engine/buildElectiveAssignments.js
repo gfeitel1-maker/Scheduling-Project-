@@ -184,6 +184,17 @@ export function buildElectiveAssignments({
   for (const c of [...choices].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
     if (!choiceByLabelKey.has(c.labelKey)) choiceByLabelKey.set(c.labelKey, c)
   }
+  // T301 (docs/adr/2026-09-29-linked-elective-bundles.md D4) — ALL choices
+  // sharing a label, not just the lowest-id one. A bundle serving more than
+  // one tier expands into one elective_choices row PER TIER (D3), and every
+  // tier's row deliberately shares the bundle's one name (D6), so a
+  // labelKey-only preference must reach every one of them — see the
+  // preference loop below, which is the only reader of this map.
+  const choicesByLabelKey = new Map()
+  for (const c of choices) {
+    if (!choicesByLabelKey.has(c.labelKey)) choicesByLabelKey.set(c.labelKey, [])
+    choicesByLabelKey.get(c.labelKey).push(c)
+  }
   const labelOfChoice = (id) => choiceById.get(id)?.labelKey ?? id
 
   // PREFERENCE -> CHOICE RESOLUTION, both ways, for a compatibility reason.
@@ -271,8 +282,31 @@ export function buildElectiveAssignments({
     if (labelKey != null) {
       record(entryFor(rankOf, p.camper_id, labelKey), p.occurrence_id ?? null, p.rank)
     }
-    if (ch) {
+    // T301 ADR D4 — an explicit choice_id preference still resolves to
+    // exactly one choice, unambiguous by construction. A labelKey-only
+    // preference instead broadcasts to EVERY choice sharing that label, so
+    // choiceRankMinOverMembers (tier 1) finds it regardless of which tier's
+    // expansion it is asked about — see choicesByLabelKey's own comment
+    // above for why one label can name more than one choice.
+    //
+    // GATED ON choiceById.has(p.choice_id), NOT on `ch`'s truthiness (found
+    // while implementing D4, beyond the ADR's own stated caveat). `ch` also
+    // goes true when choice_id is present but STALE — resolves to nothing in
+    // THIS run's choices, which a re-solve after choices were re-derived can
+    // produce — and falls through to the labelKey match instead. Checking
+    // `ch` there cannot tell "resolved DIRECTLY by choice_id" apart from
+    // "fell through to labelKey while a stale choice_id rode along", and
+    // would take the single-choice branch instead of broadcasting — the
+    // exact collision this fix exists to close, reappearing behind one more
+    // precondition. An explicit, VALID (but semantically wrong) choice_id is
+    // still untouched, exactly as the ADR intends: that path resolves via
+    // this same `.has()` check and stays exactly-one-match.
+    if (p.choice_id != null && choiceById.has(p.choice_id)) {
       record(entryFor(rankByChoice, p.camper_id, ch.id), p.occurrence_id ?? null, p.rank)
+    } else if (p.labelKey != null) {
+      for (const c of choicesByLabelKey.get(p.labelKey) ?? []) {
+        record(entryFor(rankByChoice, p.camper_id, c.id), p.occurrence_id ?? null, p.rank)
+      }
     }
   }
   const attends = (camperId, occurrenceId) =>

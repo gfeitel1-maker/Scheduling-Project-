@@ -5,7 +5,7 @@ status: open
 created: 2026-09-29
 task_class: ui-ux-design
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/DESIGN_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
-related_adrs: [docs/adr/2026-09-17-individual-elective-scheduling.md]
+related_adrs: [docs/adr/2026-09-17-individual-elective-scheduling.md, docs/adr/2026-09-29-linked-elective-bundles.md]
 related_tickets: [docs/work/tickets/T300-findings-name-activities-as-the-director-does.md]
 archive_when: "a director can author an elective choice that spans more than one period, that choice reaches `buildElectiveAssignments` as `choices` + `choiceOfferings` from the real screen, a camper who ranks it is placed in ALL of its periods or none, and a run driven from the UI produces an `UNSUPPORTED_LINKED_CHOICE` finding when the data warrants one — OR the tier is deliberately retired and the dead code, schema and tests go with it"
 ---
@@ -86,6 +86,30 @@ Two consequences worth carrying at the ticket level:
   spec.
 
 Do not start slice 1 before the ADR settles that.
+
+## Slice 1 — LANDED (2026-09-29): storage, derivation, and the engine rank fix
+
+[The ADR](../../adr/2026-09-29-linked-elective-bundles.md) settled the one open architectural
+decision (the per-tier choice-id collision, D3) and two more it found while tracing the decision to
+ground truth (the rank collision, D4; the sheet/bundle coexistence gap, D6 — routed to slice 3).
+Slice 1 implements D1–D5, D7, D9 and D10:
+
+- Schema v81: `elective_bundles` / `elective_bundle_periods` / `elective_bundle_tiers`, sibling
+  storage to `elective_set_activities` (setup-level, not run-scoped), with `v81_down.js` rollback.
+- `deriveLinkedElectiveChoiceId(runId, bundleId, tierId)` (`electron/ops/electiveDerivedIds.js`) —
+  keys a bundle's per-tier expansion on the bundle's own opaque id, not its label.
+- `src/screens/elective/assignment/deriveChoices.js` — the run-scoped derivation, beside
+  `deriveOccurrences.js`, expanding an authored bundle into per-tier `choices`/`choiceOfferings`.
+- The rank-collision fix (D4) in `src/engine/buildElectiveAssignments.js`: a labelKey-only
+  preference now broadcasts its rank to every choice sharing that label, not just the lowest-id one —
+  otherwise a bundle serving a second tier could never register a camper's rank against its own
+  tier's choice, and that tier silently never placed anyone atomically, with no finding.
+
+**Not done yet, and not this ticket's `archive_when` condition:** no authoring UI (slice 2, Designer
+first per this ticket's own ordering) and `AssignmentPanel.jsx` does not yet call `deriveChoices` or
+pass bundle-derived choices to the solver (slice 3, which also owes the D6 coexistence-policy wiring
+in `commitElectiveRun.js`). A director cannot yet create or use a bundle from the app — this ticket
+stays `open` until slice 3 lands.
 
 ## Non-goals
 

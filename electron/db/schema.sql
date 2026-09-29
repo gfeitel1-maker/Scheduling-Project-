@@ -1238,6 +1238,134 @@ CREATE TABLE IF NOT EXISTS elective_set_activities (
   UNIQUE(elective_set_id, activity_id)
 );
 
+-- elective_bundles (schema v81, T301, ADR docs/adr/2026-09-29-linked-
+-- elective-bundles.md). A director-authored declaration that an activity's
+-- offering on an elective set is taken AS A SET across more than one of the
+-- set's periods, placed all-or-nothing (tier 1 of buildElectiveAssignments.js,
+-- T247 -- built, tested, and unreachable in the product until this ticket).
+--
+-- SETUP-LEVEL, LIKE elective_set_activities, NOT RUN-SCOPED LIKE
+-- elective_choices. A bundle must outlive a run -- authored once, solved
+-- against every week -- mirroring exactly the split the design spec draws
+-- between elective_set_activities (persists across runs) and elective_choices
+-- (run-scoped, rebuilt every generation, D6 of the 2026-09-17 ADR). The
+-- run-scoped expansion of a bundle into per-tier elective_choices rows is
+-- deriveChoices.js (beside deriveOccurrences.js), not this table -- see D3.
+--
+-- NOT elective_set_activities, DELIBERATELY. That table carries an inline
+-- UNIQUE(elective_set_id, activity_id) (above), and decision 3 of the design
+-- spec (an activity may carry MORE THAN ONE bundle) is fatal to reusing it --
+-- relaxing an inline UNIQUE in this codebase is a table-rebuild migration
+-- plus a two-direction sweep, the wrong price when a sibling table with no
+-- such constraint costs one migration block. This table has no
+-- UNIQUE(elective_set_id, activity_id): that is the point.
+--
+-- activity_id has NO SQL REFERENCES, matching elective_set_activities.
+-- activity_id exactly (soft pointer; a dangling one renders as an em dash,
+-- same as everywhere else in this schema). elective_set_id IS a real
+-- REFERENCES, also matching elective_set_activities exactly -- both are HARD
+-- FKs under foreign_keys = ON, so both need the SAME ensureExists
+-- reconstruct-both-then-insert-once stub-seed treatment in projections.js
+-- that elective_set_activities' own entry uses (see D2 of this ADR's
+-- Consequences).
+--
+-- MEMBERS ARE (day_id, time_block_id) PAIRS, in elective_bundle_periods
+-- below -- NOT occurrence_id. An occurrence is run-scoped and re-derived
+-- every generation; storing one here would tie an authored bundle to a run
+-- that may no longer exist by the time it is next solved. Tier falls out at
+-- expansion time (deriveChoices.js resolves (day_id, time_block_id, tier_id)
+-- against whatever occurrences THIS run actually derives).
+--
+-- NO ADJACENCY, NO span_blocks, ANYWHERE (design spec decision 5). Members
+-- are an arbitrary edge list; nothing here or in deriveChoices.js validates
+-- or derives contiguity.
+--
+-- name IS PROPOSED AND DIRECTOR-EDITABLE (decision 4) -- it is what a
+-- camper's imported sheet must match, so it must read the way the camp's own
+-- catalog does. NO UNIQUE on name, deliberately, matching event_groups' and
+-- event_time_blocks' own precedent for a director-editable child label: two
+-- bundles (or a bundle and an unrelated sheet-only choice) sharing a name
+-- degrade to "the same nameable thing" for sheet-matching -- see D6 -- which
+-- a director fixes by renaming, rather than risking the cross-device
+-- UNIQUE-collision hazard an inline UNIQUE on a collaboratively-edited text
+-- field invites in this codebase (T233 and its merge-unique-collision
+-- history).
+--
+-- scope_mode / elective_bundle_tiers (below) express the design spec's
+-- decision 2, "fully general" tier scoping -- "all tiers", "a few tiers",
+-- and "all but one" are three spellings of one primitive, not three
+-- features (D2 of this ADR). New table (T301) -- column order is free to
+-- choose, there is no pre-existing shape to stay compatible with.
+CREATE TABLE IF NOT EXISTS elective_bundles (
+  id TEXT PRIMARY KEY,
+  elective_set_id TEXT NOT NULL REFERENCES elective_sets(id),
+  activity_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  scope_mode TEXT NOT NULL DEFAULT 'all'
+    CHECK (scope_mode IN ('all', 'only', 'except')),
+  sort_order INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_elective_bundles_set ON elective_bundles(elective_set_id);
+
+-- elective_bundle_periods (schema v81, T301). A bundle's member periods --
+-- see elective_bundles' comment for why (day_id, time_block_id), not
+-- occurrence_id. Parent-scoped by bundle_id, no elective_set_id column
+-- (redundant with the parent's) -- matches elective_choice_offerings' shape
+-- (parent-scoped by choice_id), not elective_set_activities' (set-scoped):
+-- this table has exactly one reason to exist, naming one member cell of one
+-- bundle.
+--
+-- bundle_id has NO SQL REFERENCES -- a pure child row, same posture as
+-- elective_choice_offerings.choice_id. day_id/time_block_id also carry no
+-- REFERENCES, matching template_slots' and event_slots' own soft pointers to
+-- the same two entities.
+--
+-- id IS A PLAIN randomUUID(), minted by the renderer at the moment a
+-- director selects a cell -- NOT a derived id. Unlike the run-scoped
+-- solve-time ids in electiveDerivedIds.js, there is no cross-device
+-- independent-recomputation hazard to close here: a bundle's period list is
+-- authored by one discrete user gesture at a time, and two devices that
+-- offline-concurrently add "the same" (bundle_id, day_id, time_block_id)
+-- member produce two rows stating the identical fact -- harmless
+-- duplication, matching event_groups' own accepted duplicate-child-row
+-- precedent (that table's comment, this file). deriveChoices.js (D3) dedupes
+-- by (day_id, time_block_id) before deriving occurrence ids, rather than
+-- relying on storage to guarantee uniqueness.
+--
+-- NO UNIQUE(bundle_id, day_id, time_block_id), for the same reason: an
+-- inline UNIQUE on a row two offline devices can both legitimately write is
+-- the exact hazard this codebase's merge-unique-collision history warns
+-- against. A duplicate is inert; deriveChoices.js's dedupe is the
+-- correctness boundary, not a DB constraint.
+CREATE TABLE IF NOT EXISTS elective_bundle_periods (
+  id TEXT PRIMARY KEY,
+  bundle_id TEXT NOT NULL,
+  day_id TEXT NOT NULL,
+  time_block_id TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_elective_bundle_periods_bundle ON elective_bundle_periods(bundle_id);
+
+-- elective_bundle_tiers (schema v81, T301). The scope EXCEPTION list --
+-- read only when the parent's scope_mode is 'only' or 'except' (see D2). A
+-- row here while scope_mode = 'all' is simply ignored by deriveChoices.js,
+-- never validated away -- scope_mode is the sole authority, the same
+-- discipline elective_set_activities' capacity_mode/capacity_limit and
+-- min_mode/min_to_run pairs already established in this file (see that
+-- table's own comment for why a cross-column pairing CHECK is wrong under
+-- applyProjection's one-field-per-op write model, and why an authority mode
+-- plus a separately-true value/list beats a single wide column).
+--
+-- Same posture as elective_bundle_periods: no REFERENCES, id is a plain
+-- randomUUID() minted at authoring time, duplicates are inert and
+-- deriveChoices.js dedupes by tier_id via a Set, no UNIQUE(bundle_id,
+-- tier_id) for the same offline-concurrent-write reason.
+CREATE TABLE IF NOT EXISTS elective_bundle_tiers (
+  id TEXT PRIMARY KEY,
+  bundle_id TEXT NOT NULL,
+  tier_id TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_elective_bundle_tiers_bundle ON elective_bundle_tiers(bundle_id);
+
 -- events (schema v40, Events overlay placement Slice 1, docs/adr/2026-08-22-
 -- events-overlay-placement.md). Camp-scoped, mirroring elective_sets' shape:
 -- the parent entity a director creates once and places as an opaque,

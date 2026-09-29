@@ -885,6 +885,151 @@ describe('buildElectiveAssignments', () => {
   })
 })
 
+// T301 (docs/adr/2026-09-29-linked-elective-bundles.md D4) — the rank
+// collision. A bundle serving more than one tier expands into one
+// elective_choices row PER TIER (D3), and every tier's row deliberately
+// shares the bundle's one name (D6) so a camper's sheet-recorded preference
+// matches regardless of division. `choiceByLabelKey` keeps only the
+// LOWEST-id choice per label, so BEFORE the fix a labelKey-only preference's
+// rank is recorded against only that one choice's id — every OTHER
+// same-labelled choice's `choiceRankMinOverMembers` lookup returns null for
+// every camper, and tier 1 never even attempts to place them, silently,
+// with no UNSUPPORTED_LINKED_CHOICE finding (nothing is ever added to
+// `wanted` for that column, so `exclude()` is never called).
+//
+// This is deliberately built on the SAME crossed-preference construction as
+// "keeps a linked choice whole where per-occurrence solving would split it"
+// above: a single, uncontested camper cannot distinguish "tier 1 placed this
+// atomically" from "tier 2 placed it period-by-period and got lucky" (that
+// test's own comment says so), so division 2 needs two competing campers
+// whose per-occurrence menus differ, or a coincidental tier-2 placement
+// would mask the very defect this test exists to catch.
+describe('two same-labelled per-tier linked choices (T301, ADR D4 — the rank-collision fix)', () => {
+  // Division 1's choice id ('CA') sorts below division 2's ('CB'), so CA is
+  // the id `choiceByLabelKey` keeps for every labelKey-only 'archery'
+  // preference — including division 2's — before the fix.
+  const base = {
+    campers: [{ id: 'd1' }, { id: 'd2x' }, { id: 'd2y' }],
+    occurrences: [occ('oDa'), occ('oDb'), occ('o2a'), occ('o2b')],
+    offerings: [
+      offering('oDa', 'archery', 'a-arch', 5),
+      offering('oDb', 'archery', 'a-arch', 5),
+      offering('o2a', 'archery', 'a-arch', 1), offering('o2a', 'gaga', 'a-gaga', 1),
+      offering('o2b', 'archery', 'a-arch', 1), offering('o2b', 'woodworking', 'a-wood', 1),
+    ],
+    // Division-scoped attendance: division 1 only attends its own periods,
+    // division 2 only attends its own — two tiers' periods never overlap.
+    attendance: {
+      d1: ['oDa', 'oDb'],
+      d2x: ['o2a', 'o2b'],
+      d2y: ['o2a', 'o2b'],
+    },
+    // OCCURRENCE-SCOPED preferences throughout (T265's real per-cell shape),
+    // including d1's. A whole-run FALLBACK row (no occurrence_id) broadcasts
+    // to every same-labelled choice's `entry.fallback`, which
+    // choiceRankMinOverMembers folds into ANY member occurrence regardless of
+    // attendance — so an unscoped 'archery' preference bleeds into the OTHER
+    // division's choice too and produces a second, unrelated exclusion
+    // finding ("doesn't attend every period"). That is a real, separate
+    // consequence of D4's broadcast fix over a fallback preference — noted in
+    // the implementation report — and not what this test is about, so every
+    // preference here is scoped to keep the fixture isolated to the one
+    // property under test.
+    preferences: [
+      { camper_id: 'd1', occurrence_id: 'oDa', labelKey: 'archery', rank: 1 },
+      { camper_id: 'd1', occurrence_id: 'oDb', labelKey: 'archery', rank: 1 },
+      { camper_id: 'd2x', occurrence_id: 'o2a', labelKey: 'archery', rank: 1 },
+      { camper_id: 'd2x', occurrence_id: 'o2a', labelKey: 'gaga', rank: 2 },
+      { camper_id: 'd2x', occurrence_id: 'o2b', labelKey: 'archery', rank: 1 },
+      { camper_id: 'd2x', occurrence_id: 'o2b', labelKey: 'woodworking', rank: 3 },
+      { camper_id: 'd2y', occurrence_id: 'o2a', labelKey: 'archery', rank: 1 },
+      { camper_id: 'd2y', occurrence_id: 'o2a', labelKey: 'gaga', rank: 3 },
+      { camper_id: 'd2y', occurrence_id: 'o2b', labelKey: 'archery', rank: 1 },
+      { camper_id: 'd2y', occurrence_id: 'o2b', labelKey: 'woodworking', rank: 2 },
+    ],
+    choices: [choice('CA', 'archery'), choice('CB', 'archery')],
+    choiceOfferings: [
+      member('CA', 'oDa', 'a-arch'), member('CA', 'oDb', 'a-arch'),
+      member('CB', 'o2a', 'a-arch'), member('CB', 'o2b', 'a-arch'),
+    ],
+  }
+
+  const archeryPeriods = (out, camperId) =>
+    out.assignments.filter((a) => a.camper_id === camperId && a.activity_id === 'a-arch')
+      .map((a) => a.occurrence_id)
+
+  it("division 1 (the id-collision's accidental winner) is placed atomically either way", () => {
+    const out = buildElectiveAssignments(base)
+    expect(archeryPeriods(out, 'd1')).toEqual(['oDa', 'oDb'])
+  })
+
+  // THE FIX: exactly one of division 2's campers holds archery in BOTH of
+  // its own periods together — the same atomic, all-or-nothing guarantee
+  // division 1 gets, even though division 2's choice (CB) is not the
+  // label's id-winner. BEFORE the fix, neither camper ever reaches tier 1 at
+  // all (CB's `wanted` set is empty), so tier 2 places them independently
+  // per occurrence and the crossed gaga/woodworking preferences provably
+  // SPLIT archery between the two of them — nobody holds both periods, and
+  // nothing says why.
+  it("gives one of division 2's campers the atomic guarantee — before the fix, neither camper does", () => {
+    const out = buildElectiveAssignments(base)
+    const bothTogether =
+      archeryPeriods(out, 'd2x').length === 2 || archeryPeriods(out, 'd2y').length === 2
+    expect(bothTogether).toBe(true)
+    // A length of exactly 1 IS the split — the shape the bug produces — and
+    // it must not survive the fix for either camper.
+    expect(archeryPeriods(out, 'd2x').length).not.toBe(1)
+    expect(archeryPeriods(out, 'd2y').length).not.toBe(1)
+  })
+
+  // Silence is the other half of the bug: tier 1 never even attempts
+  // division 2's choice before the fix, so no UNSUPPORTED_LINKED_CHOICE
+  // finding ever names CB — the "no finding" ADR D4 describes. After the
+  // fix, CB is handled by tier 1 exactly like CA and needs no such finding
+  // either (both campers are legitimately eligible), so this holds on both
+  // sides of the fix — it is the SPLIT above that discriminates, not this.
+  it('never raises UNSUPPORTED_LINKED_CHOICE for either division in this fixture', () => {
+    const out = buildElectiveAssignments(base)
+    expect(out.findings.filter((f) => f.kind === 'UNSUPPORTED_LINKED_CHOICE')).toEqual([])
+  })
+
+  // A LATENT gap beyond the ADR's own stated caveat, found by execution while
+  // implementing D4. The ADR's "what this fix cannot see" note covers an
+  // EXPLICIT, VALID (but wrong) choice_id — deliberately left untouched,
+  // since choice_id resolution is exactly-one-match by construction. This is
+  // a DIFFERENT shape: a choice_id that is PRESENT but STALE — it resolves to
+  // nothing in this run's `choices` (exactly what a re-solve after choices
+  // were re-derived can produce) — riding alongside a labelKey on the same
+  // preference row. The resolution chain's `ch` variable silently falls
+  // through to the labelKey match for a stale choice_id, but
+  // `p.choice_id != null && ch` cannot tell "resolved DIRECTLY by choice_id"
+  // apart from "fell through to labelKey while a stale choice_id happened to
+  // be present" — so it wrongly takes the single-choice branch instead of
+  // broadcasting, reproducing the exact collision D4 exists to fix.
+  it('broadcasts a labelKey-resolved rank even when a STALE, non-resolving choice_id rides along on the same preference row', () => {
+    const out = buildElectiveAssignments({
+      ...base,
+      preferences: [
+        { camper_id: 'd1', occurrence_id: 'oDa', labelKey: 'archery', rank: 1 },
+        { camper_id: 'd1', occurrence_id: 'oDb', labelKey: 'archery', rank: 1 },
+        // d2x/d2y each carry a STALE choice_id (not in `choices` below) PLUS
+        // their real labelKey — the shape a re-solve can produce.
+        { camper_id: 'd2x', occurrence_id: 'o2a', choice_id: 'stale-id', labelKey: 'archery', rank: 1 },
+        { camper_id: 'd2x', occurrence_id: 'o2a', labelKey: 'gaga', rank: 2 },
+        { camper_id: 'd2x', occurrence_id: 'o2b', choice_id: 'stale-id', labelKey: 'archery', rank: 1 },
+        { camper_id: 'd2x', occurrence_id: 'o2b', labelKey: 'woodworking', rank: 3 },
+        { camper_id: 'd2y', occurrence_id: 'o2a', choice_id: 'stale-id', labelKey: 'archery', rank: 1 },
+        { camper_id: 'd2y', occurrence_id: 'o2a', labelKey: 'gaga', rank: 3 },
+        { camper_id: 'd2y', occurrence_id: 'o2b', choice_id: 'stale-id', labelKey: 'archery', rank: 1 },
+        { camper_id: 'd2y', occurrence_id: 'o2b', labelKey: 'woodworking', rank: 2 },
+      ],
+    })
+    const bothTogether =
+      archeryPeriods(out, 'd2x').length === 2 || archeryPeriods(out, 'd2y').length === 2
+    expect(bothTogether).toBe(true)
+  })
+})
+
 // ---- T247 clause 7: the 100-camper fixture's REPORTED repeat distribution.
 //
 // Owner ruling Q3 (2026-09-23) scores repeats independently per occurrence and

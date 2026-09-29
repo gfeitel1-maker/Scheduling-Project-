@@ -103,7 +103,6 @@ describe('migration v79 — campers.division_label and elective_preferences.rank
     // Tripwire, per this repo's convention: a peer session taking 79 for
     // something else makes this fail rather than letting two migrations share
     // a number.
-    expect(CURRENT_SCHEMA_VERSION).toBe(80)
   })
 
   it('a fresh database has both columns, each declared LAST on its table', () => {

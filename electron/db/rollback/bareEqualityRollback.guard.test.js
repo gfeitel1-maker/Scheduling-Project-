@@ -67,7 +67,14 @@ describe('rollback bare-equality schema_migrations guard', () => {
     // below its minimum runs again and nothing says so, and any minimum a
     // director set must be set again. The rollback says that rather than implying
     // reversibility.
-    expect(files.length).toBe(40)
+    //
+    // 41 is v81_down.js (T301). Deletes with `WHERE version >= 81`, and drops the
+    // three linked-elective-bundle tables outright (elective_bundles,
+    // elective_bundle_periods, elective_bundle_tiers). There is no prior state to
+    // restore — none of these tables existed before v81 — so every authored
+    // bundle is discarded, and the rollback says so rather than implying
+    // reversibility.
+    expect(files.length).toBe(41)
   })
 
   it('every rollback file uses `>= N`, never bare `= N`, to delete its schema_migrations row', () => {
