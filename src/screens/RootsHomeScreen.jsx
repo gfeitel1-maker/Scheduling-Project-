@@ -11,7 +11,7 @@ import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { ACTIVITY_COLORS } from '../components/schedule/slotCellConstants.js'
 import { ScheduleDoor } from '../components/ScheduleDoor'
 import { SIDEBAR_WIDTH_PX } from '../components/layout/Sidebar.jsx'
-import { screenForAttentionRow } from './attentionRowDestination.js'
+import { screenForAttentionRow, subjectIdFromRow } from './attentionRowDestination.js'
 import NameSubjectDialog from '../components/NameSubjectDialog.jsx'
 
 // ADR docs/adr/2026-08-28-roots-home-is-a-distinct-screen.md — the Roots
@@ -179,16 +179,6 @@ function overflowChipHover(e, on) {
 // can legitimately return null for a domain/child with no edit screen; that
 // row renders inert (a plain div, same visuals) rather than a button that
 // navigates to nothing.
-// T306 — the subject id travels INSIDE the row id (attentionList.js builds
-// `unattributed-camper:<camperId>`), because acting on the row means attributing that
-// one subject rather than opening a list. Parsed in one place.
-export function subjectIdFromRow(row) {
-  if (row?.sourceKind !== 'unattributed-camper') return null
-  const id = String(row.id ?? '')
-  const marker = 'unattributed-camper:'
-  return id.startsWith(marker) ? id.slice(marker.length) || null : null
-}
-
 function AttentionRow({ row, onNavigate, onName, animStyle }) {
   // T306 — an unattributed-camper row is ACTED ON where it stands, not navigated
   // from. It deliberately does NOT go through screenForAttentionRow: that resolves a
