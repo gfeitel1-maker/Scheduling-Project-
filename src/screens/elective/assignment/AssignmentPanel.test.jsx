@@ -484,6 +484,9 @@ describe("T307 -- the director's column correction is what gets imported", () =>
     fireEvent.click(screen.getByText(/Add Rank Column/))
     fireEvent.change(screen.getByLabelText('Rank #1'), { target: { value: '0' } })
     expect(confirm.disabled).toBe(true)
+  })
+})
+
 // T301 slice 3 — deriveChoices' output must actually reach
 // buildElectiveAssignments (`choices` + `choiceOfferings`, neither passed by
 // anything in production before this). A fixture where the bundle simply

@@ -10,10 +10,8 @@
 // screen family already follows for capacity/minimum). Local state here is
 // UI-only: the name field's live edit buffer (matches OfferingRow's own
 // capacity/minimum inputs), the save-flash timer, which control is
-// currently mid-write (for the opacity+disabled treatment), and the frozen
-// last-shown overlap used purely to keep the warning banner's text legible
-// while it animates closed (see the comment beside `shownOverlap` below).
-import { useRef, useState } from 'react'
+// currently mid-write (for the opacity+disabled treatment).
+import { useState } from 'react'
 import { S, prefersReducedMotion } from '../../styles/shared'
 import { useLatestTimeout } from '../../hooks/useLatestTimeout'
 import { resolveScope, findBundleOverlap } from './bundleOverlap.js'
@@ -130,13 +128,6 @@ export default function BundleEditor({
       break
     }
   }
-
-  // Last non-null overlap, so the banner can animate CLOSED with its sentence
-  // still intact — see the banner's own comment below. A ref, not state:
-  // nothing here should trigger a render, it only survives one.
-  const lastOverlapRef = useRef(null)
-  if (overlap) lastOverlapRef.current = overlap
-  const shownOverlap = overlap ?? lastOverlapRef.current
 
   const reduced = prefersReducedMotion()
 
@@ -308,14 +299,16 @@ export default function BundleEditor({
           state-toggled shape the division-chip reveal above already uses, and
           the disclosure in ElectiveSetDetail.jsx.
 
-          `shownOverlap` keeps the LAST non-null overlap so the sentence does
-          not blank out mid-collapse while the element animates closed — during
-          that 220ms the banner is still on screen and still has to read as
-          itself. */}
+          The SENTENCE unmounts as soon as the overlap resolves, so the box
+          animates closed empty rather than fading its text out with it. That
+          is a deliberate tradeoff, not an oversight: preserving the last text
+          needs a ref read during render, which this codebase's lint forbids
+          outright, and the appear direction — the one a director actually has
+          to notice — is correct either way. */}
       <div
         aria-hidden={overlap ? undefined : true}
         style={{
-          ...(shownOverlap ? S.cautionBanner : null),
+          ...(overlap ? S.cautionBanner : null),
           marginTop: overlap ? 12 : 0,
           marginBottom: 0,
           overflow: 'hidden',
@@ -330,10 +323,10 @@ export default function BundleEditor({
             : 'max-height 220ms var(--ease-out), opacity 220ms var(--ease-out), transform 220ms var(--ease-out)',
         }}
       >
-        {shownOverlap && (
+        {overlap && (
           <>
-            <strong>Overlaps another {activity?.name ?? 'activity'} bundle</strong> — &ldquo;{shownOverlap.bundleName}&rdquo; also
-            claims {dayLabel(shownOverlap.day)}, {blockName(shownOverlap.timeBlock)} for {shownOverlap.divisionIds.map(tierName).join(' and ')}.
+            <strong>Overlaps another {activity?.name ?? 'activity'} bundle</strong> — &ldquo;{overlap.bundleName}&rdquo; also
+            claims {dayLabel(overlap.day)}, {blockName(overlap.timeBlock)} for {overlap.divisionIds.map(tierName).join(' and ')}.
             A camper eligible for both can&rsquo;t be placed in either — the schedule generator will fall back to placing
             them period-by-period instead. You can still save this.
           </>
