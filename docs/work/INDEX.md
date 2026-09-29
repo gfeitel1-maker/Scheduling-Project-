@@ -49,7 +49,6 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [History rewrite: purge real camp identity and personal paths from public git history](../../docs/work/tickets/T120-history-rewrite-privacy-scrub.md) | open | — |
-| [Comments stop describing the deleted WebSocket Host as if it were the live write path](../../docs/work/tickets/T311-retired-ws-host-comment-sweep.md) | open | — |
 
 ### security-auth
 
@@ -244,6 +243,7 @@ They are different facts and a run can carry a bad one of each.
 
 | Date | Run | Class | Status | Verdict |
 |---|---|---|---|---|
+| 2026-09-29 | [docs(T311): closes T311 — the sweep landed; findings go to the board, not to tickets](../../docs/work/runs/2026-09-29-docs-t311-closes-t311-the-sweep-landed-findings-go-to-the-bo.md) | documentation-governance | pass | pass |
 | 2026-09-28 | [T267 PR2 — cut fixed/recurring event resolution over to activity_id; delete name-matching fallback](../../docs/work/runs/2026-09-28-t267-pr2-id-cutover.md) | database-sync | in-progress | _no verdict yet_ |
 | 2026-09-28 | [T267 PR3 — cosmetic rename cleanup (discharge T293 findings B, G, H); no behavior change](../../docs/work/runs/2026-09-28-t267-pr3-cosmetic-cleanup.md) | documentation-governance | in-progress | _no verdict yet_ |
 | 2026-09-28 | [T292 — self-maintaining openable workbook of the camp's data (spec slices S1 + S2)](../../docs/work/runs/2026-09-28-t292-camp-data-record-self-maintaining-workbook.md) | architecture | pass | PASS |
