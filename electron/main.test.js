@@ -1467,6 +1467,17 @@ describe('existing-behavior-preserved: full entity sweep (staff + admin both rea
     event_time_blocks: 'name',
     event_groups: 'name',
     event_slots: 'activity_id',
+    // T301 (v81): elective_bundles has a real 'name' field and no
+    // ensureExists side-effect from it alone (elective_set_id/activity_id
+    // stay null for a fresh sweep id, so the guard in
+    // projections.js's elective_bundles.ensureExists no-ops). Its two
+    // children have no name-shaped field at all — 'bundle_id' is their own
+    // parent-key field, same non-ensureExists-completing trick as
+    // template_slots' 'activity_id' above (day_id/tier_id stays null, so
+    // ensureExists still no-ops).
+    elective_bundles: 'name',
+    elective_bundle_periods: 'bundle_id',
+    elective_bundle_tiers: 'bundle_id',
   }
 
   // Login is scoped to the single camp in this db (`SELECT id FROM camps

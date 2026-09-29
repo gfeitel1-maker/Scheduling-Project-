@@ -59,6 +59,16 @@ const ACTIVITY_REFERRERS = Object.freeze([
   // leave the fixed event silently pointing at a deleted activity — the identity link PR 1 exists
   // to add in the first place, orphaned by the very next merge.
   { entity: 'fixed_events', field: 'activity_id' },  // no FK
+  // T301 (v81, docs/adr/2026-09-29-linked-elective-bundles.md D1). A bundle
+  // names the activity it links periods of — no FK (same soft-pointer
+  // posture as its own bundle_id children) — so a merge that skipped this
+  // would leave the bundle pointing at the activity id it just deleted,
+  // exactly the failure mode this file's own header describes for the other
+  // no-FK columns above. No UNIQUE(elective_set_id, activity_id) exists on
+  // this table (unlike elective_set_activities below), so a plain re-point
+  // is always safe — two bundles for the same activity is an ordinary,
+  // supported state, not a collision.
+  { entity: 'elective_bundles', field: 'activity_id' },  // no FK
 ])
 
 /** Rows pointing at this activity, per referrer table. */

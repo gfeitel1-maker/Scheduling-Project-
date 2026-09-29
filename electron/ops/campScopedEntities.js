@@ -179,6 +179,39 @@ export const PARENT_SCOPED_ENTITIES = {
   },
 }
 
+// Walks a PARENT_SCOPED_ENTITIES chain from `entity` up to its nearest
+// DIRECT_CAMP_ENTITIES ancestor, returning the JOIN clauses needed to reach a
+// real camp_id column plus the alias that carries it.
+//
+// Every chain before T301 was exactly one hop — whatever a parent-scoped
+// entity named as its `parentTable` already had a direct camp_id column
+// (schedule_templates, elective_sets, schedule_weeks, special_days, events —
+// all in DIRECT_CAMP_ENTITIES). elective_bundle_periods/elective_bundle_tiers
+// are the first two-hop case: their parent (elective_bundles) is ITSELF only
+// parent-scoped (through elective_sets), so a hardcoded single JOIN produced
+// "no such column: p.camp_id" — the parent alias genuinely has no such
+// column. This walks however many hops a chain actually needs instead of
+// assuming a fixed depth, so both the existing one-hop entities and this new
+// two-hop one resolve through the same code (for a one-hop entity the loop
+// runs exactly once, producing the identical JOIN it always has).
+export function resolveParentJoinChain(entity) {
+  const joins = []
+  let childAlias = 't'
+  let current = entity
+  for (let depth = 0; depth < 10; depth++) {
+    const node = PARENT_SCOPED_ENTITIES[current]
+    if (!node) throw new Error(`campScopedEntities: "${current}" is not parent-scoped`)
+    const parentAlias = `p${depth}`
+    joins.push(`JOIN ${node.parentTable} ${parentAlias} ON ${parentAlias}.id = ${childAlias}.${node.parentKey}`)
+    if (DIRECT_CAMP_ENTITIES.has(node.parentTable)) {
+      return { joinSql: joins.join(' '), campAlias: parentAlias }
+    }
+    current = node.parentTable
+    childAlias = parentAlias
+  }
+  throw new Error(`campScopedEntities: parent chain for "${entity}" exceeds depth guard`)
+}
+
 // The camp-scoped entity set in FK-SAFE APPLY ORDER. Its live consumer is
 // electron/automerge/projector.js, which materializes the merged Automerge
 // document into SQLite table by table and must not insert a child row before its

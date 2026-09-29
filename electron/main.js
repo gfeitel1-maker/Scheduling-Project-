@@ -16,7 +16,7 @@ import { installMenu } from './menu.js'
 import { describeStartupFailure, formatStartupFailureLog } from './startupFailure.js'
 import { deriveWriteAction, deriveBulkReplaceAction } from './auth/deriveWriteAction.js'
 import { recordAuditEvent } from './audit/auditLog.js'
-import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES } from './ops/campScopedEntities.js'
+import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES, resolveParentJoinChain } from './ops/campScopedEntities.js'
 import { listEntities } from './ops/read.js'
 import { IPC_PIN_FIELDS } from './ops/pinFields.js'
 import { listDeleted, getEntityHistory } from './ops/trash.js'
@@ -208,10 +208,11 @@ export function runScopedQuery(db, entity, scopeId) {
   const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
   if (!camp) return []
 
-  const { table, parentTable, parentKey } = PARENT_SCOPED_ENTITIES[entity]
+  const { table, parentKey } = PARENT_SCOPED_ENTITIES[entity]
+  const { joinSql, campAlias } = resolveParentJoinChain(entity)
   return db
     .prepare(
-      `SELECT t.* FROM ${table} t JOIN ${parentTable} p ON p.id = t.${parentKey} WHERE p.camp_id = ? AND t.${parentKey} = ?`
+      `SELECT t.* FROM ${table} t ${joinSql} WHERE ${campAlias}.camp_id = ? AND t.${parentKey} = ?`
     )
     .all(camp.id, scopeId ?? null)
 }
