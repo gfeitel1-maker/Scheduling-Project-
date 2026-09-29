@@ -1,7 +1,7 @@
 ---
 title: "A hundred-camper import stops paying for a rollback boundary it already has"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-29
 task_class: database-sync
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/TESTING_STANDARD.md]
@@ -196,14 +196,42 @@ Not making the import asynchronous or moving it off the main thread. Not batchin
 fewer INSERTs. Not changing op-log granularity from entity/field. Not touching any SECURITY.md
 parameter — none is on this path.
 
-## Known limit at close
+## Closed
 
-The 120 s per-test timeout override on `'commits the sheet and writes exactly the rows the fixture
-describes'` in `scripts/preferenceSheetCli.test.js`, which this work is meant to let us delete,
-**is not in `main` and was never in this tree** — it is an uncommitted change in a sibling worktree
-(`claude/objective-babbage-980cc9`, branch for T303). It cannot be deleted from here without taking
-that session's unlanded work, so it is left for whoever lands that change.
+All four `archive_when` clauses discharged, landed in `c4144454` (#630) with the full gate green on
+CI. Status flipped per `WORK_RECORD_STANDARD.md` §3 ("flip the ticket's status as part of the work,
+in the branch that lands it") — late, in a follow-up, which is the discipline this ticket did not
+follow first time.
 
-What CAN be said is the thing the deletion was meant to establish: with this change, and with no
-override present, that test passes at the **20 s default in 1,067 ms**. The override should simply
-not be landed.
+### The 120 s override — resolved, by the session that owned it
+
+The override was never in this tree; it was uncommitted work in a sibling worktree
+(`claude/objective-babbage-980cc9`). That session was told this landed, dropped it, and reports
+9/9 green at the 20 s default.
+
+**It found a trap worth recording for anyone else holding an unmerged branch.** Its branch did not
+contain `c4144454`, so removing the override *on its tree as it stood* would have reintroduced the
+failure the override was compensating for. It had to merge main in and confirm the fix was actually
+present before deleting the workaround. "The fix landed" is a statement about `main`, not about the
+tree you are editing.
+
+### Independent replication of the premise correction
+
+That session re-measured its own "super-linear" claim the way this ticket describes — CPU time,
+sizes interleaved one rep per round — and got **170 / 119 / 104 / 98 µs/op at 6 / 25 / 50 / 100
+campers**: falling with size, the opposite of what it first reported. Its diagnosis is the clearest
+statement of the failure mode in this whole investigation:
+
+> "I measured wall clock on ASCENDING sizes while load was climbing, so 'ms/op grows with document
+> size' was my loop tracking the load."
+
+It also measured a **4.5× spread across four identical reps** of the same 8,564-op commit
+(715/879/896/1013 ms CPU against 2.2/3.8/5.5/9.8 s wall at load ~426) — which is the reason this
+ticket reports CPU and not seconds, and the reason no local wall-clock margin figure is recorded
+next to the decision.
+
+### Follow-on found while closing, fixed separately
+
+`graphify affected "<symbolName>"` — a standing pre-change rule in `CLAUDE.md` — resolves to a
+documentation-concept node when one shares the symbol's name, and answers about that instead. On
+`appendOp` it returned 4 nodes against 169 for `"appendOp()"`. Corrected in `dd45dd96` (#633).
