@@ -290,6 +290,15 @@ export const localClient = {
     shoresh.setElectivePreference({ token: currentToken(), runId, camperId, occurrenceId, choiceId, rank, rankKind, replacesPreferenceId }),
   removeElectivePreference: ({ runId, preferenceId }) =>
     shoresh.removeElectivePreference({ token: currentToken(), runId, preferenceId }),
+  // T306 — names a subject the import landed without one. Authorized as
+  // 'campers.attribute', which staff hold (owner ruling 2026-09-29) and which is
+  // deliberately NOT 'campers.write'.
+  //
+  // RESOLVES {ok:false,error} on refusal rather than rejecting — the op declines an
+  // already-named camper by return value, and its message names the reason. A caller
+  // that only try/catches turns that refusal into a silent success.
+  attributeSubject: ({ subjectId, displayName, externalId = null }) =>
+    shoresh.attributeSubject({ token: currentToken(), subjectId, displayName, externalId }),
   // T248 — per-camper outer schedule (final-run snapshot or draft-derive).
   getElectiveRunOuterSchedule: ({ runId }) =>
     shoresh.getElectiveRunOuterSchedule({ token: currentToken(), runId }),

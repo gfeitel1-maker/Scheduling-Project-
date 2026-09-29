@@ -4,7 +4,14 @@
 // 1..N ranking, a swim opt-out), fabricated. No real camper data is in this
 // repo, and none may be added.
 import { describe, it, expect } from 'vitest'
-import { inferPreferenceMapping, parsePreferenceSheet, hasContradictoryRanks } from './preferenceSheet.js'
+import {
+  hasContradictoryRanks,
+  inferPreferenceLayout,
+  inferPreferenceMapping,
+  describeMappingReadiness,
+  mappingWithDirectorOverride,
+  parsePreferenceSheet,
+} from './preferenceSheet.js'
 
 const HEADER = ['Camper Name', 'Division', 'Swim Alternative (Y/N)', '#1', '#2', '#3', 'Additional Comments']
 const ROWS = [
@@ -176,5 +183,147 @@ describe('parsePreferenceSheet', () => {
     const out = parsePreferenceSheet([HEADER, ['', 'Arad', 'N', 'Archery', '', '', '']], { campId: 'camp-1', mapping })
     expect(out.campers).toHaveLength(0)
     expect(out.skippedRows).toEqual([{ rowNumber: 2, reason: 'no camper name' }])
+  })
+})
+
+// T307 — a director's corrected mapping, made into one the inferencer could itself
+// have produced. The panel-level behaviour is covered in AssignmentPanel.test.jsx;
+// these pin the normalisation rules directly, because they are the part that is easy
+// to get subtly wrong and invisible when you do.
+describe('mappingWithDirectorOverride', () => {
+  const CATALOG = { activities: ['Archery', 'Gaga', 'Sailing', 'Ceramics'] }
+
+  it('returns null for no override, so the caller falls back to inference', () => {
+    expect(mappingWithDirectorOverride(null, ROWS)).toBeNull()
+  })
+
+  // THE CLAIM THE CALLER DEPENDS ON. The panel sends the mapping on every confirm
+  // rather than trying to detect whether the director edited it, which is only safe
+  // if an untouched mapping survives the trip unchanged.
+  it('is identity on an un-edited inferred mapping', () => {
+    const inferred = inferPreferenceLayout(ROWS, { catalog: CATALOG })
+    expect(mappingWithDirectorOverride(inferred, ROWS)).toEqual(inferred)
+  })
+
+  it('recomputes what is unread from the roles the director actually assigned', () => {
+    const inferred = inferPreferenceLayout(ROWS, { catalog: CATALOG })
+    // The comments column, which inference could not place.
+    expect(inferred.unrecognisedColumns.map((c) => c.header)).toContain('Additional Comments')
+
+    const edited = mappingWithDirectorOverride({ ...inferred, divisionIndex: 6 }, ROWS)
+    // Mapped now, so no longer reported unread...
+    expect(edited.unrecognisedColumns.map((c) => c.header)).not.toContain('Additional Comments')
+    // ...and the column it displaced is, which is the half a stale-field bug hides.
+    expect(edited.unrecognisedColumns.map((c) => c.header)).toContain('Division')
+  })
+
+  it('clears "ranks" from unmapped once the director supplies a rank column', () => {
+    const header = ['Camper', 'Pick A', 'Pick B']
+    const inferred = inferPreferenceLayout([header], { catalog: CATALOG })
+    expect(inferred.unmapped).toContain('ranks')
+
+    const edited = mappingWithDirectorOverride(
+      { ...inferred, rankColumns: [{ rank: 1, index: 1 }, { rank: 2, index: 2 }] },
+      [header]
+    )
+    expect(edited.unmapped).toEqual([])
+  })
+
+  // THE SHAPE GATES, which inference enforces on itself and a hand edit walks past.
+  // parsePreferenceSheet is additive across shapes, so a mapping carrying two of them
+  // has the sheet read twice.
+  it('drops an inverted matrix once the director supplies rank columns', () => {
+    const header = ['Camper', 'Archery', 'Gaga', 'Top Pick']
+    const inferred = inferPreferenceLayout([header], { catalog: CATALOG })
+    expect(inferred.invertedMatrix).not.toBeNull()
+
+    const edited = mappingWithDirectorOverride(
+      { ...inferred, rankColumns: [{ rank: 1, index: 3 }] },
+      [header]
+    )
+    expect(edited.invertedMatrix).toBeNull()
+    expect(edited.rankColumns).toEqual([{ rank: 1, index: 3 }])
+  })
+
+  it('drops a split name once the director names a single name column', () => {
+    const header = ['First Name', 'Last Name', '#1']
+    const inferred = inferPreferenceLayout([header], { catalog: CATALOG })
+    expect(inferred.splitName).toEqual({ firstNameIndex: 0, lastNameIndex: 1 })
+
+    const edited = mappingWithDirectorOverride({ ...inferred, nameIndex: 1 }, [header])
+    expect(edited.splitName).toBeNull()
+    expect(edited.nameIndex).toBe(1)
+  })
+
+  // A rank the director added and never pointed anywhere states nothing. Kept, it
+  // would reach `cell(row, null)` and read column A as every unassigned rank.
+  it('drops a rank column with no column picked, and orders the rest', () => {
+    const header = ['Camper', 'Pick A', 'Pick B']
+    const edited = mappingWithDirectorOverride(
+      {
+        headerIndex: 0,
+        nameIndex: 0,
+        rankColumns: [{ rank: 3, index: null }, { rank: 2, index: 2 }, { rank: 1, index: 1 }],
+      },
+      [header]
+    )
+    expect(edited.rankColumns).toEqual([{ rank: 1, index: 1 }, { rank: 2, index: 2 }])
+  })
+
+  // The header is read at the mapping's OWN headerIndex, not row 0. A sheet with a
+  // title line above the table would otherwise have every column named after the
+  // title's cells — the same defect the panel hit when it fed row 0 to the corrector.
+  it('reads the header row the located mapping points at', () => {
+    const rows = [['Camp Shoresh 5786'], ['Camper', 'Bunk', '#1'], ['Ari Green', 'Arad', 'Archery']]
+    const inferred = inferPreferenceLayout(rows, { catalog: CATALOG })
+    expect(inferred.headerIndex).toBe(1)
+
+    const edited = mappingWithDirectorOverride({ ...inferred, divisionIndex: null }, rows)
+    expect(edited.unrecognisedColumns.map((c) => c.header)).toEqual(['Bunk'])
+  })
+})
+
+describe('describeMappingReadiness', () => {
+  it('reports a collision the director can fix', () => {
+    const { collision } = describeMappingReadiness({
+      headerIndex: 0, nameIndex: 0, rankColumns: [{ rank: 1, index: 0 }],
+    })
+    expect(collision).toEqual({ index: 0, roles: ['Camper name', 'Rank #1'] })
+  })
+
+  // A REFUSAL THE DIRECTOR CANNOT ACT ON IS A DEAD END, not a question. Inference can
+  // double-assign a column by itself -- each role is found by its own independent
+  // `findIndex`, so one header can satisfy two patterns -- and the corrector offers no
+  // control for a day or period column. Reporting that would disable Confirm and name
+  // two roles, neither of which has a dropdown.
+  it('stays silent on a collision between two roles the corrector cannot move', () => {
+    const { collision } = describeMappingReadiness({
+      headerIndex: 0, nameIndex: 1, dayIndex: 0, periodIndex: 0,
+      rankColumns: [{ rank: 1, index: 2 }],
+    })
+    expect(collision).toBeNull()
+  })
+
+  // ...but the same column ALSO carrying an editable role is actionable again.
+  it('reports it once an editable role joins the same column', () => {
+    const { collision } = describeMappingReadiness({
+      headerIndex: 0, nameIndex: 0, dayIndex: 0, periodIndex: 0,
+      rankColumns: [{ rank: 1, index: 2 }],
+    })
+    expect(collision?.index).toBe(0)
+    expect(collision?.roles).toContain('Camper name')
+  })
+
+  // The gate is the transform's own readability test, so a sheet whose ranks live in
+  // its CELLS is ready with no rank columns at all.
+  it('calls an inverted matrix ready without any rank columns', () => {
+    const header = ['Camper', 'Archery', 'Gaga']
+    const inferred = inferPreferenceLayout([header], { catalog: { activities: ['Archery', 'Gaga'] } })
+    expect(inferred.rankColumns).toEqual([])
+    expect(describeMappingReadiness(inferred)).toEqual({ unmapped: [], collision: null })
+  })
+
+  it('treats no mapping at all as nothing mapped', () => {
+    expect(describeMappingReadiness(null)).toEqual({ unmapped: ['name', 'ranks'], collision: null })
   })
 })

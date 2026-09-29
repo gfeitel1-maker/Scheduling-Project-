@@ -3506,3 +3506,72 @@ describe('getSyncStatus: sync-blocked payload never includes blockedDetail (T268
     expect(status).not.toHaveProperty('blockedDetail')
   })
 })
+
+// T306 — THE RENDERER'S ROUTE TO NAMING AN UNNAMED SUBMISSION, and its authorization.
+//
+// attributeElectiveSubject existed, was tested, and was reachable only from
+// scripts/mcp/tools.js: no preload bridge, no main.js handler. So ADR §14.1a's promise
+// that attribution is "resolvable later without re-import" held for a machine and not
+// for a human. These pin the handler's action and its refusal contract.
+describe('T306 — attributeSubject handler', () => {
+  async function seedUnnamedSubject({ role }) {
+    const { campId } = await seedCampAndUser({ name: 'Person', pin: '123400', role })
+    const handlers = makeHandlers(db, deviceId, {})
+    const { token } = await handlers.login({ name: 'Person', pin: '123400' })
+    const subjectId = randomUUID()
+    db.prepare(
+      'INSERT INTO campers (id, camp_id, display_name, is_active, is_unattributed) VALUES (?, ?, ?, 1, 1)'
+    ).run(subjectId, campId, 'planner')
+    return { handlers, token, subjectId, campId }
+  }
+
+  // The owner's ruling of 2026-09-29: staff may name an unnamed child, because the
+  // people who collected the sheets know whose is whose.
+  it('lets a STAFF session name an unnamed subject', async () => {
+    const { handlers, token, subjectId } = await seedUnnamedSubject({ role: 'staff' })
+    const out = await handlers.attributeSubject({ token, subjectId, displayName: 'Aviva Feldspar' })
+    expect(out.ok).toBe(true)
+  })
+
+  it('lets an ADMIN session name one too', async () => {
+    const { handlers, token, subjectId } = await seedUnnamedSubject({ role: 'admin' })
+    const out = await handlers.attributeSubject({ token, subjectId, displayName: 'Aviva Feldspar' })
+    expect(out.ok).toBe(true)
+  })
+
+  // THE BOUNDARY THAT MAKES THE GRANT NARROW RATHER THAN WIDE. The op refuses to
+  // rename an already-named camper, but that guard lives in the OP and not in the
+  // generic write path — deriveWriteAction returns a bare `campers.write`, which never
+  // routes through the op. Granting staff `campers.write` would hand them a path that
+  // renames ANY camper with the is_unattributed check nowhere in it. Without this
+  // assertion, widening the grant passes every other test here.
+  it('does NOT give a staff session a generic camper write', async () => {
+    const { handlers, token, subjectId } = await seedUnnamedSubject({ role: 'staff' })
+    expect(() =>
+      handlers.write({ token, entity: 'campers', entity_id: subjectId, field: 'display_name', value: 'Backdoor' })
+    ).toThrow(/admin role required/i)
+  })
+
+  // RETURNS the refusal, does not throw it. The op declines an already-named camper by
+  // return value, and its message names the reason; a handler that threw would lose
+  // exactly the sentence the director needs, and an IPC caller that only try/catches
+  // would render the refusal as success.
+  it('RETURNS the already-named refusal rather than throwing it', async () => {
+    const { handlers, token, campId } = await seedUnnamedSubject({ role: 'admin' })
+    const namedId = randomUUID()
+    db.prepare(
+      'INSERT INTO campers (id, camp_id, display_name, is_active) VALUES (?, ?, ?, 1)'
+    ).run(namedId, campId, 'Ari Green')
+
+    const out = await handlers.attributeSubject({ token, subjectId: namedId, displayName: 'Someone Else' })
+    expect(out.ok).toBe(false)
+    expect(out.error).toMatch(/not an unattributed subject/i)
+  })
+
+  it('requires a token, a subjectId and a displayName', async () => {
+    const { handlers, token, subjectId } = await seedUnnamedSubject({ role: 'admin' })
+    expect(() => handlers.attributeSubject({ subjectId, displayName: 'X' })).toThrow(/token/i)
+    expect(() => handlers.attributeSubject({ token, displayName: 'X' })).toThrow(/subjectId/i)
+    expect(() => handlers.attributeSubject({ token, subjectId })).toThrow(/displayName/i)
+  })
+})

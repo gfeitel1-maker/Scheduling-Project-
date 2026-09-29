@@ -11,7 +11,8 @@ import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { ACTIVITY_COLORS } from '../components/schedule/slotCellConstants.js'
 import { ScheduleDoor } from '../components/ScheduleDoor'
 import { SIDEBAR_WIDTH_PX } from '../components/layout/Sidebar.jsx'
-import { screenForAttentionRow } from './attentionRowDestination.js'
+import { screenForAttentionRow, subjectIdFromRow } from './attentionRowDestination.js'
+import NameSubjectDialog from '../components/NameSubjectDialog.jsx'
 
 // ADR docs/adr/2026-08-28-roots-home-is-a-distinct-screen.md — the Roots
 // home is a distinct screen from now on: no census/diff vocabulary, no
@@ -178,7 +179,13 @@ function overflowChipHover(e, on) {
 // can legitimately return null for a domain/child with no edit screen; that
 // row renders inert (a plain div, same visuals) rather than a button that
 // navigates to nothing.
-function AttentionRow({ row, onNavigate, animStyle }) {
+function AttentionRow({ row, onNavigate, onName, animStyle }) {
+  // T306 — an unattributed-camper row is ACTED ON where it stands, not navigated
+  // from. It deliberately does NOT go through screenForAttentionRow: that resolves a
+  // row to a SCREEN, and adding a `Campers` entry to DOMAIN_SCREEN to make the
+  // existing dispatch fit would send the director to a list, losing the one thing the
+  // row id carries — WHICH subject they are naming.
+  const namingSubjectId = subjectIdFromRow(row)
   const targetScreen = screenForAttentionRow(row)
   const content = (
     <>
@@ -187,6 +194,21 @@ function AttentionRow({ row, onNavigate, animStyle }) {
       <div style={{ ...styles.attentionWhy, flexBasis: '100%' }}>{row.why}</div>
     </>
   )
+  if (namingSubjectId) {
+    return (
+      <button
+        type="button"
+        className="attention-row press-97"
+        aria-label={`${row.name} — ${row.why}`}
+        onClick={() => onName?.(row)}
+        onMouseEnter={(e) => attentionRowHover(e, true)}
+        onMouseLeave={(e) => attentionRowHover(e, false)}
+        style={{ ...attentionRowInteractiveStyle, ...animStyle }}
+      >
+        {content}
+      </button>
+    )
+  }
   if (!targetScreen) {
     return <div style={{ ...styles.attentionRow, ...animStyle }}>{content}</div>
   }
@@ -207,7 +229,10 @@ function AttentionRow({ row, onNavigate, animStyle }) {
 
 export default function RootsHomeScreen({ campId, onNavigate }) {
   const { activeCohort } = useCohorts(campId)
-  const { collections, failed, loading } = useCurrentStructureCounts(campId)
+  const { collections, failed, loading, reload } = useCurrentStructureCounts(campId)
+  // T306 — the row the director is naming, or null. Held here rather than in the row
+  // so the dialog is a sibling of the rail and not nested inside a <button>.
+  const [namingRow, setNamingRow] = useState(null)
   // Persisted unresolved import decisions (host-local) — the reconciliation
   // half of the attention list (docs/adr/2026-08-28-persisted-reconciliation-
   // decisions.md §5). buildRootMapModel(...,{mode:'inspect'}) yields only
@@ -375,6 +400,7 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
                   key={row.id}
                   row={row}
                   onNavigate={onNavigate}
+                  onName={setNamingRow}
                   animStyle={attentionStyleFor(index)}
                 />
               ))}
@@ -401,6 +427,21 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
           )}
         </aside>
       </div>
+
+      {/* T306 — rendered as a sibling of the rail, not inside the row's <button>.
+          On success the counts are RELOADED: a write made on this device never
+          crosses the sync channel, so without it the named camper's row would sit
+          there unchanged and the director would read their own success as a
+          failure. */}
+      {namingRow && (
+        <NameSubjectDialog
+          subjectId={subjectIdFromRow(namingRow)}
+          label={namingRow.name}
+          why={namingRow.why}
+          onCancel={() => setNamingRow(null)}
+          onNamed={() => { setNamingRow(null); reload() }}
+        />
+      )}
     </div>
   )
 }

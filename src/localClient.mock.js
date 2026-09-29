@@ -17,6 +17,9 @@ import { foldApprovedToRecords, enrichSnapshotRow, resolveFieldWrite, dbFieldFor
 // src/screens/locationMigrationReview.js already established — pure id
 // derivation, no electron-only dependency.
 import { deriveLocationId } from '../electron/ops/locationId.js'
+// T306 — the SAME id derivation the real attribution op uses, so the mock's rekey
+// lands a named camper on the same id the product would.
+import { deriveCamperId } from '../electron/ops/electiveDerivedIds.js'
 // T117 slice 2 — same src/-may-import-electron/ops/*.js pure-module exception,
 // this time so :5200 can prove a version got created without a second resolver.
 import { resolveImportedPlacements } from '../electron/ops/resolveImportedPlacements.js'
@@ -2058,6 +2061,74 @@ export const mockShoresh = {
   // rather than papered over, same additive-degradation posture as the stubs
   // above — the provenance behaviour is asserted against the real path in
   // electron/ops/commitElectiveRun.preferenceProvenance.test.js.
+  // T306 — mirrors attributeSubjectHandler (electron/main.js) and the op beneath it.
+  //
+  // A REAL REKEY, not a rename, using the same deriveCamperId the real path uses —
+  // imported rather than re-implemented, because the whole point of the rekey is
+  // that the named camper lands on the id their name derives, so a second import of
+  // the same child joins them instead of forking. A mock that merely set
+  // display_name would make the browser-dev path disagree with the product on the
+  // one behaviour this op exists for.
+  //
+  // WHERE THIS MOCK IS HONESTLY THINNER, in the additive-degradation posture the
+  // stubs above use: the mock has no op log, so the real path's per-row provenance
+  // carry (isHumanOwned -> source 'human' | 'import') has nothing to live in here.
+  // That behaviour is asserted against the real path in
+  // electron/ops/commitElectiveRun.preferenceProvenance.test.js.
+  async attributeSubject({ subjectId, displayName, externalId = null } = {}) {
+    const state = loadState()
+    const name = String(displayName ?? '').trim()
+    if (!name) return { ok: false, error: 'displayName is required' }
+
+    const campers = state.campers || []
+    const subject = campers.find((c) => c.id === subjectId)
+    if (!subject) return { ok: false, error: `no camper row ${subjectId} in this camp's database` }
+    // The op's own guard, mirrored verbatim in meaning: only a provisional subject
+    // may be attributed. Renaming an identified child would re-key a real camper's
+    // identity and orphan them from their other records.
+    if (subject.is_unattributed !== 1) {
+      return {
+        ok: false,
+        error:
+          `${subject.display_name || subjectId} is not an unattributed subject, so there is no name to ` +
+          'fill in. Renaming a camper who is already identified would give them a new identity and ' +
+          'disconnect them from their other records.',
+      }
+    }
+
+    const campId = state.camp?.id ?? subject.camp_id
+    const camperId = deriveCamperId(campId, { externalId: externalId || null, displayName: name })
+
+    if (camperId === subjectId) {
+      // Already canonical — stop calling them provisional without deleting the row
+      // being rekeyed onto.
+      subject.display_name = name
+      subject.is_unattributed = null
+      if (externalId) subject.external_id = externalId
+      saveState(state)
+      return { ok: true, camperId, moved: { preferences: 0, assignments: 0 } }
+    }
+
+    const existing = campers.find((c) => c.id === camperId)
+    const target = existing ?? { ...subject, id: camperId }
+    target.display_name = name
+    target.is_unattributed = null
+    target.external_id = externalId || (existing ? target.external_id : null)
+    if (!existing) campers.push(target)
+
+    let preferences = 0
+    for (const pref of state.elective_preferences || []) {
+      if (pref.camper_id === subjectId) { pref.camper_id = camperId; preferences += 1 }
+    }
+    let assignments = 0
+    for (const a of state.elective_assignments || []) {
+      if (a.camper_id === subjectId) { a.camper_id = camperId; assignments += 1 }
+    }
+
+    state.campers = campers.filter((c) => c.id !== subjectId)
+    saveState(state)
+    return { ok: true, camperId, moved: { preferences, assignments } }
+  },
   async removeElectivePreference({ runId, preferenceId } = {}) {
     const state = loadState()
     const run = (state.elective_assignment_runs || []).find((r) => r.id === runId)

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { localClient } from '../localClient'
 
 // ADR docs/adr/2026-08-28-roots-home-is-a-distinct-screen.md §4 — Candidate
@@ -49,6 +49,12 @@ export function useCurrentStructureCounts(campId) {
   const [collections, setCollections] = useState(null)
   const [failed, setFailed] = useState(NO_FAILURES)
   const [loading, setLoading] = useState(true)
+  // T306 — a WRITE MADE ON THIS DEVICE does not cross the sync channel, so naming
+  // an unattributed camper left its own attention row on screen: the director acted,
+  // the row stayed, and the action read as a failure. This effect keyed on [campId]
+  // alone, which never changes while the Roots home is open.
+  const [reloadNonce, setReloadNonce] = useState(0)
+  const reload = useCallback(() => setReloadNonce((n) => n + 1), [])
 
   useEffect(() => {
     let cancelled = false
@@ -70,7 +76,7 @@ export function useCurrentStructureCounts(campId) {
     }
     load()
     return () => { cancelled = true }
-  }, [campId])
+  }, [campId, reloadNonce])
 
-  return { collections, failed, loading }
+  return { collections, failed, loading, reload }
 }

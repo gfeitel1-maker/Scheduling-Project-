@@ -31,7 +31,13 @@
 // PURE. No db, no IPC, no file reading — callers pass the rows and the camp's own
 // entities as plain arrays, exactly as `parsePreferenceSheet` requires.
 
-import { detectGridLayout, detectWholeSheetGrid, inferPreferenceLayout, parsePreferenceSheet } from './preferenceSheet.js'
+import {
+  detectGridLayout,
+  detectWholeSheetGrid,
+  inferPreferenceLayout,
+  mappingWithDirectorOverride,
+  parsePreferenceSheet,
+} from './preferenceSheet.js'
 
 /**
  * The identity of a SUBMISSION, derived from the table it contains.
@@ -106,6 +112,12 @@ export function buildPreferenceCatalog({ activities = [], groups = [], tiers = [
  * @param {object}   [args.resolutions]   the director's settled label resolutions,
  *   from `resolutionMap` — `{ [rawLabel]: { action, activityName } }`. Absent means
  *   nothing has been settled, which is every FIRST read of a sheet.
+ * @param {object}   [args.mapping]       WHICH COLUMN IS WHICH, when a human has
+ *   said so — the director's corrected mapping from the import panel (T307). Absent,
+ *   and the layout is located from the header exactly as before; every machine caller
+ *   omits it. Present, it replaces the inference rather than being weighed against it,
+ *   after `mappingWithDirectorOverride` recomputes the derived fields a hand edit
+ *   leaves stale and re-applies the shape gates a hand edit can walk past.
  * @param {string}   [args.submissionKey] WHAT a provisional subject submitted —
  *   an opaque per-submission string (a content hash). Two different submissions
  *   can never collide; the same submission re-read converges.
@@ -140,13 +152,24 @@ export function readPreferenceSheet({
   // rather than interpreted: this module locates and delegates, and a resolution
   // is the transform's input, not this one's.
   resolutions = null,
+  // T307 — WHICH COLUMN IS WHICH, when a human has said so. Absent (every machine
+  // caller, and a director who corrected nothing) the layout is located exactly as
+  // before, so there is still ONE call shape and §3.2 is not reopened. Present, it
+  // is used instead of the inference, because a director's answer is not evidence to
+  // weigh against the catalog — it is the answer, the same way a settled label
+  // resolution is. It is normalised first: what the corrector hands back carries
+  // edited ROLES over the inferencer's DERIVED fields, and using it raw reports a
+  // column the director just mapped as unread and reads shape-overlapping columns
+  // twice (`mappingWithDirectorOverride`).
+  mapping: mappingOverride = null,
 } = {}) {
   // The header ROW is located, not assumed to be row 1: a title and a season line
   // above the table are ordinary, and assuming row 1 made such a sheet "not a
   // camper preference sheet". The catalog goes in because an INVERTED MATRIX (one
   // column per activity, the cell holding its rank) is recognisable only by matching
   // headers against the camp's own activities.
-  const mapping = inferPreferenceLayout(rows, { catalog })
+  const mapping =
+    mappingWithDirectorOverride(mappingOverride, rows) ?? inferPreferenceLayout(rows, { catalog })
 
   // A day x period GRID is one camper's own sheet (ADR §14.1a). Detected both as a
   // whole sheet and as a second table ABOVE the header — the page carrying a planner

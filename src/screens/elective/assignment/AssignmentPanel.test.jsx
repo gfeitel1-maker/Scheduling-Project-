@@ -348,3 +348,137 @@ describe('T305 -- a sheet that is nothing but a planner grid imports', () => {
     expect(confirm.disabled).toBe(true)
   })
 })
+
+describe("T307 -- the director's column correction is what gets imported", () => {
+  const PROPS = {
+    activities: [
+      { id: 'act-1', name: 'Archery' },
+      { id: 'act-2', name: 'Swim' },
+      { id: 'act-3', name: 'Ceramics' },
+    ],
+  }
+
+  // THE WHOLE SUITE DRIVES THE RENDERED CORRECTOR, and that is the point rather than
+  // a style choice. test/panelImportPath.test.js calls readPreferenceSheet directly,
+  // so it exercised the transform with a mapping the panel never actually sends --
+  // which is how a corrector that changed nothing stayed green.
+  function uploadSheet(sheet, fileName = 'prefs.txt') {
+    render(<AssignmentPanel {...baseProps(PROPS)} />)
+    const input = document.querySelector('input[type="file"]')
+    fireEvent.change(input, { target: { files: [new File([sheet], fileName, { type: 'text/plain' })] } })
+    return screen.findByRole('button', { name: /Confirm Mapping/ })
+  }
+
+  // Confirm -> Solve -> Commit, returning what the commit was actually handed. The
+  // payload rather than the screen: a preview that renders the right thing while the
+  // commit carries the old reading is precisely the failure being fixed.
+  async function commitAndReadPayload() {
+    fireEvent.click(screen.getByText(/Confirm Mapping/))
+    await waitFor(() => expect(screen.getByText(/Solve/i)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Solve/i))
+    await waitFor(() => expect(screen.getByText(/Commit Assignments/)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Commit Assignments/))
+    await waitFor(() => expect(localClient.commitElectiveRun).toHaveBeenCalled())
+    return localClient.commitElectiveRun.mock.calls.at(-1)[0].parsed
+  }
+
+  beforeEach(() => {
+    localClient.commitElectiveRun.mockResolvedValue({ ok: true, runId: 'r', counts: { campers: 1 } })
+  })
+
+  // A REAL ROSTER SHAPE: the legal name and the name the camp actually calls them.
+  // `Camper` matches the name pattern and `Goes By` does not, so the inferencer picks
+  // column A -- correctly, on the evidence it has, and not what this camp meant.
+  const GOES_BY = ['Camper\tGoes By\t#1', 'Rivka Stern\tRivi\tArchery'].join('\n')
+
+  it('imports names from the column the director picked, not the inferred one', async () => {
+    await uploadSheet(GOES_BY)
+    fireEvent.change(screen.getByLabelText(/Camper name/), { target: { value: '1' } })
+    const parsed = await commitAndReadPayload()
+    expect(parsed.campers.map((c) => c.display_name)).toEqual(['Rivi'])
+  })
+
+  it('stops calling the remapped column unread, and starts saying so about the one it replaced', async () => {
+    await uploadSheet(GOES_BY)
+    fireEvent.change(screen.getByLabelText(/Camper name/), { target: { value: '1' } })
+    const parsed = await commitAndReadPayload()
+    const unread = parsed.residue.filter((r) => r.kind === 'UNRECOGNISED_COLUMN').map((r) => r.header)
+    // Both halves matter. The first is the false claim an un-normalised override
+    // makes -- a column reported unread that the director just mapped. The second is
+    // the true claim that must survive: column A really is unread now.
+    expect(unread).not.toContain('Goes By')
+    expect(unread).toContain('Camper')
+  })
+
+  // THE DEAD END. An ordinary camp's column names, which the inferencer does not
+  // recognise as ranks. The screen tells the director to add rank columns, they do,
+  // Confirm enables -- and before this ticket the import answered "does not read as a
+  // camper preference sheet" and wrote nothing.
+  const PICK_AB = ['Camper\tPick A\tPick B', 'Ari Katz\tArchery\tSwim'].join('\n')
+
+  it('imports a sheet whose rank columns only the director can name', async () => {
+    await uploadSheet(PICK_AB)
+    fireEvent.click(screen.getByText(/Add Rank Column/))
+    fireEvent.change(screen.getByLabelText('Rank #1'), { target: { value: '1' } })
+    fireEvent.click(screen.getByText(/Add Rank Column/))
+    fireEvent.change(screen.getByLabelText('Rank #2'), { target: { value: '2' } })
+
+    const parsed = await commitAndReadPayload()
+    expect(parsed.campers.map((c) => c.display_name)).toEqual(['Ari Katz'])
+    expect(parsed.preferences.map((p) => [p.label, p.rank])).toEqual([['Archery', 1], ['Swim', 2]])
+  })
+
+  // TWO READINGS OF ONE SHEET AT ONCE. parsePreferenceSheet is ADDITIVE across
+  // shapes -- rankColumns, invertedMatrix, longFormat and tiedColumns each push
+  // cells, with no precedence. inferPreferenceMapping keeps them apart by GATING
+  // (an inverted matrix is only proposed when no rank columns were found), and an
+  // override that carries a director's rank column past that gate has the sheet read
+  // both ways: Ceramics at rank 1 from the director, Archery at rank 1 from the
+  // matrix. The override is normalised against the same gate rather than trusted raw.
+  const MATRIX_PLUS_PICK = ['Camper\tArchery\tSwim\tTop Pick', 'Ari Katz\t1\t2\tCeramics'].join('\n')
+
+  it('reads an inverted matrix the director overrode ONE way, not both', async () => {
+    await uploadSheet(MATRIX_PLUS_PICK)
+    fireEvent.click(screen.getByText(/Add Rank Column/))
+    fireEvent.change(screen.getByLabelText('Rank #1'), { target: { value: '3' } })
+
+    const parsed = await commitAndReadPayload()
+    expect(parsed.preferences.map((p) => [p.label, p.rank])).toEqual([['Ceramics', 1]])
+  })
+
+  // AN INVERTED MATRIX CARRIES ITS RANKS IN ITS CELLS, so it has no rank columns to
+  // count -- and the confirm gate used to demand one. A director could only get past
+  // it by adding a dummy rank column, which was harmless while the mapping was
+  // discarded and destroys the read now that it is honoured: supplying rank columns
+  // is exactly what closes the inverted-matrix gate. The gate asks the transform
+  // instead, so this sheet is confirmable as it stands.
+  const MATRIX_ONLY = ['Camper\tArchery\tSwim', 'Ari Katz\t1\t2'].join('\n')
+
+  it('confirms an inverted matrix without making the director invent a rank column', async () => {
+    const confirm = await uploadSheet(MATRIX_ONLY)
+    expect(confirm.disabled).toBe(false)
+
+    const parsed = await commitAndReadPayload()
+    expect(parsed.preferences.map((p) => [p.label, p.rank])).toEqual([['Archery', 1], ['Swim', 2]])
+  })
+
+  // THE CORRECTOR REFUSES WHAT INFERENCE CANNOT PRODUCE. Two ranks on one column and
+  // a rank on the name column are both unreachable by inference and both reachable by
+  // a director; refused here, where the sample rows are still on screen, rather than
+  // landing as a double-read or a row of campers named after an activity.
+  it('will not confirm two ranks pointed at one column', async () => {
+    const confirm = await uploadSheet(PICK_AB)
+    fireEvent.click(screen.getByText(/Add Rank Column/))
+    fireEvent.change(screen.getByLabelText('Rank #1'), { target: { value: '1' } })
+    fireEvent.click(screen.getByText(/Add Rank Column/))
+    fireEvent.change(screen.getByLabelText('Rank #2'), { target: { value: '1' } })
+    expect(confirm.disabled).toBe(true)
+  })
+
+  it('will not confirm a rank pointed at the camper-name column', async () => {
+    const confirm = await uploadSheet(PICK_AB)
+    fireEvent.click(screen.getByText(/Add Rank Column/))
+    fireEvent.change(screen.getByLabelText('Rank #1'), { target: { value: '0' } })
+    expect(confirm.disabled).toBe(true)
+  })
+})

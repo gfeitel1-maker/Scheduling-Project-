@@ -22,6 +22,7 @@ import { RESTORE_DECISIONS, RESTORABLE_ENTITIES } from '../ops/restore.js'
 import { PROJECTIONS } from '../ops/projections.js'
 import {
   PARTICIPANT_ENTITIES as REGISTERED_PARTICIPANT_ENTITIES,
+  STAFF_ATTRIBUTABLE_PARTICIPANT_ENTITIES,
   STAFF_READABLE_PARTICIPANT_ENTITIES,
 } from '../ops/participantEntities.js'
 
@@ -30,7 +31,13 @@ import {
 // been bitten by before.
 const PARTICIPANT_ENTITIES = [...REGISTERED_PARTICIPANT_ENTITIES]
 
-const VERBS = ['read', 'write', 'delete', 'restore', 'bulk_replace', 'import']
+// T306 adds 'attribute'. It is listed here because the loops below are exhaustive
+// over ENTITIES but NOT over verbs: a grant whose verb is absent from this array is
+// skipped by every assertion in the file. Verified by experiment -- adding
+// `campers.attribute` to PERMISSIONS.staff left all 25 assertions GREEN while the
+// participant domain's staff surface widened. The last test in this describe now
+// derives the verb list from PERMISSIONS itself so that cannot recur.
+const VERBS = ['read', 'write', 'delete', 'restore', 'bulk_replace', 'import', 'attribute']
 
 // T304 — the loops below skip exactly the (entity, verb) pairs the owner's
 // 2026-09-29 ruling opened, DERIVED from the same constant permissions.js
@@ -41,8 +48,17 @@ const VERBS = ['read', 'write', 'delete', 'restore', 'bulk_replace', 'import']
 // A skip is not a hole. Every pair skipped here is asserted BY NAME below —
 // `campers.read` positively (staff must hold it) and every other campers verb
 // negatively — so relaxing the loop cannot quietly relax the rule.
+const STAFF_EXCEPTIONS = [
+  ['read', STAFF_READABLE_PARTICIPANT_ENTITIES],
+  // T306, owner ruling 2026-09-29 — staff may NAME an unnamed subject. Its own verb
+  // rather than `.write` because attributeElectiveSubject's is_unattributed guard
+  // lives in the op and NOT in the generic write path, so a wide grant would route
+  // staff around it (see electron/ops/participantEntities.js).
+  ['attribute', STAFF_ATTRIBUTABLE_PARTICIPANT_ENTITIES],
+]
+
 function isStaffGranted(entity, verb) {
-  return verb === 'read' && STAFF_READABLE_PARTICIPANT_ENTITIES.has(entity)
+  return STAFF_EXCEPTIONS.some(([v, set]) => verb === v && set.has(entity))
 }
 
 afterAll(() => {
@@ -129,15 +145,50 @@ describe('the participant domain is admin-only (ADR D9)', () => {
   // mapping this set to `.read`; if it were ever folded into ENTITIES instead,
   // `.write` would come with it silently. This is the assertion that catches
   // that, and it is deliberately derived from the same set.
-  it('the staff-readable exception grants read and nothing else', () => {
-    for (const entity of STAFF_READABLE_PARTICIPANT_ENTITIES) {
-      expect(PERMISSIONS.staff).toContain(`${entity}.read`)
-      for (const verb of VERBS.filter((v) => v !== 'read')) {
-        expect(PERMISSIONS.staff, `staff must not hold ${entity}.${verb}`).not.toContain(
-          `${entity}.${verb}`
-        )
+  it('each exception grants exactly its own verb and nothing else', () => {
+    for (const [grantedVerb, set] of STAFF_EXCEPTIONS) {
+      expect(set.size, `the ${grantedVerb} exception set must not be empty`).toBeGreaterThan(0)
+      for (const entity of set) {
+        expect(PERMISSIONS.staff).toContain(`${entity}.${grantedVerb}`)
+        for (const verb of VERBS.filter((v) => !isStaffGranted(entity, v))) {
+          expect(PERMISSIONS.staff, `staff must not hold ${entity}.${verb}`).not.toContain(
+            `${entity}.${verb}`
+          )
+        }
+        expect(ENTITIES, `${entity} must still be out of ENTITIES`).not.toContain(entity)
       }
-      expect(ENTITIES, `${entity} must still be out of ENTITIES`).not.toContain(entity)
+    }
+  })
+
+  // T306 — every exception set must name only REGISTERED participant entities, the
+  // same typo trap the read set is checked for above.
+  it('every staff-attributable exception is a registered participant entity', () => {
+    expect(STAFF_ATTRIBUTABLE_PARTICIPANT_ENTITIES.size).toBeGreaterThan(0)
+    for (const entity of STAFF_ATTRIBUTABLE_PARTICIPANT_ENTITIES) {
+      expect(
+        REGISTERED_PARTICIPANT_ENTITIES.has(entity),
+        `${entity} is exempted but is not a participant entity`
+      ).toBe(true)
+    }
+  })
+
+  // T306 — THE BLIND SPOT THIS FILE HAD, closed. Every loop above iterates VERBS, so
+  // a staff grant using a verb absent from that array is invisible to all of them.
+  // Confirmed by experiment: `campers.attribute` was added and all 25 assertions
+  // stayed green. This derives the verbs from PERMISSIONS.staff itself, so the next
+  // new verb fails HERE instead of passing everywhere.
+  it('VERBS lists every verb staff actually hold on a participant entity', () => {
+    const held = new Set()
+    for (const action of PERMISSIONS.staff) {
+      const [entity, verb] = String(action).split('.')
+      if (verb && REGISTERED_PARTICIPANT_ENTITIES.has(entity)) held.add(verb)
+    }
+    expect(held.size, 'positive control: staff must hold SOMETHING here, or this passes vacuously').toBeGreaterThan(0)
+    for (const verb of held) {
+      expect(
+        VERBS,
+        `staff hold a participant-entity '.${verb}' but VERBS omits it, so every loop in this file skips it`
+      ).toContain(verb)
     }
   })
 
@@ -152,6 +203,11 @@ describe('the participant domain is admin-only (ADR D9)', () => {
   })
   it('grants staff no campers.write', () => {
     expect(PERMISSIONS.staff).not.toContain('campers.write')
+  })
+  // T306 owner ruling, 2026-09-29 — asserted by name as well as through the loop,
+  // in the same spirit as campers.read above.
+  it('grants staff campers.attribute (T306 owner ruling)', () => {
+    expect(PERMISSIONS.staff).toContain('campers.attribute')
   })
   it('grants staff no elective_preferences.read', () => {
     expect(PERMISSIONS.staff).not.toContain('elective_preferences.read')
