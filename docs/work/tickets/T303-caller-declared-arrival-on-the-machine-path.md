@@ -213,6 +213,36 @@ a question this ticket's "one path, one parameter" scope should answer.
 > planner run — the import converges onto her. Low likelihood, and visible, because
 > `preference_sheet_preview` names her before anything is written.
 >
+> **A REVIEW ROUND CAUGHT A WORSE FORK IN THE FIRST CUT, and it is the reason this
+> section is worth reading past the summary.** The first implementation RE-DERIVED her
+> id from `display_name` and `external_id` and relied on that reproducing the id
+> `attributeElectiveSubject` had minted. Both are ordinary admin-writable columns on a
+> plain camp-scoped entity, and `deriveCamperId` branches on whether `external_id` is
+> set — so an admin fixing a typo in a child's name, or attaching her roster id after
+> the fact, moved her between the `name` and `ext` arms, the recipe returned an id she
+> does not have, and the import minted a SECOND fully-named row holding her week
+> twice. **Strictly worse than the fork this change fixes:** the old fork left one row
+> flagged `is_unattributed`, so the attention surface showed it, while this one left
+> two unflagged rows reading the same name — and `SUBMISSION_ALREADY_NAMED` reported
+> that the answers had reached her. A confidently wrong success message rather than
+> silence. Confirmed by execution in both directions of the flip, and in the reverse
+> (a roster id CLEARED after naming).
+>
+> The fix is that a subject we have already LOCATED carries its id rather than a
+> recipe for one: `resolveSubject` passes `camperId` and `parsePreferenceSheet` derives
+> nothing. Deriving an id is how you MINT a subject and is the wrong instrument for one
+> that already exists — the same "two rules fork one child" principle the CLI's own
+> `resolveSubject` comment states, applied to identity rather than to hashing.
+> `display_name` and `external_id` still travel because the parser writes them onto the
+> record and they are read fresh off her row; dropping `externalId` would CLEAR a real
+> roster id, which is the opposite failure and equally silent.
+>
+> Four regression tests cover it, including the reverse flip. One of them was VACUOUS
+> when first written — it counted rows under her own id, which still passes under the
+> defect because her original four rows survive beside the fork's four. It now asserts
+> that exactly one camper holds the run, and fails on the plant. Worth recording
+> because a test that cannot fail is a false assurance, not a weak one.
+>
 > Evidence: `test/callerDeclaredArrival.test.js` case 4, driving the real CLI core and
 > the real `preference_sheet_commit` / `preference_sheet_preview` /
 > `attribute_camper_subject` handlers, asserting camper rows and

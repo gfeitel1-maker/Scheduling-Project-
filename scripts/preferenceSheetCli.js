@@ -492,14 +492,27 @@ export function runPreferenceSheetCli({
               'child who chose the same activities, import again declaring a distinct arrival_id.'
           ),
         })
-        // Returned in the shape step 1 returns, so the parser's existing `attributed`
-        // arm derives the id: `deriveCamperId(campId, { externalId, displayName })` is
-        // the identical call attributeElectiveSubject made when it minted this row, so
-        // it lands back on exactly this camper. The preference ids derive from that
-        // camper id, so the commit is an idempotent overwrite of her own rows rather
-        // than a second set — and a preference she has since hand-edited stays held by
-        // commitElectiveRun's own provenance check (T297), not quietly overwritten.
+        // HER ID IS CARRIED, NOT RE-DERIVED, and that is load-bearing rather than an
+        // optimisation. We just READ this row, so we hold its id; re-deriving one from
+        // her `display_name` and `external_id` would be a second rule for a fact
+        // already settled, and those two fields are ordinary admin-writable columns.
+        // An admin correcting a typo in a child's name, or attaching her roster id
+        // after the fact, would move her between `deriveCamperId`'s `name` and `ext`
+        // arms and the recipe would return an id she does not have — minting a SECOND
+        // fully-named row holding her week twice, neither row flagged, while this
+        // residue claimed the answers had reached her. Confirmed by execution.
+        //
+        // `display_name` and `external_id` still go along because the parser writes
+        // them onto the record: they are read fresh off her row a few lines above, so
+        // they write back what is already there. Dropping `externalId` here would
+        // CLEAR a real roster id.
+        //
+        // The preference ids derive from the camper id, so the commit is an idempotent
+        // overwrite of her own rows rather than a second set — and a preference she has
+        // since hand-edited stays held by commitElectiveRun's own provenance check
+        // (T297), not quietly overwritten.
         return {
+          camperId: named.id,
           displayName: named.display_name,
           externalId: named.external_id || null,
           source: 'already-named',

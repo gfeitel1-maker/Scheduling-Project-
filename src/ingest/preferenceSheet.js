@@ -1232,13 +1232,32 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog, grid
       // One call, branching only the KEY, so the camp and the name are stated once —
       // this is the expression that decides which child a sheet lands on, and a
       // fourth mode should not be two edits with one chance to miss one.
-      const subjectId = deriveCamperId(campId, subject?.attributed === true
-        ? { externalId: subject?.externalId || null, displayName: subjectName }
-        : {
-            submissionKey: subject?.externalId || null,
-            arrivalId: subject?.arrivalId || null,
-            displayName: subjectName,
-          })
+      // A SUBJECT WE HAVE ALREADY LOCATED CARRIES ITS ID, not a recipe for one.
+      //
+      // Deriving an id is how you MINT a subject; it is the wrong instrument for one
+      // that already exists, and the difference is not academic. `deriveCamperId`'s
+      // `ext`/`name` arms key on `external_id` and `display_name`, and `campers` is
+      // an ordinary admin-writable entity — so an admin fixing a typo in a child's
+      // name, or attaching her roster id later, changes the very fields the recipe
+      // reads. Re-deriving then yields an id she does not have, and the import mints
+      // a SECOND fully-named row holding her week twice. Confirmed by execution:
+      // attaching `external_id` after naming moved her from `name` mode to `ext`
+      // mode and forked her, with both rows reading the same display name and
+      // neither flagged `is_unattributed`, so nothing surfaced it. That is strictly
+      // worse than the fork T303 case 4 exists to fix, which at least left one row
+      // flagged. Caught by Red Hat, not by the tests that shipped with case 4.
+      //
+      // So a caller that looked the camper UP passes `camperId` and this derives
+      // nothing. One rule, and it is the row itself.
+      const subjectId = subject?.camperId
+        ? subject.camperId
+        : deriveCamperId(campId, subject?.attributed === true
+          ? { externalId: subject?.externalId || null, displayName: subjectName }
+          : {
+              submissionKey: subject?.externalId || null,
+              arrivalId: subject?.arrivalId || null,
+              displayName: subjectName,
+            })
       if (!byId.has(subjectId)) {
         const record = {
           id: subjectId,

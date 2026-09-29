@@ -62,6 +62,7 @@ import { runPreferenceSheetCli } from '../scripts/preferenceSheetCli.js'
 import { attributeSubjectTool, preferenceSheetCommitTool, preferenceSheetPreviewTool } from '../scripts/mcp/tools.js'
 import { attributeElectiveSubject } from '../electron/ops/attributeElectiveSubject.js'
 import { removeElectivePreference } from '../electron/ops/setElectivePreference.js'
+import { appendOp } from '../electron/ops/operations.js'
 
 const ACTIVITIES = ['Swim', 'Archery', 'Ceramics', 'Nature', 'Gaga', 'Drama']
 
@@ -164,6 +165,26 @@ const nameSubject = (displayName, externalId = null) =>
       subjectId: subjectAwaitingName().id,
       displayName,
       externalId,
+    })
+  )
+
+/**
+ * AN ORDINARY ADMIN EDIT to a camper field — NOT through attributeElectiveSubject,
+ * which refuses an already-named camper. `campers` is a plain camp-scoped entity
+ * (`electron/ops/campScopedEntities.js`) and the generic `write()` IPC handler has no
+ * field guard on it, so correcting a child's name or attaching her roster id later is
+ * an everyday action that lands here.
+ */
+const adminEdit = (camperId, field, value) =>
+  withDb((db) =>
+    appendOp(db, {
+      entity: 'campers',
+      entity_id: camperId,
+      field,
+      value,
+      author_user_id: null,
+      device_id: deviceId,
+      client_write_id: randomUUID(),
     })
   )
 
@@ -525,6 +546,97 @@ describe('T303 case 4 — re-importing a NAMED submission lands on that camper, 
     const first = viaCli('ari.csv', SAME)
     expect(alreadyNamed(first)).toEqual([])
     expect(unresolved(first)).toEqual([])
+  })
+})
+
+describe('T303 case 4 — her id is CARRIED, so an ordinary admin edit cannot fork her', () => {
+  // RED HAT FOUND THIS, and it is worse than the defect case 4 fixes. The first cut
+  // re-DERIVED her id from `display_name` and `external_id`. Both are ordinary
+  // admin-writable columns, and `deriveCamperId` branches on whether `external_id`
+  // is set — so an everyday edit moved her between its `name` and `ext` arms, the
+  // recipe returned an id she does not have, and the import minted a SECOND fully
+  // named row holding her week twice. Neither row flagged `is_unattributed`, both
+  // reading the same name, while the residue claimed the answers had reached her.
+  // A confidently wrong success message, not silence.
+  const nameHer = 'Aviva Feldspar'
+
+  it('a roster id attached AFTER naming does not fork her, and is not cleared', () => {
+    viaCli('ari.csv', SAME)
+    nameSubject(nameHer)
+    const her = campers()[0]
+    // She was named in `name` mode; this moves the recipe to `ext` mode.
+    adminEdit(her.id, 'external_id', 'roster-9999')
+
+    expect(viaCli('ari.csv', SAME).ok).toBe(true)
+
+    const rows = campers()
+    expect(rows).toHaveLength(1)
+    expect(rows[0].id).toBe(her.id)
+    expectWholeWeekEach(rows)
+    // The import writes external_id onto the record, so dropping it from the
+    // converged subject would CLEAR a real roster id rather than fork her — the
+    // opposite failure, and equally silent.
+    expect(withDb((db) => db.prepare('SELECT external_id FROM campers WHERE id = ?').get(her.id)))
+      .toEqual({ external_id: 'roster-9999' })
+  })
+
+  it('a corrected spelling of her name does not fork her, and the correction stands', () => {
+    viaCli('ari.csv', SAME)
+    nameSubject(nameHer)
+    const her = campers()[0]
+    adminEdit(her.id, 'display_name', 'Aviva R. Feldspar')
+
+    expect(viaCli('ari.csv', SAME).ok).toBe(true)
+
+    const rows = campers()
+    expect(rows).toHaveLength(1)
+    expect(rows[0].id).toBe(her.id)
+    // The import must not write the OLD spelling back over the director's fix.
+    expect(rows[0].display_name).toBe('Aviva R. Feldspar')
+    expectWholeWeekEach(rows)
+  })
+
+  it('a roster id CLEARED after naming does not fork her either', () => {
+    // The reverse flip, ext -> name, which the two above do not cover.
+    viaCli('ari.csv', SAME)
+    nameSubject(nameHer, 'roster-9999')
+    const her = campers()[0]
+    adminEdit(her.id, 'external_id', null)
+
+    expect(viaCli('ari.csv', SAME).ok).toBe(true)
+
+    const rows = campers()
+    expect(rows).toHaveLength(1)
+    expect(rows[0].id).toBe(her.id)
+    expectWholeWeekEach(rows)
+  })
+
+  it('the residue never claims her when the answers did not reach her', () => {
+    // NON-VACUITY ON THE MESSAGE, which is the part that made the first cut
+    // dangerous: it reported SUBMISSION_ALREADY_NAMED while forking. If the
+    // convergence ever misses again, the camper_id it names must not exist as a
+    // camper holding nothing.
+    viaCli('ari.csv', SAME)
+    nameSubject(nameHer)
+    adminEdit(campers()[0].id, 'external_id', 'roster-9999')
+
+    const again = viaCli('ari.csv', SAME)
+    const told = alreadyNamed(again)
+    expect(told).toHaveLength(1)
+
+    // THE CLAIM, CHECKED AS THE CLAIM: "these answers went to THAT camper rather
+    // than to a new subject" is true only if the camper it names is the ONLY holder
+    // of this submission's rows. Counting rows under her id alone is NOT enough and
+    // was vacuous when first written — under the planted defect her own four rows
+    // are still there beside the fork's four, so the count passed while the message
+    // was false. The distinguishing fact is how many campers hold the run.
+    const holders = withDb((db) =>
+      db
+        .prepare('SELECT DISTINCT camper_id FROM elective_preferences WHERE run_id = ?')
+        .all(again.runId)
+        .map((r) => r.camper_id)
+    )
+    expect(holders).toEqual([told[0].camper_id])
   })
 })
 
