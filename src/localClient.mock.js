@@ -162,7 +162,12 @@ function seedDemoCamp() {
   ]
   const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
   const days = dayNames.map((label, i) => ({ id: `day-${i}`, camp_id: CAMP, label, day_of_week: i + 1, sort_order: i + 1 }))
-  const blockNames = ['First Period', 'Second Period', 'Third Period', 'Fourth Period']
+  // "Period 5" (not "Fifth Period"): T301 visual verification needs a block
+  // name a per-cell preference sheet's coordinate header can resolve against
+  // (preferenceCoordinateKeys.js's periodAliases only bridges a bare number to
+  // "Period N"/"Block N", not to an ordinal-word block name like "Second
+  // Period") — see the elective-bundle contention fixture below.
+  const blockNames = ['First Period', 'Second Period', 'Third Period', 'Fourth Period', 'Period 5']
   const hh = (h) => String(h).padStart(2, '0')
   const time_blocks = blockNames.map((name, i) => ({
     id: `blk-${i}`, camp_id: CAMP, cohort_id: 'main', name, sort_order: i + 1,
@@ -185,8 +190,19 @@ function seedDemoCamp() {
   // and grp-3 Seniors both at Monday/Second Period) and two periods for
   // Juniors (Monday + Wednesday/Second Period), enough to author a real
   // cross-division, multi-period bundle.
+  //
+  // Thursday/Friday at Period 5 (grp-1 only) are a SEPARATE pair of cells,
+  // additive to the three above, existing only so a from-scratch verification
+  // script can author its OWN atomic-placement contention fixture (a bundle
+  // spanning them, capacity-limited, two campers each ranking one of the two
+  // cells) without disturbing the Monday/Wednesday cells or their block's
+  // ordinal-word name, which an already-delivered capture script's own aria-
+  // label assertions still reference verbatim.
   const ELECTIVE_SET_ID = 'eset-1'
-  const electiveCells = new Set(['grp-1|day-0|blk-1', 'grp-3|day-0|blk-1', 'grp-1|day-2|blk-1'])
+  const electiveCells = new Set([
+    'grp-1|day-0|blk-1', 'grp-3|day-0|blk-1', 'grp-1|day-2|blk-1',
+    'grp-1|day-3|blk-4', 'grp-1|day-4|blk-4',
+  ])
   const template_slots = []
   groups.forEach((g, gi) => {
     days.forEach((d, di) => {
@@ -236,7 +252,12 @@ function seedDemoCamp() {
     // is returned directly as seeded state, never passed through write().
     elective_sets: [{ id: ELECTIVE_SET_ID, camp_id: CAMP, name: 'Afternoon Electives (sample)', sort_order: 0, is_reusable: 1 }],
     elective_set_activities: [
-      { id: 'esa-1', elective_set_id: ELECTIVE_SET_ID, activity_id: 'act-3', capacity_mode: 'unlimited', capacity_limit: null, status: 'confirmed', min_mode: 'none', min_to_run: null },
+      // Drama is capacity-LIMITED to 1 (the other two offerings stay
+      // uncapped) — a real, plausible value on its own, and load-bearing for
+      // the T301 visual-verification contention fixture: it is what forces
+      // the solver's tier 1 to CHOOSE between two campers for one bundle
+      // rather than seating both.
+      { id: 'esa-1', elective_set_id: ELECTIVE_SET_ID, activity_id: 'act-3', capacity_mode: 'limited', capacity_limit: 1, status: 'confirmed', min_mode: 'none', min_to_run: null },
       { id: 'esa-2', elective_set_id: ELECTIVE_SET_ID, activity_id: 'act-4', capacity_mode: 'unlimited', capacity_limit: null, status: 'confirmed', min_mode: 'none', min_to_run: null },
       { id: 'esa-3', elective_set_id: ELECTIVE_SET_ID, activity_id: 'act-1', capacity_mode: 'unlimited', capacity_limit: null, status: 'confirmed', min_mode: 'none', min_to_run: null },
     ],

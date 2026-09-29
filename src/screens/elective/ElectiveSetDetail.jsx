@@ -217,7 +217,7 @@ function OfferingRow({
     <tr style={{ borderBottom: activityBundles.length === 0 && !draftActive ? '1px solid var(--border)' : 'none' }}>
       <td style={{ ...S.td, fontWeight: 500 }}>
         {activity?.name ?? '(deleted activity)'}{' '}
-        {activityBundles.length === 0 && !draftActive ? (
+        {activityBundles.length === 0 ? (
           <button
             type="button"
             className="press-97"
@@ -873,6 +873,9 @@ export default function ElectiveSetDetail({
         onAddActivity={createAndAddOffering}
         onError={setError}
         onNavigate={onNavigate}
+        bundles={bundles}
+        bundlePeriods={bundlePeriods}
+        bundleTiers={bundleTiers}
       />
     </div>
   )

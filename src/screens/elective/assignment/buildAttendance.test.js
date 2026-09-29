@@ -3,8 +3,26 @@
 // with `attendance: null` (its "every camper attends every occurrence"
 // default), so a set placed on both a Juniors cell and a Seniors cell at the
 // same day/block produced two occurrences holding the SAME campers in each.
+//
+// T301 VISUAL VERIFICATION FINDING (2026-09-29, unrelated to T301 itself —
+// discovered while building a real multi-division solve fixture): every
+// fixture below hand-built `{ division: '...' }` camper objects, and
+// buildAttendance.js read `camper.division` — but `parsePreferenceSheet`
+// (src/ingest/preferenceSheet.js) has never produced that field. It produces
+// `division_label` (confirmed by calling it directly with the real
+// production catalog shape). So in the shipped app, for every REAL sheet
+// import, `camper.division` was always undefined, `buildAttendance` always
+// took the "cannot match" branch for every camper, and a set spanning two
+// divisions has never actually scoped attendance since T229 shipped — the
+// exact H4 bug this module's own header says it was built to fix, silently
+// unfixed by a one-field name mismatch this suite's own fixtures happened to
+// paper over by using the field the code expected rather than the field the
+// producer emits. Every fixture below is renamed division -> division_label
+// to match; the integration test at the bottom of this file feeds the real
+// parser's output through, so this specific shape of lie cannot recur.
 import { describe, it, expect } from 'vitest'
 import { buildAttendance } from './buildAttendance.js'
+import { readPreferenceSheet } from '../../../ingest/preferenceImport.js'
 
 describe('buildAttendance', () => {
   it('sends a camper only to occurrences whose tier matches their division', () => {
@@ -17,8 +35,8 @@ describe('buildAttendance', () => {
       { id: 'tier-seniors', name: 'Seniors' },
     ]
     const campers = [
-      { id: 'cam-1', division: 'Juniors' },
-      { id: 'cam-2', division: 'Seniors' },
+      { id: 'cam-1', division_label: 'Juniors' },
+      { id: 'cam-2', division_label: 'Seniors' },
     ]
     const { attendance } = buildAttendance({ campers, occurrences, tiers })
     expect(attendance['cam-1']).toEqual(['occ-juniors'])
@@ -34,7 +52,7 @@ describe('buildAttendance', () => {
       { id: 'tier-1', name: 'Older  Campers' },
       { id: 'tier-2', name: 'Younger Campers' },
     ]
-    const campers = [{ id: 'cam-1', division: 'olderCampers' }]
+    const campers = [{ id: 'cam-1', division_label: 'olderCampers' }]
     const { attendance } = buildAttendance({ campers, occurrences, tiers })
     expect(attendance['cam-1']).toEqual(['occ-1'])
   })
@@ -51,7 +69,7 @@ describe('buildAttendance', () => {
       { id: 'tier-juniors', name: 'Juniors' },
       { id: 'tier-seniors', name: 'Seniors' },
     ]
-    const campers = [{ id: 'cam-1', division: 'Nobody Matches This' }]
+    const campers = [{ id: 'cam-1', division_label: 'Nobody Matches This' }]
     const { attendance, unmatchedCount } = buildAttendance({ campers, occurrences, tiers })
     expect(attendance['cam-1'].sort()).toEqual(['occ-juniors', 'occ-seniors'])
     expect(unmatchedCount).toBe(1)
@@ -61,7 +79,7 @@ describe('buildAttendance', () => {
   it('sends a camper with no division to every occurrence and counts it', () => {
     const occurrences = [{ id: 'occ-1', tier_id: 'tier-1' }, { id: 'occ-2', tier_id: 'tier-2' }]
     const tiers = [{ id: 'tier-1', name: 'Juniors' }, { id: 'tier-2', name: 'Seniors' }]
-    const campers = [{ id: 'cam-1', division: null }]
+    const campers = [{ id: 'cam-1', division_label: null }]
     const { attendance, unmatchedCount } = buildAttendance({ campers, occurrences, tiers })
     expect(attendance['cam-1'].sort()).toEqual(['occ-1', 'occ-2'])
     expect(unmatchedCount).toBe(1)
@@ -76,9 +94,33 @@ describe('buildAttendance', () => {
       { id: 'occ-2', tier_id: 'tier-1' },
     ]
     const tiers = [{ id: 'tier-1', name: 'Juniors' }]
-    const campers = [{ id: 'cam-1', division: 'Juniors' }]
+    const campers = [{ id: 'cam-1', division_label: 'Juniors' }]
     const { attendance, unmatchedCount } = buildAttendance({ campers, occurrences, tiers })
     expect(attendance).toBeNull()
+    expect(unmatchedCount).toBe(0)
+  })
+
+  // NON-VACUITY. Drives the REAL parser (src/ingest/preferenceImport.js) on a
+  // sheet naming a real division, then feeds its ACTUAL campers[] output
+  // straight into buildAttendance — no hand-built fixture standing in for
+  // what the producer emits. This is the shape of test the codebase's own
+  // T62 lesson calls for (a fixture that matches the code's assumption
+  // proves nothing about whether that assumption matches reality); it is
+  // what would have caught the division/division_label mismatch.
+  it('scopes attendance correctly from a camper produced by the REAL sheet parser, not a hand-built fixture', () => {
+    const rows = [
+      ['Name', 'Division', '#1'],
+      ['Ari', 'Juniors', 'Drama'],
+      ['Zev', 'Seniors', 'Drama'],
+    ]
+    const catalog = { activities: [{ id: 'act-1', name: 'Drama' }], groups: [], tiers: [{ id: 'tier-jr', name: 'Juniors' }, { id: 'tier-sr', name: 'Seniors' }] }
+    const { parsed } = readPreferenceSheet({ rows, campId: 'camp-1', catalog, sourceLabel: 's', submissionKey: 'k', arrivalId: 'a' })
+    const occurrences = [{ id: 'occ-jr', tier_id: 'tier-jr' }, { id: 'occ-sr', tier_id: 'tier-sr' }]
+    const { attendance, unmatchedCount } = buildAttendance({ campers: parsed.campers, occurrences, tiers: catalog.tiers })
+    const ari = parsed.campers.find((c) => c.display_name === 'Ari').id
+    const zev = parsed.campers.find((c) => c.display_name === 'Zev').id
+    expect(attendance[ari]).toEqual(['occ-jr'])
+    expect(attendance[zev]).toEqual(['occ-sr'])
     expect(unmatchedCount).toBe(0)
   })
 })
@@ -91,9 +133,9 @@ describe('unmatched divisions are named, with a proposal', () => {
 
   it('reports each unmatched division value with the camper count and a suggestion', () => {
     const campers = [
-      { id: 'c1', display_name: 'A', division: 'Bogrimm' },
-      { id: 'c2', display_name: 'B', division: 'Bogrimm' },
-      { id: 'c3', display_name: 'C', division: 'Bogrim' },
+      { id: 'c1', display_name: 'A', division_label: 'Bogrimm' },
+      { id: 'c2', display_name: 'B', division_label: 'Bogrimm' },
+      { id: 'c3', display_name: 'C', division_label: 'Bogrim' },
     ]
     const { unmatched, unmatchedCount } = buildAttendance({ campers, occurrences, tiers })
     expect(unmatchedCount).toBe(2)
@@ -101,13 +143,13 @@ describe('unmatched divisions are named, with a proposal', () => {
   })
 
   it('reports a value with no plausible match as having no suggestion', () => {
-    const campers = [{ id: 'c1', display_name: 'A', division: 'Waterfront' }]
+    const campers = [{ id: 'c1', display_name: 'A', division_label: 'Waterfront' }]
     const { unmatched } = buildAttendance({ campers, occurrences, tiers })
     expect(unmatched).toEqual([{ division: 'Waterfront', camperCount: 1, suggestion: null }])
   })
 
   it('reports nothing when every division matches', () => {
-    const campers = [{ id: 'c1', display_name: 'A', division: 'Bogrim' }]
+    const campers = [{ id: 'c1', display_name: 'A', division_label: 'Bogrim' }]
     const { unmatched, unmatchedCount } = buildAttendance({ campers, occurrences, tiers })
     expect(unmatched).toEqual([])
     expect(unmatchedCount).toBe(0)
@@ -117,7 +159,7 @@ describe('unmatched divisions are named, with a proposal', () => {
   // every occurrence rather than dropped (owner ruling: never unplaced). This
   // slice makes the problem legible, it does not change who gets placed.
   it('still considers an unmatched camper for every occurrence', () => {
-    const campers = [{ id: 'c1', display_name: 'A', division: 'Bogrimm' }]
+    const campers = [{ id: 'c1', display_name: 'A', division_label: 'Bogrimm' }]
     const { attendance } = buildAttendance({ campers, occurrences, tiers })
     expect(attendance.c1).toEqual(['o1', 'o2'])
   })
@@ -137,7 +179,7 @@ describe('ambiguous divisions fall back to every occurrence, never an arbitrary 
   it('does not bind a camper to only one of two same-named tiers', () => {
     const tiers = [{ id: 't1', name: 'Bogrim' }, { id: 't2', name: 'Bogrim' }]
     const occurrences = [{ id: 'o1', tier_id: 't1' }, { id: 'o2', tier_id: 't2' }]
-    const campers = [{ id: 'c1', division: 'Bogrim' }]
+    const campers = [{ id: 'c1', division_label: 'Bogrim' }]
     const { attendance, ambiguous } = buildAttendance({ campers, occurrences, tiers })
     expect(attendance.c1.sort()).toEqual(['o1', 'o2'])
     expect(ambiguous).toEqual([{ division: 'Bogrim', camperCount: 1 }])
@@ -163,7 +205,7 @@ describe('ambiguous divisions fall back to every occurrence, never an arbitrary 
   it('refuses a collision that exists only after the name is canonicalized', () => {
     const tiers = [{ id: 't1', name: 'Bogrim' }, { id: 't2', name: ' bogrim' }]
     const occurrences = [{ id: 'o1', tier_id: 't1' }, { id: 'o2', tier_id: 't2' }]
-    const campers = [{ id: 'c1', division: 'BOGRIM' }]
+    const campers = [{ id: 'c1', division_label: 'BOGRIM' }]
     const { attendance, ambiguous, unmatched } = buildAttendance({ campers, occurrences, tiers })
     expect(attendance.c1.sort()).toEqual(['o1', 'o2'])
     expect(ambiguous).toHaveLength(1)
@@ -184,8 +226,8 @@ describe('ambiguous divisions fall back to every occurrence, never an arbitrary 
     const tiers = [{ id: 't1', name: 'Bogrim' }, { id: 't2', name: 'Bogrim' }, { id: 't3', name: 'Sollelim' }]
     const occurrences = [{ id: 'o1', tier_id: 't1' }, { id: 'o2', tier_id: 't2' }, { id: 'o3', tier_id: 't3' }]
     const campers = [
-      { id: 'c1', division: 'Bogrim' },
-      { id: 'c2', division: 'Nobody' },
+      { id: 'c1', division_label: 'Bogrim' },
+      { id: 'c2', division_label: 'Nobody' },
     ]
     const { ambiguous, unmatched, unmatchedCount } = buildAttendance({ campers, occurrences, tiers })
     expect(ambiguous.map((a) => a.division)).toEqual(['Bogrim'])
@@ -200,7 +242,7 @@ describe('ambiguous divisions fall back to every occurrence, never an arbitrary 
   it('does not count an ambiguous division as unmatched', () => {
     const tiers = [{ id: 't1', name: 'Bogrim' }, { id: 't2', name: 'Bogrim' }]
     const occurrences = [{ id: 'o1', tier_id: 't1' }, { id: 'o2', tier_id: 't2' }]
-    const campers = [{ id: 'c1', division: 'Bogrim' }]
+    const campers = [{ id: 'c1', division_label: 'Bogrim' }]
     const { unmatched, unmatchedCount } = buildAttendance({ campers, occurrences, tiers })
     expect(unmatched).toEqual([])
     expect(unmatchedCount).toBe(0)

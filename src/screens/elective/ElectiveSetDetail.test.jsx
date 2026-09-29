@@ -579,6 +579,15 @@ describe('ElectiveSetDetail — T301 slice 2: bundle authoring trigger', () => {
     const nameInput = await screen.findByLabelText(/Bundle name/i)
     expect(nameInput.getAttribute('placeholder')).toBe('Pick a period below to name this bundle')
 
+    // Review round 2 — a draft (0 persisted bundles, disclosure just opened)
+    // must never render as "0 bundles": that reads as a count of something
+    // that exists, not an invitation to create the first one. The trigger
+    // legitimately STAYS "+ Add bundle" here — the original spec's own
+    // "nothing else about the [zero-bundle] row changes" — since there is
+    // still, correctly, no persisted bundle yet.
+    expect(screen.queryByText(/^0 bundles?$/)).toBeNull()
+    expect(screen.getByRole('button', { name: '+ Add bundle' })).toBeTruthy()
+
     fireEvent.click(screen.getByLabelText('Mon, First Period — click to include'))
 
     await waitFor(() =>
@@ -638,6 +647,49 @@ describe('ElectiveSetDetail — T301 slice 2: orphan cleanup', () => {
 
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'elective_bundles', 'bundle-1'))
     expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'elective_bundle_periods', 'bp-1')
+  })
+})
+
+// T301 slice 3 — the seam AssignmentPanel.test.jsx's own wiring test cannot
+// see: that test renders <AssignmentPanel bundles={...} .../> DIRECTLY, so it
+// proves "if AssignmentPanel receives bundles, it wires them to the solver"
+// but never proves ElectiveSetDetail actually PASSES them down. Found by
+// execution during T301 visual verification: ElectiveSetDetail rendered
+// <AssignmentPanel> with no bundles/bundlePeriods/bundleTiers props at all,
+// so every real solve in the shipped app fed the engine zero bundles —
+// invisible to every unit test in this feature, because every one of them
+// either renders AssignmentPanel standalone or renders ElectiveSetDetail
+// without ever driving a solve far enough to notice the engine received
+// nothing. This test renders the REAL parent-to-child wiring and drives a
+// real solve, using the same only-tier-1-can-produce-this signal
+// (UNSUPPORTED_LINKED_CHOICE) as the AssignmentPanel-level test, for the same
+// reason stated there: a "camper placed" assertion would pass even with the
+// wiring completely absent.
+describe('ElectiveSetDetail — T301 slice 3: a bundle authored on this screen reaches the solver', () => {
+  it('surfaces UNSUPPORTED_LINKED_CHOICE naming the bundle, proving ElectiveSetDetail passes bundles/bundlePeriods/bundleTiers down to AssignmentPanel', async () => {
+    localClient.list.mockImplementation(byEntity({
+      elective_set_activities: [offering()],
+      elective_bundles: [{ id: 'bundle-1', elective_set_id: 'set-1', activity_id: 'act-1', name: 'Pottery', scope_mode: 'all' }],
+      elective_bundle_periods: [
+        { id: 'bp-1', bundle_id: 'bundle-1', day_id: 'day-1', time_block_id: 'tb-1' },
+        // Never placed on SCHEDULE_FIXTURE's own template_slots — ADR D5 case
+        // (a), unreachable unless the engine actually received this bundle.
+        { id: 'bp-2', bundle_id: 'bundle-1', day_id: 'day-1', time_block_id: 'tb-2' },
+      ],
+    }))
+    renderDetail({ activities: [activity()], ...SCHEDULE_FIXTURE })
+    await waitFor(() => expect(screen.queryByText('Pottery')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('1 bundle')).not.toBeNull())
+
+    const fileInput = [...document.querySelectorAll('input[type="file"]')].find((i) => i.accept?.includes('csv'))
+    const sheetFile = new File(['Name\t#1\nAri\tPottery'], 'sheet.txt', { type: 'text/plain' })
+    fireEvent.change(fileInput, { target: { files: [sheetFile] } })
+    await waitFor(() => expect(screen.getByText(/Confirm Mapping/)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Confirm Mapping/))
+    await waitFor(() => expect(screen.getByText(/Solve/i)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Solve/i))
+
+    await waitFor(() => expect(screen.getByText(/“Pottery” is meant to be taken as a set/)).toBeTruthy())
   })
 })
 

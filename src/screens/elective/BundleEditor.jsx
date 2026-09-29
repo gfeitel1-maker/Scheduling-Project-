@@ -9,9 +9,11 @@
 // write simply never renders as if it had happened (the standing rule this
 // screen family already follows for capacity/minimum). Local state here is
 // UI-only: the name field's live edit buffer (matches OfferingRow's own
-// capacity/minimum inputs), the save-flash timer, and which control is
-// currently mid-write (for the opacity+disabled treatment).
-import { useState } from 'react'
+// capacity/minimum inputs), the save-flash timer, which control is
+// currently mid-write (for the opacity+disabled treatment), and the frozen
+// last-shown overlap used purely to keep the warning banner's text legible
+// while it animates closed (see the comment beside `shownOverlap` below).
+import { useRef, useState } from 'react'
 import { S, prefersReducedMotion } from '../../styles/shared'
 import { useLatestTimeout } from '../../hooks/useLatestTimeout'
 import { resolveScope, findBundleOverlap } from './bundleOverlap.js'
@@ -128,6 +130,13 @@ export default function BundleEditor({
       break
     }
   }
+
+  // Last non-null overlap, so the banner can animate CLOSED with its sentence
+  // still intact — see the banner's own comment below. A ref, not state:
+  // nothing here should trigger a render, it only survives one.
+  const lastOverlapRef = useRef(null)
+  if (overlap) lastOverlapRef.current = overlap
+  const shownOverlap = overlap ?? lastOverlapRef.current
 
   const reduced = prefersReducedMotion()
 
@@ -248,6 +257,7 @@ export default function BundleEditor({
           <button
             key={seg.mode}
             type="button"
+            className="press-97"
             aria-pressed={bundle.scope_mode === seg.mode}
             disabled={pendingKeys.has('scope')}
             onClick={() => handleScopeClick(seg.mode)}
@@ -289,21 +299,46 @@ export default function BundleEditor({
         </div>
       </div>
 
-      {overlap && (
-        <div
-          style={{
-            ...S.cautionBanner,
-            marginTop: 12,
-            marginBottom: 0,
-            transition: reduced ? 'none' : 'opacity 220ms var(--ease-out), transform 220ms var(--ease-out)',
-          }}
-        >
-          <strong>Overlaps another {activity?.name ?? 'activity'} bundle</strong> — &ldquo;{overlap.bundleName}&rdquo; also
-          claims {dayLabel(overlap.day)}, {blockName(overlap.timeBlock)} for {overlap.divisionIds.map(tierName).join(' and ')}.
-          A camper eligible for both can&rsquo;t be placed in either — the schedule generator will fall back to placing
-          them period-by-period instead. You can still save this.
-        </div>
-      )}
+      {/* ALWAYS MOUNTED, never `{overlap && (...)}`. A CSS transition
+          interpolates between two style states on an element that PERSISTS; a
+          freshly-mounted node has no prior state to animate from, so a
+          conditionally-mounted banner pops in regardless of what its
+          `transition` property says — the property is simply dead. Round-2
+          review caught exactly that here. This is the same always-rendered,
+          state-toggled shape the division-chip reveal above already uses, and
+          the disclosure in ElectiveSetDetail.jsx.
+
+          `shownOverlap` keeps the LAST non-null overlap so the sentence does
+          not blank out mid-collapse while the element animates closed — during
+          that 220ms the banner is still on screen and still has to read as
+          itself. */}
+      <div
+        aria-hidden={overlap ? undefined : true}
+        style={{
+          ...(shownOverlap ? S.cautionBanner : null),
+          marginTop: overlap ? 12 : 0,
+          marginBottom: 0,
+          overflow: 'hidden',
+          maxHeight: overlap ? 240 : 0,
+          opacity: overlap ? 1 : 0,
+          paddingTop: overlap ? undefined : 0,
+          paddingBottom: overlap ? undefined : 0,
+          borderWidth: overlap ? undefined : 0,
+          transform: overlap ? 'translateY(0)' : 'translateY(-4px)',
+          transition: reduced
+            ? 'none'
+            : 'max-height 220ms var(--ease-out), opacity 220ms var(--ease-out), transform 220ms var(--ease-out)',
+        }}
+      >
+        {shownOverlap && (
+          <>
+            <strong>Overlaps another {activity?.name ?? 'activity'} bundle</strong> — &ldquo;{shownOverlap.bundleName}&rdquo; also
+            claims {dayLabel(shownOverlap.day)}, {blockName(shownOverlap.timeBlock)} for {shownOverlap.divisionIds.map(tierName).join(' and ')}.
+            A camper eligible for both can&rsquo;t be placed in either — the schedule generator will fall back to placing
+            them period-by-period instead. You can still save this.
+          </>
+        )}
+      </div>
     </div>
   )
 }

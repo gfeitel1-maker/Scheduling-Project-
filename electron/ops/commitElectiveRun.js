@@ -343,6 +343,11 @@ export function commitElectiveRun(db, {
   //   EXPLICIT source==='human' delete suppresses a re-create — an import
   //   teardown's null-source delete is excluded by the `===`.
   const preferencesHeld = []
+  // D6 (review round 2) — a camper whose tier a claiming bundle's scope does
+  // not cover, collected here rather than left silent: `preferencesHeld`'s own
+  // words apply just as well one function up — a camper simply absent from
+  // the result "answers a different question than the one they're asking".
+  const bundleTierMismatches = []
   // The rows that already exist, read ONCE. The inline per-row existence check
   // this replaces compiled a statement per parsed preference inside the
   // transaction, thousands of times on a real sheet.
@@ -476,14 +481,19 @@ export function commitElectiveRun(db, {
           // choice this preference can name — skipped rather than thrown, so
           // one camper's mismatch cannot fail every other good row in the
           // sheet (the same posture `preferencesHeld` above already takes for
-          // a hand-edited row). This is a deliberate product-copy gap: the
-          // ADR left "what a director sees when this happens" open for
-          // later, and this fix does not invent a finding for it.
+          // a hand-edited row). Recorded in `bundleTierMismatches` rather than
+          // left silent (review round 2): the ADR left the exact COPY open,
+          // not whether a director is told at all, and a camper simply
+          // missing from the result is the confident-wrong-answer shape this
+          // ticket exists to eliminate.
           const camperTierId = camperById.get(p.camper_id)?.group_id != null
             ? tierIdByGroupId.get(camperById.get(p.camper_id).group_id) ?? null
             : null
           choiceId = camperTierId != null ? bundleByTier.get(camperTierId) : undefined
-          if (!choiceId) continue
+          if (!choiceId) {
+            bundleTierMismatches.push({ camperId: p.camper_id, label: p.label ?? p.labelKey })
+            continue
+          }
         } else {
           choiceId = choiceIdByKey.get(p.labelKey)
         }
@@ -624,6 +634,18 @@ export function commitElectiveRun(db, {
               'Your removal stands — nothing on the sheet changed it.'
             : 'You edited this preference by hand and the file disagrees, so the file’s version ' +
               'was not applied. Your edit stands — nothing was overwritten.',
+      })),
+      // D6 (review round 2) — named per camper, not summarized as a count,
+      // for the same T232 reason PREFERENCE_EDIT_HELD is above: a director
+      // needs to know WHICH child this happened to, not how many.
+      ...bundleTierMismatches.map((m) => ({
+        kind: 'BUNDLE_TIER_NOT_COVERED',
+        camper_id: m.camperId,
+        label: m.label,
+        message:
+          `${camperById.get(m.camperId)?.display_name ?? 'A camper'} ranked “${m.label}”, which a bundle ` +
+          'claims for specific divisions only, and this camper’s own division is not one of them — that ' +
+          'preference could not be placed. Nothing else on the sheet was affected.',
       })),
     ],
   }

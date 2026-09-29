@@ -799,6 +799,14 @@ describe("T301 slice 3 (ADR D6) — a bundle's label supersedes a plain sheet ch
     const prefRows = db.prepare('SELECT * FROM elective_preferences WHERE run_id = ?').all(out.runId)
     expect(prefRows).toHaveLength(1)
     expect(prefRows[0].camper_id).toBe('cam-1')
+
+    // Review round 2 — the skip is not silent: named per camper, like
+    // PREFERENCE_EDIT_HELD above it, not summarized as a count.
+    const mismatch = out.findings.find((f) => f.kind === 'BUNDLE_TIER_NOT_COVERED')
+    expect(mismatch).toBeTruthy()
+    expect(mismatch.camper_id).toBe('cam-2')
+    expect(mismatch.message).toContain('Bo Katz')
+    expect(mismatch.message).toContain('Archery')
   })
 
   it('a label no bundle claims still mints an ordinary plain choice, unaffected', () => {
