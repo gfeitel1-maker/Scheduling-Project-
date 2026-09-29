@@ -98,6 +98,54 @@ copy guardrail `src/engine/findingsLanguage.test.js` scans a hardcoded four-file
 any new home for finding-like text escapes it silently) is recorded as **T254** and is deliberately
 not fixed here.
 
+## Amendment (2026-09-29) — decision (d)'s draft-derive prose describes what was never built
+
+**Status stays `accepted`.** This amendment changes the *description* of decision (d)'s mechanism.
+It records no owner ruling, changes no decision (a)-(e) outcome, and changes no D6/D9/D12
+requirement. The requirement that a final run reads the immutable snapshot and a draft derives it
+live is unchanged.
+
+**What the original text said.** Under decision (d), "Per-camper (child) schedule export", this ADR
+instructed that for a draft run "the handler derives it live: for each assigned camper's group,
+look up that group's `template_slots` for the run's week/route (excluding elective cells...) and
+resolve span membership via the existing `collectSpanTails`/`getActivityRowSpan` helpers
+(`useSlotMutations.js`, `gridGeometry.js`)", with the response shaped as a bare
+`Array<{camperId, dayId, ...}>`. That prose is preserved below, under decision (d), unedited, so a
+later reader sees what was actually decided and what diverged from it in the build.
+
+**Why it could not be followed as written** (verified against the tree on 2026-09-29):
+
+- `electron/ops/finalizeElectiveRun.js` (T244) does not snapshot a group's non-elective
+  `template_slots`. It snapshots the run's generation-visible `elective_assignments` joined to
+  their occurrences — per-camper resolved elective placements, not a group template.
+- `electron/ops/electiveRunOuterSchedule.js` (T248) states the resulting conflict in its own header
+  ("GOVERNOR DEVIATION FROM THE ADR"): building the draft-derive path to decision (d)'s literal
+  group-template reading would make draft-derive disagree with what finalize snapshots for the same
+  run — unverifiable and wrong. The Governor's resolution extracted T244's derivation into one
+  shared function, `deriveElectiveRunOuterRows`, called by both the draft-read handler
+  (`getElectiveRunOuterScheduleHandler` in `electron/main.js`) and `finalizeElectiveRun.js`, so
+  draft-derive and finalize are provably symmetric — asserted directly by
+  `electron/electiveRunOuterSchedule.integration.test.js`.
+- The response is an object, not a bare array, because it must also carry
+  `finalizedAgainstStaleGeneration` (per the Q1/Q2 condition above) alongside the rows.
+- Span-awareness is done in the main process, not via the renderer helpers decision (d) names: one
+  row per span head, with span length carried in `spanBlocks`/collapsed for inherited cells via
+  `collapseInheritedSpans`. `collectSpanTails`/`getActivityRowSpan` operate on a group schedule's
+  rendered `slots` array in the renderer and cannot run in `electron/`, which is out of bounds for
+  the main process under this repo's renderer/main boundary.
+
+**Resolution.** `docs/adr/2026-09-26-elective-run-outer-inheritance-and-linked-choice-export.md`
+(T197, schema v76) later completed the intent decision (d) was reaching for — non-elective cells do
+appear in the export, as a second `'inherited'` cell kind returned by the same
+`deriveElectiveRunOuterRows`, through the same symmetric call from both callers — but via this
+shared-derivation structure, not decision (d)'s described group/`template_slots`-in-the-handler
+mechanism. That ADR's own text says as much: it "supersedes decision (d)'s deferred half." As of
+this amendment, the shipped mechanism is: one function, `deriveElectiveRunOuterRows`
+(`electron/ops/electiveRunOuterSchedule.js`), called symmetrically by both
+`getElectiveRunOuterScheduleHandler` and `finalizeElectiveRun.js`, returning `'elective'` and
+`'inherited'` rows through an object response — not the per-handler live `template_slots` lookup
+decision (d) describes.
+
 
 **This is a follow-on to `docs/adr/2026-09-17-individual-elective-scheduling.md`, not a
 supersession.** That ADR (D1-D14) decided the data substrate, the derived-id discipline, the
@@ -597,6 +645,10 @@ limitation, not a silent gap — for the overlapping-choice case, and separately
 cross-tier optimality loss, both deferred rather than guessed at.
 
 ### d. Per-camper (child) schedule export
+
+**Amended 2026-09-29 — see "Amendment (2026-09-29) — decision (d)'s draft-derive prose describes
+what was never built" above.** The draft-derive mechanism described below was not what T244/T248
+shipped; the prose is kept unedited beneath this pointer.
 
 **New IPC channel: `shoresh:get-elective-run-outer-schedule`** (read-only, `elective_assignment_runs.read`
 — the same action `getElectiveRun` already requires, no new permission entry):
