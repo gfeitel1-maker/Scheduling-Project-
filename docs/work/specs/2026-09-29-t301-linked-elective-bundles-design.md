@@ -47,11 +47,26 @@ capture of the authoring control and of a solved run containing a bundle.
 | 2 | How do divisions scope it? | **Fully general** — "for afternoons only, for all divisions, for a few divisions, for one day but not another." |
 | 3 | Two separate bundles of one activity in a set? | **Yes** — a camper picks between them. |
 | 4 | Who names a bundle? | **Proposed, director edits.** The name is what a camper's sheet must match, so it is visible and editable. |
+| 5 | Must a bundle's periods be contiguous? | **No — arbitrary.** Any subset of the set's periods, adjacent or not. |
 
 Decision 1 makes **T219 (multi-day catalog linkage) the same feature, not a separate one.**
 `deriveOccurrences` builds an occurrence per distinct `(day, time_block, tier)` cell, so Mon P3 +
 Mon P4 and Tue P2 + Thu P2 are structurally identical — "these N occurrences, taken together."
 T219 should be closed by this work or explicitly re-scoped.
+
+Decision 5 settles what decision 1 only implied, and it forecloses three things:
+
+- **No adjacency rule, anywhere.** A bundle may be Mon P1 + Thu P4. Nothing validates contiguity,
+  nothing derives membership from it, and no error says "these periods are not adjacent."
+- **The control is a selection, not a length.** A director picks cells; they never type "spans 2
+  blocks." This is the second, independent reason not to reuse the slot-span chain — D12 rejected it
+  on the grounds that a choice groups *preferences* rather than *grid cells*, and arbitrary
+  membership means the chain could not express a bundle even if that objection were dropped.
+  `activities.span_blocks` is not involved in this feature at any layer.
+- **A one-member bundle is legal and is simply not linked.** It is a named alias for a single
+  offering, which is D12's own "a single-period choice is the degenerate one-member case, so there is
+  ONE code path". The engine already agrees: it defines linked as *more than one member occurrence*,
+  so a one-member bundle falls through to tier 2 with no special casing and no finding.
 
 ## What already exists, verified against the tree 2026-09-29
 
@@ -90,7 +105,7 @@ for this.
 re-derived every generation, so storing one would tie an authored bundle to a run that no longer
 exists. Division falls out at expansion time.
 
-### Decision 4 needs no key change
+### Decision 3 needs no key change, because of decision 4
 
 Two bundles of woodworking are two differently-**named** choices, "Woodworking — Mondays" and
 "Woodworking — Thursdays". Owner ruling R2 (choice keyed on `(run, normalized label)`, so editing a
@@ -153,7 +168,5 @@ Slice 1 is the only one with a migration in it and should land alone.
 ## Open questions carried to the ADR
 
 - The id/importer decision above (A/B/C).
-- Whether a bundle's periods must be contiguous (a "double") or may be arbitrary (Tue+Thu). Decision
-  1 implies arbitrary; the ADR should state it rather than leave it implied.
 - What a director sees when a bundle cannot be honoured. `UNSUPPORTED_LINKED_CHOICE` exists and T300
   fixed its rendering, but it has never been seen by a human on a real screen.
