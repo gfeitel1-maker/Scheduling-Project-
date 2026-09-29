@@ -79,7 +79,7 @@ const tableInfo = (db, table) =>
 describe('migration v78: elective_preferences gains occurrence_id', () => {
   it('declares schema version 78 on a fresh db', () => {
     const db = freshDb()
-    expect(CURRENT_SCHEMA_VERSION).toBe(79)
+    expect(CURRENT_SCHEMA_VERSION).toBe(80)
     // >= 78, not === 78: v78 is no longer the newest migration (v79 landed in T279),
     // so what this test owns is 'v78 has been applied', not 'v78 is the top version'.
     expect(getSchemaVersion(db)).toBeGreaterThanOrEqual(78)

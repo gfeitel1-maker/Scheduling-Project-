@@ -60,7 +60,14 @@ describe('rollback bare-equality schema_migrations guard', () => {
     // re-importing, and campers.division_label, which is NOT — it is provenance
     // no other row records, so that value is gone until the source file is
     // imported again. The rollback says so rather than implying reversibility.
-    expect(files.length).toBe(39)
+    //
+    // 40 is v80_down.js (T265). Deletes with `WHERE version >= 80`, and drops the
+    // two minimum-headcount columns on elective_set_activities. What it loses is
+    // a CONSTRAINT rather than a derivable value: after the rollback an offering
+    // below its minimum runs again and nothing says so, and any minimum a
+    // director set must be set again. The rollback says that rather than implying
+    // reversibility.
+    expect(files.length).toBe(40)
   })
 
   it('every rollback file uses `>= N`, never bare `= N`, to delete its schema_migrations row', () => {

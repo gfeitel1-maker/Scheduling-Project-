@@ -1188,7 +1188,36 @@ CREATE INDEX IF NOT EXISTS idx_elective_sets_camp_name ON elective_sets(camp_id,
 -- status (schema v68, T195 offering-grid import): default 'confirmed' so
 -- every existing/hand-authored row keeps today's meaning; the offering-grid
 -- importer is the only writer that ever says 'potential'. ALTER-added on a
--- migrated db (localDb.js v68) — MUST stay the last column here.
+-- migrated db (localDb.js v68) — MUST stay before any later ALTER-added
+-- column here (min_mode/min_to_run, v80, follow it).
+--
+-- min_mode / min_to_run (schema v80, T265): the MINIMUM headcount to run an
+-- offering — the other half of the owner's "min and max numbers to run", never
+-- built until now. Owner ruling 2026-09-25: "if a camp wants a minimum they
+-- should be able to set that. the min could be 1, cannot be 0."
+--
+-- Deliberately the SAME two-part shape as capacity_mode/capacity_limit above,
+-- because that design already solved this exact hazard: `min_mode` is the
+-- AUTHORITY, and when it is 'none' `min_to_run` is ignored entirely — never
+-- coerced, never compared against. A single nullable integer would have
+-- reproduced the live blank-capacity defect by construction: a blank minimum
+-- would become 0 and, depending on the comparison direction, either do nothing
+-- or make the offering unrunnable forever.
+--
+-- THE `>= 1` IS DELIBERATELY DIFFERENT FROM capacity_limit's `>= 0`, AND THE
+-- ASYMMETRY IS THE POINT. A capacity of 0 is a genuinely CLOSED offering, a
+-- meaningful state. A minimum of 0 means nothing, which is why the owner
+-- excluded it.
+--
+-- PER-COLUMN CHECKs, not a cross-column pairing, for exactly the reason
+-- recorded against capacity above: applyProjection writes ONE entity/field/
+-- value triple per operation, so setting a minimum is two ops in some order and
+-- BOTH orders traverse a state a pairing CHECK would forbid. That would fail on
+-- the RECEIVING device during sync replay. See the named test in
+-- electron/db/electiveMinimumToRun.migration.test.js. Do not "tighten" these.
+--
+-- ALTER-added on a migrated db (localDb.js v80), which always appends, so these
+-- two MUST stay last here — and any later column goes after them.
 CREATE TABLE IF NOT EXISTS elective_set_activities (
   id TEXT PRIMARY KEY,
   elective_set_id TEXT NOT NULL REFERENCES elective_sets(id),
@@ -1201,6 +1230,11 @@ CREATE TABLE IF NOT EXISTS elective_set_activities (
            OR (typeof(capacity_limit) = 'integer' AND capacity_limit >= 0)),
   status TEXT NOT NULL DEFAULT 'confirmed'
     CHECK (status IN ('potential', 'confirmed')),
+  min_mode TEXT NOT NULL DEFAULT 'none'
+    CHECK (min_mode IN ('none', 'required')),
+  min_to_run INTEGER
+    CHECK (min_to_run IS NULL
+           OR (typeof(min_to_run) = 'integer' AND min_to_run >= 1)),
   UNIQUE(elective_set_id, activity_id)
 );
 

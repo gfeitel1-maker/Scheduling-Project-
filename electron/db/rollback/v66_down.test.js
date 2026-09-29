@@ -85,11 +85,14 @@ describe('rollbackV66', () => {
     const db = freshDb()
     seed(db)
     rollbackV66(db)
-    // status (v68, T195) is a LATER migration's column, untouched by rolling
-    // back v66 — rollbackV66 only ever claimed to undo v66's own two
-    // capacity columns.
+    // status (v68, T195) and min_mode/min_to_run (v80, T265) are LATER
+    // migrations' columns, untouched by rolling back v66 — rollbackV66 only ever
+    // claimed to undo v66's own two capacity columns.
     const cols = db.pragma('table_info(elective_set_activities)').map((c) => c.name)
-    expect(cols).toEqual(['id', 'elective_set_id', 'activity_id', 'camper_headcount', 'status'])
+    expect(cols).toEqual([
+      'id', 'elective_set_id', 'activity_id', 'camper_headcount', 'status',
+      'min_mode', 'min_to_run',
+    ])
     // The one piece of good news: authored capacity is re-derivable.
     expect(
       db.prepare("SELECT camper_headcount FROM elective_set_activities WHERE id='m1'").get()

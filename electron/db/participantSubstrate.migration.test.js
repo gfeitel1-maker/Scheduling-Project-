@@ -93,7 +93,7 @@ const seedCamp = (db) => {
 describe('migration v66: version and table presence', () => {
   it('declares schema version 66 on a fresh db', () => {
     const db = freshDb()
-    expect(CURRENT_SCHEMA_VERSION).toBe(79)
+    expect(CURRENT_SCHEMA_VERSION).toBe(80)
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 66').get().c).toBe(1)
     db.close()
@@ -149,7 +149,11 @@ describe('migration v66: fresh vs migrated equivalence', () => {
     migrated.close()
   }, 30000)
 
-  it('declares the capacity columns LAST on elective_set_activities, in order', () => {
+  // The capacity pair is no longer last — status (v68) and then the v80 minimum
+  // pair were appended after it. The property this pins is unchanged and is the
+  // one that matters: the WHOLE column order, ALTER-added columns in the order
+  // their migrations ran.
+  it('declares elective_set_activities columns in ALTER order, the capacity pair before status', () => {
     const db = freshDb()
     expect(colNames(db, 'elective_set_activities')).toEqual([
       'id',
@@ -159,6 +163,8 @@ describe('migration v66: fresh vs migrated equivalence', () => {
       'capacity_mode',
       'capacity_limit',
       'status',
+      'min_mode',
+      'min_to_run',
     ])
     db.close()
   })

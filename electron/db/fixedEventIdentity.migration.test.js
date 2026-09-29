@@ -65,7 +65,7 @@ describe('migration v77: fresh vs migrated equivalence', () => {
   it('declares schema version 77 and renames anchor_activities to fixed_events', () => {
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(79)
+    expect(CURRENT_SCHEMA_VERSION).toBe(80)
     expect(
       db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='fixed_events'").get()
     ).toBeTruthy()

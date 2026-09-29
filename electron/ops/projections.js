@@ -507,7 +507,16 @@ export const PROJECTIONS = {
     // status (v68, T195): potential/confirmed. Written the same way as
     // capacity_mode/capacity_limit above — a normal renderer/importer field,
     // applied generically via the UPDATE below.
-    fields: ['elective_set_id', 'activity_id', 'capacity_mode', 'capacity_limit', 'status'],
+    //
+    // min_mode / min_to_run (v80, T265): the minimum headcount to run. Same
+    // treatment and same ONE-FIELD-PER-OP reason as the capacity pair above,
+    // which is why their DB CHECKs are per-column too. An unlisted field throws
+    // on write and is silently dropped on the replay path, so a minimum missing
+    // from this list would persist locally and never reach another device.
+    fields: [
+      'elective_set_id', 'activity_id', 'capacity_mode', 'capacity_limit', 'status',
+      'min_mode', 'min_to_run',
+    ],
     // knownRow: see ensureWeekJoinRow's comment above.
     ensureExists: (db, id, field, value, knownRow) => {
       const table = 'elective_set_activities'

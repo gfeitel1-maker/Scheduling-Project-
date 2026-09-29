@@ -118,6 +118,117 @@ describe('ElectiveSetDetail — offerings table', () => {
     )
   })
 
+  // T265 — the minimum headcount to run, set and cleared beside the capacity it
+  // sits next to, because that is where a director already goes to say how many
+  // campers an offering takes.
+  it('shows a stored minimum in its own control', async () => {
+    localClient.list.mockImplementation(byEntity({
+      elective_set_activities: [offering({ min_mode: 'required', min_to_run: 6 })],
+    }))
+    renderDetail({ activities: [activity()] })
+
+    await waitFor(() => expect(screen.queryByText('Pottery')).not.toBeNull())
+    expect(screen.getByLabelText('Minimum to run Pottery').value).toBe('6')
+  })
+
+  // min_mode is the AUTHORITY, so a leftover value under 'none' must read as no
+  // minimum in the UI too — otherwise a director sees a minimum the engine is
+  // ignoring, which is worse than seeing none.
+  it('shows an empty control when the mode says none, even with a leftover value', async () => {
+    localClient.list.mockImplementation(byEntity({
+      elective_set_activities: [offering({ min_mode: 'none', min_to_run: 6 })],
+    }))
+    renderDetail({ activities: [activity()] })
+
+    await waitFor(() => expect(screen.queryByText('Pottery')).not.toBeNull())
+    expect(screen.getByLabelText('Minimum to run Pottery').value).toBe('')
+  })
+
+  it('persists a minimum as the min_mode/min_to_run pair', async () => {
+    localClient.list.mockImplementation(byEntity({ elective_set_activities: [offering()] }))
+    renderDetail({ activities: [activity()] })
+    await waitFor(() => expect(screen.queryByText('Pottery')).not.toBeNull())
+
+    const input = screen.getByLabelText('Minimum to run Pottery')
+    fireEvent.change(input, { target: { value: '5' } })
+    fireEvent.blur(input)
+
+    // Two fields, one op each — the DB CHECKs are per-column precisely so either
+    // arrival order is legal on every device.
+    await waitFor(() =>
+      expect(localClient.write).toHaveBeenCalledWith('token-abc', 'elective_set_activities', 'off-1', 'min_mode', 'required')
+    )
+    await waitFor(() =>
+      expect(localClient.write).toHaveBeenCalledWith('token-abc', 'elective_set_activities', 'off-1', 'min_to_run', 5)
+    )
+  })
+
+  it('clears a minimum back to none', async () => {
+    localClient.list.mockImplementation(byEntity({
+      elective_set_activities: [offering({ min_mode: 'required', min_to_run: 6 })],
+    }))
+    renderDetail({ activities: [activity()] })
+    await waitFor(() => expect(screen.queryByText('Pottery')).not.toBeNull())
+
+    const input = screen.getByLabelText('Minimum to run Pottery')
+    fireEvent.change(input, { target: { value: '' } })
+    fireEvent.blur(input)
+
+    await waitFor(() =>
+      expect(localClient.write).toHaveBeenCalledWith('token-abc', 'elective_set_activities', 'off-1', 'min_mode', 'none')
+    )
+    await waitFor(() =>
+      expect(localClient.write).toHaveBeenCalledWith('token-abc', 'elective_set_activities', 'off-1', 'min_to_run', null)
+    )
+  })
+
+  // Owner ruling: the min could be 1, cannot be 0. The DB CHECK rejects 0; the UI
+  // says so instead of quietly coercing it, because a coerced 0 is exactly how
+  // the live blank-capacity defect reaches a director.
+  it('refuses a minimum of 0 and says why, without writing it', async () => {
+    localClient.list.mockImplementation(byEntity({ elective_set_activities: [offering()] }))
+    renderDetail({ activities: [activity()] })
+    await waitFor(() => expect(screen.queryByText('Pottery')).not.toBeNull())
+
+    const input = screen.getByLabelText('Minimum to run Pottery')
+    fireEvent.change(input, { target: { value: '0' } })
+    fireEvent.blur(input)
+
+    await waitFor(() => expect(screen.queryByText(/at least 1/i)).not.toBeNull())
+    expect(localClient.write).not.toHaveBeenCalledWith(
+      'token-abc', 'elective_set_activities', 'off-1', 'min_to_run', 0
+    )
+  })
+
+  it('accepts a minimum of 1, the smallest the owner allows', async () => {
+    localClient.list.mockImplementation(byEntity({ elective_set_activities: [offering()] }))
+    renderDetail({ activities: [activity()] })
+    await waitFor(() => expect(screen.queryByText('Pottery')).not.toBeNull())
+
+    const input = screen.getByLabelText('Minimum to run Pottery')
+    fireEvent.change(input, { target: { value: '1' } })
+    fireEvent.blur(input)
+
+    await waitFor(() =>
+      expect(localClient.write).toHaveBeenCalledWith('token-abc', 'elective_set_activities', 'off-1', 'min_to_run', 1)
+    )
+  })
+
+  // Every mutation surfaces its failure — a rejected write (the DB CHECK, a
+  // permission, a replayed op) must reach the director, never be swallowed.
+  it('surfaces a failed minimum write through describeWriteFailure', async () => {
+    localClient.list.mockImplementation(byEntity({ elective_set_activities: [offering()] }))
+    localClient.write.mockRejectedValue(new Error('nope'))
+    renderDetail({ activities: [activity()] })
+    await waitFor(() => expect(screen.queryByText('Pottery')).not.toBeNull())
+
+    const input = screen.getByLabelText('Minimum to run Pottery')
+    fireEvent.change(input, { target: { value: '5' } })
+    fireEvent.blur(input)
+
+    await waitFor(() => expect(screen.queryByText(/minimum could not be saved/i)).not.toBeNull())
+  })
+
   it('rejects non-numeric / negative capacity input without writing', async () => {
     localClient.list.mockImplementation(byEntity({ elective_set_activities: [offering()] }))
     renderDetail({ activities: [activity()] })

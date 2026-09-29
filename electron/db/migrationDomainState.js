@@ -235,6 +235,18 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // what the camp MEANS changes until an import writes into the new columns, and that write is
   // an ordinary op like any other.
   79,
+  // v80 (T265) ALTERs elective_set_activities to add min_mode (NOT NULL DEFAULT
+  // 'none') and nullable min_to_run — the minimum headcount to run an offering.
+  // Schema-only by the same mechanism test: two db.exec ADD COLUMN statements, no
+  // appendOp, no backfill.
+  //
+  // The DEFAULT deserves a sentence, because a NOT NULL DEFAULT is the shape that
+  // CAN smuggle in a value change. 'none' means "no minimum", which is exactly
+  // what every pre-v80 offering already meant — there was no minimum to express.
+  // So the default states the existing meaning rather than standing in for one,
+  // and an existing offering's placement is unchanged. What the camp MEANS changes
+  // only when a director sets a minimum, and that write is an ordinary op.
+  80,
 ])
 
 /** True if applying `version` can change what the camp means. */
