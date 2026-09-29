@@ -147,3 +147,57 @@ finds an answer instead of a surprise.
   _(Framing contributed by the session that lost an afternoon to this, reviewing the merged ticket.)_
 - Bounding parallelism and improving the signal are separable. The signal is the one that cost two
   sessions time today; the bound is what stops load 518 recurring. Either is shippable alone.
+
+---
+
+## What shipped, 2026-09-29 — the SIGNAL slice
+
+Implemented by a different session from the one that filed this. The parallelism bound is
+**deliberately not in it** — this ticket's own last note says the two are separable, and the signal
+is the half that cost the time.
+
+**Nothing was widened.** The INCONCLUSIVE verdict path in `scripts/verify.js` is untouched: no
+refactor, no extraction, no new caller of `verdict()` that can change an exit code. `verify.js`
+already exported `verdict`, `machineLoadVerdict`, `LOAD_SENSITIVE_STEPS` and `MIN_LOAD_TIMEOUT_MS`,
+and is side-effect-free on import by design (the `import.meta` guard), so the new code **imports the
+existing judgement** rather than reproducing it. There is still exactly one definition of the two
+filters.
+
+**What it does instead of downgrading.** A vitest reporter (`scripts/loadArtifactReporter.js`) prints
+an advisory beside a run that is already red and stays red. No exit code changes anywhere — verified
+by execution: a slow failure and a fast failure under the same load both still exit 1. So the failure
+mode this ticket warned about hardest — *a defect dressed as load* — is not reachable by
+construction, because nothing is ever relabelled. The cost accepted in exchange is that the ad-hoc
+path reports the reading as **text rather than as exit 2**.
+
+**One deliberate divergence from the gate, in the strict direction.** `verify.js` sees a single
+duration (how long the whole `test` step ran), which under load is always long. A one-file run can
+see each failure separately, so `loadArtifactAdvisory` keys on the **fastest** failing test: if even
+the fastest is slow, every failure is slow. One fast failure means a real defect is present, and a
+real defect alongside genuine load is exactly the case that must not be described as
+probably-the-machine. **Consequence: this can stay silent where the gate would say INCONCLUSIVE.**
+That is the safe direction per this ticket's own framing.
+
+**Proven in both directions on a real 60×-oversubscribed machine** (load 239 on 4 cores), not only in
+unit tests:
+
+| Probe | Result |
+|---|---|
+| a failure taking 11s | advisory printed, naming the measured load and duration |
+| a failure taking 300ms | **no advisory** — the anti-laundering filter held |
+| both | exit code still 1 |
+
+17 unit tests cover the decision, most of them cases where it must stay silent: quiet machine, any
+fast failure present, load one under 4× cores, a duration one ms under `MIN_LOAD_TIMEOUT_MS`
+(asserted against the imported constant so raising it there cannot silently widen this), an untimed
+failure, and an unusable core count.
+
+## Still open after this: the parallelism bound
+
+The second half of the success predicate — *"total vitest parallelism across concurrent sessions is
+either bounded, or the decision to leave it unbounded is written down with its reasoning"* — is **not
+addressed**. Nothing here stops load 518 recurring; it only stops a session mistaking it for a
+defect. The facts for whoever takes it are already in this ticket's Mechanism §2: `gateLock.js` has
+one caller, `npm run test` is a bare `vitest run`, and an ad-hoc run takes no lock, so N sessions × M
+workers has nothing bounding the product.
+
