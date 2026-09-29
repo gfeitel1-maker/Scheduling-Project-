@@ -110,6 +110,12 @@ function importThroughPanelPath(bytes, { camperName = null, label = 'sheet', wit
     camperName,
     sourceLabel: label,
     submissionKey: `sub-${label}-${bytes.length}`,
+    // T299 — WHICH IMPORT this is. Stable per label so one label is one import:
+    // these cases each import once, and pinning it keeps them asserting about
+    // resolution rather than about identity. Two arrivals of identical content are
+    // covered where they belong, in
+    // electron/ops/commitElectiveRun.identicalSubmissions.test.js.
+    arrivalId: `arrive-${label}`,
   })
   if (!parsed) return { mapping, parsed: null, committed: null }
 

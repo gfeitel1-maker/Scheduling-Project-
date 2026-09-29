@@ -1028,14 +1028,32 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog, grid
       )
     } else {
       const subjectName = subject?.displayName || null
-      const subjectId = deriveCamperId(campId, {
-        externalId: subject?.externalId || null,
-        displayName: subjectName,
-      })
+      // T299 — an UNATTRIBUTED subject is keyed on (submission, arrival), never on
+      // the submission alone: two children who picked the same activities produce
+      // byte-identical sheets, and a content-only key made them one camper. An
+      // ATTRIBUTED subject (the caller named the child) keeps the ordinary
+      // camp-scoped identity, because a name is a fact about the child rather than
+      // about the import.
+      // One call, branching only the KEY, so the camp and the name are stated once —
+      // this is the expression that decides which child a sheet lands on, and a
+      // fourth mode should not be two edits with one chance to miss one.
+      const subjectId = deriveCamperId(campId, subject?.attributed === true
+        ? { externalId: subject?.externalId || null, displayName: subjectName }
+        : {
+            submissionKey: subject?.externalId || null,
+            arrivalId: subject?.arrivalId || null,
+            displayName: subjectName,
+          })
       if (!byId.has(subjectId)) {
         const record = {
           id: subjectId,
           display_name: subjectName ?? '',
+          // The SUBMISSION key, not the composite the id is derived from — so two
+          // subjects carrying identical answers still share this value, which is how
+          // the attention surface can tell a director that they are
+          // indistinguishable by content (src/ingest/attentionList.js). Reading the
+          // content key back out of the derived id would be parsing it, which
+          // electiveDerivedIds.js prohibits.
           external_id: subject?.externalId || null,
           division_label: null,
           group_id: null,

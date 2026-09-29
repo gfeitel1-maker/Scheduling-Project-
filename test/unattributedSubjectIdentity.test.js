@@ -141,6 +141,32 @@ describe('an unattributed subject is keyed per SUBMISSION, not per filename', ()
     expect(withDb((db) => db.prepare('SELECT COUNT(*) c FROM elective_preferences').get().c)).toBe(4)
   })
 
+  // T299 — THE LIMIT OF THIS PATH, pinned so it cannot drift silently in either
+  // direction. Two DIFFERENT children whose planners happen to be byte-identical
+  // (both picked archery and swim) still land as ONE subject here, and that is not
+  // an oversight: this CLI derives its run id — and so its arrival — from the file's
+  // bytes, precisely so an agent retrying after an ambiguous MCP timeout converges
+  // rather than duplicating. Under that declaration identical bytes ARE one
+  // submission arriving once, and no second fact on this path can separate them.
+  //
+  // The director's panel makes no such declaration (it mints an arrival per file
+  // selection) and does produce two subjects — that case is covered in
+  // src/screens/elective/assignment/AssignmentPanel.test.jsx and
+  // electron/ops/commitElectiveRun.identicalSubmissions.test.js.
+  //
+  // Closing this needs an owner decision, most likely an explicit idempotency token
+  // the caller supplies so a retry can SAY it is a retry instead of being inferred
+  // from content. Until then this case documents the behaviour rather than blessing
+  // it: if someone gives the CLI a per-invocation arrival, this goes red and they
+  // have to confront the retry it forks.
+  it('KNOWN LIMIT: two children with byte-identical planners are ONE subject on this path', () => {
+    const a = importAs('ari.csv', AVIVA)
+    const b = importAs('noa.csv', AVIVA)
+    expect(a.ok).toBe(true)
+    expect(b.ok).toBe(true)
+    expect(campers()).toHaveLength(1)
+  })
+
   it('a renamed file is still ONE subject — the filename is a LABEL, not the key', () => {
     // The converse defect: keying on the filename forks one child in two the moment
     // the file is renamed. The bytes are what identify the submission.

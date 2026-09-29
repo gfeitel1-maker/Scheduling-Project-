@@ -13,8 +13,11 @@
 // `is_unattributed` had one writer and ZERO readers, and the promise was false.
 //
 // WHY THIS IS A REKEY AND NOT AN UPDATE, which is the whole reason the module is
-// non-trivial. `deriveCamperId` keys on `(external_id ?? display_name)`, so the
-// provisional subject's id is derived from the submission hash and a named camper's
+// non-trivial. `deriveCamperId` keys a provisional subject on `(submission, arrival)`
+// and a named camper on `(external_id ?? display_name)` — as of T299 those are two
+// different MODES of that function, not two values of one argument, and the mode tag
+// is part of the key. So the provisional subject's id is derived from the submission
+// it arrived in and a named camper's
 // id is derived from their name: they are DIFFERENT IDS for the same child. Simply
 // writing the name onto the provisional row would leave a camper whose id says
 // "submission 3f2a…" forever — invisible to every later import of that name, which
@@ -120,10 +123,18 @@ export function attributeElectiveSubject(db, {
     )
     .all(subjectId)
 
-  // Already canonical: nothing to move, just stop calling them provisional. Reached
-  // when a camp's roster genuinely has no external id and the submission hash
-  // happened to be the key — rare, but a no-op must not delete the row it is
-  // rekeying onto.
+  // Already canonical: nothing to move, just stop calling them provisional — a no-op
+  // must not delete the row it is rekeying onto.
+  //
+  // NO LONGER REACHABLE FOR A SUBJECT THIS APP WRITES, as of T299, and the old
+  // justification is corrected rather than left standing. It used to say "reached
+  // when the submission hash happened to be the key", which was true while a
+  // provisional subject borrowed `deriveCamperId`'s `ext` arm: a director passing
+  // that hash as an external id derived the subject's own id back. A provisional
+  // subject is now keyed in the `sub` mode, whose tag and component count cannot
+  // encode the same string as an `ext`- or `name`-mode id, so a rekey is always a
+  // genuine move. Kept because a database written before T299 still holds `ext`-mode
+  // provisional rows, and naming one of those must stay correct.
   if (camperId === subjectId) {
     try {
       runAtomic(db, () => write('campers', camperId, { display_name: name, is_unattributed: null }))

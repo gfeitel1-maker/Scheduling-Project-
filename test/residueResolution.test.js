@@ -82,6 +82,10 @@ function importThroughPanelPath(bytes, { resolutions = [], label = 'sheet' } = {
     catalog: buildPreferenceCatalog(collections()),
     sourceLabel: label,
     submissionKey: `sub-${label}-${bytes.length}`,
+    // T299 — WHICH IMPORT this is. Stable per label so one label is one import:
+    // these cases each import once, and pinning it keeps them asserting about
+    // resolution rather than about identity.
+    arrivalId: `arrive-${label}`,
     resolutions: resolutionMap(resolutions),
   })
   if (!parsed) return { parsed: null, committed: null }

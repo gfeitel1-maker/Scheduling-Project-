@@ -225,3 +225,84 @@ describe('T249 -- and once encryption is actually on, it stops warning without o
     expect(within(row).queryAllByRole('button')).toHaveLength(0)
   })
 })
+
+// T299 — the panel's own grid path, which nothing in this file reached before.
+//
+// WHY THAT MATTERS MORE THAN THE ASSERTIONS. Every case above drives a
+// row-per-camper sheet, so the planner-grid branch — the one that produces an
+// unattributed subject, and the one this ticket's defect lived in — was never
+// entered through the panel at all. That is the same blind spot that let the grid
+// path ship broken once already: a suite can be large and still never open the door
+// the director opens.
+describe("AssignmentPanel — a planner grid's subject is scoped to the import it arrived in", () => {
+  // A planner ABOVE a ranked block, which is the grid shape this panel can actually
+  // reach — see the limit recorded at the bottom of this describe. The grid rows
+  // carry no name, so they are one unattributed subject; the ranked block names Ari
+  // and gives the mapping the name and rank columns the confirm gate demands.
+  const SHEET = [
+    '\tMonday\tTuesday',
+    'Period 1\tArchery\tSwim',
+    'Period 2\tSwim\tArchery',
+    'Name\t#1',
+    'Ari\tArchery',
+  ].join('\n')
+  const PROPS = { activities: [{ id: 'act-1', name: 'Archery' }, { id: 'act-2', name: 'Swim' }] }
+
+  async function uploadAndCommit(fileName) {
+    render(<AssignmentPanel {...baseProps(PROPS)} />)
+    const input = document.querySelector('input[type="file"]')
+    fireEvent.change(input, { target: { files: [new File([SHEET], fileName, { type: 'text/plain' })] } })
+    await waitFor(() => expect(screen.getByText(/Confirm Mapping/)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Confirm Mapping/))
+    await waitFor(() => expect(screen.getByText(/Solve/i)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Solve/i))
+    await waitFor(() => expect(screen.getByText(/Commit Assignments/)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Commit Assignments/))
+    await waitFor(() => expect(localClient.commitElectiveRun).toHaveBeenCalled())
+    const { parsed } = localClient.commitElectiveRun.mock.calls.at(-1)[0]
+    return parsed.campers.find((c) => c.is_unattributed === 1)
+  }
+
+  it('gives two uploads of a byte-identical sheet two different subjects', async () => {
+    localClient.commitElectiveRun.mockResolvedValue({ ok: true, runId: 'r', counts: { campers: 2 } })
+
+    // Both children exported from the same template, so even the filename matches —
+    // the collision that made the filename unusable as a key in the first place.
+    const first = await uploadAndCommit('planner.txt')
+    const second = await uploadAndCommit('planner.txt')
+
+    // The two sheets really are indistinguishable by content. Asserted rather than
+    // assumed: if the fixture drifted, the case below would pass for the wrong
+    // reason and prove nothing.
+    expect(first).toBeTruthy()
+    expect(second.external_id).toBe(first.external_id)
+
+    // ...and they are still two campers. This is the whole ticket, through the
+    // panel's own file input rather than through a helper that imitates it.
+    expect(second.id).not.toBe(first.id)
+  })
+
+  // A WHOLE-SHEET planner (no ranked block at all) CANNOT be imported here, and
+  // that is a pre-existing defect this ticket found rather than caused. The confirm
+  // gate is `mapping.nameIndex != null && rankColumns.length > 0`
+  // (MappingCorrector.jsx), and a child's own planner has neither by design — the
+  // identity comes from the submission, and the cells ARE the ranks. So the button
+  // never enables and the director cannot get past the mapping screen.
+  //
+  // Confirmed by execution: driving a whole-sheet grid through this same flow leaves
+  // the panel on the mapping screen with onError never called, because nothing was
+  // ever clicked. It is not covered by test/panelImportPath.test.js either — that
+  // file's `importThroughPanelPath` calls readPreferenceSheet directly and so never
+  // renders this gate, which is exactly why the gap survived.
+  //
+  // Left unfixed deliberately: what the mapping screen should show for a sheet with
+  // no name and no rank columns is a product question, not a wiring one.
+  it('leaves a whole-sheet planner stuck at the mapping gate (documented gap, not a fix)', async () => {
+    render(<AssignmentPanel {...baseProps(PROPS)} />)
+    const input = document.querySelector('input[type="file"]')
+    const grid = '\tMonday\tTuesday\nPeriod 1\tArchery\tSwim\nPeriod 2\tSwim\tArchery'
+    fireEvent.change(input, { target: { files: [new File([grid], 'planner.txt', { type: 'text/plain' })] } })
+    const confirm = await screen.findByRole('button', { name: /Confirm Mapping/ })
+    expect(confirm.disabled).toBe(true)
+  })
+})
