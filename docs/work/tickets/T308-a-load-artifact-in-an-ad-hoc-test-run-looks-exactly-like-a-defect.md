@@ -52,6 +52,32 @@ That is **~130× core count.** For comparison, `vite.config.js` sized `testTimeo
 **The premise behind the 20s ceiling has been invalidated by how the machine is now used** — not by
 any change to the tests. That is the whole ticket.
 
+### The mechanism firing, observed on this machine the same afternoon
+
+A full `npm run verify` started from this worktree returned, after the machine had been sitting at
+the load recorded above:
+
+```
+⚠️  VERIFY INCONCLUSIVE — step "test" failed after 3876s while this machine was oversubscribed
+```
+
+**3876 seconds — 64.6 minutes — for the `test` step alone.** The same gate on the same change ran
+in **5m22s** on CI: roughly **12× wall-clock at the gate level**, independent of the ≥23× measured
+per-test above.
+
+Two things this demonstrates, and they pull in opposite directions:
+
+- **T178's downgrade works.** It fired correctly, on a genuinely load-sensitive step, after a
+  genuinely slow failure, and refused to call a red. That is the behaviour this ticket asks to
+  reach ad-hoc runs, and it is evidence for keeping the filters rather than loosening them.
+- **Nothing outside `verify` gets it.** The same contention, on the `npx vitest run <file>` path,
+  produced a bare red twice today with no such line.
+
+_(Caveat on this measurement: the run was started before a docs edit to `CLAUDE.md` in the same
+tree, so its verdict is not a clean judgement on exactly what merged. The timing is unaffected —
+a Markdown edit does not change test wall-clock — and the change merged on CI, which is the gate
+of record here precisely because a clean runner can separate "correct" from "contended".)_
+
 ### Reported to me by other sessions (their observation, not mine, labelled as such)
 
 Two sessions hit these timeouts and both began investigating their own changes: one started a
