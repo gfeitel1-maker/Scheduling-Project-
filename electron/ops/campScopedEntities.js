@@ -56,6 +56,12 @@ export const DIRECT_CAMP_ENTITIES = new Set([
   // grant; all seven are deliberately absent from permissions.js ENTITIES.
   'campers',
   'elective_assignment_runs',
+  // T312: a camp's remembered column mapping for the elective preference import.
+  // Direct-camp-scoped (camp_id NOT NULL), like elective_sets. REPLICATED by
+  // owner ruling against the host-local precedent of the five decision caches —
+  // registering here is a SCOPING fact, and its admin-only posture comes from
+  // permissions.js by omission, exactly as the participant entities' does.
+  'camp_seedlings',
 ])
 
 export const PARENT_SCOPED_ENTITIES = {
@@ -265,6 +271,7 @@ export const DOMAIN_SNAPSHOT_ORDER = [
   'special_days', // T40 slice 1; references camps.id only
   'special_day_time_blocks', // references special_days.id NOT NULL
   'special_day_slots', // references special_days.id NOT NULL; group_id/time_block_id/activity_id/location_id have no declared FK
+  'camp_seedlings', // T312; references camps.id only, no children, no FK from anything else -- ordering relative to every other entry is therefore unconstrained
   'elective_sets', // T41 slice 1; references camps.id only
   'elective_set_activities', // references elective_sets.id NOT NULL; activity_id has no declared FK
   'elective_bundles', // T301; references elective_sets.id NOT NULL; activity_id has no declared FK

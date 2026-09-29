@@ -39,7 +39,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // campers.division_label/is_unattributed and elective_preferences.rank_kind/
 // coordinate_day_label/coordinate_period_label) all land in this file; 79 is the
 // current version.
-export const CURRENT_SCHEMA_VERSION = 81
+export const CURRENT_SCHEMA_VERSION = 82
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -3906,6 +3906,41 @@ const DEVICE_HEALTH_EVENTS_DDL = `
       db.exec('CREATE INDEX IF NOT EXISTS idx_elective_bundle_tiers_bundle ON elective_bundle_tiers(bundle_id)')
     })()
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (81, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v82 (T312) — camp_seedlings, a camp's remembered column mapping for the
+  // elective preference import.
+  //
+  // CREATE TABLE only, so an existing database gains an empty table and nothing
+  // it already holds is read differently. A camp with no remembered mapping
+  // behaves exactly as it did before: the importer infers, the director
+  // corrects, and only a confirmation after this migration writes a row.
+  //
+  // The guard is `>= 81 && < 82` rather than a bare `< 82` for the reason the
+  // other blocks carry: a bare lower bound re-runs this block on every database
+  // older than 82, including ones that predate `camps`, where the REFERENCES
+  // would be unresolvable.
+  if (getSchemaVersion(db) >= 81 && getSchemaVersion(db) < 82) {
+    db.transaction(() => {
+      db.exec(`CREATE TABLE IF NOT EXISTS camp_seedlings (
+        id TEXT PRIMARY KEY,
+        camp_id TEXT NOT NULL REFERENCES camps(id),
+        kind TEXT NOT NULL,
+        match_key TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'superseded')),
+        confirmed_by TEXT,
+        confirmed_at TEXT NOT NULL
+      )`)
+      db.exec(
+        'CREATE INDEX IF NOT EXISTS idx_camp_seedlings_lookup ' +
+        'ON camp_seedlings (camp_id, kind, status)'
+      )
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (82, ?)').run(
       new Date().toISOString()
     )
   }

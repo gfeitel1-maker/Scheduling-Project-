@@ -272,6 +272,7 @@ const GENESIS_ENTITIES = [
   'activities',
   'fixed_events',
   'camp_maps',
+  'camp_seedlings',
   'campers',
   'camps',
   'cohorts',
@@ -335,8 +336,16 @@ const GENESIS_ENTITIES = [
 // the way an unused orphan key can). Same acceptance as every prior regeneration: pre-production,
 // no live camps on this sync engine, existing `.automerge` files may be discarded. New pinned head:
 // 9891ac618b8142a770c3bfcc37281128e031241ff2e83bdbdd4df8cc1c27c9df
+// ELEVENTH REGENERATION (T312, docs/work/tickets/T312-a-camps-column-mapping-is-remembered-and-re-proposed.md):
+// `camp_seedlings` added to GENESIS_ENTITIES. It entered MODELED_ENTITIES automatically, since that
+// set is DERIVED from DIRECT_CAMP_ENTITIES — the same forcing function as the sixth and eighth
+// regenerations, and the reason the module-load guard below exists at all. An APPEND, not a rename,
+// so every key that was in the tenth genesis (T301's `elective_bundles`) is still here and no key changes
+// meaning. Same acceptance as every prior regeneration: pre-production, no live camps on this sync
+// engine, existing `.automerge` files may be discarded. New pinned head:
+// f6f96b0831040c98b24c4a55f7afe084b2f939c2a05817210a6fde85bdb4c12b
 const GENESIS_B64 =
-  'hW9Kg8nYnsgAsQMBECWl3YlnQBZYZHRLlRX3P0UBoaLqCJnTzqIqHstKEnJhCRfsm/9lk44ougIzi52aPvkGAQIDAhMCIwZAAlYCBx28AiECIwo0AUICVgKAAQJ/AH8Bfyt/1P6C1QZ/AH8HbZHBbhsxDERPTpDECeKiRlKgv9UzIWtnvUK0osCR3Pjvi13BthL0JPKRGg2pP4/Ol3AKJYAP3s1ZZpd5v0QwbpaT914ntcLnwZ1FTzALA7gb3Jmio2iGuRI0vSNiEYM4MhzTjFTEauLP/xT4doWHmoYIybCgA/ffeQkwvn6j/HUFftLgITqOsJCOXWurdM+r99UM6QvMhhEN/r5Cq0m0FpgwucxJe8NEkdvannvOLU7L2EfTmvnUEkYt3LW4hBlyiOo/eLcSbseAOIirZVJ7bUk2PSG55LEdwycGaa13TfYhql83zh/0E4YacbN5QwVzjq6AL1f0F/jgjhk+uCjLf67e3nrSOdx2nC8XvXZn/zUVes3gZv2tp07jseh8YNEEbiphfF9MXPZ3Fnz6WLkMs18L64gdbe2XibvCPysAfgECFwF+aBkQASsrACsAKwAA'
+  'hW9Kg+Ad4fsArgMBEOahoSgLVbqMwn3ekx/R4L0B9vlrCDEEDJiyTEpV96/ghLL5OcKgWBchCm/ehb20wSsGAQIDAhMCIwZAAlYCBx3BAiECIwI0AUICVgKAAQJ/AH8Bfyx/sYfx1QZ/AH8HbZFRTwMhEISfqlFr0xoba+LP8p1QmOsROZbsQLX/3txd2mLjE7vfLsPs8vloXQnHUAL44OyQzWAzV1NEwMeQDrwfUygX48l7J71o4bO3JyNHqAYPbrw90UhnJENtCZJ2iBi1YSwZDmlAKkZr4us/Bb5d4L4mH2EyNIjn9paXAOX6hvL9AlwvwcFI10FH8+ubSvO8OFdVkf7ArOgww48L1JqM1AI1TDazl9YwUcx1i88t5xLHceyDSs18mhNGKdzMcQkDzD6K++LdRLjsAqI3tpZedD0nWeWIZJPDsgs/8GZuvZtlH6K4aeN8oevha8TV5hUVDDnaAq4u6Bv44oYZLthoxv+cvL21pHG4bDhXZ735zvZvaugkg4vpt54ajcciw55FEriohHI3mjjv72Tw42LlOMx2KkwjNnRuP0/cFH4BLAAsASwsACwALAAA'
 
 function genesisDoc() {
   return A.clone(A.load(Uint8Array.from(Buffer.from(GENESIS_B64, 'base64'))))

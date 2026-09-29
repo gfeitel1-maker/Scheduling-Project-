@@ -348,6 +348,35 @@ export function deriveImportedElectiveRunId(campId, sourceSha256) {
   return `erun${V}:${join([opaque('camp_id', campId), opaque('source_sha256', sourceSha256)])}`
 }
 
+// A CAMP SEEDLING — a remembered column mapping. Key: (camp_id, kind, match_key).
+// T312, and the derivation is the ruling rather than a convenience.
+//
+// This entity REPLICATES (owner ruling 2026-09-29, ADR §6.3), and conflict
+// detection is keyed per (entity, entity_id, field). So two devices confirming
+// DIFFERENT readings of the SAME form must land on the same id, or the merge
+// records no conflict, both rows survive, and an arbitrary one wins — the exact
+// shape D4's derived assignment id exists to prevent, one entity over. Minting
+// this per confirmation with randomUUID would look correct on one device and
+// lose a director's decision silently on two.
+//
+// `matchKey` is the output of headerMatchKey (src/ingest/mappingSeedling.js),
+// which is `hdr-` plus hex — it passes `opaque()` for the same reason
+// `sourceSha256` does above, and for the same reason it must: a raw header
+// string carries whitespace and punctuation and would be rejected here, which is
+// the guard doing its job rather than an obstacle to route around. Header text
+// reaches an id ONLY through that normalising digest.
+//
+// A NEW PER-KIND PREFIX at version 1, deliberately not a bump of the module-wide
+// `V`: that constant is shared by eight other id kinds including camper ids, and
+// moving it would re-derive every one of them. Same reasoning as `epref2:`.
+export function deriveCampSeedlingId(campId, kind, matchKey) {
+  return `seed1:${join([
+    opaque('camp_id', campId),
+    opaque('kind', kind),
+    opaque('match_key', matchKey),
+  ])}`
+}
+
 // Key: (run_id, elective_set_id, day_id, time_block_id, tier_id).
 export function deriveElectiveOccurrenceId(runId, electiveSetId, dayId, timeBlockId, tierId) {
   return `eocc${V}:${join([

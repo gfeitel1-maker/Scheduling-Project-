@@ -52,6 +52,12 @@ const permissionsSet = new Set(PERMISSIONS_ENTITIES)
 // electron/auth/participantEntitiesAdminOnly.test.js.
 const PERMISSIONS_ADMIN_ONLY_EXCEPTIONS = new Set([
   'camp_maps',
+  // T312 — a camp's remembered column mapping. Admin-only for the same reason the
+  // participant domain is: it is written and read only inside the elective
+  // preference import, which is admin-only by D9, and a seedling decides how this
+  // camp's sheets are READ on every future import. The reason is carried in full
+  // beside the matching entry in electron/auth/permissionsEntityParity.test.js.
+  'camp_seedlings',
   // Round 2, M2: spread from the single definition rather than re-typed.
   ...PARTICIPANT_ENTITIES,
 ])

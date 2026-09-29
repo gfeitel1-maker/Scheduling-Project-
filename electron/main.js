@@ -32,6 +32,7 @@ import { mergeActivity, previewActivityMerge } from './ops/mergeActivity.js'
 import { confirmCompoundCellPattern } from './ops/confirmCompoundCellPattern.js'
 import { recordDeclinedSplit, listDeclinedSplitNames } from './ops/declinedSplits.js'
 import { recordImportDecisions } from './ops/decisionJournal.js'
+import { rememberColumnMapping } from './ops/rememberColumnMapping.js'
 import { duplicateWeek } from './ops/duplicateWeek.js'
 import { deleteWeek } from './ops/deleteWeek.js'
 import { deleteElectiveSet } from './ops/deleteElectiveSet.js'
@@ -753,6 +754,33 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     if (!camp) return { ok: true }
     recordImportDecisions(db, { campId: camp.id, actorUserId: session.userId, entries })
     return { ok: true }
+  }
+
+  // T312 — remember the column mapping a director just confirmed, so the next
+  // sheet from the same form arrives pre-filled.
+  //
+  // GATED ON `camp_seedlings.write`, which is ADMIN-ONLY BY DEFAULT-DENY rather
+  // than by a hand-written role check: the entity is deliberately absent from
+  // permissions.js ENTITIES, so authorize() refuses staff without this handler
+  // restating the rule. Same mechanism the participant domain uses (ADR D9), and
+  // deliberately NOT the `groups.import` gate its neighbour above carries --
+  // that one is staff-reachable, and a seedling decides how every future import
+  // of this camp's sheets is read.
+  //
+  // Best-effort by CALLER, not by swallowing: this returns its error, and the
+  // panel treats a failure as "not remembered" rather than failing the import,
+  // which has already succeeded by the time this is called.
+  function rememberColumnMappingHandler({ token, matchKey, payload } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const session = requireAuthorized(db, { token, action: 'camp_seedlings.write' })
+    const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+    if (!camp) return { ok: false, error: 'NO_CAMP' }
+    if (!isNonEmptyString(matchKey)) throw new Error('matchKey is required')
+    if (!payload || typeof payload !== 'object') throw new Error('payload is required')
+    return rememberColumnMapping(db, {
+      campId: camp.id, matchKey, payload,
+      authorUserId: session?.userId ?? null, deviceId,
+    })
   }
 
   // Slice 2a — the names ImportScreen filters dualUseNames through before
@@ -2814,6 +2842,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     confirmAlias: confirmAliasHandler,
     recordDeclinedSplit: recordDeclinedSplitHandler,
     recordImportDecisions: recordImportDecisionsHandler,
+    rememberColumnMapping: rememberColumnMappingHandler,
     listDeclinedSplitNames: listDeclinedSplitNamesHandler,
     listCompoundCellDecisions: listCompoundCellDecisionsHandler,
     latestOpSeq: latestOpSeqHandler,
@@ -3080,6 +3109,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:confirm-alias', (_event, args) => handlers.confirmAlias(args))
     ipcMain.handle('shoresh:record-declined-split', (_event, args) => handlers.recordDeclinedSplit(args))
     ipcMain.handle('shoresh:record-import-decisions', (_event, args) => handlers.recordImportDecisions(args))
+    ipcMain.handle('shoresh:remember-column-mapping', (_event, args) => handlers.rememberColumnMapping(args))
     ipcMain.handle('shoresh:list-declined-split-names', (_event, args) => handlers.listDeclinedSplitNames(args))
     ipcMain.handle('shoresh:list-compound-cell-decisions', (_event, args) => handlers.listCompoundCellDecisions(args))
     ipcMain.handle('shoresh:latest-op-seq', () => handlers.latestOpSeq())
