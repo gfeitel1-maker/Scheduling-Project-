@@ -71,7 +71,6 @@ Regenerate with `npm run index:work`.
 | [Stage 4 — a synthetic shape-parameterised import corpus and the two acceptance numbers](../../docs/work/tickets/T282-preference-import-corpus-and-acceptance-metrics.md) | open | — |
 | [A main-side gate that flags a merged ticket whose status never flipped](../../docs/work/tickets/T283-board-truth-audit-gate.md) | open | — |
 | [Nothing stops the next elective finding from printing a label key](../../docs/work/tickets/T302-nothing-stops-the-next-finding-printing-a-label-key.md) | open | — |
-| [A load artifact in an ad-hoc test run looks exactly like a defect](../../docs/work/tickets/T308-a-load-artifact-in-an-ad-hoc-test-run-looks-exactly-like-a-defect.md) | open | — |
 
 ### ui-ux-design
 
