@@ -41,6 +41,34 @@ function readFixtureExpectations(file) {
   return { campers: body.length, choices: labels.size, preferences, body, header }
 }
 
+// A SMALL SLICE of the same fixture, written into the test's own temp dir.
+//
+// The two run-identity tests below assert a property of
+// deriveImportedElectiveRunId(camp_id, source_sha256) — a pure function of the
+// camp and the document's BYTES. Row count has no bearing on it, so proving it
+// against the full sheet bought no coverage and paid ~8,564 field-level op rows
+// per commit for the privilege (the op log is per entity/field: 1,000
+// preferences x 8 fields, 100 campers x 5, plus choices and the run). Both
+// tests commit TWICE. A six-row slice is ~565 rows per commit instead.
+//
+// Stated as work rather than as seconds ON PURPOSE. These two tests were once
+// justified with wall-clock timings taken on a shared 4-core machine at load
+// 70-517, and that was not a measurement: identical reps of one commit in one
+// process ranged 2.2s to 9.8s wall against ~0.9s CPU. Wall clock here says what
+// else was running, not what this code costs. If you need to re-justify the
+// slice, count op rows or use process.cpuUsage() with the arms interleaved.
+//
+// The slice keeps the real header and real rows, so the parse/commit/derive
+// path is the identical one; only the volume changes. The 100-camper volume is
+// still covered, by the exact-counts test above and by
+// scripts/mcp/preferenceSheetE2E.test.js over the stdio transport.
+function sliceOfSheet(dir, name, rows = 6) {
+  const lines = fs.readFileSync(SHEET, 'utf8').trim().split('\n')
+  const file = path.join(dir, name)
+  fs.writeFileSync(file, `${[lines[0], ...lines.slice(1, rows + 1)].join('\n')}\n`)
+  return file
+}
+
 function makeTmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-prefcli-'))
 }
@@ -113,6 +141,20 @@ describe('runPreferenceSheetCli', () => {
     expect(counts(dbPath)).toEqual(before)
   })
 
+  // Keeps the FULL 100-camper sheet where the two run-identity tests below take
+  // a six-row slice, and the asymmetry is deliberate: here the cost IS the
+  // purpose. This asserts the whole document lands exactly the rows the fixture
+  // describes, at the scale where derived-id collisions and name-dedup
+  // regressions have actually been caught. Slicing it would delete the coverage
+  // rather than make it cheaper.
+  //
+  // It briefly carried a per-test timeout override. The commit writes 8,564
+  // field-level op rows (1,000 preferences x 8 fields, 100 campers x 5, plus
+  // choices and the run), and `appendOp` was opening a per-op SAVEPOINT inside
+  // the boundary `runAtomic` had already promised — which obliged SQLite to keep
+  // sub-journal undo records for every write inside it. T309 fixed that
+  // (`insideAtomicBoundary`, electron/ops/operations.js), so the override is
+  // gone and this runs at the default testTimeout again.
   it('commits the sheet and writes exactly the rows the fixture describes', () => {
     const dir = makeTmpDir()
     dirs.push(dir)
@@ -173,14 +215,23 @@ describe('runPreferenceSheetCli', () => {
     const dir = makeTmpDir()
     dirs.push(dir)
     const { dbPath, userId } = bootstrapDb(dir)
-    const expected = readFixtureExpectations(SHEET)
+    const sheet = sliceOfSheet(dir, 'resent.csv')
+    const expected = readFixtureExpectations(sheet)
 
-    const first = runPreferenceSheetCli({ file: SHEET, dbPath, action: 'commit', authorUserId: userId })
+    const first = runPreferenceSheetCli({ file: sheet, dbPath, action: 'commit', authorUserId: userId })
     expect(first.ok).toBe(true)
     const afterFirst = counts(dbPath)
     expect(afterFirst.runs).toBe(1)
+    // The slice really imported a populated run. Without this, an unreadable
+    // slice would write nothing and every "unchanged" assertion below would
+    // hold vacuously — the test would go green by importing twice as hard as
+    // it could not import once.
+    expect(expected.campers).toBeGreaterThan(1)
+    expect(expected.preferences).toBeGreaterThan(1)
+    expect(afterFirst.campers).toBe(expected.campers)
+    expect(afterFirst.preferences).toBe(expected.preferences)
 
-    const second = runPreferenceSheetCli({ file: SHEET, dbPath, action: 'commit', authorUserId: userId })
+    const second = runPreferenceSheetCli({ file: sheet, dbPath, action: 'commit', authorUserId: userId })
     expect(second.ok).toBe(true)
     expect(second.runId).toBe(first.runId)
 
@@ -203,19 +254,23 @@ describe('runPreferenceSheetCli', () => {
     dirs.push(dir)
     const { dbPath } = bootstrapDb(dir)
 
+    const original = sliceOfSheet(dir, 'original.csv')
     const corrected = path.join(dir, 'corrected.csv')
-    const lines = fs.readFileSync(SHEET, 'utf8').trim().split('\n')
+    const lines = fs.readFileSync(original, 'utf8').trim().split('\n')
     // One camper's name spelled differently — a real correction, still valid.
     lines[1] = lines[1].replace(/^([^,]*,)([^,]*)/, '$1Corrected Name')
     fs.writeFileSync(corrected, `${lines.join('\n')}\n`)
-    expect(fs.readFileSync(corrected)).not.toEqual(fs.readFileSync(SHEET))
+    expect(fs.readFileSync(corrected)).not.toEqual(fs.readFileSync(original))
 
-    const a = runPreferenceSheetCli({ file: SHEET, dbPath, action: 'commit' })
+    const a = runPreferenceSheetCli({ file: original, dbPath, action: 'commit' })
     const b = runPreferenceSheetCli({ file: corrected, dbPath, action: 'commit' })
     expect(a.ok).toBe(true)
     expect(b.ok).toBe(true)
     expect(b.runId).not.toBe(a.runId)
     expect(counts(dbPath).runs).toBe(2)
+    // Non-vacuity again: two runs of a document that imported NOTHING would
+    // also carry two different ids.
+    expect(counts(dbPath).campers).toBeGreaterThan(1)
   })
 
   // Red Hat F2. A raw 'FOREIGN KEY constraint failed' sends a director nowhere.
