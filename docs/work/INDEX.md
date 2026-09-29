@@ -70,7 +70,6 @@ Regenerate with `npm run index:work`.
 | [CI minutes: stop re-verifying a tree that already went green](../../docs/work/tickets/T261-ci-minutes-duplicate-main-runs.md) | open | — |
 | [Stage 4 — a synthetic shape-parameterised import corpus and the two acceptance numbers](../../docs/work/tickets/T282-preference-import-corpus-and-acceptance-metrics.md) | open | — |
 | [A main-side gate that flags a merged ticket whose status never flipped](../../docs/work/tickets/T283-board-truth-audit-gate.md) | open | — |
-| [Nothing stops the next elective finding from printing a label key](../../docs/work/tickets/T302-nothing-stops-the-next-finding-printing-a-label-key.md) | open | — |
 
 ### ui-ux-design
 
@@ -244,6 +243,7 @@ They are different facts and a run can carry a bad one of each.
 | Date | Run | Class | Status | Verdict |
 |---|---|---|---|---|
 | 2026-09-29 | [docs(T311): closes T311 — the sweep landed; findings go to the board, not to tickets](../../docs/work/runs/2026-09-29-docs-t311-closes-t311-the-sweep-landed-findings-go-to-the-bo.md) | documentation-governance | pass | pass |
+| 2026-09-29 | [T302: a new elective finding cannot reach a director naming an activity by its label key (closes T302)](../../docs/work/runs/2026-09-29-t302-a-new-elective-finding-cannot-reach-a-director-naming-a.md) | test-infrastructure | pass | PASS |
 | 2026-09-28 | [T267 PR2 — cut fixed/recurring event resolution over to activity_id; delete name-matching fallback](../../docs/work/runs/2026-09-28-t267-pr2-id-cutover.md) | database-sync | in-progress | _no verdict yet_ |
 | 2026-09-28 | [T267 PR3 — cosmetic rename cleanup (discharge T293 findings B, G, H); no behavior change](../../docs/work/runs/2026-09-28-t267-pr3-cosmetic-cleanup.md) | documentation-governance | in-progress | _no verdict yet_ |
 | 2026-09-28 | [T292 — self-maintaining openable workbook of the camp's data (spec slices S1 + S2)](../../docs/work/runs/2026-09-28-t292-camp-data-record-self-maintaining-workbook.md) | architecture | pass | PASS |

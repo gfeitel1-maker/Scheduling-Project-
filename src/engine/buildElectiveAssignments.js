@@ -170,6 +170,20 @@ export function buildElectiveAssignments({
   choiceOfferings = [],
 } = {}) {
   const assignments = []
+  // ADDING A FINDING KIND? QUOTE THE LABEL. T302.
+  //
+  // Every finding here reaches a director through `findingDisplayMessage`
+  // (src/screens/elective/assignment/findingDisplayMessage.js), which swaps an
+  // internal label key for the name the director gave that activity. It anchors
+  // on the QUOTES around the label, because a bare replace would rewrite the
+  // prose — an elective called 'Run' would turn "campers it needs to run" into
+  // "campers it needs to Run". So a key interpolated WITHOUT quotes is invisible
+  // to it and reaches the screen as `arts&crafts`.
+  //
+  // A new `kind:` literal in this file fails
+  // src/screens/elective/assignment/findingLabelCoverage.test.js until you add a
+  // fixture there. That guard is deliberately narrow and its header lists what it
+  // cannot see — read it rather than assuming it covers you.
   const findings = []
 
   // Every ordering below is a total order over stable ids, never the iteration

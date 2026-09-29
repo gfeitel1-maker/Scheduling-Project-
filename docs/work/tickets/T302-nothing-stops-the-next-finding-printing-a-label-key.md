@@ -1,7 +1,7 @@
 ---
 title: "Nothing stops the next elective finding from printing a label key"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-29
 task_class: test-infrastructure
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/TESTING_STANDARD.md]
@@ -76,3 +76,45 @@ to protect. See `feedback_plant_the_defect_the_guard_cannot_see`.
 - The guard, planted red and restored green, with the planted shape written down.
 - A written list of what the guard structurally cannot observe, in the guard's own header — an
   accurately described narrow guard is fine; a narrow guard described broadly is the defect.
+
+## Closed — what shipped, and how narrow it is
+
+`src/screens/elective/assignment/findingLabelCoverage.test.js`, approach **(a)**, the enumerating
+test. The kinds are read OUT OF THE PRODUCER SOURCE rather than hand-listed, so a new `kind:`
+literal in either producer fails the file until it has a fixture. Nine kinds covered — seven from
+`buildElectiveAssignments`, two from `findMismatches` — each driven through the real producer.
+Modelled on `electron/ops/mergeActivity.test.js`, including its bidirectional check: a fixture for a
+kind nobody emits any more also fails, so a stale entry cannot make the file look broader than it is.
+
+Each kind declares whether its message may name an activity, and **the declaration is proved rather
+than trusted** — a kind declared label-free must demonstrate its message holds no key. Without that
+half the table would be an escape hatch: a future author could silence a real bug by declaring the
+kind label-free. Every fixture must also actually emit its kind; a fixture that stopped triggering
+is reported by name, never skipped, which is how T300's first guard came to survive its own plant.
+
+**Planted red three times, one per failure mode the ticket names, each restored:**
+
+1. A kind DECLARED label-free starts carrying a key unquoted (added `(${here[0].labelKey})` to
+   `NO_CAPACITY`) — red on `NO_CAPACITY` alone. This is the plant a reader would expect the table to
+   hide, which is why it is the one that matters.
+2. An existing producer stops quoting its label (removed the curly quotes from `BELOW_MINIMUM`) —
+   red, quoting the key and the remedy.
+3. A brand-new kind appears (renamed `UNRANKED_OFFERING` to `BRAND_NEW_FINDING`) — red twice, and
+   both correct: the divergence check named the new kind and its file, and `UNRANKED_OFFERING`'s own
+   test failed because its fixture no longer emitted it.
+
+**Where the blind spots are written down.** The guard's own header lists what it structurally cannot
+see. Because the next author of a finding works in a PRODUCER and may never open the test, a short
+pointer sits at `const findings = []` in `src/engine/buildElectiveAssignments.js` and above
+`findMismatches` in `src/screens/elective/assignment/buildOfferings.js`, naming the quoting rule and
+sending the reader to the guard's header rather than implying it covers them.
+
+**Deliberately NOT covered, and stated so the guard is not read as broader than it is.** The rail is
+composed from five sources in `AssignmentPanel.jsx`; only the two this ticket names are scanned.
+`UNMATCHED_DIVISION` / `AMBIGUOUS_DIVISION` quote a DIVISION value off the sheet, never an activity
+label key; the coordinate residue names day and period labels (`resolvePreferenceCoordinates.js`
+contains no `labelKey`); `deriveOccurrences`' findings never reach this rail. Verified 2026-09-29 —
+those two producers are the only ones that can emit an activity-label-keyed finding. Also not
+covered: the render wiring, since these assertions call `findingDisplayMessage` directly. That is
+pinned separately, for four kinds, by `AssignmentPreview.test.jsx` — do not delete those tests on the
+grounds that this file exists.
