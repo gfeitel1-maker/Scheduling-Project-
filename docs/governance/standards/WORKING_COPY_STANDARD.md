@@ -118,6 +118,28 @@ and its history is visible. It does not live in an untracked directory outside v
 **Why:** `scripts/integration.sh` ran unattended against the main checkout for months from
 `~/.claude/projects/…`, where no review, history, or backup applied to it.
 
+### R8 — A branch's upstream is the branch it will be pushed to, or nothing
+
+Creating a branch from anywhere other than its eventual push target sets the upstream to that other
+place. Clear it in the same breath — `git branch --unset-upstream` — and make the first push explicit:
+`git push -u origin <branch>`, never a bare `git push`. This applies again on every **re-point**:
+rebasing onto `origin/main` sets the upstream to `main` itself.
+
+Branching from another session's branch stays correct, and is sometimes the only correct move — it is
+how work builds on an unmerged change without two sessions editing one function concurrently. Only
+the upstream it leaves behind is the hazard.
+
+**Why:** on 2026-09-29 a T307 branch was created from T305's branch, which was right: T307 had to
+change `confirmMapping` in `src/screens/elective/assignment/AssignmentPanel.jsx` while T305 was in
+flight changing that same function's signature. Its upstream was therefore
+`origin/claude/elegant-hugle-bd9d3d`, and a bare push would have added T307's commits to the branch
+backing an open pull request — surfacing later as "why does that PR contain changes nobody wrote",
+after review had passed over it. It was caught by another session reading the tracking ref, not by
+any check. This is §1's failure shape exactly: `git status --porcelain`, the form an agent parses,
+**omits the branch header entirely**, so the tracking ref that plain `git status` prints is absent
+from precisely the output the actor is reading. See
+[T310](../../work/tickets/T310-a-branch-created-from-another-sessions-branch-pushes-into-their-pr.md).
+
 ---
 
 ## 3. What the 06:30 routine does and does not do
@@ -159,3 +181,6 @@ letting it repeat.
 - `zsh -n scripts/integration.sh` — the routine parses.
 - `grep -n 'reset --hard' scripts/integration.sh` — every hit must be inside a comment or an
   advisory string that is printed, never executed (R3).
+- `git rev-parse --abbrev-ref --symbolic-full-name @{u}` — in a session's own branch, before its
+  first push, this must **error** with "no upstream configured" (R8). A branch name that is not the
+  one being pushed to is the failure.

@@ -1,7 +1,7 @@
 ---
 title: "A director's column correction is honoured by the import"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-29
 task_class: ui-ux-design
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/TESTING_STANDARD.md, docs/governance/standards/DESIGN_STANDARD.md]
@@ -192,3 +192,45 @@ Observable, in the rendered panel:
   `readPreferenceSheet` at all. So it is untouched by this change rather than deliberately excluded
   from it. An agent that knows a layout and wants to state it is a reasonable next ticket; it is not
   this one, and it would want the same normalisation rather than a second copy of it.
+
+## What shipped
+
+Merged in PR #624 (`743448f5`), CI green.
+
+- `readPreferenceSheet` takes an optional `mapping`. Absent, it locates the layout exactly as before.
+  `scripts/preferenceSheetCli.js` — the path the MCP tools reach through `runPreferenceSheetCli` —
+  does not call `readPreferenceSheet` at all, so the machine path is untouched rather than
+  deliberately excluded.
+- `mappingWithDirectorOverride` normalises a hand-edited mapping into one the inferencer could have
+  produced: derived fields recomputed from the roles, shape gates re-applied.
+- `describeCoverage` extracted, so inference and override share one definition of what a set of roles
+  covers instead of two that drift.
+- `describeMappingReadiness` replaces the confirm gate's private copy of "what counts as readable"
+  with the transform's own `unmapped`, and reports a column carrying two roles.
+- `MappingCorrector` stops hand-patching `unmapped` in its own mutators — the same stale-derived-field
+  defect this ticket fixes downstream, one layer up.
+
+**Two corrections made during implementation, both to this ticket's own first design.** Recorded
+because each would have shipped a new defect while fixing the stated one:
+
+1. The first gate kept `rankColumns.length > 0`. An **inverted matrix** carries its ranks in its cells
+   and has no rank columns, so a director could only pass that gate by adding a dummy rank — which is
+   precisely the edit that closes the inverted-matrix gate. Harmless while the mapping was discarded;
+   destructive the moment it is honoured. This is why the gate asks `unmapped` rather than restating
+   it, and it is the same fault T305 found one shape over.
+2. The first collision guard would have re-created the dead end it exists to prevent. Inference
+   double-assigns a column unaided — a header matching both the name and the division pattern — and
+   refusing that hands a director a disabled button naming roles they have no control for. Hence
+   `fixable`: a collision is reported only when at least one of its roles can be moved.
+
+## Known limits at close
+
+- **A correction is not remembered.** One import obeys one correction; the next import of the same
+  camp's next sheet asks again. The remembered-binding direction (T298's shape, applied to column
+  roles rather than labels) is still the right long-term answer and is not closed by this ticket.
+- **The machine path cannot state a mapping.** An agent that knows a layout has no way to say so,
+  because the CLI reaches past `readPreferenceSheet` to `parsePreferenceSheet` directly. That fork
+  predates this ticket — T303's close records the same fork from the subject-identity side — and
+  narrowing it would want the same normalisation rather than a second copy of it.
+- **The header recognisers are unchanged.** `Pick A` still is not understood; it is now mappable by
+  hand. A sheet whose columns a director cannot identify either is still refused, correctly.
