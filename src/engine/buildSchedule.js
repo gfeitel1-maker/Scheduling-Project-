@@ -254,6 +254,25 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
   // Day-agnostic within a group, deliberately: an anchor IS that group's
   // scheduling of that activity for the week, which is T62's premise.
   const anchoredActivityIdsByGroupDayMap = anchoredActivityIdsByGroupDay(anchors, activities, groups, { days, weekId })
+
+  // Board finding, 2026-09-29: two anchors can target the same cell — an
+  // all-weeks fixed event (schedule_week_id == null) and a week-scoped
+  // override for the week being built. A week-scoped anchor is an override:
+  // it beats an all-weeks one at the same cell regardless of which one this
+  // loop visits last. (Two anchors of the SAME scope colliding is unrelated
+  // and stays last-write-wins, as before.)
+  function setAnchorLookup(key, anchor) {
+    const existing = anchorLookup.get(key)
+    if (existing && existing.schedule_week_id == null && anchor.schedule_week_id != null) {
+      anchorLookup.set(key, anchor)
+      return
+    }
+    if (existing && existing.schedule_week_id != null && anchor.schedule_week_id == null) {
+      return
+    }
+    anchorLookup.set(key, anchor)
+  }
+
   for (const anchor of anchors) {
     // Scope resolution order (unit_ids > unit_id > is_all_groups > group_ids)
     // lives in one place, shared with weekCatalog.js — the two disagreeing is
@@ -277,7 +296,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
     for (const gid of groupList) {
       for (const did of dayList) {
         // Head block
-        anchorLookup.set(`${gid}|${did}|${anchor.time_block_id}`, { ...anchor, _isSpanHead: true })
+        setAnchorLookup(`${gid}|${did}|${anchor.time_block_id}`, { ...anchor, _isSpanHead: true })
         // Tail blocks (span_blocks > 1)
         if (spanBlocks > 1) {
           const headIdx = blockOrder.get(anchor.time_block_id)
@@ -285,7 +304,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
             for (let i = 1; i < spanBlocks; i++) {
               const tailBlock = timeBlocksSorted[headIdx + i]
               if (tailBlock) {
-                anchorLookup.set(`${gid}|${did}|${tailBlock.id}`, { ...anchor, _isSpanHead: false })
+                setAnchorLookup(`${gid}|${did}|${tailBlock.id}`, { ...anchor, _isSpanHead: false })
               }
             }
           }

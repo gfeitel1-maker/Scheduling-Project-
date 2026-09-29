@@ -161,6 +161,57 @@ describe('week-bound anchors (schedule_week_id, Slice 2)', () => {
     const { slots } = buildSchedule(minimal({ activities: [lunch], anchors: [weekBoundAnchor] }))
     expect(slots.filter(s => s.type === 'anchor' && s.anchorId === 'anc-wk')).toHaveLength(0)
   })
+
+  // Board finding, 2026-09-29: a week-scoped override anchor and an all-weeks
+  // anchor both claiming the same group/day/block landed on the grid (and
+  // therefore in the export) by array order — last one written to
+  // anchorLookup won, not "the one that actually applies to this week". The
+  // week-scoped anchor is an override and must win regardless of input order.
+  // Load-bearing against last-write-wins (fail on main / a naive revert):
+  // "...BEFORE the all-weeks anchor..." and the head+tail span test below.
+  // Regression pins (already passed on main by luck of array order, kept so a
+  // future change can't flip them back): "...AFTER the all-weeks anchor..."
+  // and "...does not target".
+  describe('week-scoped override beats an all-weeks anchor at the same cell (board 2026-09-29)', () => {
+    const shabbatLunch = { id: 'shabbat-lunch', name: 'Shabbat Lunch', priority: 'high', max_per_week: 10, min_per_week: 0, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
+    const allWeeks = { id: 'anc-all', activity_id: 'lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1, schedule_week_id: null }
+    const override = { id: 'anc-wk', activity_id: 'shabbat-lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1, schedule_week_id: 'week-A' }
+
+    it('override wins when it comes AFTER the all-weeks anchor in the input array', () => {
+      const { slots } = buildSchedule(minimal({ activities: [lunch, shabbatLunch], anchors: [allWeeks, override], weekId: 'week-A' }))
+      const b1 = slots.filter(s => s.type === 'anchor' && s.blockId === 'b1')
+      expect(b1.map(s => s.anchorId)).toEqual(['anc-wk'])
+    })
+
+    it('override wins when it comes BEFORE the all-weeks anchor in the input array', () => {
+      const { slots } = buildSchedule(minimal({ activities: [lunch, shabbatLunch], anchors: [override, allWeeks], weekId: 'week-A' }))
+      const b1 = slots.filter(s => s.type === 'anchor' && s.blockId === 'b1')
+      expect(b1.map(s => s.anchorId)).toEqual(['anc-wk'])
+    })
+
+    it('the all-weeks anchor still applies on a week the override does not target', () => {
+      const { slots } = buildSchedule(minimal({ activities: [lunch, shabbatLunch], anchors: [allWeeks, override], weekId: 'week-B' }))
+      const b1 = slots.filter(s => s.type === 'anchor' && s.blockId === 'b1')
+      expect(b1.map(s => s.anchorId)).toEqual(['anc-all'])
+    })
+
+    it('a multi-block override beats all-weeks anchors at both its head and tail blocks', () => {
+      const block2 = { id: 'b2', name: 'Late Morning', start_time: '10:30', end_time: '11:45', sort_order: 1, part_of_day: 'morning' }
+      const allWeeksHead = { ...allWeeks, id: 'anc-all-head', time_block_id: 'b1' }
+      const allWeeksTail = { ...allWeeks, id: 'anc-all-tail', time_block_id: 'b2' }
+      const spanningOverride = { ...override, id: 'anc-wk-span', span_blocks: 2, time_block_id: 'b1' }
+      const { slots } = buildSchedule(minimal({
+        timeBlocks: [baseBlock, block2],
+        activities: [lunch, shabbatLunch],
+        anchors: [spanningOverride, allWeeksHead, allWeeksTail],
+        weekId: 'week-A',
+      }))
+      const b1 = slots.filter(s => s.type === 'anchor' && s.blockId === 'b1')
+      const b2 = slots.filter(s => s.type === 'anchor' && s.blockId === 'b2')
+      expect(b1.map(s => s.anchorId)).toEqual(['anc-wk-span'])
+      expect(b2.map(s => s.anchorId)).toEqual(['anc-wk-span'])
+    })
+  })
 })
 
 // T41 slice 1 (group-level electives,
