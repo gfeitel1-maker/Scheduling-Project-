@@ -125,7 +125,7 @@ later reader sees what was actually decided and what diverged from it in the bui
   shared function, `deriveElectiveRunOuterRows`, called by both the draft-read handler
   (`getElectiveRunOuterScheduleHandler` in `electron/main.js`) and `finalizeElectiveRun.js`, so
   draft-derive and finalize are provably symmetric — asserted directly by
-  `electron/ops/electiveRunOuterSchedule.integration.test.js`.
+  `electron/electiveRunOuterSchedule.integration.test.js`.
 - The response is an object, not a bare array, because it must also carry
   `finalizedAgainstStaleGeneration` (per the Q1/Q2 condition above) alongside the rows.
 - Span-awareness is done in the main process, not via the renderer helpers decision (d) names: one
