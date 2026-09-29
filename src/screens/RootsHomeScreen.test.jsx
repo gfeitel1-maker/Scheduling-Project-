@@ -390,4 +390,107 @@ describe('RootsHomeScreen', () => {
     const { NARROW_BREAKPOINT_PX } = await import('./RootsHomeScreen.jsx')
     expect(NARROW_BREAKPOINT_PX).toBe(SIDEBAR_WIDTH_PX + 48 + 300 + 24 + 562)
   })
+
+  // ——— T304 ——————————————————————————————————————————————————————————————
+  // A read that failed must never render as a camp that is empty or settled.
+  // The defect these pin: `localClient.list(entity).catch(() => [])` made every
+  // failure indistinguishable from "none of these exist", so a staff session
+  // whose `campers` read was DENIED saw "Nothing needs you right now." on a camp
+  // with unnamed submissions waiting — the same screen the bug had shown all along.
+
+  it('does not claim nothing needs attention when a collection could not be read', async () => {
+    const collections = collectionsFor()
+    localClient.list.mockImplementation((entity) =>
+      entity === 'campers'
+        ? Promise.reject(new Error('admin role required'))
+        : Promise.resolve(collections[entity] ?? []),
+    )
+
+    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByTestId('attention-unread-notice')).not.toBeNull())
+
+    // The all-clear is a claim about collections that were read. This one wasn't.
+    expect(screen.queryByText('Nothing needs you right now.')).toBeNull()
+    expect(screen.queryByTestId('attention-empty-check')).toBeNull()
+  })
+
+  // NON-VACUITY for the test above. Asserting the ABSENCE of the all-clear
+  // passes just as happily if the rail stopped rendering, if the screen threw,
+  // or if the notice were pinned on permanently. The healthy camp must still
+  // get its all-clear and must NOT get the notice.
+  it('still gives the calm all-clear, and no notice, when every collection reads', async () => {
+    const collections = collectionsFor()
+    localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
+
+    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Nothing needs you right now.')).not.toBeNull())
+
+    expect(screen.queryByTestId('attention-unread-notice')).toBeNull()
+  })
+
+  // The notice is a caveat on the LIST, not a substitute for an empty one —
+  // a partial read makes a NON-empty rail incomplete too. Suppressing it
+  // whenever some other row happened to appear would rebuild the silence one
+  // case narrower, which is the shape of defect this ticket exists to remove.
+  it('shows the notice alongside real attention rows, not only instead of the empty state', async () => {
+    const collections = collectionsFor({ tiers: [] })
+    localClient.list.mockImplementation((entity) =>
+      entity === 'campers'
+        ? Promise.reject(new Error('admin role required'))
+        : Promise.resolve(collections[entity] ?? []),
+    )
+
+    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Age divisions')).not.toBeNull())
+
+    expect(screen.queryByTestId('attention-unread-notice')).not.toBeNull()
+  })
+
+  it('renders an unreadable card count as an em dash, never as 0', async () => {
+    const collections = collectionsFor()
+    localClient.list.mockImplementation((entity) =>
+      entity === 'activities'
+        ? Promise.reject(new Error('boom'))
+        : Promise.resolve(collections[entity] ?? []),
+    )
+
+    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    const unread = await screen.findByTestId('card-count-unread-activities')
+
+    expect(unread.textContent).toBe('\u2014')
+    // The wrong number is the defect, not the missing one: this camp has one
+    // activity, and "0 Activities" would be a confident lie about it.
+    expect(unread.textContent).not.toBe('0')
+    expect(unread.getAttribute('aria-label')).toMatch(/couldn/i)
+  })
+
+  // days_and_blocks sums TWO collections, so either one being unreadable makes
+  // the sum unknown. A card that quietly reported only the half it managed to
+  // read would be the same defect with better arithmetic.
+  it('treats a two-collection card as unreadable when either half fails', async () => {
+    const collections = collectionsFor()
+    localClient.list.mockImplementation((entity) =>
+      entity === 'time_blocks'
+        ? Promise.reject(new Error('boom'))
+        : Promise.resolve(collections[entity] ?? []),
+    )
+
+    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    const unread = await screen.findByTestId('card-count-unread-days_and_blocks')
+    expect(unread.textContent).toBe('\u2014')
+  })
+
+  // NON-VACUITY for the two above: the em-dash path must not be what every card
+  // takes. A healthy card still prints its real number and carries no unread marker.
+  it('positive control: a readable card still prints its real count', async () => {
+    const collections = collectionsFor()
+    localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
+
+    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Activities')).not.toBeNull())
+
+    expect(screen.queryByTestId('card-count-unread-activities')).toBeNull()
+    expect(screen.queryByTestId('card-count-unread-days_and_blocks')).toBeNull()
+  })
+
 })

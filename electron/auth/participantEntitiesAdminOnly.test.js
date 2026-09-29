@@ -20,7 +20,10 @@ import { authorize } from './authorize.js'
 import { PERMISSIONS, ENTITIES } from './permissions.js'
 import { RESTORE_DECISIONS, RESTORABLE_ENTITIES } from '../ops/restore.js'
 import { PROJECTIONS } from '../ops/projections.js'
-import { PARTICIPANT_ENTITIES as REGISTERED_PARTICIPANT_ENTITIES } from '../ops/participantEntities.js'
+import {
+  PARTICIPANT_ENTITIES as REGISTERED_PARTICIPANT_ENTITIES,
+  STAFF_READABLE_PARTICIPANT_ENTITIES,
+} from '../ops/participantEntities.js'
 
 // Round 2, M2: imported from the single definition. A hand-kept copy here is a
 // guard that cannot notice an eighth entity — the exact shape this repo has
@@ -28,6 +31,19 @@ import { PARTICIPANT_ENTITIES as REGISTERED_PARTICIPANT_ENTITIES } from '../ops/
 const PARTICIPANT_ENTITIES = [...REGISTERED_PARTICIPANT_ENTITIES]
 
 const VERBS = ['read', 'write', 'delete', 'restore', 'bulk_replace', 'import']
+
+// T304 — the loops below skip exactly the (entity, verb) pairs the owner's
+// 2026-09-29 ruling opened, DERIVED from the same constant permissions.js
+// derives the grant from. Typing 'campers.read' here as a literal would be the
+// hand-kept second copy this module was created to abolish: the skip and the
+// grant could then disagree, and the loop would go on passing while doing less.
+//
+// A skip is not a hole. Every pair skipped here is asserted BY NAME below —
+// `campers.read` positively (staff must hold it) and every other campers verb
+// negatively — so relaxing the loop cannot quietly relax the rule.
+function isStaffGranted(entity, verb) {
+  return verb === 'read' && STAFF_READABLE_PARTICIPANT_ENTITIES.has(entity)
+}
 
 afterAll(() => {
   cleanupTemplatedDbs()
@@ -84,9 +100,10 @@ describe('the participant domain is admin-only (ADR D9)', () => {
     }
   })
 
-  it('grants staff no action naming any of the seven, for any verb', () => {
+  it('grants staff no action naming any of the seven, for any verb but the T304 exception', () => {
     for (const entity of PARTICIPANT_ENTITIES) {
       for (const verb of VERBS) {
+        if (isStaffGranted(entity, verb)) continue
         expect(PERMISSIONS.staff, `staff must not hold ${entity}.${verb}`).not.toContain(
           `${entity}.${verb}`
         )
@@ -94,10 +111,44 @@ describe('the participant domain is admin-only (ADR D9)', () => {
     }
   })
 
+  // T304 — the exception set must name only REGISTERED participant entities.
+  // A typo ('camper', 'campers ') would silently grant nothing while reading
+  // like a grant, and the skip above would stop skipping — a failure that
+  // looks like success from both directions.
+  it('every staff-readable exception is a registered participant entity', () => {
+    expect(STAFF_READABLE_PARTICIPANT_ENTITIES.size).toBeGreaterThan(0)
+    for (const entity of STAFF_READABLE_PARTICIPANT_ENTITIES) {
+      expect(
+        REGISTERED_PARTICIPANT_ENTITIES.has(entity),
+        `${entity} is exempted but is not a participant entity`
+      ).toBe(true)
+    }
+  })
+
+  // T304 — the exception is READ ONLY. permissions.js derives the grant by
+  // mapping this set to `.read`; if it were ever folded into ENTITIES instead,
+  // `.write` would come with it silently. This is the assertion that catches
+  // that, and it is deliberately derived from the same set.
+  it('the staff-readable exception grants read and nothing else', () => {
+    for (const entity of STAFF_READABLE_PARTICIPANT_ENTITIES) {
+      expect(PERMISSIONS.staff).toContain(`${entity}.read`)
+      for (const verb of VERBS.filter((v) => v !== 'read')) {
+        expect(PERMISSIONS.staff, `staff must not hold ${entity}.${verb}`).not.toContain(
+          `${entity}.${verb}`
+        )
+      }
+      expect(ENTITIES, `${entity} must still be out of ENTITIES`).not.toContain(entity)
+    }
+  })
+
   // Asserted BY NAME as well as by the loop, per the ADR and the ticket, so a
   // future refactor of the loop cannot quietly drop them.
-  it('grants staff no campers.read', () => {
-    expect(PERMISSIONS.staff).not.toContain('campers.read')
+  // T304 — INVERTED from 'grants staff no campers.read' by owner ruling,
+  // 2026-09-29. Asserted by name as well as through the loop, in the same
+  // spirit as the original: a future refactor of the exception mechanism must
+  // not quietly drop the grant the Roots home depends on.
+  it('grants staff campers.read (T304 owner ruling)', () => {
+    expect(PERMISSIONS.staff).toContain('campers.read')
   })
   it('grants staff no campers.write', () => {
     expect(PERMISSIONS.staff).not.toContain('campers.write')
@@ -109,13 +160,31 @@ describe('the participant domain is admin-only (ADR D9)', () => {
     expect(PERMISSIONS.staff).not.toContain('elective_assignments.read')
   })
 
-  it('denies a real staff token every verb on every one of the seven', () => {
+  it('denies a real staff token every verb on every one of the seven, but the T304 exception', () => {
     const token = staffToken()
     for (const entity of PARTICIPANT_ENTITIES) {
       for (const verb of VERBS) {
+        if (isStaffGranted(entity, verb)) continue
         const result = authorize({ db, token, action: `${entity}.${verb}` })
         expect(result.allowed, `staff was ALLOWED ${entity}.${verb}`).toBe(false)
       }
+    }
+  })
+
+  // T304 — the matrix above is a data assertion; this is the behavioural one.
+  // A real staff token must actually get through authorize() for the granted
+  // action, or the Roots home is still empty for the role it was opened for.
+  it('allows a real staff token the granted read, and still refuses its write', () => {
+    const token = staffToken()
+    for (const entity of STAFF_READABLE_PARTICIPANT_ENTITIES) {
+      expect(
+        authorize({ db, token, action: `${entity}.read` }).allowed,
+        `staff was DENIED ${entity}.read`
+      ).toBe(true)
+      expect(
+        authorize({ db, token, action: `${entity}.write` }).allowed,
+        `staff was ALLOWED ${entity}.write`
+      ).toBe(false)
     }
   })
 
@@ -150,8 +219,18 @@ describe('history and Trash on the seven are admin-only BY CONSTRUCTION', () => 
     // requireAuthorized(db, { token, action: `${entity}.read` }) — a PER-ENTITY
     // action, not blanket 'trash.read'. So per-record history on the seven is
     // already admin-only, with no mechanism change.
+    //
+    // T304 — and this is exactly why the exception is skipped rather than the
+    // test deleted. `campers.read` now opens per-record CAMPER HISTORY to
+    // staff as well as the roster, because this handler derives its action
+    // from the entity name. That was counted before the grant was written
+    // (T304, "what changes") and is a consequence of the owner's ruling, not
+    // an oversight: it is "who renamed this subject and when" for a role that
+    // may already read the name. Recorded here so the next reader of this file
+    // finds it stated rather than inferring it from a skip.
     const token = staffToken()
     for (const entity of PARTICIPANT_ENTITIES) {
+      if (STAFF_READABLE_PARTICIPANT_ENTITIES.has(entity)) continue
       expect(authorize({ db, token, action: `${entity}.read` }).allowed).toBe(false)
     }
     // ...and the handler additionally requires PROJECTIONS[entity], which all

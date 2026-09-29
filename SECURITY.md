@@ -376,9 +376,31 @@ which is what every existing call site passes, and the guard keys on the exact r
 name — an unregistered spelling is refused outright rather than silently passing through
 (`electron/ops/participantEntities.js` is the single definition every guard derives from).
 
-Access is admin-only (D9): no non-admin role has any in-app read path to any of the eight, and staff
-receive the exported artifact instead. See `electron/auth/participantEntitiesAdminOnly.test.js`,
-which asserts the negative.
+Access is admin-only (D9) with **one read exception**. _Prior: "no non-admin role has any in-app
+read path to any of the eight, and staff receive the exported artifact instead." Amended
+2026-09-29 (T304) by owner ruling._
+
+Staff hold **`campers.read`** — and nothing else on the participant domain: no write, delete,
+restore, bulk_replace or import, and no access of any kind to the other seven entities. The ruling
+was that the `staff` role in this product means administrative staff, and that a child's name is
+not a secret from the people who are with that child; the occasion was that an elective import's
+unnamed submissions are raised on the Roots home, which staff reach. See the D9 amendment in
+`docs/adr/2026-09-17-individual-elective-scheduling.md`.
+
+Mechanically the exception is `STAFF_READABLE_PARTICIPANT_ENTITIES`
+(`electron/ops/participantEntities.js`), which `electron/auth/permissions.js` maps to `.read` only.
+`campers` stays **out of `ENTITIES`** — that is what keeps `.write` from being derived alongside —
+and stays **in `PARTICIPANT_ENTITIES`**, so the audit PII guard, the restore refusal and the MCP
+entity-map exclusion are unchanged.
+
+**Two read surfaces open with the grant, both counted before it was written:** `list('campers')`,
+and per-record camper **history**, because `getEntityHistoryHandler` derives its action from the
+entity name. `listByScope` does not — `campers` is absent from `SCOPED_LIST_ENTITIES`.
+
+`electron/auth/participantEntitiesAdminOnly.test.js` still asserts the negative for everything
+else: it derives its one skip from the same constant, inverts the `campers.read` assertion rather
+than deleting it, and adds explicit checks that `campers.write` and every other verb are still
+refused to a real staff token.
 
 #### Camper-record purge — what it does and does not reach (T202, round 2 hardening)
 

@@ -72,13 +72,39 @@ const GAP_PX = 24
 const MIN_BENTO_PX = 562
 export const NARROW_BREAKPOINT_PX = SIDEBAR_WIDTH_PX + MAIN_PADDING_PX + RAIL_PX + GAP_PX + MIN_BENTO_PX
 
-function countFor(collections, key) {
+// T304 — which entities each card's number is made of. `days_and_blocks` sums
+// two, so EITHER being unreadable makes the sum unknown; every other card is
+// its own key. Kept as data rather than as a branch inside countFor, so the
+// "what did this number depend on" question has one answer both the count and
+// the unknown-check read.
+const CARD_ENTITIES = {
+  days_and_blocks: ['days_of_operation', 'time_blocks'],
+}
+
+function cardEntities(key) {
+  return CARD_ENTITIES[key] ?? [key]
+}
+
+// T304 — returns NULL, not 0, when the card's number could not be read.
+//
+// This used to return `0` for a collection that failed to load, so a camp with
+// forty activities rendered "0 Activities" whenever the read failed — a
+// confidently wrong number, which is worse than no number. `null` is what the
+// header renders as an em dash instead.
+//
+// `count > 0` in countStyle is already false for null, so an unknown count
+// correctly does not take the "rooted" styling — it is not a claim that the
+// card is empty, and it must not read as a claim that it is full either.
+function countFor(collections, key, failed = EMPTY_FAILED) {
   if (!collections) return 0
+  if (cardEntities(key).some((entity) => failed.has(entity))) return null
   if (key === 'days_and_blocks') {
     return (collections.days_of_operation?.length ?? 0) + (collections.time_blocks?.length ?? 0)
   }
   return collections[key]?.length ?? 0
 }
+
+const EMPTY_FAILED = new Set()
 
 // Stagger-fade a list of items in once `active` flips true (loading resolved),
 // same rAF-then-flip recipe as useEnterTransition in src/styles/shared.js,
@@ -181,7 +207,7 @@ function AttentionRow({ row, onNavigate, animStyle }) {
 
 export default function RootsHomeScreen({ campId, onNavigate }) {
   const { activeCohort } = useCohorts(campId)
-  const { collections, loading } = useCurrentStructureCounts(campId)
+  const { collections, failed, loading } = useCurrentStructureCounts(campId)
   // Persisted unresolved import decisions (host-local) — the reconciliation
   // half of the attention list (docs/adr/2026-08-28-persisted-reconciliation-
   // decisions.md §5). buildRootMapModel(...,{mode:'inspect'}) yields only
@@ -201,7 +227,7 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
     ? buildAttentionList({
         model: openModel,
         decisionsById: openDecisionsById,
-        structureIssues: buildStructureIssues(collections),
+        structureIssues: buildStructureIssues(collections, failed),
       })
     : []
 
@@ -213,6 +239,13 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
   // 2026-09-23: "it truly doesn't matter. you can do it by alphabet if you
   // want.").
   const sortedAttentionRows = [...attentionRows].sort((a, b) => a.name.localeCompare(b.name))
+
+  // T304 — the all-clear is a CLAIM, and it may only be made about collections
+  // that were actually read. While loading, `failed` is empty and nothing is
+  // claimed either way (the rail renders under the same `loading` skeleton
+  // gate as the bento via `collections`), so this reads false until the reads
+  // have resolved.
+  const couldNotCheck = failed.size > 0
 
   const railListRef = useRef(null)
   // T237 — the rail shows as many rows as fit the viewport without
@@ -256,7 +289,7 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
             ) : (
               <div style={styles.bentoGrid}>
                 {BENTO_CARDS.map((card, index) => {
-                  const count = countFor(collections, card.key)
+                  const count = countFor(collections, card.key, failed)
                   const hasChips = Boolean(CHIP_CAP[card.size])
                   return (
                     <div
@@ -267,7 +300,19 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
                     >
                       <div style={cardHeaderStyle(card.size)}>
                         <span>{card.label}</span>
-                        <span style={countStyle(count, hasChips)}>{count}</span>
+                        {/* T304 — an em dash, never a 0, for a collection this
+                            device could not read. aria-label carries the reason,
+                            because a bare dash is not self-explaining to a screen
+                            reader and barely is to anyone else; the rail below
+                            states it in full. */}
+                        <span
+                          style={countStyle(count, hasChips)}
+                          data-testid={count === null ? `card-count-unread-${card.key}` : undefined}
+                          aria-label={count === null ? `${card.label} — couldn\u2019t be read` : undefined}
+                          title={count === null ? 'Couldn\u2019t be read just now' : undefined}
+                        >
+                          {count === null ? '\u2014' : count}
+                        </span>
                       </div>
                       <ChipRow card={card} collections={collections} />
                     </div>
@@ -298,11 +343,31 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
           }}
         >
           <div style={{ ...styles.sectionLabel, marginTop: 'var(--space-5)' }}>Needs your attention</div>
-          {sortedAttentionRows.length === 0 ? (
-            <div style={{ ...styles.emptyState, ...emptyStateEnterStyle }}>
-              <CircleCheckIcon data-testid="attention-empty-check" style={styles.emptyStateIcon} />
-              <div>Nothing needs you right now.</div>
+          {/* T304 — SHOWN WHETHER OR NOT THE LIST IS EMPTY, which is the whole
+              point. buildStructureIssues derives its rows from the same
+              collections, so an unreadable one makes a NON-empty list
+              incomplete too, not just an empty one. Suppressing this whenever
+              some other row happened to appear would rebuild the silence it
+              replaces, one case narrower.
+
+              It does not name the entities. A director reading "days_of_operation
+              and fixed_events could not be read" learns nothing they can act on;
+              what they need is "do not trust this list yet". The per-card em
+              dashes above are where the specificity lives, in the one place it
+              means something. */}
+          {couldNotCheck && (
+            <div data-testid="attention-unread-notice" style={styles.unreadNotice}>
+              Some of your camp couldn’t be read just now, so this list may be incomplete.
+              Reopening Roots will try again.
             </div>
+          )}
+          {sortedAttentionRows.length === 0 ? (
+            couldNotCheck ? null : (
+              <div style={{ ...styles.emptyState, ...emptyStateEnterStyle }}>
+                <CircleCheckIcon data-testid="attention-empty-check" style={styles.emptyStateIcon} />
+                <div>Nothing needs you right now.</div>
+              </div>
+            )
           ) : (
             <div ref={railListRef} data-testid="attention-rail-list">
               {visibleAttentionRows.map((row, index) => (
@@ -468,6 +533,20 @@ const styles = {
   emptyStateIcon: {
     display: 'block',
     margin: '0 auto var(--space-2)',
+  },
+  // T304 — deliberately quieter than S.errorBanner. Nothing is broken and
+  // nothing was lost: a read did not come back this time. It states a limit on
+  // what the rail below can be trusted to say, so it reads as a caveat on the
+  // list rather than as an alarm about the camp.
+  unreadNotice: {
+    padding: 'var(--space-2) var(--space-3)',
+    marginBottom: 'var(--space-2)',
+    borderRadius: 'var(--radius-sm)',
+    border: '1px solid var(--border)',
+    background: 'var(--surface)',
+    fontSize: 12.5,
+    lineHeight: 1.45,
+    color: 'var(--text-secondary)',
   },
   // T236 — wrapping two-line row (name + tag share the top line, `why` forced
   // onto its own full-width line via flexBasis) rather than a single

@@ -33,6 +33,37 @@ export const PARTICIPANT_ENTITIES = Object.freeze(
   ])
 )
 
+// T304 — the ONE narrow relaxation of "the participant domain is admin-only".
+//
+// Owner ruling, 2026-09-29, amending ADR D9 (see that ADR's D9 amendment note):
+// the `staff` role in this product means ADMINISTRATIVE staff, and a child's
+// name is not a secret from the people who are with that child. D9's PII
+// rationale therefore does not reach `campers.read`. The concrete need is that
+// an elective import's unresolved residue — a submission whose camper has no
+// name yet — gets raised on the Roots home, which is a staff-reachable screen.
+//
+// READ ONLY, AND ONE ENTITY. This set is not a general loosening:
+//   - It grants no write. `campers` deliberately stays OUT of permissions.js's
+//     ENTITIES, which derives `.read` AND `.write` together with no per-entity
+//     opt-in. This follows the existing `camp_maps.read` precedent — an explicit
+//     single grant in the staff array — which is the only way to have one
+//     without the other.
+//   - It does not remove `campers` from PARTICIPANT_ENTITIES above, so the audit
+//     PII guard, the restore refusal and the MCP entity-map exclusion are all
+//     unchanged.
+//   - The other seven entities are untouched and remain fully admin-only.
+//
+// It is DERIVED FROM HERE rather than typed into permissions.js and again into
+// the test that guards it, for the reason this whole module exists: a hand-kept
+// second copy is how the guard and the thing it guards come to disagree.
+//
+// TWO IPC surfaces open for a staff session per entry here, both counted in
+// T304 before the grant was written: `list(entity)`, which is the point, and
+// `getEntityHistory` for one of its rows, because that handler authorizes
+// `<entity>.read` and PROJECTIONS.campers exists. `listByScope` does NOT open —
+// campers is absent from main.js's SCOPED_LIST_ENTITIES.
+export const STAFF_READABLE_PARTICIPANT_ENTITIES = Object.freeze(new Set(['campers']))
+
 // Spellings that are NOT the registered entity name but plainly mean it — the
 // near misses a caller reaches for. Every guard in this repo that keys on an
 // exact string match has the same blind spot: `targetType: 'camper'` (singular)
