@@ -245,7 +245,8 @@ describe('no write path opens its own transaction around an op append', () => {
 //
 // `appendOp` no longer opens its own transaction while a `runAtomic` frame is
 // open — that boundary already promises all-or-nothing, and the nested
-// SAVEPOINT cost 58% of the CPU of a 100-camper import. The guarantee that
+// SAVEPOINT cost just over half the CPU of a 100-camper import (1,566 ms ->
+// 740 ms on an idle machine). The guarantee that
 // makes it safe is NOT in appendOp; it is a property of every caller:
 //
 //   no write path may catch an appendOp throw and CONTINUE while inside a

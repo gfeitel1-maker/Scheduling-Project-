@@ -12,14 +12,43 @@ archive_when: "committing the 100-camper preference sheet costs materially less 
 
 # T309 — A hundred-camper import stops paying for a rollback boundary it already has
 
-## What a director hits
+## What a director hits — and how much, corrected
 
 They import a 100-camper ranked-preference sheet. The main thread blocks for the whole commit —
 and in Electron the main process is also serving IPC, so every screen is frozen and, in a paired
 camp, every connected staff device is waiting too. `electron/ops/stmtCache.js`'s own header already
 records this as a known harm (T66): a 400-group camp once blocked for 37 seconds.
 
+**But the size of the harm was overstated by more than an order of magnitude, and that correction
+belongs at the top of this ticket rather than buried in it.** The brief opened with "a director
+importing 100 campers waits ~30s on a blocked main thread." On a QUIET machine the same commit takes
+**1.6 s**, and 0.7 s after this change. The ~30 s came from a measuring machine saturated by ~211
+concurrent `vitest` processes from other sessions. Same for the `10,955 ms` the brief cites for
+`scripts/mcp/preferenceSheetE2E.test.js`: quiet, that commit is 1,887 ms before and 791 ms after.
+
+This change is still worth making — it roughly halves the cost of the choke point every mutation in
+the app goes through, and the saving scales with op count, so a 300-camper sheet gains three times
+as much. But it is a **2× on a 1.6 s operation**, not a rescue from a 30 s freeze, and nobody should
+plan the next piece of work believing otherwise.
+
 ## What is actually true, measured
+
+### On a quiet machine (load ~11) — the director's reality
+
+Interleaved before/after/before/after/before/after, swapping only `electron/ops/operations.js`.
+Wall/CPU ratio held at ~1.0, which is what says this is genuinely CPU-bound work rather than a
+scheduling artifact.
+
+| | wall | CPU | µs/op |
+|---|---|---|---|
+| before | 1634 / 1624 / 2074 ms | 1551 / 1566 / 1782 ms | ~183 |
+| after | 617 / 728 / 1099 ms | 652 / 740 / 773 ms | ~84 |
+
+**−55% wall, −53% CPU.** End to end through vitest, `'commits the sheet and writes exactly the rows
+the fixture describes'` runs in **1,067 ms**, comfortably inside the 20 s default; the MCP stdio E2E
+commit goes 1,887 ms → 791 ms.
+
+### Under saturation (load 430–550) — how this was first found
 
 Measured 2026-09-29 in this worktree, through `runPreferenceSheetCli` against the real
 `docs/work/specs/samples/fabricated-camper-preferences-100.csv`, on a machine **saturated by ~211
@@ -171,6 +200,10 @@ parameter — none is on this path.
 
 The 120 s per-test timeout override on `'commits the sheet and writes exactly the rows the fixture
 describes'` in `scripts/preferenceSheetCli.test.js`, which this work is meant to let us delete,
-**is not in `main`** — it is an uncommitted change in a sibling worktree
-(`claude/objective-babbage-980cc9`). It cannot be deleted from here without taking that session's
-unlanded work. It must be removed by whoever lands that change, once this one is in.
+**is not in `main` and was never in this tree** — it is an uncommitted change in a sibling worktree
+(`claude/objective-babbage-980cc9`, branch for T303). It cannot be deleted from here without taking
+that session's unlanded work, so it is left for whoever lands that change.
+
+What CAN be said is the thing the deletion was meant to establish: with this change, and with no
+override present, that test passes at the **20 s default in 1,067 ms**. The override should simply
+not be landed.

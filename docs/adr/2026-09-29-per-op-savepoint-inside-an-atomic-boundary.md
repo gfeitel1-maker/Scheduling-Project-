@@ -38,7 +38,9 @@ a transaction that is already guaranteeing the same thing.
 
 That nesting is not free, and not free in the way it first looks. Measured on the 100-camper
 preference-sheet commit (8,564 ops), removing the inner transaction cuts the commit's CPU from
-~2,686 ms to ~1,198 ms — **−55%**. Making the savepoint statements cheaper does nothing: issuing
+1,566 ms to 740 ms of CPU on an idle machine — **−53%**, and −55% of wall clock, with the wall/CPU
+ratio at ~1.0 confirming the work is genuinely CPU-bound. Making the savepoint statements cheaper
+does nothing: issuing
 `SAVEPOINT`/`RELEASE` through the existing `getStmt` cache was measured at **zero** improvement. The
 cost is not preparing or executing the savepoint statements; it is that **an open savepoint obliges
 SQLite to keep sub-journal undo records for every write made inside it**. The only way to stop
@@ -116,10 +118,18 @@ by this decision. The stale comments span ~20 files and are spun off rather than
 
 ## Consequences
 
-**Good.** A 100-camper import costs roughly half the CPU it did. The saving is proportional to op
-count, so it grows with the sheet — and the op count is what a director's sheet size drives. Every
-multi-write path benefits, not just this import: delete cascades, week duplication, restore, undo,
-and the whole ingest route all run `appendOp` in a loop inside `runAtomic`.
+**Good.** A 100-camper import costs roughly half what it did — on a quiet machine, 1.6 s becomes
+0.7 s. The saving is proportional to op count, so it grows with the sheet, and the op count is what
+a director's sheet size drives. Every multi-write path benefits, not just this import: delete
+cascades, week duplication, restore, undo, and the whole ingest route all run `appendOp` in a loop
+inside `runAtomic`.
+
+**Proportion, stated so nobody over-reads it.** The ticket this came from opened with "a director
+importing 100 campers waits ~30s on a blocked main thread". That figure was measured on a machine
+saturated by ~211 concurrent test processes; quiet, the operation was 1.6 s all along. This is a 2×
+on a second-and-a-half, not a rescue from a freeze. It is worth doing because it halves the cost of
+the choke point every mutation goes through and because the reasoning is simple and reversible —
+not because the app was unusable.
 
 **Cost.** `appendOp`'s atomicity now depends on *where it is called from* rather than being
 unconditional. That is a real reduction in local reasoning — reading `appendOp` alone no longer

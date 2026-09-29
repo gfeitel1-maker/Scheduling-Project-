@@ -233,8 +233,9 @@ export function appendOp(db, { entity, entity_id, field, value, author_user_id, 
   //     roll back together, so a nested transaction here would only duplicate
   //     it. better-sqlite3 nests as a SAVEPOINT, and an OPEN savepoint obliges
   //     SQLite to keep sub-journal undo records for every write made inside it:
-  //     55% of the CPU of a 100-camper import, measured. Caching the SAVEPOINT
-  //     statements does nothing (also measured) — it has to not be opened.
+  //     just over half the CPU of a 100-camper import, measured (1,566 ms -> 740
+  //     ms idle, 8,564 ops). Caching the SAVEPOINT statements does nothing (also
+  //     measured, zero gain) — it has to not be opened.
   //
   // The invariant this rests on: no write path may catch an appendOp throw and
   // CONTINUE while inside a runAtomic body. Every call site was read, and none
