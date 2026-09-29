@@ -27,8 +27,30 @@ npm run lint            # ESLint
 npm run test             # Run all Vitest tests
 npm test -- <path/to/file.test.js>    # Run a single test file
 npm run test:integration # Run the sync/ingest integration scenarios (test/integration/run.automerge.js)
+npm run ticket:next      # next free ticket number, before you name a new docs/work/tickets/TNNN-*.md
 npm run verify           # the full gate, EIGHT steps: agents:check + check:governance + licenses:check + build + security + test:integration + lint + test (the list is `VERIFY_STEPS` in scripts/verify.js, which is the authority — this line is descriptive and has been stale before). Ordered CHEAPEST-FIRST and short-circuits, so a 1.2s governance failure is reported in seconds instead of behind ~17 minutes of tests — same eight gates, sooner. Prints a final ✅/❌ verdict line so the result survives `| tail` and can't false-green
 ```
+
+**Run `npm run ticket:next` before you name a new ticket.** It aggregates in-use numbers from
+every place one can live — `origin/main`, every branch, open PRs, and **every other local worktree
+read straight off disk, including files not yet committed** — which is the source a `git`-only or
+remote-only check misses (`scripts/nextTicketNumber.js`; see
+[docs/adr/2026-09-25-ticket-number-arbitration.md](docs/adr/2026-09-25-ticket-number-arbitration.md)).
+Listing your own `docs/work/tickets/` is NOT enough: another session's unpushed worktree is invisible
+to it. That is how T301 was assigned twice; the second draft was renumbered to T303 before it
+landed.
+
+**Running it does not RESERVE the number, and that is the failure mode to hold in mind**, because
+the natural misreading of an npm script is that running it settles the question. On 2026-09-29 two
+sessions ran the allocator **correctly**, 69 seconds apart, and it returned `T306` to both — it was
+right both times. It can only see a number once a file for it exists on some tree it reads, so the
+whole interval while you draft the ticket is a window in which someone else gets the same answer.
+The number is therefore **advisory, not a guarantee**, and `checkTicketNumberUniqueness` in
+`npm run verify` is the backstop that actually catches a collision. Run the allocator, and trust the
+gate to catch you.
+
+If you do collide, the cheaper side moves: an untracked file costs a `git mv`, a pushed one in an
+open PR costs a follow-up commit and leaves a dead number in main's history.
 
 **The gate also runs in CI** (`.github/workflows/gate.yml`) on every pull request and on push to
 `main`, on a Linux runner — the suite needs no Electron, no display, and no multicast, so it is
