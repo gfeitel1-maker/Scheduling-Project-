@@ -266,12 +266,13 @@ admins are the people doing the behind-the-scenes work."*
 
 The distribution mechanism for staff is the **exported artifact** — the activity roster and the
 child schedule a counsellor holds — not a read grant on the entities. Import, resolve, generate,
-override, finalize and export are all **admin**. No non-admin role has any in-app read path to any
-of the five entities.
+override, finalize and export are all **admin**. _Prior: "No non-admin role has any in-app read
+path to any of the five entities." Amended 2026-09-29 — staff hold `campers.read`; see the D9
+amendment below. The sentence holds unchanged for the other entities._
 
 | Entity | admin | staff |
 |---|---|---|
-| `campers` | full | none |
+| ~~`campers`~~ | ~~full~~ | ~~none~~ — _amended 2026-09-29, see the D9 amendment below: staff **read**_ |
 | `elective_preferences` | full | none |
 | `elective_assignment_runs` | full | none |
 | `elective_occurrences` | full | none |
@@ -280,6 +281,53 @@ of the five entities.
 *Superseded: an earlier draft of this ADR defaulted staff to reading finalized activity rosters
 in-app. The owner replaced that with the export model above. Recorded rather than deleted, because
 the reasoning changed rather than being found wrong.*
+
+#### D9 amendment, 2026-09-29 (T304) — `campers.read` is granted to staff
+
+*Recorded here rather than by editing the clause above, in the same style as D4/D12: the decision
+moved on, and a later reader should be able to see that rather than wonder why the table and the
+code disagree.*
+
+**Owner ruling, 2026-09-29:** *"administrative staff are the staff in question. but even if they
+weren't, you would be saying that a camp's staff cannot read a child's name? even though they are
+with the child irl? ... i think what you are really asking is where does it get raised that there
+is an issue with your electives import. roots is the correct place."*
+
+Two things this settles. The `staff` role in this product means **administrative staff**, not the
+day-to-day counsellor the original decision pictured. And a child's name is not a secret from the
+people who are with that child — so D9's PII rationale does not reach `campers.read`, whichever
+staff are meant. The occasion was concrete: T285/T299 put an elective import's unresolved
+residue — a submission whose camper has no name yet — on the **Roots home**, which is
+staff-reachable. Under the original D9 that row was silently invisible to a staff session, because
+the read was denied and the denial was swallowed.
+
+**The amended row** (the rest of the table is unchanged):
+
+| Entity | admin | staff |
+|---|---|---|
+| `campers` | full | **read only** |
+
+**What did not change, deliberately.**
+
+- **No staff write**, and no delete, restore, bulk_replace or import. `campers` stays **out of
+  `ENTITIES`** for exactly the reason this section already gives — the flatMap has no per-entity
+  opt-in — and the grant follows the `camp_maps.read` precedent instead: one explicit entry in the
+  staff array, derived from `STAFF_READABLE_PARTICIPANT_ENTITIES`
+  (`electron/ops/participantEntities.js`) so the grant and the test that guards it cannot drift.
+- **The other seven participant entities are untouched** and remain fully admin-only.
+- `campers` **stays in `PARTICIPANT_ENTITIES`**, so the audit PII guard, the restore refusal and
+  the MCP entity-map exclusion all continue to apply unchanged. This amendment is about a read
+  grant, not about the participant domain's other properties.
+- The **negative test still exists and still carries the weight**. Rather than deleting the
+  assertion that staff hold no `campers.read`, `participantEntitiesAdminOnly.test.js` inverts it,
+  derives its loop skip from the same constant, and adds explicit assertions that every other
+  campers verb is still refused — including a behavioural check with a real staff token.
+
+**One consequence counted before the grant was written**, so it is stated rather than discovered:
+`getEntityHistoryHandler` derives its action from the entity name, so `campers.read` also opens
+**per-record camper history** to staff. That is "who renamed this subject and when", for a role
+that may now read the name, and it is accepted. `listByScope` does **not** open — `campers` is
+absent from `SCOPED_LIST_ENTITIES`.
 
 **Why this keeps the entities out of `ENTITIES`.** Not privacy — product shape.
 `electron/auth/permissions.js:74` derives `staffReadWrite` by flatMapping every entity in
@@ -291,11 +339,16 @@ hand-written admin-only entries.
 
 The parity test guards *omission* (a camp-scoped entity missing from `ENTITIES` silently resolving
 to admin-only) and cannot catch an over-grant. So a test must assert the **negative** — staff hold
-no `campers.read`, no `campers.write`, no `elective_preferences.read`, no
-`elective_assignments.read`.
+no `campers.write`, no `elective_preferences.read`, no `elective_assignments.read`. _Prior: that
+list opened with "no `campers.read`". Amended 2026-09-29 — that one assertion is now inverted (see
+the D9 amendment below); every other negative in this paragraph stands, and `campers.write` in
+particular now carries the weight the removed one used to._
 
 Per-record history and Trash are staff-readable for every entity today
-(`permissions.js:104-111`); for these five they are admin-only, for the same reason. Separately, no
+(`permissions.js:104-111`); for these five they are admin-only, for the same reason. _Amended
+2026-09-29: camper per-record HISTORY follows `campers.read` and is now staff-readable — counted
+and accepted in the D9 amendment below. Camper Trash is unaffected, being gated by
+`RESTORABLE_ENTITIES` rather than by the read grant._ Separately, no
 camper field value may be passed into `recordAuditEvent` metadata — `SECRET_KEYS`
 (`electron/audit/auditLog.js:1-9`) is a key-name blocklist, not a PII filter, and `audit_events` is
 append-only.

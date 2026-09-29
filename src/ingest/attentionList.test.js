@@ -61,6 +61,46 @@ describe('buildAttentionList', () => {
 })
 
 describe('buildStructureIssues', () => {
+  // T304 — AN EMPTINESS CHECK OVER AN UNREAD COLLECTION IS NOT A FINDING.
+  //
+  // Found by running the real screen rather than by reasoning about it: with
+  // `activities` failing to load, the rail rendered "Activities — No activities
+  // set up yet." for a camp with five activities. The em dash on the bento card
+  // and the rail's "may be incomplete" notice were both already correct; this
+  // row was a CONFIDENT FALSE CLAIM sitting between them, and it is the same
+  // defect the ticket is about, one level down. An unread collection is not an
+  // empty one, and the difference is the whole ticket.
+  it('does not report an area as empty when its collection could not be read', () => {
+    const collections = { tiers: [], groups: [], days_of_operation: [], time_blocks: [], activities: [] }
+
+    const issues = buildStructureIssues(collections, new Set(['activities']))
+
+    expect(issues.some((i) => i.id === 'empty:activities')).toBe(false)
+  })
+
+  // NON-VACUITY. The assertion above passes just as well if the unread set
+  // silenced EVERY area, which would replace a false claim with no claim at all
+  // and hide four real findings to fix one wrong one.
+  it('still reports the areas that WERE read as empty', () => {
+    const collections = { tiers: [], groups: [], days_of_operation: [], time_blocks: [], activities: [] }
+
+    const issues = buildStructureIssues(collections, new Set(['activities']))
+
+    expect(issues.some((i) => i.id === 'empty:tiers')).toBe(true)
+    expect(issues.some((i) => i.id === 'empty:groups')).toBe(true)
+    expect(issues.some((i) => i.id === 'empty:days_of_operation')).toBe(true)
+    expect(issues.some((i) => i.id === 'empty:time_blocks')).toBe(true)
+  })
+
+  // The second argument is optional, so every existing caller and test keeps
+  // working unchanged and a caller that forgets it gets the old behaviour
+  // rather than a crash.
+  it('treats a missing unread set as "everything was read"', () => {
+    const collections = { tiers: [], groups: [], days_of_operation: [], time_blocks: [], activities: [] }
+
+    expect(buildStructureIssues(collections).some((i) => i.id === 'empty:activities')).toBe(true)
+  })
+
   it('returns no issues for null/undefined collections', () => {
     expect(buildStructureIssues(null)).toEqual([])
     expect(buildStructureIssues(undefined)).toEqual([])
