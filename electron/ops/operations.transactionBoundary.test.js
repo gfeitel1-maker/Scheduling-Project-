@@ -238,3 +238,142 @@ describe('no write path opens its own transaction around an op append', () => {
     expect(offenders, 'use runAtomic(db, fn) so the document shares the rollback boundary').toEqual([])
   })
 })
+
+
+// Second structural guard, for the invariant T309 rests on
+// (docs/adr/2026-09-29-per-op-savepoint-inside-an-atomic-boundary.md).
+//
+// `appendOp` no longer opens its own transaction while a `runAtomic` frame is
+// open — that boundary already promises all-or-nothing, and the nested
+// SAVEPOINT cost 58% of the CPU of a 100-camper import. The guarantee that
+// makes it safe is NOT in appendOp; it is a property of every caller:
+//
+//   no write path may catch an appendOp throw and CONTINUE while inside a
+//   runAtomic body.
+//
+// A caller that did would already be breaking runAtomic's contract ("the camp
+// is either fully imported or untouched" cannot survive stepping over a failed
+// write). But before T309 it broke it QUIETLY — the per-op savepoint undid
+// that one op — and after T309 the operations row survives with no projected
+// row. So the invariant is checked rather than assumed.
+//
+// TWO THINGS A FIRST DRAFT OF THIS GUARD MISSED, both found by Red Hat review
+// by extracting its algorithm and running it against planted violations, and
+// both re-confirmed here by planting them in real files:
+//
+//   - It matched only the literal tokens `appendOp(`/`appendBulkReplaceOp(`.
+//     But this repo's DOMINANT idiom is a local alias — ingest.js's `write`
+//     and `remove`, commitElectiveRun.js's `write`, finalizeElectiveRun.js's,
+//     attributeElectiveSubject.js's. A `try { write(db, …) } catch {}` inside
+//     runAtomic sailed straight through. Aliases are now collected per file
+//     (below) and matched as call tokens too.
+//   - It located the callback body as "the first `{` after `runAtomic(`",
+//     which is the PARAMETER braces for `runAtomic(db, ({ x }) => …)` and the
+//     OBJECT LITERAL for a concise body like attributeElectiveSubject.js's
+//     `runAtomic(db, () => write('campers', id, { … }))`. It scanned the wrong
+//     span and reported nothing. The scan is now the whole `runAtomic( … )`
+//     call expression, found by paren matching, which contains the callback
+//     whatever shape it takes.
+//
+// WHAT IT STILL DOES NOT CATCH, stated rather than implied:
+//   - a `catch` inside a helper DEFINED IN ANOTHER FILE and called from a
+//     runAtomic body (slotOccupants.js's clearSlotOccupant is such a helper);
+//     only the calling file's own aliases are resolved.
+//   - `runAtomic` itself invoked under an alias, or built indirectly.
+//   - an alias assigned by destructuring or reassigned after declaration.
+// It is a lexical scan over four directories, not a call-graph proof.
+describe('no write path catches an appendOp throw inside a runAtomic body', () => {
+  // Blank comments and string/template literals, PRESERVING LENGTH, so the
+  // bracket matching below cannot be thrown off by a bracket inside a string
+  // or a comment (this repo's comments are long and contain both).
+  const blankLiterals = (src) => {
+    const out = src.split('')
+    let i = 0
+    const blank = (from, to) => { for (let k = from; k < to && k < out.length; k++) if (out[k] !== '\n') out[k] = ' ' }
+    while (i < src.length) {
+      const c = src[i], d = src[i + 1]
+      if (c === '/' && d === '/') { let j = src.indexOf('\n', i); if (j < 0) j = src.length; blank(i, j); i = j; continue }
+      if (c === '/' && d === '*') { let j = src.indexOf('*/', i + 2); j = j < 0 ? src.length : j + 2; blank(i, j); i = j; continue }
+      if (c === "'" || c === '"' || c === '`') {
+        let j = i + 1
+        while (j < src.length && src[j] !== c) { if (src[j] === '\\') j += 1; j += 1 }
+        blank(i + 1, j); i = j + 1; continue
+      }
+      i += 1
+    }
+    return out.join('')
+  }
+
+  // End index of the bracket group opened by the first `open` at or after `from`.
+  const groupEnd = (src, from, open, close) => {
+    const at = src.indexOf(open, from)
+    if (at < 0) return -1
+    let depth = 0
+    for (let i = at; i < src.length; i++) {
+      if (src[i] === open) depth += 1
+      else if (src[i] === close) { depth -= 1; if (depth === 0) return i }
+    }
+    return -1
+  }
+
+  // Identifiers in THIS file that reach appendOp/appendBulkReplaceOp — a
+  // `const write = …appendOp…` binding, or a local `function remove(…)` whose
+  // body calls one. Returns them as alternation-ready names.
+  const aliasesIn = (src) => {
+    const names = new Set()
+    const base = /\b(?:appendOp|appendBulkReplaceOp)\b/
+    for (const m of src.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/g)) {
+      // Initializer runs to the first `;` or newline seen at bracket depth 0.
+      let i = m.index + m[0].length, depth = 0
+      for (; i < src.length; i++) {
+        const c = src[i]
+        if ('([{'.includes(c)) depth += 1
+        else if (')]}'.includes(c)) { if (depth === 0) break; depth -= 1 }
+        else if (depth === 0 && (c === ';' || c === '\n')) break
+      }
+      if (base.test(src.slice(m.index, i))) names.add(m[1])
+    }
+    for (const m of src.matchAll(/\bfunction\s+([A-Za-z_$][\w$]*)\s*\(/g)) {
+      const bodyEnd = groupEnd(src, m.index, '{', '}')
+      if (bodyEnd > 0 && base.test(src.slice(m.index, bodyEnd))) names.add(m[1])
+    }
+    return [...names]
+  }
+
+  it('every runAtomic body lets an appendOp failure reach the boundary', async () => {
+    const { readFileSync, readdirSync, existsSync } = await import('node:fs')
+    const opsDir = new URL('.', import.meta.url).pathname
+    const dirs = [opsDir, opsDir + '../automerge/', opsDir + '../sync/automerge/', opsDir + '../db/']
+
+    const offenders = []
+    for (const dir of dirs) {
+      if (!existsSync(dir)) continue
+      for (const file of readdirSync(dir)) {
+        if (!file.endsWith('.js') || file.includes('.test.')) continue
+        const src = blankLiterals(readFileSync(dir + file, 'utf8'))
+        if (!src.includes('runAtomic(')) continue
+        const tokens = ['appendOp', 'appendBulkReplaceOp', ...aliasesIn(src)]
+        const appends = new RegExp(`\\b(?:${tokens.join('|')})\\s*\\(`)
+        for (let at = src.indexOf('runAtomic('); at >= 0; at = src.indexOf('runAtomic(', at + 1)) {
+          // The WHOLE call expression — parens, not braces, so a destructured
+          // parameter or a concise arrow body cannot mis-scope the scan.
+          const end = groupEnd(src, at, '(', ')')
+          if (end < 0) continue
+          const call = src.slice(at, end)
+          for (let t = call.indexOf('try'); t >= 0; t = call.indexOf('try', t + 1)) {
+            if (/[A-Za-z0-9_$]/.test(call[t - 1] ?? '')) continue // e.g. `retry`
+            const tEnd = groupEnd(call, t, '{', '}')
+            if (tEnd < 0) continue
+            if (appends.test(call.slice(t, tEnd))) {
+              offenders.push(`${file}:${src.slice(0, at + t).split('\n').length}`)
+            }
+          }
+        }
+      }
+    }
+    expect(
+      offenders,
+      'an appendOp throw inside runAtomic must reach the boundary — catching it leaves an operations row with no projected row',
+    ).toEqual([])
+  })
+})
