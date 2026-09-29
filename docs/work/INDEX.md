@@ -49,6 +49,7 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [History rewrite: purge real camp identity and personal paths from public git history](../../docs/work/tickets/T120-history-rewrite-privacy-scrub.md) | open | — |
+| [A branch created from another session's branch pushes into their PR](../../docs/work/tickets/T310-a-branch-created-from-another-sessions-branch-pushes-into-their-pr.md) | open | — |
 
 ### security-auth
 
@@ -79,7 +80,7 @@ Regenerate with `npm run index:work`.
 |---|---|---|
 | [The linked-choice tier is unreachable in the product](../../docs/work/tickets/T301-linked-elective-choices-never-reach-the-solver.md) | open | [2026-09-29-t301-linked-elective-bundles-design](../../docs/work/specs/2026-09-29-t301-linked-elective-bundles-design.md) |
 | [A whole-sheet planner grid imports through the director's panel](../../docs/work/tickets/T305-a-whole-sheet-planner-grid-imports-through-the-panel.md) | open | [T306-the-director-can-name-an-unnamed-submission](../../docs/work/tickets/T306-the-director-can-name-an-unnamed-submission.md) · [T307-a-directors-column-correction-is-honoured](../../docs/work/tickets/T307-a-directors-column-correction-is-honoured.md) |
-| [A director's column correction is honoured by the import](../../docs/work/tickets/T307-a-directors-column-correction-is-honoured.md) | open | — |
+| [A director's column correction is honoured by the import](../../docs/work/tickets/T307-a-directors-column-correction-is-honoured.md) | open | [T310-a-branch-created-from-another-sessions-branch-pushes-into-their-pr](../../docs/work/tickets/T310-a-branch-created-from-another-sessions-branch-pushes-into-their-pr.md) |
 
 ### unclassified
 
