@@ -1,5 +1,6 @@
 import { appendOp, DELETE_FIELD, BULK_REPLACE_FIELD, UNIQUE_FIELD_ENTITIES, detectUniqueFieldCollision, runAtomic } from './operations.js'
 import { PROJECTIONS } from './projections.js'
+import { getStmt } from './stmtCache.js'
 import { resolveLocationCandidateId } from './locationId.js'
 
 // Which projected entities may be restored, and — for the ones that may not —
@@ -140,10 +141,16 @@ export function nameFieldFor(entity) {
   return NAME_FIELD[entity] ?? 'name'
 }
 
+// Routed through the statement cache for consistency with stmtCache.js's stated
+// contract — this runs per op on the ingest path (commitPlan's inverse capture)
+// and per field in fieldProvenance. NOT a performance fix: it was measured on
+// the 100-camper commit at no gain (T309), and is here because a bare
+// db.prepare on a per-op path is the thing stmtCache.js exists to prevent.
 export function latestOpForEntity(db, entity, entity_id) {
-  return db
-    .prepare('SELECT * FROM operations WHERE entity = ? AND entity_id = ? ORDER BY seq DESC LIMIT 1')
-    .get(entity, entity_id)
+  return getStmt(
+    db,
+    'SELECT * FROM operations WHERE entity = ? AND entity_id = ? ORDER BY seq DESC LIMIT 1'
+  ).get(entity, entity_id)
 }
 
 // Last value written for each field of one record, sentinels excluded and

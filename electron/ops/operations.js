@@ -122,6 +122,34 @@ export const MAX_FIELD_VALUE_LENGTH = {
   camp_maps: { image_data: 1_400_000 }, // chars; ~1MB base64 + slack, never truncated, hard reject
 }
 
+// How many runAtomic frames are open on this db handle (T309). Read by
+// appendOp to decide whether it must own rollback for its own op or whether a
+// boundary that has already promised all-or-nothing is doing it — see
+// `insideAtomicBoundary` below for why the answer matters and why it is not
+// simply `db.inTransaction`. Keyed on the handle, not module-global, for the
+// same reason stmtCache.js is: several real db handles coexist in one process
+// (Host + this-device), and every test in this suite opens its own.
+const atomicDepth = new WeakMap()
+
+// True when a runAtomic frame has taken responsibility for rolling this write
+// back, so appendOp does not need its own transaction to do it.
+//
+// NOT `db.inTransaction` on its own, and the difference is load-bearing.
+// `db.inTransaction` answers "is SOME transaction open". The question here is
+// "has a boundary that PROMISES all-or-nothing taken this op on". runAtomic
+// makes that promise in its contract above; a bare `db.transaction` does not,
+// and five modules are explicitly allowed to open one (see the guard at the
+// bottom of operations.transactionBoundary.test.js) on the grounds that they
+// write only host-local tables. None calls appendOp today — but keying off
+// `db.inTransaction` would silently change appendOp's guarantee for the first
+// one that did. The depth check makes the suppression opt-in by the only
+// boundary whose contract already covers it; `db.inTransaction` stays as a
+// second condition so a stale depth can never suppress the transaction when
+// SQLite has no outer one to fall back on.
+function insideAtomicBoundary(db) {
+  return (atomicDepth.get(db) ?? 0) > 0 && db.inTransaction
+}
+
 // Run a multi-write job so that ALL THREE stores share one rollback boundary.
 //
 // Use this instead of `db.transaction(fn)()` anywhere the body calls `appendOp`
@@ -129,12 +157,19 @@ export const MAX_FIELD_VALUE_LENGTH = {
 // undo, a restore, a week duplication.
 //
 // `db.transaction` alone is not enough, and that is the bug this closes.
-// better-sqlite3 nests transactions as SAVEPOINTs, so `appendOp`'s own inner
-// transaction releases while the outer one is still open — and `appendOp` then
-// writes the Automerge document believing the data is committed. It is not. If
-// the outer transaction later rolls back, SQLite and the op-log are undone
-// while the document keeps every write, and the next projectAll writes them
-// back into SQLite. The import the director was told had failed reappears.
+// `appendOp` writes the Automerge document once its SQLite work returns, on the
+// belief that the data is committed. Inside a bare `db.transaction` that belief
+// is false: the outer transaction is still open and uncommitted. If it later
+// rolls back, SQLite and the op-log are undone while the document keeps every
+// write, and the next projectAll writes them back into SQLite. The import the
+// director was told had failed reappears.
+//
+// (The original form of that bug was sharper still: `appendOp` opened its OWN
+// inner transaction, which better-sqlite3 nests as a SAVEPOINT, so the savepoint
+// RELEASED — looking exactly like a commit — while the outer transaction stayed
+// open. Since T309 `appendOp` no longer opens that inner transaction while a
+// runAtomic frame is open, so the misleading release is gone; the reason this
+// function must exist is not.)
 //
 // An Automerge document cannot be rolled back, so the document is simply not
 // written until the outermost transaction has committed. Nested calls are
@@ -144,12 +179,20 @@ export const MAX_FIELD_VALUE_LENGTH = {
 // adds the document to the same boundary.
 export function runAtomic(db, fn) {
   beginDeferredDocWrites(db)
+  atomicDepth.set(db, (atomicDepth.get(db) ?? 0) + 1)
   let result
   try {
     result = db.transaction(fn)()
   } catch (err) {
     discardDeferredDocWrites(db)
     throw err
+  } finally {
+    // In a `finally` precisely because the catch above rethrows: a boundary
+    // that threw must still close its frame, or every later top-level appendOp
+    // on this handle would believe a boundary is open and stop owning its own
+    // rollback. Touches only the counter — the flush below stays outside, for
+    // the reason stated there.
+    atomicDepth.set(db, (atomicDepth.get(db) ?? 1) - 1)
   }
   // Deliberately AFTER the transaction has committed, and deliberately not in a
   // `finally`: a throw must discard, and only a clean commit may flush.
@@ -177,7 +220,28 @@ export function appendOp(db, { entity, entity_id, field, value, author_user_id, 
   const id = randomUUID()
   const timestamp = new Date().toISOString()
 
-  const run = db.transaction(() => {
+  // The op-log row and its projection must land together or not at all. WHO
+  // guarantees that depends on where we are (T309,
+  // docs/adr/2026-09-29-per-op-savepoint-inside-an-atomic-boundary.md):
+  //
+  //   - top level  — appendOp is the outermost writer and opens its own
+  //     transaction, exactly as it always has. A caller may catch the throw and
+  //     carry on knowing the failed op left nothing behind, which
+  //     `commitElectiveCandidates` in ingest.js does, deliberately outside any
+  //     transaction.
+  //   - inside runAtomic — that boundary has already promised all three stores
+  //     roll back together, so a nested transaction here would only duplicate
+  //     it. better-sqlite3 nests as a SAVEPOINT, and an OPEN savepoint obliges
+  //     SQLite to keep sub-journal undo records for every write made inside it:
+  //     just over half the CPU of a 100-camper import, measured (1,566 ms -> 740
+  //     ms idle, 8,564 ops). Caching the SAVEPOINT statements does nothing (also
+  //     measured, zero gain) — it has to not be opened.
+  //
+  // The invariant this rests on: no write path may catch an appendOp throw and
+  // CONTINUE while inside a runAtomic body. Every call site was read, and none
+  // does; the guard at the bottom of operations.transactionBoundary.test.js
+  // keeps it that way.
+  const body = () => {
     const result = getStmt(
       db,
       `INSERT INTO operations (id, entity, entity_id, field, value, author_user_id, device_id, timestamp, parent_op_id, client_write_id, source)
@@ -199,9 +263,9 @@ export function appendOp(db, { entity, entity_id, field, value, author_user_id, 
     // every appendOp call site to handle a new thrown-error case today.
     applyProjection(db, op)
     return op
-  })
+  }
 
-  const op = run()
+  const op = insideAtomicBoundary(db) ? body() : db.transaction(body)()
 
   // Stage 5b (docs/work/plans/2026-09-06-stage5-live-wiring-design.md § 2): mirror the write into
   // the Automerge doc, ONLY when the flag is on. `isOpLogEngine()` early-returns unchanged for the
@@ -662,9 +726,11 @@ export const UNIQUE_FIELD_EXTRA_SCOPE_COLUMNS = {
 // INTO another existing row's name is correctly flagged, exactly like a
 // create is (both are just "op.entity_id wants a name a different row
 // already holds"). Called at both write-entry points BEFORE appendOp, so the
-// doomed write (which would otherwise roll back inside appendOp's own
-// transaction on Path 2, or worse, silently orphan a blank-name row via
-// ensureExists on Path 1 — see the ADR) is never attempted at all.
+// doomed write (which would otherwise throw out of appendOp on Path 2 —
+// rolling back its own transaction at the top level, or since T309 the whole
+// runAtomic boundary when it is inside one — or worse, silently orphan a
+// blank-name row via ensureExists on Path 1 — see the ADR) is never attempted
+// at all.
 export function detectUniqueFieldCollision(db, op) {
   const config = UNIQUE_FIELD_ENTITIES[op.entity]
   if (!config || op.field !== config.field || op.value == null || op.value === '') return null
