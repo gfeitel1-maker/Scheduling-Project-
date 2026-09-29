@@ -150,7 +150,11 @@ A graphify knowledge graph of this repo lives in `graphify-out/` **in the main c
 **Reaching the graph from a worktree.** The graph and the `graphify` MCP server exist only in the main checkout (`~/dev/shoresh`); worktrees under `.claude/worktrees/` do **not** have their own copy, and there is no value in building one — the graph reflects committed `main`, so a single shared graph is correct. From a worktree, pass the absolute path to every command: `--graph ~/dev/shoresh/graphify-out/graph.json` (the `graphify affected`/`query`/`explain`/`god-nodes` examples below all accept it). The bare-path examples below assume you are in the main checkout.
 
 **When to reach for it**
-- Before changing a shared or load-bearing symbol, get the downstream impact: `graphify affected "<symbolName>"`. This is more reliable than eyeballing imports and is the expected pre-change check for structural edits.
+- Before changing a shared or load-bearing symbol, get the downstream impact: **`graphify affected "<symbolName>()"` — write the parentheses.** This is more reliable than eyeballing imports and is the expected pre-change check for structural edits.
+
+  **The bare name can silently answer about the wrong node, and it fails in the direction that looks safe.** The graph holds documentation-concept nodes alongside code nodes, and when a doc node shares a function's name the bare query resolves to the DOC node — returning a handful of ADR references, which reads exactly like "almost nothing depends on this". Measured 2026-09-29 on `appendOp`, the third-ranked god node: `graphify affected "appendOp"` returned **4** nodes, all ADR prose; `graphify affected "appendOp()"` returned **169**, including every real caller. Nothing warns you — this is not the "No unique node match" abstention, it is a confident wrong answer.
+
+  **So read the header line back.** The first line of the output echoes the node it actually resolved (`Affected nodes for appendOp()` vs `Affected nodes for appendOp`). If it is missing the parens you meant, or names something you did not ask about, the result below it is about a different node. Treat a near-empty result for a symbol you believe is shared as a resolution failure, not as an answer.
 - To answer "how does X work / what connects to Y", query it first: `graphify query "<question>"` — it cites `file:line`, which you then open.
 - `graphify god-nodes` surfaces the most-connected symbols — useful for scoping a review.
 
