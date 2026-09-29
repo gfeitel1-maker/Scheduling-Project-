@@ -1,4 +1,6 @@
 import { defineConfig } from 'vite'
+import process from 'node:process'
+import { claim as claimWorkerBudget } from './scripts/vitestWorkerBudget.js'
 import react from '@vitejs/plugin-react'
 
 // https://vite.dev/config/
@@ -109,6 +111,34 @@ const sharedTest = {
     setupFiles: ['./vitest.setup.js'],
 }
 
+// T308 — BOUND TOTAL VITEST PARALLELISM ACROSS CONCURRENT SESSIONS.
+//
+// gateLock.js serialises full gates but has one caller, so `npm run test` and an ad-hoc
+// `npx vitest run <file>` take no lock: nothing bounded sessions x workers. Measured on this 4-core
+// machine 2026-09-29: 1-min load 409, peaking 518. See scripts/vitestWorkerBudget.js.
+//
+// TWO GUARDS, both necessary:
+//   VITEST === 'true'        this file also configures `npm run dev`; a dev server must not take a
+//                            test lease.
+//   !VITEST_POOL_ID          set only inside WORKERS. Without this guard every worker would claim its
+//                            own lease and each run would inflate its own peer count.
+// Confirmed by execution: at config time in the main vitest process VITEST is 'true' and
+// VITEST_POOL_ID is undefined.
+const isVitestMainProcess = process.env.VITEST === 'true' && !process.env.VITEST_POOL_ID
+const workerLease = isVitestMainProcess ? claimWorkerBudget() : { budget: null, release: () => {} }
+if (workerLease.budget !== null) {
+  // Said out loud: a run that is suddenly slower must explain itself, or the next person measures a
+  // throttle and calls it a regression.
+  process.stderr.write(
+    `vitest: ${workerLease.liveRuns} runs live on this machine — capping this one at ` +
+      `${workerLease.budget} worker${workerLease.budget === 1 ? '' : 's'} ` +
+      `(SHORESH_NO_WORKER_BUDGET=1 to opt out)\n`
+  )
+}
+// Released on exit, and a hard kill self-heals: a lease whose pid is gone is reaped by whoever next
+// counts, so a crashed run cannot permanently shrink everyone else's budget.
+process.on('exit', workerLease.release)
+
 export default defineConfig({
   // Relative asset paths so the packaged app can load index.html over file://
   // (Electron uses loadFile in production; an absolute "/" base would 404).
@@ -116,6 +146,10 @@ export default defineConfig({
   plugins: [react()],
   test: {
     ...sharedTest,
+    // T308 — the fair share computed above, or vitest's own default when this run is alone.
+    // Spread conditionally so the uncontended case sets NOTHING: CI and a solo developer must be
+    // bit-for-bit unaffected by a mechanism that exists only for contention.
+    ...(workerLease.budget === null ? {} : { maxWorkers: workerLease.budget, minWorkers: 1 }),
     // T308 — carries the gate's own load judgement to an ad-hoc `npx vitest run <file>`.
     // 'default' is listed explicitly because naming any reporter REPLACES the default
     // list rather than adding to it. The reporter only ever ADDS a diagnostic line
