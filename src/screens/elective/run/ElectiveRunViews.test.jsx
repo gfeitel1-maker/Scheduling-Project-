@@ -345,7 +345,7 @@ describe('T250 archive_when — Final: finalizedAgainstStaleGeneration surfaced 
     expect(within(pairing).getByRole('button', { name: START_REVISION_LABEL })).toBeTruthy()
   })
 
-  it('renders exactly one Start a revision control even when the stale state is showing', async () => {
+  it('renders exactly one Start a new version control even when the stale state is showing', async () => {
     render(<FinalRunView run={FINAL_RUN} campers={CAMPERS} {...catalogs()} />)
     await screen.findByTestId('run-state-stale-generation')
     expect(screen.getAllByRole('button', { name: START_REVISION_LABEL })).toHaveLength(1)
@@ -529,19 +529,19 @@ describe('T250 archive_when — reachable only by admin', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Q5 is still open with the owner. The label ships as the existing wording and
-// must stay a single named constant so a one-line change swaps it.
+// Q5 was ruled by the owner 2026-09-29: "Start a new version". The label ships
+// from a single named constant so any future change stays a one-line edit.
 // ---------------------------------------------------------------------------
 describe('T250 — Q5 terminology is a single swappable constant', () => {
-  it('ships the existing Start a revision wording from one named constant', () => {
-    expect(START_REVISION_LABEL).toBe('Start a revision')
-    // Comments stripped first: the phrase is allowed to be DISCUSSED in this
-    // file, but never written as the label. Anything left is a hardcoded
-    // duplicate that a one-line answer to Q5 would silently miss.
+  it('ships the ruled Start a new version wording from one named constant', () => {
+    expect(START_REVISION_LABEL).toBe('Start a new version')
+    // Comments stripped first: either phrase is allowed to be DISCUSSED in
+    // this file, but never written as a hardcoded label duplicating the
+    // constant.
     const src = fs
       .readFileSync(path.join(process.cwd(), 'src/screens/elective/run/FinalRunView.jsx'), 'utf8')
       .replace(/\/\/.*$/gm, '')
-    expect(src).not.toMatch(/Start a revision/)
+    expect(src).not.toMatch(/Start a (revision|new version)/)
   })
 })
 
