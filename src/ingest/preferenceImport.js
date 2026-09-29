@@ -116,8 +116,11 @@ export function buildPreferenceCatalog({ activities = [], groups = [], tiers = [
  *   Arrival is the fact that differs — two children handing in matching sheets
  *   are two import actions, while one import action repeated is one arrival. The
  *   caller states it because only the caller knows: the director's panel mints
- *   one per file selection, the CLI passes the run id it derives from the file's
- *   bytes (so an agent's retry stays idempotent).
+ *   one per file selection, and on the machine path an agent declares one per
+ *   submission (T303 — `arrival_id`). A machine caller that declares nothing
+ *   falls back to the run id derived from the file's bytes, so its retry stays
+ *   idempotent; that fallback cannot separate two children who chose the same
+ *   activities, and the import says so rather than merging in silence.
  *
  * @returns {{mapping, parsed}|{mapping, parsed: null, unmapped: string[]}}
  *   `parsed: null` means no table here could be read as a preference sheet. That is
