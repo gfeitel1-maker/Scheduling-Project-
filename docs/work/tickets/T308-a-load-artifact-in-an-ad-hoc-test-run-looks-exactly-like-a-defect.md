@@ -110,5 +110,14 @@ finds an answer instead of a surprise.
   step must stay plain reds. The failure mode to design against is not "a red that was really load"
   — it is **"a defect dressed as load"**, which is strictly worse, and is why the current filters
   exist.
+- **The failure mode of the fix is the failure mode the fix is for**, and that is the sentence to
+  keep in view while building it. The obvious implementation is "let an ad-hoc run reach the
+  INCONCLUSIVE verdict too" — and the obvious way to get there is to widen that path. Widen it
+  without carrying BOTH of T178's filters and every load-shaped red becomes a laundered defect,
+  silently, on the exact command sessions run most. This ticket exists because a correct judgement
+  could not reach the working loop; it must not be closed by making an incorrect judgement reach it.
+  A fix that trades a red-that-was-load for a defect-dressed-as-load has made the codebase worse
+  than leaving this ticket open.
+  _(Framing contributed by the session that lost an afternoon to this, reviewing the merged ticket.)_
 - Bounding parallelism and improving the signal are separable. The signal is the one that cost two
   sessions time today; the bound is what stops load 518 recurring. Either is shippable alone.
