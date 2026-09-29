@@ -1,7 +1,7 @@
 ---
 title: "Minimum headcount to run an elective offering"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-25
 task_class: scheduling-engine
 archive_when: "an offering carries a two-part minimum (mode + value) where a NULL value is never coerced to 0 and 0 is rejected by a CHECK, the engine declines to run an offering below its minimum and cascades those campers to their next available ranked choice, a finding names each declined offering with its shortfall, a director can set and clear the minimum where capacity is already set, and a non-vacuity test proves the engine still places an offering that exactly MEETS its minimum"
@@ -223,3 +223,61 @@ Three separate sessions asked him some version of this today. It is closed.
 
 Belongs in `docs/adr/2026-09-26-per-cell-elective-preferences.md` as the standing format rule; kept
 here because an agent held that file at the time of writing.
+
+---
+
+## Built 2026-09-28 — schema v80
+
+`min_mode TEXT NOT NULL DEFAULT 'none'` + `min_to_run INTEGER CHECK (... >= 1)` on
+`elective_set_activities`, read through `resolveOfferingMinimum` in
+`electron/ops/electiveOfferingCapacity.js` (beside the capacity resolver, one home per T245),
+carried onto solver offerings by `src/screens/elective/assignment/buildOfferings.js`, cascaded in
+`src/engine/buildElectiveAssignments.js`, and set/cleared in the offerings table of
+`src/screens/elective/ElectiveSetDetail.jsx` — which both authoring surfaces already render, so the
+control reaches the Roots route and the Schedule route without a second implementation.
+
+### The cascade, as implemented
+
+Two phases per occurrence, per the owner's 2026-09-26 ruling. Place everyone, then evaluate minima,
+then move only the campers whose offering was cancelled — **one cancellation per round**, largest
+shortfall first, ties by `activity_id`.
+
+**One per round is forced by the ruling's own worked example.** Cancelling every short offering
+simultaneously declines both Archery and Fishing and leaves nothing running; cancelling the
+furthest-below one first releases the campers that carry the other past its minimum.
+
+**Only the displaced campers move, and the termination argument depends on it.** A survivor keeps its
+seat, so a column's headcount is monotonically non-decreasing and nothing that passed its minimum can
+later fail it; each round cancels exactly one column, so the loop is bounded by the number of
+offerings in the occurrence. Re-solving every camper each round would be optimal per round and would
+break exactly that property — the solver would be free to move a survivor out of a column that had
+already passed. The displaced set is still assigned *optimally* among the remaining capacity, because
+it goes back through the same `minCostAssign`.
+
+### Two decisions the ticket left open
+
+**A pre-placed seat makes an offering uncancellable.** A locked seat is never re-decided (T246) and a
+tier-1 linked choice is taken as a set or not at all, so an offering holding one cannot be emptied.
+It runs, and a `KEPT_BELOW_MINIMUM` finding says so with its shortfall — an offering quietly under its
+minimum is the silent wrongness this ticket exists to remove. It stays OPEN, so a later cancellation
+can still rescue it, and if it reaches its minimum nothing is reported.
+
+**A camper left with nowhere to go gets `UNPLACED_AFTER_DECLINE`, not `NO_CAPACITY`.** Two findings
+rather than one because the director acts on them differently: "everything is full" means add
+capacity, "your offering came off" means lower a minimum. Reusing `NO_CAPACITY` would have told a
+director every offering was full when the cause was a cancellation.
+
+### One thing the ticket asserted that the code does not support
+
+The ticket says a single nullable integer "would reproduce that bug by construction: a blank minimum
+would become `0`, and depending on the comparison direction either do nothing or make the offering
+unrunnable forever." The **direction** claim is right and the **hazard** is real at the read sites —
+but at the engine's comparison it is currently inert either way, because `enrolled >= 0` is a
+tautology. Verified by planting `?? 0` in the engine: all tests still passed, because the behaviour is
+genuinely unchanged there.
+
+So the invariant is enforced and tested where it is observable — the DB CHECK, `resolveOfferingMinimum`
+(mode is the authority), and `buildOfferings` (null, never 0) — and the engine comment says plainly
+that its own `minimum == null` check is not what defends it. A comment claiming otherwise would have
+claimed more than the code delivers. The two-part shape is still the right call; the reason is the
+read path, not the comparison.

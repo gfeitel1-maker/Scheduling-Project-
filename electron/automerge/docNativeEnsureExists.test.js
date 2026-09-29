@@ -126,7 +126,15 @@ describe('doc-native ensureExists — six op-log-backed entities project from a 
       // status arrived in v68 (T195): the importer is the only writer that
       // ever says 'potential' — a hand/doc-authored row keeps the schema
       // DEFAULT, 'confirmed'.
-      expected: { id: 'esa-1', elective_set_id: 'es-1', activity_id: 'act-1', capacity_mode: 'unlimited', capacity_limit: null, status: 'confirmed' },
+      // min_mode/min_to_run arrived in v80 (T265), the minimum headcount to run.
+      // Same story as status: a doc-authored row that names neither keeps the
+      // schema DEFAULTs, and 'none'/NULL is "no minimum" — which is exactly what
+      // every offering meant before v80 existed.
+      expected: {
+        id: 'esa-1', elective_set_id: 'es-1', activity_id: 'act-1',
+        capacity_mode: 'unlimited', capacity_limit: null, status: 'confirmed',
+        min_mode: 'none', min_to_run: null,
+      },
     },
     {
       entity: 'event_slots',

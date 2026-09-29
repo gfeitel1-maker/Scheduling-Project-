@@ -91,7 +91,7 @@ describe('v65 — fixed_events.unit_ids (division scope)', () => {
   it('a fresh db lands at CURRENT_SCHEMA_VERSION and carries unit_ids', () => {
     const db = openLocalDb(tmpFile('v65-fresh'))
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(79)
+    expect(CURRENT_SCHEMA_VERSION).toBe(80)
     const cols = db.pragma('table_info(fixed_events)').map((c) => c.name)
     expect(cols).toContain('unit_ids')
     expect(cols).toContain('unit_id')

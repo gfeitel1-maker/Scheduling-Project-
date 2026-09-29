@@ -72,7 +72,7 @@ function eligibilitySummary(activity, tiers, groups) {
   return 'Everyone'
 }
 
-function OfferingRow({ offering, activity, locations, tiers, groups, onSaveCapacity, onDelete, role }) {
+function OfferingRow({ offering, activity, locations, tiers, groups, onSaveCapacity, onSaveMinimum, onDelete, role }) {
   // v66 (T194): capacity is a two-part value — capacity_mode is the AUTHORITY,
   // and capacity_limit is ignored entirely when the mode is 'unlimited'. This
   // control's behaviour is unchanged from v39 IN ONE RESPECT ONLY — empty box =
@@ -95,6 +95,18 @@ function OfferingRow({ offering, activity, locations, tiers, groups, onSaveCapac
   // reuses the confirm-feedback pattern from the Roots-as-hub Slice E.
   const [savedFlash, setSavedFlash] = useState(false)
   const { start: startSavedFlash } = useLatestTimeout()
+  // T265 — the minimum headcount to run, its own two-part value beside the
+  // capacity. `min_mode` is the AUTHORITY: a leftover `min_to_run` under mode
+  // 'none' shows as EMPTY, so a director never sees a minimum the engine is
+  // ignoring. Same read shape as the capacity control directly above.
+  const [minText, setMinText] = useState(
+    offering.min_mode === 'required' && offering.min_to_run != null
+      ? String(offering.min_to_run)
+      : ''
+  )
+  const [minSaving, setMinSaving] = useState(false)
+  const [minSavedFlash, setMinSavedFlash] = useState(false)
+  const { start: startMinSavedFlash } = useLatestTimeout()
   const location = locations.find((l) => l.id === activity?.location_id)
 
   async function commitCapacity() {
@@ -114,6 +126,37 @@ function OfferingRow({ offering, activity, locations, tiers, groups, onSaveCapac
       // onSaveCapacity already surfaced the error via the screen's error banner.
     } finally {
       setSaving(false)
+    }
+  }
+
+  // NOTHING IS COERCED HERE. The capacity control above turns a blank into
+  // `parseInt(...) || 0`, which is how a blank capacity became a CLOSED offering
+  // — the live defect T265's two-part shape exists to avoid reproducing. So a
+  // blank clears the minimum (mode 'none'), and a 0 is REFUSED with a reason
+  // rather than silently becoming "no minimum" or "needs 0".
+  async function commitMinimum() {
+    const trimmed = minText.trim()
+    const current =
+      offering.min_mode === 'required' && offering.min_to_run != null
+        ? offering.min_to_run
+        : null
+    if (trimmed === '0') {
+      // Owner ruling 2026-09-25: the min could be 1, cannot be 0.
+      onSaveMinimum(offering.id, current, 'A minimum to run has to be at least 1.')
+      setMinText(current == null ? '' : String(current))
+      return
+    }
+    const value = trimmed === '' ? null : parseInt(trimmed, 10)
+    if (value === current) return
+    setMinSaving(true)
+    try {
+      await onSaveMinimum(offering.id, value)
+      setMinSavedFlash(true)
+      startMinSavedFlash(() => setMinSavedFlash(false), 700)
+    } catch {
+      // onSaveMinimum already surfaced the error via the screen's error banner.
+    } finally {
+      setMinSaving(false)
     }
   }
 
@@ -145,6 +188,29 @@ function OfferingRow({ offering, activity, locations, tiers, groups, onSaveCapac
             transition: prefersReducedMotion() ? 'none' : 'box-shadow var(--motion-base) var(--ease-out)',
           }}
           aria-label={`Capacity for ${activity?.name ?? 'offering'}`}
+        />
+      </td>
+      <td style={S.td}>
+        <input
+          type="text"
+          inputMode="numeric"
+          placeholder="No minimum"
+          value={minText}
+          disabled={minSaving}
+          onChange={(e) => {
+            const raw = e.target.value
+            if (raw === '' || /^\d+$/.test(raw)) setMinText(raw)
+          }}
+          onBlur={commitMinimum}
+          onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+          data-saved={minSavedFlash ? '' : undefined}
+          style={{
+            ...S.input,
+            width: 110,
+            boxShadow: minSavedFlash ? '0 0 0 2px var(--secondary)' : undefined,
+            transition: prefersReducedMotion() ? 'none' : 'box-shadow var(--motion-base) var(--ease-out)',
+          }}
+          aria-label={`Minimum to run ${activity?.name ?? 'offering'}`}
         />
       </td>
       <td style={{ ...S.td, textAlign: 'right' }}>
@@ -297,6 +363,31 @@ export default function ElectiveSetDetail({
     }
   }
 
+  // T265 — the minimum, written as the two-part (min_mode, min_to_run) pair for
+  // the same reason the capacity is: applyProjection applies ONE field per op, and
+  // the DB CHECKs are per-column precisely so either arrival order is legal on
+  // every device.
+  //
+  // `refusal` is the 0 case, caught before any write: reported through the SAME
+  // error surface as a failed write, because to a director "that did not save" is
+  // one situation whatever the cause.
+  async function saveMinimum(offeringId, value, refusal) {
+    if (refusal) {
+      setError(refusal)
+      return
+    }
+    try {
+      await repository.writeFields('elective_set_activities', offeringId, {
+        min_mode: value == null ? 'none' : 'required',
+        min_to_run: value,
+      })
+      await reload()
+    } catch (err) {
+      setError(describeWriteFailure(err, 'That minimum could not be saved.'))
+      throw err
+    }
+  }
+
   // Closes the dead-end the refuse-on-nonempty import message ("...already
   // has offerings. Clear it first...") otherwise points at with no control
   // to act on (Tester MEDIUM). Deletes every elective_set_activities row for
@@ -399,6 +490,7 @@ export default function ElectiveSetDetail({
                 <th style={S.th}>Location</th>
                 <th style={S.th}>Who can go</th>
                 <th style={S.th}>Capacity</th>
+                <th style={S.th}>Minimum to run</th>
                 <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
@@ -413,6 +505,7 @@ export default function ElectiveSetDetail({
                   groups={groups}
                   role={role}
                   onSaveCapacity={saveCapacity}
+                  onSaveMinimum={saveMinimum}
                   onDelete={setPendingDelete}
                 />
               ))}

@@ -4,7 +4,7 @@
 // `Math.max(0, o.capacity ?? 0)`, so 0/null CLOSES the offering.
 // capacity_mode:'unlimited' must pass a large number, never 0 or null.
 import { electiveChoiceLabelKey } from '../../../../electron/ops/electiveDerivedIds.js'
-import { resolveOfferingCapacity } from '../../../../electron/ops/electiveOfferingCapacity.js'
+import { resolveOfferingCapacity, resolveOfferingMinimum } from '../../../../electron/ops/electiveOfferingCapacity.js'
 
 const UNLIMITED_CAPACITY = Number.MAX_SAFE_INTEGER
 
@@ -37,11 +37,20 @@ export function buildOfferings({ occurrences = [], setActivities = [], activitie
       const capacity = resolved.kind === 'unlimited'
         ? UNLIMITED_CAPACITY
         : resolved.kind === 'limited' ? resolved.capacity : 0
+      // T265 — the MINIMUM to run, the mirror of the capacity above and the
+      // opposite trap. Capacity's hazard is a null arriving as 0 and CLOSING an
+      // offering; the minimum's is a null arriving as 0 and silently deleting the
+      // constraint. `null` here means "no minimum", and only a real stated value
+      // (integer >= 1, per the schema CHECK) ever becomes a number — a
+      // declared-but-unstated minimum enforces nothing rather than guessing a
+      // direction.
+      const min = resolveOfferingMinimum(sa)
       offerings.push({
         occurrence_id: occurrence.id,
         labelKey: electiveChoiceLabelKey(activity.name),
         activity_id: activity.id,
         capacity,
+        minimum: min.kind === 'required' ? min.minimum : null,
       })
     }
   }

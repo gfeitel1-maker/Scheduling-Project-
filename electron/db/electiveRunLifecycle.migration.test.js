@@ -265,9 +265,9 @@ describe('migration v72->v74 composition: fresh vs a genuinely-migrated database
     // "both are at 74" — so the literal moves with every schema bump. Kept as a
     // literal rather than CURRENT_SCHEMA_VERSION on both sides, because
     // comparing two things that are both derived would pass even if the chain
-    // stopped stamping entirely. v79 (T279) is the current head.
-    expect(getSchemaVersion(fresh)).toBe(79)
-    expect(getSchemaVersion(migrated)).toBe(79)
+    // stopped stamping entirely. v80 (T265) is the current head.
+    expect(getSchemaVersion(fresh)).toBe(80)
+    expect(getSchemaVersion(migrated)).toBe(80)
 
     fresh.close()
     migrated.close()

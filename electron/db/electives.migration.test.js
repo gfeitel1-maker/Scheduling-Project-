@@ -153,6 +153,7 @@ describe('migration v35: fresh vs migrated equivalence', () => {
     expect(db.pragma('table_info(elective_set_activities)').map((c) => c.name)).toEqual([
       'id', 'elective_set_id', 'activity_id', 'camper_headcount',
       'capacity_mode', 'capacity_limit', 'status',
+      'min_mode', 'min_to_run',
     ])
     db.close()
   })

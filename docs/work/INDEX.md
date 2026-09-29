@@ -49,12 +49,6 @@ Regenerate with `npm run index:work`.
 |---|---|---|
 | [History rewrite: purge real camp identity and personal paths from public git history](../../docs/work/tickets/T120-history-rewrite-privacy-scrub.md) | open | — |
 
-### scheduling-engine
-
-| Ticket | Status | Referenced by |
-|---|---|---|
-| [Minimum headcount to run an elective offering](../../docs/work/tickets/T265-minimum-headcount-to-run.md) | open | [2026-09-26-general-ingest-for-campers-and-per-cell-preferences](../../docs/adr/2026-09-26-general-ingest-for-campers-and-per-cell-preferences.md) · [2026-09-27-elective-preference-etl-canonical-record-and-learned-axis-binding](../../docs/adr/2026-09-27-elective-preference-etl-canonical-record-and-learned-axis-binding.md) · [T296-per-camper-elective-schedule-view](../../docs/work/tickets/T296-per-camper-elective-schedule-view.md) · [T297-edit-a-campers-elective-preferences](../../docs/work/tickets/T297-edit-a-campers-elective-preferences.md) |
-
 ### security-auth
 
 | Ticket | Status | Referenced by |

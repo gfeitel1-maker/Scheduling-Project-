@@ -366,27 +366,160 @@ export function buildElectiveAssignments({
       continue
     }
 
-    const cost = who.map((camperId) =>
-      here.map((o) => {
-        const rank = rankAt(camperId, occurrenceId, o.labelKey)
-        return rank == null ? UNRANKED_COST : rank
-      })
-    )
+    // MINIMUM TO RUN (T265) — a SECOND PHASE, not a constraint inside the solve.
+    // Owner ruling 2026-09-26: you cannot know an offering is short until
+    // everyone has been placed, so placement runs first and the minimum is
+    // validated against the result.
+    //
+    // `o.minimum` is null or an integer >= 1, never 0 — the DB CHECK rejects 0 and
+    // resolveOfferingMinimum is the only producer, which is what lets a single
+    // engine-side field stand in for the stored two-part (min_mode, min_to_run)
+    // pair without reintroducing D3's hazard. The guarantee is enforced at those
+    // two sites and tested there; it is deliberately NOT re-asserted here, because
+    // `enrolled >= 0` is a tautology and a 0 would be inert anyway. A comment
+    // claiming this line defends the invariant would be claiming more than the
+    // code does.
+    const capacityAt = (j) => Math.max(0, here[j].capacity ?? 0)
+    // A pre-placed seat (a locked seat, or a tier-1 linked-choice placement)
+    // occupies capacity and COUNTS toward the minimum.
+    const prePlacedAt = (j) => prePlacedHere.filter((e) => e.activityId === here[j].activity_id).length
 
-    const remainingCapacity = here.map((o) => Math.max(0, o.capacity ?? 0))
-    for (const e of prePlacedHere) {
-      const j = here.findIndex((o) => o.activity_id === e.activityId)
-      if (j >= 0) remainingCapacity[j] = Math.max(0, remainingCapacity[j] - 1)
+    // Column indices that did not make their minimum. A cancelled column is
+    // forbidden to every row, so nobody can be placed back into it.
+    const cancelled = new Set()
+    const seat = new Map() // camperId -> column index
+
+    const seatedAt = (j) => {
+      let n = 0
+      for (const j2 of seat.values()) if (j2 === j) n += 1
+      return n
+    }
+    const remainingCapacity = () =>
+      here.map((_, j) => Math.max(0, capacityAt(j) - prePlacedAt(j) - seatedAt(j)))
+
+    // Places `rowCamperIds` into the surviving columns, optimally, against the
+    // capacity left. UNRANKED_COST is kept so owner ruling R3 still holds for a
+    // cascading camper: seated in something they did not ask for beats left out.
+    const solveInto = (rowCamperIds, remaining) => {
+      const cost = rowCamperIds.map((camperId) =>
+        here.map((o, j) => {
+          if (cancelled.has(j)) return null
+          const rank = rankAt(camperId, occurrenceId, o.labelKey)
+          return rank == null ? UNRANKED_COST : rank
+        })
+      )
+      const placed = minCostAssign(cost, remaining)
+      rowCamperIds.forEach((camperId, i) => {
+        if (placed[i] != null) seat.set(camperId, placed[i])
+      })
     }
 
-    const placed = minCostAssign(cost, remainingCapacity)
+    solveInto(who, remainingCapacity())
+
+    // A pre-placed seat is never re-decided (T246 for a locked seat; a tier-1
+    // linked choice is taken as a set or not at all), so an offering holding one
+    // cannot be emptied and is therefore not cancellable — the loop below skips
+    // it, and the pass after the loop reports it.
+    const shortfallAt = (j) => {
+      const minimum = here[j].minimum
+      if (minimum == null) return null
+      const enrolled = prePlacedAt(j) + seatedAt(j)
+      return enrolled >= minimum ? null : { j, enrolled, minimum, shortfall: minimum - enrolled }
+    }
+
+    // THE CASCADE. One cancellation per round, furthest below its own minimum
+    // first (owner ruling 2026-09-26) — cancelling the least rescuable offering
+    // releases the most campers to rescue the ones that are close, and it is
+    // explainable to a director in one sentence. Cancelling every short offering
+    // at once instead would decline both halves of the ticket's Archery/Fishing
+    // case and leave nothing running.
+    //
+    // IT TERMINATES, and the argument depends on only the displaced campers
+    // moving. A survivor keeps its seat, so a column's headcount is monotonically
+    // non-decreasing and nothing that already passed its minimum can later fail
+    // it. Each round cancels exactly one column, so the loop is bounded by
+    // `here.length` and cannot oscillate. Re-solving EVERY camper each round
+    // would be optimal per round and would break this: the solver would be free
+    // to move a survivor out of a column that had already passed, dropping it
+    // below its minimum again.
+    let declinedAny = false
+    for (;;) {
+      const cancellable = []
+      for (let j = 0; j < here.length; j++) {
+        if (cancelled.has(j) || prePlacedAt(j) > 0) continue
+        const s = shortfallAt(j)
+        if (s) cancellable.push(s)
+      }
+      if (cancellable.length === 0) break
+
+      // Largest shortfall first; ties by activity_id, a stable identifier, so
+      // the outcome never depends on input or Map order.
+      cancellable.sort((a, b) =>
+        b.shortfall - a.shortfall ||
+        (here[a.j].activity_id < here[b.j].activity_id ? -1
+          : here[a.j].activity_id > here[b.j].activity_id ? 1 : 0)
+      )
+      const worst = cancellable[0]
+      cancelled.add(worst.j)
+      declinedAny = true
+      findings.push({
+        kind: 'BELOW_MINIMUM',
+        occurrence_id: occurrenceId,
+        activity_id: here[worst.j].activity_id,
+        labelKey: here[worst.j].labelKey,
+        enrolled: worst.enrolled,
+        minimum: worst.minimum,
+        shortfall: worst.shortfall,
+        message:
+          `“${here[worst.j].labelKey}” had ${worst.enrolled} of the ${worst.minimum} ` +
+          'campers it needs to run, so it did not run. Those campers were moved to their next ' +
+          'choice.',
+      })
+
+      const displaced = [...seat.entries()]
+        .filter(([, j]) => j === worst.j)
+        .map(([camperId]) => camperId)
+        .sort()
+      for (const camperId of displaced) seat.delete(camperId)
+      solveInto(displaced, remainingCapacity())
+    }
+
+    // REPORTED ONCE, AFTER THE LOOP HAS SETTLED, and that timing is the whole
+    // point. Anything still short here holds a pre-placed seat, so it ran anyway
+    // — and saying so matters, because an offering quietly under its minimum is
+    // the silent wrongness this ticket removes.
+    //
+    // Reporting it INSIDE the loop instead forces a choice between re-emitting it
+    // every round and excluding it from further placement, and excluding it blocks
+    // a cascade from rescuing it — then reports a shortfall the engine itself
+    // prevented from being fixed. Since it stays open, campers released by a later
+    // cancellation can still fill it, and if they do it is no longer short and
+    // nothing is reported. Pinned by the rescue test in electiveMinimumToRun.test.js.
+    for (let j = 0; j < here.length; j++) {
+      if (cancelled.has(j)) continue
+      const s = shortfallAt(j)
+      if (!s) continue
+      findings.push({
+        kind: 'KEPT_BELOW_MINIMUM',
+        occurrence_id: occurrenceId,
+        activity_id: here[j].activity_id,
+        labelKey: here[j].labelKey,
+        enrolled: s.enrolled,
+        minimum: s.minimum,
+        shortfall: s.shortfall,
+        message:
+          `“${here[j].labelKey}” has ${s.enrolled} of the ${s.minimum} campers it ` +
+          'needs to run, but it holds a seat that was set by hand, so it was kept as it is. ' +
+          'Lower its minimum, or move that seat, and run this again.',
+      })
+    }
 
     const unplaced = []
-    who.forEach((camperId, i) => {
-      const j = placed[i]
+    for (const camperId of who) {
+      const j = seat.get(camperId)
       if (j == null) {
         unplaced.push(camperId)
-        return
+        continue
       }
       const o = here[j]
       const rank = rankAt(camperId, occurrenceId, o.labelKey) ?? null
@@ -401,15 +534,29 @@ export function buildElectiveAssignments({
         preference_rank: rank,
         flags,
       })
-    })
+    }
 
     if (unplaced.length > 0) {
-      findings.push({
-        kind: 'NO_CAPACITY',
-        occurrence_id: occurrenceId,
-        camper_ids: unplaced.sort(),
-        message: `${unplaced.length} camper(s) could not be placed — every offering in this period is full.`,
-      })
+      // Two different reasons, two findings, because the director acts on them
+      // differently: "everything is full" means add capacity, "your offering
+      // came off" means lower a minimum. Collapsing them into the existing
+      // NO_CAPACITY message would tell a director every offering was full when
+      // the real cause was a cancellation.
+      findings.push(declinedAny
+        ? {
+          kind: 'UNPLACED_AFTER_DECLINE',
+          occurrence_id: occurrenceId,
+          camper_ids: unplaced.sort(),
+          message:
+            `${unplaced.length} camper(s) had nowhere left to go after an offering did not run — ` +
+            'they had no other choice in this period with room in it.',
+        }
+        : {
+          kind: 'NO_CAPACITY',
+          occurrence_id: occurrenceId,
+          camper_ids: unplaced.sort(),
+          message: `${unplaced.length} camper(s) could not be placed — every offering in this period is full.`,
+        })
     }
   }
 

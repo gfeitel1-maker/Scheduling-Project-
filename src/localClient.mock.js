@@ -304,8 +304,13 @@ export const UNIQUE_FIELD_ENTITIES = {
 // buildOfferings.js, but only in browser-dev — the packaged/electron:dev app
 // was never affected. Stamped on new-row creation only, mirroring how
 // camp_id is stamped below.
+// min_mode (v80, T265) joins them for the same reason: the real INSERT
+// materialises its NOT NULL DEFAULT of 'none', and a mock row reading back
+// `undefined` instead would leave the minimum's authority column unset on every
+// freshly created offering. min_to_run needs no default — it is nullable, and
+// null IS "no minimum stated".
 const SCHEMA_DEFAULTS = {
-  elective_set_activities: { capacity_mode: 'unlimited', status: 'confirmed' },
+  elective_set_activities: { capacity_mode: 'unlimited', status: 'confirmed', min_mode: 'none' },
 }
 
 // Registered listeners for the mock's event-style methods (onOpApplied,
@@ -461,7 +466,14 @@ export const MOCK_WRITE_ALLOWLIST = {
   // v66 (T194, ADR D3): camper_headcount is RETIRED FROM THE WRITE PATH — the
   // column stays in the table but no write may reach it. capacity_mode is the
   // authority; capacity_limit is ignored entirely when mode is 'unlimited'.
-  elective_set_activities: ['elective_set_id', 'activity_id', 'capacity_mode', 'capacity_limit', 'status'],
+  // min_mode/min_to_run (v80, T265): the minimum headcount to run, kept in
+  // lockstep with PROJECTIONS.elective_set_activities.fields — a field this list
+  // omits is rejected by the mock, so the browser-dev path would refuse a write
+  // the real app accepts.
+  elective_set_activities: [
+    'elective_set_id', 'activity_id', 'capacity_mode', 'capacity_limit', 'status',
+    'min_mode', 'min_to_run',
+  ],
   // T108 (day-overrides re-point, ADR 2026-08-21-day-overrides-repoint-
   schedule_weeks: ['camp_id', 'name', 'sort_order', 'is_archived'],
   schedule_templates: ['kind', 'camp_id', 'week_id', 'name'],

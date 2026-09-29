@@ -23,3 +23,34 @@ export function resolveOfferingCapacity(setActivity) {
   if (limit == null) return { kind: 'unknownLimit' }
   return { kind: 'limited', capacity: Math.max(0, limit) }
 }
+
+// The ONE resolution of an `elective_set_activities` row's MINIMUM columns
+// (`min_mode`, `min_to_run`) — T265, schema v80. Lives beside the capacity
+// resolver because it is the same kind of fact read the same way, and having one
+// home is what stopped the two capacity copies from disagreeing (T245).
+//
+// `min_mode` is the AUTHORITY, exactly as `capacity_mode` is: under 'none' the
+// value is ignored ENTIRELY, so a leftover number from a minimum a director set
+// and then cleared can never come back to life.
+//
+// NOTHING IS COERCED HERE, and that is the whole point of the two-part shape.
+// There is deliberately no `Math.max` and no `?? 0`: the schema CHECK guarantees
+// a stated value is an integer >= 1, so the only values this can return are null
+// (via 'none'/'unknownMinimum') or a real minimum. A minimum of 0 is
+// unrepresentable rather than merely discouraged.
+//
+// `unknownMinimum` is ('required', NULL) — declared but not stated, the mirror of
+// capacity's `unknownLimit`. It enforces NOTHING. Reading it as 0 would delete
+// the constraint silently; reading it as "cannot run" would make the offering
+// unrunnable forever. Both are the live blank-capacity defect, one direction
+// each, which is why this case is NAMED and left to the caller.
+//
+// Tolerates the undefined shape src/localClient.mock.js's rows can have
+// (buildOfferings.js's H5 comment), defaulting to schema.sql's own DEFAULT.
+export function resolveOfferingMinimum(setActivity) {
+  const mode = setActivity?.min_mode ?? 'none'
+  if (mode !== 'required') return { kind: 'none' }
+  const value = setActivity?.min_to_run
+  if (value == null) return { kind: 'unknownMinimum' }
+  return { kind: 'required', minimum: value }
+}

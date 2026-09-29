@@ -39,7 +39,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // campers.division_label/is_unattributed and elective_preferences.rank_kind/
 // coordinate_day_label/coordinate_period_label) all land in this file; 79 is the
 // current version.
-export const CURRENT_SCHEMA_VERSION = 79
+export const CURRENT_SCHEMA_VERSION = 80
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -3809,6 +3809,44 @@ const DEVICE_HEALTH_EVENTS_DDL = `
     )
   }
 
+  // v80 (T265) — the minimum headcount to run an elective offering. The two-part
+  // (min_mode, min_to_run) shape mirrors v66's capacity pair exactly; see
+  // schema.sql's comment for why a single nullable integer was rejected and why
+  // min_to_run's CHECK is `>= 1` where capacity_limit's is `>= 0`.
+  //
+  // Appended AFTER status: ALTER TABLE ADD COLUMN always appends, so the
+  // declaration order in schema.sql has to match or a migrated db and a fresh
+  // install disagree on column order (the trap that bit is_reusable and
+  // location_id). The column-level CHECK travels with the ADD COLUMN, so a
+  // migrated db enforces the same matrix a fresh one does — asserted in
+  // electiveMinimumToRun.migration.test.js.
+  //
+  // Existing rows take the DEFAULT 'none', which means "no minimum" — so an
+  // offering's placement is unchanged by this migration.
+  if (getSchemaVersion(db) >= 79 && getSchemaVersion(db) < 80) {
+    db.transaction(() => {
+      if (tableExists('elective_set_activities')) {
+        const cols = db.pragma('table_info(elective_set_activities)').map((c) => c.name)
+        if (!cols.includes('min_mode')) {
+          db.exec(
+            "ALTER TABLE elective_set_activities ADD COLUMN min_mode TEXT NOT NULL DEFAULT 'none' " +
+            "CHECK (min_mode IN ('none', 'required'))"
+          )
+        }
+        if (!cols.includes('min_to_run')) {
+          db.exec(
+            'ALTER TABLE elective_set_activities ADD COLUMN min_to_run INTEGER ' +
+            'CHECK (min_to_run IS NULL OR (typeof(min_to_run) = \'integer\' AND min_to_run >= 1))'
+          )
+        }
+      }
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (80, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
 }
 
 // v60 backfill helper (Q1 fix). On the HOST only (a device with a host_signing_key
@@ -4069,6 +4107,11 @@ export const ELECTIVE_SET_ACTIVITIES_DDL = `CREATE TABLE IF NOT EXISTS elective_
            OR (typeof(capacity_limit) = 'integer' AND capacity_limit >= 0)),
   status TEXT NOT NULL DEFAULT 'confirmed'
     CHECK (status IN ('potential', 'confirmed')),
+  min_mode TEXT NOT NULL DEFAULT 'none'
+    CHECK (min_mode IN ('none', 'required')),
+  min_to_run INTEGER
+    CHECK (min_to_run IS NULL
+           OR (typeof(min_to_run) = 'integer' AND min_to_run >= 1)),
   UNIQUE(elective_set_id, activity_id)
 )`
 

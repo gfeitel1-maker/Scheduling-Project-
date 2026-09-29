@@ -105,7 +105,7 @@ afterEach(() => {
 // tripwire whose name and assertion disagree tells a future reader the wrong thing about when it
 // was last looked at — the whole point of pinning the literal. Both now say 78.
 it('is written against schema v78', () => {
-  expect(CURRENT_SCHEMA_VERSION).toBe(79)
+  expect(CURRENT_SCHEMA_VERSION).toBe(80)
 })
 
 // ── The real ingest path, run once per test ────────────────────────────────
