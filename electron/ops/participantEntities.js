@@ -64,6 +64,30 @@ export const PARTICIPANT_ENTITIES = Object.freeze(
 // campers is absent from main.js's SCOPED_LIST_ENTITIES.
 export const STAFF_READABLE_PARTICIPANT_ENTITIES = Object.freeze(new Set(['campers']))
 
+// T306 — the ONE MUTATION a staff session may perform on a camper row, and the
+// reason it is a verb of its own rather than a write.
+//
+// Owner ruling 2026-09-29: staff, not only directors, may say who an unnamed
+// planner belongs to — "they know the answer", because the people who collected
+// the sheets are with the children. The act itself is narrow: fill in the name of
+// a subject that HAS no name.
+//
+// WHY NOT `campers.write`. attributeElectiveSubject already refuses to touch a
+// camper who is already named (`if (subject.is_unattributed !== 1)`), because
+// renaming an identified child re-keys their identity and orphans them from every
+// other record. But that guard lives in the OP, not in the generic write path:
+// main.js's write() derives its action via deriveWriteAction(), which returns a
+// bare `campers.write` for any ordinary field and never routes through the op. So
+// granting staff `campers.write` would hand them a path that writes display_name
+// onto ANY camper row — including a named one — with the is_unattributed check
+// nowhere in it. A wide grant would not merely over-deliver on the ruling; it
+// would reintroduce the exact fork hazard the op exists to prevent, through a door
+// the op cannot see. A narrow verb keeps every caller on the guarded path.
+//
+// ONE IPC surface opens for a staff session per entry here: attributeSubject.
+// Nothing else authorizes `<entity>.attribute`.
+export const STAFF_ATTRIBUTABLE_PARTICIPANT_ENTITIES = Object.freeze(new Set(['campers']))
+
 // Spellings that are NOT the registered entity name but plainly mean it — the
 // near misses a caller reaches for. Every guard in this repo that keys on an
 // exact string match has the same blind spot: `targetType: 'camper'` (singular)

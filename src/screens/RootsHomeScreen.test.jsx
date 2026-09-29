@@ -20,6 +20,7 @@ vi.mock('../localClient', () => ({
     latestOpSeq: vi.fn(),
     listOpenReconciliationDecisions: vi.fn(() => Promise.resolve([])),
     dismissOpenReconciliationDecisions: vi.fn(() => Promise.resolve({ ok: true, dismissed: 0 })),
+    attributeSubject: vi.fn(),
   },
 }))
 
@@ -493,4 +494,75 @@ describe('RootsHomeScreen', () => {
     expect(screen.queryByTestId('card-count-unread-days_and_blocks')).toBeNull()
   })
 
+})
+
+// T306 — THE ROW THAT ASKED A QUESTION AND COULD NOT TAKE THE ANSWER.
+//
+// attentionList.js builds "We have this camper's choices but not their name — who is
+// this?" and puts the subject's id inside the row id. But screenForAttentionRow had no
+// case for sourceKind 'unattributed-camper', so it fell through to
+// screenForNode('Campers'), DOMAIN_SCREEN has no Campers key, it returned null, and
+// RootsHomeScreen rendered the row as a plain div with no onClick. Inert for EVERY
+// role, admin included. These drive the RENDERED row.
+describe('T306 — naming an unnamed submission from the Roots home', () => {
+  const SUBJECT = { id: 'sub-1', display_name: 'planner', is_unattributed: 1, external_id: 'hash-a' }
+
+  function renderWithUnnamedSubject(overrides = {}) {
+    const collections = collectionsFor({ campers: [SUBJECT], ...overrides })
+    localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
+    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
+  }
+
+  it('renders the unnamed-subject row as something a director can act on', async () => {
+    renderWithUnnamedSubject()
+    // The row is a BUTTON. Before T306 this same row rendered as a div with no
+    // onClick, so this assertion is the inversion of the defect rather than a
+    // restatement of the old behaviour.
+    const row = await screen.findByRole('button', { name: /but not their name/i })
+    expect(row).not.toBeNull()
+  })
+
+  it('names the subject the row carries, and refreshes so the row does not linger', async () => {
+    localClient.attributeSubject.mockResolvedValue({ ok: true, camperId: 'camper-real' })
+    renderWithUnnamedSubject()
+    fireEvent.click(await screen.findByRole('button', { name: /but not their name/i }))
+
+    const input = await screen.findByLabelText(/Camper.s name/i)
+    fireEvent.change(input, { target: { value: '  Aviva Feldspar  ' } })
+    const callsBefore = localClient.list.mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: /Save name/i }))
+
+    // THE SUBJECT ID, not a name lookup: the row id carries which subject this is,
+    // and naming the wrong one would attribute a different child's answers.
+    await waitFor(() =>
+      expect(localClient.attributeSubject).toHaveBeenCalledWith({
+        subjectId: 'sub-1',
+        displayName: 'Aviva Feldspar',
+      }),
+    )
+    // A write made on this device never crosses the sync channel, so without an
+    // explicit reload the named camper's row would sit there and the director would
+    // read their own success as a failure.
+    await waitFor(() => expect(localClient.list.mock.calls.length).toBeGreaterThan(callsBefore))
+    expect(screen.queryByLabelText(/Camper.s name/i)).toBeNull()
+  })
+
+  it('SURFACES a refusal the op returns rather than reading it as success', async () => {
+    // attributeElectiveSubject declines an already-named camper by RETURN VALUE, not
+    // by throwing. A caller that only try/catches closes the dialog and reports
+    // success — the swallowed-failure class this repo keeps ruling against.
+    localClient.attributeSubject.mockResolvedValue({
+      ok: false,
+      error: 'Ari Green is not an unattributed subject, so there is no name to fill in.',
+    })
+    renderWithUnnamedSubject()
+    fireEvent.click(await screen.findByRole('button', { name: /but not their name/i }))
+    fireEvent.change(await screen.findByLabelText(/Camper.s name/i), { target: { value: 'Ari Green' } })
+    fireEvent.click(screen.getByRole('button', { name: /Save name/i }))
+
+    // The op's OWN sentence, not a generic message: it names the reason.
+    await waitFor(() => expect(screen.queryByText(/not an unattributed subject/i)).not.toBeNull())
+    // And the dialog stays open, because nothing was saved.
+    expect(screen.queryByLabelText(/Camper.s name/i)).not.toBeNull()
+  })
 })

@@ -35,6 +35,7 @@ import { recordImportDecisions } from './ops/decisionJournal.js'
 import { duplicateWeek } from './ops/duplicateWeek.js'
 import { deleteWeek } from './ops/deleteWeek.js'
 import { deleteElectiveSet } from './ops/deleteElectiveSet.js'
+import { attributeElectiveSubject } from './ops/attributeElectiveSubject.js'
 import { deleteSpecialDay } from './ops/deleteSpecialDay.js'
 import { deleteEvent } from './ops/deleteEvent.js'
 import { listDurableElectiveSets } from './ops/durableElectiveSets.js'
@@ -1866,6 +1867,53 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return { ...reportable, ops_written: ops.length }
   }
 
+  // T306 — THE RENDERER'S ROUTE TO NAMING AN UNNAMED SUBMISSION.
+  //
+  // The import lands a child's preferences with no name when the planner carries
+  // none (ADR §14.1a: a first-class outcome, not a failure), and the Roots home
+  // attention surface asks "we have this camper's choices but not their name — who
+  // is this?". Until T306 that question had no answer path from the renderer at
+  // all: `attributeElectiveSubject` existed, was tested, and was reachable ONLY
+  // from scripts/mcp/tools.js. §14.1a's promise that attribution is "resolvable
+  // later without re-import" was true for a machine and false for a human.
+  //
+  // 'campers.attribute', NOT 'campers.write'. Owner ruling 2026-09-29: staff may
+  // name an unnamed child, because the people who collected the sheets know whose
+  // is whose. But the op's own refusal to rename an ALREADY-NAMED camper
+  // (`is_unattributed !== 1`) lives in the op, not in the generic write path —
+  // main.js's write() derives a bare `campers.write` via deriveWriteAction and
+  // never routes through this op. Granting staff `campers.write` would therefore
+  // hand them a path that renames any camper with that guard nowhere in it. The
+  // narrow verb keeps every caller on the guarded path
+  // (electron/ops/participantEntities.js).
+  //
+  // RETURNS the op's {ok:false,error} rather than throwing it. That is deliberate:
+  // the op's message names the specific reason ("X is not an unattributed subject,
+  // so there is no name to fill in…"), and flattening it into a generic throw
+  // would lose exactly the sentence the director needs. The renderer must check
+  // `ok` — an IPC caller that only catches throws turns this refusal into a silent
+  // success, which is the swallowed-failure class this repo keeps ruling against.
+  function attributeSubjectHandler({ token, subjectId, displayName, externalId = null } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const { userId } = requireAuthorized(db, { token, action: 'campers.attribute' })
+    if (!isNonEmptyString(subjectId)) throw new Error('subjectId is required')
+    if (!isNonEmptyString(displayName)) throw new Error('displayName is required')
+    const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+    if (!camp) throw new Error('no camp')
+
+    // THE SAME CALL SHAPE scripts/mcp/tools.js uses. Two call shapes for one op is
+    // the ADR §3.2 defect this program has already paid for twice: attribution
+    // performed through the UI and through MCP must produce the same rekey.
+    return attributeElectiveSubject(db, {
+      campId: camp.id,
+      deviceId,
+      authorUserId: userId,
+      subjectId,
+      displayName,
+      externalId,
+    })
+  }
+
   // T110 (docs/adr/2026-08-20-electives-authoring.md; docs/work/tickets/
   // T110-electives-sets-crud-and-durability-marker.md): wires the
   // deleteElectiveSet cascade primitive (electron/ops/deleteElectiveSet.js,
@@ -2697,6 +2745,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     dismissOpenReconciliationDecisions: dismissOpenReconciliationDecisionsHandler,
     duplicateWeek: duplicateWeekHandler,
     deleteWeek: deleteWeekHandler,
+    attributeSubject: attributeSubjectHandler,
     deleteElectiveSet: deleteElectiveSetHandler,
     deleteSpecialDay: deleteSpecialDayHandler,
     deleteEvent: deleteEventHandler,
@@ -2951,6 +3000,7 @@ if (isElectronEntryPoint()) {
     'shoresh:revoke-device',
     'shoresh:duplicate-week',
     'shoresh:delete-week',
+    'shoresh:attribute-subject',
   ]
 
   function registerHandlers(handlers, currentDb) {
@@ -3038,6 +3088,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:revoke-device', (_event, args) => handlers.revokeDevice(args))
     ipcMain.handle('shoresh:duplicate-week', (_event, args) => handlers.duplicateWeek(args))
     ipcMain.handle('shoresh:delete-week', (_event, args) => handlers.deleteWeek(args))
+    ipcMain.handle('shoresh:attribute-subject', (_event, args) => handlers.attributeSubject(args))
     ipcMain.handle('shoresh:delete-elective-set', (_event, args) => handlers.deleteElectiveSet(args))
     ipcMain.handle('shoresh:delete-special-day', (_event, args) => handlers.deleteSpecialDay(args))
     ipcMain.handle('shoresh:delete-event', (_event, args) => handlers.deleteEvent(args))
