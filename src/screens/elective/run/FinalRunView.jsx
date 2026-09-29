@@ -1,5 +1,5 @@
 // T250 — the Final state of a persisted elective run: read-only identity,
-// export, and "start a revision". A finalized run is immutable and there is no
+// export, and "start a new version". A finalized run is immutable and there is no
 // reopen (ADR 2026-09-23, Q1/Q2), so nothing on this screen writes to it.
 //
 // THE BINDING CONDITION THIS FILE CARRIES. The owner accepted the immutability
