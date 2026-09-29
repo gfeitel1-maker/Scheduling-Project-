@@ -14,6 +14,7 @@ import { localClient } from '../../../localClient'
 import { describeWriteFailure } from '../../../utils/writeErrorMessage'
 import { S, RunStateArea, RunStateRow, RunIdentity, RunError } from './RunStateRows.jsx'
 import { useRunState } from './useRunState.js'
+import CamperWeekPanel from './CamperWeekPanel.jsx'
 import {
   RELEASE_LOCK_LABEL, danglingMessage, occurrenceLabel, overCapacityMessage,
   satisfactionSummary, stalenessOfferMessage,
@@ -29,7 +30,7 @@ const styles = {
 
 export default function DraftRunView({
   run, danglingFindings = [], onRegenerate, onBack,
-  activities = [], days = [], timeBlocks = [], occurrences = [],
+  activities = [], days = [], timeBlocks = [], templateOccurrences = [],
   scheduleTemplates = [], scheduleWeeks = [], tiers = [],
 }) {
   const { state, setState, loaded, loadError } = useRunState(run.id)
@@ -37,7 +38,15 @@ export default function DraftRunView({
   const [released, setReleased] = useState([])
 
   const rows = state.rows
-  const labelFor = (o) => occurrenceLabel({ ...o, activities, occurrences, days, timeBlocks })
+  // Bound to templateOccurrences, which is CORRECT for the move dropdown below
+  // (it labels periods a camper can be moved TO) and KNOWN-WRONG for the
+  // over-capacity rows (they name a period this run already placed people in,
+  // which lives in state.occurrences and is the only set present for a run
+  // opened from the run list). T296 renamed the prop so the mismatch is legible
+  // instead of hidden behind one unqualified word; it deliberately did NOT
+  // change the behaviour, because that is T250's rendered copy with its own
+  // tests. Splitting this into two labellers is the follow-up.
+  const labelFor = (o) => occurrenceLabel({ ...o, activities, occurrences: templateOccurrences, days, timeBlocks })
 
   function applyRow(assignmentId, patch) {
     setState((prev) => ({
@@ -188,7 +197,7 @@ export default function DraftRunView({
                         }
                       }}
                     >
-                      {occurrences.map((o) => (
+                      {templateOccurrences.map((o) => (
                         <option key={o.id} value={o.id}>{labelFor({ occurrenceId: o.id, activityId: r.activity_id })}</option>
                       ))}
                     </select>
@@ -211,6 +220,22 @@ export default function DraftRunView({
               ))}
             </tbody>
           </table>
+
+          {/* T296 — the same rows read per camper instead of per occurrence.
+              BELOW the move/lock table, not instead of it: the table is where a
+              director acts and this is where they check, and the ticket's own
+              note is that the two views sit beside each other. It re-reads
+              `state.rows`, so a move made in the table above is reflected here
+              without another load. */}
+          {/* state.occurrences, never templateOccurrences — CamperWeekPanel's
+              header says why. */}
+          <CamperWeekPanel
+            rows={rows}
+            occurrences={state.occurrences}
+            activities={activities}
+            days={days}
+            timeBlocks={timeBlocks}
+          />
         </>
       ) : null}
     </div>

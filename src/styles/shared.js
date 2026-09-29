@@ -886,6 +886,32 @@ export const S = {
     letterSpacing: '0.05em',
   },
 
+  // The clickable bordered list row — a record you open, stacked in a short
+  // list: `RunList`'s saved runs and `CamperWeekPanel`'s campers. Consolidated
+  // in T296, which had re-typed RunList's local `styles.row` property for
+  // property and already drifted from it (the copy added fontFamily:'inherit',
+  // so one button inherited the app font and the other did not).
+  //
+  // A variant spreads and overrides rather than forking: the attention form is
+  // `{ ...S.listRow, borderLeft: '3px solid var(--accent)' }`, per the same rule
+  // S.sectionLabel states for its own trivial variations.
+  listRow: {
+    display: 'flex',
+    alignItems: 'baseline',
+    gap: 10,
+    width: '100%',
+    textAlign: 'left',
+    padding: '8px 10px',
+    background: 'var(--surface)',
+    border: '1px solid var(--border)',
+    borderRadius: 6,
+    marginBottom: 6,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  // The trailing, right-aligned detail on an S.listRow — a filename, a count.
+  listRowMeta: { fontSize: 12, color: 'var(--text-secondary)', marginLeft: 'auto' },
+
   // Text-secondary variant of S.sectionLabel used for the small-caps section
   // count header ("3 GROUPS", "5 DAYS", "4 BLOCKS") above setup-screen lists.
   // Same condensed/700/13px/uppercase treatment, no marginBottom, muted color.

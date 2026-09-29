@@ -668,8 +668,16 @@ export default function AssignmentPanel({
     reset()
   }
 
+  // T296 renamed `occurrences` -> `templateOccurrences` on the way into the run
+  // views. It is NOT the run's occurrence set: it is derived from the CURRENT
+  // template by chooseTemplateAndSolve and is therefore empty for a run opened
+  // from the run list. The run's own set now comes from getElectiveRun
+  // (useRunState().occurrences). The two were one unqualified name, and every
+  // consumer that wanted the run's set silently got whichever this happened to
+  // hold — the name says which is which now.
   const runViewCatalogs = {
-    activities, days, timeBlocks, groups, tiers, occurrences,
+    activities, days, timeBlocks, groups, tiers,
+    templateOccurrences: occurrences,
     scheduleTemplates, scheduleWeeks,
   }
 

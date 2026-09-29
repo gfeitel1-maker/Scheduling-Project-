@@ -18,6 +18,7 @@ import { buildElectiveRunProjectionExport } from '../export/exportElectiveRunPro
 import { exportElectiveRunWorkbookFile } from '../export/exportElectiveRunWorkbook.js'
 import { S, RunStateArea, RunStateRow, RunIdentity, RunError } from './RunStateRows.jsx'
 import { useRunState } from './useRunState.js'
+import CamperWeekPanel from './CamperWeekPanel.jsx'
 import {
   START_REVISION_LABEL, STALE_GENERATION_COPY, occurrenceLabel, overCapacityMessage,
 } from './runStateCopy.js'
@@ -38,7 +39,7 @@ const styles = {
 
 export default function FinalRunView({
   run, campers = [], onStartRevision, onBack,
-  activities = [], days = [], timeBlocks = [], groups = [], occurrences = [],
+  activities = [], days = [], timeBlocks = [], groups = [], templateOccurrences = [],
   scheduleTemplates = [], scheduleWeeks = [], tiers = [],
 }) {
   const { state, loaded, loadError } = useRunState(run.id)
@@ -77,7 +78,7 @@ export default function FinalRunView({
         localClient.list('elective_preferences'),
       ])
       const input = {
-        run, campers, groups, days, timeBlocks, occurrences,
+        run, campers, groups, days, timeBlocks, occurrences: templateOccurrences,
         outerRows: outer?.rows ?? [],
         preferences: (allPreferences ?? []).filter((p) => p.run_id === run.id),
         assignments: state.rows,
@@ -130,7 +131,7 @@ export default function FinalRunView({
         first={i === 0}
         last={i === overCapacityRows.length - 1}
         message={overCapacityMessage({
-          label: occurrenceLabel({ ...o, activities, occurrences, days, timeBlocks }),
+          label: occurrenceLabel({ ...o, activities, occurrences: templateOccurrences, days, timeBlocks }),
           filled: o.filled,
           capacity: o.capacity,
         })}
@@ -155,6 +156,21 @@ export default function FinalRunView({
                 lives inside that pairing instead, never duplicated. */}
             {stale ? null : startRevision}
           </div>
+
+          {/* T296 — the camper-centric read of the same rows, so a finalized
+              run answers "what did this child get" without exporting the
+              workbook. Below the export actions on purpose: those are what a
+              director came here to do, and this is what they came here to
+              check. */}
+          {/* state.occurrences, never templateOccurrences — CamperWeekPanel's
+              header says why. */}
+          <CamperWeekPanel
+            rows={state.rows}
+            occurrences={state.occurrences}
+            activities={activities}
+            days={days}
+            timeBlocks={timeBlocks}
+          />
         </>
       ) : null}
     </div>

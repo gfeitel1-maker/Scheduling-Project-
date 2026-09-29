@@ -74,12 +74,6 @@ Regenerate with `npm run index:work`.
 | [Stage 4 — a synthetic shape-parameterised import corpus and the two acceptance numbers](../../docs/work/tickets/T282-preference-import-corpus-and-acceptance-metrics.md) | open | — |
 | [A main-side gate that flags a merged ticket whose status never flipped](../../docs/work/tickets/T283-board-truth-audit-gate.md) | open | — |
 
-### ui-ux-design
-
-| Ticket | Status | Referenced by |
-|---|---|---|
-| [A director can see one camper's elective week on screen](../../docs/work/tickets/T296-per-camper-elective-schedule-view.md) | open | [T297-edit-a-campers-elective-preferences](../../docs/work/tickets/T297-edit-a-campers-elective-preferences.md) |
-
 ### unclassified
 
 | Ticket | Status | Referenced by |

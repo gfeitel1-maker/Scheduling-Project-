@@ -1842,13 +1842,23 @@ export const mockShoresh = {
   // real, the three new fields degrade to their "nothing to report" values
   // rather than being silently omitted, so a caller destructuring the real
   // shape doesn't crash in browser-dev.
+  // T296 adds `occurrences`, and unlike the three degraded fields this one is
+  // mirrored FAITHFULLY: the mock already stores elective_occurrences rows, and
+  // a week that could not name its own days is the exact thing browser-dev
+  // visual verification exists to catch.
   async getElectiveRun({ runId } = {}) {
     const state = loadState()
     const byId = new Map((state.campers || []).map((c) => [c.id, c.display_name]))
     const rows = (state.elective_assignments || [])
       .filter((a) => a.run_id === runId)
       .map((a) => ({ ...a, camper_name: byId.get(a.camper_id) ?? null }))
-    return { rows, staleCount: 0, finalizedAgainstStaleGeneration: false, overCapacityOccurrences: [] }
+    const occurrences = (state.elective_occurrences || [])
+      .filter((o) => o.run_id === runId)
+      .map((o) => ({
+        id: o.id, elective_set_id: o.elective_set_id, day_id: o.day_id,
+        time_block_id: o.time_block_id, tier_id: o.tier_id,
+      }))
+    return { rows, occurrences, staleCount: 0, finalizedAgainstStaleGeneration: false, overCapacityOccurrences: [] }
   },
   // T244 — mirrors finalizeElectiveRunHandler's success/ALREADY_FINAL shape.
   // The mock has no template_slots-derived occurrence diff and no
