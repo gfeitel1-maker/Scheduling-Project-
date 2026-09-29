@@ -1,0 +1,125 @@
+// T297 — the week projection has to name the PREFERENCE ROW behind each
+// placement, because that is what an edit corrects. A new file rather than an
+// append to camperElectiveWeek.test.js, per this corner's convention of keeping
+// each ticket's tests separate so merges stay mechanical.
+//
+// Fabricated names only.
+import { describe, it, expect } from 'vitest'
+import { buildCamperElectiveWeek } from './camperElectiveWeek.js'
+
+const DAYS = [
+  { id: 'day-mon', label: 'Monday', sort_order: 1 },
+  { id: 'day-tue', label: 'Tuesday', sort_order: 2 },
+]
+const TIME_BLOCKS = [
+  { id: 'tb-1', name: 'Period 1', sort_order: 1 },
+  { id: 'tb-2', name: 'Period 2', sort_order: 2 },
+]
+const ACTIVITIES = [{ id: 'act-gaga', name: 'Gaga' }, { id: 'act-ceramics', name: 'Ceramics' }]
+const OCCURRENCES = [
+  { id: 'occ-a', day_id: 'day-mon', time_block_id: 'tb-1' },
+  { id: 'occ-b', day_id: 'day-tue', time_block_id: 'tb-2' },
+]
+const ROW = {
+  id: 'asg-1', camper_id: 'cam-1', occurrence_id: 'occ-a', activity_id: 'act-gaga',
+  choice_id: 'choice-gaga', preference_rank: 1, camper_name: 'Ari Green',
+}
+
+const week = (preferences) => buildCamperElectiveWeek({
+  camperId: 'cam-1', rows: [ROW], occurrences: OCCURRENCES,
+  activities: ACTIVITIES, days: DAYS, timeBlocks: TIME_BLOCKS, preferences,
+})
+
+describe('buildCamperElectiveWeek — the preference behind a placement', () => {
+  it('finds an occurrence-scoped preference for the same choice', () => {
+    const [entry] = week([
+      { id: 'pref-1', camper_id: 'cam-1', choice_id: 'choice-gaga', occurrence_id: 'occ-a', rank: 1, coordinate: null },
+    ]).entries
+    expect(entry.preferenceId).toBe('pref-1')
+  })
+
+  it('finds a COORDINATE-keyed preference, which is the shape an imported planner sheet has', () => {
+    // commitElectiveRun persists the unresolved sheet, so a planner-grid row
+    // carries occurrence_id NULL and a coordinate. The child wrote the day
+    // lowercase and the period as a bare number; the camp says 'Monday' and
+    // 'Period 1'. Matching on the raw strings finds nothing and the edit
+    // affordance would silently fall back to "add", writing a second row.
+    const [entry] = week([
+      { id: 'pref-1', camper_id: 'cam-1', choice_id: 'choice-gaga', occurrence_id: null, rank: 1, coordinate: { dayName: 'monday', periodLabel: '1' } },
+    ]).entries
+    expect(entry.preferenceId).toBe('pref-1')
+  })
+
+  it('falls back to a whole-run preference when nothing names the cell', () => {
+    const [entry] = week([
+      { id: 'pref-run', camper_id: 'cam-1', choice_id: 'choice-gaga', occurrence_id: null, rank: 1, coordinate: null },
+    ]).entries
+    expect(entry.preferenceId).toBe('pref-run')
+  })
+
+  it('prefers the MOST SPECIFIC row when a camper has both', () => {
+    // Order is reversed against the answer so a projection that simply takes the
+    // first match fails. The engine's own rankAt prefers an occurrence-scoped
+    // rank over a whole-run fallback; this mirrors that precedence rather than
+    // inventing a second one.
+    const [entry] = week([
+      { id: 'pref-run', camper_id: 'cam-1', choice_id: 'choice-gaga', occurrence_id: null, rank: 4, coordinate: null },
+      { id: 'pref-cell', camper_id: 'cam-1', choice_id: 'choice-gaga', occurrence_id: 'occ-a', rank: 1, coordinate: null },
+    ]).entries
+    expect(entry.preferenceId).toBe('pref-cell')
+  })
+
+  it('is null for a placement the camper never asked for, and for another camper’s row', () => {
+    // The bronze "not requested" case: there is no preference to correct, so the
+    // edit is an ADD. A wrong id here would rewrite a preference the director
+    // never looked at.
+    expect(week([]).entries[0].preferenceId).toBe(null)
+    expect(week([
+      { id: 'pref-other', camper_id: 'cam-2', choice_id: 'choice-gaga', occurrence_id: 'occ-a', rank: 1, coordinate: null },
+    ]).entries[0].preferenceId).toBe(null)
+    // A different choice at the same cell is not this placement's preference
+    // either — the camper ranked Ceramics, the solver gave them Gaga.
+    expect(week([
+      { id: 'pref-cer', camper_id: 'cam-1', choice_id: 'choice-ceramics', occurrence_id: 'occ-a', rank: 1, coordinate: null },
+    ]).entries[0].preferenceId).toBe(null)
+  })
+
+  // THE CASE THAT DISTINGUISHES BINDING FROM GUESSING, and the first version of
+  // this file did not have it — proved by planting exactly that defect (skip the
+  // coordinate resolution and treat every unbound row as a whole-run fallback):
+  // ten tests still passed. One coordinate row per cell for the SAME choice is
+  // the shape that tells them apart, because unbound they share one key and the
+  // first one seen answers for both cells.
+  //
+  // The array is ordered AGAINST the answer — Tuesday's row first — so a
+  // first-wins fallback gives Monday's placement the Tuesday row.
+  it('gives each cell its OWN coordinate row when one choice is written in two cells', () => {
+    const week = buildCamperElectiveWeek({
+      camperId: 'cam-1',
+      rows: [
+        { ...ROW, id: 'asg-mon', occurrence_id: 'occ-a' },
+        { ...ROW, id: 'asg-tue', occurrence_id: 'occ-b' },
+      ],
+      occurrences: OCCURRENCES, activities: ACTIVITIES, days: DAYS, timeBlocks: TIME_BLOCKS,
+      preferences: [
+        { id: 'pref-tue', camper_id: 'cam-1', choice_id: 'choice-gaga', occurrence_id: null, rank: 1, coordinate: { dayName: 'tuesday', periodLabel: '2' } },
+        { id: 'pref-mon', camper_id: 'cam-1', choice_id: 'choice-gaga', occurrence_id: null, rank: 1, coordinate: { dayName: 'monday', periodLabel: '1' } },
+      ],
+    })
+    expect(week.entries.map((e) => [e.assignmentId, e.preferenceId])).toEqual([
+      ['asg-mon', 'pref-mon'],
+      ['asg-tue', 'pref-tue'],
+    ])
+  })
+
+  it('omitting preferences entirely leaves the rest of the week unchanged', () => {
+    // T296's callers pass no `preferences`; they must keep working.
+    const [entry] = buildCamperElectiveWeek({
+      camperId: 'cam-1', rows: [ROW], occurrences: OCCURRENCES,
+      activities: ACTIVITIES, days: DAYS, timeBlocks: TIME_BLOCKS,
+    }).entries
+    expect(entry).toMatchObject({
+      assignmentId: 'asg-1', activityName: 'Gaga', rank: 1, isFallback: false, preferenceId: null,
+    })
+  })
+})

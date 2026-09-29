@@ -35,28 +35,12 @@
 // the stored truth and the `occ` arm stays for callers that genuinely had an
 // occurrence to begin with.
 
-import { recognitionKey } from '../../../ingest/preview.js'
-
-// The same canonicalizer the rest of the ETL recognises entities by, deliberately
-// not a second rule: a camper writing "monday" and a camp calling the day "Monday"
-// are the same day, and a coordinate lost to capitalisation is a coordinate lost.
-const key = (name) => recognitionKey('days_of_operation', name)
-
-// A period written as a bare number against a camp that names it "Period 3".
-// The sheet's own column is often headed "Period Number" and its cells hold "3",
-// so refusing to bind those would lose a coordinate to a naming convention. Kept
-// narrow: a bare integer only, never a partial word match.
-const BARE_NUMBER = /^\d+$/
-const periodAliases = (label) => {
-  const raw = String(label ?? '').trim()
-  const out = [key(raw)]
-  if (BARE_NUMBER.test(raw)) {
-    out.push(key(`Period ${raw}`), key(`Block ${raw}`))
-  }
-  const withoutWord = raw.replace(/^(period|block)\s*/i, '')
-  if (withoutWord !== raw && BARE_NUMBER.test(withoutWord)) out.push(key(withoutWord))
-  return out
-}
+// T297 moved `key`/`periodAliases` into src/ingest/preferenceCoordinateKeys.js
+// unchanged, so the EDIT path (electron/ops/setElectivePreference.js) recognises
+// a cell's stored rows by exactly the rule this module binds them by. Two copies
+// would let the edit path miss a row the solver does bind to that cell, leaving
+// the superseded row live to tie with the correction.
+import { coordinateKey as key, periodAliases } from '../../../ingest/preferenceCoordinateKeys.js'
 
 /**
  * Bind each preference's coordinate onto an occurrence of ONE template.

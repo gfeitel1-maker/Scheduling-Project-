@@ -284,6 +284,12 @@ export const localClient = {
   // T245 — draft move/lock.
   setElectiveAssignment: ({ runId, camperId, occurrenceId, activityId, locked = false }) =>
     shoresh.setElectiveAssignment({ token: currentToken(), runId, camperId, occurrenceId, activityId, locked }),
+  // T297 — editing one camper's PREFERENCE (what they asked for), as distinct
+  // from the placement above.
+  setElectivePreference: ({ runId, camperId, occurrenceId, choiceId, rank = null, rankKind = null, replacesPreferenceId = null }) =>
+    shoresh.setElectivePreference({ token: currentToken(), runId, camperId, occurrenceId, choiceId, rank, rankKind, replacesPreferenceId }),
+  removeElectivePreference: ({ runId, preferenceId }) =>
+    shoresh.removeElectivePreference({ token: currentToken(), runId, preferenceId }),
   // T248 — per-camper outer schedule (final-run snapshot or draft-derive).
   getElectiveRunOuterSchedule: ({ runId }) =>
     shoresh.getElectiveRunOuterSchedule({ token: currentToken(), runId }),

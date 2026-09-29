@@ -33,9 +33,16 @@ export default function DraftRunView({
   activities = [], days = [], timeBlocks = [], templateOccurrences = [],
   scheduleTemplates = [], scheduleWeeks = [], tiers = [],
 }) {
-  const { state, setState, loaded, loadError } = useRunState(run.id)
+  const { state, setState, loaded, loadError, reload } = useRunState(run.id)
   const [error, setError] = useState(null)
   const [released, setReleased] = useState([])
+  // T297 — set by a preference edit, and the ONLY thing that offers the re-solve
+  // below. Session-scoped by design rather than by omission: the offer means
+  // "you changed something and have not re-solved since", which is a fact about
+  // this sitting. A durable "the preferences no longer match the placements"
+  // signal would be a different claim needing a persisted marker to be honest,
+  // and inventing one is not this ticket's.
+  const [preferencesEdited, setPreferencesEdited] = useState(false)
 
   const rows = state.rows
   // Bound to templateOccurrences, which is CORRECT for the move dropdown below
@@ -72,6 +79,64 @@ export default function DraftRunView({
     }
   }
 
+  // T297 — the two preference writes, beside writeAssignment for the same
+  // reason: one place per screen where a failure is turned into words, so the
+  // describeWriteFailure rule cannot be half-applied. Both return a boolean so
+  // the panel knows whether to close its editor, and both re-read the run so the
+  // week shows what the database now holds rather than what the click intended.
+  async function writePreference({ camperId, entry, choiceId }) {
+    setError(null)
+    // The statement being corrected, or null for an ADD (a placement the camper
+    // ranked nothing for has no row to correct).
+    const prior = entry.preferenceId == null
+      ? null
+      : (state.preferences ?? []).find((p) => p.id === entry.preferenceId) ?? null
+    try {
+      const out = await localClient.setElectivePreference({
+        runId: run.id,
+        camperId,
+        occurrenceId: entry.occurrenceId,
+        choiceId,
+        // INHERITED FROM THE ROW BEING CORRECTED, never invented. Changing which
+        // activity a camper asked for says nothing about where it sat in their
+        // ordering, so the replaced row's rank and rank_kind carry over, and
+        // `replacesPreferenceId` is what makes the op keep that row's SCOPE too.
+        // Only a brand-new statement about a cell is 'cell-choice' at rank 1 —
+        // which is what a cell CHOSEN means (schema v79's own note), not a guess.
+        rank: prior ? prior.rank ?? null : 1,
+        rankKind: prior ? prior.rank_kind ?? null : 'cell-choice',
+        replacesPreferenceId: prior ? entry.preferenceId : null,
+      })
+      if (!out?.ok) {
+        setError(out?.error ?? 'That preference could not be saved.')
+        return false
+      }
+      await reload()
+      setPreferencesEdited(true)
+      return true
+    } catch (err) {
+      setError(describeWriteFailure(err, 'That preference could not be saved.'))
+      return false
+    }
+  }
+
+  async function removePreference({ entry }) {
+    setError(null)
+    try {
+      const out = await localClient.removeElectivePreference({ runId: run.id, preferenceId: entry.preferenceId })
+      if (!out?.ok) {
+        setError(out?.error ?? 'That preference could not be removed.')
+        return false
+      }
+      await reload()
+      setPreferencesEdited(true)
+      return true
+    } catch (err) {
+      setError(describeWriteFailure(err, 'That preference could not be removed.'))
+      return false
+    }
+  }
+
   // RELEASING THE LOCK DOES NOT RESOLVE THE DANGLING CONDITION, so this row
   // must not disappear as though it had.
   //
@@ -100,6 +165,13 @@ export default function DraftRunView({
     if (!ok) return
     setReleased((r) => [...r, finding.assignment_id])
   }
+
+  // The seats the director locked by hand, which BOTH re-solve offers carry so a
+  // regenerate cannot undo them. One definition: the staleness offer and the
+  // preference offer had byte-identical copies.
+  const lockedAssignments = rows
+    .filter((r) => r.is_locked === 1 || r.is_locked === true)
+    .map((r) => ({ camperId: r.camper_id, occurrenceId: r.occurrence_id, activityId: r.activity_id }))
 
   const overCapacityRows = state.overCapacityOccurrences
   const danglingRows = danglingFindings
@@ -159,13 +231,43 @@ export default function DraftRunView({
                 <button
                   className="press-97"
                   style={S.btnSecondary}
-                  onClick={() => onRegenerate({
-                    lockedAssignments: rows
-                      .filter((r) => r.is_locked === 1 || r.is_locked === true)
-                      .map((r) => ({ camperId: r.camper_id, occurrenceId: r.occurrence_id, activityId: r.activity_id })),
-                  })}
+                  onClick={() => onRegenerate({ lockedAssignments })}
                 >
                   Re-derive and regenerate
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+
+          {/* T297 — the other half of the ticket's loop. An edit changes what a
+              camper asked for; the placements still reflect the previous answer
+              until the run is solved again, and saying so is what makes the edit
+              mean something. Same "offer, never a block" shape as the staleness
+              offer above: the fact is stated whenever it is true, and the control
+              appears only when this session can act on it (AssignmentPanel
+              withholds onRegenerate for a run opened cold from the run list,
+              which has no template occurrences to re-derive against).
+
+              The re-solve carries `preferences` — the run's OWN rows, including
+              the edit — so it solves from the database and not from the parsed
+              sheet. That is the whole difference between an edit that lands and
+              an edit that is written and then ignored. */}
+          {preferencesEdited ? (
+            <div data-testid="run-preference-edit-offer" style={styles.offer}>
+              <span>
+                A preference changed. The placements below still come from the previous solve.
+              </span>
+              {onRegenerate ? (
+                <button
+                  className="press-97"
+                  data-testid="run-preference-resolve"
+                  style={S.btnSecondary}
+                  onClick={() => {
+                    setPreferencesEdited(false)
+                    onRegenerate({ preferences: state.preferences, choices: state.choices, lockedAssignments })
+                  }}
+                >
+                  Solve again
                 </button>
               ) : null}
             </div>
@@ -235,6 +337,10 @@ export default function DraftRunView({
             activities={activities}
             days={days}
             timeBlocks={timeBlocks}
+            preferences={state.preferences}
+            choices={state.choices}
+            onSetPreference={writePreference}
+            onRemovePreference={removePreference}
           />
         </>
       ) : null}

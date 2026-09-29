@@ -27,6 +27,19 @@
 // rank_kind carried onto the assignment row; it is named here rather than
 // papered over.
 
+// T297 — THE SOLVER'S OWN COORDINATE BINDING, not a second reading of it.
+//
+// A stored preference names a (day, period) coordinate and gets an occurrence_id
+// only at solve time, in memory, per template (ADR 2026-09-27 §13.2 — the binding
+// is never written back, because two candidate routes may bind one coordinate
+// differently). This projection has to answer the same question the solver does
+// ("which of this run's cells does this row apply to"), so it calls the same
+// resolver rather than re-implementing the match. An independent copy here could
+// fail to recognise a row the solver DOES bind to the cell, and the panel would
+// then offer an ADD where the director meant a correction — writing a second row
+// beside the one they were fixing.
+import { resolvePreferenceCoordinates } from '../assignment/resolvePreferenceCoordinates.js'
+
 // Module-level so the defaults are a stable reference across renders and a
 // useMemo keyed on them can actually hit — the same reason useRunState.js keeps
 // its own EMPTY at module level.
@@ -63,6 +76,44 @@ function orderIndex(catalog) {
   return (id) => index.get(id) ?? LAST
 }
 
+/**
+ * A lookup from one placement to the preference row behind it, or null.
+ *
+ * T297 — an edit CORRECTS a statement the camper made, so the affordance has to
+ * know which row that is. An assignment names an activity and a preference names
+ * a choice, so `choice_id` is the only link between them.
+ *
+ * Null is a real answer: a placement the camper ranked nothing for (the bronze
+ * "not requested" row) genuinely has no statement to correct, so the edit there
+ * is an ADD.
+ */
+function preferenceIndex({ preferences, occurrences, days, timeBlocks }) {
+  // Bound ONCE for the whole week, against this run's occurrences. After that
+  // there are two tiers, which is exactly what the engine's `rankAt` has: a row
+  // scoped to the occurrence, else a whole-run fallback.
+  const bound = resolvePreferenceCoordinates({ preferences, occurrences, days, timeBlocks }).preferences
+  const keyOf = (camperId, choiceId, occurrenceId) => (
+    `${camperId}\u0000${choiceId}\u0000${occurrenceId ?? ''}`
+  )
+  // A Map, not a filter per entry: the first version rescanned every preference
+  // in the run for every placement in the week, re-paid on each lock and move
+  // because applyRow rebuilds `rows` and invalidates the memo. A run holds a few
+  // thousand preference rows.
+  const byKey = new Map()
+  for (const p of bound) {
+    if (p.choice_id == null) continue
+    const k = keyOf(p.camper_id, p.choice_id, p.occurrence_id)
+    // FIRST wins, so a later duplicate cannot displace the row already found.
+    if (!byKey.has(k)) byKey.set(k, p.id)
+  }
+  return (row) => {
+    if (row.choice_id == null) return null
+    return byKey.get(keyOf(row.camper_id, row.choice_id, row.occurrence_id))
+      ?? byKey.get(keyOf(row.camper_id, row.choice_id, null))
+      ?? null
+  }
+}
+
 export function buildCamperElectiveWeek({
   camperId,
   rows = NONE,
@@ -70,6 +121,9 @@ export function buildCamperElectiveWeek({
   activities = NONE,
   days = NONE,
   timeBlocks = NONE,
+  // T297. Defaulted, so every T296 caller that passes no preferences keeps
+  // producing exactly the week it produced before, with preferenceId null.
+  preferences = NONE,
 } = {}) {
   const occurrenceById = new Map(occurrences.map((o) => [o.id, o]))
   const activityNameById = new Map(activities.map((a) => [a.id, a.name]))
@@ -86,6 +140,7 @@ export function buildCamperElectiveWeek({
 
   const mine = rows.filter((r) => r.camper_id === camperId)
   const occurrenceOf = (row) => occurrenceById.get(row.occurrence_id)
+  const preferenceIdFor = preferenceIndex({ preferences, occurrences, days, timeBlocks })
 
   const entries = mine
     .slice()
@@ -105,6 +160,11 @@ export function buildCamperElectiveWeek({
         activityName: activityNameById.get(row.activity_id) ?? row.activity_id,
         rank: row.preference_rank ?? null,
         isFallback: row.preference_rank == null,
+        // T297 — the choice this placement came from, which is the CURRENT value
+        // an edit control shows, and the statement an edit would correct. See
+        // preferenceIndex.
+        choiceId: row.choice_id ?? null,
+        preferenceId: preferenceIdFor(row),
       }
     })
 

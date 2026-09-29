@@ -41,6 +41,8 @@ import { listDurableElectiveSets } from './ops/durableElectiveSets.js'
 import { commitElectiveRun } from './ops/commitElectiveRun.js'
 import { finalizeElectiveRun } from './ops/finalizeElectiveRun.js'
 import { setElectiveAssignment } from './ops/setElectiveAssignment.js'
+import { setElectivePreference, removeElectivePreference } from './ops/setElectivePreference.js'
+import { coordinateOf } from '../src/ingest/preferenceCoordinateKeys.js'
 import { resolveOfferingCapacity } from './ops/electiveOfferingCapacity.js'
 import { deriveElectiveRunOuterRows } from './ops/electiveRunOuterSchedule.js'
 import { computeFinalizedAgainstStaleGeneration } from './ops/finalizedAgainstStaleGeneration.js'
@@ -2060,8 +2062,11 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       .prepare(
         // T250: source/is_locked are additive — the Draft screen's move/lock
         // table cannot render a lock state it is never told about.
+        // T297 adds a.choice_id: an edit has to name the preference row that
+        // produced a placement, and the CHOICE is the only link between the two
+        // (an assignment names an activity, a preference names a choice).
         `SELECT a.id, a.occurrence_id, a.camper_id, a.activity_id, a.preference_rank,
-                a.source, a.is_locked,
+                a.source, a.is_locked, a.choice_id,
                 c.display_name AS camper_name
            FROM elective_assignments a
            LEFT JOIN campers c ON c.id = a.camper_id
@@ -2096,6 +2101,47 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
         `SELECT id, elective_set_id, day_id, time_block_id, tier_id
            FROM elective_occurrences WHERE run_id = ? ORDER BY id`
       )
+      .all(runId)
+
+    // T297 — THE RUN'S PREFERENCES, in the shape the engine already reads.
+    //
+    // Without this a re-solve could only run from `parsed.preferences`, the
+    // sheet held in AssignmentPanel React state — so an edit written to the
+    // database had no effect on the next solve at all, and the ticket's "change
+    // it and re-solve" loop was unreachable however correct the write was.
+    //
+    // buildElectiveAssignments reads camper_id/choice_id/occurrence_id/rank and
+    // resolvePreferenceCoordinates reads `coordinate`, so the two coordinate
+    // COLUMNS are folded back into the one object property those readers expect.
+    // Both legs null (a whole-run fallback row) yields `coordinate: null`, which
+    // is what resolvePreferenceCoordinates treats as "no cell" — an object with
+    // two null legs would be a coordinate that names nothing.
+    const preferences = db
+      .prepare(
+        `SELECT id, camper_id, choice_id, occurrence_id, rank, rank_kind,
+                coordinate_day_label, coordinate_period_label
+           FROM elective_preferences WHERE run_id = ? ORDER BY id`
+      )
+      .all(runId)
+      .map((p) => ({
+        // The id is what an EDIT names: setElectivePreference's
+        // replacesPreferenceId inherits that row's scope.
+        id: p.id,
+        camper_id: p.camper_id,
+        choice_id: p.choice_id,
+        occurrence_id: p.occurrence_id,
+        rank: p.rank,
+        rank_kind: p.rank_kind,
+        coordinate: coordinateOf(p),
+      }))
+
+    // T297 — the run's CHOICES, which is the vocabulary an edit is expressed in.
+    // A preference names a choice, and a run's choices are the labels its sheet's
+    // population actually asked for, so these are what the director picks from.
+    // `label` is the RAW label off the sheet, deliberately: the director has to
+    // recognise the word the camper wrote.
+    const choices = db
+      .prepare('SELECT id, label, is_linked FROM elective_choices WHERE run_id = ? ORDER BY label')
       .all(runId)
 
     // Shared with getElectiveRunOuterScheduleHandler (T248) — see
@@ -2134,7 +2180,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       }
     }
 
-    return { rows, staleCount, finalizedAgainstStaleGeneration, overCapacityOccurrences, occurrences }
+    return { rows, staleCount, finalizedAgainstStaleGeneration, overCapacityOccurrences, occurrences, preferences, choices }
   }
 
   // Finalizing a draft run into an immutable, exportable final one (T244,
@@ -2171,6 +2217,47 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return setElectiveAssignment(db, {
       runId, camperId, occurrenceId, activityId, locked,
       authorUserId: session?.userId ?? null, deviceId,
+    })
+  }
+
+  // T297 — editing one camper's PREFERENCE (what they asked for) as distinct
+  // from their PLACEMENT (what they got, setElectiveAssignmentHandler above).
+  // Same admin-only posture and the same action name: a preference belongs to
+  // the run, and a preference edit is a write to it.
+  //
+  // `rank` is validated as an integer or null and `rankKind` as a non-empty
+  // string, because BOTH are the director's statement about the edit and neither
+  // may be inferred here — the ops module writes exactly what it is handed.
+  function setElectivePreferenceHandler(args) {
+    const {
+      token, runId, camperId, occurrenceId, choiceId,
+      rank = null, rankKind = null, replacesPreferenceId = null,
+    } = args ?? {}
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const session = requireAuthorized(db, { token, action: 'elective_assignment_runs.write' })
+    if (!isNonEmptyString(runId)) throw new Error('runId is required')
+    if (!isNonEmptyString(camperId)) throw new Error('camperId is required')
+    if (!isNonEmptyString(occurrenceId)) throw new Error('occurrenceId is required')
+    if (!isNonEmptyString(choiceId)) throw new Error('choiceId is required')
+    if (rank !== null && !Number.isInteger(rank)) throw new Error('rank must be an integer or null')
+    if (rankKind !== null && !isNonEmptyString(rankKind)) throw new Error('rankKind must be a non-empty string or null')
+    if (replacesPreferenceId !== null && !isNonEmptyString(replacesPreferenceId)) {
+      throw new Error('replacesPreferenceId must be a non-empty string or null')
+    }
+    return setElectivePreference(db, {
+      runId, camperId, occurrenceId, choiceId, rank, rankKind, replacesPreferenceId,
+      authorUserId: session?.userId ?? null, deviceId,
+    })
+  }
+
+  function removeElectivePreferenceHandler(args) {
+    const { token, runId, preferenceId } = args ?? {}
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const session = requireAuthorized(db, { token, action: 'elective_assignment_runs.write' })
+    if (!isNonEmptyString(runId)) throw new Error('runId is required')
+    if (!isNonEmptyString(preferenceId)) throw new Error('preferenceId is required')
+    return removeElectivePreference(db, {
+      runId, preferenceId, authorUserId: session?.userId ?? null, deviceId,
     })
   }
 
@@ -2619,6 +2706,8 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     getElectiveRun: getElectiveRunHandler,
     finalizeElectiveRun: finalizeElectiveRunHandler,
     setElectiveAssignment: setElectiveAssignmentHandler,
+    setElectivePreference: setElectivePreferenceHandler,
+    removeElectivePreference: removeElectivePreferenceHandler,
     getElectiveRunOuterSchedule: getElectiveRunOuterScheduleHandler,
     // T249 — append-only per the ADR's merge-order note; do not reorder.
     getSecurityStatus: getSecurityStatusHandler,
@@ -2958,6 +3047,8 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:get-elective-run', (_event, args) => handlers.getElectiveRun(args))
     ipcMain.handle('shoresh:finalize-elective-run', (_event, args) => handlers.finalizeElectiveRun(args))
     ipcMain.handle('shoresh:set-elective-assignment', (_event, args) => handlers.setElectiveAssignment(args))
+  ipcMain.handle('shoresh:set-elective-preference', (_event, args) => handlers.setElectivePreference(args))
+  ipcMain.handle('shoresh:remove-elective-preference', (_event, args) => handlers.removeElectivePreference(args))
     ipcMain.handle('shoresh:get-security-status', () => handlers.getSecurityStatus())
     ipcMain.handle('shoresh:list-import-evidence', (_event, args) => handlers.listImportEvidence(args && args.token))
     ipcMain.handle('shoresh:list-division-evidence', (_event, args) => handlers.listDivisionEvidence(args && args.token))

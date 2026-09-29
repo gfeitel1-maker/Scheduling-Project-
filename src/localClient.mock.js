@@ -22,9 +22,14 @@ import { deriveLocationId } from '../electron/ops/locationId.js'
 import { resolveImportedPlacements } from '../electron/ops/resolveImportedPlacements.js'
 import { deriveScheduleTemplateId } from '../electron/ops/scheduleTemplateId.js'
 import { hasContradictoryRanks } from './ingest/preferenceSheet.js'
+import { coordinateOf, sameDayLabel, samePeriodLabel } from './ingest/preferenceCoordinateKeys.js'
 
 import { parseDayOfWeek } from '../electron/ops/dayId.js'
-import { deriveElectiveAssignmentId } from '../electron/ops/electiveDerivedIds.js'
+import {
+  deriveElectiveAssignmentId,
+  deriveElectiveChoiceId,
+  deriveElectivePreferenceId,
+} from '../electron/ops/electiveDerivedIds.js'
 
 const STORE_KEY = 'shoresh-mock-state'
 
@@ -1822,7 +1827,54 @@ export const mockShoresh = {
       ...occurrences.map((occ) => ({ ...occ, run_id: runId })),
     ]
     state.campers = parsed.campers ?? []
-    state.elective_assignments = assignments.map((a, i) => ({ id: `${runId}-${i}`, run_id: runId, ...a }))
+    // Declared before BOTH consumers below (the assignment rows' choice_id and the
+    // preference rows' own), so the ordering cannot silently make one undefined.
+    const choiceIdByKey = new Map(
+      (parsed.choices ?? []).map((ch) => [ch.labelKey, deriveElectiveChoiceId(runId, ch.labelKey)])
+    )
+    // T297 — `choice_id` is DERIVED here, as the real commitElectiveRun derives it
+    // from the solver's labelKey, because it is the only link between a placement
+    // and the preference behind it. The mock previously spread the solver row
+    // as-is, so `choice_id` was undefined on every assignment: the camper-week
+    // panel then found no preference to correct and offered an ADD where the real
+    // path performs a REPLACE. Caught by visual verification at :5241 — the two
+    // paths have to agree or browser-dev shows a working screen over the wrong
+    // behaviour.
+    state.elective_assignments = assignments.map((a, i) => ({
+      id: `${runId}-${i}`,
+      run_id: runId,
+      ...a,
+      choice_id: a.choice_id ?? choiceIdByKey.get(a.labelKey) ?? null,
+    }))
+    // T297 — the mock now persists CHOICES and PREFERENCES too, using the real
+    // derived ids. Before this it stored neither, so the camper-week edit
+    // surface had no preference to edit and `npm run dev` could not show the
+    // feature at all — the one thing browser-dev visual verification is for.
+    state.elective_choices = [
+      ...(state.elective_choices || []).filter((c) => c.run_id !== runId),
+      ...(parsed.choices ?? []).map((ch) => ({
+        id: deriveElectiveChoiceId(runId, ch.labelKey), run_id: runId, label: ch.label, is_linked: 0,
+      })),
+    ]
+    state.elective_preferences = [
+      ...(state.elective_preferences || []).filter((pr) => pr.run_id !== runId),
+      ...(parsed.preferences ?? [])
+        .filter((pr) => choiceIdByKey.has(pr.labelKey))
+        .map((pr) => {
+          const choiceId = choiceIdByKey.get(pr.labelKey)
+          return {
+            id: deriveElectivePreferenceId(runId, pr.camper_id, pr.occurrence_id ?? null, choiceId, pr.coordinate ?? null),
+            run_id: runId,
+            camper_id: pr.camper_id,
+            occurrence_id: pr.occurrence_id ?? null,
+            choice_id: choiceId,
+            rank: pr.rank ?? null,
+            rank_kind: pr.rank_kind ?? null,
+            coordinate_day_label: pr.coordinate?.dayName ?? null,
+            coordinate_period_label: pr.coordinate?.periodLabel ?? null,
+          }
+        }),
+    ]
     saveState(state)
     return {
       ok: true,
@@ -1870,7 +1922,27 @@ export const mockShoresh = {
         id: o.id, elective_set_id: o.elective_set_id, day_id: o.day_id,
         time_block_id: o.time_block_id, tier_id: o.tier_id,
       }))
-    return { rows, occurrences, staleCount: 0, finalizedAgainstStaleGeneration: false, overCapacityOccurrences: [] }
+    // T297 — same fold from the two coordinate COLUMNS back into the single
+    // `coordinate` property the engine and resolvePreferenceCoordinates read
+    // (electron/main.js's getElectiveRunHandler). Mirrored faithfully, not
+    // degraded: a re-solve reads this, so an empty list here would look exactly
+    // like a camp whose campers asked for nothing.
+    const preferences = (state.elective_preferences || [])
+      .filter((pr) => pr.run_id === runId)
+      .map((pr) => ({
+        id: pr.id,
+        camper_id: pr.camper_id,
+        choice_id: pr.choice_id,
+        occurrence_id: pr.occurrence_id,
+        rank: pr.rank,
+        rank_kind: pr.rank_kind,
+        coordinate: coordinateOf(pr),
+      }))
+    const choices = (state.elective_choices || [])
+      .filter((c) => c.run_id === runId)
+      .map((c) => ({ id: c.id, label: c.label, is_linked: c.is_linked ?? 0 }))
+      .sort((a, b) => String(a.label).localeCompare(String(b.label)))
+    return { rows, occurrences, preferences, choices, staleCount: 0, finalizedAgainstStaleGeneration: false, overCapacityOccurrences: [] }
   },
   // T244 — mirrors finalizeElectiveRunHandler's success/ALREADY_FINAL shape.
   // The mock has no template_slots-derived occurrence diff and no
@@ -1923,6 +1995,80 @@ export const mockShoresh = {
     ]
     saveState(state)
     return { ok: true, assignmentId }
+  },
+  // T297 — mirrors setElectivePreferenceHandler. The SUPERSEDING RULE is
+  // mirrored faithfully rather than degraded, and that is the point of having it
+  // here: the whole hazard is that a coordinate-keyed row survives an edit and
+  // ties with it, and a mock that skipped the rule would show a working screen
+  // over the exact bug. The shared key helpers are the same ones the real path
+  // uses, so the two cannot drift.
+  async setElectivePreference({
+    runId, camperId, occurrenceId, choiceId, rank = null, rankKind = null, replacesPreferenceId = null,
+  } = {}) {
+    const state = loadState()
+    const run = (state.elective_assignment_runs || []).find((r) => r.id === runId)
+    if (!run) return { ok: false, error: 'run not found' }
+    if (run.status === 'final') return { ok: false, error: 'RUN_NOT_DRAFT' }
+    const occ = (state.elective_occurrences || []).find((o) => o.id === occurrenceId && o.run_id === runId)
+    if (!occ) return { ok: false, error: 'OCCURRENCE_NOT_IN_RUN' }
+    if (!(state.elective_choices || []).some((c) => c.id === choiceId && c.run_id === runId)) {
+      return { ok: false, error: 'CHOICE_NOT_IN_RUN' }
+    }
+    const dayLabel = (state.days_of_operation || []).find((d) => d.id === occ.day_id)?.label ?? null
+    const blockName = (state.time_blocks || []).find((b) => b.id === occ.time_block_id)?.name ?? null
+
+    // THE SCOPE IS INHERITED from the row being corrected, mirroring the real
+    // op — see electron/ops/setElectivePreference.js for why imposing a cell on
+    // a whole-run answer would make the correction tie with what it corrects.
+    const replaced = replacesPreferenceId == null
+      ? null
+      : (state.elective_preferences || []).find(
+        (pr) => pr.id === replacesPreferenceId && pr.run_id === runId && pr.camper_id === camperId
+      )
+    if (replacesPreferenceId != null && !replaced) return { ok: false, error: 'PREFERENCE_NOT_IN_RUN' }
+    const scope = replaced
+      ? {
+        occurrence_id: replaced.occurrence_id,
+        coordinate_day_label: replaced.coordinate_day_label,
+        coordinate_period_label: replaced.coordinate_period_label,
+      }
+      : { occurrence_id: occurrenceId, coordinate_day_label: dayLabel, coordinate_period_label: blockName }
+
+    const preferenceId = deriveElectivePreferenceId(
+      runId, camperId, scope.occurrence_id, choiceId, coordinateOf(scope)
+    )
+    const supersedes = (pr) => {
+      if (pr.run_id !== runId || pr.camper_id !== camperId) return false
+      // The id being written is excluded by the filter below, not here.
+      if (pr.occurrence_id != null) return pr.occurrence_id === occurrenceId
+      if (pr.coordinate_day_label == null || pr.coordinate_period_label == null) return false
+      return sameDayLabel(pr.coordinate_day_label, dayLabel) && samePeriodLabel(pr.coordinate_period_label, blockName)
+    }
+    const doomed = replaced ? (pr) => pr.id === replaced.id : supersedes
+    state.elective_preferences = [
+      ...(state.elective_preferences || []).filter((pr) => !doomed(pr) && pr.id !== preferenceId),
+      { id: preferenceId, run_id: runId, camper_id: camperId, choice_id: choiceId, rank, rank_kind: rankKind, ...scope },
+    ]
+    saveState(state)
+    return { ok: true, preferenceId }
+  },
+  // T297 — mirrors removeElectivePreferenceHandler. The mock has no op log, so
+  // the human TOMBSTONE the real path writes has nothing to live in here; a
+  // re-import under `npm run dev` therefore re-creates a removed row. Recorded
+  // rather than papered over, same additive-degradation posture as the stubs
+  // above — the provenance behaviour is asserted against the real path in
+  // electron/ops/commitElectiveRun.preferenceProvenance.test.js.
+  async removeElectivePreference({ runId, preferenceId } = {}) {
+    const state = loadState()
+    const run = (state.elective_assignment_runs || []).find((r) => r.id === runId)
+    if (!run) return { ok: false, error: 'run not found' }
+    if (run.status === 'final') return { ok: false, error: 'RUN_NOT_DRAFT' }
+    if (!(state.elective_preferences || []).some((pr) => pr.id === preferenceId && pr.run_id === runId)) {
+      return { ok: false, error: 'PREFERENCE_NOT_IN_RUN' }
+    }
+    state.elective_preferences = (state.elective_preferences || []).filter((pr) => pr.id !== preferenceId)
+    saveState(state)
+    return { ok: true }
   },
   // T248 — mirrors getElectiveRunOuterScheduleHandler (electron/main.js). For
   // a final run, reads the mock's elective_run_outer_snapshots rows (written

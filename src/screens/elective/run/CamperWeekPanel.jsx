@@ -17,10 +17,18 @@
 // rows are always there. Stated here once, because this is where the contract
 // lives; the call sites just pass it.
 //
-// NOTHING HERE WRITES. Changing a camper's preferences is T297; the standing
-// describeWriteFailure rule has no surface to apply to on this panel, and a
-// control that looked like an edit would be the inert affordance the standing
-// rule forbids.
+// T297 ADDS THE EDIT, and this is where it belongs: this is the screen where a
+// director notices "that is wrong about this child", so it is the screen where
+// they fix it. The occurrence-shaped table above answers "who is at archery on
+// Monday" and cannot be the place, because the question an edit answers is about
+// one camper's own week.
+//
+// STILL NO IPC HERE. The writes are `onSetPreference`/`onRemovePreference`,
+// owned by DraftRunView beside its existing writeAssignment, so the
+// describeWriteFailure discipline lives in ONE place per screen rather than
+// being re-implemented in a child. Both are absent on the Final screen — a
+// finalized run is immutable — and the affordance is absent with them rather
+// than rendered inert, per the standing rule against a control that cannot act.
 import { useMemo, useState } from 'react'
 import { S, useEnterTransition } from '../../../styles/shared'
 import { buildCamperElectiveWeek, listRunCampers, rankLabel } from './camperElectiveWeek.js'
@@ -34,33 +42,96 @@ import { buildCamperElectiveWeek, listRunCampers, rankLabel } from './camperElec
 // destructive and error only.
 const railColor = (isFallback) => (isFallback ? 'var(--accent)' : 'var(--border)')
 
-function WeekRow({ entry }) {
+// Module-level, for the same reason camperElectiveWeek.js keeps its own NONE: an
+// inline `= []` default mints a fresh array identity every render, and
+// `preferences` is a dependency of the week useMemo below. FinalRunView passes
+// neither, so an inline default made that memo miss on EVERY render of the Final
+// screen — re-running a filter, a locale-collated sort and four Map builds over a
+// run's whole row set, which is exactly what the memo exists to prevent.
+const NONE = []
+
+function WeekRow({ entry, choices, editing, onEdit, onSetPreference, onRemovePreference }) {
   const when = [entry.dayName, entry.blockName].filter(Boolean).join(' · ')
+  const id = entry.assignmentId
   return (
     <div
-      data-testid={`camper-week-row-${entry.assignmentId}`}
+      data-testid={`camper-week-row-${id}`}
       data-fallback={String(entry.isFallback)}
       style={S.findingsRailRow(railColor(entry.isFallback))}
     >
       {/* Degrades to the occurrence id when a template edit removed the day or
           block this placement points at — an empty cell would read as a bug. */}
-      <span data-testid={`camper-week-when-${entry.assignmentId}`} style={styles.when}>
+      <span data-testid={`camper-week-when-${id}`} style={styles.when}>
         {when || entry.occurrenceId}
       </span>
-      <span data-testid={`camper-week-activity-${entry.assignmentId}`} style={styles.activity}>
-        {entry.activityName}
-      </span>
-      <span
-        data-testid={`camper-week-rank-${entry.assignmentId}`}
-        style={entry.isFallback ? styles.rankFallback : styles.rank}
-      >
-        {rankLabel(entry.rank)}
-      </span>
+      {editing ? (
+        <>
+          {/* Writes on change, the same gesture DraftRunView's own placement and
+              lock controls use — no separate Save to forget. */}
+          <select
+            data-testid={`camper-week-choice-${id}`}
+            aria-label={`Choice for ${when || entry.occurrenceId}`}
+            style={styles.choiceSelect}
+            defaultValue={entry.choiceId ?? ''}
+            onChange={(e) => onSetPreference(entry, e.target.value)}
+          >
+            {/* Present ONLY when this placement matches no choice the run knows
+                (the "not requested" case). Otherwise it would be a selectable
+                blank that means nothing. */}
+            {entry.choiceId == null ? <option value="">Not requested</option> : null}
+            {choices.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+          </select>
+          {/* Offered only when there IS a statement to withdraw. */}
+          {entry.preferenceId != null ? (
+            <button
+              type="button"
+              className="press-97"
+              data-testid={`camper-week-remove-${id}`}
+              style={S.btnUtility}
+              onClick={() => onRemovePreference(entry)}
+            >
+              Remove
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="press-97"
+            data-testid={`camper-week-cancel-${id}`}
+            style={S.btnUtility}
+            onClick={() => onEdit(null)}
+          >
+            Cancel
+          </button>
+        </>
+      ) : (
+        <>
+          <span data-testid={`camper-week-activity-${id}`} style={styles.activity}>
+            {entry.activityName}
+          </span>
+          <span
+            data-testid={`camper-week-rank-${id}`}
+            style={entry.isFallback ? styles.rankFallback : styles.rank}
+          >
+            {rankLabel(entry.rank)}
+          </span>
+          {onSetPreference ? (
+            <button
+              type="button"
+              className="press-97"
+              data-testid={`camper-week-edit-${id}`}
+              style={S.btnUtility}
+              onClick={() => onEdit(id)}
+            >
+              Change
+            </button>
+          ) : null}
+        </>
+      )}
     </div>
   )
 }
 
-function Week({ week, onClose }) {
+function Week({ week, onClose, choices, editing, onEdit, onSetPreference, onRemovePreference }) {
   // A transition INTO a new state during an active session, which is what
   // DESIGN_STANDARD §8 and T250's own note reserve motion for — unlike the
   // run-state area, this panel really does arrive on a click. Its own component
@@ -73,14 +144,33 @@ function Week({ week, onClose }) {
       </button>
       <div style={styles.camperName}>{week.camperName}</div>
       <div style={styles.rows}>
-        {week.entries.map((entry) => <WeekRow key={entry.assignmentId} entry={entry} />)}
+        {week.entries.map((entry) => (
+          <WeekRow
+            key={entry.assignmentId}
+            entry={entry}
+            choices={choices}
+            editing={editing === entry.assignmentId}
+            onEdit={onEdit}
+            onSetPreference={onSetPreference}
+            onRemovePreference={onRemovePreference}
+          />
+        ))}
       </div>
     </div>
   )
 }
 
-export default function CamperWeekPanel({ rows, occurrences, activities, days, timeBlocks }) {
+export default function CamperWeekPanel({
+  rows, occurrences, activities, days, timeBlocks,
+  // T297. All four default to their absent value, so FinalRunView's existing
+  // call renders exactly the read-only week it rendered before.
+  preferences = NONE, choices = NONE, onSetPreference = null, onRemovePreference = null,
+}) {
   const [camperId, setCamperId] = useState(null)
+  // Which ROW is open for editing, at most one. A week of open selects would be
+  // a bulk editor, which this ticket's non-goals rule out: one camper, one
+  // preference, deliberately.
+  const [editing, setEditing] = useState(null)
 
   // Memoized for the reason AssignmentPanel memoizes deriveOccurrences: on the
   // Draft screen every move, lock and error re-renders this, and a run can hold
@@ -90,14 +180,37 @@ export default function CamperWeekPanel({ rows, occurrences, activities, days, t
   const week = useMemo(
     () => (camperId == null
       ? null
-      : buildCamperElectiveWeek({ camperId, rows, occurrences, activities, days, timeBlocks })),
-    [camperId, rows, occurrences, activities, days, timeBlocks]
+      : buildCamperElectiveWeek({ camperId, rows, occurrences, activities, days, timeBlocks, preferences })),
+    [camperId, rows, occurrences, activities, days, timeBlocks, preferences]
   )
 
   // Mounted only when it has campers to offer, matching RunList and
   // RunStateArea: a header over nothing reads as a broken screen.
   if (campers.length === 0) return null
-  if (week) return <Week week={week} onClose={() => setCamperId(null)} />
+  if (week) {
+    return (
+      <Week
+        week={week}
+        onClose={() => { setEditing(null); setCamperId(null) }}
+        choices={choices}
+        editing={editing}
+        onEdit={setEditing}
+        onSetPreference={onSetPreference
+          ? async (entry, choiceId) => {
+            // The blank "Not requested" option carries no choice, so selecting
+            // it is not an edit — there is nothing to state.
+            if (!choiceId) return
+            if (await onSetPreference({ camperId: week.camperId, entry, choiceId })) setEditing(null)
+          }
+          : null}
+        onRemovePreference={onRemovePreference
+          ? async (entry) => {
+            if (await onRemovePreference({ camperId: week.camperId, entry })) setEditing(null)
+          }
+          : null}
+      />
+    )
+  }
 
   return (
     <div>
@@ -141,5 +254,11 @@ const styles = {
   when: { minWidth: 170, color: 'var(--text-secondary)', fontSize: 12 },
   activity: { flex: 1, fontWeight: 600 },
   rank: { fontSize: 12, color: 'var(--text-secondary)' },
+  // S.input, the app's one field chrome (every other select in the app spreads it
+  // the same way — ActivitiesScreen, LocationsScreen, TimeBlocksScreen…), with
+  // only the geometry overridden: `flex: 1` takes the row's flexible space so the
+  // editor occupies the same band the activity name and rank did, rather than
+  // reflowing the week when it opens.
+  choiceSelect: { ...S.input, flex: 1, width: 'auto', padding: '3px 6px' },
   rankFallback: { fontSize: 12, color: 'color-mix(in srgb, var(--accent) 65%, var(--text))', fontWeight: 600 },
 }

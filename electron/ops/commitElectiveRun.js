@@ -14,6 +14,9 @@
 // director who genuinely stopped half way.
 import { randomUUID } from 'node:crypto'
 import { appendOp, runAtomic } from './operations.js'
+// isHumanDeleted is the SAME predicate ingest.js's rejectedSlotKeys uses — see
+// its definition for why the `=== 'human'` cannot be relaxed to a null check.
+import { isHumanOwned, isHumanDeleted } from './fieldProvenance.js'
 import {
   deriveElectiveChoiceId,
   deriveElectivePreferenceId,
@@ -258,14 +261,61 @@ export function commitElectiveRun(db, {
     lockedRows.filter((r) => occurrenceIds.has(r.occurrence_id)).map((r) => r.id)
   )
 
+  // T297 — PREFERENCES A DIRECTOR HAS EDITED ARE PRESERVED, AND SAID OUT LOUD.
+  //
+  // Four behaviours were available for a re-import meeting a hand-edited
+  // preference and only one of them is allowed: overwrite it (a director's
+  // decision discarded without being told — the defect class this program
+  // exists to remove), preserve it silently (the same loss in the other
+  // direction: the import reports success while quietly declining to apply the
+  // file), refuse the whole file (one edited row blocking two hundred good
+  // ones), or PRESERVE IT AND REPORT IT. The last is what ingest.js already
+  // does for hand-edited entity fields under Policy A, so this is the house
+  // rule rather than a new one.
+  //
+  // What the ticket does NOT decide, and this deliberately leaves open: what
+  // the director should then be able to DO about the disagreement. That is the
+  // whole-file merge strategy T297 explicitly is not. All this owes is that the
+  // row is distinguishable and the disagreement is visible, so that question
+  // can be answered later without data having already been lost.
+  //
+  // TWO GATES, because an edit leaves two different traces and only checking one
+  // of them would leak the correction back:
+  //
+  //   a field-level gate — the row still exists and a human wrote its fields, so
+  //   isHumanOwned() is the answer (ADR 2026-09-09), and
+  //
+  //   a TOMBSTONE gate — the load-bearing one. Changing a cell's choice writes
+  //   the new row under the `occ` arm of deriveElectivePreferenceId and tombstones
+  //   the imported `at`-arm (coordinate) row. Those are DIFFERENT ids, so a
+  //   re-import does not collide with the new row at all: it re-creates the old
+  //   one, restoring the very preference the director removed, and the cell holds
+  //   two rank-1 choices again. Following ingest.js's rejectedSlotKeys, only an
+  //   EXPLICIT source==='human' delete suppresses a re-create — an import
+  //   teardown's null-source delete is excluded by the `===`.
+  const preferencesHeld = []
+  // The rows that already exist, read ONCE. The inline per-row existence check
+  // this replaces compiled a statement per parsed preference inside the
+  // transaction, thousands of times on a real sheet.
+  const existingPreferenceIds = new Set(
+    db.prepare('SELECT id FROM elective_preferences WHERE run_id = ?').all(runId).map((r) => r.id)
+  )
+  const heldPreference = (preferenceId) => {
+    if (isHumanDeleted(db, 'elective_preferences', preferenceId)) return 'removed'
+    if (existingPreferenceIds.has(preferenceId)
+        && isHumanOwned(db, 'elective_preferences', preferenceId, 'choice_id')) return 'edited'
+    return null
+  }
+
   try {
     runAtomic(db, () => {
-      const write = (entity, entity_id, fields) => {
+      const write = (entity, entity_id, fields, { source = null } = {}) => {
         for (const [field, value] of Object.entries(fields)) {
           if (value === undefined) continue
           appendOp(db, {
             entity, entity_id, field, value,
             author_user_id: authorUserId, device_id: deviceId, client_write_id: randomUUID(),
+            source,
           })
         }
       }
@@ -362,14 +412,23 @@ export function commitElectiveRun(db, {
         if (p.occurrence_id != null && !occurrenceIds.has(p.occurrence_id)) {
           throw new Error(`preference names an occurrence not in this run: ${p.occurrence_id}`)
         }
+        // The COORDINATE joins the key (T279 round 2). Without it, a per-cell
+        // sheet imported before any template exists has occurrence_id NULL on
+        // every row, so two cells naming one activity derive ONE id and the
+        // second silently overwrites the first — the importer discarding a
+        // child's answer because it could not yet express it as a row.
+        const preferenceId =
+          deriveElectivePreferenceId(runId, p.camper_id, p.occurrence_id ?? null, choiceId, p.coordinate ?? null)
+        // T297 — A DIRECTOR'S CORRECTION IS NOT OVERWRITTEN, AND NOT SILENTLY
+        // KEPT EITHER. See the note above `preferencesHeld`.
+        const held = heldPreference(preferenceId)
+        if (held) {
+          preferencesHeld.push({ preferenceId, camperId: p.camper_id, reason: held })
+          continue
+        }
         write(
           'elective_preferences',
-          // The COORDINATE joins the key (T279 round 2). Without it, a per-cell
-          // sheet imported before any template exists has occurrence_id NULL on
-          // every row, so two cells naming one activity derive ONE id and the
-          // second silently overwrites the first — the importer discarding a
-          // child's answer because it could not yet express it as a row.
-          deriveElectivePreferenceId(runId, p.camper_id, p.occurrence_id ?? null, choiceId, p.coordinate ?? null),
+          preferenceId,
           {
             run_id: runId,
             camper_id: p.camper_id,
@@ -394,7 +453,21 @@ export function commitElectiveRun(db, {
             // whole-run row, which legitimately has no cell.
             coordinate_day_label: p.coordinate?.dayName ?? null,
             coordinate_period_label: p.coordinate?.periodLabel ?? null,
-          }
+          },
+          // THE SHEET IS THE AUTHOR OF THESE ROWS, and saying so is what makes
+          // the human marker mean anything. appendOp defaults `source` to null
+          // and isHumanOwned decodes null as HUMAN (ADR 2026-08-08-s2a §2
+          // over-protects an unlabelled write on purpose), so while this commit
+          // left the field unset EVERY imported preference read back as a
+          // director's hand edit — confirmed by execution, not inspection. A
+          // marker that is true of every row protects nothing.
+          //
+          // Scoped to preferences deliberately: the other entities this commit
+          // writes (campers, choices, assignments) have their own provenance
+          // questions and handing them to the importer here would be an
+          // unexamined change to how a later re-import treats a hand-corrected
+          // camper name.
+          { source: 'import' }
         )
       }
 
@@ -445,6 +518,25 @@ export function commitElectiveRun(db, {
     // Run-level state, returned for the run's own screen (T250) — NOT a
     // schedule finding, and never routed into the schedule findings
     // vocabulary (ADR 2026-09-24 amendment).
-    findings,
+    //
+    // T297 appends one item PER HELD PREFERENCE rather than one summary count:
+    // the director's question is "which child's correction did the file
+    // disagree with", and a count answers a different question than the one
+    // they are asking (the same argument T232 makes for per-value findings).
+    findings: [
+      ...findings,
+      ...preferencesHeld.map((h) => ({
+        kind: 'PREFERENCE_EDIT_HELD',
+        preference_id: h.preferenceId,
+        camper_id: h.camperId,
+        reason: h.reason,
+        message:
+          h.reason === 'removed'
+            ? 'This file still lists a preference you removed by hand, so it was not added back. ' +
+              'Your removal stands — nothing on the sheet changed it.'
+            : 'You edited this preference by hand and the file disagrees, so the file’s version ' +
+              'was not applied. Your edit stands — nothing was overwritten.',
+      })),
+    ],
   }
 }

@@ -24,8 +24,9 @@
 // The two agree by construction: `appendOp` passes the op's own `source` into
 // the document on every local write, and `seedDocFromSqlite` carries existing
 // op-log provenance in at seed time.
-import { latestOp } from './operations.js'
+import { latestOp, DELETE_FIELD } from './operations.js'
 import { isHumanEdited, readRecord } from '../automerge/campDocument.js'
+import { latestOpForEntity } from './restore.js'
 import { getDocIfLoaded } from '../sync/automerge/liveDoc.js'
 
 /**
@@ -69,4 +70,25 @@ export function isHumanOwned(db, entity, entityId, field) {
     return false
   }
   return latest.source !== 'import'
+}
+
+/**
+ * True when the latest thing that happened to this record is a PERSON deleting it.
+ *
+ * The `=== 'human'` is load-bearing and is the reason this is one function rather
+ * than a predicate written at each site. Unlike isHumanOwned above — which treats
+ * a NULL source as human in order to OVER-protect an unlabelled edit — this
+ * requires an explicit 'human'. A null-source delete is ambiguous between a
+ * director's rejection and an importer's own teardown (import replace-mode deletes
+ * rows before re-creating them), so reading null as human here would make every
+ * importer unable to re-create its own rows.
+ *
+ * Callers: ingest.js's rejectedSlotKeys (a fixed event the director threw away
+ * must not come back on re-import) and commitElectiveRun's held-preference gate
+ * (a preference the director withdrew must not come back either). Two features,
+ * one rule.
+ */
+export function isHumanDeleted(db, entity, entityId) {
+  const latest = latestOpForEntity(db, entity, entityId)
+  return !!latest && latest.field === DELETE_FIELD && latest.source === 'human'
 }
