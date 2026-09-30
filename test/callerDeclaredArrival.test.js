@@ -143,6 +143,10 @@ const prefRows = (camperId) =>
 
 const prefCount = () => withDb((db) => db.prepare('SELECT COUNT(*) c FROM elective_preferences').get().c)
 
+/** The one elective_assignment_runs row by id — T319's name/source_filename checks. */
+const runRow = (runId) =>
+  withDb((db) => db.prepare('SELECT name, source_filename FROM elective_assignment_runs WHERE id = ?').get(runId))
+
 const indistinguishable = (result) =>
   (result.residue ?? []).filter((r) => r.kind === 'INDISTINGUISHABLE_SUBMISSION')
 
@@ -365,6 +369,46 @@ describe('T303 case 3 — declaring nothing keeps today behaviour, and is TOLD',
     const second = viaCli('b.csv', SAME, { camperName: 'Aviva Feldspar' })
     expect(indistinguishable(second)).toEqual([])
     expect(campers()).toHaveLength(1)
+  })
+})
+
+describe('T319 — the run is named after the import event, never after one arrival\'s file', () => {
+  it('CLI: a second byte-identical arrival leaves the run\'s name and source_filename untouched', () => {
+    // The scenario the ticket names verbatim: two campers submit byte-identical
+    // sheets under different filenames (ari.csv, noa.csv). The run id is
+    // content-derived, so both correctly land on ONE elective_assignment_runs row
+    // — but before T319 that row's name/source_filename were whichever file
+    // arrived LAST. Captured after arrival 1 and compared after arrival 2, so a
+    // rename by the second arrival cannot pass unnoticed.
+    const first = viaCli('ari.csv', SAME)
+    expect(first.ok).toBe(true)
+    const afterFirst = runRow(first.runId)
+    expect(afterFirst.name).toMatch(/^Import \d{4}-\d{2}-\d{2} \d{2}:\d{2}, 1 sheet$/)
+    expect(afterFirst.name).not.toBe('ari.csv')
+    expect(afterFirst.name).not.toBe('noa.csv')
+    expect(afterFirst.source_filename).toBe('ari.csv')
+
+    const second = viaCli('noa.csv', SAME)
+    expect(second.ok).toBe(true)
+    expect(second.runId).toBe(first.runId)
+    const afterSecond = runRow(second.runId)
+    // UNCHANGED — this is the defect. Before the fix, source_filename (and, on a
+    // caller that let the default apply, name) becomes 'noa.csv' here.
+    expect(afterSecond).toEqual(afterFirst)
+    expect(afterSecond.source_filename).toBe('ari.csv')
+    expect(afterSecond.source_filename).not.toBe('noa.csv')
+  })
+
+  it('CLI: an explicit --name still wins over the import-event default', () => {
+    const out = viaCli('ari.csv', SAME, { runName: 'Week 3 archery cohort' })
+    expect(out.ok).toBe(true)
+    expect(runRow(out.runId).name).toBe('Week 3 archery cohort')
+  })
+
+  it('MCP: an explicit run_name still wins over the import-event default', () => {
+    const out = viaMcp('ari.csv', SAME, { run_name: 'Week 3 archery cohort' })
+    expect(out.ok).toBe(true)
+    expect(runRow(out.runId).name).toBe('Week 3 archery cohort')
   })
 })
 
