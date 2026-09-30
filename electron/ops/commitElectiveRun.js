@@ -863,7 +863,7 @@ export function commitElectiveRun(db, {
           // it: the director acts on a child who is fine.
           `${camperById.get(m.camperId)?.display_name ?? 'A camper'} is linked to “${m.label}”, which a bundle ` +
           'claims for specific divisions only, and this camper’s own division is not one of them — so it was ' +
-          'kept as an ordinary choice for them instead of as part of the set. Their ranking still counts; ' +
+          'kept as an ordinary choice for them instead of as part of the bundle. Their ranking still counts; ' +
           'nothing else on the sheet was affected.',
       })),
     ],
