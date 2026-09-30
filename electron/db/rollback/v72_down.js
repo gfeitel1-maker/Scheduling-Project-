@@ -21,6 +21,26 @@
 //   4. No registry membership restored: this script does not touch
 //      PROJECTIONS (electron/ops/projections.js) -- same ruling as every
 //      other schema-only rollback in this directory.
+//   5. THIS ROLLBACK IS MARKER-ONLY, BUT ROLLING THE MARKER BELOW 72 IS NOT A
+//      SINGLE-STEP OPERATION ON A DATABASE THAT WENT PAST 72. Reopening the
+//      app re-runs every forward migration block from v73 up, and v73's guard
+//      (`>= 72 && < 73`) is exactly the window this rollback leaves the
+//      database sitting in. v73's block (T241) rebuilds nine tables with an
+//      EXPLICIT ENUMERATED COLUMN LIST, not `SELECT *` -- so any column added
+//      to one of those nine tables by a LATER migration is silently dropped
+//      when the block re-fires. Confirmed instance: `activities.catalog_role`
+//      (added by v75, a later migration) is destroyed by the v73 rebuild's
+//      column list and then re-added by v75 as all-NULL -- a camper's ingest
+//      classification is lost, silently, with no error and no log line. This
+//      is a defect in localDb.js's v73 forward block, not in this rollback --
+//      it is equally reachable by running v73_down.js alone -- and it is
+//      named here because this is the module that would otherwise print a
+//      reassurance about reopening that the code does not deliver.
+//      electron/db/migrationDomainState.js's note on the v73 entry ("every
+//      table rebuild is a straight SELECT * copy") is the stale comment that
+//      makes this easy to miss -- the code enumerates columns; the comment is
+//      wrong. See v72_down.test.js's KNOWN GAP test, which pins this exact
+//      mechanism against a reopened database.
 //
 // Usage:  node electron/db/rollback/v72_down.js <path-to-shoresh.sqlite>
 
@@ -45,7 +65,10 @@ if (process.argv[1] && process.argv[1].endsWith('v72_down.js')) {
   console.log(
     'v72 rolled back: schema_migrations row(s) >= 72 removed. The `tombstones` table and all its ' +
     'rows were left untouched -- this migration never created that table (schema.sql does, on ' +
-    'every open, regardless of version), so there was nothing for this rollback to drop. This app ' +
-    'build still declares schema version 72 -- reopening it re-stamps the marker.'
+    'every open, regardless of version), so there was nothing for this rollback to drop. WARNING: ' +
+    'if this database had gone past v72, reopening the app does NOT cleanly re-stamp the marker -- ' +
+    'it re-runs every forward block from v73 up, and v73\'s nine-table rebuild will SILENTLY DROP ' +
+    'activities.catalog_role (added later, by v75, and absent from v73\'s enumerated column list) ' +
+    'before v75 re-adds it as all-NULL. See this file\'s header, point 5, for the mechanism.'
   )
 }

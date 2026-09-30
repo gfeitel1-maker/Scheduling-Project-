@@ -3,7 +3,7 @@ import { describe, it, expect, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { openLocalDb, getSchemaVersion } from '../localDb.js'
+import { openLocalDb, getSchemaVersion, CURRENT_SCHEMA_VERSION } from '../localDb.js'
 import { rollbackV72 } from './v72_down.js'
 
 const files = []
@@ -82,5 +82,44 @@ describe('rollbackV72', () => {
       created_at: '2026-09-30T00:00:00.000Z',
     })
     db.close()
+  })
+
+  // KNOWN-GAP / CHARACTERIZATION TEST — asserts the CURRENT WRONG behaviour of localDb.js's v73
+  // forward block ON PURPOSE (see this module's header, point 5). Reopening a database that this
+  // rollback has taken below 72 re-runs every forward block from v73 up; v73's nine-table rebuild
+  // (electron/db/localDb.js, guard `>= 72 && < 73`) enumerates an explicit column list rather than
+  // `SELECT *`, and that list predates `activities.catalog_role` (added by v75). The rebuild
+  // silently drops the column's data, then v75 re-adds it as all-NULL. This is a defect in
+  // localDb.js's v73 block, not in this rollback -- equally reachable via v73_down.js alone -- and
+  // is pinned here because this is the module that would otherwise claim reopening is harmless.
+  //
+  // When localDb.js's v73 block is fixed to preserve later-added columns (e.g. by rebuilding from
+  // the live `table_info(activities)` column list instead of a hardcoded one), THIS TEST GOES RED.
+  // The correct response then is to flip the final assertion to `'pinned_event'` and delete the
+  // corresponding warning from this module's header and CLI message -- not to delete this test.
+  it('KNOWN GAP: reopening after this rollback silently drops activities.catalog_role (v73 rebuild re-fires with a stale column list)', () => {
+    const db = freshDb()
+    db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()
+    db.prepare(
+      "INSERT INTO activities (id, camp_id, name, catalog_role) VALUES ('act1', 'camp1', 'Swim', 'pinned_event')"
+    ).run()
+
+    // Non-vacuity: prove the column actually held the value BEFORE the rollback touches anything.
+    // If this assertion failed, the test below would be proving nothing about loss -- there'd be
+    // nothing to lose.
+    expect(db.prepare('SELECT catalog_role FROM activities WHERE id = ?').get('act1').catalog_role).toBe(
+      'pinned_event'
+    )
+
+    rollbackV72(db)
+    const file = db.name
+    db.close()
+
+    const reopened = openLocalDb(file)
+    const row = reopened.prepare('SELECT * FROM activities WHERE id = ?').get('act1')
+    expect(row).toBeDefined()
+    expect(row.catalog_role).toBeNull()
+    expect(getSchemaVersion(reopened)).toBe(CURRENT_SCHEMA_VERSION)
+    reopened.close()
   })
 })
