@@ -15,18 +15,18 @@ related_tickets:
   - docs/work/tickets/T195-preference-import-service.md
 related_specs: []
 related_adrs: []
-selected_agents: [Governor, Maker, Code Reviewer, Red Hat, Verifier, Grader]
+selected_agents: [governor, maker, code-reviewer, red-hat, verifier, grader]
 omitted_agents:
-  - agent: Architect
+  - agent: architect
     reason: no-predicate
     note: "docs-only; no persistent data shape, no contract other code calls, nothing irreversible"
-  - agent: Designer
+  - agent: designer
     reason: not-applicable
     note: "no UI surface touched; footprint is docs/**"
-  - agent: Tester
+  - agent: tester
     reason: not-applicable
     note: "no runtime behaviour changes; nothing a director could exercise in the app"
-  - agent: Security
+  - agent: security
     reason: no-predicate
     note: "no auth, secrets, PIN, IPC, transport or packaging surface in the diff"
 deterministic_checks:
@@ -140,21 +140,78 @@ is not one, it is a rule 8 challenge.
 
 ## ADR mapping table
 
-Filled in from Maker's report and confirmed by Verifier's enumeration.
+Filled in from Maker's report and confirmed by Verifier's enumeration. 59 ADR files touched
+(one, `2026-09-08-flat-record-shape.md`, pre-existed with embedded NUL bytes unrelated to this
+change — `git diff` reports it "Binary files differ"; confirmed with `grep -a` and a byte-offset
+diff that only the `implementation_state` line changed).
 
 | Old value | New value | Count | Closed-state change? |
 |---|---|---|---|
-| | | | |
+| `not_started` | `not-started` | 13 | no (already not closed either way) |
+| `shipped` | `implemented` | 11 | **yes** — all 11 carry `status: accepted` |
+| `in_progress` | `in-progress` | 8 | no |
+| `proposed` | `not-started` | 8 | no |
+| `planned` | `not-started` | 5 | no |
+| `complete` | `implemented` | 3 | **yes** — all 3 carry `status: accepted` |
+| `not started` | `not-started` | 2 | no |
+| `existing — retroactively documented` | `implemented` | 1 | **yes** |
+| `existing pattern — policy now explicit` | `implemented` | 1 | **yes** |
+| `edits-applied-remeasurement-deferred` | `in-progress` | 1 | no |
+| `completed` | `implemented` | 1 | **yes** |
+| `deferred-build (direction ratified; build deferred per owner decision)` | `not-started` | 1 | no |
+| `implemented (2026-09-01; scripts/mcp/{server,tools}.js + tests, launchable via \`npm run mcp\`)` | `implemented` | 1 | **yes** (raw string did not equal `implemented` before) |
+| `partial (part 1 …merged; part 2 …not started)` | `in-progress` | 1 | no |
+| `not-started (part 1 — the binder; part 2 — atomic multi-row import)` | `not-started` | 1 | no |
+
+Post-change enumeration: `implemented` 72, `in-progress` 22, `not-started` 46 (sums to 140, matching
+the pre-change 132 + the 8 parenthetical/free-text singles). Zero `status` fields touched
+(`git diff origin/main..HEAD -- docs/adr \| grep '^[+-]status:'` and the working-tree equivalent
+both return nothing).
+
+**Regression check:** confirmed zero ADRs moved from a prior exact `implementation_state: implemented`
+to anything else (a script diffed old/new values per file and filtered for that direction — 0 matches).
+
+**Newly-closed ADRs** (all `status: accepted`, `implementation_state` now exactly `implemented`,
+previously not exactly that string) — 18 total:
+
+- docs/adr/2026-07-24-bulk-replace-seq-fix.md (was `shipped`)
+- docs/adr/2026-07-24-centralized-authorization-layer.md (was `shipped`)
+- docs/adr/2026-07-25-append-only-audit-event-log.md (was `shipped`)
+- docs/adr/2026-07-25-device-trust-revocation.md (was `shipped`)
+- docs/adr/2026-07-28-explicit-userdata-directory.md (was `shipped`)
+- docs/adr/2026-07-28-first-pairing-domain-sync-and-template-identity.md (was `shipped`)
+- docs/adr/2026-07-28-schedule-flag-findings-reshape.md (was `shipped`)
+- docs/adr/2026-08-04-project-lifecycle-authorization-exemption.md (was `existing — retroactively documented`)
+- docs/adr/2026-08-04-repository-layer-policy.md (was `existing pattern — policy now explicit`)
+- docs/adr/2026-08-06-inferred-activity-rules-at-ingest.md (was `complete`)
+- docs/adr/2026-08-16-device-fk-seeding-and-delivery-watermark.md (was `completed`)
+- docs/adr/2026-08-19-roots-census-and-persistent-inspector.md (was `complete`)
+- docs/adr/2026-08-21-mcp-ingestion-server.md (was `implemented (2026-09-01; …)`)
+- docs/adr/2026-09-03-compound-cell-interpretation.md (was `shipped`)
+- docs/adr/2026-09-09-field-provenance-in-the-document.md (was `complete`)
+- docs/adr/2026-09-15-opinion-report-dispatch-provenance.md (was `shipped`)
+- docs/adr/2026-09-16-anchor-scope-single-resolver.md (was `shipped`)
+- docs/adr/2026-09-16-index-survival-across-table-rebuilds.md (was `shipped`)
+
+None of these moves the ADR to a *less* closed state — no escalation triggered.
+
+Seven ADRs carry a nuance line in the body (not eight, as the brief's count anticipated — the count
+of distinct nuance-bearing values in the `NUANCE PRESERVATION` list sums to 7, not 8; `completed`,
+also singled out in the census, is a pure synonym per the MAPPING rule and needed none):
+`2026-09-30-elective-run-durability.md`, `2026-09-30-format-agnostic-setup-import.md`,
+`2026-08-21-mcp-ingestion-server.md`, `2026-08-04-project-lifecycle-authorization-exemption.md`,
+`2026-08-04-repository-layer-policy.md`, `2026-08-09-agent-quality-waste-metric-and-quality-floor.md`,
+`2026-08-20-facility-topology-foundation.md`.
 
 ## Gates
 
 | Gate | Result | Evidence |
 |---|---|---|
-| `npm run check:governance` | | |
-| `npx vitest run test/governance.test.js scripts/check-governance.test.js` | | |
-| `npm run agents:check` | | |
-| implementation_state value-set enumeration | | |
-| PLATFORM_STATE version-fact diff | | |
+| `npm run check:governance` | PASS | exit 0; only the pre-existing `platform-state-stale` advisory (unchanged from baseline); zero blocking findings |
+| `npx vitest run test/governance.test.js scripts/check-governance.test.js` | PASS | 120/120 tests passed (81 + 39) |
+| `npm run agents:check` | PASS | all 13 generated profiles + manifest byte-identical to committed `.claude/agents/*.md` |
+| implementation_state value-set enumeration | PASS | `grep -h '^implementation_state:' docs/adr/*.md \| sed … \| sort \| uniq -c` → `72 implemented`, `22 in-progress`, `46 not-started` — exactly the three enum values, nothing else |
+| PLATFORM_STATE version-fact diff | PASS | every `v<NN>` token (regex `\bv\d{1,3}\b`) present in either old bullet is present in the merged bullet (`comm`/set-diff shows empty "missing" set); only additions are `v79`/`v83` from the new current-version claim, both expected |
 
 ## Verifier verdict
 
