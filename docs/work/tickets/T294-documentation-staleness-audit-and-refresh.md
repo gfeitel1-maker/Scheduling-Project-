@@ -123,10 +123,10 @@ version of this note rested on the premise "`INTERNET_TRANSPORT_SIGNOFF` is stil
 flagged that premise as stale and it was independently re-confirmed here, against
 `electron/sync/automerge/transportCapabilities.js` itself (not taken on trust). The coarse boolean is
 no longer the live gate — `electron/sync/automerge/transportBoundary.guard.test.js:11` records that
-T288 replaced it with a per-capability registry, `TRANSPORT_CAPABILITIES`. Of its nine capabilities,
+T288 replaced it with a per-capability registry, `TRANSPORT_CAPABILITIES`. Of its ten capabilities,
 **`discovery` has a `signoff`** — `{date: '2026-09-28', owner: 'gfeitel1', doc:
 'docs/work/security/2026-09-26-internet-transport-signoff-reassessment.md#owner-sign-off'}` — with an
-`egressAllowlist` of exactly `['electron/sync/automerge/rendezvousClient.js']`; the other six
+`egressAllowlist` of exactly `['electron/sync/automerge/rendezvousClient.js']`; the other nine
 (`relay`, `dcutr`, `webrtc`, `websockets`, `webtransport`, `quic`, `kadDht`, `bootstrap`, `upnp` — all
 but `discovery`) still carry `signoff: null` and stay blocked. The conclusion is unchanged: the
 README P2 WAN note is still not actionable. `README.md` carries no WAN/rendezvous text to correct

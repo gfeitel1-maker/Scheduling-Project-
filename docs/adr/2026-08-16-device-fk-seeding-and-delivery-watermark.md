@@ -514,3 +514,17 @@ buildable against the current stack as designed; `implementation_state` is corre
 `status: superseded` is an open question this sweep does not decide — that is an architecture
 judgement call under `CONSTITUTION.md` Art. IV (human gate), not a mapping change, and is recorded in
 `docs/work/runs/2026-09-30-sweeps-b-docs-t294.md` for the owner.
+
+**2026-09-30 further correction (Red Hat re-review):** `not-started` is correct about *this ADR's
+specific decision* — the stub-seed-a-`devices`-row-plus-`op_applied_ack`-watermark design was never
+built — but a reader must not take `not-started` to mean the underlying FK-drop concern is an open,
+unaddressed risk today. It is not: the Automerge-era code resolves the same concern by a different
+mechanism, in `electron/automerge/historyLedger.js`'s `appendReceivedOps`. That function's own
+comments name this ADR's target problem directly (`operations.device_id` is `NOT NULL REFERENCES
+devices(id)`, "That FK is the concern the retired WS scenario 24 existed to protect, and it returns
+here exactly as that retirement note predicted it would") and resolve it by skip-and-warn — a
+`warnedPeers` set logs once per unmapped peer and the op is deliberately skipped, rather than
+inventing a `devices` row (this ADR's Option C, rejected here). The bounded cost: history for an
+unmapped peer's changes is not recorded on this device, so Trash/Restore for those particular
+records degrades to a clean `no-history` error, while the data itself is unaffected because
+`projectAll` has already run.

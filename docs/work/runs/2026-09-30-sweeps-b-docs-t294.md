@@ -249,7 +249,7 @@ taken on Red Hat's word:
    the file directly, not the relayed summary). `discovery` has a `signoff` dated 2026-09-28; the
    other nine capabilities (`relay`, `dcutr`, `webrtc`, `websockets`, `webtransport`, `quic`,
    `kadDht`, `bootstrap`, `upnp`) are still `signoff: null` — the brief's summary named six of these
-   nine; the file itself has nine, confirmed by reading it directly rather than the summary. The note's conclusion (README WAN item not
+   nine; the file itself has ten capabilities total (nine `signoff: null`), confirmed by reading it directly rather than the summary. The note's conclusion (README WAN item not
    actionable) survives, but the corrected note now cites the real mechanism instead of a retired
    boolean, per the Round 2 edit in `docs/work/tickets/T294-documentation-staleness-audit-and-refresh.md`.
 4. **Systematic re-check** — every ADR round 1 moved to `implemented` (18, derived fresh from
@@ -285,6 +285,27 @@ taken on Red Hat's word:
      is unbuilt (e.g. field-provenance's "deferred integration scenario 18" names a separately-tracked
      exit criterion, not this ADR's own state). No changes made to these.
 
+## Round 2 corrections
+
+Two factual corrections applied after Round 2 closed — not a round 3. Each was flagged independently
+by two reviewers (Verifier/Code Reviewer on one, Red Hat on the other) and independently re-confirmed
+by Governor against source before being applied as a correction rather than reopened as a new round:
+
+1. **Capability count.** `docs/work/tickets/T294-documentation-staleness-audit-and-refresh.md`'s
+   2026-09-30 corrected disposition note and this run record's Round 2 §3 both said "nine
+   capabilities" for `TRANSPORT_CAPABILITIES`. Direct enumeration of
+   `electron/sync/automerge/transportCapabilities.js` shows ten (`discovery`, `relay`, `dcutr`,
+   `webrtc`, `websockets`, `webtransport`, `quic`, `kadDht`, `bootstrap`, `upnp`), of which one
+   (`discovery`) carries a `signoff` and the other nine are `signoff: null`. Both documents corrected
+   to ten / nine; the nine-name parenthetical itself was already correct and is unchanged.
+2. **ADR nuance line stopped one layer shallow.** `docs/adr/2026-08-16-device-fk-seeding-and-delivery-watermark.md`'s
+   round-2 nuance line correctly established `not-started` for this ADR's own decision (stub-seed +
+   `op_applied_ack` watermark, never built) but did not say whether the underlying FK-drop concern is
+   still an open risk. It is not: `electron/automerge/historyLedger.js`'s `appendReceivedOps` resolves
+   the same concern today by a different mechanism (skip-and-warn), confirmed by reading that function
+   directly. A line was added recording this so a reader does not mistake `not-started` for "the
+   problem is unhandled." `implementation_state` and `status` were not touched.
+
 ## Gates
 
 Round 1 results shown where unchanged; round 2 re-ran every gate after the two corrections and the
@@ -318,6 +339,29 @@ Average — , lowest dimension — . Pass is ≥ 4.0 with no dimension below 3.
 - Open point (owner unavailable, self-answered): `docs/adr/2026-09-17-wan-rendezvous-seam.md` remains
   `status: proposed` while a later accepted ADR treats it as accepted (T294's own D3 note). This run
   does not touch any ADR `status`, so the question stays open for the owner.
+- **`docs/work/tickets/T85-devices-table-never-synced-cross-device-op-drop.md` carries a stale
+  `RESOLVED` banner.** Its line 15 reads `**RESOLVED 2026-08-16 — fixed via
+  [docs/adr/2026-08-16-device-fk-seeding-and-delivery-watermark.md]…, merged with owner sign-off**`
+  and cites integration scenario 24 (`test/integration/scenarios/24-device-fk-seeding-and-watermark.js`)
+  as proof, with `status: completed`. Both halves verified directly: the cited scenario file does not
+  exist (`ls test/integration/scenarios/24-device-fk-seeding-and-watermark.js` → no such file), and the
+  ADR it cites as the fix now reads `implementation_state: not-started` (this run's own correction,
+  above). No gate catches this: a ticket's "fixed via [ADR]" banner is never cross-checked against that
+  ADR's `implementation_state`. Not fixed here — T85 is outside this docs-only worker's authorized
+  footprint (T294/T171/T195 only), and two other Governors are working in parallel on other tickets.
+- **Roughly a dozen `implemented` ADRs cite the deleted `electron/sync/syncClient.js` /
+  `electron/sync/syncServer.js` in the present tense**, beyond the four already named in Round 2's own
+  finding above (which covered only the 18 ADRs round 1 moved to `implemented`). Measured fresh across
+  *every* ADR: `grep -rl 'syncClient\.js\|syncServer\.js' docs/adr/ | xargs grep -l
+  'implementation_state: implemented' | wc -l` → **16**. Red Hat read three of these
+  (`docs/adr/2026-07-25-device-trust-revocation.md:65`, `docs/adr/2026-09-08-libp2p-join-flow.md:156`,
+  `docs/adr/2026-08-16-locations-optional-map.md` at several lines) and confirmed present-tense
+  citations of files that no longer exist. Their decisions did ship — these are stale citations inside
+  historical/implemented documents, not false closures. The blind spot: the round-2 phrase-list
+  re-check (`design only`, `no code written`, `not yet`, `unbuilt`, `not implemented`, `deferred`,
+  `TODO`, `**Status:**`) only asks "does this prose admit incompleteness," never "does this cited file
+  still exist" — so a confidently-worded `implemented` ADR citing a deleted file passes it clean. Not
+  fixed here — same footprint reason as above.
 
 ### Added in round 2
 
