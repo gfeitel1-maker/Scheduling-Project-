@@ -84,7 +84,7 @@ describe('T251 — the acceptance camp is the camp §6 describes', () => {
   // The unlimited offering is load-bearing twice over: it is the branch a naive
   // `capacity_limit ?? 0` read CLOSES (buildOfferings.js:1-5's own trap note),
   // and its presence is why NO_CAPACITY can never fire in this camp — see the
-  // asserted gap in electiveAcceptanceSolve.integration.test.js.
+  // asserted gap in electiveAcceptanceSolve.integration.test.jsx.
   it('offers exactly one unlimited activity', () => {
     const rows = camp.db
       .prepare("SELECT activity_id FROM elective_set_activities WHERE elective_set_id = ? AND capacity_mode = 'unlimited'")

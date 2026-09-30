@@ -7,7 +7,7 @@
 //       output" — the import half only. §6's sentence covers the SOLVE too, and
 //       a solve is not reachable from this file (no production module composes
 //       solver inputs from a database — see
-//       electron/electiveAcceptanceSolve.integration.test.js's header, which
+//       electron/electiveAcceptanceSolve.integration.test.jsx's header, which
 //       carries the other half).
 //
 // WHAT IS REAL. The sheets are real .csv files on disk. They go through
@@ -26,6 +26,7 @@
 // and differ only in the camper id on the two colliding rows, so the second
 // committing is what makes the first's refusal attributable.
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
+import fs from 'node:fs'
 import os from 'node:os'
 
 vi.mock('electron', () => ({
@@ -37,6 +38,7 @@ vi.mock('electron', () => ({
 }))
 
 import { runPreferenceSheetCli } from '../scripts/preferenceSheetCli.js'
+import { describeElectiveRunRefusal } from './ops/commitElectiveRun.js'
 import { openAcceptanceCamp } from './electiveAcceptanceHarness.js'
 import {
   ACCEPTANCE_MANIFEST, SHEET_BLOCKING, SHEET_RESOLVED, SHEET_BUNDLE_BY_NAME, importResolvedSheet,
@@ -56,14 +58,22 @@ const importSheet = (file, extra = {}) => runPreferenceSheetCli({
 // The same one construction every other T251 file uses, called here AFTER this
 // file's own condition-(1) pair has driven the refusal and the commit by hand.
 let imported = null
-const importResolvedSheetHere = () => imported
+// EVERY TABLE THE COMMIT PATH WRITES, not just `campers`. "A preview writes
+// nothing" measured as a camper count is satisfied by a regression in which
+// commitElectiveRun opens its transaction, writes the run row or appends ops,
+// and only then reaches the ambiguity refusal — the rollback is what makes that
+// safe today, and a rollback is exactly the thing that can break silently.
+const COMMIT_PATH_TABLES = ['campers', 'elective_assignment_runs', 'elective_choices', 'elective_preferences', 'operations']
+const commitPathSnapshot = () => Object.fromEntries(COMMIT_PATH_TABLES.map((t) => [
+  t, camp.db.prepare(`SELECT COUNT(*) c FROM ${t}`).get().c,
+]))
 const camperRows = () => camp.db
   .prepare('SELECT id, display_name, external_id, division_label, is_active FROM campers WHERE camp_id = ? ORDER BY id')
   .all(camp.fixture.campId)
 
 describe('§6 (1) — ambiguous rows block until resolved', () => {
   it('refuses the sheet whose two same-named rows carry no camper id, and writes nothing', () => {
-    const before = camperRows().length
+    const before = commitPathSnapshot()
     // BOTH SURFACES, because they report the refusal in different fields and a
     // director meets both: a PREVIEW says "this would be refused, and why" in
     // `blocked` without opening a transaction, and a COMMIT refuses through
@@ -88,9 +98,10 @@ describe('§6 (1) — ambiguous rows block until resolved', () => {
     expect(out.error).toMatch(/rows [\d, ]+: Older/)
     expect(out.error).toContain('no camper id to tell them apart')
 
-    // A PREVIEW WRITES NOTHING and so does a blocked commit. Asserted as a row
-    // count against the database, not as the absence of a return value.
-    expect(camperRows().length).toBe(before)
+    // A PREVIEW WRITES NOTHING and so does a blocked commit. Asserted as row
+    // counts against the database — across every table the commit path touches,
+    // including `operations` — not as the absence of a return value.
+    expect(commitPathSnapshot()).toEqual(before)
   })
 
   it('commits the same sheet once the two rows are told apart, and only then', () => {
@@ -122,7 +133,7 @@ describe('§6 (1) — ambiguous rows block until resolved', () => {
       dbPath: camp.file, handlers: camp.handlers, token: camp.token, authorUserId: camp.userId,
       campId: camp.fixture.campId, groupIdByName: camp.fixture.groupIdByName,
     })
-    const { inactiveCamperId } = importResolvedSheetHere()
+    const { inactiveCamperId } = imported
     const inactive = camperRows().filter((r) => r.is_active === 0)
     expect(inactive).toHaveLength(1)
     expect(inactive[0].id).toBe(inactiveCamperId)
@@ -171,24 +182,67 @@ describe('§6 (2) import half — re-importing identical bytes converges', () =>
 
 describe('GAP — a bundle cannot be preferred by its own name', () => {
   // docs/adr/2026-09-29-linked-elective-bundles.md D4 says a bundle's name is
-  // "the string a camper's sheet must match". It is not: buildPreferenceCatalog
-  // (src/ingest/preferenceImport.js:91-97) is built from activities, groups and
-  // tiers and never from bundles, so the label resolves to nothing, the
-  // preference becomes UNRESOLVED_CHOICE_LABEL residue, and it never reaches
-  // the solver at all.
+  // "the string a camper's sheet must match". It is not: the catalogue a label
+  // resolves against is built from activities, groups and tiers and never from
+  // bundles, so the label resolves to nothing, the preference becomes
+  // UNRESOLVED_CHOICE_LABEL residue, and it never reaches the solver at all.
   //
-  // THE FIXTURE WORKS AROUND IT by naming the bundle after its own activity
-  // ('Ropes'), which is why condition (8) is live at all. This assertion holds
-  // the gap open: it goes RED the day bundle names enter the catalogue, which
-  // is the day the workaround should be removed.
+  // TWO CATALOGUES, not one, and the round-2 mutation found that out: the
+  // renderer path goes through `buildPreferenceCatalog`
+  // (src/ingest/preferenceImport.js:91-97), while THIS path — the CLI core —
+  // hand-rolls the same three reads inline (scripts/preferenceSheetCli.js:229-233)
+  // and never calls that function. Adding bundles to `buildPreferenceCatalog`
+  // alone therefore leaves this green; the mutation that reds it is adding them
+  // to the CLI's own `catalog.activities`. Both would have to change for the
+  // ADR's D4 to be true, which is worth knowing before anyone tries.
+  //
+  // THE FIXTURE WORKS AROUND IT for the LIVE bundle by naming it after its own
+  // activity ('Ropes'), which is why condition (8) is live at all.
+  //
+  // THAT WORKAROUND IS ALSO WHY THIS ASSERTION NEEDS ITS OWN BUNDLE. A sheet
+  // naming the live bundle says 'Ropes', which resolves today through the
+  // ACTIVITY — so it could never exhibit the gap. A sheet naming a string no
+  // bundle carries would be unresolved forever and could never invert either:
+  // the day the catalogue learns bundle names it learns the names bundles
+  // ACTUALLY HAVE. So the camp carries a bundle whose director-given name is
+  // `bundleNamedOffCatalogue` and is no activity's name, and the sheet names
+  // exactly that. Both halves are asserted below, because the inversion is a
+  // property of the pair and not of either one.
+  it('the camp really has a bundle whose name no activity carries', () => {
+    const name = M.bundleNamedOffCatalogue
+    const bundles = camp.db
+      .prepare('SELECT name FROM elective_bundles WHERE elective_set_id = ?').all(camp.fixture.electiveSetId)
+      .map((b) => b.name)
+    expect(bundles).toContain(name)
+    expect(camp.db.prepare('SELECT COUNT(*) c FROM activities WHERE camp_id = ? AND name = ?')
+      .get(camp.fixture.campId, name).c).toBe(0)
+    // And the sheet under test names it — otherwise the assertion below is
+    // about a string this camp has never heard of.
+    expect(fs.readFileSync(SHEET_BUNDLE_BY_NAME, 'utf8')).toContain(name)
+  })
+
   it('a sheet that names the bundle by its director-given name loses those preferences', () => {
     const out = runPreferenceSheetCli({
       file: SHEET_BUNDLE_BY_NAME, dbPath: camp.file, action: 'preview', authorUserId: camp.userId,
     })
-    expect(out.ok).toBe(true)
-    const unresolved = out.residue.filter((r) => r.kind === 'UNRESOLVED_CHOICE_LABEL')
+    // NOT `out.ok`: a preview is ALWAYS ok:true (preferenceSheetCli.js:330
+    // returns `{ ...report, ok: true, blocked: ... }`), so asserting it cannot
+    // detect anything. `blocked` is the field that carries the answer, and this
+    // sheet is not refused — it is silently lossy, which is the gap.
+    expect(out.blocked).toBeNull()
+    // SCOPED TO THIS BUNDLE'S OWN LABEL, not to "some label went unresolved".
+    // A bare count is satisfied by any other unresolved string in the sheet, so
+    // it stays green even once the catalogue learns bundle names — measured:
+    // pushing the bundle's name into buildPreferenceCatalog left a bare
+    // `unresolved.length > 0` green, which is the whole defect this file's
+    // round-2 review named.
+    const unresolved = out.residue.filter(
+      (r) => r.kind === 'UNRESOLVED_CHOICE_LABEL' && r.label === M.bundleNamedOffCatalogue
+    )
     expect(unresolved.length).toBeGreaterThan(0)
-    // And the loss is total, not partial: no choice carries the bundle's label.
+    // And the loss is total, not partial: no cell naming the bundle resolved.
+    const named = out.residue.filter((r) => r.label === M.bundleNamedOffCatalogue)
+    expect(named).toHaveLength(unresolved.length)
     expect(JSON.stringify(out)).not.toContain('ropesintensive')
   })
 })
@@ -201,19 +255,31 @@ describe('GAP — the malformed-occurrence refusal is unreachable from the real 
   // asserting about a shape the app cannot produce.
   //
   // What CAN be asserted about the real path is the premise: over the whole
-  // acceptance sheet, every parsed preference either carries no occurrence_id
-  // or carries a non-empty string. If a parser change ever makes the branch
-  // reachable, this goes red and the refusal gets a real test.
-  it('no preference the real parser produces has a malformed occurrence_id', () => {
+  // acceptance sheet, `describeElectiveRunRefusal` — the one function both the
+  // preview and the commit ask — does not reach its malformed branch. If a
+  // parser change ever makes the branch reachable, this goes red and the
+  // refusal gets a real test.
+  //
+  // NOT ASSERTED ON `elective_preferences` ROWS, which is what round 1 did and
+  // what cannot fail: a malformed occurrence_id never reaches that table,
+  // because commitElectiveRun refuses the whole commit first (:90-99). Reading
+  // the stored rows back measures the refusal that already happened.
+  //
+  // NOT ASSERTED ON `out.ok` EITHER: a preview is always ok:true
+  // (preferenceSheetCli.js:330). `blocked` is the field carrying the answer.
+  it('the live refusal branch does not fire on the real sheet — and it IS live', () => {
+    // The branch, shown to be reachable at all, on a hand-built shape. This is
+    // the control: without it, `blocked === null` below is equally consistent
+    // with the check having been deleted.
+    expect(describeElectiveRunRefusal({ preferences: [{ camper_id: 'SYN-9999', occurrence_id: '' }] }))
+      .toMatch(/cannot read/)
+    expect(describeElectiveRunRefusal({ preferences: [{ camper_id: 'SYN-9999', occurrence_id: null }] }))
+      .toBeNull()
+
     const out = runPreferenceSheetCli({
       file: SHEET_RESOLVED, dbPath: camp.file, action: 'preview', authorUserId: camp.userId,
     })
-    expect(out.ok).toBe(true)
-    expect(out.counts).toBeTruthy()
-    const stored = camp.db.prepare('SELECT occurrence_id FROM elective_preferences').all()
-    expect(stored.length).toBeGreaterThan(0)
-    for (const row of stored) {
-      expect(row.occurrence_id == null || (typeof row.occurrence_id === 'string' && row.occurrence_id.length > 0)).toBe(true)
-    }
+    expect(out.blocked).toBeNull()
+    expect(out.counts.preferences).toBeGreaterThan(0)
   })
 })

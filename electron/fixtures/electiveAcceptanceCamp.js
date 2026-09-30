@@ -43,7 +43,7 @@
 //
 // THREE DIRECT DATABASE WRITES SURVIVE, and each is unavoidable rather than
 // convenient. They are listed in BOOTSTRAP_SQL_ALLOWLIST below and asserted by
-// electron/electiveAcceptanceSurfaces.integration.test.js's source scan, which
+// electron/electiveAcceptanceSurfaces.integration.test.jsx's source scan, which
 // also asserts that NOTHING else in this module or in the five test files
 // writes SQL at any table §6 says must come from a real path.
 //
@@ -53,7 +53,7 @@
 // src/screens/elective/assignment/AssignmentPanel.jsx:611-700), and
 // runPreferenceSheetCli commits `assignments: []` deliberately
 // (scripts/preferenceSheetCli.js:355-379). Re-implementing that composition
-// here would be the T62 shape again. electiveAcceptanceSolve.integration.test.js
+// here would be the T62 shape again. electiveAcceptanceSolve.integration.test.jsx
 // drives the real component instead; see its header.
 import fs from 'node:fs'
 import path from 'node:path'
@@ -79,7 +79,7 @@ export const SHEET_BUNDLE_BY_NAME = path.join(FIXTURE_DIR, 'preferences-bundle-b
 
 // The three tables a direct write is permitted to name, and why each one cannot
 // come from a production path in a single-node headless test. Read as a pair
-// with the source scan in electiveAcceptanceSurfaces.integration.test.js — this
+// with the source scan in electiveAcceptanceSurfaces.integration.test.jsx — this
 // constant is the scan's input, so widening it is a visible, reviewable act.
 export const BOOTSTRAP_SQL_ALLOWLIST = Object.freeze(['camps', 'devices', 'cohorts'])
 
@@ -169,7 +169,16 @@ export const ACCEPTANCE_MANIFEST = Object.freeze({
   // chosen — see the note in scripts/fixtures/make-preference-corpus.mjs and
   // the gap held open by electiveAcceptanceImport.integration.test.js.
   bundle: { name: 'Ropes', activity: 'Ropes', tier: 'Older', days: ['Monday', 'Tuesday'] },
-  // TWO MORE BUNDLES, authored so that UNSUPPORTED_LINKED_CHOICE is PRODUCED
+  // A BUNDLE WHOSE DIRECTOR-GIVEN NAME IS NOT ANY ACTIVITY'S NAME, which is the
+  // only shape that can hold the "a bundle cannot be preferred by its own name"
+  // gap open so that it INVERTS. `bundle` above is named after its activity, so
+  // a sheet naming it resolves today via the activity and proves nothing about
+  // bundles; a sheet naming THIS one resolves to nothing today and will resolve
+  // the day buildPreferenceCatalog learns bundle names. See the gap in
+  // electron/electiveAcceptanceImport.integration.test.js and
+  // preferences-bundle-by-name.csv, which substitutes this exact string.
+  bundleNamedOffCatalogue: 'Ropes Intensive',
+  // THREE MORE BUNDLES, authored so that UNSUPPORTED_LINKED_CHOICE is PRODUCED
   // rather than merely absent: case (c) at
   // src/engine/buildElectiveAssignments.js:684-696 fires when two linked
   // choices share a member occurrence.
@@ -178,11 +187,17 @@ export const ACCEPTANCE_MANIFEST = Object.freeze({
   // BOTH sharing choices, not just the later one, so a second bundle overlapping
   // `bundle` above would take `bundle` down with it and condition (8) would have
   // nothing left to assert — measured, not reasoned: the first attempt did
-  // exactly that and tier 1 placed nobody. These two overlap EACH OTHER, on
+  // exactly that and tier 1 placed nobody. These overlap EACH OTHER, on
   // Younger cells, which leaves the Older bundle live.
+  //
+  // THE THIRD carries `bundleNamedOffCatalogue`. It sits here rather than
+  // beside `bundle` because its label is claimed by no preference in the
+  // committed sheet, so it must not be able to affect a placement: parked in
+  // the already-refused Younger cluster it cannot.
   refusedBundles: [
     { name: 'Ceramics', activity: 'Ceramics', tier: 'Younger', days: ['Monday', 'Wednesday'] },
     { name: 'Woodshop', activity: 'Woodshop', tier: 'Younger', days: ['Monday', 'Wednesday'] },
+    { name: 'Ropes Intensive', activity: 'Ropes', tier: 'Younger', days: ['Monday', 'Wednesday'] },
   ],
 })
 
