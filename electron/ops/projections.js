@@ -48,12 +48,76 @@ import { parseDayOfWeek } from './dayId.js'
 // rows in arbitrary order. `name` is NOT NULL with no default, so the stub
 // supplies ''. The real name arrives as an ordinary field write and the
 // generic UPDATE overwrites the placeholder.
-function ensureRunStub(db, runId) {
-  const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
-  getStmt(
+//
+// T320 part 2 item 1 (docs/adr/2026-09-30-elective-run-durability.md) — both
+// stub seeds below now go through ensureParentStub, which refuses to conjure a
+// parent whose LAST recorded act was its own deletion.
+
+// The last thing the op-log recorded about this record — DELETE_FIELD when the
+// record's most recent act was its own deletion. `operations` is indexed on
+// (entity, entity_id, field) (idx_operations_entity, schema.sql), so this is
+// a short indexed prefix scan over the handful of ops one record ever has.
+function lastRecordedField(db, entity, id) {
+  const row = getStmt(
     db,
-    "INSERT OR IGNORE INTO elective_assignment_runs (id, camp_id, name) VALUES (?, ?, '')"
-  ).run(runId, camp?.id ?? null)
+    'SELECT field FROM operations WHERE entity = ? AND entity_id = ? ORDER BY seq DESC LIMIT 1'
+  ).get(entity, id)
+  return row ? row.field : null
+}
+
+// Which stub-seeded PARENTS carry the guard. Deliberately a registry and not a
+// blanket rule over every ensureExists in this file: the predicate costs one
+// indexed read per child field op, and the import loop pays it per row (the
+// write-cost lesson T309 closed). Widening it is one line here plus one test line.
+const TOMBSTONE_GUARDED_STUB_PARENTS = new Set(['elective_assignment_runs', 'elective_sets'])
+
+// The ONE place a child's ensureExists may conjure its parent. Refuses when the
+// parent's most recent recorded act was its own deletion; otherwise seeds.
+// Returns whether the parent may be referenced at all, so a caller whose own
+// insert declares a REAL foreign key (elective_set_activities.elective_set_id,
+// elective_bundles.elective_set_id) can skip its row rather than throw —
+// INSERT OR IGNORE does not suppress an FK violation, and a refusal here is a
+// silent skip, matching every other ensureExists early return in this file.
+// A run's children need no such check: their run_id is a soft reference, so an
+// orphan child row is exactly the state a merged document already converges on.
+//
+// WHY "last recorded field is the delete" and not "a delete op exists":
+// deriveImportedElectiveRunId is content-derived, so re-importing the identical
+// sheet after deleting its run derives the SAME run id. A bare-existence
+// predicate would strand that legitimate re-create forever; the recency form is
+// self-correcting.
+export function ensureParentStub(db, parentEntity, parentId, seed) {
+  if (typeof parentId !== 'string' || parentId.length === 0) return false
+  if (
+    TOMBSTONE_GUARDED_STUB_PARENTS.has(parentEntity) &&
+    lastRecordedField(db, parentEntity, parentId) === DELETE_FIELD
+  ) {
+    return false
+  }
+  seed()
+  return true
+}
+
+function ensureRunStub(db, runId) {
+  return ensureParentStub(db, 'elective_assignment_runs', runId, () => {
+    const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
+    getStmt(
+      db,
+      "INSERT OR IGNORE INTO elective_assignment_runs (id, camp_id, name) VALUES (?, ?, '')"
+    ).run(runId, camp?.id ?? null)
+  })
+}
+
+// The sibling seed for the other guarded parent. One function per guarded
+// parent rather than a copy of the same INSERT inside each child's ensureExists.
+function ensureSetStub(db, setId) {
+  return ensureParentStub(db, 'elective_sets', setId, () => {
+    const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
+    getStmt(
+      db,
+      "INSERT OR IGNORE INTO elective_sets (id, camp_id, name) VALUES (?, ?, '')"
+    ).run(setId, camp?.id ?? null)
+  })
 }
 
 // T301 — the reconstruct-a-prior-field-from-the-op-log lookup that appears
@@ -579,11 +643,7 @@ export const PROJECTIONS = {
       const activityId = readField('activity_id')
       if (electiveSetId == null || activityId == null) return
 
-      const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
-      getStmt(
-        db,
-        "INSERT OR IGNORE INTO elective_sets (id, camp_id, name) VALUES (?, ?, '')"
-      ).run(electiveSetId, camp?.id ?? null)
+      if (!ensureSetStub(db, electiveSetId)) return
       getStmt(
         db,
         'INSERT OR IGNORE INTO elective_set_activities (id, elective_set_id, activity_id) VALUES (?, ?, ?)'
@@ -611,11 +671,7 @@ export const PROJECTIONS = {
       const name = readField('name')
       if (electiveSetId == null || activityId == null || name == null) return
 
-      const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
-      getStmt(
-        db,
-        "INSERT OR IGNORE INTO elective_sets (id, camp_id, name) VALUES (?, ?, '')"
-      ).run(electiveSetId, camp?.id ?? null)
+      if (!ensureSetStub(db, electiveSetId)) return
       getStmt(
         db,
         'INSERT OR IGNORE INTO elective_bundles (id, elective_set_id, activity_id, name) VALUES (?, ?, ?, ?)'
