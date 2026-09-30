@@ -20,11 +20,21 @@ import { describeWriteFailure } from '../../../utils/writeErrorMessage'
 // op-log purge — not merely this device's copy — needs a coordinated
 // tombstone rebuild, which is a different, far costlier operation this
 // control does not perform).
+//
+// Round 2 FIX 2 (Red Hat, HIGH) — the "removes it ... from every device this
+// camp syncs with" claim was unqualified, and it overclaims under a real
+// race: `ensureRunStub` (electron/ops/projections.js) stub-seeds this run's
+// parent row on ANY child write with no awareness of a delete, so a device
+// that is mid-edit on this run when the delete arrives can resurrect it,
+// blank-named. See electron/ops/deleteElectiveRun.js for the hazard in full.
+// The added sentence names that honestly rather than promising completeness
+// the code cannot back.
 export const DELETE_RUN_COST_COPY =
   'Deleting this run removes it and its camper placements from this device and from every device this camp syncs with. ' +
-  'A device that is offline will catch up when it reconnects. It does not erase the run from this app’s own change history ' +
-  '— doing that needs a coordinated rebuild that invalidates every device’s copy of this camp and forces each one to pair ' +
-  'again — and nothing here can reach a copy already exported or taken off this computer.'
+  'A device that is offline will catch up when it reconnects. If another device is actively editing this run at that exact ' +
+  'moment, it can briefly reappear there, unnamed — deleting it again finishes the job. It does not erase the run from this ' +
+  'app’s own change history — doing that needs a coordinated rebuild that invalidates every device’s copy of this camp and ' +
+  'forces each one to pair again — and nothing here can reach a copy already exported or taken off this computer.'
 
 export default function DeleteRunDialog({ run, camperCount = 0, placementCount = 0, onCancel, onDeleted }) {
   const [working, setWorking] = useState(false)

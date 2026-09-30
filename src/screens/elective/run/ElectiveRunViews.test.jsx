@@ -58,6 +58,7 @@ import DraftRunView from './DraftRunView.jsx'
 import FinalRunView from './FinalRunView.jsx'
 import { prefersReducedMotion } from '../../../styles/shared'
 import { RELEASE_LOCK_LABEL, START_REVISION_LABEL, STALE_GENERATION_COPY } from './runStateCopy.js'
+import { DELETE_RUN_COST_COPY } from './DeleteRunDialog.jsx'
 
 // Fabricated names only — real camper data is refused at a tested gate until
 // at-rest encryption ships (T249 / ADR 2026-09-23 Q4), and the privacy guard
@@ -818,9 +819,6 @@ describe('T250 archive_when — reachable only by admin', () => {
 // Draft and Final. The cost callout copy is verbatim (D10 honest-cost copy).
 // ---------------------------------------------------------------------------
 describe('T250 A4 — Delete run', () => {
-  const COST_COPY =
-    'Deleting this run removes it and its camper placements from this device and from every device this camp syncs with. A device that is offline will catch up when it reconnects. It does not erase the run from this app’s own change history — doing that needs a coordinated rebuild that invalidates every device’s copy of this camp and forces each one to pair again — and nothing here can reach a copy already exported or taken off this computer.'
-
   it('DraftRunView: opens a confirmation with the verbatim cost copy, and deletes on confirm', async () => {
     localClient.deleteElectiveRun.mockResolvedValue({ ok: true, ops_written: 5 })
     render(<DraftRunView run={DRAFT_RUN} onBack={() => {}} {...catalogs()} />)
@@ -828,7 +826,7 @@ describe('T250 A4 — Delete run', () => {
 
     const dialog = await screen.findByTestId('delete-run-dialog')
     expect(dialog.textContent).toMatch(/Delete "Elective assignment — 2026-09-25"\?/)
-    expect(dialog.textContent).toContain(COST_COPY)
+    expect(dialog.textContent).toContain(DELETE_RUN_COST_COPY)
 
     fireEvent.click(within(dialog).getByRole('button', { name: 'Delete run' }))
     await waitFor(() => expect(localClient.deleteElectiveRun).toHaveBeenCalledWith({ runId: 'run-1' }))
@@ -859,6 +857,21 @@ describe('T250 A4 — Delete run', () => {
     const dialog = await screen.findByTestId('delete-run-dialog')
     fireEvent.click(within(dialog).getByRole('button', { name: 'Delete run' }))
     await waitFor(() => expect(localClient.deleteElectiveRun).toHaveBeenCalledWith({ runId: 'run-2' }))
+  })
+
+  // Round 2 FIX 2 (Red Hat, HIGH) — ensureRunStub (electron/ops/
+  // projections.js) does `INSERT OR IGNORE ... VALUES (?, ?, '')` with no
+  // awareness of a delete, so a peer's concurrent write onto this run's id
+  // (or a child row) after the delete resurrects the parent row, blank-named.
+  // The old cost copy read as an unqualified "removes it ... from every
+  // device this camp syncs with", which overclaims under that race. This is
+  // the SAME pre-existing class ensureExists's stub-seed pattern has always
+  // had (elective_set_activities/elective_bundles stub-seed elective_sets
+  // identically, and deleteElectiveSet has shipped since schema v35/T41) — a
+  // real fix belongs at the shared projection choke point and needs an ADR,
+  // so this pins only that the copy stays honest about it.
+  it('the cost copy discloses that a concurrent peer edit can make the run briefly reappear, unnamed', () => {
+    expect(DELETE_RUN_COST_COPY).toMatch(/reappear/i)
   })
 })
 

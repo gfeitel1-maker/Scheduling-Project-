@@ -30,6 +30,30 @@ import { appendOp, DELETE_FIELD, runAtomic } from './operations.js'
 // Returns { ok: true, ops } for the caller to broadcast after commit and to
 // report ops_written from, or { error: 'not-found' } for a missing/malformed
 // runId (retrying after a successful delete is therefore safe).
+//
+// KNOWN GAP (Round 2 FIX 2, Red Hat, HIGH) — A DELETED RUN CAN BE RESURRECTED
+// BY A CONCURRENT PEER WRITE. Every elective child projection's ensureExists
+// stub-seeds its parent with `INSERT OR IGNORE ... VALUES (?, ?, '')`
+// (ensureRunStub, electron/ops/projections.js) with no awareness of a
+// tombstone. If a peer commits or writes an assignment/preference/choice onto
+// THIS runId concurrently with (or shortly after) this cascade, that write's
+// ensureExists re-creates `elective_assignment_runs` with a BLANK name once
+// it syncs here — the director sees a run they deleted reappear, unnamed.
+//
+// THIS IS NOT NEW TO T250: elective_set_activities' and elective_bundles'
+// own ensureExists stub-seed `elective_sets` the identical way, and
+// deleteElectiveSet.js has shipped since schema v35 (T41) — so the same
+// hazard already applies there and to every other stub-seeding entity in
+// projections.js. It is a property of the shared stub-seed pattern, not
+// something this cascade introduced.
+//
+// NOT FIXED HERE, deliberately. A real fix belongs at the projection choke
+// point — a stub-seed that checks a tombstone before re-creating a row — and
+// that is shared machinery across many entities: an architecture change that
+// needs its own ADR and the human gate, out of bounds for a per-entity
+// cascade. DeleteRunDialog's cost copy (src/screens/elective/run/
+// DeleteRunDialog.jsx, DELETE_RUN_COST_COPY) names this possibility rather
+// than promising a completeness the code cannot back.
 export function deleteElectiveRun(db, { runId }, { author_user_id, device_id } = {}) {
   if (typeof runId !== 'string' || !runId) return { error: 'not-found' }
 
