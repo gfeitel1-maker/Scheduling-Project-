@@ -757,7 +757,9 @@ export default function AssignmentPanel({
       const enrichedCampers = parsed.campers.map((c) =>
         c.group_id != null ? c : (rosterGroupIdById.get(c.id) != null ? { ...c, group_id: rosterGroupIdById.get(c.id) } : c)
       )
-      const { attendance, unmatched, ambiguous, noCells } = buildAttendance({ campers: enrichedCampers, occurrences: occs, tiers })
+      const { attendance, unmatched, ambiguous, noCells, divisionMismatches } = buildAttendance({
+        campers: enrichedCampers, occurrences: occs, tiers, groups,
+      })
       const { assignments, findings } = buildElectiveAssignments({
         campers: enrichedCampers, occurrences: occs, offerings, preferences: resolvedPreferences.preferences, attendance,
         // T250/T246 — seats the director locked by hand on the Draft screen.
@@ -837,12 +839,31 @@ export default function AssignmentPanel({
       // only ever iterates campers per-occurrence). Named plainly, in the
       // director's own language: which group, and that this group's schedule
       // has no period for this set.
+      //
+      // Round 3, Code Reviewer LOW — the group name is named once, curly-
+      // quoted to match the sibling UNMATCHED_DIVISION/AMBIGUOUS_DIVISION
+      // findings' convention, rather than repeated unquoted.
       const noCellFindings = (noCells ?? []).map((n) => {
         const groupName = groups.find((g) => g.id === n.group_id)?.name ?? 'their group'
         return {
           kind: 'GROUP_HAS_NO_CELL',
           group_id: n.group_id,
-          message: `${n.camperCount} camper(s) in ${groupName} were not placed — ${groupName}’s schedule has no period for this elective set.`,
+          message: `${n.camperCount} camper(s) in “${groupName}” were not placed — their schedule has no period for this elective set.`,
+        }
+      })
+      // Round 3, Red Hat HIGH — the sheet's division and the camper's roster
+      // group disagree about which tier they are in. Naming this as
+      // GROUP_HAS_NO_CELL would misdirect the director at the WRONG group's
+      // rotation (see buildAttendance.js's round 3 header note for the traced
+      // example). States both facts and lets the director decide which side
+      // to fix, per Art. V ("we surface the problem, we do not misname it").
+      const divisionMismatchFindings = (divisionMismatches ?? []).map((m) => {
+        const groupName = groups.find((g) => g.id === m.group_id)?.name ?? 'their group'
+        return {
+          kind: 'DIVISION_ROSTER_MISMATCH',
+          division: m.division,
+          group_id: m.group_id,
+          message: `${m.camperCount} camper(s) are listed on the sheet under “${m.division}”, but the camp has them in ${groupName}, which is a different division. They were not placed. Check the sheet’s division column, or the campers’ group.`,
         }
       })
       // A coordinate that bound to NOTHING is the director's business, not a
@@ -855,7 +876,7 @@ export default function AssignmentPanel({
         assignments,
         findings: [
           ...findings, ...mismatchFindings, ...attendanceFindings, ...ambiguousFindings,
-          ...noCellFindings, ...coordinateFindings,
+          ...noCellFindings, ...divisionMismatchFindings, ...coordinateFindings,
         ],
         // T301 slice 3 — so AssignmentPreview can name a bundle by its real
         // name in an UNSUPPORTED_LINKED_CHOICE finding (T300's

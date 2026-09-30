@@ -40,6 +40,29 @@
 //      -> every occurrence of that tier, unchanged (tier-wide fallback).
 //   3. division unmatched or ambiguous -> every occurrence id, unchanged (R1).
 // `buildAttendance` now always returns a computed map, never null.
+//
+// ROUND 3 (2026-09-30), Red Hat -- branch 1's "group carries the set
+// nowhere" case needed a THIRD way to be wrong, not two. `groups` (additive
+// param, `{id, tier_id}`) lets this module tell apart:
+//   - the camper's sheet division and their ROSTER group genuinely disagree
+//     about which tier they are in (division_label resolves to tier A, but
+//     `groups.find(g => g.id === camper.group_id).tier_id` is B) -- a
+//     divisionMismatch, not a "no cell" story. deriveOccurrences.js only ever
+//     adds a slot's group_id to an occurrence after confirming the group's
+//     OWN tier_id, so a group whose tier is B can never appear in an
+//     A-tier occurrence's group_ids -- `groupOccurrences` is always empty for
+//     this camper, for a reason that has nothing to do with the set's
+//     schedule. Reporting it as noCells would name the WRONG group's
+//     rotation as the problem (Red Hat's traced example: "Younger 1's
+//     schedule has no period for this elective set" when Younger 1 was never
+//     the issue -- the sheet and the roster disagree about the child's
+//     division at all).
+//   - genuinely a noCells case: the group's own tier matches the camper's
+//     matched tier (or the group is unknown to `groups`, in which case there
+//     is no second fact to disagree with, so this is never promoted to a
+//     mismatch), and the set simply is not offered to that group -- true
+//     even when the whole tier has zero occurrences, which is why the old
+//     `tierOccurrences.length > 0` guard is gone.
 import { suggestDivisionMatch } from './suggestDivisionMatch.js'
 import { electiveChoiceLabelKey } from '../../../../electron/ops/electiveDerivedIds.js'
 import { mapWithCollisions } from '../../../ingest/mapWithCollisions.js'
@@ -59,18 +82,23 @@ import { mapWithCollisions } from '../../../ingest/mapWithCollisions.js'
  * @param {{id: string, division_label?: string|null, group_id?: string|null}[]} input.campers
  * @param {{id: string, tier_id: string|null, group_ids?: string[]}[]} input.occurrences
  * @param {{id: string, name: string}[]} input.tiers
- * @returns {{attendance: Record<string, string[]>, unmatchedCount: number, unmatched: object[], ambiguous: object[], noCells: object[]}}
- *   `noCells` (Constitution Art. V) -- a correctly identified camper whose
- *   group is legitimately absent from every occurrence of their matched tier
- *   (the tier itself DOES have occurrences; their group just isn't among the
- *   groups that carry it) gets `attendance[id]: []`, and buildElectiveAssignments
- *   only ever iterates campers per-occurrence, so that camper would otherwise
- *   vanish from every export with no visible cause. Grouped by group_id, the
- *   same per-value shape as `unmatched`/`ambiguous` -- and deliberately
- *   disjoint from both: this is not an R1 violation (the camper WAS
- *   identified) and must never increment unmatchedCount.
+ * @param {{id: string, tier_id: string|null}[]} [input.groups] -- additive (round 3). Used
+ *   only to classify an empty `attendance[id]` for a group-identified camper; a caller that
+ *   omits it gets every such camper folded into `noCells` (never invents a mismatch from
+ *   missing data).
+ * @returns {{attendance: Record<string, string[]>, unmatchedCount: number, unmatched: object[], ambiguous: object[], noCells: object[], divisionMismatches: object[]}}
+ *   `attendance[id]: []` for a group-identified camper (branch 1) always means one of two
+ *   things, reported through two disjoint buckets -- neither is an R1 violation (the camper
+ *   WAS identified) and neither increments unmatchedCount:
+ *   - `noCells` -- the camper's roster group's OWN tier agrees with their matched division,
+ *     and that group simply is not among the groups carrying this set (possibly because the
+ *     whole tier has no occurrences at all). Grouped by group_id.
+ *   - `divisionMismatches` -- the camper's sheet division and their roster group disagree
+ *     about which tier they are in. Reporting this as noCells would name the WRONG group's
+ *     rotation as the problem (see the round 3 header note). Grouped by (division, group_id).
+ *   A group_id absent from `groups` always falls to `noCells`, never `divisionMismatches`.
  */
-export function buildAttendance({ campers = [], occurrences = [], tiers = [] } = {}) {
+export function buildAttendance({ campers = [], occurrences = [], tiers = [], groups = [] } = {}) {
   // T255 Slice B, finding 6 — schema v73 lets two tiers share a name, so a
   // plain last-write-wins Map here would silently seat a camper in only ONE
   // of the two same-named divisions' occurrences instead of every occurrence
@@ -99,6 +127,11 @@ export function buildAttendance({ campers = [], occurrences = [], tiers = [] } =
   // rather than a sheet value: the cause here is the camp's own roster, not
   // anything the director typed.
   const noCellByGroup = new Map()
+  // Round 3 — keyed on the (division, group_id) PAIR: both facts disagree,
+  // and both belong in the key so two campers with the same sheet division
+  // but different mismatched groups are not silently merged.
+  const divisionMismatchByPair = new Map()
+  const groupTierById = new Map(groups.map((g) => [g.id, g.tier_id]))
   // tierNames keeps BOTH tiers of an ambiguous pair — suggestDivisionMatch may
   // therefore suggest a name that is itself ambiguous. That is unchanged by
   // this fix: the suggestion is advisory text only (T144, propose never
@@ -139,11 +172,24 @@ export function buildAttendance({ campers = [], occurrences = [], tiers = [] } =
     if (camper.group_id != null) {
       const groupOccurrences = tierOccurrences.filter((o) => (o.group_ids ?? []).includes(camper.group_id))
       attendance[camper.id] = groupOccurrences.map((o) => o.id)
-      if (groupOccurrences.length === 0 && tierOccurrences.length > 0) {
-        if (!noCellByGroup.has(camper.group_id)) {
-          noCellByGroup.set(camper.group_id, { group_id: camper.group_id, camperCount: 0 })
+      if (groupOccurrences.length === 0) {
+        const groupTierId = groupTierById.get(camper.group_id)
+        if (groupTierById.has(camper.group_id) && groupTierId !== matchedTierId) {
+          // The sheet and the roster disagree about this camper's tier.
+          const raw = String(camper.division_label ?? '').trim()
+          const pairKey = `${raw} ${camper.group_id}`
+          if (!divisionMismatchByPair.has(pairKey)) {
+            divisionMismatchByPair.set(pairKey, { division: raw, group_id: camper.group_id, camperCount: 0 })
+          }
+          divisionMismatchByPair.get(pairKey).camperCount += 1
+        } else {
+          // Roster agrees (or the group is unknown to `groups`, so there is
+          // no second fact to disagree with) -- a genuine no-cell case.
+          if (!noCellByGroup.has(camper.group_id)) {
+            noCellByGroup.set(camper.group_id, { group_id: camper.group_id, camperCount: 0 })
+          }
+          noCellByGroup.get(camper.group_id).camperCount += 1
         }
-        noCellByGroup.get(camper.group_id).camperCount += 1
       }
     } else {
       attendance[camper.id] = tierOccurrences.map((o) => o.id)
@@ -155,5 +201,6 @@ export function buildAttendance({ campers = [], occurrences = [], tiers = [] } =
     unmatched: [...unmatchedByValue.values()],
     ambiguous: [...ambiguousByValue.values()],
     noCells: [...noCellByGroup.values()],
+    divisionMismatches: [...divisionMismatchByPair.values()],
   }
 }
