@@ -1070,7 +1070,28 @@ export default function AssignmentPanel({
       )}
 
       {phase === 'parsed' && (
-        candidateTemplateIds.length > 1 && !templateId ? (
+        // T250 A5 — the refusal (same-name campers, or contradictory ranks)
+        // MUST be checked before the route chooser. It used to run only in
+        // ParseSummary's branch below, so a sheet with same-name campers AND
+        // more than one candidate schedule skipped the refusal entirely and
+        // reached the route-chooser's buttons, which call
+        // chooseTemplateAndSolve directly — the run solved on a sheet that
+        // was never fit to solve (docs/work/evidence/T251/
+        // 01-blocked-import-NOT-refused-route-chooser.png).
+        (parsed.sameNameCampers.length > 0 || hasContradictoryRanks(parsed)) ? (
+          <ParseSummary
+            parsed={parsed}
+            contradictoryRanks={hasContradictoryRanks(parsed)}
+            onSolve={() => chooseTemplateAndSolve(candidateTemplateIds[0])}
+            onChooseDifferentFile={reset}
+            onAddActivity={onAddActivity ? resolveUnknownLabel : undefined}
+            onMapToActivity={mapLabelToActivity}
+            onSplitPacked={splitPackedCell}
+            activityNames={activityNames}
+            resolutions={resolutionMap(resolutions)}
+            busyLabel={resolvingLabel}
+          />
+        ) : candidateTemplateIds.length > 1 && !templateId ? (
           <div>
             <div style={S.label}>This set is placed on more than one schedule — choose which to assign against:</div>
             {candidateTemplateIds.map((id) => {

@@ -772,3 +772,75 @@ describe('T314 — the panel reads the tab that holds the preferences', () => {
     expect(screen.queryByText(/Tab ./)).toBeNull()
   })
 })
+
+// ---------------------------------------------------------------------------
+// T250 A5 — the same-name refusal must be visible and must BLOCK, even when
+// this set is placed on more than one candidate schedule. Before this fix the
+// route-chooser branch (candidateTemplateIds.length > 1 && !templateId) ran
+// BEFORE the refusal check, so its buttons called chooseTemplateAndSolve
+// directly and a same-name sheet solved anyway.
+// ---------------------------------------------------------------------------
+describe('AssignmentPanel — T250 A5: same-name refusal blocks the route chooser', () => {
+  // A second template placing the same elective set, so candidateTemplateIds
+  // has more than one entry — the exact combination the evidence
+  // (docs/work/evidence/T251/01-blocked-import-NOT-refused-route-chooser.png)
+  // shows skipping the refusal entirely.
+  const TWO_TEMPLATE_SLOTS = [
+    ...TEMPLATE_SLOTS,
+    { id: 's2', template_id: 'tpl-2', elective_set_id: 'set-1', day_id: 'day-1', time_block_id: 'tb-1', group_id: 'grp-1' },
+  ]
+  const TWO_TEMPLATES = [
+    ...SCHEDULE_TEMPLATES,
+    { id: 'tpl-2', camp_id: 'camp-1', week_id: null, name: 'Generated', kind: 'generated' },
+  ]
+
+  // Header/rows shape from src/ingest/preferenceSheet.test.js's own same-name
+  // fixture: two rows naming one child with no camper id to tell them apart.
+  // Every ranked label must resolve against the camp's OWN activity catalog
+  // for the collision to fire (parsePreferenceSheet's slot-overlap rule
+  // treats a row with zero resolved activities as "empty", which only
+  // collides against a second empty row) — so this set's activities carry
+  // every label the sheet ranks, not just the baseProps() default of one.
+  const SAME_NAME_ACTIVITIES = [
+    { id: 'act-1', name: 'Archery' }, { id: 'act-2', name: 'Gaga' },
+    { id: 'act-3', name: 'Sailing' }, { id: 'act-4', name: 'Ceramics' },
+  ]
+  const SAME_NAME_SHEET =
+    'Camper Name\tDivision\tSwim Alternative (Y/N)\t#1\t#2\t#3\tAdditional Comments\n' +
+    'Ari Green\tArad\tN\tArchery\tGaga\tSailing\t\n' +
+    'Ari Green\tBogrim\tN\tCeramics\tSailing\tGaga\t'
+
+  it('shows the refusal card, not the route chooser, and never offers a Solve affordance', async () => {
+    const props = baseProps({ templateSlots: TWO_TEMPLATE_SLOTS, scheduleTemplates: TWO_TEMPLATES, activities: SAME_NAME_ACTIVITIES })
+    render(<AssignmentPanel {...props} />)
+    const input = document.querySelector('input[type="file"]')
+    const sheetFile = new File([SAME_NAME_SHEET], 'sheet.tsv', { type: 'text/tab-separated-values' })
+    fireEvent.change(input, { target: { files: [sheetFile] } })
+    await waitFor(() => expect(screen.getByText(/Confirm Mapping/)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Confirm Mapping/))
+
+    // The refusal, not the route chooser.
+    await waitFor(() => expect(screen.getByText(/This sheet can.t be assigned yet/)).toBeTruthy())
+    expect(screen.queryByText(/choose which to assign against/)).toBeNull()
+    expect(screen.queryByText('Generated')).toBeNull()
+    expect(screen.queryByText('Manual')).toBeNull()
+
+    // No solve affordance anywhere — only the escape hatch back to file choice.
+    expect(screen.queryByText(/^Solve/i)).toBeNull()
+    expect(screen.getByRole('button', { name: /Choose a Different File/i })).toBeTruthy()
+  })
+
+  it('renders the refusal as an alert and never calls commitElectiveRun even if a director keeps clicking', async () => {
+    const props = baseProps({ templateSlots: TWO_TEMPLATE_SLOTS, scheduleTemplates: TWO_TEMPLATES, activities: SAME_NAME_ACTIVITIES })
+    render(<AssignmentPanel {...props} />)
+    const input = document.querySelector('input[type="file"]')
+    const sheetFile = new File([SAME_NAME_SHEET], 'sheet.tsv', { type: 'text/tab-separated-values' })
+    fireEvent.change(input, { target: { files: [sheetFile] } })
+    await waitFor(() => expect(screen.getByText(/Confirm Mapping/)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Confirm Mapping/))
+
+    const card = await screen.findByRole('alert')
+    expect(card.textContent).toMatch(/This sheet can.t be assigned yet/)
+    expect(localClient.commitElectiveRun).not.toHaveBeenCalled()
+  })
+})
