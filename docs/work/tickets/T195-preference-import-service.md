@@ -106,3 +106,7 @@ right fix if a fourth consumer ever appears is a single shared loader rather tha
 the rule.
 
 Raised by the security pass as a non-finding; recorded here rather than dropped.
+
+---
+
+**2026-09-30 disposition note (sweeps PR B, board q-small-sweeps-batch):** handed back, not actioned here — the "no longer on the sheet" auto-demote/auto-delete marker (line 53-54, and the follow-up list around line 82) requires touching `src/ingest/**` (`src/ingest/electiveSetPopulate.js` — the only layer that knows an offering was present on an earlier sheet and is now absent). This worker's footprint is docs-only and may not touch `src/`. Routed to the import-seam worker; status stays `completed`, nothing else in this ticket changed.
