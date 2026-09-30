@@ -479,9 +479,50 @@ export async function buildAcceptanceCamp(db, { handlers, token, campId, deviceI
  * director deactivating a camper is an ordinary field edit, and the op log is
  * how it reaches the camp's other devices.
  */
-export async function importResolvedSheet(db, { dbPath, handlers, token, authorUserId }) {
+/**
+ * BUNK MEMBERSHIP, which has to come from somewhere other than the sheet.
+ *
+ * The sheet's Division column names a TIER, because that is what attendance
+ * scoping matches against (src/screens/elective/assignment/buildAttendance.js:86-107
+ * looks the label up in `tiers`). A tier label resolves to no group, so
+ * `campers.group_id` stays null — and a camper with no group inherits no cells
+ * from a group template (electron/ops/electiveRunOuterSchedule.js:194-205),
+ * which would make §6's condition 6 vacuous. One Division column cannot carry
+ * both facts.
+ *
+ * In a real camp it does not have to: bunk membership is roster data that
+ * exists before any preference sheet, and a director sets it on the camper.
+ * That is an ordinary field write, so it goes through the real handler.
+ *
+ * DETERMINISTIC (sorted id, alternating), never random: two runs of this
+ * fixture must produce the same camp, or §6's condition 2 would be measuring
+ * the fixture instead of the solver.
+ */
+export async function assignBunks(db, { handlers, token, campId, groupIdByName }) {
+  const byTier = { Younger: ['Younger 1', 'Younger 2'], Older: ['Older 1', 'Older 2'] }
+  const campers = db
+    .prepare('SELECT id, division_label FROM campers WHERE camp_id = ? ORDER BY id')
+    .all(campId)
+  if (campers.length === 0) throw new Error('assignBunks: no campers to place in bunks')
+  const seen = { Younger: 0, Older: 0 }
+  for (const camper of campers) {
+    const groupNames = byTier[camper.division_label]
+    if (!groupNames) throw new Error(`assignBunks: camper division ${camper.division_label} names no tier`)
+    const groupName = groupNames[seen[camper.division_label] % groupNames.length]
+    seen[camper.division_label] += 1
+    const r = await handlers.write({
+      token, entity: 'campers', entity_id: camper.id, field: 'group_id', value: groupIdByName.get(groupName),
+    })
+    if (r?.status !== 'applied') throw new Error(`assignBunks: group write failed (${r?.status})`)
+  }
+  return campers.length
+}
+
+export async function importResolvedSheet(db, { dbPath, handlers, token, authorUserId, campId, groupIdByName }) {
   const out = runPreferenceSheetCli({ file: SHEET_RESOLVED, dbPath, action: 'commit', authorUserId })
   if (!out.ok) throw new Error(`importResolvedSheet: the resolved sheet did not commit — ${out.error ?? out.blocked}`)
+
+  if (campId && groupIdByName) await assignBunks(db, { handlers, token, campId, groupIdByName })
 
   // §6's "one inactive camper". Chosen by NAME, not by position, so a roster
   // change cannot silently move it onto a different child.

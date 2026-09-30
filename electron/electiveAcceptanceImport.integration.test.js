@@ -120,6 +120,7 @@ describe('§6 (1) — ambiguous rows block until resolved', () => {
   it('deactivating a camper is an ordinary field write, and reaches exactly one row', async () => {
     imported = await importResolvedSheet(camp.db, {
       dbPath: camp.file, handlers: camp.handlers, token: camp.token, authorUserId: camp.userId,
+      campId: camp.fixture.campId, groupIdByName: camp.fixture.groupIdByName,
     })
     const { inactiveCamperId } = importResolvedSheetHere()
     const inactive = camperRows().filter((r) => r.is_active === 0)

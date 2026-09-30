@@ -69,8 +69,7 @@
 // within one Node process — an iteration order that is consistent per-process
 // but not across processes — is invisible to two solves in one test run.
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import fs from 'node:fs'
+import { screen, fireEvent, waitFor } from '@testing-library/react'
 import os from 'node:os'
 
 vi.mock('electron', () => ({
@@ -95,10 +94,10 @@ vi.mock('../src/localClient', () => ({
   }),
 }))
 
-import AssignmentPanel from '../src/screens/elective/assignment/AssignmentPanel.jsx'
 import { openAcceptanceCamp } from './electiveAcceptanceHarness.js'
+import { panelPropsFromDatabase, solveAndCommit as driveSolveAndCommit } from './electiveAcceptancePanelDrive.jsx'
 import { makeLocalClientOverHandlers } from './electiveAcceptanceLocalClient.js'
-import { ACCEPTANCE_MANIFEST, SHEET_RESOLVED } from './fixtures/electiveAcceptanceCamp.js'
+import { ACCEPTANCE_MANIFEST } from './fixtures/electiveAcceptanceCamp.js'
 import { resolveOfferingCapacity } from './ops/electiveOfferingCapacity.js'
 import { deriveLinkedElectiveChoiceId } from './ops/electiveDerivedIds.js'
 
@@ -110,82 +109,15 @@ let props
 beforeAll(async () => {
   camp = await openAcceptanceCamp()
   ref.impl = makeLocalClientOverHandlers(camp.handlers, camp.token)
-
-  // EVERY PROP READ OUT OF THE DATABASE through the real `list` handler — the
-  // same call ElectiveSetDetail makes. Nothing is hand-built, so a prop shaped
-  // differently from what the app passes cannot creep in.
-  const list = (entity) => camp.handlers.list(camp.token, entity)
-  props = {
-    electiveSetId: camp.fixture.electiveSetId,
-    campId: camp.fixture.campId,
-    setActivities: list('elective_set_activities').filter((r) => r.elective_set_id === camp.fixture.electiveSetId),
-    activities: list('activities'),
-    groups: list('groups'),
-    tiers: list('tiers'),
-    days: list('days_of_operation'),
-    timeBlocks: list('time_blocks'),
-    templateSlots: list('template_slots'),
-    scheduleTemplates: list('schedule_templates'),
-    scheduleWeeks: list('schedule_weeks'),
-    bundles: list('elective_bundles'),
-    bundlePeriods: list('elective_bundle_periods'),
-    bundleTiers: list('elective_bundle_tiers'),
-    role: 'admin',
-    // A null clears the banner (AssignmentPanel.jsx:343); anything else is a
-    // real failure the panel surfaced, and a test that swallowed it would be
-    // asserting about a panel stuck in a phase it could not explain.
-    onError: (message) => { if (message != null) throw new Error(`AssignmentPanel reported: ${message}`) },
-    onNavigate: () => {},
-  }
+  props = panelPropsFromDatabase(camp)
 }, 60_000)
 
 afterAll(() => { camp?.close() })
 
-// ── driving the real panel ─────────────────────────────────────────────────
+// Driving the real panel lives in ./electiveAcceptancePanelDrive.jsx — one
+// copy, shared with the projection and lifecycle files.
+const solveAndCommit = (options) => driveSolveAndCommit(camp, props, options)
 
-const runIds = () => new Set(camp.db.prepare('SELECT id FROM elective_assignment_runs').all().map((r) => r.id))
-
-/**
- * Import the sheet, choose a route, solve, commit — and return the run id the
- * commit created.
- *
- * The id is recovered by diffing the run table rather than read from the
- * component: elective_assignment_runs has no created_at and no ordering column,
- * so "the latest run" is not a question SQL can answer here.
- */
-async function solveAndCommit({ route = 'generated', keepMounted = false } = {}) {
-  const before = runIds()
-  const view = render(<AssignmentPanel {...props} />)
-  const input = view.container.querySelector('input[type="file"]')
-  const file = new File([fs.readFileSync(SHEET_RESOLVED)], 'preferences-resolved.csv', { type: 'text/csv' })
-  fireEvent.change(input, { target: { files: [file] } })
-
-  await waitFor(() => expect(screen.getByText(/Confirm Mapping/)).toBeTruthy(), { timeout: 10_000 })
-  fireEvent.click(screen.getByText(/Confirm Mapping/))
-
-  // Two routes carry this set, so the panel asks which — the real chooser, not
-  // a prop. That the question is ASKED is itself §6's "neither route is
-  // canonical" showing up in the UI.
-  const chooser = await screen.findByText(new RegExp(`· ${route} ·`), {}, { timeout: 10_000 })
-  fireEvent.click(chooser)
-
-  const commitButton = await screen.findByText(/Commit Assignments/, {}, { timeout: 10_000 })
-  fireEvent.click(commitButton)
-  let created = null
-  await waitFor(() => {
-    created = [...runIds()].find((id) => !before.has(id)) ?? null
-    expect(created).toBeTruthy()
-  }, { timeout: 10_000 })
-  await waitFor(
-    () => expect(camp.db.prepare('SELECT COUNT(*) c FROM elective_assignments WHERE run_id = ?').get(created).c).toBeGreaterThan(0),
-    { timeout: 10_000 }
-  )
-  if (!keepMounted) view.unmount()
-  const run = camp.db
-    .prepare('SELECT id, name, solver_generation, schedule_template_id FROM elective_assignment_runs WHERE id = ?')
-    .get(created)
-  return keepMounted ? { ...run, view } : run
-}
 
 const assignmentsOf = (runId) => camp.db.prepare(`
   SELECT a.camper_id, a.activity_id, a.occurrence_id, a.preference_rank, a.source, a.is_locked,
@@ -225,12 +157,12 @@ describe('§6 — the real panel solves and commits against the generated route'
     }
     const counts = new Map()
     for (const r of rows) {
-      const key = `${r.occurrence_id} ${r.activity_id}`
+      const key = `${r.occurrence_id}\u0000${r.activity_id}`
       counts.set(key, (counts.get(key) ?? 0) + 1)
     }
     const over = []
     for (const [key, n] of counts) {
-      const activityId = key.split(' ')[1]
+      const activityId = key.split('\u0000')[1]
       if (n > limitByActivity.get(activityId)) over.push({ key, n, limit: limitByActivity.get(activityId) })
     }
     expect(over).toEqual([])
