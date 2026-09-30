@@ -2,6 +2,27 @@
  * Scenario 36 — T199 spec §6 condition (10): "the finalized run survives sync
  * to a second device and a projection rebuild". T251.
  *
+ * TWO THINGS THE FILE NAME PROMISES AND THIS SCENARIO DOES NOT DELIVER. Read
+ * these before reading anything below as coverage.
+ *
+ *   (i) THE CAMP HERE IS A HAND-BUILT MINIMAL STAND-IN — one tier, one group,
+ *       one day, one block, one activity, one camper — and is NOT the §6
+ *       acceptance camp that electron/fixtures/electiveAcceptanceCamp.js
+ *       builds. It is built this way because the acceptance camp is assembled
+ *       through IPC handlers against a single local database and this harness
+ *       replicates documents between two Automerge nodes; nothing here says
+ *       the acceptance camp's 26 campers, six offerings or linked bundle
+ *       replicate. What it says is that a finalize's rows are modelled in the
+ *       document and rebuild from it.
+ *
+ *  (ii) "SURVIVES SYNC" MEANS HOST → JOINER, one direction. The finalize
+ *       happens on the Host because test/integration/harnessAutomerge.js wires
+ *       the local-write broadcaster in `start()` and not in `join()`, so a
+ *       finalize performed on a JOINED device updates that device's own
+ *       document and reaches nobody. That case is untestable with today's
+ *       harness and is NOT covered here. The name promises a symmetry the
+ *       scenario does not have.
+ *
  * WHAT 32 AND 34 ALREADY COVER, so this file does not repeat it. Scenario 32
  * proves the seven participant tables join and rebuild; scenario 34 proves a
  * locked seat survives a regeneration and replicates. NEITHER FINALIZES
@@ -71,11 +92,38 @@ const OCCURRENCES = [
   { id: OCC, elective_set_id: SET, day_id: DAY, time_block_id: BLOCK, tier_id: TIER },
 ]
 
-// id + one real field, for every table the finalize leaves behind. The run row
-// is included because `status` and `finalized_at` are what make it FINAL —
-// a scenario that only checked the snapshot rows would pass against a camp
-// whose run had silently reverted to draft on the second device.
+// EVERY TABLE THE WIPE BELOW EMPTIES, and for each one an id PLUS a real field
+// value — scenario 32's discipline
+// (test/integration/scenarios/32-participant-substrate-sync.automerge.js:41-44),
+// because `ensureExists` seeds a stub carrying '' in its NOT NULL columns and
+// "the row is present" therefore passes against a projection that restored
+// nothing at all.
+//
+// ROUND-2 CORRECTION. This function checked two of the seven tables the wipe
+// empties. `elective_assignments`, `elective_preferences`, `elective_choices`,
+// `elective_choice_offerings` and `elective_occurrences` were deleted and never
+// re-asserted, so a `projectAll` that restored ZERO assignment rows passed.
+//
+// `elective_choice_offerings` IS EMPTY IN THIS CAMP — there is no bundle here,
+// and it is the only producer of those rows (commitElectiveRun.js:455-462). It
+// is asserted as exactly that, a pinned zero, rather than left to look like
+// coverage.
+const expectRow = (label, table, row, fields) => {
+  if (!row) throw new Error(`${label}: no ${table} row`)
+  for (const [field, expected] of Object.entries(fields)) {
+    if (row[field] !== expected) {
+      throw new Error(`${label}: ${table}.${field} is ${JSON.stringify(row[field])}, expected ${JSON.stringify(expected)}`)
+    }
+  }
+}
+
 function assertFinalized(label, device) {
+  const one = (sql, ...args) => device.db.prepare(sql).get(...args)
+
+  // The run row is included because `status` and `finalized_at` are what make
+  // it FINAL — a scenario that only checked the snapshot rows would pass
+  // against a camp whose run had silently reverted to draft on the second
+  // device.
   const run = device.domainRow('elective_assignment_runs', RUN)
   if (!run) throw new Error(`${label}: the run row is missing`)
   if (run.status !== 'final') throw new Error(`${label}: run status is ${JSON.stringify(run.status)}, expected 'final'`)
@@ -85,17 +133,30 @@ function assertFinalized(label, device) {
     .prepare('SELECT * FROM elective_run_outer_snapshots WHERE run_id = ?').all(RUN)
   if (rows.length === 0) throw new Error(`${label}: no elective_run_outer_snapshots rows`)
   const elective = rows.find((r) => r.cell_kind === 'elective')
-  if (!elective) throw new Error(`${label}: no snapshot row with cell_kind 'elective'`)
-  // A stub from ensureExists carries '' in its NOT NULL columns, so these are
-  // the assertions that separate "restored" from "seeded empty".
-  for (const [field, expected] of [
-    ['camper_id', CAMPER], ['day_id', DAY], ['time_block_id', BLOCK],
-    ['activity_id', ACTIVITY], ['activity_name', 'Swim'],
-  ]) {
-    if (elective[field] !== expected) {
-      throw new Error(`${label}: snapshot.${field} is ${JSON.stringify(elective[field])}, expected ${JSON.stringify(expected)}`)
-    }
+  expectRow(label, 'elective_run_outer_snapshots', elective, {
+    camper_id: CAMPER, day_id: DAY, time_block_id: BLOCK, activity_id: ACTIVITY, activity_name: 'Swim',
+  })
+
+  expectRow(label, 'elective_occurrences',
+    one('SELECT * FROM elective_occurrences WHERE id = ? AND run_id = ?', OCC, RUN),
+    { elective_set_id: SET, day_id: DAY, time_block_id: BLOCK, tier_id: TIER })
+
+  expectRow(label, 'elective_assignments',
+    one('SELECT * FROM elective_assignments WHERE run_id = ? AND camper_id = ?', RUN, CAMPER),
+    { occurrence_id: OCC, activity_id: ACTIVITY, preference_rank: 1, source: 'solver' })
+
+  const choice = one('SELECT * FROM elective_choices WHERE run_id = ?', RUN)
+  expectRow(label, 'elective_choices', choice, { label: 'Swim', is_linked: 0 })
+
+  expectRow(label, 'elective_preferences',
+    one('SELECT * FROM elective_preferences WHERE run_id = ? AND camper_id = ?', RUN, CAMPER),
+    { choice_id: choice.id, rank: 1, occurrence_id: OCC })
+
+  const offerings = one('SELECT COUNT(*) c FROM elective_choice_offerings').c
+  if (offerings !== 0) {
+    throw new Error(`${label}: ${offerings} elective_choice_offerings rows, expected 0 — this camp has no bundle, so if that is no longer true this assertion owes a real check`)
   }
+
   return rows.length
 }
 
