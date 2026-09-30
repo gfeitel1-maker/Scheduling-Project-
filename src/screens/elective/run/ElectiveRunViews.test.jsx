@@ -565,6 +565,54 @@ describe('T250 archive_when — Draft: regenerate with staleness offer', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Round 2 FIX 4 (Red Hat, MEDIUM) — viewRun is a snapshot captured when this
+// screen opened and is never re-synced, so a run another device finalized
+// AFTER that still renders here as Draft with a first-class Regenerate.
+// commitElectiveRun does not itself refuse a commit onto an already-final
+// run (only skips re-asserting `status`/`name`/`source_filename` on an
+// existing row) — so regenerating would silently write over an immutable
+// run. Scoped to the COLD path (coldRegenerate=true): a run this session
+// itself just solved is not the case this guards.
+// ---------------------------------------------------------------------------
+describe('T250 round 2 FIX 4 — a cold-opened run finalized elsewhere refuses to regenerate', () => {
+  it('re-checks status before a cold regenerate, refuses in place, and never calls onRegenerate when the run now reads final', async () => {
+    localClient.getElectiveRun.mockResolvedValue({ ...CLEAN_RUN_STATE, staleCount: 1 })
+    localClient.listElectiveRuns.mockResolvedValue([{ ...DRAFT_RUN, status: 'final' }])
+    const onRegenerate = vi.fn()
+    const onFinalized = vi.fn()
+    render(<DraftRunView run={DRAFT_RUN} onRegenerate={onRegenerate} onFinalized={onFinalized} coldRegenerate {...catalogs()} />)
+
+    const offer = await screen.findByTestId('run-staleness-offer')
+    fireEvent.click(within(offer).getByRole('button', { name: /Re-derive and regenerate/i }))
+
+    await waitFor(() => expect(localClient.listElectiveRuns).toHaveBeenCalled())
+    expect(onRegenerate).not.toHaveBeenCalled()
+    await waitFor(() => expect(onFinalized).toHaveBeenCalledWith(expect.objectContaining({ id: DRAFT_RUN.id, status: 'final' })))
+    const refusalRow = await screen.findByTestId('run-state-finalize-refusal')
+    expect(refusalRow.textContent).toMatch(
+      /finalized on another device while you had it open.*reload it to see the final version/i
+    )
+    // The refusal row itself withholds a Re-derive control — no way to retry
+    // straight into the same hazard from this row (in the real app, onFinalized
+    // transitions AssignmentPanel's viewRun and unmounts this screen entirely;
+    // this standalone render can't observe that unmount).
+    expect(within(refusalRow).queryByRole('button')).toBeNull()
+  })
+
+  it('does not re-check status for a WARM regenerate (this session solved the run itself), and calls onRegenerate synchronously as before', async () => {
+    localClient.getElectiveRun.mockResolvedValue({ ...CLEAN_RUN_STATE, staleCount: 1 })
+    const onRegenerate = vi.fn()
+    render(<DraftRunView run={DRAFT_RUN} onRegenerate={onRegenerate} coldRegenerate={false} {...catalogs()} />)
+
+    const offer = await screen.findByTestId('run-staleness-offer')
+    fireEvent.click(within(offer).getByRole('button', { name: /Re-derive and regenerate/i }))
+
+    expect(onRegenerate).toHaveBeenCalled()
+    expect(localClient.listElectiveRuns).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
 // archive_when: Final — "read-only identity"
 // ---------------------------------------------------------------------------
 describe('T250 archive_when — Final: read-only run identity', () => {

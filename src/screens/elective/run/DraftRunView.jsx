@@ -56,6 +56,12 @@ const FINALIZE_MESSAGES = {
   OUTER_RESOURCE_CONFLICT:
     'A location or activity this run depends on is now double-booked on the main schedule. Fix the conflict there, then finalize again.',
   ALREADY_FINAL: 'This run was already finalized — on this device or another. Reloading it now.',
+  // Round 2 FIX 4 (Red Hat, MEDIUM) — a cold-opened run's status is never
+  // re-synced (viewRun is a snapshot from when the screen opened), so a
+  // regenerate re-checks status itself before re-entering the solve/commit
+  // flow. Reuses FinalizeRefusalRow's generic branch, which renders with no
+  // action button — the Re-derive control is withheld by construction.
+  FINALIZED_ELSEWHERE: "This run was finalized on another device while you had it open. It can't be changed — reload it to see the final version.",
 }
 
 // T250 A2 — the inline refusal a Finalize attempt produced. One row per the
@@ -308,6 +314,43 @@ export default function DraftRunView({
     }
   }
 
+  // Round 2 FIX 4 (Red Hat, MEDIUM) — viewRun is a snapshot captured when
+  // this screen opened and is NEVER re-synced, so a run another device
+  // finalized after that still renders here as Draft with a live
+  // Regenerate. commitElectiveRun does not itself refuse a commit onto an
+  // already-final run (it only skips re-asserting status/name/
+  // source_filename on an existing row) — so regenerating would re-enter
+  // AssignmentPanel's solve/commit flow and silently write over an
+  // immutable run.
+  //
+  // Scoped to the COLD path (coldRegenerate) only: a run this session
+  // itself just solved or hydrated moments ago finalizing elsewhere in that
+  // same instant is not the case this guards, and checking on every regen
+  // would cost a read this ticket does not need to spend.
+  //
+  // listElectiveRuns, not a widened getElectiveRun/commitElectiveRun
+  // contract — that IPC already returns every run's current `status` for
+  // this camp, so this is a read this app already had, not a new seam.
+  async function guardedRegenerate(args) {
+    if (coldRegenerate) {
+      try {
+        const current = (await localClient.listElectiveRuns())?.find((r) => r.id === run.id)
+        if (current?.status === 'final') {
+          setFinalizeRefusal({ error: 'FINALIZED_ELSEWHERE', findings: [] })
+          onFinalized?.({ ...run, status: 'final' })
+          return
+        }
+      } catch {
+        // Best-effort: an unreadable status check must not block a
+        // regenerate that would otherwise be fine — commitElectiveRun's own
+        // ALREADY_FINAL/finalizedAgainstStaleGeneration checks still stand
+        // behind this at finalize/export time.
+      }
+    }
+    onRegenerate?.(args)
+  }
+  const regenerate = onRegenerate ? guardedRegenerate : undefined
+
   // The seats the director locked by hand, which BOTH re-solve offers carry so a
   // regenerate cannot undo them. One definition: the staleness offer and the
   // preference offer had byte-identical copies.
@@ -378,7 +421,7 @@ export default function DraftRunView({
       <FinalizeRefusalRow
         key="finalize-refusal"
         refusal={finalizeRefusal}
-        onRegenerate={onRegenerate}
+        onRegenerate={regenerate}
         lockedAssignments={lockedAssignments}
       />
     ) : null,
@@ -424,11 +467,11 @@ export default function DraftRunView({
           {state.staleCount > 0 ? (
             <div data-testid="run-staleness-offer" style={styles.offer}>
               <span>{stalenessOfferMessage({ staleCount: state.staleCount })}</span>
-              {onRegenerate ? (
+              {regenerate ? (
                 <button
                   className="press-97"
                   style={S.btnSecondary}
-                  onClick={() => onRegenerate({ lockedAssignments })}
+                  onClick={() => regenerate({ lockedAssignments })}
                 >
                   Re-derive and regenerate
                 </button>
@@ -441,7 +484,7 @@ export default function DraftRunView({
               the original sheet's full roster — this says so rather than
               leaving it a silent gap (the "engine surfaces, never silently
               absorbs" rule). */}
-          {onRegenerate && coldRegenerate ? (
+          {regenerate && coldRegenerate ? (
             <div data-testid="run-cold-regenerate-note" style={styles.actionsHint}>
               Regenerating a reopened run reconsiders every camper who has a preference or a placement on it.
             </div>
@@ -465,14 +508,14 @@ export default function DraftRunView({
               <span>
                 A preference changed. The placements below still come from the previous solve.
               </span>
-              {onRegenerate ? (
+              {regenerate ? (
                 <button
                   className="press-97"
                   data-testid="run-preference-resolve"
                   style={S.btnSecondary}
                   onClick={() => {
                     setPreferencesEdited(false)
-                    onRegenerate({ preferences: state.preferences, choices: state.choices, lockedAssignments })
+                    regenerate({ preferences: state.preferences, choices: state.choices, lockedAssignments })
                   }}
                 >
                   Solve again
