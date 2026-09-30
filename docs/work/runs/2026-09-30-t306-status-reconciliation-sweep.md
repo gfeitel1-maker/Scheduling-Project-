@@ -24,6 +24,7 @@ related_tickets:
   - docs/work/tickets/T304-a-staff-session-can-see-what-the-import-left-unnamed.md
   - docs/work/tickets/T305-a-whole-sheet-planner-grid-imports-through-the-panel.md
   - docs/work/tickets/T306-the-director-can-name-an-unnamed-submission.md
+  - docs/work/tickets/T312-a-camps-column-mapping-is-remembered-and-re-proposed.md
 related_specs: []
 related_adrs: [docs/adr/2026-09-18-mixed-version-replication-out-of-scope.md]
 selected_agents: [governor, maker, code-reviewer, red-hat, verifier, grader]
@@ -221,10 +222,10 @@ worker rather than filed. Listed most consequential first.
   sole stated reason for staying open — yet T297 is outside the thirteen, so its status was not
   re-evaluated and stays `open`. Red Hat reports this as **undecided**, not resolved: T297 is either
   trivially closeable or open for a reason nobody has captured.
-- **T312 reads `status: open` although its work merged in #648.** The board item's brief states T312
-  was flipped in #654; #654 flipped **T313** only. T312 is therefore a fourteenth unflipped ticket.
-  Outside this item's verified thirteen-ticket scope, so reported rather than flipped here
-  (`CONSTITUTION.md` Article II rule 2 — no silent scope expansion).
+- **T312 read `status: open` although its work merged in #648.** The board item's brief states T312
+  was flipped in #654; #654 flipped **T313** only. The board worker flipped T312 in this same branch
+  after the Governor loop returned (the board note that scoped this sweep listed T312 among the
+  sixteen; each `archive_when` clause is pinned by `src/ingest/mappingSeedling.test.js` on `main`).
 - **T279's `archive_when` is a single ~30-line sentence** and was the hardest thing in this run to
   audit. Round 2 itemised it clause-by-clause with a citation each, and recorded one sub-clause ("no
   test in the set asserts on a hand-built parsed fixture", established for
@@ -238,10 +239,8 @@ worker rather than filed. Listed most consequential first.
 
 Known before dispatch, and deliberately **not** acted on in this run:
 
-- **T312 reads `status: open` although its work merged in #648.** The board item's brief states T312
-  was flipped in #654; #654 flipped **T313** only. T312 is therefore a fourteenth unflipped ticket.
-  It is outside this item's verified thirteen-ticket scope, so it is reported to the board worker
-  rather than flipped here (`CONSTITUTION.md` Article II rule 2 — no silent scope expansion).
+- **T312 read `status: open` although its work merged in #648** — reported by the loop, then flipped
+  by the board worker in a follow-up commit on this branch (see above).
 - **T212's real-network clause is owner-gated** and T212 stays open; it is named here only because
   T284 and T286 point at it.
 

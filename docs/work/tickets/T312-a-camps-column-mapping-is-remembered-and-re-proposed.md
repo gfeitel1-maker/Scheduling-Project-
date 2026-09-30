@@ -1,7 +1,7 @@
 ---
 title: "A camp's column mapping is remembered and re-proposed"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-29
 task_class: database-sync
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md, docs/governance/standards/DESIGN_STANDARD.md]
@@ -131,3 +131,17 @@ director changes what they see, and confirming supersedes the old row.
   coordinate set; that rule belongs to the axis half.
 - **Not** a review surface listing every remembered binding. T281's archive_when wants one; it is
   not required for a binding that cannot apply unseen.
+
+## Closed (2026-09-30, status reconciliation sweep, board q-t306)
+
+Shipped in #648 (5bfb30c5). Each `archive_when` clause is pinned on `main` by
+`src/ingest/mappingSeedling.test.js`: a confirmed mapping is recalled and pre-filled for a sheet
+carrying the same headers (`returns a readable mapping for a sheet this camp has confirmed before`);
+a missing remembered header refuses rather than narrows (`refuses rather than narrows when a
+remembered rank header is gone` and its three siblings); a recall re-runs the readability gate
+(`discards a recall that does not survive the readability gate`); the key is derived from header
+text only, asserted by changing every cell (`produces the same key for identical headers over
+completely different campers`, `stores header TEXT, never column indices`); a superseded seedling
+is ignored (`ignores a superseded seedling`); and the binding is a replicated entity at schema v81
+with a derived id (`electron/db/rollback/v81_down.js`). #654 flipped T313 only, which is why this
+ticket was still `open` after its work merged.
