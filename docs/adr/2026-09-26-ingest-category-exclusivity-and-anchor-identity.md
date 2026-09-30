@@ -177,7 +177,7 @@ other. This is Decision 1 of
 `status: proposed` and `implementation_state: not-started`.~~
 _Prior: that ADR was `status: proposed`/`implementation_state: not-started` when this was written.
 As of #649 it is `status: superseded` (by this ADR) and `implementation_state: implemented` — see
-the Implementation record below._
+the Implementation record above._
 
 **2. The guard is a demotion, not an exclusion — so confirming is what writes the duplicate.**
 
@@ -393,7 +393,7 @@ how T62 passed for a month. The predicate must be exercised end to end from a sp
 `commitPlan` into SQLite and out through `buildSchedule`.
 
 **This ADR is therefore the gate on T251's acceptance fixture.** _(2026-09-30: this gate is now
-discharged — see the Implementation record below; T251's fixture exercises exactly this predicate
+discharged — see the Implementation record above; T251's fixture exercises exactly this predicate
 against the real ingest path.)_ T251 cannot specify a fixture that
 would catch this class of defect until the owner has decided A, B, C or D, because the fixture's
 assertion 3 above does not exist as a checkable fact under C or D.
