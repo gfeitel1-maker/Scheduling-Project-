@@ -2,7 +2,7 @@
 task: "Sweeps PR B (board q-small-sweeps-batch): PLATFORM_STATE schema_migrations de-duplication, ADR implementation_state enum normalisation, and dated disposition notes on T294/T171/T195"
 document_type: run
 date: 2026-09-30
-round: 1
+round: 2
 status: in-progress
 task_class: documentation-governance
 governing_docs:
@@ -154,25 +154,34 @@ diff that only the `implementation_state` line changed).
 | `planned` | `not-started` | 5 | no |
 | `complete` | `implemented` | 3 | **yes** — all 3 carry `status: accepted` |
 | `not started` | `not-started` | 2 | no |
-| `existing — retroactively documented` | `implemented` | 1 | **yes** |
+| `existing — retroactively documented` | ~~`implemented`~~ → `in-progress` (round 2 correction) | 1 | **no, on re-check** — Constraint 4's mandated inline code comment is absent from `electron/main.js` (`grep -c` for either required phrase returns 0); round 1's `implemented` was a false closure, caught by Red Hat |
 | `existing pattern — policy now explicit` | `implemented` | 1 | **yes** |
 | `edits-applied-remeasurement-deferred` | `in-progress` | 1 | no |
-| `completed` | `implemented` | 1 | **yes** |
+| `completed` | ~~`implemented`~~ → `not-started` (round 2 correction) | 1 | **no, on re-check** — the ADR's own line 20 says `**Status: ACCEPTED — design only, no code written yet.**` and its target files (`electron/sync/syncClient.js`/`syncServer.js`) do not exist in this tree; round 1's `implemented` was a false closure, caught by Red Hat |
 | `deferred-build (direction ratified; build deferred per owner decision)` | `not-started` | 1 | no |
 | `implemented (2026-09-01; scripts/mcp/{server,tools}.js + tests, launchable via \`npm run mcp\`)` | `implemented` | 1 | **yes** (raw string did not equal `implemented` before) |
 | `partial (part 1 …merged; part 2 …not started)` | `in-progress` | 1 | no |
 | `not-started (part 1 — the binder; part 2 — atomic multi-row import)` | `not-started` | 1 | no |
 
-Post-change enumeration: `implemented` 72, `in-progress` 22, `not-started` 46 (sums to 140, matching
-the pre-change 132 + the 8 parenthetical/free-text singles). Zero `status` fields touched
+Post-change enumeration (round 1): `implemented` 72, `in-progress` 22, `not-started` 46 (sums to 140,
+matching the pre-change 132 + the 8 parenthetical/free-text singles). Zero `status` fields touched
 (`git diff origin/main..HEAD -- docs/adr \| grep '^[+-]status:'` and the working-tree equivalent
 both return nothing).
 
-**Regression check:** confirmed zero ADRs moved from a prior exact `implementation_state: implemented`
-to anything else (a script diffed old/new values per file and filtered for that direction — 0 matches).
+**Round 2 correction to the above:** two of the 18 "newly-closed" ADRs below were false closures
+(see the mapping-table rows above and the Round 2 section). Post-round-2 enumeration:
+`implemented` **70**, `in-progress` **23**, `not-started` **47** (still sums to 140; zero ADRs added
+or removed, two moved between buckets — one to `not-started`, one to `in-progress`). Value-set is
+still exactly `{not-started, in-progress, implemented}`.
 
-**Newly-closed ADRs** (all `status: accepted`, `implementation_state` now exactly `implemented`,
-previously not exactly that string) — 18 total:
+**Regression check:** confirmed zero ADRs moved from a prior exact `implementation_state: implemented`
+to anything else (a script diffed old/new values per file and filtered for that direction — 0 matches
+in round 1; the two round-2 corrections below are moves OFF `implemented`, made deliberately after
+this sweep's OWN round-1 mapping put them there in error, not reversions of a pre-existing `main`
+value).
+
+**Newly-closed ADRs, corrected for round 2** (all `status: accepted`, `implementation_state` now
+exactly `implemented`, previously not exactly that string) — **16 total**, down from round 1's 18:
 
 - docs/adr/2026-07-24-bulk-replace-seq-fix.md (was `shipped`)
 - docs/adr/2026-07-24-centralized-authorization-layer.md (was `shipped`)
@@ -181,10 +190,8 @@ previously not exactly that string) — 18 total:
 - docs/adr/2026-07-28-explicit-userdata-directory.md (was `shipped`)
 - docs/adr/2026-07-28-first-pairing-domain-sync-and-template-identity.md (was `shipped`)
 - docs/adr/2026-07-28-schedule-flag-findings-reshape.md (was `shipped`)
-- docs/adr/2026-08-04-project-lifecycle-authorization-exemption.md (was `existing — retroactively documented`)
 - docs/adr/2026-08-04-repository-layer-policy.md (was `existing pattern — policy now explicit`)
 - docs/adr/2026-08-06-inferred-activity-rules-at-ingest.md (was `complete`)
-- docs/adr/2026-08-16-device-fk-seeding-and-delivery-watermark.md (was `completed`)
 - docs/adr/2026-08-19-roots-census-and-persistent-inspector.md (was `complete`)
 - docs/adr/2026-08-21-mcp-ingestion-server.md (was `implemented (2026-09-01; …)`)
 - docs/adr/2026-09-03-compound-cell-interpretation.md (was `shipped`)
@@ -193,7 +200,14 @@ previously not exactly that string) — 18 total:
 - docs/adr/2026-09-16-anchor-scope-single-resolver.md (was `shipped`)
 - docs/adr/2026-09-16-index-survival-across-table-rebuilds.md (was `shipped`)
 
-None of these moves the ADR to a *less* closed state — no escalation triggered.
+Removed from the round-1 list (false closures, corrected in round 2, see below):
+
+- docs/adr/2026-08-04-project-lifecycle-authorization-exemption.md — now `in-progress`
+- docs/adr/2026-08-16-device-fk-seeding-and-delivery-watermark.md — now `not-started`
+
+None of the 16 remaining moves the ADR to a *less* closed state — no escalation triggered. See the
+Round 2 section for the `check:governance` re-run confirming neither correction surfaced a new
+`status-drift` finding.
 
 Seven ADRs carry a nuance line in the body (not eight, as the brief's count anticipated — the count
 of distinct nuance-bearing values in the `NUANCE PRESERVATION` list sums to 7, not 8; `completed`,
@@ -203,15 +217,87 @@ also singled out in the census, is a pure synonym per the MAPPING rule and neede
 `2026-08-04-repository-layer-policy.md`, `2026-08-09-agent-quality-waste-metric-and-quality-floor.md`,
 `2026-08-20-facility-topology-foundation.md`.
 
+## Round 2
+
+Red Hat reviewed round 1 (commits `207a6acc…ebed9e4e`, branch `claude/sweeps-b-docs-t294`) and found
+that the `→ implemented` half of the mapping created **false closed states**:
+`scripts/check-governance.js`'s `isClosed()` treats `status: accepted` + `implementation_state:
+implemented` as closed, permanently suppressing the `status-drift` gate for an ADR mapped that way.
+Converting a visible vocabulary mess into an invisible false-closed state is worse than leaving it
+visibly messy. Each finding was independently re-confirmed against the code before acting on it, not
+taken on Red Hat's word:
+
+1. **`docs/adr/2026-08-16-device-fk-seeding-and-delivery-watermark.md`** — round 1 mapped
+   `completed` → `implemented` as a pure synonym. Confirmed the ADR's own line 20 reads
+   `**Status: ACCEPTED — design only, no code written yet.**`, and confirmed via `ls electron/sync/`
+   that its target files (`syncClient.js`, `syncServer.js`) do not exist — retired by the Stage 6
+   Automerge cutover. Corrected to `not-started`; nuance line added recording the old value, the
+   contradiction, the retirement, and an open question (not decided here) of whether `status:
+   superseded` is the honest disposition — that is a human architecture-judgement gate
+   (`CONSTITUTION.md` Art. IV), not a mapping change.
+2. **`docs/adr/2026-08-04-project-lifecycle-authorization-exemption.md`** — round 1 mapped
+   `existing — retroactively documented` → `implemented`. Confirmed the exemption policy and the
+   `authorize()` boundary are genuinely in place, but Constraint 4 (its own lines ~44–51) mandates a
+   specific two-line inline comment in `electron/main.js` that is absent: `grep -c
+   'project-lifecycle-authorization-exemption' electron/main.js` → `0`, `grep -c 'trusted
+   local-device operation' electron/main.js` → `0`; only a generic block header exists at
+   `electron/main.js` ~2809. Corrected to `in-progress`; nuance line added. `electron/main.js` was
+   not edited — that fix is `src/`-adjacent and outside this docs-only worker's footprint.
+3. **T294 dated note premise** — round 1's note rested on "`INTERNET_TRANSPORT_SIGNOFF` is still
+   false", which is stale: T288 replaced that coarse boolean with a per-capability registry,
+   `TRANSPORT_CAPABILITIES` (`electron/sync/automerge/transportCapabilities.js`, confirmed by reading
+   the file directly, not the relayed summary). `discovery` has a `signoff` dated 2026-09-28; the
+   other nine capabilities (`relay`, `dcutr`, `webrtc`, `websockets`, `webtransport`, `quic`,
+   `kadDht`, `bootstrap`, `upnp`) are still `signoff: null` — the brief's summary named six of these
+   nine; the file itself has nine, confirmed by reading it directly rather than the summary. The note's conclusion (README WAN item not
+   actionable) survives, but the corrected note now cites the real mechanism instead of a retired
+   boolean, per the Round 2 edit in `docs/work/tickets/T294-documentation-staleness-audit-and-refresh.md`.
+4. **Systematic re-check** — every ADR round 1 moved to `implemented` (18, derived fresh from
+   `git diff origin/main..HEAD -- docs/adr`, not from the round-1 count on trust) was grepped for
+   `design only`, `no code written`, `not yet`, `unbuilt`, `not implemented`, `deferred`, `TODO`, and
+   any `**Status:**` line. Results:
+   - Findings 1 and 2 above (already corrected).
+   - **`docs/adr/2026-09-16-anchor-scope-single-resolver.md`** — its own line 19 reads `**Status:**
+     proposed 2026-09-16 — **blocked** on T180 and T182 landing on main`, which on its face
+     contradicts `implemented`. Checked further: `docs/work/tickets/T180-…`, `T182-…`, and
+     `T183-…` (the related consolidation ticket) are all `status: completed`, and the resolver
+     module the ADR describes, `src/engine/anchorScope.js`, exists in this tree. So the underlying
+     work landed after this line was written; the line is a **stale body status line that
+     undersells the current build state** (the opposite direction from findings 1/2, which
+     overstated it), not a false closure. `implementation_state: implemented` is left unchanged —
+     it is factually correct — and this is recorded as a carried-forward finding below rather than
+     edited, since updating the body's own H1 status prose is a content correction beyond this
+     round's mapping/nuance-line scope.
+   - The four ADRs Red Hat named as citing the deleted `syncClient.js`/`syncServer.js` without
+     making a contradicting claim about their own build state — `2026-07-24-bulk-replace-seq-fix.md`,
+     `2026-07-24-centralized-authorization-layer.md`, `2026-07-25-device-trust-revocation.md`,
+     `2026-07-28-first-pairing-domain-sync-and-template-identity.md` — confirmed present
+     (`grep -l 'syncClient.js\|syncServer.js'` matches all four). Left `implemented` alone per the
+     brief's instruction; carried forward below.
+   - The remaining 12 ADRs (`2026-07-25-append-only-audit-event-log.md`,
+     `2026-07-28-explicit-userdata-directory.md`, `2026-07-28-schedule-flag-findings-reshape.md`,
+     `2026-08-04-repository-layer-policy.md`, `2026-08-06-inferred-activity-rules-at-ingest.md`,
+     `2026-08-19-roots-census-and-persistent-inspector.md`, `2026-08-21-mcp-ingestion-server.md`,
+     `2026-09-03-compound-cell-interpretation.md`, `2026-09-09-field-provenance-in-the-document.md`,
+     `2026-09-15-opinion-report-dispatch-provenance.md`, `2026-09-16-index-survival-across-table-rebuilds.md`)
+     had no contradicting hits, or hits that on inspection describe a named edge case, an explicit
+     out-of-scope exclusion, or ordinary migration mechanics rather than a claim that the ADR itself
+     is unbuilt (e.g. field-provenance's "deferred integration scenario 18" names a separately-tracked
+     exit criterion, not this ADR's own state). No changes made to these.
+
 ## Gates
+
+Round 1 results shown where unchanged; round 2 re-ran every gate after the two corrections and the
+INDEX regeneration.
 
 | Gate | Result | Evidence |
 |---|---|---|
-| `npm run check:governance` | PASS | exit 0; only the pre-existing `platform-state-stale` advisory (unchanged from baseline); zero blocking findings |
-| `npx vitest run test/governance.test.js scripts/check-governance.test.js` | PASS | 120/120 tests passed (81 + 39) |
-| `npm run agents:check` | PASS | all 13 generated profiles + manifest byte-identical to committed `.claude/agents/*.md` |
-| implementation_state value-set enumeration | PASS | `grep -h '^implementation_state:' docs/adr/*.md \| sed … \| sort \| uniq -c` → `72 implemented`, `22 in-progress`, `46 not-started` — exactly the three enum values, nothing else |
-| PLATFORM_STATE version-fact diff | PASS | every `v<NN>` token (regex `\bv\d{1,3}\b`) present in either old bullet is present in the merged bullet (`comm`/set-diff shows empty "missing" set); only additions are `v79`/`v83` from the new current-version claim, both expected |
+| `npm run check:governance` | PASS (re-run, round 2) | exit 0; only the pre-existing `platform-state-stale` advisory (unchanged from baseline); zero blocking findings; **no new `status-drift` finding** despite two ADRs moving OUT of closed state — confirmed no branch commit subject references either corrected ADR as complete |
+| `npx vitest run test/governance.test.js scripts/check-governance.test.js` | PASS (re-run, round 2) | 120/120 tests passed (81 + 39) |
+| `npm run agents:check` | PASS (re-run, round 2) | all 13 generated profiles + manifest byte-identical to committed `.claude/agents/*.md` |
+| implementation_state value-set enumeration | PASS (re-run, round 2) | `grep -h '^implementation_state:' docs/adr/*.md \| sed … \| sort \| uniq -c` → `70 implemented`, `23 in-progress`, `47 not-started` — exactly the three enum values, nothing else; reflects the two round-2 corrections (72→70 implemented, 22→23 in-progress, 46→47 not-started) |
+| `git diff origin/main..HEAD -- docs/adr \| grep -E '^[+-](status\|date\|authority\|title):'` | PASS (round 2) | empty — zero of those four frontmatter fields touched anywhere in `docs/adr/` |
+| PLATFORM_STATE version-fact diff | PASS (round 1, untouched in round 2) | every `v<NN>` token (regex `\bv\d{1,3}\b`) present in either old bullet is present in the merged bullet (`comm`/set-diff shows empty "missing" set); only additions are `v79`/`v83` from the new current-version claim, both expected |
 
 ## Verifier verdict
 
@@ -232,6 +318,39 @@ Average — , lowest dimension — . Pass is ≥ 4.0 with no dimension below 3.
 - Open point (owner unavailable, self-answered): `docs/adr/2026-09-17-wan-rendezvous-seam.md` remains
   `status: proposed` while a later accepted ADR treats it as accepted (T294's own D3 note). This run
   does not touch any ADR `status`, so the question stays open for the owner.
+
+### Added in round 2
+
+- **Four ADRs cite the deleted `syncClient.js`/`syncServer.js`** without making a contradicting claim
+  about their own build state, so `implementation_state: implemented` was left unchanged for each:
+  `docs/adr/2026-07-24-bulk-replace-seq-fix.md`, `docs/adr/2026-07-24-centralized-authorization-layer.md`,
+  `docs/adr/2026-07-25-device-trust-revocation.md`,
+  `docs/adr/2026-07-28-first-pairing-domain-sync-and-template-identity.md`. A stale file citation is
+  not a false closure, but a future reader following one of these citations into `electron/sync/`
+  will not find the file. Rewriting four ADR bodies to repoint the citations is out of scope here.
+- **`docs/current/PLATFORM_STATE.md:846` asserts "No file under `electron/sync/automerge/rendezvous*.js`
+  is imported by any running path."** Red Hat reported this is now false; independently confirmed:
+  `electron/sync/automerge/syncStarter.js:33` reads
+  `import { readRendezvousConfig, createRendezvousDiscovery } from './rendezvousClient.js'`, and the
+  import is live code (used at line 294/297, gated on `rendezvousConfig.enabled`, not dead/commented).
+  This is a fact `PLATFORM_STATE.md` gets wrong today and belongs to the `/update-state` pass, which
+  is explicitly out of scope for this docs-only sweep — recorded here so it is not silently dropped.
+- **Constraint 4's mandated inline comments are unmet in `electron/main.js`** (see Round 2, finding 2
+  above) — a `src/`-adjacent code change (editing `electron/main.js`), out of this worker's footprint.
+  Needs a Maker pass against `electron/main.js` around line 2809.
+- **Open question: should `docs/adr/2026-08-16-device-fk-seeding-and-delivery-watermark.md` be
+  `status: superseded`?** Its design targets a retired WebSocket sync layer and was never built. This
+  sweep corrected only `implementation_state` (to `not-started`) and explicitly did not touch
+  `status` — that is a human architecture-judgement call under `CONSTITUTION.md` Art. IV, recorded
+  here for the owner.
+- **`docs/adr/2026-09-16-anchor-scope-single-resolver.md`'s own H1 status line is stale** (reads
+  "proposed 2026-09-16 — blocked on T180 and T182 landing on main") even though T180/T182/T183 are
+  all `status: completed` and the resolver module (`src/engine/anchorScope.js`) exists —
+  `implementation_state: implemented` is correct and was left unchanged, but the body's own prose
+  was written before the work landed and was not updated afterward. Unlike the four stale-citation
+  ADRs above, this ADR's staleness runs in the direction of *understating* its own progress, not
+  overstating it — flagged here rather than silently correctable, since editing the H1 status
+  sentence is a body-content change beyond this round's mapping/nuance-line scope.
 
 ## Decision
 
