@@ -7,6 +7,11 @@
 //   node scripts/electives.js export --run <runId> --db <path> --format json|xlsx [--file <path>] [--json]
 //
 // `generate` (solving a run) is NOT an action this CLI accepts.
+//
+// The ticket's `preview`/`commit` line also lists `--week --route --tier`. Those three flags are NOT
+// accepted here: `runPreferenceSheetCli` (scripts/preferenceSheetCli.js) takes no such parameters, and
+// a preference-sheet import is not scoped by week/route/tier — it derives a run from the sheet's own
+// rows, not from a schedule slice the caller names in advance.
 
 import { fileURLToPath } from 'node:url'
 import { runElectivesCli } from './electivesCli.js'

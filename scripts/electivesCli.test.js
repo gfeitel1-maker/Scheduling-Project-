@@ -161,6 +161,45 @@ describe('runElectivesCli', () => {
       expect(result.ok).toBe(false)
       expect(result.error).toMatch(/file/)
     })
+
+    // T198 round 2, Fix 3 (Red Hat MEDIUM). `electives export --format xlsx` lets an agent or script
+    // produce an XLSX non-interactively from arbitrary run data, and Security confirmed the sanitizer
+    // (buildElectiveRunWorkbook routes every sheet through aoaToSanitizedSheet,
+    // src/utils/exportSanitize.js) is wired in — but nothing proved it holds THROUGH this new CLI
+    // path specifically. FORMULA_TRIGGERS (exportSanitize.js) is `/^[=+\-@\t\r\n]/`; `=` is the
+    // classic CSV/formula-injection prefix, so it is the one used here. sanitizeCell's response to a
+    // triggering string is a single leading apostrophe (the spreadsheet "treat as literal text"
+    // escape), so the cell XLSX.read hands back is `'` + the original string, unchanged otherwise.
+    //
+    // A camper with no preference row lands in the `unranked` exceptions bucket
+    // (exportRunExceptions.js), the simplest path to get an arbitrary display_name into the workbook
+    // without also constructing a full solved run.
+    it('sanitizes a formula-injection camper name in the xlsx the CLI export writes', () => {
+      const dir = makeTmpDir()
+      dirs.push(dir)
+      const { dbPath, campId, runId } = bootstrapRun(dir)
+      const db = openLocalDb(dbPath)
+      const camperId = randomUUID()
+      const maliciousName = '=cmd|\'/C calc\'!A0'
+      db.prepare('INSERT INTO campers (id, camp_id, display_name) VALUES (?, ?, ?)').run(camperId, campId, maliciousName)
+      db.close()
+
+      const outFile = path.join(dir, 'out.xlsx')
+      const result = runElectivesCli({ action: 'export', runId, dbPath, format: 'xlsx', file: outFile })
+      expect(result.ok).toBe(true)
+
+      const workbook = XLSX.read(fs.readFileSync(outFile), { type: 'buffer' })
+      const sheet = XLSX.utils.sheet_to_json(workbook.Sheets['Exceptions'], { header: 1, defval: '' })
+      const row = sheet.find((r) => r[0] === 'Unranked')
+
+      // PRESENT, not vanished: a test that only checked "no raw formula cell exists" would pass
+      // just as well if the row were silently dropped, which proves nothing about the sanitizer.
+      expect(row).toBeTruthy()
+      expect(row[1]).toBe(`'${maliciousName}`)
+      // The sanitizer is lossless (unescapeCell reverses exactly this), so the escaped cell still
+      // names the same camper once you look past the one guard character.
+      expect(row[1].slice(1)).toBe(maliciousName)
+    })
   })
 
   it('rejects an unknown action', () => {
