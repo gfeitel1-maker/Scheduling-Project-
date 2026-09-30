@@ -51,3 +51,12 @@ Per repo convention: no banners. State that needs surfacing belongs in the findi
 The acceptance fixture in the spec §6 passes with no manual database edits, under `electron:dev`
 (not the `:5200` dev mock — this involves persistence and sync). The full gate is green. Completion
 is not claimed on a solver unit test, a skipped migration, or mocked-away sync.
+
+## Blocked — 2026-09-30
+
+The T251 acceptance fixture is built and asserted, and driving it under `electron:dev` showed this
+ticket's exit condition is not met: there is no Finalize control, no reachable regenerate control, no
+Delete control (so the D10 copy has nowhere to live), and the same-name refusal is screen-reader-only
+when the camp has two candidate schedules. The D8 disclosure passes. See
+[docs/work/tickets/T251-t199-acceptance-fixture.md](T251-t199-acceptance-fixture.md) and
+[docs/work/runs/2026-09-30-t251-t199-acceptance-fixture.md](../runs/2026-09-30-t251-t199-acceptance-fixture.md).

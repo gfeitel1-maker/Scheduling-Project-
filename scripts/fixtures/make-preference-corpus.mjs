@@ -50,6 +50,14 @@ const csvCell = (v) => {
 }
 const writeCsv = (file, rows) =>
   fs.writeFileSync(path.join(PROBES, file), rows.map((r) => r.map(csvCell).join(',')).join('\n') + '\n')
+// T251 — the same CSV writer, into a directory OTHER than probes/. Separate
+// because `writeCsv` resolves against PROBES, which the emit step wipes on every
+// run; a fixture outside that directory must not be deleted by a corpus rebuild.
+const writeCsvTo = (dir, file, rows) => {
+  const full = path.join(ROOT, dir)
+  fs.mkdirSync(full, { recursive: true })
+  fs.writeFileSync(path.join(full, file), rows.map((r) => r.map(csvCell).join(',')).join('\n') + '\n')
+}
 const writeTsv = (file, rows) =>
   fs.writeFileSync(path.join(PROBES, file), rows.map((r) => r.map((c) => String(c ?? '')).join('\t')).join('\n') + '\n')
 const writeTxt = (file, text) => fs.writeFileSync(path.join(PROBES, file), text)
@@ -470,10 +478,204 @@ add({ id: 'P40', file: 'P40-text-grid-daysheet.txt', entry: 'sched', class: 'A',
     writeTxt('P40-text-grid-daysheet.txt', rows.map((r) => r.join('\t')).join('\n') + '\n')
   } })
 
+// ---- T251: the T199 spec section 6 ACCEPTANCE CAMP's preference sheet.
+//
+// docs/work/tickets/T251-t199-acceptance-fixture.md;
+// docs/work/specs/2026-09-17-individual-elective-scheduling-implementation.md section 6.
+//
+// WHY IT IS DECLARED HERE rather than in a second generator. Every camper name
+// in this repository's fixtures has to come from synthetic-names.json and be
+// reachable by the name scan (test/preferenceCorpusNames.test.js). A second
+// hand-written .csv committed under test/fixtures/ would be outside both, which
+// is exactly the hole that scan exists to close. So the acceptance sheet is
+// declared as a probe like every other, and the scan was widened to the
+// directory it writes to.
+//
+// IT WRITES OUTSIDE probes/ deliberately: it is not a shape probe (it exercises
+// no reader shape the corpus does not already cover) and must not be swept up by
+// scripts/preferenceCorpusProbe.mjs's shape report. `outDir` is the one
+// mechanism for that, used by nothing else.
+//
+// TWO FILES, and the pair IS the acceptance condition. Spec section 6's first pass
+// condition is "ambiguous rows block until resolved": the blocking file carries
+// two rows for one name in one division with no camper id, and the resolved file
+// is the SAME bytes with an id added to each. Nothing else differs, so a commit
+// that succeeds on the second proves the first was refused for the collision and
+// not for anything else.
+const ACCEPTANCE_DIR = 'test/fixtures/elective-acceptance'
+
+// The camp the grid at test/fixtures/elective-acceptance/camp-grid.txt defines:
+// tiers Younger/Older, one elective cell per day at the 10:50-11:30 block.
+const AC_PERIOD = '10:50-11:30'
+const AC_YOUNGER = 'Younger'
+const AC_OLDER = 'Older'
+
+// name, external id, division. `null` id is the spec's "one missing external id"
+// AND the blocking collision's cause -- one fact, not two contrived ones.
+const AC_ROSTER = [
+  ['Noa Quartzite', 'SYN-1001', AC_YOUNGER], ['Eli Basalt', 'SYN-1002', AC_YOUNGER],
+  ['Tamar Gneiss', 'SYN-1003', AC_YOUNGER], ['Yonah Slatestone', 'SYN-1004', AC_YOUNGER],
+  ['Maya Obsidian', 'SYN-1005', AC_YOUNGER], ['Dov Limeshale', 'SYN-1006', AC_YOUNGER],
+  ['Shira Pyrite', 'SYN-1007', AC_YOUNGER], ['Gil Marlstone', 'SYN-1008', AC_YOUNGER],
+  ['Adin Chertwood', 'SYN-1009', AC_YOUNGER], ['Liora Jasperly', 'SYN-1010', AC_YOUNGER],
+  // The legal duplicate: one name, two DIFFERENT divisions, both carrying an id.
+  ['Ari Feldspar', 'SYN-1011', AC_YOUNGER],
+  ['Amit Granitine', 'SYN-2001', AC_OLDER], ['Tzvi Micafold', 'SYN-2002', AC_OLDER],
+  ['Ilana Serpentine', 'SYN-2003', AC_OLDER], ['Oren Halitebrook', 'SYN-2004', AC_OLDER],
+  ['Bracha Gypsumfield', 'SYN-2005', AC_OLDER], ['Yael Andesite', 'SYN-2006', AC_OLDER],
+  ['Kobi Rhyolite', 'SYN-2007', AC_OLDER], ['Dalia Travertine', 'SYN-2008', AC_OLDER],
+  ['Ari Feldspar', 'SYN-2011', AC_OLDER],
+  // The blocking duplicate: one name, the SAME division, no id on either row.
+  ['Rivka Sandarch', null, AC_OLDER], ['Rivka Sandarch', null, AC_OLDER],
+]
+
+// Campers who answer for the WHOLE RUN instead of per cell -- one row, no
+// coordinate. The legal shape commitElectiveRun.js:70-92 requires be accepted.
+const AC_WHOLE_RUN = [
+  ['Nadav Calcite', 'SYN-1012', AC_YOUNGER], ['Ronit Dolomite', 'SYN-1013', AC_YOUNGER],
+  ['Netanel Siltstone', 'SYN-2009', AC_OLDER],
+  // Spec section 6's "one missing external id". A UNIQUE name, so it is an
+  // absent id and nothing else -- putting it on one of the same-named rows
+  // instead would conflate it with the collision case, which is a different
+  // fact the sheet already carries twice over.
+  ['Zohar Peridot', null, AC_OLDER],
+]
+
+// The ranked answers, by (division, day, camper index within that division's
+// coordinate-answering campers). Written out rather than computed so the
+// contention is READABLE: at Monday/Younger nine of eleven campers rank Ropes
+// (three seats) first, which is spec section 6's "one capacity shortfall".
+function acRanks(division, day, i) {
+  if (division === AC_YOUNGER) {
+    if (day === 'Monday') {
+      if (i < 9) return ['Ropes', 'Swim', 'Archery']
+      if (i === 9) return ['Swim', 'Archery', 'Ceramics']
+      return ['Archery', 'Ceramics', 'Garden']
+    }
+    if (day === 'Tuesday') {
+      return i < 5 ? ['Ceramics', 'Woodshop', 'Garden'] : ['Woodshop', 'Garden', 'Swim']
+    }
+    return ['Garden', 'Swim', 'Ceramics']
+  }
+  if (day === 'Monday') {
+    // The first four Older campers rank the BUNDLE. It is named 'Ropes', after
+    // its own activity, and that is FORCED rather than chosen: ADR
+    // 2026-09-29-linked-elective-bundles.md D4 says the bundle's name is the
+    // string a camper's sheet must match, but buildPreferenceCatalog
+    // (src/ingest/preferenceImport.js:91-97) is built from activities, groups
+    // and tiers and never from bundles -- so a bundle named anything else is
+    // UNRESOLVED_CHOICE_LABEL residue and the preference is dropped before it
+    // reaches the solver. preferences-bundle-by-name.csv, below, is the fixture
+    // that holds that gap open.
+    if (i < 4) return ['Ropes', 'Swim', 'Ceramics']
+    if (i < 8) return ['Swim', 'Ceramics', 'Garden']
+    if (i === 8) return ['Ceramics', 'Garden', 'Woodshop']
+    return ['Garden', 'Swim', 'Ceramics']
+  }
+  if (day === 'Tuesday') {
+    if (i < 4) return ['Ropes', 'Woodshop', 'Garden']
+    // CONDITION (8) IS ONLY NON-VACUOUS IF THE TWO MEMBER OCCURRENCES DIFFER.
+    // The bundle's four campers rank it whole-run, so Monday and Tuesday saw
+    // identical demand -- and the ordinary solver is deterministic and
+    // input-order-independent (buildElectiveAssignments.js:505-510), so it
+    // picked the SAME three at both, and "nobody holds exactly one of the two"
+    // was true whether or not the linked tier ran at all. Measured: with
+    // runLinkedChoiceTier short-circuited outright, condition (8) stayed green.
+    // These three rank Ropes first on TUESDAY ONLY (the tier's own cell, which
+    // the wrong-tier binding defect does not touch), so Tuesday is contended
+    // 7-for-3 against Monday's 4-for-3 and the ordinary path cannot coincide.
+    if (i < 7) return ['Ropes', 'Woodshop', 'Garden']
+    if (i < 8) return ['Woodshop', 'Garden', 'Swim']
+    if (i === 8) return ['Garden', 'Woodshop', 'Swim']
+    return ['Woodshop', 'Garden', 'Swim']
+  }
+  return ['Swim', 'Ceramics', 'Garden']
+}
+
+// Which (division, day) cells each camper answers for. Older campers 4, 5 and 6
+// answer for WEDNESDAY, where the Generated route places this set on the Younger
+// tier only -- spec section 6's "one eligibility rejection", and the reason the
+// asymmetry between the two routes is in the fixture at all.
+//
+// THE FIRST FOUR OLDER CAMPERS ANSWER FOR THE WHOLE RUN INSTEAD OF PER CELL
+// (an empty list here), and that is forced by a defect rather than chosen.
+// resolvePreferenceCoordinates binds a coordinate to the FIRST occurrence at a
+// (day, block) cell REGARDLESS OF TIER (src/screens/elective/assignment/
+// resolvePreferenceCoordinates.js:73-79), so on a tier-spanning set every
+// per-cell preference of the non-first tier lands on the other tier's
+// occurrence. Measured on this very fixture, 2026-09-29, by the assertion in
+// electron/electiveAcceptanceSolve.integration.test.jsx's own gap: of the Older
+// tier's 26 placements, 7 sit at a cell the camper DID rank and carry no rank
+// at all. (Round 1 stated "75 of 174 / 4 of 26" here and a different pair over
+// there, for the same defect on the same fixture; neither was reproducible,
+// both were taken at a seam that is not the database.) A
+// preference bound to the wrong tier's occurrence is also outside the bundle's
+// member set, so `choiceRankMinOverMembers` finds no rank and the linked tier
+// has no candidates at all -- which is why these four use the whole-run shape,
+// a shape section 6 already calls for and which the defect does not touch.
+// electron/electiveAcceptanceSolve.integration.test.jsx holds the defect open
+// as a named, asserted gap.
+function acDaysFor(division, i) {
+  if (division === AC_YOUNGER) return ['Monday', 'Tuesday', 'Wednesday']
+  if (i < 4) return []
+  return i >= 4 && i <= 6 ? ['Monday', 'Tuesday', 'Wednesday'] : ['Monday', 'Tuesday']
+}
+
+function acceptanceRows({ resolved }) {
+  const head = ['Camper ID', 'Camper Name', 'Division', 'Day', 'Period', '#1', '#2', '#3']
+  const rows = [head]
+  // Resolving the collision is ONE edit a director makes in their own sheet: the
+  // two same-named rows get told apart by a camper id. Nothing else changes.
+  const resolvedIds = { 0: 'SYN-2012', 1: 'SYN-2013' }
+  let unidentified = 0
+  const perDivision = { [AC_YOUNGER]: 0, [AC_OLDER]: 0 }
+  for (const [name, id, division] of AC_ROSTER) {
+    const i = perDivision[division]
+    perDivision[division] += 1
+    let externalId = id ?? ''
+    if (id == null) {
+      if (resolved) externalId = resolvedIds[unidentified] ?? ''
+      unidentified += 1
+    }
+    const days = acDaysFor(division, i)
+    if (days.length === 0) {
+      rows.push([externalId, name, division, '', '', ...acRanks(division, 'Monday', i)])
+      continue
+    }
+    for (const day of days) {
+      rows.push([externalId, name, division, day, AC_PERIOD, ...acRanks(division, day, i)])
+    }
+  }
+  for (const [name, id, division] of AC_WHOLE_RUN) {
+    rows.push([id ?? '', name, division, '', '', 'Swim', 'Ceramics', 'Garden'])
+  }
+  return rows
+}
+
+// DELIBERATELY NOT `add()`. Every entry `add()` records becomes a manifest row,
+// and scripts/preferenceCorpusProbe.mjs reads every manifest row out of probes/
+// -- these two do not live there, so registering them would break the shape
+// report with a file-not-found. They are emitted below, beside the probes.
+const acceptanceFixtures = [
+  { file: 'preferences.csv', write: () => writeCsvTo(ACCEPTANCE_DIR, 'preferences.csv', acceptanceRows({ resolved: false })) },
+  { file: 'preferences-resolved.csv', write: () => writeCsvTo(ACCEPTANCE_DIR, 'preferences-resolved.csv', acceptanceRows({ resolved: true })) },
+  // THE GAP FIXTURE. Byte-for-byte the resolved sheet, except that the four
+  // campers who want the bundle write its DIRECTOR-GIVEN name instead of the
+  // activity's. ADR D4 says that is the supported way to say it; the parser
+  // drops it. Held open by electron/electiveAcceptanceImport.integration.test.js
+  // so the day someone puts bundle names in the catalog, the assertion that the
+  // label is unresolved goes red.
+  { file: 'preferences-bundle-by-name.csv',
+    write: () => writeCsvTo(ACCEPTANCE_DIR, 'preferences-bundle-by-name.csv',
+      acceptanceRows({ resolved: true }).map((r, i) => (i === 0 ? r : r.map((c) => (c === 'Ropes' ? 'Ropes Intensive' : c))))) },
+]
+
 // --- emit ----------------------------------------------------------------
 fs.rmSync(PROBES, { recursive: true, force: true })
 fs.mkdirSync(PROBES, { recursive: true })
 for (const p of probes) p.write()
+// T251 — outside probes/, so outside the rmSync above and outside the manifest.
+for (const f of acceptanceFixtures) f.write()
 
 const manifest = {
   _provenance: 'GENERATED by scripts/fixtures/make-preference-corpus.mjs. Synthetic identities only (ADR 8.0).',

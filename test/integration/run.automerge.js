@@ -44,6 +44,7 @@ import { run as scenario32 } from './scenarios/32-participant-substrate-sync.aut
 import { run as scenario33 } from './scenarios/33-move-convergence.automerge.js'
 import { run as scenario34 } from './scenarios/34-locked-seat-survives-regeneration.automerge.js'
 import { run as scenario35 } from './scenarios/35-schema-version-gate.automerge.js'
+import { run as scenario36 } from './scenarios/36-finalized-elective-run-survives-sync.automerge.js'
 
 // Scenario 08 (concurrent-create data loss) and scenario 28 (two directors
 // disagree about one slot) are both FIXED and both pass consistently, having
@@ -93,6 +94,11 @@ const SCENARIOS = [
   { name: '33 two devices move one camper and converge on one row (libp2p)', fn: scenario33 },
   { name: '34 a locked seat survives a regeneration and replicates (libp2p)', fn: scenario34 },
   { name: '35 T271: a schema-version-mismatched merge is refused, silently, and self-resolves (libp2p)', fn: scenario35 },
+  // T251 / T199 spec section 6 condition 10. 32 covers the participant
+  // substrate and 34 covers a locked seat across a regeneration; neither
+  // finalizes, so neither touches elective_run_outer_snapshots — the table that
+  // exists only after a finalize.
+  { name: '36 a FINALIZED elective run survives sync and a projection rebuild (libp2p)', fn: scenario36 },
 ]
 
 // COVERAGE, so the count above is readable without arithmetic:
