@@ -130,17 +130,29 @@ the two ever disagree, this standard governs and the script is wrong.
 **Vocabulary.** A completion reference is a keyword, whitespace, then an ID, found anywhere in a
 commit subject:
 
-- Keyword (case-insensitive): `closes` or `Merge`.
+- Keyword (case-insensitive): `close`, `closes`, `closed`, or `Merge`.
 - ID: an optional `T` or `S` prefix followed by digits and an optional single lowercase suffix
   letter, e.g. `T76`, `S5b`.
-- Regex: `/(?:closes|merge)\s+([TS]\d+[a-z]?)/gi`, applied per subject, collecting every match.
-  **The regex is authoritative** — the prose above only describes it; the optional lowercase
-  suffix letter applies to the whole `[TS]\d+` token, for both tickets and slices, not only
-  slices.
+- Regex: `/(?:close(?:s|d)?|merge)\s+([TS]\d+[a-z]?)(?![a-z0-9'])/gi`, applied per subject,
+  collecting every match. **The regex is authoritative** — the prose above only describes it; the
+  optional lowercase suffix letter applies to the whole `[TS]\d+` token, for both tickets and
+  slices, not only slices.
 
-This is deliberately narrow. A bare mention — `relates to T40, see also...` — has no `closes`/
-`Merge` keyword and must not match. Widening the regex without a corresponding audit of the commit
-vocabulary actually in use is how a gate stops meaning anything.
+This is deliberately narrow. A bare mention — `relates to T40, see also...` — has no `close`/
+`closes`/`closed`/`Merge` keyword and must not match. Widening the regex without a corresponding
+audit of the commit vocabulary actually in use is how a gate stops meaning anything.
+
+**Widened 2026-09-30, and audited before shipping.** The keyword was `closes`/`merge` only, so
+`Close T210: ...` and `closed T5` — real closure claims, just spelled differently — never matched,
+and this repo's own closing commits (#636, #640) slipped past the gate this way. A full audit of
+`close T<n>` subjects across `origin/main` found ten: nine genuine closures, and one that is not —
+`T233: signed purge-tombstone erasure (close T202's stale-peer reintroduction gap) (#515)` — which
+closes a gap *named by* T202, not T202 itself. The trailing `(?![a-z0-9'])` guards exactly that
+case: it rejects both an apostrophe and any further digit/letter directly after the id, which
+matters because `\d+` can otherwise backtrack around a bare `(?!')` and match a shorter, wrong id
+(`T20` out of `T202's`). Without the guard, a possessive reference would force the drift gate to
+demand T202's closure — the same hazard the duplicate-ticket-number check exists to prevent: a red
+gate whose obvious remedy is flipping a status that should not move.
 
 **Multi-ID closure.** A single commit closing more than one ID must repeat the keyword per ID —
 `closes T12` `closes T13` — not `closes T12, T13`. A comma-separated list only captures the first
@@ -183,6 +195,19 @@ filesystem walk):
   **hard failure**, the same severity as `status-drift`, not a silent pass — an ID typo or a
   document rename that leaves an old reference dangling is the same defect class this gate exists
   to catch.
+- `closure-claim-without-id` (`checkClosureClaimWithoutId`, added 2026-09-30) — a subject makes the
+  closure claim in plain words but names no id for `parseCompletionRefs` to find, e.g.
+  `T309: close the ticket — status was left open at merge` (#636) or `docs(T311): close the ticket`
+  (#640). Phrase pattern: `/clos(?:e|es|ed)\s+(?:the\s+)?ticket/i`, fires only when it matches
+  **and** `parseCompletionRefs` returns nothing for that subject. Measured against every subject on
+  `origin/main`: the phrase matches eleven subjects, all eleven genuine closures that named their
+  ticket a different way (a `docs(T<n>):` prefix) instead of as `closes T<n>` — eleven true
+  positives, zero false positives. `close out` was deliberately **excluded**, not missed: it
+  matches seven more subjects, two of which (`docs(handoff): close out
+  force-subagent-skill-invocation with transcript proof`, `docs: close out doc-staleness
+  remediation (Batches A–E already on main)`) close no ticket at all, so firing on them would
+  prescribe a `closes T<n>` that does not exist — a guard that fires correctly and still prescribes
+  the wrong remedy.
 
 **Scope.** The check only looks at commit subjects reachable from `HEAD` but not from
 `origin/main` (`git log origin/main..HEAD --format=%s`) — it is a going-forward gate over the
@@ -231,7 +256,13 @@ is a discipline, not something a check enforces:
 Whether this discipline should additionally be backed by a going-forward, main-side audit gate (one
 that flags a merged `T<n>:` commit whose ticket is not yet `completed`) is tracked as its own
 ticket; such a gate would surface the pre-existing backlog on its first run, which is the gate
-working, not a regression.
+working, not a regression. That ticket remains T283.
+
+`checkClosureClaimWithoutId` (§3.2, added 2026-09-30) catches one narrow adjacent case — a subject
+that claims closure **in words** (`close the ticket`) without naming an id — so that claim no longer
+goes unchecked either. This does **not** make board-truth gated: it only catches a subject that
+makes the claim in prose, not a merged `T<n>:`-style commit that silently leaves its ticket open,
+which is exactly the over-fire case this section already rules out and remains T283's job to solve.
 
 ---
 

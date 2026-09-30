@@ -327,14 +327,80 @@ export function checkPlatformStateFreshness(root, execFn) {
 }
 
 /**
- * WORK_RECORD_STANDARD.md §3.1 — a completion reference is `closes`/`Merge`
- * followed by a ticket (`T\d+`) or slice/ADR/spec id (`S\d+[a-z]?`). Deliberately
- * narrow: a bare mention like "relates to T40" must not match.
+ * WORK_RECORD_STANDARD.md §3.1 — a completion reference is a close/merge
+ * keyword followed by a ticket (`T\d+`) or slice/ADR/spec id (`S\d+[a-z]?`).
+ * Deliberately narrow: a bare mention like "relates to T40" must not match.
+ *
+ * WIDENED 2026-09-30. The keyword was `closes|merge` only, so `Close T210: ...`
+ * and `closed T5` — real closure claims, just not spelled "closes" — never
+ * matched, and neither `checkStatusDrift` nor `checkRunRecordFiled` ever saw
+ * them. Two of this repo's own closing commits (#636, #640) slipped past both
+ * gates this way. `close(?:s|d)?` catches close/closes/closed without also
+ * matching unrelated words.
+ *
+ * `(?!')` guards the possessive, and it is load-bearing, not decoration. An
+ * audit of every `close T<n>` subject on origin/main found ten: nine genuine
+ * closures and one that is not — `T233: signed purge-tombstone erasure (close
+ * T202's stale-peer reintroduction gap) (#515)` — which closes a gap NAMED BY
+ * T202, not T202 itself. Without the guard, `checkStatusDrift` would demand
+ * closure of T202, which is exactly the hazard `checkTicketNumberUniqueness`'s
+ * comment above already warns about: a red gate whose obvious remedy is
+ * flipping a status that should not move.
+ *
+ * A lookahead of bare `(?!')` is NOT enough, because `\d+` can backtrack
+ * around it: against `T202's`, `\d+` first tries `202` (blocked by the
+ * apostrophe), but the engine then backs off to `20`, leaving `2` as the next
+ * character — which is not an apostrophe, so a bare `(?!')` passes and the
+ * match becomes the wrong id, `T20`. The lookahead has to reject BOTH an
+ * apostrophe and any further digit/letter, or backtracking finds a shorter
+ * number that slips through. Hence `(?![a-z0-9'])`.
  */
-const COMPLETION_REF = /(?:closes|merge)\s+([TS]\d+[a-z]?)/gi
+const COMPLETION_REF = /(?:close(?:s|d)?|merge)\s+([TS]\d+[a-z]?)(?![a-z0-9'])/gi
 
 export function parseCompletionRefs(subject) {
   return [...subject.matchAll(COMPLETION_REF)].map((m) => m[1])
+}
+
+/**
+ * A commit subject can claim, in plain words, to close a ticket without ever
+ * naming which one — `T309: close the ticket — status was left open at merge`
+ * (#636), `docs(T311): close the ticket` (#640). `parseCompletionRefs` cannot
+ * catch this: there is no `closes T<n>` for it to miss, so `checkStatusDrift`
+ * and `checkRunRecordFiled` both stay silent on a subject that is, in English,
+ * a closure claim. This check catches the claim itself.
+ *
+ * MEASURED, NARROW ON PURPOSE. `clos(e|es|ed)\s+(the\s+)?ticket` against every
+ * subject on origin/main matches ELEVEN, and all eleven are real closures that
+ * named their ticket a different way (a `docs(T<n>):` prefix) instead of as
+ * `closes T<n>` — eleven true positives, zero false positives. The adjective
+ * sense ("fails closed", "left closed") never collides, because the phrase
+ * requires the word "ticket" immediately after close/closes/closed.
+ *
+ * `close out` was deliberately EXCLUDED, not missed. It matches seven more
+ * subjects, and two of them close no ticket at all — `docs(handoff): close out
+ * force-subagent-skill-invocation with transcript proof` and `docs: close out
+ * doc-staleness remediation (Batches A–E already on main)` — so firing on
+ * "close out" would prescribe a `closes T<n>` for a subject that has none to
+ * give. A guard that fires correctly and still prescribes the wrong remedy is
+ * the failure mode this file's other comments already name; better to leave
+ * the phrase narrow than widen it into that trap.
+ */
+const CLOSURE_CLAIM_WITHOUT_ID = /clos(?:e|es|ed)\s+(?:the\s+)?ticket/i
+
+export function checkClosureClaimWithoutId(subjects) {
+  const out = []
+  // Same reason as checkStatusDrift: a `Revert "..."` subject quotes a prior
+  // commit's message, it does not make a fresh claim of its own.
+  const claims = (subjects || []).filter((s) => !s.startsWith('Revert "'))
+  for (const subject of claims) {
+    if (!CLOSURE_CLAIM_WITHOUT_ID.test(subject)) continue
+    if (parseCompletionRefs(subject).length) continue
+    out.push(finding('closure-claim-without-id',
+      `"${subject}" claims in words to close a ticket but names no id. Write the subject as ` +
+      `\`closes T<n>\` (or \`closed T<n>\` / \`close T<n>\`) so the gate can check it — and retitle ` +
+      `the pull request too, since its title becomes the squash-merge commit subject.`))
+  }
+  return out
 }
 
 /**
@@ -933,6 +999,7 @@ export function checkAll(root, execFn = (cmd) => execSync(cmd, { encoding: 'utf8
   const subjects = gatherCompletionSubjects(root, execFn)
   if (subjects !== null) {
     findings.push(...checkStatusDrift(subjects, docs))
+    findings.push(...checkClosureClaimWithoutId(subjects))
     const added = gatherAddedRunRecords(root, execFn)
     // A skip is announced, never silent. An unreported skip would read as a
     // pass, which is the defect class this whole ticket is about.
