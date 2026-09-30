@@ -525,25 +525,62 @@ describe('checkPlatformStateFreshness', () => {
 
 describe('checkNoLiteralNul', () => {
   // Same-shaped injection as the other checks here: no real FS, no real git.
-  const manyFiles = Array.from({ length: 105 }, (_, i) => `f${i}.js`)
-  const execFn = () => manyFiles.join('\n') + '\n'
+  // Per-glob execFn: each pathspec is now its own `git ls-files` call (so a
+  // dropped or mistyped one is individually visible), plus one bare `ls-files`
+  // call with no pathspec for the repo-wide total the coverage ratio needs.
+  const manyJs = Array.from({ length: 105 }, (_, i) => `f${i}.js`)
+  const manyJsx = Array.from({ length: 50 }, (_, i) => `f${i}.jsx`)
+  const manyMjs = Array.from({ length: 10 }, (_, i) => `f${i}.mjs`)
+
+  function makeExecFn({ js = manyJs, jsx = manyJsx, mjs = manyMjs, cjs = [], total }) {
+    const lines = (arr) => (arr.length ? arr.join('\n') + '\n' : '')
+    const allTotal = total ?? [...js, ...jsx, ...mjs, ...cjs, ...Array.from({ length: 50 }, (_, i) => `other${i}.md`)]
+    return (cmd) => {
+      if (cmd.endsWith("'*.js'")) return lines(js)
+      if (cmd.endsWith("'*.jsx'")) return lines(jsx)
+      if (cmd.endsWith("'*.mjs'")) return lines(mjs)
+      if (cmd.endsWith("'*.cjs'")) return lines(cjs)
+      return lines(allTotal)
+    }
+  }
+
   const cleanRead = () => Buffer.from('clean')
 
   it('reports a tracked file that contains a literal NUL byte', () => {
     const readFn = (p) => (p.endsWith('f3.js') ? Buffer.from([0x41, 0x00, 0x41]) : cleanRead())
-    const findings = checkNoLiteralNul('/fake/root', { execFn, readFn })
+    const findings = checkNoLiteralNul('/fake/root', { execFn: makeExecFn({}), readFn })
     expect(findings.map((f) => f.code)).toEqual(['literal-nul'])
     expect(findings[0].message).toContain('f3.js')
   })
 
   it('reports nothing when every tracked file is clean', () => {
-    expect(checkNoLiteralNul('/fake/root', { execFn, readFn: cleanRead })).toEqual([])
+    expect(checkNoLiteralNul('/fake/root', { execFn: makeExecFn({}), readFn: cleanRead })).toEqual([])
   })
 
-  it('fires the non-vacuity floor when the file list is implausibly short — a glob typo, not a clean repo', () => {
-    const shortExecFn = () => 'a.js\nb.js\n'
-    const findings = checkNoLiteralNul('/fake/root', { execFn: shortExecFn, readFn: cleanRead })
-    expect(findings.map((f) => f.code)).toEqual(['literal-nul-floor'])
+  it('does NOT fire on *.cjs returning zero files — that glob is legitimately empty in this repo today', () => {
+    const findings = checkNoLiteralNul('/fake/root', { execFn: makeExecFn({ cjs: [] }), readFn: cleanRead })
+    expect(findings.map((f) => f.code)).not.toContain('literal-nul-pathspec-empty')
+  })
+
+  it('fires per-pathspec when a NON-empty-allowed glob (e.g. *.mjs) resolves to zero files — a dropped or mistyped pathspec, not a clean repo', () => {
+    const findings = checkNoLiteralNul('/fake/root', { execFn: makeExecFn({ mjs: [] }), readFn: cleanRead })
+    expect(findings.map((f) => f.code)).toContain('literal-nul-pathspec-empty')
+    expect(findings.find((f) => f.code === 'literal-nul-pathspec-empty').message).toContain('*.mjs')
+  })
+
+  it('fires the coverage-ratio floor when the scanned globs cover an implausibly small share of the tracked tree — this is what catches a dropped *.js while *.jsx/*.mjs/*.cjs stay wired', () => {
+    // *.js dropped entirely from NUL_GUARD_GLOBS would mean its own execFn
+    // branch is never consulted; simulate that by making the *.js branch
+    // return nothing, as if that command were never issued for real content,
+    // while the repo-wide total still reflects the true (much larger) tree.
+    const execFn = makeExecFn({ js: [], total: [...manyJsx, ...manyMjs, ...Array.from({ length: 2000 }, (_, i) => `other${i}.py`)] })
+    const findings = checkNoLiteralNul('/fake/root', { execFn, readFn: cleanRead })
+    expect(findings.map((f) => f.code)).toContain('literal-nul-coverage-floor')
+  })
+
+  it('stays silent on coverage when the scanned globs are a healthy share of the tree', () => {
+    const findings = checkNoLiteralNul('/fake/root', { execFn: makeExecFn({}), readFn: cleanRead })
+    expect(findings.map((f) => f.code)).not.toContain('literal-nul-coverage-floor')
   })
 })
 
