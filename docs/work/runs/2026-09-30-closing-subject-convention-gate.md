@@ -409,3 +409,39 @@ This section does not alter the round-1/round-2 narrative, the `round` frontmatt
 section records a bounded, scoped resolution of two of its four open findings (1 and 2 — the HIGH
 CONFIRMED over-fire classes) under delegated worker authority, flagged for the owner, not a claim
 that the escalation itself is closed or reversed.
+
+### Confirmation sweep — Red Hat and Verifier, on `63891813`
+
+Both independently re-counted the corpus and agree: **12 true positives, 0 false positives**. All
+five over-fire shapes Red Hat had confirmed are now silent (`close the ticketing system outage`,
+`closed the ticketmaster integration bug`, `close the ticket-booking flow for campers`,
+`closes the ticketed-event feature`, `closes the loop; the ticket stays open`), and all three real
+closures still fire, including T171. Verifier reproduced RED at `EXIT=1` with the five planted
+over-fire tests failing, then GREEN at `EXIT=0` with 120 passed, restoring the tree clean. Red Hat's
+resilience score rose 2 → 3 → **4**, with nothing blocking.
+
+**Two residuals, both recorded rather than fixed.**
+
+1. **A latent false-negative class the narrowing itself created.** Dropping the intervening token
+   class from `\S+` to `[\w/-]+` means punctuation inside a descriptor is not matched, so
+   `close the (legacy) import ticket`, `close the pre-launch — critical ticket`,
+   `close the camp's backlog ticket` and `close the registration, waitlist ticket` are all silent.
+   Red Hat diffed the narrowed pattern against the round-2 pattern over the whole corpus and found
+   **zero real subjects regressed** — no commit in this repo's history has that shape — so it is a
+   latent risk for a future subject, not a regression. A silent legitimate claim is the more
+   dangerous direction, because it returns the gate to the silence this item exists to end. Worth a
+   Build Board item to widen the class to stop only at clause-boundary punctuation; deliberately not
+   bundled here.
+2. **The absolute corpus size was a number guaranteed to go stale.** §3.2 said "1610 subjects as of
+   this narrowing"; a fresh count the same day gave 1611, because `origin/main` moves. Corrected to
+   a date stamp rather than a count — the 12/0 figures are properties of the pattern and stay
+   checkable, while the corpus size is not a fact a standard can hold true. This is the third
+   instance in this run of the same defect class (a number asserted in a document that a fresh count
+   contradicts), and the first two were caught by Red Hat, not by the gate or by Code Reviewer.
+
+**Operational note.** Mid-sweep, Red Hat observed `scripts/check-governance.js` transiently modified
+with reverted doc-comment text and a vitest run showing five failures against a remedy string that
+is not the committed one; immediately afterwards the tree was clean and the suite 81/81. This
+worktree is shared, and this repo already records that hazard. The committed state was re-confirmed
+clean and green by both Red Hat and Verifier afterwards, so the transient red is a ghost, not a
+finding — recorded so nobody chases it later.

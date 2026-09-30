@@ -205,7 +205,7 @@ filesystem walk):
   not, reword the subject so it does not claim to" (plus the existing note that the PR title becomes
   the squash-merge subject, which remains the actual fix for the real-closure case).
 
-  Measured against every subject on `origin/main` (1610 subjects as of this narrowing): the phrase
+  Measured against every subject on `origin/main` as of 2026-09-30: the phrase
   matches **twelve**, all twelve genuine closures that named their ticket a different way (a
   `docs(T<n>):` prefix) instead of as `closes T<n>` — twelve true positives, zero false positives.
   `close out` matches **five** subjects and stays excluded (below); the reversed-word-order shape
