@@ -82,6 +82,16 @@ match what shipped. Two of the seven exception kinds named in **Shape** above ar
   Discharging them requires persisting those findings at generation time, which is a separate
   change to the run lifecycle and is not in this ticket's scope.
 
+**Discharged 2026-09-30** (board item 8, commits a13417e4 / 94e0a6b8 / 3982357c — no status change;
+this ticket stays `completed`): the **tier-level occurrence** limit. An occurrence is keyed
+`(day, time_block, tier)`, so several groups of one tier placing the set at one cell collapsed into
+one occurrence and attendance admitted a camper to every occurrence of their tier — placing campers
+into an elective at a period their own group spends elsewhere, and costing them the inherited cell
+the export should have carried. Attendance is now additionally scoped by whether the camper's own
+group carries the set at that cell, with the camper's group read from the camp's roster rather than
+from the preference sheet's division column. The acceptance suite's GAP against spec condition (6)
+is now a met condition. See `docs/work/runs/2026-09-30-elective-attendance-scopes-by-group-not-tier.md`.
+
 Also true at close, and not defects to chase:
 
 - The dev mock's `deriveMockOuterRows` is a deliberate simplification: it does not span-collapse
