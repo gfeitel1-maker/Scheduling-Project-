@@ -85,19 +85,72 @@ describe('buildAttendance', () => {
     expect(unmatchedCount).toBe(1)
   })
 
-  // The common case: a set placed on only one tier's cells has nothing to
-  // disambiguate — matching would be inventing a failure mode. attendance is
-  // null, which is buildElectiveAssignments' own "attend everything" default.
-  it('skips matching entirely when occurrences span only one tier', () => {
+  // The old fast path returned `attendance: null` whenever occurrences spanned
+  // at most one tier, on the theory that a single-tier set has nothing to
+  // disambiguate. That was a correctness bug, not an optimization: a single
+  // tier can still span MULTIPLE groups (a same-tier set placed on two
+  // groups' cells), and the group axis needs the same scoping the tier axis
+  // already got in H4 — a director whose single-tier camp (this acceptance
+  // fixture's Older 1 / Older 2 shape) is exactly the shape the early return
+  // left unfixed. The function now always returns a computed map.
+  it('still scopes by group even when occurrences span only one tier', () => {
     const occurrences = [
-      { id: 'occ-1', tier_id: 'tier-1' },
-      { id: 'occ-2', tier_id: 'tier-1' },
+      { id: 'occ-1', tier_id: 'tier-1', group_ids: ['grp-1'] },
+      { id: 'occ-2', tier_id: 'tier-1', group_ids: ['grp-2'] },
     ]
     const tiers = [{ id: 'tier-1', name: 'Juniors' }]
-    const campers = [{ id: 'cam-1', division_label: 'Juniors' }]
+    const campers = [{ id: 'cam-1', division_label: 'Juniors', group_id: 'grp-1' }]
     const { attendance, unmatchedCount } = buildAttendance({ campers, occurrences, tiers })
-    expect(attendance).toBeNull()
+    expect(attendance['cam-1']).toEqual(['occ-1'])
     expect(unmatchedCount).toBe(0)
+  })
+
+  // THE DEFECT SHAPE. One tier, two occurrences created by different groups.
+  // A camper whose division matches the tier and whose group_id is X attends
+  // only the occurrence X's group created — never the sibling group's
+  // occurrence, even though both occurrences share the same tier_id.
+  it('excludes a same-tier occurrence created by a sibling group', () => {
+    const occurrences = [
+      { id: 'occ-a', tier_id: 'tier-1', group_ids: ['grp-x'] },
+      { id: 'occ-b', tier_id: 'tier-1', group_ids: ['grp-y'] },
+    ]
+    const tiers = [{ id: 'tier-1', name: 'Older' }]
+    const campers = [{ id: 'cam-1', division_label: 'Older', group_id: 'grp-x' }]
+    const { attendance } = buildAttendance({ campers, occurrences, tiers })
+    expect(attendance['cam-1']).toEqual(['occ-a'])
+    expect(attendance['cam-1']).not.toEqual(['occ-a', 'occ-b'])
+  })
+
+  // camper.group_id == null but division matched a tier (T279 §12.2a) — keeps
+  // today's tier-wide admission: every occurrence of the matched tier,
+  // regardless of which group created each one.
+  it('admits a camper with no group_id to every occurrence of their matched tier', () => {
+    const occurrences = [
+      { id: 'occ-a', tier_id: 'tier-1', group_ids: ['grp-x'] },
+      { id: 'occ-b', tier_id: 'tier-1', group_ids: ['grp-y'] },
+    ]
+    const tiers = [{ id: 'tier-1', name: 'Older' }]
+    const campers = [{ id: 'cam-1', division_label: 'Older', group_id: null }]
+    const { attendance, unmatchedCount } = buildAttendance({ campers, occurrences, tiers })
+    expect(attendance['cam-1'].sort()).toEqual(['occ-a', 'occ-b'])
+    expect(unmatchedCount).toBe(0)
+  })
+
+  // A correctly identified camper whose group carries the set in NO occurrence
+  // legitimately gets []. This is NOT an R1 (never-unplaced) violation — R1 is
+  // about a camper we cannot IDENTIFY, not one who was identified and simply
+  // isn't in this set's rotation — so it must not increment unmatchedCount or
+  // appear in `unmatched`.
+  it('gives an empty occurrence list to a matched camper whose group carries the set nowhere, without counting them unmatched', () => {
+    const occurrences = [
+      { id: 'occ-a', tier_id: 'tier-1', group_ids: ['grp-x'] },
+    ]
+    const tiers = [{ id: 'tier-1', name: 'Older' }]
+    const campers = [{ id: 'cam-1', division_label: 'Older', group_id: 'grp-z' }]
+    const { attendance, unmatchedCount, unmatched } = buildAttendance({ campers, occurrences, tiers })
+    expect(attendance['cam-1']).toEqual([])
+    expect(unmatchedCount).toBe(0)
+    expect(unmatched).toEqual([])
   })
 
   // NON-VACUITY. Drives the REAL parser (src/ingest/preferenceImport.js) on a

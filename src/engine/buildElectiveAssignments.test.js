@@ -165,6 +165,31 @@ describe('buildElectiveAssignments', () => {
     )
   })
 
+  // Board item (2026-09-30) — buildAttendance.js now scopes a same-tier
+  // occurrence to the group(s) that actually created it. At the solver level
+  // that just means: a camper excluded by the attendance map for a given
+  // occurrence is never placed there, and if the occurrence's only carrying
+  // group has no campers at all, NO_CAMPERS fires exactly as it does for the
+  // pre-existing "malformed map" case above — the solver does not need to
+  // know WHY a camper is ineligible, only that the map says so.
+  it("does not place a camper the attendance map excludes for that occurrence, and fires NO_CAMPERS when the occurrence's only carrying group has no campers", () => {
+    const out = buildElectiveAssignments({
+      // c1 is in the group that created o1 (attends o1 only); c2 is in the
+      // group that created o2 (attends o2 only) but o2 has no offerings-eligible
+      // camper of its own group represented here — o2's only carrying group
+      // contributed zero campers to this solve.
+      campers: [{ id: 'c1' }],
+      occurrences: [occ('o1'), occ('o2')],
+      offerings: [offering('o1', 'archery', 'a-arch'), offering('o2', 'gaga', 'a-gaga')],
+      preferences: [pref('c1', 'archery', 1), pref('c1', 'gaga', 1)],
+      attendance: { c1: ['o1'] }, // c1's group only carries o1
+    })
+    expect(out.assignments.map((a) => [a.camper_id, a.occurrence_id])).toEqual([['c1', 'o1']])
+    expect(out.findings).toContainEqual(
+      expect.objectContaining({ kind: 'NO_CAMPERS', occurrence_id: 'o2' })
+    )
+  })
+
   it('reports an occurrence with no offerings, instead of skipping it silently', () => {
     const out = buildElectiveAssignments({
       campers: [{ id: 'c1' }],

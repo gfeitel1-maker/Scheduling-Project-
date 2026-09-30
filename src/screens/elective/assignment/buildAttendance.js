@@ -25,26 +25,43 @@
 // hand-built `{ division: ... }` objects matching this code's assumption
 // rather than the parser's actual output -- see buildAttendance.test.js's new
 // non-vacuity test, which drives the real parser instead.
+//
+// BOARD ITEM (2026-09-30) -- tier matching alone was still too coarse. A
+// single tier can be covered by MULTIPLE groups' cells (this is exactly the
+// acceptance fixture's Older 1 / Older 2 shape, which is one tier), and the
+// old "occurrences span at most one tier -> attendance: null" fast path
+// treated that as nothing-to-disambiguate, so a camper in Older 2 was still
+// admitted to an occurrence a DIFFERENT group (Older 1) created. The fast path
+// is gone; the rule is now three branches, keyed off deriveOccurrences.js's
+// derived `group_ids`:
+//   1. camper.group_id is set -> attend only occurrences of the matched tier
+//      whose group_ids includes this camper's group.
+//   2. camper.group_id == null but the division matched a tier (T279 §12.2a)
+//      -> every occurrence of that tier, unchanged (tier-wide fallback).
+//   3. division unmatched or ambiguous -> every occurrence id, unchanged (R1).
+// `buildAttendance` now always returns a computed map, never null.
 import { suggestDivisionMatch } from './suggestDivisionMatch.js'
 import { electiveChoiceLabelKey } from '../../../../electron/ops/electiveDerivedIds.js'
 import { mapWithCollisions } from '../../../ingest/mapWithCollisions.js'
 
 /**
+ * A camper attends an occurrence iff its tier_id matches the camper's
+ * resolved division AND, when camper.group_id is set, that occurrence's
+ * group_ids includes it:
+ *   - camper.group_id == null but the division matched a tier (T279 §12.2a):
+ *     every occurrence of that tier (tier-wide admission, unchanged).
+ *   - division unmatched/ambiguous: unchanged, R1 -- every occurrence id.
+ *   - a correctly identified camper whose group carries the set NOWHERE
+ *     legitimately gets [] -- that is not an R1 violation and does not count
+ *     toward unmatchedCount.
+ *
  * @param {object} input
- * @param {{id: string, division_label?: string|null}[]} input.campers
- * @param {{id: string, tier_id: string|null}[]} input.occurrences
+ * @param {{id: string, division_label?: string|null, group_id?: string|null}[]} input.campers
+ * @param {{id: string, tier_id: string|null, group_ids?: string[]}[]} input.occurrences
  * @param {{id: string, name: string}[]} input.tiers
- * @returns {{attendance: Record<string, string[]>|null, unmatchedCount: number, unmatched: object[], ambiguous: object[]}}
- *   `attendance` is null when there is nothing to disambiguate (occurrences
- *   span at most one tier) -- callers pass that straight through to
- *   buildElectiveAssignments, whose own default is "attend everything".
+ * @returns {{attendance: Record<string, string[]>, unmatchedCount: number, unmatched: object[], ambiguous: object[]}}
  */
 export function buildAttendance({ campers = [], occurrences = [], tiers = [] } = {}) {
-  const distinctTierIds = new Set(occurrences.map((o) => o.tier_id).filter((t) => t != null))
-  if (distinctTierIds.size <= 1) {
-    return { attendance: null, unmatchedCount: 0, unmatched: [], ambiguous: [] }
-  }
-
   // T255 Slice B, finding 6 — schema v73 lets two tiers share a name, so a
   // plain last-write-wins Map here would silently seat a camper in only ONE
   // of the two same-named divisions' occurrences instead of every occurrence
@@ -105,7 +122,10 @@ export function buildAttendance({ campers = [], occurrences = [], tiers = [] } =
       unmatchedByValue.get(raw).camperCount += 1
       continue
     }
-    attendance[camper.id] = occurrences.filter((o) => o.tier_id === matchedTierId).map((o) => o.id)
+    const tierOccurrences = occurrences.filter((o) => o.tier_id === matchedTierId)
+    attendance[camper.id] = camper.group_id != null
+      ? tierOccurrences.filter((o) => (o.group_ids ?? []).includes(camper.group_id)).map((o) => o.id)
+      : tierOccurrences.map((o) => o.id)
   }
   return { attendance, unmatchedCount, unmatched: [...unmatchedByValue.values()], ambiguous: [...ambiguousByValue.values()] }
 }
