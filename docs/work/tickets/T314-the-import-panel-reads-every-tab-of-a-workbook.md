@@ -1,7 +1,7 @@
 ---
 title: "The import panel reads every tab of a workbook, not just the first"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-29
 task_class: ui-ux-design
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/TESTING_STANDARD.md]
@@ -81,3 +81,28 @@ second parse is worse than one that was never shown.
   Two tabs of submissions are two imports, and merging them would be the one refusal the ADR names.
 - Choosing between two tabs that BOTH map cleanly. The first wins and the rest are reported, exactly
   as the CLI already does — accept-and-report, not a merge, and not a question for the director.
+
+## Closed
+
+Landed as [#655](https://github.com/gfeitel1-maker/Scheduling-Project-/pull/655), squashed to
+`06b6f59e`. CI `verify` green (4m13s) on the merged head; audited BY CONTENT rather than ancestry,
+because a squash merge cannot be checked with `--is-ancestor`: `selectPreferenceSheet` is present on
+`origin/main` in `src/ingest/preferenceImport.js`, `scripts/preferenceSheetCli.js` and
+`src/screens/elective/assignment/AssignmentPanel.jsx`.
+
+Every predicate is met. The evidence worth carrying:
+
+- Red-then-green at BOTH layers, which is the part that matters here. Planting `sheets[0]` back in the
+  panel turns 3 of the 4 rendered-panel tests red — one cannot reach Solve (the imports-nothing face),
+  another never shows Confirm Mapping (the phantom-planner face) — and correctly leaves the single-tab
+  case green. Planting first-tab selection in the rule turns 8 of 10 red and leaves exactly the two
+  that should pass: the tab-1 control and the single-tab case.
+- 176 tests green across the eight affected suites; the CLI's own behaviour unchanged at 101 tests.
+
+## What this ticket got wrong about its own scope
+
+It was written as a fix for ONE door and recorded the rest as someone else's problem. The same line
+sat in six setup importers, four of them with the worse failure — the camp's `Programs` tab arriving
+as a group, an activity, an age division or a time block. That is [T315](T315-every-setup-importer-reads-its-own-tab.md),
+and it exists because this ticket's own framing repeated the mistake the owner was objecting to:
+fixing the instance in front of you and writing the class down.
