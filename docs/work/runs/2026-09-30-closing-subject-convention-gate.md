@@ -2,8 +2,8 @@
 task: Board q-closing-subject-convention-defeats-gate — a closing commit subject that does not say `closes T<n>` skips both the status-drift and run-record gates
 document_type: run
 date: 2026-09-30
-round: 1
-status: in-progress
+round: 2
+status: escalated
 task_class: documentation-governance
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/WORK_RECORD_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
 related_tickets: [docs/work/tickets/T283-board-truth-audit-gate.md]
@@ -25,8 +25,8 @@ omitted_agents:
     note: no auth, secrets, IPC, wire protocol or packaging surface touched
 deterministic_checks: [test, lint, build]
 human_gates: ["Amending a standard is a human gate (GOVERNANCE_INDEX.md §3-8, documentation-governance row: 'any change to a constitution or standard'; CONSTITUTION.md Art. IV). Treated as passed FOR THIS ITEM ONLY on the owner's verbatim ruling of 2026-09-29 on board item q-closing-subject-convention-defeats-gate — 'it needs to do that after it is done' — given on a board note whose stated fix shape was 'widen the pattern to close(s|d)? or fix the convention in WORK_RECORD_STANDARD'. The standard edit is confined to WORK_RECORD_STANDARD.md §3.2/§3.3 vocabulary, the documented regex, and the new finding. It carries no licence to amend any other standard or section."]
-verdict: null
-completion_evidence: []
+verdict: pass
+completion_evidence: ["commits 4941d332 (round 1), 357e2099 (work-index regeneration), 73ed7c66 (round 2)", "npx vitest run scripts/check-governance.test.js test/governance.test.js — exit 0, 105 passed", "npm run check:governance — exit 0, no findings", "npx eslint scripts/check-governance.js scripts/check-governance.test.js — exit 0", "npm run agents:check — exit 0, profiles byte-identical", "red-then-green reproduced independently by Verifier for both rounds by restoring the prior file version, tree confirmed clean afterwards", "corpus measurements (12 true positives, 0 false positives, close out = 5) independently re-counted by Verifier and by Red Hat against 1609 origin/main subjects"]
 archive_when: "the two offending historical subject shapes produce a blocking finding, the standard and the script carry the same regex text, and the T309 run-record question is settled either by a filed honest record or by a recorded reason it cannot be filed"
 ---
 
@@ -172,14 +172,41 @@ tickets closed, … (#371)`) is also deliberately excluded.
 
 ## Verifier verdict
 
-PASS / FAIL / UNVERIFIED —
+**PASS** — all four named gates exit 0 on `73ed7c66`; red-then-green reproduced independently for
+both rounds by restoring the prior file version rather than trusting Maker's report, with the tree
+confirmed clean afterwards; every number the standard now asserts re-counted from the corpus and
+matching exactly.
+
+`verdict: pass` with `status: escalated` is not a contradiction — it is the distinction §5.2 draws.
+The gates passed. What escalates is a defect class the gates structurally cannot see, found by
+adversarial review.
+
+**One evidence caveat, recorded rather than smoothed over.** Both Maker and Verifier report the RED
+run as "exit 0" while naming a failing test. Vitest exits non-zero on failure, so that exit code was
+mis-captured (the hazard this repo already records as reading a gate's tail instead of its exit
+code). The red-then-green conclusion still holds — a named test demonstrably failed before the
+change and passed after, observed twice independently — but the RED exit codes in the table are not
+trustworthy evidence and should not be cited as such.
 
 > Verifier alone writes this line and the `verdict` field. A FAIL or unresolved UNVERIFIED blocks
 > a pass outright, whatever Grader reports (`CONSTITUTION.md` Article VII).
 
 ## Grader score
 
-Average — , lowest dimension — . Pass is ≥ 4.0 with no dimension below 3.
+Average — **3.2**, lowest dimension — **2** (resilience, and documentation honesty). Pass is ≥ 4.0
+with no dimension below 3, so this **FAILS** the threshold.
+
+| Dimension | Score |
+|---|---|
+| Spec fidelity | 4 |
+| Maintainability | 3 |
+| Resilience / robustness | 2 |
+| Evidence quality | 5 |
+| Documentation honesty | 2 |
+
+Grader's reasoning, which I accept: on a **blocking** gate, trading one measured false-negative class
+for two confirmed false-positive classes works against the gate's purpose, however good the evidence
+for the fix is.
 
 ## Findings carried forward
 
@@ -200,6 +227,71 @@ Average — , lowest dimension — . Pass is ≥ 4.0 with no dimension below 3.
 
 ## Decision
 
-PASS / RETRY / ESCALATE —
+**ESCALATE** — round 2, Grader 3.2 with two dimensions at 2, and Red Hat names two CONFIRMED
+findings that should block a PASS. Article VII: a round-2 failure escalates with its open findings
+and does not become a round 3. The branch is committed and coherent but **should not be merged as
+it stands**.
+
+### The open findings
+
+1. **HIGH, CONFIRMED — no word boundary after the literal `ticket`.** `close the ticketing system
+   outage`, `closed the ticketmaster integration bug`, `close the ticket-booking flow for campers`
+   and `closes the ticketed-event feature` all fire. The sibling regex four lines above solves this
+   exact class with a commented `(?![a-z0-9'])` lookahead that was not applied to the new pattern.
+2. **HIGH, CONFIRMED — no negation or polarity handling.** `do not close the wrong ticket`,
+   `never close the ticket without director sign-off`, and `closes the loop; the ticket stays open`
+   all fire — the last while saying in the same subject that the ticket stays open.
+   Both findings land on a gate whose findings fail `npm run verify` and CI, and whose remedy
+   ("write `closes T<n>`") is wrong on a non-closure commit. Followed under time pressure it injects
+   a false completion reference, which then drives `checkStatusDrift` at a ticket that should stay
+   open — this repo's recorded "a guard can fire right and prescribe wrong" hazard, one hop removed.
+3. **MEDIUM — the doc comment overclaims.** It says the adjective sense "never collides", which
+   finding 1 disproves. A corpus-scoped count is written as a mechanism guarantee.
+4. **MEDIUM — the residual-gap list is one real shape short.** `Close six tickets whose work
+   shipped, and finish the one condition that had not (#491)` is a genuine closure-claim-without-id
+   already sitting in the measured corpus, and it does not fire. The standard documents only the
+   reversed-word-order twin.
+
+### The choice this needs a human for, with a recommendation
+
+The tension is structural, not an oversight: round 1's narrow phrase had **zero** over-fires and
+missed T171; round 2 catches T171 and admits the over-fire class above. A natural-language phrase
+heuristic sitting on a blocking gate is the real problem.
+
+**Recommended — make `closure-claim-without-id` ADVISORY, and apply two mechanical narrowings.**
+Add it to `ADVISORY_CODES`, and tighten the pattern to `tickets?(?![-\w])` (kills every finding-1
+shape, and catches the plural by design rather than by accident of a missing boundary) with the
+intervening-token class narrowed from `\S+` to `[\w/-]+` (stops the clause-crossing
+`closes the loop; the ticket …` match while still matching `the consolidation/gate-hardening
+ticket`). Rationale: the precise `closes T<n>` **convention** deserves a blocking gate; a heuristic
+that guesses at English prose does not. Advisory flips the failure direction to the safe one — an
+over-fire costs a printed line instead of a red CI on someone else's commit — while still ending the
+silence that was the whole defect ("no finding, no warning, nothing to notice"). It also makes the
+unfixed negation case tolerable rather than blocking. Confidence: high on the two narrowings
+(mechanical, testable, already measured); medium on the severity downgrade, because it is a
+judgement about how much authority a prose heuristic should carry.
+
+Alternatives, stated honestly: **keep it blocking and add a negation guard as well** — closes more
+of the gap, but a negation guard is a third heuristic layered on two, and the failure direction
+stays the dangerous one. Or **revert the round-2 widening** to round 1's zero-over-fire pattern,
+accepting the T171 blind spot.
+
+### Also open, deliberately not fixed here
+
+- **Multi-ID lists** (`close T218 and T222` captures only `T218`; `close T53-T60` only `T53`). Red
+  Hat rated this HIGH and it affects more tickets than the 12 this item fixes, but it is
+  pre-existing and §3.2 already documents it as a convention ("the regex is not widened to parse
+  lists"). Routed to the Build Board as its own item, not bundled in.
+- **T309's missing run record — settled, not deferred.** The board note asked to re-check #636 and
+  #640. #640 (T311) has a record; #636 (T309) has none, and none was filed. `checkRunRecordFiled`'s
+  own header states the repo's settled position: "81 tickets are already closed without a record;
+  applying this retroactively would mean either fabricating history or a permanently red gate, and
+  the first is exactly what the run-record standard exists to prevent." §5.1 makes
+  `selected_agents` a frozen pre-dispatch set, and PR #630's body names only Red Hat plus three
+  deterministic gates — any fuller roster would be reconstruction asserted as history. Red Hat
+  independently agreed this is defensible rather than a dodge, noting one unexplored middle path (a
+  record carrying only what the PR body verifies, with the roster marked unrecoverable) worth a line
+  in the standard if the situation recurs.
+- **T283** (the real main-side board-truth audit gate) remains open and untouched.
 
 > Round 2 failure escalates to the user with open findings. It does not become a round 3.
