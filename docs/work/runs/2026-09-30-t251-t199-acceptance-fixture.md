@@ -44,7 +44,7 @@ completion_evidence:
   - commit d3b49808
   - commit 50a168d3
   - commit 9f8ecf96
-  - "evidence: docs/work/evidence/T251/ — 14 screenshots from the real Electron app, DEV badge visible"
+  - "evidence: docs/work/evidence/T251/ — 14 screenshots from the real Electron app, DEV badge visible; 13 distinct (see the reduced-motion note below)"
   - "gate: npm run verify NOT run locally; CI (.github/workflows/gate.yml) is the gate of record for this branch and had not run at the time this record was written"
 archive_when: the owner rules on the four director-flow gaps below, and T199's exit condition is either met or formally narrowed
 ---
@@ -92,6 +92,12 @@ working, and its release preconditions require the D10 copy. T251's own `archive
 T199's exit condition satisfied. Neither can close truthfully today, so neither status was flipped
 and no commit on this branch says `closes`. The D8 at-rest-encryption disclosure (the other release
 precondition) **passes** on both entries tested.
+
+**One evidence defect, recorded rather than quietly dropped.** Verifier checksummed the screenshots
+and found two of the fourteen byte-identical: the reduced-motion capture was the same frame as the
+D8 entry-2 capture. The file is renamed to say so. The reduced-motion verdict is therefore
+**UNVERIFIED** — it rests only on a DOM measurement reported by Tester, with no distinguishing frame
+behind it, and must be re-captured before it is cited. Everything else in the directory is distinct.
 
 Per `CONSTITUTION.md` Article IV this is a product-judgement question — what "done" means to a
 director — and it belongs to the owner, not to this loop.
