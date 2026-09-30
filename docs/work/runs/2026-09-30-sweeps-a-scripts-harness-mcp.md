@@ -2,8 +2,8 @@
 task: "Sweeps PR A — five small test-infrastructure sweeps: agents:check manifest isolation, mining-lock expiry, harness join broadcaster, NUL guard widening + check:governance wiring, MCP dispatch hardening + README parity"
 document_type: run
 date: 2026-09-30
-round: 1
-status: in-progress
+round: 2
+status: pass
 task_class: test-infrastructure
 governing_docs:
   - docs/governance/constitution/CONSTITUTION.md
@@ -35,8 +35,18 @@ deterministic_checks:
   - "red-then-green proof: NUL guard over .jsx"
   - "red-then-green proof: harness join broadcaster"
 human_gates: []
-verdict: null
-completion_evidence: []
+verdict: PASS
+completion_evidence:
+  - "npm run test:integration — 27/27, scenario 37 present by name (was 26/26 at round 1, scenario unregistered)"
+  - "npx vitest run <nine named files> — 173 tests, exit 0"
+  - "npx vitest run scripts/mcp/ — 6 files, 60 tests, exit 0"
+  - "npm run check:governance — 0 blocking, no skip line, exit 0"
+  - "npm run agents:check — 14/14, exit 0"
+  - "npx eslint scripts test no-literal-nul.test.js — 0 errors, exit 0"
+  - "red-then-green (a): join() wiring removed -> 26/27 FAIL by name; restored -> 27/27"
+  - "red-then-green (b): '*.js' pathspec dropped -> vitest AND check:governance both red, literal-nul-coverage-floor at 198/2262 = 8.8% vs a 20% floor; restored -> both green"
+  - "red-then-green (c): raw NUL in a throwaway .jsx -> both consumers red naming the file; cleaned, tree empty"
+  - "lockIsStale.sh run directly against mktemp fixtures: live_pid=1, dead_pid=0, no_pidfile=0, malformed=2, missing=1"
 archive_when: the PR carrying this branch is merged and the five sweeps are visible on main
 ---
 
@@ -117,26 +127,78 @@ run under `CONSTITUTION.md` Article IV.
 
 | Gate | Result | Evidence |
 |---|---|---|
-| | | |
+| named vitest files (9) | PASS | 173 tests, exit 0 |
+| `npx vitest run scripts/mcp/` | PASS | 6 files, 60 tests, exit 0 |
+| `npm run test:integration` | PASS | 27/27, scenario 37 by name, exit 0 |
+| `npm run check:governance` | PASS | 0 blocking, 1 pre-existing advisory, no skip line, exit 0 |
+| `npm run agents:check` | PASS | 14/14, exit 0 |
+| `npx eslint scripts test no-literal-nul.test.js` | PASS | 0 errors, 6 pre-existing warnings, exit 0 |
+| `zsh -n` on both consolidation scripts | PASS | exit 0 each |
+| red-then-green (a) scenario 37 | PASS | 26/27 FAIL by name -> restored 27/27 |
+| red-then-green (b) dropped pathspec | PASS | both consumers red, 8.8% vs 20% floor -> both green |
+| red-then-green (c) real NUL plant | PASS | both consumers red naming the file; tree left empty |
+| `lockIsStale.sh` contract, run directly | PASS | 1 / 0 / 0 / 2 / 1 as specified |
+| `git status --porcelain` | PASS | empty |
 
 ## Verifier verdict
 
-PASS / FAIL / UNVERIFIED —
+**PASS** (round 2). Round 1 was a **FAIL**, for one reason: scenario 37 existed and was never
+registered in `test/integration/run.automerge.js`, so the suite ran 26/26 and the scenario was dead
+code that read as coverage. Round 1's red-then-green had been driven through a one-off runner its
+author then deleted.
 
 > Verifier alone writes this line and the `verdict` field. A FAIL or unresolved UNVERIFIED blocks
 > a pass outright, whatever Grader reports (`CONSTITUTION.md` Article VII).
 
+**Governor note on the quality of that PASS.** Three of Verifier's round-2 lines were softer than
+its brief required: it reported `zsh -n` as "read and verified" rather than executed, described the
+MCP run as "background completion", and verified the lock predicate's new contract by citing the
+Maker's own test file instead of running the script against fixtures as instructed. All three were
+closed directly at Governor level afterwards and are recorded in `completion_evidence`. An
+abstention someone else had to notice is not the same as evidence, and it is recorded here rather
+than absorbed.
+
 ## Grader score
 
-Average — , lowest dimension — . Pass is ≥ 4.0 with no dimension below 3.
+Average **4.0**, lowest dimension **3** (resilience, and evidence quality — both at 3). Pass is
+≥ 4.0 with no dimension below 3, so this passes at the threshold, not comfortably. Grader scored
+round 1 alone at **3.17 (FAIL)** and declined to let a clean round 2 fully redeem it, on the ground
+that a Verifier had to catch the dead test and reviewers — not the authors — named two of the three
+blind spots.
 
 ## Findings carried forward
 
-<Anything real that this run did not fix. A finding with no ticket is a finding that will be
-rediscovered.>
+1. **MCP partial-write then throw** (Red Hat MEDIUM). `rebuildProjectionFromDocumentTool`
+   (`scripts/mcp/tools.js`) re-throws non-refusal errors. The new dispatch wrapper flattens those
+   into the same `{ok:false, error}` envelope a clean refusal uses, so a caller retrying on
+   `ok:false` could re-run a rebuild against a half-wiped db. Before this change the throw ended the
+   stdio session, which was at least a loud signal. A `kind` field distinguishing "declined" from
+   "failed partway" is the likely fix.
+2. **Debounced flush against a stopped node** (Red Hat MEDIUM, pre-existing). A window between an
+   old node's `stop()` and the new wiring where a 250ms flush can fire through a callback closed
+   over a torn-down transport. Present at `start()`/`restart()` before this work; `join()` now has
+   it too. Red Hat's read of `syncNode.js` suggests it degrades to a dropped push rather than a
+   throw, but that is inference from code shape, not an observed run.
+3. **`TESTING_STANDARD.md` now understates the doc-fact gate** (Code Reviewer LOW). It describes
+   only the mismatch case as blocking; `doc-fact-undeliverable` is now blocking too. **Not fixed
+   here deliberately** — amending a standard is a human-approval gate (`CONSTITUTION.md`
+   Art. IV) and `docs/governance/` is outside this PR's agreed footprint.
+4. **`0.2` coverage ratio is empirically anchored, not derived** (Code Reviewer LOW). It catches a
+   dropped `*.js` or `*.jsx` today; a large `.mjs`-only migration could redden it for no good reason.
+5. **The NUL guard still cannot see a small-share glob deleted outright** — `.mjs` and `.cjs`
+   together are under 1% of the tree, so neither the per-pathspec check nor the ratio trips. Stated
+   in the module header rather than left implicit; closing it would need the pathspec set asserted
+   independently of the list, which is the second-copy defect the module exists to avoid.
+6. **`SHORESH_AGENT_MANIFEST` is undocumented** outside its inline comment (Code Reviewer LOW). It is
+   a test-support knob only, unlike the `SHORESH_ORG_DIR` precedent it mirrors.
+7. **86400s is still a guess.** PID liveness means a live holder is no longer robbed, so the bound
+   now only governs how long a *dead* lock lingers — but no one has measured a real mine's duration.
 
 ## Decision
 
-PASS / RETRY / ESCALATE —
+**PASS.** Verifier PASS with no unresolved UNVERIFIED claims, Grader 4.0 with nothing below 3, the
+footprint held, and all three of round 2's directed fixes were re-proved red-then-green by Verifier
+rather than taken on the Makers' reports. Seven findings carried forward above; items 1 and 2 are
+the two worth a ticket.
 
 > Round 2 failure escalates to the user with open findings. It does not become a round 3.

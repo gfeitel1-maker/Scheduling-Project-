@@ -75,6 +75,17 @@
 # rare edge case (a day-scale nightly job on one dev machine). If this predicate is ever
 # reused somewhere pids cycle fast or reboots are frequent, that tradeoff should be
 # revisited.
+#
+# A SECOND, DISTINCT BLIND SPOT: `kill -0 $pid` also fails non-zero when the pid is alive
+# but owned by another user (EPERM), and that failure is indistinguishable from ESRCH (no
+# such process) at this predicate's exit-code granularity — so a live holder owned by
+# someone else reads as exit 0 (stale), the lock becomes stealable out from under it. This
+# is the opposite failure direction from PID reuse above: that one makes a dead lock look
+# alive; this one makes a live lock look dead. It is currently unreachable because the
+# miner runs as a single user on one developer machine, so every holder.pid it ever writes
+# is owned by that same user. It would become reachable the moment this predicate, or a
+# lock directory it checks, is shared across users — a multi-user host, a service account
+# distinct from the interactive user, or a lock path on shared/networked storage.
 set -u
 
 if (( $# < 1 )); then
