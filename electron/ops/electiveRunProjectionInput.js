@@ -12,6 +12,14 @@
 // { run, campers, groups, days, timeBlocks, outerRows, preferences, assignments, occurrences,
 //   staleCount, capacityRows }. `days` maps `label` onto `name` because the export builders
 // (exportChildSchedule.js et al.) read `.name`, not `.label`.
+//
+// T320 round 2, F2 — `run` also carries snapshotIncomplete/expectedSnapshotRows/
+// heldSnapshotRows, and `input` carries eligibilityFindings/resourceConflicts, all sourced from
+// the SAME `getElectiveRun` call below (never re-derived). Without this, buildElectiveRunProjectionExport's
+// `run?.status === 'final' && run?.snapshotIncomplete` refusal was unreachable from the MCP tools
+// (scripts/mcp/tools.js) and the CLI (scripts/electivesCli.js) — the one place those two
+// machine-access surfaces get a run's completeness is this module, so leaving the fields off here
+// meant a partially-synced finalized run exported a complete-looking document on both of them.
 import { listEntities } from './read.js'
 import { getElectiveRun } from './getElectiveRun.js'
 import { getElectiveRunOuterSchedule } from './getElectiveRunOuterSchedule.js'
@@ -28,7 +36,12 @@ export function buildElectiveRunProjectionInput(db, { runId }) {
   return {
     ok: true,
     input: {
-      run,
+      run: {
+        ...run,
+        snapshotIncomplete: ui.snapshotIncomplete,
+        expectedSnapshotRows: ui.expectedSnapshotRows,
+        heldSnapshotRows: ui.heldSnapshotRows,
+      },
       campers: listEntities(db, 'campers'),
       groups: listEntities(db, 'groups'),
       days: listEntities(db, 'days_of_operation').map((d) => ({ ...d, name: d.label })),
@@ -39,6 +52,8 @@ export function buildElectiveRunProjectionInput(db, { runId }) {
       occurrences: ui.occurrences,
       staleCount: ui.staleCount,
       capacityRows: ui.overCapacityOccurrences,
+      eligibilityFindings: ui.eligibilityFindings,
+      resourceConflicts: ui.resourceConflicts,
     },
   }
 }

@@ -105,7 +105,13 @@ beforeAll(async () => {
   const outer = camp.handlers.getElectiveRunOuterSchedule({ token: camp.token, runId: run.id })
   const ui = camp.handlers.getElectiveRun({ token: camp.token, runId: run.id })
   projectionInput = {
-    run: { id: run.id, name: run.name, status: run.status, solver_generation: run.solver_generation, source_sha256: run.source_sha256 },
+    // T320 round 2, F2 — matches electiveRunProjectionInput.js's own
+    // `input.run` shape field-for-field: the completeness fields sourced
+    // from the SAME `ui` (getElectiveRun) call, never re-derived.
+    run: {
+      id: run.id, name: run.name, status: run.status, solver_generation: run.solver_generation, source_sha256: run.source_sha256,
+      snapshotIncomplete: ui.snapshotIncomplete, expectedSnapshotRows: ui.expectedSnapshotRows, heldSnapshotRows: ui.heldSnapshotRows,
+    },
     campers: list('campers'),
     groups: list('groups'),
     days: list('days_of_operation').map((d) => ({ ...d, name: d.label })),
@@ -116,6 +122,8 @@ beforeAll(async () => {
     occurrences: ui.occurrences,
     staleCount: ui.staleCount,
     capacityRows: ui.overCapacityOccurrences,
+    eligibilityFindings: ui.eligibilityFindings,
+    resourceConflicts: ui.resourceConflicts,
   }
   // The workbook takes the projection's INPUT and builds the document itself
   // (exportElectiveRunWorkbook.js:67-68) — that is the mechanism by which the
