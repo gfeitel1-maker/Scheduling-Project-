@@ -151,6 +151,12 @@ export const ACCEPTANCE_MANIFEST = Object.freeze({
   sharedLocation: 'Lakefront',
   sharedLocationElective: 'Swim',
   sharedLocationOuterActivity: 'Boating',
+  // THE ONE CELL THE GENERATED ROUTE OVERWRITES relative to the grid. Declared
+  // here rather than left implicit in the builder, because condition (6)'s
+  // expectation has to know about it: the grid is the independent statement of
+  // what belongs in a cell, and this is the single coordinate where the route
+  // under test deliberately says something else.
+  outerConflictCell: { group: 'Older 2', day: 'Monday' },
   sharedLocationCapacity: 3,
   // §6: ">=24 campers". 26.
   camperCount: 26,
@@ -471,7 +477,7 @@ export async function buildAcceptanceCamp(db, { handlers, token, campId, deviceI
   // Written onto a cell the loop above left as an elective cell for Older 2, so
   // the two routes differ in exactly the way §6 asks a Manual and a Generated
   // template to differ.
-  const outerConflictSlotId = slotAt(generatedTemplateId, 'Older 2', 'Monday')
+  const outerConflictSlotId = slotAt(generatedTemplateId, M.outerConflictCell.group, M.outerConflictCell.day)
   await write('template_slots', outerConflictSlotId, {
     elective_set_id: null, activity_id: activityIdByName.get(M.sharedLocationOuterActivity),
   })

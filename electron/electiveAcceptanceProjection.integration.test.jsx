@@ -89,6 +89,24 @@ function gridCells() {
   return byCell
 }
 
+// THE SAME STATEMENT, CORRECTED FOR THE ROUTE UNDER TEST. The grid is what the
+// camp gave us and stays the independent source; the generated route
+// deliberately overwrites exactly one of its cells (§6's outer location
+// conflict), and comparing that coordinate against the grid would be comparing
+// the route to a document the route is supposed to differ from. The override
+// comes from the MANIFEST, not from template_slots — reading it out of the same
+// table the export reads is the circularity this whole condition exists to
+// avoid.
+//
+// SAID PLAINLY: this override changes no result TODAY, because that coordinate
+// never reaches the inherited set at all — the GAP below measures why and
+// asserts it in both directions. It is here so the condition is already correct
+// the day the gap closes, rather than going green against the wrong document.
+const OUTER_CONFLICT_KEY =
+  `${ACCEPTANCE_MANIFEST.outerConflictCell.group}|${ACCEPTANCE_MANIFEST.outerConflictCell.day}|${ACCEPTANCE_MANIFEST.electivePeriod}`
+const expectedAt = (grid, key) =>
+  (key === OUTER_CONFLICT_KEY ? ACCEPTANCE_MANIFEST.sharedLocationOuterActivity : grid.get(key))
+
 describe("§6 (6) — a child's non-elective cells equal the group template the grid states", () => {
   it('produced inherited cells at all — without which this condition is vacuous', () => {
     expect(outer.rows.filter((r) => r.cellKind === 'inherited').length).toBeGreaterThan(0)
@@ -115,13 +133,14 @@ describe("§6 (6) — a child's non-elective cells equal the group template the 
     })
 
     const mismatches = []
-    let checked = 0
+    const covered = new Set()
     for (const camper of export_.campers) {
       const groupName = groupOfCamper.get(camper.camper_id)
       for (const entry of camper.schedule) {
         if (entry.kind !== 'span' || entry.cell_kind !== 'inherited') continue
-        const expected = grid.get(`${groupName}|${entry.day}|${entry.time_block}`)
-        checked += 1
+        const key = `${groupName}|${entry.day}|${entry.time_block}`
+        covered.add(key)
+        const expected = expectedAt(grid, key)
         if (expected !== entry.activity_name) {
           mismatches.push({
             camper: camper.display_name, groupName, day: entry.day,
@@ -130,8 +149,53 @@ describe("§6 (6) — a child's non-elective cells equal the group template the 
         }
       }
     }
-    expect(checked).toBeGreaterThan(0)
+    expect(covered.size).toBeGreaterThan(0)
     expect(mismatches).toEqual([])
+
+    // COVERAGE, NAMED. Without this the condition is satisfied by whatever
+    // subset of cells the export happens to emit, and a future narrowing that
+    // stopped emitting the interesting ones would be invisible. The cells that
+    // matter are the ones where the two routes DISAGREE: the manual route
+    // carries the set on Older/Wednesday, the generated route does not, so on
+    // the route under test those cells must arrive as inherited grid cells.
+    for (const group of ['Older 1', 'Older 2']) {
+      expect([...covered]).toContain(`${group}|Wednesday|${M.electivePeriod}`)
+    }
+  })
+
+  // GAP — THE ONE CELL THE GENERATED ROUTE OVERWRITES IS NOT REACHABLE AS AN
+  // INHERITED CELL AT ALL, and the reason is a production defect, not an
+  // export narrowing.
+  //
+  // An occurrence is (set, day, block, TIER) — never (…, group). The generated
+  // route places the set on Older 1 only at Monday/10:50 and gives Older 2
+  // `Boating`, but the Older/Monday occurrence that Older 1's cell creates is a
+  // TIER-level occurrence, so buildAttendance admits every Older camper to it,
+  // including Older 2's. Those campers are then placed in an elective at a
+  // period their own group spends at Boating, and F4 in
+  // electron/ops/electiveRunOuterSchedule.js correctly suppresses the inherited
+  // Boating span underneath it — one placement per block.
+  //
+  // So condition (6) CANNOT cover this coordinate today. Asserted in both
+  // directions rather than left as a silent absence: it is absent from the
+  // inherited set, AND the elective placement that displaced it is present. The
+  // day tier-level occurrences learn which groups actually carry the set, the
+  // second half goes red; the day the export starts emitting it, the first does.
+  it('GAP — the overwritten generated cell arrives as an ELECTIVE, not as the group’s Boating', () => {
+    const groupIdByName = new Map(catalogs.groups.map((g) => [g.name, g.id]))
+    const conflictGroupId = groupIdByName.get(M.outerConflictCell.group)
+    const campersThere = catalogs.campers.filter((c) => c.group_id === conflictGroupId)
+    expect(campersThere.length).toBeGreaterThan(0)
+
+    const dayId = camp.fixture.dayIdByLabel.get(M.outerConflictCell.day)
+    const at = outer.rows.filter(
+      (r) => r.dayId === dayId
+        && r.timeBlockId === camp.fixture.periodId
+        && campersThere.some((c) => c.id === r.camperId)
+    )
+    expect(at.length).toBeGreaterThan(0)
+    expect([...new Set(at.map((r) => r.cellKind))]).toEqual(['elective'])
+    expect(at.map((r) => r.activityName)).not.toContain(M.sharedLocationOuterActivity)
   })
 
   it('the child export names the group the camper is actually in', () => {
