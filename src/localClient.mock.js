@@ -2064,8 +2064,8 @@ export const mockShoresh = {
   },
   // T245 — mirrors setElectiveAssignmentHandler's success/RUN_NOT_DRAFT shape.
   // The mock has no elective_preferences or elective_set_activities capacity
-  // machinery wired here, so CAMPER_INELIGIBLE/OCCURRENCE_FULL never fire
-  // (same additive-degradation posture as the stubs above); the row it writes
+  // machinery wired here, so CAMPER_INELIGIBLE/OCCURRENCE_FULL/INVALID_CAPACITY
+  // never fire (same additive-degradation posture as the stubs above); the row it writes
   // carries the real derived id, source and is_locked so the screen is not
   // built against a lie.
   async setElectiveAssignment({ runId, camperId, occurrenceId, activityId, locked = false } = {}) {

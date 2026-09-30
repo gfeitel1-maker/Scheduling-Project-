@@ -76,10 +76,17 @@ cannot be committed while one exists, the row no longer reaches the engine at ca
 those goes red when the production change is reverted (re-run independently by Verifier, not taken on
 Maker's word). What remains is real and outside this ticket, recorded rather than quietly inherited:
 
-- **The write path still reads a blank capacity as 0.** `electron/ops/setElectiveAssignment.js` rejects
-  a director's manual move/lock into such an offering as `OCCURRENCE_FULL` with `capacity: 0` — the same
-  shape of silence, on a path T316 did not touch. Its comment now says so; changing a write path's
-  rejection semantics is a contract change, not a comment fix.
+- **The write path is fixed too, by owner ruling mid-ticket.** `electron/ops/setElectiveAssignment.js`
+  used to reject a director's manual move into such an offering as `OCCURRENCE_FULL` with `capacity: 0` —
+  a misconfigured offering reported as a full one. The owner ruled it in scope ("a defect you find at a
+  seam you are already changing is FINISHED, not recorded"), so it now refuses distinctly as
+  `INVALID_CAPACITY`, naming the offering in the director's own words, and that sentence is what the
+  director reads instead of the raw code. It is true for all three actions that share that write path — a
+  move, the Lock checkbox, and release-lock — and it never reads `"undefined"` when the activity row is
+  gone. **What that leaves:** `docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-slices.md`
+  documents this channel's refusal union as three members and it now has four. An agent may not amend an
+  ADR (Art. IV), so that needs the owner. The dev mock has no capacity lookup, so browser-dev cannot
+  reproduce this refusal at all — its comment now says so.
 - **`unknownMinimum` is untouched by design.** T265's mirror defect — `('required', NULL)` — still
   enforces nothing and says nothing. The asymmetry is now *visible* to a director who hits both in one
   set, which is a worse experience than two equally silent halves, and is the argument for doing it next.

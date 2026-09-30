@@ -69,7 +69,7 @@ export default function DraftRunView({
     try {
       const out = await localClient.setElectiveAssignment({ runId: run.id, camperId, occurrenceId, activityId, locked })
       if (!out?.ok) {
-        setError(out?.error ?? 'That placement could not be saved.')
+        setError(out?.message ?? out?.error ?? 'That placement could not be saved.')
         return false
       }
       return true

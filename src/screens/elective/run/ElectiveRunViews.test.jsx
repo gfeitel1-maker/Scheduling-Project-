@@ -258,6 +258,21 @@ describe('T250 archive_when — Draft: move/lock', () => {
     fireEvent.change(within(row).getByTestId('placement-occurrence-a1'), { target: { value: 'occ-2' } })
     await waitFor(() => expect(screen.getByTestId('run-view-error').textContent).toMatch(/OCCURRENCE_FULL/))
   })
+
+  // T316 round 3 — a refusal that carries a director-facing sentence (e.g.
+  // INVALID_CAPACITY) is shown verbatim instead of the bare machine code.
+  it('shows the handler\'s own message instead of the raw code when a move refusal carries one', async () => {
+    localClient.setElectiveAssignment.mockResolvedValue({
+      ok: false,
+      error: 'INVALID_CAPACITY',
+      message: '"Archery" is set to limited capacity but the number is blank — fill it in before moving campers into it.',
+    })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+    const row = await screen.findByTestId('placement-row-a1')
+    fireEvent.change(within(row).getByTestId('placement-occurrence-a1'), { target: { value: 'occ-2' } })
+    await waitFor(() => expect(screen.getByTestId('run-view-error').textContent).toMatch(/blank — fill it in before moving campers into it\./))
+    expect(screen.getByTestId('run-view-error').textContent).not.toMatch(/INVALID_CAPACITY/)
+  })
 })
 
 // ---------------------------------------------------------------------------

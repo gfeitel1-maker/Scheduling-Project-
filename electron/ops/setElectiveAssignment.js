@@ -18,6 +18,7 @@ import { resolveOfferingCapacity } from './electiveOfferingCapacity.js'
  * @returns {{ok:true, assignmentId:string}
  *  | {ok:false, error:'RUN_NOT_DRAFT'}
  *  | {ok:false, error:'OCCURRENCE_FULL', capacity:number, filled:number}
+ *  | {ok:false, error:'INVALID_CAPACITY', activityId:string, setActivityId:string, message:string}
  *  | {ok:false, error:'CAMPER_INELIGIBLE'}
  *  | {ok:false, error:string}}
  */
@@ -135,21 +136,24 @@ export function setElectiveAssignment(db, {
 
   // Capacity, resolved by the ONE helper the engine's offering builder uses
   // (electiveOfferingCapacity.js). An 'unlimited' offering is never checked.
-  // ('limited', NULL) resolves to a capacity of 0 here, treating a
-  // misconfigured (blank-capacity) offering as full. Before T316 this
-  // mirrored buildOfferings.js/buildElectiveAssignments, which also mapped
-  // such a row to capacity 0. As of T316 it no longer does: buildOfferings.js
-  // now EXCLUDES an unknownLimit row from generation entirely, and
-  // AssignmentPanel refuses to solve while one exists. This write path was
-  // deliberately left reading capacity 0 for that case — a director's manual
-  // move/lock against a misconfigured offering is rejected here as
-  // OCCURRENCE_FULL with capacity: 0, as though the offering were full
-  // rather than blank. Changing this path's rejection semantics is a
-  // contract change outside T316's scope; this comment records the
-  // divergence, it does not resolve it.
+  //
+  // ('limited', NULL) — `unknownLimit` — is a MISCONFIGURED offering, not a
+  // full one (owner ruling, T316 round 3): refused distinctly as
+  // INVALID_CAPACITY, naming the offering the same way buildOfferings.js's
+  // findBlankCapacities does, and never run through the `filled >= capacity`
+  // comparison a made-up capacity of 0 would otherwise force.
   const capacityResult = resolveOfferingCapacity(setActivity)
-  if (capacityResult.kind !== 'unlimited') {
-    const capacity = capacityResult.kind === 'limited' ? capacityResult.capacity : 0
+  if (capacityResult.kind === 'unknownLimit') {
+    return {
+      ok: false,
+      error: 'INVALID_CAPACITY',
+      activityId,
+      setActivityId: setActivity.id,
+      message: `${activityName ? `"${activityName}"` : 'This offering'} is set to limited capacity but the number is blank — fill it in first.`,
+    }
+  }
+  if (capacityResult.kind === 'limited') {
+    const capacity = capacityResult.capacity
     // Generation-visible rows only, via the shared fragment, and EXCLUDING the
     // row being written: a move within the same occurrence must not count
     // itself as an occupant.

@@ -1,0 +1,15 @@
+# gate run against 6dcc0c67 dirty=0 chunks=8
+
+STEP tests-1 | rc=0 | setElectiveAssignment.test.js: 32 passed
+STEP tests-2 | rc=0 | ElectiveRunViews.test.jsx: 34 passed
+STEP tests-3 | rc=0 | preferenceEditToResolve.test.jsx: 4 passed
+STEP tests-4 | rc=0 | buildOfferings.test.js: 15 passed
+STEP tests-5 | rc=0 | AssignmentPanel.test.jsx: 32 passed
+STEP tests-6 | rc=0 | AssignmentPreview.test.jsx: 14 passed
+STEP tests-7 | rc=0 | findingLabelCoverage.test.js: 11 passed
+STEP tests-8 | rc=0 | localClient.mock.electives.test.js: 11 passed
+STEP lint | rc=0 | 0 errors, 26 pre-existing warnings in unmodified files
+STEP governance | rc=0 | no findings
+STEP verify-non-vacuity | rc=0 | plant-the-defect: revert setElectiveAssignment.js produces 3 tests RED with OCCURRENCE_FULL/capacity:0; restore produces all GREEN; git diff --stat matches
+
+DONE
