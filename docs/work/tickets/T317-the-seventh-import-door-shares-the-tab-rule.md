@@ -1,7 +1,7 @@
 ---
 title: "The seventh import door shares the tab rule instead of spelling it"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-30
 task_class: ui-ux-design
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/TESTING_STANDARD.md]
@@ -65,3 +65,34 @@ table, which is the failure T315 fixed.
 - `LocationsScreen.test.jsx` mocks `XLSX` like the other six suites, so it cannot exercise tab
   selection. Coverage stays in `src/utils/readEntitySheet.test.js` against real workbook bytes, as for
   the other doors.
+
+## Closed
+
+Landed as [#659](https://github.com/gfeitel1-maker/Scheduling-Project-/pull/659), squashed to
+`8f9ac3f9`. CI `verify` green; audited by content: all SEVEN import doors now name `readEntitySheet`
+on `origin/main` — Activities, Anchors, Days, Groups, Locations, Tiers, TimeBlocks.
+
+**The class is closed, with the check scoped honestly.** `git grep "SheetNames\[0\]" origin/main --
+src/screens` returns nothing. The UNSCOPED grep does not, and publishing it as though it did would
+have been a false proof: four mentions survive outside `src/screens` and none is an instance — three
+are historical prose describing what the importers used to do, and one is a legitimate assertion
+pinning that the documented fallback picked the first sheet.
+
+Both gaps are red-then-green separately, and the plants surfaced something worth keeping: the
+name-match and column-match steps back each other up. Under a case-sensitive name match the
+lowercase-`locations` case still passes, because the column fallback catches it. Neither step is
+redundant; each is load-bearing for a different file, which is why they are tested independently.
+
+## The thing this ticket found that outlives it
+
+`src/utils/exportWorkbook.test.js` re-implemented LocationsScreen's
+`includes('Locations') ? … : SheetNames[0]` inline and said so in a comment. That fallback no longer
+exists, so the mirror would have gone on passing while describing a rule that had moved. It now drives
+`readEntitySheet` on real workbook bytes.
+
+**That is the THIRD time in this sequence a test mirroring the code under test hid something**:
+T313's panel reader, T315's six screen suites mocking `XLSX`, and this. Each was found by re-auditing
+rather than by a failing test, which is the definition of a blind spot. Three discoveries is enough to
+say the pattern deserves a structural check rather than a fourth — recorded here as the one follow-up
+worth having, not created, because what it should check is a judgement about this repo's test
+conventions rather than a defect to sweep.
