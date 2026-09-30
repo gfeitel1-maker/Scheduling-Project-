@@ -152,8 +152,15 @@ function ChoiceBox({ side, label, isPin, isImage, disabled, onKeep }) {
 // entity. It self-clears the moment the collision stops being derived: the
 // parent (usePendingConflicts) simply stops including it in `conflicts`, so
 // this card has no unmount/timer machinery of its own.
-function UniqueConflictCard({ conflict }) {
+// T242 leftover, resolved by the Build Board: exactly one unique-conflict
+// kind (days_of_operation) has a real screen to send the director to — see
+// the rationale above describeUniqueConflict. The other three kinds render
+// no interactive element at all, per that same rationale.
+const UNIQUE_CONFLICT_NAV_TARGET = { days_of_operation: { screen: 'days', label: 'Go to Days' } }
+
+function UniqueConflictCard({ conflict, onNavigate }) {
   const { sentence, whereToFix } = describeUniqueConflict(conflict.entity, conflict.field, conflict.value)
+  const navTarget = UNIQUE_CONFLICT_NAV_TARGET[conflict.entity]
   return (
     <div style={S.mergeCard}>
       <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 15, color: 'var(--text)', marginBottom: whereToFix ? 6 : 0 }}>
@@ -161,6 +168,14 @@ function UniqueConflictCard({ conflict }) {
       </div>
       {whereToFix && (
         <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{whereToFix}</div>
+      )}
+      {navTarget && (
+        <button
+          onClick={() => onNavigate?.(navTarget.screen)}
+          style={{ background: 'none', border: 'none', color: 'var(--primary)', fontSize: 13, cursor: 'pointer', padding: 0, marginTop: 8, fontFamily: 'inherit', fontWeight: 600 }}
+        >
+          {navTarget.label}
+        </button>
       )}
     </div>
   )
@@ -285,7 +300,7 @@ function ConflictCard({ conflict, resolved, resolveAuthorLabel, onResolve }) {
   )
 }
 
-export default function ConflictsScreen({ pendingConflicts }) {
+export default function ConflictsScreen({ pendingConflicts, onNavigate }) {
   // eslint-disable-next-line react-hooks/rules-of-hooks
   const fallback = pendingConflicts ? null : usePendingConflicts()
   const { conflicts, loading, resolveConflict, resolveAuthorLabel, resolvedMeta } = pendingConflicts ?? fallback
@@ -320,7 +335,7 @@ export default function ConflictsScreen({ pendingConflicts }) {
 
           {conflicts.map((c) => (
             c.kind === 'unique' ? (
-              <UniqueConflictCard key={c.id} conflict={c} />
+              <UniqueConflictCard key={c.id} conflict={c} onNavigate={onNavigate} />
             ) : (
               <ConflictCard
                 key={c.id}

@@ -330,7 +330,7 @@ function makeUniqueConflict(overrides = {}) {
   }
 }
 
-function renderPending(conflicts) {
+function renderPending(conflicts, onNavigate) {
   const pendingConflicts = {
     conflicts,
     loading: false,
@@ -339,7 +339,7 @@ function renderPending(conflicts) {
     resolveAuthorLabel: () => 'Someone',
     resolvedMeta: {},
   }
-  render(<ConflictsScreen pendingConflicts={pendingConflicts} />)
+  render(<ConflictsScreen pendingConflicts={pendingConflicts} onNavigate={onNavigate} />)
 }
 
 describe('ConflictCard kind: "unique" (T242) — informational, no ChoiceBox', () => {
@@ -348,24 +348,30 @@ describe('ConflictCard kind: "unique" (T242) — informational, no ChoiceBox', (
     expect(screen.queryByRole('button', { name: /keep this version/i })).toBeNull()
   })
 
-  it('users: names the colliding staff member, no owning-screen line', () => {
+  it('users: names the colliding staff member, no owning-screen line, no control', () => {
     renderPending([makeUniqueConflict({ entity: 'users', field: 'name', value: 'Alice' })])
     expect(screen.queryByText('Two staff members are both named "Alice".')).not.toBeNull()
     expect(screen.queryByText(/Staff screen/i)).toBeNull()
+    expect(screen.queryByRole('button')).toBeNull()
   })
 
-  it('days_of_operation: names the day and points at the Days screen', () => {
+  it('days_of_operation: names the day, points at the Days screen, and can navigate there', () => {
+    const onNavigate = vi.fn()
     renderPending([makeUniqueConflict({
       id: 'unique:days_of_operation:camp1:day_of_week',
       entity: 'days_of_operation',
       field: 'day_of_week',
       value: 2, // Tuesday
-    })])
+    })], onNavigate)
     expect(screen.queryByText('Two schedules exist for Tuesday.')).not.toBeNull()
     expect(screen.queryByText('Rename or delete one on the Days screen.')).not.toBeNull()
+    const goButton = screen.getByRole('button', { name: 'Go to Days' })
+    goButton.click()
+    expect(onNavigate).toHaveBeenCalledTimes(1)
+    expect(onNavigate).toHaveBeenCalledWith('days')
   })
 
-  it('schedule_templates: names the route, never calls one "active"/"current"/"real"', () => {
+  it('schedule_templates: names the route, never calls one "active"/"current"/"real", no control', () => {
     renderPending([makeUniqueConflict({
       id: 'unique:schedule_templates:week1:kind',
       entity: 'schedule_templates',
@@ -375,9 +381,10 @@ describe('ConflictCard kind: "unique" (T242) — informational, no ChoiceBox', (
     const text = document.body.textContent
     expect(text).toContain('Two Manual schedules exist for this camp.')
     expect(text.toLowerCase()).not.toMatch(/\bactive\b|\bcurrent\b|\breal\b/)
+    expect(screen.queryByRole('button')).toBeNull()
   })
 
-  it('camp_maps: names the collision with no second line', () => {
+  it('camp_maps: names the collision with no second line and no control', () => {
     renderPending([makeUniqueConflict({
       id: 'unique:camp_maps:camp1:kind',
       entity: 'camp_maps',
@@ -385,6 +392,18 @@ describe('ConflictCard kind: "unique" (T242) — informational, no ChoiceBox', (
       value: 'facility',
     })])
     expect(screen.queryByText('Two camp maps were created for this camp.')).not.toBeNull()
+    expect(screen.queryByRole('button')).toBeNull()
+  })
+
+  it('an unknown entity (fallback copy) renders no control either', () => {
+    renderPending([makeUniqueConflict({
+      id: 'unique:some_future_entity:camp1:x',
+      entity: 'some_future_entity',
+      field: 'x',
+      value: 'y',
+    })])
+    expect(screen.queryByText('Two records collide on a value that must be unique.')).not.toBeNull()
+    expect(screen.queryByRole('button')).toBeNull()
   })
 
   it('a conflict with no `kind` field is treated as scalar, unchanged', () => {
