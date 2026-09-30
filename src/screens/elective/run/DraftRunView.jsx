@@ -9,7 +9,7 @@
 // permissions.js's ENTITIES, so authorize() default-denies staff) — this file
 // deliberately does not re-implement a second gate, and nothing here is
 // reachable from src/components/layout/navSections.js.
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { localClient } from '../../../localClient'
 import { describeWriteFailure } from '../../../utils/writeErrorMessage'
 import { S, RunStateArea, RunStateRow, RunIdentity, RunError } from './RunStateRows.jsx'
@@ -23,8 +23,8 @@ import { CELL_CHOICE } from '../../../engine/rankKind.js'
 import DeleteRunDialog from './DeleteRunDialog.jsx'
 import { A } from '../assignment/assignmentStyles.js'
 import {
-  RELEASE_LOCK_LABEL, camperDisambiguator, danglingMessage, occurrenceLabel, overCapacityMessage,
-  satisfactionSummary, stalenessOfferMessage,
+  RELEASE_LOCK_LABEL, danglingMessage, occurrenceLabel, overCapacityMessage,
+  resolveCamperDisambiguators, satisfactionSummary, stalenessOfferMessage,
 } from './runStateCopy.js'
 
 const styles = {
@@ -142,6 +142,15 @@ export default function DraftRunView({
   const [preferencesEdited, setPreferencesEdited] = useState(false)
 
   const rows = state.rows
+  // Round 2 FIX 3 — resolved once per state.campers change, across the WHOLE
+  // roster, so a tier value is only used when it actually tells two
+  // same-named campers apart (see resolveCamperDisambiguators' own comment).
+  const camperDisambiguators = useMemo(
+    () => resolveCamperDisambiguators(
+      (state.campers ?? []).map((c) => ({ id: c.id, name: c.display_name, groupName: c.group_name, externalId: c.external_id }))
+    ),
+    [state.campers]
+  )
   // T318 (b) — TWO labellers, because the two callers need different occurrence
   // sets and conflating them is exactly the bug this ticket fixes.
   //
@@ -482,15 +491,12 @@ export default function DraftRunView({
             </thead>
             <tbody>
               {rows.map((r) => {
-                // T250 B3 — two same-named campers on this table read
-                // identically without something beside the name to tell them
-                // apart. `state.campers` (A0.2) carries the resolved group
-                // name and external_id; degrade order is
-                // camperDisambiguator's own (group -> external_id -> nothing).
-                const camper = (state.campers ?? []).find((c) => c.id === r.camper_id)
-                const disambiguator = camper
-                  ? camperDisambiguator({ groupName: camper.group_name, externalId: camper.external_id })
-                  : null
+                // T250 B3 / Round 2 FIX 3 — two same-named campers on this
+                // table read identically without something beside the name
+                // to tell them apart, and the value shown must actually
+                // distinguish them (resolveCamperDisambiguators is computed
+                // over the whole roster above, not per row).
+                const disambiguator = camperDisambiguators.get(r.camper_id) ?? null
                 return (
                 <tr key={r.id} data-testid={`placement-row-${r.id}`}>
                   <td style={styles.td}>

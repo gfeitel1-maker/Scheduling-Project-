@@ -9,7 +9,7 @@
 // numbered choice (T318 (c) — "an ordinal is shown only on positive evidence of
 // ordering").
 import { describe, it, expect } from 'vitest'
-import { occurrenceLabel, satisfactionSummary, camperDisambiguator } from './runStateCopy.js'
+import { occurrenceLabel, satisfactionSummary, camperDisambiguator, resolveCamperDisambiguators } from './runStateCopy.js'
 
 describe('occurrenceLabel', () => {
   it('resolves the day name from `label`, the actual days_of_operation column', () => {
@@ -117,5 +117,47 @@ describe('T250 B3 — camperDisambiguator degrades group name -> external_id -> 
   it('never returns the raw camper_id — it is not one of the function\'s inputs at all', () => {
     const result = camperDisambiguator({ groupName: null, externalId: null, camperId: 'camper-123' })
     expect(result).not.toBe('camper-123')
+  })
+})
+
+// Round 2 FIX 3 (Red Hat, MEDIUM) — camperDisambiguator degrades per camper
+// with no awareness of whether its pick actually distinguishes anyone. Two
+// same-named campers in the same group both printed "Jordan Lee · Cabin 4" —
+// identical strings that read as resolved when they are not.
+describe('T250 round 2 FIX 3 — resolveCamperDisambiguators is collision-aware across the listed set', () => {
+  it('two same-named campers in the same group WITH external_ids show the external_ids, not the (colliding) group name', () => {
+    const result = resolveCamperDisambiguators([
+      { id: 'c1', name: 'Jordan Lee', groupName: 'Cabin 4', externalId: 'CM-1' },
+      { id: 'c2', name: 'Jordan Lee', groupName: 'Cabin 4', externalId: 'CM-2' },
+    ])
+    expect(result.get('c1')).toBe('CM-1')
+    expect(result.get('c2')).toBe('CM-2')
+  })
+
+  it('the same pair with no external_id shows nothing — a genuinely unresolvable residual, never an index or the raw id', () => {
+    const result = resolveCamperDisambiguators([
+      { id: 'c1', name: 'Jordan Lee', groupName: 'Cabin 4', externalId: null },
+      { id: 'c2', name: 'Jordan Lee', groupName: 'Cabin 4', externalId: null },
+    ])
+    expect(result.get('c1')).toBeNull()
+    expect(result.get('c2')).toBeNull()
+  })
+
+  it('two same-named campers in DIFFERENT groups are told apart by group name', () => {
+    const result = resolveCamperDisambiguators([
+      { id: 'c1', name: 'Jordan Lee', groupName: 'Cabin 4', externalId: null },
+      { id: 'c2', name: 'Jordan Lee', groupName: 'Cabin 7', externalId: null },
+    ])
+    expect(result.get('c1')).toBe('Cabin 4')
+    expect(result.get('c2')).toBe('Cabin 7')
+  })
+
+  it('a camper whose name is unique in the set gets no disambiguator', () => {
+    const result = resolveCamperDisambiguators([
+      { id: 'c1', name: 'Jordan Lee', groupName: 'Cabin 4', externalId: 'CM-1' },
+      { id: 'c2', name: 'Ari Green', groupName: 'Cabin 4', externalId: 'CM-2' },
+    ])
+    expect(result.get('c1')).toBeNull()
+    expect(result.get('c2')).toBeNull()
   })
 })

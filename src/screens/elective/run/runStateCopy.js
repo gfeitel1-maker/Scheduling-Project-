@@ -76,6 +76,58 @@ export function camperDisambiguator({ groupName, externalId } = {}) {
   return null
 }
 
+// Round 2 FIX 3 (Red Hat, MEDIUM) — camperDisambiguator above degrades PER
+// CAMPER, with no idea whether the value it picks actually tells this camper
+// apart from anyone else. Two same-named campers who both happen to be in
+// "Cabin 4" both got "Jordan Lee · Cabin 4" printed under them — a value that
+// LOOKS resolved and is not, which is worse than printing nothing: it defeats
+// the entire point of disambiguating.
+//
+// This resolves the WHOLE SET of campers being listed at once, collision by
+// name: a tier's value is used for a camper only when no OTHER same-named
+// camper in the same set shares that exact value at that tier — otherwise it
+// falls through to the next tier (group -> external_id -> nothing), same
+// order as camperDisambiguator. A camper whose name is unique in the set
+// needs no disambiguator at all and is never looked up.
+//
+// `entries`: [{ id, name, groupName, externalId }]. Returns a Map of
+// id -> disambiguator string, or null when nothing distinguishes.
+export function resolveCamperDisambiguators(entries = []) {
+  const result = new Map()
+  const byName = new Map()
+  for (const entry of entries) {
+    if (!entry || entry.id == null) continue
+    result.set(entry.id, null)
+    if (!entry.name) continue
+    if (!byName.has(entry.name)) byName.set(entry.name, [])
+    byName.get(entry.name).push(entry)
+  }
+  for (const group of byName.values()) {
+    if (group.length < 2) continue // a unique name needs no disambiguator
+    applyDistinguishingTier(group, 'groupName', result)
+    const unresolved = group.filter((entry) => result.get(entry.id) == null)
+    applyDistinguishingTier(unresolved, 'externalId', result)
+  }
+  return result
+}
+
+// A tier value is only "distinguishing" within a colliding group when it is
+// unique among that group — two campers sharing both the name AND the group
+// have not been told apart, so neither gets the group tier and both fall
+// through to the next one.
+function applyDistinguishingTier(group, key, result) {
+  const counts = new Map()
+  for (const entry of group) {
+    const value = entry[key]
+    if (!value) continue
+    counts.set(value, (counts.get(value) ?? 0) + 1)
+  }
+  for (const entry of group) {
+    const value = entry[key]
+    if (value && counts.get(value) === 1) result.set(entry.id, value)
+  }
+}
+
 const RANK_WORDS = ['a first choice', 'a second choice', 'a third choice']
 
 // Derived from the run's own assignment rows and nothing else. Deliberately

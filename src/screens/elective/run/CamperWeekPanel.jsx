@@ -32,7 +32,7 @@
 import { useMemo, useState } from 'react'
 import { S, useEnterTransition } from '../../../styles/shared'
 import { buildCamperElectiveWeek, listRunCampers, rankLabel } from './camperElectiveWeek.js'
-import { camperDisambiguator } from './runStateCopy.js'
+import { resolveCamperDisambiguators } from './runStateCopy.js'
 
 // The severity vocabulary this corner of the app already speaks
 // (src/ingest/residueKinds.js's residueRailColor, ParseSummary's two summary
@@ -182,6 +182,15 @@ export default function CamperWeekPanel({
   // a few thousand rows — so an unmemoized roster pays a full scan plus a
   // locale-collated sort of every camper on each interaction.
   const campers = useMemo(() => listRunCampers(rows), [rows])
+  // Round 2 FIX 3 — resolved once across the WHOLE picker list, so a tier
+  // value is only shown when it actually tells two same-named campers apart
+  // (see resolveCamperDisambiguators' own comment in runStateCopy.js).
+  const disambiguators = useMemo(() => resolveCamperDisambiguators(
+    campers.map((c) => {
+      const roster = rosterCampers.find((r) => r.id === c.camperId)
+      return { id: c.camperId, name: c.camperName, groupName: roster?.group_name, externalId: roster?.external_id }
+    })
+  ), [campers, rosterCampers])
   const week = useMemo(
     () => (camperId == null
       ? null
@@ -223,11 +232,10 @@ export default function CamperWeekPanel({
         {campers.length} {campers.length === 1 ? 'camper' : 'campers'}
       </div>
       {campers.map((camper) => {
-        // T250 B3 — the same ' · ' separator RunIdentity already uses.
-        const roster = rosterCampers.find((c) => c.id === camper.camperId)
-        const disambiguator = roster
-          ? camperDisambiguator({ groupName: roster.group_name, externalId: roster.external_id })
-          : null
+        // T250 B3 / Round 2 FIX 3 — the same ' · ' separator RunIdentity
+        // already uses; the value itself is collision-aware (see the
+        // `disambiguators` memo above).
+        const disambiguator = disambiguators.get(camper.camperId) ?? null
         return (
         <button
           key={camper.camperId}
