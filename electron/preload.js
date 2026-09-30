@@ -128,6 +128,7 @@ contextBridge.exposeInMainWorld('shoresh', {
   duplicateWeek: (args) => ipcRenderer.invoke('shoresh:duplicate-week', args),
   deleteWeek: (args) => ipcRenderer.invoke('shoresh:delete-week', args),
   deleteElectiveSet: (args) => ipcRenderer.invoke('shoresh:delete-elective-set', args),
+  deleteElectiveRun: (args) => ipcRenderer.invoke('shoresh:delete-elective-run', args),
   deleteSpecialDay: (args) => ipcRenderer.invoke('shoresh:delete-special-day', args),
   deleteEvent: (args) => ipcRenderer.invoke('shoresh:delete-event', args),
   // T105: the durability read seam's first production caller

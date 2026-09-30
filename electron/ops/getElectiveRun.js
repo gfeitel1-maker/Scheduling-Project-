@@ -199,5 +199,27 @@ export function getElectiveRun(db, { runId }) {
     }
   }
 
-  return { rows, staleCount, finalizedAgainstStaleGeneration, overCapacityOccurrences, occurrences, preferences, choices }
+  // T250 A0.2 — every camper this run has a preference OR an assignment for,
+  // group name resolved so a director-facing view can label a camper without
+  // a second lookup. Feeds both the cold-regenerate roster (A3) and the
+  // same-name disambiguator (B3).
+  //
+  // KNOWN GAP, named rather than silently absorbed: a camper who was in the
+  // original sheet with NEITHER a preference nor an assignment row on this
+  // run is not in this set. No schema change closes that — there is no table
+  // recording "considered for this run" independent of a preference or a
+  // placement — so this stays an open gap rather than an invented column.
+  const campers = db
+    .prepare(
+      `SELECT DISTINCT c.id, c.display_name, c.division_label, c.group_id, c.external_id, c.is_unattributed, g.name AS group_name
+         FROM campers c LEFT JOIN groups g ON g.id = c.group_id
+        WHERE c.id IN (
+          SELECT camper_id FROM elective_preferences WHERE run_id = ?
+          UNION
+          SELECT camper_id FROM elective_assignments WHERE run_id = ?
+        )`
+    )
+    .all(runId, runId)
+
+  return { rows, staleCount, finalizedAgainstStaleGeneration, overCapacityOccurrences, occurrences, preferences, choices, campers }
 }
