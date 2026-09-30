@@ -15,6 +15,9 @@
 // The CALLER still declares its own `vi.mock('../src/localClient', ...)` — a
 // mock factory is hoisted into the file that imports the mocked module, so it
 // cannot live here.
+// `expect` is imported rather than taken from the globals: vitest injects those
+// into *.test.* files only, and this is a helper module.
+import { expect } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import fs from 'node:fs'
 import AssignmentPanel from '../src/screens/elective/assignment/AssignmentPanel.jsx'

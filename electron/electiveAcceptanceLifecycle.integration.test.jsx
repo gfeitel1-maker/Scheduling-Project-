@@ -21,7 +21,6 @@
 // dealt with the conflict. Each earlier refusal would MASK the next.
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import os from 'node:os'
-import { randomUUID } from 'node:crypto'
 
 vi.mock('electron', () => ({
   app: { getPath: vi.fn(() => os.tmpdir()), whenReady: vi.fn(() => Promise.resolve()), on: vi.fn() },
@@ -221,8 +220,6 @@ describe('a finalized run is immutable', () => {
     const out = await finalize()
     expect(out.ok).toBe(false)
     expect(statusOf()).toEqual(before)
-    // `randomUUID` is imported so this file's own lint stays honest about the
-    // one place it is used below.
-    expect(typeof randomUUID).toBe('function')
+    expect(out.error).toBe('ALREADY_FINAL')
   })
 })
