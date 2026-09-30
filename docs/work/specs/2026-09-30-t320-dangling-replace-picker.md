@@ -6,7 +6,7 @@ status: draft
 created: 2026-09-30
 governing_docs: [docs/governance/standards/DESIGN_STANDARD.md, docs/work/specs/2026-09-25-t250-run-state-surface.md]
 related_adrs: [docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-slices.md]
-related_tickets: [T320]
+related_tickets: [docs/work/tickets/T320-elective-run-durability.md]
 archive_when: T320 item 3 ships Maker's implementation of this picker and Governor confirms it against this spec
 ---
 
