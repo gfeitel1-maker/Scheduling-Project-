@@ -4,9 +4,8 @@ document_type: adr
 status: accepted
 approved: 2026-09-30 (owner, via the organizer session: "go for it" — accepted as written; recorded on the board as h-accept-adr-2026-09-30-durability)
 authority: normative
-implementation_state: not-started
+implementation_state: partial (part 1 — snapshot completeness, occurrence pruning, re-place picker, persisted eligibility findings — merged; part 2 — tombstone-aware stub seed, refuse commit onto a final run, camper with neither preference nor assignment visible to cold regenerate — not started)
 date: 2026-09-30
-approved: "pending (Governor dispatch, owner ruling 2026-09-29: \"i want the durability pass\", \"bundle with the row above\", \"put the picker in to move a camper\", \"i agree on 197\")"
 task_class: database-sync
 governing_docs:
   - docs/governance/constitution/CONSTITUTION.md
