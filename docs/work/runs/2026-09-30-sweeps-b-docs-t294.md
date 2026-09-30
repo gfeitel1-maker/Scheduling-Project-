@@ -3,7 +3,7 @@ task: "Sweeps PR B (board q-small-sweeps-batch): PLATFORM_STATE schema_migration
 document_type: run
 date: 2026-09-30
 round: 2
-status: in-progress
+status: pass
 task_class: documentation-governance
 governing_docs:
   - docs/governance/GOVERNANCE_INDEX.md
@@ -36,8 +36,12 @@ deterministic_checks:
   - "implementation_state value-set enumeration across docs/adr/*.md"
   - "PLATFORM_STATE version-fact diff (no vNN fact lost in the merge)"
 human_gates: []
-verdict: null
-completion_evidence: []
+verdict: PASS
+completion_evidence:
+  - "Verifier round 2: PASS on 8 named gates (check:governance exit 0, zero blocking, only the pre-existing platform-state-stale advisory; 120/120 governance tests; agents:check byte-identical; enum census 70/23/47; PLATFORM_STATE version-token set origin/main subset of HEAD; footprint 100% under docs/; INDEX regeneration a no-op)"
+  - "Code Reviewer round 1 Ready (byte-level confirmation that the merged bullet lost no fact and that the v67/T162 paragraph was spliced in verbatim); round 2 delta Ready after the capability-count correction"
+  - "Red Hat round 1 resilience 2 with three HIGH findings, all independently re-confirmed by Governor against the code and all corrected in round 2; round 2 resilience 3, both new items confirmed and one corrected in b8d9fc3e, the other carried forward as out-of-footprint"
+  - "Grader: average 4.0, lowest dimension 4, PASS_ELIGIBLE"
 archive_when: "PLATFORM_STATE.md holds exactly one schema_migrations bullet carrying every version fact from the two prior bullets with a true, marked current-version claim; every docs/adr/*.md implementation_state is one of not-started / in-progress / implemented with the mapping recorded here; T294/T171/T195 carry their dated disposition notes; and this branch has landed on main."
 ---
 
@@ -322,14 +326,30 @@ INDEX regeneration.
 
 ## Verifier verdict
 
-PASS / FAIL / UNVERIFIED —
+**PASS** (round 2, all eight named gates). `npm run check:governance` exit 0 with zero blocking
+findings and the pre-existing `platform-state-stale` as the only advisory — byte-for-byte the
+baseline measured at 3ceee575, with neither of the two "check skipped" warnings printed.
+`npx vitest run test/governance.test.js scripts/check-governance.test.js` 120/120.
+`npm run agents:check` all profiles byte-identical. Enum census exactly {implemented 70,
+in-progress 23, not-started 47}. PLATFORM_STATE `v<NN>` token sets equal between origin/main and
+HEAD, one `schema_migrations` bullet, both `doc-fact:schema_version` markers asserting 83 against
+`CURRENT_SCHEMA_VERSION = 83`. Footprint 100% under `docs/`. `npm run index:work` a no-op.
+
+No success-predicate claim is UNVERIFIED. Round 1's version-token gate under-matched its regex and
+reported an implausibly small token set; that weak evidence is superseded by round 2's corrected
+extraction and by Code Reviewer's independent byte-level verbatim check, not treated as a pass.
 
 > Verifier alone writes this line and the `verdict` field. A FAIL or unresolved UNVERIFIED blocks
 > a pass outright, whatever Grader reports (`CONSTITUTION.md` Article VII).
 
 ## Grader score
 
-Average — , lowest dimension — . Pass is ≥ 4.0 with no dimension below 3.
+Average — **4.0**, lowest dimension — **4**. Pass is ≥ 4.0 with no dimension below 3. Verdict
+PASS_ELIGIBLE. Resilience 4 (three round-1 HIGHs found, confirmed and corrected in-loop),
+Code Reviewer 4 (one MEDIUM counting error, corrected), Verifier PASS. Tester and Security scored
+not-applicable rather than penalised, per their recorded omission reasons. Grader confirmed the
+pre-existing `platform-state-stale` advisory should not count against this work, and judged the
+out-of-footprint scope boundary defensible under `CONSTITUTION.md` Art. II rule 2.
 
 ## Findings carried forward
 
@@ -398,6 +418,22 @@ Average — , lowest dimension — . Pass is ≥ 4.0 with no dimension below 3.
 
 ## Decision
 
-PASS / RETRY / ESCALATE —
+**PASS** (round 2 plus a correction commit). Verifier PASS with no unresolved UNVERIFIED claim,
+Grader 4.0 with no dimension below 3, and every in-footprint finding from all three reviewers
+either fixed or recorded above with a reason it was not.
+
+The loop did its job rather than rubber-stamping: round 1 passed every deterministic gate and was
+still wrong, because the `→ implemented` half of the enum mapping created two false closed states
+that `check:governance` cannot see — `isClosed()` reads `accepted` + `implemented` as closed and
+suppresses `status-drift` for that ADR permanently. That is exactly the defect class a green gate
+certifies. Red Hat found it, the Governor re-confirmed it against the code rather than on the
+reviewer's word, and round 2 corrected both ADRs to the honest enum member with nuance lines.
+
+Not escalated: the two rounds resolved every in-scope finding, so this is not a round-2 failure.
+The four items under "Findings carried forward" are deliberately unfixed and out of footprint,
+not open failures of this run — one of them (the `status: superseded` question) is a human
+architecture-judgement gate under Art. IV and is recorded for the owner.
+
+> Round 2 failure escalates to the user with open findings. It does not become a round 3.
 
 > Round 2 failure escalates to the user with open findings. It does not become a round 3.
