@@ -9,6 +9,10 @@ import {
   electiveGenerationVisibleFragment,
   electiveGenerationStaleSolverFragment,
 } from './electiveGenerationPredicate.js'
+// T320 (docs/adr/2026-09-30-elective-run-durability.md items 1, 2, 4).
+import { computeSnapshotCompleteness } from './electiveRunSnapshotCompleteness.js'
+import { buildDanglingManualAssignmentFinding } from './danglingManualAssignmentFinding.js'
+import { computeElectiveRunResourceConflicts } from './electiveRunResourceConflicts.js'
 
 // The review payload: one row per placement, with the camper's name and the
 // rank they got, which is what a director actually reads.
@@ -221,5 +225,43 @@ export function getElectiveRun(db, { runId }) {
     )
     .all(runId, runId)
 
-  return { rows, staleCount, finalizedAgainstStaleGeneration, overCapacityOccurrences, occurrences, preferences, choices, campers }
+  // T320 item 2 — DURABLE DANGLING-ASSIGNMENT DERIVATION, replacing the
+  // session-scoped commit-response read as the source of truth. A manual row
+  // whose occurrence commitElectiveRun's prune already removed (item 2) is
+  // findable on ANY read, including a cold reopen — the whole point of this
+  // item. Same finding shape/message as the commit-time detection (shared
+  // via buildDanglingManualAssignmentFinding, so wording cannot drift).
+  const danglingFindings = db
+    .prepare(
+      `SELECT a.id, a.camper_id, a.occurrence_id
+         FROM elective_assignments a
+        WHERE a.run_id = :runId AND a.source = 'manual'
+          AND NOT EXISTS (SELECT 1 FROM elective_occurrences o WHERE o.id = a.occurrence_id)`
+    )
+    .all({ runId })
+    .map(buildDanglingManualAssignmentFinding)
+
+  // T320 item 4 — eligibility findings persisted at commit time, filtered to
+  // THIS run's CURRENT solver generation (not pruned on regeneration, unlike
+  // occurrences — filtered by generation at read time instead, per the ADR's
+  // item 4 "deliberate asymmetry" note).
+  const eligibilityFindings = db
+    .prepare('SELECT kind, camper_id, choice_id, occurrence_id, message FROM elective_run_findings WHERE run_id = ? AND solver_generation = ?')
+    .all(runId, gen)
+
+  // T320 item 4 — resource conflicts computed LIVE for a draft run (the same
+  // findRouteConflicts call finalizeElectiveRun.js already makes, one point
+  // earlier in the lifecycle); a FINAL run's bucket is provably empty by
+  // construction (the finalize gate already refused any run that would have
+  // had one), so this skips the call entirely rather than paying its cost
+  // for an already-known answer.
+  const resourceConflicts = run?.status === 'final' ? [] : computeElectiveRunResourceConflicts(db, run ?? {}, occurrences)
+
+  return {
+    rows, staleCount, finalizedAgainstStaleGeneration, overCapacityOccurrences, occurrences,
+    preferences, choices, campers, danglingFindings, eligibilityFindings, resourceConflicts,
+    // T320 item 1 — cross-handler parity with getElectiveRunOuterSchedule.js:
+    // the SAME computeSnapshotCompleteness call.
+    ...computeSnapshotCompleteness(db, run),
+  }
 }

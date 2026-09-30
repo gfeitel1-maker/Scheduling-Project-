@@ -13,7 +13,7 @@
 // that has no assignments, and nothing downstream distinguishes that from a
 // director who genuinely stopped half way.
 import { randomUUID } from 'node:crypto'
-import { appendOp, runAtomic } from './operations.js'
+import { appendOp, runAtomic, DELETE_FIELD } from './operations.js'
 // isHumanDeleted is the SAME predicate ingest.js's rejectedSlotKeys uses — see
 // its definition for why the `=== 'human'` cannot be relaxed to a null check.
 import { isHumanOwned, isHumanDeleted } from './fieldProvenance.js'
@@ -34,6 +34,8 @@ import { hasContradictoryRanks } from '../../src/ingest/preferenceSheet.js'
 // not a packaging-boundary exception, since src/ ships in electron-builder's
 // `files` list.
 import { deriveChoices } from '../../src/screens/elective/assignment/deriveChoices.js'
+import { buildDanglingManualAssignmentFinding } from './danglingManualAssignmentFinding.js'
+import { deriveElectiveRunFindingId, ELIGIBILITY_FINDING_KINDS } from './deriveElectiveRunFindingId.js'
 
 const SOLVER_VERSION = 'buildElectiveAssignments@1'
 
@@ -116,6 +118,13 @@ export function commitElectiveRun(db, {
   scheduleWeekId = null,
   scheduleTemplateId = null,
   runId: providedRunId = null,
+  // T320 (docs/adr/2026-09-30-elective-run-durability.md item 4) — the
+  // eligibility findings buildElectiveAssignments already computed at solve
+  // time (AssignmentPanel.jsx), passed through so they can be PERSISTED here
+  // rather than only ever existing in the renderer's React state. Filtered
+  // to ELIGIBILITY_FINDING_KINDS below; any other kind is ignored, not
+  // guessed into the table (open question 2, T320 ticket).
+  findings: solverFindings = [],
 }) {
   // REFUSALS FIRST, before a transaction is opened.
   //
@@ -320,15 +329,20 @@ export function commitElectiveRun(db, {
     .prepare("SELECT id, camper_id, occurrence_id FROM elective_assignments WHERE run_id = ? AND source = 'manual'")
     .all(runId)
     .filter((r) => !occurrenceIds.has(r.occurrence_id))
-    .map((r) => ({
-      kind: 'DANGLING_MANUAL_ASSIGNMENT',
-      assignment_id: r.id,
-      camper_id: r.camper_id,
-      occurrence_id: r.occurrence_id,
-      message:
-        'A placement made by hand sits in a period this schedule no longer has, so nobody will see ' +
-        'it on the grid \u2014 move it to a period that still exists, or remove it.',
-    }))
+    .map(buildDanglingManualAssignmentFinding)
+
+  // T320 item 2 \u2014 the "did not re-derive" set: this regeneration's currently-
+  // recorded occurrence ids minus the ones it just freshly derived
+  // (occurrenceIds, above). Read alongside the other pre-transaction reads,
+  // using the SAME occurrenceIds Set the dangling-finding query above relies
+  // on. Only elective_occurrences rows are pruned \u2014 NOT cascaded into
+  // elective_preferences/elective_assignments (a manual row pointing at a
+  // pruned occurrence stays exactly as it is; that dangling state IS the
+  // finding this item makes durable, not a defect to clean up here).
+  const existingOccurrenceIds = new Set(
+    db.prepare('SELECT id FROM elective_occurrences WHERE run_id = ?').all(runId).map((r) => r.id)
+  )
+  const occurrencesToPrune = [...existingOccurrenceIds].filter((id) => !occurrenceIds.has(id))
 
   // A dangling row is outside this pass's occurrence set, so it is excluded
   // from the protected set too — nothing this commit writes could reach it.
@@ -438,6 +452,19 @@ export function commitElectiveRun(db, {
         solver_version: SOLVER_VERSION,
         solver_generation: solverGeneration,
       })
+
+      // T320 item 2 — prune the occurrences this regeneration no longer
+      // derives, through the op log (DELETE_FIELD), following
+      // deleteElectiveRun.js's exact tombstone discipline. Before the
+      // occurrence-write loop below: the fresh set is about to be (re)written
+      // anyway, and pruning first means a retried commit re-derives the
+      // identical prune set idempotently.
+      const del = (entity, entity_id) =>
+        appendOp(db, {
+          entity, entity_id, field: DELETE_FIELD, value: 1,
+          author_user_id: authorUserId, device_id: deviceId,
+        })
+      for (const id of occurrencesToPrune) del('elective_occurrences', id)
 
       for (const occ of occurrences) {
         write('elective_occurrences', occ.id, {
@@ -671,6 +698,47 @@ export function commitElectiveRun(db, {
           source: 'solver',
           solver_generation: solverGeneration,
         })
+      }
+
+      // T320 item 4 — persist the eligibility-class findings solve time already
+      // produced (buildElectiveAssignments, passed in as `solverFindings`), in
+      // the SAME transaction, keyed on THIS commit's solverGeneration so two
+      // devices computing the identical finding from the identical commit
+      // converge on one row (D4). NOT pruned on regeneration (unlike
+      // occurrences) — filtered by generation at read time instead; see the
+      // ADR's item 4 "deliberate asymmetry" note.
+      //
+      // UNSUPPORTED_LINKED_CHOICE (this slice's only allowlisted kind,
+      // src/engine/buildElectiveAssignments.js) is per-CHOICE, not per-camper:
+      // it carries `choice_ids` (usually one, sometimes several sharing an
+      // occurrence) and either a single `occurrence_id` or an `occurrence_ids`
+      // array. One row is written per choice_id so each choice's finding is
+      // independently derivable; camper_id is null (the finding names no
+      // camper) and occurrence_id takes the singular field when present, else
+      // the first of the array — the row's `message` carries the full,
+      // un-truncated detail regardless.
+      for (const f of solverFindings) {
+        if (!ELIGIBILITY_FINDING_KINDS.includes(f.kind)) continue
+        const choiceIds = f.choice_ids ?? (f.choice_id != null ? [f.choice_id] : [null])
+        const occurrenceId = f.occurrence_id ?? (Array.isArray(f.occurrence_ids) ? f.occurrence_ids[0] ?? null : null)
+        for (const choiceId of choiceIds) {
+          const findingId = deriveElectiveRunFindingId(runId, solverGeneration, f.kind, null, choiceId, occurrenceId)
+          // Field ORDER matters: run_id/solver_generation/kind/message are
+          // the four columns ensureExists waits on before it stub-inserts
+          // the row (projections.js), so they must come FIRST — a field
+          // written before the stub exists yet UPDATEs zero rows and is
+          // silently lost, exactly the trap deriveElectiveRunOuterRows'
+          // sibling entry avoids by ordering its own required fields first.
+          write('elective_run_findings', findingId, {
+            run_id: runId,
+            solver_generation: solverGeneration,
+            kind: f.kind,
+            message: f.message,
+            camper_id: null,
+            choice_id: choiceId,
+            occurrence_id: occurrenceId,
+          })
+        }
       }
     })
   } catch (e) {

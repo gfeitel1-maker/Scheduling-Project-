@@ -10,20 +10,15 @@ import { appendOp, runAtomic } from './operations.js'
 import { deriveElectiveRunOuterSnapshotId } from './deriveElectiveRunOuterSnapshotId.js'
 import { deriveElectiveRunOuterRows } from './electiveRunOuterSchedule.js'
 import { deriveOccurrences } from '../../src/screens/elective/assignment/deriveOccurrences.js'
-import { findRouteConflicts } from '../../src/engine/routeConflicts.js'
-
-// Maps a raw template_slots row into the shape findRouteConflicts/buildSchedule
-// expect (src/engine/routeConflicts.js), keyed off the same mutually-exclusive
-// column group projections.js already enforces (elective_set_id / event_id /
-// is_anchor+anchor_id / activity_id).
-function mapTemplateSlot(row) {
-  const base = { groupId: row.group_id, cohort_id: null, dayId: row.day_id, blockId: row.time_block_id }
-  if (row.elective_set_id != null) return { ...base, type: 'elective', electiveSetId: row.elective_set_id }
-  if (row.event_id != null) return { ...base, type: 'event', eventId: row.event_id }
-  if (row.is_anchor) return { ...base, type: 'anchor', anchorId: row.anchor_id }
-  if (row.activity_id != null) return { ...base, type: 'activity', activityId: row.activity_id }
-  return { ...base, type: null }
-}
+// T320 (docs/adr/2026-09-30-elective-run-durability.md item 4) — the scoping
+// logic that used to live inline here (mapTemplateSlot + the findRouteConflicts
+// call) is now a shared fragment, reused by getElectiveRun.js for a draft run's
+// LIVE resource-conflict read. Extracted, not forked — same call this file
+// already made.
+import { computeElectiveRunResourceConflicts } from './electiveRunResourceConflicts.js'
+// T320 item 1 — the same digest this run's snapshot expectation is compared
+// against on every subsequent read.
+import { computeExpectedSnapshotDigest } from './electiveRunSnapshotCompleteness.js'
 
 /**
  * @returns {{ok:true, finalizedAt:string, snapshotRows:number}
@@ -75,22 +70,7 @@ export function finalizeElectiveRun(db, { runId, authorUserId = null, deviceId }
   // 2. routeConflicts over the live schedule state, scoped to the day/block
   // cells this run's occurrences touch — reused unmodified (src/engine/
   // routeConflicts.js), never forked.
-  const cellKeys = new Set(recordedOccurrences.map((o) => `${o.day_id}|${o.time_block_id}`))
-  const scopedSlots = []
-  if (run.schedule_template_id != null) {
-    const rows = db.prepare('SELECT * FROM template_slots WHERE template_id = ?').all(run.schedule_template_id)
-    for (const row of rows) {
-      if (cellKeys.has(`${row.day_id}|${row.time_block_id}`)) scopedSlots.push(mapTemplateSlot(row))
-    }
-  }
-  const conflicts = findRouteConflicts({
-    slots: scopedSlots,
-    activities: db.prepare('SELECT * FROM activities').all(),
-    anchors: db.prepare('SELECT * FROM fixed_events').all(),
-    electiveSetActivities: db.prepare('SELECT * FROM elective_set_activities').all(),
-    events: db.prepare('SELECT * FROM events').all(),
-    locations: db.prepare('SELECT * FROM locations').all(),
-  })
+  const conflicts = computeElectiveRunResourceConflicts(db, run, recordedOccurrences)
   if (conflicts.length > 0) return { ok: false, error: 'OUTER_RESOURCE_CONFLICT', findings: conflicts }
 
   // 3. Build the snapshot rows: one per generation-visible elective_assignments
@@ -152,6 +132,11 @@ export function finalizeElectiveRun(db, { runId, authorUserId = null, deviceId }
         status: 'final',
         finalized_at: finalizedAt,
         finalized_by: authorUserId,
+        // T320 item 1 — reuses the SAME `snapshots` array this function already
+        // built, no new derivation. computeSnapshotCompleteness (called by every
+        // reader) compares COUNT(*) and this digest against a later SELECT.
+        snapshot_expected_rows: snapshots.length,
+        snapshot_digest: computeExpectedSnapshotDigest(snapshots),
       })
     })
   } catch (e) {
