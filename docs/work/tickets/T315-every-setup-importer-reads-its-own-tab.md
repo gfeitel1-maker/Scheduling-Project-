@@ -1,7 +1,7 @@
 ---
 title: "Every setup importer reads the tab that holds its entity"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-29
 task_class: ui-ux-design
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/TESTING_STANDARD.md]
@@ -107,3 +107,44 @@ mistake T315 for "round-tripping works now". It does not.
 - Rewriting the six screen suites to stop mocking `XLSX`. They mock it, so they cannot exercise tab
   selection at all, which is why `readEntitySheet` has its own tests against real workbook bytes. That
   split is stated rather than left to be discovered.
+
+## Closed
+
+Landed as [#656](https://github.com/gfeitel1-maker/Scheduling-Project-/pull/656), squashed to
+`9e14cda5`. CI `verify` green; audited BY CONTENT rather than ancestry, because a squash merge cannot
+be checked with `--is-ancestor`: `readEntitySheet` is present on `origin/main` in all six screens —
+`DaysScreen.jsx`, `GroupsScreen.jsx`, `ActivitiesScreen.jsx`, `AnchorsScreen.jsx`, `TiersScreen.jsx`,
+`TimeBlocksScreen.jsx` — and in `src/utils/exportSanitize.js`.
+
+Evidence, all from execution:
+
+- 522 tests green across the thirty-one affected suites.
+- Red-then-green per door: planting first-sheet selection turns 10 of the 15 `readEntitySheet` tests
+  red — one for each of the six screens plus four others — and leaves exactly the 5 that should pass,
+  the fallback case and the two caps.
+- The caps are pinned THROUGH the new boundary, which matters because the screens' own hand-rolled
+  row-count guard was removed in favour of it.
+- The structural import gate now names the boundary FUNCTIONS rather than `readWorkbookSafely` alone,
+  with its own non-vacuity check that a by-hand `XLSX.read` still fails it.
+
+## Two things this ticket got right by not doing them
+
+**The export-columns mismatch stayed out.** `Days` exports only `label` while its importer requires
+`day_of_week`; `Groups` exports `unit` while its importer reads `tier_name`; `Activities` exports
+`eligible_groups`/`location` while its importer reads `eligible_tiers`/`weather_alternative`. So an
+exported sheet still imports zero rows even with the right tab selected. That is a question about what
+the export is FOR, not a tab bug, and it is recorded above with measurements rather than absorbed.
+
+**The six screen suites still mock `XLSX`,** so they cannot exercise tab selection at all. Rather than
+leave that as a silent hole, `readEntitySheet` has its own tests against real workbook bytes and the
+gap is written into the non-goals. A reader who assumes the screen suites cover this would be wrong,
+and now the document says so.
+
+## What the count cost
+
+This ticket was written for FOUR screens, from a report that named four. Two more —
+`TiersScreen.jsx:311` and `TimeBlocksScreen.jsx:312` — were found by checking that claim instead of
+taking it, and both were in the WORSE half: they key on `name`, so they imported the camp's program as
+a real-looking age division and time block rather than failing. A defect class counted short is how the
+last doors get left, which is the failure [T314](T314-the-import-panel-reads-every-tab-of-a-workbook.md)
+had already made once by fixing one door and recording the rest.
