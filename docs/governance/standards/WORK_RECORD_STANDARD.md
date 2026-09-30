@@ -130,17 +130,29 @@ the two ever disagree, this standard governs and the script is wrong.
 **Vocabulary.** A completion reference is a keyword, whitespace, then an ID, found anywhere in a
 commit subject:
 
-- Keyword (case-insensitive): `closes` or `Merge`.
+- Keyword (case-insensitive): `close`, `closes`, `closed`, or `Merge`.
 - ID: an optional `T` or `S` prefix followed by digits and an optional single lowercase suffix
   letter, e.g. `T76`, `S5b`.
-- Regex: `/(?:closes|merge)\s+([TS]\d+[a-z]?)/gi`, applied per subject, collecting every match.
-  **The regex is authoritative** — the prose above only describes it; the optional lowercase
-  suffix letter applies to the whole `[TS]\d+` token, for both tickets and slices, not only
-  slices.
+- Regex: `/(?:close(?:s|d)?|merge)\s+([TS]\d+[a-z]?)(?![a-z0-9'])/gi`, applied per subject,
+  collecting every match. **The regex is authoritative** — the prose above only describes it; the
+  optional lowercase suffix letter applies to the whole `[TS]\d+` token, for both tickets and
+  slices, not only slices.
 
-This is deliberately narrow. A bare mention — `relates to T40, see also...` — has no `closes`/
-`Merge` keyword and must not match. Widening the regex without a corresponding audit of the commit
-vocabulary actually in use is how a gate stops meaning anything.
+This is deliberately narrow. A bare mention — `relates to T40, see also...` — has no `close`/
+`closes`/`closed`/`Merge` keyword and must not match. Widening the regex without a corresponding
+audit of the commit vocabulary actually in use is how a gate stops meaning anything.
+
+**Widened 2026-09-30, and audited before shipping.** The keyword was `closes`/`merge` only, so
+`Close T210: ...` and `closed T5` — real closure claims, just spelled differently — never matched,
+and this repo's own closing commits (#636, #640) slipped past the gate this way. A full audit of
+`close T<n>` subjects across `origin/main` found ten: nine genuine closures, and one that is not —
+`T233: signed purge-tombstone erasure (close T202's stale-peer reintroduction gap) (#515)` — which
+closes a gap *named by* T202, not T202 itself. The trailing `(?![a-z0-9'])` guards exactly that
+case: it rejects both an apostrophe and any further digit/letter directly after the id, which
+matters because `\d+` can otherwise backtrack around a bare `(?!')` and match a shorter, wrong id
+(`T20` out of `T202's`). Without the guard, a possessive reference would force the drift gate to
+demand T202's closure — the same hazard the duplicate-ticket-number check exists to prevent: a red
+gate whose obvious remedy is flipping a status that should not move.
 
 **Multi-ID closure.** A single commit closing more than one ID must repeat the keyword per ID —
 `closes T12` `closes T13` — not `closes T12, T13`. A comma-separated list only captures the first
@@ -183,6 +195,68 @@ filesystem walk):
   **hard failure**, the same severity as `status-drift`, not a silent pass — an ID typo or a
   document rename that leaves an old reference dangling is the same defect class this gate exists
   to catch.
+- `closure-claim-without-id` (`checkClosureClaimWithoutId`, added 2026-09-30, **blocking** — see
+  `ADVISORY_CODES`, which does not list it) — a subject makes the closure claim in plain words but
+  names no id for `parseCompletionRefs` to find, e.g. `T309: close the ticket — status was left
+  open at merge` (#636) or `docs(T311): close the ticket` (#640). Phrase pattern:
+  `/clos(?:e|es|ed)\s+(?:the\s+(?:[\w/-]+\s+){0,3})?tickets?(?![-\w])/i`, fires only when it
+  matches **and** `parseCompletionRefs` returns nothing for that subject. Remedy text: "this subject
+  says it closes a ticket but names none — if it does close one, write `closes T<n>`; if it does
+  not, reword the subject so it does not claim to" (plus the existing note that the PR title becomes
+  the squash-merge subject, which remains the actual fix for the real-closure case).
+
+  Measured against every subject on `origin/main` as of 2026-09-30: the phrase
+  matches **twelve**, all twelve genuine closures that named their ticket a different way (a
+  `docs(T<n>):` prefix) instead of as `closes T<n>` — twelve true positives, zero false positives.
+  `close out` matches **five** subjects and stays excluded (below); the reversed-word-order shape
+  stays excluded too.
+
+  **Widened 2026-09-30 (round 2):** a bare `(?:the\s+)?` gap missed `T171: close the
+  consolidation/gate-hardening ticket — all archive_when clauses met` (#505), which has a noun
+  phrase between "the" and "ticket" — this defeated the finding itself, alongside `checkStatusDrift`
+  and `checkRunRecordFiled`. The gap now allowed up to three words between "the" and "ticket", but
+  only when "the" was present, so the real subject `chore: add closed to ticket status enum and a
+  closure note section` stayed silent (no "the" for the gap to follow).
+
+  **NARROWED 2026-09-30 (bounded resolution round, board-worker decision).** Round 2's widening
+  (`\S+` gap, bare `ticket`) was proven by Red Hat's corpus sweep to over-fire on two confirmed
+  shapes the pattern above no longer admits: (1) no word boundary after the literal `ticket` let
+  compound nouns through — `close the ticketing system outage`, `closed the ticketmaster
+  integration bug`, `close the ticket-booking flow for campers`, `closes the ticketed-event
+  feature`; (2) `\S+` crossed a clause boundary — `closes the loop; the ticket stays open` matched
+  even though the same subject says the ticket stays open. Two mechanical fixes: `tickets?(?![-\w])`
+  (a boundary lookahead excludes every compound-noun sense above, and catches the plural `close the
+  two tickets` by design, not by accident of a missing boundary) and `[\w/-]+` in place of `\S+` for
+  the intervening-token gap (stops at `;`, still admits a slash-joined noun phrase like T171's
+  "consolidation/gate-hardening"). This is measured against a corpus, not mechanically guaranteed
+  against all future English — the residual below is the honest accounting of what is left.
+
+  **Residual, tolerated by design, not hidden.** The two narrowings dispose of the compound-noun
+  class completely and of the clause-crossing instance of the negation finding, but **not** of
+  negation generally: `do not close the wrong ticket` and `never close the ticket without director
+  sign-off` still fire, because "wrong" and "the" are ordinary `[\w/-]+` tokens, indistinguishable
+  from a real noun phrase. What makes that acceptable is the remedy text above, not the pattern: a
+  negated subject is told to reword so it does not claim a closure — correct advice — rather than
+  being told to invent a `closes T<n>` for a ticket that must stay open. Pinned by a test asserting
+  the over-fire, with a comment explaining why it is tolerated, so the behaviour is a recorded
+  decision rather than a surprise.
+
+  `close out` remains deliberately **excluded**, not missed: a fresh count finds five subjects
+  (`T205: close out the days_of_operation uniqueness ticket (audit + status flip)` (#517), `Close
+  out T188, and give the gate somewhere to run (T191 CI)` (#461), `docs(handoff): close out
+  force-subagent-skill-invocation with transcript proof`, `docs(T90): close out — run record, gate
+  report, ticket → completed`, `docs: close out doc-staleness remediation (Batches A–E already on
+  main)`), two of which close no ticket at all, so firing on them would prescribe a `closes T<n>`
+  that does not exist — a guard that fires correctly and still prescribes the wrong remedy. Reversed
+  word order is also deliberately excluded: `Open-ticket audit: six tickets closed, activity colour
+  retired, and the dev grid renders again` (#371) claims closure but names no id at all, so even a
+  firing finding could only say "name what you closed," not point at a drifted ticket. A third,
+  distinct shape is also currently missed and is recorded here rather than silently left off the
+  list: `Close six tickets whose work shipped, and finish the one condition that had not` (#491) is
+  a genuine closure-claim-without-id, but the claim precedes the noun with no "the" between them
+  (`Close six tickets`, not `close the … tickets`), so the pattern's `the`-gated gap does not admit
+  it even with the pluralized `tickets?`. Confirmed by direct measurement against the pattern, not
+  assumed.
 
 **Scope.** The check only looks at commit subjects reachable from `HEAD` but not from
 `origin/main` (`git log origin/main..HEAD --format=%s`) — it is a going-forward gate over the
@@ -201,12 +275,12 @@ That CI skip is one member of a broader pattern — a check that answers a narro
 `Merge S##` also flip that document's status?* It does not, and cannot, answer *"did every ticket
 whose work merged get flipped?"* Two structural reasons, both verified:
 
-- It matches only the `closes`/`Merge` keyword, deliberately (§3.2). This repository's merge
-  subjects are overwhelmingly `T<n>: title (#pr)` — a topic marker, not a completion claim (a
-  work-in-progress commit carries it too). Measured 2026-09-26: of the last 40 merges to `main`,
-  2 carried the keyword. Widening the regex to treat the `T<n>:` prefix as a closure would demand
-  `completed` on every in-progress commit that names its ticket — over-firing, which §3.2 names as
-  how a gate stops meaning anything.
+- It matches only the `close`/`closes`/`closed`/`Merge` keyword set, deliberately (§3.2). This
+  repository's merge subjects are overwhelmingly `T<n>: title (#pr)` — a topic marker, not a
+  completion claim (a work-in-progress commit carries it too). Measured 2026-09-26: of the last 40
+  merges to `main`, 2 carried the keyword. Widening the regex to treat the `T<n>:` prefix as a
+  closure would demand `completed` on every in-progress commit that names its ticket —
+  over-firing, which §3.2 names as how a gate stops meaning anything.
 - It runs pre-merge over `git log origin/main..HEAD` (`scripts/check-governance.js`). The
   squash-merge subject does not exist when it runs, and once merged it is in `origin/main`, outside
   that diff. A commit that lands a ticket's code without the keyword never enters the gate's field
@@ -231,7 +305,13 @@ is a discipline, not something a check enforces:
 Whether this discipline should additionally be backed by a going-forward, main-side audit gate (one
 that flags a merged `T<n>:` commit whose ticket is not yet `completed`) is tracked as its own
 ticket; such a gate would surface the pre-existing backlog on its first run, which is the gate
-working, not a regression.
+working, not a regression. That ticket remains T283.
+
+`checkClosureClaimWithoutId` (§3.2, added 2026-09-30) catches one narrow adjacent case — a subject
+that claims closure **in words** (`close the ticket`) without naming an id — so that claim no longer
+goes unchecked either. This does **not** make board-truth gated: it only catches a subject that
+makes the claim in prose, not a merged `T<n>:`-style commit that silently leaves its ticket open,
+which is exactly the over-fire case this section already rules out and remains T283's job to solve.
 
 ---
 

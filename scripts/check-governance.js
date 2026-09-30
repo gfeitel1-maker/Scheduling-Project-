@@ -327,14 +327,142 @@ export function checkPlatformStateFreshness(root, execFn) {
 }
 
 /**
- * WORK_RECORD_STANDARD.md §3.1 — a completion reference is `closes`/`Merge`
- * followed by a ticket (`T\d+`) or slice/ADR/spec id (`S\d+[a-z]?`). Deliberately
- * narrow: a bare mention like "relates to T40" must not match.
+ * WORK_RECORD_STANDARD.md §3.1 — a completion reference is a close/merge
+ * keyword followed by a ticket (`T\d+`) or slice/ADR/spec id (`S\d+[a-z]?`).
+ * Deliberately narrow: a bare mention like "relates to T40" must not match.
+ *
+ * WIDENED 2026-09-30. The keyword was `closes|merge` only, so `Close T210: ...`
+ * and `closed T5` — real closure claims, just not spelled "closes" — never
+ * matched, and neither `checkStatusDrift` nor `checkRunRecordFiled` ever saw
+ * them. Two of this repo's own closing commits (#636, #640) slipped past both
+ * gates this way. `close(?:s|d)?` catches close/closes/closed without also
+ * matching unrelated words.
+ *
+ * `(?!')` guards the possessive, and it is load-bearing, not decoration. An
+ * audit of every `close T<n>` subject on origin/main found ten: nine genuine
+ * closures and one that is not — `T233: signed purge-tombstone erasure (close
+ * T202's stale-peer reintroduction gap) (#515)` — which closes a gap NAMED BY
+ * T202, not T202 itself. Without the guard, `checkStatusDrift` would demand
+ * closure of T202, which is exactly the hazard `checkTicketNumberUniqueness`'s
+ * comment above already warns about: a red gate whose obvious remedy is
+ * flipping a status that should not move.
+ *
+ * A lookahead of bare `(?!')` is NOT enough, because `\d+` can backtrack
+ * around it: against `T202's`, `\d+` first tries `202` (blocked by the
+ * apostrophe), but the engine then backs off to `20`, leaving `2` as the next
+ * character — which is not an apostrophe, so a bare `(?!')` passes and the
+ * match becomes the wrong id, `T20`. The lookahead has to reject BOTH an
+ * apostrophe and any further digit/letter, or backtracking finds a shorter
+ * number that slips through. Hence `(?![a-z0-9'])`.
  */
-const COMPLETION_REF = /(?:closes|merge)\s+([TS]\d+[a-z]?)/gi
+const COMPLETION_REF = /(?:close(?:s|d)?|merge)\s+([TS]\d+[a-z]?)(?![a-z0-9'])/gi
 
 export function parseCompletionRefs(subject) {
   return [...subject.matchAll(COMPLETION_REF)].map((m) => m[1])
+}
+
+/**
+ * A commit subject can claim, in plain words, to close a ticket without ever
+ * naming which one — `T309: close the ticket — status was left open at merge`
+ * (#636), `docs(T311): close the ticket` (#640). `parseCompletionRefs` cannot
+ * catch this: there is no `closes T<n>` for it to miss, so `checkStatusDrift`
+ * and `checkRunRecordFiled` both stay silent on a subject that is, in English,
+ * a closure claim. This check catches the claim itself.
+ *
+ * MEASURED, NARROW ON PURPOSE, AGAINST A CORPUS — NOT A MECHANICAL GUARANTEE.
+ * What actually excludes the adjective sense ("fails closed", "left closed")
+ * is the boundary lookahead `(?![-\w])` after `tickets?` — nothing immediately
+ * after the word "ticket"/"tickets" may be a word character or hyphen, which
+ * is what keeps a compound noun like "ticketing"/"ticketmaster"/
+ * "ticket-booking"/"ticketed-event" from matching at all (an earlier version
+ * of this comment claimed the adjective sense "never collides"; Red Hat
+ * disproved that against a fresh corpus sweep — see NARROWED below). And what
+ * stops a match from crossing a clause boundary (`closes the loop; the ticket
+ * stays open`) is the `[\w/-]+` token class for the intervening gap, not `\S+`,
+ * which would otherwise cross a `;`. Both are measured against a corpus of
+ * real subjects, not proven against all future English — see NARROWED below
+ * for the residual this does not close.
+ *
+ * WIDENED 2026-09-30 (round 2). A bare `(?:the\s+)?` before "ticket" missed a
+ * real subject: `T171: close the consolidation/gate-hardening ticket — all
+ * archive_when clauses met` (#505) has a noun phrase between "the" and
+ * "ticket", so it matched neither this phrase pattern nor `COMPLETION_REF`
+ * above (no bare id follows "close") — it defeated this very finding at the
+ * same time as `checkStatusDrift` and `checkRunRecordFiled`. The fix allows up
+ * to three words between "the" and "ticket" (`(?:the\s+(?:\S+\s+){0,3})?`),
+ * but ONLY when "the" is present — an unguarded gap over-fires: the real
+ * subject `chore: add closed to ticket status enum and a closure note section`
+ * would then match "closed to ticket", a false positive, because there is no
+ * "the" for the gap to follow. Requiring "the" first is what keeps that
+ * subject silent while admitting T171's.
+ *
+ * `close out` was deliberately EXCLUDED, not missed. A fresh count finds FIVE
+ * subjects, not the seven once recorded here — re-count with
+ * `grep -in "close out" <(git log origin/main --format=%s)` rather than
+ * trusting this number again. Two of the five close no ticket at all —
+ * `docs(handoff): close out force-subagent-skill-invocation with transcript
+ * proof` and `docs: close out doc-staleness remediation (Batches A–E already
+ * on main)` — so firing on "close out" would prescribe a `closes T<n>` for a
+ * subject that has none to give. A guard that fires correctly and still
+ * prescribes the wrong remedy is the failure mode this file's other comments
+ * already name; better to leave the phrase narrow than widen it into that
+ * trap.
+ *
+ * Reversed word order is ALSO deliberately excluded: `Open-ticket audit: six
+ * tickets closed, activity colour retired, and the dev grid renders again`
+ * (#371) claims closure but names no id at all, so even a firing finding
+ * could only say "name what you closed" — it could not point at a drifted
+ * ticket, unlike every case this check does catch. Not worth catching.
+ *
+ * NARROWED 2026-09-30 (bounded resolution round, board-worker decision — see
+ * this date's run record for the verbatim ruling and the owner flag). Round
+ * 2's `\S+` gap and bare `ticket` were both proven to over-fire by Red Hat's
+ * corpus sweep: `close the ticketing system outage`, `closed the ticketmaster
+ * integration bug`, `close the ticket-booking flow for campers`, `closes the
+ * ticketed-event feature` all matched the bare noun with no word boundary
+ * after it, and `closes the loop; the ticket stays open` matched because
+ * `\S+` crosses a `;` clause boundary. Two mechanical fixes, not a rewrite:
+ *
+ * - `tickets?(?![-\w])` — a boundary lookahead excludes the compound-noun
+ *   senses above (nothing immediately after "ticket"/"tickets" may be a word
+ *   character or hyphen), and it catches the plural (`close the two tickets`)
+ *   by design rather than by accident of a missing boundary.
+ * - `[\w/-]+` in place of `\S+` for the intervening-token gap — it still
+ *   admits a slash-joined noun phrase (`the consolidation/gate-hardening
+ *   ticket`, T171) but stops at a clause boundary like `;`, so `closes the
+ *   loop; the ticket stays open` no longer matches.
+ *
+ * This is measured against a corpus, the same way the original pattern was —
+ * not mechanically guaranteed against all future English. The corpus counts
+ * as of this narrowing are recorded in WORK_RECORD_STANDARD.md §3.2 and in
+ * this date's run record.
+ *
+ * RESIDUAL, DOCUMENTED RATHER THAN HIDDEN: these two fixes dispose of the
+ * compound-noun class completely and of the clause-crossing instance of the
+ * negation finding, but NOT of negation generally — `do not close the wrong
+ * ticket` and `never close the ticket without director sign-off` still fire,
+ * because "wrong" and "the" are ordinary `[\w/-]+` tokens, same as any real
+ * noun phrase. What makes that acceptable is the remedy text below, not the
+ * pattern: a negated subject is told to reword so it does not claim a
+ * closure — correct advice — rather than being told to invent a `closes T<n>`
+ * for a ticket that must stay open. See the pinned test for this shape.
+ */
+const CLOSURE_CLAIM_WITHOUT_ID = /clos(?:e|es|ed)\s+(?:the\s+(?:[\w/-]+\s+){0,3})?tickets?(?![-\w])/i
+
+export function checkClosureClaimWithoutId(subjects) {
+  const out = []
+  // Same reason as checkStatusDrift: a `Revert "..."` subject quotes a prior
+  // commit's message, it does not make a fresh claim of its own.
+  const claims = (subjects || []).filter((s) => !s.startsWith('Revert "'))
+  for (const subject of claims) {
+    if (!CLOSURE_CLAIM_WITHOUT_ID.test(subject)) continue
+    if (parseCompletionRefs(subject).length) continue
+    out.push(finding('closure-claim-without-id',
+      `"${subject}" claims in words to close a ticket but names no id — if it does close one, ` +
+      `write \`closes T<n>\`; if it does not, reword the subject so it does not claim to. And ` +
+      `retitle the pull request too, since its title becomes the squash-merge commit subject.`))
+  }
+  return out
 }
 
 /**
@@ -933,6 +1061,7 @@ export function checkAll(root, execFn = (cmd) => execSync(cmd, { encoding: 'utf8
   const subjects = gatherCompletionSubjects(root, execFn)
   if (subjects !== null) {
     findings.push(...checkStatusDrift(subjects, docs))
+    findings.push(...checkClosureClaimWithoutId(subjects))
     const added = gatherAddedRunRecords(root, execFn)
     // A skip is announced, never silent. An unreported skip would read as a
     // pass, which is the defect class this whole ticket is about.

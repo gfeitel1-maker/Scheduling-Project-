@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   checkDoc, checkIndexFreshness, checkPlatformStateFreshness, PLATFORM_STATE_PATH, AGENTS,
   parseCompletionRefs, resolveIds, isClosed, checkStatusDrift, checkAll,
+  checkClosureClaimWithoutId,
 } from './check-governance.js'
 
 // The checker's whole job is to fail on things a human reading one file would
@@ -193,6 +194,28 @@ describe('parseCompletionRefs', () => {
   it('collects every match in one subject', () => {
     expect(parseCompletionRefs('Merge S5: x (closes T75)')).toEqual(['S5', 'T75'])
   })
+
+  it('matches "Close T##" as a bare claim, not just "closes"/"closed"', () => {
+    expect(parseCompletionRefs(
+      'Close T210: its dependency is discharged and every clause of its condition is met',
+    )).toEqual(['T210'])
+  })
+
+  it('matches "closed T##"', () => {
+    expect(parseCompletionRefs('closed T5')).toEqual(['T5'])
+  })
+
+  it('does not treat a possessive as a claim — "close T202\'s gap" closes something T202 NAMES, not T202', () => {
+    expect(parseCompletionRefs(
+      "T233: signed purge-tombstone erasure (close T202's stale-peer reintroduction gap)",
+    )).toEqual([])
+  })
+
+  it('the possessive guard must not backtrack into a shorter, wrong id (e.g. "T20" out of "T202\'s")', () => {
+    const refs = parseCompletionRefs("close T202's gap")
+    expect(refs).not.toContain('T20')
+    expect(refs).toEqual([])
+  })
 })
 
 describe('isClosed', () => {
@@ -289,6 +312,137 @@ describe('checkStatusDrift', () => {
   it('ignores a revert subject when called directly, not only via checkAll', () => {
     const docs = [{ path: 'docs/work/tickets/T76-a.md', data: { document_type: 'ticket', status: 'open' }, error: null }]
     expect(checkStatusDrift(['Revert "feat: x (closes T76)"'], docs)).toEqual([])
+  })
+})
+
+describe('checkClosureClaimWithoutId', () => {
+  it('fires when a subject claims to close the ticket but names no id', () => {
+    const findings = checkClosureClaimWithoutId(['T309: close the ticket — status was left open at merge'])
+    expect(findings.length).toBe(1)
+    expect(findings[0].code).toBe('closure-claim-without-id')
+  })
+
+  it('fires on a docs()-prefixed subject that still only says "close the ticket"', () => {
+    const findings = checkClosureClaimWithoutId(['docs(T311): close the ticket'])
+    expect(findings.map((f) => f.code)).toEqual(['closure-claim-without-id'])
+  })
+
+  it('is silent on the adjective case — "fails closed" is not "closes the ticket"', () => {
+    expect(checkClosureClaimWithoutId([
+      'T258: gateReportCli fails closed instead of writing a false gate report',
+    ])).toEqual([])
+  })
+
+  it('is silent on a bare mention with no closure phrase at all', () => {
+    expect(checkClosureClaimWithoutId(['relates to T40 see also'])).toEqual([])
+  })
+
+  it('is silent when the subject already names its id', () => {
+    expect(checkClosureClaimWithoutId(['docs(T313): closes T313 — the sweep landed'])).toEqual([])
+  })
+
+  it('ignores a revert subject', () => {
+    expect(checkClosureClaimWithoutId(['Revert "T309: close the ticket"'])).toEqual([])
+  })
+
+  it('is silent on the documented excluded shape — "close out" is not "close the ticket"', () => {
+    expect(checkClosureClaimWithoutId([
+      'docs: close out doc-staleness remediation (Batches A–E already on main)',
+    ])).toEqual([])
+  })
+
+  it('fires when an intervening noun phrase sits between "the" and "ticket"', () => {
+    const findings = checkClosureClaimWithoutId([
+      'T171: close the consolidation/gate-hardening ticket — all archive_when clauses met',
+    ])
+    expect(findings.map((f) => f.code)).toEqual(['closure-claim-without-id'])
+  })
+
+  it('is silent on "closed to ticket status enum" — no "the" after the verb means no gap is allowed', () => {
+    expect(checkClosureClaimWithoutId([
+      'chore: add closed to ticket status enum and a closure note section',
+    ])).toEqual([])
+  })
+
+  it('is silent on "T258: gateReportCli fails closed instead of writing a false gate report" (existing pin)', () => {
+    expect(checkClosureClaimWithoutId([
+      'T258: gateReportCli fails closed instead of writing a false gate report',
+    ])).toEqual([])
+  })
+
+  it('is silent on "relates to T40 see also" (existing pin)', () => {
+    expect(checkClosureClaimWithoutId(['relates to T40 see also'])).toEqual([])
+  })
+
+  it('is silent on "docs(T313): closes T313 — the sweep landed" (existing pin, names its own id)', () => {
+    expect(checkClosureClaimWithoutId(['docs(T313): closes T313 — the sweep landed'])).toEqual([])
+  })
+
+  it('ignores a Revert "..." subject (existing pin)', () => {
+    expect(checkClosureClaimWithoutId(['Revert "T309: close the ticket"'])).toEqual([])
+  })
+
+  it('is silent on "docs: close out doc-staleness remediation (Batches A–E already on main)" (existing pin)', () => {
+    expect(checkClosureClaimWithoutId([
+      'docs: close out doc-staleness remediation (Batches A–E already on main)',
+    ])).toEqual([])
+  })
+
+  it('is silent on "close the ticketing system outage" — compound noun, not the word "ticket"', () => {
+    expect(checkClosureClaimWithoutId(['close the ticketing system outage'])).toEqual([])
+  })
+
+  it('is silent on "closed the ticketmaster integration bug" — compound noun', () => {
+    expect(checkClosureClaimWithoutId(['closed the ticketmaster integration bug'])).toEqual([])
+  })
+
+  it('is silent on "close the ticket-booking flow for campers" — compound noun', () => {
+    expect(checkClosureClaimWithoutId(['close the ticket-booking flow for campers'])).toEqual([])
+  })
+
+  it('is silent on "closes the ticketed-event feature" — compound noun', () => {
+    expect(checkClosureClaimWithoutId(['closes the ticketed-event feature'])).toEqual([])
+  })
+
+  it('is silent on "closes the loop; the ticket stays open" — clause boundary, not a claim about the ticket', () => {
+    expect(checkClosureClaimWithoutId([
+      'closes the loop; the ticket stays open',
+    ])).toEqual([])
+  })
+
+  it('still fires on "T309: close the ticket — status was left open at merge" (existing pin)', () => {
+    const findings = checkClosureClaimWithoutId([
+      'T309: close the ticket — status was left open at merge',
+    ])
+    expect(findings.map((f) => f.code)).toEqual(['closure-claim-without-id'])
+  })
+
+  it('still fires on "docs(T311): close the ticket" (existing pin)', () => {
+    const findings = checkClosureClaimWithoutId(['docs(T311): close the ticket'])
+    expect(findings.map((f) => f.code)).toEqual(['closure-claim-without-id'])
+  })
+
+  it('still fires on the T171 intervening-noun-phrase subject (existing pin)', () => {
+    const findings = checkClosureClaimWithoutId([
+      'T171: close the consolidation/gate-hardening ticket — all archive_when clauses met',
+    ])
+    expect(findings.map((f) => f.code)).toEqual(['closure-claim-without-id'])
+  })
+
+  it('fires on the plural "close the two tickets" by design, not by accident', () => {
+    const findings = checkClosureClaimWithoutId(['close the two tickets'])
+    expect(findings.map((f) => f.code)).toEqual(['closure-claim-without-id'])
+  })
+
+  it('KNOWN OVER-FIRE, tolerated by design: "do not close the wrong ticket" still fires', () => {
+    // Negation is not handled by the pattern — "wrong" and "the" are ordinary
+    // [\w/-]+ tokens, so this reads as a closure claim. Tolerated because the
+    // remedy text ("if it does not, reword the subject so it does not claim
+    // to") is correct advice for a negated subject too, unlike the old remedy
+    // which would have told the author to invent a `closes T<n>` for a ticket
+    // that must stay open. See WORK_RECORD_STANDARD.md §3.2's residual note.
+    const findings = checkClosureClaimWithoutId(['do not close the wrong ticket'])
+    expect(findings.map((f) => f.code)).toEqual(['closure-claim-without-id'])
   })
 })
 

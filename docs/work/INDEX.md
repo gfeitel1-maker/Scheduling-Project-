@@ -62,7 +62,7 @@ Regenerate with `npm run index:work`.
 | [Phase E — measure whether WAN failure is discovery or direct dial](../../docs/work/tickets/T212-wan-connectivity-measurement.md) | open | [2026-09-18-connectivity-observability-event-vocabulary](../../docs/adr/2026-09-18-connectivity-observability-event-vocabulary.md) · [2026-09-17-rendezvous-wan-connectivity](../../docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md) |
 | [CI minutes: stop re-verifying a tree that already went green](../../docs/work/tickets/T261-ci-minutes-duplicate-main-runs.md) | open | [2026-09-30-t306-status-reconciliation-sweep](../../docs/work/runs/2026-09-30-t306-status-reconciliation-sweep.md) |
 | [Stage 4 — a synthetic shape-parameterised import corpus and the two acceptance numbers](../../docs/work/tickets/T282-preference-import-corpus-and-acceptance-metrics.md) | open | — |
-| [A main-side gate that flags a merged ticket whose status never flipped](../../docs/work/tickets/T283-board-truth-audit-gate.md) | open | — |
+| [A main-side gate that flags a merged ticket whose status never flipped](../../docs/work/tickets/T283-board-truth-audit-gate.md) | open | [2026-09-30-closing-subject-convention-gate](../../docs/work/runs/2026-09-30-closing-subject-convention-gate.md) |
 
 ### unclassified
 
@@ -227,6 +227,7 @@ They are different facts and a run can carry a bad one of each.
 
 | Date | Run | Class | Status | Verdict |
 |---|---|---|---|---|
+| 2026-09-30 | [Board q-closing-subject-convention-defeats-gate — a closing commit subject that does not say `closes T<n>` skips both the status-drift and run-record gates](../../docs/work/runs/2026-09-30-closing-subject-convention-gate.md) | documentation-governance | pass | pass |
 | 2026-09-30 | [docs(T314): closes T314 — status was left open at merge](../../docs/work/runs/2026-09-30-docs-t314-closes-t314-status-was-left-open-at-merge.md) | ui-ux-design | pass | pass |
 | 2026-09-30 | [docs(T315): closes T315 — status was left open at merge](../../docs/work/runs/2026-09-30-docs-t315-closes-t315-status-was-left-open-at-merge.md) | ui-ux-design | pass | pass |
 | 2026-09-30 | [docs(T317): closes T317 — status was left open at merge](../../docs/work/runs/2026-09-30-docs-t317-closes-t317-status-was-left-open-at-merge.md) | ui-ux-design | pass | pass |
