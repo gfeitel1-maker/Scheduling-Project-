@@ -20,6 +20,7 @@ import CamperWeekPanel from './CamperWeekPanel.jsx'
 // nothing recognises, and every reader's safe default then silently declines
 // to show the ordinal. See src/engine/rankKind.js's header.
 import { CELL_CHOICE } from '../../../engine/rankKind.js'
+import DeleteRunDialog from './DeleteRunDialog.jsx'
 import { A } from '../assignment/assignmentStyles.js'
 import {
   RELEASE_LOCK_LABEL, camperDisambiguator, danglingMessage, occurrenceLabel, overCapacityMessage,
@@ -126,6 +127,8 @@ export default function DraftRunView({
   const [finalizing, setFinalizing] = useState(false)
   // { error, findings } for the refusal row, or null when nothing to say.
   const [finalizeRefusal, setFinalizeRefusal] = useState(null)
+  // T250 A4 — the Delete run confirmation, shown on demand.
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
   // T297 — set by a preference edit, and the ONLY thing that offers the re-solve
   // below. Session-scoped by design rather than by omission: the offer means
   // "you changed something and have not re-solved since", which is a fact about
@@ -540,6 +543,25 @@ export default function DraftRunView({
             onSetPreference={writePreference}
             onRemovePreference={removePreference}
           />
+
+          {/* T250 A4 — a quiet text-only trigger at the bottom, well separated
+              from the actions band above. The loud part is the confirmation. */}
+          <button
+            className="press-97"
+            style={{ ...S.btnUtility, marginTop: 20 }}
+            onClick={() => setConfirmingDelete(true)}
+          >
+            Delete run
+          </button>
+          {confirmingDelete ? (
+            <DeleteRunDialog
+              run={run}
+              camperCount={(state.campers ?? []).length}
+              placementCount={rows.length}
+              onCancel={() => setConfirmingDelete(false)}
+              onDeleted={() => onBack?.()}
+            />
+          ) : null}
         </>
       ) : null}
     </div>

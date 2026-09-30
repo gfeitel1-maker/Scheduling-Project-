@@ -813,6 +813,55 @@ describe('T250 archive_when — reachable only by admin', () => {
 // Q5 was ruled by the owner 2026-09-29: "Start a new version". The label ships
 // from a single named constant so any future change stays a one-line edit.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// T250 A4 — a quiet Delete run trigger with a loud confirmation, on both
+// Draft and Final. The cost callout copy is verbatim (D10 honest-cost copy).
+// ---------------------------------------------------------------------------
+describe('T250 A4 — Delete run', () => {
+  const COST_COPY =
+    'Deleting this run removes it and its camper placements from this device and from every device this camp syncs with. A device that is offline will catch up when it reconnects. It does not erase the run from this app’s own change history — doing that needs a coordinated rebuild that invalidates every device’s copy of this camp and forces each one to pair again — and nothing here can reach a copy already exported or taken off this computer.'
+
+  it('DraftRunView: opens a confirmation with the verbatim cost copy, and deletes on confirm', async () => {
+    localClient.deleteElectiveRun.mockResolvedValue({ ok: true, ops_written: 5 })
+    render(<DraftRunView run={DRAFT_RUN} onBack={() => {}} {...catalogs()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete run' }))
+
+    const dialog = await screen.findByTestId('delete-run-dialog')
+    expect(dialog.textContent).toMatch(/Delete "Elective assignment — 2026-09-25"\?/)
+    expect(dialog.textContent).toContain(COST_COPY)
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete run' }))
+    await waitFor(() => expect(localClient.deleteElectiveRun).toHaveBeenCalledWith({ runId: 'run-1' }))
+  })
+
+  it('Cancel closes the dialog without deleting', async () => {
+    render(<DraftRunView run={DRAFT_RUN} onBack={() => {}} {...catalogs()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete run' }))
+    const dialog = await screen.findByTestId('delete-run-dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByTestId('delete-run-dialog')).toBeNull()
+    expect(localClient.deleteElectiveRun).not.toHaveBeenCalled()
+  })
+
+  it('surfaces a delete failure instead of swallowing it', async () => {
+    localClient.deleteElectiveRun.mockRejectedValue(new Error('delete unavailable'))
+    render(<DraftRunView run={DRAFT_RUN} onBack={() => {}} {...catalogs()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete run' }))
+    const dialog = await screen.findByTestId('delete-run-dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete run' }))
+    await waitFor(() => expect(within(dialog).getByText(/delete unavailable|could not be deleted/i)).toBeTruthy())
+  })
+
+  it('FinalRunView: also offers Delete run (a final run is deletable)', async () => {
+    localClient.deleteElectiveRun.mockResolvedValue({ ok: true, ops_written: 5 })
+    render(<FinalRunView run={FINAL_RUN} campers={CAMPERS} onBack={() => {}} {...catalogs()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete run' }))
+    const dialog = await screen.findByTestId('delete-run-dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete run' }))
+    await waitFor(() => expect(localClient.deleteElectiveRun).toHaveBeenCalledWith({ runId: 'run-2' }))
+  })
+})
+
 describe('T250 — Q5 terminology is a single swappable constant', () => {
   it('ships the ruled Start a new version wording from one named constant', () => {
     expect(START_REVISION_LABEL).toBe('Start a new version')
