@@ -36,6 +36,7 @@ import { rememberColumnMapping } from './ops/rememberColumnMapping.js'
 import { duplicateWeek } from './ops/duplicateWeek.js'
 import { deleteWeek } from './ops/deleteWeek.js'
 import { deleteElectiveSet } from './ops/deleteElectiveSet.js'
+import { deleteElectiveRun } from './ops/deleteElectiveRun.js'
 import { attributeElectiveSubject } from './ops/attributeElectiveSubject.js'
 import { deleteSpecialDay } from './ops/deleteSpecialDay.js'
 import { deleteEvent } from './ops/deleteEvent.js'
@@ -2096,8 +2097,16 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     requireAuthorized(db, { token, action: 'elective_assignment_runs.read' })
     const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
     if (!camp) return []
+    // T250 A0.1 — widened to include schedule_template_id/schedule_week_id/
+    // tier_id/finalized_at/finalized_by: RunIdentity (src/screens/elective/
+    // run/RunStateRows.jsx) reads all five, and they were previously
+    // undefined on a run opened cold from this list.
     return db
-      .prepare('SELECT id, name, status, source_filename, solver_version FROM elective_assignment_runs WHERE camp_id = ? ORDER BY name')
+      .prepare(
+        `SELECT id, name, status, source_filename, solver_version,
+                schedule_week_id, schedule_template_id, tier_id, finalized_at, finalized_by
+           FROM elective_assignment_runs WHERE camp_id = ? ORDER BY name`
+      )
       .all(camp.id)
   }
 
@@ -2125,6 +2134,24 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     const session = requireAuthorized(db, { token, action: 'elective_assignment_runs.write' })
     if (!isNonEmptyString(runId)) throw new Error('runId is required')
     return finalizeElectiveRun(db, { runId, authorUserId: session?.userId ?? null, deviceId })
+  }
+
+  // T250 A4 — permanently deleting an elective run and every row scoped to it.
+  // Same admin-only participant-entity posture as the handlers above (the
+  // action name, not a hand-written role check, is what enforces it —
+  // participantEntitiesAdminOnly.test.js). The cascade itself lives in
+  // electron/ops/deleteElectiveRun.js; this handler only authorizes and
+  // forwards, same split as deleteElectiveSetHandler above. A final run is
+  // deletable — D10 rules on editing an immutable run's content, not on
+  // removing the run itself.
+  function deleteElectiveRunHandler({ token, runId } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const session = requireAuthorized(db, { token, action: 'elective_assignment_runs.delete' })
+    if (!isNonEmptyString(runId)) throw new Error('runId is required')
+    const result = deleteElectiveRun(db, { runId }, { author_user_id: session?.userId ?? null, device_id: deviceId })
+    if (result.error) return result
+    const { ops, ...reportable } = result
+    return { ...reportable, ops_written: ops.length }
   }
 
   // Moving/locking a camper inside a draft run (T245, same ADR, decision (b)).
@@ -2572,6 +2599,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     deleteWeek: deleteWeekHandler,
     attributeSubject: attributeSubjectHandler,
     deleteElectiveSet: deleteElectiveSetHandler,
+    deleteElectiveRun: deleteElectiveRunHandler,
     deleteSpecialDay: deleteSpecialDayHandler,
     deleteEvent: deleteEventHandler,
     listDurableElectiveSets: listDurableElectiveSetsHandler,
@@ -2803,6 +2831,7 @@ if (isElectronEntryPoint()) {
     'shoresh:restore-entity',
     'shoresh:preview-delete',
     'shoresh:delete-record',
+    'shoresh:delete-elective-run',
     'shoresh:merge-location',
     'shoresh:merge-activity',
     'shoresh:preview-activity-merge',
@@ -2890,6 +2919,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:restore-entity', (_event, args) => handlers.restoreEntity(args))
     ipcMain.handle('shoresh:preview-delete', (_event, args) => handlers.previewDelete(args))
     ipcMain.handle('shoresh:delete-record', (_event, args) => handlers.deleteRecord(args))
+    ipcMain.handle('shoresh:delete-elective-run', (_event, args) => handlers.deleteElectiveRun(args))
     ipcMain.handle('shoresh:merge-location', (_event, args) => handlers.mergeLocation(args))
     ipcMain.handle('shoresh:merge-activity', (_event, args) => handlers.mergeActivity(args))
     ipcMain.handle('shoresh:preview-activity-merge', (_event, args) => handlers.previewActivityMerge(args))

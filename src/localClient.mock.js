@@ -2032,7 +2032,21 @@ export const mockShoresh = {
       .filter((c) => c.run_id === runId)
       .map((c) => ({ id: c.id, label: c.label, is_linked: c.is_linked ?? 0 }))
       .sort((a, b) => String(a.label).localeCompare(String(b.label)))
-    return { rows, occurrences, preferences, choices, staleCount: 0, finalizedAgainstStaleGeneration: false, overCapacityOccurrences: [] }
+    // T250 A0.2 — faithfully mirrored: every camper with a preference or an
+    // assignment on this run, group name resolved.
+    const groupById = new Map((state.groups || []).map((g) => [g.id, g.name]))
+    const camperIdsWithPrefOrAssignment = new Set([
+      ...(state.elective_preferences || []).filter((p) => p.run_id === runId).map((p) => p.camper_id),
+      ...(state.elective_assignments || []).filter((a) => a.run_id === runId).map((a) => a.camper_id),
+    ])
+    const campers = (state.campers || [])
+      .filter((c) => camperIdsWithPrefOrAssignment.has(c.id))
+      .map((c) => ({
+        id: c.id, display_name: c.display_name, division_label: c.division_label ?? null,
+        group_id: c.group_id ?? null, external_id: c.external_id ?? null,
+        is_unattributed: c.is_unattributed ?? null, group_name: groupById.get(c.group_id) ?? null,
+      }))
+    return { rows, occurrences, preferences, choices, campers, staleCount: 0, finalizedAgainstStaleGeneration: false, overCapacityOccurrences: [] }
   },
   // T244 — mirrors finalizeElectiveRunHandler's success/ALREADY_FINAL shape.
   // The mock has no template_slots-derived occurrence diff and no
@@ -2738,6 +2752,29 @@ export const mockShoresh = {
 
     saveState(state)
     return { ok: true }
+  },
+
+  // T250 A4 — permanently delete an elective run and every row scoped to it,
+  // mirroring deleteElectiveRun.js's cascade. Operates on localStorage state
+  // — no op-log, no broadcast.
+  async deleteElectiveRun({ runId } = {}) {
+    const state = loadState()
+    const run = (state.elective_assignment_runs || []).find((r) => r.id === runId)
+    if (!run) return { error: 'not-found' }
+
+    const choiceIds = new Set(
+      (state.elective_choices || []).filter((c) => c.run_id === runId).map((c) => c.id)
+    )
+    state.elective_run_outer_snapshots = (state.elective_run_outer_snapshots || []).filter((s) => s.run_id !== runId)
+    state.elective_assignments = (state.elective_assignments || []).filter((a) => a.run_id !== runId)
+    state.elective_preferences = (state.elective_preferences || []).filter((p) => p.run_id !== runId)
+    state.elective_choice_offerings = (state.elective_choice_offerings || []).filter((o) => !choiceIds.has(o.choice_id))
+    state.elective_choices = (state.elective_choices || []).filter((c) => c.run_id !== runId)
+    state.elective_occurrences = (state.elective_occurrences || []).filter((o) => o.run_id !== runId)
+    state.elective_assignment_runs = (state.elective_assignment_runs || []).filter((r) => r.id !== runId)
+
+    saveState(state)
+    return { ok: true, ops_written: 1 }
   },
 
   // Permanently delete a special day and its scoped rows, mirroring

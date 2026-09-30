@@ -14,6 +14,8 @@ import { describeWriteFailure } from '../../../utils/writeErrorMessage'
 const EMPTY = {
   rows: [], staleCount: 0, finalizedAgainstStaleGeneration: false,
   overCapacityOccurrences: [], occurrences: [], preferences: [], choices: [],
+  // T250 A0.2 — the run's own camper roster (with group_name resolved).
+  campers: [],
 }
 
 export function useRunState(runId) {

@@ -32,6 +32,7 @@
 import { useMemo, useState } from 'react'
 import { S, useEnterTransition } from '../../../styles/shared'
 import { buildCamperElectiveWeek, listRunCampers, rankLabel } from './camperElectiveWeek.js'
+import { resolveCamperDisambiguators } from './runStateCopy.js'
 
 // The severity vocabulary this corner of the app already speaks
 // (src/ingest/residueKinds.js's residueRailColor, ParseSummary's two summary
@@ -165,6 +166,10 @@ export default function CamperWeekPanel({
   // T297. All four default to their absent value, so FinalRunView's existing
   // call renders exactly the read-only week it rendered before.
   preferences = NONE, choices = NONE, onSetPreference = null, onRemovePreference = null,
+  // T250 B3 — the run's own camper roster (A0.2, useRunState().campers),
+  // absent-safe like the four above: a caller that hasn't been updated yet
+  // renders exactly the same list it rendered before, with no disambiguator.
+  campers: rosterCampers = NONE,
 }) {
   const [camperId, setCamperId] = useState(null)
   // Which ROW is open for editing, at most one. A week of open selects would be
@@ -177,6 +182,15 @@ export default function CamperWeekPanel({
   // a few thousand rows — so an unmemoized roster pays a full scan plus a
   // locale-collated sort of every camper on each interaction.
   const campers = useMemo(() => listRunCampers(rows), [rows])
+  // Round 2 FIX 3 — resolved once across the WHOLE picker list, so a tier
+  // value is only shown when it actually tells two same-named campers apart
+  // (see resolveCamperDisambiguators' own comment in runStateCopy.js).
+  const disambiguators = useMemo(() => resolveCamperDisambiguators(
+    campers.map((c) => {
+      const roster = rosterCampers.find((r) => r.id === c.camperId)
+      return { id: c.camperId, name: c.camperName, groupName: roster?.group_name, externalId: roster?.external_id }
+    })
+  ), [campers, rosterCampers])
   const week = useMemo(
     () => (camperId == null
       ? null
@@ -217,7 +231,12 @@ export default function CamperWeekPanel({
       <div style={styles.heading}>
         {campers.length} {campers.length === 1 ? 'camper' : 'campers'}
       </div>
-      {campers.map((camper) => (
+      {campers.map((camper) => {
+        // T250 B3 / Round 2 FIX 3 — the same ' · ' separator RunIdentity
+        // already uses; the value itself is collision-aware (see the
+        // `disambiguators` memo above).
+        const disambiguator = disambiguators.get(camper.camperId) ?? null
+        return (
         <button
           key={camper.camperId}
           type="button"
@@ -226,13 +245,16 @@ export default function CamperWeekPanel({
           style={camper.fallbackCount > 0 ? styles.camperRowAttention : S.listRow}
           onClick={() => setCamperId(camper.camperId)}
         >
-          <span style={styles.camperRowName}>{camper.camperName}</span>
+          <span style={styles.camperRowName}>
+            {camper.camperName}{disambiguator ? ` · ${disambiguator}` : ''}
+          </span>
           <span style={S.listRowMeta}>
             {camper.placementCount} {camper.placementCount === 1 ? 'period' : 'periods'}
             {camper.fallbackCount > 0 ? ` · ${camper.fallbackCount} not requested` : ''}
           </span>
         </button>
-      ))}
+        )
+      })}
     </div>
   )
 }

@@ -13,12 +13,14 @@
 import { useState } from 'react'
 import { localClient } from '../../../localClient'
 import { describeWriteFailure } from '../../../utils/writeErrorMessage'
+import { useEnterTransition } from '../../../styles/shared'
 import { buildChildScheduleExport } from '../export/exportChildSchedule.js'
 import { buildElectiveRunProjectionExport } from '../export/exportElectiveRunProjection.js'
 import { exportElectiveRunWorkbookFile } from '../export/exportElectiveRunWorkbook.js'
 import { S, RunStateArea, RunStateRow, RunIdentity, RunError } from './RunStateRows.jsx'
 import { useRunState } from './useRunState.js'
 import CamperWeekPanel from './CamperWeekPanel.jsx'
+import DeleteRunDialog from './DeleteRunDialog.jsx'
 import {
   START_REVISION_LABEL, STALE_GENERATION_COPY, occurrenceLabel, overCapacityMessage,
 } from './runStateCopy.js'
@@ -41,9 +43,19 @@ export default function FinalRunView({
   run, campers = [], onStartRevision, onBack,
   activities = [], days = [], timeBlocks = [], groups = [], templateOccurrences = [],
   scheduleTemplates = [], scheduleWeeks = [], tiers = [],
+  // T250 A1 — true ONLY for the in-session Finalize -> Final transition
+  // (AssignmentPanel sets it after a successful finalizeRun call and clears
+  // it on any other mount). A Final run opened cold from the run list must
+  // render at rest, per T250 round 2 FIX 4's standing rule — the hook is
+  // always called (rules of hooks) but its style is applied only here.
+  justFinalized = false,
 }) {
   const { state, loaded, loadError } = useRunState(run.id)
+  const enter = useEnterTransition('liftFade')
   const [error, setError] = useState(null)
+  // T250 A4 — a final run is deletable (D10 rules on editing an immutable
+  // run's content, not on removing the run itself).
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
 
   async function exportChildSchedules() {
     setError(null)
@@ -146,7 +158,7 @@ export default function FinalRunView({
   ]
 
   return (
-    <div>
+    <div data-testid="final-run-view" style={justFinalized ? enter : undefined}>
       {onBack ? <button className="press-97" style={{ ...S.btnUtility, marginBottom: 12 }} onClick={onBack}>Back to Runs</button> : null}
       <RunIdentity run={run} scheduleTemplates={scheduleTemplates} scheduleWeeks={scheduleWeeks} tiers={tiers} />
       <RunError message={error ?? loadError} />
@@ -184,7 +196,27 @@ export default function FinalRunView({
             days={days}
             timeBlocks={timeBlocks}
             preferences={state.preferences}
+            campers={state.campers}
           />
+
+          {/* T250 A4 — a quiet text-only trigger at the bottom, well
+              separated from the export/revision actions above. */}
+          <button
+            className="press-97"
+            style={{ ...S.btnUtility, marginTop: 20 }}
+            onClick={() => setConfirmingDelete(true)}
+          >
+            Delete run
+          </button>
+          {confirmingDelete ? (
+            <DeleteRunDialog
+              run={run}
+              camperCount={(state.campers ?? []).length}
+              placementCount={state.rows.length}
+              onCancel={() => setConfirmingDelete(false)}
+              onDeleted={() => onBack?.()}
+            />
+          ) : null}
         </>
       ) : null}
     </div>

@@ -14,6 +14,10 @@ vi.mock('../../../localClient', () => ({
     // resolving empty is a camp that has remembered nothing, which is what every
     // one of those tests means to exercise.
     list: vi.fn(), rememberColumnMapping: vi.fn(),
+    // T250 A3 — the run list and its own read, exercised by the cold-open
+    // hydration suite below. Every other suite in this file leaves these
+    // unset (RunList itself renders nothing on an empty resolve).
+    listElectiveRuns: vi.fn(), getElectiveRun: vi.fn(), setElectiveAssignment: vi.fn(),
   },
 }))
 
@@ -61,6 +65,9 @@ beforeEach(() => {
   localClient.list.mockResolvedValue([])
   localClient.rememberColumnMapping.mockReset()
   localClient.rememberColumnMapping.mockResolvedValue({ ok: true, id: 'seed-1' })
+  localClient.listElectiveRuns.mockReset().mockResolvedValue([])
+  localClient.getElectiveRun.mockReset()
+  localClient.setElectiveAssignment.mockReset().mockResolvedValue({ ok: true })
   // Default for the pre-existing suites: encryption OFF, which is the real
   // default today (SHORESH_AT_REST_ENCRYPTION is unset). T249's own suite sets
   // this per test.
@@ -770,5 +777,183 @@ describe('T314 — the panel reads the tab that holds the preferences', () => {
     fireEvent.click(screen.getByText(/Confirm Mapping/))
     await waitFor(() => expect(screen.getByText(/Solve/i)).toBeTruthy())
     expect(screen.queryByText(/Tab ./)).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// T250 A5 — the same-name refusal must be visible and must BLOCK, even when
+// this set is placed on more than one candidate schedule. Before this fix the
+// route-chooser branch (candidateTemplateIds.length > 1 && !templateId) ran
+// BEFORE the refusal check, so its buttons called chooseTemplateAndSolve
+// directly and a same-name sheet solved anyway.
+// ---------------------------------------------------------------------------
+describe('AssignmentPanel — T250 A5: same-name refusal blocks the route chooser', () => {
+  // A second template placing the same elective set, so candidateTemplateIds
+  // has more than one entry — the exact combination the evidence
+  // (docs/work/evidence/T251/01-blocked-import-NOT-refused-route-chooser.png)
+  // shows skipping the refusal entirely.
+  const TWO_TEMPLATE_SLOTS = [
+    ...TEMPLATE_SLOTS,
+    { id: 's2', template_id: 'tpl-2', elective_set_id: 'set-1', day_id: 'day-1', time_block_id: 'tb-1', group_id: 'grp-1' },
+  ]
+  const TWO_TEMPLATES = [
+    ...SCHEDULE_TEMPLATES,
+    { id: 'tpl-2', camp_id: 'camp-1', week_id: null, name: 'Generated', kind: 'generated' },
+  ]
+
+  // Header/rows shape from src/ingest/preferenceSheet.test.js's own same-name
+  // fixture: two rows naming one child with no camper id to tell them apart.
+  // Every ranked label must resolve against the camp's OWN activity catalog
+  // for the collision to fire (parsePreferenceSheet's slot-overlap rule
+  // treats a row with zero resolved activities as "empty", which only
+  // collides against a second empty row) — so this set's activities carry
+  // every label the sheet ranks, not just the baseProps() default of one.
+  const SAME_NAME_ACTIVITIES = [
+    { id: 'act-1', name: 'Archery' }, { id: 'act-2', name: 'Gaga' },
+    { id: 'act-3', name: 'Sailing' }, { id: 'act-4', name: 'Ceramics' },
+  ]
+  const SAME_NAME_SHEET =
+    'Camper Name\tDivision\tSwim Alternative (Y/N)\t#1\t#2\t#3\tAdditional Comments\n' +
+    'Ari Green\tArad\tN\tArchery\tGaga\tSailing\t\n' +
+    'Ari Green\tBogrim\tN\tCeramics\tSailing\tGaga\t'
+
+  it('shows the refusal card, not the route chooser, and never offers a Solve affordance', async () => {
+    const props = baseProps({ templateSlots: TWO_TEMPLATE_SLOTS, scheduleTemplates: TWO_TEMPLATES, activities: SAME_NAME_ACTIVITIES })
+    render(<AssignmentPanel {...props} />)
+    const input = document.querySelector('input[type="file"]')
+    const sheetFile = new File([SAME_NAME_SHEET], 'sheet.tsv', { type: 'text/tab-separated-values' })
+    fireEvent.change(input, { target: { files: [sheetFile] } })
+    await waitFor(() => expect(screen.getByText(/Confirm Mapping/)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Confirm Mapping/))
+
+    // The refusal, not the route chooser.
+    await waitFor(() => expect(screen.getByText(/This sheet can.t be assigned yet/)).toBeTruthy())
+    expect(screen.queryByText(/choose which to assign against/)).toBeNull()
+    expect(screen.queryByText('Generated')).toBeNull()
+    expect(screen.queryByText('Manual')).toBeNull()
+
+    // No solve affordance anywhere — only the escape hatch back to file choice.
+    expect(screen.queryByText(/^Solve/i)).toBeNull()
+    expect(screen.getByRole('button', { name: /Choose a Different File/i })).toBeTruthy()
+  })
+
+  it('renders the refusal as an alert and never calls commitElectiveRun even if a director keeps clicking', async () => {
+    const props = baseProps({ templateSlots: TWO_TEMPLATE_SLOTS, scheduleTemplates: TWO_TEMPLATES, activities: SAME_NAME_ACTIVITIES })
+    render(<AssignmentPanel {...props} />)
+    const input = document.querySelector('input[type="file"]')
+    const sheetFile = new File([SAME_NAME_SHEET], 'sheet.tsv', { type: 'text/tab-separated-values' })
+    fireEvent.change(input, { target: { files: [sheetFile] } })
+    await waitFor(() => expect(screen.getByText(/Confirm Mapping/)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Confirm Mapping/))
+
+    const card = await screen.findByRole('alert')
+    expect(card.textContent).toMatch(/This sheet can.t be assigned yet/)
+    expect(localClient.commitElectiveRun).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// T250 A3 — a run opened cold from the run list can be regenerated. Before
+// this, onRegenerate was `undefined` unless viewRun.id === committedInfo?.runId
+// — only true in the SAME session that solved it, so a cold open had no
+// regenerate at all, however stale the run.
+// ---------------------------------------------------------------------------
+describe('AssignmentPanel — T250 A3: cold-open hydration and regenerate', () => {
+  const COLD_RUN = {
+    id: 'cold-run-1', name: 'Cold Run', status: 'draft', source_filename: 'sheet.csv',
+    schedule_template_id: 'tpl-1', schedule_week_id: null, tier_id: 'tier-juniors',
+  }
+
+  function coldRunState() {
+    return {
+      rows: [{ id: 'asn-1', occurrence_id: 'occ-1', camper_id: 'camper-1', activity_id: 'act-1', preference_rank: 1, camper_name: 'Ari', source: 'solver', is_locked: 0 }],
+      occurrences: [{ id: 'occ-1', elective_set_id: 'set-1', day_id: 'day-1', time_block_id: 'tb-1', tier_id: 'tier-juniors' }],
+      preferences: [{ id: 'pref-1', camper_id: 'camper-1', choice_id: 'choice-1', occurrence_id: 'occ-1', rank: 1, rank_kind: 'cell-choice', coordinate: null }],
+      choices: [{ id: 'choice-1', label: 'Archery', is_linked: 0 }],
+      campers: [{ id: 'camper-1', display_name: 'Ari', division_label: null, group_id: 'grp-1', external_id: null, is_unattributed: 0, group_name: 'Cabin One' }],
+      staleCount: 1,
+      finalizedAgainstStaleGeneration: false,
+      overCapacityOccurrences: [],
+    }
+  }
+
+  it('hydrates the panel session state on cold open, so a regenerate control becomes available', async () => {
+    localClient.listElectiveRuns.mockResolvedValue([COLD_RUN])
+    localClient.getElectiveRun.mockResolvedValue(coldRunState())
+    render(<AssignmentPanel {...baseProps()} />)
+    fireEvent.click(await screen.findByTestId('run-list-row-cold-run-1'))
+
+    // Before hydration lands, no regenerate control (a control that cannot
+    // work must not render) — after it lands, the staleness offer's button
+    // is present.
+    const offer = await screen.findByTestId('run-staleness-offer')
+    expect(within(offer).getByRole('button', { name: /Re-derive and regenerate/i })).toBeTruthy()
+    // The disclosure note: a cold-open regenerate reconstructs the roster
+    // from preferences/assignments only, not the original sheet.
+    expect(screen.getByTestId('run-cold-regenerate-note').textContent).toMatch(
+      /reconsiders every camper who has a preference or a placement on it/
+    )
+  })
+
+  it('a cold regenerate re-solves and commits onto the ORIGINAL runId, never a freshly minted one', async () => {
+    localClient.listElectiveRuns.mockResolvedValue([COLD_RUN])
+    localClient.getElectiveRun.mockResolvedValue(coldRunState())
+    localClient.commitElectiveRun.mockResolvedValue({ ok: true, runId: 'cold-run-1', counts: { campers: 1, choices: 1, preferences: 1, assignments: 1 }, findings: [] })
+    render(<AssignmentPanel {...baseProps()} />)
+    fireEvent.click(await screen.findByTestId('run-list-row-cold-run-1'))
+
+    const offer = await screen.findByTestId('run-staleness-offer')
+    fireEvent.click(within(offer).getByRole('button', { name: /Re-derive and regenerate/i }))
+
+    // Solve runs, landing on the preview with a Commit button.
+    await waitFor(() => expect(screen.getByText(/Commit Assignments/)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Commit Assignments/))
+
+    await waitFor(() => expect(localClient.commitElectiveRun).toHaveBeenCalled())
+    const payload = localClient.commitElectiveRun.mock.calls.at(-1)[0]
+    expect(payload.runId).toBe('cold-run-1')
+  })
+
+  // Round 2 FIX 1 (Code Reviewer, HIGH) — leaving a cold-opened run via "Back
+  // to Runs" left templateId (and runId/parsed/occurrences/hydratedRunId)
+  // hydrated in this panel's state. Importing a NEW sheet afterwards does not
+  // reset templateId, so the route-chooser gate
+  // (candidateTemplateIds.length > 1 && !templateId) read templateId as
+  // already set and skipped straight past the chooser — silently assigning
+  // the new sheet to the COLD RUN's template instead of letting the director
+  // pick a route. That violates the standing rule that neither candidate
+  // schedule is canonical and nothing may choose one on the director's
+  // behalf.
+  it('leaving a cold-opened run clears hydrated state, so a later import with >1 candidate template still shows the route chooser', async () => {
+    localClient.listElectiveRuns.mockResolvedValue([COLD_RUN])
+    localClient.getElectiveRun.mockResolvedValue(coldRunState())
+    const TWO_TEMPLATE_SLOTS = [
+      ...TEMPLATE_SLOTS,
+      { id: 's2', template_id: 'tpl-2', elective_set_id: 'set-1', day_id: 'day-1', time_block_id: 'tb-1', group_id: 'grp-1' },
+    ]
+    const TWO_TEMPLATES = [
+      ...SCHEDULE_TEMPLATES,
+      { id: 'tpl-2', camp_id: 'camp-1', week_id: null, name: 'Generated', kind: 'generated' },
+    ]
+    render(<AssignmentPanel {...baseProps({ templateSlots: TWO_TEMPLATE_SLOTS, scheduleTemplates: TWO_TEMPLATES })} />)
+
+    // Cold-open the draft run, so hydration lands and sets templateId.
+    fireEvent.click(await screen.findByTestId('run-list-row-cold-run-1'))
+    await screen.findByTestId('run-staleness-offer')
+
+    // Leave the run.
+    fireEvent.click(screen.getByRole('button', { name: /Back to Runs/i }))
+
+    // Import a fresh sheet placed on both candidate templates.
+    const input = document.querySelector('input[type="file"]')
+    const sheetFile = new File(['Name\t#1\nBen\tArchery'], 'sheet2.txt', { type: 'text/plain' })
+    fireEvent.change(input, { target: { files: [sheetFile] } })
+    await waitFor(() => expect(screen.getByText(/Confirm Mapping/)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Confirm Mapping/))
+
+    // The route chooser must render — not a silent solve against the cold
+    // run's template.
+    await waitFor(() => expect(screen.getByText(/choose which to assign against/)).toBeTruthy())
+    expect(screen.queryByText(/^Solve/i)).toBeNull()
   })
 })

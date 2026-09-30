@@ -33,6 +33,8 @@ vi.mock('../../../localClient', () => ({
     setElectiveAssignment: vi.fn(),
     getElectiveRunOuterSchedule: vi.fn(),
     list: vi.fn(),
+    finalizeElectiveRun: vi.fn(),
+    deleteElectiveRun: vi.fn(),
   },
 }))
 
@@ -56,6 +58,7 @@ import DraftRunView from './DraftRunView.jsx'
 import FinalRunView from './FinalRunView.jsx'
 import { prefersReducedMotion } from '../../../styles/shared'
 import { RELEASE_LOCK_LABEL, START_REVISION_LABEL, STALE_GENERATION_COPY } from './runStateCopy.js'
+import { DELETE_RUN_COST_COPY } from './DeleteRunDialog.jsx'
 
 // Fabricated names only — real camper data is refused at a tested gate until
 // at-rest encryption ships (T249 / ADR 2026-09-23 Q4), and the privacy guard
@@ -120,6 +123,8 @@ beforeEach(() => {
   localClient.setElectiveAssignment.mockReset().mockResolvedValue({ ok: true, assignmentId: 'a1' })
   localClient.getElectiveRunOuterSchedule.mockReset().mockResolvedValue({ rows: [], runStatus: 'final' })
   localClient.list.mockReset().mockResolvedValue(CAMPERS)
+  localClient.finalizeElectiveRun.mockReset()
+  localClient.deleteElectiveRun.mockReset()
 })
 
 // ---------------------------------------------------------------------------
@@ -138,6 +143,141 @@ describe('T250 archive_when — Draft: run list', () => {
 
     fireEvent.click(draftRow)
     expect(onOpen).toHaveBeenCalledWith(DRAFT_RUN)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// T250 A1 + A2 — Finalize control and its inline refusals.
+// ---------------------------------------------------------------------------
+describe('T250 A1 — Finalize run', () => {
+  it('calls finalizeElectiveRun and, on success, hands the finalized run to onFinalized', async () => {
+    localClient.finalizeElectiveRun.mockResolvedValue({ ok: true, finalizedAt: '2026-09-30T12:00:00.000Z', snapshotRows: 3 })
+    const onFinalized = vi.fn()
+    render(<DraftRunView run={DRAFT_RUN} onFinalized={onFinalized} {...catalogs()} />)
+    const button = await screen.findByRole('button', { name: 'Finalize run' })
+    fireEvent.click(button)
+    await waitFor(() => expect(localClient.finalizeElectiveRun).toHaveBeenCalledWith({ runId: 'run-1' }))
+    await waitFor(() => expect(onFinalized).toHaveBeenCalled())
+    const finalized = onFinalized.mock.calls[0][0]
+    expect(finalized.status).toBe('final')
+    expect(finalized.finalized_at).toBe('2026-09-30T12:00:00.000Z')
+  })
+
+  it('disables the button and shows Finalizing… while the write is in flight', async () => {
+    let resolveFinalize
+    localClient.finalizeElectiveRun.mockReturnValue(new Promise((resolve) => { resolveFinalize = resolve }))
+    render(<DraftRunView run={DRAFT_RUN} onFinalized={vi.fn()} {...catalogs()} />)
+    const button = await screen.findByRole('button', { name: 'Finalize run' })
+    fireEvent.click(button)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Finalizing…' }).disabled).toBe(true))
+    resolveFinalize({ ok: true, finalizedAt: 'x', snapshotRows: 0 })
+  })
+
+  // Round 2 FIX 5(c) (Code Reviewer, LOW) — finalizeRun() had only
+  // `disabled={finalizing}`, a state-driven guard that cannot close the
+  // window between a tablet double-tap and React's next re-render (the same
+  // reason AssignmentPanel's commit() carries a synchronous `committingRef`
+  // alongside its own `committing` prop — see that comment). Two clicks
+  // fired in the same tick both land before React flushes the disabled
+  // state, so both invoked finalizeElectiveRun.
+  it('a second click while finalizing does not issue a second finalizeElectiveRun call', async () => {
+    let resolveFinalize
+    localClient.finalizeElectiveRun.mockImplementation(
+      () => new Promise((resolve) => { resolveFinalize = resolve })
+    )
+    render(<DraftRunView run={DRAFT_RUN} onFinalized={vi.fn()} {...catalogs()} />)
+    const button = await screen.findByRole('button', { name: 'Finalize run' })
+    fireEvent.click(button)
+    fireEvent.click(button)
+    fireEvent.click(button)
+    expect(localClient.finalizeElectiveRun).toHaveBeenCalledTimes(1)
+    resolveFinalize({ ok: true, finalizedAt: 'x', snapshotRows: 0 })
+  })
+
+  it('STALE_OUTER_SCHEDULE renders the verbatim copy paired with a Re-derive and regenerate action', async () => {
+    localClient.finalizeElectiveRun.mockResolvedValue({ ok: false, error: 'STALE_OUTER_SCHEDULE', findings: [{ kind: 'OCCURRENCE_REMOVED', occurrenceId: 'occ-1' }] })
+    const onRegenerate = vi.fn()
+    render(<DraftRunView run={DRAFT_RUN} onFinalized={vi.fn()} onRegenerate={onRegenerate} {...catalogs()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Finalize run' }))
+    const row = await screen.findByText(/This run's schedule changed on another device since you last regenerated/)
+    const action = screen.getByRole('button', { name: /Re-derive and regenerate/i })
+    fireEvent.click(action)
+    expect(onRegenerate).toHaveBeenCalled()
+    void row
+  })
+
+  it('OUTER_RESOURCE_CONFLICT renders the verbatim copy with no action button', async () => {
+    localClient.finalizeElectiveRun.mockResolvedValue({ ok: false, error: 'OUTER_RESOURCE_CONFLICT', findings: [{ locationId: 'loc-1' }] })
+    render(<DraftRunView run={DRAFT_RUN} onFinalized={vi.fn()} {...catalogs()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Finalize run' }))
+    const row = await screen.findByText(/A location or activity this run depends on is now double-booked/)
+    expect(within(row.closest('[role="alert"]')).queryByRole('button')).toBeNull()
+  })
+
+  it('ALREADY_FINAL reloads and transitions to the finalized run', async () => {
+    localClient.finalizeElectiveRun.mockResolvedValue({ ok: false, error: 'ALREADY_FINAL' })
+    const onFinalized = vi.fn()
+    render(<DraftRunView run={DRAFT_RUN} onFinalized={onFinalized} {...catalogs()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Finalize run' }))
+    await waitFor(() => expect(onFinalized).toHaveBeenCalled())
+    expect(onFinalized.mock.calls[0][0].status).toBe('final')
+  })
+
+  it('an unrecognised error string renders verbatim, with nothing changed', async () => {
+    localClient.finalizeElectiveRun.mockResolvedValue({ ok: false, error: 'run has no assignments' })
+    render(<DraftRunView run={DRAFT_RUN} onFinalized={vi.fn()} {...catalogs()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Finalize run' }))
+    await screen.findByText(/Finalizing failed: run has no assignments\. Nothing was changed/)
+  })
+
+  it('renders up to 3 findings as a list, collapsing the remainder behind "+N more"', async () => {
+    localClient.finalizeElectiveRun.mockResolvedValue({
+      ok: false, error: 'OUTER_RESOURCE_CONFLICT',
+      findings: [
+        { locationId: 'loc-1', message: 'Finding one' },
+        { locationId: 'loc-2', message: 'Finding two' },
+        { locationId: 'loc-3', message: 'Finding three' },
+        { locationId: 'loc-4', message: 'Finding four' },
+        { locationId: 'loc-5', message: 'Finding five' },
+      ],
+    })
+    render(<DraftRunView run={DRAFT_RUN} onFinalized={vi.fn()} {...catalogs()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Finalize run' }))
+    const row = await screen.findByTestId('run-state-finalize-refusal')
+    const lists = row.querySelectorAll('ul')
+    expect(lists[0].querySelectorAll('li')).toHaveLength(3)
+    expect(screen.getByText('+2 more')).toBeTruthy()
+  })
+
+  it('the refusal row is an alert and receives focus', async () => {
+    localClient.finalizeElectiveRun.mockResolvedValue({ ok: false, error: 'OUTER_RESOURCE_CONFLICT', findings: [] })
+    render(<DraftRunView run={DRAFT_RUN} onFinalized={vi.fn()} {...catalogs()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Finalize run' }))
+    const row = await screen.findByRole('alert')
+    await waitFor(() => expect(document.activeElement).toBe(row))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// T250 A1 — FinalRunView's own entrance transition is transient: it applies
+// ONLY on the in-session Finalize -> Final transition (justFinalized), never
+// on a Final run opened cold from the run list (T250 round 2, FIX 4's
+// standing rule: a screen that already has findings/state when it mounts
+// renders at rest).
+// ---------------------------------------------------------------------------
+describe('T250 A1 — FinalRunView animates only the in-session finalize transition', () => {
+  it('renders at rest (no justFinalized prop) exactly like a cold-opened Final run', async () => {
+    render(<FinalRunView run={FINAL_RUN} campers={CAMPERS} {...catalogs()} />)
+    const identity = await screen.findByTestId('run-identity')
+    void identity
+    // No justFinalized => no opacity/transform override on the wrapper.
+    expect(screen.getByTestId('final-run-view').style.transition).toBe('')
+  })
+
+  it('applies an entrance transition when justFinalized is true', async () => {
+    render(<FinalRunView run={FINAL_RUN} campers={CAMPERS} justFinalized {...catalogs()} />)
+    await screen.findByTestId('run-identity')
+    expect(screen.getByTestId('final-run-view').style.transition).not.toBe('')
   })
 })
 
@@ -257,6 +397,124 @@ describe('T250 archive_when — Draft: DANGLING_MANUAL_ASSIGNMENT surfaced live'
 })
 
 // ---------------------------------------------------------------------------
+// T250 B1 — commitElectiveRun's `findings` return array mixes THREE kinds
+// (DANGLING_MANUAL_ASSIGNMENT, PREFERENCE_EDIT_HELD, BUNDLE_TIER_NOT_COVERED)
+// and every one of them carries a camper_id, so a caller that filters on
+// nothing prints the dangling-placement sentence for all three.
+// ---------------------------------------------------------------------------
+describe('T250 B1 — a mixed findings array renders each kind with its own sentence', () => {
+  const mixed = [
+    {
+      kind: 'DANGLING_MANUAL_ASSIGNMENT', assignment_id: 'a3',
+      camper_id: 'camper-3', occurrence_id: 'occ-gone', message: 'ignored — T250 owns this sentence',
+    },
+    {
+      kind: 'PREFERENCE_EDIT_HELD', preference_id: 'pref-1', camper_id: 'camper-1', reason: 'removed',
+      message: 'This file still lists a preference you removed by hand, so it was not added back.',
+    },
+    {
+      kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'camper-2', label: 'Sports Bundle',
+      message: 'Testcamper Bravo ranked “Sports Bundle”, which a bundle claims for specific divisions only.',
+    },
+  ]
+
+  it('renders the dangling sentence for DANGLING_MANUAL_ASSIGNMENT, and each OTHER finding under its own verbatim message, one row per finding, no action button', async () => {
+    render(<DraftRunView run={DRAFT_RUN} danglingFindings={mixed} {...catalogs()} />)
+
+    const danglingRow = await screen.findByTestId('run-state-dangling-a3')
+    expect(danglingRow.textContent).toMatch(/Testcamper Charlie's locked placement no longer matches this run/)
+    expect(within(danglingRow).getByRole('button', { name: 'Release lock' })).toBeTruthy()
+
+    const prefRow = screen.getByTestId('run-state-notice-pref-1')
+    expect(prefRow.textContent).toBe('This file still lists a preference you removed by hand, so it was not added back.')
+    expect(within(prefRow).queryByRole('button')).toBeNull()
+
+    const bundleRow = screen.getByTestId('run-state-notice-camper-2-Sports Bundle')
+    expect(bundleRow.textContent).toBe('Testcamper Bravo ranked “Sports Bundle”, which a bundle claims for specific divisions only.')
+    expect(within(bundleRow).queryByRole('button')).toBeNull()
+
+    // Exactly one row per finding — no collision, no dropped row.
+    const area = screen.getByTestId('run-state-area')
+    expect(area.querySelectorAll('[data-testid^="run-state-"]')).toHaveLength(3)
+  })
+
+  // Round 2 FIX 5(a) (Code Reviewer, LOW) — a commitNotices row rendered
+  // `message={f.message}` with no fallback, so a finding kind without a
+  // `.message` (any future OTHER kind BUNDLE_TIER_NOT_COVERED-shaped kind
+  // commitElectiveRun ever adds) renders a BLANK row instead of something a
+  // director can read. Same fallback shape FinalizeFindingsList already uses.
+  it('falls back to kind, then JSON, for a commit notice with no .message — never a blank row', async () => {
+    render(<DraftRunView run={DRAFT_RUN} danglingFindings={[
+      { kind: 'SOME_FUTURE_KIND', camper_id: 'camper-9' },
+    ]} {...catalogs()} />)
+
+    const row = await screen.findByTestId('run-state-notice-camper-9-SOME_FUTURE_KIND')
+    expect(row.textContent).toBe('SOME_FUTURE_KIND')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// T250 B3 — two same-named campers need something beside the name to tell
+// them apart, in both the placement table and CamperWeekPanel's camper list.
+// ---------------------------------------------------------------------------
+describe('T250 B3 — same-name campers are disambiguated by group name, then external_id, then nothing', () => {
+  const SAME_NAME_ROWS = [
+    { id: 'a1', occurrence_id: 'occ-1', camper_id: 'camper-1', activity_id: 'act-1', preference_rank: 1, camper_name: 'Ari Green', source: 'solver', is_locked: 0 },
+    { id: 'a4', occurrence_id: 'occ-2', camper_id: 'camper-4', activity_id: 'act-2', preference_rank: 1, camper_name: 'Ari Green', source: 'solver', is_locked: 0 },
+  ]
+
+  it('shows the group name beneath the camper name in the placement table when present', async () => {
+    localClient.getElectiveRun.mockResolvedValue({
+      ...CLEAN_RUN_STATE,
+      rows: SAME_NAME_ROWS,
+      campers: [
+        { id: 'camper-1', display_name: 'Ari Green', group_name: 'Cabin One', external_id: null },
+        { id: 'camper-4', display_name: 'Ari Green', group_name: 'Cabin Two', external_id: null },
+      ],
+    })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+    const row1 = await screen.findByTestId('placement-row-a1')
+    expect(row1.textContent).toMatch(/Ari Green/)
+    expect(row1.textContent).toMatch(/Cabin One/)
+    const row4 = screen.getByTestId('placement-row-a4')
+    expect(row4.textContent).toMatch(/Cabin Two/)
+  })
+
+  it('falls back to external_id when there is no group, and never prints the raw camper_id or a "No group" placeholder', async () => {
+    localClient.getElectiveRun.mockResolvedValue({
+      ...CLEAN_RUN_STATE,
+      rows: SAME_NAME_ROWS,
+      campers: [
+        { id: 'camper-1', display_name: 'Ari Green', group_name: null, external_id: 'CM-101' },
+        { id: 'camper-4', display_name: 'Ari Green', group_name: null, external_id: null },
+      ],
+    })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+    const row1 = await screen.findByTestId('placement-row-a1')
+    expect(row1.textContent).toMatch(/CM-101/)
+    const row4 = screen.getByTestId('placement-row-a4')
+    expect(row4.textContent).not.toMatch(/camper-4/)
+    expect(row4.textContent).not.toMatch(/No group/i)
+  })
+
+  it('appends the disambiguator to the camper name in CamperWeekPanel’s list, joined by ·', async () => {
+    localClient.getElectiveRun.mockResolvedValue({
+      ...CLEAN_RUN_STATE,
+      rows: SAME_NAME_ROWS,
+      campers: [
+        { id: 'camper-1', display_name: 'Ari Green', group_name: 'Cabin One', external_id: null },
+        { id: 'camper-4', display_name: 'Ari Green', group_name: 'Cabin Two', external_id: null },
+      ],
+    })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+    const open1 = await screen.findByTestId('camper-week-open-camper-1')
+    expect(open1.textContent).toMatch(/Ari Green · Cabin One/)
+    const open4 = screen.getByTestId('camper-week-open-camper-4')
+    expect(open4.textContent).toMatch(/Ari Green · Cabin Two/)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // archive_when: Draft — "move/lock"
 // ---------------------------------------------------------------------------
 describe('T250 archive_when — Draft: move/lock', () => {
@@ -342,6 +600,54 @@ describe('T250 archive_when — Draft: regenerate with staleness offer', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Round 2 FIX 4 (Red Hat, MEDIUM) — viewRun is a snapshot captured when this
+// screen opened and is never re-synced, so a run another device finalized
+// AFTER that still renders here as Draft with a first-class Regenerate.
+// commitElectiveRun does not itself refuse a commit onto an already-final
+// run (only skips re-asserting `status`/`name`/`source_filename` on an
+// existing row) — so regenerating would silently write over an immutable
+// run. Scoped to the COLD path (coldRegenerate=true): a run this session
+// itself just solved is not the case this guards.
+// ---------------------------------------------------------------------------
+describe('T250 round 2 FIX 4 — a cold-opened run finalized elsewhere refuses to regenerate', () => {
+  it('re-checks status before a cold regenerate, refuses in place, and never calls onRegenerate when the run now reads final', async () => {
+    localClient.getElectiveRun.mockResolvedValue({ ...CLEAN_RUN_STATE, staleCount: 1 })
+    localClient.listElectiveRuns.mockResolvedValue([{ ...DRAFT_RUN, status: 'final' }])
+    const onRegenerate = vi.fn()
+    const onFinalized = vi.fn()
+    render(<DraftRunView run={DRAFT_RUN} onRegenerate={onRegenerate} onFinalized={onFinalized} coldRegenerate {...catalogs()} />)
+
+    const offer = await screen.findByTestId('run-staleness-offer')
+    fireEvent.click(within(offer).getByRole('button', { name: /Re-derive and regenerate/i }))
+
+    await waitFor(() => expect(localClient.listElectiveRuns).toHaveBeenCalled())
+    expect(onRegenerate).not.toHaveBeenCalled()
+    await waitFor(() => expect(onFinalized).toHaveBeenCalledWith(expect.objectContaining({ id: DRAFT_RUN.id, status: 'final' })))
+    const refusalRow = await screen.findByTestId('run-state-finalize-refusal')
+    expect(refusalRow.textContent).toMatch(
+      /finalized on another device while you had it open.*reload it to see the final version/i
+    )
+    // The refusal row itself withholds a Re-derive control — no way to retry
+    // straight into the same hazard from this row (in the real app, onFinalized
+    // transitions AssignmentPanel's viewRun and unmounts this screen entirely;
+    // this standalone render can't observe that unmount).
+    expect(within(refusalRow).queryByRole('button')).toBeNull()
+  })
+
+  it('does not re-check status for a WARM regenerate (this session solved the run itself), and calls onRegenerate synchronously as before', async () => {
+    localClient.getElectiveRun.mockResolvedValue({ ...CLEAN_RUN_STATE, staleCount: 1 })
+    const onRegenerate = vi.fn()
+    render(<DraftRunView run={DRAFT_RUN} onRegenerate={onRegenerate} coldRegenerate={false} {...catalogs()} />)
+
+    const offer = await screen.findByTestId('run-staleness-offer')
+    fireEvent.click(within(offer).getByRole('button', { name: /Re-derive and regenerate/i }))
+
+    expect(onRegenerate).toHaveBeenCalled()
+    expect(localClient.listElectiveRuns).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
 // archive_when: Final — "read-only identity"
 // ---------------------------------------------------------------------------
 describe('T250 archive_when — Final: read-only run identity', () => {
@@ -357,6 +663,23 @@ describe('T250 archive_when — Final: read-only run identity', () => {
     expect(identity.textContent).toMatch(/Final/)
     // Immutable: no move/lock table on a Final run.
     expect(screen.queryByTestId('placement-row-a1')).toBeNull()
+  })
+
+  // Round 2 FIX 5(d) (Code Reviewer, LOW) — DraftRunView's own success
+  // transition (`onFinalized?.({ ...run, status: 'final', finalized_at:
+  // out.finalizedAt })`) sends no finalized_by, because
+  // finalizeElectiveRun's success shape does not return it — so a run just
+  // finalized in THIS session shows "finalized <date>" with no "by <user>"
+  // until it is reopened. VERIFIED: RunIdentity already renders this
+  // coherently — finalized_by is its own independent Boolean-filtered
+  // segment, so its absence drops cleanly with no "by undefined" and no
+  // stray separator. No code change needed here; this pins that fact.
+  it('renders "finalized <date>" with no dangling "by" fragment when finalized_by is absent', async () => {
+    render(<FinalRunView run={{ ...FINAL_RUN, finalized_by: undefined }} campers={CAMPERS} {...catalogs()} />)
+    const identity = await screen.findByTestId('run-identity')
+    expect(identity.textContent).toMatch(/finalized 2026-09-24/)
+    expect(identity.textContent).not.toMatch(/by /)
+    expect(identity.textContent).not.toMatch(/undefined/)
   })
 })
 
@@ -591,6 +914,67 @@ describe('T250 archive_when — reachable only by admin', () => {
 // Q5 was ruled by the owner 2026-09-29: "Start a new version". The label ships
 // from a single named constant so any future change stays a one-line edit.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// T250 A4 — a quiet Delete run trigger with a loud confirmation, on both
+// Draft and Final. The cost callout copy is verbatim (D10 honest-cost copy).
+// ---------------------------------------------------------------------------
+describe('T250 A4 — Delete run', () => {
+  it('DraftRunView: opens a confirmation with the verbatim cost copy, and deletes on confirm', async () => {
+    localClient.deleteElectiveRun.mockResolvedValue({ ok: true, ops_written: 5 })
+    render(<DraftRunView run={DRAFT_RUN} onBack={() => {}} {...catalogs()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete run' }))
+
+    const dialog = await screen.findByTestId('delete-run-dialog')
+    expect(dialog.textContent).toMatch(/Delete "Elective assignment — 2026-09-25"\?/)
+    expect(dialog.textContent).toContain(DELETE_RUN_COST_COPY)
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete run' }))
+    await waitFor(() => expect(localClient.deleteElectiveRun).toHaveBeenCalledWith({ runId: 'run-1' }))
+  })
+
+  it('Cancel closes the dialog without deleting', async () => {
+    render(<DraftRunView run={DRAFT_RUN} onBack={() => {}} {...catalogs()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete run' }))
+    const dialog = await screen.findByTestId('delete-run-dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByTestId('delete-run-dialog')).toBeNull()
+    expect(localClient.deleteElectiveRun).not.toHaveBeenCalled()
+  })
+
+  it('surfaces a delete failure instead of swallowing it', async () => {
+    localClient.deleteElectiveRun.mockRejectedValue(new Error('delete unavailable'))
+    render(<DraftRunView run={DRAFT_RUN} onBack={() => {}} {...catalogs()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete run' }))
+    const dialog = await screen.findByTestId('delete-run-dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete run' }))
+    await waitFor(() => expect(within(dialog).getByText(/delete unavailable|could not be deleted/i)).toBeTruthy())
+  })
+
+  it('FinalRunView: also offers Delete run (a final run is deletable)', async () => {
+    localClient.deleteElectiveRun.mockResolvedValue({ ok: true, ops_written: 5 })
+    render(<FinalRunView run={FINAL_RUN} campers={CAMPERS} onBack={() => {}} {...catalogs()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete run' }))
+    const dialog = await screen.findByTestId('delete-run-dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete run' }))
+    await waitFor(() => expect(localClient.deleteElectiveRun).toHaveBeenCalledWith({ runId: 'run-2' }))
+  })
+
+  // Round 2 FIX 2 (Red Hat, HIGH) — ensureRunStub (electron/ops/
+  // projections.js) does `INSERT OR IGNORE ... VALUES (?, ?, '')` with no
+  // awareness of a delete, so a peer's concurrent write onto this run's id
+  // (or a child row) after the delete resurrects the parent row, blank-named.
+  // The old cost copy read as an unqualified "removes it ... from every
+  // device this camp syncs with", which overclaims under that race. This is
+  // the SAME pre-existing class ensureExists's stub-seed pattern has always
+  // had (elective_set_activities/elective_bundles stub-seed elective_sets
+  // identically, and deleteElectiveSet has shipped since schema v35/T41) — a
+  // real fix belongs at the shared projection choke point and needs an ADR,
+  // so this pins only that the copy stays honest about it.
+  it('the cost copy discloses that a concurrent peer edit can make the run briefly reappear, unnamed', () => {
+    expect(DELETE_RUN_COST_COPY).toMatch(/reappear/i)
+  })
+})
+
 describe('T250 — Q5 terminology is a single swappable constant', () => {
   it('ships the ruled Start a new version wording from one named constant', () => {
     expect(START_REVISION_LABEL).toBe('Start a new version')

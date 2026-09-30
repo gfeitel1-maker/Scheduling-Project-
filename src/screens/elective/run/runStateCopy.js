@@ -65,6 +65,69 @@ export function stalenessOfferMessage({ staleCount }) {
   return `${staleCount} ${staleCount === 1 ? 'placement' : 'placements'} in this run came from an earlier version of this schedule.`
 }
 
+// T250 B3 — two same-named campers need something beside the name to tell
+// them apart. Degrades group name -> external_id -> nothing, in that order,
+// and NEVER prints a raw camper_id or a "No group" placeholder — a director
+// reading this has to recognise a real fact about the child, not an internal
+// id or an absence dressed up as one.
+export function camperDisambiguator({ groupName, externalId } = {}) {
+  if (groupName) return groupName
+  if (externalId) return externalId
+  return null
+}
+
+// Round 2 FIX 3 (Red Hat, MEDIUM) — camperDisambiguator above degrades PER
+// CAMPER, with no idea whether the value it picks actually tells this camper
+// apart from anyone else. Two same-named campers who both happen to be in
+// "Cabin 4" both got "Jordan Lee · Cabin 4" printed under them — a value that
+// LOOKS resolved and is not, which is worse than printing nothing: it defeats
+// the entire point of disambiguating.
+//
+// This resolves the WHOLE SET of campers being listed at once, collision by
+// name: a tier's value is used for a camper only when no OTHER same-named
+// camper in the same set shares that exact value at that tier — otherwise it
+// falls through to the next tier (group -> external_id -> nothing), same
+// order as camperDisambiguator. A camper whose name is unique in the set
+// needs no disambiguator at all and is never looked up.
+//
+// `entries`: [{ id, name, groupName, externalId }]. Returns a Map of
+// id -> disambiguator string, or null when nothing distinguishes.
+export function resolveCamperDisambiguators(entries = []) {
+  const result = new Map()
+  const byName = new Map()
+  for (const entry of entries) {
+    if (!entry || entry.id == null) continue
+    result.set(entry.id, null)
+    if (!entry.name) continue
+    if (!byName.has(entry.name)) byName.set(entry.name, [])
+    byName.get(entry.name).push(entry)
+  }
+  for (const group of byName.values()) {
+    if (group.length < 2) continue // a unique name needs no disambiguator
+    applyDistinguishingTier(group, 'groupName', result)
+    const unresolved = group.filter((entry) => result.get(entry.id) == null)
+    applyDistinguishingTier(unresolved, 'externalId', result)
+  }
+  return result
+}
+
+// A tier value is only "distinguishing" within a colliding group when it is
+// unique among that group — two campers sharing both the name AND the group
+// have not been told apart, so neither gets the group tier and both fall
+// through to the next one.
+function applyDistinguishingTier(group, key, result) {
+  const counts = new Map()
+  for (const entry of group) {
+    const value = entry[key]
+    if (!value) continue
+    counts.set(value, (counts.get(value) ?? 0) + 1)
+  }
+  for (const entry of group) {
+    const value = entry[key]
+    if (value && counts.get(value) === 1) result.set(entry.id, value)
+  }
+}
+
 const RANK_WORDS = ['a first choice', 'a second choice', 'a third choice']
 
 // Derived from the run's own assignment rows and nothing else. Deliberately
@@ -79,7 +142,21 @@ const RANK_WORDS = ['a first choice', 'a second choice', 'a third choice']
 // ordered preference behind it — 'unordered-set', a null kind, or a row that
 // cannot be joined at all — moves into the `unordered` bucket instead of a
 // numbered one, per the same fabrication-proof rule rankLabel enforces.
+//
+// T250 B2 — a camper has ONE ROW PER OCCURRENCE (a multi-block activity is
+// still one session, but is two elective_assignments rows: one per occupied
+// occurrence), so `rows.length` alone counts placements, not campers. A
+// 26-camper run with even one multi-occurrence placement read "more campers
+// placed than exist." camperCount is the distinct set of camper_id; the
+// rank-breakdown clause below is already correctly per-PLACEMENT and is
+// UNCHANGED.
 export function satisfactionSummary({ rows = [], preferences = [], occurrences = [], days = [], timeBlocks = [] } = {}) {
+  // Round 2 FIX 5(b) — elective_assignments.camper_id is nullable in the
+  // schema (a null-camper row is schema-permitted, not known to be produced
+  // today). Filtered out of the DISTINCT-camper count only; the row still
+  // counts toward placementCount below.
+  const camperCount = new Set(rows.map((r) => r.camper_id).filter((id) => id != null)).size
+  const placementCount = rows.length
   const occurrenceCount = new Set(rows.map((r) => r.occurrence_id)).size
   const preferenceFor = buildPreferenceLookup({ preferences, occurrences, days, timeBlocks })
   const buckets = [0, 0, 0, 0] // first, second, third, lower
@@ -111,6 +188,10 @@ export function satisfactionSummary({ rows = [], preferences = [], occurrences =
   // a first choice still reads as a sentence.
   if (parts.length > 0) parts[0] = parts[0].replace(/^(\d+) /, '$1 got ')
 
-  const placed = `${rows.length} ${rows.length === 1 ? 'camper' : 'campers'} placed across ${occurrenceCount} ${occurrenceCount === 1 ? 'occurrence' : 'occurrences'}.`
+  if (placementCount === 0) return 'No campers placed yet.'
+
+  const placed = `${camperCount} ${camperCount === 1 ? 'camper' : 'campers'} placed, ` +
+    `${placementCount} ${placementCount === 1 ? 'placement' : 'placements'} across ` +
+    `${occurrenceCount} ${occurrenceCount === 1 ? 'occurrence' : 'occurrences'}.`
   return parts.length > 0 ? `${placed} ${parts.join(', ')}.` : placed
 }

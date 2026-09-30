@@ -9,7 +9,7 @@
 // permissions.js's ENTITIES, so authorize() default-denies staff) — this file
 // deliberately does not re-implement a second gate, and nothing here is
 // reachable from src/components/layout/navSections.js.
-import { useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { localClient } from '../../../localClient'
 import { describeWriteFailure } from '../../../utils/writeErrorMessage'
 import { S, RunStateArea, RunStateRow, RunIdentity, RunError } from './RunStateRows.jsx'
@@ -20,9 +20,11 @@ import CamperWeekPanel from './CamperWeekPanel.jsx'
 // nothing recognises, and every reader's safe default then silently declines
 // to show the ordinal. See src/engine/rankKind.js's header.
 import { CELL_CHOICE } from '../../../engine/rankKind.js'
+import DeleteRunDialog from './DeleteRunDialog.jsx'
+import { A } from '../assignment/assignmentStyles.js'
 import {
   RELEASE_LOCK_LABEL, danglingMessage, occurrenceLabel, overCapacityMessage,
-  satisfactionSummary, stalenessOfferMessage,
+  resolveCamperDisambiguators, satisfactionSummary, stalenessOfferMessage,
 } from './runStateCopy.js'
 
 const styles = {
@@ -31,16 +33,112 @@ const styles = {
   th: { textAlign: 'left', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)', padding: '6px 8px', borderBottom: '1px solid var(--border)' },
   td: { padding: '6px 8px', borderBottom: '1px solid var(--border)' },
   offer: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, fontSize: 13, marginBottom: 14 },
+  camperDisambiguator: { fontSize: 11, color: 'var(--text-secondary)' },
+  actionsBand: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 },
+  actionsHint: { fontSize: 12, color: 'var(--text-secondary)' },
+  findingsList: { margin: '8px 0 0', paddingLeft: 20, fontSize: 12 },
+  // The pairing: the state, then its remedy, with nothing between them — same
+  // shape as FinalRunView's own stale-generation pairing.
+  pairing: { marginBottom: 16 },
+  pairingAction: {
+    border: '1px solid color-mix(in srgb, var(--accent) 45%, var(--border))',
+    borderTop: 'none',
+    borderBottomLeftRadius: 6,
+    borderBottomRightRadius: 6,
+    background: 'color-mix(in srgb, var(--accent) 12%, var(--surface))',
+    padding: '0 14px 10px',
+  },
+}
+
+const FINALIZE_MESSAGES = {
+  STALE_OUTER_SCHEDULE:
+    "This run's schedule changed on another device since you last regenerated. Finalizing now would lock in an outdated version.",
+  OUTER_RESOURCE_CONFLICT:
+    'A location or activity this run depends on is now double-booked on the main schedule. Fix the conflict there, then finalize again.',
+  ALREADY_FINAL: 'This run was already finalized — on this device or another. Reloading it now.',
+  // Round 2 FIX 4 (Red Hat, MEDIUM) — a cold-opened run's status is never
+  // re-synced (viewRun is a snapshot from when the screen opened), so a
+  // regenerate re-checks status itself before re-entering the solve/commit
+  // flow. Reuses FinalizeRefusalRow's generic branch, which renders with no
+  // action button — the Re-derive control is withheld by construction.
+  FINALIZED_ELSEWHERE: "This run was finalized on another device while you had it open. It can't be changed — reload it to see the final version.",
+}
+
+// T250 A2 — the inline refusal a Finalize attempt produced. One row per the
+// verbatim copy the ticket specifies, `findings` rendered as a plain list
+// (up to 3) with the remainder collapsed behind a native <details>/<summary>,
+// the same idiom ParseSummary already uses for its own collapsible sections.
+function FinalizeFindingsList({ findings }) {
+  if (!findings || findings.length === 0) return null
+  const shown = findings.slice(0, 3)
+  const rest = findings.length - shown.length
+  return (
+    <>
+      <ul style={styles.findingsList}>
+        {shown.map((f, i) => (
+          <li key={i}>{f.message ?? f.kind ?? JSON.stringify(f)}</li>
+        ))}
+      </ul>
+      {rest > 0 ? (
+        <details style={A.disclosure}>
+          <summary style={A.disclosureSummary}>+{rest} more</summary>
+          <ul style={styles.findingsList}>
+            {findings.slice(3).map((f, i) => (
+              <li key={i}>{f.message ?? f.kind ?? JSON.stringify(f)}</li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
+    </>
+  )
+}
+
+function FinalizeRefusalRow({ refusal, onRegenerate, lockedAssignments }) {
+  const { error, findings } = refusal
+  const known = FINALIZE_MESSAGES[error]
+  const message = known ?? `Finalizing failed: ${error}. Nothing was changed — try again, or contact support if this keeps happening.`
+
+  if (error === 'STALE_OUTER_SCHEDULE') {
+    return (
+      <div data-testid="run-state-finalize-refusal" style={styles.pairing}>
+        <RunStateRow testId="run-state-finalize-stale" message={<>{message}<FinalizeFindingsList findings={findings} /></>} first alert />
+        {onRegenerate ? (
+          <div style={styles.pairingAction}>
+            <button className="press-97" style={S.btnSecondary} onClick={() => onRegenerate({ lockedAssignments })}>
+              Re-derive and regenerate
+            </button>
+          </div>
+        ) : null}
+      </div>
+    )
+  }
+
+  return (
+    <RunStateRow
+      testId="run-state-finalize-refusal"
+      first last alert
+      message={<>{message}<FinalizeFindingsList findings={findings} /></>}
+    />
+  )
 }
 
 export default function DraftRunView({
-  run, danglingFindings = [], onRegenerate, onBack,
+  run, danglingFindings = [], onRegenerate, onFinalized, onBack,
   activities = [], days = [], timeBlocks = [], templateOccurrences = [],
   scheduleTemplates = [], scheduleWeeks = [], tiers = [],
+  // T250 A3 — true when `onRegenerate` is available because this session
+  // HYDRATED a cold-opened run's state, never because it solved the run
+  // itself. Drives the disclosure note beside the offer's button.
+  coldRegenerate = false,
 }) {
   const { state, setState, loaded, loadError, reload } = useRunState(run.id)
   const [error, setError] = useState(null)
   const [released, setReleased] = useState([])
+  const [finalizing, setFinalizing] = useState(false)
+  // { error, findings } for the refusal row, or null when nothing to say.
+  const [finalizeRefusal, setFinalizeRefusal] = useState(null)
+  // T250 A4 — the Delete run confirmation, shown on demand.
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
   // T297 — set by a preference edit, and the ONLY thing that offers the re-solve
   // below. Session-scoped by design rather than by omission: the offer means
   // "you changed something and have not re-solved since", which is a fact about
@@ -48,8 +146,24 @@ export default function DraftRunView({
   // signal would be a different claim needing a persisted marker to be honest,
   // and inventing one is not this ticket's.
   const [preferencesEdited, setPreferencesEdited] = useState(false)
+  // Round 2 FIX 5(c) (Code Reviewer, LOW) — the synchronous re-entrancy guard
+  // AssignmentPanel's commit() already carries as `committingRef`, added here
+  // for the identical reason (see that comment): `disabled={finalizing}` only
+  // closes the gap once React has re-rendered, which is not synchronous with
+  // the click — a tablet double-tap can land both taps before that render,
+  // and both would call finalizeElectiveRun.
+  const finalizingRef = useRef(false)
 
   const rows = state.rows
+  // Round 2 FIX 3 — resolved once per state.campers change, across the WHOLE
+  // roster, so a tier value is only used when it actually tells two
+  // same-named campers apart (see resolveCamperDisambiguators' own comment).
+  const camperDisambiguators = useMemo(
+    () => resolveCamperDisambiguators(
+      (state.campers ?? []).map((c) => ({ id: c.id, name: c.display_name, groupName: c.group_name, externalId: c.external_id }))
+    ),
+    [state.campers]
+  )
   // T318 (b) — TWO labellers, because the two callers need different occurrence
   // sets and conflating them is exactly the bug this ticket fixes.
   //
@@ -180,6 +294,81 @@ export default function DraftRunView({
     setReleased((r) => [...r, finding.assignment_id])
   }
 
+  // T250 A1/A2 — locks this run. finalizeElectiveRun's real return shape
+  // (electron/ops/finalizeElectiveRun.js): {ok:true, finalizedAt, snapshotRows}
+  // | {ok:false, error:'ALREADY_FINAL'} | {ok:false, error:'STALE_OUTER_SCHEDULE'|
+  // 'OUTER_RESOURCE_CONFLICT', findings} | {ok:false, error:<other string>}.
+  async function finalizeRun() {
+    // Round 2 FIX 5(c) — synchronous guard; see finalizingRef's own comment.
+    if (finalizingRef.current) return
+    finalizingRef.current = true
+    setFinalizing(true)
+    setFinalizeRefusal(null)
+    try {
+      const out = await localClient.finalizeElectiveRun({ runId: run.id })
+      if (out?.ok) {
+        // Round 2 FIX 5(d) (Code Reviewer, LOW) — KNOWN GAP: no finalized_by
+        // here, because finalizeElectiveRun's success shape does not return
+        // it, so RunIdentity shows "finalized <date>" with no "by <user>"
+        // until this run is reopened. RunIdentity itself already renders
+        // that absence coherently (finalized_by is its own independently
+        // Boolean-filtered segment) — not fixed by widening the IPC return,
+        // which would be a bigger change than this gap needs.
+        onFinalized?.({ ...run, status: 'final', finalized_at: out.finalizedAt })
+        return
+      }
+      if (out?.error === 'ALREADY_FINAL') {
+        setFinalizeRefusal({ error: out.error, findings: [] })
+        await reload()
+        onFinalized?.({ ...run, status: 'final' })
+        return
+      }
+      setFinalizeRefusal({ error: out?.error ?? 'unknown error', findings: out?.findings ?? [] })
+    } catch (err) {
+      setFinalizeRefusal({ error: describeWriteFailure(err, 'That could not be finalized.'), findings: [] })
+    } finally {
+      setFinalizing(false)
+      finalizingRef.current = false
+    }
+  }
+
+  // Round 2 FIX 4 (Red Hat, MEDIUM) — viewRun is a snapshot captured when
+  // this screen opened and is NEVER re-synced, so a run another device
+  // finalized after that still renders here as Draft with a live
+  // Regenerate. commitElectiveRun does not itself refuse a commit onto an
+  // already-final run (it only skips re-asserting status/name/
+  // source_filename on an existing row) — so regenerating would re-enter
+  // AssignmentPanel's solve/commit flow and silently write over an
+  // immutable run.
+  //
+  // Scoped to the COLD path (coldRegenerate) only: a run this session
+  // itself just solved or hydrated moments ago finalizing elsewhere in that
+  // same instant is not the case this guards, and checking on every regen
+  // would cost a read this ticket does not need to spend.
+  //
+  // listElectiveRuns, not a widened getElectiveRun/commitElectiveRun
+  // contract — that IPC already returns every run's current `status` for
+  // this camp, so this is a read this app already had, not a new seam.
+  async function guardedRegenerate(args) {
+    if (coldRegenerate) {
+      try {
+        const current = (await localClient.listElectiveRuns())?.find((r) => r.id === run.id)
+        if (current?.status === 'final') {
+          setFinalizeRefusal({ error: 'FINALIZED_ELSEWHERE', findings: [] })
+          onFinalized?.({ ...run, status: 'final' })
+          return
+        }
+      } catch {
+        // Best-effort: an unreadable status check must not block a
+        // regenerate that would otherwise be fine — commitElectiveRun's own
+        // ALREADY_FINAL/finalizedAgainstStaleGeneration checks still stand
+        // behind this at finalize/export time.
+      }
+    }
+    onRegenerate?.(args)
+  }
+  const regenerate = onRegenerate ? guardedRegenerate : undefined
+
   // The seats the director locked by hand, which BOTH re-solve offers carry so a
   // regenerate cannot undo them. One definition: the staleness offer and the
   // preference offer had byte-identical copies.
@@ -187,9 +376,16 @@ export default function DraftRunView({
     .filter((r) => r.is_locked === 1 || r.is_locked === true)
     .map((r) => ({ camperId: r.camper_id, occurrenceId: r.occurrence_id, activityId: r.activity_id }))
 
+  // T250 B1 — commitElectiveRun's `findings` mixes THREE kinds
+  // (DANGLING_MANUAL_ASSIGNMENT, PREFERENCE_EDIT_HELD, BUNDLE_TIER_NOT_COVERED),
+  // all three carrying camper_id. Only the first gets the dangling-placement
+  // sentence and the Release lock action; the other two are real,
+  // already-computed findings with their OWN message from commitElectiveRun,
+  // rendered verbatim rather than hidden or mislabeled.
   const overCapacityRows = state.overCapacityOccurrences
-  const danglingRows = danglingFindings
-  const stateRowCount = overCapacityRows.length + danglingRows.length
+  const danglingRows = danglingFindings.filter((f) => f.kind === 'DANGLING_MANUAL_ASSIGNMENT')
+  const commitNotices = danglingFindings.filter((f) => f.kind !== 'DANGLING_MANUAL_ASSIGNMENT')
+  const stateRowCount = overCapacityRows.length + danglingRows.length + commitNotices.length
 
   const stateRows = [
     ...overCapacityRows.map((o, i) => (
@@ -218,6 +414,35 @@ export default function DraftRunView({
         />
       )
     }),
+    ...commitNotices.map((f, i) => {
+      const index = overCapacityRows.length + danglingRows.length + i
+      // A unique key per finding: PREFERENCE_EDIT_HELD carries preference_id,
+      // BUNDLE_TIER_NOT_COVERED carries no per-row id at all (camper_id+label
+      // is what commitElectiveRun groups on), so no single field is present on
+      // both — the fallback below is what keeps two BUNDLE_TIER_NOT_COVERED
+      // findings for the same camper from colliding.
+      const noticeKey = f.preference_id ?? `${f.camper_id}-${f.label ?? f.kind}`
+      return (
+        <RunStateRow
+          key={`notice-${noticeKey}`}
+          testId={`run-state-notice-${noticeKey}`}
+          first={index === 0}
+          last={index === stateRowCount - 1}
+          message={f.message ?? f.kind ?? JSON.stringify(f)}
+        />
+      )
+    }),
+    // T250 A2 — appended AFTER the over-capacity and dangling rows: whatever
+    // refusal the last Finalize attempt produced, inline in the run's own
+    // run-state area rather than a separate block.
+    finalizeRefusal ? (
+      <FinalizeRefusalRow
+        key="finalize-refusal"
+        refusal={finalizeRefusal}
+        onRegenerate={regenerate}
+        lockedAssignments={lockedAssignments}
+      />
+    ) : null,
   ]
 
   return (
@@ -233,6 +458,23 @@ export default function DraftRunView({
 
           <RunStateArea>{stateRows}</RunStateArea>
 
+          {/* T250 A1 — the actions band. Positioned directly below the
+              run-state area and above the staleness/preference offers and the
+              move/lock table, per the spec's layout order. */}
+          <div style={styles.actionsBand}>
+            <button
+              className="press-97"
+              style={S.btnPrimary}
+              disabled={finalizing}
+              onClick={finalizeRun}
+            >
+              {finalizing ? 'Finalizing…' : 'Finalize run'}
+            </button>
+            <span style={styles.actionsHint}>
+              Locks this run. You&apos;ll see it as Final, and can always start a new version later.
+            </span>
+          </div>
+
           {/* An offer, never a block: the table below stays fully usable.
               The FACT is stated whenever there is one, and the control appears
               only when this session can act on it — AssignmentPanel withholds
@@ -243,15 +485,26 @@ export default function DraftRunView({
           {state.staleCount > 0 ? (
             <div data-testid="run-staleness-offer" style={styles.offer}>
               <span>{stalenessOfferMessage({ staleCount: state.staleCount })}</span>
-              {onRegenerate ? (
+              {regenerate ? (
                 <button
                   className="press-97"
                   style={S.btnSecondary}
-                  onClick={() => onRegenerate({ lockedAssignments })}
+                  onClick={() => regenerate({ lockedAssignments })}
                 >
                   Re-derive and regenerate
                 </button>
               ) : null}
+            </div>
+          ) : null}
+
+          {/* T250 A3 — the reconstructed roster for a cold-open regenerate is
+              "every camper with a preference or a placement on this run", not
+              the original sheet's full roster — this says so rather than
+              leaving it a silent gap (the "engine surfaces, never silently
+              absorbs" rule). */}
+          {regenerate && coldRegenerate ? (
+            <div data-testid="run-cold-regenerate-note" style={styles.actionsHint}>
+              Regenerating a reopened run reconsiders every camper who has a preference or a placement on it.
             </div>
           ) : null}
 
@@ -273,14 +526,14 @@ export default function DraftRunView({
               <span>
                 A preference changed. The placements below still come from the previous solve.
               </span>
-              {onRegenerate ? (
+              {regenerate ? (
                 <button
                   className="press-97"
                   data-testid="run-preference-resolve"
                   style={S.btnSecondary}
                   onClick={() => {
                     setPreferencesEdited(false)
-                    onRegenerate({ preferences: state.preferences, choices: state.choices, lockedAssignments })
+                    regenerate({ preferences: state.preferences, choices: state.choices, lockedAssignments })
                   }}
                 >
                   Solve again
@@ -298,9 +551,21 @@ export default function DraftRunView({
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {rows.map((r) => {
+                // T250 B3 / Round 2 FIX 3 — two same-named campers on this
+                // table read identically without something beside the name
+                // to tell them apart, and the value shown must actually
+                // distinguish them (resolveCamperDisambiguators is computed
+                // over the whole roster above, not per row).
+                const disambiguator = camperDisambiguators.get(r.camper_id) ?? null
+                return (
                 <tr key={r.id} data-testid={`placement-row-${r.id}`}>
-                  <td style={styles.td}>{r.camper_name ?? r.camper_id}</td>
+                  <td style={styles.td}>
+                    {r.camper_name ?? r.camper_id}
+                    {disambiguator ? (
+                      <div style={styles.camperDisambiguator}>{disambiguator}</div>
+                    ) : null}
+                  </td>
                   <td style={styles.td}>
                     <select
                       data-testid={`placement-occurrence-${r.id}`}
@@ -335,7 +600,8 @@ export default function DraftRunView({
                     />
                   </td>
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
 
@@ -355,9 +621,29 @@ export default function DraftRunView({
             timeBlocks={timeBlocks}
             preferences={state.preferences}
             choices={state.choices}
+            campers={state.campers}
             onSetPreference={writePreference}
             onRemovePreference={removePreference}
           />
+
+          {/* T250 A4 — a quiet text-only trigger at the bottom, well separated
+              from the actions band above. The loud part is the confirmation. */}
+          <button
+            className="press-97"
+            style={{ ...S.btnUtility, marginTop: 20 }}
+            onClick={() => setConfirmingDelete(true)}
+          >
+            Delete run
+          </button>
+          {confirmingDelete ? (
+            <DeleteRunDialog
+              run={run}
+              camperCount={(state.campers ?? []).length}
+              placementCount={rows.length}
+              onCancel={() => setConfirmingDelete(false)}
+              onDeleted={() => onBack?.()}
+            />
+          ) : null}
         </>
       ) : null}
     </div>

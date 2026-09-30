@@ -254,6 +254,9 @@ export const localClient = {
   // deleteWeek above (T110, docs/adr/2026-08-20-electives-authoring.md).
   deleteElectiveSet: ({ electiveSetId }) =>
     shoresh.deleteElectiveSet({ token: currentToken(), electiveSetId }),
+  // deleteElectiveRunHandler (electron/main.js) destructures { token, runId }
+  // — same wrapper shape as deleteElectiveSet above (T250 A4).
+  deleteElectiveRun: ({ runId }) => shoresh.deleteElectiveRun({ token: currentToken(), runId }),
   // deleteSpecialDayHandler (electron/main.js) destructures { token,
   // specialDayId } — same wrapper shape as deleteElectiveSet above (T106,
   // docs/adr/2026-08-20-special-days-authoring-and-day-override-repoint.md).

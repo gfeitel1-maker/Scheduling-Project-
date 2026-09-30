@@ -17,6 +17,7 @@
 // the area in useEnterTransition('liftFade'), which fires on every mount and so
 // animated exactly the case the spec excludes. A row that CAN arrive or leave
 // mid-session is what re-earns motion here.
+import { useEffect, useRef } from 'react'
 import { S } from '../../../styles/shared'
 
 // S.cautionBanner as a ROW rather than a block: the bottom margin is dropped
@@ -36,11 +37,23 @@ const rowBase = {
   overflow: 'hidden',
 }
 
-export function RunStateRow({ testId, message, action, first, last }) {
+// T250 A2 — `alert` marks a row that is the direct consequence of a click
+// the director just made (a finalize refusal), as opposed to an AMBIENT
+// finding that was already true when the screen mounted (over-capacity,
+// dangling). role="alert" plus moving focus to the row is what makes a
+// screen-reader director land on the refusal rather than merely coexist
+// with it; the ambient rows stay role="note" and untouched.
+export function RunStateRow({ testId, message, action, first, last, alert = false }) {
+  const ref = useRef(null)
+  useEffect(() => {
+    if (alert) ref.current?.focus()
+  }, [alert])
   return (
     <div
+      ref={ref}
       data-testid={testId}
-      role="note"
+      role={alert ? 'alert' : 'note'}
+      tabIndex={alert ? -1 : undefined}
       style={{
         ...rowBase,
         borderTop: `1px solid ${first ? 'color-mix(in srgb, var(--accent) 45%, var(--border))' : 'var(--border)'}`,

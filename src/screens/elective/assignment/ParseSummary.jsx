@@ -1,7 +1,7 @@
 // T229 -- clean parse summary, or the blocking refusal card, for a parsed
 // preference sheet. Never both: a same-name collision or a contradictory-rank
 // sheet means the Solve button is ABSENT, not disabled (design spec).
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { S, useEnterTransition } from '../../../styles/shared'
 import { foldTokens, residueIsDecision, residueRailColor } from '../../../ingest/residueKinds'
 import { proposeActivityMatch, RESOLUTION } from '../../../ingest/labelResolutions'
@@ -200,10 +200,17 @@ export default function ParseSummary({
   const enter = useEnterTransition('slideFade')
   const sameName = parsed?.sameNameCampers ?? []
   const refused = sameName.length > 0 || contradictoryRanks
+  // T250 A5 — the aria-live announcement elsewhere already SAYS the sheet
+  // cannot be assigned; this moves focus to where that message is written, so
+  // a screen-reader director lands on it rather than merely hearing it once.
+  const refusalRef = useRef(null)
+  useEffect(() => {
+    if (refused) refusalRef.current?.focus()
+  }, [refused])
 
   if (refused) {
     return (
-      <div style={{ ...A.refusalCard, ...enter }}>
+      <div ref={refusalRef} role="alert" tabIndex={-1} style={{ ...A.refusalCard, ...enter }}>
         <div style={A.refusalTitle}>This sheet can&apos;t be assigned yet</div>
         {sameName.length > 0 ? (
           <>
