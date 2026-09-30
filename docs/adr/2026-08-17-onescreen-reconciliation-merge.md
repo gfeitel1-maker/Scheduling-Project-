@@ -3,7 +3,7 @@ title: "ADR: One-Screen Reconciliation — Merging the Upstream Ticking Step (Op
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: in_progress
+implementation_state: in-progress
 date: 2026-08-17
 decided: 2026-08-17
 deciders: [product-owner]

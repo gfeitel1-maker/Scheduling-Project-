@@ -3,7 +3,7 @@ title: "Mixed-version replication is out of scope: a camp's devices run one buil
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: not_started
+implementation_state: not-started
 date: 2026-09-18
 decided: 2026-09-18
 deciders: [product-owner]

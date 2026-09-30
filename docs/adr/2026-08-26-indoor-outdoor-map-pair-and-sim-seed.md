@@ -3,7 +3,7 @@ title: "ADR: Indoor/outdoor map pair per camp + Day Simulation reads real placem
 document_type: adr
 status: proposed
 authority: normative
-implementation_state: proposed
+implementation_state: not-started
 date: 2026-08-26
 deciders: [product-owner]
 task_class: database-sync

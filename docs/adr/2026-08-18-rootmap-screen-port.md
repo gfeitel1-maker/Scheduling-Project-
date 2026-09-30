@@ -3,7 +3,7 @@ title: "Reconciliation root-map screen — production port (static illustration 
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: not_started
+implementation_state: not-started
 date: 2026-08-18
 task_class: ui-ux-design
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/DESIGN_STANDARD.md, docs/governance/standards/ARCHITECTURE_STANDARD.md]

@@ -3,7 +3,7 @@ title: "ADR: Stage-Aware Navigation + Landing Routing/State-Machine (WS1)"
 document_type: adr
 status: proposed
 authority: normative
-implementation_state: proposed
+implementation_state: not-started
 date: 2026-08-28
 deciders: [product-owner]
 task_class: architecture

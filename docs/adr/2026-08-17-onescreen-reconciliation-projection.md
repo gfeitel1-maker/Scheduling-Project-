@@ -3,7 +3,7 @@ title: "ADR: One-Screen Reconciliation — Projection/Adapter Seam"
 document_type: adr
 status: proposed
 authority: normative
-implementation_state: not_started
+implementation_state: not-started
 date: 2026-08-17
 decided: 2026-08-17
 deciders: [product-owner]

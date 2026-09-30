@@ -5,7 +5,7 @@ authority: normative
 status: accepted
 date: 2026-08-04
 supersedes: []
-implementation_state: existing pattern — policy now explicit
+implementation_state: implemented
 affects: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
 ---
 
@@ -62,3 +62,5 @@ Do not create repositories for all existing entities. The remaining entities (gr
 - The architecture audit finding R5 (layering rule 90% aspirational) is closed by this amendment.
 - Future work adding domain repositories must meet the deletion-test standard described above.
 - The `activities` repository is a named future candidate; no ticket should be created for it without concrete evidence of mapping divergence.
+
+_Implementation state, 2026-09-30: existing pattern — policy now explicit. Normalised from `existing pattern — policy now explicit` to `implemented` for the `WORK_RECORD_STANDARD.md` enum._

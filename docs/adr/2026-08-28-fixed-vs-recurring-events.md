@@ -14,7 +14,7 @@ related:
   - docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md
   - docs/adr/2026-08-23-unified-schedule-overlay-model.md (v42/v43 recurrence-axis slices)
   - docs/adr/2026-08-23-activity-recurrence-tiers-ingestion.md
-implementation_state: not started
+implementation_state: not-started
 affects:
   - electron/db/schema.sql
   - electron/db/localDb.js

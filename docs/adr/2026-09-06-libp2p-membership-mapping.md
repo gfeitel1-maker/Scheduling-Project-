@@ -3,7 +3,7 @@ title: "ADR: Membership and identity mapping for Automerge/libp2p sync (Stage 5d
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: in_progress
+implementation_state: in-progress
 date: 2026-09-06
 decided: 2026-09-06
 deciders: [product-owner]

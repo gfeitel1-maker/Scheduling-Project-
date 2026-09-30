@@ -3,7 +3,7 @@ title: "Roots hub — Bento layout for the census/domain map (augment, not repla
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: planned
+implementation_state: not-started
 date: 2026-08-27
 approved: 2026-08-27 (owner ruled: augment above the list; stay inside locked tokens; no explainers)
 task_class: ui-ux-design

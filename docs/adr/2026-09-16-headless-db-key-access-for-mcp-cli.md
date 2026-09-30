@@ -3,7 +3,7 @@ title: "Headless key access for the MCP server and CLI under at-rest encryption"
 document_type: adr
 authority: normative
 status: accepted
-implementation_state: in_progress
+implementation_state: in-progress
 date: 2026-09-16
 program: security-hardening
 affects:

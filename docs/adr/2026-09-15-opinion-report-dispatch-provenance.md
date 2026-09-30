@@ -5,7 +5,7 @@ authority: normative
 status: accepted
 date: 2026-09-15
 supersedes: []
-implementation_state: shipped
+implementation_state: implemented
 affects: [scripts/gateReportCli.js, scripts/opinionReportProvenance.js, scripts/observeRun.js, docs/work/specs/2026-08-09-gatereport-schema-and-reducer.md]
 ---
 

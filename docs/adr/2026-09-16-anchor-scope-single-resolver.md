@@ -5,7 +5,7 @@ authority: normative
 status: accepted
 date: 2026-09-16
 supersedes: []
-implementation_state: shipped
+implementation_state: implemented
 affects: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
 related_adrs: [docs/adr/2026-08-28-fixed-vs-recurring-events.md]
 related_tickets:

@@ -3,7 +3,7 @@ title: "Multi-device erasure: signed purge tombstones (denylist), genesis rotati
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: in_progress
+implementation_state: in-progress
 date: 2026-09-19
 decided: 2026-09-19
 deciders: [product-owner]

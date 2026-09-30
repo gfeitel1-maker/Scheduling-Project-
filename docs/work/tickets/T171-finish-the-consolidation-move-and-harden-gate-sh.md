@@ -176,3 +176,7 @@ user's launchd configuration is the owner's call, not a cleanup.
 point was "works from any checkout", and that is only half true: the SCRIPTS half is portable via
 `${0:A:h}`, the DATA half is one person's home directory literal. Pre-existing, not introduced
 here, but the claim and the code should agree.
+
+---
+
+**2026-09-30 disposition note (sweeps PR B, board q-small-sweeps-batch):** re-confirmed — the board sub-item "repoint the launchd plist to the on-main consolidation script and delete the old copy" is already met (item 1 above, and `scripts/consolidation/README.md`'s own "T171, now closed" note: the plist execs `~/dev/shoresh/scripts/consolidation/run.sh`, the in-repo copy). The only residual is the slug literal in `StandardOutPath`/`StandardErrorPath` of the owner's out-of-repo `~/Library/LaunchAgents` plist, already recorded above as deliberately out of scope. Nothing else in this ticket changed; status stays `completed`.

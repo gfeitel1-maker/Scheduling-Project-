@@ -1,0 +1,10 @@
+# gate run against b8d9fc3e161ba347cdde812c6df4418d571257c4 dirty=0
+
+STEP check:governance | rc=0 | exit 0; zero blocking findings; platform-state-stale advisory unchanged
+STEP test:governance | rc=0 | 120/120 tests passed
+STEP agents:check | rc=0 | all profiles byte-identical
+STEP enum-census | rc=0 | {not-started, in-progress, implemented} exactly
+STEP version-token-diff | rc=0 | all vNN tokens from origin/main present; v83 matches CURRENT_SCHEMA_VERSION
+STEP index-regen | rc=0 | INDEX.md regen is a no-op
+
+DONE

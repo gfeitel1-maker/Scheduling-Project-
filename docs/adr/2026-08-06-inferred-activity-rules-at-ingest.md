@@ -5,7 +5,7 @@ authority: normative
 status: accepted
 date: 2026-08-06
 supersedes: []
-implementation_state: complete
+implementation_state: implemented
 affects: [docs/work/specs/T35-post-import-activity-rules.md, docs/work/tickets/T35-post-import-activity-configuration-at-scale.md]
 related_adrs: [docs/adr/2026-08-01-ingesting-a-prior-year-schedule.md, docs/adr/2026-08-03-ingesting-recurring-fixed-events.md]
 ---

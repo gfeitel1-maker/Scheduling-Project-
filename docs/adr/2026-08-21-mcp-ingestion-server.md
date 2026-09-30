@@ -4,7 +4,7 @@ document_type: adr
 status: accepted
 date: 2026-08-21
 authority: subordinate-to-constitution
-implementation_state: implemented (2026-09-01; scripts/mcp/{server,tools}.js + tests, launchable via `npm run mcp`)
+implementation_state: implemented
 accepted_by: product owner (2026-08-21)
 ---
 
@@ -147,3 +147,5 @@ This introduces a new integration surface (a second class of consumer reading an
 1. **`schedule_state`'s scope.** This ADR limits it to `schedule_templates` + slots/overlays for one route, read-only — confirm that's the intended read surface, versus also wanting flags/conflicts (`buildSchedule`'s `findings`) surfaced. Those aren't stored, they're computed at render time in the renderer — exposing them headlessly would mean either re-running `buildSchedule` inside the MCP (new logic dependency) or leaving them out. Recommend leaving them out for v1; flagging as a product-scope call, not a technical one.
 2. **`@modelcontextprotocol/sdk` acceptance.** Recommend accepting (see decision 5) — needs the owner's nod per the standing "explain tradeoffs, recommend one, don't make me choose blind" workflow default, even though it's Governor's call to fold into the Maker brief.
 3. **Where `docs/work/specs/2026-08-21-mcp-ingestion-server.md`'s JSON Schema detail should live relative to future MCP additions** — this ADR assumes one spec file per MCP surface addition (matching this project's existing spec-per-feature convention); confirm that's still the right granularity now that this is the first MCP surface in the repo.
+
+_Implementation state, 2026-09-30: 2026-09-01; scripts/mcp/{server,tools}.js + tests, launchable via `npm run mcp`. Normalised from `implemented (2026-09-01; scripts/mcp/{server,tools}.js + tests, launchable via `npm run mcp`)` to `implemented` for the `WORK_RECORD_STANDARD.md` enum._

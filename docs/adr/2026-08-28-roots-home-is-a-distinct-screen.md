@@ -3,7 +3,7 @@ title: "Roots home is a distinct screen — census tiles stay import-only, struc
 document_type: adr
 status: proposed
 authority: normative
-implementation_state: not_started
+implementation_state: not-started
 date: 2026-08-28
 approved: pending owner approval
 task_class: architecture

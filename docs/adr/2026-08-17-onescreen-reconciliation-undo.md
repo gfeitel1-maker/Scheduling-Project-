@@ -3,7 +3,7 @@ title: "ADR: One-Screen Reconciliation — Grace-Window Undo (Seam 4, revised)"
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: in_progress
+implementation_state: in-progress
 date: 2026-08-17
 decided: 2026-08-17
 deciders: [product-owner]

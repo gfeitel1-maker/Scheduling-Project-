@@ -3,7 +3,7 @@ title: "Facility topology foundation — authored adjacency, not pixel distance 
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: deferred-build (direction ratified; build deferred per owner decision)
+implementation_state: not-started
 date: 2026-08-20
 approved: 2026-08-20 (owner ratified direction after the Red Hat pre-ratification corrections; build deferred)
 task_class: architecture
@@ -134,3 +134,5 @@ Gated on the foundational ADR (for the in-context location-create rule) **and** 
 before any name-derived location create path. No Maker work is authorized by this ADR beyond, at most,
 introducing the two dormant shapes (`location_connections`, `kind`) if the owner wants the schema locked
 ahead of the feature — otherwise this stays a direction-only record until a build ADR supersedes it.
+
+_Implementation state, 2026-09-30: direction ratified; build deferred per owner decision. Normalised from `deferred-build (direction ratified; build deferred per owner decision)` to `not-started` for the `WORK_RECORD_STANDARD.md` enum._

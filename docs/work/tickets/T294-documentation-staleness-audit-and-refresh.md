@@ -115,3 +115,24 @@ accepted residual) — **confirmed by the security agent** to drop no real invar
 Lower-tier follow-up (not blocking): README P2 WAN note when the Tier-4 gate flips; the pre-existing
 duplicated `schema_migrations` bullet in `PLATFORM_STATE.md`; ADR `implementation_state` vocabulary
 normalization (hyphen/underscore, `implemented`/`shipped`/`complete`) — a safeguards-phase job.
+
+---
+
+**2026-09-30 disposition note, corrected (sweeps PR B round 2, board q-small-sweeps-batch):** round 1's
+version of this note rested on the premise "`INTERNET_TRANSPORT_SIGNOFF` is still false". Red Hat
+flagged that premise as stale and it was independently re-confirmed here, against
+`electron/sync/automerge/transportCapabilities.js` itself (not taken on trust). The coarse boolean is
+no longer the live gate — `electron/sync/automerge/transportBoundary.guard.test.js:11` records that
+T288 replaced it with a per-capability registry, `TRANSPORT_CAPABILITIES`. Of its ten capabilities,
+**`discovery` has a `signoff`** — `{date: '2026-09-28', owner: 'gfeitel1', doc:
+'docs/work/security/2026-09-26-internet-transport-signoff-reassessment.md#owner-sign-off'}` — with an
+`egressAllowlist` of exactly `['electron/sync/automerge/rendezvousClient.js']`; the other nine
+(`relay`, `dcutr`, `webrtc`, `websockets`, `webtransport`, `quic`, `kadDht`, `bootstrap`, `upnp` — all
+but `discovery`) still carry `signoff: null` and stay blocked. The conclusion is unchanged: the
+README P2 WAN note is still not actionable. `README.md` carries no WAN/rendezvous text to correct
+(`grep -in 'wan\|rendezvous\|internet' README.md` matches only the unrelated hosting caveat at line
+48 and a Wi-Fi settings path at line 108), and its line 48 claim — "this system is not designed for
+public internet hosting" — remains substantively true because the one signed-off capability,
+discovery, is opt-in at runtime via `SHORESH_RENDEZVOUS_URL` and unset by default, not a standing WAN
+posture. Whoever picks this item up next should look for the per-capability registry's state, not a
+boolean that no longer exists. Nothing else in this ticket changed.

@@ -3,7 +3,7 @@ title: "At-rest encryption enable/disable control model — the director-gated d
 document_type: adr
 authority: normative
 status: proposed
-implementation_state: not_started
+implementation_state: not-started
 date: 2026-09-28
 program: security-hardening
 related_adrs:

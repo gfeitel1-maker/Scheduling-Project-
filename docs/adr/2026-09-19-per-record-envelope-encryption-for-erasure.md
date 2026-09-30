@@ -3,7 +3,7 @@ title: "Per-record envelope encryption as an erasure model — recommend against
 document_type: adr
 status: proposed
 authority: normative
-implementation_state: not_started
+implementation_state: not-started
 date: 2026-09-19
 decided: 2026-09-19
 deciders: [product-owner]

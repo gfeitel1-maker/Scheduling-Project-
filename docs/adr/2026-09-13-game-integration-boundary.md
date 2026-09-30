@@ -3,7 +3,7 @@ title: "ADR: The camp game talks to Shoresh through a boring explicit contract, 
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: not_started
+implementation_state: not-started
 date: 2026-09-13
 decided: 2026-09-14
 deciders: [product-owner]

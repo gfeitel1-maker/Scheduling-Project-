@@ -4,7 +4,7 @@ document_type: adr
 status: accepted
 approved: 2026-09-30 (owner, via the organizer session: "go for it" — accepted with ONE AMENDMENT: the atomic multi-row import (§4.9) is a decision item and part 2 of the same ticket; §13 resolved to the ADR's own defaults)
 authority: normative
-implementation_state: not-started (part 1 — the binder; part 2 — atomic multi-row import)
+implementation_state: not-started
 date: 2026-09-30
 task_class: architecture
 governing_docs:
@@ -493,3 +493,5 @@ Unchanged (read, not modified, to ground this design):
    ADR) **worth its own future ticket**, replacing the seven per-screen "Import from Excel" entry
    points with one upload that infers which rows belong to which entity? Recorded here so it is not
    lost, not because this ADR needs an answer to proceed.
+
+_Implementation state, 2026-09-30: part 1 — the binder; part 2 — atomic multi-row import. Normalised from `not-started (part 1 — the binder; part 2 — atomic multi-row import)` to `not-started` for the `WORK_RECORD_STANDARD.md` enum._

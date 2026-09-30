@@ -3,7 +3,7 @@ title: "ADR: Persistent per-device libp2p identity, binding a session token to t
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: not_started
+implementation_state: not-started
 date: 2026-09-14
 decided: 2026-09-14
 deciders: [product-owner]

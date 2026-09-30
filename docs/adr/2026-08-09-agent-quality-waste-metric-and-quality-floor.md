@@ -5,7 +5,7 @@ authority: normative
 status: accepted
 date: 2026-08-09
 supersedes: []
-implementation_state: edits-applied-remeasurement-deferred
+implementation_state: in-progress
 affects:
   - .claude/agents/maker.md
   - .claude/agents/governor.md
@@ -425,3 +425,5 @@ confirm it:
    `build-work-index.js` does not index, the same precedent as
    `docs/work/2026-08-09-graph-engineering-exploration.md` from step 2. Its absence from
    `docs/work/INDEX.md` is not an omission and should not be misread as one by a future auditor.
+
+_Implementation state, 2026-09-30: edits applied; remeasurement deferred. Normalised from `edits-applied-remeasurement-deferred` to `in-progress` for the `WORK_RECORD_STANDARD.md` enum._

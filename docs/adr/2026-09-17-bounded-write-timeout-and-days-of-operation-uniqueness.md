@@ -6,7 +6,7 @@ status: accepted
 amended: 2026-09-17
 date: 2026-09-17
 supersedes: []
-implementation_state: in_progress
+implementation_state: in-progress
 affects: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
 related_adrs:
   - docs/adr/2026-09-08-crdt-conflict-reconciliation.md

@@ -3,7 +3,7 @@ title: "Roots census roster + persistent inspector (Slices 2/3/4)"
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: complete
+implementation_state: implemented
 date: 2026-08-19
 approved: 2026-08-19 (owner authorized proceeding to Slice 2 after the audit + two Red Hat challenges)
 shipped: 2026-08-19 (Slices 2/3/4 merged — PRs #103/#105/#104; Slice 1 quiet-default #101; all gates green)

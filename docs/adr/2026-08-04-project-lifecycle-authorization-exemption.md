@@ -5,7 +5,7 @@ authority: normative
 status: accepted
 date: 2026-08-04
 supersedes: []
-implementation_state: existing — retroactively documented
+implementation_state: in-progress
 affects: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
 ---
 
@@ -55,3 +55,17 @@ The authorization model for this class of operations is the local OS: a user who
 - The architecture audit finding R2 (missing decision record) is closed by this document.
 - `ARCHITECTURE_STANDARD.md` §4 is amended to name project-lifecycle handlers as a second documented exemption category alongside the pre-session handlers.
 - The IPC surface parity work (roadmap R2 / Phase B) may wrap these methods in `localClient.js` without adding `authorize()` calls.
+
+_Implementation state, 2026-09-30: existing — retroactively documented. Normalised from `existing — retroactively documented` to `implemented` for the `WORK_RECORD_STANDARD.md` enum._
+
+**2026-09-30 correction (sweeps PR B round 2, board q-small-sweeps-batch):** the prior line's
+`implemented` overstated this ADR. Red Hat caught it and it was independently re-confirmed here. The
+exemption policy itself and the `authorize()` boundary it carves out are genuinely in place, but
+Constraint 4 above — the mandated per-handler inline comment — is not: `grep -c
+'project-lifecycle-authorization-exemption' electron/main.js` and `grep -c 'trusted local-device
+operation' electron/main.js` both return `0` on 2026-09-30; only a generic block header comment
+exists at `electron/main.js` around line 2809, not the two-line form Constraint 4 specifies. One of
+this ADR's own explicit, testable requirements is therefore unmet. `implementation_state` is
+corrected to `in-progress`, preserving the earlier `existing — retroactively documented` sense (the
+policy predates this document and most of it is real). Adding the missing comments is a `src/`-
+adjacent edit to `electron/main.js`, outside this docs-only sweep's footprint, and is not made here.
