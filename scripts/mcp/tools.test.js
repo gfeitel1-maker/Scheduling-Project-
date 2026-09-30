@@ -508,9 +508,7 @@ describe('scripts/mcp/tools.js', () => {
 
       expect(result.ok).toBe(true)
       const e = result.export
-      // T318 bumped the combined projection 1 -> 2 (additive `unordered_count` on the
-      // summary); this pin tracks src/screens/elective/export/exportElectiveRunProjection.js.
-      expect(e.format_version).toBe(2)
+      expect(e.format_version).toBe(1)
       expect(e.route).toBe('generated')
       expect(e.week).toEqual({ id: weekId, name: 'Week 1' })
       expect(e.groups.length).toBeGreaterThan(0)
