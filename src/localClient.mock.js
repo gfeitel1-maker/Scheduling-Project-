@@ -2074,6 +2074,15 @@ export const mockShoresh = {
     // above); returns every persisted finding for this run rather than
     // filtering by solver_generation.
     const eligibilityFindings = (state.elective_run_findings || []).filter((f) => f.run_id === runId)
+    // T320 round 2, F1 — snapshotIncomplete: false is an HONEST value here,
+    // not a degraded stand-in for the real computeSnapshotCompleteness digest
+    // check: this mock's finalizeElectiveRun (below) always writes the
+    // COMPLETE outer-snapshot set synchronously, in one call, with no sync
+    // layer in between that could leave a row partially written — there is
+    // no partial-sync state this single-device browser mock can ever be in.
+    // (This is unrelated to, and was not the cause of, F1's real bug: the
+    // production digest mismatched on its own is_linked_choice boolean/
+    // integer type, which this mock's plain-object rows never encounter.)
     return {
       rows, occurrences, preferences, choices, campers, staleCount: 0, finalizedAgainstStaleGeneration: false,
       overCapacityOccurrences: [], danglingFindings, eligibilityFindings, resourceConflicts: [],
