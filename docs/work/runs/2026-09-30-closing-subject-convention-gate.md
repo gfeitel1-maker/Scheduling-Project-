@@ -3,7 +3,7 @@ task: Board q-closing-subject-convention-defeats-gate — a closing commit subje
 document_type: run
 date: 2026-09-30
 round: 2
-status: escalated
+status: pass
 task_class: documentation-governance
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/WORK_RECORD_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
 related_tickets: [docs/work/tickets/T283-board-truth-audit-gate.md]
@@ -26,7 +26,7 @@ omitted_agents:
 deterministic_checks: [test, lint, build]
 human_gates: ["Amending a standard is a human gate (GOVERNANCE_INDEX.md §3-8, documentation-governance row: 'any change to a constitution or standard'; CONSTITUTION.md Art. IV). Treated as passed FOR THIS ITEM ONLY on the owner's verbatim ruling of 2026-09-29 on board item q-closing-subject-convention-defeats-gate — 'it needs to do that after it is done' — given on a board note whose stated fix shape was 'widen the pattern to close(s|d)? or fix the convention in WORK_RECORD_STANDARD'. The standard edit is confined to WORK_RECORD_STANDARD.md §3.2/§3.3 vocabulary, the documented regex, and the new finding. It carries no licence to amend any other standard or section."]
 verdict: pass
-completion_evidence: ["commits 4941d332 (round 1), 357e2099 (work-index regeneration), 73ed7c66 (round 2)", "npx vitest run scripts/check-governance.test.js test/governance.test.js — exit 0, 105 passed", "npm run check:governance — exit 0, no findings", "npx eslint scripts/check-governance.js scripts/check-governance.test.js — exit 0", "npm run agents:check — exit 0, profiles byte-identical", "red-then-green reproduced independently by Verifier for both rounds by restoring the prior file version, tree confirmed clean afterwards", "corpus measurements (12 true positives, 0 false positives, close out = 5) independently re-counted by Verifier and by Red Hat against 1609 origin/main subjects"]
+completion_evidence: ["commits 4941d332 (round 1), 357e2099 (work-index regeneration), 73ed7c66 (round 2)", "npx vitest run scripts/check-governance.test.js test/governance.test.js — exit 0, 105 passed", "npm run check:governance — exit 0, no findings", "npx eslint scripts/check-governance.js scripts/check-governance.test.js — exit 0", "npm run agents:check — exit 0, profiles byte-identical", "red-then-green reproduced independently by Verifier for both rounds by restoring the prior file version, tree confirmed clean afterwards", "corpus measurements (12 true positives, 0 false positives, close out = 5) independently re-counted by Verifier and by Red Hat", "bounded resolution round 63891813 + 29e28306: four gates EXIT=0, 120 tests passed, RED reproduced at EXIT=1 naming the five planted over-fire tests"]
 archive_when: "the two offending historical subject shapes produce a blocking finding, the standard and the script carry the same regex text, and the T309 run-record question is settled either by a filed honest record or by a recorded reason it cannot be filed"
 ---
 
@@ -445,3 +445,41 @@ is not the committed one; immediately afterwards the tree was clean and the suit
 worktree is shared, and this repo already records that hazard. The committed state was re-confirmed
 clean and green by both Red Hat and Verifier afterwards, so the transient red is a ghost, not a
 finding — recorded so nobody chases it later.
+
+
+## Final decision — resolved under the board-worker decision
+
+**PASS.** Grader re-scored the resolved state at **4.0** average with the lowest dimension **3**
+(documentation honesty), clearing the ≥ 4.0 / nothing-below-3 threshold. Verifier PASS on all four
+gates at `EXIT=0`. Red Hat resilience 2 → 3 → 4 and explicitly nothing blocking.
+
+| Dimension | Round 2 | Resolved |
+|---|---|---|
+| Spec fidelity | 4 | 4 |
+| Maintainability | 3 | 4 |
+| Resilience / robustness | 2 | 4 |
+| Evidence quality | 5 | 5 |
+| Documentation honesty | 2 | 3 |
+| **Average** | **3.2 (FAIL)** | **4.0 (PASS)** |
+
+The escalation above is left standing as written. It happened, and the reasoning that produced it is
+the reason the resolution took the shape it did. What changed is not the assessment but the artifact.
+
+**Two judgements worth carrying forward, because they are the substance of this run and not its
+bookkeeping.**
+
+The board worker rejected Governor's recommended advisory downgrade, and was right to. Governor's
+case was that a prose heuristic should not carry blocking authority; the worker's counter was that an
+advisory inside a green gate is the abstention pattern this repository's standards already name as
+worse than no check at all. The narrowings then disposed of the over-fires that had motivated the
+downgrade, so the severity question turned out not to need answering — the pattern simply got
+correct. A recommendation that would have traded away enforcement to avoid fixing precision is worth
+recording as the weaker call.
+
+Documentation honesty stays at 3, and that is the honest ceiling. Three separate times in this run a
+document asserted a number a fresh count contradicted — `close out` = 7 (Governor's own figure,
+propagated into a shipped standard), the residual-gap list one shape short, and the corpus size
+1610 against a same-day 1611. Every one was caught by Red Hat's manual re-count. Not one was caught
+by the gate, by the test suite, or by Code Reviewer. The count assertions in this file are now
+either date-stamped or properties of the pattern, but nothing prevents the next one. That is a
+structural gap, not a defect in this change, and it belongs on the board.
