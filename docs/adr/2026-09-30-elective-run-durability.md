@@ -381,7 +381,23 @@ stub-seed/`ensureExists` pattern** ("A DELETED RUN CAN BE RESURRECTED BY A CONCU
 — this item inherits that class of risk for occurrences rather than introducing a new one, and
 this ADR does not fix it for the same reason `deleteElectiveRun.js` does not: the real fix is a
 tombstone-aware stub-seed at the shared projection choke point, which is a separate architecture
-change needing its own ADR, not a per-entity patch. **Consequence, stated precisely**: if `O` is
+change needing its own ADR, not a per-entity patch.
+
+> **CORRECTED 2026-09-30 by Part 2 of this ADR (owner folded the stub-seed fix in here rather than
+> into a new ADR — see "Part 2" below).** Two corrections to the paragraph above. First, "this ADR
+> does not fix it" no longer holds for the stub-seed class: Part 2 designs the tombstone-aware stub
+> seed, in this document. Second, and more importantly, the `deleteElectiveRun.js` claim this
+> paragraph leans on — "A DELETED RUN CAN BE RESURRECTED BY A CONCURRENT PEER WRITE" — is **wrong
+> about the path it names**, as Part 2's item 1 shows by execution: `projectAll` is already
+> two-phase (every upsert, then every delete-reconcile in reverse order,
+> `electron/automerge/projector.js:717-718`), so a stub seeded by a child during the upsert phase is
+> removed again before the same transaction commits. The resurrection is real, but it lives on the
+> **same-device `appendOp` write path**, not the peer-merge path. Hazard A itself — an Automerge
+> field-write-versus-`DELETE_FIELD` race on one derived occurrence id — is a genuine per-key LWW
+> race in the *document* and is a different thing from the stub-seed class; it remains **accepted**
+> as written, and Part 2 does not close it.
+
+**Consequence, stated precisely**: if `O` is
 resurrected, a manual row pointing at it stops being reported as dangling on the device that
 resurrected it, until that device's next regenerate re-prunes it (self-healing, bounded by "next
 regenerate," not permanent). **Accepted** — same eventual-consistency "detect what's cheap, name
@@ -797,3 +813,548 @@ consumer that came to depend on the refusal never happening silently).
    in here to keep this bump to exactly what the dispatching brief asked for.
 
 _Implementation state, 2026-09-30: part 1 — snapshot completeness, occurrence pruning, re-place picker, persisted eligibility findings — merged; part 2 — tombstone-aware stub seed, refuse commit onto a final run, camper with neither preference nor assignment visible to cold regenerate — not started. Normalised from `partial (part 1 — snapshot completeness, occurrence pruning, re-place picker, persisted eligibility findings — merged; part 2 — tombstone-aware stub seed, refuse commit onto a final run, camper with neither preference nor assignment visible to cold regenerate — not started)` to `in-progress` for the `WORK_RECORD_STANDARD.md` enum._
+
+---
+
+## Part 2 (2026-09-30) — the tombstone-aware stub seed, a refused commit onto a final run, and a true camper universe
+
+**Status of this section.** Part 1 (PR #668, schema v83) shipped items 1-4 above. This section is
+the design for the three items the frontmatter names as part 2, written 2026-09-30 after Part 1
+merged. **It is an addition to this ADR, not a new one**: the owner ruled (2026-09-30, "go for it")
+that the tombstone-aware stub seed — which item 2's Hazard A note above called "a separate
+architecture change needing its own ADR" — is folded in here. That ruling also **overrides**
+`docs/work/tickets/T320-elective-run-durability.md`'s "Not in scope" line excluding the
+tombstone-aware stub seed; the ticket is not edited here (Governor updates it at close-out).
+
+**No schema change. The schema stays at v83.** Every item below is satisfied by existing tables,
+existing columns and existing registries. Verified before designing: `CURRENT_SCHEMA_VERSION = 83`
+(`electron/db/localDb.js:42`), the newest rollback module is `electron/db/rollback/v83_down.js`, no
+worktree declares 84, and the one open PR (#673) is a governance/gate change carrying no schema
+version.
+
+### Part 2, item 1 — the stub seed refuses to re-create a parent whose last recorded act was its own deletion
+
+#### What is actually broken, established by execution rather than by reading the comment
+
+`electron/ops/deleteElectiveRun.js`'s header block states the gap as "A DELETED RUN CAN BE
+RESURRECTED BY A CONCURRENT PEER WRITE". **That sentence names the wrong path.** Two facts settle
+it, both read out of the tree and then confirmed by running the code:
+
+1. **`projectAll` is already two-phase, and the phases are ordered so a stub ghost cannot survive
+   one.** `projectAll` (`electron/automerge/projector.js:712-721`) runs *every* entity's upserts in
+   forward `MODELED_ORDER`, and only then *every* entity's delete-reconcile in **reverse**
+   `MODELED_ORDER`. `elective_assignment_runs` precedes all six of its children in
+   `DOMAIN_SNAPSHOT_ORDER` (`electron/ops/campScopedEntities.js:298-305`), so in the reversed
+   delete-reconcile pass the parent is reconciled **last** — after any ghost a child's
+   `ensureExists` seeded during the upsert phase. `deleteReconcileEntity`
+   (`projector.js:553-571`) then deletes it, because its id is absent from `listRecordIds(doc,
+   'elective_assignment_runs')`. The delete does not trip `foreign_keys = ON` even with orphan
+   children still present, because every child declares `run_id TEXT NOT NULL` with **no**
+   `REFERENCES` (`electron/db/schema.sql`, the six `elective_*` child tables) — the soft-reference
+   discipline this family already follows.
+2. **Every merge projects through that two-phase pass.** `syncNode`'s shared post-merge step calls
+   `projectAll(db, merged)` (`electron/sync/automerge/syncNode.js:150`), and its `applyLocal`
+   test/adversarial path does the same (`syncNode.js:751`).
+
+Executed against this worktree (a throwaway probe, not committed): seed a doc with `run-1` and a
+preference child; fork a peer doc and write a *second* preference child onto `run-1`; delete the run
+on the first doc; merge. Result: `elective_assignment_runs` is **empty** after `projectAll` of the
+merged doc, and the peer's orphan preference row survives — which is correct convergence, since the
+doc holds the child and not the parent.
+
+**The path that really does resurrect is the same-device `appendOp` path.** `appendOp` calls
+`applyProjection` directly, and `liveDoc.recordLocalWrite` deliberately runs **no** `projectAll`
+(`syncNode.js:783` states why). So on any device whose SQLite no longer has the run — the device
+that deleted it, or a peer that merged the delete — a *local* write to one of that run's children
+re-creates the parent as a blank-named row and nothing cleans it up until the next merge-triggered
+`projectAll`. Executed probe: after a local `__deleted__` op on `run-1`, a subsequent local
+`elective_preferences.run_id = 'run-1'` write left
+`elective_assignment_runs = [{ id: 'run-1', name: '' }]`.
+
+This matters in practice because the reachable trigger is real: a director on device B has
+`DraftRunView` open for a run device A has just deleted, and presses Commit or Regenerate.
+
+#### The decision
+
+**Guard the shared stub seed with an op-log recency predicate, behind one function, with a registry
+that says which parents are guarded.** In `electron/ops/projections.js`:
+
+```js
+// The last thing the op-log recorded about this record — DELETE_FIELD when the
+// record's most recent act was its own deletion. `operations` is indexed on
+// (entity, entity_id, field) (idx_operations_entity, schema.sql:355), so this is
+// a short indexed prefix scan over the handful of ops one record ever has.
+function lastRecordedField(db, entity, id) {
+  const row = getStmt(
+    db,
+    'SELECT field FROM operations WHERE entity = ? AND entity_id = ? ORDER BY seq DESC LIMIT 1'
+  ).get(entity, id)
+  return row ? row.field : null
+}
+
+// Which stub-seeded PARENTS carry the guard. Deliberately a registry and not a
+// blanket rule over every ensureExists in this file: the predicate costs one
+// indexed read per child field op, and the import loop pays it per row (the
+// write-cost lesson T309 closed). Widening it is one line here plus one test line.
+const TOMBSTONE_GUARDED_STUB_PARENTS = new Set(['elective_assignment_runs', 'elective_sets'])
+
+// The ONE place a child's ensureExists may conjure its parent. Refuses when the
+// parent's most recent recorded act was its own deletion; otherwise seeds.
+export function ensureParentStub(db, parentEntity, parentId, seed) {
+  if (typeof parentId !== 'string' || parentId.length === 0) return
+  if (
+    TOMBSTONE_GUARDED_STUB_PARENTS.has(parentEntity) &&
+    lastRecordedField(db, parentEntity, parentId) === DELETE_FIELD
+  ) {
+    return
+  }
+  seed()
+}
+```
+
+`DELETE_FIELD` is already declared at module scope in `projections.js` (the local literal at the
+bottom of the file, kept separate from `operations.js` to avoid the import cycle its own comment
+names). Referencing it from a function declared above that `const` is safe: module evaluation
+completes before any `ensureExists` closure is ever called, so the temporal dead zone is never
+entered. Maker does **not** need to move the declaration.
+
+`ensureRunStub` becomes a caller of it, and so do the three inline `elective_sets` seeds:
+
+```js
+function ensureRunStub(db, runId) {
+  ensureParentStub(db, 'elective_assignment_runs', runId, () => {
+    const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
+    getStmt(
+      db,
+      "INSERT OR IGNORE INTO elective_assignment_runs (id, camp_id, name) VALUES (?, ?, '')"
+    ).run(runId, camp?.id ?? null)
+  })
+}
+```
+
+The three `elective_sets` stub seeds inside `PROJECTIONS.elective_set_activities.ensureExists`
+(`projections.js:585`), `PROJECTIONS.elective_bundles.ensureExists` (`projections.js:617`), and the
+`elective_bundle_periods`/`elective_bundle_tiers` pair that reach `elective_sets` through their own
+parent chain, are extracted into a sibling `ensureSetStub(db, setId)` with the identical shape, so
+there is exactly one seed function per guarded parent rather than three copies of one INSERT.
+
+#### Why this predicate, and why not the four alternatives the brief named
+
+- **The `tombstones` table (T233 signed purge tombstones) — rejected, and this is the one to state
+  loudest**, because it is the strongest-looking reuse. `TOMBSTONE_DENYLISTED_ENTITIES`
+  (`projector.js`) is a *fleet-wide erasure* mechanism: a signed purge tombstone means "this record
+  must never be visible on any device again", it is verified against a signing key, and it is
+  scoped to camper PII. An ordinary director delete of a run is **not** that. Minting a signed purge
+  tombstone for every run delete would put ordinary content into the erasure channel, where it
+  cannot be un-said, and would give the erasure vocabulary a second meaning. Rejected on semantics,
+  not cost.
+- **The document's AUTHOR collection marker** (`campDocument.js:666`,
+  `authorKey(entity, id, DELETE_FIELD)`) — rejected. It is cleared on any later write to that record
+  (`campDocument.js:716`), which is precisely the situation the guard exists for: the child write
+  that races the delete is exactly what erases the evidence. A tombstone that a concurrent write
+  deletes is not a tombstone.
+- **A projector-supplied liveness signal** (handing `ensureExists` the doc's `listRecordIds` set)
+  — rejected as unnecessary, and this is the finding that makes it so. The projector path is the one
+  path that is **already correct** (two-phase `projectAll`, proven above). Paying for a signature
+  change to `ensureExists` (`(db, id, field, value, knownRow)`) and to `applyProjection`'s op shape,
+  to fix a path that is not broken, buys nothing.
+- **Restructuring `projectAll` into two phases** — rejected because it is already done. This was the
+  brief's "genuinely different shape", and reading `projector.js:712-721` retires it: the
+  interleaved-pass premise it was built on is not the code's current shape. Its comment at line
+  702-711 states the FK reasoning for why the two phases run in opposite orders.
+- **The op-log predicate — chosen.** It works exactly where the defect is (the `appendOp` path),
+  the signal is reachable from inside `ensureExists` with no signature change, and on a peer device
+  the `__deleted__` row is present too: `appendReceivedOps`
+  (`electron/automerge/historyLedger.js:51-140`) writes op rows for changes that arrived by merge,
+  and its `DELETE_FIELD` handling is explicit (the `continue` at line 114 is inside the *camp_id
+  derivation* loop only, not the insert loop; the insert loop has two dedicated `e.field ===
+  DELETE_FIELD` branches).
+
+#### Why "last recorded field is the delete" and not "a delete op exists"
+
+A bare "does a `__deleted__` op exist" predicate strands a legitimate re-creation, and this is not
+hypothetical. `deriveImportedElectiveRunId(campId, sourceSha256)`
+(`electron/ops/electiveDerivedIds.js:348`) is content-derived: re-importing the identical sheet
+after deleting its run derives the **same** run id. Under a bare-existence predicate the stub seed
+would refuse forever.
+
+The recency form is self-correcting. It is also belt-and-braces rather than load-bearing for that
+case, because the legitimate re-create never goes through the stub at all:
+`commitElectiveRun`'s transaction writes the parent row **first**
+(`electron/ops/commitElectiveRun.js:516`, inside `runAtomic` at line 504), through
+`PROJECTIONS.elective_assignment_runs.ensureExists` (`projections.js:1026`) — a *different* function
+from `ensureRunStub`, and deliberately left unguarded. The guard sits only on the child-triggered
+seed. By the time any child in that same transaction reaches `ensureRunStub`, the row exists and
+the `INSERT OR IGNORE` was a no-op anyway.
+
+#### Why the guard cannot strand a live parent
+
+Both guarded parents are **non-restorable by explicit ruling**:
+`elective_assignment_runs: 'refused: a run is regenerated, never restored (ADR D5/D6)...'`
+(`electron/ops/restore.js:109`) and
+`elective_sets: 'refused: no setup UI yet (T41 slice 1 is data-shape only)...'`
+(`restore.js:62`). `restoreEntity` returns `{ error: 'not-restorable' }` before reading any history
+(`restore.js:269`). So there is no shipped path that un-deletes either parent in place and then
+depends on a child's stub seed to rebuild it.
+
+#### The honest bound — what this does NOT cover
+
+- **A peer with no `devices` row for the sender.** `appendReceivedOps` skips the whole batch when
+  `SELECT id FROM devices WHERE libp2p_peer_id = ?` finds nothing (`historyLedger.js:65-86`, which
+  states why inventing a row would be worse). On such a device no `__deleted__` row exists, so a
+  subsequent *local* child write can still seed a ghost. Bounded: the very next merge-triggered
+  `projectAll` removes it, per the two-phase proof above. Named, not fixed.
+- **Hazard A above (the occurrence-level LWW race) is untouched.** That is a race between a
+  `DELETE_FIELD` and a field write on the same derived id **inside the Automerge document**, and no
+  SQLite-side predicate can arbitrate it. It remains accepted, as amended in the note in item 2.
+- **Every other stub-seeding parent in `projections.js`** (`schedule_weeks`, `special_days`,
+  `events`, `cohorts`, `groups`, …) stays unguarded. Each is either not deletable through a shipped
+  UI (see their `RESTORE_DECISIONS` entries, most of which say "no delete UI yet") or has no
+  cascade-delete path, so the trigger does not exist for them today. `TOMBSTONE_GUARDED_STUB_PARENTS`
+  is the place a future one is added.
+
+#### Registry edits (item 1)
+
+One, and it is new in this diff rather than an existing registry: `TOMBSTONE_GUARDED_STUB_PARENTS`
+in `projections.js`. No `PROJECTIONS` entry, no `MODELED_ENTITIES`, no `DOMAIN_SNAPSHOT_ORDER`, no
+permissions, no rollback module — no new entity and no new column.
+
+### Part 2, item 2 — `commitElectiveRun` refuses a commit onto a final run
+
+#### The gap
+
+`commitElectiveRun` detects immutability only *after the fact*: T244 round 2 stopped it
+**re-asserting** `status`/`name`/`source_filename` on an existing row
+(`electron/ops/commitElectiveRun.js:151-215`), but nothing refuses the commit itself.
+`DraftRunView.jsx`'s `guardedRegenerate` (`src/screens/elective/run/DraftRunView.jsx:448-483`) says
+so in its own comment and mitigates it with a best-effort `listElectiveRuns` status re-read, scoped
+to the cold path only.
+
+#### The decision
+
+**Return `{ ok: false, error: 'RUN_IS_FINAL' }` before any write.** Inserted immediately after the
+`existingRun` read (`commitElectiveRun.js:213-215`) and before `runAtomic` opens at line 504:
+
+```js
+  // T320 part 2 — a finalized run is immutable (ADR 2026-09-23 decision (a):
+  // "no reopen IPC exists"). T244 round 2 stopped this function REASSERTING
+  // status/name/source_filename onto an existing row; it never refused the
+  // commit. DraftRunView's guardedRegenerate carries a best-effort
+  // listElectiveRuns status re-read precisely because this refusal did not
+  // exist. The re-read stays (it is the courtesy: it stops the solve before the
+  // director waits for it); THIS is the guarantee.
+  if (existingRun?.status === 'final') return { ok: false, error: 'RUN_IS_FINAL' }
+```
+
+#### The refusal vocabulary — a sibling of `describeElectiveRunRefusal`, not a member of it
+
+`describeElectiveRunRefusal(parsed)` is deliberately **db-free**: its whole reason for existing is
+that a preview can say "this would be refused, and why" without opening a transaction or a db at all
+(`commitElectiveRun.js:47-53`, and `scripts/preferenceSheetCli.js:346` is the caller that depends on
+it). `RUN_IS_FINAL` requires a db read of `elective_assignment_runs.status`. Putting it inside
+`describeElectiveRunRefusal` would force a db handle into a function whose contract is that it needs
+none. **Sibling, not member.**
+
+It also belongs in a different vocabulary. `describeElectiveRunRefusal` returns **prose**, rendered
+verbatim, because its refusals name specific rows of the director's own sheet. `RUN_IS_FINAL` is a
+**code**, and that is the established shape for this run's lifecycle refusals — `finalizeElectiveRun`
+already returns `{ ok: false, error: 'ALREADY_FINAL' }`, and `DraftRunView.jsx` already holds the
+code→copy map (`REFUSAL_COPY`, `DraftRunView.jsx:83-93`, with `ALREADY_FINAL`,
+`FINALIZED_ELSEWHERE`, `STALE_OUTER_SCHEDULE`, `OUTER_RESOURCE_CONFLICT`). `RUN_IS_FINAL` joins that
+map; nothing new is invented.
+
+#### Surfacing it — structured, not prose, at all four doors
+
+| Door | Change |
+|---|---|
+| `src/screens/elective/run/DraftRunView.jsx` | Add to `REFUSAL_COPY` (line 83-93 block): `RUN_IS_FINAL: "This run was finalized, so it can't be regenerated. Reload it to see the final version."` Leave `guardedRegenerate` exactly as it is — the comment at lines 448-462 is corrected to say the refusal now exists and the re-read is the courtesy, not the guarantee. |
+| `src/screens/elective/assignment/AssignmentPanel.jsx` | The commit call at line 933 already does `if (!out.ok) { onError?.(out.error); setPhase('preview'); return }`. `out.error` would be the bare code, which must not reach a director as a code. Map it before handing it up: `onError?.(out.error === 'RUN_IS_FINAL' ? RUN_IS_FINAL_COPY : out.error)`, with `RUN_IS_FINAL_COPY` imported from `DraftRunView.jsx`'s exported `REFUSAL_COPY` rather than a second string (the two must not drift). |
+| `scripts/preferenceSheetCli.js` | The commit outcome is returned at the `outcome = commitElectiveRun(...)` site (line 379ff). A machine door must not emit a bare code either: map `RUN_IS_FINAL` to `error: 'run <id> is already finalized and cannot be re-committed'` with `exitCode: 1`, alongside the existing `{...report, ok:false, error, exitCode:1}` shape. |
+| `scripts/mcp/tools.js` | No change. `preferenceSheetCommitTool` (line 116) delegates wholly to `runPreferenceSheetCli`, so it inherits the CLI's mapping. State this in the commit message so a reviewer does not read the absent edit as an omission. |
+| `src/localClient.mock.js` | **Parity required.** The mock's `commitElectiveRun` (line 1884) already mirrors the two `describeElectiveRunRefusal` refusals and already mirrors `finalizeElectiveRun`'s `ALREADY_FINAL` (line 2107). Add, right after the `existing` lookup at line 1909: `if (existing?.status === 'final') return { ok: false, error: 'RUN_IS_FINAL' }`. Without it, browser-dev lets a regenerate through that `electron:dev` refuses — the exact divergence the T229 parity note at line 1899 exists to prevent. |
+
+#### Concurrency — this refusal is LOCAL, and saying so is part of the design
+
+Two devices, one finalizes, the other commits: the commit device's SQLite may not yet hold
+`status = 'final'`, so this guard does not fire and the commit proceeds. **That is not what stops
+`final` being reverted.** T244 round 2's field-level guard does: `status` is only ever asserted on a
+run's **first** commit (no existing row), so a late-arriving regeneration op carries no
+`status = 'draft'` write to lose the race with (`commitElectiveRun.js:151-180` and the comment
+block above `existingRun`). `RUN_IS_FINAL` is a **local, best-effort, same-device** refusal that
+closes the single-device window the code comments already identified. It is not a distributed
+guarantee and must not be described as one.
+
+### Part 2, item 3 — a camper who was on the sheet with neither a preference nor an assignment
+
+#### What is actually persisted today — checked first, per the brief
+
+`commitElectiveRun` already writes a `campers` row for **every** entry in `parsed.campers`,
+including one who ranked nothing (`commitElectiveRun.js:554-560`, inside the same transaction). So
+the camper is not lost; what is missing is the durable link "this camper was in scope for **this
+run**". `getElectiveRun`'s camper query is `WHERE c.id IN (preferences ∪ assignments for this run)`
+(`electron/ops/getElectiveRun.js:209-228`) and its own comment names the gap.
+
+`#672` ("no preference row is dropped silently") does **not** close it. That commit fixed one
+specific drop — a camper a bundle's scope does not cover now keeps their row against an ordinary
+minted choice (`commitElectiveRun.js:628-645`) — which is a camper who *did* rank something. A
+camper who ranked nothing still produces no `elective_preferences` row, because the writer loops
+`parsed.preferences`, not `parsed.campers`. Nothing in `source_filename`/`source_sha256`, the
+ingest ledger, or `elective_run_findings` records the roster today.
+
+#### The decision — reuse `elective_run_findings`, which Part 1 shipped for exactly this shape of fact
+
+**`commitElectiveRun` writes one `elective_run_findings` row, kind
+`SHEET_CAMPER_WITHOUT_PREFERENCE`, for every camper in `parsed.campers` that this commit wrote
+neither a preference nor an assignment for. `getElectiveRun`'s camper query gains a third UNION arm
+reading those rows. No schema change.**
+
+Everything it needs already exists: the table has a nullable `camper_id` column
+(`schema.sql`, `elective_run_findings`), it is registered in `PROJECTIONS`
+(`projections.js`, the T320 v83 entry) and in `src/localClient.mock.js`'s
+`MOCK_WRITE_ALLOWLIST` (line 620), it has a `RESTORE_DECISIONS` ruling already
+(`restore.js:119`, refused), it is positioned in `DOMAIN_SNAPSHOT_ORDER`
+(`campScopedEntities.js:305`), and `deriveElectiveRunFindingId(runId, generation, kind, camperId,
+choiceId, occurrenceId)` already encodes a non-null `camper_id` with a null choice and occurrence
+(`electron/ops/deriveElectiveRunFindingId.js`).
+
+Crucially, findings rows are **not pruned across generations** — Part 1's item 4 chose to filter by
+generation at read time instead (`commitElectiveRun.js:771-777`, `getElectiveRun.js:247-253`). A
+roster wants exactly that: the union over every generation, so a camper first recorded on generation
+1 is still in the universe after a regenerate mints generation 2. The roster arm therefore does
+**not** filter on `solver_generation`, and that asymmetry is deliberate.
+
+The exact write, placed in the same transaction immediately after the existing
+`solverFindings` loop (`commitElectiveRun.js:787-808`):
+
+```js
+      // T320 part 2 item 3 — THE RUN'S CAMPER UNIVERSE, MADE TRUE.
+      // getElectiveRun derived it as (preferences ∪ assignments), so a camper
+      // who was on the sheet and ranked nothing was invisible to a cold
+      // regenerate. This is the durable record of "in scope for this run",
+      // written where the fact is known — and it is a genuine finding in its own
+      // right, not a roster table wearing a disguise: a child appeared on the
+      // director's sheet and this run has nothing for them, which is exactly the
+      // kind of thing Art. V says we surface rather than absorb.
+      // NOT filtered by solver_generation at read time (unlike the eligibility
+      // kinds above) — a roster is cumulative across generations by definition.
+      const placedOrRanked = new Set([
+        ...preferencesWritten,           // camper ids this commit wrote a preference row for
+        ...assignments.map((a) => a.camper_id),
+      ])
+      for (const c of parsed.campers ?? []) {
+        if (placedOrRanked.has(c.id)) continue
+        const findingId = deriveElectiveRunFindingId(
+          runId, solverGeneration, 'SHEET_CAMPER_WITHOUT_PREFERENCE', c.id, null, null
+        )
+        write('elective_run_findings', findingId, {
+          run_id: runId,
+          solver_generation: solverGeneration,
+          kind: 'SHEET_CAMPER_WITHOUT_PREFERENCE',
+          message:
+            'This camper was on the sheet but has no ranked choice and no placement on this run. ' +
+            'They are still counted when it is regenerated.',
+          camper_id: c.id,
+          choice_id: null,
+          occurrence_id: null,
+        })
+      }
+```
+
+`preferencesWritten` is a `Set` Maker adds alongside the existing `preferencesHeld` array, populated
+at the `write('elective_preferences', ...)` call (`commitElectiveRun.js:670-700`) and **also** at the
+`heldPreference` `continue` above it — a held row is still a row this run has for that camper, so
+it counts. Field ORDER in the `write` call matters and is preserved above:
+`run_id`/`solver_generation`/`kind`/`message` are the four columns
+`PROJECTIONS.elective_run_findings.ensureExists` waits on before it stub-inserts the row, and a field
+written before the stub exists UPDATEs zero rows and is silently lost (the trap Part 1's own comment
+at `commitElectiveRun.js:794-798` already names).
+
+`SHEET_CAMPER_WITHOUT_PREFERENCE` is **not** added to `ELIGIBILITY_FINDING_KINDS`
+(`deriveElectiveRunFindingId.js`). That allowlist filters findings *passed in* from the solver;
+this one is computed by `commitElectiveRun` itself from `parsed`, so it bypasses the allowlist by
+construction. Adding it there would be wrong twice over — it is not a solver finding, and it would
+change what the export's eligibility bucket means.
+
+#### The read side
+
+`getElectiveRun.js:209-228` — the camper query gains a third arm, and the "KNOWN GAP" comment above
+it is replaced (the exact replacement is in the Maker edit list below):
+
+```sql
+        WHERE c.id IN (
+          SELECT camper_id FROM elective_preferences WHERE run_id = :runId
+          UNION
+          SELECT camper_id FROM elective_assignments WHERE run_id = :runId
+          UNION
+          SELECT camper_id FROM elective_run_findings
+           WHERE run_id = :runId AND kind = 'SHEET_CAMPER_WITHOUT_PREFERENCE'
+             AND camper_id IS NOT NULL
+        )
+```
+
+`getElectiveRun.js:247-253`'s `eligibilityFindings` read gains
+`AND kind != 'SHEET_CAMPER_WITHOUT_PREFERENCE'`, so the eligibility bucket (and through it
+`exportRunExceptions.js`) keeps exactly the meaning Part 1 gave it. The roster kind is surfaced
+instead as its own returned field, `sheetOnlyCampers` — the camper ids from the arm above — so a
+screen can name the count without re-reading.
+
+#### The disclosure text in `DraftRunView.jsx` must become true
+
+`src/screens/elective/run/DraftRunView.jsx:728-738`, the `data-testid="run-cold-regenerate-note"`
+block, currently reads:
+
+> Regenerating a reopened run reconsiders every camper who has a preference or a placement on it.
+
+That sentence is what the old derivation could honestly claim. Its exact replacement, which Maker
+substitutes verbatim (the surrounding JSX and `styles.actionsHint` are unchanged):
+
+> Regenerating a reopened run reconsiders every camper this run's sheet named — including anyone
+> with no ranked choice and no placement.
+
+The `{/* T250 A3 ... */}` comment immediately above it is replaced with a T320-part-2 note saying the
+roster is now the sheet's own, sourced from `elective_run_findings`, rather than "not the original
+sheet's full roster".
+
+#### The alternatives, and why each is worse
+
+- **(a) A new per-run roster table** — rejected. It is a v84 bump plus the full registry burden the
+  brief itemises (`PROJECTIONS`, `MODELED_ENTITIES`, permissions/entity parity, `undoReferences`
+  schema parity, the parent-scoped and projector registries, `rollback/v84_down.js`, the
+  `>= 83 && < 84` migration guard, `localClient.mock.js`, the schema-scanner test family) — all of
+  it to store a `(run_id, camper_id)` pair that an existing, already-registered, already-ruled-on
+  table with exactly those two columns can hold.
+- **(b) Derive from `campers` filtered by the run's tier/division scope** — rejected on correctness.
+  `elective_assignment_runs.tier_id` is only non-null when the run's occurrences span exactly one
+  tier (`commitElectiveRun.js:283-285`: `distinctTierIds.size === 1 ? ... : null`), so for a
+  multi-tier run the filter degrades to "every camper in the camp". Even when it is populated it
+  answers a different question — "who *could* have been on this sheet" — and would pull in campers
+  the sheet never mentioned. That is a different wrong answer, not a fix.
+- **(c) Something already persisted** — checked, and the honest answer is "the `campers` row, but
+  with no run link" (above). Reusing `elective_run_findings` is the smallest way to add exactly the
+  missing link.
+- **(d) An abstention `elective_preferences` row** (`rank_kind: 'none'`, null choice) — genuinely
+  tempting, since those three columns are all nullable in `schema.sql` and it would make the
+  existing UNION correct with no read-side change at all. **Rejected on blast radius, established by
+  reading rather than assumed.** `deriveElectivePreferenceId`'s `derivedChoiceId(choiceId)` throws on
+  a null or empty choice id (`electron/ops/electiveDerivedIds.js`), so it needs a change to a module
+  carrying frozen id vectors; and a null-choice preference row flows straight into
+  `getElectiveRun`'s `preferences` payload (`getElectiveRun.js:145-160`), from there into
+  `AssignmentPanel`'s cold-open hydration (`AssignmentPanel.jsx:1099-1110`, which joins `choice_id`
+  to a label) and into the solver's input. Changing what a row in that table *means* is a far larger
+  change than adding a row to a findings table that already carries `camper_id`.
+
+#### Two consequences of putting `camper_id` into `elective_run_findings` — both must ship in this change
+
+1. **PII gating.** `TOMBSTONE_DENYLISTED_ENTITIES` (`electron/automerge/projector.js`) gates
+   `campers`, `elective_preferences` and `elective_assignments` by `camper_id` against a T233 signed
+   purge tombstone. `elective_run_findings` is not in it. Once this design writes a real
+   `camper_id` there, a purged camper's id would survive in a table the erasure sweep does not
+   touch. **Add** `elective_run_findings: { idField: 'camper_id', tombstoneEntity: 'campers' }`.
+   No schema change; it is a registry line plus the two-part sweep `upsertEntity` already performs
+   for the other three (`projector.js:427-457`).
+2. **The delete cascade.** `deleteElectiveRun.js`'s cascade (its own header lists the seven steps,
+   load-bearing order) predates v83 and does **not** delete `elective_run_findings`. Rows already
+   orphan today; once they carry `camper_id` they orphan *PII*. **Add** `elective_run_findings` as
+   cascade step 1 (before `elective_run_outer_snapshots`; it has no children and nothing references
+   it, so the position is unconstrained and first keeps the "widest/leafmost first" reading of the
+   list), and update the header's numbered cascade comment to eight steps.
+
+### Interface-contract checklist for Part 2 (per `org-interface-contracts`)
+
+| Contract | Idempotency | Concurrent retries | Unknown outcome | Error shape | Authority boundary |
+|---|---|---|---|---|---|
+| `ensureParentStub` (new, internal to `projections.js`) | Yes — a pure guard in front of an `INSERT OR IGNORE`; running `projectAll`/`rebuildProjectionFromDocument` repeatedly reaches the same state, and the predicate reads committed `operations` rows only | Yes — the predicate is a read; two concurrent replays both refuse or both seed, and `projectAll`'s delete-reconcile settles either way | N/A — no network, no transaction of its own; it runs inside the caller's | None. A refusal is a **silent skip**, matching every other `ensureExists` early return in this file (`projections.js:1035`, `1048`, `1104`). A thrown error here would abort `projectAll`'s single shared transaction and roll back every other entity's legitimate projection — the exact failure mode `upsertCampsEntity`'s comment (`projector.js:196-200`) was written to avoid | None crossed. No IPC, no new entity, no `authorize()` surface |
+| `commitElectiveRun` → `RUN_IS_FINAL` (changed) | Yes — refusal before any write; a retry re-reads the same row and refuses identically | Yes — refusal is read-only and leaves no partial state | A dropped IPC mid-commit is answered as before: `runAtomic` committed fully or not at all, and a retry sees a refusal or the same converged run | `{ ok: false, error: 'RUN_IS_FINAL' }` — the shape `finalizeElectiveRun`'s `ALREADY_FINAL` already established, distinguishable by the caller, mapped to copy at each door | Unchanged: `requireAuthorized(db, { action: 'elective_assignment_runs.write' })` (`electron/main.js:2075`) still runs first |
+| `commitElectiveRun` → roster findings (changed) | Yes — `deriveElectiveRunFindingId` is deterministic on `(run, generation, kind, camper)`, so a retried commit re-writes the identical row ids | Yes — two devices computing the identical roster from the identical sheet converge on one row per camper (the D4 discipline Part 1 already relies on) | Same whole-transaction answer as every other write in `runAtomic` | Unchanged (the roster write cannot fail independently of the commit) | Unchanged (`elective_assignment_runs.write`); the new `camper_id` values are gated by the `TOMBSTONE_DENYLISTED_ENTITIES` addition above |
+| `getElectiveRun` (changed shape) | Read-only | N/A | N/A | Adds `sheetOnlyCampers` to the returned object; `campers` widens, `eligibilityFindings` narrows by one kind. Additive plus one deliberate narrowing, both mirrored in `localClient.mock.js` | Unchanged |
+
+### Files a Maker touches (Part 2)
+
+| File | Change |
+|---|---|
+| `electron/ops/projections.js` | `lastRecordedField`, `TOMBSTONE_GUARDED_STUB_PARENTS`, `ensureParentStub`; `ensureRunStub` routed through it; new `ensureSetStub` replacing the three inline `elective_sets` seeds at lines 585 / 617 (and the bundle-period/bundle-tier chain) |
+| `electron/automerge/projector.js` | `TOMBSTONE_DENYLISTED_ENTITIES` gains `elective_run_findings` |
+| `electron/ops/deleteElectiveRun.js` | Cascade gains `elective_run_findings` as step 1; header comment: eight steps, and the "KNOWN GAP … CONCURRENT PEER WRITE" block rewritten to state what is now true (the gap is the `appendOp` path, it is guarded, and the residual is the unmapped-peer case) |
+| `electron/ops/commitElectiveRun.js` | `RUN_IS_FINAL` refusal after `existingRun`; `preferencesWritten` set; the roster-findings loop |
+| `electron/ops/getElectiveRun.js` | Third UNION arm; `eligibilityFindings` kind exclusion; `sheetOnlyCampers` returned; the "KNOWN GAP" comment replaced |
+| `src/screens/elective/run/DraftRunView.jsx` | `REFUSAL_COPY.RUN_IS_FINAL` (exported); `guardedRegenerate`'s comment corrected; the cold-regenerate note text replaced verbatim |
+| `src/screens/elective/assignment/AssignmentPanel.jsx` | Map `RUN_IS_FINAL` to copy before `onError?.` at the commit call (line 933ff) |
+| `scripts/preferenceSheetCli.js` | Map `RUN_IS_FINAL` to a machine-door sentence with `exitCode: 1` |
+| `src/localClient.mock.js` | `commitElectiveRun` returns `RUN_IS_FINAL` on a final run; its `commitElectiveRun` writes the roster findings; `getElectiveRun`'s `campers`/`eligibilityFindings`/`sheetOnlyCampers` mirror the real shapes |
+
+Not touched, and the reason stated so a reviewer does not read it as an omission: `scripts/mcp/tools.js`
+(inherits the CLI's mapping), `electron/main.js` (`commitElectiveRunHandler` returns the refusal
+object as-is, which its own comment at line 2080 already describes), `electron/preload.js`,
+`electron/db/schema.sql`, `electron/db/localDb.js`, and every rollback module.
+
+### Tests — new, changed, and the non-vacuity plants that must go RED first
+
+**New file — `electron/ops/stubSeedTombstoneGuard.test.js`.** The item-1 guard, all four of Red
+Hat's named attacks:
+1. Local `appendOp` delete of a run, then a local child write → the run row stays absent. **This is
+   the regression test; Maker must show it RED against unmodified `projections.js`** — the probe in
+   this design already produced `[{ id: 'run-1', name: '' }]` there.
+2. `projectAll` of a merged doc where the peer's child write races the delete → no ghost, orphan
+   child survives. This one is **green before the change** and must be shown green before *and*
+   after: it pins the two-phase self-healing so a future "optimization" of `projectAll` cannot
+   silently remove it.
+3. Idempotent replay: `projectAll` twice, then `rebuildFromDoc(db, doc)` → identical rows each time,
+   guard included.
+4. Legitimate re-create: delete a run, then `commitElectiveRun` with the **same derived** run id
+   (`deriveImportedElectiveRunId` on identical bytes) → the run exists with its real name, not
+   blank, and its children resolve. **Non-vacuity plant: change the predicate to bare existence**
+   (`... AND field = '__deleted__' LIMIT 1`, dropping the `ORDER BY seq DESC`) and this test must go
+   RED. If it stays green, the test is not exercising the recency rule.
+5. Same pair for `elective_sets` via `elective_set_activities`, so the shared helper is proven at
+   both guarded parents rather than only at the one the ticket names.
+
+**New file — `electron/ops/commitElectiveRunFinalRefusal.test.js`** (or a new `describe` in
+`electron/ops/commitElectiveRun.test.js`, Maker's choice — the existing file is already large):
+`status = 'final'` → `{ ok: false, error: 'RUN_IS_FINAL' }`, **and no row changed**. Assert the
+latter by capturing `SELECT max(seq) FROM operations` before and after and asserting equality —
+asserting only the return value would pass against an implementation that refuses *after* writing.
+**Non-vacuity plant: move the guard to after `runAtomic` opens** and the seq assertion must go RED.
+
+**New file — `electron/ops/electiveRunCamperUniverse.test.js`.** A `parsed` with three campers, one
+of whom appears in `parsed.campers` and in neither `parsed.preferences` nor `assignments`:
+`getElectiveRun(...).campers` contains all three, and `sheetOnlyCampers` contains exactly the third.
+**Maker must show this RED before the change** (it returns two campers today). Plus: regenerate the
+run (new `solver_generation`) and assert the third camper is **still** present — the plant here is
+**add `AND solver_generation = ?` to the roster UNION arm**, which must turn that assertion RED.
+Plus: `eligibilityFindings` does **not** contain the roster kind.
+
+**Changed — `electron/ops/restore.test.js`.** Its `RESTORE_DECISIONS` exhaustiveness assertion
+(line 99ff) needs no change (no new entity), but confirm it still passes; if the schema-scanner
+family flags `elective_run_findings`'s new denylist entry, that is the parity guard working.
+
+**Changed — the projector's tombstone tests** (`electron/automerge/tombstoneProjection.test.js`):
+add `elective_run_findings` to whatever enumerates the denylisted entities, and assert a purged
+camper's finding row is deleted from the projection on the next pass — the same assertion the other
+three entities already carry. **Non-vacuity: revert the `TOMBSTONE_DENYLISTED_ENTITIES` line** and
+it must go RED.
+
+**Changed — `test/governance.test.js`** mock/client parity, if and only if it flags the mock's new
+`RUN_IS_FINAL` branch or the widened `getElectiveRun` return shape. Run it; do not pre-emptively
+edit it.
+
+**Changed — `electron/electiveRunDirectorFlow.integration.test.js`.** There is no
+`deleteElectiveRun.test.js`; this integration file is the only test that exercises
+`deleteElectiveRun`, so the cascade case belongs there: commit a run that produces at least one
+`elective_run_findings` row (the roster kind above guarantees one for any sheet with a
+no-preference camper), delete the run, assert `SELECT count(*) FROM elective_run_findings WHERE
+run_id = ?` is 0. **Plant: remove the cascade line** and it must go RED.
+
+### Part 2 open questions for Governor
+
+1. **Should `SHEET_CAMPER_WITHOUT_PREFERENCE` be visible to the director as a finding, or only as a
+   widened roster?** This design surfaces it as `sheetOnlyCampers` and keeps it out of the
+   eligibility bucket, so today it changes only the roster and the cold-regenerate sentence. Whether
+   `DraftRunView` should *also* list those campers by name ("3 campers on this sheet ranked nothing")
+   is a product call, not a technical one.
+2. **Does the run's export need the same widened universe?** `exportRunExceptions.js` reads the
+   eligibility bucket, which this design deliberately leaves unchanged. If a director expects the
+   export to name sheet-only campers, that is a second, separate slice.
+3. **`elective_run_outer_snapshots` carries `camper_id` and is likewise absent from
+   `TOMBSTONE_DENYLISTED_ENTITIES`** — a pre-existing PII-erasure gap this design noticed while
+   adding `elective_run_findings`, not one it introduces. Out of scope here; flagged for its own
+   ticket rather than folded in.
