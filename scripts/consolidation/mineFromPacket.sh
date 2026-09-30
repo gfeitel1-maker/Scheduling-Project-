@@ -55,8 +55,26 @@ for DAY in "$@"; do
   # silently. mkdir is atomic on POSIX, so exactly one claimant proceeds. (Red Hat, 44b49c6.)
   LOCK="$OUT/.mining-$DAY.lock"
   if ! mkdir "$LOCK" 2>/dev/null; then
-    print -u2 -- "SKIP $DAY — another recovery for this day is already running ($LOCK)"
-    continue
+    # A `kill -9` on a prior run bypasses the `trap` below and leaves $LOCK on disk forever,
+    # which would otherwise SKIP this day permanently. Consult the pure staleness predicate
+    # before assuming the lock is live. (T169.)
+    "$SCRIPTS/lockIsStale.sh" "$LOCK"
+    staleRc=$?
+    if [[ $staleRc -eq 0 ]]; then
+      age=$(( $(date +%s) - $(stat -f %m "$LOCK" 2>/dev/null || stat -c %Y "$LOCK" 2>/dev/null) ))
+      print -u2 -- "STALE LOCK $DAY — $LOCK is ${age}s old; a prior run likely died without cleaning up. Removing and retaking."
+      rm -rf "$LOCK"
+      if ! mkdir "$LOCK" 2>/dev/null; then
+        print -u2 -- "SKIP $DAY — another recovery won the race for this day ($LOCK)"
+        continue
+      fi
+    elif [[ $staleRc -eq 2 ]]; then
+      print -u2 -- "SKIP $DAY — lock state at $LOCK could not be determined; refusing to remove it ($LOCK)"
+      continue
+    else
+      print -u2 -- "SKIP $DAY — another recovery for this day is already running ($LOCK)"
+      continue
+    fi
   fi
   TMP="$OUT/.mining-$DAY.$$"
   trap 'rm -rf "$LOCK"; rm -f "$TMP"' EXIT INT TERM
