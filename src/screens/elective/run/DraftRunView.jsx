@@ -15,6 +15,11 @@ import { describeWriteFailure } from '../../../utils/writeErrorMessage'
 import { S, RunStateArea, RunStateRow, RunIdentity, RunError } from './RunStateRows.jsx'
 import { useRunState } from './useRunState.js'
 import CamperWeekPanel from './CamperWeekPanel.jsx'
+// T318 round 2 — this WRITE of a persisted rank_kind was the highest-
+// consequence bare literal found in the sweep: a typo here stores a kind
+// nothing recognises, and every reader's safe default then silently declines
+// to show the ordinal. See src/engine/rankKind.js's header.
+import { CELL_CHOICE } from '../../../engine/rankKind.js'
 import {
   RELEASE_LOCK_LABEL, danglingMessage, occurrenceLabel, overCapacityMessage,
   satisfactionSummary, stalenessOfferMessage,
@@ -113,7 +118,7 @@ export default function DraftRunView({
         // Only a brand-new statement about a cell is 'cell-choice' at rank 1 —
         // which is what a cell CHOSEN means (schema v79's own note), not a guess.
         rank: prior ? prior.rank ?? null : 1,
-        rankKind: prior ? prior.rank_kind ?? null : 'cell-choice',
+        rankKind: prior ? prior.rank_kind ?? null : CELL_CHOICE,
         replacesPreferenceId: prior ? entry.preferenceId : null,
       })
       if (!out?.ok) {

@@ -40,6 +40,11 @@
 // then offer an ADD where the director meant a correction — writing a second row
 // beside the one they were fixing.
 import { resolvePreferenceCoordinates } from '../assignment/resolvePreferenceCoordinates.js'
+// T318 round 2 — `hasOrderingEvidence` moved to src/engine/rankKind.js, a
+// dependency-free module also imported by the engine
+// (buildElectiveAssignments.js) and the ETL (preferenceSheet.js), so the
+// 2-value allow-list is defined once. See rankKind.js's own header.
+import { hasOrderingEvidence } from '../../../engine/rankKind.js'
 
 // Module-level so the defaults are a stable reference across renders and a
 // useMemo keyed on them can actually hit — the same reason useRunState.js keeps
@@ -70,7 +75,7 @@ const RANK_LABEL = { 1: 'First choice', 2: 'Second choice', 3: 'Third choice' }
 export const UNORDERED_RANK_LABEL = 'One of their choices'
 export function rankLabel(preferenceRank, rankKind) {
   if (preferenceRank == null) return 'Not requested'
-  if (rankKind === 'cell-choice' || rankKind === 'ordered-fallback') {
+  if (hasOrderingEvidence(rankKind)) {
     return RANK_LABEL[preferenceRank] ?? `Choice #${preferenceRank}`
   }
   return UNORDERED_RANK_LABEL

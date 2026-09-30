@@ -49,6 +49,11 @@
 
 import { deriveCamperId, electiveChoiceLabelKey } from '../../electron/ops/electiveDerivedIds.js'
 import { recognitionKey } from './preview.js'
+// T318 round 2 — the three rank_kind values this ETL writes moved to
+// src/engine/rankKind.js, the choke point also imported by
+// buildElectiveAssignments.js and camperElectiveWeek.js's rankLabel, so the
+// persisted string values live in exactly one place.
+import { CELL_CHOICE, ORDERED_FALLBACK, UNORDERED_SET } from '../engine/rankKind.js'
 
 // T285 slice A — RANK HEADER RECOGNITION.
 //
@@ -150,10 +155,8 @@ const PERIOD_HEADER = /^(period|time\s*block)(\s*(number|#))?$/i
 const UNORDERED_SET_HEADER = /^(acceptable|preferred|chosen)\s+activities$|^activities\s+chosen$/i
 
 // The three meanings one integer `rank` column cannot carry (ADR §4.2), now
-// persisted as `elective_preferences.rank_kind` (v79).
-const CELL_CHOICE = 'cell-choice'
-const ORDERED_FALLBACK = 'ordered-fallback'
-const UNORDERED_SET = 'unordered-set'
+// persisted as `elective_preferences.rank_kind` (v79). Values imported from
+// src/engine/rankKind.js — see that module's header.
 
 // A packed multi-value cell's delimiters. One definition, used by both the
 // label resolver's split-detection and the unordered-set column.

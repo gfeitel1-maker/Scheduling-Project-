@@ -17,6 +17,11 @@
 // pair instead) onto an occurrence, and that binding needs the camp's day and
 // time-block catalogs. The exceptions builder does no such binding.
 import { buildPreferenceLookup } from '../run/camperElectiveWeek.js'
+// T318 round 2 — found as a FOURTH copy of the same fabrication-proof
+// predicate while consolidating the other three (buildElectiveAssignments.js,
+// camperElectiveWeek.js's rankLabel, preferenceSheet.js's three constants) —
+// see src/engine/rankKind.js's header.
+import { hasOrderingEvidence } from '../../../engine/rankKind.js'
 
 export function buildRunSummaryExport({
   run,
@@ -35,7 +40,7 @@ export function buildRunSummaryExport({
     assignedCamperIds.add(a.camper_id)
     if (a.preference_rank != null) {
       const rankKind = preferenceFor(a)?.rankKind ?? null
-      if (rankKind === 'cell-choice' || rankKind === 'ordered-fallback') {
+      if (hasOrderingEvidence(rankKind)) {
         counts_by_rank[a.preference_rank] = (counts_by_rank[a.preference_rank] ?? 0) + 1
       } else {
         unordered_count += 1

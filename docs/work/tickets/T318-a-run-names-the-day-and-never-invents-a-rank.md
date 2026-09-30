@@ -7,7 +7,7 @@ task_class: ui-ux-design
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/DESIGN_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
 related_adrs: [docs/adr/2026-09-27-elective-preference-etl-canonical-record-and-learned-axis-binding.md, docs/adr/2026-09-17-individual-elective-scheduling.md]
 related_tickets: [docs/work/tickets/T296-per-camper-elective-schedule-view.md, docs/work/tickets/T297-edit-a-campers-elective-preferences.md]
-archive_when: "an over-capacity row on an elective run names the day and the period — on a freshly solved run and on a run reopened cold from the run list — and no surface reading a COMMITTED run's assignment rows (the camper week, the run's satisfaction summary, the exported run summary and workbook) states an ordinal choice for a camper whose sheet was read as an unordered set"
+archive_when: "an over-capacity row on an elective run names the day and the period — on a freshly solved run and on a run reopened cold from the run list — and no surface a director or counsellor reads, on screen or on paper, before a run is committed or after, states an ordinal choice for a camper whose sheet was read as an unordered set"
 ---
 
 # T318 — A run names the day it means, and never invents a rank
@@ -79,13 +79,58 @@ The solver. Auth, IPC shape, schema. `exportChildSchedule` (it carries no rank a
 `templateOccurrences` residual inside the export input, which cannot fabricate a rank — an unbindable
 preference falls to the whole-run join arm or to the safe default.
 
-**The PRE-COMMIT solve preview is a separate, still-open instance of the same class**, found by Red
-Hat on this ticket and deliberately left: the `NOT_TOP_CHOICE` flag is computed in the engine
-(`src/engine/buildElectiveAssignments.js`) from `rank > 1` with no `rank_kind` gate, and
-`src/screens/elective/assignment/AssignmentPreview.jsx` renders it as "Not top choice (got #N)" — a
-fabricated ordinal, on a staff-facing screen, one click before the run is committed.
-`src/screens/elective/assignment/exportElectiveRun.js` holds a second copy of that flag copy. Closing
-it properly means changing which flags the engine emits, and the solver is out of this ticket's scope
-by owner instruction; suppressing only the wording would leave the flag itself asserting an ordering
-("top choice") the camper never expressed. It needs its own ticket and its own owner ruling, not a
-widening of this one.
+## (d) The pre-commit preview fabricated the same ordinal — closed in round 2
+
+Found by Red Hat while reviewing (a)–(c), and closed here rather than recorded: the same defect on the
+same class, one screen earlier. The `NOT_TOP_CHOICE` flag was emitted from `rank > 1` alone, at both of
+`src/engine/buildElectiveAssignments.js`'s emission sites (tier 2's `rankAt` path and tier 1's
+linked-choice `choiceRankMinOverMembers` path), and rendered as "Not top choice (got #N)" by
+`src/screens/elective/assignment/AssignmentPreview.jsx` and again by
+`src/screens/elective/assignment/exportElectiveRun.js`. So a director previewing a solve saw the
+fabricated ordinal before the run existed to be read the honest way.
+
+The flag is now gated on the same positive-evidence rule as the display surfaces, applied to the
+`rank_kind` of the row that **won the rank fold** — not the last row seen, and not OR-ed across rows.
+The fold stores `{rank, kind}` so the kind travels with the winning rank.
+
+**The tie rule took two attempts, and the first was wrong.** Governor's initial ruling was that a tie
+between rows of *differing kinds* collapses to no-evidence. That is right for an ordered-vs-unordered
+tie and wrong for ordered-vs-ordered: `cell-choice` and `ordered-fallback` are **both** positive
+evidence and differ only as strings, so the first version also suppressed a real ordinal. Red Hat
+found it and traced it to the tier-1 linked-choice path, where `choiceBestOverMembers` seeds the fold
+from a camper's whole-run fallback row and folds cell-scoped rows into it. The rule now collapses to
+no-evidence **only when the two sides disagree about whether ordering happened**, which is the only
+question the gate asks; an ordered-vs-unordered tie still collapses, which is what keeps fabrication
+impossible.
+
+That two-live-row state is **reachable from real parser output, not merely defensive.**
+`inferPreferenceMapping` builds `ranked[]` from header parsing, and a day/period-scoped header
+("Monday Period 3 - 1st Choice") yields a coordinate while a plain header ("2nd Choice") yields none;
+both feed the same `rankColumns`, with nothing requiring a sheet to be one shape or the other. The
+dedup key is `camper_id\0scope\0labelKey` with `scope = occurrence_id ?? coordinateKey(coordinate)`,
+and `coordinateKey(null)` is `''` — so a whole-run row and a cell-scoped row for the same camper and
+activity never collide and both survive. It needs a mixed-format sheet naming one activity at the same
+rank in both sections: unusual, not invalid.
+
+The single predicate and the three `rank_kind` values now live in `src/engine/rankKind.js`, a
+dependency-free module imported by the engine, by `src/ingest/preferenceSheet.js` (the ETL that writes
+the column) and by the four readers. It replaced four copies of the predicate — one of them negated,
+in `satisfactionSummary` — and three copies of the string values, one of them on a persisted-write
+path. A typo now propagates to every consumer at once and fails safe, therefore silently, so
+`rankKind.test.js` pins the three exact strings as well as the predicate's six cases.
+
+**This is a flag-emission gate, not a placement change.** `rankAt` and `choiceRankMinOverMembers` feed
+the cost matrices, so their numeric returns are untouched and the kind is read through parallel
+readers over the same fold. A test pins the identity: the same inputs produce the same assignments,
+compared on everything but `flags`, against a literal expected array hand-derived from the cost matrix
+rather than from the function itself.
+
+The message keeps its embedded ordinal, because it can now only appear where an ordinal is real.
+
+## Not in scope
+
+The solver's placement behaviour (this ticket gates a flag; it does not move a camper). Auth, IPC
+shape, schema. `exportChildSchedule` (it carries no rank at all). The
+`templateOccurrences` residual inside the export input, which cannot fabricate a rank — an unbindable
+preference falls to the whole-run join arm or to the safe default. De-duplicating the two copies of the
+`NOT_TOP_CHOICE` message literal, which are now both correct.

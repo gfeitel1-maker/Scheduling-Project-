@@ -2,7 +2,7 @@
 task: T318 — a run names the day it means, and never invents a rank
 document_type: run
 date: 2026-09-29
-round: 1
+round: 2
 status: pass
 task_class: ui-ux-design
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/DESIGN_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
@@ -90,6 +90,16 @@ Not `database-sync`: Architect chose Route 1, which changes no schema and no sto
 | test:integration · migration tests | not run — correctly out of scope | mandatory only for sync/auth/schema changes; the empty `electron/` diff is the predicate's negation |
 | full suite (`npm run test`) | deferred to CI | ~11 min, past the foreground ceiling; CI is the gate of record for merging (`TESTING_STANDARD.md` §1) |
 
+**Round 2 gates** (the delta gating `NOT_TOP_CHOICE` and consolidating the predicate):
+
+| Gate | Result | Evidence |
+|---|---|---|
+| test (scoped: 23 files incl. the engine, the ETL, the T302 guard) | PASS | 431 passed, exit 0 |
+| lint | PASS | 0 errors, 26 pre-existing warnings, exit 0 |
+| check:governance | PASS (1 advisory) | exit 0; `platform-state-stale`, addressed by the PLATFORM_STATE entry landed with this work |
+| `git diff bee8516c -- electron/db` | EMPTY | no schema moved; integration + migration tests correctly out of scope |
+| placement identity | PASS | pinned by ONE fixture with a hand-derived unique optimum — Verifier put that limit on the record rather than implying broader coverage |
+
 Scoped rather than whole-suite deliberately: a subagent that backgrounds the 11-minute suite parks on
 the wait. The named files are the ones this diff can break, plus `preferenceEditToResolve.test.jsx`
 and `exportChildSchedule.test.js` as blast-radius controls on modules that were NOT supposed to
@@ -99,8 +109,14 @@ the only thing that finds it.
 
 ## Verifier verdict
 
-**PASS** — on the four gates above, read by exit code rather than by output tail. Every clause of the
-success predicate was mapped to a specific named assertion; no clause was left UNVERIFIED.
+**Round 1: PASS.** Four gates, read by exit code rather than output tail; every predicate clause mapped
+to a named assertion, none left UNVERIFIED.
+
+**Round 2: PASS.** 431 tests over 23 files (exit 0), lint and governance clean, `electron/db` diff
+empty. All seven clauses of the ticket's (d) traced to specific assertions that were read, not inferred
+from test names — including both engine emission sites as separate paths, the safe default, the
+ordered-vs-ordered tie, the ordered-vs-unordered tie, placement identity, the null-rank crash, and the
+single-source-of-truth for the constants. Nothing UNVERIFIED.
 
 ## Grader score
 
@@ -115,19 +131,45 @@ nothing about the work changed, it returned 4.4/PASS. A grader that moves a verd
 point and flips it on a re-ask is a weak instrument; the deterministic gates above, not the score, are
 what this run's PASS rests on (`CONSTITUTION.md` Art. VII — a reviewer score is never proof).
 
+**Round 2 Grader: average 4.4, lowest 3** (maintainability). Spec fidelity 5, UX/copy 5, security 5,
+operational risk 4. Pass is ≥ 4.0 with no dimension below 3; 3 is not below 3.
+
+Maintainability took the 3 for the right reason: the refactor introduced a crash before review caught
+it, and two LOWs remain (a comment stating the allow-list as prose without pointing at
+`rankKind.js`; the `DraftRunView` ADD-path write having no direct test — a pre-existing gap). The two
+named residual risks are on the record rather than smoothed over: **placement identity rests on one
+fixture** plus Red Hat's algebraic comparison of all five branches of `better` against the pre-delta
+reducer, and **the consolidation concentrates a silent failure** — one typo in `rankKind.js` now
+reaches six consumers and fails safe, which is why `rankKind.test.js` pins the three exact strings and
+not only the predicate's behaviour.
+
+One correction to Grader's own output, recorded because it would mislead the next reader: its closing
+"Scope note" says the pre-commit fabrication was escalated rather than absorbed and that the solver is
+out of scope by owner instruction. That was round 1's state. The coordinator reversed it, round 2
+closed it, and this record's first finding says so. Grader's five dimension scores are unaffected.
+
 ## Findings carried forward
 
-**HIGH — the pre-commit solve preview still prints a fabricated ordinal (Red Hat, round 1, not
-fixed).** `src/engine/buildElectiveAssignments.js` raises `NOT_TOP_CHOICE` from `rank > 1` with no
-`rank_kind` gate, and `src/screens/elective/assignment/AssignmentPreview.jsx` renders it as "Not top
-choice (got #N)". `src/screens/elective/assignment/exportElectiveRun.js` holds a second copy of that
-flag copy, imported by `exportChildSchedule.js` and `AssignmentPanel.jsx`. This is the same defect
-class as (c) on a different seam: the engine's in-memory flags before commit, not the committed run's
-stored rows. Left open deliberately — the honest fix changes which flags the solver emits, and the
-solver is out of this ticket's scope by owner instruction, while suppressing only the wording would
-leave the flag itself asserting an ordering ("top choice") the camper never expressed. T318's
-`archive_when` was narrowed to say what it actually closes rather than overclaim. **Needs an owner
-ruling and its own ticket.**
+**CLOSED IN ROUND 2 (was HIGH, carried forward from round 1) — the pre-commit solve preview
+fabricated the same ordinal.** The coordinator ruled that the solver exclusion was its own scoping and
+not the owner's, and that the owner's rules override it: "a defect you find at a seam you are already
+changing is FINISHED, not recorded" and "staff must not see a fabricated rank." So round 2 gated the
+engine's `NOT_TOP_CHOICE` emission at both sites. Governor's deferral in round 1 was wrong on the
+scoping question and is recorded as such rather than quietly overwritten.
+
+**Two real defects were found IN round 2's own work, both by review, neither by the author.**
+
+1. *Code Reviewer, HIGH — a crash introduced by the refactor.* `choiceBestOverMembers` dereferenced
+   `held.rank` with no null guard, unlike its sibling `bestAt`. `elective_preferences.rank` is a
+   nullable INTEGER, so a linked choice with a null-rank preference on one member occurrence threw
+   `Cannot read properties of null (reading 'rank')`. Worse than the bug being fixed: before the
+   refactor the same input degraded silently to a wrong value; after it, the whole solve aborted for
+   every camper. Fixed, pinned by a regression test, and confirmed by the reviewer re-running its own
+   reproduction rather than re-reading the diff.
+2. *Red Hat, MEDIUM-HIGH — a defect in Governor's specification, not the implementation.* The tie rule
+   as first specified collapsed ordered-vs-ordered ties to no-evidence, suppressing a real ordinal —
+   the opposite failure direction from the one this ticket closes. See the ticket's (d) for the
+   corrected rule and the reachability evidence.
 
 **MEDIUM — deviation from the ticket text, disclosed.** Maker added `preferences={state.preferences}`
 to `FinalRunView`'s `CamperWeekPanel` call. Not named in the ticket, and necessary: without it the
@@ -151,23 +193,26 @@ clean.
 
 ## Decision
 
-**PASS on T318's own scope, in one round — with one HIGH finding ESCALATED to the owner rather than
-absorbed.**
+**PASS, in two rounds.** Round 1 closed (a)-(c) on the committed-run surfaces. Round 2 closed (d), the
+same fabricated ordinal on the pre-commit preview, after the coordinator ruled that the solver
+exclusion was its own scoping rather than the owner's and that the owner's rules override it.
 
-The three owner-ruled defects are closed, each pinned by a test that was red on `origin/main` and is
-green now, each plant-reverted to prove the test is not vacuous. Verifier PASS on exit codes. No round
-2 was needed.
+Verifier PASS both rounds, on exit codes. Round 2: 431 tests over 23 files, lint and governance clean,
+`electron/db` diff empty — no schema moved, so Route 1 held end to end.
 
-The escalation is deliberate and is the one thing needing a human: Red Hat found the same
-fabricated-ordinal defect class alive on a **different** seam — the pre-commit solve preview, where the
-engine's `NOT_TOP_CHOICE` flag is raised from `rank > 1` with no `rank_kind` gate. Closing it honestly
-means changing which flags the solver emits, and the solver is excluded from this ticket by explicit
-owner instruction. **An owner-set scope exclusion is not a reviewer's to widen and is not mine either**
-— so rather than quietly exceed the brief or quietly leave the ticket overclaiming, T318's
-`archive_when` was narrowed to the committed-run surfaces it actually closes, and the gap is written up
-above for the owner to rule on (`CONSTITUTION.md` Art. IV; rule 10 — stop when human judgement is
-truly required).
+**What this run should be remembered for is that review found two real defects in round 2's own work,
+and neither was found by the author.** Code Reviewer found a crash the refactor introduced — strictly
+worse than the bug being fixed, because it aborted the whole solve where the old code degraded
+silently — and confirmed the fix by re-running its own reproduction rather than re-reading the diff.
+Red Hat found an error in *Governor's specification*: the tie rule as first written suppressed a real
+ordinal for a camper who had ordered their sheet twice over, the opposite failure direction from the
+one this ticket exists to close. Both are fixed and pinned. That pattern reads as the loop working, not
+as unsound work — but it is also the argument against grading the author's own confidence.
 
-Tester was human-waived, so no directors-eye or visual evidence exists for this round. The copy change
-is one word replacing a number inside existing rows, but "low layout risk" is an argument, not
-evidence, and it is recorded as absent evidence rather than as a pass.
+Governor's round-1 scoping error is recorded above rather than overwritten, and the ticket's
+`archive_when` was restored to the full claim — before commit and after — only once that claim became
+true.
+
+Still absent, and not claimed as present: Tester was human-waived, so there is **no visual or
+directors-eye evidence** in either round. The copy is one word inside existing rows and round 2 changed
+no copy at all, but "low layout risk" is an argument, not evidence.

@@ -115,6 +115,13 @@
 // real catalog data from T218/T219 showing linked choices are common and overlap
 // with scarce unlinked demand.
 
+// T318 round 2 — the fabrication-proof predicate for NOT_TOP_CHOICE lives in
+// src/engine/rankKind.js, a dependency-free module shared with
+// src/screens/elective/run/camperElectiveWeek.js's `rankLabel` (display) and
+// src/ingest/preferenceSheet.js (the ETL that writes rank_kind), so the
+// 2-value allow-list is defined once rather than retyped at every reader.
+import { hasOrderingEvidence } from './rankKind.js'
+
 // Cost of placing a camper into a choice they did not rank. Above any real
 // rank (a 25-choice form tops out at 25), so every ranked option is preferred
 // to every unranked one, while an unranked placement still beats leaving a
@@ -252,19 +259,72 @@ export function buildElectiveAssignments({
   //
   // The occurrence-scoped side gets the same fold for the same reason: two rows
   // naming one choice in one cell is the same collision, one scope down.
-  const better = (held, rank) => (held == null || (rank != null && rank < held) ? rank : held)
-  const record = (entry, occurrenceId, rank) => {
+  // T318 round 2 — each held value is now `{rank, kind}|null`, not a bare
+  // number, so the `rank_kind` behind the WINNING rank can travel with it
+  // (needed by NOT_TOP_CHOICE's flag-emission gate below, which must know the
+  // kind of the row that actually won the fold, not the kind of the last row
+  // seen or a kind OR-ed across rows). `better`'s rank behaviour is otherwise
+  // untouched — same numeric min-fold as before T318, so `rankAt`'s return
+  // value (and therefore every cost computation and placement) is unchanged.
+  //
+  // ON A TIE (equal rank): the question the gate asks is `hasOrderingEvidence`,
+  // not "which literal kind". T318 round 2's first version compared
+  // `held.kind === kind` and collapsed to null whenever the two STRINGS
+  // differed — which is right for an ordered-vs-unordered tie (owner ruling
+  // 2026-09-29: a camper holding one rank from both an ordered and an
+  // unordered row has not unambiguously expressed a second choice; the safe
+  // direction is no ordinal, not a guess), but wrong for an ordered-vs-ordered
+  // tie: 'cell-choice' and 'ordered-fallback' are both positive evidence and
+  // differ only as strings, so the old code also suppressed a REAL ordinal
+  // there. Red Hat traced this reachable on the tier-1 linked-choice path
+  // (choiceBestOverMembers folds a whole-run fallback row against a
+  // cell-scoped row for the same labelKey; preferenceSheet.js's dedup key
+  // scopes on occurrence/coordinate, so the two rows are never deduplicated
+  // against each other) — a defect in the OPPOSITE direction from the one this
+  // ticket closes: staff losing a real ordinal, not being shown a fake one.
+  //
+  // So: agree on `hasOrderingEvidence` -> not a disagreement, keep evidence.
+  // Disagree -> collapse to null, preserving the original (correct) rule for
+  // the ordered-vs-unordered case. When both sides agree and share the exact
+  // same kind, keep it (unchanged from before). When both sides agree but
+  // differ as STRINGS (the ordered-vs-ordered case), `held.kind` is kept only
+  // because the sole consumer of this field is `hasOrderingEvidence`, which
+  // both kinds satisfy identically — this does NOT assert the camper's actual
+  // kind was `held.kind` rather than the other one, and this fold is not a
+  // sound source for displaying or persisting which kind it was.
+  const better = (held, rank, kind) => {
+    if (rank == null) return held
+    if (held == null || rank < held.rank) return { rank, kind }
+    if (rank === held.rank) {
+      if (held.kind === kind) return { rank, kind }
+      return hasOrderingEvidence(held.kind) === hasOrderingEvidence(kind)
+        ? { rank, kind: held.kind }
+        : { rank, kind: null }
+    }
+    return held
+  }
+  const record = (entry, occurrenceId, rank, kind) => {
     if (occurrenceId != null) {
-      entry.byOccurrence.set(occurrenceId, better(entry.byOccurrence.get(occurrenceId) ?? null, rank))
+      entry.byOccurrence.set(occurrenceId, better(entry.byOccurrence.get(occurrenceId) ?? null, rank, kind))
     } else {
-      entry.fallback = better(entry.fallback, rank)
+      entry.fallback = better(entry.fallback, rank, kind)
     }
   }
-  const rankAt = (camperId, occurrenceId, labelKey) => {
+  const bestAt = (camperId, occurrenceId, labelKey) => {
     const entry = rankOf.get(camperId)?.get(labelKey)
     if (!entry) return null
     return entry.byOccurrence.has(occurrenceId) ? entry.byOccurrence.get(occurrenceId) : entry.fallback
   }
+  const rankAt = (camperId, occurrenceId, labelKey) => bestAt(camperId, occurrenceId, labelKey)?.rank ?? null
+  // T318 round 2 — the `rank_kind` of the row that WON rankAt's fold at this
+  // (camper, occurrence, labelKey), or null when there is no such row or the
+  // winner was a tie whose two sides DISAGREED about whether ordering happened
+  // (see `better` above — a tie between two kinds that both carry ordering
+  // evidence keeps one of them rather than collapsing). The only reader is the
+  // NOT_TOP_CHOICE gate below, which asks nothing of this value but
+  // `hasOrderingEvidence`; it is not a sound source for WHICH kind a camper's
+  // sheet used, and it is never persisted or displayed.
+  const rankKindAt = (camperId, occurrenceId, labelKey) => bestAt(camperId, occurrenceId, labelKey)?.kind ?? null
   // TIER 1's min-fold over a choice's MEMBER occurrences (T265 round 4).
   // `rankByChoice` above stores raw occurrence-scoped rows, same shape as
   // `rankOf` — it is NOT folded at parse time, because folding requires
@@ -276,17 +336,37 @@ export function buildElectiveAssignments({
   // being in `memberOccurrenceIds` — no explicit guard needed, the iteration
   // itself is the filter. Returns the MINIMUM (best) rank, or null if the
   // camper has no relevant rank at all for this choice.
-  const choiceRankMinOverMembers = (camperId, choiceId, memberOccurrenceIds) => {
+  // T318 round 2 — same discipline as `bestAt`/`better` above: the fold across
+  // a linked choice's member occurrences now carries `{rank, kind}`, not a bare
+  // rank, and a tie between differing kinds collapses to `kind: null` via the
+  // same `better` reducer. `choiceRankMinOverMembers` and
+  // `choiceRankKindMinOverMembers` are both thin readers of this one fold so
+  // the rank value neither of them returns can drift from the other.
+  const choiceBestOverMembers = (camperId, choiceId, memberOccurrenceIds) => {
     const entry = rankByChoice.get(camperId)?.get(choiceId)
     if (!entry) return null
     let best = entry.fallback
     for (const occurrenceId of memberOccurrenceIds) {
       if (!entry.byOccurrence.has(occurrenceId)) continue
-      const rank = entry.byOccurrence.get(occurrenceId)
-      if (best == null || rank < best) best = rank
+      // Code Reviewer HIGH — `held` can legitimately be a stored `null`
+      // (`elective_preferences.rank` is nullable; `better(null, null, kind)`
+      // records exactly that when the only preference row for this occurrence
+      // had `rank: null`), unlike `bestAt` above, which never dereferences its
+      // held value and was already safe. `better` itself already treats a
+      // null incoming rank as "no vote" and leaves the fold unchanged, so
+      // `?? null` here is enough to route a stored null through that same
+      // path instead of crashing on `.rank`.
+      const held = entry.byOccurrence.get(occurrenceId) ?? null
+      best = better(best, held?.rank ?? null, held?.kind ?? null)
     }
     return best
   }
+  const choiceRankMinOverMembers = (camperId, choiceId, memberOccurrenceIds) =>
+    choiceBestOverMembers(camperId, choiceId, memberOccurrenceIds)?.rank ?? null
+  // T318 round 2 — the `rank_kind` behind the winning rank in the fold above;
+  // only reader is the NOT_TOP_CHOICE gate in runLinkedChoiceTier.
+  const choiceRankKindMinOverMembers = (camperId, choiceId, memberOccurrenceIds) =>
+    choiceBestOverMembers(camperId, choiceId, memberOccurrenceIds)?.kind ?? null
 
   for (const p of preferences) {
     const ch = (p.choice_id != null ? choiceById.get(p.choice_id) : undefined)
@@ -294,7 +374,7 @@ export function buildElectiveAssignments({
       ?? null
     const labelKey = p.labelKey ?? ch?.labelKey ?? null
     if (labelKey != null) {
-      record(entryFor(rankOf, p.camper_id, labelKey), p.occurrence_id ?? null, p.rank)
+      record(entryFor(rankOf, p.camper_id, labelKey), p.occurrence_id ?? null, p.rank, p.rank_kind ?? null)
     }
     // T301 ADR D4 — an explicit choice_id preference still resolves to
     // exactly one choice, unambiguous by construction. A labelKey-only
@@ -316,10 +396,10 @@ export function buildElectiveAssignments({
     // still untouched, exactly as the ADR intends: that path resolves via
     // this same `.has()` check and stays exactly-one-match.
     if (p.choice_id != null && choiceById.has(p.choice_id)) {
-      record(entryFor(rankByChoice, p.camper_id, ch.id), p.occurrence_id ?? null, p.rank)
+      record(entryFor(rankByChoice, p.camper_id, ch.id), p.occurrence_id ?? null, p.rank, p.rank_kind ?? null)
     } else if (p.labelKey != null) {
       for (const c of choicesByLabelKey.get(p.labelKey) ?? []) {
-        record(entryFor(rankByChoice, p.camper_id, c.id), p.occurrence_id ?? null, p.rank)
+        record(entryFor(rankByChoice, p.camper_id, c.id), p.occurrence_id ?? null, p.rank, p.rank_kind ?? null)
       }
     }
   }
@@ -571,9 +651,10 @@ export function buildElectiveAssignments({
       }
       const o = here[j]
       const rank = rankAt(camperId, occurrenceId, o.labelKey) ?? null
+      const kind = rankKindAt(camperId, occurrenceId, o.labelKey)
       const flags = []
       if (rank == null) flags.push('NOT_REQUESTED')
-      else if (rank > 1) flags.push('NOT_TOP_CHOICE')
+      else if (rank > 1 && hasOrderingEvidence(kind)) flags.push('NOT_TOP_CHOICE')
       assignments.push({
         camper_id: camperId,
         occurrence_id: occurrenceId,
@@ -819,18 +900,25 @@ export function buildElectiveAssignments({
       if (j == null) return
       const id = columns[j]
       const rank = choiceRankMinOverMembers(camperId, id, occurrencesOf(id))
+      const kind = choiceRankKindMinOverMembers(camperId, id, occurrencesOf(id))
       for (const m of membersOf(id)) {
         // EMITTED SHAPE: an ordinary solver row, identical in shape to tier 2's
         // own output — no `source`, no `locked`. These are solver decisions, not
-        // a director's. NOT_REQUESTED is unreachable here: the row exists
-        // because the camper ranked this choice, so `rank` is never null.
+        // a director's. NOT_REQUESTED is unreachable here: `rows`/`cost` above
+        // are built from `wants()`, which requires
+        // choiceRankMinOverMembers(...) != null — so THIS PLACED ROW's `rank`
+        // is guaranteed non-null by that gate, at this point in the code. That
+        // is narrower than "the fold can never produce null": a member
+        // occurrence's own preference row can legitimately hold `rank: null`
+        // (see the null-guard in `choiceBestOverMembers`, above), it is simply
+        // excluded from the fold rather than winning it.
         prePlace(m.occurrence_id, camperId, m.activity_id, () => ({
           camper_id: camperId,
           occurrence_id: m.occurrence_id,
           labelKey: labelOfChoice(id),
           activity_id: m.activity_id,
           preference_rank: rank,
-          flags: rank > 1 ? ['NOT_TOP_CHOICE'] : [],
+          flags: rank > 1 && hasOrderingEvidence(kind) ? ['NOT_TOP_CHOICE'] : [],
         }))
       }
     })

@@ -5,6 +5,12 @@
 // ("Verbatim copy"), except the satisfaction summary, whose copy T250 owns and
 // which the spec deliberately leaves alone.
 import { buildPreferenceLookup } from './camperElectiveWeek.js'
+// T318 round 2 — found as a FOURTH copy of the fabrication-proof predicate,
+// this one NEGATED (see src/engine/rankKind.js's header). The negation made
+// this copy the riskiest of the four: if the shared allow-list ever gains a
+// third accepted kind, every OTHER copy gains it automatically while this one
+// would have kept silently excluding it.
+import { hasOrderingEvidence } from '../../../engine/rankKind.js'
 
 // Q5 (director-facing terminology) was ruled by the owner 2026-09-29: "start a
 // new version". "Revision" implies editing the same run, which contradicts
@@ -86,7 +92,7 @@ export function satisfactionSummary({ rows = [], preferences = [], occurrences =
       continue
     }
     const rankKind = preferenceFor(row)?.rankKind ?? null
-    if (rankKind !== 'cell-choice' && rankKind !== 'ordered-fallback') {
+    if (!hasOrderingEvidence(rankKind)) {
       unordered += 1
     } else if (rank >= 1 && rank <= 3) {
       buckets[rank - 1] += 1
