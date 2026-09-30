@@ -2147,12 +2147,25 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   //     shape (adds activityId), not a narrower one. capacity_mode is the
   //     authority (schema.sql): 'unlimited' offerings are never checked, and
   //     'limited' with a NULL capacity_limit is skipped rather than treated
-  //     as a fabricated capacity. Verified (round 2, Red Hat): despite the
-  //     schema comment's INVALID_CAPACITY name, no finding of that kind is
-  //     actually emitted anywhere in this codebase — buildElectiveAssignments
-  //     has NO_OFFERINGS/NO_CAMPERS/NO_CAPACITY only. A ('limited', NULL) row
-  //     is today surfaced NOWHERE, not here and not at generation time; this
-  //     skip is silent, not "someone else's job."
+  //     as a fabricated capacity. T316 now emits INVALID_CAPACITY for that
+  //     ('limited', NULL) case at GENERATION time (buildOfferings.js's
+  //     findBlankCapacities, surfaced by AssignmentPanel, which refuses to
+  //     solve while one exists) — a director sees it before a run is ever
+  //     committed. This READ path's own skip stays silent. It is NOT true
+  //     that a blocked solve is the only gate standing between a director and
+  //     this case — that closes the write paths this build controls, not
+  //     every way a row can land in elective_assignments. Known ways to
+  //     reach this skip: a run committed before T316; a capacity blanked
+  //     again after committing; and a row arriving via an Automerge merge
+  //     from another device — projectAll/PROJECTIONS (electron/automerge/
+  //     projector.js, driven from syncNode.js's merge path, A.merge then
+  //     projectAll) writes elective_assignments and elective_set_activities
+  //     straight into SQLite from document state and never passes through
+  //     setElectiveAssignment.js's capacity guard, so a peer running an
+  //     older build (or one that merged before this offering was blanked)
+  //     can introduce the same overflow here. Fixing any of these is out of
+  //     this ticket's scope; this comment records that the list is open
+  //     rather than claiming it is closed.
   function getElectiveRunHandler(args) {
     const { token, runId } = args ?? {}
     if (!isNonEmptyString(token)) throw new Error('token is required')
@@ -2271,7 +2284,9 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       // (electron/ops/electiveOfferingCapacity.js). Behaviour here is
       // unchanged — 'unlimited' is never checked, and 'limited' + NULL
       // capacity_limit ('unknownLimit') is still skipped rather than
-      // fabricated, since no finding surfaces it anywhere today.
+      // fabricated. T316 surfaces this case at generation time instead (see
+      // the block comment above); this read path is untouched and stays
+      // silent for it.
       const resolved = resolveOfferingCapacity(setActivity)
       if (resolved.kind !== 'limited') continue
       if (row.filled > resolved.capacity) {

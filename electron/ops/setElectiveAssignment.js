@@ -18,6 +18,7 @@ import { resolveOfferingCapacity } from './electiveOfferingCapacity.js'
  * @returns {{ok:true, assignmentId:string}
  *  | {ok:false, error:'RUN_NOT_DRAFT'}
  *  | {ok:false, error:'OCCURRENCE_FULL', capacity:number, filled:number}
+ *  | {ok:false, error:'INVALID_CAPACITY', activityId:string, setActivityId:string, message:string}
  *  | {ok:false, error:'CAMPER_INELIGIBLE'}
  *  | {ok:false, error:string}}
  */
@@ -135,13 +136,24 @@ export function setElectiveAssignment(db, {
 
   // Capacity, resolved by the ONE helper the engine's offering builder uses
   // (electiveOfferingCapacity.js). An 'unlimited' offering is never checked.
-  // ('limited', NULL) resolves to a capacity of 0 here, which is exactly what
-  // buildOfferings.js/buildElectiveAssignments already do with such a row
-  // (`Math.max(0, capacity_limit ?? 0)` closes the offering) — this path
-  // mirrors the engine rather than inventing a third reading.
+  //
+  // ('limited', NULL) — `unknownLimit` — is a MISCONFIGURED offering, not a
+  // full one (owner ruling, T316 round 3): refused distinctly as
+  // INVALID_CAPACITY, naming the offering the same way buildOfferings.js's
+  // findBlankCapacities does, and never run through the `filled >= capacity`
+  // comparison a made-up capacity of 0 would otherwise force.
   const capacityResult = resolveOfferingCapacity(setActivity)
-  if (capacityResult.kind !== 'unlimited') {
-    const capacity = capacityResult.kind === 'limited' ? capacityResult.capacity : 0
+  if (capacityResult.kind === 'unknownLimit') {
+    return {
+      ok: false,
+      error: 'INVALID_CAPACITY',
+      activityId,
+      setActivityId: setActivity.id,
+      message: `${activityName ? `"${activityName}"` : 'This offering'} is set to limited capacity but the number is blank — fill it in first.`,
+    }
+  }
+  if (capacityResult.kind === 'limited') {
+    const capacity = capacityResult.capacity
     // Generation-visible rows only, via the shared fragment, and EXCLUDING the
     // row being written: a move within the same occurrence must not count
     // itself as an occupant.

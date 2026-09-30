@@ -90,6 +90,33 @@ async function driveToPreview({ file, extraProps = {} } = {}) {
   await waitFor(() => expect(screen.getByText(/Commit Assignments/)).toBeTruthy())
 }
 
+// T316 — a confirmed offering declared 'limited' with a blank capacity
+// resolves to `resolveOfferingCapacity`'s `unknownLimit`. Before this ticket
+// that became capacity 0 and the offering silently closed; the run must
+// instead refuse to solve, name the offering, and never reach commit.
+describe('AssignmentPanel — T316 a blank limited capacity refuses the run', () => {
+  it('surfaces the finding, shows no Commit button, and never calls commitElectiveRun', async () => {
+    const props = baseProps({
+      setActivities: [{
+        id: 'osa-1', elective_set_id: 'set-1', activity_id: 'act-1',
+        status: 'confirmed', capacity_mode: 'limited', capacity_limit: null,
+      }],
+    })
+    render(<AssignmentPanel {...props} />)
+    const input = document.querySelector('input[type="file"]')
+    const sheetFile = new File(['Name\t#1\nAri\tArchery'], 'sheet.txt', { type: 'text/plain' })
+    fireEvent.change(input, { target: { files: [sheetFile] } })
+    await waitFor(() => expect(screen.getByText(/Confirm Mapping/)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Confirm Mapping/))
+    await waitFor(() => expect(screen.getByText(/Solve/i)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Solve/i))
+
+    await waitFor(() => expect(screen.getByText(/is set to limited capacity/)).toBeTruthy())
+    expect(screen.queryByText(/Commit Assignments/)).toBeNull()
+    expect(localClient.commitElectiveRun).not.toHaveBeenCalled()
+  })
+})
+
 describe('AssignmentPanel — H1 mints a runId per solve and threads it to commit', () => {
   it("commit()'s payload carries a non-empty runId", async () => {
     localClient.commitElectiveRun.mockResolvedValue({ ok: true, runId: 'whatever', counts: { campers: 1 } })

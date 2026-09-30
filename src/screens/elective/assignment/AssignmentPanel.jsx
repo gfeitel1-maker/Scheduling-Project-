@@ -26,7 +26,7 @@ import { buildElectiveAssignments } from '../../../engine/buildElectiveAssignmen
 import { SyncIcon } from '../../../components/icons/index.jsx'
 import { deriveOccurrences } from './deriveOccurrences.js'
 import { deriveChoices } from './deriveChoices.js'
-import { buildOfferings, findMismatches } from './buildOfferings.js'
+import { buildOfferings, findMismatches, findBlankCapacities } from './buildOfferings.js'
 import { resolvePreferenceCoordinates } from './resolvePreferenceCoordinates.js'
 import { electiveChoiceLabelKey } from '../../../../electron/ops/electiveDerivedIds.js'
 import { buildAttendance } from './buildAttendance.js'
@@ -674,6 +674,19 @@ export default function AssignmentPanel({
     // (synchronous, potentially heavy) solve runs.
     setTimeout(() => {
       const offerings = buildOfferings({ occurrences: occs, setActivities, activities })
+      // T316 — a confirmed offering declared 'limited' with a blank capacity
+      // (`resolveOfferingCapacity`'s `unknownLimit`) is blocking: the run
+      // refuses to solve while one exists, rather than reaching the engine
+      // as capacity 0. Owner ruling 2026-09-29: "blank capacities need to be
+      // filled in." Checked before deriveChoices/buildElectiveAssignments
+      // run at all — nothing past this point executes on a blocked run.
+      const blankCapacityFindings = findBlankCapacities({ setActivities, activities })
+      if (blankCapacityFindings.length > 0) {
+        setResult({ assignments: [], findings: blankCapacityFindings, choices: [] })
+        setPhase('preview')
+        setAnnouncement('Some offerings have a blank capacity and must be fixed before this run can be solved.')
+        return
+      }
       // T301 slice 3 (ADR D10) — a director's authored bundles, expanded into
       // THIS run's per-tier linked choices, called fresh on EVERY solve
       // (first or re-solve) — never read back from a stored run, because a

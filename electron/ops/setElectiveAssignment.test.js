@@ -182,6 +182,74 @@ describe('setElectiveAssignment', () => {
     db.close()
   })
 
+  // T316 round 3, owner-ruled in scope: a confirmed ('limited', NULL) offering
+  // is a misconfiguration, not a full room. A manual move into it must be
+  // refused distinctly (never OCCURRENCE_FULL, never capacity: 0) and the
+  // refusal must name the offering the way findBlankCapacities does.
+  it('refuses INVALID_CAPACITY, naming the offering, for a confirmed limited offering with a blank capacity', () => {
+    const { db, campId } = freshDb()
+    const runId = seedRun(db, campId, { capacityLimit: null })
+    const setActivityId = db
+      .prepare('SELECT id FROM elective_set_activities WHERE elective_set_id = ? AND activity_id = ?')
+      .get('set-1', 'act-archery').id
+    const out = move(db, runId)
+    expect(out).toEqual({
+      ok: false,
+      error: 'INVALID_CAPACITY',
+      activityId: 'act-archery',
+      setActivityId,
+      message: '"Archery" is set to limited capacity but the number is blank — fill it in first.',
+    })
+    db.close()
+  })
+
+  // T316 round 4: the activity lookup at line 110 is a plain SELECT with no
+  // guarantee the row still exists — an elective_set_activities row can name
+  // an activity_id that no longer resolves. That leaves activityName
+  // undefined, and the INVALID_CAPACITY message interpolated it unguarded,
+  // putting the literal string "undefined" in front of a director.
+  it('refuses INVALID_CAPACITY without the literal string "undefined" when the offering names a deleted activity', () => {
+    const { db, campId } = freshDb()
+    const runId = seedRun(db, campId)
+    // No corresponding row in `activities` for this id — elective_set_activities
+    // has no FK on activity_id, so this is a legitimate dangling reference,
+    // not a constraint violation.
+    const setActivityId = randomUUID()
+    db.prepare(
+      'INSERT INTO elective_set_activities (id, elective_set_id, activity_id, capacity_mode, capacity_limit, status) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(setActivityId, 'set-1', 'act-ghost', 'limited', null, 'confirmed')
+
+    const out = move(db, runId, { activityId: 'act-ghost' })
+    expect(out.ok).toBe(false)
+    expect(out.error).toBe('INVALID_CAPACITY')
+    expect(out.message).not.toMatch(/undefined/)
+    expect(out.message).toBe('This offering is set to limited capacity but the number is blank — fill it in first.')
+    db.close()
+  })
+
+  // T316 round 5 (Red Hat finding 1): writeAssignment (DraftRunView.jsx) is the
+  // single call path for THREE director actions — a move, a Lock toggle, and
+  // releaseLock — and this capacity gate runs on ALL of them, including a lock
+  // toggle where the camper is ALREADY the occupant and moves nowhere. The
+  // refusal message must therefore not claim a move happened. This seeds
+  // cam-1 already placed in act-gaga (a blank-capacity offering) and toggles
+  // only `locked`, proving the gate fires on a pure lock and that the message
+  // stays action-neutral.
+  it('refuses INVALID_CAPACITY on a lock toggle of an already-placed camper, without claiming a move', () => {
+    const { db, campId } = freshDb()
+    const runId = seedRun(db, campId, { capacityLimit: null })
+    // cam-1's solver row already sits in act-gaga (seeded via ASSIGNMENTS).
+    const before = db.prepare('SELECT * FROM elective_assignments WHERE id = ?').get(deriveElectiveAssignmentId(runId, 'cam-1', 'occ-1'))
+    expect(before.activity_id).toBe('act-gaga')
+
+    const out = move(db, runId, { activityId: 'act-gaga', locked: !before.is_locked })
+
+    expect(out.ok).toBe(false)
+    expect(out.error).toBe('INVALID_CAPACITY')
+    expect(out.message).not.toMatch(/mov(e|ing)/i)
+    db.close()
+  })
+
   it('does not count the row being written against its own capacity', () => {
     const { db, campId } = freshDb()
     const runId = seedRun(db, campId, { capacityLimit: 1 })

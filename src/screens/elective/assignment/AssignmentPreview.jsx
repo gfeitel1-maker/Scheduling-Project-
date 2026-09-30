@@ -93,12 +93,29 @@ export default function AssignmentPreview({
   // IDENTICAL label, which is exactly what hid the H4 double-placement bug.
   const tierById = new Map(tiers.map((t) => [t.id, t]))
 
+  // T316 — a refused run (e.g. a blank limited capacity) reaches here with
+  // zero assignments and findings that explain why. The zero-assignment
+  // sub-state below is not itself an error message; hoisted so both branches
+  // share one render rather than a second findings list drifting from this one.
+  const findingsList = findings.length > 0 && (
+    <ul style={{ margin: '0 0 14px', paddingLeft: 0, listStyle: 'none' }}>
+      {findings.map((f, i) => (
+        <li key={i} style={S.findingsRailRow('var(--danger)')}>
+          {findingDisplayMessage(f, { activities, choices })}
+        </li>
+      ))}
+    </ul>
+  )
+
   if (assignments.length === 0) {
     return (
-      <div style={S.emptyState}>
-        <div style={S.emptyStateTitle}>No campers could be placed</div>
-        <div style={S.emptyStateBody}>
-          Check that this set has confirmed offerings with capacity, and that the sheet&apos;s ranks map to activity names that match.
+      <div>
+        {findingsList}
+        <div style={S.emptyState}>
+          <div style={S.emptyStateTitle}>No campers could be placed</div>
+          <div style={S.emptyStateBody}>
+            Check that this set has confirmed offerings with capacity, and that the sheet&apos;s ranks map to activity names that match.
+          </div>
         </div>
       </div>
     )
@@ -120,15 +137,7 @@ export default function AssignmentPreview({
       <div style={{ marginBottom: 12, fontSize: 13 }}>
         {plural(camperCount, 'camper')} placed · {plural(occurrences.length, 'occurrence')} · {plural(findings.length, 'finding')}
       </div>
-      {findings.length > 0 && (
-        <ul style={{ margin: '0 0 14px', paddingLeft: 0, listStyle: 'none' }}>
-          {findings.map((f, i) => (
-            <li key={i} style={S.findingsRailRow('var(--danger)')}>
-              {findingDisplayMessage(f, { activities, choices })}
-            </li>
-          ))}
-        </ul>
-      )}
+      {findingsList}
       {occurrences.map((occ) => (
         <OccurrencePanel
           key={occ.id}
