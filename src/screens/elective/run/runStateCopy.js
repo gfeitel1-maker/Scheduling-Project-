@@ -4,6 +4,7 @@
 // Every string below is verbatim from docs/work/specs/2026-09-25-t250-run-state-surface.md
 // ("Verbatim copy"), except the satisfaction summary, whose copy T250 owns and
 // which the spec deliberately leaves alone.
+import { buildPreferenceLookup } from './camperElectiveWeek.js'
 
 // Q5 (director-facing terminology) was ruled by the owner 2026-09-29: "start a
 // new version". "Revision" implies editing the same run, which contradicts
@@ -24,24 +25,22 @@ export const STALE_GENERATION_COPY =
 // one. Degrade by dropping detail, never by printing a raw id when a name
 // exists.
 //
-// T296 CORRECTION — there are now TWO occurrence sets, and this function's
-// callers pass the wrong one. `templateOccurrences` (AssignmentPanel React
-// state) is the CURRENT template's set, and is EMPTY for a run opened from the
-// run list; `useRunState().occurrences` is the run's own persisted set and is
-// always there. Every caller of this function still passes the former, so an
-// over-capacity row on a reopened run still degrades to a bare activity name.
-// T296 did not change that — it is T250's rendered copy with its own tests, and
-// fixing it belongs to a ticket that can re-verify that surface. The stale claim
-// that the day/time block is simply unavailable for a reopened run has been
-// removed, because it is no longer true: the data is one prop away.
-//
-// A second known defect, same scope: `days_of_operation` stores its name in
-// `label`, and the lookup below reads `.name` only — so a day never resolves and
-// `when` silently collapses to the time block alone.
+// T318 FIXED both defects this comment used to describe. (a) `days_of_operation`
+// stores its name in `label`, not `name` (electron/db/schema.sql) — the lookup
+// below now reads `label ?? name`, the same both-ways read
+// camperElectiveWeek.js's dayNameById already does for the same catalog,
+// accepted because some callers pass catalogs shaped that way. (b) DraftRunView
+// and FinalRunView now pass `state.occurrences` (the run's own persisted set,
+// always present) to THIS function for their over-capacity rows, instead of the
+// `templateOccurrences` prop, which is AssignmentPanel React state and empty
+// for a run opened from the run list. The move dropdown still needs — and
+// keeps — `templateOccurrences`, since it offers periods a camper can be moved
+// TO, not periods an existing row already names.
 export function occurrenceLabel({ occurrenceId, activityId, activities = [], occurrences = [], days = [], timeBlocks = [] }) {
   const activityName = activities.find((a) => a.id === activityId)?.name
   const occurrence = occurrences.find((o) => o.id === occurrenceId)
-  const dayName = days.find((d) => d.id === occurrence?.day_id)?.name
+  const day = days.find((d) => d.id === occurrence?.day_id)
+  const dayName = day?.label ?? day?.name
   const blockName = timeBlocks.find((t) => t.id === occurrence?.time_block_id)?.name
   const when = dayName && blockName ? `${dayName}, ${blockName}` : dayName || blockName || null
   const who = activityName || occurrenceId
@@ -66,21 +65,41 @@ const RANK_WORDS = ['a first choice', 'a second choice', 'a third choice']
 // silent about campers who were never placed: getElectiveRun returns
 // assignments, and the camp-wide `campers` table is not run-scoped, so any
 // "unplaced" count derived here would be a guess presented as a fact.
-export function satisfactionSummary(rows = []) {
+//
+// T318 (c) — an object param, not a bare array, because reading `rank_kind`
+// needs the same assignment-to-preference join camperElectiveWeek.js's
+// buildPreferenceLookup already does (occurrences/days/timeBlocks are what that
+// join binds a coordinate-only preference against). A rank with no positively-
+// ordered preference behind it — 'unordered-set', a null kind, or a row that
+// cannot be joined at all — moves into the `unordered` bucket instead of a
+// numbered one, per the same fabrication-proof rule rankLabel enforces.
+export function satisfactionSummary({ rows = [], preferences = [], occurrences = [], days = [], timeBlocks = [] } = {}) {
   const occurrenceCount = new Set(rows.map((r) => r.occurrence_id)).size
+  const preferenceFor = buildPreferenceLookup({ preferences, occurrences, days, timeBlocks })
   const buckets = [0, 0, 0, 0] // first, second, third, lower
   let outside = 0
+  let unordered = 0
   for (const row of rows) {
     const rank = row.preference_rank
-    if (rank == null) outside += 1
-    else if (rank >= 1 && rank <= 3) buckets[rank - 1] += 1
-    else buckets[3] += 1
+    if (rank == null) {
+      outside += 1
+      continue
+    }
+    const rankKind = preferenceFor(row)?.rankKind ?? null
+    if (rankKind !== 'cell-choice' && rankKind !== 'ordered-fallback') {
+      unordered += 1
+    } else if (rank >= 1 && rank <= 3) {
+      buckets[rank - 1] += 1
+    } else {
+      buckets[3] += 1
+    }
   }
 
   const parts = []
   buckets.forEach((count, i) => {
     if (count > 0) parts.push(`${count} ${i < 3 ? RANK_WORDS[i] : 'a lower choice'}`)
   })
+  if (unordered > 0) parts.push(`${unordered} one of their choices`)
   if (outside > 0) parts.push(`${outside} placed outside their preferences`)
   // "got" attaches to whichever clause comes first, so a run where nobody got
   // a first choice still reads as a sentence.

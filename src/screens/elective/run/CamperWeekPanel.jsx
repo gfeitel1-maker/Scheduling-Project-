@@ -112,7 +112,7 @@ function WeekRow({ entry, choices, editing, onEdit, onSetPreference, onRemovePre
             data-testid={`camper-week-rank-${id}`}
             style={entry.isFallback ? styles.rankFallback : styles.rank}
           >
-            {rankLabel(entry.rank)}
+            {rankLabel(entry.rank, entry.rankKind)}
           </span>
           {onSetPreference ? (
             <button

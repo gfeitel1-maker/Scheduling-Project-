@@ -44,14 +44,20 @@ vi.mock('../../../localClient', () => ({
 import { localClient } from '../../../localClient'
 import DraftRunView from './DraftRunView.jsx'
 import FinalRunView from './FinalRunView.jsx'
+import { buildPreferenceLookup } from './camperElectiveWeek.js'
 
 // The expected label is spelled out HERE rather than imported from
 // camperElectiveWeek.js on purpose. Calling the production function to build the
 // expectation would move both sides of the assertion together, so a bug in the
 // rank reading — the exact fact this ticket exists for — would render wrong and
 // still pass. An independent statement of the mapping is the point of a test.
-function expectedRankLabel(preferenceRank) {
+//
+// T318 — rankKind is now a second input, for the same reason: a fixture whose
+// preferences carry no rank_kind must read as the non-ordinal word, and this
+// independent copy of the rule is what would catch a rankLabel that ignored it.
+function expectedRankLabel(preferenceRank, rankKind) {
   if (preferenceRank == null) return 'Not requested'
+  if (rankKind !== 'cell-choice' && rankKind !== 'ordered-fallback') return 'One of their choices'
   return { 1: 'First choice', 2: 'Second choice', 3: 'Third choice' }[preferenceRank]
     ?? `Choice #${preferenceRank}`
 }
@@ -96,10 +102,15 @@ const PARSED = {
   ],
   // Alpha never ranked Gaga anywhere — that is what makes the Tuesday placement
   // below an unranked one, which the archive_when requires this test to cover.
+  //
+  // T318 — rank_kind: 'cell-choice' on every row here: these are genuinely
+  // ordered, per-cell choices (a real sheet reads this way), which is what lets
+  // expectedRankLabel keep asserting the ordinal below. A row with no rank_kind
+  // would (correctly, post-T318) read as "One of their choices" instead.
   preferences: [
-    { camper_id: 'cam-1', occurrence_id: 'occ-c', label: 'Archery', labelKey: 'archery', rank: 1 },
-    { camper_id: 'cam-1', occurrence_id: 'occ-b', label: 'Pottery', labelKey: 'pottery', rank: 3 },
-    { camper_id: 'cam-2', occurrence_id: 'occ-c', label: 'Pottery', labelKey: 'pottery', rank: 1 },
+    { camper_id: 'cam-1', occurrence_id: 'occ-c', label: 'Archery', labelKey: 'archery', rank: 1, rank_kind: 'cell-choice' },
+    { camper_id: 'cam-1', occurrence_id: 'occ-b', label: 'Pottery', labelKey: 'pottery', rank: 3, rank_kind: 'cell-choice' },
+    { camper_id: 'cam-2', occurrence_id: 'occ-c', label: 'Pottery', labelKey: 'pottery', rank: 1, rank_kind: 'cell-choice' },
   ],
   sameNameCampers: [],
   skippedRows: [],
@@ -122,7 +133,9 @@ let runId
 function weekFromDatabase(camperId) {
   return db
     .prepare(
-      `SELECT a.id, a.preference_rank, act.name AS activity_name,
+      // T318 adds a.occurrence_id/a.camper_id/a.choice_id — assertRenderedWeekMatchesDatabase
+      // needs them to compute the expected rankKind via the same join buildPreferenceLookup does.
+      `SELECT a.id, a.occurrence_id, a.camper_id, a.choice_id, a.preference_rank, act.name AS activity_name,
               d.label AS day_label, tb.name AS block_name
          FROM elective_assignments a
          JOIN elective_occurrences o ON o.id = a.occurrence_id
@@ -139,8 +152,10 @@ function weekFromDatabase(camperId) {
 function runStateFromDatabase() {
   const rows = db
     .prepare(
+      // T318 adds a.choice_id, matching electron/main.js's getElectiveRunHandler
+      // (T297) — the join that resolves rankKind needs it.
       `SELECT a.id, a.occurrence_id, a.camper_id, a.activity_id, a.preference_rank,
-              a.source, a.is_locked, c.display_name AS camper_name
+              a.source, a.is_locked, a.choice_id, c.display_name AS camper_name
          FROM elective_assignments a
          LEFT JOIN campers c ON c.id = a.camper_id
         WHERE a.run_id = ?
@@ -150,7 +165,15 @@ function runStateFromDatabase() {
   const occurrences = db
     .prepare('SELECT id, elective_set_id, day_id, time_block_id, tier_id FROM elective_occurrences WHERE run_id = ? ORDER BY id')
     .all(runId)
-  return { rows, occurrences, staleCount: 0, finalizedAgainstStaleGeneration: false, overCapacityOccurrences: [] }
+  // T318 — mirrors getElectiveRunHandler's preferences query, so the week
+  // projection's rank_kind join has the same real rows to bind against.
+  const preferences = db
+    .prepare('SELECT id, camper_id, choice_id, occurrence_id, rank, rank_kind FROM elective_preferences WHERE run_id = ? ORDER BY id')
+    .all(runId)
+  return {
+    rows, occurrences, preferences,
+    staleCount: 0, finalizedAgainstStaleGeneration: false, overCapacityOccurrences: [],
+  }
 }
 
 // `occurrences: []` IS THE PRODUCTION CASE, not a weakened fixture. A director
@@ -234,6 +257,13 @@ async function assertRenderedWeekMatchesDatabase(view, camperId) {
   const expected = weekFromDatabase(camperId)
   expect(expected.length).toBeGreaterThan(0)
 
+  // T318 — the same join buildCamperElectiveWeek uses, run here against the
+  // real preference rows straight out of SQLite, so `expectedRankLabel` below
+  // gets an independently-sourced rankKind rather than trusting the render.
+  const preferenceFor = buildPreferenceLookup({
+    preferences: runStateFromDatabase().preferences, occurrences: OCCURRENCES, days: DAYS, timeBlocks: TIME_BLOCKS,
+  })
+
   // THE ORDERING ASSERTION BELOW IS ONLY WORTH ANYTHING IF THESE TWO DISAGREE.
   // The rows reach the screen in getElectiveRunHandler's order (by occurrence
   // id); the week must come out in day/period order. If a later fixture edit
@@ -262,7 +292,7 @@ async function assertRenderedWeekMatchesDatabase(view, camperId) {
     expect(within(node).getByTestId(`camper-week-activity-${row.id}`).textContent)
       .toBe(row.activity_name)
     expect(within(node).getByTestId(`camper-week-rank-${row.id}`).textContent)
-      .toBe(expectedRankLabel(row.preference_rank))
+      .toBe(expectedRankLabel(row.preference_rank, preferenceFor(row)?.rankKind ?? null))
     // The row is MARKED as a fallback, not merely labelled — the chrome is what
     // a director reads at a glance, and it must track the database column.
     expect(node.getAttribute('data-fallback')).toBe(String(row.preference_rank == null))

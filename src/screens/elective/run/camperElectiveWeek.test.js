@@ -30,13 +30,24 @@ describe('rankLabel', () => {
     expect(rankLabel(undefined)).toBe('Not requested')
   })
 
-  it('names a ranked placement by its rank', () => {
-    expect(rankLabel(1)).toBe('First choice')
-    expect(rankLabel(2)).toBe('Second choice')
-    expect(rankLabel(3)).toBe('Third choice')
+  it('names a ranked placement by its rank, on POSITIVE evidence of ordering', () => {
+    expect(rankLabel(1, 'cell-choice')).toBe('First choice')
+    expect(rankLabel(2, 'cell-choice')).toBe('Second choice')
+    expect(rankLabel(3, 'ordered-fallback')).toBe('Third choice')
     // A rank past third says WHICH, rather than collapsing to "lower" — the
     // camper's own row is the one place the exact number is worth carrying.
-    expect(rankLabel(5)).toBe('Choice #5')
+    expect(rankLabel(5, 'ordered-fallback')).toBe('Choice #5')
+  })
+
+  // T318 (c) — an ordinal is fabrication unless rank_kind proves ordering
+  // happened. 'unordered-set' means a tie among equals (the ETL writes a real
+  // integer rank for a packed cell regardless), a null/undefined kind means no
+  // evidence either way, and both must read the same non-ordinal word rather
+  // than the number the database happens to hold.
+  it('never states an ordinal without positive evidence of ordering', () => {
+    expect(rankLabel(2, 'unordered-set')).toBe('One of their choices')
+    expect(rankLabel(2, null)).toBe('One of their choices')
+    expect(rankLabel(2, undefined)).toBe('One of their choices')
   })
 })
 
@@ -61,9 +72,9 @@ describe('buildCamperElectiveWeek', () => {
     // it pins the whole shape, so a future field has to be added here
     // deliberately. These rows pass no `preferences`, so null is the answer.
     expect(week.entries).toEqual([
-      { assignmentId: 'a-mon-1', occurrenceId: 'occ-mon-1', dayName: 'Monday', blockName: 'First Period', activityName: 'Archery', rank: 1, isFallback: false, choiceId: null, preferenceId: null },
-      { assignmentId: 'a-mon-2', occurrenceId: 'occ-mon-2', dayName: 'Monday', blockName: 'Second Period', activityName: 'Archery', rank: 2, isFallback: false, choiceId: null, preferenceId: null },
-      { assignmentId: 'a-tue', occurrenceId: 'occ-tue-1', dayName: 'Tuesday', blockName: 'First Period', activityName: 'Pottery', rank: null, isFallback: true, choiceId: null, preferenceId: null },
+      { assignmentId: 'a-mon-1', occurrenceId: 'occ-mon-1', dayName: 'Monday', blockName: 'First Period', activityName: 'Archery', rank: 1, isFallback: false, choiceId: null, preferenceId: null, rankKind: null },
+      { assignmentId: 'a-mon-2', occurrenceId: 'occ-mon-2', dayName: 'Monday', blockName: 'Second Period', activityName: 'Archery', rank: 2, isFallback: false, choiceId: null, preferenceId: null, rankKind: null },
+      { assignmentId: 'a-tue', occurrenceId: 'occ-tue-1', dayName: 'Tuesday', blockName: 'First Period', activityName: 'Pottery', rank: null, isFallback: true, choiceId: null, preferenceId: null, rankKind: null },
     ])
   })
 

@@ -131,7 +131,13 @@ export default function FinalRunView({
         first={i === 0}
         last={i === overCapacityRows.length - 1}
         message={overCapacityMessage({
-          label: occurrenceLabel({ ...o, activities, occurrences: templateOccurrences, days, timeBlocks }),
+          // T318 (b) — the run's own persisted occurrences (state.occurrences),
+          // never templateOccurrences: this row names a period the run already
+          // placed people in, and templateOccurrences is empty for a run opened
+          // cold from the run list. This screen has no move dropdown, so there
+          // is only the one labeller to get right (contrast DraftRunView, which
+          // keeps templateOccurrences for its move-TO dropdown).
+          label: occurrenceLabel({ ...o, activities, occurrences: state.occurrences, days, timeBlocks }),
           filled: o.filled,
           capacity: o.capacity,
         })}
@@ -164,12 +170,20 @@ export default function FinalRunView({
               check. */}
           {/* state.occurrences, never templateOccurrences — CamperWeekPanel's
               header says why. */}
+          {/* T318 — preferences (read-only, no onSetPreference/onRemovePreference
+              here — a finalized run is immutable) so rankLabel can tell a
+              genuinely ordered choice from one it has no evidence for. Omitting
+              this would not be a safe default, it would be a WRONG one: the
+              rank_kind join comes back empty regardless of what the database
+              actually holds, and every entry reads as "One of their choices"
+              even when the camper's sheet really was ordered. */}
           <CamperWeekPanel
             rows={state.rows}
             occurrences={state.occurrences}
             activities={activities}
             days={days}
             timeBlocks={timeBlocks}
+            preferences={state.preferences}
           />
         </>
       ) : null}

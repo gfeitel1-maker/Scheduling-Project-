@@ -11,6 +11,7 @@
 import * as XLSX from 'xlsx'
 import { aoaToSanitizedSheet } from '../../../utils/exportSanitize.js'
 import { buildElectiveRunProjectionExport } from './exportElectiveRunProjection.js'
+import { UNORDERED_RANK_LABEL } from '../run/camperElectiveWeek.js'
 
 function childSchedulesRows(childSchedules) {
   const header = ['Camper', 'Group', 'Day', 'Time Block', 'Activity', 'Cell Kind', 'Span Blocks']
@@ -60,6 +61,10 @@ function summaryRows(summary) {
     ['Source hash', summary.source_hash],
     ['Unassigned count', summary.unassigned_count],
     ...Object.entries(summary.counts_by_rank).map(([rank, count]) => [`Rank ${rank}`, count]),
+    // T318 (c4) — only when there is one, and with the SAME words the screen
+    // uses (camperElectiveWeek.js's UNORDERED_RANK_LABEL): a camper whose sheet
+    // was read as an unordered set must never appear as a "Rank N" row on paper.
+    ...(summary.unordered_count > 0 ? [[UNORDERED_RANK_LABEL, summary.unordered_count]] : []),
   ]
   return [header, ...body]
 }
