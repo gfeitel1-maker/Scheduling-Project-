@@ -30,6 +30,15 @@ export const PARTICIPANT_ENTITIES = Object.freeze(
     // snapshot: PII-adjacent for the same reason elective_assignments is —
     // it denormalizes a named child's whole schedule.
     'elective_run_outer_snapshots',
+    // T320 (v83, docs/adr/2026-09-30-elective-run-durability.md item 4) —
+    // the ninth. A commit-time eligibility finding: admin-only, same
+    // participant-domain posture as its siblings above. Governor ruling R2:
+    // the ADR's own registry list named `permissions.js` ENTITIES for this
+    // entity, which is WRONG IN DIRECTION — permissions.js derives staff
+    // read+write by flatMapping every ENTITIES member into BOTH, so adding
+    // it there would silently GRANT staff read+write on run findings. This
+    // registration here is what actually keeps it admin-only.
+    'elective_run_findings',
   ])
 )
 

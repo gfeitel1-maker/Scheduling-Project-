@@ -287,6 +287,7 @@ const GENESIS_ENTITIES = [
   'elective_choices',
   'elective_occurrences',
   'elective_preferences',
+  'elective_run_findings',
   'elective_run_outer_snapshots',
   'elective_set_activities',
   'elective_sets',
@@ -344,8 +345,19 @@ const GENESIS_ENTITIES = [
 // meaning. Same acceptance as every prior regeneration: pre-production, no live camps on this sync
 // engine, existing `.automerge` files may be discarded. New pinned head:
 // f6f96b0831040c98b24c4a55f7afe084b2f939c2a05817210a6fde85bdb4c12b
+//
+// TWELFTH REGENERATION (T320, docs/adr/2026-09-30-elective-run-durability.md item 4):
+// `elective_run_findings` added to PARENT_SCOPED_ENTITIES (campScopedEntities.js), so it entered
+// MODELED_ENTITIES automatically and the subset guard below threw — the same forcing function as
+// every prior regeneration. Inserted into GENESIS_ENTITIES in alphabetically-sorted position,
+// between `elective_preferences` and `elective_run_outer_snapshots` ('elective_run_findings' <
+// 'elective_run_outer_snapshots' lexically, since `f` < `o`). An APPEND, not a rename — every key
+// from the eleventh genesis is still here and no key changes meaning. Same acceptance as every
+// prior regeneration: pre-production, no live camps on this sync engine, existing `.automerge`
+// files may be discarded. New pinned head:
+// 58437ad536652179974a67116cf62f09f948a19014c8bf683b1fec2b16fe7219
 const GENESIS_B64 =
-  'hW9Kg+Ad4fsArgMBEOahoSgLVbqMwn3ekx/R4L0B9vlrCDEEDJiyTEpV96/ghLL5OcKgWBchCm/ehb20wSsGAQIDAhMCIwZAAlYCBx3BAiECIwI0AUICVgKAAQJ/AH8Bfyx/sYfx1QZ/AH8HbZFRTwMhEISfqlFr0xoba+LP8p1QmOsROZbsQLX/3txd2mLjE7vfLsPs8vloXQnHUAL44OyQzWAzV1NEwMeQDrwfUygX48l7J71o4bO3JyNHqAYPbrw90UhnJENtCZJ2iBi1YSwZDmlAKkZr4us/Bb5d4L4mH2EyNIjn9paXAOX6hvL9AlwvwcFI10FH8+ubSvO8OFdVkf7ArOgww48L1JqM1AI1TDazl9YwUcx1i88t5xLHceyDSs18mhNGKdzMcQkDzD6K++LdRLjsAqI3tpZedD0nWeWIZJPDsgs/8GZuvZtlH6K4aeN8oevha8TV5hUVDDnaAq4u6Bv44oYZLthoxv+cvL21pHG4bDhXZ735zvZvaugkg4vpt54ajcciw55FEriohHI3mjjv72Tw42LlOMx2KkwjNnRuP0/cFH4BLAAsASwsACwALAAA'
+  'hW9Kg/0cW0QAvwMBECWl3YlnQBZYZHRLlRX3P0UBWEN61TZlIXmXSmcRbPYvCflIoZAUyL9oOx/sKxb+chkGAQIDAhMCIwZAAlYCBx3KAiECIwo0AUICVgKAAQJ/AH8Bfy1/1P6C1QZ/AH8HbZHhbhshEIR/OVESx7KrWkmlvlUfAGGY86FwLNoBN377ijvZxlZ/wX4Ls7O7f16tK+EUSgBfnJ2ymWzmZr4R8DGkI59bCOWqnXx2MooWvnt7NnKCavDgztszjQxGMtSWIOkTEU0bxpLhmCakYrQm/vxPgh9XeKjJR5gMDeK5f+QlQLl9oPx1BW6U4GBkGKDN/PYh05UX56oq0h3MigELvNXWmswQkm+Cv++o1AI1TDZzlL4NopjbbN97zjVObRhHlZr5tgSMUrhb7iVMMIco7otPM+F6CIje2FpG0e0SZJUTkk0O6yF8w5vl6dMi+xLFzXvgD7oRvkbcbN5QwZSjLeDmiv4CX9wxwwUbTdvy7O2jJ53Ddce5uegtf/b3oaGTDK7mHb51Gq9FpgOLJHBVCeVnM3GZ39ng28XK1sx+TswtdnR5fum4S/wDLQB+AQIZAX5mGxABLS0ALQAtAAA='
 
 function genesisDoc() {
   return A.clone(A.load(Uint8Array.from(Buffer.from(GENESIS_B64, 'base64'))))

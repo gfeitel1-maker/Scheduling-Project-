@@ -183,6 +183,14 @@ export const PARENT_SCOPED_ENTITIES = {
     parentTable: 'elective_assignment_runs',
     parentKey: 'run_id',
   },
+  // T320 (v83, docs/adr/2026-09-30-elective-run-durability.md item 4). A
+  // commit-time finding — no camp_id column, same JOIN-through-the-run
+  // posture as elective_run_outer_snapshots directly above.
+  elective_run_findings: {
+    table: 'elective_run_findings',
+    parentTable: 'elective_assignment_runs',
+    parentKey: 'run_id',
+  },
 }
 
 // Walks a PARENT_SCOPED_ENTITIES chain from `entity` up to its nearest
@@ -294,6 +302,7 @@ export const DOMAIN_SNAPSHOT_ORDER = [
   'elective_preferences', // references elective_assignment_runs.id NOT NULL; camper_id/occurrence_id/choice_id are soft (occurrence_id added v78, T265)
   'elective_assignments', // references elective_assignment_runs.id NOT NULL; the rest are soft
   'elective_run_outer_snapshots', // T243 (v74); run_id is NOT NULL but no DB-level FK (schema.sql), same soft-reference posture as its five siblings above — positioned after elective_assignment_runs
+  'elective_run_findings', // T320 (v83); run_id is NOT NULL but no DB-level FK, same soft-reference posture as elective_run_outer_snapshots — positioned after elective_assignment_runs
 ]
 
 // The subset of DOMAIN_SNAPSHOT_ORDER that is parent-scoped (joined through

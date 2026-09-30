@@ -288,7 +288,13 @@ describe('getElectiveRunOuterScheduleHandler', () => {
 
     const result = await handlers.getElectiveRunOuterSchedule({ token, runId: randomUUID() })
 
-    expect(result).toEqual({ rows: [], runStatus: null, finalizedAgainstStaleGeneration: false })
+    // T320 item 1 adds three fields (expectedSnapshotRows/heldSnapshotRows/
+    // snapshotIncomplete) — null/null/false for a run that does not exist,
+    // same "unknown" posture as finalizedAgainstStaleGeneration's own.
+    expect(result).toEqual({
+      rows: [], runStatus: null, finalizedAgainstStaleGeneration: false,
+      expectedSnapshotRows: null, heldSnapshotRows: null, snapshotIncomplete: false,
+    })
   })
 
   // Round 2, item 2 (Red Hat): neither the draft-derive query nor the

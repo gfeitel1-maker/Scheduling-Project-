@@ -151,6 +151,16 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   { fromTable: 'elective_run_outer_snapshots', fromColumn: 'location_id', toEntity: 'locations', kind: 'scalar', enforced: false },
   // v76 (T197): choice_id is a soft reference to elective_choices, same posture as the four above.
   { fromTable: 'elective_run_outer_snapshots', fromColumn: 'choice_id', toEntity: 'elective_choices', kind: 'scalar', enforced: false },
+  // T320 (v83, docs/adr/2026-09-30-elective-run-durability.md item 4) —
+  // elective_run_findings.choice_id, same soft posture as
+  // elective_run_outer_snapshots.choice_id directly above (this scanner's
+  // model line, per the ADR). occurrence_id gets NO entry: elective_occurrences
+  // appears only as a fromTable elsewhere in this registry, never as a
+  // toEntity, so occurrence ids are outside this scanner's U2-deletable-target
+  // set — verified by reading this file directly (T320 open question 3).
+  // camper_id gets none either — no sibling elective table registers
+  // camper_id as a soft U2 reference here.
+  { fromTable: 'elective_run_findings', fromColumn: 'choice_id', toEntity: 'elective_choices', kind: 'scalar', enforced: false },
 ])
 
 // entities U2's deletion slice is allowed to act on — deliberately mirrors
