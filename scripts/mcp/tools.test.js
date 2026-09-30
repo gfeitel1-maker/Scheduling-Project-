@@ -36,6 +36,8 @@ import {
   rebuildProjectionFromDocumentTool,
   preferenceSheetPreviewTool,
   preferenceSheetCommitTool,
+  getElectiveAssignmentRunTool,
+  exportElectiveAssignmentsTool,
   ENTITY_MAP,
 } from './tools.js'
 import { seedAllFromSqlite } from '../../electron/automerge/seed.js'
@@ -793,5 +795,78 @@ describe('scripts/mcp/tools.js — preference sheet', () => {
     const result = preferenceSheetCommitTool({ file_path: SAME_NAME }, { dbPath, allowWrite: true })
     expect(result.ok).toBe(false)
     expect(camperCount(dbPath)).toBe(0)
+  })
+})
+
+// T198 — the two read-only elective-run machine-access tools, over
+// buildElectiveRunProjectionInput. Full-fixture shape parity against the UI/CLI
+// is electron/electiveAcceptanceSurfaces.integration.test.jsx's job; these cover
+// the argument contract and the not-found refusal, which a heavy acceptance
+// fixture is the wrong tool for.
+describe('scripts/mcp/tools.js — elective run machine access', () => {
+  function bootstrapRun(dir) {
+    const { dbPath, campId } = bootstrapDb(dir)
+    const db = openLocalDb(dbPath)
+    const runId = randomUUID()
+    db.prepare(
+      "INSERT INTO elective_assignment_runs (id, camp_id, name, status, source_sha256, solver_generation) VALUES (?, ?, 'Run 1', 'draft', 'deadbeef', 'gen-1')"
+    ).run(runId, campId)
+    db.close()
+    return { dbPath, campId, runId }
+  }
+
+  describe('getElectiveAssignmentRunTool', () => {
+    it('refuses without a run_id', () => {
+      const dir = makeTmpDir()
+      const { dbPath } = bootstrapDb(dir)
+      const result = getElectiveAssignmentRunTool({}, { dbPath })
+      expect(result.ok).toBe(false)
+      expect(result.error).toMatch(/run_id/)
+    })
+
+    it('returns a structured refusal for an unknown run_id', () => {
+      const dir = makeTmpDir()
+      const { dbPath } = bootstrapDb(dir)
+      const result = getElectiveAssignmentRunTool({ run_id: 'does-not-exist' }, { dbPath })
+      expect(result).toEqual({ ok: false, error: 'RUN_NOT_FOUND', exitCode: 1 })
+    })
+
+    it('returns the run identity and an empty assignment set for a run with no data yet', () => {
+      const dir = makeTmpDir()
+      const { dbPath, runId } = bootstrapRun(dir)
+      const result = getElectiveAssignmentRunTool({ run_id: runId }, { dbPath })
+      expect(result.ok).toBe(true)
+      expect(result.run).toEqual({ id: runId, name: 'Run 1', status: 'draft', solver_generation: 'gen-1', source_sha256: 'deadbeef' })
+      expect(result.assignments).toEqual([])
+    })
+  })
+
+  describe('exportElectiveAssignmentsTool', () => {
+    it('refuses without a run_id', () => {
+      const dir = makeTmpDir()
+      const { dbPath } = bootstrapDb(dir)
+      const result = exportElectiveAssignmentsTool({}, { dbPath })
+      expect(result.ok).toBe(false)
+      expect(result.error).toMatch(/run_id/)
+    })
+
+    it('returns a structured refusal for an unknown run_id', () => {
+      const dir = makeTmpDir()
+      const { dbPath } = bootstrapDb(dir)
+      const result = exportElectiveAssignmentsTool({ run_id: 'does-not-exist' }, { dbPath })
+      expect(result).toEqual({ ok: false, error: 'RUN_NOT_FOUND', exitCode: 1 })
+    })
+
+    it('returns the versioned combined projection document for an empty run', () => {
+      const dir = makeTmpDir()
+      const { dbPath, runId } = bootstrapRun(dir)
+      const result = exportElectiveAssignmentsTool({ run_id: runId }, { dbPath })
+      expect(result.ok).toBe(true)
+      expect(result.export.format_version).toBe(1)
+      expect(result.export).toHaveProperty('child_schedules')
+      expect(result.export).toHaveProperty('activity_rosters')
+      expect(result.export).toHaveProperty('exceptions')
+      expect(result.export).toHaveProperty('summary')
+    })
   })
 })

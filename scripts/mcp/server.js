@@ -32,6 +32,8 @@ import {
   checkProjectionHealthTool,
   repairProjectionEntityTool,
   rebuildProjectionFromDocumentTool,
+  getElectiveAssignmentRunTool,
+  exportElectiveAssignmentsTool,
 } from './tools.js'
 
 function parseArgs(argv) {
@@ -334,6 +336,32 @@ const TOOLS = [
       },
     },
     handler: rebuildProjectionFromDocumentTool,
+  },
+  {
+    name: 'get_elective_assignment_run',
+    description:
+      "One elective assignment run's identity, placements, preferences, and findings — the run's data as the Draft/Final screens read it. Each assignment row carries the camper's display name, the occurrence and activity, and the preference rank it satisfied, plus counts of stale and over-capacity placements. Read-only. Pass the run_id from a run the camp already has.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        run_id: { type: 'string', description: 'The elective assignment run to read.' },
+      },
+      required: ['run_id'],
+    },
+    handler: getElectiveAssignmentRunTool,
+  },
+  {
+    name: 'export_elective_assignments',
+    description:
+      "Export one elective assignment run as a stable, versioned JSON document (format_version 1): each camper's child schedule, the activity roster, exceptions (unassigned, unranked, unresolved, over-capacity, stale), and a summary. Built from the same data get_elective_assignment_run reads, so the two cannot disagree. Read-only, JSON only — for an XLSX workbook use the electives CLI's export action instead.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        run_id: { type: 'string', description: 'The elective assignment run to export.' },
+      },
+      required: ['run_id'],
+    },
+    handler: exportElectiveAssignmentsTool,
   },
 ]
 
