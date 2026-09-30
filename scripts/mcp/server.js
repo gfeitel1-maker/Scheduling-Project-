@@ -14,6 +14,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { resolveHeadlessDbKey } from '../../electron/db/headlessDbKey.js'
+import { dispatchToolCall } from './dispatch.js'
 
 import {
   ingestPreviewTool,
@@ -374,12 +375,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
 }))
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const tool = TOOLS_BY_NAME.get(request.params.name)
-  if (!tool) {
-    return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: `unknown tool: ${request.params.name}` }) }] }
-  }
-  const result = tool.handler(request.params.arguments ?? {}, ctx)
-  return { content: [{ type: 'text', text: JSON.stringify(result) }] }
+  return dispatchToolCall(TOOLS_BY_NAME, request.params.name, request.params.arguments ?? {}, ctx)
 })
 
 const transport = new StdioServerTransport()
