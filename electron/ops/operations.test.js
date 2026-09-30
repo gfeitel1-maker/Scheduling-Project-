@@ -3,6 +3,7 @@ import { describe, it, expect, afterEach, beforeEach, vi, afterAll } from 'vites
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
 import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { ensureHostSigningKey } from '../auth/localAuth.js'
@@ -12,9 +13,7 @@ import {
   appendBulkReplaceOp,
   applyBulkReplaceProjection,
   latestOp,
-  detectConflict,
   detectUniqueFieldCollision,
-  recordConflict,
   listPendingConflicts,
   DELETE_FIELD,
   MAX_FIELD_VALUE_LENGTH,
@@ -558,68 +557,9 @@ describe('latestOp', () => {
   })
 })
 
-describe('detectConflict', () => {
-  it('reports no conflict when incoming op parent_op_id matches the current latest op id', () => {
-    const parentOp = appendOp(db, {
-      entity: 'template_slots',
-      entity_id: 'slot-4',
-      field: 'activity_id',
-      value: 'v1',
-      author_user_id: 'user-1',
-      device_id: 'device-1',
-      parent_op_id: null,
-    })
-
-    const incomingOp = {
-      entity: 'template_slots',
-      entity_id: 'slot-4',
-      field: 'activity_id',
-      value: 'v2',
-      parent_op_id: parentOp.id,
-    }
-
-    const result = detectConflict(db, incomingOp)
-    expect(result.conflict).toBe(false)
-  })
-
-  it('reports a conflict when two ops diverge from the same parent', () => {
-    const parentOp = appendOp(db, {
-      entity: 'template_slots',
-      entity_id: 'slot-5',
-      field: 'activity_id',
-      value: 'v1',
-      author_user_id: 'user-1',
-      device_id: 'device-1',
-      parent_op_id: null,
-    })
-
-    const appliedOp = appendOp(db, {
-      entity: 'template_slots',
-      entity_id: 'slot-5',
-      field: 'activity_id',
-      value: 'v2',
-      author_user_id: 'user-1',
-      device_id: 'device-1',
-      parent_op_id: parentOp.id,
-    })
-
-    const incomingOp = {
-      entity: 'template_slots',
-      entity_id: 'slot-5',
-      field: 'activity_id',
-      value: 'v3',
-      parent_op_id: parentOp.id,
-    }
-
-    const result = detectConflict(db, incomingOp)
-    expect(result.conflict).toBe(true)
-    expect(result.existingOp.id).toBe(appliedOp.id)
-  })
-})
-
 // D2 (docs/adr/2026-08-15-locations-concurrent-create-collision.md): the
-// app-level UNIQUE(camp_id, name) collision check detectConflict cannot
-// express, because it spans two DIFFERENT entity_ids rather than one.
+// app-level UNIQUE(camp_id, name) collision check per-record arbitration
+// cannot express, because it spans two DIFFERENT entity_ids rather than one.
 describe('detectUniqueFieldCollision (D2 — locations UNIQUE(camp_id, name))', () => {
   it('reports no collision when the incoming name differs from every existing location', () => {
     appendOp(db, {
@@ -805,102 +745,36 @@ describe('detectUniqueFieldCollision (D2 — locations UNIQUE(camp_id, name))', 
   })
 })
 
-describe('detectConflict: DELETE_FIELD vs. concurrent field-edit (Round 2 Security MEDIUM #2)', () => {
-  it('reports a conflict when an incoming delete races a concurrent field-edit op it never observed', () => {
-    db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-2', 'Camp Two')
-    const createOp = appendOp(db, {
-      entity: 'cohorts',
-      entity_id: 'cohort-race-1',
-      field: 'camp_id',
-      value: 'camp-2',
-      author_user_id: 'user-1',
-      device_id: 'device-1',
-      parent_op_id: null,
-    })
-    // A concurrent field edit lands after the delete's snapshot (createOp).
-    const editOp = appendOp(db, {
-      entity: 'cohorts',
-      entity_id: 'cohort-race-1',
-      field: 'name',
-      value: 'Renamed',
-      author_user_id: 'user-1',
-      device_id: 'device-1',
-      parent_op_id: null,
-    })
+// Writes one unresolved scalar `conflicts` row — a FIXTURE, not production
+// code. Until T311 finding 2 these cases used the op-log's own
+// `recordConflict` to set the row up; that function was deleted (its live
+// replacement is electron/automerge/conflictStore.js's `recordConflicts`,
+// which derives rows from the merged document). `recordConflicts` cannot
+// stand in here: it stores `{ value, op_id }` per side under a `crdt:` id,
+// whereas these cases assert on whole-op rehydration (`existingOp.id`,
+// `incomingOp.id`) and on resolution by `parent_op_id` matching
+// `existing_op_id`. So the row is built directly, in the same shape the
+// op-log wrote, and every assertion about listPendingConflicts below — which
+// IS live, behind main.js's `shoresh:list-conflicts` — is unchanged.
+function insertOpConflictRow(db, { incomingOp, existingOp }) {
+  const id = randomUUID()
+  db.prepare(
+    `INSERT INTO conflicts (id, entity, entity_id, field, incoming_op, existing_op, existing_op_id, created_at, resolved_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`
+  ).run(
+    id,
+    existingOp.entity,
+    existingOp.entity_id,
+    existingOp.field,
+    JSON.stringify(incomingOp),
+    JSON.stringify(existingOp),
+    existingOp.id,
+    new Date().toISOString()
+  )
+  return id
+}
 
-    const incomingDelete = {
-      entity: 'cohorts',
-      entity_id: 'cohort-race-1',
-      field: DELETE_FIELD,
-      value: 1,
-      parent_op_id: createOp.id, // stale — never saw editOp
-    }
-
-    const result = detectConflict(db, incomingDelete)
-    expect(result.conflict).toBe(true)
-    expect(result.existingOp.id).toBe(editOp.id)
-  })
-
-  it('reports a conflict when an incoming field-edit races a concurrent delete it never observed', () => {
-    db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-3', 'Camp Three')
-    const createOp = appendOp(db, {
-      entity: 'cohorts',
-      entity_id: 'cohort-race-2',
-      field: 'camp_id',
-      value: 'camp-3',
-      author_user_id: 'user-1',
-      device_id: 'device-1',
-      parent_op_id: null,
-    })
-    const deleteOp = appendOp(db, {
-      entity: 'cohorts',
-      entity_id: 'cohort-race-2',
-      field: DELETE_FIELD,
-      value: 1,
-      author_user_id: 'user-1',
-      device_id: 'device-1',
-      parent_op_id: null,
-    })
-
-    const incomingEdit = {
-      entity: 'cohorts',
-      entity_id: 'cohort-race-2',
-      field: 'name',
-      value: 'Should not resurrect the row',
-      parent_op_id: createOp.id, // stale — never saw deleteOp
-    }
-
-    const result = detectConflict(db, incomingEdit)
-    expect(result.conflict).toBe(true)
-    expect(result.existingOp.id).toBe(deleteOp.id)
-  })
-
-  it('does not conflict when the field-edit correctly cites the delete as its parent (deliberate resurrect/recreate)', () => {
-    db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-4', 'Camp Four')
-    const deleteOp = appendOp(db, {
-      entity: 'cohorts',
-      entity_id: 'cohort-race-3',
-      field: DELETE_FIELD,
-      value: 1,
-      author_user_id: 'user-1',
-      device_id: 'device-1',
-      parent_op_id: null,
-    })
-
-    const incomingEdit = {
-      entity: 'cohorts',
-      entity_id: 'cohort-race-3',
-      field: 'name',
-      value: 'Recreated',
-      parent_op_id: deleteOp.id,
-    }
-
-    const result = detectConflict(db, incomingEdit)
-    expect(result.conflict).toBe(false)
-  })
-})
-
-describe('recordConflict + listPendingConflicts (Task 10 round 3, Fix 3: conflict rehydration)', () => {
+describe('listPendingConflicts (Task 10 round 3, Fix 3: conflict rehydration)', () => {
   it('(a) a conflict that arose before "restart" and was never resolved IS present in the rehydrated list', () => {
     const parentOp = appendOp(db, {
       entity: 'template_slots',
@@ -931,7 +805,7 @@ describe('recordConflict + listPendingConflicts (Task 10 round 3, Fix 3: conflic
       parent_op_id: parentOp.id,
     }
 
-    recordConflict(db, { incomingOp, existingOp })
+    insertOpConflictRow(db, { incomingOp, existingOp })
 
     // Simulate a restart: a fresh call against the same db, no in-memory
     // broadcast state at all — this is exactly what usePendingConflicts'
@@ -973,7 +847,7 @@ describe('recordConflict + listPendingConflicts (Task 10 round 3, Fix 3: conflic
       parent_op_id: parentOp.id,
     }
 
-    recordConflict(db, { incomingOp, existingOp })
+    insertOpConflictRow(db, { incomingOp, existingOp })
 
     // Resolve exactly like main.js's resolveConflict() does: a new op whose
     // parent_op_id is the existingOp's id, regardless of which side was kept.
@@ -1011,7 +885,7 @@ describe('recordConflict + listPendingConflicts (Task 10 round 3, Fix 3: conflic
       timestamp: new Date().toISOString(),
       parent_op_id: null,
     }
-    const conflictId = recordConflict(db, { incomingOp, existingOp })
+    const conflictId = insertOpConflictRow(db, { incomingOp, existingOp })
 
     appendOp(db, {
       entity: 'template_slots',
@@ -1048,11 +922,11 @@ describe('recordConflict + listPendingConflicts (Task 10 round 3, Fix 3: conflic
       parent_op_id: null,
     })
 
-    recordConflict(db, {
+    insertOpConflictRow(db, {
       incomingOp: { id: 'ia', entity: 'template_slots', entity_id: 'slot-13', field: 'activity_id', value: 'a2', device_id: 'device-2', timestamp: new Date().toISOString(), parent_op_id: null },
       existingOp: existingOpA,
     })
-    recordConflict(db, {
+    insertOpConflictRow(db, {
       incomingOp: { id: 'ib', entity: 'template_slots', entity_id: 'slot-14', field: 'activity_id', value: 'b2', device_id: 'device-2', timestamp: new Date().toISOString(), parent_op_id: null },
       existingOp: existingOpB,
     })
@@ -1680,7 +1554,7 @@ describe('listPendingConflicts + kind: unique rows (T243 — connecting deriveUn
       timestamp: new Date().toISOString(),
       parent_op_id: null,
     }
-    recordConflict(db, { incomingOp, existingOp })
+    insertOpConflictRow(db, { incomingOp, existingOp })
 
     const pending = listPendingConflicts(db)
     expect(pending).toHaveLength(1)

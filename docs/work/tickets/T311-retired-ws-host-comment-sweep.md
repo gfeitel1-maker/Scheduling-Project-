@@ -92,6 +92,13 @@ recorded because the comments that used to hide them now name them.
    `handleSubmitBulkReplaceOp`, named in a comment as a caller, never existed
    anywhere else in the repo.
 
+   **2026-09-30 — finding (2) is discharged.** All four functions are deleted from
+   `electron/ops/operations.js`, the tests that exercised only them are removed, the
+   `listPendingConflicts` coverage they fixtured is re-expressed and still green, and the comments
+   naming them are rewritten or marked historical. Evidence, per-test disposition and three
+   remaining out-of-scope citation sites:
+   `docs/work/runs/2026-09-30-sweeps-d-t311-dead-conflict-layer.md`.
+
 3. **TWO vestigial tables, not one.** `electron/sync/pendingRestores.js` is a vestige: its drainer
    was `syncClient.js`.
    `insertPendingRestore` has no caller outside tests, so nothing enqueues and nothing drains;

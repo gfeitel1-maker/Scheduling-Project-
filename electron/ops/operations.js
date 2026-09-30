@@ -44,15 +44,17 @@ import { BULK_REPLACE_ENTITIES, validateBulkReplaceRows } from './campScopedEnti
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Sentinel field name for a row-delete op. Deliberately routed through the
-// SAME appendOp/detectConflict/appendOp-log path as every other field-level
+// SAME appendOp/op-log path as every other field-level
 // write (per this project's hard rule that all writes to synced entities go
 // through the op-log, never a direct bypass) rather than a new IPC channel
 // or table: a delete gets a client_write_id for idempotent retry, appears in
 // the operations log, replicates via the existing sync mechanism, and is
-// subject to the exact same per-field conflict detection a real field write
+// subject to the exact same concurrent-write arbitration a real field write
 // would get (a concurrent delete + concurrent edit of the same entity_id
-// race exactly like two concurrent field writes would, via latestOp/
-// detectConflict below — see applyProjection in projections.js for how this
+// race exactly like two concurrent field writes would — arbitration is the
+// CRDT reconciler's, electron/automerge/reconcile.js, and the row it writes
+// for a human comes from electron/automerge/conflictStore.js; see
+// applyProjection in projections.js for how this
 // sentinel is turned into an actual DELETE). No entity may register a real
 // field literally named '__deleted__' (mirrors BULK_REPLACE_FIELD's
 // reserved-sentinel approach above), so it's trivially distinguishable from
@@ -352,7 +354,7 @@ export function appendOp(db, { entity, entity_id, field, value, author_user_id, 
 // returns the ORIGINAL op instead of letting the caller mint a second, distinct
 // op id for the same logical write.
 // _Prior (Task 10 round-5 Fix 3): "used by handleSubmitOp before
-// appendOp/detectConflict run, so a retried submit_op carrying the same
+// appendOp/~~detectConflict~~ run, so a retried submit_op carrying the same
 // client_write_id ... (which the server otherwise always does, since op ids are
 // server-assigned per submission)." There is no server and no submit_op — see
 // the retired-mechanism note at the top of this file. Its callers today are in
@@ -368,10 +370,10 @@ export function findOpByClientWriteId(db, client_write_id) {
 // A `bulk_replace` op is a wholesale delete-all-then-reinsert for every row
 // in a given entity+scope_id, atomically. It is deliberately distinct from
 // the field-level op path above: it doesn't fit `operations.value` as a
-// single scalar, and it doesn't fit detectConflict's "does the incoming
-// op's parent_op_id match the latest op for this entity/entity_id/field"
-// model (there is no single prior "field" to compare against — the op
-// replaces N rows at once).
+// single scalar, and it never fitted the op-log's retired per-field
+// "does the incoming op's parent_op_id match the latest op for this
+// entity/entity_id/field" model either (there is no single prior "field"
+// to compare against — the op replaces N rows at once).
 //
 // Wire shape: no schema change to `operations`. entity_id carries the
 // scope_id (e.g. a template id), field carries the sentinel
@@ -381,49 +383,23 @@ export function findOpByClientWriteId(db, client_write_id) {
 // the existing operations table columns without needing a schema change,
 // per the design doc's suggestion.
 //
-// Conflict-detection semantics (round 2 — REPLACES round 1's "bulk_replace
-// bypasses conflict detection entirely" design, which GOVERNOR round 1
-// rejected as a CRITICAL finding: the design doc requires bulk_replace to
-// stay inside the same conflict-detection machinery as other ops, so a
-// concurrent field-level edit inside the bulk-replaced scope is never
-// silently clobbered).
+// Concurrent-write arbitration for a bulk_replace is the CRDT reconciler's
+// (electron/automerge/reconcile.js -> reconcileForProjection.js ->
+// conflictStore.js's `recordConflicts`), exactly as it is for a field-level
+// write: two devices' bulk_replaces are reconciled in the Automerge document
+// and a genuine disagreement surfaces as a `conflicts` row for a human.
 //
-// A single-field op expresses "what state was I based on" via
-// `parent_op_id`, checked against the single latest op for that exact
-// entity/entity_id/field (see detectConflict below). A bulk_replace can't
-// use that directly — it doesn't target one entity_id/field, it replaces
-// every row in a scope (e.g. every template_slots row for a template_id) —
-// so there is no single prior op to compare a `parent_op_id` against.
-//
-// The mechanism this round wires in: a bulk_replace op carries
-// `based_on_seq` (an integer operations.seq, defaulting to 0 for a
-// never-before-touched scope) — the highest op `seq` the submitting device
-// had actually observed for that scope at the moment it composed the
-// bulk_replace. "For that scope" is defined by `latestScopeOpSeq` below as
-// the MAX seq among every op in the log whose entity_id is EITHER (a) the
-// scope_id itself (this is how a *previous* bulk_replace for this same
-// scope is recorded — see appendBulkReplaceOp, entity_id = scope_id), OR
-// (b) one of the individual row ids CURRENTLY present in that scope (this
-// is how a normal field-level edit to one row inside the scope is
-// recorded — e.g. a per-field op on one template_slots row's activity_id).
-//
-// At submission time, `detectBulkReplaceConflict` recomputes that same
-// MAX-seq query against the authoritative (host-side) operations table. If
-// the true current value is strictly greater than the submitted
-// `based_on_seq`, some op (a field edit to a row in scope, or a competing
-// bulk_replace) landed in the log AFTER the submitter's snapshot and before
-// this submission — exactly the concurrent-edit case the design doc
-// requires to surface as a conflict, not get silently overwritten. That is
-// recorded via the existing `recordConflict`/`conflicts` table and reported
-// via the existing `op_conflict` message, mirroring detectConflict's
-// field-level flow one level up (per-scope instead of per-field).
-//
-// This is coarser than field-level detection: ANY newer op anywhere in the
-// scope counts, even if it were possible for it to logically not overlap
-// with the bulk_replace's row set. That's a deliberate, documented
-// trade-off for a first pass — see the design doc's bar ("record it in the
-// conflict-detection machinery like any other op"), not "invent a
-// perfectly-precise row-level diff", which is explicitly out of scope.
+// _Prior: the op-log carried its own per-scope arbitration beside this
+// primitive — a bulk_replace op carried `based_on_seq` (the highest op `seq`
+// the submitting device had observed for that scope), recomputed on the Host
+// at submission time by ~~detectBulkReplaceConflict~~ against
+// ~~latestScopeOpSeq~~ and recorded via ~~recordConflict~~, with the
+// deliberately coarse rule that ANY newer op anywhere in the scope counted.
+// All three functions went with the WS Host path (T311 finding 2; see the
+// retired-mechanism note at the top of this file): nothing has passed
+// `based_on_seq` since the Stage 6c cutover, and the arbitration it fed is
+// now the reconciler's. The `operations.based_on_seq` column remains in the
+// schema, written by nothing._
 export const BULK_REPLACE_FIELD = '__bulk_replace__'
 
 export function isBulkReplaceOp(op) {
@@ -446,70 +422,6 @@ export function isBulkReplaceOp(op) {
 // transaction as each other AND as the operations-log insert, so a failed
 // attempt leaves no partial trace anywhere, including no orphaned op-log
 // entry for an attempt that never actually took effect.
-// Returns the highest operations.seq among all ops "for this scope" — see
-// the mechanism comment on BULK_REPLACE_FIELD above for the exact
-// definition (scope_id-as-entity_id for a prior bulk_replace, OR the id of
-// any row currently present in the scope for a field-level edit). Returns
-// 0 for a scope with no relevant ops yet (a brand-new scope), which is also
-// the correct baseline for a bulk_replace that has never seen any prior op.
-export function latestScopeOpSeq(db, entity, scope_id) {
-  const config = BULK_REPLACE_ENTITIES[entity]
-  if (!config) return 0
-  // COALESCE(host_seq, seq) — kept for the column's sake, a no-op in practice.
-  // _Prior: host_seq "carries the Host's canonical seq for ops received via
-  // applyRemoteOp on a Client db (see host_seq migration, version 18) — raw seq
-  // there is a locally-minted AUTOINCREMENT value in an unrelated numbering
-  // space." The column still exists (schema v18) but nothing writes a non-NULL
-  // value to it any more: applyRemoteOp was its only writer and went with
-  // syncClient.js at the Stage 6c cutover (see the retired-mechanism note at the
-  // top of this file). Every row is therefore host_seq IS NULL, so this
-  // degenerates to plain seq on every device, not just on a former Host's db._
-  const row = getStmt(
-    db,
-    `SELECT MAX(COALESCE(host_seq, seq)) as maxSeq FROM operations
-     WHERE entity = ?
-       AND (entity_id = ? OR entity_id IN (SELECT id FROM ${config.table} WHERE ${config.scopeColumn} = ?))`
-  ).get(entity, scope_id, scope_id)
-  return row && Number.isInteger(row.maxSeq) ? row.maxSeq : 0
-}
-
-// Per-scope analogue of detectConflict: compares the submitter's claimed
-// `based_on_seq` (what they observed last) against the TRUE current
-// latestScopeOpSeq (authoritative, computed here against the DB doing the
-// detecting). _Prior: "— the Host's DB when called from
-// handleSubmitBulkReplaceOp". `handleSubmitBulkReplaceOp` never existed anywhere
-// else in this repo and does not exist now; it was part of the WS Host (see the
-// retired-mechanism note at the top of this file). This function has NO
-// production caller today — no live code passes `based_on_seq` at all, because
-// concurrent-edit arbitration moved to the CRDT reconciler
-// (electron/automerge/reconcile.js) — only operations.test.js exercises it.
-// Whether it should be deleted is a code change, not a comment fix; T311
-// records it rather than acting on it._
-// If something newer landed in the scope since the submitter's snapshot,
-// this is a genuine concurrent-write conflict per the design doc, and must
-// not be silently applied. `based_on_seq` is normalized to 0 when absent/
-// non-integer (an old or non-conforming client with no concept of this
-// field), which yields the strictest possible behavior (any existing op in
-// the scope conflicts) rather than silently trusting an absent value.
-export function detectBulkReplaceConflict(db, { entity, scope_id, based_on_seq }) {
-  const currentSeq = latestScopeOpSeq(db, entity, scope_id)
-  const effectiveBasedOn = Number.isInteger(based_on_seq) && based_on_seq >= 0 ? based_on_seq : 0
-  if (currentSeq > effectiveBasedOn) {
-    // currentSeq here is a raw seq value, never a host_seq-adjusted one.
-    // _Prior: the stated reason was that "this lookup only runs against the
-    // Host's own db (this function is only ever called from the Host side of a
-    // bulk_replace submission)", with the warning "do not reuse this `WHERE seq
-    // = ?` pattern against a Client db; there currentSeq may be a Host-canonical
-    // value that only matches via host_seq, not seq." There is no Host/Client
-    // split now (see the retired-mechanism note at the top of this file), and
-    // host_seq is NULL on every row on every device, so the hazard the warning
-    // guarded against cannot arise — the pattern is safe on any db this app has._
-    const existingOp = getStmt(db, 'SELECT * FROM operations WHERE seq = ?').get(currentSeq)
-    return { conflict: true, existingOp }
-  }
-  return { conflict: false, currentSeq }
-}
-
 export function appendBulkReplaceOp(db, { entity, scope_id, rows, author_user_id, device_id, parent_op_id, client_write_id }) {
   const validation = validateBulkReplaceRows(entity, rows, scope_id)
   if (!validation.valid) {
@@ -636,9 +548,15 @@ export function applyBulkReplaceProjection(db, op) {
 // S4b §4: the op-log's current generation — the MAX op seq across the whole log.
 // Read-only. S4a's export stamps it as `base_generation` so a re-import can gate
 // import-over-import staleness (a field written after the export is stale). Uses
-// COALESCE(host_seq, seq) for the same reason latestScopeOpSeq does. _Prior: "a
-// Client db carries the Host's canonical seq in host_seq" — no longer true;
-// host_seq is NULL on every row on every device. See latestScopeOpSeq above._
+// COALESCE(host_seq, seq), kept for the column's sake but a no-op in practice.
+// _Prior: "a Client db carries the Host's canonical seq in host_seq" (the
+// host_seq migration, schema v18), which is why the COALESCE is here at all.
+// No longer true: `applyRemoteOp` was host_seq's only writer and went with
+// syncClient.js at the Stage 6c cutover (see the retired-mechanism note at the
+// top of this file), so every row is host_seq IS NULL on every device and this
+// degenerates to plain seq. The one other function that shared this reasoning,
+// ~~latestScopeOpSeq~~, was deleted with the op-log's dead conflict-arbitration
+// layer (T311 finding 2)._
 // Returns 0 for an empty log.
 export function latestOpSeq(db) {
   const row = getStmt(db, 'SELECT MAX(COALESCE(host_seq, seq)) AS maxSeq FROM operations').get()
@@ -652,56 +570,17 @@ export function latestOp(db, entity, entity_id, field) {
   ).get(entity, entity_id, field)
 }
 
-// Latest op for an entity_id across ALL fields, regardless of which field
-// the incoming op targets. Used by detectConflict below so a delete
-// (DELETE_FIELD) — which otherwise has no "own field" to key a same-field
-// lookup on — can be compared against whatever the most recent op for that
-// row actually was, and so a plain field-level op can be compared against a
-// concurrent delete even though a delete's field literally never matches a
-// real field name.
-function latestOpForEntity(db, entity, entity_id) {
-  return getStmt(
-    db,
-    `SELECT * FROM operations WHERE entity = ? AND entity_id = ? ORDER BY seq DESC LIMIT 1`
-  ).get(entity, entity_id)
-}
-
-// Round 2 Security MEDIUM #2 fix (Sub-plan B Task 3): detectConflict used to
-// key strictly on (entity, entity_id, field), so a delete op (field
-// DELETE_FIELD) never collided with a concurrent field-level edit of the
-// same entity_id (and vice versa) — both would apply silently, and a field
-// edit landing after a delete would resurrect a near-empty row via
-// ensureExists's INSERT OR IGNORE, with no conflict ever recorded.
-//
-// Fix: a delete op is compared against the latest op for its entity_id
-// ACROSS ALL FIELDS (there's no single "own field" for it to collide on
-// otherwise). A normal field-level op is compared against whichever is
-// more recent of (a) the latest op for that same field, or (b) the latest
-// delete op for that entity_id — so a field edit racing a delete surfaces
-// as a conflict too, not just the reverse direction.
-export function detectConflict(db, incomingOp) {
-  let existingOp
-  if (incomingOp.field === DELETE_FIELD) {
-    existingOp = latestOpForEntity(db, incomingOp.entity, incomingOp.entity_id)
-  } else {
-    const sameFieldOp = latestOp(db, incomingOp.entity, incomingOp.entity_id, incomingOp.field)
-    const deleteOp = latestOp(db, incomingOp.entity, incomingOp.entity_id, DELETE_FIELD)
-    existingOp =
-      !deleteOp ? sameFieldOp : !sameFieldOp || deleteOp.seq > sameFieldOp.seq ? deleteOp : sameFieldOp
-  }
-  if (!existingOp) return { conflict: false }
-  if (existingOp.id === incomingOp.parent_op_id) return { conflict: false }
-  return { conflict: true, existingOp }
-}
-
 // D2 (docs/adr/2026-08-15-locations-concurrent-create-collision.md): entities
-// with an app-level uniqueness constraint detectConflict cannot see, because
-// detectConflict is keyed on a single entity_id and this constraint spans
+// with an app-level uniqueness constraint per-record arbitration cannot see,
+// because such arbitration is keyed on a single entity_id and this constraint
+// spans
 // DIFFERENT entity_ids (two devices concurrently creating a location with the
 // same exact name mint different uuids for the same name). Checked only for
-// the field the constraint is actually on — a normal field-level conflict on
-// any OTHER field of an already-created row still goes through detectConflict
-// unchanged. Mirrors BULK_REPLACE_ENTITIES's registry-of-config-objects shape
+// the field the constraint is actually on — a normal field-level disagreement
+// on any OTHER field of an already-created row is reconciled by the CRDT
+// reconciler (electron/automerge/reconcile.js) unchanged; the ADR's original
+// wording cited the op-log's ~~detectConflict~~, deleted by T311 finding 2.
+// Mirrors BULK_REPLACE_ENTITIES's registry-of-config-objects shape
 // above: a future entity with its own app-level UNIQUE constraint registers
 // here rather than needing new collision-detection machinery.
 //
@@ -853,43 +732,15 @@ export function detectUniqueFieldCollision(db, op) {
   )
 }
 
-// Durably records a detected conflict so it can be rehydrated after an app
-// restart — the live usePendingConflicts hook is fed exclusively by
-// in-memory broadcast events, so without this a pending (or even a
-// resolved-but-not-yet-dismissed) conflict would silently vanish on
-// relaunch.
-// ⚠️ _Prior, and VOID: "Called from both conflict-detection sites: syncServer's
-// handleSubmitOp (host-side detection) and syncClient's ws message handler
-// (client-side receipt of an op_conflict from the host)." BOTH of those call
-// sites were deleted at the Stage 6c cutover (see the retired-mechanism note at
-// the top of this file), and NO production code calls this function today —
-// only operations.test.js does. The live equivalent is `recordConflicts`
-// (plural) in electron/automerge/conflictStore.js, written from
-// electron/automerge/reconcileForProjection.js off the merged document, which is
-// also what actually rehydrates the ConflictsScreen now. Whether this singular
-// version should be deleted is a code change, not a comment fix; T311 records it
-// rather than acting on it._
-export function recordConflict(db, { incomingOp, existingOp }) {
-  const id = randomUUID()
-  const created_at = new Date().toISOString()
-  db.prepare(
-    `INSERT INTO conflicts (id, entity, entity_id, field, incoming_op, existing_op, existing_op_id, created_at, resolved_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`
-  ).run(
-    id,
-    existingOp.entity,
-    existingOp.entity_id,
-    existingOp.field,
-    JSON.stringify(incomingOp),
-    JSON.stringify(existingOp),
-    existingOp.id,
-    created_at
-  )
-  return id
-}
-
 // Reconstructs the current set of unresolved conflicts from the op-log at
-// any point in time, rather than relying on a live broadcast. A conflict
+// any point in time, rather than relying on a live broadcast. LIVE — behind
+// main.js's `shoresh:list-conflicts` IPC handler, read by the renderer via
+// preload.js. The rows it reads are written by
+// electron/automerge/conflictStore.js (`recordConflicts` for a scalar
+// disagreement, `recordUniqueConflicts` for a hard-set UNIQUE collision), off
+// the merged document via reconcileForProjection.js. _Prior: the op-log wrote
+// them itself here, via ~~recordConflict~~, deleted by T311 finding 2._
+// A conflict
 // counts as resolved once ANY op exists in the log whose parent_op_id points
 // at that conflict's existing_op_id — that is exactly what resolveConflict()
 // in main.js writes when a user picks a side (regardless of which side was
