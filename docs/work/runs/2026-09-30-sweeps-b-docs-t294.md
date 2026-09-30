@@ -296,7 +296,7 @@ INDEX regeneration.
 | `npx vitest run test/governance.test.js scripts/check-governance.test.js` | PASS (re-run, round 2) | 120/120 tests passed (81 + 39) |
 | `npm run agents:check` | PASS (re-run, round 2) | all 13 generated profiles + manifest byte-identical to committed `.claude/agents/*.md` |
 | implementation_state value-set enumeration | PASS (re-run, round 2) | `grep -h '^implementation_state:' docs/adr/*.md \| sed … \| sort \| uniq -c` → `70 implemented`, `23 in-progress`, `47 not-started` — exactly the three enum values, nothing else; reflects the two round-2 corrections (72→70 implemented, 22→23 in-progress, 46→47 not-started) |
-| `git diff origin/main..HEAD -- docs/adr \| grep -E '^[+-](status\|date\|authority\|title):'` | PASS (round 2) | empty — zero of those four frontmatter fields touched anywhere in `docs/adr/` |
+| `git diff origin/main..HEAD -- docs/adr` piped to `grep -E '^[+-]'` matching `status/date/authority/title:` | PASS (round 2) | empty — zero of those four frontmatter fields touched anywhere in `docs/adr/` |
 | PLATFORM_STATE version-fact diff | PASS (round 1, untouched in round 2) | every `v<NN>` token (regex `\bv\d{1,3}\b`) present in either old bullet is present in the merged bullet (`comm`/set-diff shows empty "missing" set); only additions are `v79`/`v83` from the new current-version claim, both expected |
 
 ## Verifier verdict
