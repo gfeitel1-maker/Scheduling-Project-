@@ -103,3 +103,11 @@ none may be picked before the owner rules.**
   contents never read — so T282 builds the name-list assertion that does.
 - Reopening the "reshape your file to our template" ruling. ADR §9 Q7 asks about one narrow
   last-resort hatch and takes no decision.
+
+## Status note (2026-09-30) — stays open
+
+`archive_when` requires all four stage tickets (T279/T280/T281/T282) `completed`. T279 is now
+`completed` (this sweep). T280 and T282 are still `status: open`; T281 is explicitly `BLOCKED — do
+not start` and stays open pending owner rulings and an unspecified matcher design (see its own
+2026-09-30 status note). The owner has not yet ruled on ADR §9's remaining open questions. Status
+stays `open`.

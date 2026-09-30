@@ -133,3 +133,17 @@ admission policy the owner rejected. Checked: that concern is **not present in t
 scope list above is entirely about admission policy (block / update / prompt, minimum supported
 version, the offline device). The document-shape hazard is real but lives elsewhere and is handed
 to the owner separately; it is not kept alive here, and nothing is to be built from this ticket.
+
+### Mixed-version leftovers — declined (2026-09-30)
+
+> "devices on different versions is not possible. i am in production, no users. once this goes it is
+> open source. i will not be updating."
+
+What this declines: the cut update-on-open gate this ticket already recorded above is not being
+revisited or replaced by anything else. The owner's 2026-09-30 ruling (quoted on T284 and here)
+confirms directly that the ADR's now-unenforced property — "two versions in the same camp never
+becomes a state the fleet can settle into" — is accepted as permanently unenforced, not a gap awaiting
+a future mechanism. Status stays `closed`, not reopened; this is additional reasoning, not a status
+change. The ADR (`docs/adr/2026-09-18-mixed-version-replication-out-of-scope.md`) still needs the
+amendment named above to stop asserting a property nothing enforces — that is unchanged by this note
+and remains a human gate (amending an accepted ADR), flagged to the owner rather than done here.

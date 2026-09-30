@@ -186,3 +186,11 @@ the session that claimed it has ended. The seam it needs is the one already name
 Both were honoured. Item 3 was closed by an owner decision that removed its premise, not by a
 same-version suite. Item 1 was settled by the two-frame test, written before any production code
 was touched, and the test's controls prove it can distinguish the two readings.
+
+### Mixed-version leftovers — declined (2026-09-30)
+
+Item 3 above (the 2.x↔3.x interop gap "out of scope" via ADR 2026-09-18) stays out of scope, and now
+permanently so. The owner's 2026-09-30 mixed-version ruling (quoted on T284 and T222) confirms it
+directly: "devices on different versions is not possible. i am in production, no users. once this
+goes it is open source. i will not be updating." Status stays `closed`; this is additional reasoning,
+not a status change.

@@ -1,7 +1,7 @@
 ---
 title: "A whole-sheet planner grid imports through the director's panel"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-29
 task_class: ui-ux-design
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/TESTING_STANDARD.md, docs/governance/standards/DESIGN_STANDARD.md]
@@ -177,3 +177,14 @@ Test-first; this is a bug-fix seam and a director-facing path.
 4. The landed subject carries its per-cell preferences and is marked unattributed.
 5. Drive the **rendered panel**, not `readPreferenceSheet` — the defect this closes is that a helper
    named for the panel never rendered it.
+
+## Closed (2026-09-30)
+
+Merged in #620. `detectWholeSheetGrid` is exported once (`src/ingest/preferenceSheet.js`) and called
+from both `src/ingest/preferenceImport.js` and `src/screens/elective/assignment/AssignmentPanel.jsx`
+(`onFileSelected`), which calls `confirmMapping()` directly instead of `setPhase('mapping')` when a
+whole-sheet grid is detected. `AssignmentPanel.test.jsx`'s `T305 -- a sheet that is nothing but a
+planner grid imports` block asserts the panel reaches `parsed` with no mapping screen, that the
+negative case (unmapped columns, no detectable grid) still stops at the mapping screen, and that the
+preamble-grid case still works — all against the rendered panel, not `readPreferenceSheet` directly.
+42/42 tests pass in that file on this branch. All `archive_when` clauses are discharged.

@@ -38,3 +38,14 @@ column is reported) and this slice (the remembered half: a stale binding re-asks
 electron/db/schema.sql` returns **0**. Replaced with expiry on a change to the camp's elective
 coordinate set — the same input §11.2 checks 1 and 3 already consume, implementable today, and more
 correct: what should force re-confirmation is the schedule changing shape, not a calendar date.
+
+## Status note (2026-09-30) — not superseded by T312; stays open
+
+[T312](T312-a-camps-column-mapping-is-remembered-and-re-proposed.md) (#648, merged) is a slice of this
+ticket covering **column-role mapping only**, and says so itself: "the day/period axis half stays in
+T281, because ADR §11.2 establishes axis binding as a *matching* problem against known entities and it
+likely wants a different mechanism." T281's own scope is that axis-binding half, which #648 does not
+touch. Undischarged: the axis-binding matcher design (ADR §6.0, still unspecified for coordinates),
+the coordinate-set-change expiry trigger, the review surface for an axis binding, and the seedlings
+reservation at `electron/db/schema.sql` (`seedling_key`/`learned_from_id` on `import_decisions`,
+still `NULL`/"unused... until slice 3"). This ticket stays `open`, `status` unchanged.

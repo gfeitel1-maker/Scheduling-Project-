@@ -1,7 +1,7 @@
 ---
 title: "A staff session can see what the import left unnamed, and an unread collection says so"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-29
 task_class: security-auth
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, SECURITY.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md, docs/adr/2026-07-24-centralized-authorization-layer.md, docs/adr/2026-09-17-individual-elective-scheduling.md]
@@ -167,3 +167,13 @@ happily when the thing it guards has been gutted. Relaxing it for one verb on on
 the move that could hollow it out. So the relaxation is narrow and the file keeps a positive
 control, plus new explicit assertions that `campers.write` and every other verb are still denied to
 staff — the assertions that now carry the weight the removed one used to.
+
+## Closed (2026-09-30)
+
+Merged in #621. `src/ingest/attentionList.js`'s `buildStructureIssues` takes an optional `unread` set
+and skips the emptiness check for a collection that could not be read, instead of reporting "has
+none". `src/screens/RootsHomeScreen.jsx` renders an unread notice (`attention-unread-notice`) and a
+per-card unread state (`card-count-unread-<key>`) rather than a false `0`. Staff hold `campers.read`
+via a single frozen constant staff readers derive from, and `participantEntitiesAdminOnly.test.js`
+(21/21) still asserts `campers.write` and every other verb denied. `useCurrentStructureCounts.test.js`
+(7/7) and `attentionList.test.js` pass on this branch. All `archive_when` clauses are discharged.

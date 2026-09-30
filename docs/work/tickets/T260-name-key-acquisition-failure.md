@@ -1,7 +1,7 @@
 ---
 title: "Name the at-rest key-acquisition failure at the openLocalDb seam"
 document_type: ticket
-status: in-progress
+status: completed
 created: 2026-09-25
 task_class: security-auth
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-09-15-at-rest-encryption-scoping.md, docs/adr/2026-09-16-headless-db-key-access-for-mcp-cli.md, docs/work/tickets/T175-at-rest-encryption-activation.md, SECURITY.md]
@@ -73,3 +73,12 @@ A test that asserts only "an error was thrown" passes in both worlds and proves 
   dynamically `import('./localDb.js')` — a static import would read a stale flag. The finding-5
   `plaintext: true` gate lives in `electron/db/sqliteCipher.test.js` ("finding 5 gate"), not in
   check-governance/verify.
+
+## Closed (2026-09-30)
+
+Merged in #540. `electron/db/localDb.js` throws `err.code = 'db_key_unavailable'` before any open
+attempt (line ~4561), named per the ticket. `electron/db/localDb.test.js` (5/5 on this branch) is
+non-vacuous: it asserts the specific code and message, is inert with encryption off, and separately
+pins the fail-closed refusal even against a genuine plaintext file. `commitElectiveRun`/main.js are
+untouched, per the ticket's own "complementary, not overlapping" note. All `archive_when` clauses are
+discharged.

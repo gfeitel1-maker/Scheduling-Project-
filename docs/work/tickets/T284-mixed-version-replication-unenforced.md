@@ -1,7 +1,7 @@
 ---
 title: "Mixed-version replication: the ADR promises nothing and nothing prevents it"
 document_type: ticket
-status: open
+status: wont-fix
 created: 2026-09-27
 task_class: database-sync
 archive_when: "either (a) a device running a different app/libp2p major is demonstrably kept off the sync path and the out-of-scope ADR's safety argument is restored, or (b) the owner rules that mixed-version sync must WORK, the cross-version harness has been run against a real version pair, and its result — pass or a director-visible failure — is recorded here"
@@ -111,3 +111,18 @@ property, which is the genuinely dangerous part; option 3 alone leaves a camp's 
 - ~~The `cross-version-evidence` branch is either merged or explicitly recorded here as declined.~~
   **Done** — the harness is merged with this ticket, so the instrument survives independently of
   whichever option is chosen.
+
+## Closed — owner ruling, wont-fix (2026-09-30)
+
+> "devices on different versions is not possible. i am in production, no users. once this goes it is
+> open source. i will not be updating."
+
+This declines the ticket's premise outright rather than choosing an option from it. Both branches of
+`archive_when` are disposed of by the ruling, not satisfied by it: branch (a) (demonstrably keeping a
+different-major device off the sync path) is not built, and branch (b) (the owner ruling mixed-version
+sync must **work**, proven against a real version pair) is the opposite of what was ruled — the owner
+states the scenario does not arise operationally (no users today, no further updates once the project
+goes open source), so neither enforcing nor proving cross-version replication is worth building. The
+harness `test/integration/crossVersionReplication.manual.mjs` stays merged as an instrument for a
+future maintainer who does need it; it is not run to closure here. `status: wont-fix` reflects a
+declined premise, not deferred work.

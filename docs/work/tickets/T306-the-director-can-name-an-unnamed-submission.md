@@ -1,7 +1,7 @@
 ---
 title: "A camp can name an unnamed submission from inside the app"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-29
 task_class: security-auth
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, SECURITY.md, docs/governance/standards/TESTING_STANDARD.md]
@@ -176,3 +176,18 @@ Test-first; this is an auth boundary and a data-identity seam.
    for the same input.
 5. Two identical-answer subjects named differently remain two campers; named identically, merge.
 6. A denied or failed attribution is **surfaced**, not swallowed.
+
+## Closed (2026-09-30)
+
+Merged in #627. `electron/preload.js`/`electron/main.js` add `attributeSubject`/
+`attributeSubjectHandler`, authorizing `campers.attribute` (not `campers.write`) via
+`requireAuthorized`. `electron/auth/permissions.js` grants staff
+`${entity}.attribute` for each `STAFF_ATTRIBUTABLE_PARTICIPANT_ENTITIES` entry, a narrow verb beside
+the existing `conflicts.resolve`/`devices.approve` precedent, while `campers` stays out of `ENTITIES`
+so general `campers.write` remains admin-only. `participantEntitiesAdminOnly.test.js` now derives its
+`VERBS` list from `PERMISSIONS.staff` itself (closing the verb-shaped blind spot the PR found while
+building this) and asserts `campers.attribute` granted, `campers.write` still denied (21/21 passing on
+this branch, including the new "grants staff campers.attribute" test). The UI and MCP path both call
+`attributeElectiveSubject`, the single op with the `is_unattributed` guard. `electron/main.test.js`
+and `src/screens/RootsHomeScreen.test.jsx` together pass 229/229 on this branch. All `archive_when`
+clauses are discharged.

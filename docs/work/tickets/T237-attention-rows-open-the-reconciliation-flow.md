@@ -1,7 +1,7 @@
 ---
 title: T237-attention-rows-open-the-reconciliation-flow
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-23
 governing_docs: [docs/governance/standards/DESIGN_STANDARD.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md, docs/governance/constitution/CONSTITUTION.md]
 related_adrs: [docs/adr/2026-08-28-roots-home-is-a-distinct-screen.md, docs/adr/2026-08-28-persisted-reconciliation-decisions.md]
@@ -127,3 +127,16 @@ because two of its own `archive_when` / success-predicate criteria are **not dis
 
 Remaining work to close: wire the overflow chip's `onClick` to `onNavigate('reconciliation')`, and
 add the two-viewport no-page-scroll test. A follow-up slice, not a re-open of the design.
+
+## Closed (2026-09-30)
+
+Re-verified against origin/main: both items this status note listed as remaining are in fact present
+in the same merged commit (#525, `7a204a28`, 2026-09-24) — this note was written two days after that
+merge and was stale the day it was written, not a real residual. `RootsHomeScreen.jsx`'s overflow
+chip carries `onClick={() => onNavigate('reconciliation')}` (line ~418), and
+`src/screens/RootsHomeScreen.noScroll.test.jsx` pins `scrollHeight <= clientHeight` at both 1280x720
+and a shorter viewport, with a fewer-rows assertion proving the cap is not hardcoded. Both files were
+part of `git log -S` for those exact strings, and no later commit touches
+`src/screens/RootsHomeScreen.jsx` before this one. `RootsHomeScreen.noScroll.test.jsx` (2/2) and
+`RootsHomeScreen.attention.test.jsx` (4/4) pass on this branch. All four `archive_when` clauses are
+discharged.
