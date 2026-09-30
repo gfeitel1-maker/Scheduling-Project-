@@ -288,18 +288,36 @@ describe('grep gate — import read paths route through readWorkbookSafely', () 
     }
   })
 
-  it('every import file reads workbooks via readWorkbookSafely', () => {
+  // WIDENED IN T315, and the purpose is unchanged: no import path may reach a parser without the
+  // F4 caps. What changed is that `readEntitySheet` and `readWorkbookRows` now exist as the row
+  // boundary ABOVE `readWorkbookSafely`, applying the caps and `unescapeRow` themselves — so a
+  // screen that routes through one of them no longer names either, and a check that demanded the
+  // literal name would have pushed callers back to hand-rolling the read. That is the failure mode
+  // this gate exists to prevent, so the rule names the boundary FUNCTIONS rather than one of them.
+  const READ_BOUNDARY = /readWorkbookSafely|readEntitySheet|readWorkbookRows/
+  const CELL_UNESCAPE = /unescapeRow|readEntitySheet|readWorkbookRows/
+
+  it('every import file reads workbooks through a capped boundary', () => {
     for (const rel of IMPORT_READ_FILES) {
       const src = readFileSync(join(repoRoot, rel), 'utf8')
-      expect(src, `${rel} does not use readWorkbookSafely`).toMatch(/readWorkbookSafely/)
+      expect(src, `${rel} does not route through a capped read boundary`).toMatch(READ_BOUNDARY)
     }
   })
 
   it('every import file still applies unescapeRow to imported cells', () => {
     for (const rel of IMPORT_READ_FILES) {
       const src = readFileSync(join(repoRoot, rel), 'utf8')
-      expect(src, `${rel} dropped unescapeRow`).toMatch(/unescapeRow/)
+      expect(src, `${rel} dropped unescapeRow`).toMatch(CELL_UNESCAPE)
     }
+  })
+
+  it('NON-VACUITY: the widened rule still rejects a file that reads a workbook by hand', () => {
+    // The two checks above pass on a substring, so prove they can still FAIL. A module that parses a
+    // workbook without going through any boundary matches neither pattern.
+    const byHand = "const wb = XLSX.read(bytes, { type: 'array' })\nconst rows = XLSX.utils.sheet_to_json(wb.Sheets.S)"
+    expect(byHand).not.toMatch(READ_BOUNDARY)
+    expect(byHand).not.toMatch(CELL_UNESCAPE)
+    expect(byHand).toMatch(/XLSX\.read\s*\(/)
   })
 })
 

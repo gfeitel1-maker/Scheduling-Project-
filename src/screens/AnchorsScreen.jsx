@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
-import { aoaToSanitizedSheet, readWorkbookSafely, unescapeRow } from '../utils/exportSanitize.js'
+import { aoaToSanitizedSheet, readEntitySheet } from '../utils/exportSanitize.js'
 import { mapWithCollisions } from '../ingest/mapWithCollisions.js'
 import { localClient } from '../localClient'
 import { S, useEnterTransition } from '../styles/shared'
@@ -9,6 +9,7 @@ import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import ImportModal from '../components/setup/ImportModal'
+import ImportPreviewSubtitle from '../components/setup/ImportPreviewSubtitle.jsx'
 import SetupScreenShell from '../components/setup/SetupScreenShell'
 import { LocationPicker } from '../components/LocationPicker'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
@@ -274,6 +275,10 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
   const [modal, setModal] = useState(null)
   const [importStep, setImportStep] = useState(null)
   const [importRows, setImportRows] = useState([])
+  // T315 — which tab this workbook's rows came from, when there was more than one to
+  // choose between. Null on a single-sheet file: there was no choice, so there is
+  // nothing to report.
+  const [importSheetNote, setImportSheetNote] = useState(null)
   const [importResult, setImportResult] = useState(null)
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState(null)
@@ -608,8 +613,15 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
       // F4 — shared boundary: size cap (on file.size) before parse, sheet/row
       // caps after, replacing this screen's former ad-hoc 5MB check so every
       // importer enforces the SAME limits.
-      const wb = readWorkbookSafely(await file.arrayBuffer(), { type: 'array', byteLength: file.size })
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }).map(unescapeRow)
+            // T315 — the tab that holds THIS entity, not blindly the first. A director whose
+      // table sat on a later tab imported nothing here, and on the screens keyed on `name`
+      // it was worse: the camp's `Programs` tab was read and its program imported as a row
+      // of this entity. `readEntitySheet` tries the sheet NAME this app's own export
+      // writes, then the required COLUMNS for a third-party file, then falls back to the
+      // first sheet — so a single-sheet file behaves exactly as it always did.
+      const { sheet: importedSheet, rows, otherSheets } = readEntitySheet(await file.arrayBuffer(), {
+        type: 'array', byteLength: file.size, sheetName: 'Anchors', requiredColumns: ['name', 'day_label'],
+      })
 
       // Expand each row into one record per day
       const parsed = []
@@ -690,7 +702,11 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
         }
       }
 
-      setImportRows(parsed); setImportStep('preview')
+      setImportRows(parsed)
+      // Said only when the workbook HAD more than one tab: on a single-sheet file there was no
+      // choice to report, and a line about it would be noise.
+      setImportSheetNote(otherSheets.length > 0 ? { sheet: importedSheet, others: otherSheets } : null)
+      setImportStep('preview')
     } catch (err) {
       setError(describeWriteFailure(err, 'That import file could not be read.'))
     }
@@ -886,6 +902,7 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
         rows={importRows}
         readyCount={readyRows.length}
         warnCount={warnRows.length}
+        previewSubtitle={<ImportPreviewSubtitle ready={readyRows.length} warn={warnRows.length} sheetNote={importSheetNote} />}
         result={importResult}
         importing={importing}
         onConfirm={confirmImport}

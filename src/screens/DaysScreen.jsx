@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { describeWriteFailure, deleteRefusalMessage } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
-import { aoaToSanitizedSheet, readWorkbookSafely, unescapeRow } from '../utils/exportSanitize.js'
+import { aoaToSanitizedSheet, readEntitySheet } from '../utils/exportSanitize.js'
 import { localClient } from '../localClient'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { useCrudScreen } from '../hooks/useCrudScreen'
@@ -10,6 +10,7 @@ import DeleteRecordDialog from '../components/DeleteRecordDialog'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import SetupScreenShell from '../components/setup/SetupScreenShell'
 import ImportModal from '../components/setup/ImportModal'
+import ImportPreviewSubtitle from '../components/setup/ImportPreviewSubtitle.jsx'
 import InlineAddRow from '../components/setup/InlineAddRow'
 import { DOW } from './setup/setupHelpers'
 
@@ -111,6 +112,10 @@ export default function DaysScreen({ campId, role, onNavigate }) {
   const [deletingAll, setDeletingAll] = useState(false)
   const [importStep, setImportStep] = useState(null)
   const [importRows, setImportRows] = useState([])
+  // T315 — which tab this workbook's rows came from, when there was more than one to
+  // choose between. Null on a single-sheet file: there was no choice, so there is
+  // nothing to report.
+  const [importSheetNote, setImportSheetNote] = useState(null)
   const [importResult, setImportResult] = useState(null)
   const [importing, setImporting] = useState(false)
   const fileRef = useRef()
@@ -174,8 +179,15 @@ export default function DaysScreen({ campId, role, onNavigate }) {
     const reader = new FileReader()
     reader.onload = ev => {
       try {
-      const wb = readWorkbookSafely(ev.target.result, { type: 'array', byteLength: file.size })
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }).map(unescapeRow)
+            // T315 — the tab that holds THIS entity, not blindly the first. A director whose
+      // table sat on a later tab imported nothing here, and on the screens keyed on `name`
+      // it was worse: the camp's `Programs` tab was read and its program imported as a row
+      // of this entity. `readEntitySheet` tries the sheet NAME this app's own export
+      // writes, then the required COLUMNS for a third-party file, then falls back to the
+      // first sheet — so a single-sheet file behaves exactly as it always did.
+      const { sheet: importedSheet, rows, otherSheets } = readEntitySheet(ev.target.result, {
+        type: 'array', byteLength: file.size, sheetName: 'Days', requiredColumns: ['label'],
+      })
       const parsed = rows.map(r => {
         const label = String(r.label || '').trim()
         const dowRaw = r.day_of_week
@@ -187,7 +199,11 @@ export default function DaysScreen({ campId, role, onNavigate }) {
         else if (sort_order !== null && !(Number.isInteger(sort_order) && sort_order >= 0)) warning = 'sort_order must be a whole number 0 or greater'
         return { label, day_of_week, sort_order, warning }
       })
-      setImportRows(parsed); setImportStep('preview')
+      setImportRows(parsed)
+      // Said only when the workbook HAD more than one tab: on a single-sheet file there was no
+      // choice to report, and a line about it would be noise.
+      setImportSheetNote(otherSheets.length > 0 ? { sheet: importedSheet, others: otherSheets } : null)
+      setImportStep('preview')
       } catch (err) {
         setError(describeWriteFailure(err, 'That import file could not be read.'))
       }
@@ -300,6 +316,7 @@ export default function DaysScreen({ campId, role, onNavigate }) {
         rows={importRows}
         readyCount={readyRows.length}
         warnCount={warnRows.length}
+        previewSubtitle={<ImportPreviewSubtitle ready={readyRows.length} warn={warnRows.length} sheetNote={importSheetNote} />}
         result={importResult}
         importing={importing}
         onConfirm={confirmImport}
