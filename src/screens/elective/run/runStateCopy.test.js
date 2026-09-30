@@ -112,7 +112,7 @@ describe('T250 B2 — satisfactionSummary distinguishes campers from placements'
       { camper_id: 'c2', occurrence_id: 'occ-1', preference_rank: 2 },
       { camper_id: null, occurrence_id: 'occ-1', preference_rank: 1 },
     ]
-    expect(satisfactionSummary(rows)).toMatch(/^2 campers placed, 3 placements across 1 occurrence\./)
+    expect(satisfactionSummary({ rows })).toMatch(/^2 campers placed, 3 placements across 1 occurrence\./)
   })
 })
 
