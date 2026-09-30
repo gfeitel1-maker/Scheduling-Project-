@@ -27,7 +27,7 @@ completion_evidence:
   - commit a13417e4
   - commit 94e0a6b8
   - commit 3982357c
-  - "gate: <<NEEDS JUDGEMENT>> — paste the verify verdict line"
+  - "gate: VERIFY PASSED — agents:check + check:governance + licenses:check + build + security + test:integration + lint + test all green; Test Files 621 passed (621), Tests 8364 passed | 10 skipped (8374)"
 archive_when: T197's export-gap limits are all discharged and the ticket leaves docs/work/
 ---
 
