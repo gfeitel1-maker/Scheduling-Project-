@@ -31,7 +31,8 @@
 // Three bootstrap inserts are unavoidable (see
 // electron/fixtures/electiveAcceptanceCamp.js's BOOTSTRAP_SQL_ALLOWLIST). The
 // enforceable form is a SOURCE SCAN: the fixture module and every T251 test
-// file are read as text, and no INSERT/UPDATE may name a table §6 says must
+// file are read as text (DISCOVERED by prefix, not listed), and no INSERT,
+// REPLACE, UPDATE or DELETE may name a table §6 says must
 // come from a real path. Precedent for source-scanning:
 // electron/ipcSurfaceParity.test.js.
 //
@@ -175,6 +176,10 @@ describe('§6 (11) — MCP agrees with the database, on the surfaces MCP has', (
   it('camper_preferences names the same campers the JSON export does', () => {
     const out = camperPreferencesTool({ run_id: run.id }, { dbPath: camp.file })
     const fromMcp = new Set(out.preferences.map((p) => p.camper_name))
+    // GUARDED IN PLACE. `for (const x of empty) expect(...)` is green over an
+    // empty set, and the non-emptiness guard lived in a different `it`, over a
+    // separately-computed `out` — a pass there is not a pass here.
+    expect(fromMcp.size).toBeGreaterThan(0)
     const fromJson = new Set(projection.child_schedules.campers.map((c) => c.display_name))
     for (const name of fromMcp) expect(fromJson.has(name)).toBe(true)
   })
@@ -182,10 +187,14 @@ describe('§6 (11) — MCP agrees with the database, on the surfaces MCP has', (
   it('export_schedule shows the elective cells AS elective, not as blanks', () => {
     const out = exportScheduleTool({ route: 'generated' }, { dbPath: camp.file })
     expect(out.ok).toBe(true)
-    const text = JSON.stringify(out.export)
-    // The set's own name reaches the group-schedule export — which is the only
-    // thing this surface can say about an elective cell.
-    expect(text).toContain('Chugim')
+    // NOT a substring search of the whole payload for the set's name, which
+    // passes on the name appearing anywhere at all — including in a list of
+    // elective sets beside a grid of blanks. exportScheduleJson.js:30-39 emits
+    // a per-cell `kind`, so the claim in this test's title is checkable
+    // directly: cells that ARE elective, counted.
+    const elective = out.export.cells.filter((c) => c.kind === 'elective')
+    expect(elective.length).toBeGreaterThan(0)
+    expect(new Set(elective.map((c) => c.name))).toEqual(new Set(['Chugim']))
   })
 
   it("the CLI's only read agrees with the database about who was imported", () => {
@@ -274,18 +283,22 @@ describe('the ingest category leak — exhibited in its exact current shape', ()
 // ── (12) no manual database edits ─────────────────────────────────────────
 
 describe('§6 (12) — no manual database edits', () => {
+  // DISCOVERED, not listed. A hand-maintained list is a list that an eleventh
+  // T251 file is silently absent from, and absent from a scan reads exactly
+  // like clean. Everything named `electron/electiveAcceptance*` plus the
+  // fixture module is in scope by construction.
   const FILES = [
+    ...fs.readdirSync(path.join(process.cwd(), 'electron'))
+      .filter((f) => f.startsWith('electiveAcceptance'))
+      .map((f) => `electron/${f}`),
     'electron/fixtures/electiveAcceptanceCamp.js',
-    'electron/electiveAcceptanceHarness.js',
-    'electron/electiveAcceptanceLocalClient.js',
-    'electron/electiveAcceptancePanelDrive.jsx',
-    'electron/electiveAcceptanceFixture.integration.test.js',
-    'electron/electiveAcceptanceImport.integration.test.js',
-    'electron/electiveAcceptanceSolve.integration.test.jsx',
-    'electron/electiveAcceptanceProjection.integration.test.jsx',
-    'electron/electiveAcceptanceLifecycle.integration.test.jsx',
-    'electron/electiveAcceptanceSurfaces.integration.test.jsx',
-  ]
+  ].sort()
+
+  // EVERY WRITE VERB SQLite HAS, not just two. Round 1 matched INSERT and
+  // UPDATE only, so a DELETE FROM campers or a REPLACE INTO template_slots
+  // passed the scan that exists to forbid exactly that.
+  const WRITE_VERB_SOURCE = '\\b(INSERT\\s+(?:OR\\s+\\w+\\s+)?INTO|REPLACE\\s+INTO|UPDATE|DELETE\\s+FROM)'
+  const WRITE_VERB_GLOBAL = new RegExp(`${WRITE_VERB_SOURCE}\\s+([a-z_]+)`, 'gi')
 
   // Tables §6 says must come from a real path. An INSERT or UPDATE naming one
   // of these anywhere in the T251 surface is a manual database edit.
@@ -318,7 +331,7 @@ describe('§6 (12) — no manual database edits', () => {
   it('writes SQL only at the three bootstrap tables, and nowhere else', () => {
     const statements = []
     for (const { file, text } of sources) {
-      for (const m of text.matchAll(/\b(INSERT\s+(?:OR\s+\w+\s+)?INTO|UPDATE)\s+([a-z_]+)/gi)) {
+      for (const m of text.matchAll(WRITE_VERB_GLOBAL)) {
         statements.push({ file, verb: m[1].toUpperCase().replace(/\s+/g, ' '), table: m[2] })
       }
     }
@@ -334,7 +347,7 @@ describe('§6 (12) — no manual database edits', () => {
     const hits = []
     for (const { file, text } of sources) {
       for (const table of FORBIDDEN) {
-        const re = new RegExp(`\\b(INSERT\\s+(?:OR\\s+\\w+\\s+)?INTO|UPDATE)\\s+${table}\\b`, 'i')
+        const re = new RegExp(`${WRITE_VERB_SOURCE}\\s+${table}\\b`, 'i')
         if (re.test(text)) hits.push({ file, table })
       }
     }
