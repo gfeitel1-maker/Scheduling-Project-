@@ -63,14 +63,32 @@ function cellsOf(file, dir = PROBES) {
   }
   // CSV/TSV/TXT are scanned as raw text rather than parsed: a name hidden in a
   // malformed row that no parser reaches is still a name in a committed file.
-  return fs.readFileSync(full, 'utf8').split(/[\n\r\t,"]+/)
+  //
+  // TWO-OR-MORE SPACES IS ALSO A CELL BOUNDARY, and that is what lets a
+  // FIXED-WIDTH grid be scanned at all. Without it every row of
+  // camp-grid.txt arrives as one string — "Swim            Archery
+  // Ceramics        Ropes" — which is two capitalised words and therefore
+  // person-name-shaped, twelve false positives on a file with no camper on it.
+  // A real name never contains a double space, so CSV and TSV are unaffected.
+  return fs.readFileSync(full, 'utf8').split(/[\n\r\t,"]+|\s{2,}/)
 }
 
 const files = fs.readdirSync(PROBES)
-// .csv only: camp-grid.txt in the same directory is a schedule grid with no
-// camper on it, and listing it here would assert nothing while looking like it
-// did. If a named fixture is ever added there it must be added here too.
-const acceptanceFiles = fs.readdirSync(ACCEPTANCE).filter((f) => f.endsWith('.csv'))
+// EVERY FILE IN THE DIRECTORY, minus a named exclusion list — the filter is
+// inverted on purpose. Round 1 scanned `.csv` only, with a stated reason
+// (camp-grid.txt holds no camper) that was true of today's directory and of
+// nothing else: a future .xlsx acceptance fixture would have landed unscanned
+// and looked clean (Security EG-2). An extension allowlist answers "is this a
+// file type we thought of"; what this gate has to answer is "is every
+// committed fixture scanned".
+//
+// The exclusion list is empty. camp-grid.txt IS scanned — `cellsOf` above
+// treats a run of two or more spaces as a cell boundary so a fixed-width grid
+// tokenizes, which is the thing round 1's comment got wrong when it said the
+// grid was skipped because it holds no camper. Whether it holds one is now
+// measured rather than asserted in prose.
+const ACCEPTANCE_UNSCANNED = []
+const acceptanceFiles = fs.readdirSync(ACCEPTANCE).filter((f) => !ACCEPTANCE_UNSCANNED.includes(f))
 
 describe('preference probe corpus contains synthetic identities only', () => {
   it('has probe files to check (so an empty directory cannot pass vacuously)', () => {

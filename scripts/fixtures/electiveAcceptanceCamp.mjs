@@ -28,10 +28,8 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { openLocalDb } from '../../electron/db/localDb.js'
-import { createUser } from '../../electron/auth/localAuth.js'
-import { appendOp } from '../../electron/ops/operations.js'
 import {
-  bootstrapDevice, buildAcceptanceCamp, importResolvedSheet, ACCEPTANCE_MANIFEST,
+  seedAcceptanceCamp, importResolvedSheet, ACCEPTANCE_MANIFEST,
 } from '../../electron/fixtures/electiveAcceptanceCamp.js'
 
 function parseArgs(argv) {
@@ -102,24 +100,18 @@ async function main() {
       )
     }
 
-    const { campId, deviceId, cohortId } = bootstrapDevice(db)
-    const user = await createUser(
-      db,
-      { camp_id: campId, name: args.name, pin: args.pin, role: 'admin' },
-      async ({ entity, entity_id, field, value }) => {
-        const op = appendOp(db, { entity, entity_id, field, value, author_user_id: null, device_id: deviceId, parent_op_id: null })
-        return { status: 'applied', op }
-      }
-    )
-    const handlers = (await loadHandlersFactory())(db, deviceId, {})
-    const { token } = await handlers.login({ name: args.name, pin: args.pin })
-    await handlers.chooseMode({ mode: 'host', token })
-
-    const fixture = await buildAcceptanceCamp(db, {
-      handlers, token, campId, deviceId, cohortId, authorUserId: user.id,
+    // THE SAME PREAMBLE THE VITEST HARNESS RUNS, from the same function. Hand-
+    // copying it here was a sixth copy of the thing the shared module exists to
+    // prevent, and a drift between it and the harness would make the manual and
+    // automated halves of T251's acceptance incomparable — which is precisely
+    // what this script's own header says must not happen. `makeHandlers` is
+    // passed in rather than imported by the shared module, so the deferral
+    // below still holds.
+    const { campId, handlers, token, userId, fixture } = await seedAcceptanceCamp(db, {
+      makeHandlers: await loadHandlersFactory(), name: args.name, pin: args.pin,
     })
     const imported = await importResolvedSheet(db, {
-      dbPath, handlers, token, authorUserId: user.id,
+      dbPath, handlers, token, authorUserId: userId,
       campId, groupIdByName: fixture.groupIdByName,
     })
 

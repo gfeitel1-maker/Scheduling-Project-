@@ -61,7 +61,8 @@ import os from 'node:os'
 import { randomUUID, randomBytes } from 'node:crypto'
 
 import { getOrCreateDeviceId } from '../db/localDb.js'
-import { ensureHostSigningKey } from '../auth/localAuth.js'
+import { ensureHostSigningKey, createUser } from '../auth/localAuth.js'
+import { appendOp } from '../ops/operations.js'
 import { deriveScheduleTemplateId } from '../ops/scheduleTemplateId.js'
 import { parseTextGrid } from '../../src/ingest/textGrid.js'
 import { extractEntities } from '../../src/ingest/extractEntities.js'
@@ -611,6 +612,46 @@ export async function assignBunks(db, { handlers, token, campId, groupIdByName }
     if (r?.status !== 'applied') throw new Error(`assignBunks: group write failed (${r?.status})`)
   }
   return campers.length
+}
+
+/**
+ * THE ONE PREAMBLE: bootstrap, a real user, real handlers, a real login, a
+ * chosen mode, and the built camp.
+ *
+ * It lives HERE rather than in electron/electiveAcceptanceHarness.js because
+ * scripts/fixtures/electiveAcceptanceCamp.mjs — the manual half's builder —
+ * must NOT import electron/main.js at module load (main.js runs its startup at
+ * import time and prints a director-facing failure banner outside Electron).
+ * `makeHandlers` is therefore a parameter: the vitest harness passes the one it
+ * imports statically, the script passes the one it imports late.
+ *
+ * The point is that the manual and automated halves cannot drift. Before this,
+ * the script hand-copied these six steps, which is exactly the "a second
+ * hand-assembled dev camp makes the two halves incomparable" failure its own
+ * header warns about.
+ */
+export async function seedAcceptanceCamp(db, { makeHandlers, name = 'Director', pin = '123400' }) {
+  const { campId, deviceId, cohortId } = bootstrapDevice(db)
+  // createUser + the real appendOp, NOT a direct INSERT: createUser is the only
+  // path that mints the Host `auth_sig` the projection layer verifies
+  // (electron/main.js's write() refuses credential fields for that reason).
+  const user = await createUser(
+    db,
+    { camp_id: campId, name, pin, role: 'admin' },
+    async ({ entity, entity_id, field, value }) => {
+      const op = appendOp(db, { entity, entity_id, field, value, author_user_id: null, device_id: deviceId, parent_op_id: null })
+      return { status: 'applied', op }
+    }
+  )
+  const handlers = makeHandlers(db, deviceId, {})
+  const { token } = await handlers.login({ name, pin })
+  // write()/bulkReplace() refuse until a mode is chosen — that is where
+  // syncClient is created (electron/main.js:986).
+  await handlers.chooseMode({ mode: 'host', token })
+  const fixture = await buildAcceptanceCamp(db, {
+    handlers, token, campId, deviceId, cohortId, authorUserId: user.id,
+  })
+  return { campId, deviceId, cohortId, handlers, token, userId: user.id, fixture }
 }
 
 export async function importResolvedSheet(db, { dbPath, handlers, token, authorUserId, campId, groupIdByName }) {

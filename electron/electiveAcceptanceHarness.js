@@ -13,48 +13,27 @@
 // handlers. `vi.mock('electron', ...)` cannot live here (a mock must be hoisted
 // in the file that imports the mocked module), so each test file declares it.
 import fs from 'node:fs'
-import { createUser } from './auth/localAuth.js'
-import { appendOp } from './ops/operations.js'
 import { openTemplatedDb } from './db/testDbTemplate.js'
 import { makeHandlers } from './main.js'
-import { bootstrapDevice, buildAcceptanceCamp } from './fixtures/electiveAcceptanceCamp.js'
+import { seedAcceptanceCamp } from './fixtures/electiveAcceptanceCamp.js'
 
 export async function openAcceptanceCamp() {
   const templated = openTemplatedDb()
   const db = templated.db
-  const { campId, deviceId, cohortId } = bootstrapDevice(db)
-
-  // The user goes through createUser + the real appendOp, NOT a direct INSERT:
-  // createUser is the only path that mints the Host `auth_sig` the projection
-  // layer verifies (electron/main.js's write() refuses credential fields for
-  // exactly that reason).
-  const user = await createUser(
-    db,
-    { camp_id: campId, name: 'Director', pin: '123400', role: 'admin' },
-    async ({ entity, entity_id, field, value }) => {
-      const op = appendOp(db, { entity, entity_id, field, value, author_user_id: null, device_id: deviceId, parent_op_id: null })
-      return { status: 'applied', op }
-    }
-  )
-
-  const handlers = makeHandlers(db, deviceId, {})
-  const { token } = await handlers.login({ name: 'Director', pin: '123400' })
-  // write()/bulkReplace() refuse until a mode is chosen — that is where
-  // syncClient is created (electron/main.js:986).
-  await handlers.chooseMode({ mode: 'host', token })
-
-  const fixture = await buildAcceptanceCamp(db, {
-    handlers, token, campId, deviceId, cohortId, authorUserId: user.id,
-  })
+  // The six-step preamble is `seedAcceptanceCamp` in the fixture module — ONE
+  // copy, shared with scripts/fixtures/electiveAcceptanceCamp.mjs, so the
+  // manual half of T251's acceptance cannot be looking at a differently-built
+  // camp from this one.
+  const seeded = await seedAcceptanceCamp(db, { makeHandlers })
 
   return {
     db,
     file: templated.file,
-    handlers,
-    token,
-    deviceId,
-    userId: user.id,
-    fixture,
+    handlers: seeded.handlers,
+    token: seeded.token,
+    deviceId: seeded.deviceId,
+    userId: seeded.userId,
+    fixture: seeded.fixture,
     close() {
       db.close()
       for (const suffix of ['', '-wal', '-shm']) {
