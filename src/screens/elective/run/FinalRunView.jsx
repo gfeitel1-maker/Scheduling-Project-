@@ -90,15 +90,31 @@ export default function FinalRunView({
         localClient.list('elective_preferences'),
       ])
       const input = {
-        run, campers, groups, days, timeBlocks, occurrences: templateOccurrences,
+        // T320 item 1 — `run` must carry the completeness fields
+        // (snapshotIncomplete/expectedSnapshotRows/heldSnapshotRows) so the
+        // projection builder can refuse; useRunState's `state` is the same
+        // getElectiveRun response those fields ride on, so it wins over the
+        // caller's own `run` prop for exactly those three.
+        run: { ...run, snapshotIncomplete: state.snapshotIncomplete, expectedSnapshotRows: state.expectedSnapshotRows, heldSnapshotRows: state.heldSnapshotRows },
+        campers, groups, days, timeBlocks, occurrences: templateOccurrences,
         outerRows: outer?.rows ?? [],
         preferences: (allPreferences ?? []).filter((p) => p.run_id === run.id),
         assignments: state.rows,
         staleCount: state.staleCount,
         capacityRows: state.overCapacityOccurrences,
+        eligibilityFindings: state.eligibilityFindings,
+        resourceConflicts: state.resourceConflicts,
         generatedAt: new Date().toISOString(),
       }
       const data = buildElectiveRunProjectionExport(input)
+      if (data.ok === false) {
+        setError(
+          `This run's snapshot has not fully synced to this device yet (${data.heldSnapshotRows ?? 0} of ` +
+          `${data.expectedSnapshotRows ?? '?'} rows) — export would be incomplete, so nothing was produced. ` +
+          'Wait for sync to finish, or re-finalize from a device that has it all.'
+        )
+        return
+      }
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -128,6 +144,10 @@ export default function FinalRunView({
   // below the identity line is gated on `loaded`, exactly as DraftRunView is.
   const stale = state.finalizedAgainstStaleGeneration === true
   const overCapacityRows = state.overCapacityOccurrences
+  // T320 item 1 — the run's own screen never refuses to render; only export
+  // is blocked. This row is the "where this reaches a human" surface the ADR
+  // names — inline, never a banner, same pattern as the stale-generation row.
+  const snapshotIncomplete = state.snapshotIncomplete === true
 
   const stateRows = [
     stale ? (
@@ -135,6 +155,18 @@ export default function FinalRunView({
         <RunStateRow testId="run-state-stale-generation" message={STALE_GENERATION_COPY} first />
         <div style={styles.pairingAction}>{startRevision}</div>
       </div>
+    ) : null,
+    snapshotIncomplete ? (
+      <RunStateRow
+        key="snapshot-incomplete"
+        testId="run-state-snapshot-incomplete"
+        message={
+          `This run's snapshot has not fully synced to this device (${state.heldSnapshotRows ?? 0} of ` +
+          `${state.expectedSnapshotRows ?? '?'} rows) — export is refused until it does, to avoid ` +
+          'printing a schedule with silent gaps.'
+        }
+        first={!stale}
+      />
     ) : null,
     ...overCapacityRows.map((o, i) => (
       <RunStateRow

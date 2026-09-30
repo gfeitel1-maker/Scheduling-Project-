@@ -36,13 +36,14 @@ function fixture() {
 }
 
 describe('buildElectiveRunProjectionExport', () => {
-  it('bundles all four sections under format_version: 2', () => {
+  it('bundles all four sections under format_version: 3', () => {
     const fx = fixture()
     const result = buildElectiveRunProjectionExport({ ...fx, staleCount: 0, capacityRows: [], generatedAt: '2026-09-26T00:00:00.000Z' })
 
-    // T318 (c4) bumped format_version 1 -> 2 for the added summary.unordered_count
-    // field, the same precedent exportChildSchedule.js used for its own added-field bump.
-    expect(result.format_version).toBe(2)
+    // T320 bumped format_version 2 -> 3: exceptions.eligibility/.resource go
+    // from "always empty, not_computed" to "computed, possibly non-empty" —
+    // a meaning change on a byte-identical empty shape.
+    expect(result.format_version).toBe(3)
     expect(result.generated_at).toBe('2026-09-26T00:00:00.000Z')
     expect(result.child_schedules.campers).toHaveLength(2)
     expect(result.activity_rosters).toHaveLength(1)
@@ -135,5 +136,44 @@ describe('buildElectiveRunProjectionExport', () => {
 
     expect(result.summary.unordered_count).toBe(0)
     expect(result.summary.counts_by_rank).toEqual({ 1: 2 })
+  })
+})
+
+// T320 item 1 (docs/adr/2026-09-30-elective-run-durability.md) — S2: an
+// export builder REFUSES with SNAPSHOT_INCOMPLETE rather than emitting a
+// document, for a final run whose snapshot is incomplete.
+describe('buildElectiveRunProjectionExport — T320 SNAPSHOT_INCOMPLETE refusal', () => {
+  it('refuses rather than emitting a document when the final run reports snapshotIncomplete', () => {
+    const fx = fixture()
+    fx.run = { ...fx.run, snapshotIncomplete: true, expectedSnapshotRows: 62, heldSnapshotRows: 58 }
+    const result = buildElectiveRunProjectionExport({ ...fx, staleCount: 0, capacityRows: [] })
+    expect(result).toEqual({
+      ok: false, error: 'SNAPSHOT_INCOMPLETE', expectedSnapshotRows: 62, heldSnapshotRows: 58,
+    })
+  })
+
+  it('does not refuse a draft run even if snapshotIncomplete were somehow true', () => {
+    const fx = fixture()
+    fx.run = { ...fx.run, status: 'draft', snapshotIncomplete: true }
+    const result = buildElectiveRunProjectionExport({ ...fx, staleCount: 0, capacityRows: [] })
+    expect(result.ok).not.toBe(false)
+  })
+})
+
+// T320 item 4 — eligibility/resource thread through from the caller into
+// exceptions, and not_computed is always [].
+describe('buildElectiveRunProjectionExport — T320 eligibility/resource threading', () => {
+  it('threads eligibilityFindings and resourceConflicts into exceptions, with not_computed empty', () => {
+    const fx = fixture()
+    const result = buildElectiveRunProjectionExport({
+      ...fx, staleCount: 0, capacityRows: [],
+      eligibilityFindings: [{ kind: 'UNSUPPORTED_LINKED_CHOICE', choice_id: 'ch1', occurrence_id: 'occ-1', message: 'msg' }],
+      resourceConflicts: [{ kind: 'OUTER_RESOURCE_CONFLICT', message: 'conflict' }],
+    })
+    expect(result.exceptions.eligibility).toEqual([
+      { kind: 'UNSUPPORTED_LINKED_CHOICE', camper_id: null, choice_id: 'ch1', occurrence_id: 'occ-1', message: 'msg' },
+    ])
+    expect(result.exceptions.resource).toEqual([{ kind: 'OUTER_RESOURCE_CONFLICT', message: 'conflict' }])
+    expect(result.exceptions.not_computed).toEqual([])
   })
 })

@@ -57,19 +57,19 @@ describe('buildRunExceptionsExport', () => {
     expect(result.capacity).toEqual([{ occurrence_id: 'occ-1', activity_id: 'a1', filled: 7, capacity: 5 }])
   })
 
-  it('emits eligibility and resource as explicitly-named, empty buckets — no detector exists for either yet', () => {
+  it('emits eligibility and resource as empty buckets when the caller passes no findings', () => {
     const result = buildRunExceptionsExport({ campers: [], preferences: [], assignments: [], occurrences: [], staleCount: 0, capacityRows: [] })
     expect(result.eligibility).toEqual([])
     expect(result.resource).toEqual([])
   })
 
-  // F7 (round 2): an empty array is shape-identical to "we checked and found none" — this repo's
-  // own recorded failure mode ("a green guard reads as permission over the whole surface"). A
-  // consumer must be able to tell "computed, zero findings" apart from "never computed" without
-  // reading this file's source comments.
-  it('marks eligibility and resource as NOT COMPUTED in a machine-readable field, not just empty arrays', () => {
+  // T320 (docs/adr/2026-09-30-elective-run-durability.md item 4) — UPDATED to
+  // assert the NEW truth: both categories are now genuinely computed
+  // (persisted eligibility findings, live-computed resource conflicts), so
+  // not_computed is always [], never ['eligibility', 'resource'].
+  it('never marks eligibility/resource as not_computed — both are now genuinely computed', () => {
     const result = buildRunExceptionsExport({ campers: [], preferences: [], assignments: [], occurrences: [], staleCount: 0, capacityRows: [] })
-    expect(result.not_computed).toEqual(['eligibility', 'resource'])
+    expect(result.not_computed).toEqual([])
   })
 
   it('does NOT mark unassigned/unranked/unresolved/capacity as not_computed — those ARE discharged from real data', () => {

@@ -4,13 +4,11 @@
 //
 // unassigned/unranked/unresolved/stale/capacity are fully discharged from existing data.
 //
-// eligibility and resource are DELIBERATELY EMPTY buckets. No existing computed, persisted source
-// was found for either during design: buildElectiveAssignments.js's UNSUPPORTED_LINKED_CHOICE
-// findings and findRouteConflicts' OUTER_RESOURCE_CONFLICT findings are both produced only at
-// generation/finalize TIME and are never persisted for a later export read to recover. Per the
-// Governor's ruling (T197 dispatch), do not invent a detector for either — surface the named,
-// empty bucket and let a product/data-model decision (a persisted findings table, or re-running
-// the detector against current data) supply real rows later.
+// T320 (docs/adr/2026-09-30-elective-run-durability.md item 4) — eligibility and resource are no
+// longer deliberately-empty placeholders. eligibilityFindings is read from the persisted
+// elective_run_findings table (electron/ops/getElectiveRun.js); resourceConflicts is computed
+// LIVE for a draft run and is provably [] for a final run (the finalize gate already refused any
+// run that would have had one) — both are threaded in by the caller, never re-derived here.
 export function buildRunExceptionsExport({
   campers = [],
   preferences = [],
@@ -18,6 +16,8 @@ export function buildRunExceptionsExport({
   occurrences = [],
   staleCount = 0,
   capacityRows = [],
+  eligibilityFindings = [],
+  resourceConflicts = [],
 } = {}) {
   const preferenceCamperIds = new Set(preferences.map((p) => p.camper_id))
   const assignedCamperIds = new Set(assignments.map((a) => a.camper_id))
@@ -45,13 +45,17 @@ export function buildRunExceptionsExport({
     unresolved,
     stale: staleCount,
     capacity,
-    eligibility: [],
-    resource: [],
-    // F7 (round 2): eligibility/resource are empty for a DIFFERENT reason than the other buckets —
-    // no detector exists, not "checked and found none." An empty array is shape-identical to a
-    // real computed-zero result, so a consumer reading this document has no way to tell the two
-    // apart without opening this file's source. Naming the gap here, in the contract itself,
-    // closes it.
-    not_computed: ['eligibility', 'resource'],
+    eligibility: eligibilityFindings.map((f) => ({
+      kind: f.kind, camper_id: f.camper_id ?? null, choice_id: f.choice_id ?? null,
+      occurrence_id: f.occurrence_id ?? null, message: f.message,
+    })),
+    resource: resourceConflicts,
+    // T320 — both categories are now discharged (computed, not merely
+    // "checked and found none" — an eligibility bucket genuinely empty
+    // because the persisted table has no rows for this generation reads
+    // identically to one where the caller forgot to pass eligibilityFindings,
+    // and that ambiguity is accepted the same way every OTHER category's
+    // empty array already is).
+    not_computed: [],
   }
 }
