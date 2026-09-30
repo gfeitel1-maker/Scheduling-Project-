@@ -769,6 +769,46 @@ describe("T301 slice 3 (ADR D6) — a bundle's label supersedes a plain sheet ch
     expect(prefRow.choice_id).toBe(expectedChoiceId)
   })
 
+  // T318 round 2 — CI found what the fixture above could not: it never
+  // committed an ASSIGNMENT for the bundle-claimed label, only a preference.
+  // The write loops are two separate blocks (preference ~:474, assignment
+  // ~:590) and only the preference loop resolved a bundle label to the
+  // camper's own tier's choice id; the assignment loop still read
+  // `choiceIdByKey`, which line 468's `continue` never populates for a
+  // bundle-claimed label — so a solver PLACEMENT on that label persisted with
+  // `choice_id: null`. buildPreferenceLookup (camperElectiveWeek.js) keys on
+  // (camper_id, choice_id, occurrence_id) and returns null outright when
+  // choice_id is null, so every such placement read back with NO ordering
+  // evidence — including a camper's actual rank-1 choice.
+  it("persists the SOLVER'S ASSIGNMENT on a bundle-claimed label with the camper's own tier's bundle choice id, not null", () => {
+    const { db, campId } = freshDb()
+    seedBundleFixture(db, campId)
+    const runId = randomUUID()
+    const occurrences = bundleOccurrences(runId)
+    const parsed = {
+      campers: [{ id: 'cam-1', display_name: 'Ari Green', external_id: null, group_id: 'grp-1' }],
+      choices: [{ label: 'Archery', labelKey: 'archery' }],
+      preferences: [{ camper_id: 'cam-1', label: 'Archery', labelKey: 'archery', rank: 1 }],
+      sameNameCampers: [],
+      skippedRows: [],
+    }
+    const assignments = [
+      { camper_id: 'cam-1', occurrence_id: occurrences[0].id, labelKey: 'archery', activity_id: 'act-archery', preference_rank: 1, flags: [] },
+    ]
+
+    const out = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1', runId,
+      parsed, assignments, occurrences,
+    })
+    expect(out.ok).toBe(true)
+
+    const expectedChoiceId = deriveLinkedElectiveChoiceId(out.runId, 'bundle-1', 'tier-jr')
+    const assignmentRow = db
+      .prepare('SELECT * FROM elective_assignments WHERE run_id = ? AND camper_id = ?')
+      .get(out.runId, 'cam-1')
+    expect(assignmentRow.choice_id).toBe(expectedChoiceId)
+  })
+
   it("skips (never throws) a camper whose tier the bundle's scope does not cover, so one mismatch cannot fail the whole commit", () => {
     const { db, campId } = freshDb()
     // scope_mode 'all' still only resolves to tiers PRESENT in this run's
@@ -807,6 +847,58 @@ describe("T301 slice 3 (ADR D6) — a bundle's label supersedes a plain sheet ch
     expect(mismatch.camper_id).toBe('cam-2')
     expect(mismatch.message).toContain('Bo Katz')
     expect(mismatch.message).toContain('Archery')
+  })
+
+  // T318 round 2 — the ASSIGNMENT-side mirror of the mismatch above.
+  //
+  // ROUND 2 CORRECTION. This test originally asserted a hard throw here, on
+  // the premise that a solver placement naming a bundle-claimed label the
+  // camper's own tier cannot resolve is unreachable ("the solver only ever
+  // offers a camper a choice their own tier has"). Driving the real §6
+  // acceptance fixture through this fix proved that premise false:
+  // buildElectiveAssignments's `attends` predicate does not gate placement by
+  // tier, so a camper whose sheet division matched no camp group (group_id
+  // stays null, T279 §12.2a) is routinely FALLBACK-placed into whatever
+  // capacity remains — including a bundle-claimed occurrence, exactly this
+  // shape. A hard throw there failed the WHOLE commit over an ordinary roster
+  // gap. So this now asserts the graceful-degrade the fix settled on instead:
+  // the placement is real and is kept, its choice_id falls back to null
+  // (never worse than the pre-fix baseline, and never wrongly non-null), and
+  // the director is told via the same BUNDLE_TIER_NOT_COVERED finding the
+  // preference loop already emits.
+  it("falls back to a null choice_id (and reports BUNDLE_TIER_NOT_COVERED) when a solver assignment names a bundle-claimed label the camper's own tier does not cover", () => {
+    const { db, campId } = freshDb()
+    seedBundleFixture(db, campId)
+    const runId = randomUUID()
+    const occurrences = bundleOccurrences(runId)
+    const parsed = {
+      campers: [{ id: 'cam-2', display_name: 'Bo Katz', external_id: null, group_id: null }],
+      choices: [{ label: 'Archery', labelKey: 'archery' }],
+      preferences: [],
+      sameNameCampers: [],
+      skippedRows: [],
+    }
+    const assignments = [
+      { camper_id: 'cam-2', occurrence_id: occurrences[0].id, labelKey: 'archery', activity_id: 'act-archery', preference_rank: null, flags: [] },
+    ]
+
+    const out = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1', runId,
+      parsed, assignments, occurrences,
+    })
+    expect(out.ok).toBe(true)
+
+    // The placement is real and is KEPT — the camper genuinely sits in this
+    // seat — with choice_id null rather than a wrong or invented value.
+    const row = db.prepare('SELECT * FROM elective_assignments WHERE run_id = ? AND camper_id = ?').get(runId, 'cam-2')
+    expect(row).toBeTruthy()
+    expect(row.activity_id).toBe('act-archery')
+    expect(row.choice_id).toBeNull()
+
+    const mismatch = out.findings.find((f) => f.kind === 'BUNDLE_TIER_NOT_COVERED')
+    expect(mismatch).toBeTruthy()
+    expect(mismatch.camper_id).toBe('cam-2')
+    expect(mismatch.message).toContain('Bo Katz')
   })
 
   it('a label no bundle claims still mints an ordinary plain choice, unaffected', () => {

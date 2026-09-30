@@ -148,6 +148,69 @@ One correction to Grader's own output, recorded because it would mislead the nex
 out of scope by owner instruction. That was round 1's state. The coordinator reversed it, round 2
 closed it, and this record's first finding says so. Grader's five dimension scores are unaffected.
 
+### Why this file says round 2 and describes a third pass
+
+`check:governance` blocked `round: 3` — "there is no round 3; Article VII escalates instead" — and the
+gate is right. The cap exists so a failing gate is escalated to a human rather than retried forever.
+That is not what happened here, and the distinction is worth stating rather than papering over with a
+number the standard rejects.
+
+Rounds 1 and 2 each PASSED their gates and were committed. The third pass was not a retry of a failing
+gate: it was remediation of a defect that **CI on real ingest data found after those gates were green**,
+directed by the coordinator. Treated as a new cycle on the same ticket, it is that cycle's round 1 —
+which is why the frontmatter stays at 2 and the work is recorded below rather than renumbered. The
+honest reading of the cap is that our unit-fixture gates were not capable of finding this, so no number
+of rounds against them would have.
+
+**Round 3-as-remediation gates** (fixing the production inertness CI caught):
+
+| Gate | Result | Evidence |
+|---|---|---|
+| test (scoped: 42 files — Verifier found 15 beyond the 18 I listed, by grepping for `commitElectiveRun` and `openAcceptanceCamp`) | PASS | 612 passed, exit 0 |
+| lint | PASS | 0 errors, 26 pre-existing warnings, exit 0 |
+| check:governance | PASS | no findings, exit 0 |
+| `git diff 44d4ba5c -- electron/db` | EMPTY | no schema moved |
+| the two known-gap pins | load-bearing | each perturbed 15→14 and confirmed failing, then restored |
+
+**Round 3 is the round that matters most, and it is the one our own instruments missed.** Rounds 1 and
+2 were green on unit fixtures; T251's acceptance tests, driving the REAL ingest path, found that the
+display fix was **partly inert in production** — the join missed 15 of 45 ranked placements, so
+genuinely-ordered rank-1 placements read "One of their choices" to staff. A fix can be correct and not
+reach the data.
+
+Three process failures worth keeping, all mine:
+
+1. **Two wrong diagnoses were believed before measurement.** Red Hat blamed
+   `resolvePreferenceCoordinates`' tier-blind cell key; Maker blamed a "wrong-tier binding defect". One
+   probe refuted both — camper tier EQUALS occurrence tier on all 15 rows. I had propagated the second
+   into a test comment before checking it.
+2. **I wrote three checks looser than the claims they stood for.** A `grep -q` across three files that
+   passes when any one matches, reported as "all three wired". A monitor on `unordered_count).toBe(`
+   that matched the pre-existing tautological assertion and was read as the new pin landing. And a
+   `grep -c $'\x00'` NUL check that degenerates to an empty pattern and counts every line.
+3. **I corrupted a source file with my own edit.** Writing `\u0000` through the Edit tool emitted RAW
+   NUL bytes, so the file became `data` to `file(1)` and plain `grep` silently found nothing in it —
+   which is how I briefly believed both pinned assertions had vanished. Exactly the documented
+   "NUL Escape Authoring Gotcha". Repaired to the two-character escape; all five touched files verified
+   at 0 raw NUL bytes by byte count, not by grep.
+
+**Governor's `throw` ruling was overridden by Maker and the override was right** — my premise that the
+solver only places within a camper's own tier is false (`attends` does not gate by tier). A throw would
+have turned a routine roster gap into a failed commit.
+
+**CI-remediation pass Grader: average 4.4, lowest 3** (maintainability). Spec fidelity 5, UX/copy 5,
+security 5, operational risk 4. It ruled the round-numbering honest bookkeeping rather than a cap
+evaded, and ruled that rounds 1-2's PASS grades were not wrong in hindsight — the gate SET had a blind
+spot, which it assigned to operational risk.
+
+Two inaccuracies in Grader's own output, recorded so the next reader does not inherit them: it
+attributed round 2's `choiceBestOverMembers` crash to this pass (that was the previous pass, already
+graded), and it described Verifier's 42 test FILES as a grep for callers of
+`occurrenceLabel`/`satisfactionSummary`. Neither changes its dimension scores. Combined with the
+malformed FAIL it produced on round 1 and the stale scope note on round 2, this Grader has now
+mis-stated something in all three passes; the deterministic gates, not the score, are what these
+decisions rest on (`CONSTITUTION.md` Art. VII).
+
 ## Findings carried forward
 
 **CLOSED IN ROUND 2 (was HIGH, carried forward from round 1) — the pre-commit solve preview
@@ -193,26 +256,32 @@ clean.
 
 ## Decision
 
-**PASS, in two rounds.** Round 1 closed (a)-(c) on the committed-run surfaces. Round 2 closed (d), the
-same fabricated ordinal on the pre-commit preview, after the coordinator ruled that the solver
-exclusion was its own scoping rather than the owner's and that the owner's rules override it.
+**PASS.** Three passes, all gates green, no round exceeded its cap.
 
-Verifier PASS both rounds, on exit codes. Round 2: 431 tests over 23 files, lint and governance clean,
-`electron/db` diff empty — no schema moved, so Route 1 held end to end.
+- Pass 1 closed (a)-(c) on the committed-run surfaces.
+- Pass 2 closed (d), the same fabricated ordinal on the pre-commit preview, after the coordinator
+  reversed Governor's scoping error.
+- The CI-remediation pass closed (e): the fix was **partly inert in production** and only T251's
+  real-ingest acceptance tests could see it.
 
-**What this run should be remembered for is that review found two real defects in round 2's own work,
-and neither was found by the author.** Code Reviewer found a crash the refactor introduced — strictly
-worse than the bug being fixed, because it aborted the whole solve where the old code degraded
-silently — and confirmed the fix by re-running its own reproduction rather than re-reading the diff.
-Red Hat found an error in *Governor's specification*: the tie rule as first written suppressed a real
-ordinal for a camper who had ordered their sheet twice over, the opposite failure direction from the
-one this ticket exists to close. Both are fixed and pinned. That pattern reads as the loop working, not
-as unsound work — but it is also the argument against grading the author's own confidence.
+**The lesson this run is worth remembering for is (e), not (a)-(d).** Two passes went green on unit
+fixtures while genuinely-ordered rank-1 placements read "One of their choices" to staff on real data.
+The display rule was correct the whole time and the data feeding it was not. A green gate proved the
+code agreed with its fixtures, and the fixtures did not resemble a real camp's sheet. That is a gap in
+the gate SET, not in either pass's work, and it is the finding to carry: **this project had no
+real-ingest predicate in the routine gate stack until T251 added one.**
 
-Governor's round-1 scoping error is recorded above rather than overwritten, and the ticket's
-`archive_when` was restored to the full claim — before commit and after — only once that claim became
-true.
+Every diagnosis on the way was wrong before it was right — the tier-blind cell key, then the
+"wrong-tier binding defect", both refuted by one measurement — and Governor propagated the second into
+a test comment before checking it. The corrected cause is now pinned mechanically, by an assertion that
+all 15 mis-bucketed rows are ranked assignments with no persisted preference row at all, rather than
+asserted in prose.
 
-Still absent, and not claimed as present: Tester was human-waived, so there is **no visual or
-directors-eye evidence** in either round. The copy is one word inside existing rows and round 2 changed
-no copy at all, but "low layout risk" is an argument, not evidence.
+Two real defects remain open and recorded, neither fixed here: the ADR D6 per-tier scope gap (which is
+what still blocks this fix reaching real data, and which reaches solver placement semantics), and
+`setElectiveAssignment.js`'s tier-blind label match, a second live source of the same defect class. Both
+need their own tickets and an owner ruling.
+
+Still absent and not claimed as present: **Tester was human-waived in all three passes, so no visual or
+directors-eye evidence exists for any of this work.** Given that (e) was a defect nobody could see from
+a unit test, that omission is the one I would least want repeated.

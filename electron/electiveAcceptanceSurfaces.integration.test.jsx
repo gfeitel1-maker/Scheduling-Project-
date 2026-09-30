@@ -166,8 +166,32 @@ describe('§6 (11) — the UI read and the JSON agree with SQL', () => {
       .prepare('SELECT COUNT(*) c FROM elective_assignments WHERE run_id = ? AND solver_generation = ?')
       .get(run.id, run.solver_generation).c
     expect(ui.rows.length).toBe(fromSql)
-    // And the summary counts the same rows.
+    // And the summary counts the same rows, across all THREE buckets — ranked
+    // (counts_by_rank), unordered-set (unordered_count, T318 round 2: a
+    // legitimate third bucket this assertion dropped when it only summed
+    // counts_by_rank plus the no-rank fallback), and no-rank fallback.
+    //
+    // THIS SUM IS A TAUTOLOGY-SHAPED CHECK, NOT A CORRECTNESS CHECK ON
+    // `unordered_count` ITSELF, and that has to be said out loud: it would
+    // stay green even if every ranked assignment in this camp were
+    // mis-bucketed into `unordered_count`, so long as the three buckets still
+    // added up to the row count. They currently DO add up, and
+    // `unordered_count` is currently 15 here despite this fixture containing
+    // ZERO unordered-set campers (its preference sheet has no
+    // UNORDERED_SET_HEADER column — see src/ingest/preferenceSheet.js) —
+    // caused by a separate per-tier scope gap in ADR D6, which this ticket does
+    // not fix: a bundle-claimed label has no choice for a tier that no bundle
+    // covers, so commitElectiveRun.js:488 suppresses the plain choice for the
+    // whole LABEL while a bundle's scope is PER TIER, and :508-512 then drops
+    // the preference row entirely while the assignment keeps its rank and a
+    // null choice_id. buildPreferenceLookup has nothing to join TO. (Not the
+    // "wrong-tier binding defect" an earlier draft named here — measured and
+    // refuted: the camper's tier equals the occurrence's tier on all 15.) The
+    // EXACT pinned value (15) is asserted in that sibling file, not duplicated here —
+    // this file only needs to know the sum is not, by itself, proof that the
+    // bucketing is right.
     const summed = Object.values(projection.summary.counts_by_rank).reduce((a, b) => a + b, 0)
+      + projection.summary.unordered_count
       + ui.rows.filter((r) => r.preference_rank == null).length
     expect(summed).toBe(ui.rows.length)
   })

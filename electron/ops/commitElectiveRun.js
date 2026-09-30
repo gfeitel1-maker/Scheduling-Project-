@@ -374,6 +374,11 @@ export function commitElectiveRun(db, {
   // words apply just as well one function up — a camper simply absent from
   // the result "answers a different question than the one they're asking".
   const bundleTierMismatches = []
+  // T318 round 2 — the assignment loop now reports into the SAME array (a
+  // camper's placement can hit this independently of their preference), so
+  // this dedupes a camper/label pair reported from both loops into one
+  // finding.
+  const bundleTierMismatchKeys = new Set()
   // The rows that already exist, read ONCE. The inline per-row existence check
   // this replaces compiled a statement per parsed preference inside the
   // transaction, thousands of times on a real sheet.
@@ -385,6 +390,25 @@ export function commitElectiveRun(db, {
     if (existingPreferenceIds.has(preferenceId)
         && isHumanOwned(db, 'elective_preferences', preferenceId, 'choice_id')) return 'edited'
     return null
+  }
+
+  // T318 round 2 — the ONE resolution rule (D6: a bundle-claimed label
+  // resolves to the CAMPER'S OWN tier's bundle choice; anything else resolves
+  // to the plain choice this run minted for that label), shared by both write
+  // sites below. Before this extraction the assignment loop read
+  // `choiceIdByKey` directly, which line ~468's `continue` never populates
+  // for a bundle-claimed label — so a solver placement on that label
+  // persisted with `choice_id: null` while the preference for the very same
+  // label correctly resolved to the bundle's choice. One helper, called from
+  // both loops, is what makes that impossible to redrift.
+  const resolveWriteChoiceId = (labelKey, camperId) => {
+    const bundleByTier = bundleChoiceByLabelTier.get(labelKey)
+    if (!bundleByTier) return { choiceId: choiceIdByKey.get(labelKey) ?? null }
+    const camperTierId = camperById.get(camperId)?.group_id != null
+      ? tierIdByGroupId.get(camperById.get(camperId).group_id) ?? null
+      : null
+    const choiceId = camperTierId != null ? bundleByTier.get(camperTierId) : undefined
+    return choiceId ? { choiceId } : { mismatch: true }
   }
 
   try {
@@ -498,31 +522,24 @@ export function commitElectiveRun(db, {
       }
 
       for (const p of parsed.preferences ?? []) {
-        const bundleByTier = bundleChoiceByLabelTier.get(p.labelKey)
-        let choiceId
-        if (bundleByTier) {
-          // D6 — resolve to the CAMPER'S OWN tier's choice, never a flat one.
-          // A camper whose tier the bundle's scope does not cover (untiered,
-          // or a tier a scope_mode 'only'/'except' bundle excludes) has no
-          // choice this preference can name — skipped rather than thrown, so
-          // one camper's mismatch cannot fail every other good row in the
-          // sheet (the same posture `preferencesHeld` above already takes for
-          // a hand-edited row). Recorded in `bundleTierMismatches` rather than
-          // left silent (review round 2): the ADR left the exact COPY open,
-          // not whether a director is told at all, and a camper simply
-          // missing from the result is the confident-wrong-answer shape this
-          // ticket exists to eliminate.
-          const camperTierId = camperById.get(p.camper_id)?.group_id != null
-            ? tierIdByGroupId.get(camperById.get(p.camper_id).group_id) ?? null
-            : null
-          choiceId = camperTierId != null ? bundleByTier.get(camperTierId) : undefined
-          if (!choiceId) {
-            bundleTierMismatches.push({ camperId: p.camper_id, label: p.label ?? p.labelKey })
-            continue
-          }
-        } else {
-          choiceId = choiceIdByKey.get(p.labelKey)
+        // D6 — resolve to the CAMPER'S OWN tier's choice, never a flat one, when
+        // a bundle claims this label. A camper whose tier the bundle's scope
+        // does not cover (untiered, or a tier a scope_mode 'only'/'except'
+        // bundle excludes) has no choice this preference can name — skipped
+        // rather than thrown, so one camper's mismatch cannot fail every other
+        // good row in the sheet (the same posture `preferencesHeld` above
+        // already takes for a hand-edited row). Recorded in
+        // `bundleTierMismatches` rather than left silent (review round 2): the
+        // ADR left the exact COPY open, not whether a director is told at
+        // all, and a camper simply missing from the result is the
+        // confident-wrong-answer shape this ticket exists to eliminate.
+        const resolved = resolveWriteChoiceId(p.labelKey, p.camper_id)
+        if (resolved.mismatch) {
+          bundleTierMismatchKeys.add(`${p.camper_id}::${p.labelKey}`)
+          bundleTierMismatches.push({ camperId: p.camper_id, label: p.label ?? p.labelKey })
+          continue
         }
+        const choiceId = resolved.choiceId
         if (!choiceId) throw new Error(`preference names a choice the sheet did not list: ${p.labelKey}`)
         // Backstop for describeElectiveRunRefusal's "malformed" check above:
         // this also catches an occurrence_id that names a real string but not
@@ -613,12 +630,43 @@ export function commitElectiveRun(db, {
         // The locked row keeps its source, its activity and its marker — see
         // protectedIds above.
         if (protectedIds.has(assignmentId)) continue
+        // T318 round 2 — same resolution as the preference write above (D6),
+        // via the shared helper.
+        //
+        // ROUND 2 CORRECTION (found against the real §6 acceptance fixture,
+        // not reasoned about). The first cut of this fix threw here on the
+        // premise that "the solver only ever places a camper into a choice
+        // offered to their own tier" makes a mismatch unreachable. That
+        // premise is false: buildElectiveAssignments's `attends` predicate
+        // (src/engine/buildElectiveAssignments.js) does not gate placement by
+        // tier at all, and a camper whose sheet division matched no group
+        // (T279 §12.2a — `group_id` stays null rather than inventing one) is
+        // routinely FALLBACK-placed by the solver into whatever capacity
+        // remains, including a bundle-claimed occurrence its own (absent)
+        // tier cannot resolve. The acceptance fixture's own "Younger"-division
+        // camper hit exactly this and a hard throw failed the whole commit —
+        // turning an ordinary roster gap into a director-facing outage. So
+        // this mirrors the PREFERENCE loop's posture instead: skip the
+        // choice_id (null, exactly the pre-fix value for this one case,
+        // never for the now-correctly-resolved majority), keep the placement
+        // (it is real — the camper WAS put there), and say so via the same
+        // BUNDLE_TIER_NOT_COVERED finding the preference loop already emits,
+        // deduped so a camper hitting this on both a preference and an
+        // assignment for the same label is told once.
+        const resolved = resolveWriteChoiceId(a.labelKey, a.camper_id)
+        if (resolved.mismatch) {
+          const dedupeKey = `${a.camper_id}::${a.labelKey}`
+          if (!bundleTierMismatchKeys.has(dedupeKey)) {
+            bundleTierMismatchKeys.add(dedupeKey)
+            bundleTierMismatches.push({ camperId: a.camper_id, label: a.labelKey })
+          }
+        }
         write('elective_assignments', assignmentId, {
           run_id: runId,
           occurrence_id: a.occurrence_id,
           camper_id: a.camper_id,
           activity_id: a.activity_id,
-          choice_id: choiceIdByKey.get(a.labelKey) ?? null,
+          choice_id: resolved.mismatch ? null : resolved.choiceId,
           preference_rank: a.preference_rank ?? null,
           source: 'solver',
           solver_generation: solverGeneration,
@@ -664,14 +712,19 @@ export function commitElectiveRun(db, {
       // D6 (review round 2) — named per camper, not summarized as a count,
       // for the same T232 reason PREFERENCE_EDIT_HELD is above: a director
       // needs to know WHICH child this happened to, not how many.
+      //
+      // T318 round 2 — this array now also collects ASSIGNMENT-side
+      // mismatches (a solver fallback placement, not a ranked preference), so
+      // the wording no longer assumes "ranked": a camper can hit this with no
+      // preference at all for the label.
       ...bundleTierMismatches.map((m) => ({
         kind: 'BUNDLE_TIER_NOT_COVERED',
         camper_id: m.camperId,
         label: m.label,
         message:
-          `${camperById.get(m.camperId)?.display_name ?? 'A camper'} ranked “${m.label}”, which a bundle ` +
+          `${camperById.get(m.camperId)?.display_name ?? 'A camper'} is linked to “${m.label}”, which a bundle ` +
           'claims for specific divisions only, and this camper’s own division is not one of them — that ' +
-          'preference could not be placed. Nothing else on the sheet was affected.',
+          'could not be resolved to the bundle’s choice. Nothing else on the sheet was affected.',
       })),
     ],
   }

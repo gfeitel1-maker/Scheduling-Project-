@@ -73,6 +73,40 @@ non-ordinal word. Absence of evidence that ordering happened is not evidence of 
 costs are not symmetric: the safe default costs a blander label on legacy or edited data, the unsafe
 default is the defect the owner ruled must not exist.
 
+## (e) The fix was INERT in production, and CI on real ingest data is what caught it
+
+Rounds 1 and 2 were green on unit fixtures. T251's acceptance tests, which drive the REAL ingest path,
+then failed: `counts_by_rank` came back `{}` where SQL held 45 ranked rows, and a partition sum read 37
+against 52 rows. Measured on that fixture, the assignment-to-preference join hit 30 and **missed 15 of
+45 ranked placements** — so genuinely-ordered rank-1 placements read "One of their choices" to staff.
+The display rule was right and the data feeding it was not.
+
+**Cause:** `electron/ops/commitElectiveRun.js` resolved the assignment row's choice from
+`choiceIdByKey`, which by ADR D6 is never populated for a bundle-claimed label (the minting loop
+`continue`s on exactly those). The preference write a hundred lines earlier DID resolve such a label to
+the camper's own per-tier bundle choice. So every bundle placement stored `choice_id: null`, and
+`buildPreferenceLookup` returns null outright for those rows. The same join backs T297's edit
+affordance, so a "Change" on a bundle placement had been writing a SECOND preference row instead of
+correcting the one the director meant — a live defect, found on the way.
+
+**Fix:** one extracted `resolveWriteChoiceId(labelKey, camperId)` — the single D6 resolution rule —
+called from both write sites. The preference leg is a pure extraction, verified branch by branch
+against the pre-round commit.
+
+**Two wrong diagnoses were discarded on measurement before the right one was found.** Red Hat
+attributed the misses to `resolvePreferenceCoordinates`' tier-blind cell key; Maker attributed them to
+a "wrong-tier binding defect". Both refuted by the same probe: for all 15 rows the camper's tier EQUALS
+the occurrence's tier (tierMatchesOcc 15, tierDiffersFromOcc 0, noGroup 0). Comments naming the wrong
+cause were corrected, because a comment pointing at the wrong file is the overclaim this ticket exists
+to remove.
+
+**Governor's `throw` ruling was overridden by Maker, correctly.** I required the assignment-side tier
+mismatch to throw, on the premise that the solver only places a camper into a choice offered to their
+own tier. That premise is false — `attends` does not gate placement by tier, and the fixture holds a
+camper genuinely fallback-placed outside a bundle's scope. A throw would have failed routine commits.
+It degrades instead: the placement is kept, `choice_id` is null, and `BUNDLE_TIER_NOT_COVERED` is
+reported.
+
 ## Not in scope
 
 The solver. Auth, IPC shape, schema. `exportChildSchedule` (it carries no rank at all). The
@@ -134,3 +168,20 @@ shape, schema. `exportChildSchedule` (it carries no rank at all). The
 `templateOccurrences` residual inside the export input, which cannot fabricate a rank — an unbindable
 preference falls to the whole-run join arm or to the safe default. De-duplicating the two copies of the
 `NOT_TOP_CHOICE` message literal, which are now both correct.
+
+**The ADR D6 per-tier scope gap, which is what still blocks this fix reaching real data.** A
+bundle-claimed label has no choice at all for a tier no bundle covers: `commitElectiveRun.js:488`
+suppresses the plain choice for the whole LABEL while a bundle's scope is PER TIER, and `:508-512` then
+drops the preference row entirely while the assignment is still written with its rank and a null
+`choice_id`. There is therefore nothing to join TO, and no read-side change can recover those rows. On
+the T251 fixture all 15 misses are this, so **the join numbers did not move and this fix is currently
+inert there** — its correctness rests on unit fixtures where the tier matches. Closing the gap reaches
+solver placement semantics and D6's binding contract, so it is pinned, not fixed:
+`expect(summary.unordered_count).toBe(15)` plus an identity pin asserting all 15 are ranked assignments
+with **no persisted preference row at all**, which is that gap's signature and nothing else's (a real
+unordered-set camper HAS a preference row). Both are load-bearing, confirmed by perturbation.
+
+**A second live source of the same defect class**, found by Red Hat and not fixed:
+`electron/ops/setElectiveAssignment.js` resolves `choice_id` by label against every choice in the run,
+with no tier awareness. A bundle spanning two tiers mints two choices under one label, so a manual move
+into such an activity matches ambiguously and always stores `choice_id: null`. Needs its own ticket.
