@@ -187,9 +187,16 @@ export default function DraftRunView({
     .filter((r) => r.is_locked === 1 || r.is_locked === true)
     .map((r) => ({ camperId: r.camper_id, occurrenceId: r.occurrence_id, activityId: r.activity_id }))
 
+  // T250 B1 — commitElectiveRun's `findings` mixes THREE kinds
+  // (DANGLING_MANUAL_ASSIGNMENT, PREFERENCE_EDIT_HELD, BUNDLE_TIER_NOT_COVERED),
+  // all three carrying camper_id. Only the first gets the dangling-placement
+  // sentence and the Release lock action; the other two are real,
+  // already-computed findings with their OWN message from commitElectiveRun,
+  // rendered verbatim rather than hidden or mislabeled.
   const overCapacityRows = state.overCapacityOccurrences
-  const danglingRows = danglingFindings
-  const stateRowCount = overCapacityRows.length + danglingRows.length
+  const danglingRows = danglingFindings.filter((f) => f.kind === 'DANGLING_MANUAL_ASSIGNMENT')
+  const commitNotices = danglingFindings.filter((f) => f.kind !== 'DANGLING_MANUAL_ASSIGNMENT')
+  const stateRowCount = overCapacityRows.length + danglingRows.length + commitNotices.length
 
   const stateRows = [
     ...overCapacityRows.map((o, i) => (
@@ -215,6 +222,24 @@ export default function DraftRunView({
               {RELEASE_LOCK_LABEL}
             </button>
           )}
+        />
+      )
+    }),
+    ...commitNotices.map((f, i) => {
+      const index = overCapacityRows.length + danglingRows.length + i
+      // A unique key per finding: PREFERENCE_EDIT_HELD carries preference_id,
+      // BUNDLE_TIER_NOT_COVERED carries no per-row id at all (camper_id+label
+      // is what commitElectiveRun groups on), so no single field is present on
+      // both — the fallback below is what keeps two BUNDLE_TIER_NOT_COVERED
+      // findings for the same camper from colliding.
+      const noticeKey = f.preference_id ?? `${f.camper_id}-${f.label ?? f.kind}`
+      return (
+        <RunStateRow
+          key={`notice-${noticeKey}`}
+          testId={`run-state-notice-${noticeKey}`}
+          first={index === 0}
+          last={index === stateRowCount - 1}
+          message={f.message}
         />
       )
     }),

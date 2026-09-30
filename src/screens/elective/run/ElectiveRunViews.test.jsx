@@ -257,6 +257,49 @@ describe('T250 archive_when — Draft: DANGLING_MANUAL_ASSIGNMENT surfaced live'
 })
 
 // ---------------------------------------------------------------------------
+// T250 B1 — commitElectiveRun's `findings` return array mixes THREE kinds
+// (DANGLING_MANUAL_ASSIGNMENT, PREFERENCE_EDIT_HELD, BUNDLE_TIER_NOT_COVERED)
+// and every one of them carries a camper_id, so a caller that filters on
+// nothing prints the dangling-placement sentence for all three.
+// ---------------------------------------------------------------------------
+describe('T250 B1 — a mixed findings array renders each kind with its own sentence', () => {
+  const mixed = [
+    {
+      kind: 'DANGLING_MANUAL_ASSIGNMENT', assignment_id: 'a3',
+      camper_id: 'camper-3', occurrence_id: 'occ-gone', message: 'ignored — T250 owns this sentence',
+    },
+    {
+      kind: 'PREFERENCE_EDIT_HELD', preference_id: 'pref-1', camper_id: 'camper-1', reason: 'removed',
+      message: 'This file still lists a preference you removed by hand, so it was not added back.',
+    },
+    {
+      kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'camper-2', label: 'Sports Bundle',
+      message: 'Testcamper Bravo ranked “Sports Bundle”, which a bundle claims for specific divisions only.',
+    },
+  ]
+
+  it('renders the dangling sentence for DANGLING_MANUAL_ASSIGNMENT, and each OTHER finding under its own verbatim message, one row per finding, no action button', async () => {
+    render(<DraftRunView run={DRAFT_RUN} danglingFindings={mixed} {...catalogs()} />)
+
+    const danglingRow = await screen.findByTestId('run-state-dangling-a3')
+    expect(danglingRow.textContent).toMatch(/Testcamper Charlie's locked placement no longer matches this run/)
+    expect(within(danglingRow).getByRole('button', { name: 'Release lock' })).toBeTruthy()
+
+    const prefRow = screen.getByTestId('run-state-notice-pref-1')
+    expect(prefRow.textContent).toBe('This file still lists a preference you removed by hand, so it was not added back.')
+    expect(within(prefRow).queryByRole('button')).toBeNull()
+
+    const bundleRow = screen.getByTestId('run-state-notice-camper-2-Sports Bundle')
+    expect(bundleRow.textContent).toBe('Testcamper Bravo ranked “Sports Bundle”, which a bundle claims for specific divisions only.')
+    expect(within(bundleRow).queryByRole('button')).toBeNull()
+
+    // Exactly one row per finding — no collision, no dropped row.
+    const area = screen.getByTestId('run-state-area')
+    expect(area.querySelectorAll('[data-testid^="run-state-"]')).toHaveLength(3)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // archive_when: Draft — "move/lock"
 // ---------------------------------------------------------------------------
 describe('T250 archive_when — Draft: move/lock', () => {
