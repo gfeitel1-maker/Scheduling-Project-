@@ -928,6 +928,12 @@ export default function AssignmentPanel({
         scheduleTemplateId: templateId,
         scheduleWeekId: week?.week_id ?? null,
         runId,
+        // T320 (docs/adr/2026-09-30-elective-run-durability.md item 4) — the
+        // solve-time findings (including UNSUPPORTED_LINKED_CHOICE), so
+        // commitElectiveRun can persist the eligibility-class ones. This
+        // panel already held them in `result.findings` for the preview
+        // screen; nothing new is computed here.
+        findings: result.findings,
       })
       if (!out.ok) {
         onError?.(out.error)
@@ -1179,24 +1185,15 @@ export default function AssignmentPanel({
           <DraftRunView
             run={viewRun}
             onFinalized={onFinalized}
-            /* KNOWN GAP, not an oversight: danglingFindings are SESSION-SCOPED.
-               commitElectiveRun returns them, this panel holds them in React
-               state, and a run reopened in a later session therefore always
-               gets []. A genuinely dangling row is invisible until the next
-               regenerate, with no path to show it.
-
-               It cannot be derived durably today. commitElectiveRun computes
-               DANGLING_MANUAL_ASSIGNMENT against the occurrence set the
-               RENDERER just derived for this generation, and the persisted
-               `elective_occurrences` rows are NOT the same set: nothing in
-               electron/ ever deletes one, so the table accumulates the union of
-               every generation's occurrences. An occurrence a template edit
-               removed — precisely the case that makes a manual row dangle —
-               is still sitting in `elective_occurrences`, so a DB-derived check
-               in getElectiveRunHandler would find it present and report a clean
-               run. That is a false all-clear, which is worse than this silence.
-               Pruning `elective_occurrences` is the prerequisite; it is not
-               T250's to do. */
+            /* T320 (docs/adr/2026-09-30-elective-run-durability.md item 2)
+               CLOSED the gap this comment used to describe: commitElectiveRun
+               now prunes elective_occurrences through the op log on
+               regeneration, so DraftRunView's own getElectiveRun read derives
+               DANGLING_MANUAL_ASSIGNMENT durably and is the RENDERING SOURCE
+               once loaded (open question 1's resolution — see
+               DraftRunView.jsx's own `danglingRows` comment). This prop is
+               now only an immediate pre-refresh fallback, for the instant
+               between a commit and DraftRunView's own first read completing. */
             danglingFindings={viewRun.id === committedInfo?.runId ? danglingFindings : []}
             // T250 A3 — available whenever THIS session solved the run
             // (same as before) OR hydration succeeded for it, not only the

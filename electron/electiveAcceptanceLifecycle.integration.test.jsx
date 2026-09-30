@@ -163,17 +163,28 @@ describe('§6 (9b) — an outer location conflict blocks finalization', () => {
   }, 60_000)
 })
 
-describe('GAP — the run exceptions export cannot report eligibility or resource findings', () => {
-  // buildRunExceptionsExport hardcodes `eligibility: []`, `resource: []` and
-  // `not_computed: ['eligibility', 'resource']`
-  // (src/screens/elective/export/exportRunExceptions.js:44-49). This camp
-  // HAS a real eligibility exclusion (three Older campers asked for a cell
-  // only Younger has) and HAD a real resource conflict, and neither can
-  // appear there.
-  //
-  // INVERTED ASSERTION: it pins the emptiness AND the reality it fails to
-  // report, so it goes red the day someone wires either through.
-  it('reports both as not_computed while the camp really has one of each', async () => {
+// T320 (docs/adr/2026-09-30-elective-run-durability.md item 4) CLOSED the
+// gap this describe block used to document. _Prior: "GAP — the run
+// exceptions export cannot report eligibility or resource findings" pinned
+// buildRunExceptionsExport's hardcoded `not_computed: ['eligibility',
+// 'resource']` alongside the real exclusion/conflict this camp has, as an
+// inverted assertion that would go red once either was wired through._
+//
+// Both categories are now genuinely computed (not_computed is always []).
+// This fixture's OWN eligibility exclusion — three Older campers excluded by
+// a TIER mismatch (no Older cell on Wednesday) — is a DIFFERENT finding kind
+// than this slice persists: `elective_run_findings` is scoped to
+// UNSUPPORTED_LINKED_CHOICE only this slice (ELIGIBILITY_FINDING_KINDS,
+// deriveElectiveRunFindingId.js), a deliberate, product-open-question
+// narrowing (T320 open question 2), not an oversight — a tier-eligibility
+// exclusion is a different kind this ADR does not claim to persist. The
+// resource conflict this camp HAD was resolved before finalize (the
+// preceding describe block), so a final run's resource bucket is correctly,
+// provably [] by construction (finalizeElectiveRun's own gate already
+// refused any run that would have had one) — not because nothing was
+// computed.
+describe('the run exceptions export now genuinely computes eligibility and resource (T320)', () => {
+  it('reports not_computed: [] for a finalized run, with both buckets correctly empty for THIS fixture', async () => {
     const { buildRunExceptionsExport } = await import('../src/screens/elective/export/exportRunExceptions.js')
     const out = buildRunExceptionsExport({
       run: { id: run.id, name: run.name, status: 'final' },
@@ -181,11 +192,16 @@ describe('GAP — the run exceptions export cannot report eligibility or resourc
       unassigned: [],
       overCapacity: [],
     })
-    expect(out.not_computed).toEqual(['eligibility', 'resource'])
+    expect(out.not_computed).toEqual([])
+    // Neither bucket is FED any findings by this call (no eligibilityFindings/
+    // resourceConflicts arg), so both are legitimately empty for this specific
+    // assertion — the "not_computed" marker being gone is the property under
+    // test, not a claim that this camp has zero of either in the database.
     expect(out.eligibility).toEqual([])
     expect(out.resource).toEqual([])
 
-    // THE REALITY IT DOES NOT REPORT. Older campers wrote a Wednesday choice;
+    // THE FIXTURE'S REAL EXCLUSION, STILL TRUE, STILL A DIFFERENT KIND.
+    // Older campers wrote a Wednesday choice;
     // the route this run was solved against has no Older cell on Wednesday, so
     // they were excluded from it.
     const wednesday = camp.fixture.dayIdByLabel.get('Wednesday')

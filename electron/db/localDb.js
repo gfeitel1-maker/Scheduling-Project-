@@ -39,7 +39,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // campers.division_label/is_unattributed and elective_preferences.rank_kind/
 // coordinate_day_label/coordinate_period_label) all land in this file; 79 is the
 // current version.
-export const CURRENT_SCHEMA_VERSION = 82
+export const CURRENT_SCHEMA_VERSION = 83
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -3941,6 +3941,36 @@ const DEVICE_HEALTH_EVENTS_DDL = `
     })()
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (82, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v83 (T320, docs/adr/2026-09-30-elective-run-durability.md) — two additive
+  // columns on elective_assignment_runs (item 1) and the new elective_run_findings
+  // table (item 4). Guard form is `>= 82 && < 83`, never a bare `< 83` (this repo's
+  // standing gotcha — a bare comparison re-applies to every earlier version too).
+  if (getSchemaVersion(db) >= 82 && getSchemaVersion(db) < 83) {
+    db.transaction(() => {
+      const runCols = db.pragma('table_info(elective_assignment_runs)').map((c) => c.name)
+      if (!runCols.includes('snapshot_expected_rows')) {
+        db.exec('ALTER TABLE elective_assignment_runs ADD COLUMN snapshot_expected_rows INTEGER')
+      }
+      if (!runCols.includes('snapshot_digest')) {
+        db.exec('ALTER TABLE elective_assignment_runs ADD COLUMN snapshot_digest TEXT')
+      }
+      db.exec(`CREATE TABLE IF NOT EXISTS elective_run_findings (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        solver_generation TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        camper_id TEXT,
+        choice_id TEXT,
+        occurrence_id TEXT,
+        message TEXT NOT NULL
+      )`)
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (83, ?)').run(
       new Date().toISOString()
     )
   }

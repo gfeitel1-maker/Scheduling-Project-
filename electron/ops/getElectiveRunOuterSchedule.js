@@ -4,6 +4,9 @@
 // re-derive any of this a second time there.
 import { deriveElectiveRunOuterRows } from './electiveRunOuterSchedule.js'
 import { computeFinalizedAgainstStaleGeneration } from './finalizedAgainstStaleGeneration.js'
+// T320 item 1 — the ONE fragment every reader of snapshot completeness must
+// use (getElectiveRun.js is this module's cross-handler-parity sibling).
+import { computeSnapshotCompleteness } from './electiveRunSnapshotCompleteness.js'
 
 // T248 (docs/work/tickets/T248-child-schedule-export.md) — read-only,
 // per-camper outer schedule for a run, source for the child schedule
@@ -64,5 +67,9 @@ export function getElectiveRunOuterSchedule(db, { runId }) {
     })),
     runStatus: run?.status ?? null,
     finalizedAgainstStaleGeneration: computeFinalizedAgainstStaleGeneration(db, run),
+    // T320 item 1 — cross-handler parity with getElectiveRun.js: the SAME
+    // computeSnapshotCompleteness call, so the two can never disagree about
+    // whether a final run's export would be incomplete.
+    ...computeSnapshotCompleteness(db, run),
   }
 }

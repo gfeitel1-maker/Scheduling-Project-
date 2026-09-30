@@ -101,7 +101,13 @@ function buildUiProjectionInput() {
   const outer = camp.handlers.getElectiveRunOuterSchedule({ token: camp.token, runId: run.id })
   const ui = camp.handlers.getElectiveRun({ token: camp.token, runId: run.id })
   return {
-    run: { id: run.id, name: run.name, status: outer.runStatus, solver_generation: run.solver_generation, source_sha256: run.source_sha256 },
+    // T320 round 2, F2 — matches electiveRunProjectionInput.js's own
+    // `input.run` shape field-for-field: the completeness fields sourced from
+    // the SAME `ui` (getElectiveRun) call, never re-derived.
+    run: {
+      id: run.id, name: run.name, status: outer.runStatus, solver_generation: run.solver_generation, source_sha256: run.source_sha256,
+      snapshotIncomplete: ui.snapshotIncomplete, expectedSnapshotRows: ui.expectedSnapshotRows, heldSnapshotRows: ui.heldSnapshotRows,
+    },
     campers: list('campers'),
     groups: list('groups'),
     days: list('days_of_operation').map((d) => ({ ...d, name: d.label })),
@@ -112,6 +118,8 @@ function buildUiProjectionInput() {
     occurrences: ui.occurrences,
     staleCount: ui.staleCount,
     capacityRows: ui.overCapacityOccurrences,
+    eligibilityFindings: ui.eligibilityFindings,
+    resourceConflicts: ui.resourceConflicts,
   }
 }
 
@@ -171,5 +179,28 @@ describe('T198 Fix 1 — the finalized-run branch, exercised through MCP and CLI
     ])
     expect(names.has('Swim RENAMED')).toBe(false)
     expect(names.has('Swim')).toBe(true)
+  })
+
+  // T320 round 2, F2 — the whole point: before this fix, buildElectiveRunProjectionInput's
+  // `input.run` never carried snapshotIncomplete, so buildElectiveRunProjectionExport's guard
+  // (`run?.status === 'final' && run?.snapshotIncomplete`) was unreachable from these two
+  // surfaces — a partially-synced finalized run exported a complete-looking document on both.
+  // Last test in the file (deliberately, since it mutates elective_run_outer_snapshots).
+  it('MCP export and CLI export both REFUSE a finalized run whose outer snapshot is partially synced', () => {
+    const [row] = camp.db
+      .prepare('SELECT id FROM elective_run_outer_snapshots WHERE run_id = ? ORDER BY id LIMIT 1')
+      .all(run.id)
+    expect(row).toBeTruthy()
+    camp.db.prepare('DELETE FROM elective_run_outer_snapshots WHERE id = ?').run(row.id)
+
+    const mcp = exportElectiveAssignmentsTool({ run_id: run.id }, { dbPath: camp.file })
+    const cli = runElectivesCli({ action: 'export', runId: run.id, dbPath: camp.file, format: 'json' })
+
+    expect(mcp.ok).toBe(true)
+    expect(mcp.export.ok).toBe(false)
+    expect(mcp.export.error).toBe('SNAPSHOT_INCOMPLETE')
+    expect(cli.ok).toBe(true)
+    expect(cli.export.ok).toBe(false)
+    expect(cli.export.error).toBe('SNAPSHOT_INCOMPLETE')
   })
 })

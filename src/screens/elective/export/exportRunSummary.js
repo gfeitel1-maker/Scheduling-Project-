@@ -23,6 +23,10 @@ import { buildPreferenceLookup } from '../run/camperElectiveWeek.js'
 // see src/engine/rankKind.js's header.
 import { hasOrderingEvidence } from '../../../engine/rankKind.js'
 
+// T320 round 2, F3 — same standalone-caller reasoning as
+// exportChildSchedule.js's own guard: no live caller invokes this builder
+// directly today, but the ADR names it as one of the guarded builders and a
+// latent gap here is still a gap the moment a caller is added.
 export function buildRunSummaryExport({
   run,
   assignments = [],
@@ -32,6 +36,14 @@ export function buildRunSummaryExport({
   days = [],
   timeBlocks = [],
 } = {}) {
+  if (run?.status === 'final' && run?.snapshotIncomplete) {
+    return {
+      ok: false,
+      error: 'SNAPSHOT_INCOMPLETE',
+      expectedSnapshotRows: run.expectedSnapshotRows,
+      heldSnapshotRows: run.heldSnapshotRows,
+    }
+  }
   const counts_by_rank = {}
   let unordered_count = 0
   const preferenceFor = buildPreferenceLookup({ preferences, occurrences, days, timeBlocks })

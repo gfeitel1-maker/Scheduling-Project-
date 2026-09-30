@@ -77,4 +77,15 @@ describe('buildRunSummaryExport', () => {
       solver_generation: 'gen-1', source_hash: 'abc123',
     })
   })
+
+  // T320 round 2, F3 — no live caller invokes this builder directly today,
+  // but the ADR names it as one of the guarded builders, so a latent gap
+  // here is still a gap the moment a caller is added.
+  it('refuses a finalized run whose outer snapshot is incomplete, instead of a complete-looking summary', () => {
+    const result = buildRunSummaryExport({
+      run: { id: 'run-1', name: 'Week 1', status: 'final', snapshotIncomplete: true, expectedSnapshotRows: 10, heldSnapshotRows: 4 },
+      assignments: [], preferences: [], capacityRows: [],
+    })
+    expect(result).toEqual({ ok: false, error: 'SNAPSHOT_INCOMPLETE', expectedSnapshotRows: 10, heldSnapshotRows: 4 })
+  })
 })

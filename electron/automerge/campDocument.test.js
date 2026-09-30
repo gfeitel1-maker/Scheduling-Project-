@@ -225,10 +225,15 @@ describe('campDocument — Stage 1 Automerge doc for days_of_operation', () => {
     // automatically, to MODELED_ENTITIES — which forced it into GENESIS_ENTITIES and forced this
     // regeneration. An APPEND: no existing key changes meaning. Same acceptance as every
     // regeneration above.
+    //
+    // TWELFTH REGENERATION (T320, docs/adr/2026-09-30-elective-run-durability.md item 4):
+    // `elective_run_findings` added to PARENT_SCOPED_ENTITIES and so, automatically, to
+    // MODELED_ENTITIES — same forcing function. An APPEND. Same acceptance as every regeneration
+    // above.
     it('createEmptyDoc always clones the same frozen genesis root', () => {
       const doc = createEmptyDoc()
       expect(A.getHeads(doc)).toEqual([
-        'f6f96b0831040c98b24c4a55f7afe084b2f939c2a05817210a6fde85bdb4c12b',
+        '58437ad536652179974a67116cf62f09f948a19014c8bf683b1fec2b16fe7219',
       ])
       // Two independent calls must produce the SAME head every time — a genesis that varied per
       // call (e.g. one deriving fresh randomness or doing a runtime top-up) would defeat the whole

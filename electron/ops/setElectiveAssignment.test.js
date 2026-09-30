@@ -365,3 +365,58 @@ describe('setElectiveAssignment', () => {
     db.close()
   })
 })
+
+// T320 item 3 (docs/adr/2026-09-30-elective-run-durability.md) — the move
+// picker's contract: replacesAssignmentId.
+describe('setElectiveAssignment — T320 replacesAssignmentId', () => {
+  it('S6: a move tombstones the source row in the same transaction as the destination write', () => {
+    const { db, campId } = freshDb()
+    const runId = seedRun(db, campId)
+    // cam-1's existing row (occ-1, gaga) is the "source" being replaced by a
+    // move to... itself is not a real cross-occurrence move in this fixture
+    // (only one occurrence exists), so exercise the id-mismatch branch
+    // directly: a genuinely different destination id occurs only with a
+    // second occurrence, added here.
+    db.prepare('INSERT INTO elective_occurrences (id, run_id, elective_set_id, day_id, time_block_id, tier_id) VALUES (?, ?, ?, ?, ?, ?)')
+      .run('occ-2', runId, 'set-1', 'day-2', 'tb-1', 'tier-1')
+    const sourceId = deriveElectiveAssignmentId(runId, 'cam-1', 'occ-1')
+    const out = setElectiveAssignment(db, {
+      runId, camperId: 'cam-1', occurrenceId: 'occ-2', activityId: 'act-gaga',
+      locked: true, deviceId: 'dev-1', replacesAssignmentId: sourceId,
+    })
+    expect(out.ok).toBe(true)
+    expect(db.prepare('SELECT COUNT(*) c FROM elective_assignments WHERE id = ?').get(sourceId).c).toBe(0)
+    const dest = db.prepare('SELECT * FROM elective_assignments WHERE id = ?').get(out.assignmentId)
+    expect(dest.occurrence_id).toBe('occ-2')
+  })
+
+  it('S7: remove-only (occurrenceId: null) tombstones the placement', () => {
+    const { db, campId } = freshDb()
+    const runId = seedRun(db, campId)
+    const sourceId = deriveElectiveAssignmentId(runId, 'cam-1', 'occ-1')
+    const out = setElectiveAssignment(db, {
+      runId, camperId: 'cam-1', occurrenceId: null, activityId: null,
+      deviceId: 'dev-1', replacesAssignmentId: sourceId,
+    })
+    expect(out).toEqual({ ok: true, assignmentId: null, removed: sourceId })
+    expect(db.prepare('SELECT COUNT(*) c FROM elective_assignments WHERE id = ?').get(sourceId).c).toBe(0)
+  })
+
+  it('S8: ASSIGNMENT_NOT_FOUND when replacesAssignmentId names a row of another camper', () => {
+    const { db, campId } = freshDb()
+    const runId = seedRun(db, campId)
+    const otherCampersRow = deriveElectiveAssignmentId(runId, 'cam-2', 'occ-1')
+    const out = move(db, runId, { replacesAssignmentId: otherCampersRow })
+    expect(out).toEqual({ ok: false, error: 'ASSIGNMENT_NOT_FOUND' })
+  })
+
+  it('S8: ASSIGNMENT_NOT_FOUND on remove-only for a row that does not exist', () => {
+    const { db, campId } = freshDb()
+    const runId = seedRun(db, campId)
+    const out = setElectiveAssignment(db, {
+      runId, camperId: 'cam-1', occurrenceId: null, activityId: null,
+      deviceId: 'dev-1', replacesAssignmentId: 'no-such-row',
+    })
+    expect(out).toEqual({ ok: false, error: 'ASSIGNMENT_NOT_FOUND' })
+  })
+})

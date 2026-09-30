@@ -12,6 +12,7 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
 import { buildElectiveRunProjectionInput } from './electiveRunProjectionInput.js'
+import { buildElectiveRunProjectionExport } from '../../src/screens/elective/export/exportElectiveRunProjection.js'
 
 function makeTmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-projection-input-'))
@@ -60,6 +61,12 @@ describe('buildElectiveRunProjectionInput', () => {
       status: 'draft',
       solver_generation: 'gen-1',
       source_sha256: 'deadbeef',
+      // T320 round 2, F2 — a draft run has nothing to compare a snapshot
+      // against yet (computeSnapshotCompleteness's own no-op posture for a
+      // non-final run).
+      snapshotIncomplete: false,
+      expectedSnapshotRows: null,
+      heldSnapshotRows: null,
     })
     expect(result.input.campers).toEqual([])
     expect(result.input.groups).toEqual([])
@@ -71,6 +78,8 @@ describe('buildElectiveRunProjectionInput', () => {
     expect(result.input.occurrences).toEqual([])
     expect(result.input.staleCount).toBe(0)
     expect(result.input.capacityRows).toEqual([])
+    expect(result.input.eligibilityFindings).toEqual([])
+    expect(result.input.resourceConflicts).toEqual([])
     db.close()
   })
 
@@ -88,6 +97,42 @@ describe('buildElectiveRunProjectionInput', () => {
     const result = buildElectiveRunProjectionInput(db, { runId })
 
     expect(result.input.days).toEqual([expect.objectContaining({ id: dayId, label: 'Monday', name: 'Monday' })])
+    db.close()
+  })
+
+  // T320 round 2, F2 — the whole reason this threading exists: the MCP tools
+  // (scripts/mcp/tools.js) and the CLI (scripts/electivesCli.js) both call
+  // `buildElectiveRunProjectionExport(result.input)` with no other assembly
+  // step, so if `result.input.run.snapshotIncomplete` is not really wired
+  // through here, THIS is the one place that can be proven and no export
+  // integration harness is needed to prove it.
+  it('threads snapshotIncomplete/expectedSnapshotRows/heldSnapshotRows from getElectiveRun onto input.run, and the export builder refuses on it', () => {
+    const dir = makeTmpDir()
+    dirs.push(dir)
+    const { db, campId } = bootstrapDb(dir)
+    const runId = randomUUID()
+    db.prepare(
+      "INSERT INTO elective_assignment_runs (id, camp_id, name, status, snapshot_expected_rows, snapshot_digest) VALUES (?, ?, 'Run 1', 'final', 1, 'deadbeef')"
+    ).run(runId, campId)
+    // Partial sync: a stub-seeded row (identity columns only), same shape
+    // projections.js's ensureExists produces before every field has arrived.
+    db.prepare(
+      'INSERT INTO elective_run_outer_snapshots (id, run_id, camper_id, day_id, time_block_id) VALUES (?, ?, ?, ?, ?)'
+    ).run('snap-1', runId, 'cam-1', 'day-1', 'tb-1')
+
+    const result = buildElectiveRunProjectionInput(db, { runId })
+
+    expect(result.ok).toBe(true)
+    expect(result.input.run.snapshotIncomplete).toBe(true)
+    expect(result.input.run.expectedSnapshotRows).toBe(1)
+    expect(result.input.run.heldSnapshotRows).toBe(1)
+
+    // The MCP/CLI path: buildElectiveRunProjectionExport(result.input), no
+    // second assembly. It must refuse rather than export a complete-looking
+    // document with holes.
+    const exported = buildElectiveRunProjectionExport(result.input)
+    expect(exported.ok).toBe(false)
+    expect(exported.error).toBe('SNAPSHOT_INCOMPLETE')
     db.close()
   })
 })

@@ -16,6 +16,11 @@ const EMPTY = {
   overCapacityOccurrences: [], occurrences: [], preferences: [], choices: [],
   // T250 A0.2 — the run's own camper roster (with group_name resolved).
   campers: [],
+  // T320 (docs/adr/2026-09-30-elective-run-durability.md) — durable across a
+  // cold reopen, unlike the commit-response-only values this hook's own
+  // callers used to hold in local React state.
+  danglingFindings: [], eligibilityFindings: [], resourceConflicts: [],
+  snapshotIncomplete: false, expectedSnapshotRows: null, heldSnapshotRows: null,
 }
 
 export function useRunState(runId) {

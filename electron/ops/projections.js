@@ -1017,6 +1017,11 @@ export const PROJECTIONS = {
       // per-field writes.
       'finalized_at',
       'finalized_by',
+      // v83 (T320, docs/adr/2026-09-30-elective-run-durability.md item 1) —
+      // what a finalize expected the outer snapshot to contain. Both nullable
+      // until finalize, both ordinary per-field writes thereafter.
+      'snapshot_expected_rows',
+      'snapshot_digest',
     ],
     ensureExists: (db, id) => {
       const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
@@ -1185,6 +1190,43 @@ export const PROJECTIONS = {
         db,
         'INSERT OR IGNORE INTO elective_run_outer_snapshots (id, run_id, camper_id, day_id, time_block_id) VALUES (?, ?, ?, ?, ?)'
       ).run(id, runId, camperId, dayId, timeBlockId)
+    },
+  },
+
+  // T320 (v83, docs/adr/2026-09-30-elective-run-durability.md item 4). A
+  // commit-time eligibility finding, persisted so a later export can read it.
+  // Parent-scoped by run_id, same treatment as elective_run_outer_snapshots
+  // above. run_id/solver_generation/kind/message are all NOT NULL with no
+  // default (schema.sql) — same "wait for every NOT NULL column" shape as
+  // that entry's own ensureExists, for the same reason: an insert keyed on
+  // run_id alone would violate those constraints the moment the run_id op
+  // applied, before the other three fields ever arrived.
+  elective_run_findings: {
+    table: 'elective_run_findings',
+    key: 'id',
+    fields: ['run_id', 'solver_generation', 'kind', 'camper_id', 'choice_id', 'occurrence_id', 'message'],
+    ensureExists: (db, id, field, value, knownRow) => {
+      const table = 'elective_run_findings'
+      const readField = (wanted) => {
+        if (field === wanted) return value
+        if (knownRow && wanted in knownRow) return knownRow[wanted]
+        const prior = getStmt(
+          db,
+          'SELECT value FROM operations WHERE entity = ? AND entity_id = ? AND field = ? ORDER BY seq DESC LIMIT 1'
+        ).get(table, id, wanted)
+        return prior ? prior.value : null
+      }
+      const runId = readField('run_id')
+      const solverGeneration = readField('solver_generation')
+      const kind = readField('kind')
+      const message = readField('message')
+      if (runId == null || solverGeneration == null || kind == null || message == null) return
+
+      ensureRunStub(db, runId)
+      getStmt(
+        db,
+        'INSERT OR IGNORE INTO elective_run_findings (id, run_id, solver_generation, kind, message) VALUES (?, ?, ?, ?, ?)'
+      ).run(id, runId, solverGeneration, kind, message)
     },
   },
 

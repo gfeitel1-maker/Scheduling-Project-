@@ -42,6 +42,14 @@ function preV74Db(tag = 'v74-migrated') {
   db.pragma('foreign_keys = OFF')
   db.exec('DROP TABLE IF EXISTS elective_run_outer_snapshots')
   const cols = db.pragma('table_info(elective_assignment_runs)').map((c) => c.name)
+  // T320 (v83) also ALTERs this table — a genuinely pre-v74 shape has neither
+  // its own two columns NOR v83's two, so both must come off here too, or a
+  // re-migrate-forward re-adds finalized_at/finalized_by AFTER the still-
+  // present v83 columns, producing a column ORDER that disagrees with a
+  // fresh install (schema.sql declares finalized_at/finalized_by BEFORE
+  // snapshot_expected_rows/snapshot_digest).
+  if (cols.includes('snapshot_digest')) db.exec('ALTER TABLE elective_assignment_runs DROP COLUMN snapshot_digest')
+  if (cols.includes('snapshot_expected_rows')) db.exec('ALTER TABLE elective_assignment_runs DROP COLUMN snapshot_expected_rows')
   if (cols.includes('finalized_by')) db.exec('ALTER TABLE elective_assignment_runs DROP COLUMN finalized_by')
   if (cols.includes('finalized_at')) db.exec('ALTER TABLE elective_assignment_runs DROP COLUMN finalized_at')
   db.pragma('foreign_keys = ON')
@@ -122,6 +130,8 @@ describe('migration v74: fresh vs migrated equivalence', () => {
       'id', 'camp_id', 'schedule_week_id', 'schedule_template_id', 'tier_id', 'name', 'status',
       'source_filename', 'source_sha256', 'solver_version', 'solver_generation',
       'finalized_at', 'finalized_by',
+      // v83 (T320, docs/adr/2026-09-30-elective-run-durability.md item 1) — additive, last.
+      'snapshot_expected_rows', 'snapshot_digest',
     ])
     db.close()
   })
@@ -224,6 +234,15 @@ describe('migration v72->v74 composition: fresh vs a genuinely-migrated database
     initSchema(db) // fully migrate to current (v74), so schema.sql's tables/indexes all exist
     rollbackV74(db) // -> v73 shape
     rollbackV73(db) // -> v72 shape (real structural rebuild back down; no rows yet, so it cannot refuse)
+    // T320 (v83) also ALTERs elective_assignment_runs and rollbackV74 does not
+    // know about a migration that did not exist when it was written — same
+    // fix as preV74Db above, for the same reason (column ORDER parity on
+    // re-migrate-forward).
+    db.pragma('foreign_keys = OFF')
+    const runCols = db.pragma('table_info(elective_assignment_runs)').map((c) => c.name)
+    if (runCols.includes('snapshot_digest')) db.exec('ALTER TABLE elective_assignment_runs DROP COLUMN snapshot_digest')
+    if (runCols.includes('snapshot_expected_rows')) db.exec('ALTER TABLE elective_assignment_runs DROP COLUMN snapshot_expected_rows')
+    db.pragma('foreign_keys = ON')
     expect(getSchemaVersion(db)).toBe(72)
 
     db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp-1', 'Camp One', 'sec')").run()
@@ -265,9 +284,9 @@ describe('migration v72->v74 composition: fresh vs a genuinely-migrated database
     // "both are at 74" — so the literal moves with every schema bump. Kept as a
     // literal rather than CURRENT_SCHEMA_VERSION on both sides, because
     // comparing two things that are both derived would pass even if the chain
-    // stopped stamping entirely. v82 (T312, camp_seedlings) is the current head.
-    expect(getSchemaVersion(fresh)).toBe(82)
-    expect(getSchemaVersion(migrated)).toBe(82)
+    // stopped stamping entirely. v83 (T320, elective run durability) is the current head.
+    expect(getSchemaVersion(fresh)).toBe(83)
+    expect(getSchemaVersion(migrated)).toBe(83)
 
     fresh.close()
     migrated.close()

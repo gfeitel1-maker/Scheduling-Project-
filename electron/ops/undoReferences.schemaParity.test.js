@@ -166,6 +166,15 @@ const ACCEPTED_NON_REFERENCES = [
   // REFERENCES on any of them, schema.sql).
   { table: 'elective_run_outer_snapshots', column: 'run_id', reason: 'points at elective_assignment_runs, not a U2-deletable entity' },
   { table: 'elective_run_outer_snapshots', column: 'camper_id', reason: 'points at campers, not a U2-deletable entity' },
+  // T320 (v83, docs/adr/2026-09-30-elective-run-durability.md item 4, open question 3, verified
+  // directly against this file): run_id/camper_id mirror elective_run_outer_snapshots' own two
+  // entries above (elective_assignment_runs/campers, neither U2-deletable). occurrence_id points
+  // at elective_occurrences, which appears ONLY as a fromTable elsewhere in UNDO_REFERENCE_CHECKS,
+  // never as a toEntity — it is structurally outside this scanner's U2-deletable-target set, so
+  // no registration exists for ANY table's occurrence_id column, and this one is no exception.
+  { table: 'elective_run_findings', column: 'run_id', reason: 'points at elective_assignment_runs, not a U2-deletable entity' },
+  { table: 'elective_run_findings', column: 'camper_id', reason: 'points at campers, not a U2-deletable entity' },
+  { table: 'elective_run_findings', column: 'occurrence_id', reason: 'points at elective_occurrences, which is not a U2-deletable-target entity in this scanner (never a toEntity anywhere in UNDO_REFERENCE_CHECKS)' },
   // Events internal sub-schedule Slice 2 (docs/adr/2026-08-22-event-
   // internal-subschedule.md §3).
   { table: 'event_time_blocks', column: 'event_id', reason: 'points at events, not a U2-deletable entity' },

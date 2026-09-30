@@ -123,6 +123,12 @@ const PERMISSIONS_ADMIN_ONLY_EXCEPTIONS = {
       "PII-adjacent for the same reason as elective_assignments — it denormalizes a named child's " +
       'whole schedule.',
   },
+  elective_run_findings: {
+    reason:
+      'T320 (docs/adr/2026-09-30-elective-run-durability.md item 4): admin-only, same participant-' +
+      'domain posture as elective_run_outer_snapshots — a commit-time eligibility finding is part ' +
+      "of the director's own workspace, not a staff-reachable surface.",
+  },
 }
 
 // Round 2, M2. The dict above is per-entity PROSE, so it is written by hand on

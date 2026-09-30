@@ -9,6 +9,22 @@
 // which buildRunSummaryExport needs `days`/`timeBlocks` to compute (occurrences
 // was already threaded through for the roster). Precedented — exportChildSchedule.js
 // bumped 1 -> 2 for its own added-field change, no ADR required for either.
+//
+// T320 (docs/adr/2026-09-30-elective-run-durability.md item 4) bumps
+// format_version 2 -> 3: the JSON SHAPE of exceptions.eligibility/.resource
+// does not change, but their MEANING does — before, an empty array meant
+// "not computed"; after, it means "computed, zero findings." A consumer that
+// branched on not_computed before this change and stops checking it now
+// would silently misinterpret an old cached export against a new empty
+// result, or vice versa — exactly the silent-semantic-drift format_version
+// exists to flag even when the wire shape is byte-identical.
+//
+// T320 item 1 also adds a hard REFUSAL, additive to what was previously an
+// always-succeeding pure function: a final run whose outer snapshot is
+// incomplete (run.snapshotIncomplete, from getElectiveRun.js /
+// getElectiveRunOuterSchedule.js) refuses rather than emitting a
+// complete-looking document with holes. Every caller must check `.ok` before
+// treating the result as a document.
 import { buildChildScheduleExport } from './exportChildSchedule.js'
 import { buildActivityRosterExport } from './exportActivityRoster.js'
 import { buildRunExceptionsExport } from './exportRunExceptions.js'
@@ -26,14 +42,26 @@ export function buildElectiveRunProjectionExport({
   occurrences = [],
   staleCount = 0,
   capacityRows = [],
+  eligibilityFindings = [],
+  resourceConflicts = [],
   generatedAt = new Date().toISOString(),
 } = {}) {
+  if (run?.status === 'final' && run?.snapshotIncomplete) {
+    return {
+      ok: false,
+      error: 'SNAPSHOT_INCOMPLETE',
+      expectedSnapshotRows: run.expectedSnapshotRows,
+      heldSnapshotRows: run.heldSnapshotRows,
+    }
+  }
   return {
-    format_version: 2,
+    format_version: 3,
     generated_at: generatedAt,
     child_schedules: buildChildScheduleExport({ run, campers, groups, days, timeBlocks, outerRows, generatedAt }),
     activity_rosters: buildActivityRosterExport({ run, campers, groups, days, timeBlocks, outerRows, capacityRows, occurrences }),
-    exceptions: buildRunExceptionsExport({ campers, preferences, assignments, occurrences, staleCount, capacityRows }),
+    exceptions: buildRunExceptionsExport({
+      campers, preferences, assignments, occurrences, staleCount, capacityRows, eligibilityFindings, resourceConflicts,
+    }),
     summary: buildRunSummaryExport({ run, assignments, preferences, capacityRows, occurrences, days, timeBlocks }),
   }
 }

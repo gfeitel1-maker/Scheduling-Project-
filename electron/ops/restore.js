@@ -116,6 +116,8 @@ export const RESTORE_DECISIONS = Object.freeze({
     "refused: a remembered column mapping is re-confirmed, not restored — a director changing one supersedes it, and resurrecting a superseded reading is the confirmed-wrong binding ADR 6.1 warns about, re-applied by a route nobody chose",
   elective_run_outer_snapshots:
     'refused: PII — a named child\'s frozen schedule export, same posture as elective_assignments. SECURITY BOUNDARY. No setup UI to restore into either way (T243).',
+  elective_run_findings:
+    'refused: a commit-time finding, re-derivable from the SAME commit/regenerate that produced it — restoring one is nonsensical the way restoring elective_occurrences is (ADR D6-equivalent for T320). No setup UI to restore into either way.',
 })
 
 export const RESTORABLE_ENTITIES = Object.freeze(

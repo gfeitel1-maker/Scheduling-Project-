@@ -71,6 +71,11 @@ function summaryRows(summary) {
 
 export function buildElectiveRunWorkbook(input) {
   const projection = buildElectiveRunProjectionExport(input)
+  // T320 item 1 — the SAME refusal the JSON projection returns; a workbook
+  // is a rendering of that projection, so it refuses identically rather than
+  // building a complete-looking spreadsheet from a document that never
+  // existed.
+  if (projection.ok === false) return projection
   const workbook = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(workbook, aoaToSanitizedSheet(childSchedulesRows(projection.child_schedules)), 'Child Schedules')
   XLSX.utils.book_append_sheet(workbook, aoaToSanitizedSheet(activityRosterRows(projection.activity_rosters)), 'Activity Roster')
@@ -81,5 +86,7 @@ export function buildElectiveRunWorkbook(input) {
 
 export function exportElectiveRunWorkbookFile(input, filename = 'elective-run.xlsx') {
   const workbook = buildElectiveRunWorkbook(input)
+  if (workbook.ok === false) return workbook
   XLSX.writeFile(workbook, filename)
+  return { ok: true }
 }

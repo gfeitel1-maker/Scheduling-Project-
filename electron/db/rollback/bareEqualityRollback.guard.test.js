@@ -85,7 +85,15 @@ describe('rollback bare-equality schema_migrations guard', () => {
     // restore — none of these tables existed before v81 — so every authored
     // bundle is discarded, and the rollback says so rather than implying
     // reversibility.
-    expect(files.length).toBe(42)
+    //
+    // 43 is v83_down.js (T320). Deletes with `WHERE version >= 83`, so it
+    // satisfies the guard below on its own merits. It drops elective_run_findings
+    // outright and leaves the two new elective_assignment_runs columns
+    // (snapshot_expected_rows, snapshot_digest) in place rather than recreating a
+    // large, heavily-registered, replicated table — its entity REPLICATES, so the
+    // drop removes only this device's projection of the findings, not the peer
+    // copies.
+    expect(files.length).toBe(43)
   })
 
   it('every rollback file uses `>= N`, never bare `= N`, to delete its schema_migrations row', () => {

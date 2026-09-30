@@ -836,7 +836,16 @@ describe('scripts/mcp/tools.js — elective run machine access', () => {
       const { dbPath, runId } = bootstrapRun(dir)
       const result = getElectiveAssignmentRunTool({ run_id: runId }, { dbPath })
       expect(result.ok).toBe(true)
-      expect(result.run).toEqual({ id: runId, name: 'Run 1', status: 'draft', solver_generation: 'gen-1', source_sha256: 'deadbeef' })
+      expect(result.run).toEqual({
+        id: runId,
+        name: 'Run 1',
+        status: 'draft',
+        solver_generation: 'gen-1',
+        source_sha256: 'deadbeef',
+        snapshotIncomplete: false,
+        expectedSnapshotRows: null,
+        heldSnapshotRows: null,
+      })
       expect(result.assignments).toEqual([])
     })
   })
@@ -862,9 +871,10 @@ describe('scripts/mcp/tools.js — elective run machine access', () => {
       const { dbPath, runId } = bootstrapRun(dir)
       const result = exportElectiveAssignmentsTool({ run_id: runId }, { dbPath })
       expect(result.ok).toBe(true)
-      // T318 bumped the combined projection 1 -> 2 (additive `unordered_count` on the
-      // summary); this pin tracks src/screens/elective/export/exportElectiveRunProjection.js.
-      expect(result.export.format_version).toBe(2)
+      // format_version 2 -> 3: exceptions.eligibility/.resource_conflicts shape
+      // changed (T320); this pin tracks
+      // src/screens/elective/export/exportElectiveRunProjection.js.
+      expect(result.export.format_version).toBe(3)
       expect(result.export).toHaveProperty('child_schedules')
       expect(result.export).toHaveProperty('activity_rosters')
       expect(result.export).toHaveProperty('exceptions')

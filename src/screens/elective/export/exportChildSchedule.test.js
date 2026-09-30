@@ -112,4 +112,25 @@ describe('buildChildScheduleExport', () => {
     expect(schedule[0]).toMatchObject({ kind: 'linked_choice', label: 'Bundle' })
     expect(schedule[0].memberRows).toHaveLength(2)
   })
+
+  // T320 round 2, F3 — the guard belongs in the builder itself so
+  // FinalRunView.jsx's plain "Export" button (its only standalone caller)
+  // cannot bypass it by calling this function directly.
+  it('refuses a finalized run whose outer snapshot is incomplete, instead of a complete-looking document', () => {
+    const result = buildChildScheduleExport({
+      run: { id: 'run-1', name: 'Week 1', status: 'final', snapshotIncomplete: true, expectedSnapshotRows: 10, heldSnapshotRows: 4 },
+      campers: [{ id: 'camper-a', display_name: 'Camper A', group_id: 'group-1' }],
+      groups: [], days: [], timeBlocks: [], outerRows: [],
+    })
+    expect(result).toEqual({ ok: false, error: 'SNAPSHOT_INCOMPLETE', expectedSnapshotRows: 10, heldSnapshotRows: 4 })
+  })
+
+  it('does not refuse a draft run even with snapshotIncomplete set (the field only means something once final)', () => {
+    const result = buildChildScheduleExport({
+      run: { id: 'run-1', name: 'Week 1', status: 'draft', snapshotIncomplete: true },
+      campers: [], groups: [], days: [], timeBlocks: [], outerRows: [],
+    })
+    expect(result.ok).not.toBe(false)
+    expect(result.format_version).toBe(2)
+  })
 })

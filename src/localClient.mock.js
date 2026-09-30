@@ -587,6 +587,8 @@ export const MOCK_WRITE_ALLOWLIST = {
     'source_filename', 'source_sha256', 'solver_version', 'solver_generation',
     // v74 (T243, docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-slices.md)
     'finalized_at', 'finalized_by',
+    // v83 (T320, docs/adr/2026-09-30-elective-run-durability.md item 1)
+    'snapshot_expected_rows', 'snapshot_digest',
   ],
   elective_occurrences: ['run_id', 'elective_set_id', 'day_id', 'time_block_id', 'tier_id'],
   camp_seedlings: ['camp_id', 'kind', 'match_key', 'payload', 'status', 'confirmed_by', 'confirmed_at'],
@@ -610,6 +612,12 @@ export const MOCK_WRITE_ALLOWLIST = {
     'activity_name', 'location_id', 'location_name', 'span_blocks', 'solver_generation',
     'cell_kind', 'choice_id', 'is_linked_choice', 'choice_label',
   ],
+  // T320 (v83, docs/adr/2026-09-30-elective-run-durability.md item 4). Mirrors
+  // PROJECTIONS.elective_run_findings.fields — no write path exists in the
+  // mock (the mock's own commitElectiveRun degrades `findings: []`, see
+  // below), but ipcSurfaceParity.test.js requires this parity mirror to
+  // exist regardless.
+  elective_run_findings: ['run_id', 'solver_generation', 'kind', 'camper_id', 'choice_id', 'occurrence_id', 'message'],
   conflicts: [],
 }
 
@@ -1969,12 +1977,13 @@ export const mockShoresh = {
     return {
       ok: true,
       runId,
-      // T250 — the real handler returns DANGLING_MANUAL_ASSIGNMENT findings
-      // here (electron/ops/commitElectiveRun.js). The mock has no
-      // occurrence-diff pass to compute them, so this degrades to the
-      // "nothing to report" value rather than being omitted, and a caller
-      // destructuring the real shape does not crash in browser-dev — same
-      // additive-degradation discipline as getElectiveRun above.
+      // T320 — this still degrades to [] at COMMIT time (the mock has no
+      // occurrence-diff pass to compute DANGLING_MANUAL_ASSIGNMENT here), but
+      // that gap is now closed one layer up: getElectiveRun's own read-time
+      // filter (above) derives it from state.elective_assignments/
+      // elective_occurrences, which THIS commit's full-replace of
+      // elective_occurrences already produces correct input for — so the
+      // mock's DraftRunView still shows the row, just not from this field.
       findings: [],
       counts: {
         campers: parsed.campers?.length ?? 0,
@@ -2046,7 +2055,39 @@ export const mockShoresh = {
         group_id: c.group_id ?? null, external_id: c.external_id ?? null,
         is_unattributed: c.is_unattributed ?? null, group_name: groupById.get(c.group_id) ?? null,
       }))
-    return { rows, occurrences, preferences, choices, campers, staleCount: 0, finalizedAgainstStaleGeneration: false, overCapacityOccurrences: [] }
+    // T320 (docs/adr/2026-09-30-elective-run-durability.md item 2) — the mock's
+    // commitElectiveRun already fully replaces state.elective_occurrences for
+    // this runId on every commit (see below), which is a STRONGER prune than
+    // production needs but produces an identical end state for this filter's
+    // purpose: a manual row pointing at an occurrence no longer in that set.
+    const liveOccurrenceIds = new Set((state.elective_occurrences || []).filter((o) => o.run_id === runId).map((o) => o.id))
+    const danglingFindings = (state.elective_assignments || [])
+      .filter((a) => a.run_id === runId && a.source === 'manual' && !liveOccurrenceIds.has(a.occurrence_id))
+      .map((a) => ({
+        kind: 'DANGLING_MANUAL_ASSIGNMENT', assignment_id: a.id, camper_id: a.camper_id, occurrence_id: a.occurrence_id,
+        message:
+          'A placement made by hand sits in a period this schedule no longer has, so nobody will see ' +
+          'it on the grid — move it to a period that still exists, or remove it.',
+      }))
+    // T320 item 4 — the mock has no generation-filter machinery wired here
+    // (same additive-degradation posture as staleCount/overCapacityOccurrences
+    // above); returns every persisted finding for this run rather than
+    // filtering by solver_generation.
+    const eligibilityFindings = (state.elective_run_findings || []).filter((f) => f.run_id === runId)
+    // T320 round 2, F1 — snapshotIncomplete: false is an HONEST value here,
+    // not a degraded stand-in for the real computeSnapshotCompleteness digest
+    // check: this mock's finalizeElectiveRun (below) always writes the
+    // COMPLETE outer-snapshot set synchronously, in one call, with no sync
+    // layer in between that could leave a row partially written — there is
+    // no partial-sync state this single-device browser mock can ever be in.
+    // (This is unrelated to, and was not the cause of, F1's real bug: the
+    // production digest mismatched on its own is_linked_choice boolean/
+    // integer type, which this mock's plain-object rows never encounter.)
+    return {
+      rows, occurrences, preferences, choices, campers, staleCount: 0, finalizedAgainstStaleGeneration: false,
+      overCapacityOccurrences: [], danglingFindings, eligibilityFindings, resourceConflicts: [],
+      snapshotIncomplete: false, expectedSnapshotRows: null, heldSnapshotRows: null,
+    }
   },
   // T244 — mirrors finalizeElectiveRunHandler's success/ALREADY_FINAL shape.
   // The mock has no template_slots-derived occurrence diff and no
@@ -2082,11 +2123,30 @@ export const mockShoresh = {
   // never fire (same additive-degradation posture as the stubs above); the row it writes
   // carries the real derived id, source and is_locked so the screen is not
   // built against a lie.
-  async setElectiveAssignment({ runId, camperId, occurrenceId, activityId, locked = false } = {}) {
+  // T320 (docs/adr/2026-09-30-elective-run-durability.md item 3) — mirrors
+  // setElectiveAssignment.js's replacesAssignmentId contract: a move
+  // tombstones (here: removes) the source row alongside the destination
+  // write; a remove-only call (occurrenceId/activityId both null) just
+  // removes it.
+  async setElectiveAssignment({ runId, camperId, occurrenceId = null, activityId = null, locked = false, replacesAssignmentId = null } = {}) {
     const state = loadState()
     const run = (state.elective_assignment_runs || []).find((r) => r.id === runId)
     if (!run) return { ok: false, error: 'run not found' }
     if (run.status === 'final') return { ok: false, error: 'RUN_NOT_DRAFT' }
+
+    if (replacesAssignmentId != null) {
+      const owned = (state.elective_assignments || []).find((a) => a.id === replacesAssignmentId)
+      if (!owned || owned.run_id !== runId || owned.camper_id !== camperId) {
+        return { ok: false, error: 'ASSIGNMENT_NOT_FOUND' }
+      }
+    }
+
+    if (occurrenceId == null && activityId == null && replacesAssignmentId != null) {
+      state.elective_assignments = (state.elective_assignments || []).filter((a) => a.id !== replacesAssignmentId)
+      saveState(state)
+      return { ok: true, assignmentId: null, removed: replacesAssignmentId }
+    }
+
     const assignmentId = deriveElectiveAssignmentId(runId, camperId, occurrenceId)
     const row = {
       id: assignmentId, run_id: runId, occurrence_id: occurrenceId, camper_id: camperId,
@@ -2094,7 +2154,9 @@ export const mockShoresh = {
       solver_generation: run.solver_generation ?? null,
     }
     state.elective_assignments = [
-      ...(state.elective_assignments || []).filter((a) => a.id !== assignmentId),
+      ...(state.elective_assignments || []).filter(
+        (a) => a.id !== assignmentId && !(replacesAssignmentId != null && a.id === replacesAssignmentId)
+      ),
       row,
     ]
     saveState(state)
@@ -2766,6 +2828,8 @@ export const mockShoresh = {
       (state.elective_choices || []).filter((c) => c.run_id === runId).map((c) => c.id)
     )
     state.elective_run_outer_snapshots = (state.elective_run_outer_snapshots || []).filter((s) => s.run_id !== runId)
+    // T320 (docs/adr/2026-09-30-elective-run-durability.md item 4).
+    state.elective_run_findings = (state.elective_run_findings || []).filter((f) => f.run_id !== runId)
     state.elective_assignments = (state.elective_assignments || []).filter((a) => a.run_id !== runId)
     state.elective_preferences = (state.elective_preferences || []).filter((p) => p.run_id !== runId)
     state.elective_choice_offerings = (state.elective_choice_offerings || []).filter((o) => !choiceIds.has(o.choice_id))

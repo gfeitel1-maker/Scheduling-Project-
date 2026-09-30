@@ -19,7 +19,15 @@ import { hasOrderingEvidence } from '../../../engine/rankKind.js'
 // as START_REVISION_LABEL so every caller stays untouched by this change.
 export const START_REVISION_LABEL = 'Start a new version'
 
-export const RELEASE_LOCK_LABEL = 'Release lock'
+// T320 (docs/adr/2026-09-30-elective-run-durability.md item 3; Governor
+// ruling R7) — RELEASE_LOCK_LABEL/'Release lock' is REMOVED: it was the
+// dangling row's only offered remedy and could not resolve the condition
+// (see docs/work/specs/2026-09-30-t320-dangling-replace-picker.md's "Why
+// Release lock alone is the wrong remedy"). Replaced by a picker that moves
+// the camper to a live occurrence, or — when the run has none — a genuinely
+// resolvable "Remove placement" action.
+export const DANGLING_MOVE_PLACEHOLDER = 'Move to…'
+export const REMOVE_PLACEMENT_LABEL = 'Remove placement'
 
 export const STALE_GENERATION_COPY =
   'This run was finalized before a later change on another device synced in. It is out of date.'

@@ -8,26 +8,70 @@
 // discipline and the same "refusals are returned, not thrown" convention as
 // commitElectiveRun.js / finalizeElectiveRun.js.
 import { randomUUID } from 'node:crypto'
-import { appendOp, runAtomic } from './operations.js'
+import { appendOp, runAtomic, DELETE_FIELD } from './operations.js'
 import { deriveElectiveAssignmentId, electiveChoiceLabelKey } from './electiveDerivedIds.js'
 import { mapWithCollisions } from '../../src/ingest/mapWithCollisions.js'
 import { electiveGenerationVisibleFragment } from './electiveGenerationPredicate.js'
 import { resolveOfferingCapacity } from './electiveOfferingCapacity.js'
 
 /**
- * @returns {{ok:true, assignmentId:string}
+ * @returns {{ok:true, assignmentId:string|null, removed?:string}
  *  | {ok:false, error:'RUN_NOT_DRAFT'}
  *  | {ok:false, error:'OCCURRENCE_FULL', capacity:number, filled:number}
  *  | {ok:false, error:'INVALID_CAPACITY', activityId:string, setActivityId:string, message:string}
  *  | {ok:false, error:'CAMPER_INELIGIBLE'}
+ *  | {ok:false, error:'ASSIGNMENT_NOT_FOUND'}
  *  | {ok:false, error:string}}
  */
 export function setElectiveAssignment(db, {
-  runId, camperId, occurrenceId, activityId, locked = false, authorUserId = null, deviceId,
+  runId, camperId, occurrenceId, activityId, locked = false,
+  // T320 (docs/adr/2026-09-30-elective-run-durability.md item 3) — the
+  // dangling-row picker's move/remove contract. Given, the source row named
+  // by this id is tombstoned in the SAME transaction as the destination
+  // write (a move), or is the ONLY thing this call does (a remove-only, see
+  // the guard just below).
+  replacesAssignmentId = null,
+  authorUserId = null, deviceId,
 }) {
   const run = db.prepare('SELECT * FROM elective_assignment_runs WHERE id = ?').get(runId)
   if (!run) return { ok: false, error: 'run not found' }
   if (run.status === 'final') return { ok: false, error: 'RUN_NOT_DRAFT' }
+
+  // T320 item 3 — REMOVE-ONLY. occurrenceId/activityId both null with
+  // replacesAssignmentId given means "remove the placement, no new
+  // occurrence": short-circuits ALL destination validation below (there is
+  // no destination), verifies ownership, and tombstones the row.
+  if (occurrenceId == null && activityId == null && replacesAssignmentId != null) {
+    const owned = db
+      .prepare('SELECT run_id, camper_id FROM elective_assignments WHERE id = ?')
+      .get(replacesAssignmentId)
+    if (!owned || owned.run_id !== runId || owned.camper_id !== camperId) {
+      return { ok: false, error: 'ASSIGNMENT_NOT_FOUND' }
+    }
+    try {
+      runAtomic(db, () => {
+        appendOp(db, {
+          entity: 'elective_assignments', entity_id: replacesAssignmentId, field: DELETE_FIELD, value: 1,
+          author_user_id: authorUserId, device_id: deviceId, client_write_id: randomUUID(),
+        })
+      })
+    } catch (e) {
+      return { ok: false, error: e.message }
+    }
+    return { ok: true, assignmentId: null, removed: replacesAssignmentId }
+  }
+
+  // A MOVE's source-row ownership check happens up front too, so a bad
+  // replacesAssignmentId is refused before any destination write is even
+  // validated — matching the remove-only branch's own posture.
+  if (replacesAssignmentId != null) {
+    const owned = db
+      .prepare('SELECT run_id, camper_id FROM elective_assignments WHERE id = ?')
+      .get(replacesAssignmentId)
+    if (!owned || owned.run_id !== runId || owned.camper_id !== camperId) {
+      return { ok: false, error: 'ASSIGNMENT_NOT_FOUND' }
+    }
+  }
 
   const occurrence = db.prepare('SELECT * FROM elective_occurrences WHERE id = ?').get(occurrenceId)
   // Plain string, not a machine code: an occurrence that does not exist at all
@@ -195,6 +239,17 @@ export function setElectiveAssignment(db, {
       for (const [field, value] of Object.entries(fields)) {
         appendOp(db, {
           entity: 'elective_assignments', entity_id: assignmentId, field, value,
+          author_user_id: authorUserId, device_id: deviceId, client_write_id: randomUUID(),
+        })
+      }
+      // T320 item 3 — a genuine cross-occurrence MOVE (the destination id
+      // differs from the source), inside the SAME transaction as the
+      // destination write: either both land or neither does. Re-tombstoning
+      // an already-deleted row on a retry is a no-op (idempotent), same
+      // guarantee deleteElectiveRun.js's own doc comment states.
+      if (replacesAssignmentId != null && replacesAssignmentId !== assignmentId) {
+        appendOp(db, {
+          entity: 'elective_assignments', entity_id: replacesAssignmentId, field: DELETE_FIELD, value: 1,
           author_user_id: authorUserId, device_id: deviceId, client_write_id: randomUUID(),
         })
       }

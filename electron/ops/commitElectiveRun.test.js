@@ -533,6 +533,91 @@ describe('commitElectiveRun', () => {
       .get(deriveElectiveAssignmentId(runId, 'cam-2', 'occ-1'))
     expect(survivor.source).toBe('solver')
   })
+
+  // T320 item 2 — S3/S4: a regeneration PRUNES the occurrence it no longer
+  // derives, through the op log, WITHOUT cascading into the manual assignment
+  // that still points at it.
+  it('prunes a stale occurrence through the op log on regeneration, without cascading into the dangling assignment', () => {
+    const { db, campId } = freshDb()
+    seedForLock(db, campId)
+    const runId = randomUUID()
+    const GONE = [
+      ...OCCURRENCE_FIXTURE,
+      { id: 'occ-2', elective_set_id: 'set-1', day_id: 'day-2', time_block_id: 'tb-1', tier_id: 'tier-1' },
+    ]
+    expect(commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1 electives', runId,
+      parsed: PARSED, assignments: ASSIGNMENTS, occurrences: GONE,
+    }).ok).toBe(true)
+    const moved = setElectiveAssignment(db, {
+      runId, camperId: 'cam-1', occurrenceId: 'occ-2', activityId: 'act-gaga',
+      locked: true, deviceId: 'dev-1',
+    })
+    expect(moved.ok).toBe(true)
+    expect(db.prepare('SELECT COUNT(*) c FROM elective_occurrences WHERE id = ?').get('occ-2').c).toBe(1)
+
+    const again = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1 electives', runId,
+      parsed: PARSED, assignments: ASSIGNMENTS, occurrences: OCCURRENCE_FIXTURE,
+    })
+    expect(again.ok).toBe(true)
+
+    // S3a — the op-log DELETE_FIELD op exists (assert the OP, not merely the
+    // absent row).
+    const deleteOp = db
+      .prepare("SELECT * FROM operations WHERE entity = 'elective_occurrences' AND entity_id = 'occ-2' AND field = '__deleted__'")
+      .get()
+    expect(deleteOp).toBeTruthy()
+
+    // S3b — the projected row is gone.
+    expect(db.prepare('SELECT COUNT(*) c FROM elective_occurrences WHERE id = ?').get('occ-2').c).toBe(0)
+
+    // S4 — the manual assignment pointing at the pruned occurrence still
+    // EXISTS (not cascaded).
+    const danglingId = deriveElectiveAssignmentId(runId, 'cam-1', 'occ-2')
+    const dangling = db.prepare('SELECT source, occurrence_id FROM elective_assignments WHERE id = ?').get(danglingId)
+    expect(dangling).toMatchObject({ source: 'manual', occurrence_id: 'occ-2' })
+  })
+})
+
+// T320 item 4 — S9: eligibility findings (UNSUPPORTED_LINKED_CHOICE) are
+// PERSISTED at commit time, not only returned in the response.
+describe('commitElectiveRun — T320 item 4, persisted eligibility findings', () => {
+  it('persists an UNSUPPORTED_LINKED_CHOICE finding passed in via `findings`', () => {
+    const { db, campId } = freshDb()
+    const out = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1 electives',
+      parsed: PARSED, assignments: ASSIGNMENTS, occurrences: OCCURRENCE_FIXTURE,
+      findings: [
+        {
+          kind: 'UNSUPPORTED_LINKED_CHOICE',
+          choice_ids: ['choice-a'],
+          occurrence_ids: ['occ-1'],
+          message: 'lists a period that is not part of this run.',
+        },
+      ],
+    })
+    expect(out.ok).toBe(true)
+    const rows = db.prepare('SELECT * FROM elective_run_findings WHERE run_id = ?').all(out.runId)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      kind: 'UNSUPPORTED_LINKED_CHOICE',
+      choice_id: 'choice-a',
+      occurrence_id: 'occ-1',
+      camper_id: null,
+    })
+  })
+
+  it('does not persist a finding kind outside the eligibility allowlist', () => {
+    const { db, campId } = freshDb()
+    const out = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1 electives',
+      parsed: PARSED, assignments: ASSIGNMENTS, occurrences: OCCURRENCE_FIXTURE,
+      findings: [{ kind: 'SOME_OTHER_KIND', message: 'not eligibility' }],
+    })
+    expect(out.ok).toBe(true)
+    expect(db.prepare('SELECT COUNT(*) c FROM elective_run_findings WHERE run_id = ?').get(out.runId).c).toBe(0)
+  })
 })
 
 // T265 ROUND 5 — owner ruling: "we are reading someone's data. we are not

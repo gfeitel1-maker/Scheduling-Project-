@@ -136,4 +136,15 @@ describe('buildActivityRosterExport — F3: real capacityRows shape (no dayId/ti
 
     expect(result[0]).toMatchObject({ capacity: null })
   })
+
+  // T320 round 2, F3 — no live caller invokes this builder directly today,
+  // but the ADR names it as one of the guarded builders, so a latent gap
+  // here is still a gap the moment a caller is added.
+  it('refuses a finalized run whose outer snapshot is incomplete, instead of a complete-looking roster', () => {
+    const result = buildActivityRosterExport({
+      run: { id: 'run-1', status: 'final', snapshotIncomplete: true, expectedSnapshotRows: 10, heldSnapshotRows: 4 },
+      campers: [], groups: [], days: [], timeBlocks: [], outerRows: [],
+    })
+    expect(result).toEqual({ ok: false, error: 'SNAPSHOT_INCOMPLETE', expectedSnapshotRows: 10, heldSnapshotRows: 4 })
+  })
 })

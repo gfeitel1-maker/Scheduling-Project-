@@ -9,9 +9,10 @@
 // permissions.js's ENTITIES, so authorize() default-denies staff) — this file
 // deliberately does not re-implement a second gate, and nothing here is
 // reachable from src/components/layout/navSections.js.
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { localClient } from '../../../localClient'
 import { describeWriteFailure } from '../../../utils/writeErrorMessage'
+import { prefersReducedMotion } from '../../../styles/shared'
 import { S, RunStateArea, RunStateRow, RunIdentity, RunError } from './RunStateRows.jsx'
 import { useRunState } from './useRunState.js'
 import CamperWeekPanel from './CamperWeekPanel.jsx'
@@ -23,7 +24,7 @@ import { CELL_CHOICE } from '../../../engine/rankKind.js'
 import DeleteRunDialog from './DeleteRunDialog.jsx'
 import { A } from '../assignment/assignmentStyles.js'
 import {
-  RELEASE_LOCK_LABEL, danglingMessage, occurrenceLabel, overCapacityMessage,
+  DANGLING_MOVE_PLACEHOLDER, REMOVE_PLACEMENT_LABEL, danglingMessage, occurrenceLabel, overCapacityMessage,
   resolveCamperDisambiguators, satisfactionSummary, stalenessOfferMessage,
 } from './runStateCopy.js'
 
@@ -36,6 +37,19 @@ const styles = {
   camperDisambiguator: { fontSize: 11, color: 'var(--text-secondary)' },
   actionsBand: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 },
   actionsHint: { fontSize: 12, color: 'var(--text-secondary)' },
+  // T320 (docs/adr/2026-09-30-elective-run-durability.md item 3;
+  // docs/work/specs/2026-09-30-t320-dangling-replace-picker.md).
+  danglingMoveSelect: {
+    fontFamily: 'inherit',
+    fontSize: 13,
+    padding: '5px 8px',
+    borderRadius: 6,
+    border: '1px solid color-mix(in srgb, var(--accent) 45%, var(--border))',
+    background: 'var(--surface)',
+    color: 'var(--text)',
+    maxWidth: 280,
+    cursor: 'pointer',
+  },
   findingsList: { margin: '8px 0 0', paddingLeft: 20, fontSize: 12 },
   // The pairing: the state, then its remedy, with nothing between them — same
   // shape as FinalRunView's own stale-generation pairing.
@@ -48,7 +62,22 @@ const styles = {
     background: 'color-mix(in srgb, var(--accent) 12%, var(--surface))',
     padding: '0 14px 10px',
   },
+  // T320 round 2, F5 — the dangling row's removal on success, per the spec's
+  // "Reduced motion" section: T250's existing collapse transition REUSED
+  // verbatim (S.mergeCard's own `transition` string, src/styles/shared.js) —
+  // not a new animation, not new token values. `overflow: hidden` is what
+  // makes the max-height collapse actually hide the content rather than
+  // just resize an already-visible box.
+  danglingRowCollapse: {
+    overflow: 'hidden',
+    transition: S.mergeCard.transition,
+  },
 }
+
+// var(--motion-settle), src/index.css — the collapse's own duration, kept in
+// sync with the CSS transition above by hand (no DOM API cheaply reads a
+// custom property's computed value before the transition needs to start).
+const DANGLING_ROW_COLLAPSE_MS = 340
 
 const FINALIZE_MESSAGES = {
   STALE_OUTER_SCHEDULE:
@@ -122,6 +151,31 @@ function FinalizeRefusalRow({ refusal, onRegenerate, lockedAssignments }) {
   )
 }
 
+// T320 round 2, F5 — renders nothing; owns exactly one collapse timer, tied
+// to ITS OWN mount/unmount via a `[]`-deps effect. Deliberately a component,
+// not a ref-backed function in DraftRunView's body: a plain function that
+// mutates a shared ref from an event-handler call chain trips eslint-plugin-
+// react-hooks' `refs` rule (refs should only be touched inside an effect or
+// a DOM event handler, never a function reachable from render that isn't
+// itself one of those) — one timer component per collapsing row sidesteps
+// that by keeping ref-equivalent state (the timer id) local to an effect
+// that only ever runs once, cleanly tied to this row's own lifetime rather
+// than a ref array shared — and mutated — across every row.
+function DanglingRowCollapseTimer({ assignmentId, setMovedAway, setCollapsingRows }) {
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setMovedAway((m) => [...m, assignmentId])
+      setCollapsingRows((c) => c.filter((f) => f.assignment_id !== assignmentId))
+    }, DANGLING_ROW_COLLAPSE_MS)
+    return () => clearTimeout(timer)
+    // assignmentId is this row's own stable key and setMovedAway/
+    // setCollapsingRows are useState setters (React guarantees their
+    // identity is stable across renders) — the effect is meant to run
+    // exactly once, on mount.
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  return null
+}
+
 export default function DraftRunView({
   run, danglingFindings = [], onRegenerate, onFinalized, onBack,
   activities = [], days = [], timeBlocks = [], templateOccurrences = [],
@@ -133,7 +187,45 @@ export default function DraftRunView({
 }) {
   const { state, setState, loaded, loadError, reload } = useRunState(run.id)
   const [error, setError] = useState(null)
-  const [released, setReleased] = useState([])
+  // T320 — a picker MOVE/REMOVE result, tracked separately from the (now
+  // removed) "Release lock" session-state: a distinct array rather than
+  // overloading a differently-named one, per the spec's own instruction ("a
+  // reader of released.includes(id) today reasonably expects 'the lock was
+  // released'"). Used only as the pre-`loaded` fallback filter — see
+  // danglingRows below.
+  const [movedAway, setMovedAway] = useState([])
+  // T320 round 2, F5 — findings currently mid-collapse (select/button
+  // succeeded, the row is animating out but has not yet left the DOM).
+  // Stores the FINDING, not just its id: `reload()` fires in the same tick
+  // as the collapse timer starts, and the durable read it brings back no
+  // longer contains this finding at all — without a locally-held copy,
+  // `danglingRows` below would lose the row (and its animation) the instant
+  // the reload resolves, well before the transition has had time to run.
+  const [collapsingRows, setCollapsingRows] = useState([])
+  // The one place a successful move/remove turns into the row's departure —
+  // reduced motion skips straight to the end state (spec's "Reduced motion"),
+  // everyone else gets the shared collapse transition first. No timer is
+  // started here: `DanglingRowCollapseTimer` below owns that, one instance
+  // per collapsing row, so each timer's lifecycle is tied to that ONE row's
+  // own mount/unmount rather than to a ref shared across every row (which
+  // would need its bookkeeping mutated from a plain function, not an effect
+  // — see that component's own comment).
+  function scheduleDanglingRowRemoval(finding) {
+    if (prefersReducedMotion()) {
+      setMovedAway((m) => [...m, finding.assignment_id])
+      return
+    }
+    setCollapsingRows((c) => [...c, finding])
+  }
+  // Per-row in-flight guard for the move/remove select or button — keyed to
+  // one assignment id so one row's write does not disable every other row's
+  // control.
+  const [movingId, setMovingId] = useState(null)
+  // T320 spec "Keyboard and focus" — a director keyboard-focused on a
+  // dangling row's control loses their focus target when the row is removed
+  // on success; this gives them a stable landing spot, mirroring
+  // RunStateRow's own alert-row ref.focus() precedent.
+  const summaryRef = useRef(null)
   const [finalizing, setFinalizing] = useState(false)
   // { error, findings } for the refusal row, or null when nothing to say.
   const [finalizeRefusal, setFinalizeRefusal] = useState(null)
@@ -192,10 +284,12 @@ export default function DraftRunView({
 
   // One write path for every lock/move on this screen, so lock semantics do not
   // drift between the table and the "Release lock" button.
-  async function writeAssignment({ camperId, occurrenceId, activityId, locked }) {
+  async function writeAssignment({ camperId, occurrenceId, activityId, locked, replacesAssignmentId = null }) {
     setError(null)
     try {
-      const out = await localClient.setElectiveAssignment({ runId: run.id, camperId, occurrenceId, activityId, locked })
+      const out = await localClient.setElectiveAssignment({
+        runId: run.id, camperId, occurrenceId, activityId, locked, replacesAssignmentId,
+      })
       if (!out?.ok) {
         setError(out?.message ?? out?.error ?? 'That placement could not be saved.')
         return false
@@ -265,33 +359,52 @@ export default function DraftRunView({
     }
   }
 
-  // RELEASING THE LOCK DOES NOT RESOLVE THE DANGLING CONDITION, so this row
-  // must not disappear as though it had.
+  // T320 item 3 (docs/adr/2026-09-30-elective-run-durability.md;
+  // docs/work/specs/2026-09-30-t320-dangling-replace-picker.md; Governor
+  // rulings R6/R7) — THE ACTUAL REMEDY. "Release lock" alone left `source`
+  // unchanged, so the identical row re-reported on the next regenerate; a
+  // MOVE routes through `replacesAssignmentId`, which tombstones the source
+  // row in the same transaction as the destination write
+  // (setElectiveAssignment.js), so the finding clears mechanically — no
+  // second regenerate needed.
   //
-  // setElectiveAssignment writes source:'manual' on EVERY write through that
-  // path (electron/ops/setElectiveAssignment.js), and commitElectiveRun derives
-  // DANGLING_MANUAL_ASSIGNMENT from source='manual' rows whose occurrence_id is
-  // outside the derived occurrence set — keyed on `source`, never on
-  // `is_locked`. Unlocking leaves `source` exactly where it was, so the very
-  // next regenerate re-reports the identical row. Round 1 collapsed the row
-  // away on a successful write, which told the director it was fixed.
-  //
-  // What the write DOES do is real and worth keeping: the lock is genuinely
-  // released. So the action retires once performed and the row stays, stating
-  // the condition that is still true. The spec chose this remedy without
-  // knowing `source` stays 'manual'; a remedy that actually closes the
-  // condition has to move the placement onto an occurrence this run still has,
-  // which is a picker and copy this ticket was not asked to invent.
-  async function releaseLock(finding) {
+  // `locked: true`, not `false` — mirrors the move/lock table's own
+  // manual-move convention: a move made by hand must survive the next
+  // regenerate, not be handed straight back to the solver.
+  async function moveDangling(finding, occurrenceId) {
     const row = rows.find((r) => r.id === finding.assignment_id)
+    setMovingId(finding.assignment_id)
     const ok = await writeAssignment({
       camperId: finding.camper_id,
-      occurrenceId: finding.occurrence_id,
+      occurrenceId,
       activityId: row?.activity_id ?? null,
-      locked: false,
+      locked: true,
+      replacesAssignmentId: finding.assignment_id,
     })
+    setMovingId(null)
     if (!ok) return
-    setReleased((r) => [...r, finding.assignment_id])
+    scheduleDanglingRowRemoval(finding)
+    summaryRef.current?.focus()
+    await reload()
+  }
+
+  // R7 — the zero-live-occurrence branch: a control that can genuinely
+  // resolve the condition (unlike the old "Release lock", which never could)
+  // via setElectiveAssignment's remove-only shape
+  // (occurrenceId: null, activityId: null, replacesAssignmentId given).
+  async function removeDangling(finding) {
+    setMovingId(finding.assignment_id)
+    const ok = await writeAssignment({
+      camperId: finding.camper_id,
+      occurrenceId: null,
+      activityId: null,
+      replacesAssignmentId: finding.assignment_id,
+    })
+    setMovingId(null)
+    if (!ok) return
+    scheduleDanglingRowRemoval(finding)
+    summaryRef.current?.focus()
+    await reload()
   }
 
   // T250 A1/A2 — locks this run. finalizeElectiveRun's real return shape
@@ -383,9 +496,40 @@ export default function DraftRunView({
   // already-computed findings with their OWN message from commitElectiveRun,
   // rendered verbatim rather than hidden or mislabeled.
   const overCapacityRows = state.overCapacityOccurrences
-  const danglingRows = danglingFindings.filter((f) => f.kind === 'DANGLING_MANUAL_ASSIGNMENT')
+  // T320 (docs/adr/2026-09-30-elective-run-durability.md item 2, open
+  // question 1) — the RENDERING SOURCE is now the durable getElectiveRun-
+  // returned `state.danglingFindings`, which survives a cold reopen; the
+  // `danglingFindings` PROP (commitElectiveRun's own session-scoped response
+  // field) is used only as an immediate pre-refresh fallback, before this
+  // screen's own read has completed (`loaded` false). Once loaded, the
+  // durable value wins even if it is empty — an empty durable read
+  // legitimately means "nothing dangling right now", which must not be
+  // shadowed by a stale prop from an earlier action this session.
+  const durableDanglingRows = (loaded
+    ? state.danglingFindings
+    : danglingFindings.filter((f) => f.kind === 'DANGLING_MANUAL_ASSIGNMENT')
+  // `movedAway` filters here too: the moment a move/remove succeeds the row
+  // must vanish immediately once its collapse animation completes.
+  ).filter((f) => !movedAway.includes(f.assignment_id))
+  // T320 round 2, F5 — `reload()` (called right after scheduleDanglingRowRemoval
+  // starts the collapse) resolves with a durable read that ALREADY excludes
+  // this finding, well before the collapse animation has had time to run.
+  // Without this merge, the row would vanish from `durableDanglingRows` the
+  // instant reload() settles — skipping the animation this fix exists to add.
+  // `collapsingRows` keeps a local copy so the row stays rendered (and
+  // visually collapsing) until its own timer moves it into `movedAway`. Kept
+  // as a SEPARATE array (not spread into `durableDanglingRows`) and rendered
+  // by its OWN `.map()` below — a collapsing row is already disabled and
+  // needs no live `onChange`/`onClick` handler, and keeping it out of the
+  // array that `.map()` iterates alongside `moveDangling`/`removeDangling`
+  // calls avoids an eslint-plugin-react-hooks `refs`-rule false positive
+  // this exact merge tripped in testing (see git history if it recurs).
+  const collapsingOnlyRows = collapsingRows.filter(
+    (f) => !movedAway.includes(f.assignment_id) && !durableDanglingRows.some((r) => r.assignment_id === f.assignment_id)
+  )
+  const danglingRows = durableDanglingRows
   const commitNotices = danglingFindings.filter((f) => f.kind !== 'DANGLING_MANUAL_ASSIGNMENT')
-  const stateRowCount = overCapacityRows.length + danglingRows.length + commitNotices.length
+  const stateRowCount = overCapacityRows.length + danglingRows.length + collapsingOnlyRows.length + commitNotices.length
 
   const stateRows = [
     ...overCapacityRows.map((o, i) => (
@@ -399,23 +543,106 @@ export default function DraftRunView({
     )),
     ...danglingRows.map((f, i) => {
       const index = overCapacityRows.length + i
+      const camperName = rows.find((r) => r.camper_id === f.camper_id)?.camper_name ?? f.camper_id
+      // T320 round 2, F5 — a collapsing row is still mid-write's aftermath
+      // visually, so its control stays disabled through the animation too.
+      const isCollapsing = collapsingRows.some((r) => r.assignment_id === f.assignment_id)
+      const isMoving = movingId === f.assignment_id || isCollapsing
+      // R6 (spec "What replaces Release lock") — mutually exclusive per row
+      // render: a picker when this run has a live occurrence to move into,
+      // else the R7 "Remove placement" action. Never both. (A row that was
+      // just moved/removed this session is already excluded from
+      // danglingRows above, so no `movedAway` check is needed here.)
+      const action = templateOccurrences.length > 0 ? (
+        <select
+          data-testid={`run-state-dangling-move-${f.assignment_id}`}
+          aria-label={`Move ${camperName}'s placement`}
+          style={styles.danglingMoveSelect}
+          disabled={isMoving}
+          value=""
+          onChange={(e) => {
+            const occurrenceId = e.target.value
+            if (occurrenceId) moveDangling(f, occurrenceId)
+          }}
+        >
+          <option value="" disabled>{DANGLING_MOVE_PLACEHOLDER}</option>
+          {templateOccurrences.map((o) => (
+            <option key={o.id} value={o.id}>{labelForTemplateOccurrence(o)}</option>
+          ))}
+        </select>
+      ) : (
+        <button
+          className="press-97"
+          style={S.btnSecondary}
+          data-testid={`run-state-dangling-remove-${f.assignment_id}`}
+          disabled={isMoving}
+          onClick={() => removeDangling(f)}
+        >
+          {REMOVE_PLACEMENT_LABEL}
+        </button>
+      )
       return (
-        <RunStateRow
-          key={`dm-${f.assignment_id}`}
-          testId={`run-state-dangling-${f.assignment_id}`}
-          first={index === 0}
-          last={index === stateRowCount - 1}
-          message={danglingMessage({ camperName: rows.find((r) => r.camper_id === f.camper_id)?.camper_name ?? f.camper_id })}
-          action={released.includes(f.assignment_id) ? null : (
-            <button className="press-97" style={S.btnSecondary} onClick={() => releaseLock(f)}>
-              {RELEASE_LOCK_LABEL}
-            </button>
-          )}
-        />
+        // T320 round 2, F5 — the collapse wrapper. RunStateRow itself is
+        // untouched (its own header explains why nothing there animates by
+        // default); this one row re-earns motion by wrapping it, not by
+        // changing the shared component.
+        <div
+          key={`dm-wrap-${f.assignment_id}`}
+          data-testid={`run-state-dangling-collapse-${f.assignment_id}`}
+          style={{
+            ...styles.danglingRowCollapse,
+            maxHeight: isCollapsing ? 0 : 200,
+            opacity: isCollapsing ? 0 : 1,
+          }}
+        >
+          <RunStateRow
+            testId={`run-state-dangling-${f.assignment_id}`}
+            first={index === 0}
+            last={index === stateRowCount - 1}
+            message={danglingMessage({ camperName })}
+            action={action}
+          />
+          {isCollapsing ? (
+            <DanglingRowCollapseTimer
+              assignmentId={f.assignment_id}
+              setMovedAway={setMovedAway}
+              setCollapsingRows={setCollapsingRows}
+            />
+          ) : null}
+        </div>
+      )
+    }),
+    // T320 round 2, F5 — the write already succeeded and `reload()` already
+    // dropped this finding from the durable read; only the exit animation is
+    // still playing. No `onChange`/`onClick` here at all — there is nothing
+    // left to do with a row that is already gone, durably, and disabled is
+    // indistinguishable from absent-of-handler for a control the director
+    // can no longer usefully interact with.
+    ...collapsingOnlyRows.map((f, i) => {
+      const index = overCapacityRows.length + danglingRows.length + i
+      const camperName = rows.find((r) => r.camper_id === f.camper_id)?.camper_name ?? f.camper_id
+      return (
+        <div
+          key={`dm-wrap-${f.assignment_id}`}
+          data-testid={`run-state-dangling-collapse-${f.assignment_id}`}
+          style={{ ...styles.danglingRowCollapse, maxHeight: 0, opacity: 0 }}
+        >
+          <RunStateRow
+            testId={`run-state-dangling-${f.assignment_id}`}
+            first={index === 0}
+            last={index === stateRowCount - 1}
+            message={danglingMessage({ camperName })}
+          />
+          <DanglingRowCollapseTimer
+            assignmentId={f.assignment_id}
+            setMovedAway={setMovedAway}
+            setCollapsingRows={setCollapsingRows}
+          />
+        </div>
       )
     }),
     ...commitNotices.map((f, i) => {
-      const index = overCapacityRows.length + danglingRows.length + i
+      const index = overCapacityRows.length + danglingRows.length + collapsingOnlyRows.length + i
       // A unique key per finding: PREFERENCE_EDIT_HELD carries preference_id,
       // BUNDLE_TIER_NOT_COVERED carries no per-row id at all (camper_id+label
       // is what commitElectiveRun groups on), so no single field is present on
@@ -452,7 +679,7 @@ export default function DraftRunView({
       <RunError message={error ?? loadError} />
       {loaded ? (
         <>
-          <div data-testid="run-satisfaction-summary" style={styles.summary}>
+          <div data-testid="run-satisfaction-summary" style={styles.summary} ref={summaryRef} tabIndex={-1}>
             {satisfactionSummary({ rows, preferences: state.preferences, occurrences: state.occurrences, days, timeBlocks })}
           </div>
 

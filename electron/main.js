@@ -2066,6 +2066,10 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     const {
       token, name, sourceFilename = null, sourceSha256 = null, parsed, assignments = [],
       occurrences = [], scheduleWeekId = null, scheduleTemplateId = null, runId = null,
+      // T320 (docs/adr/2026-09-30-elective-run-durability.md item 4) — the
+      // eligibility findings buildElectiveAssignments already computed at
+      // solve time, passed through so commitElectiveRun.js can persist them.
+      findings = [],
     } = args ?? {}
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const session = requireAuthorized(db, { token, action: 'elective_assignment_runs.write' })
@@ -2089,6 +2093,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       scheduleWeekId,
       scheduleTemplateId,
       runId,
+      findings,
     })
   }
 
@@ -2162,15 +2167,27 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // validates the argument shape, and forwards. Appended after the finalize
   // handler per the ADR's merge-order note; do not reorder.
   function setElectiveAssignmentHandler(args) {
-    const { token, runId, camperId, occurrenceId, activityId, locked = false } = args ?? {}
+    const {
+      token, runId, camperId, occurrenceId = null, activityId = null, locked = false,
+      // T320 (docs/adr/2026-09-30-elective-run-durability.md item 3) — the
+      // move/remove picker's contract.
+      replacesAssignmentId = null,
+    } = args ?? {}
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const session = requireAuthorized(db, { token, action: 'elective_assignment_runs.write' })
     if (!isNonEmptyString(runId)) throw new Error('runId is required')
     if (!isNonEmptyString(camperId)) throw new Error('camperId is required')
-    if (!isNonEmptyString(occurrenceId)) throw new Error('occurrenceId is required')
-    if (!isNonEmptyString(activityId)) throw new Error('activityId is required')
+    // REMOVE-ONLY (occurrenceId/activityId both null, replacesAssignmentId
+    // given) is the one shape that skips the usual non-empty-string
+    // requirement on occurrenceId/activityId — there is no destination to
+    // validate. Every other call still requires both, exactly as before.
+    const isRemoveOnly = occurrenceId == null && activityId == null && replacesAssignmentId != null
+    if (!isRemoveOnly) {
+      if (!isNonEmptyString(occurrenceId)) throw new Error('occurrenceId is required')
+      if (!isNonEmptyString(activityId)) throw new Error('activityId is required')
+    }
     return setElectiveAssignment(db, {
-      runId, camperId, occurrenceId, activityId, locked,
+      runId, camperId, occurrenceId, activityId, locked, replacesAssignmentId,
       authorUserId: session?.userId ?? null, deviceId,
     })
   }
