@@ -24,7 +24,7 @@ import { CELL_CHOICE } from '../../../engine/rankKind.js'
 import DeleteRunDialog from './DeleteRunDialog.jsx'
 import { A } from '../assignment/assignmentStyles.js'
 import {
-  DANGLING_MOVE_PLACEHOLDER, REMOVE_PLACEMENT_LABEL, danglingMessage, occurrenceLabel, overCapacityMessage,
+  DANGLING_MOVE_PLACEHOLDER, FINALIZE_MESSAGES, REMOVE_PLACEMENT_LABEL, danglingMessage, occurrenceLabel, overCapacityMessage,
   resolveCamperDisambiguators, satisfactionSummary, stalenessOfferMessage,
 } from './runStateCopy.js'
 
@@ -78,20 +78,6 @@ const styles = {
 // sync with the CSS transition above by hand (no DOM API cheaply reads a
 // custom property's computed value before the transition needs to start).
 const DANGLING_ROW_COLLAPSE_MS = 340
-
-const FINALIZE_MESSAGES = {
-  STALE_OUTER_SCHEDULE:
-    "This run's schedule changed on another device since you last regenerated. Finalizing now would lock in an outdated version.",
-  OUTER_RESOURCE_CONFLICT:
-    'A location or activity this run depends on is now double-booked on the main schedule. Fix the conflict there, then finalize again.',
-  ALREADY_FINAL: 'This run was already finalized — on this device or another. Reloading it now.',
-  // Round 2 FIX 4 (Red Hat, MEDIUM) — a cold-opened run's status is never
-  // re-synced (viewRun is a snapshot from when the screen opened), so a
-  // regenerate re-checks status itself before re-entering the solve/commit
-  // flow. Reuses FinalizeRefusalRow's generic branch, which renders with no
-  // action button — the Re-derive control is withheld by construction.
-  FINALIZED_ELSEWHERE: "This run was finalized on another device while you had it open. It can't be changed — reload it to see the final version.",
-}
 
 // T250 A2 — the inline refusal a Finalize attempt produced. One row per the
 // verbatim copy the ticket specifies, `findings` rendered as a plain list
@@ -447,12 +433,14 @@ export default function DraftRunView({
 
   // Round 2 FIX 4 (Red Hat, MEDIUM) — viewRun is a snapshot captured when
   // this screen opened and is NEVER re-synced, so a run another device
-  // finalized after that still renders here as Draft with a live
-  // Regenerate. commitElectiveRun does not itself refuse a commit onto an
-  // already-final run (it only skips re-asserting status/name/
-  // source_filename on an existing row) — so regenerating would re-enter
-  // AssignmentPanel's solve/commit flow and silently write over an
-  // immutable run.
+  // finalized after that still renders here as Draft with a live Regenerate.
+  //
+  // T320 part 2 item 2 — commitElectiveRun NOW refuses a commit onto an
+  // already-final run ({ ok: false, error: 'RUN_IS_FINAL' }, before any
+  // write). That is the guarantee; this re-read is the COURTESY, and it is
+  // why it stays: it stops the solve before the director waits for it, rather
+  // than letting them sit through a regenerate that will be refused at the
+  // end.
   //
   // Scoped to the COLD path (coldRegenerate) only: a run this session
   // itself just solved or hydrated moments ago finalizing elsewhere in that
@@ -474,8 +462,8 @@ export default function DraftRunView({
       } catch {
         // Best-effort: an unreadable status check must not block a
         // regenerate that would otherwise be fine — commitElectiveRun's own
-        // ALREADY_FINAL/finalizedAgainstStaleGeneration checks still stand
-        // behind this at finalize/export time.
+        // RUN_IS_FINAL refusal stands behind this at commit time, and its
+        // finalizedAgainstStaleGeneration check at finalize/export time.
       }
     }
     onRegenerate?.(args)

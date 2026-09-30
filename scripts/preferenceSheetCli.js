@@ -401,7 +401,15 @@ export function runPreferenceSheetCli({
         return { ...report, ok: false, error: `commit failed: ${e.message}`, exitCode: 1 }
       }
 
-      if (!outcome.ok) return { ...report, ok: false, error: outcome.error, exitCode: 1 }
+      if (!outcome.ok) {
+        // T320 part 2 item 2 — commitElectiveRun's lifecycle refusals travel as
+        // CODES. A machine door must not emit a bare code either; it is mapped
+        // to a sentence here, exactly as the panel maps it to director copy.
+        const error = outcome.error === 'RUN_IS_FINAL'
+          ? `run ${importedRunId} is already finalized and cannot be re-committed`
+          : outcome.error
+        return { ...report, ok: false, error, exitCode: 1 }
+      }
       return { ...report, ok: true, runId: outcome.runId, exitCode: 0 }
     }
 

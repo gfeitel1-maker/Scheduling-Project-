@@ -1907,6 +1907,10 @@ export const mockShoresh = {
     }
     const state = loadState()
     const existing = (state.elective_assignment_runs || []).find((r) => r.id === providedRunId)
+    // T320 part 2 item 2 parity — without this, browser-dev lets a regenerate
+    // through that electron:dev refuses, which is the exact divergence the
+    // T229 parity note above exists to prevent.
+    if (existing?.status === 'final') return { ok: false, error: 'RUN_IS_FINAL' }
     const runId = providedRunId ?? `run-${(state.elective_assignment_runs || []).length + 1}`
     const distinctTierIds = new Set(occurrences.map((o) => o.tier_id).filter((t) => t != null))
     const tierId = distinctTierIds.size === 1 ? [...distinctTierIds][0] : null

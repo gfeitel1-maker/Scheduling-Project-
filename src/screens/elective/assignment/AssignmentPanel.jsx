@@ -48,6 +48,9 @@ import { A } from './assignmentStyles.js'
 // staff). A nav row would have meant re-implementing that gate.
 import RunList from '../run/RunList.jsx'
 import DraftRunView from '../run/DraftRunView.jsx'
+// T320 part 2 item 2 — the ONE copy string for RUN_IS_FINAL, shared with
+// DraftRunView rather than duplicated here.
+import { FINALIZE_MESSAGES } from '../run/runStateCopy.js'
 import FinalRunView from '../run/FinalRunView.jsx'
 
 const emptyStyles = {
@@ -963,7 +966,10 @@ export default function AssignmentPanel({
         findings: result.findings,
       })
       if (!out.ok) {
-        onError?.(out.error)
+        // T320 part 2 item 2 — commitElectiveRun's lifecycle refusals travel
+        // as CODES. A code must not reach a director, so it is mapped here,
+        // through DraftRunView's own map rather than a second string.
+        onError?.(out.error === 'RUN_IS_FINAL' ? FINALIZE_MESSAGES.RUN_IS_FINAL : out.error)
         setPhase('preview')
         return
       }

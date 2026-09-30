@@ -214,6 +214,20 @@ export function commitElectiveRun(db, {
     ? db.prepare('SELECT status FROM elective_assignment_runs WHERE id = ?').get(runId)
     : null
 
+  // T320 part 2 — a finalized run is immutable (ADR 2026-09-23 decision (a):
+  // "no reopen IPC exists"). T244 round 2 stopped this function REASSERTING
+  // status/name/source_filename onto an existing row; it never refused the
+  // commit. DraftRunView's guardedRegenerate carries a best-effort
+  // listElectiveRuns status re-read precisely because this refusal did not
+  // exist. The re-read stays (it is the courtesy: it stops the solve before the
+  // director waits for it); THIS is the guarantee.
+  //
+  // LOCAL and best-effort, and saying so is part of the design: a device whose
+  // SQLite has not yet merged another device's finalize will not fire this.
+  // What stops `final` being reverted campwide is T244 round 2's field-level
+  // guard above, not this.
+  if (existingRun?.status === 'final') return { ok: false, error: 'RUN_IS_FINAL' }
+
   const camperIds = new Set((parsed?.campers ?? []).map((c) => c.id))
   const occurrenceIds = new Set(occurrences.map((o) => o.id))
   const choiceIdByKey = new Map()
