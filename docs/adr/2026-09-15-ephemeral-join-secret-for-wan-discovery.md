@@ -3,7 +3,7 @@ title: "Ephemeral, rotating, KDF-hardened join secret for WAN (public-DHT) disco
 document_type: adr
 authority: normative
 status: accepted
-implementation_state: proposed
+implementation_state: not-started
 date: 2026-09-15
 program: security-hardening
 affects:

@@ -7,7 +7,7 @@ date: 2026-09-12
 supersedes: []
 refines: [docs/adr/2026-08-28-fixed-vs-recurring-events.md]
 related: [docs/adr/2026-08-03-ingesting-recurring-fixed-events.md, docs/adr/2026-08-23-unified-schedule-overlay-model.md, docs/work/tickets/T141-fixed-event-eligibility-ignores-group-coverage.md]
-implementation_state: not started
+implementation_state: not-started
 affects: [electron/db/schema.sql, electron/db/localDb.js, electron/ops/projections.js, electron/ops/scheduleEngineInputs.js, electron/ops/ingest.js, electron/automerge/campDocument.js, src/engine/buildSchedule.js, src/ingest/fixedEvents.js, src/screens/AnchorsScreen.jsx, src/screens/ActivitiesScreen.jsx, src/components/layout/navSections.js]
 ---
 

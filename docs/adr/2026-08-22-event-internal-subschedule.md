@@ -3,7 +3,7 @@ title: "Events — internal sub-schedule (Slice 2)"
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: planned
+implementation_state: not-started
 date: 2026-08-22
 approved: 2026-08-22 (owner — decomposition pre-settled in the parent ADR; this ADR pins the technical model for the deferred internal sub-schedule)
 task_class: database-sync

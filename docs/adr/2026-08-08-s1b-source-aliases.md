@@ -8,7 +8,7 @@ superseded_by:
   - docs/adr/2026-08-09-s1b-alias-divergence.md
 date: 2026-08-08
 supersedes: []
-implementation_state: not_started
+implementation_state: not-started
 affects:
   - docs/adr/2026-08-08-s1a-import-recognizes-existing-entities.md
   - docs/adr/2026-08-08-reconciliation-plan-as-commit-input.md

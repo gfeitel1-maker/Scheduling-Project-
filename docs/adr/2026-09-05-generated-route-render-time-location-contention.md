@@ -3,7 +3,7 @@ title: "Generated route gains render-time location-contention detection (extends
 document_type: adr
 status: proposed
 authority: normative
-implementation_state: proposed
+implementation_state: not-started
 task_class: scheduling-engine
 date: 2026-09-05
 supersedes: []

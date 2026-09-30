@@ -3,7 +3,7 @@ title: "ADR: Run the Day on the Map (B1) — read-only spatial schedule view"
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: proposed
+implementation_state: not-started
 date: 2026-08-24
 deciders: [product-owner]
 task_class: ui-ux-design

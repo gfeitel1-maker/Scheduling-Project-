@@ -3,7 +3,7 @@ title: "Roots as the setup home — refine (not rebuild) the setup IA"
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: planned
+implementation_state: not-started
 date: 2026-08-22
 approved: 2026-08-22 (owner approved the direction from an iterated interactive prototype — "go ahead")
 task_class: ui-ux-design

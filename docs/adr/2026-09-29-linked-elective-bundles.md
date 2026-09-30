@@ -3,7 +3,7 @@ title: "Linked multi-period elective bundles — storage shape and the per-tier 
 document_type: adr
 status: proposed
 authority: normative
-implementation_state: not_started
+implementation_state: not-started
 date: 2026-09-29
 task_class: database-sync
 governing_docs:

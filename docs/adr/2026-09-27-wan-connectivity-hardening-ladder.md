@@ -8,7 +8,7 @@ decided: 2026-09-27
 deciders: [owner, architect]
 program: security-hardening
 affects: [electron/sync/automerge/rendezvousRecord.js, electron/sync/automerge/rendezvousNamespace.js, electron/sync/automerge/rendezvousSequence.js, electron/sync/automerge/transportBoundary.guard.test.js, electron/sync/automerge/internetRendezvousScan.js, electron/sync/joinCode.js, electron/sync/automerge/joinSession.js, electron/db/atRestEncryption.js, workers/rendezvous/worker.js, package.json, docs/adr/2026-09-14-internet-transport-security-gate.md, docs/adr/2026-09-15-ephemeral-join-secret-for-wan-discovery.md, docs/adr/2026-09-17-wan-rendezvous-seam.md, docs/adr/2026-09-18-rendezvous-record-encoding-and-namespace-rotation.md, docs/work/security/2026-09-26-internet-transport-signoff-reassessment.md]
-implementation_state: proposed
+implementation_state: not-started
 ---
 
 # WAN connectivity hardening: the full ladder, the data-relay reopening, v2 encrypted records, and the attack-hardened join secret

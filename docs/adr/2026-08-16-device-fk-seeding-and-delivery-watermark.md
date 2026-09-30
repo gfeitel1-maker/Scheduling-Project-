@@ -3,7 +3,7 @@ title: "ADR: Device-authored ops must never FK-drop, and the delivery watermark 
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: completed
+implementation_state: implemented
 date: 2026-08-16
 deciders: [product-owner]
 task_class: database-sync

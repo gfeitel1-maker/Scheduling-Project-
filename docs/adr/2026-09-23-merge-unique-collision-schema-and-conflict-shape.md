@@ -3,7 +3,7 @@ title: "ADR: Merge-path UNIQUE collisions — relaxed-set schema shape and hard-
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: not_started
+implementation_state: not-started
 date: 2026-09-23
 decided: 2026-09-23
 deciders: [product-owner]

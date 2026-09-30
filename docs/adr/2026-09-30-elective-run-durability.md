@@ -4,7 +4,7 @@ document_type: adr
 status: accepted
 approved: 2026-09-30 (owner, via the organizer session: "go for it" — accepted as written; recorded on the board as h-accept-adr-2026-09-30-durability)
 authority: normative
-implementation_state: partial (part 1 — snapshot completeness, occurrence pruning, re-place picker, persisted eligibility findings — merged; part 2 — tombstone-aware stub seed, refuse commit onto a final run, camper with neither preference nor assignment visible to cold regenerate — not started)
+implementation_state: in-progress
 date: 2026-09-30
 task_class: database-sync
 governing_docs:
@@ -795,3 +795,5 @@ consumer that came to depend on the refusal never happening silently).
    is designed to catch for *outer-snapshot* rows, but on a column this ADR does not otherwise
    touch. Flagged for a separate, narrowly-scoped fix — out of this ADR's four items, not folded
    in here to keep this bump to exactly what the dispatching brief asked for.
+
+_Implementation state, 2026-09-30: part 1 — snapshot completeness, occurrence pruning, re-place picker, persisted eligibility findings — merged; part 2 — tombstone-aware stub seed, refuse commit onto a final run, camper with neither preference nor assignment visible to cold regenerate — not started. Normalised from `partial (part 1 — snapshot completeness, occurrence pruning, re-place picker, persisted eligibility findings — merged; part 2 — tombstone-aware stub seed, refuse commit onto a final run, camper with neither preference nor assignment visible to cold regenerate — not started)` to `in-progress` for the `WORK_RECORD_STANDARD.md` enum._

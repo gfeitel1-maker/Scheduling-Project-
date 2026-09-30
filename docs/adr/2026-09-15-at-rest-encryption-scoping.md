@@ -3,7 +3,7 @@ title: "At-rest encryption of the camp document and SQLite — scoping"
 document_type: adr
 authority: normative
 status: accepted
-implementation_state: in_progress
+implementation_state: in-progress
 date: 2026-09-15
 program: security-hardening
 affects:

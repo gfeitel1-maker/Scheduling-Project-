@@ -3,7 +3,7 @@ title: "Events — overlay placement on the campwide schedule (Slice 1)"
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: planned
+implementation_state: not-started
 date: 2026-08-22
 approved: 2026-08-22 (owner — decomposition + overlay-only scope pre-settled; this ADR pins the technical model)
 task_class: database-sync

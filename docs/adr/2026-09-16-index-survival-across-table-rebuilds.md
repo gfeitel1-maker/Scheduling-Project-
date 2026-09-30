@@ -5,7 +5,7 @@ authority: normative
 status: accepted
 date: 2026-09-16
 supersedes: []
-implementation_state: shipped
+implementation_state: implemented
 affects: [docs/governance/standards/TESTING_STANDARD.md]
 related_adrs: []
 related_tickets:

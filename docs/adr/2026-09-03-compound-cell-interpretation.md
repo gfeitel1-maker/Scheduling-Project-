@@ -5,7 +5,7 @@ authority: normative
 status: accepted
 date: 2026-09-03
 supersedes: []
-implementation_state: shipped
+implementation_state: implemented
 affects: [docs/work/tickets/T118-compound-cell-interpretation.md]
 ---
 

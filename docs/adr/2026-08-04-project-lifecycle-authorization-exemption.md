@@ -5,7 +5,7 @@ authority: normative
 status: accepted
 date: 2026-08-04
 supersedes: []
-implementation_state: existing — retroactively documented
+implementation_state: implemented
 affects: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
 ---
 
@@ -55,3 +55,5 @@ The authorization model for this class of operations is the local OS: a user who
 - The architecture audit finding R2 (missing decision record) is closed by this document.
 - `ARCHITECTURE_STANDARD.md` §4 is amended to name project-lifecycle handlers as a second documented exemption category alongside the pre-session handlers.
 - The IPC surface parity work (roadmap R2 / Phase B) may wrap these methods in `localClient.js` without adding `authorize()` calls.
+
+_Implementation state, 2026-09-30: existing — retroactively documented. Normalised from `existing — retroactively documented` to `implemented` for the `WORK_RECORD_STANDARD.md` enum._

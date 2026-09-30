@@ -3,7 +3,7 @@ title: "Shared anchor-exclusion helper for the ANCHOR_DUPLICATE finding (T182)"
 document_type: adr
 authority: normative
 status: accepted
-implementation_state: not_started
+implementation_state: not-started
 date: 2026-09-16
 program: engine-data-seam
 affects:

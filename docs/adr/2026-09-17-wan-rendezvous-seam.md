@@ -13,7 +13,7 @@ affects:
   - docs/adr/2026-09-14-internet-transport-security-gate.md
   - docs/adr/2026-09-15-ephemeral-join-secret-for-wan-discovery.md
   - docs/work/security/2026-09-15-wan-dht-boundary-assessment.md
-implementation_state: proposed
+implementation_state: not-started
 ---
 
 # WAN rendezvous seam: HTTP side-channel discovery, identity-key signing, and the Tier-4 guard gap it exposes

@@ -5,7 +5,7 @@ authority: normative
 status: accepted
 date: 2026-07-25
 supersedes: []
-implementation_state: shipped
+implementation_state: implemented
 affects: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
 ---
 

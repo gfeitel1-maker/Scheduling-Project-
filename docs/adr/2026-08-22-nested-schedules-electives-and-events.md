@@ -3,7 +3,7 @@ title: "Nested schedules — electives (and events) as sub-schedules within the 
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: planned
+implementation_state: not-started
 date: 2026-08-22
 approved: 2026-08-22 (owner, after a real-artifacts brainstorm over 9 owner-provided prior-year files; owner consolidated ownership to this session)
 task_class: database-sync

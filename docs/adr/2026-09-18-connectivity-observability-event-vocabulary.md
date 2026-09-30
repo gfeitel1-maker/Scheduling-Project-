@@ -3,7 +3,7 @@ title: "Connectivity observability event vocabulary: a pure, sink-injectable emi
 document_type: adr
 authority: normative
 status: accepted
-implementation_state: proposed
+implementation_state: not-started
 date: 2026-09-18
 program: security-hardening
 affects:
