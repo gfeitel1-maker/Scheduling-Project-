@@ -637,3 +637,96 @@ describe('T312 -- a mapping this camp confirmed before comes back filled in', ()
     expect(screen.queryByText(/Filled in from the last time/)).toBeNull()
   })
 })
+
+// T314 — A WORKBOOK WITH MORE THAN ONE TAB, driven through the RENDERED panel.
+//
+// These exist separately from `test/panelWorkbookTabs.test.js` on purpose, and the reason is the
+// defect T313 recorded: that file MIRRORS the panel's flow (read, select, parse, commit) rather than
+// driving it, so it cannot catch the panel wiring the selection up wrongly — only the rule being
+// wrong. This block drives the real file input with real .xlsx bytes and asserts on what reaches
+// `localClient.commitElectiveRun`.
+//
+// Owner ruling 2026-09-29: "a director who has two tabs on an import won't get their thing read.
+// that is fucking absurd. and should be a fix."
+describe('T314 — the panel reads the tab that holds the preferences', () => {
+  const PROPS = {
+    activities: [
+      { id: 'act-1', name: 'Archery' }, { id: 'act-2', name: 'Swim' },
+      { id: 'act-3', name: 'Ceramics' }, { id: 'act-4', name: 'Nature' },
+    ],
+  }
+
+  const TABLE = [
+    ['Camper Name', '#1', '#2'],
+    ['Ari Feldspar', 'Swim', 'Archery'],
+    ['Noa Quartzite', 'Ceramics', 'Nature'],
+  ]
+  // An offerings MENU: the same day x period shape as one camper's filled planner, which is why
+  // reading tab 1 blindly minted a camper out of it.
+  const MENU = [['Period', 'Monday', 'Tuesday'], ['Period 1', 'Swim', 'Archery']]
+  const NOTES = [['Please return by June 1']]
+
+  async function workbookBytes(tabs) {
+    const XLSX = await import('xlsx')
+    const wb = XLSX.utils.book_new()
+    for (const [name, aoa] of tabs) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), name)
+    return XLSX.write(wb, { type: 'array', bookType: 'xlsx' })
+  }
+
+  async function uploadWorkbook(tabs) {
+    localClient.getSecurityStatus.mockResolvedValue({ atRestEncryptionEnabled: false })
+    localClient.commitElectiveRun.mockResolvedValue({ ok: true, runId: 'r', counts: { campers: 2 } })
+    const bytes = await workbookBytes(tabs)
+    render(<AssignmentPanel {...baseProps(PROPS)} />)
+    const input = document.querySelector('input[type="file"]')
+    fireEvent.change(input, {
+      target: { files: [new File([bytes], 'book.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })] },
+    })
+  }
+
+  /** Drive all the way to commit and return the payload the panel actually sent. */
+  async function committedPayload() {
+    await waitFor(() => expect(screen.getByText(/Confirm Mapping/)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Confirm Mapping/))
+    await waitFor(() => expect(screen.getByText(/Solve/i)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Solve/i))
+    await waitFor(() => expect(screen.getByText(/Commit Assignments/)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Commit Assignments/))
+    await waitFor(() => expect(localClient.commitElectiveRun).toHaveBeenCalled())
+    return localClient.commitElectiveRun.mock.calls.at(-1)[0]
+  }
+
+  it('a cover tab first and the table on tab 2: the table is what imports', async () => {
+    await uploadWorkbook([['Read Me', NOTES], ['Preferences', TABLE]])
+    const { parsed } = await committedPayload()
+    expect(parsed.campers.map((c) => c.display_name).sort()).toEqual(['Ari Feldspar', 'Noa Quartzite'])
+  })
+
+  it('an offerings menu first does not become a phantom camper named after the file', async () => {
+    await uploadWorkbook([['Offerings', MENU], ['Preferences', TABLE]])
+    const { parsed } = await committedPayload()
+    expect(parsed.campers.map((c) => c.display_name).sort()).toEqual(['Ari Feldspar', 'Noa Quartzite'])
+    // The shape of the old failure, asserted directly: one unattributed row called `book`.
+    expect(parsed.campers.filter((c) => c.is_unattributed === 1)).toEqual([])
+    expect(parsed.campers.map((c) => c.display_name)).not.toContain('book')
+  })
+
+  it('tells the director which tabs it did not read', async () => {
+    await uploadWorkbook([['Read Me', NOTES], ['Preferences', TABLE], ['Signatures', NOTES]])
+    await waitFor(() => expect(screen.getByText(/Confirm Mapping/)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Confirm Mapping/))
+    await waitFor(() => expect(screen.getByText(/Solve/i)).toBeTruthy())
+    // Rendered, not merely present in an object — this is the half the director sees.
+    expect(screen.getByText(/Tab .Read Me./)).toBeTruthy()
+    expect(screen.getByText(/Tab .Signatures./)).toBeTruthy()
+  })
+
+  it('a single-tab workbook says nothing about unread tabs', async () => {
+    // NON-VACUITY for the assertion above.
+    await uploadWorkbook([['Preferences', TABLE]])
+    await waitFor(() => expect(screen.getByText(/Confirm Mapping/)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Confirm Mapping/))
+    await waitFor(() => expect(screen.getByText(/Solve/i)).toBeTruthy())
+    expect(screen.queryByText(/Tab ./)).toBeNull()
+  })
+})

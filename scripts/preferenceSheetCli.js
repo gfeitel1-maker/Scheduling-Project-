@@ -29,8 +29,8 @@ import { createHash } from 'node:crypto'
 import { openLocalDb } from '../electron/db/localDb.js'
 import { commitElectiveRun, describeElectiveRunRefusal } from '../electron/ops/commitElectiveRun.js'
 import { deriveImportedElectiveRunId, opaque } from '../electron/ops/electiveDerivedIds.js'
-import { detectGridLayout, inferPreferenceLayout, residueParts } from '../src/ingest/preferenceSheet.js'
-import { readPreferenceSheet } from '../src/ingest/preferenceImport.js'
+import { detectGridLayout, residueParts } from '../src/ingest/preferenceSheet.js'
+import { readPreferenceSheet, selectPreferenceSheet } from '../src/ingest/preferenceImport.js'
 import { readWorkbookRows } from '../src/utils/exportSanitize.js'
 
 function baseResult({ file, dbPath, action }) {
@@ -243,11 +243,14 @@ export function runPreferenceSheetCli({
     // kind-agnostic) is satisfied structurally rather than by a name check on the
     // tab. If several tabs map cleanly, the first wins and the rest are reported;
     // that is accept-and-report, not a merge.
-    const candidates = sheets.map((sheet) => ({
-      sheet,
-      mapping: inferPreferenceLayout(sheet.rows, { catalog }),
-    }))
-    const chosen = candidates.find((c) => c.sheet.rows.length >= 2 && c.mapping.unmapped.length === 0)
+    // The RULE now lives in `selectPreferenceSheet` (src/ingest/preferenceImport.js), shared
+    // with the import panel as of T314. It used to live only here, and the panel read
+    // `sheets[0]` — so a director whose table sat on tab 2 either imported nothing or,
+    // worse, had an offerings menu on tab 1 read as a camper's planner and a phantom
+    // camper minted from it. This door's behaviour is unchanged; the panel gains it.
+    const { candidates, selected, kind: selectedKind, unread: unreadSheets } =
+      selectPreferenceSheet({ sheets, catalog })
+    const chosen = selectedKind === 'table' ? selected : undefined
 
     // ONE COMPLETION PATH for every shape (T285 slice G). The grid branch and the
     // row-per-camper branch both end here, so preview/commit semantics, the
@@ -625,7 +628,7 @@ export function runPreferenceSheetCli({
       // A GRID IS NOT AN UNREADABLE SHEET. Before reporting that nothing could be
       // read, ask whether this is a day x period grid — a camper's own planner —
       // and read it as one subject if so.
-      const gridSheet = candidates.find((c) => detectGridLayout(c.sheet.rows, 0) != null)
+      const gridSheet = selectedKind === 'grid' ? selected : undefined
       if (gridSheet) {
         // The grid, the empty mapping it needs and the subject are all
         // `readPreferenceSheet`'s business: `detectWholeSheetGrid` is the same
@@ -635,18 +638,8 @@ export function runPreferenceSheetCli({
         // header plus a body row). `hasSubject` because this branch exists only when
         // a grid was found, so the subject is real and the named-camper probe applies.
         const { parsed: parsedGrid } = readSheet(gridSheet.sheet.rows, { hasSubject: true })
-        const unreadOther = sheets
-          .filter((sh) => sh.name !== gridSheet.sheet.name)
-          .map((sh) => ({
-            kind: 'UNREAD_SHEET',
-            sheet: sh.name,
-            rows: sh.rows.length,
-            ...residueParts(
-              `Tab \u201c${sh.name}\u201d`,
-              `Not read (${sh.rows.length} row(s)) \u2014 the grid on ` +
-                `\u201c${gridSheet.sheet.name}\u201d was. Tabs are never combined.`
-            ),
-          }))
+        // Named by the selector, with the grid-branch wording it already chose.
+        const unreadOther = unreadSheets
         return finishRun({
           parsed: parsedGrid,
           mapping: gridSheet.mapping,
@@ -689,22 +682,7 @@ export function runPreferenceSheetCli({
 
     const { sheet, mapping } = chosen
     const rows = sheet.rows
-    // Every tab we did NOT read, named. A workbook silently reduced to one tab is
-    // the same silence §12.0 forbids everywhere else.
-    const unreadSheets = sheets
-      .filter((s) => s.name !== sheet.name)
-      .map((s) => ({
-        kind: 'UNREAD_SHEET',
-        sheet: s.name,
-        rows: s.rows.length,
-        // Tabs are never combined, so a second set of submissions on that tab has
-        // NOT been imported.
-        ...residueParts(
-          `Tab \u201c${s.name}\u201d`,
-          `Not read (${s.rows.length} row(s)) \u2014 the camper preferences were taken from ` +
-            `\u201c${sheet.name}\u201d instead. Tabs are never combined.`
-        ),
-      }))
+    // Every tab we did NOT read is named by the selector — see selectPreferenceSheet.
 
     // A SECOND TABLE ABOVE THE HEADER IS READ TOO, not reported as unread
     // (T285 slice G). P23 carries a planner grid AND a ranked block on one page,

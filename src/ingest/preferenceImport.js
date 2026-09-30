@@ -37,6 +37,7 @@ import {
   inferPreferenceLayout,
   mappingWithDirectorOverride,
   parsePreferenceSheet,
+  residueParts,
 } from './preferenceSheet.js'
 
 /**
@@ -94,6 +95,85 @@ export function buildPreferenceCatalog({ activities = [], groups = [], tiers = [
     groups: groups.filter((g) => g?.id && g?.name).map((g) => ({ id: g.id, name: g.name })),
     tiers: tiers.filter((t) => t?.id && t?.name).map((t) => ({ id: t.id, name: t.name })),
   }
+}
+
+/**
+ * WHICH TAB of a workbook holds the camper preferences — ONE rule, shared by the CLI and the import
+ * panel (T314).
+ *
+ * WHY THIS IS HERE RATHER THAN IN EACH DOOR. It used to live only in `scripts/preferenceSheetCli.js`,
+ * and the panel read `sheets[0]`. That was half a choke point, and it cost a director two ways at
+ * once, both measured before this was written:
+ *
+ *   * notes on tab 1 -> `parsed: null`, and the panel told them "That file does not read as a camper
+ *     preference sheet" about a file that plainly does;
+ *   * an offerings MENU on tab 1 -> read as one camper's own PLANNER, so the import SUCCEEDED, minted
+ *     a phantom unattributed camper named after the file, and never touched the real table. Two real
+ *     children silently not imported, and a camper row belonging to nobody created. A menu and a
+ *     filled planner are the same day x period shape with opposite meanings (ADR §3.3), so nothing
+ *     about tab 1 could have told them apart — which is why the answer is to classify every tab
+ *     rather than to look harder at the first.
+ *
+ * NO TAB PICKER, deliberately. A workbook's shape is the camp's data, not this app's model (owner,
+ * on import formats: "it does not matter what tool someone uses"), so asking the director which tab
+ * to read would hand them classification this code already does.
+ *
+ * PER-SHEET CLASSIFICATION, never concatenation (T285 slice D). Exactly one tab is read and every
+ * other is reported by name: two tabs of submissions are two imports, and merging them is the one
+ * refusal the ADR names. If several tabs map cleanly the FIRST wins and the rest are reported —
+ * accept-and-report, not a merge, and not a question for the director.
+ *
+ * @param   {object} args
+ * @param   {Array}  args.sheets   `[{name, rows}]`, from `readWorkbookRows`.
+ * @param   {object} args.catalog  from `buildPreferenceCatalog`. Load-bearing in the ORDER it is
+ *   used: an INVERTED MATRIX (one column per activity, the cell holding its rank) is recognisable
+ *   only by matching headers against the camp's own activities, so a tab cannot be classified before
+ *   the catalog is known.
+ *
+ * @returns {{candidates, selected, kind, unread}}
+ *   `selected` is `null` when no tab is readable — a first-class outcome, not a refusal (ADR §14.1):
+ *   the caller reports what it could not resolve and writes nothing. `unread` is then EMPTY, because
+ *   naming tabs as unread when none was read would be false — there is no "instead".
+ */
+export function selectPreferenceSheet({ sheets = [], catalog } = {}) {
+  const candidates = sheets.map((sheet) => ({
+    sheet,
+    mapping: inferPreferenceLayout(sheet.rows, { catalog }),
+  }))
+
+  // A tab that maps with NOTHING unmapped is a camper preference table. `rows.length >= 2` because a
+  // header with no body under it is not a submission.
+  const table = candidates.find((c) => c.sheet.rows.length >= 2 && c.mapping.unmapped.length === 0)
+
+  // A GRID IS NOT AN UNREADABLE SHEET. Before concluding that no tab holds preferences, ask whether
+  // one is a day x period grid — a camper's own planner, whose identity comes from the SUBMISSION
+  // rather than from a name column it has no reason to have.
+  const grid = table ? null : candidates.find((c) => detectGridLayout(c.sheet.rows, 0) != null)
+
+  const selected = table ?? grid ?? null
+  const kind = table ? 'table' : grid ? 'grid' : null
+
+  // EVERY TAB WE DID NOT READ, NAMED. A workbook silently reduced to one tab is the same silence
+  // §12.0 forbids everywhere else, and it is the half of this fix a director actually sees.
+  const unread = selected
+    ? candidates
+        .filter((c) => c.sheet.name !== selected.sheet.name)
+        .map((c) => ({
+          kind: 'UNREAD_SHEET',
+          sheet: c.sheet.name,
+          rows: c.sheet.rows.length,
+          ...residueParts(
+            `Tab \u201c${c.sheet.name}\u201d`,
+            kind === 'grid'
+              ? `Not read (${c.sheet.rows.length} row(s)) \u2014 the grid on ` +
+                `\u201c${selected.sheet.name}\u201d was. Tabs are never combined.`
+              : `Not read (${c.sheet.rows.length} row(s)) \u2014 the camper preferences were taken from ` +
+                `\u201c${selected.sheet.name}\u201d instead. Tabs are never combined.`
+          ),
+        }))
+    : []
+
+  return { candidates, selected, kind, unread }
 }
 
 /**

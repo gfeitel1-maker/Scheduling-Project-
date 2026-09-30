@@ -16,7 +16,12 @@ import { residueIsDecision } from '../../../ingest/residueKinds.js'
 import { recallColumnMapping, bindingFromMapping } from '../../../ingest/mappingSeedling.js'
 import { proposeActivityMatch, resolutionMap, RESOLUTION } from '../../../ingest/labelResolutions.js'
 import { journalEntriesFor } from '../../../ingest/decisionJournal.js'
-import { buildPreferenceCatalog, readPreferenceSheet, submissionKeyFromRows } from '../../../ingest/preferenceImport.js'
+import {
+  buildPreferenceCatalog,
+  readPreferenceSheet,
+  selectPreferenceSheet,
+  submissionKeyFromRows,
+} from '../../../ingest/preferenceImport.js'
 import { buildElectiveAssignments } from '../../../engine/buildElectiveAssignments.js'
 import { SyncIcon } from '../../../components/icons/index.jsx'
 import { deriveOccurrences } from './deriveOccurrences.js'
@@ -242,13 +247,15 @@ function answersFor(decisions, resolutions) {
 // runs and the per-sheet row cap before any cell is walked — the same
 // `maxRowsPerSheet` limit and the same message the hand-rolled check raised (M3).
 //
-// FIRST SHEET ONLY, which is this door's own rule rather than a shortcut: the
-// director picked one file in a picker and is shown one mapping to confirm. The CLI
-// classifies every tab and reports the ones it did not read, because a machine
-// caller cannot see what it was not told.
+// EVERY SHEET, and the one to read is chosen by `selectPreferenceSheet` — the same rule
+// the CLI uses (T314). _Prior: this returned ~~`sheets[0].rows`~~, and a director whose
+// table sat on tab 2 either imported nothing or, worse, had an offerings MENU on tab 1
+// read as a camper's own planner: the import succeeded, minted a phantom unattributed
+// camper named after the file, and never touched the real table. Owner ruling
+// 2026-09-29: "a director who has two tabs on an import won't get their thing read.
+// that is fucking absurd. and should be a fix."_
 async function readSheetRows(file) {
-  const sheets = readWorkbookRows(await file.arrayBuffer(), { type: 'array', byteLength: file.size })
-  return sheets[0]?.rows ?? []
+  return readWorkbookRows(await file.arrayBuffer(), { type: 'array', byteLength: file.size })
 }
 
 export default function AssignmentPanel({
@@ -274,6 +281,11 @@ export default function AssignmentPanel({
   const [sourceLabel, setSourceLabel] = useState(null)
   const [submissionKey, setSubmissionKey] = useState(null)
   const [arrivalId, setArrivalId] = useState(null)
+  // T314 — the tabs this workbook has that were NOT read, as residue items. Held in state
+  // for the same reason `rows` is: `confirmMapping` re-parses each time the director settles
+  // a label, and a residue item that vanished on the second parse would be worse than one
+  // never shown.
+  const [unreadSheets, setUnreadSheets] = useState([])
   const [parsed, setParsed] = useState(null)
   const [templateId, setTemplateId] = useState(null)
   const [occurrences, setOccurrences] = useState([])
@@ -329,6 +341,10 @@ export default function AssignmentPanel({
   function reset() {
     setPhase('empty')
     setRows(null)
+    // T314 — cleared with `rows`, because these describe the WORKBOOK that produced them:
+    // a second import of a one-tab file would otherwise still report the first file's
+    // unread tabs, which is a false residue about a workbook that no longer exists.
+    setUnreadSheets([])
     setMapping(null)
     setParsed(null)
     setTemplateId(null)
@@ -348,13 +364,30 @@ export default function AssignmentPanel({
     onError?.(null)
     setPhase('parsing')
     try {
-      const fileRows = await readSheetRows(file)
-      if (!fileRows || fileRows.length === 0) {
+      const fileSheets = await readSheetRows(file)
+      if (!fileSheets || fileSheets.length === 0) {
+        onError?.('No rows could be read out of that file.')
+        setPhase('empty')
+        return
+      }
+      // WHICH TAB holds the camper preferences, by the rule the CLI uses (T314). Chosen
+      // rather than asked: a workbook's shape is the camp's data, not this app's model, so
+      // handing the director a tab picker would hand them classification this code does.
+      // The catalog goes in because an INVERTED MATRIX is recognisable only by matching
+      // headers against the camp's own activities, so a tab cannot be classified without it.
+      const selectionCatalog = buildPreferenceCatalog({ activities, groups, tiers })
+      const selection = selectPreferenceSheet({ sheets: fileSheets, catalog: selectionCatalog })
+      // Nothing readable on any tab still LANDS as a read that found nothing rather than a
+      // refusal (ADR §14.1) — `confirmMapping` reports what could not be resolved. Falling
+      // back to tab 1 keeps that message about a real sheet instead of an empty array.
+      const fileRows = selection.selected?.sheet.rows ?? fileSheets[0]?.rows ?? []
+      if (fileRows.length === 0) {
         onError?.('No rows could be read out of that file.')
         setPhase('empty')
         return
       }
       setRows(fileRows)
+      setUnreadSheets(selection.unread)
       // WHAT IDENTIFIES A PROVISIONAL SUBJECT: the SUBMISSION, never the file name.
       // Keying on the name merged two real children whose planners were both
       // exported as `planner.csv`. The label is kept for the director to recognise;
@@ -419,6 +452,7 @@ export default function AssignmentPanel({
       if (detectWholeSheetGrid(fileRows, inferred)) {
         confirmMapping([], resolutions, {
           rows: fileRows, sourceLabel: label, submissionKey: key, arrivalId: arrival,
+          unreadSheets: selection.unread,
           // No corrector was shown, so there is no director's answer to send — and
           // `mapping` state here is the PREVIOUS sheet's (T307).
           mapping: null,
@@ -534,6 +568,9 @@ export default function AssignmentPanel({
       // showed a corrector, so there is no director's answer to honour and the
       // transform locates the layout itself.
       mapping: sheetMapping = mapping,
+      // T314 — the tabs this workbook had that were not read. Merged into the residue the
+      // director reads, alongside everything else the import wants to tell them.
+      unreadSheets: sheetUnread = unreadSheets,
     } = sheet
     // THE SAME CALL SHAPE THE CLI AND THE MCP TOOLS USE. This used to be
     // `parsePreferenceSheet(rows, { campId, mapping })` — no catalog, no grid, no
@@ -573,7 +610,11 @@ export default function AssignmentPanel({
       setPhase('mapping')
       return
     }
-    setParsed(result)
+    // THE TABS THIS WORKBOOK HAD THAT WERE NOT READ, merged in here rather than inside the
+    // pure module, which takes ONE sheet's rows and cannot know a second tab existed — the
+    // same reason `scripts/preferenceSheetCli.js` merges them in `finishRun` (T314). Prepended
+    // so the workbook-level fact reads before the row-level ones, as on the CLI.
+    setParsed(sheetUnread.length > 0 ? { ...result, residue: [...sheetUnread, ...result.residue] } : result)
     setPhase('parsed')
     setAnnouncement(
       result.sameNameCampers.length > 0 || hasContradictoryRanks(result)
