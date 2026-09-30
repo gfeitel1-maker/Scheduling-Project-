@@ -3,7 +3,7 @@ title: "Ingest category exclusivity and anchor identity — why the duplicate ac
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: partial
+implementation_state: implemented
 date: 2026-09-26
 task_class: architecture
 governing_docs:
@@ -76,6 +76,62 @@ until this is decided T251 cannot write a fixture that would catch it.
 
 ---
 
+## Implementation record (2026-09-30)
+
+**Status: Option A implemented in full.** The intro above describes the role marker as "implemented"
+and the `activity_id` identity half as "NOT implemented, and deliberately still open." That was
+accurate when this ADR was written; both halves have since shipped. The intro is left as written
+rather than edited in place — this section is the current record.
+
+- **T266 — the role marker.** Shipped as designed:
+  `activities.catalog_role` (schema v75, `electron/db/schema.sql`), NULL = ordinary free choice,
+  `'pinned_event'` = excluded. `filterFreeChoiceActivities` (`src/engine/freeChoiceActivities.js`) is
+  the single shared predicate, applied at every free-choice read site (Activities, Schedule,
+  Special Day, Elective Set Detail, and Event Grid Editor screens).
+  `electron/ingestPassExclusivity.integration.test.js` (15 tests, passing) covers all four of this
+  ADR's observable predicates through the real ingest path: `filterFreeChoiceActivities excludes it`
+  = predicate 1; `places the pinned name exactly once per group per day` = predicate 2;
+  `anchor activity_id resolution still returns exactly one row` = predicate 3; `the free-choice name
+  and the dual-use name are untouched` = predicate 4.
+
+- **T267 — the `activity_id` identity half — no longer open.** Closed 2026-09-28 across three PRs
+  (#560, #597, #601): `anchor_activities` renamed `fixed_events` with `activity_id` added and
+  backfilled at migration (schema v78); `src/engine/anchorActivityLink.js`'s
+  `resolveAnchorActivityIds` resolves **by id only** — the name-matching fallback (`anchorNameKey`,
+  `indexActivitiesByName`) is deleted, not retained as a belt; an anchor with no resolvable
+  `activity_id` now produces the visible, blocking `ANCHOR_IDENTITY_GAP` finding in
+  `src/engine/buildSchedule.js` in place of a silent `[]`.
+
+- **T251's acceptance fixture — the gate this ADR names is discharged.**
+  `electron/electiveAcceptanceSurfaces.integration.test.jsx`, describe block `'the ingest category
+  leak — exhibited in its exact current shape'`, asserts the residual shape against a camp ingested
+  through the real path: (i) the catalogue row for the recurring event exists, marked
+  `pinned_event`; (ii) `filterFreeChoiceActivities` excludes it (predicate 1); (iii) it is absent
+  from the elective solver's offerings — a stronger, elective-specific reading of predicate 1; (iv)
+  the `fixed_events` row resolves to that same `activities` row (predicate 3). Predicate 2 (exactly
+  once per group per day) is pinned by T267's own placement test in
+  `electron/ingestPassExclusivity.integration.test.js`, not restated in T251's suite. The test
+  file's own header comment names this ADR stale on the `activity_id` point and cites T267 directly
+  — that comment is the trigger for this record.
+
+- **Open questions — resolved status.** OQ1 (Option A vs B) — answered, A, per the owner's
+  2026-09-26 ruling already recorded in this ADR's intro. OQ2 (hidden vs greyed) — answered, hidden
+  entirely, also already recorded. **OQ3 (a dual-use name: one row with a partial pin, or two rows)
+  remains open.** T266 used the existing `dualUseNames` carve-out to keep dual-use names out of the
+  pin-only set entirely, which sidesteps the question rather than answering it, and T267 does not
+  address it either. No ticket currently references it.
+
+- **The residual duplicate row is the design, not a gap.** The catalogue row for a pinned/recurring
+  event continues to exist, marked rather than removed — this is Option A working as designed. T251's
+  suite treats this as load-bearing on purpose: it asserts clause (i), the row's existence,
+  affirmatively, so that a future change which deletes the row instead of marking it turns that
+  assertion red rather than letting a `not.toContain` check quietly keep passing.
+
+`implementation_state` in the frontmatter above is updated from `partial` to `implemented` on this
+basis.
+
+---
+
 ## Why this is an ADR and not another patch
 
 **A ticket already closed against this exact symptom, in the owner's own words, three days ago —
@@ -117,8 +173,11 @@ activity-like cell value as a catalog `activities` candidate. `src/ingest/fixedE
 (`inferFixedEvents`) independently walks *the same cells* and proposes `anchor_activities` rows for
 names pinned to the same period across a majority of operating days. Neither subtracts from the
 other. This is Decision 1 of
-`docs/adr/2026-08-09-ingest-fixed-event-routing-and-reviewable-units.md`, which is still
-`status: proposed` and `implementation_state: not-started`.
+~~`docs/adr/2026-08-09-ingest-fixed-event-routing-and-reviewable-units.md`, which is still
+`status: proposed` and `implementation_state: not-started`.~~
+_Prior: that ADR was `status: proposed`/`implementation_state: not-started` when this was written.
+As of #649 it is `status: superseded` (by this ADR) and `implementation_state: implemented` — see
+the Implementation record below._
 
 **2. The guard is a demotion, not an exclusion — so confirming is what writes the duplicate.**
 
@@ -333,7 +392,9 @@ that constructs an anchor object carrying fields the database does not store —
 how T62 passed for a month. The predicate must be exercised end to end from a spreadsheet through
 `commitPlan` into SQLite and out through `buildSchedule`.
 
-**This ADR is therefore the gate on T251's acceptance fixture.** T251 cannot specify a fixture that
+**This ADR is therefore the gate on T251's acceptance fixture.** _(2026-09-30: this gate is now
+discharged — see the Implementation record below; T251's fixture exercises exactly this predicate
+against the real ingest path.)_ T251 cannot specify a fixture that
 would catch this class of defect until the owner has decided A, B, C or D, because the fixture's
 assertion 3 above does not exist as a checkable fact under C or D.
 
