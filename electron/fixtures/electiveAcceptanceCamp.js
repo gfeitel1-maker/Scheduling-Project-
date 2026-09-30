@@ -107,12 +107,32 @@ export const ACCEPTANCE_MANIFEST = Object.freeze({
   // count §6 names is per the route being solved. See `occurrenceCells` below,
   // which states the cells rather than a number, and the two routes' counts
   // separately, so neither can be mistaken for the other.
+  // WHICH CELLS EACH ROUTE PLACES THE SET ON, per tier. Not a count: §6's "3
+  // elective occurrences" is a number about one route, and the two routes must
+  // differ, so stating the cells is the only form of this that cannot be read
+  // as the wrong route's number.
+  //
+  // THE GENERATED SHAPE IS CONSTRAINED, and the constraint is `locations.capacity`.
+  // findRouteConflicts counts ONE OCCUPANT PER GROUP whose cell could use a
+  // location, and Swim — an offering — is at Lakefront, so EVERY group carrying
+  // this set occupies Lakefront for that period. §6's "one location shared with
+  // a non-elective group activity" therefore only reads as a conflict if the
+  // elective groups at that cell FIT and Boating is the one that overflows.
+  // Measured, not reasoned: with the set on all four groups every day, the
+  // finalize refused for four same-named Swim occupants and Boating was
+  // irrelevant — a refusal that looks right and is about something else.
+  //
+  // So: at most one tier per cell except Monday, where Younger's two groups and
+  // Older 1 total three (capacity), and Older 2's Boating is the fourth.
+  // Both tiers still get TWO occurrences each, which is what the linked bundle
+  // and its deliberately-refused pair need.
   occurrenceCells: {
-    // day -> the tiers the set is placed for, per route.
-    generated: { Monday: ['Younger', 'Older'], Tuesday: ['Younger', 'Older'], Wednesday: ['Younger'] },
+    generated: { Monday: ['Younger', 'Older'], Tuesday: ['Older'], Wednesday: ['Younger'] },
     manual: { Monday: ['Younger', 'Older'], Tuesday: ['Younger', 'Older'], Wednesday: ['Younger', 'Older'] },
   },
-  generatedOccurrenceCount: 5,
+  // Generated: Younger/Monday, Younger/Wednesday, Older/Monday (from Older 1
+  // alone — Older 2 carries Boating), Older/Tuesday.
+  generatedOccurrenceCount: 4,
   manualOccurrenceCount: 6,
   // §6: "6 offerings". name -> [capacity_mode, capacity_limit, min_to_run]
   offerings: {
@@ -131,6 +151,7 @@ export const ACCEPTANCE_MANIFEST = Object.freeze({
   sharedLocation: 'Lakefront',
   sharedLocationElective: 'Swim',
   sharedLocationOuterActivity: 'Boating',
+  sharedLocationCapacity: 3,
   // §6: ">=24 campers". 26.
   camperCount: 26,
   // §6's named edge cases, by the name the sheet gives them.
@@ -160,8 +181,8 @@ export const ACCEPTANCE_MANIFEST = Object.freeze({
   // exactly that and tier 1 placed nobody. These two overlap EACH OTHER, on
   // Younger cells, which leaves the Older bundle live.
   refusedBundles: [
-    { name: 'Ceramics', activity: 'Ceramics', tier: 'Younger', days: ['Tuesday', 'Wednesday'] },
-    { name: 'Woodshop', activity: 'Woodshop', tier: 'Younger', days: ['Tuesday', 'Wednesday'] },
+    { name: 'Ceramics', activity: 'Ceramics', tier: 'Younger', days: ['Monday', 'Wednesday'] },
+    { name: 'Woodshop', activity: 'Woodshop', tier: 'Younger', days: ['Monday', 'Wednesday'] },
   ],
 })
 
@@ -363,7 +384,18 @@ export async function buildAcceptanceCamp(db, { handlers, token, campId, deviceI
   const locationIdByName = new Map()
   for (const name of [M.sharedLocation, 'Field', 'Studio']) {
     const id = randomUUID()
-    await write('locations', id, { camp_id: campId, name })
+    // CAPACITY IS EXPLICIT, and the shared location's value is load-bearing.
+    // `locations.capacity` defaults to 1 (electron/db/schema.sql:953), and
+    // findRouteConflicts counts one occupant per GROUP whose cell could use the
+    // location — so at the Monday elective period the three groups still
+    // carrying the set already exceed a capacity of 1 on their own, and the
+    // conflict §6 asks for would be structural rather than the one it names.
+    // Three seats fits those three groups exactly, so the ONLY thing that
+    // overflows Lakefront is Boating, which is §6's "one location shared with a
+    // non-elective group activity".
+    await write('locations', id, {
+      camp_id: campId, name, capacity: name === M.sharedLocation ? String(M.sharedLocationCapacity) : '99',
+    })
     locationIdByName.set(name, id)
   }
   // §6's "one location shared with a non-elective group activity": Swim (an
