@@ -54,12 +54,25 @@ function normalizedFieldValue(field, value) {
   return value ?? '\0NULL'
 }
 
+// T320 round 2, Red Hat HIGH — the prior serialization joined a row's fields
+// with unescaped `|`/`=` and "separated" rows with `hash.update('')`, which
+// writes nothing: a free-text field value (location_name, choice_label, even
+// `id`) containing the literal substring `id=` could be indistinguishable
+// from the mandatory `id=` prefix of the NEXT row, so two structurally
+// different row sets could serialize to the identical byte string and hash
+// equal (see electiveRunSnapshotCompleteness.test.js's "digestOf row/field
+// separation" case for a worked collision). JSON.stringify of a fixed-order
+// array is unambiguous — array/string boundaries are escaped, not
+// concatenated raw — and `'\n'` is a real, non-empty row separator. Any run
+// finalized on this branch's earlier code is test-only (nothing has shipped
+// with the old digest), so no migration of previously-stored digests is
+// needed.
 function digestOf(rows) {
   const sorted = [...rows].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   const hash = createHash('sha256')
   for (const row of sorted) {
-    hash.update(DIGEST_FIELDS.map((f) => `${f}=${normalizedFieldValue(f, row[f])}`).join('|'))
-    hash.update('')
+    hash.update(JSON.stringify(DIGEST_FIELDS.map((f) => normalizedFieldValue(f, row[f]))))
+    hash.update('\n')
   }
   return hash.digest('hex')
 }

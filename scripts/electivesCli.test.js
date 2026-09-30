@@ -134,9 +134,10 @@ describe('runElectivesCli', () => {
       const { dbPath, runId } = bootstrapRun(dir)
       const result = runElectivesCli({ action: 'export', runId, dbPath, format: 'json' })
       expect(result.ok).toBe(true)
-      // T318 bumped the combined projection 1 -> 2 (additive `unordered_count` on the
-      // summary); this pin tracks src/screens/elective/export/exportElectiveRunProjection.js.
-      expect(result.export.format_version).toBe(2)
+      // format_version 2 -> 3: exceptions.eligibility/.resource_conflicts shape
+      // changed (T320); this pin tracks
+      // src/screens/elective/export/exportElectiveRunProjection.js.
+      expect(result.export.format_version).toBe(3)
       expect(result.export).toHaveProperty('child_schedules')
       expect(result.export).toHaveProperty('activity_rosters')
       expect(result.export).toHaveProperty('exceptions')

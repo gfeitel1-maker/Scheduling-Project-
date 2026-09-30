@@ -98,3 +98,37 @@ describe('computeHeldSnapshotDigest / computeExpectedSnapshotDigest agree on ide
     expect(computeHeldSnapshotDigest(db, 'run-1')).toBe(computeExpectedSnapshotDigest(expectedRows))
   })
 })
+
+// T320 round 2, Red Hat HIGH — digestOf (this module) formerly joined a row's
+// fields with unescaped `|`/`=` and joined ROWS with a no-op (`hash.update('')`
+// is not a separator, it writes nothing). A field value is free text
+// (location_name, choice_label, and even `id` here are all unvalidated TEXT
+// columns), so a value containing the literal substring `id=` can be
+// indistinguishable from the start of the NEXT row's mandatory `id=` field —
+// two structurally different row sets serialize to the identical byte string
+// and therefore hash equal. Concretely: row1's `choice_label` absorbing the
+// text `"id=X"` and row2's `id` shrinking from `"Xid=Y"` to `"Y"` produces the
+// same concatenation both ways (`...choice_label=` + `` + `id=Xid=Y|...` ==
+// `...choice_label=` + `id=X` + `id=Y|...`). Two genuinely different snapshot
+// row sets (different ids, different choice_label) would report "complete"
+// against each other's digest.
+describe('digestOf row/field separation (Red Hat HIGH)', () => {
+  it('computes DIFFERENT digests for two row sets whose field VALUES differ, even though the old unescaped/no-op-separator serialization made them collide', () => {
+    const common = {
+      camper_id: 'c1', day_id: 'd1', time_block_id: 'tb1', activity_id: 'a1',
+      activity_name: 'Pottery', location_id: 'l1', location_name: 'Art Room',
+      span_blocks: 1, cell_kind: 'elective', choice_id: null, is_linked_choice: 0,
+    }
+    const rowsA = [
+      { id: 'A0', ...common, choice_label: '' },
+      { id: 'Xid=Y', ...common, choice_label: null },
+    ]
+    const rowsB = [
+      { id: 'A0', ...common, choice_label: 'id=X' },
+      { id: 'Y', ...common, choice_label: null },
+    ]
+
+    expect(rowsA).not.toEqual(rowsB)
+    expect(computeExpectedSnapshotDigest(rowsA)).not.toBe(computeExpectedSnapshotDigest(rowsB))
+  })
+})
