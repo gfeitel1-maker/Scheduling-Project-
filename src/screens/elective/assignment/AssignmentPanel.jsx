@@ -13,6 +13,7 @@ import { describeWriteFailure } from '../../../utils/writeErrorMessage'
 import { readWorkbookRows } from '../../../utils/exportSanitize.js'
 import { detectWholeSheetGrid, inferPreferenceLayout, hasContradictoryRanks } from '../../../ingest/preferenceSheet.js'
 import { residueIsDecision } from '../../../ingest/residueKinds.js'
+import { importEventRunName } from '../../../ingest/importEventRunName.js'
 import { recallColumnMapping, bindingFromMapping } from '../../../ingest/mappingSeedling.js'
 import { proposeActivityMatch, resolutionMap, RESOLUTION } from '../../../ingest/labelResolutions.js'
 import { journalEntriesFor } from '../../../ingest/decisionJournal.js'
@@ -833,7 +834,24 @@ export default function AssignmentPanel({
     try {
       const week = scheduleTemplates?.find((t) => t.id === templateId)
       const out = await localClient.commitElectiveRun({
-        name: `Elective assignment — ${new Date().toISOString().slice(0, 10)}`,
+        // T319 — the shared import-event name, not a bare date. `sheetCount` is
+        // how many campers THIS parsed sheet read, the same fact the CLI door
+        // derives from its own `parsed`.
+        //
+        // Red Hat round 2, LOW — WHY commitElectiveRun's first-name-wins guard
+        // is correct for a re-commit from THIS panel, stated once rather than
+        // left to infer from three separate places: the file `<input>` that
+        // sets `parsed` only renders in `phase === 'empty'`; `reset()` nulls
+        // `parsed` and `runId` together; and `chooseTemplateAndSolve` always
+        // mints a FRESH `runId`. So the only way this panel re-commits onto an
+        // EXISTING `runId` is `regenerate()`, which re-solves against the SAME
+        // `parsed` already on the run — the suppressed name would have been
+        // identical anyway. If a future affordance ever let a director swap
+        // the source file without losing the template (keeping `runId` but
+        // replacing `parsed`), that invariant breaks: the run would keep this
+        // stale name and stale sheet count permanently, since the guard this
+        // payload feeds never re-asserts them on an existing row.
+        name: importEventRunName({ at: new Date(), sheetCount: parsed?.campers?.length ?? 0 }),
         parsed,
         assignments: result.assignments,
         occurrences,

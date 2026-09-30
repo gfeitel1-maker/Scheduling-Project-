@@ -171,6 +171,32 @@ export function commitElectiveRun(db, {
   // be null, status would be re-asserted as 'draft', and the reverted-status
   // hazard above comes straight back. A test pins that this is the deliberate
   // behaviour today, so the assumption breaks loudly rather than silently.
+  //
+  // T319 — `name` and `source_filename` now join `status` in this same
+  // first-creation-only guard, and the owner ruling behind it is the mirror
+  // image of T244's: the run id is content-derived, so two byte-identical
+  // arrivals (different filenames, possibly a director's panel commit then a
+  // machine retry) legitimately land on ONE row via `existingRun`, and writing
+  // `name`/`source_filename` unconditionally on every commit meant the LAST
+  // arrival silently renamed the run out from under the first — a specific,
+  // confident, false label (docs/work/tickets/T319-a-run-is-named-after-the-
+  // import-event.md). `source_filename` therefore names the run's FIRST
+  // arrival, not its most recent one, and a later arrival never renames it.
+  //
+  // Red Hat round 2, MEDIUM — name/source_filename ride on the SAME "a row
+  // exists locally" assumption as status above, and for these two fields the
+  // gap that comment calls a FUTURE flow is not future at all: the CLI/MCP
+  // run id is content-derived, so two devices can each import the identical
+  // bytes before either has synced with the other. `existingRun` is a purely
+  // LOCAL sqlite read, so BOTH devices see no row and BOTH write name and
+  // source_filename as a "first creation" — device A's clock-stamped name
+  // next to device B's filename, or vice versa, once the per-field LWW merge
+  // settles. This is NOT prevented by this guard or by anything else in this
+  // function; the pair can end up internally inconsistent (a name that claims
+  // one sheet count sitting beside a source_filename from a different
+  // arrival). Flagged, not fixed — closing it would mean deriving the run id
+  // from the declared arrival too, which is the T303 non-goal this ticket
+  // also declined to reopen.
   const existingRun = providedRunId != null
     ? db.prepare('SELECT status FROM elective_assignment_runs WHERE id = ?').get(runId)
     : null
@@ -379,11 +405,11 @@ export function commitElectiveRun(db, {
         schedule_week_id: scheduleWeekId,
         schedule_template_id: scheduleTemplateId,
         tier_id: tierId,
-        name,
-        // Only asserted on first creation — see the comment above
+        // Only asserted on first creation — see the T319 comment above
         // existingRun's declaration. `write` already skips undefined values.
+        name: existingRun ? undefined : name,
         status: existingRun ? undefined : 'draft',
-        source_filename: sourceFilename,
+        source_filename: existingRun ? undefined : sourceFilename,
         source_sha256: sourceSha256,
         solver_version: SOLVER_VERSION,
         solver_generation: solverGeneration,

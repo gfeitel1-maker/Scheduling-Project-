@@ -27,6 +27,7 @@ import path from 'node:path'
 import { createHash } from 'node:crypto'
 
 import { openLocalDb } from '../electron/db/localDb.js'
+import { importEventRunName } from '../src/ingest/importEventRunName.js'
 import { commitElectiveRun, describeElectiveRunRefusal } from '../electron/ops/commitElectiveRun.js'
 import { deriveImportedElectiveRunId, opaque } from '../electron/ops/electiveDerivedIds.js'
 import { detectGridLayout, residueParts } from '../src/ingest/preferenceSheet.js'
@@ -367,7 +368,11 @@ export function runPreferenceSheetCli({
           // that choice: the renderer's solve path has no document to key on and
           // must keep minting its own.
           runId: importedRunId,
-          name: runName ?? path.basename(file),
+          // T319 — a filename is one arrival's property, not the run's; the run's
+          // default name is the IMPORT EVENT (when, and how many sheets it read),
+          // shared with every other door via importEventRunName. An explicit
+          // --name/run_name still wins.
+          name: runName ?? importEventRunName({ at: new Date(), sheetCount: parsed?.campers?.length ?? 0 }),
           sourceFilename: path.basename(file),
           sourceSha256,
           parsed,

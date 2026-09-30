@@ -129,6 +129,21 @@ describe('AssignmentPanel — H1 mints a runId per solve and threads it to commi
   })
 })
 
+describe('AssignmentPanel — T319 names the commit after the import event, not a date-only string', () => {
+  it("commit()'s payload name is the import-event form, with sheetCount = parsed.campers.length", async () => {
+    localClient.commitElectiveRun.mockResolvedValue({ ok: true, runId: 'whatever', counts: { campers: 1 } })
+    // driveToPreview's default sheet has exactly one camper row ("Ari"), so the
+    // shared formatter must read `parsed.campers.length` === 1 through THIS door,
+    // the same way the CLI door reads it from its own `parsed`.
+    await driveToPreview()
+    fireEvent.click(screen.getByText(/Commit Assignments/))
+    await waitFor(() => expect(localClient.commitElectiveRun).toHaveBeenCalled())
+    const payload = localClient.commitElectiveRun.mock.calls[0][0]
+    expect(payload.name).toMatch(/^Import \d{4}-\d{2}-\d{2} \d{2}:\d{2}, 1 sheet$/)
+    expect(payload.parsed.campers).toHaveLength(1)
+  })
+})
+
 describe('AssignmentPanel — H3 commit re-entrancy', () => {
   it('a second click while committing does not issue a second commitElectiveRun call', async () => {
     let resolveCommit

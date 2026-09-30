@@ -131,11 +131,16 @@ Three defects were planted and the red confirmed to land on the data:
 ## Known limit at close
 
 **Two declared arrivals on byte-identical files share ONE `elective_assignment_runs` row, and that
-row's `name` and `source_filename` are whichever import ran last.** Confirmed by execution, not
+row's ~~`name` and `source_filename` are whichever import ran last~~.** Confirmed by execution, not
 inferred: two arrivals on identical bytes produce `campers: ["ari", "noa"]` and 8 preference rows —
 correct — alongside a single run row named `noa.csv`. The run id is content-derived and was
 deliberately left that way (this ticket's own non-goal), so identical bytes are one run however many
 arrivals declare them.
+
+_Closed by T319, 2026-09-29:_ `name` and `source_filename` are now asserted only on a run's first
+creation, exactly as `status` already was — a later arrival never renames the run, and the name
+itself is the import event (local date/time to the minute plus how many sheets it read), never a
+filename. See `docs/work/tickets/T319-a-run-is-named-after-the-import-event.md`.
 
 Nothing is lost by it. Each camper keeps its own label, its own four answers and its own coordinates,
 and the attention surface lists both by their own names, so the director's actual task — name these
@@ -266,8 +271,13 @@ a question this ticket's "one path, one parameter" scope should answer.
   ("ONE RULE, shared with the import screen … two rules fork one child into two subjects depending on
   which door their sheet came through") names the principle at stake.
 
-A third, one line from here and deliberately not taken: guarding `name`/`source_filename` in
+~~A third, one line from here and deliberately not taken: guarding `name`/`source_filename` in
 `electron/ops/commitElectiveRun.js` the way `status` is already guarded (`existingRun ? undefined :
 …`) would erase the first known limit's symptom by letting the FIRST document's label win. It is two
 lines, but it changes re-commit behaviour for every caller including the director's panel, which is
-outside this diff.
+outside this diff.~~
+
+_Closed by T319, 2026-09-29:_ that line was taken. `name` and `source_filename` are now guarded
+`existingRun ? undefined : …` in `electron/ops/commitElectiveRun.js`, exactly as described above, and
+the re-commit behaviour change for every caller (including the director's panel) was examined and
+accepted — see `docs/work/tickets/T319-a-run-is-named-after-the-import-event.md`.
