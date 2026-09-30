@@ -833,6 +833,9 @@ export default function AssignmentPanel({
     setPhase('committing')
     try {
       const week = scheduleTemplates?.find((t) => t.id === templateId)
+      // Computed before the call, not inline: test/perCellSolvePlacement.test.js reads
+      // this payload up to its first `})`, so an inline call would hide `parsed,` from it.
+      const name = importEventRunName({ at: new Date(), sheetCount: parsed?.campers?.length ?? 0 })
       const out = await localClient.commitElectiveRun({
         // T319 — the shared import-event name, not a bare date. `sheetCount` is
         // how many campers THIS parsed sheet read, the same fact the CLI door
@@ -851,7 +854,7 @@ export default function AssignmentPanel({
         // replacing `parsed`), that invariant breaks: the run would keep this
         // stale name and stale sheet count permanently, since the guard this
         // payload feeds never re-asserts them on an existing row.
-        name: importEventRunName({ at: new Date(), sheetCount: parsed?.campers?.length ?? 0 }),
+        name,
         parsed,
         assignments: result.assignments,
         occurrences,
