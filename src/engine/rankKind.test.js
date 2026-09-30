@@ -2,8 +2,8 @@
 // rank_kind carry positive evidence of ordering". Extracted after the same
 // 2-value check was found duplicated across four call sites (buildElectiveAssignments.js,
 // camperElectiveWeek.js's rankLabel, preferenceSheet.js's three private
-// constants, and exportRunSummary.js) — see
-// ~/.claude/projects/-Users-gregfeitel-dev-shoresh/memory/feedback_guard_the_choke_point_not_the_instance.md.
+// constants, and exportRunSummary.js) — the repo rule is to guard the choke point,
+// not each instance.
 // A typo in a constant here would now propagate to every consumer at once,
 // which the duplicated form could not do — so the constants' exact string
 // values are pinned below, not just the predicate's behavior.
