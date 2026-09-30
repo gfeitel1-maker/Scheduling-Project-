@@ -275,6 +275,38 @@ describe('§6 (7) — every assignment appears exactly once in the matching rost
     expect(outer.rows.filter((r) => r.isLinkedChoice)).toEqual([])
   })
 
+  // THE "EXACTLY ONCE IN THE MATCHING ROSTER" HALF, which round 1 did not
+  // assert at all. Totals reconciling, no duplicate within an entry, and
+  // members naming real campers are together satisfied by a PERMUTATION: the
+  // Monday/Swim entry holding the camper who was actually assigned
+  // Tuesday/Archery passes every one of them. Nothing joined the roster back to
+  // the assignment rows on the coordinate, so nothing could notice.
+  //
+  // Set equality, not multiset: (camper, day, block, activity) is unique per
+  // assignment row by construction (deriveElectiveAssignmentId keys on run +
+  // camper + occurrence), and the no-duplicate-within-an-entry assertion below
+  // covers the roster side. Exact because this camp produces no linked cluster
+  // — a cluster's entry is labelled with the CHOICE's name rather than an
+  // activity's, and the gap above asserts there are none.
+  it('every roster member sits at the coordinate the assignment row gives them', () => {
+    const key = (camperId, day, block, activity) => `${camperId}|${day}|${block}|${activity}`
+    const fromSql = camp.db.prepare(`
+      SELECT a.camper_id, d.label AS day, tb.name AS time_block, act.name AS activity_name
+      FROM elective_assignments a
+      JOIN elective_occurrences o ON o.id = a.occurrence_id
+      JOIN days_of_operation d ON d.id = o.day_id
+      JOIN time_blocks tb ON tb.id = o.time_block_id
+      JOIN activities act ON act.id = a.activity_id
+      WHERE a.run_id = ?
+    `).all(run.id).map((r) => key(r.camper_id, r.day, r.time_block, r.activity_name))
+    expect(fromSql.length).toBeGreaterThan(0)
+
+    const fromRoster = rosterOf().flatMap(
+      (e) => e.members.map((m) => key(m.camper_id, e.day, e.time_block, e.activity_name))
+    )
+    expect([...new Set(fromRoster)].sort()).toEqual([...new Set(fromSql)].sort())
+  })
+
   it('no camper appears twice in one roster entry', () => {
     for (const entry of rosterOf()) {
       const ids = entry.members.map((m) => m.camper_id)
@@ -306,10 +338,24 @@ describe('§6 (7) — every assignment appears exactly once in the matching rost
       preferences: camp.db.prepare('SELECT camper_id FROM elective_preferences WHERE run_id = ?').all(run.id),
       capacityRows: [],
     })
+    // A SECOND FACT, not a restatement of the total. Round 1 summed
+    // `counts_by_rank` and the unranked remainder out of the SAME array
+    // buildRunSummaryExport was handed, so "roster counts equal summary counts"
+    // collapsed into the total equality already asserted above. What is checked
+    // here instead is the DISTRIBUTION: the summary's per-rank buckets against
+    // a SQL GROUP BY over the assignment rows. A summary that reported the
+    // right total split across the wrong ranks passed before and fails now.
+    const fromSql = Object.fromEntries(camp.db.prepare(`
+      SELECT preference_rank AS rank, COUNT(*) AS c FROM elective_assignments
+      WHERE run_id = ? AND preference_rank IS NOT NULL GROUP BY preference_rank
+    `).all(run.id).map((r) => [String(r.rank), r.c]))
+    expect(Object.keys(fromSql).length).toBeGreaterThan(1)
+    expect(Object.fromEntries(
+      Object.entries(summary.counts_by_rank).map(([k, v]) => [String(k), v])
+    )).toEqual(fromSql)
+
     const ranked = Object.values(summary.counts_by_rank).reduce((a, b) => a + b, 0)
     const unranked = assignments.filter((a) => a.preference_rank == null).length
-    const rosterTotal = rosterOf().reduce((n, e) => n + e.count, 0)
-    expect(ranked + unranked).toBe(rosterTotal)
-    expect(ranked).toBeGreaterThan(0)
+    expect(ranked + unranked).toBe(rosterOf().reduce((n, e) => n + e.count, 0))
   })
 })
