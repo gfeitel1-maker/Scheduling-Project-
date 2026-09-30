@@ -1,7 +1,7 @@
 ---
 title: "Two campers who answered identically are two campers"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-28
 task_class: database-sync
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
@@ -105,8 +105,9 @@ choke point: `attentionList.test.js` builds its collections from the real load l
 
 ## Known limit at close
 
-Two limits were recorded here at close. **The first is now closed by T303; the second is not, and it
-is why this ticket stays open.**
+Two limits were recorded here at close. **The first is now closed by T303; ~~the second is not, and
+it is why this ticket stays open~~ — superseded by `## Closed (2026-09-30)` below: the second is now
+also closed, by T305.**
 
 **1. ~~The CLI/MCP path still merges two byte-identical files into one subject.~~ CLOSED by T303**
 (`docs/work/tickets/T303-caller-declared-arrival-on-the-machine-path.md`), which took exactly the
@@ -145,3 +146,28 @@ never renders the gate, so "the panel path" was tested without the panel. Pinned
 `src/screens/elective/assignment/AssignmentPanel.test.jsx`. Left unfixed deliberately: what the
 mapping screen should show for a sheet with no name column and no rank columns is a product question,
 not a wiring one.
+
+## Closed (2026-09-30)
+
+The second limit above — "it is why this ticket stays open" — is now closed by
+[T305](T305-a-whole-sheet-planner-grid-imports-through-the-panel.md) (#620, merged 2026-09-29): a
+whole-sheet planner grid now reaches `confirmMapping` with no mapping screen
+(`detectWholeSheetGrid` shared by `src/ingest/preferenceImport.js` and
+`src/screens/elective/assignment/AssignmentPanel.jsx`), pinned by the rendered-panel tests in
+`AssignmentPanel.test.jsx`'s `T305 -- a sheet that is nothing but a planner grid imports` block
+(42/42 passing on origin/main). Limit 1 was already closed by T303 (#619). With both known limits
+discharged, this ticket's own `archive_when` is met: arrival-scoped identity
+(`deriveCamperId`'s `sub` mode) gives two declared arrivals two camper subjects, the same declared
+arrival converges to one, and an undeclared collision is reported via `INDISTINGUISHABLE_SUBMISSION`
+residue rather than silently merged (`test/unattributedSubjectIdentity.test.js`, 14/14).
+
+**Correction to this section's original citation for the clause "a test drives the real import path
+twice with byte-identical content and asserts two rows in the database":** that clause is discharged
+by `test/callerDeclaredArrival.test.js`'s `'CLI: two different arrivals on identical bytes produce two
+camper rows'` (the `T303 case 1` describe block, ~line 218) — it imports the SAME byte-identical CSV
+twice through the real CLI path with two declared arrivals and asserts `campers()` (a real database
+query) `toHaveLength(2)`, a genuine row-count assertion. 38/38 passing on this branch. The
+`AssignmentPanel.test.jsx` byte-identical-upload test cited here previously asserts on
+`localClient.commitElectiveRun`'s mocked call payload, not a database row — it discharges a narrower,
+adjacent claim (the panel itself mints two distinct subjects per upload at the point it builds the
+commit payload) but is not evidence for the database-row clause and is not cited for it.

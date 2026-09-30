@@ -170,6 +170,15 @@ cover the rollout scenario.
   — the ADR is amended to say so. QUIC becomes *possible*, not *chosen*; it stays a separate decision.
 - Folding in auto-update (§3).
 
+### Mixed-version leftovers — declined (2026-09-30)
+
+Declines this ticket's `archive_when` clause "mixed-version (2.10 <-> 3.x) replication has been
+demonstrated or its failure surfaced to the director" — the clause this ticket left closed without
+discharging (see T217 item 3). The owner's 2026-09-30 mixed-version ruling (quoted on T284 and T222)
+confirms directly and permanently that this remains untested by design, not by oversight: "devices on
+different versions is not possible. i am in production, no users. once this goes it is open source. i
+will not be updating." Status stays `closed`; this is additional reasoning, not a status change.
+
 ## Documentation defect found while scoping this
 
 `scripts/security-gate.js`'s header documents the `security-gate:allow` marker without stating its

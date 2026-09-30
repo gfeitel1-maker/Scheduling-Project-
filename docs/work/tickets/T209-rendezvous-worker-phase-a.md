@@ -73,3 +73,12 @@ code path nobody exercises.
   deployment.
 - Any Electron or libp2p integration — that is T210/T211. **Not done** — confirmed by the guard
   tests above.
+
+## Status note (2026-09-30) — stays open
+
+Two of `archive_when`'s three clauses are met and marked so above (source+tests in-repo; local-harness
+round-trip). The third — "the owner has either deployed it or decided not to" — is not recorded
+anywhere: `docs/work/handoffs/2026-09-28-wan-connectivity-at-tier4-signoff-gate.md` lists "Cloudflare
+deploy (owner has an account now)" as a still-future step gated behind the Tier-4 sign-off, which
+itself is still pending. No deployment and no decision not to deploy is recorded. Status stays
+`in-progress`.

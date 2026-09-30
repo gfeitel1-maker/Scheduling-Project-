@@ -149,6 +149,16 @@ boundary either way, and direct pushes to `main` are not the practice.
 - Every PR still runs the full `npm run verify` with all eight steps.
 - One week on, `gh run list` shows roughly half the run count for the same amount of merged work.
 
+## Status note (2026-09-30) — stays open
+
+Three of the four `archive_when` clauses are discharged and verified in `.github/workflows/gate.yml`
+on this branch: no `push: branches: [main]` trigger, a daily `schedule` trigger exists, and the
+`node_modules` cache step declares no `restore-keys` (exact hit or `npm ci`, gated on
+`cache-hit == 'true'`). The fourth — "a week of run history shows roughly half the previous run
+count" — needs elapsed time that has not passed: this ticket merged 2026-09-25T14:03:22Z (#542), and
+as of 2026-09-30 only ~5 days of post-merge run history exist, not the stated week. Status stays
+`open`.
+
 ## Out of scope, recorded for the owner
 
 Getting under 2,000 min/month needs more than this ticket delivers (~4,400 projected after it).
