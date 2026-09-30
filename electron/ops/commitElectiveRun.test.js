@@ -13,6 +13,7 @@ import {
   deriveElectiveAssignmentId,
   deriveElectiveOccurrenceId,
   deriveLinkedElectiveChoiceId,
+  deriveElectiveChoiceId,
   electiveChoiceLabelKey,
 } from './electiveDerivedIds.js'
 import { buildElectiveAssignments } from '../../src/engine/buildElectiveAssignments.js'
@@ -894,7 +895,15 @@ describe("T301 slice 3 (ADR D6) — a bundle's label supersedes a plain sheet ch
     expect(assignmentRow.choice_id).toBe(expectedChoiceId)
   })
 
-  it("skips (never throws) a camper whose tier the bundle's scope does not cover, so one mismatch cannot fail the whole commit", () => {
+  // BOARD ITEM 9b AMENDED THIS TEST'S EXPECTATION, not its fixture. It used to
+  // assert the uncovered camper's preference was DROPPED (one row written, not
+  // two). That was half of Art. V — the director was told, and the child's
+  // answer was thrown away. The row is now kept against the ordinary choice
+  // minted for the label; the finding is unchanged and still fires. The name
+  // kept the word "skips" for one revision too long, which is why it says
+  // "keeps" now. Full coverage of the new rule, including the flat row's own
+  // identity and the sheet's rank, is in commitElectiveRun.bundleChoices.test.js.
+  it("KEEPS (never throws) the ranking of a camper whose tier the bundle's scope does not cover, so one mismatch cannot fail the whole commit", () => {
     const { db, campId } = freshDb()
     // scope_mode 'all' still only resolves to tiers PRESENT in this run's
     // occurrences (ADR D2) — both fixture occurrences are Juniors-only, so an
@@ -922,10 +931,15 @@ describe("T301 slice 3 (ADR D6) — a bundle's label supersedes a plain sheet ch
     })
     expect(out.ok).toBe(true)
     const prefRows = db.prepare('SELECT * FROM elective_preferences WHERE run_id = ?').all(out.runId)
-    expect(prefRows).toHaveLength(1)
-    expect(prefRows[0].camper_id).toBe('cam-1')
+    expect(prefRows.map((r) => r.camper_id).sort()).toEqual(['cam-1', 'cam-2'])
+    // The covered camper still gets the bundle's own choice; the uncovered one
+    // gets the plain choice minted for the label, not null and not a guess.
+    const byCamper = Object.fromEntries(prefRows.map((r) => [r.camper_id, r]))
+    expect(byCamper['cam-1'].choice_id).toBe(deriveLinkedElectiveChoiceId(out.runId, 'bundle-1', 'tier-jr'))
+    expect(byCamper['cam-2'].choice_id).toBe(deriveElectiveChoiceId(out.runId, 'archery'))
+    expect(byCamper['cam-2'].rank).toBe(1)
 
-    // Review round 2 — the skip is not silent: named per camper, like
+    // Review round 2 — the mismatch is not silent: named per camper, like
     // PREFERENCE_EDIT_HELD above it, not summarized as a count.
     const mismatch = out.findings.find((f) => f.kind === 'BUNDLE_TIER_NOT_COVERED')
     expect(mismatch).toBeTruthy()

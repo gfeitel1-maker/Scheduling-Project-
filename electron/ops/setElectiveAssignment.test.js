@@ -8,7 +8,12 @@ import { randomUUID } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
 import { commitElectiveRun } from './commitElectiveRun.js'
 import { setElectiveAssignment } from './setElectiveAssignment.js'
-import { deriveElectiveAssignmentId } from './electiveDerivedIds.js'
+import {
+  deriveElectiveAssignmentId,
+  deriveElectiveOccurrenceId,
+  deriveElectiveChoiceId,
+  deriveLinkedElectiveChoiceId,
+} from './electiveDerivedIds.js'
 import { electiveGenerationVisibleFragment } from './electiveGenerationPredicate.js'
 
 const dirs = []
@@ -418,5 +423,175 @@ describe('setElectiveAssignment — T320 replacesAssignmentId', () => {
       deviceId: 'dev-1', replacesAssignmentId: 'no-such-row',
     })
     expect(out).toEqual({ ok: false, error: 'ASSIGNMENT_NOT_FOUND' })
+  })
+})
+
+// Board item 9b — A MOVE INTO A BUNDLE MEMBER OCCURRENCE.
+//
+// The label map this handler used was built from EVERY choice in the run, and a
+// bundle spanning two tiers produces two choices carrying the SAME label (one
+// per tier, by construction). `mapWithCollisions` makes a colliding key
+// structurally absent — correctly, it will not guess — so the move wrote
+// choice_id null and preference_rank null, silently, on every camp whose
+// bundles span more than one division. `getElectiveRunHandler` returns
+// preference_rank to every screen, so the director watched a child's rank-1
+// answer become blank because they dragged them.
+//
+// The fix is not a better guess. `elective_occurrences` carries tier_id and the
+// director dropped the camper into a specific occurrence, so
+// (occurrence_id, activity_id) NAMES the bundle choice through
+// elective_choice_offerings — no inference at all.
+describe('setElectiveAssignment — a bundle member occurrence', () => {
+  const BUNDLE_LABEL = 'Archery'
+
+  function seedTwoTierBundleRun(db, campId) {
+    db.prepare('INSERT INTO tiers (id, camp_id, name) VALUES (?, ?, ?)').run('tier-jr', campId, 'Juniors')
+    db.prepare('INSERT INTO tiers (id, camp_id, name) VALUES (?, ?, ?)').run('tier-sr', campId, 'Seniors')
+    db.prepare('INSERT INTO elective_bundles (id, elective_set_id, activity_id, name, scope_mode) VALUES (?, ?, ?, ?, ?)')
+      .run('bundle-1', 'set-1', 'act-archery', BUNDLE_LABEL, 'all')
+    db.prepare('INSERT INTO elective_bundle_periods (id, bundle_id, day_id, time_block_id) VALUES (?, ?, ?, ?)')
+      .run('bp-1', 'bundle-1', 'day-1', 'tb-1')
+
+    const runId = randomUUID()
+    const occurrences = ['tier-jr', 'tier-sr'].map((tierId) => ({
+      id: deriveElectiveOccurrenceId(runId, 'set-1', 'day-1', 'tb-1', tierId),
+      elective_set_id: 'set-1', day_id: 'day-1', time_block_id: 'tb-1', tier_id: tierId,
+    }))
+    const jr = occurrences[0]
+    const out = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1', runId, occurrences, assignments: [],
+      parsed: {
+        campers: [{ id: 'cam-1', display_name: 'Ari Green', external_id: null, division_label: 'Juniors' }],
+        choices: [{ label: BUNDLE_LABEL, labelKey: 'archery' }, { label: 'Gaga', labelKey: 'gaga' }],
+        preferences: [
+          { camper_id: 'cam-1', occurrence_id: jr.id, label: BUNDLE_LABEL, labelKey: 'archery', rank: 1 },
+        ],
+        sameNameCampers: [],
+        skippedRows: [],
+      },
+    })
+    expect(out.ok).toBe(true)
+    for (const [activityId, name] of [['act-archery', BUNDLE_LABEL], ['act-gaga', 'Gaga']]) {
+      db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run(activityId, campId, name)
+      db.prepare(
+        'INSERT INTO elective_set_activities (id, elective_set_id, activity_id, capacity_mode, capacity_limit, status) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run(randomUUID(), 'set-1', activityId, 'limited', 5, 'confirmed')
+    }
+    return { runId, occurrences }
+  }
+
+  it("binds the JUNIORS choice (and its rank) for a move into the Juniors occurrence", () => {
+    const { db, campId } = freshDb()
+    const { runId, occurrences } = seedTwoTierBundleRun(db, campId)
+    const jr = occurrences[0]
+
+    const out = setElectiveAssignment(db, {
+      runId, camperId: 'cam-1', occurrenceId: jr.id, activityId: 'act-archery', deviceId: 'dev-1',
+    })
+    expect(out.ok).toBe(true)
+
+    const row = db.prepare('SELECT * FROM elective_assignments WHERE id = ?').get(out.assignmentId)
+    expect(row.choice_id).toBe(deriveLinkedElectiveChoiceId(runId, 'bundle-1', 'tier-jr'))
+    // Not the other tier's, which carries the identical label.
+    expect(row.choice_id).not.toBe(deriveLinkedElectiveChoiceId(runId, 'bundle-1', 'tier-sr'))
+    expect(row.preference_rank).toBe(1)
+    db.close()
+  })
+
+  it("binds the SENIORS choice for a move into the Seniors occurrence at the same cell", () => {
+    // The pair is the point: one label, two occurrences, two answers. A rule
+    // that is right about only one of them is right by accident.
+    const { db, campId } = freshDb()
+    const { runId, occurrences } = seedTwoTierBundleRun(db, campId)
+    const sr = occurrences[1]
+
+    const out = setElectiveAssignment(db, {
+      runId, camperId: 'cam-1', occurrenceId: sr.id, activityId: 'act-archery', deviceId: 'dev-1',
+    })
+    expect(out.ok).toBe(true)
+    const row = db.prepare('SELECT * FROM elective_assignments WHERE id = ?').get(out.assignmentId)
+    expect(row.choice_id).toBe(deriveLinkedElectiveChoiceId(runId, 'bundle-1', 'tier-sr'))
+    db.close()
+  })
+
+  it('a move into a PLAIN activity still resolves by label, unchanged', () => {
+    const { db, campId } = freshDb()
+    const { runId, occurrences } = seedTwoTierBundleRun(db, campId)
+    const jr = occurrences[0]
+
+    const out = setElectiveAssignment(db, {
+      runId, camperId: 'cam-1', occurrenceId: jr.id, activityId: 'act-gaga', deviceId: 'dev-1',
+    })
+    expect(out.ok).toBe(true)
+    const row = db.prepare('SELECT * FROM elective_assignments WHERE id = ?').get(out.assignmentId)
+    expect(row.choice_id).toBe(deriveElectiveChoiceId(runId, 'gaga'))
+    // This camper never ranked Gaga — an ordinary move, and it must carry a
+    // null rank rather than failing or inventing one.
+    expect(row.preference_rank).toBeNull()
+    db.close()
+  })
+})
+
+// THE CASE THAT MAKES THE EXCLUSION LOAD-BEARING, rather than the new lookup
+// alone. Board item 9b made this state reachable for the first time: when a
+// bundle's scope does not reach some camper who ranked its label, that label
+// now ALSO has a plain elective_choices row. So one run holds a flat 'Archery'
+// and two linked 'Archery' at once. A move for act-archery into an occurrence
+// that is NOT a bundle member falls through to the label map — and a label map
+// built over all three collides and returns null, exactly the defect the
+// offering lookup was meant to close, one occurrence over.
+describe('setElectiveAssignment — a flat choice sharing a bundle label', () => {
+  it('resolves the plain choice for a move into a NON-member occurrence', () => {
+    const { db, campId } = freshDb()
+    db.prepare('INSERT INTO tiers (id, camp_id, name) VALUES (?, ?, ?)').run('tier-jr', campId, 'Juniors')
+    db.prepare('INSERT INTO tiers (id, camp_id, name) VALUES (?, ?, ?)').run('tier-sr', campId, 'Seniors')
+    db.prepare('INSERT INTO elective_bundles (id, elective_set_id, activity_id, name, scope_mode) VALUES (?, ?, ?, ?, ?)')
+      .run('bundle-1', 'set-1', 'act-archery', 'Archery', 'only')
+    db.prepare('INSERT INTO elective_bundle_tiers (id, bundle_id, tier_id) VALUES (?, ?, ?)')
+      .run(randomUUID(), 'bundle-1', 'tier-jr')
+    db.prepare('INSERT INTO elective_bundle_periods (id, bundle_id, day_id, time_block_id) VALUES (?, ?, ?, ?)')
+      .run('bp-1', 'bundle-1', 'day-1', 'tb-1')
+
+    const runId = randomUUID()
+    const occ = (tb, tierId) => ({
+      id: deriveElectiveOccurrenceId(runId, 'set-1', 'day-1', tb, tierId),
+      elective_set_id: 'set-1', day_id: 'day-1', time_block_id: tb, tier_id: tierId,
+    })
+    // tb-1 is the bundle's member cell for Juniors; tb-2 is nobody's member.
+    const occurrences = [occ('tb-1', 'tier-jr'), occ('tb-2', 'tier-jr'), occ('tb-1', 'tier-sr')]
+    const nonMember = occurrences[1]
+
+    const out = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1', runId, occurrences, assignments: [],
+      parsed: {
+        // A SENIORS camper, whom the 'only Juniors' bundle does not reach — so
+        // the flat 'Archery' choice is minted alongside the linked ones.
+        campers: [{ id: 'cam-1', display_name: 'Ari Green', external_id: null, division_label: 'Seniors' }],
+        choices: [{ label: 'Archery', labelKey: 'archery' }],
+        preferences: [{ camper_id: 'cam-1', occurrence_id: occurrences[2].id, label: 'Archery', labelKey: 'archery', rank: 1 }],
+        sameNameCampers: [],
+        skippedRows: [],
+      },
+    })
+    expect(out.ok).toBe(true)
+    // The premise, asserted rather than assumed: TWO choices carrying one
+    // label — the Juniors bundle's, and the flat one minted for the Seniors
+    // camper the bundle does not reach. Two is enough to collide the key; the
+    // 'only Juniors' scope is what keeps a Seniors linked choice from existing
+    // at all, which is the same thing that makes the flat one necessary.
+    expect(db.prepare("SELECT COUNT(*) c FROM elective_choices WHERE run_id = ? AND label = 'Archery'").get(runId).c).toBe(2)
+
+    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run('act-archery', campId, 'Archery')
+    db.prepare(
+      'INSERT INTO elective_set_activities (id, elective_set_id, activity_id, capacity_mode, capacity_limit, status) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(randomUUID(), 'set-1', 'act-archery', 'limited', 5, 'confirmed')
+
+    const moved = setElectiveAssignment(db, {
+      runId, camperId: 'cam-1', occurrenceId: nonMember.id, activityId: 'act-archery', deviceId: 'dev-1',
+    })
+    expect(moved.ok).toBe(true)
+    const row = db.prepare('SELECT * FROM elective_assignments WHERE id = ?').get(moved.assignmentId)
+    expect(row.choice_id).toBe(deriveElectiveChoiceId(runId, 'archery'))
+    db.close()
   })
 })

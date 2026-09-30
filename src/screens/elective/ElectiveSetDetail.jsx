@@ -383,6 +383,13 @@ export default function ElectiveSetDetail({
   // so they are loaded campwide and filtered here by this set's own bundle
   // ids, mirroring offeringScopeFilter's own list-then-filter shape.
   const [bundles, setBundles] = useState([])
+  // Board item 9b — every bundle NAME in the camp, unfiltered by set. A bundle's
+  // director-given name is a label a camper's sheet may rank (ADR D4), so it
+  // belongs in the label catalogue AssignmentPanel builds — and camp-wide,
+  // because that is what the CLI door reads. Scoping this one to `set.id` while
+  // the CLI reads camp-wide would make a bundle resolve through one door and not
+  // the other, which is the drift buildPreferenceCatalog exists to prevent.
+  const [allBundleNames, setAllBundleNames] = useState([])
   const [bundlePeriods, setBundlePeriods] = useState([])
   const [bundleTiers, setBundleTiers] = useState([])
   const [pendingDeleteBundle, setPendingDeleteBundle] = useState(null)
@@ -394,6 +401,7 @@ export default function ElectiveSetDetail({
       localClient.list('elective_bundle_periods'),
       localClient.list('elective_bundle_tiers'),
     ])
+    setAllBundleNames((allBundles || []).map((b) => b.name).filter(Boolean))
     const setBundlesRows = (allBundles || []).filter((b) => b.elective_set_id === set.id)
     const bundleIds = new Set(setBundlesRows.map((b) => b.id))
     setBundles(setBundlesRows)
@@ -878,6 +886,7 @@ export default function ElectiveSetDetail({
         bundles={bundles}
         bundlePeriods={bundlePeriods}
         bundleTiers={bundleTiers}
+        catalogBundleNames={allBundleNames}
       />
     </div>
   )

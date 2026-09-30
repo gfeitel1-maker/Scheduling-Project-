@@ -24,6 +24,10 @@ import {
   opaque,
 } from './electiveDerivedIds.js'
 import { hasContradictoryRanks } from '../../src/ingest/preferenceSheet.js'
+// Board item 9b — the ONE camper-tier rule, shared with AssignmentPanel's own
+// solve path so the commit and the solve cannot disagree about which tier a
+// camper is in.
+import { makeCamperIdentityResolver } from './camperElectiveIdentity.js'
 // T301 slice 3 (docs/adr/2026-09-29-linked-elective-bundles.md D6/D10) — the
 // SAME derivation solve-time uses, reused here rather than re-implemented:
 // bundles are re-derived fresh at commit time too, never trusted from a
@@ -249,9 +253,31 @@ export function commitElectiveRun(db, {
     const byTier = bundleChoiceByLabelTier.get(c.labelKey)
     if (!byTier.has(c.tier_id)) byTier.set(c.tier_id, c.id)
   }
-  // A camper's own tier (D6: campers.group_id -> groups.tier_id, both already
-  // stored). Read once, not per-camper — groups is camp-wide and small.
-  const tierIdByGroupId = new Map(db.prepare('SELECT id, tier_id FROM groups').all().map((g) => [g.id, g.tier_id]))
+  // A camper's own tier. D6 named ONE route to it (campers.group_id ->
+  // groups.tier_id), and for a whole class of camps that route does not exist:
+  // when the sheet's Division column carries a TIER name rather than a bunk
+  // name, `parsePreferenceSheet` resolves `division_label` and leaves
+  // `group_id` NULL (T279 §12.2a — it never invents a group). Every linked
+  // choice in such a camp therefore resolved to nothing and landed as a
+  // BUNDLE_TIER_NOT_COVERED mismatch for campers the bundle covers perfectly
+  // well. `makeCamperIdentityResolver` is the ONE rule now, shared with the
+  // panel — see its header for why the sheet's division outranks the roster
+  // group's tier (binding from the roster's tier binds a choice the camper can
+  // never be placed into, because `buildAttendance` seats them by division).
+  //
+  // Read once, before the transaction, like every other read in this block.
+  //
+  // The roster read is the CAMP's campers, not an `id IN (...)` over the sheet's
+  // ids. One camp per device db, so the row set is the same either way — and a
+  // placeholder list built per sheet is SQL text better-sqlite3's statement
+  // cache can never reuse. `makeCamperIdentityResolver` only fills gaps for ids
+  // the sheet actually carries, so the extra rows cost nothing.
+  const identity = makeCamperIdentityResolver({
+    sheetCampers: parsed?.campers ?? [],
+    rosterCampers: db.prepare('SELECT id, group_id, division_label FROM campers WHERE camp_id = ?').all(campId),
+    groups: db.prepare('SELECT id, tier_id FROM groups').all(),
+    tiers: db.prepare('SELECT id, name FROM tiers WHERE camp_id = ?').all(campId),
+  })
 
   // The single distinct tier among occurrences, or null when the set's
   // occurrences span more than one tier (or there are none) — T229.
@@ -393,6 +419,21 @@ export function commitElectiveRun(db, {
   // this dedupes a camper/label pair reported from both loops into one
   // finding.
   const bundleTierMismatchKeys = new Set()
+  // ONE recorder, so the dedupe invariant lives where the arrays do rather than
+  // in each loop that appends. A camper hitting this on both a preference and an
+  // assignment for the same label is told once.
+  //
+  // DEDUPED ON labelKey, REPORTED WITH `label`, and the two must not be confused:
+  // the preference loop has the sheet's own spelling ("Archery") and the
+  // assignment loop has only the canonical key ("archery"), so keying on
+  // whichever the caller happened to pass would let one camper's single problem
+  // be reported twice.
+  const noteMismatch = (camperId, labelKey, label) => {
+    const dedupeKey = `${camperId}::${labelKey}`
+    if (bundleTierMismatchKeys.has(dedupeKey)) return
+    bundleTierMismatchKeys.add(dedupeKey)
+    bundleTierMismatches.push({ camperId, label })
+  }
   // The rows that already exist, read ONCE. The inline per-row existence check
   // this replaces compiled a statement per parsed preference inside the
   // transaction, thousands of times on a real sheet.
@@ -415,14 +456,48 @@ export function commitElectiveRun(db, {
   // persisted with `choice_id: null` while the preference for the very same
   // label correctly resolved to the bundle's choice. One helper, called from
   // both loops, is what makes that impossible to redrift.
+  //
+  // BOARD ITEM 9b — a mismatch now carries a choice as well as the flag. The
+  // caller decides what to do with each: the preference loop WRITES the row
+  // against the flat choice (a camper's ranking is theirs whether or not the
+  // bundle reaches them — Art. V: surface the conflict, never absorb the
+  // answer), while the assignment loop keeps its skip-to-null posture, which
+  // its own round-2 comment records as the fix for a real outage.
   const resolveWriteChoiceId = (labelKey, camperId) => {
     const bundleByTier = bundleChoiceByLabelTier.get(labelKey)
     if (!bundleByTier) return { choiceId: choiceIdByKey.get(labelKey) ?? null }
-    const camperTierId = camperById.get(camperId)?.group_id != null
-      ? tierIdByGroupId.get(camperById.get(camperId).group_id) ?? null
-      : null
+    const camperTierId = identity.tierIdOf(camperId)
     const choiceId = camperTierId != null ? bundleByTier.get(camperTierId) : undefined
-    return choiceId ? { choiceId } : { mismatch: true }
+    return choiceId ? { choiceId } : { choiceId: choiceIdByKey.get(labelKey) ?? null, mismatch: true }
+  }
+
+  // WHICH BUNDLE-CLAIMED LABELS STILL NEED A PLAIN CHOICE ROW, decided before
+  // the transaction because the choice-minting loop runs before the preference
+  // loop that discovers the need.
+  //
+  // D6 mints a plain row "only for a label no bundle claims". This narrows that
+  // by exactly one case — see the dated amendment under D6 in
+  // docs/adr/2026-09-29-linked-elective-bundles.md. A camper the bundle's scope
+  // genuinely excludes has a real, ranked answer and nowhere to put it;
+  // dropping the row is the engine absorbing a conflict it is required to
+  // surface (CONSTITUTION Art. V). So the label gets its ordinary choice too,
+  // and that camper's ranking is bound to it.
+  //
+  // ON DEMAND, never always. Minting unconditionally would add a row to every
+  // camp whose bundles cover everyone — a stored-state change for camps that
+  // were never broken, which is a migration wearing a bugfix's clothes.
+  // Asks `resolveWriteChoiceId` rather than re-deciding coverage, for that
+  // helper's own stated reason ("one helper, called from both loops, is what
+  // makes that impossible to redrift") — a third copy of the rule is a third
+  // thing to keep in step, and the copy that got missed would decide whether a
+  // choice row exists for a preference that names it. Only `.mismatch` is read,
+  // which does not depend on `choiceIdByKey` being populated yet.
+  const labelsNeedingFlatChoice = new Set()
+  for (const p of parsed?.preferences ?? []) {
+    // The set is keyed on LABEL, so one uncovered camper settles the question for
+    // that label — the rest of a thousand-row sheet need not be asked again.
+    if (labelsNeedingFlatChoice.has(p.labelKey)) continue
+    if (resolveWriteChoiceId(p.labelKey, p.camper_id).mismatch) labelsNeedingFlatChoice.add(p.labelKey)
   }
 
   try {
@@ -541,8 +616,10 @@ export function commitElectiveRun(db, {
       for (const ch of parsed.choices ?? []) {
         // D6 — a label a bundle claims (for at least one tier) mints NO
         // separate plain choice; every preference naming it resolves to the
-        // bundle's own per-tier choice below instead.
-        if (bundleChoiceByLabelTier.has(ch.labelKey)) continue
+        // bundle's own per-tier choice below instead. UNLESS some camper who
+        // named it is outside the bundle's scope, in which case their ranking
+        // needs an ordinary choice to hang on — see labelsNeedingFlatChoice.
+        if (bundleChoiceByLabelTier.has(ch.labelKey) && !labelsNeedingFlatChoice.has(ch.labelKey)) continue
         const id = deriveElectiveChoiceId(runId, ch.labelKey)
         choiceIdByKey.set(ch.labelKey, id)
         write('elective_choices', id, { run_id: runId, label: ch.label, is_linked: 0 })
@@ -550,22 +627,18 @@ export function commitElectiveRun(db, {
 
       for (const p of parsed.preferences ?? []) {
         // D6 — resolve to the CAMPER'S OWN tier's choice, never a flat one, when
-        // a bundle claims this label. A camper whose tier the bundle's scope
-        // does not cover (untiered, or a tier a scope_mode 'only'/'except'
-        // bundle excludes) has no choice this preference can name — skipped
-        // rather than thrown, so one camper's mismatch cannot fail every other
-        // good row in the sheet (the same posture `preferencesHeld` above
-        // already takes for a hand-edited row). Recorded in
-        // `bundleTierMismatches` rather than left silent (review round 2): the
-        // ADR left the exact COPY open, not whether a director is told at
-        // all, and a camper simply missing from the result is the
-        // confident-wrong-answer shape this ticket exists to eliminate.
+        // a bundle claims this label.
+        //
+        // BOARD ITEM 9b — a camper the bundle's scope genuinely does not cover
+        // (a tier a scope_mode 'only'/'except' bundle excludes, or no
+        // resolvable tier at all) KEEPS THEIR ROW, bound to the ordinary choice
+        // minted for this label above, carrying their own rank. Until now it
+        // was dropped, and the director was told about it — which is half of
+        // Art. V. A child wrote down an answer; the bundle not reaching them is
+        // a fact about the bundle, not a reason to forget what they asked for.
+        // Both halves, always: the row AND the finding.
         const resolved = resolveWriteChoiceId(p.labelKey, p.camper_id)
-        if (resolved.mismatch) {
-          bundleTierMismatchKeys.add(`${p.camper_id}::${p.labelKey}`)
-          bundleTierMismatches.push({ camperId: p.camper_id, label: p.label ?? p.labelKey })
-          continue
-        }
+        if (resolved.mismatch) noteMismatch(p.camper_id, p.labelKey, p.label ?? p.labelKey)
         const choiceId = resolved.choiceId
         if (!choiceId) throw new Error(`preference names a choice the sheet did not list: ${p.labelKey}`)
         // Backstop for describeElectiveRunRefusal's "malformed" check above:
@@ -681,13 +754,7 @@ export function commitElectiveRun(db, {
         // deduped so a camper hitting this on both a preference and an
         // assignment for the same label is told once.
         const resolved = resolveWriteChoiceId(a.labelKey, a.camper_id)
-        if (resolved.mismatch) {
-          const dedupeKey = `${a.camper_id}::${a.labelKey}`
-          if (!bundleTierMismatchKeys.has(dedupeKey)) {
-            bundleTierMismatchKeys.add(dedupeKey)
-            bundleTierMismatches.push({ camperId: a.camper_id, label: a.labelKey })
-          }
-        }
+        if (resolved.mismatch) noteMismatch(a.camper_id, a.labelKey, a.labelKey)
         write('elective_assignments', assignmentId, {
           run_id: runId,
           occurrence_id: a.occurrence_id,
@@ -790,9 +857,14 @@ export function commitElectiveRun(db, {
         camper_id: m.camperId,
         label: m.label,
         message:
+          // BOARD ITEM 9b — the tail ("could not be resolved to the bundle's
+          // choice") became FALSE the moment the ranking was kept. A message
+          // that overstates a loss is the same defect class as one that hides
+          // it: the director acts on a child who is fine.
           `${camperById.get(m.camperId)?.display_name ?? 'A camper'} is linked to “${m.label}”, which a bundle ` +
-          'claims for specific divisions only, and this camper’s own division is not one of them — that ' +
-          'could not be resolved to the bundle’s choice. Nothing else on the sheet was affected.',
+          'claims for specific divisions only, and this camper’s own division is not one of them — so it was ' +
+          'kept as an ordinary choice for them instead of as part of the set. Their ranking still counts; ' +
+          'nothing else on the sheet was affected.',
       })),
     ],
   }

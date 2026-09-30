@@ -193,4 +193,33 @@ describe('preference sheet over the stdio MCP transport', () => {
       db.close()
     }
   }, 60_000)
+
+  // Board item 9b — THE MCP DOOR SEES BUNDLE NAMES. It rides the CLI core, so
+  // this is the same fact scripts/preferenceSheetCli.test.js pins, asserted
+  // across the stdio transport where an agent actually meets it. Written as its
+  // own test so it can seed a bundle into the db this suite's server already has
+  // open — the server reads the camp fresh on each call, so a row inserted now is
+  // visible to the next preview.
+  it('resolves a label only a bundle carries', async () => {
+    const BUNDLE_NAME = 'Ropes Intensive'
+    const db = openLocalDb(dbPath)
+    const activityId = randomUUID()
+    const setId = randomUUID()
+    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run(activityId, campId, 'Ropes')
+    db.prepare('INSERT INTO elective_sets (id, camp_id, name) VALUES (?, ?, ?)').run(setId, campId, 'Session 1')
+    db.prepare('INSERT INTO elective_bundles (id, elective_set_id, activity_id, name) VALUES (?, ?, ?, ?)')
+      .run(randomUUID(), setId, activityId, BUNDLE_NAME)
+    db.close()
+
+    const file = path.join(dir, 'bundle-by-name.csv')
+    fs.writeFileSync(file, `Camper,Division,#1\nAvi Cohen,Older,${BUNDLE_NAME}\n`)
+
+    const preview = unwrap(
+      await client.callTool({ name: 'preference_sheet_preview', arguments: { file_path: file } })
+    )
+    expect(preview.error).toBe(null)
+    expect(preview.residue.filter((r) => r.kind === 'UNRESOLVED_CHOICE_LABEL' && r.label === BUNDLE_NAME))
+      .toEqual([])
+    expect(preview.counts.preferences).toBe(1)
+  }, 60_000)
 })

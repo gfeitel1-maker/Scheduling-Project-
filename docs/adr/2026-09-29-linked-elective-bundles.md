@@ -426,6 +426,17 @@ for the case it names, though nothing in the engine reads it (tier 1 derives "li
 count, deliberately, per that module's own comment) — so this is cosmetic-but-truthful, not
 load-bearing, and slice 3 may defer it without correctness consequence if time-boxed.
 
+**Amendment 2026-09-30 (board item 9b, T318 close-out).** D6's "only for a label no bundle claims"
+is narrowed by exactly one case: a camper whose tier the bundle's scope genuinely does **not** cover
+now has a plain choice minted on demand for that label, and their ranking is written against it —
+alongside, not instead of, the `BUNDLE_TIER_NOT_COVERED` finding. D6 was written on the premise that
+a camper's tier is always derivable via `campers.group_id`, and does not adjudicate the uncovered
+case at all; it also defers the UI/copy consequence to slice 3 by name. The narrowing is directed by
+CONSTITUTION Art. V — the engine surfaces conflicts and never resolves them silently, and dropping a
+child's written answer is absorbing one. This is the only exception: where a bundle does cover the
+camper, D6's rule is unchanged. (D6's parenthetical tier derivation is also superseded in practice —
+see `electron/ops/camperElectiveIdentity.js`, which resolves `division_label` first.)
+
 ### D7 — No schema-level uniqueness on bundle name; the naming rule is proposed-default plus director edit
 
 Decision 4 requires a proposed, editable name. This ADR does not design the authoring control

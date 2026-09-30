@@ -88,10 +88,37 @@ export function submissionKeyFromRows(rows = []) {
  *
  * Tolerates both shapes this repo's collections come in: `localClient.list()` rows
  * (objects with `name`) and the CLI's already-mapped string arrays.
+ *
+ * BUNDLES MERGE INTO `activities` RATHER THAN BECOMING A SECOND LIST (board item
+ * 9b, docs/adr/2026-09-29-linked-elective-bundles.md D4 — a bundle's name is "the
+ * string a camper's sheet must match"). The reason is that `activities` is not a
+ * list of activities to the things that read it — it is THE SET OF LABELS A SHEET
+ * MAY NAME. `makeLabelResolver` builds its recognition map from it, and the
+ * inverted-matrix classifier matches column headers against it. A second list
+ * would have to be threaded into both, and the day one of them forgot it is the
+ * day a bundle resolves through one door and not the other — the exact drift this
+ * function exists to prevent.
+ *
+ * THE CONSEQUENCE FOR THE `empty`/`abstained` CONTRACT, stated because merging into
+ * a set that governs an abstention deserves an argument rather than a shrug.
+ * `makeLabelResolver`'s `empty` is `known.size === 0`, and an empty catalogue makes
+ * EVERY label abstain (src/ingest/preferenceSheet.js — the resolver's own guard).
+ * Merging can only GROW a non-empty set, so no camp that resolved labels before
+ * abstains now. The other direction — a camp with bundles and no activities, which
+ * would newly un-abstain — is structurally unreachable: `deriveChoices` reads
+ * `bundle.activity_id`, so a bundle presupposes an activity. `bundles.length > 0`
+ * therefore implies `activities.length > 0`, and this merge cannot flip `empty`.
+ *
+ * Deduped, because one name is one label whatever claims it: the common shape is a
+ * bundle named after its own activity (the acceptance fixture's 'Ropes'), and the
+ * catalogue is evidence about how many distinct labels a camp has.
  */
-export function buildPreferenceCatalog({ activities = [], groups = [], tiers = [] } = {}) {
+export function buildPreferenceCatalog({ activities = [], groups = [], tiers = [], bundles = [] } = {}) {
+  const name = (x) => (typeof x === 'string' ? x : x?.name)
   return {
-    activities: activities.map((a) => (typeof a === 'string' ? a : a?.name)).filter(Boolean),
+    activities: [
+      ...new Set([...activities, ...bundles].map(name).filter(Boolean)),
+    ],
     groups: groups.filter((g) => g?.id && g?.name).map((g) => ({ id: g.id, name: g.name })),
     tiers: tiers.filter((t) => t?.id && t?.name).map((t) => ({ id: t.id, name: t.name })),
   }

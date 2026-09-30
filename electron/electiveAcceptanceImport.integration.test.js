@@ -180,34 +180,34 @@ describe('§6 (2) import half — re-importing identical bytes converges', () =>
 
 // ── ASSERTED GAPS ──────────────────────────────────────────────────────────
 
-describe('GAP — a bundle cannot be preferred by its own name', () => {
-  // docs/adr/2026-09-29-linked-elective-bundles.md D4 says a bundle's name is
-  // "the string a camper's sheet must match". It is not: the catalogue a label
-  // resolves against is built from activities, groups and tiers and never from
-  // bundles, so the label resolves to nothing, the preference becomes
-  // UNRESOLVED_CHOICE_LABEL residue, and it never reaches the solver at all.
+describe('MET — a bundle can be preferred by its own name', () => {
+  // WAS A GAP, closed by board item 9b. docs/adr/2026-09-29-linked-elective-
+  // bundles.md D4 says a bundle's name is "the string a camper's sheet must
+  // match". It was not: the catalogue a label resolves against was built from
+  // activities, groups and tiers and never from bundles, so the label resolved
+  // to nothing, the preference became UNRESOLVED_CHOICE_LABEL residue, and it
+  // never reached the solver at all.
   //
   // TWO CATALOGUES, not one, and the round-2 mutation found that out: the
   // renderer path goes through `buildPreferenceCatalog`
-  // (src/ingest/preferenceImport.js:91-97), while THIS path — the CLI core —
-  // hand-rolls the same three reads inline (scripts/preferenceSheetCli.js:229-233)
-  // and never calls that function. Adding bundles to `buildPreferenceCatalog`
-  // alone therefore leaves this green; the mutation that reds it is adding them
-  // to the CLI's own `catalog.activities`. Both would have to change for the
-  // ADR's D4 to be true, which is worth knowing before anyone tries.
+  // (src/ingest/preferenceImport.js), while THIS path — the CLI core —
+  // hand-rolled the same three reads inline and never called that function.
+  // Adding bundles to `buildPreferenceCatalog` alone therefore left this green;
+  // the mutation that redded it was adding them to the CLI's own
+  // `catalog.activities`. BOTH changed: the CLI now CALLS the shared helper, and
+  // the helper merges bundle names. The inverted assertion below is verified
+  // against each half separately — reverting either one alone reds it, which is
+  // the property the old note said did not hold.
   //
-  // THE FIXTURE WORKS AROUND IT for the LIVE bundle by naming it after its own
-  // activity ('Ropes'), which is why condition (8) is live at all.
+  // THE FIXTURE WORKS AROUND THE OLD GAP for the LIVE bundle by naming it after
+  // its own activity ('Ropes'), which is why condition (8) is live at all.
   //
   // THAT WORKAROUND IS ALSO WHY THIS ASSERTION NEEDS ITS OWN BUNDLE. A sheet
-  // naming the live bundle says 'Ropes', which resolves today through the
-  // ACTIVITY — so it could never exhibit the gap. A sheet naming a string no
-  // bundle carries would be unresolved forever and could never invert either:
-  // the day the catalogue learns bundle names it learns the names bundles
-  // ACTUALLY HAVE. So the camp carries a bundle whose director-given name is
-  // `bundleNamedOffCatalogue` and is no activity's name, and the sheet names
-  // exactly that. Both halves are asserted below, because the inversion is a
-  // property of the pair and not of either one.
+  // naming the live bundle says 'Ropes', which resolved even before this through
+  // the ACTIVITY — so it could never have exhibited the gap. So the camp carries
+  // a bundle whose director-given name is `bundleNamedOffCatalogue` and is no
+  // activity's name, and the sheet names exactly that. Both halves are asserted
+  // below, because the property is one of the pair and not of either one.
   it('the camp really has a bundle whose name no activity carries', () => {
     const name = M.bundleNamedOffCatalogue
     const bundles = camp.db
@@ -221,29 +221,26 @@ describe('GAP — a bundle cannot be preferred by its own name', () => {
     expect(fs.readFileSync(SHEET_BUNDLE_BY_NAME, 'utf8')).toContain(name)
   })
 
-  it('a sheet that names the bundle by its director-given name loses those preferences', () => {
+  it('a sheet that names the bundle by its director-given name KEEPS those preferences', () => {
     const out = runPreferenceSheetCli({
       file: SHEET_BUNDLE_BY_NAME, dbPath: camp.file, action: 'preview', authorUserId: camp.userId,
     })
-    // NOT `out.ok`: a preview is ALWAYS ok:true (preferenceSheetCli.js:330
-    // returns `{ ...report, ok: true, blocked: ... }`), so asserting it cannot
-    // detect anything. `blocked` is the field that carries the answer, and this
-    // sheet is not refused — it is silently lossy, which is the gap.
+    // NOT `out.ok`: a preview is ALWAYS ok:true, so asserting it cannot detect
+    // anything. `blocked` is the field that carries the answer.
     expect(out.blocked).toBeNull()
-    // SCOPED TO THIS BUNDLE'S OWN LABEL, not to "some label went unresolved".
-    // A bare count is satisfied by any other unresolved string in the sheet, so
-    // it stays green even once the catalogue learns bundle names — measured:
-    // pushing the bundle's name into buildPreferenceCatalog left a bare
-    // `unresolved.length > 0` green, which is the whole defect this file's
-    // round-2 review named.
+    // SCOPED TO THIS BUNDLE'S OWN LABEL, not to "nothing went unresolved". A bare
+    // `unresolved.length === 0` would be a claim about the whole sheet and would
+    // red on any unrelated residue — and, in the other direction, a bare
+    // `length > 0` was what let the old assertion stay green once the catalogue
+    // learned bundle names. The label is named on purpose.
     const unresolved = out.residue.filter(
       (r) => r.kind === 'UNRESOLVED_CHOICE_LABEL' && r.label === M.bundleNamedOffCatalogue
     )
-    expect(unresolved.length).toBeGreaterThan(0)
-    // And the loss is total, not partial: no cell naming the bundle resolved.
-    const named = out.residue.filter((r) => r.label === M.bundleNamedOffCatalogue)
-    expect(named).toHaveLength(unresolved.length)
-    expect(JSON.stringify(out)).not.toContain('ropesintensive')
+    expect(unresolved).toHaveLength(0)
+    // AND IT REACHED THE RECORD, which is the half "no residue" does not prove:
+    // a label can go unreported and still be dropped. The preview's own counts
+    // are what the director is shown.
+    expect(out.counts.preferences).toBeGreaterThan(0)
   })
 })
 

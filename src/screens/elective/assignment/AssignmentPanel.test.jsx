@@ -23,6 +23,7 @@ vi.mock('../../../localClient', () => ({
 
 import AssignmentPanel from './AssignmentPanel.jsx'
 import { localClient } from '../../../localClient'
+import { deriveCamperId } from '../../../../electron/ops/electiveDerivedIds.js'
 
 const GROUPS = [{ id: 'grp-1', tier_id: 'tier-juniors' }, { id: 'grp-2', tier_id: 'tier-seniors' }]
 const DAYS = [{ id: 'day-1', name: 'Monday' }]
@@ -955,5 +956,57 @@ describe('AssignmentPanel — T250 A3: cold-open hydration and regenerate', () =
     // run's template.
     await waitFor(() => expect(screen.getByText(/choose which to assign against/)).toBeTruthy())
     expect(screen.queryByText(/^Solve/i)).toBeNull()
+  })
+})
+
+// Board item 9b — THE PANEL DOOR, on both things it owes.
+describe('AssignmentPanel — the camper identity resolver and the bundle catalogue', () => {
+  // #670's roster fill, now routed through makeCamperIdentityResolver rather
+  // than an inline merge. The observable is DIVISION_ROSTER_MISMATCH: Ari's
+  // sheet says Juniors and the camp's roster puts them in grp-2, which is a
+  // Seniors group. That finding is reachable ONLY through branch 1 of
+  // buildAttendance, which needs a group_id — and the sheet resolved none, so
+  // the roster is the only place it can come from.
+  const SHEET = new File(['Name\tDivision\t#1\nAri\tJuniors\tArchery'], 'sheet.txt', { type: 'text/plain' })
+
+  // The roster row's id must be the one the PARSER derives for this camper —
+  // the merge is by id, so a hand-picked literal would test nothing and pass
+  // for the wrong reason.
+  const ARI_ID = deriveCamperId('camp-1', { displayName: 'Ari' })
+
+  it("fills a camper's group from the roster, so the sheet/roster disagreement is surfaced", async () => {
+    // Driven by hand rather than through driveToPreview: an unplaced camper is
+    // the whole point here, and driveToPreview waits for a Commit control that a
+    // run placing nobody does not necessarily offer.
+    render(<AssignmentPanel {...baseProps({
+      campers: [{ id: ARI_ID, display_name: 'Ari', group_id: 'grp-2', division_label: null }],
+    })} />)
+    fireEvent.change(document.querySelector('input[type="file"]'), { target: { files: [SHEET] } })
+    await waitFor(() => expect(screen.getByText(/Confirm Mapping/)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Confirm Mapping/))
+    await waitFor(() => expect(screen.getByText(/Solve/i)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Solve/i))
+    await waitFor(() => expect(screen.getByText(/but the camp has them in/)).toBeTruthy())
+  })
+
+  it('a bundle-named label resolves through this door too, not only the CLI', async () => {
+    // The catalogue is what turns a bundle's director-given name into a
+    // rankable label. Without it the sheet's "Ropes Intensive" is
+    // UNRESOLVED_CHOICE_LABEL residue and never reaches the solver at all.
+    localClient.commitElectiveRun.mockResolvedValue({ ok: true, runId: 'r', counts: { campers: 1 } })
+    await driveToPreview({
+      file: new File(['Name\t#1\nAri\tRopes Intensive'], 'sheet.txt', { type: 'text/plain' }),
+      extraProps: {
+        catalogBundleNames: ['Ropes Intensive'],
+        bundles: [{ id: 'bundle-1', elective_set_id: 'set-1', activity_id: 'act-1', name: 'Ropes Intensive', scope_mode: 'all' }],
+        bundlePeriods: [{ bundle_id: 'bundle-1', day_id: 'day-1', time_block_id: 'tb-1' }],
+        bundleTiers: [],
+      },
+    })
+    fireEvent.click(screen.getByText(/Commit Assignments/))
+    await waitFor(() => expect(localClient.commitElectiveRun).toHaveBeenCalled())
+    const { parsed } = localClient.commitElectiveRun.mock.calls[0][0]
+    expect(parsed.preferences.map((p) => p.label)).toEqual(['Ropes Intensive'])
+    expect(parsed.residue?.filter((r) => r.kind === 'UNRESOLVED_CHOICE_LABEL') ?? []).toEqual([])
   })
 })

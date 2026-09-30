@@ -12,6 +12,7 @@ import {
   mappingWithDirectorOverride,
   parsePreferenceSheet,
 } from './preferenceSheet.js'
+import { buildPreferenceCatalog } from './preferenceImport.js'
 
 const HEADER = ['Camper Name', 'Division', 'Swim Alternative (Y/N)', '#1', '#2', '#3', 'Additional Comments']
 const ROWS = [
@@ -325,5 +326,35 @@ describe('describeMappingReadiness', () => {
 
   it('treats no mapping at all as nothing mapped', () => {
     expect(describeMappingReadiness(null)).toEqual({ unmapped: ['name', 'ranks'], collision: null })
+  })
+})
+
+// Board item 9b — A BUNDLE NAME IS A LABEL LIKE ANY OTHER, once the catalogue
+// carries it (buildPreferenceCatalog merges bundles into `activities`; see its
+// own note for why one list and not two).
+//
+// These drive `preferenceSheet.js` with a catalogue built the way
+// `buildPreferenceCatalog` builds it, so the two facts asserted are the two the
+// merge has to buy: a bundle-named COLUMN is inverted-matrix evidence, and a
+// bundle-named CELL resolves instead of becoming UNRESOLVED_CHOICE_LABEL
+// residue.
+describe('a bundle name in the catalogue', () => {
+  const CATALOG = buildPreferenceCatalog({
+    activities: [{ name: 'Archery' }],
+    bundles: [{ name: 'Ropes Intensive' }, { name: 'Lake Block' }],
+  })
+
+  it('two bundle-named columns are recognised as an inverted matrix', () => {
+    const inferred = inferPreferenceLayout([['Camper', 'Ropes Intensive', 'Lake Block']], { catalog: CATALOG })
+    expect(inferred.invertedMatrix?.map((c) => c.header)).toEqual(['Ropes Intensive', 'Lake Block'])
+  })
+
+  it('a bundle-named cell resolves rather than landing in residue', () => {
+    const { preferences, residue } = parsePreferenceSheet(
+      [['Camper Name', '#1'], ['Ari Green', 'Ropes Intensive']],
+      { campId: 'camp-1', mapping: inferPreferenceMapping(['Camper Name', '#1']), catalog: CATALOG }
+    )
+    expect(residue.filter((r) => r.kind === 'UNRESOLVED_CHOICE_LABEL')).toEqual([])
+    expect(preferences.map((p) => p.label)).toEqual(['Ropes Intensive'])
   })
 })

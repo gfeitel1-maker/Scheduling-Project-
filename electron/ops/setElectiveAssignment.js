@@ -82,21 +82,31 @@ export function setElectiveAssignment(db, {
   // ELIGIBILITY, AND WHAT IT DELIBERATELY DOES NOT COVER.
   //
   // buildElectiveAssignments' internal eligibility is `attends(camperId,
-  // occurrenceId)` over an attendance map, and that map is built by
-  // src/screens/elective/assignment/buildAttendance.js from the PARSED SHEET's
-  // per-camper `division`, matched against tier names. That fact is never
-  // persisted: `campers` has no division column, commitElectiveRun never
-  // writes one, and campers.group_id is not populated on this path — so this
-  // handler structurally CANNOT reconstruct the engine's attendance map, and
-  // persisting it would be a schema change T245 does not own (T243 owned
-  // schema). Accepting an attendance map over IPC from the renderer was
-  // rejected for the same reason the rest of this module refuses
-  // client-supplied authority.
+  // occurrenceId)` over an attendance map, built by
+  // src/screens/elective/assignment/buildAttendance.js from the camper's
+  // `division_label` matched against tier names, narrowed by `group_id`.
   //
-  // CAMPER_INELIGIBLE here therefore means the DB-DERIVABLE eligibility only:
-  // the camper is a participant of this run (has an elective_preferences row
-  // for it), and the occurrence belongs to this run. Division/tier attendance
-  // is NOT checked. Do not read this as a complete eligibility check.
+  // CORRECTION (board item 9b). This comment used to say that fact "is never
+  // persisted: `campers` has no division column, commitElectiveRun never writes
+  // one, and campers.group_id is not populated on this path". All three clauses
+  // are false and have been since v79: `campers` carries `division_label` and
+  // `group_id`, commitElectiveRun writes both (`group_id: c.group_id ??
+  // undefined, division_label: ...`), and both are registered in
+  // electron/ops/projections.js's `campers` field list, so they materialize. A
+  // camper's tier IS derivable here.
+  //
+  // This handler still does not need it, for a better reason than the one
+  // above: the director DROPPED the camper into a specific occurrence, and
+  // `elective_occurrences` carries `tier_id`. So `(occurrence_id, activity_id)`
+  // names the bundle choice directly through `elective_choice_offerings` — see
+  // the choice lookup below. No attendance map, and no inference.
+  //
+  // WHAT REMAINS UNCOVERED IS UNCHANGED, and is the part worth restating rather
+  // than quietly dropping: CAMPER_INELIGIBLE here means the DB-derivable
+  // eligibility ONLY — the camper is a participant of this run (has an
+  // elective_preferences row for it), and the occurrence belongs to this run.
+  // Division/tier attendance is NOT checked. Do not read this as a complete
+  // eligibility check.
   if (occurrence.run_id !== runId) return { ok: false, error: 'CAMPER_INELIGIBLE' }
   const participant = db
     .prepare('SELECT 1 FROM elective_preferences WHERE run_id = ? AND camper_id = ? LIMIT 1')
@@ -151,15 +161,61 @@ export function setElectiveAssignment(db, {
   // ordinary, and it must not fail — keeps the matched choice and carries a
   // null rank. Writing both null would give this handler's row a different
   // shape from the solver's, which is the one thing this write path may not do.
+  //
+  // BOARD ITEM 9b — THE OFFERING TABLE ANSWERS FIRST, and for a linked choice
+  // it is the only thing that can.
+  //
+  // A bundle spanning two divisions produces one elective_choices row PER TIER,
+  // all carrying the same label by construction (ADR D6). The label map below
+  // therefore collided on every such bundle, `mapWithCollisions` correctly
+  // refused to guess, and this handler wrote choice_id null AND preference_rank
+  // null — silently, on every camp whose bundles span more than one division.
+  // A director dragging a child watched their rank-1 answer go blank.
+  //
+  // `elective_choice_offerings` holds (choice_id, occurrence_id, activity_id)
+  // for exactly those linked choices, and the director named an occurrence when
+  // they dropped the camper — so the pair IDENTIFIES the choice rather than
+  // narrowing it. Ties break to the lowest choice id, the same rule
+  // commitElectiveRun's `bundleChoiceByLabelTier` and the engine's own
+  // `choiceByLabelKey` use; two bundles transiently sharing a label and a tier
+  // is the case ADR D7 names as possible pre-disambiguation.
+  const offeredChoiceId = db
+    .prepare('SELECT choice_id FROM elective_choice_offerings WHERE occurrence_id = ? AND activity_id = ? ORDER BY choice_id LIMIT 1')
+    .get(occurrenceId, activityId)?.choice_id ?? null
+
+  // THE LABEL FALLBACK, built ONLY from choices that have NO offering rows, and
+  // ONLY when the lookup above came back empty.
+  //
+  // The exclusion is what makes this exact rather than merely usually-right.
+  // commitElectiveRun is the sole writer of elective_choice_offerings (verified
+  // across electron/, src/ and scripts/: mergeActivity rewrites activity_id on
+  // existing rows and deleteElectiveRun removes them, neither creates one), and
+  // it writes only the bundles' own choices. So "has an offering row" is
+  // exactly "is a linked choice", and excluding those leaves a map over plain
+  // choices, whose labels are unique per run by derivation. Without the
+  // exclusion the two per-tier rows would still collide the key and the
+  // fallback would still return null — the new lookup alone would only mask it
+  // for the occurrences that happen to be members.
+  //
+  // `NOT EXISTS`, not `NOT IN`: correlated, so it can seek per candidate row
+  // instead of materializing every run's offerings. This is the interactive
+  // path — one director drag — and on the linked-choice case it now runs not at
+  // all.
+  // The NAME itself stays unconditional — an INVALID_CAPACITY refusal below
+  // quotes it, so it is not part of the label fallback's cost.
   const activityName = db.prepare('SELECT name FROM activities WHERE id = ?').get(activityId)?.name
-  const { map: choiceIdByKey } = mapWithCollisions(
-    db.prepare('SELECT id, label FROM elective_choices WHERE run_id = ?').all(runId),
-    (r) => electiveChoiceLabelKey(r.label),
-    (r) => r.id
-  )
-  const choiceId = activityName
-    ? choiceIdByKey.get(electiveChoiceLabelKey(activityName)) ?? null
-    : null
+  const resolveByLabel = () => {
+    if (!activityName) return null
+    const { map: choiceIdByKey } = mapWithCollisions(
+      db.prepare(`SELECT id, label FROM elective_choices c
+                  WHERE c.run_id = ?
+                    AND NOT EXISTS (SELECT 1 FROM elective_choice_offerings o WHERE o.choice_id = c.id)`).all(runId),
+      (r) => electiveChoiceLabelKey(r.label),
+      (r) => r.id
+    )
+    return choiceIdByKey.get(electiveChoiceLabelKey(activityName)) ?? null
+  }
+  const choiceId = offeredChoiceId ?? resolveByLabel()
   // T265 (v78): elective_preferences is now keyed per (day, period) cell, so
   // this lookup is scoped to THIS occurrence too. `LIMIT 1` stays — the
   // derived id's 4-tuple (run_id, camper_id, occurrence_id, choice_id) is the
