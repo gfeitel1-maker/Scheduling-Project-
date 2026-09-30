@@ -351,6 +351,7 @@ function OfferingRow({
 export default function ElectiveSetDetail({
   set, role, activities, locations, tiers, groups, refreshActivities, onBack, onNavigate,
   days = [], timeBlocks = [], templateSlots = [], scheduleTemplates = [], scheduleWeeks = [],
+  campers = [],
 }) {
   const { rows: offerings, loading, error, setError, adding, add, reload } = useCrudScreen({
     entity: 'elective_set_activities',
@@ -864,6 +865,7 @@ export default function ElectiveSetDetail({
         activities={activities}
         groups={groups}
         tiers={tiers}
+        campers={campers}
         days={days}
         timeBlocks={timeBlocks}
         templateSlots={templateSlots}

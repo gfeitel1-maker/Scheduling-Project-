@@ -271,6 +271,12 @@ export default function AssignmentPanel({
   // fresh into run-scoped choices on EVERY solve via deriveChoices, below —
   // never read back from a stored run (ADR D10).
   bundles = [], bundlePeriods = [], bundleTiers = [],
+  // Board item (2026-09-30) — the camp's OWN roster, read once by the caller
+  // the same way groups/tiers already are. ROSTER-OWNED (see the enrichment
+  // note at solve()'s buildAttendance call, citing commitElectiveRun.js's own
+  // "group_id is ROSTER-OWNED" comment): fills in a camper's real bunk group
+  // when the sheet's own division column did not resolve to one.
+  campers = [],
 }) {
   const [phase, setPhase] = useState('empty')
   const [rows, setRows] = useState(null)
@@ -732,12 +738,30 @@ export default function AssignmentPanel({
       })
       // H4 — occurrences are tier-scoped but campers are not; without this a
       // set placed on both a Juniors cell and a Seniors cell at the same
-      // day/block seats the SAME campers in both. attendance is null (skip
-      // matching) when occurrences span at most one tier -- the common case,
-      // where there is nothing to disambiguate.
-      const { attendance, unmatched, ambiguous } = buildAttendance({ campers: parsed.campers, occurrences: occs, tiers })
+      // day/block seats the SAME campers in both.
+      //
+      // ENRICHMENT (board item, 2026-09-30) — the sheet's Division column is a
+      // label the director typed; `campers` (this screen's own roster prop,
+      // read the same way groups/tiers are) is the camp's fact. group_id is
+      // ROSTER-OWNED (commitElectiveRun.js ~467-487's own comment: "A
+      // preference sheet may SET a group it resolved; it may never clear one
+      // it simply failed to resolve" — `group_id: c.group_id ?? undefined`).
+      // Same precedence here: the sheet's own resolved group_id wins when
+      // present, the roster fills the gap when the sheet named only a tier
+      // (division_label "Older" matches no group named "Older"), and the
+      // roster never overrides a group_id the sheet itself resolved.
+      // `enrichedCampers` is used for THIS solve only — never written back
+      // into `parsed`/`setParsed`, whose consumers (MappingCorrector,
+      // ParseSummary) must keep showing what the sheet actually said.
+      const rosterGroupIdById = new Map(campers.map((c) => [c.id, c.group_id]))
+      const enrichedCampers = parsed.campers.map((c) =>
+        c.group_id != null ? c : (rosterGroupIdById.get(c.id) != null ? { ...c, group_id: rosterGroupIdById.get(c.id) } : c)
+      )
+      const { attendance, unmatched, ambiguous, noCells, divisionMismatches } = buildAttendance({
+        campers: enrichedCampers, occurrences: occs, tiers, groups,
+      })
       const { assignments, findings } = buildElectiveAssignments({
-        campers: parsed.campers, occurrences: occs, offerings, preferences: resolvedPreferences.preferences, attendance,
+        campers: enrichedCampers, occurrences: occs, offerings, preferences: resolvedPreferences.preferences, attendance,
         // T250/T246 — seats the director locked by hand on the Draft screen.
         // Empty on a first solve; non-empty only on a regenerate, which is the
         // only path that has a persisted run to read locks from.
@@ -809,6 +833,39 @@ export default function AssignmentPanel({
         division: a.division,
         message: `${a.camperCount} camper(s) list the division “${a.division}”, which matches more than one division on this schedule — rename one of them to tell them apart. They were considered for every occurrence.`,
       }))
+      // Board item (2026-09-30), Art. V — a camper correctly identified by
+      // group whose group simply isn't on this set's rotation would otherwise
+      // vanish from every export with no visible cause (buildElectiveAssignments
+      // only ever iterates campers per-occurrence). Named plainly, in the
+      // director's own language: which group, and that this group's schedule
+      // has no period for this set.
+      //
+      // Round 3, Code Reviewer LOW — the group name is named once, curly-
+      // quoted to match the sibling UNMATCHED_DIVISION/AMBIGUOUS_DIVISION
+      // findings' convention, rather than repeated unquoted.
+      const noCellFindings = (noCells ?? []).map((n) => {
+        const groupName = groups.find((g) => g.id === n.group_id)?.name ?? 'their group'
+        return {
+          kind: 'GROUP_HAS_NO_CELL',
+          group_id: n.group_id,
+          message: `${n.camperCount} camper(s) in “${groupName}” were not placed — their schedule has no period for this elective set.`,
+        }
+      })
+      // Round 3, Red Hat HIGH — the sheet's division and the camper's roster
+      // group disagree about which tier they are in. Naming this as
+      // GROUP_HAS_NO_CELL would misdirect the director at the WRONG group's
+      // rotation (see buildAttendance.js's round 3 header note for the traced
+      // example). States both facts and lets the director decide which side
+      // to fix, per Art. V ("we surface the problem, we do not misname it").
+      const divisionMismatchFindings = (divisionMismatches ?? []).map((m) => {
+        const groupName = groups.find((g) => g.id === m.group_id)?.name ?? 'their group'
+        return {
+          kind: 'DIVISION_ROSTER_MISMATCH',
+          division: m.division,
+          group_id: m.group_id,
+          message: `${m.camperCount} camper(s) are listed on the sheet under “${m.division}”, but the camp has them in ${groupName}, which is a different division. They were not placed. Check the sheet’s division column, or the campers’ group.`,
+        }
+      })
       // A coordinate that bound to NOTHING is the director's business, not a
       // silent drop: either the sheet names a day or period this camp does not
       // have (provably wrong, ADR §11.2's domain check), or it names a real cell
@@ -819,7 +876,7 @@ export default function AssignmentPanel({
         assignments,
         findings: [
           ...findings, ...mismatchFindings, ...attendanceFindings, ...ambiguousFindings,
-          ...coordinateFindings,
+          ...noCellFindings, ...divisionMismatchFindings, ...coordinateFindings,
         ],
         // T301 slice 3 — so AssignmentPreview can name a bundle by its real
         // name in an UNSUPPORTED_LINKED_CHOICE finding (T300's

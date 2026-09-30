@@ -85,19 +85,205 @@ describe('buildAttendance', () => {
     expect(unmatchedCount).toBe(1)
   })
 
-  // The common case: a set placed on only one tier's cells has nothing to
-  // disambiguate — matching would be inventing a failure mode. attendance is
-  // null, which is buildElectiveAssignments' own "attend everything" default.
-  it('skips matching entirely when occurrences span only one tier', () => {
+  // The old fast path returned `attendance: null` whenever occurrences spanned
+  // at most one tier, on the theory that a single-tier set has nothing to
+  // disambiguate. That was a correctness bug, not an optimization: a single
+  // tier can still span MULTIPLE groups (a same-tier set placed on two
+  // groups' cells), and the group axis needs the same scoping the tier axis
+  // already got in H4 — a director whose single-tier camp (this acceptance
+  // fixture's Older 1 / Older 2 shape) is exactly the shape the early return
+  // left unfixed. The function now always returns a computed map.
+  it('still scopes by group even when occurrences span only one tier', () => {
     const occurrences = [
-      { id: 'occ-1', tier_id: 'tier-1' },
-      { id: 'occ-2', tier_id: 'tier-1' },
+      { id: 'occ-1', tier_id: 'tier-1', group_ids: ['grp-1'] },
+      { id: 'occ-2', tier_id: 'tier-1', group_ids: ['grp-2'] },
     ]
     const tiers = [{ id: 'tier-1', name: 'Juniors' }]
-    const campers = [{ id: 'cam-1', division_label: 'Juniors' }]
+    const campers = [{ id: 'cam-1', division_label: 'Juniors', group_id: 'grp-1' }]
     const { attendance, unmatchedCount } = buildAttendance({ campers, occurrences, tiers })
-    expect(attendance).toBeNull()
+    expect(attendance['cam-1']).toEqual(['occ-1'])
     expect(unmatchedCount).toBe(0)
+  })
+
+  // THE DEFECT SHAPE. One tier, two occurrences created by different groups.
+  // A camper whose division matches the tier and whose group_id is X attends
+  // only the occurrence X's group created — never the sibling group's
+  // occurrence, even though both occurrences share the same tier_id.
+  it('excludes a same-tier occurrence created by a sibling group', () => {
+    const occurrences = [
+      { id: 'occ-a', tier_id: 'tier-1', group_ids: ['grp-x'] },
+      { id: 'occ-b', tier_id: 'tier-1', group_ids: ['grp-y'] },
+    ]
+    const tiers = [{ id: 'tier-1', name: 'Older' }]
+    const campers = [{ id: 'cam-1', division_label: 'Older', group_id: 'grp-x' }]
+    const { attendance } = buildAttendance({ campers, occurrences, tiers })
+    expect(attendance['cam-1']).toEqual(['occ-a'])
+    expect(attendance['cam-1']).not.toEqual(['occ-a', 'occ-b'])
+  })
+
+  // camper.group_id == null but division matched a tier (T279 §12.2a) — keeps
+  // today's tier-wide admission: every occurrence of the matched tier,
+  // regardless of which group created each one.
+  it('admits a camper with no group_id to every occurrence of their matched tier', () => {
+    const occurrences = [
+      { id: 'occ-a', tier_id: 'tier-1', group_ids: ['grp-x'] },
+      { id: 'occ-b', tier_id: 'tier-1', group_ids: ['grp-y'] },
+    ]
+    const tiers = [{ id: 'tier-1', name: 'Older' }]
+    const campers = [{ id: 'cam-1', division_label: 'Older', group_id: null }]
+    const { attendance, unmatchedCount } = buildAttendance({ campers, occurrences, tiers })
+    expect(attendance['cam-1'].sort()).toEqual(['occ-a', 'occ-b'])
+    expect(unmatchedCount).toBe(0)
+  })
+
+  // A correctly identified camper whose group carries the set in NO occurrence
+  // legitimately gets []. This is NOT an R1 (never-unplaced) violation — R1 is
+  // about a camper we cannot IDENTIFY, not one who was identified and simply
+  // isn't in this set's rotation — so it must not increment unmatchedCount or
+  // appear in `unmatched`.
+  it('gives an empty occurrence list to a matched camper whose group carries the set nowhere, without counting them unmatched', () => {
+    const occurrences = [
+      { id: 'occ-a', tier_id: 'tier-1', group_ids: ['grp-x'] },
+    ]
+    const tiers = [{ id: 'tier-1', name: 'Older' }]
+    const campers = [{ id: 'cam-1', division_label: 'Older', group_id: 'grp-z' }]
+    const { attendance, unmatchedCount, unmatched, noCells } = buildAttendance({ campers, occurrences, tiers })
+    expect(attendance['cam-1']).toEqual([])
+    expect(unmatchedCount).toBe(0)
+    expect(unmatched).toEqual([])
+    // Round 2 — Constitution Art. V forbids a camper vanishing from every
+    // export with zero visible cause. A correctly identified camper whose
+    // group carries the set nowhere must be named in `noCells`, grouped by
+    // the value that caused it (their group_id) the same shape as
+    // unmatchedByValue/ambiguousByValue above.
+    expect(noCells).toEqual([{ group_id: 'grp-z', camperCount: 1 }])
+  })
+
+  // Round 2, Art. V follow-up. `noCells` fires ONLY for branch 1 (a matched,
+  // group-identified camper whose group is absent from every occurrence of
+  // their matched tier) — never for the unmatched/ambiguous branches, which
+  // already have their own visibility (unmatched/ambiguous) and must not be
+  // double-counted or re-labeled. NON-VACUITY: an implementation that folded
+  // this into `unmatched` (the likeliest wrong shortcut, since both are
+  // "camper got []-ish treatment") would pass every attendance/unmatchedCount
+  // assertion here while silently merging two different causes into one
+  // channel — pinned by asserting unmatched/ambiguous stay empty while
+  // noCells is populated, and vice versa in the sibling tests above.
+  it('does not populate noCells for the unmatched or ambiguous branches', () => {
+    const occurrences = [{ id: 'occ-a', tier_id: 'tier-1', group_ids: ['grp-x'] }]
+    const tiers = [{ id: 'tier-1', name: 'Older' }, { id: 'tier-2', name: 'Older' }]
+    const campers = [
+      { id: 'cam-unmatched', division_label: 'Nobody', group_id: 'grp-z' },
+      { id: 'cam-ambiguous', division_label: 'Older', group_id: 'grp-z' },
+    ]
+    const { noCells, unmatchedCount, ambiguous } = buildAttendance({ campers, occurrences, tiers })
+    expect(noCells).toEqual([])
+    expect(unmatchedCount).toBe(1)
+    expect(ambiguous).toHaveLength(1)
+  })
+
+  // Round 3, Red Hat MEDIUM — REWRITTEN. The old version of this test PINNED
+  // A SILENCE: a camper whose matched tier has zero occurrences landed in no
+  // bucket at all, which contradicted this module's own noCells docstring
+  // ("a correctly identified camper who attends zero occurrences" is
+  // surfaced). Once the `tierOccurrences.length > 0` guard is dropped (round
+  // 3), "your group has no period for this elective set" is true and useful
+  // even when the WHOLE tier has no occurrences — the group's tier is
+  // genuinely `tier-1`, and `tier-1` simply never got a cell.
+  it('populates noCells when the matched tier itself has no occurrences, for a camper whose group tier matches', () => {
+    const occurrences = [{ id: 'occ-other', tier_id: 'tier-other', group_ids: ['grp-x'] }]
+    const tiers = [{ id: 'tier-1', name: 'Older' }, { id: 'tier-other', name: 'Younger' }]
+    const groups = [{ id: 'grp-z', tier_id: 'tier-1' }]
+    const campers = [{ id: 'cam-1', division_label: 'Older', group_id: 'grp-z' }]
+    const { attendance, noCells, divisionMismatches } = buildAttendance({ campers, occurrences, tiers, groups })
+    expect(attendance['cam-1']).toEqual([])
+    expect(noCells).toEqual([{ group_id: 'grp-z', camperCount: 1 }])
+    expect(divisionMismatches).toEqual([])
+  })
+
+  // Groups multiple campers of the same excluded group under one entry —
+  // same per-value grouping shape as unmatchedByValue/ambiguousByValue.
+  it('groups multiple campers of the same excluded group under one noCells entry', () => {
+    const occurrences = [{ id: 'occ-a', tier_id: 'tier-1', group_ids: ['grp-x'] }]
+    const tiers = [{ id: 'tier-1', name: 'Older' }]
+    const campers = [
+      { id: 'cam-1', division_label: 'Older', group_id: 'grp-z' },
+      { id: 'cam-2', division_label: 'Older', group_id: 'grp-z' },
+    ]
+    const { noCells } = buildAttendance({ campers, occurrences, tiers })
+    expect(noCells).toEqual([{ group_id: 'grp-z', camperCount: 2 }])
+  })
+
+  // T229/H4's original property, re-confirmed under group scoping: the tier
+  // gate is checked FIRST and is never widened by a group_id match. A camper
+  // whose group_id happens to appear in a SIBLING tier's occurrence must
+  // still never reach it.
+  it('never admits a camper to an occurrence of a different tier, even when group_ids overlap', () => {
+    const occurrences = [
+      { id: 'occ-juniors', tier_id: 'tier-juniors', group_ids: ['grp-shared'] },
+      { id: 'occ-seniors', tier_id: 'tier-seniors', group_ids: ['grp-shared'] },
+    ]
+    const tiers = [
+      { id: 'tier-juniors', name: 'Juniors' },
+      { id: 'tier-seniors', name: 'Seniors' },
+    ]
+    const campers = [{ id: 'cam-1', division_label: 'Juniors', group_id: 'grp-shared' }]
+    const { attendance } = buildAttendance({ campers, occurrences, tiers })
+    expect(attendance['cam-1']).toEqual(['occ-juniors'])
+  })
+
+  // Round 3, Red Hat HIGH — SHEET/ROSTER TIER DISAGREEMENT. The sheet's
+  // Division column says "Older" (matches tier-older); the camper's ROSTER
+  // group is a Younger bunk. deriveOccurrences.js only ever adds a slot's
+  // group_id after confirming the group's OWN tier_id, so a Younger group can
+  // never appear in an Older occurrence's group_ids — groupOccurrences is
+  // always empty for this camper, for a reason that has nothing to do with
+  // "the group has no cell". Folding this into noCells would tell the
+  // director "Younger 1's schedule has no period for this elective set" —
+  // true and useless, since the real problem is the sheet/roster disagreement
+  // itself, not Younger 1's rotation. NON-VACUITY: an implementation that
+  // still lumps this into noCells must fail both the divisionMismatches
+  // assertion and the noCells-emptiness assertion below.
+  it('classifies a sheet/roster tier disagreement as a divisionMismatch, not a noCells', () => {
+    const occurrences = [{ id: 'occ-older', tier_id: 'tier-older', group_ids: ['grp-older-1'] }]
+    const tiers = [{ id: 'tier-older', name: 'Older' }, { id: 'tier-younger', name: 'Younger' }]
+    const groups = [{ id: 'grp-younger-1', tier_id: 'tier-younger' }]
+    const campers = [{ id: 'cam-1', division_label: 'Older', group_id: 'grp-younger-1' }]
+    const { attendance, unmatchedCount, noCells, divisionMismatches } = buildAttendance({
+      campers, occurrences, tiers, groups,
+    })
+    expect(attendance['cam-1']).toEqual([])
+    expect(noCells).toEqual([])
+    expect(divisionMismatches).toEqual([{ division: 'Older', group_id: 'grp-younger-1', camperCount: 1 }])
+    expect(unmatchedCount).toBe(0)
+  })
+
+  // The genuine no-cell case must still land in noCells when the ROSTER
+  // agrees with the sheet (the group's own tier IS the matched tier) — this
+  // is the case round 2 introduced, re-confirmed now that classification
+  // exists.
+  it('still classifies a same-tier group with no carried occurrence as noCells, not a mismatch', () => {
+    const occurrences = [{ id: 'occ-a', tier_id: 'tier-1', group_ids: ['grp-x'] }]
+    const tiers = [{ id: 'tier-1', name: 'Older' }]
+    const groups = [{ id: 'grp-z', tier_id: 'tier-1' }]
+    const campers = [{ id: 'cam-1', division_label: 'Older', group_id: 'grp-z' }]
+    const { noCells, divisionMismatches } = buildAttendance({ campers, occurrences, tiers, groups })
+    expect(noCells).toEqual([{ group_id: 'grp-z', camperCount: 1 }])
+    expect(divisionMismatches).toEqual([])
+  })
+
+  // A group_id absent from `groups` entirely (caller passed no roster, or the
+  // group was deleted) must fall to noCells, never to divisionMismatches —
+  // there is no second fact to disagree with, so inventing a "mismatch" from
+  // missing data would be a fabricated diagnosis.
+  it('falls back to noCells, not divisionMismatches, when the group_id is unknown to groups', () => {
+    const occurrences = [{ id: 'occ-a', tier_id: 'tier-1', group_ids: ['grp-x'] }]
+    const tiers = [{ id: 'tier-1', name: 'Older' }]
+    const groups = [{ id: 'grp-x', tier_id: 'tier-1' }] // grp-z is NOT in groups
+    const campers = [{ id: 'cam-1', division_label: 'Older', group_id: 'grp-z' }]
+    const { noCells, divisionMismatches } = buildAttendance({ campers, occurrences, tiers, groups })
+    expect(noCells).toEqual([{ group_id: 'grp-z', camperCount: 1 }])
+    expect(divisionMismatches).toEqual([])
   })
 
   // NON-VACUITY. Drives the REAL parser (src/ingest/preferenceImport.js) on a

@@ -56,6 +56,7 @@ export default function ScheduleElectivesScreen({ campId, role, onNavigate, init
   const [locations, setLocations] = useState([])
   const [tiers, setTiers] = useState([])
   const [groups, setGroups] = useState([])
+  const [campers, setCampers] = useState([])
   const [days, setDays] = useState([])
   const [timeBlocks, setTimeBlocks] = useState([])
   const [templateSlots, setTemplateSlots] = useState([])
@@ -73,6 +74,7 @@ export default function ScheduleElectivesScreen({ campId, role, onNavigate, init
       const [
         setsData, offeringsData, activitiesData, locationsData, tiersData, groupsData,
         daysData, timeBlocksData, templateSlotsData, scheduleTemplatesData, scheduleWeeksData,
+        campersData,
       ] = await Promise.all([
         localClient.list('elective_sets'),
         localClient.list('elective_set_activities'),
@@ -85,6 +87,7 @@ export default function ScheduleElectivesScreen({ campId, role, onNavigate, init
         localClient.list('template_slots'),
         localClient.list('schedule_templates'),
         localClient.list('schedule_weeks'),
+        localClient.list('campers'),
       ])
       setSets((setsData || []).filter((s) => s.camp_id === campId))
       setOfferings(offeringsData || [])
@@ -97,6 +100,7 @@ export default function ScheduleElectivesScreen({ campId, role, onNavigate, init
       setTemplateSlots(templateSlotsData || [])
       setScheduleTemplates((scheduleTemplatesData || []).filter((t) => t.camp_id === campId))
       setScheduleWeeks(scheduleWeeksData || [])
+      setCampers((campersData || []).filter((c) => c.camp_id === campId))
     } catch {
       setError("Couldn't load your camp setup — check your connection and refresh.")
     } finally {
@@ -126,6 +130,7 @@ export default function ScheduleElectivesScreen({ campId, role, onNavigate, init
           locations={locations}
           tiers={tiers}
           groups={groups}
+          campers={campers}
           days={days}
           timeBlocks={timeBlocks}
           templateSlots={templateSlots}

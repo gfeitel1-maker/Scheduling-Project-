@@ -89,4 +89,42 @@ describe('deriveOccurrences', () => {
     expect(templates['tpl-1'].occurrences).toHaveLength(0)
     expect(findings).toEqual([expect.objectContaining({ kind: 'INCOMPLETE_PLACEMENT' })])
   })
+
+  // Board item: buildAttendance needs to know which GROUPS actually created a
+  // tier-level occurrence, so a camper whose group never placed into that cell
+  // can be excluded even though their tier matches. Two groups of the same
+  // tier hitting the same cell must produce ONE occurrence (unchanged) whose
+  // `group_ids` names BOTH groups. Non-vacuity: assert the length explicitly
+  // and the sorted order, so a collapse back to a single group_id (e.g. "last
+  // slot wins") cannot pass.
+  it('accumulates every distinct group_id that created a shared tier-level cell, sorted', () => {
+    const groups = [
+      { id: 'grp-z', tier_id: 'tier-1' },
+      { id: 'grp-a', tier_id: 'tier-1' },
+    ]
+    const slots = [
+      slot({ id: 's1', group_id: 'grp-z' }),
+      slot({ id: 's2', group_id: 'grp-a' }),
+    ]
+    const { templates } = deriveOccurrences({ slots, groups, electiveSetId: SET_ID })
+    const occs = templates['tpl-1'].occurrences
+    expect(occs).toHaveLength(1)
+    expect(occs[0].group_ids.length).toBe(2)
+    expect(occs[0].group_ids).toEqual(['grp-a', 'grp-z'])
+  })
+
+  // A group skipped for UNTIERED_GROUP or INCOMPLETE_PLACEMENT must not
+  // contribute its group_id to any occurrence — those slots never reach a cell.
+  it('does not add a skipped slot\'s group_id to any occurrence', () => {
+    const groups = [
+      { id: 'grp-1', tier_id: 'tier-1' },
+      { id: 'grp-untiered', tier_id: null },
+    ]
+    const slots = [
+      slot({ id: 's1', group_id: 'grp-1' }),
+      slot({ id: 's2', group_id: 'grp-untiered' }),
+    ]
+    const { templates } = deriveOccurrences({ slots, groups, electiveSetId: SET_ID })
+    expect(templates['tpl-1'].occurrences[0].group_ids).toEqual(['grp-1'])
+  })
 })

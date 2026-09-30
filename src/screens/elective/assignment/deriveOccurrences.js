@@ -10,6 +10,15 @@
 // slot whose group has no tier is excluded and emits an `UNTIERED_GROUP`
 // finding rather than crashing or silently dropping the slot.
 //
+// Each occurrence also carries a DERIVED, NEVER-PERSISTED `group_ids`: the
+// sorted, distinct list of every group whose slot created or joined that
+// cell. buildAttendance.js uses it to tell a camper's own group apart from a
+// same-tier sibling group that happens to share the cell; nothing else reads
+// it. `elective_occurrences` writes (electron/ops/commitElectiveRun.js,
+// finalizeElectiveRun.js) and `deriveElectiveOccurrenceId` both take an
+// explicit field/argument list rather than spreading the occurrence object,
+// so `group_ids` never reaches a persisted row or an id -- keep it that way.
+//
 // Pure, no IPC, no db. Grouped by `template_id` because two schedule
 // templates (manual/generated) may both place this set, and neither route is
 // canonical (CLAUDE.md) -- the caller decides which template's occurrences to
@@ -60,13 +69,17 @@ export function deriveOccurrences({ slots = [], groups = [], electiveSetId, runI
         day_id: slot.day_id,
         time_block_id: slot.time_block_id,
         tier_id: tierId,
+        group_ids: new Set(),
       })
     }
+    cells.get(cellKey).group_ids.add(slot.group_id)
   }
 
   const templates = {}
   for (const [templateId, cells] of byTemplate) {
-    templates[templateId] = { occurrences: [...cells.values()] }
+    templates[templateId] = {
+      occurrences: [...cells.values()].map((occ) => ({ ...occ, group_ids: [...occ.group_ids].sort() })),
+    }
   }
   return { templates, findings }
 }
