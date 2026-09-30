@@ -163,7 +163,25 @@ export const ACCEPTANCE_MANIFEST = Object.freeze({
   // §6's named edge cases, by the name the sheet gives them.
   duplicateNameDifferentGroups: 'Ari Feldspar',
   duplicateNameSameGroup: 'Rivka Sandarch',
-  wholeRunFallbackCampers: ['Nadav Calcite', 'Ronit Dolomite', 'Netanel Siltstone', 'Zohar Peridot'],
+  // EVERY camper who answers for the whole run instead of per cell — one row,
+  // no coordinate. Round 1 listed only the four in the sheet's own
+  // AC_WHOLE_RUN block and a comment elsewhere then read that list as "the
+  // campers the linked choice depends on", which it is not: the bundle's four
+  // are the FIRST FOUR OLDER campers, moved onto the whole-run shape by
+  // `acDaysFor` (scripts/fixtures/make-preference-corpus.mjs) because the
+  // wrong-tier binding defect makes their per-cell rows useless. Both groups
+  // are named, separately, so neither can be read as the other.
+  wholeRunFallbackCampers: [
+    'Nadav Calcite', 'Ronit Dolomite', 'Netanel Siltstone', 'Zohar Peridot',
+    'Amit Granitine', 'Tzvi Micafold', 'Ilana Serpentine', 'Oren Halitebrook',
+  ],
+  // The four who rank the bundle. SYN-2001…2004
+  // (test/fixtures/elective-acceptance/preferences-resolved.csv). Condition
+  // (8)'s cohort is read from here rather than from `elective_preferences`,
+  // and that is forced: no preference in this camp ever reaches the database
+  // carrying a bundle's choice id — see the gap in
+  // electron/electiveAcceptanceSolve.integration.test.jsx.
+  linkedChoiceCampers: ['Amit Granitine', 'Tzvi Micafold', 'Ilana Serpentine', 'Oren Halitebrook'],
   // §6: "one missing external id" and "one inactive camper". Two DIFFERENT
   // children: folding them onto one camper would let a single wrong row make
   // both assertions pass or both fail together.

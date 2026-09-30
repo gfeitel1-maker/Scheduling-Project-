@@ -267,48 +267,124 @@ describe('§6 — the real panel solves and commits against the generated route'
     expect(placedThere).toEqual([])
   })
 
+  // ROUND-2 REBUILD. What this asserted before was coincidence-compatible in
+  // both halves, and the mutation proved it: with `runLinkedChoiceTier`
+  // short-circuited at its first line — the linked tier removed from the engine
+  // outright — the whole condition stayed GREEN.
+  //
+  // WHY. (a) The `is_linked = 1` choices and their offerings are written
+  // UNCONDITIONALLY by commitElectiveRun.js:449-462, "whether or not any
+  // preference this commit carries names their label", so their presence was a
+  // fact about the fixture's own write calls and not about the solve. (b) The
+  // bundle's four campers rank it whole-run, so its two member occurrences saw
+  // IDENTICAL demand, and the ordinary solver is deterministic and
+  // input-order-independent — it simply picked the same three at both.
+  //
+  // THE FIXTURE NOW BREAKS THE SYMMETRY: three more Older campers rank Ropes
+  // first on TUESDAY ONLY, so Tuesday is contended 7-for-3 against Monday's
+  // 4-for-3 and no ordinary per-occurrence pass can land the same three at both
+  // by accident. The mutation above now reds this test.
+  //
+  // AND IT IS SCOPED TO THE LINKED COHORT. Asserting over every Older camper
+  // holding the bundle's activity was simultaneously OVER-strict: a non-linked
+  // fallback seat at Ropes on one member day alone — exactly what those three
+  // extra campers are — is a legitimate tier-2 outcome and is not a violation
+  // of atomicity. The cohort is read from `elective_preferences`, which is
+  // where a preference naming the bundle's label lands (D6 resolves it to the
+  // bundle's own per-tier choice).
   it('(8) the linked choice placed in BOTH member occurrences or neither', () => {
     const bundleActivity = camp.fixture.activityIdByName.get(M.bundle.activity)
     const older = camp.fixture.tierIdByName.get('Older')
     const memberDays = M.bundle.days.map((d) => camp.fixture.dayIdByLabel.get(d))
-
-    const seatsByCamper = new Map()
-    for (const r of rows) {
-      if (r.tier_id !== older || r.activity_id !== bundleActivity) continue
-      if (!memberDays.includes(r.day_id)) continue
-      if (!seatsByCamper.has(r.camper_id)) seatsByCamper.set(r.camper_id, new Set())
-      seatsByCamper.get(r.camper_id).add(r.day_id)
-    }
-    // ATOMICITY: nobody holds exactly one of the two.
-    for (const [camperId, days] of seatsByCamper) {
-      expect({ camperId, days: days.size }).toEqual({ camperId, days: memberDays.length })
-    }
-    // NON-VACUITY: tier 1 actually ran, and ran for THIS bundle.
-    //
-    // Scoped to the live bundle's own per-tier choice, NOT to "some linked
-    // choice exists": the two deliberately-refused bundles are linked too, so a
-    // bare `is_linked = 1` count stays green when this bundle collapses to one
-    // period — measured, that is exactly what happened.
-    expect(seatsByCamper.size).toBeGreaterThan(0)
     const choiceId = deriveLinkedElectiveChoiceId(run.id, camp.fixture.bundleIds.bundle, older)
+
+    // THE CHOICE AND ITS MEMBERS, as a PRECONDITION and labelled one. These
+    // rows are written unconditionally, so they say the bundle was authored and
+    // expanded — never that tier 1 placed anybody.
     const choice = camp.db
       .prepare('SELECT label, is_linked FROM elective_choices WHERE id = ? AND run_id = ?').get(choiceId, run.id)
     expect(choice).toMatchObject({ label: M.bundle.name, is_linked: 1 })
     const members = camp.db
       .prepare('SELECT DISTINCT occurrence_id FROM elective_choice_offerings WHERE choice_id = ?').all(choiceId)
     expect(members).toHaveLength(memberDays.length)
-    // Every seat holder holds exactly the choice's OWN member occurrences —
-    // not merely two seats that happen to be in the bundle's activity.
     const memberOccurrences = new Set(members.map((m) => m.occurrence_id))
-    for (const [camperId, days] of seatsByCamper) {
-      const held = new Set(rows
-        .filter((r) => r.camper_id === camperId && r.activity_id === bundleActivity && memberOccurrences.has(r.occurrence_id))
-        .map((r) => r.occurrence_id))
-      expect({ camperId, held: held.size, days: days.size }).toEqual({
-        camperId, held: memberOccurrences.size, days: memberDays.length,
-      })
+
+    // THE COHORT: the four campers whose sheet rows name this bundle, by name
+    // from the manifest and resolved to ids here. NOT read from
+    // `elective_preferences.choice_id` — see the gap below, which measures why
+    // that column can never carry a bundle's choice id in this camp.
+    const cohort = new Set(camp.db
+      .prepare(`SELECT id FROM campers WHERE camp_id = ? AND display_name IN (${M.linkedChoiceCampers.map(() => '?').join(',')})`)
+      .all(camp.fixture.campId, ...M.linkedChoiceCampers).map((r) => r.id))
+    expect(cohort.size).toBe(M.linkedChoiceCampers.length)
+
+    const seatsByCamper = new Map()
+    for (const r of rows) {
+      if (!cohort.has(r.camper_id) || r.activity_id !== bundleActivity) continue
+      if (!memberOccurrences.has(r.occurrence_id)) continue
+      if (!seatsByCamper.has(r.camper_id)) seatsByCamper.set(r.camper_id, new Set())
+      seatsByCamper.get(r.camper_id).add(r.occurrence_id)
+    }
+    // ATOMICITY: no cohort member holds exactly one of the two.
+    for (const [camperId, occs] of seatsByCamper) {
+      expect({ camperId, held: occs.size }).toEqual({ camperId, held: memberOccurrences.size })
+    }
+    expect(seatsByCamper.size).toBeGreaterThan(0)
+
+    // THE SET WAS WON, not merely held: every seat the cohort holds at a member
+    // occurrence carries a rank, and the count is the offering's capacity —
+    // tier 1 filled the choice's column to its min-over-members capacity.
+    // Without this, a run that placed nobody as a set and left the cohort with
+    // two unranked fallback seats each would satisfy atomicity.
+    const capacity = M.offerings[M.bundle.activity][1]
+    expect(seatsByCamper.size).toBe(Math.min(capacity, cohort.size))
+    for (const camperId of seatsByCamper.keys()) {
+      const held = rows.filter(
+        (r) => r.camper_id === camperId && r.activity_id === bundleActivity && memberOccurrences.has(r.occurrence_id)
+      )
+      expect(held.map((r) => r.preference_rank)).toEqual(held.map(() => 1))
     }
   })
+})
+
+describe('GAP — no preference ever reaches the database carrying a bundle choice id', () => {
+  // FOUND BY SCOPING CONDITION (8)'s COHORT (round 2), not by reading the code.
+  //
+  // D6 resolves a bundle-labelled preference to the camper's OWN tier's choice
+  // via `tierIdByGroupId.get(camperById.get(p.camper_id).group_id)`
+  // (electron/ops/commitElectiveRun.js:489-490), and `camperById` is built from
+  // `parsed.campers` — the SHEET's campers, not the database's
+  // (commitElectiveRun.js:181). A sheet whose Division column names a TIER
+  // leaves `group_id` null by design ("a `tiers` match → sets NOTHING
+  // referential", src/ingest/preferenceSheet.js:725-731), so `camperTierId` is
+  // null for every camper on such a sheet and EVERY bundle-labelled preference
+  // is recorded as a tier mismatch and skipped.
+  //
+  // The engine is unaffected — it matches preferences to choices by labelKey
+  // through the panel's own freshly derived choices, which is why condition (8)
+  // above is live and reds when the linked tier is removed. What is lost is the
+  // PERSISTED link: `elective_preferences.choice_id` never names a bundle, so
+  // nothing downstream of the database can tell a bundle preference from an
+  // ordinary one. The projection file records the matching loss on
+  // `elective_assignments.choice_id`.
+  //
+  // This goes red the day D6 resolves the tier from the camper's stored group.
+  it('every linked choice exists, and not one preference names it', async () => {
+    const run = await solveAndCommit()
+    const linkedIds = camp.db
+      .prepare('SELECT id FROM elective_choices WHERE run_id = ? AND is_linked = 1').all(run.id).map((r) => r.id)
+    expect(linkedIds.length).toBeGreaterThan(0)
+
+    const placeholders = linkedIds.map(() => '?').join(',')
+    const named = camp.db
+      .prepare(`SELECT COUNT(*) c FROM elective_preferences WHERE run_id = ? AND choice_id IN (${placeholders})`)
+      .get(run.id, ...linkedIds).c
+    expect(named).toBe(0)
+    // And this is a loss, not an empty run: preferences DID land, on flat
+    // choices only.
+    expect(camp.db.prepare('SELECT COUNT(*) c FROM elective_preferences WHERE run_id = ?').get(run.id).c)
+      .toBeGreaterThan(0)
+  }, 60_000)
 })
 
 describe('§6 (5) — every lock is retained (SINGLE DEVICE, GAP-3)', () => {
@@ -412,8 +488,16 @@ describe('GAP — a per-cell preference binds to the WRONG TIER on a tier-spanni
   // cell, and preference_rank reported a first choice that had not been
   // honoured" — a confident wrong answer, not a visible failure.
   //
-  // MEASURED on this camp: 51 of 150 resolved preferences bound across tiers,
-  // and only 12 of the Older tier's 26 placements carried any rank at all.
+  // MEASURED on this camp, 2026-09-29, by the assertion below: of the Older
+  // tier's 26 placements, 7 sit at a cell the camper DID rank and carry no
+  // rank at all. Round 1 carried two different numbers for this one defect —
+  // "51 of 150 / 12 of 26" here and "75 of 174 / 4 of 26" in
+  // scripts/fixtures/make-preference-corpus.mjs — neither reproducible, both
+  // taken at a seam that is not the database: `elective_preferences.occurrence_id`
+  // is NULL on every row in this camp (the parser emits no occurrence, and the
+  // cross-tier binding happens later, inside resolvePreferenceCoordinates, on
+  // its way to the engine). Both comments now carry this same statement, which
+  // is the one the test actually computes.
   //
   // T251 may not fix production code, so the gap is asserted instead: the four
   // campers the linked choice needs were moved onto the whole-run shape (which
@@ -434,6 +518,9 @@ describe('GAP — a per-cell preference binds to the WRONG TIER on a tier-spanni
     const unhonoured = rows.filter(
       (r) => r.preference_rank == null && statedFor.has(`${r.camper_id}|${dayLabel.get(r.day_id)}`)
     )
-    expect(unhonoured.length).toBeGreaterThan(0)
+    // PINNED, not merely non-zero, so the comment above is a measurement this
+    // file recomputes rather than a number someone wrote down once.
+    expect({ olderPlacements: rows.length, unhonoured: unhonoured.length })
+      .toEqual({ olderPlacements: 26, unhonoured: 7 })
   }, 60_000)
 })

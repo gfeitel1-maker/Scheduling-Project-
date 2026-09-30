@@ -574,6 +574,17 @@ function acRanks(division, day, i) {
   }
   if (day === 'Tuesday') {
     if (i < 4) return ['Ropes', 'Woodshop', 'Garden']
+    // CONDITION (8) IS ONLY NON-VACUOUS IF THE TWO MEMBER OCCURRENCES DIFFER.
+    // The bundle's four campers rank it whole-run, so Monday and Tuesday saw
+    // identical demand -- and the ordinary solver is deterministic and
+    // input-order-independent (buildElectiveAssignments.js:505-510), so it
+    // picked the SAME three at both, and "nobody holds exactly one of the two"
+    // was true whether or not the linked tier ran at all. Measured: with
+    // runLinkedChoiceTier short-circuited outright, condition (8) stayed green.
+    // These three rank Ropes first on TUESDAY ONLY (the tier's own cell, which
+    // the wrong-tier binding defect does not touch), so Tuesday is contended
+    // 7-for-3 against Monday's 4-for-3 and the ordinary path cannot coincide.
+    if (i < 7) return ['Ropes', 'Woodshop', 'Garden']
     if (i < 8) return ['Woodshop', 'Garden', 'Swim']
     if (i === 8) return ['Garden', 'Woodshop', 'Swim']
     return ['Woodshop', 'Garden', 'Swim']
@@ -592,8 +603,12 @@ function acRanks(division, day, i) {
 // (day, block) cell REGARDLESS OF TIER (src/screens/elective/assignment/
 // resolvePreferenceCoordinates.js:73-79), so on a tier-spanning set every
 // per-cell preference of the non-first tier lands on the other tier's
-// occurrence. Measured on this very fixture: 75 of 174 resolved preferences,
-// and only 4 of the Older tier's 26 placements honoured a stated choice. A
+// occurrence. Measured on this very fixture, 2026-09-29, by the assertion in
+// electron/electiveAcceptanceSolve.integration.test.jsx's own gap: of the Older
+// tier's 26 placements, 7 sit at a cell the camper DID rank and carry no rank
+// at all. (Round 1 stated "75 of 174 / 4 of 26" here and a different pair over
+// there, for the same defect on the same fixture; neither was reproducible,
+// both were taken at a seam that is not the database.) A
 // preference bound to the wrong tier's occurrence is also outside the bundle's
 // member set, so `choiceRankMinOverMembers` finds no rank and the linked tier
 // has no candidates at all -- which is why these four use the whole-run shape,
