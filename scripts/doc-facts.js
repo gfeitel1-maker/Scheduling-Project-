@@ -57,7 +57,7 @@ export const DOC_FACT_SCAN = [
 
 const MARKER = /<!--\s*doc-fact:([A-Za-z0-9_]+)\s+value=([^\s>]+)\s*-->/g
 
-const finding = (message) => ({ code: 'doc-fact-stale', message })
+const finding = (code, message) => ({ code, message })
 
 /**
  * Pure core: scan one doc's text for markers and compare each against the
@@ -73,7 +73,8 @@ export function scanDocFactsInText(path, text, derived) {
     for (const m of line.matchAll(MARKER)) {
       const [, name, asserted] = m
       if (!(name in DOC_FACTS)) {
-        findings.push(finding(`${path}:${lineNo} — unknown doc-fact \`${name}\` (not in DOC_FACTS registry)`))
+        findings.push(finding('doc-fact-stale',
+          `${path}:${lineNo} — unknown doc-fact \`${name}\` (not in DOC_FACTS registry)`))
         continue
       }
       const canonical = derived[name]
@@ -83,7 +84,7 @@ export function scanDocFactsInText(path, text, derived) {
         continue
       }
       if (String(asserted) !== String(canonical)) {
-        findings.push(finding(
+        findings.push(finding('doc-fact-stale',
           `${path}:${lineNo} — doc-fact \`${name}\` asserts value=${asserted} but source says ${canonical} ` +
           `(${DOC_FACTS[name].label}). Update the doc and the marker together.`))
       }
@@ -104,6 +105,7 @@ export function checkDocFacts(root, {
   warn = (msg) => console.warn(msg),
 } = {}) {
   const derived = {}
+  const findings = []
   for (const [name, def] of Object.entries(facts)) {
     let value = null
     try {
@@ -111,11 +113,23 @@ export function checkDocFacts(root, {
     } catch {
       value = null
     }
-    if (value === null) warn(`check:governance — doc-fact \`${name}\` skipped (could not derive ${def.label})`)
+    if (value === null) {
+      warn(`check:governance — doc-fact \`${name}\` skipped (could not derive ${def.label})`)
+      // "Could not derive" is not "clean" — a null here used to carry on to a
+      // silent pass (the derived value was skipped from the mismatch
+      // comparison, and nothing else ever reported it). This is a DISTINCT
+      // code from `doc-fact-stale`: a mismatch means "the doc is wrong", this
+      // means "the check could not verify the doc at all," and those need
+      // different human responses — fix the doc vs. fix the derivation/source.
+      findings.push(finding('doc-fact-undeliverable',
+        `doc-fact \`${name}\` could not be derived from its source (${def.label}). This is NOT a pass — ` +
+        'any doc marker asserting this fact was left unverified. Fix the source path/regex this derivation ' +
+        'reads, or the file it points at.',
+      ))
+    }
     derived[name] = value
   }
 
-  const findings = []
   for (const path of scan) {
     let text
     try {

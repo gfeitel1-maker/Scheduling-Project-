@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   checkDoc, checkIndexFreshness, checkPlatformStateFreshness, PLATFORM_STATE_PATH, AGENTS,
   parseCompletionRefs, resolveIds, isClosed, checkStatusDrift, checkAll,
-  checkClosureClaimWithoutId,
+  checkClosureClaimWithoutId, checkNoLiteralNul,
 } from './check-governance.js'
 
 // The checker's whole job is to fail on things a human reading one file would
@@ -520,6 +520,30 @@ describe('checkPlatformStateFreshness', () => {
 
     const throws = () => { throw new Error('not a git repository') }
     expect(checkPlatformStateFreshness(process.cwd(), throws)).toEqual([])
+  })
+})
+
+describe('checkNoLiteralNul', () => {
+  // Same-shaped injection as the other checks here: no real FS, no real git.
+  const manyFiles = Array.from({ length: 105 }, (_, i) => `f${i}.js`)
+  const execFn = () => manyFiles.join('\n') + '\n'
+  const cleanRead = () => Buffer.from('clean')
+
+  it('reports a tracked file that contains a literal NUL byte', () => {
+    const readFn = (p) => (p.endsWith('f3.js') ? Buffer.from([0x41, 0x00, 0x41]) : cleanRead())
+    const findings = checkNoLiteralNul('/fake/root', { execFn, readFn })
+    expect(findings.map((f) => f.code)).toEqual(['literal-nul'])
+    expect(findings[0].message).toContain('f3.js')
+  })
+
+  it('reports nothing when every tracked file is clean', () => {
+    expect(checkNoLiteralNul('/fake/root', { execFn, readFn: cleanRead })).toEqual([])
+  })
+
+  it('fires the non-vacuity floor when the file list is implausibly short — a glob typo, not a clean repo', () => {
+    const shortExecFn = () => 'a.js\nb.js\n'
+    const findings = checkNoLiteralNul('/fake/root', { execFn: shortExecFn, readFn: cleanRead })
+    expect(findings.map((f) => f.code)).toEqual(['literal-nul-floor'])
   })
 })
 

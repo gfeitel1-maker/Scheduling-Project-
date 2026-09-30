@@ -81,16 +81,40 @@ describe('checkDocFacts (wrapper over a synthetic filesystem)', () => {
     expect(found[0].message).toContain('79')
   })
 
-  it('warns (does not throw) when a source file is unreadable', () => {
+  it('warns AND reports a finding when a source file is unreadable — "could not derive" must not read as a pass', () => {
     const warnings = []
     const found = checkDocFacts('/root', {
       scan: ['docs/x.md'],
       read: (rel) => { if (rel === 'electron/db/localDb.js') throw new Error('ENOENT'); return files[rel] },
       warn: (m) => warnings.push(m),
     })
-    // schema_version derivation failed -> its marker is skipped, verify_step_count still checked
+    // schema_version derivation failed -> its marker is skipped for the mismatch
+    // comparison, but the failure itself is now a BLOCKING finding, not just a
+    // console warning that a human could miss. verify_step_count still checked
+    // normally and produces no finding of its own.
     expect(warnings.some((w) => w.includes('schema_version'))).toBe(true)
-    expect(found).toEqual([])
+    expect(found.map((f) => f.code)).toEqual(['doc-fact-undeliverable'])
+    expect(found[0].message).toContain('schema_version')
+  })
+
+  it('a null derivation and a mismatched marker are DISTINCT finding codes — they need different human responses', () => {
+    const bad = { ...files, 'docs/x.md': 'v78 <!-- doc-fact:schema_version value=78 -->' }
+    const badRead = (rel) => { if (!(rel in bad)) throw new Error('ENOENT'); return bad[rel] }
+    const found = checkDocFacts('/root', { scan: ['docs/x.md'], read: badRead, warn: () => {} })
+    expect(found.map((f) => f.code)).toEqual(['doc-fact-stale'])
+  })
+
+  it('a derive() that THROWS is treated the same as one that returns null — also a finding, not a silent pass', () => {
+    const throwingFacts = {
+      schema_version: { label: 'throws always', derive: () => { throw new Error('boom') } },
+    }
+    const found = checkDocFacts('/root', {
+      facts: throwingFacts,
+      scan: [],
+      read: () => { throw new Error('ENOENT') },
+      warn: () => {},
+    })
+    expect(found.map((f) => f.code)).toEqual(['doc-fact-undeliverable'])
   })
 })
 

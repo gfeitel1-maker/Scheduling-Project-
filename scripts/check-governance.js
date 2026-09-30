@@ -19,6 +19,9 @@ import { fileURLToPath } from 'node:url'
 import { asList } from './frontmatter.js'
 import { readDocs, generate, INDEX_PATH, REFERENCE_FIELDS } from './build-work-index.js'
 import { checkDocFacts } from './doc-facts.js'
+import { checkNoLiteralNul } from './noLiteralNul.js'
+
+export { checkNoLiteralNul }
 
 // See checkWritableEntitiesCanSync. Imported at module load so the check is
 // ordinary synchronous code; if either module cannot be loaded the check is
@@ -1047,6 +1050,12 @@ export function checkAll(root, execFn = (cmd) => execSync(cmd, { encoding: 'utf8
   // (heuristic, advisory, commit-date-based) this compares a doc's marked claim to a
   // value derived from source, so it is BLOCKING: a marked fact is an exact claim.
   findings.push(...checkDocFacts(root))
+
+  // A literal NUL byte anywhere in the tracked source tree makes plain grep
+  // silently treat that file as binary — see noLiteralNul.js's header. BLOCKING,
+  // same reasoning as checkDocFacts: a defect a human sweep cannot see must not
+  // pass quietly.
+  findings.push(...checkNoLiteralNul(root, { execFn }))
 
   // Loaded lazily and defensively: this check reads application modules rather
   // than documents, and a doc-hygiene run must not hard-fail because an app
