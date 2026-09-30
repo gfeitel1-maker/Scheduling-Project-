@@ -120,6 +120,10 @@ export default function DraftRunView({
   run, danglingFindings = [], onRegenerate, onFinalized, onBack,
   activities = [], days = [], timeBlocks = [], templateOccurrences = [],
   scheduleTemplates = [], scheduleWeeks = [], tiers = [],
+  // T250 A3 — true when `onRegenerate` is available because this session
+  // HYDRATED a cold-opened run's state, never because it solved the run
+  // itself. Drives the disclosure note beside the offer's button.
+  coldRegenerate = false,
 }) {
   const { state, setState, loaded, loadError, reload } = useRunState(run.id)
   const [error, setError] = useState(null)
@@ -420,6 +424,17 @@ export default function DraftRunView({
                   Re-derive and regenerate
                 </button>
               ) : null}
+            </div>
+          ) : null}
+
+          {/* T250 A3 — the reconstructed roster for a cold-open regenerate is
+              "every camper with a preference or a placement on this run", not
+              the original sheet's full roster — this says so rather than
+              leaving it a silent gap (the "engine surfaces, never silently
+              absorbs" rule). */}
+          {onRegenerate && coldRegenerate ? (
+            <div data-testid="run-cold-regenerate-note" style={styles.actionsHint}>
+              Regenerating a reopened run reconsiders every camper who has a preference or a placement on it.
             </div>
           ) : null}
 

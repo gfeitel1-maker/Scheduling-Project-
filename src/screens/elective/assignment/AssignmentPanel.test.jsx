@@ -14,6 +14,10 @@ vi.mock('../../../localClient', () => ({
     // resolving empty is a camp that has remembered nothing, which is what every
     // one of those tests means to exercise.
     list: vi.fn(), rememberColumnMapping: vi.fn(),
+    // T250 A3 — the run list and its own read, exercised by the cold-open
+    // hydration suite below. Every other suite in this file leaves these
+    // unset (RunList itself renders nothing on an empty resolve).
+    listElectiveRuns: vi.fn(), getElectiveRun: vi.fn(), setElectiveAssignment: vi.fn(),
   },
 }))
 
@@ -61,6 +65,9 @@ beforeEach(() => {
   localClient.list.mockResolvedValue([])
   localClient.rememberColumnMapping.mockReset()
   localClient.rememberColumnMapping.mockResolvedValue({ ok: true, id: 'seed-1' })
+  localClient.listElectiveRuns.mockReset().mockResolvedValue([])
+  localClient.getElectiveRun.mockReset()
+  localClient.setElectiveAssignment.mockReset().mockResolvedValue({ ok: true })
   // Default for the pre-existing suites: encryption OFF, which is the real
   // default today (SHORESH_AT_REST_ENCRYPTION is unset). T249's own suite sets
   // this per test.
@@ -842,5 +849,68 @@ describe('AssignmentPanel — T250 A5: same-name refusal blocks the route choose
     const card = await screen.findByRole('alert')
     expect(card.textContent).toMatch(/This sheet can.t be assigned yet/)
     expect(localClient.commitElectiveRun).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// T250 A3 — a run opened cold from the run list can be regenerated. Before
+// this, onRegenerate was `undefined` unless viewRun.id === committedInfo?.runId
+// — only true in the SAME session that solved it, so a cold open had no
+// regenerate at all, however stale the run.
+// ---------------------------------------------------------------------------
+describe('AssignmentPanel — T250 A3: cold-open hydration and regenerate', () => {
+  const COLD_RUN = {
+    id: 'cold-run-1', name: 'Cold Run', status: 'draft', source_filename: 'sheet.csv',
+    schedule_template_id: 'tpl-1', schedule_week_id: null, tier_id: 'tier-juniors',
+  }
+
+  function coldRunState() {
+    return {
+      rows: [{ id: 'asn-1', occurrence_id: 'occ-1', camper_id: 'camper-1', activity_id: 'act-1', preference_rank: 1, camper_name: 'Ari', source: 'solver', is_locked: 0 }],
+      occurrences: [{ id: 'occ-1', elective_set_id: 'set-1', day_id: 'day-1', time_block_id: 'tb-1', tier_id: 'tier-juniors' }],
+      preferences: [{ id: 'pref-1', camper_id: 'camper-1', choice_id: 'choice-1', occurrence_id: 'occ-1', rank: 1, rank_kind: 'cell-choice', coordinate: null }],
+      choices: [{ id: 'choice-1', label: 'Archery', is_linked: 0 }],
+      campers: [{ id: 'camper-1', display_name: 'Ari', division_label: null, group_id: 'grp-1', external_id: null, is_unattributed: 0, group_name: 'Cabin One' }],
+      staleCount: 1,
+      finalizedAgainstStaleGeneration: false,
+      overCapacityOccurrences: [],
+    }
+  }
+
+  it('hydrates the panel session state on cold open, so a regenerate control becomes available', async () => {
+    localClient.listElectiveRuns.mockResolvedValue([COLD_RUN])
+    localClient.getElectiveRun.mockResolvedValue(coldRunState())
+    render(<AssignmentPanel {...baseProps()} />)
+    fireEvent.click(await screen.findByTestId('run-list-row-cold-run-1'))
+
+    // Before hydration lands, no regenerate control (a control that cannot
+    // work must not render) — after it lands, the staleness offer's button
+    // is present.
+    const offer = await screen.findByTestId('run-staleness-offer')
+    expect(within(offer).getByRole('button', { name: /Re-derive and regenerate/i })).toBeTruthy()
+    // The disclosure note: a cold-open regenerate reconstructs the roster
+    // from preferences/assignments only, not the original sheet.
+    expect(screen.getByTestId('run-cold-regenerate-note').textContent).toMatch(
+      /reconsiders every camper who has a preference or a placement on it/
+    )
+  })
+
+  it('a cold regenerate re-solves and commits onto the ORIGINAL runId, never a freshly minted one', async () => {
+    localClient.listElectiveRuns.mockResolvedValue([COLD_RUN])
+    localClient.getElectiveRun.mockResolvedValue(coldRunState())
+    localClient.commitElectiveRun.mockResolvedValue({ ok: true, runId: 'cold-run-1', counts: { campers: 1, choices: 1, preferences: 1, assignments: 1 }, findings: [] })
+    render(<AssignmentPanel {...baseProps()} />)
+    fireEvent.click(await screen.findByTestId('run-list-row-cold-run-1'))
+
+    const offer = await screen.findByTestId('run-staleness-offer')
+    fireEvent.click(within(offer).getByRole('button', { name: /Re-derive and regenerate/i }))
+
+    // Solve runs, landing on the preview with a Commit button.
+    await waitFor(() => expect(screen.getByText(/Commit Assignments/)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Commit Assignments/))
+
+    await waitFor(() => expect(localClient.commitElectiveRun).toHaveBeenCalled())
+    const payload = localClient.commitElectiveRun.mock.calls.at(-1)[0]
+    expect(payload.runId).toBe('cold-run-1')
   })
 })

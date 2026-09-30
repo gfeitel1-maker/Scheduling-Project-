@@ -302,6 +302,12 @@ export default function AssignmentPanel({
   // FinalRunView's entrance transition fires on the Finalize -> Final
   // transition and never on a Final run opened cold from the run list.
   const [justFinalized, setJustFinalized] = useState(false)
+  // T250 A3 — the id of the run this session has successfully HYDRATED
+  // session state for (runId/templateId/occurrences/parsed all set from the
+  // run's own persisted rows), which is what makes `regenerate` available for
+  // a run opened cold from the run list. Absent or mismatched, onRegenerate
+  // stays undefined — a control that cannot work must not render.
+  const [hydratedRunId, setHydratedRunId] = useState(null)
   const [danglingFindings, setDanglingFindings] = useState([])
   // What this director settled on THIS parse \u2014 a list of
   // `{ label, action, activityName }` \u2014 and the label currently being acted on.
@@ -946,6 +952,66 @@ export default function AssignmentPanel({
     setViewRun(run)
   }
 
+  // T250 A3 — reconstruct this session's solve inputs from the run's OWN
+  // persisted rows, so `regenerate()`/`solve()`/`commit()` can run UNMODIFIED
+  // against a run opened cold from the run list. Deliberately does NOT write
+  // a parallel solve/commit pipeline — that would duplicate
+  // commitElectiveRun's refusal/generation/lock logic in a second place.
+  useEffect(() => {
+    if (!viewRun || viewRun.status !== 'draft') return
+    // Already solved THIS session (chooseTemplateAndSolve/regenerate already
+    // populated runId/templateId/occurrences/parsed for this exact run), or
+    // already hydrated — nothing to do.
+    if (viewRun.id === committedInfo?.runId || hydratedRunId === viewRun.id) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const out = await localClient.getElectiveRun({ runId: viewRun.id })
+        if (cancelled) return
+        // Re-derived fresh against the run's OWN template — never read back
+        // from getElectiveRun's `occurrences`, whose own comment says that
+        // set is the accumulated union of every generation and "must not" be
+        // read as the current one.
+        const occs = deriveOccurrences({
+          slots: templateSlots, groups, electiveSetId, runId: viewRun.id,
+        }).templates[viewRun.schedule_template_id]?.occurrences ?? []
+        // The reconstructed roster: exactly what buildAttendance.js and
+        // buildElectiveAssignments.js read off a camper (camper.id,
+        // camper.division_label) — carrying only those plus display_name/
+        // external_id/group_id, which the rest of this screen's read paths use.
+        const campersForParse = (out.campers ?? []).map((c) => ({
+          id: c.id, display_name: c.display_name, external_id: c.external_id,
+          division_label: c.division_label, group_id: c.group_id,
+        }))
+        // ENRICHED with label/labelKey joined on choice_id — without this,
+        // findMismatches (keyed on labelKey/label) would report every
+        // preference as unmatched, since the stored rows carry only choice_id.
+        const choiceById = new Map((out.choices ?? []).map((c) => [c.id, c]))
+        const preferencesForParse = (out.preferences ?? []).map((p) => {
+          const choice = p.choice_id != null ? choiceById.get(p.choice_id) : null
+          return {
+            ...p,
+            label: choice?.label ?? null,
+            labelKey: choice ? electiveChoiceLabelKey(choice.label) : null,
+          }
+        })
+        setRunId(viewRun.id)
+        setTemplateId(viewRun.schedule_template_id)
+        setOccurrences(occs)
+        setParsed({
+          campers: campersForParse, preferences: preferencesForParse,
+          choices: out.choices ?? [], sameNameCampers: [], residue: [],
+        })
+        setHydratedRunId(viewRun.id)
+      } catch (err) {
+        if (cancelled) return
+        onError?.(describeWriteFailure(err, 'This run could not be prepared for regenerating.'))
+      }
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewRun, committedInfo, hydratedRunId])
+
   // Q1/Q2: a finalized run is immutable and there is no reopen. With today's
   // IPC the honest minimal behaviour is to put the director back at the import
   // flow, which mints a fresh runId on the next solve — a NEW run, never this
@@ -1051,7 +1117,11 @@ export default function AssignmentPanel({
                Pruning `elective_occurrences` is the prerequisite; it is not
                T250's to do. */
             danglingFindings={viewRun.id === committedInfo?.runId ? danglingFindings : []}
-            onRegenerate={parsed && viewRun.id === committedInfo?.runId ? regenerate : undefined}
+            // T250 A3 — available whenever THIS session solved the run
+            // (same as before) OR hydration succeeded for it, not only the
+            // former.
+            onRegenerate={parsed && (viewRun.id === committedInfo?.runId || hydratedRunId === viewRun.id) ? regenerate : undefined}
+            coldRegenerate={viewRun.id !== committedInfo?.runId && hydratedRunId === viewRun.id}
             onBack={() => setViewRun(null)}
             {...runViewCatalogs}
           />
