@@ -1,7 +1,8 @@
 ---
 title: "Elective run durability pass — partial-snapshot detection, dangling-assignment persistence, the move picker's contract, and persisted eligibility/resource findings (v83)"
 document_type: adr
-status: proposed
+status: accepted
+approved: 2026-09-30 (owner, via the organizer session: "go for it" — accepted as written; recorded on the board as h-accept-adr-2026-09-30-durability)
 authority: normative
 implementation_state: not-started
 date: 2026-09-30
