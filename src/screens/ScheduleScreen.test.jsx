@@ -1021,6 +1021,108 @@ describe('separate manual and generated routes', () => {
   })
 })
 
+// Red Hat HIGH (round 2): the ANCHOR_DUPLICATE gate (anchors passed only on
+// the generated route; computeFindings' safe default — absent anchors, no
+// finding — keeps manual clean) is hand-duplicated at THREE call sites.
+// useScheduleData's load loop is already pinned by useScheduleData.test.js.
+// This covers the ScheduleScreen.jsx `recalcFindings` closure (~line 506-512),
+// which fires on a SLOT EDIT, not on load — real computeFindings runs here
+// (this file mocks nothing of it), so an anchor/duplicate-regular-slot
+// fixture that is present at LOAD time on both routes, followed by a paste
+// (which runs the closure, not the load loop), is what actually exercises it.
+describe('ScheduleScreen recalcFindings closure — ANCHOR_DUPLICATE stays generated-only after a slot edit, not just at load', () => {
+  const GEN = 'schedule-template:camp-1'
+  const MAN = 'schedule-template:camp-1:manual'
+
+  // Anchor over "Swim" (b1), plus a stale duplicate regular Swim slot at b2
+  // (the T182 ANCHOR_DUPLICATE case, same fixture shape as
+  // buildSchedule.test.js's "computeFindings ANCHOR_DUPLICATE" describe
+  // block), plus a Soccer slot at b3 to paste Swim onto (recomputes findings
+  // via the slot-edit path without changing the anchor/duplicate condition).
+  function anchorDuplicateSlots(templateId) {
+    return [
+      slotRow({ id: `${templateId}-anchor`, template_id: templateId, time_block_id: 'b1', activity_id: 'anchor-slot', is_anchor: 1 }),
+      slotRow({ id: `${templateId}-dup`, template_id: templateId, time_block_id: 'b2', activity_id: 'act-1' }),
+      slotRow({ id: `${templateId}-soccer`, template_id: templateId, time_block_id: 'b3', activity_id: 'act-2' }),
+    ]
+  }
+
+  function setupRoutes() {
+    mockList({
+      time_blocks: [
+        timeBlock(),
+        timeBlock({ id: 'b2', name: 'Midday', sort_order: 2, start_time: '10:00:00', end_time: '11:00:00' }),
+        timeBlock({ id: 'b3', name: 'Afternoon', sort_order: 3, start_time: '11:00:00', end_time: '12:00:00' }),
+      ],
+      activities: [
+        // min_per_week high enough that UNDERSERVED always fires regardless of
+        // placement count — gives the manual route a clickable badge that opens
+        // the full findings list (StatBadge is only clickable when value > 0).
+        activity({ id: 'act-1', name: 'Swim', min_per_week: 5 }),
+        activity({ id: 'act-2', name: 'Soccer', min_per_week: 0 }),
+      ],
+      fixed_events: [
+        { id: 'anc1', camp_id: CAMP_ID, activity_id: 'act-1', name: 'Swim', is_all_groups: true, day_id: null, time_block_id: 'b1', span_blocks: 1, schedule_week_id: null },
+      ],
+      schedule_templates: [
+        { id: GEN, camp_id: CAMP_ID, name: 'Generated', kind: 'generated', week_id: CAMP_ID },
+        { id: MAN, camp_id: CAMP_ID, name: 'Manual', kind: 'manual', week_id: CAMP_ID },
+      ],
+      template_slots: [
+        ...anchorDuplicateSlots(GEN),
+        ...anchorDuplicateSlots(MAN),
+      ],
+    })
+  }
+
+  const routeScreen = (initialRoute) => (
+    <ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} initialRoute={initialRoute} />
+  )
+
+  function flagsWriteFor(slotId) {
+    return localClient.write.mock.calls.find(
+      c => c[1] === 'template_slots' && c[2] === slotId && c[3] === 'flags'
+    )
+  }
+
+  // Copies "Swim" onto "Soccer" — drives placeActivityManual, which calls
+  // ScheduleScreen's `recalcFindings` closure on success. No dnd-kit needed.
+  async function pasteSwimOntoSoccer(soccerSlotId) {
+    await waitFor(() => expect(screen.getByText('Group View')).toBeTruthy())
+    fireEvent.click(screen.getByText('Group View'))
+    await waitFor(() => {
+      expect(scheduleCell('Swim')).toBeTruthy()
+      expect(scheduleCell('Soccer')).toBeTruthy()
+    })
+    fireEvent.click(scheduleCell('Swim'))
+    fireEvent.keyDown(window, { key: 'c', ctrlKey: true })
+    fireEvent.click(scheduleCell('Soccer'))
+    await waitFor(() => expect(flagsWriteFor(soccerSlotId)).toBeDefined())
+  }
+
+  it('generated: ANCHOR_DUPLICATE is in the findings list after the slot-edit recompute', async () => {
+    setupRoutes()
+    render(routeScreen('generated'))
+    await pasteSwimOntoSoccer(`${GEN}-soccer`)
+
+    fireEvent.click(screen.getByText('Review all'))
+    await waitFor(() => expect(screen.getByText(/is also a fixed event this week/)).toBeTruthy())
+  })
+
+  it('manual: ANCHOR_DUPLICATE never appears after the same slot-edit recompute, even with identical anchor/duplicate data', async () => {
+    setupRoutes()
+    render(routeScreen('manual'))
+    await pasteSwimOntoSoccer(`${MAN}-soccer`)
+
+    // "Still needed" is the only manual-route badge guaranteed clickable here
+    // (StatBadge disables itself at value 0); on manual it opens the full
+    // list ('ALL'), same as "Review all" does on generated.
+    fireEvent.click(screen.getByText('Still needed'))
+    await waitFor(() => expect(screen.getByText('Close')).toBeTruthy())
+    expect(screen.queryByText(/is also a fixed event this week/)).toBeNull()
+  })
+})
+
 // A camp whose generated schedule_templates row carries a RANDOM UUID id —
 // the real-world starting state for any camp whose row was minted after
 // migration v21 by a renderer that still used crypto.randomUUID(). The

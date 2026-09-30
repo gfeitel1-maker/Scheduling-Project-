@@ -285,6 +285,67 @@ describe('useSnapshots', () => {
     })
   })
 
+  // Red Hat HIGH (round 2): the ANCHOR_DUPLICATE gate is hand-duplicated at
+  // three computeFindings call sites; restoreSnapshot (here, line ~175-178) is
+  // one of them and was uncovered — this file mocks nothing of computeFindings,
+  // so the real engine (src/engine/buildSchedule.js) runs, and the fixture
+  // below is the same anchor/duplicate-regular-slot shape pinned in
+  // buildSchedule.test.js's "computeFindings ANCHOR_DUPLICATE" describe block.
+  describe('restoreSnapshot route-gates ANCHOR_DUPLICATE (real computeFindings, not mocked)', () => {
+    const anchor = { id: 'anc1', activity_id: 'lunch', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
+    // Fresh object per test: restoreSnapshot mutates the `fullSnap` it is
+    // handed (`fullSnap.slots = parsed.slots`), so a payload object SHARED
+    // across tests would have its `.slots` silently flipped from a JSON
+    // string to an already-parsed array by whichever test ran first.
+    function makePayload(templateId) {
+      return {
+        template_id: templateId,
+        slots: JSON.stringify([
+          { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, anchor_id: null, is_anchor: true, flags: {} },
+          { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'lunch', anchor_id: null, is_anchor: false, flags: {} },
+        ]),
+      }
+    }
+    const freshSlots = [
+      { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'anchor-slot', is_anchor: true, flags: {} },
+      { id: 's2', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'lunch', is_anchor: false, flags: {} },
+    ]
+
+    it('generated route: an ANCHOR_DUPLICATE finding reaches setFindings after restore', async () => {
+      const repo = makeRepo({
+        getSnapshot: vi.fn(async () => makePayload('tid-generated')),
+        reloadSlots: vi.fn(async () => freshSlots),
+      })
+      const { result, props } = setup({
+        repo,
+        activities: [{ id: 'lunch', name: 'Lunch' }],
+        anchors: [anchor],
+      })
+      await act(async () => { await result.current.restoreSnapshot({ id: 'snap-1' }) })
+
+      const findings = props.setFindings.mock.calls[0][0]
+      expect(findings.some(f => f.kind === 'ANCHOR_DUPLICATE')).toBe(true)
+    })
+
+    it('manual route: the same anchor/duplicate data never surfaces ANCHOR_DUPLICATE after restore', async () => {
+      const repo = makeRepo({
+        getSnapshot: vi.fn(async () => makePayload('tid-manual')),
+        reloadSlots: vi.fn(async () => freshSlots),
+      })
+      const { result, props } = setup({
+        repo,
+        route: 'manual',
+        templateId: 'tid-manual',
+        activities: [{ id: 'lunch', name: 'Lunch' }],
+        anchors: [anchor],
+      })
+      await act(async () => { await result.current.restoreSnapshot({ id: 'snap-1' }) })
+
+      const findings = props.setFindings.mock.calls[0][0]
+      expect(findings.some(f => f.kind === 'ANCHOR_DUPLICATE')).toBe(false)
+    })
+  })
+
   it('renameSnapshot writes the new name and clears the auto flag', async () => {
     const { result, props } = setup()
     await act(async () => { await result.current.renameSnapshot('snap-1', 'Final') })
