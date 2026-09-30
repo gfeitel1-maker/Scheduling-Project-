@@ -28,6 +28,7 @@ function exportOrderWorkbook() {
   add('Time Blocks', [{ name: 'First Period', start_time: '09:00', end_time: '10:00' }])
   add('Activities', [{ name: 'Archery', eligible_tiers: 'Juniors' }])
   add('Anchors', [{ name: 'Lunch', day_label: 'all', time_block_name: 'First Period' }])
+  add('Locations', [{ name: 'Main Field', capacity: 40, kind: 'field' }])
   return XLSX.write(wb, { type: 'array', bookType: 'xlsx' })
 }
 
@@ -49,6 +50,10 @@ const DOORS = [
   // get forgotten.
   { screen: 'TiersScreen', sheetName: 'Age Divisions', requiredColumns: ['name'], field: 'name', expect: 'Juniors' },
   { screen: 'TimeBlocksScreen', sheetName: 'Time Blocks', requiredColumns: ['name', 'start_time'], field: 'name', expect: 'First Period' },
+  // The SEVENTH door (T317). LocationsScreen got to this rule first and spelled it by hand —
+  // `SheetNames.includes('Locations') ? 'Locations' : SheetNames[0]` — which was right about the
+  // app's own exports and left two gaps: no column fallback, and a case-SENSITIVE name match.
+  { screen: 'LocationsScreen', sheetName: 'Locations', requiredColumns: ['name', 'capacity'], field: 'name', expect: 'Main Field' },
 ]
 
 describe('readEntitySheet — each door finds its own tab', () => {
@@ -137,5 +142,36 @@ describe('readEntitySheet — the caps still apply', () => {
   it('unescapes cells, so an escaped export round-trips clean', () => {
     const bytes = book([['Days', [{ label: "'=SUM(A1)" }]]])
     expect(readEntitySheet(bytes, { type: 'array', sheetName: 'Days' }).rows[0].label).toBe('=SUM(A1)')
+  })
+})
+
+describe('the two gaps the hand-rolled locations rule left (T317)', () => {
+  it('matches the sheet name case- and space-insensitively', () => {
+    // `SheetNames.includes('Locations')` missed these and fell back to tab 1, where the rows belong
+    // to somebody else's entity.
+    for (const name of ['locations', 'LOCATIONS', ' Locations ']) {
+      const bytes = book([['Cover', [{ note: 'read me' }]], [name, [{ name: 'Main Field', capacity: 40 }]]])
+      const { rows } = readEntitySheet(bytes, {
+        type: 'array', sheetName: 'Locations', requiredColumns: ['name', 'capacity'],
+      })
+      expect(rows.map((r) => r.name), `sheet named ${JSON.stringify(name)}`).toEqual(['Main Field'])
+    }
+  })
+
+  it('finds the table by COLUMNS when no tab is called Locations', () => {
+    const bytes = book([['Cover', [{ note: 'read me' }]], ['Sheet2', [{ name: 'Main Field', capacity: 40 }]]])
+    const { sheet } = readEntitySheet(bytes, {
+      type: 'array', sheetName: 'Locations', requiredColumns: ['name', 'capacity'],
+    })
+    expect(sheet).toBe('Sheet2')
+  })
+
+  it('NON-VACUITY: a tab with `name` but no `capacity` is NOT taken for a locations table', () => {
+    // Otherwise the column fallback would match the Programs tab, which is the failure T315 fixed.
+    const bytes = book([['Programs', [{ name: 'Main Camp' }]], ['Places', [{ name: 'Main Field', capacity: 40 }]]])
+    const { sheet } = readEntitySheet(bytes, {
+      type: 'array', sheetName: 'Locations', requiredColumns: ['name', 'capacity'],
+    })
+    expect(sheet).toBe('Places')
   })
 })

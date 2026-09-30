@@ -77,6 +77,7 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [A whole-sheet planner grid imports through the director's panel](../../docs/work/tickets/T305-a-whole-sheet-planner-grid-imports-through-the-panel.md) | open | [T306-the-director-can-name-an-unnamed-submission](../../docs/work/tickets/T306-the-director-can-name-an-unnamed-submission.md) · [T307-a-directors-column-correction-is-honoured](../../docs/work/tickets/T307-a-directors-column-correction-is-honoured.md) · [T313-one-spelling-for-a-provisional-subject](../../docs/work/tickets/T313-one-spelling-for-a-provisional-subject.md) |
+| [The seventh import door shares the tab rule instead of spelling it](../../docs/work/tickets/T317-the-seventh-import-door-shares-the-tab-rule.md) | open | — |
 
 ### unclassified
 
