@@ -4,7 +4,7 @@ import ProvenanceDot from '../components/setup/ProvenanceDot'
 import { provenanceDotStyles } from '../components/setup/provenanceDotStyles.js'
 import * as XLSX from 'xlsx'
 import { describeWriteFailure, deleteRefusalMessage } from '../utils/writeErrorMessage'
-import { aoaToSanitizedSheet, readWorkbookSafely, unescapeRow } from '../utils/exportSanitize.js'
+import { aoaToSanitizedSheet, readEntitySheet } from '../utils/exportSanitize.js'
 import { parseLocationsSheetRows } from '../utils/importLocationsSheet.js'
 import { localClient } from '../localClient'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
@@ -14,6 +14,7 @@ import { S, prefersReducedMotion, useEnterTransition } from '../styles/shared'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
 import ImportModal from '../components/setup/ImportModal'
+import ImportPreviewSubtitle from '../components/setup/ImportPreviewSubtitle.jsx'
 import InlineAddRow from '../components/setup/InlineAddRow'
 import WeekContextBar from '../components/schedule/WeekContextBar'
 import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialog'
@@ -428,6 +429,9 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
   const [pendingExclusion, setPendingExclusion] = useState(null) // { location, slotCount }
   const [importStep, setImportStep] = useState(null)
   const [importPreviewRows, setImportPreviewRows] = useState([])
+  // T317 — which tab these rows came from, when there was more than one to choose
+  // between. Null on a single-sheet file: no choice, so nothing to report.
+  const [importSheetNote, setImportSheetNote] = useState(null)
   const [importResult, setImportResult] = useState(null)
   const [importing, setImporting] = useState(false)
   const fileRef = useRef()
@@ -689,17 +693,31 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
     const reader = new FileReader()
     reader.onload = ev => {
       try {
-      const wb = readWorkbookSafely(ev.target.result, { type: 'array', byteLength: file.size })
-      // T121: a multi-sheet workbook (the setup enrichment export) carries its
-      // own Locations sheet, which is not necessarily SheetNames[0] — prefer it
-      // by name, falling back to the first sheet for a dedicated single-sheet
-      // locations file (this screen's own downloadTemplate names its sheet
-      // 'Locations' too, so that path is unaffected).
-      const sheetName = wb.SheetNames.includes('Locations') ? 'Locations' : wb.SheetNames[0]
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' }).map(unescapeRow)
+      // T121's rule, now the SHARED one (T317). This screen got here first and spelled
+      // it by hand: prefer a sheet literally named `Locations`, else the first. That
+      // was right about the app's own exports — the setup enrichment export and this
+      // screen's own `downloadTemplate` both name their sheet `Locations` — and it
+      // left two gaps that `readEntitySheet` closes, the same gaps T315 closed in the
+      // other six importers:
+      //
+      //   * NO COLUMN FALLBACK. A third-party workbook with the locations table on a
+      //     later tab and no sheet called `Locations` still read tab 1.
+      //   * A CASE-SENSITIVE name match. `includes('Locations')` misses a sheet named
+      //     `locations`, or `Locations ` with a trailing space, and silently fell back
+      //     to tab 1 — where the rows are somebody else's entity.
+      //
+      // Keeping a seventh hand-rolled copy of a rule the other six now share is the
+      // drift the choke point exists to prevent, which is the other half of why this
+      // moves rather than being patched in place.
+      const { sheet: importedSheet, rows, otherSheets } = readEntitySheet(ev.target.result, {
+        type: 'array', byteLength: file.size,
+        sheetName: 'Locations', requiredColumns: ['name', 'capacity'],
+      })
       const validKinds = new Set(KIND_OPTIONS.map(k => k.value))
       const parsed = parseLocationsSheetRows(rows, validKinds)
-      setImportPreviewRows(parsed); setImportStep('preview')
+      setImportPreviewRows(parsed)
+      setImportSheetNote(otherSheets.length > 0 ? { sheet: importedSheet, others: otherSheets } : null)
+      setImportStep('preview')
       } catch (err) {
         setError(describeWriteFailure(err, 'That import file could not be read.'))
       }
@@ -939,7 +957,7 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
         importing={importing}
         onConfirm={confirmImport}
         onCancel={() => { setImportStep(null); setImportPreviewRows([]) }}
-        previewSubtitle={<>{importReadyRows.length} ready{importWarnRows.length > 0 && `, ${importWarnRows.length} with warnings (skipped)`}</>}
+        previewSubtitle={<ImportPreviewSubtitle ready={importReadyRows.length} warn={importWarnRows.length} sheetNote={importSheetNote} />}
         renderCell={(r, c) => {
           if (c.key === 'name') return r.name || <span style={{ color: 'var(--warning)' }}>—</span>
           if (c.key === 'capacity') return r.capacity

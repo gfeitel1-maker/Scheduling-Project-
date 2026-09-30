@@ -11,7 +11,7 @@ import {
   STATUS_COLUMN,
   PLAN_VERSION,
 } from './exportWorkbook.js'
-import { unescapeRow } from './exportSanitize.js'
+import { readEntitySheet, unescapeRow } from './exportSanitize.js'
 import { parseLocationsSheetRows } from './importLocationsSheet.js'
 
 // A small but complete camp fixture (localClient.list shape, snake_case).
@@ -184,12 +184,24 @@ describe('exportWorkbook — Locations sheet (T121 capacity round-trip)', () => 
     XLSX.utils.book_new() // no-op, keeps intent explicit: simulate pre-T121 shape below
     delete wb.Sheets[LOCATIONS_SHEET]
     wb.SheetNames = wb.SheetNames.filter((n) => n !== LOCATIONS_SHEET)
-    const sheetName = wb.SheetNames.includes(LOCATIONS_SHEET) ? LOCATIONS_SHEET : wb.SheetNames[0]
-    // Mirrors LocationsScreen.onFileChange's fallback: a workbook with no
-    // 'Locations' sheet falls back to the first sheet, which parses fine
-    // (rows without a `name`/`capacity` column just come back empty-ish and
-    // get flagged, never throw).
-    expect(() => XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' })).not.toThrow()
+    // Drives the REAL reader rather than mirroring it (T317). This used to re-implement
+    // LocationsScreen's `includes('Locations') ? … : SheetNames[0]` inline and say so —
+    // and that fallback no longer exists, so the mirror would have gone on passing while
+    // describing a rule that had moved. A test that re-implements the code under test
+    // cannot see it change; the same lesson T313 recorded one layer down.
+    const bytes = XLSX.write(wb, { type: 'array', bookType: 'xlsx' })
+    expect(() =>
+      readEntitySheet(bytes, {
+        type: 'array', sheetName: LOCATIONS_SHEET, requiredColumns: ['name', 'capacity'],
+      })
+    ).not.toThrow()
+    // And it lands on SOMETHING rather than nothing: a workbook with no Locations sheet
+    // falls back to the first, whose rows lack `name`/`capacity` and get flagged by
+    // `parseLocationsSheetRows` — never thrown over.
+    const { sheet } = readEntitySheet(bytes, {
+      type: 'array', sheetName: LOCATIONS_SHEET, requiredColumns: ['name', 'capacity'],
+    })
+    expect(sheet).toBe(wb.SheetNames[0])
   })
 })
 
