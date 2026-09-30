@@ -89,14 +89,17 @@ rather than edited in place — this section is the current record.
   the single shared predicate, applied at every free-choice read site (Activities, Schedule,
   Special Day, Elective Set Detail, and Event Grid Editor screens).
   `electron/ingestPassExclusivity.integration.test.js` (15 tests, passing) covers all four of this
-  ADR's observable predicates through the real ingest path: `filterFreeChoiceActivities excludes it`
-  = predicate 1; `places the pinned name exactly once per group per day` = predicate 2;
-  `anchor activity_id resolution still returns exactly one row` = predicate 3; `the free-choice name
-  and the dual-use name are untouched` = predicate 4.
+  ADR's observable predicates through the real ingest path, in the file's own words: `clause 1 — the
+  pinned name is not a free choice, even though the director confirmed it` = predicate 1; `places
+  the pinned name exactly once per group per day — not zero, not twice` = predicate 2; `clause 3 —
+  anchor activity_id resolution still returns exactly one row` = predicate 3; `clause 4 — the
+  free-choice name and the dual-use name are untouched` = predicate 4.
 
 - **T267 — the `activity_id` identity half — no longer open.** Closed 2026-09-28 across three PRs
   (#560, #597, #601): `anchor_activities` renamed `fixed_events` with `activity_id` added and
-  backfilled at migration (schema v78); `src/engine/anchorActivityLink.js`'s
+  backfilled at migration (schema v77, per `electron/db/localDb.js`'s own migration comments — T267's
+  ticket text says v78, which is wrong; v78 is T265's per-cell elective preferences migration);
+  `src/engine/anchorActivityLink.js`'s
   `resolveAnchorActivityIds` resolves **by id only** — the name-matching fallback (`anchorNameKey`,
   `indexActivitiesByName`) is deleted, not retained as a belt; an anchor with no resolvable
   `activity_id` now produces the visible, blocking `ANCHOR_IDENTITY_GAP` finding in
