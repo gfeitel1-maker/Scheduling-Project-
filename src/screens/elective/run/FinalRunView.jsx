@@ -62,8 +62,21 @@ export default function FinalRunView({
     try {
       const out = await localClient.getElectiveRunOuterSchedule({ runId: run.id })
       const data = buildChildScheduleExport({
-        run, campers, groups, days, timeBlocks, outerRows: out?.rows ?? [],
+        // T320 round 2, F3 — the completeness fields, the same way
+        // exportFullReport already passes them: useRunState's `state` is the
+        // same getElectiveRun response those fields ride on, so it wins over
+        // the caller's own `run` prop for exactly those three.
+        run: { ...run, snapshotIncomplete: state.snapshotIncomplete, expectedSnapshotRows: state.expectedSnapshotRows, heldSnapshotRows: state.heldSnapshotRows },
+        campers, groups, days, timeBlocks, outerRows: out?.rows ?? [],
       })
+      if (data.ok === false) {
+        setError(
+          `This run's snapshot has not fully synced to this device yet (${data.heldSnapshotRows ?? 0} of ` +
+          `${data.expectedSnapshotRows ?? '?'} rows) — export would be incomplete, so nothing was produced. ` +
+          'Wait for sync to finish, or re-finalize from a device that has it all.'
+        )
+        return
+      }
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')

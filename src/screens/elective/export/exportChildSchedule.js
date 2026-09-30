@@ -23,6 +23,15 @@
 // exportScheduleJson.js's and exportElectiveRun.js's own rule.
 import { clusterLinkedElectiveRows } from '../../../utils/clusterLinkedElectiveRows.js'
 
+// T320 round 2, F3 — the guard belongs HERE, not only at the combined-
+// projection choke point (exportElectiveRunProjection.js), because this
+// builder ALSO has its own standalone caller: FinalRunView.jsx's plain
+// "Export" button calls buildChildScheduleExport directly, with no other
+// completeness check in between. A guard that lives only one layer up is
+// invisible to that caller — this is what let round 1's most obvious control
+// silently print a schedule with holes. `run.snapshotIncomplete` /
+// `expectedSnapshotRows` / `heldSnapshotRows` come from getElectiveRun.js /
+// getElectiveRunOuterSchedule.js (electron/ops/electiveRunSnapshotCompleteness.js).
 export function buildChildScheduleExport({
   run,
   campers = [],
@@ -32,6 +41,14 @@ export function buildChildScheduleExport({
   outerRows = [],
   generatedAt = new Date().toISOString(),
 } = {}) {
+  if (run?.status === 'final' && run?.snapshotIncomplete) {
+    return {
+      ok: false,
+      error: 'SNAPSHOT_INCOMPLETE',
+      expectedSnapshotRows: run.expectedSnapshotRows,
+      heldSnapshotRows: run.heldSnapshotRows,
+    }
+  }
   const groupById = new Map(groups.map((g) => [g.id, g]))
   const dayById = new Map(days.map((d) => [d.id, d]))
   const timeBlockById = new Map(timeBlocks.map((t) => [t.id, t]))

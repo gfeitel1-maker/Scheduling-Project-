@@ -15,7 +15,14 @@
 // ONE roster row under its label, its members listed once each — never once per member occurrence.
 import { clusterLinkedElectiveRows } from '../../../utils/clusterLinkedElectiveRows.js'
 
+// T320 round 2, F3 — the same standalone-caller reasoning as
+// exportChildSchedule.js's own guard: no live caller invokes this builder
+// directly today, but the ADR names it as one of the guarded builders and a
+// latent gap here is still a gap the moment a caller is added. `run` was
+// already threaded through by exportElectiveRunProjection.js's call site;
+// it was simply never read.
 export function buildActivityRosterExport({
+  run,
   campers = [],
   groups = [],
   days = [],
@@ -28,6 +35,14 @@ export function buildActivityRosterExport({
   capacityRows = [],
   occurrences = [],
 } = {}) {
+  if (run?.status === 'final' && run?.snapshotIncomplete) {
+    return {
+      ok: false,
+      error: 'SNAPSHOT_INCOMPLETE',
+      expectedSnapshotRows: run.expectedSnapshotRows,
+      heldSnapshotRows: run.heldSnapshotRows,
+    }
+  }
   const camperById = new Map(campers.map((c) => [c.id, c]))
   const groupById = new Map(groups.map((g) => [g.id, g]))
   const dayById = new Map(days.map((d) => [d.id, d]))

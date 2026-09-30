@@ -851,6 +851,24 @@ describe('T250 archive_when — Final: export', () => {
     await waitFor(() => expect(screen.getByTestId('run-view-error').textContent).toMatch(/That export could not be produced\./))
   })
 
+  // T320 round 2, F3 (Code Reviewer) — round 1 wired the snapshot-incomplete
+  // refusal into "Export Full Report" only; the plain "Export" button called
+  // buildChildScheduleExport directly with no completeness check at all, so a
+  // director's most obvious control could silently print a schedule with
+  // holes. The guard now lives in buildChildScheduleExport itself.
+  it('the plain Export button refuses a partially-synced finalized run instead of producing a document', async () => {
+    localClient.getElectiveRun.mockResolvedValue({ ...CLEAN_RUN_STATE, snapshotIncomplete: true, expectedSnapshotRows: 10, heldSnapshotRows: 4 })
+    localClient.getElectiveRunOuterSchedule.mockResolvedValue({
+      rows: [{ camperId: 'camper-1', dayId: 'day-1', timeBlockId: 'tb-1', activityId: 'act-1', activityName: 'Archery', locationId: null, locationName: null, spanBlocks: 1 }],
+      runStatus: 'final',
+    })
+    render(<FinalRunView run={FINAL_RUN} campers={CAMPERS} {...catalogs()} />)
+    fireEvent.click(await screen.findByRole('button', { name: /^Export$/ }))
+    await waitFor(() => expect(screen.getByTestId('run-view-error').textContent).toMatch(/4 of.*10 rows/))
+    // No download was produced — the failure path never called createObjectURL.
+    expect(created).toHaveLength(0)
+  })
+
   // F6 (round 2): buildElectiveRunProjectionExport (JSON) and buildElectiveRunWorkbook (XLSX) were
   // built and unit-tested but never wired to a caller — the "Export" button above only produces
   // the child-schedule JSON. This is the FIRST reachable caller.
@@ -1119,6 +1137,53 @@ describe('T320 — the picker genuinely resolves the dangling row (unlike the ol
       locked: undefined, replacesAssignmentId: 'a3',
     }))
     await waitFor(() => expect(screen.queryByTestId('run-state-dangling-a3')).toBeNull())
+  })
+
+  // T320 round 2, F5 (Tester) — the spec (docs/work/specs/2026-09-30-t320-
+  // dangling-replace-picker.md, "Reduced motion") requires the row's removal
+  // to use T250's existing collapse block verbatim (src/styles/shared.js's
+  // mergeCard transition: max-height/opacity, var(--motion-settle)
+  // var(--ease-out)), not an instant DOM removal — round 1 removed the row
+  // the instant the write resolved, which on a slow write reads as lost
+  // work rather than a completed action.
+  it('collapses the row with the shared transition before removing it, on a successful move', async () => {
+    localClient.getElectiveRun
+      .mockResolvedValueOnce({ ...CLEAN_RUN_STATE, danglingFindings: dangling })
+      .mockResolvedValue({ ...CLEAN_RUN_STATE, danglingFindings: [] })
+    localClient.setElectiveAssignment.mockResolvedValue({ ok: true, assignmentId: 'new-a3' })
+    render(<DraftRunView run={DRAFT_RUN} danglingFindings={dangling} {...catalogs()} />)
+    const row = await screen.findByTestId('run-state-dangling-a3')
+    fireEvent.change(within(row).getByTestId('run-state-dangling-move-a3'), { target: { value: 'occ-1' } })
+    await waitFor(() => expect(localClient.setElectiveAssignment).toHaveBeenCalled())
+
+    const wrapper = await screen.findByTestId('run-state-dangling-collapse-a3')
+    await waitFor(() => {
+      expect(wrapper.style.maxHeight).toBe('0px')
+      expect(wrapper.style.opacity).toBe('0')
+    })
+    expect(wrapper.style.transition).toContain('var(--motion-settle)')
+    expect(wrapper.style.transition).toContain('var(--ease-out)')
+
+    // Only after the collapse has visually completed does the row actually
+    // leave the document.
+    await waitFor(() => expect(screen.queryByTestId('run-state-dangling-a3')).toBeNull())
+  })
+
+  it('under prefers-reduced-motion, the row is removed at its end state immediately, with no collapse animation', async () => {
+    vi.stubGlobal('matchMedia', vi.fn((query) => ({
+      matches: query === '(prefers-reduced-motion: reduce)',
+      media: query, addEventListener: vi.fn(), removeEventListener: vi.fn(),
+    })))
+    localClient.getElectiveRun
+      .mockResolvedValueOnce({ ...CLEAN_RUN_STATE, danglingFindings: dangling })
+      .mockResolvedValue({ ...CLEAN_RUN_STATE, danglingFindings: [] })
+    localClient.setElectiveAssignment.mockResolvedValue({ ok: true, assignmentId: 'new-a3' })
+    render(<DraftRunView run={DRAFT_RUN} danglingFindings={dangling} {...catalogs()} />)
+    const row = await screen.findByTestId('run-state-dangling-a3')
+    fireEvent.change(within(row).getByTestId('run-state-dangling-move-a3'), { target: { value: 'occ-1' } })
+
+    await waitFor(() => expect(screen.queryByTestId('run-state-dangling-a3')).toBeNull())
+    vi.unstubAllGlobals()
   })
 })
 
