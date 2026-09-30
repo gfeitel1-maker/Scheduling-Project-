@@ -1,0 +1,35 @@
+                                 Monday — All Camp
+
+   Time        Younger 1       Younger 2       Older 1         Older 2
+
+09:00–09:20    Menucha         Menucha         Menucha         Menucha
+
+10:00–10:40    Sport           Shira           Sport           Shira
+
+10:50–11:30    Swim            Archery         Ceramics        Ropes
+
+11:40–12:20    Garden          Woodshop        Boating         Shira
+
+                                 Tuesday — All Camp
+
+   Time        Younger 1       Younger 2       Older 1         Older 2
+
+09:00–09:20    Menucha         Menucha         Menucha         Menucha
+
+10:00–10:40    Shira           Sport           Shira           Sport
+
+10:50–11:30    Ceramics        Ropes           Swim            Archery
+
+11:40–12:20    Woodshop        Garden          Shira           Boating
+
+                                 Wednesday — All Camp
+
+   Time        Younger 1       Younger 2       Older 1         Older 2
+
+09:00–09:20    Menucha         Menucha         Menucha         Menucha
+
+10:00–10:40    Sport           Sport           Shira           Shira
+
+10:50–11:30    Archery         Swim            Ropes           Ceramics
+
+11:40–12:20    Boating         Shira           Garden          Woodshop
