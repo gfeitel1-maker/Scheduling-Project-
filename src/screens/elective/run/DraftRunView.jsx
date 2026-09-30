@@ -21,7 +21,7 @@ import CamperWeekPanel from './CamperWeekPanel.jsx'
 // to show the ordinal. See src/engine/rankKind.js's header.
 import { CELL_CHOICE } from '../../../engine/rankKind.js'
 import {
-  RELEASE_LOCK_LABEL, danglingMessage, occurrenceLabel, overCapacityMessage,
+  RELEASE_LOCK_LABEL, camperDisambiguator, danglingMessage, occurrenceLabel, overCapacityMessage,
   satisfactionSummary, stalenessOfferMessage,
 } from './runStateCopy.js'
 
@@ -31,6 +31,7 @@ const styles = {
   th: { textAlign: 'left', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)', padding: '6px 8px', borderBottom: '1px solid var(--border)' },
   td: { padding: '6px 8px', borderBottom: '1px solid var(--border)' },
   offer: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, fontSize: 13, marginBottom: 14 },
+  camperDisambiguator: { fontSize: 11, color: 'var(--text-secondary)' },
 }
 
 export default function DraftRunView({
@@ -323,9 +324,24 @@ export default function DraftRunView({
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {rows.map((r) => {
+                // T250 B3 — two same-named campers on this table read
+                // identically without something beside the name to tell them
+                // apart. `state.campers` (A0.2) carries the resolved group
+                // name and external_id; degrade order is
+                // camperDisambiguator's own (group -> external_id -> nothing).
+                const camper = (state.campers ?? []).find((c) => c.id === r.camper_id)
+                const disambiguator = camper
+                  ? camperDisambiguator({ groupName: camper.group_name, externalId: camper.external_id })
+                  : null
+                return (
                 <tr key={r.id} data-testid={`placement-row-${r.id}`}>
-                  <td style={styles.td}>{r.camper_name ?? r.camper_id}</td>
+                  <td style={styles.td}>
+                    {r.camper_name ?? r.camper_id}
+                    {disambiguator ? (
+                      <div style={styles.camperDisambiguator}>{disambiguator}</div>
+                    ) : null}
+                  </td>
                   <td style={styles.td}>
                     <select
                       data-testid={`placement-occurrence-${r.id}`}
@@ -360,7 +376,8 @@ export default function DraftRunView({
                     />
                   </td>
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
 
@@ -380,6 +397,7 @@ export default function DraftRunView({
             timeBlocks={timeBlocks}
             preferences={state.preferences}
             choices={state.choices}
+            campers={state.campers}
             onSetPreference={writePreference}
             onRemovePreference={removePreference}
           />

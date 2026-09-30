@@ -300,6 +300,67 @@ describe('T250 B1 — a mixed findings array renders each kind with its own sent
 })
 
 // ---------------------------------------------------------------------------
+// T250 B3 — two same-named campers need something beside the name to tell
+// them apart, in both the placement table and CamperWeekPanel's camper list.
+// ---------------------------------------------------------------------------
+describe('T250 B3 — same-name campers are disambiguated by group name, then external_id, then nothing', () => {
+  const SAME_NAME_ROWS = [
+    { id: 'a1', occurrence_id: 'occ-1', camper_id: 'camper-1', activity_id: 'act-1', preference_rank: 1, camper_name: 'Ari Green', source: 'solver', is_locked: 0 },
+    { id: 'a4', occurrence_id: 'occ-2', camper_id: 'camper-4', activity_id: 'act-2', preference_rank: 1, camper_name: 'Ari Green', source: 'solver', is_locked: 0 },
+  ]
+
+  it('shows the group name beneath the camper name in the placement table when present', async () => {
+    localClient.getElectiveRun.mockResolvedValue({
+      ...CLEAN_RUN_STATE,
+      rows: SAME_NAME_ROWS,
+      campers: [
+        { id: 'camper-1', display_name: 'Ari Green', group_name: 'Cabin One', external_id: null },
+        { id: 'camper-4', display_name: 'Ari Green', group_name: 'Cabin Two', external_id: null },
+      ],
+    })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+    const row1 = await screen.findByTestId('placement-row-a1')
+    expect(row1.textContent).toMatch(/Ari Green/)
+    expect(row1.textContent).toMatch(/Cabin One/)
+    const row4 = screen.getByTestId('placement-row-a4')
+    expect(row4.textContent).toMatch(/Cabin Two/)
+  })
+
+  it('falls back to external_id when there is no group, and never prints the raw camper_id or a "No group" placeholder', async () => {
+    localClient.getElectiveRun.mockResolvedValue({
+      ...CLEAN_RUN_STATE,
+      rows: SAME_NAME_ROWS,
+      campers: [
+        { id: 'camper-1', display_name: 'Ari Green', group_name: null, external_id: 'CM-101' },
+        { id: 'camper-4', display_name: 'Ari Green', group_name: null, external_id: null },
+      ],
+    })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+    const row1 = await screen.findByTestId('placement-row-a1')
+    expect(row1.textContent).toMatch(/CM-101/)
+    const row4 = screen.getByTestId('placement-row-a4')
+    expect(row4.textContent).not.toMatch(/camper-4/)
+    expect(row4.textContent).not.toMatch(/No group/i)
+  })
+
+  it('appends the disambiguator to the camper name in CamperWeekPanel’s list, joined by ·', async () => {
+    localClient.getElectiveRun.mockResolvedValue({
+      ...CLEAN_RUN_STATE,
+      rows: SAME_NAME_ROWS,
+      campers: [
+        { id: 'camper-1', display_name: 'Ari Green', group_name: 'Cabin One', external_id: null },
+        { id: 'camper-4', display_name: 'Ari Green', group_name: 'Cabin Two', external_id: null },
+      ],
+    })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+    const open1 = await screen.findByTestId('camper-week-open-camper-1')
+    expect(open1.textContent).toMatch(/Ari Green · Cabin One/)
+    const open4 = screen.getByTestId('camper-week-open-camper-4')
+    expect(open4.textContent).toMatch(/Ari Green · Cabin Two/)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // archive_when: Draft — "move/lock"
 // ---------------------------------------------------------------------------
 describe('T250 archive_when — Draft: move/lock', () => {

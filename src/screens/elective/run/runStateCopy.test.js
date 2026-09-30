@@ -9,7 +9,7 @@
 // numbered choice (T318 (c) — "an ordinal is shown only on positive evidence of
 // ordering").
 import { describe, it, expect } from 'vitest'
-import { occurrenceLabel, satisfactionSummary } from './runStateCopy.js'
+import { occurrenceLabel, satisfactionSummary, camperDisambiguator } from './runStateCopy.js'
 
 describe('occurrenceLabel', () => {
   it('resolves the day name from `label`, the actual days_of_operation column', () => {
@@ -98,5 +98,24 @@ describe('T250 B2 — satisfactionSummary distinguishes campers from placements'
       { camper_id: 'c2', occurrence_id: 'occ-1', preference_rank: 2 },
     ]
     expect(satisfactionSummary({ rows })).toMatch(/^2 campers placed, 3 placements across 2 occurrences\./)
+  })
+})
+
+describe('T250 B3 — camperDisambiguator degrades group name -> external_id -> nothing', () => {
+  it('prefers the group name when present', () => {
+    expect(camperDisambiguator({ groupName: 'Bogrim A', externalId: 'CM-42' })).toBe('Bogrim A')
+  })
+
+  it('falls back to the external id when there is no group', () => {
+    expect(camperDisambiguator({ groupName: null, externalId: 'CM-42' })).toBe('CM-42')
+  })
+
+  it('returns null rather than a placeholder when neither is present', () => {
+    expect(camperDisambiguator({ groupName: null, externalId: null })).toBeNull()
+  })
+
+  it('never returns the raw camper_id — it is not one of the function\'s inputs at all', () => {
+    const result = camperDisambiguator({ groupName: null, externalId: null, camperId: 'camper-123' })
+    expect(result).not.toBe('camper-123')
   })
 })

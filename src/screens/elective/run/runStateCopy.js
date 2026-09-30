@@ -65,6 +65,17 @@ export function stalenessOfferMessage({ staleCount }) {
   return `${staleCount} ${staleCount === 1 ? 'placement' : 'placements'} in this run came from an earlier version of this schedule.`
 }
 
+// T250 B3 — two same-named campers need something beside the name to tell
+// them apart. Degrades group name -> external_id -> nothing, in that order,
+// and NEVER prints a raw camper_id or a "No group" placeholder — a director
+// reading this has to recognise a real fact about the child, not an internal
+// id or an absence dressed up as one.
+export function camperDisambiguator({ groupName, externalId } = {}) {
+  if (groupName) return groupName
+  if (externalId) return externalId
+  return null
+}
+
 const RANK_WORDS = ['a first choice', 'a second choice', 'a third choice']
 
 // Derived from the run's own assignment rows and nothing else. Deliberately

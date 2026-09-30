@@ -184,6 +184,7 @@ export default function FinalRunView({
             days={days}
             timeBlocks={timeBlocks}
             preferences={state.preferences}
+            campers={state.campers}
           />
         </>
       ) : null}
