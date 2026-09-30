@@ -152,8 +152,27 @@ function ChoiceBox({ side, label, isPin, isImage, disabled, onKeep }) {
 // entity. It self-clears the moment the collision stops being derived: the
 // parent (usePendingConflicts) simply stops including it in `conflicts`, so
 // this card has no unmount/timer machinery of its own.
-function UniqueConflictCard({ conflict }) {
+// T242 leftover, resolved by the Build Board: exactly one unique-conflict
+// kind (days_of_operation) has a real screen to send the director to — see
+// the rationale above describeUniqueConflict. The other three kinds render
+// no interactive element at all, per that same rationale.
+// Exported so a test can assert every screen key named here still exists in the
+// app's real nav vocabulary (navSections.js) — a retired screen would otherwise
+// leave this link rendering and quietly landing the director elsewhere, since
+// App.jsx falls back to a default screen for an unknown key. Not a component.
+// eslint-disable-next-line react-refresh/only-export-components
+export const UNIQUE_CONFLICT_NAV_TARGET = { days_of_operation: { screen: 'days', label: 'Go to Days' } }
+
+function UniqueConflictCard({ conflict, onNavigate }) {
   const { sentence, whereToFix } = describeUniqueConflict(conflict.entity, conflict.field, conflict.value)
+  // conflict.entity is unvalidated op-log data (can arrive from a paired
+  // device merge), so a plain bracket lookup would inherit Object.prototype
+  // properties (e.g. entity === 'constructor' resolving truthy). hasOwn
+  // guards that without reaching for a Map or Object.create(null), which
+  // would be a bigger change than this lookup needs.
+  const navTarget = Object.hasOwn(UNIQUE_CONFLICT_NAV_TARGET, conflict.entity)
+    ? UNIQUE_CONFLICT_NAV_TARGET[conflict.entity]
+    : null
   return (
     <div style={S.mergeCard}>
       <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 15, color: 'var(--text)', marginBottom: whereToFix ? 6 : 0 }}>
@@ -161,6 +180,14 @@ function UniqueConflictCard({ conflict }) {
       </div>
       {whereToFix && (
         <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{whereToFix}</div>
+      )}
+      {navTarget && (
+        <button
+          onClick={() => onNavigate?.(navTarget.screen)}
+          style={{ background: 'none', border: 'none', color: 'var(--primary)', fontSize: 13, cursor: 'pointer', padding: 0, marginTop: 8, fontFamily: 'inherit', fontWeight: 600 }}
+        >
+          {navTarget.label}
+        </button>
       )}
     </div>
   )
@@ -285,7 +312,7 @@ function ConflictCard({ conflict, resolved, resolveAuthorLabel, onResolve }) {
   )
 }
 
-export default function ConflictsScreen({ pendingConflicts }) {
+export default function ConflictsScreen({ pendingConflicts, onNavigate }) {
   // eslint-disable-next-line react-hooks/rules-of-hooks
   const fallback = pendingConflicts ? null : usePendingConflicts()
   const { conflicts, loading, resolveConflict, resolveAuthorLabel, resolvedMeta } = pendingConflicts ?? fallback
@@ -320,7 +347,7 @@ export default function ConflictsScreen({ pendingConflicts }) {
 
           {conflicts.map((c) => (
             c.kind === 'unique' ? (
-              <UniqueConflictCard key={c.id} conflict={c} />
+              <UniqueConflictCard key={c.id} conflict={c} onNavigate={onNavigate} />
             ) : (
               <ConflictCard
                 key={c.id}

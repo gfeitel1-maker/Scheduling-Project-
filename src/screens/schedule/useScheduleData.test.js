@@ -384,6 +384,87 @@ describe('useScheduleData', () => {
   })
 })
 
+// T182 leftover (docs/work/tickets/T182-stale-anchor-duplicate-finding.md):
+// ANCHOR_DUPLICATE is gated by CONVENTION at the useScheduleData.js call site
+// (the `r === 'generated' ? recalcFindings(saved, {..., anchors: anc, ...}) :
+// recalcFindings(saved, {groups, activities, days})` branch), not by any type
+// distinction in computeFindings itself. A manual-route slot list identical
+// to a generated one must never surface the finding, because
+// "regenerate to clear it" is meaningless on a route with no regenerate.
+describe('ANCHOR_DUPLICATE route gating (T182)', () => {
+  const GENERATED_TID = deriveScheduleTemplateId('week-1', 'generated')
+  const MANUAL_TID = deriveScheduleTemplateId('week-1', 'manual')
+
+  function makeAnchorDuplicateRepo() {
+    // Fixture derived from the emission site (src/engine/buildSchedule.js
+    // computeFindings, ANCHOR_DUPLICATE push at line ~867): a finding fires
+    // when a regular (non-anchor) slot's activity_id is also anchored for
+    // that same group+day via anchoredActivityIdsByGroupDay — i.e. an anchor
+    // (fixed_events row) whose resolved group scope covers the slot's group,
+    // whose resolved day scope covers the slot's day, and whose
+    // resolved activity id equals the slot's activity_id.
+    const anchor = {
+      id: 'anc-1', camp_id: CAMP_ID,
+      activity_id: 'act-1',      // resolveAnchorActivityIds: activity_id field
+      group_ids: ['g1'],          // resolveAnchorGroupIds: falls through to group_ids
+      day_id: 'd1',                // resolveAnchorDayIds: single day_id
+      schedule_week_id: null,      // null matches any weekId (anchoredActivityIdsByGroupDay filter)
+    }
+    // One regular, non-anchor, activity-carrying slot row PER ROUTE, same
+    // group/day/activity as the anchor — this is the "matching anchor/regular
+    // pair" the ticket describes. Two rows (not one) because slotsByRoute
+    // filters allSlots by template_id, so a single route's finding pass must
+    // not depend on the other route's rows existing.
+    const genSlot = slotRow({ id: 's-gen', template_id: GENERATED_TID, activity_id: 'act-1', group_id: 'g1', day_id: 'd1' })
+    const manSlot = slotRow({ id: 's-man', template_id: MANUAL_TID, activity_id: 'act-1', group_id: 'g1', day_id: 'd1' })
+
+    return makeRepo({
+      loadSetupLists: vi.fn(async () => ({
+        groups: [{ id: 'g1', camp_id: CAMP_ID, name: 'Bears', tier_id: 't1' }],
+        days_of_operation: [{ id: 'd1', camp_id: CAMP_ID, day_of_week: 1, sort_order: 0 }],
+        time_blocks: [{ id: 'b1', camp_id: CAMP_ID, sort_order: 0 }],
+        activities: [{ id: 'act-1', camp_id: CAMP_ID, name: 'Swim' }],
+        fixed_events: [anchor],
+        tiers: [{ id: 't1', camp_id: CAMP_ID, sort_order: 0 }],
+        cohorts: [{ id: 'coh-1', camp_id: CAMP_ID }],
+        elective_sets: [],
+        elective_set_activities: [],
+      })),
+      loadTemplateData: vi.fn(async () => ({
+        templates: [
+          { id: GENERATED_TID, week_id: 'week-1', kind: 'generated' },
+          { id: MANUAL_TID, week_id: 'week-1', kind: 'manual' },
+        ],
+        slots: [genSlot, manSlot],
+        overlays: [],
+        snapshots: [],
+      })),
+    })
+  }
+
+  it('POSITIVE CONTROL: surfaces ANCHOR_DUPLICATE on the generated route for a matching anchor/regular pair', async () => {
+    const repo = makeAnchorDuplicateRepo()
+    const { result } = renderHook(() =>
+      useScheduleData({ campId: CAMP_ID, weekId: 'week-1', repo, routes: ROUTES })
+    )
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    const generatedFindings = result.current.templateData.findingsByRoute.generated
+    expect(generatedFindings.some(f => f.kind === 'ANCHOR_DUPLICATE')).toBe(true)
+  })
+
+  it('never surfaces ANCHOR_DUPLICATE on the manual route, even with the same matching anchor/regular pair', async () => {
+    const repo = makeAnchorDuplicateRepo()
+    const { result } = renderHook(() =>
+      useScheduleData({ campId: CAMP_ID, weekId: 'week-1', repo, routes: ['manual'] })
+    )
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    const manualFindings = result.current.templateData.findingsByRoute.manual
+    expect(manualFindings.some(f => f.kind === 'ANCHOR_DUPLICATE')).toBe(false)
+  })
+})
+
 describe('recalcStats (pure)', () => {
   it('counts open (non-anchor) and filled (non-anchor with an activity) slots', () => {
     const slots = [

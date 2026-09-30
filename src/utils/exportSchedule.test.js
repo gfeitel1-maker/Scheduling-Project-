@@ -89,3 +89,56 @@ describe('exportToExcel — events overlay branch', () => {
     expect(masterRows[1][3]).toBe('Event (removed)')
   })
 })
+
+// T248 leftover (docs/work/tickets/T248-child-schedule-export.md:51-52) —
+// the group export's own span-unawareness. A multi-period activity on the
+// grid is NOT one slot with a span_blocks count: span_blocks lives on
+// activities/fixed_events, never on template_slots (electron/db/localDb.js:273,
+// 346-348). Instead it is an is_span_head CHAIN — a head row plus one real
+// template_slots row PER COVERED PERIOD, every row sharing the same
+// activity_id, tails marked is_span_head === false (src/screens/schedule/
+// useSlotMutations.js's collectSpanTails, lines 49-65). The fixture below
+// carries is_span_head: true/false on the head/tail rows for SHAPE FIDELITY
+// with what a reloaded merged slot looks like after useScheduleData.js's
+// normalizeSlots() (src/utils/normalizeSlots.js:27-30,74-78) runs its
+// toSlotBool coercion on the nullable INTEGER column — but exportToExcel
+// never reads is_span_head at all (src/utils/exportSchedule.js:18-20,36-38
+// and src/utils/scheduleCells.js:39-54 resolve a cell purely from
+// group_id/day_id/time_block_id plus is_anchor/event_id/elective_set_id/
+// activity_id). What this test actually asserts is per-period coverage: N
+// template_slots rows sharing one activity_id across N distinct time blocks
+// produce N separate Excel cells, one per covered period. Whether those N
+// cells should instead be MERGED into a single visually-spanning cell is a
+// separate question this test does not assert either way.
+describe('exportToExcel — multi-period span (T248 leftover)', () => {
+  const spanDays = [{ id: 'd1', label: 'Monday' }]
+  const spanBlocks = [
+    { id: 'b1', name: 'Period 1', start_time: '09:00:00', end_time: '10:00:00' },
+    { id: 'b2', name: 'Period 2', start_time: '10:00:00', end_time: '11:00:00' },
+  ]
+  const spanGroups = [{ id: 'g1', name: 'Bunk 1' }]
+  const spanActivities = [{ id: 'act-1', name: 'Swimming' }]
+
+  it('includes every covered period of a span in the day sheet and the master sheet, and nothing spurious', () => {
+    const slots = [
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', elective_set_id: null, is_span_head: true },
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'act-1', elective_set_id: null, is_span_head: false },
+    ]
+    const wb = capturedWorkbook({ slots, activities: spanActivities, anchors, groups: spanGroups, days: spanDays, timeBlocks: spanBlocks })
+
+    const dayRows = sheetRows(wb, 'Monday')
+    // header + one row per time block — assert the whole population, not just the row we expect.
+    expect(dayRows).toEqual([
+      ['Time Block', 'Bunk 1'],
+      ['Period 1 (09:00–10:00)', 'Swimming'],
+      ['Period 2 (10:00–11:00)', 'Swimming'],
+    ])
+
+    const masterRows = sheetRows(wb, 'All Groups')
+    expect(masterRows).toEqual([
+      ['Group', 'Day', 'Time Block', 'Activity'],
+      ['Bunk 1', 'Monday', 'Period 1', 'Swimming'],
+      ['Bunk 1', 'Monday', 'Period 2', 'Swimming'],
+    ])
+  })
+})

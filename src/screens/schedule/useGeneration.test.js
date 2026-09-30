@@ -9,7 +9,7 @@ vi.mock('../../engine/buildSchedule', () => ({
   computeFindings: vi.fn(() => [{ kind: 'DISTRIBUTION' }]),
 }))
 
-import buildSchedule from '../../engine/buildSchedule'
+import buildSchedule, { computeFindings } from '../../engine/buildSchedule'
 import { useGeneration } from './useGeneration'
 
 function makeRepo(overrides = {}) {
@@ -67,6 +67,7 @@ function setup(overrides = {}) {
 
 beforeEach(() => {
   buildSchedule.mockClear()
+  computeFindings.mockClear()
 })
 
 describe('useGeneration', () => {
@@ -260,6 +261,24 @@ describe('useGeneration', () => {
 
       expect(props.repo.replaceWeek).toHaveBeenCalledWith('tid-manual', [{ id: 'ns-1' }])
     })
+  })
+
+  // Red Hat HIGH (round 2): the ANCHOR_DUPLICATE gate is hand-duplicated at
+  // three call sites of computeFindings, this hook's placeAnchors() being one.
+  // The site has no ternary — it is hardcoded to never pass anchors, since
+  // placeAnchors is the MANUAL-route bootstrap and ANCHOR_DUPLICATE is
+  // generated-only (see the comment at useGeneration.js:242-245 and
+  // useScheduleData.js:338-343: computeFindings' safe default, absent anchors
+  // -> no finding, is what keeps manual clean). A future edit that starts
+  // passing anchors here would regress that silently — nothing else exercises
+  // this call's arguments.
+  it('placeAnchors() calls computeFindings with no anchors key at all (manual route never surfaces ANCHOR_DUPLICATE)', async () => {
+    const { result } = setup()
+    await act(async () => { await result.current.placeAnchors() })
+
+    expect(computeFindings).toHaveBeenCalledTimes(1)
+    const arg = computeFindings.mock.calls[0][0]
+    expect(arg).not.toHaveProperty('anchors')
   })
 
   it('regenFromScratch() closes the confirm modal then regenerates', async () => {
