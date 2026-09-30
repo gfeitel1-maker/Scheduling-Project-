@@ -177,7 +177,7 @@ export function buildAttendance({ campers = [], occurrences = [], tiers = [], gr
         if (groupTierById.has(camper.group_id) && groupTierId !== matchedTierId) {
           // The sheet and the roster disagree about this camper's tier.
           const raw = String(camper.division_label ?? '').trim()
-          const pairKey = `${raw} ${camper.group_id}`
+          const pairKey = `${raw}\u0000${camper.group_id}`
           if (!divisionMismatchByPair.has(pairKey)) {
             divisionMismatchByPair.set(pairKey, { division: raw, group_id: camper.group_id, camperCount: 0 })
           }
