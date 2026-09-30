@@ -104,6 +104,35 @@ describe('getElectiveRun — S5, durable dangling derivation survives a cold reo
 
     expect(getElectiveRun(db, { runId }).danglingFindings).toEqual([])
   })
+
+  // T320 round 2, F4 (Red Hat) — a bare row-existence check is unsound: a
+  // stub-seeded occurrence (elective_occurrences' own `ensureExists` in
+  // electron/ops/projections.js inserts id+run_id ALONE from a `run_id`
+  // field arriving, before day_id/time_block_id do) makes the row LOOK
+  // present during a partial merge, while the placement it names is still
+  // unrenderable. The dangling finding must NOT silently disappear for that
+  // row — it must still fire.
+  it('still derives DANGLING_MANUAL_ASSIGNMENT for a stub-seeded occurrence row (id + run_id only, NULL day/time_block)', () => {
+    const { db, campId } = freshDb()
+    const runId = randomUUID()
+    expect(commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1', runId, parsed: PARSED, assignments: ASSIGNMENTS, occurrences: OCCURRENCE_FIXTURE,
+    }).ok).toBe(true)
+
+    // A manual placement pointing at an occurrence that exists only as a
+    // stub-seeded row — same shape ensureExists produces from a lone
+    // run_id-field op, before day_id/time_block_id have arrived.
+    db.prepare('INSERT INTO elective_occurrences (id, run_id) VALUES (?, ?)').run('occ-stub', runId)
+    db.prepare(
+      `INSERT INTO elective_assignments (id, run_id, occurrence_id, camper_id, activity_id, source, is_locked)
+       VALUES (?, ?, ?, ?, ?, 'manual', 1)`
+    ).run(randomUUID(), runId, 'occ-stub', 'cam-1', 'act-gaga')
+
+    const cold = getElectiveRun(db, { runId })
+    expect(cold.danglingFindings).toEqual([
+      expect.objectContaining({ kind: 'DANGLING_MANUAL_ASSIGNMENT', camper_id: 'cam-1', occurrence_id: 'occ-stub' }),
+    ])
+  })
 })
 
 // S1 — cross-handler parity: getElectiveRun and getElectiveRunOuterSchedule

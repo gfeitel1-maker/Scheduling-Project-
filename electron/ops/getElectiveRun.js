@@ -11,7 +11,10 @@ import {
 } from './electiveGenerationPredicate.js'
 // T320 (docs/adr/2026-09-30-elective-run-durability.md items 1, 2, 4).
 import { computeSnapshotCompleteness } from './electiveRunSnapshotCompleteness.js'
-import { buildDanglingManualAssignmentFinding } from './danglingManualAssignmentFinding.js'
+import {
+  buildDanglingManualAssignmentFinding,
+  danglingOccurrenceMissingOrUnusableFragment,
+} from './danglingManualAssignmentFinding.js'
 import { computeElectiveRunResourceConflicts } from './electiveRunResourceConflicts.js'
 
 // The review payload: one row per placement, with the camper's name and the
@@ -236,7 +239,7 @@ export function getElectiveRun(db, { runId }) {
       `SELECT a.id, a.camper_id, a.occurrence_id
          FROM elective_assignments a
         WHERE a.run_id = :runId AND a.source = 'manual'
-          AND NOT EXISTS (SELECT 1 FROM elective_occurrences o WHERE o.id = a.occurrence_id)`
+          AND ${danglingOccurrenceMissingOrUnusableFragment('a')}`
     )
     .all({ runId })
     .map(buildDanglingManualAssignmentFinding)
