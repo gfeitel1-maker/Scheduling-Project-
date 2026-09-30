@@ -913,4 +913,47 @@ describe('AssignmentPanel — T250 A3: cold-open hydration and regenerate', () =
     const payload = localClient.commitElectiveRun.mock.calls.at(-1)[0]
     expect(payload.runId).toBe('cold-run-1')
   })
+
+  // Round 2 FIX 1 (Code Reviewer, HIGH) — leaving a cold-opened run via "Back
+  // to Runs" left templateId (and runId/parsed/occurrences/hydratedRunId)
+  // hydrated in this panel's state. Importing a NEW sheet afterwards does not
+  // reset templateId, so the route-chooser gate
+  // (candidateTemplateIds.length > 1 && !templateId) read templateId as
+  // already set and skipped straight past the chooser — silently assigning
+  // the new sheet to the COLD RUN's template instead of letting the director
+  // pick a route. That violates the standing rule that neither candidate
+  // schedule is canonical and nothing may choose one on the director's
+  // behalf.
+  it('leaving a cold-opened run clears hydrated state, so a later import with >1 candidate template still shows the route chooser', async () => {
+    localClient.listElectiveRuns.mockResolvedValue([COLD_RUN])
+    localClient.getElectiveRun.mockResolvedValue(coldRunState())
+    const TWO_TEMPLATE_SLOTS = [
+      ...TEMPLATE_SLOTS,
+      { id: 's2', template_id: 'tpl-2', elective_set_id: 'set-1', day_id: 'day-1', time_block_id: 'tb-1', group_id: 'grp-1' },
+    ]
+    const TWO_TEMPLATES = [
+      ...SCHEDULE_TEMPLATES,
+      { id: 'tpl-2', camp_id: 'camp-1', week_id: null, name: 'Generated', kind: 'generated' },
+    ]
+    render(<AssignmentPanel {...baseProps({ templateSlots: TWO_TEMPLATE_SLOTS, scheduleTemplates: TWO_TEMPLATES })} />)
+
+    // Cold-open the draft run, so hydration lands and sets templateId.
+    fireEvent.click(await screen.findByTestId('run-list-row-cold-run-1'))
+    await screen.findByTestId('run-staleness-offer')
+
+    // Leave the run.
+    fireEvent.click(screen.getByRole('button', { name: /Back to Runs/i }))
+
+    // Import a fresh sheet placed on both candidate templates.
+    const input = document.querySelector('input[type="file"]')
+    const sheetFile = new File(['Name\t#1\nBen\tArchery'], 'sheet2.txt', { type: 'text/plain' })
+    fireEvent.change(input, { target: { files: [sheetFile] } })
+    await waitFor(() => expect(screen.getByText(/Confirm Mapping/)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Confirm Mapping/))
+
+    // The route chooser must render — not a silent solve against the cold
+    // run's template.
+    await waitFor(() => expect(screen.getByText(/choose which to assign against/)).toBeTruthy())
+    expect(screen.queryByText(/^Solve/i)).toBeNull()
+  })
 })

@@ -952,6 +952,30 @@ export default function AssignmentPanel({
     setViewRun(run)
   }
 
+  // Round 2 FIX 1 (Code Reviewer, HIGH) — leaving a cold-opened run must
+  // leave no hydrated state behind. `setViewRun(null)` alone left
+  // templateId/runId/parsed/occurrences/hydratedRunId from the cold-open
+  // effect above sitting in state, so a later import onto a set placed on
+  // more than one candidate schedule found templateId already set and the
+  // route-chooser gate (candidateTemplateIds.length > 1 && !templateId)
+  // silently skipped straight to solving against the OLD run's template —
+  // exactly the "nothing may pick a route for the director" invariant this
+  // repo's CLAUDE.md states.
+  //
+  // Safe to clear unconditionally: RunList (the only way to reach `openRun`)
+  // renders only in phase 'empty' or 'committed' — never mid-import — so
+  // there is no in-flight import session reachable while viewRun is set for
+  // this to clobber; a hydration is the only thing that can be sitting in
+  // these fields, and losing it is harmless.
+  function closeRunView() {
+    setViewRun(null)
+    setTemplateId(null)
+    setRunId(null)
+    setParsed(null)
+    setOccurrences([])
+    setHydratedRunId(null)
+  }
+
   // T250 A3 — reconstruct this session's solve inputs from the run's OWN
   // persisted rows, so `regenerate()`/`solve()`/`commit()` can run UNMODIFIED
   // against a run opened cold from the run list. Deliberately does NOT write
@@ -1090,7 +1114,7 @@ export default function AssignmentPanel({
             run={viewRun}
             campers={parsed?.campers ?? []}
             onStartRevision={startRevision}
-            onBack={() => setViewRun(null)}
+            onBack={closeRunView}
             justFinalized={justFinalized}
             {...runViewCatalogs}
           />
@@ -1122,7 +1146,7 @@ export default function AssignmentPanel({
             // former.
             onRegenerate={parsed && (viewRun.id === committedInfo?.runId || hydratedRunId === viewRun.id) ? regenerate : undefined}
             coldRegenerate={viewRun.id !== committedInfo?.runId && hydratedRunId === viewRun.id}
-            onBack={() => setViewRun(null)}
+            onBack={closeRunView}
             {...runViewCatalogs}
           />
         )
