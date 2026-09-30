@@ -19,13 +19,14 @@
 // WHAT `preference_rank` CAN AND CANNOT SAY. A NULL rank is the fallback signal,
 // and it is the database's own (electron/ops/commitElectiveRun.js writes
 // `a.preference_rank ?? null`): the solver placed this camper somewhere they
-// ranked nothing for. What it does NOT carry is `rank_kind` — whether the
-// camper's ranks were ordered at all — because v79 put that column on
-// elective_preferences, not on the assignment row. So "Second choice" below
-// means "the rank recorded was 2", which for a camper whose sheet was read as an
-// unordered set is a position they never actually expressed. Closing that needs
-// rank_kind carried onto the assignment row; it is named here rather than
-// papered over.
+// ranked nothing for. A non-null rank alone does NOT say the camper's ranks
+// were ordered — `rank_kind` lives on `elective_preferences`, not on the
+// assignment row, so a camper whose sheet was read as an unordered set
+// ('unordered-set', a tie among equals, never a ranking) still carries a real
+// integer rank there. T318 closes this WITHOUT moving the column: `rankKind`
+// below is derived at display time from the same assignment-to-preference join
+// T297 already built (`buildPreferenceLookup`, exported below), so `rankLabel`
+// can refuse to print an ordinal it has no positive evidence for.
 
 // T297 — THE SOLVER'S OWN COORDINATE BINDING, not a second reading of it.
 //
@@ -39,6 +40,11 @@
 // then offer an ADD where the director meant a correction — writing a second row
 // beside the one they were fixing.
 import { resolvePreferenceCoordinates } from '../assignment/resolvePreferenceCoordinates.js'
+// T318 round 2 — `hasOrderingEvidence` moved to src/engine/rankKind.js, a
+// dependency-free module also imported by the engine
+// (buildElectiveAssignments.js) and the ETL (preferenceSheet.js), so the
+// 2-value allow-list is defined once. See rankKind.js's own header.
+import { hasOrderingEvidence } from '../../../engine/rankKind.js'
 
 // Module-level so the defaults are a stable reference across renders and a
 // useMemo keyed on them can actually hit — the same reason useRunState.js keeps
@@ -57,9 +63,22 @@ const RANK_LABEL = { 1: 'First choice', 2: 'Second choice', 3: 'Third choice' }
 // run-level summary collapses, correctly — a sentence about 200 placements has
 // no room for nine rank words — but this is one child's one period, where "which
 // one" is the whole question.
-export function rankLabel(preferenceRank) {
+//
+// T318 (c) — THE RULE THAT MAKES FABRICATION IMPOSSIBLE BY CONSTRUCTION: an
+// ordinal is printed only on POSITIVE evidence of ordering, `rankKind` exactly
+// 'cell-choice' or 'ordered-fallback'. Every other case — 'unordered-set', a
+// null/undefined kind (no join could be made), or anything else — reads as the
+// non-ordinal word. Owner-ruled 2026-09-29: absence of evidence that ordering
+// happened is not evidence of order, and the costs are not symmetric — the safe
+// default costs a blander label on legacy or edited data, the unsafe default is
+// the fabrication the owner ruled must not exist.
+export const UNORDERED_RANK_LABEL = 'One of their choices'
+export function rankLabel(preferenceRank, rankKind) {
   if (preferenceRank == null) return 'Not requested'
-  return RANK_LABEL[preferenceRank] ?? `Choice #${preferenceRank}`
+  if (hasOrderingEvidence(rankKind)) {
+    return RANK_LABEL[preferenceRank] ?? `Choice #${preferenceRank}`
+  }
+  return UNORDERED_RANK_LABEL
 }
 
 // sort_order is the camp's authored week order; the catalog's own position is the
@@ -77,17 +96,25 @@ function orderIndex(catalog) {
 }
 
 /**
- * A lookup from one placement to the preference row behind it, or null.
+ * A lookup from one placement (a row with camper_id/choice_id/occurrence_id) to
+ * `{ id, rankKind }` for the preference row behind it, or null.
  *
  * T297 — an edit CORRECTS a statement the camper made, so the affordance has to
  * know which row that is. An assignment names an activity and a preference names
  * a choice, so `choice_id` is the only link between them.
  *
+ * T318 — exported (was the private `preferenceIndex`) so runStateCopy.js's
+ * satisfactionSummary and exportRunSummary.js's rank buckets can ask the same
+ * question rankLabel asks: not just "which preference", but "did it carry
+ * positive evidence of ordering". `rankKind` is `rank_kind` off that preference
+ * row, verbatim — the caller decides what a kind other than
+ * 'cell-choice'/'ordered-fallback' means.
+ *
  * Null is a real answer: a placement the camper ranked nothing for (the bronze
  * "not requested" row) genuinely has no statement to correct, so the edit there
  * is an ADD.
  */
-function preferenceIndex({ preferences, occurrences, days, timeBlocks }) {
+export function buildPreferenceLookup({ preferences, occurrences, days, timeBlocks }) {
   // Bound ONCE for the whole week, against this run's occurrences. After that
   // there are two tiers, which is exactly what the engine's `rankAt` has: a row
   // scoped to the occurrence, else a whole-run fallback.
@@ -104,7 +131,7 @@ function preferenceIndex({ preferences, occurrences, days, timeBlocks }) {
     if (p.choice_id == null) continue
     const k = keyOf(p.camper_id, p.choice_id, p.occurrence_id)
     // FIRST wins, so a later duplicate cannot displace the row already found.
-    if (!byKey.has(k)) byKey.set(k, p.id)
+    if (!byKey.has(k)) byKey.set(k, { id: p.id, rankKind: p.rank_kind ?? null })
   }
   return (row) => {
     if (row.choice_id == null) return null
@@ -127,12 +154,11 @@ export function buildCamperElectiveWeek({
 } = {}) {
   const occurrenceById = new Map(occurrences.map((o) => [o.id, o]))
   const activityNameById = new Map(activities.map((a) => [a.id, a.name]))
-  // days_of_operation carries its name in `label` (electron/db/localDb.js's DDL);
+  // days_of_operation carries its name in `label` (electron/db/schema.sql);
   // `name` is accepted too because some callers pass catalogs shaped that way,
-  // which is the same both-ways read AssignmentPreview.jsx does. NOTE: the
-  // sibling occurrenceLabel in runStateCopy.js reads `.name` ONLY and so prints
-  // a day id where this prints "Monday" — a pre-existing bug reported rather
-  // than fixed here, since it is T250's rendered surface and has its own tests.
+  // which is the same both-ways read AssignmentPreview.jsx does. T318 fixed the
+  // sibling occurrenceLabel in runStateCopy.js to read the same way, so the two
+  // no longer disagree on the same catalog.
   const dayNameById = new Map(days.map((d) => [d.id, d.label ?? d.name ?? null]))
   const blockNameById = new Map(timeBlocks.map((t) => [t.id, t.name ?? null]))
   const dayOrder = orderIndex(days)
@@ -140,7 +166,7 @@ export function buildCamperElectiveWeek({
 
   const mine = rows.filter((r) => r.camper_id === camperId)
   const occurrenceOf = (row) => occurrenceById.get(row.occurrence_id)
-  const preferenceIdFor = preferenceIndex({ preferences, occurrences, days, timeBlocks })
+  const preferenceFor = buildPreferenceLookup({ preferences, occurrences, days, timeBlocks })
 
   const entries = mine
     .slice()
@@ -150,6 +176,7 @@ export function buildCamperElectiveWeek({
     ))
     .map((row) => {
       const occurrence = occurrenceOf(row)
+      const bound = preferenceFor(row)
       return {
         assignmentId: row.id,
         occurrenceId: row.occurrence_id,
@@ -162,9 +189,13 @@ export function buildCamperElectiveWeek({
         isFallback: row.preference_rank == null,
         // T297 — the choice this placement came from, which is the CURRENT value
         // an edit control shows, and the statement an edit would correct. See
-        // preferenceIndex.
+        // buildPreferenceLookup.
         choiceId: row.choice_id ?? null,
-        preferenceId: preferenceIdFor(row),
+        preferenceId: bound?.id ?? null,
+        // T318 (c) — the joined preference's rank_kind, or null when nothing
+        // joined. rankLabel uses this to decide whether `rank` is an ordinal
+        // worth printing.
+        rankKind: bound?.rankKind ?? null,
       }
     })
 

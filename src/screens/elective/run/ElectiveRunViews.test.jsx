@@ -89,15 +89,19 @@ const FINAL_RUN = {
 
 function rows(overrides = []) {
   return [
-    { id: 'a1', occurrence_id: 'occ-1', camper_id: 'camper-1', activity_id: 'act-1', preference_rank: 1, camper_name: 'Testcamper Alpha', source: 'solver', is_locked: 0 },
-    { id: 'a2', occurrence_id: 'occ-1', camper_id: 'camper-2', activity_id: 'act-1', preference_rank: 2, camper_name: 'Testcamper Bravo', source: 'solver', is_locked: 0 },
+    { id: 'a1', occurrence_id: 'occ-1', camper_id: 'camper-1', activity_id: 'act-1', choice_id: 'choice-1', preference_rank: 1, camper_name: 'Testcamper Alpha', source: 'solver', is_locked: 0 },
+    { id: 'a2', occurrence_id: 'occ-1', camper_id: 'camper-2', activity_id: 'act-1', choice_id: 'choice-2', preference_rank: 2, camper_name: 'Testcamper Bravo', source: 'solver', is_locked: 0 },
     { id: 'a3', occurrence_id: 'occ-2', camper_id: 'camper-3', activity_id: 'act-2', preference_rank: null, camper_name: 'Testcamper Charlie', source: 'manual', is_locked: 1 },
     ...overrides,
   ]
 }
 
 const CLEAN_RUN_STATE = {
+  // T318 (b) — the run's own persisted occurrence set, always present even when
+  // a run is opened cold from the run list (unlike templateOccurrences, which
+  // is AssignmentPanel React state and empty on that path).
   rows: rows(), staleCount: 0, finalizedAgainstStaleGeneration: false, overCapacityOccurrences: [],
+  occurrences: OCCURRENCES,
 }
 
 function catalogs() {
@@ -142,6 +146,19 @@ describe('T250 archive_when — Draft: run list', () => {
 // ---------------------------------------------------------------------------
 describe('T250 archive_when — Draft: satisfaction summary', () => {
   it('states how many campers are placed and how the preference ranks they received break down', async () => {
+    // T318 (c3) — satisfactionSummary now joins each row to its preference to
+    // read rank_kind, so a rank without a matching, positively-ordered
+    // preference row would read as "one of their choices" rather than a
+    // number. These two rows ARE genuinely ordered (cell-choice), which is
+    // what the "1 got a first choice" / "1 a second choice" assertions below
+    // require.
+    localClient.getElectiveRun.mockResolvedValue({
+      ...CLEAN_RUN_STATE,
+      preferences: [
+        { id: 'pref-a1', camper_id: 'camper-1', choice_id: 'choice-1', occurrence_id: 'occ-1', rank: 1, rank_kind: 'cell-choice', coordinate: null },
+        { id: 'pref-a2', camper_id: 'camper-2', choice_id: 'choice-2', occurrence_id: 'occ-1', rank: 2, rank_kind: 'cell-choice', coordinate: null },
+      ],
+    })
     render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
     const summary = await screen.findByTestId('run-satisfaction-summary')
     // Three placements: rank 1, rank 2, and one with no rank (placed by hand,
@@ -167,6 +184,20 @@ describe('T250 archive_when — Draft: overCapacityOccurrences surfaced live', (
     expect(row.textContent).toBe('Archery — Monday, First Period has 2 campers assigned against a capacity of 1.')
     // A pointer, not a control — the remedy is the move/lock table below.
     expect(within(row).queryByRole('button')).toBeNull()
+  })
+
+  // T318 (b) — a run opened cold from the run list has an EMPTY templateOccurrences
+  // (AssignmentPanel React state set only by a fresh solve). The over-capacity row
+  // must still name the day and period, from the run's own persisted occurrences
+  // (state.occurrences, always present).
+  it('labels an over-capacity row from the run’s persisted occurrences when template occurrences are empty (reopened run)', async () => {
+    localClient.getElectiveRun.mockResolvedValue({
+      ...CLEAN_RUN_STATE,
+      overCapacityOccurrences: [{ occurrenceId: 'occ-1', activityId: 'act-1', capacity: 1, filled: 2 }],
+    })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} templateOccurrences={[]} />)
+    const row = await screen.findByTestId('run-state-over-capacity-occ-1-act-1')
+    expect(row.textContent).toBe('Archery — Monday, First Period has 2 campers assigned against a capacity of 1.')
   })
 
   it('renders nothing at all in the run-state area when there is nothing to report', async () => {
@@ -390,6 +421,18 @@ describe('T250 archive_when — Final: overCapacityOccurrences', () => {
     expect(within(row).queryByRole('button')).toBeNull()
   })
 
+  // T318 (b) — same fix on the Final screen: a run reopened from the run list
+  // has an empty templateOccurrences prop and must still label from state.occurrences.
+  it('labels an over-capacity row from the run’s persisted occurrences when template occurrences are empty (reopened run)', async () => {
+    localClient.getElectiveRun.mockResolvedValue({
+      ...CLEAN_RUN_STATE,
+      overCapacityOccurrences: [{ occurrenceId: 'occ-2', activityId: 'act-2', capacity: 2, filled: 5 }],
+    })
+    render(<FinalRunView run={FINAL_RUN} campers={CAMPERS} {...catalogs()} templateOccurrences={[]} />)
+    const row = await screen.findByTestId('run-state-over-capacity-occ-2-act-2')
+    expect(row.textContent).toBe('Pottery — Monday, First Period has 5 campers assigned against a capacity of 2.')
+  })
+
   it('puts the stale-generation pairing above the over-capacity rows when both are present', async () => {
     localClient.getElectiveRun.mockResolvedValue({
       ...CLEAN_RUN_STATE,
@@ -481,7 +524,8 @@ describe('T250 archive_when — Final: export', () => {
     await waitFor(() => expect(click).toHaveBeenCalled())
     expect(localClient.list).toHaveBeenCalledWith('elective_preferences')
     const payload = JSON.parse(await created[created.length - 1].text())
-    expect(payload.format_version).toBe(1)
+    // T318 (c4) bumped format_version 1 -> 2 for the added summary.unordered_count field.
+    expect(payload.format_version).toBe(2)
     // Only this run's preferences (run_id: 'run-2') feed the export — the 'run-other' row is
     // filtered out client-side since localClient.list returns all camp-scoped rows.
     expect(payload.exceptions.unranked.some((u) => u.camper_id === 'camper-9')).toBe(false)

@@ -15,6 +15,11 @@ import { describeWriteFailure } from '../../../utils/writeErrorMessage'
 import { S, RunStateArea, RunStateRow, RunIdentity, RunError } from './RunStateRows.jsx'
 import { useRunState } from './useRunState.js'
 import CamperWeekPanel from './CamperWeekPanel.jsx'
+// T318 round 2 — this WRITE of a persisted rank_kind was the highest-
+// consequence bare literal found in the sweep: a typo here stores a kind
+// nothing recognises, and every reader's safe default then silently declines
+// to show the ordinal. See src/engine/rankKind.js's header.
+import { CELL_CHOICE } from '../../../engine/rankKind.js'
 import {
   RELEASE_LOCK_LABEL, danglingMessage, occurrenceLabel, overCapacityMessage,
   satisfactionSummary, stalenessOfferMessage,
@@ -45,15 +50,24 @@ export default function DraftRunView({
   const [preferencesEdited, setPreferencesEdited] = useState(false)
 
   const rows = state.rows
-  // Bound to templateOccurrences, which is CORRECT for the move dropdown below
-  // (it labels periods a camper can be moved TO) and KNOWN-WRONG for the
-  // over-capacity rows (they name a period this run already placed people in,
-  // which lives in state.occurrences and is the only set present for a run
-  // opened from the run list). T296 renamed the prop so the mismatch is legible
-  // instead of hidden behind one unqualified word; it deliberately did NOT
-  // change the behaviour, because that is T250's rendered copy with its own
-  // tests. Splitting this into two labellers is the follow-up.
-  const labelFor = (o) => occurrenceLabel({ ...o, activities, occurrences: templateOccurrences, days, timeBlocks })
+  // T318 (b) — TWO labellers, because the two callers need different occurrence
+  // sets and conflating them is exactly the bug this ticket fixes.
+  //
+  // labelForRunOccurrence: the over-capacity rows name a period THIS RUN ALREADY
+  // PLACED people in, so they must look that occurrence up in the run's own
+  // persisted set (state.occurrences, from getElectiveRun — always present,
+  // including for a run opened cold from the run list). electron/main.js's own
+  // comment on that query says this is the sanctioned use: "a consumer LOOKS UP
+  // the occurrence named by an assignment row it already has" is sound even
+  // though the list is the union of every generation's occurrences, which makes
+  // it UNSOUND as "the current set".
+  //
+  // labelForTemplateOccurrence: the move dropdown below offers periods a camper
+  // can be moved TO, which has to be the CURRENT template's set
+  // (templateOccurrences, AssignmentPanel React state) — a superseded
+  // occurrence from an earlier generation must not be offered as a destination.
+  const labelForRunOccurrence = (o) => occurrenceLabel({ ...o, activities, occurrences: state.occurrences, days, timeBlocks })
+  const labelForTemplateOccurrence = (o) => occurrenceLabel({ ...o, activities, occurrences: templateOccurrences, days, timeBlocks })
 
   function applyRow(assignmentId, patch) {
     setState((prev) => ({
@@ -104,7 +118,7 @@ export default function DraftRunView({
         // Only a brand-new statement about a cell is 'cell-choice' at rank 1 —
         // which is what a cell CHOSEN means (schema v79's own note), not a guess.
         rank: prior ? prior.rank ?? null : 1,
-        rankKind: prior ? prior.rank_kind ?? null : 'cell-choice',
+        rankKind: prior ? prior.rank_kind ?? null : CELL_CHOICE,
         replacesPreferenceId: prior ? entry.preferenceId : null,
       })
       if (!out?.ok) {
@@ -184,7 +198,7 @@ export default function DraftRunView({
         testId={`run-state-over-capacity-${o.occurrenceId}-${o.activityId}`}
         first={i === 0}
         last={i === stateRowCount - 1}
-        message={overCapacityMessage({ label: labelFor(o), filled: o.filled, capacity: o.capacity })}
+        message={overCapacityMessage({ label: labelForRunOccurrence(o), filled: o.filled, capacity: o.capacity })}
       />
     )),
     ...danglingRows.map((f, i) => {
@@ -213,7 +227,9 @@ export default function DraftRunView({
       <RunError message={error ?? loadError} />
       {loaded ? (
         <>
-          <div data-testid="run-satisfaction-summary" style={styles.summary}>{satisfactionSummary(rows)}</div>
+          <div data-testid="run-satisfaction-summary" style={styles.summary}>
+            {satisfactionSummary({ rows, preferences: state.preferences, occurrences: state.occurrences, days, timeBlocks })}
+          </div>
 
           <RunStateArea>{stateRows}</RunStateArea>
 
@@ -300,7 +316,7 @@ export default function DraftRunView({
                       }}
                     >
                       {templateOccurrences.map((o) => (
-                        <option key={o.id} value={o.id}>{labelFor({ occurrenceId: o.id, activityId: r.activity_id })}</option>
+                        <option key={o.id} value={o.id}>{labelForTemplateOccurrence({ occurrenceId: o.id, activityId: r.activity_id })}</option>
                       ))}
                     </select>
                   </td>

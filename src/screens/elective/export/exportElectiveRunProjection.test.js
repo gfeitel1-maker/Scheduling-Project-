@@ -18,18 +18,31 @@ function fixture() {
     { camperId: 'c1', dayId: 'd1', timeBlockId: 't1', cellKind: 'elective', activityId: 'a1', activityName: 'Archery', spanBlocks: 1, isLinkedChoice: false },
     { camperId: 'c2', dayId: 'd1', timeBlockId: 't1', cellKind: 'elective', activityId: 'a1', activityName: 'Archery', spanBlocks: 1, isLinkedChoice: false },
   ]
-  const preferences = [{ camper_id: 'c1', choice_id: 'ch1' }, { camper_id: 'c2', choice_id: 'ch1' }]
-  const assignments = [{ camper_id: 'c1', occurrence_id: 'occ-1', preference_rank: 1 }, { camper_id: 'c2', occurrence_id: 'occ-1', preference_rank: 1 }]
+  // T318 (c4) — occurrence_id on both the assignment and the preference, plus
+  // rank_kind: 'cell-choice', so buildRunSummaryExport's join finds a positively
+  // ordered preference for each row and the exit-clause counts below keep
+  // matching. Without this the safe default would move both into
+  // unordered_count instead of counts_by_rank.
+  const preferences = [
+    { camper_id: 'c1', choice_id: 'ch1', occurrence_id: 'occ-1', rank: 1, rank_kind: 'cell-choice' },
+    { camper_id: 'c2', choice_id: 'ch1', occurrence_id: 'occ-1', rank: 1, rank_kind: 'cell-choice' },
+  ]
+  const assignments = [
+    { camper_id: 'c1', choice_id: 'ch1', occurrence_id: 'occ-1', preference_rank: 1 },
+    { camper_id: 'c2', choice_id: 'ch1', occurrence_id: 'occ-1', preference_rank: 1 },
+  ]
   const occurrences = [{ id: 'occ-1', day_id: 'd1', time_block_id: 't1' }]
   return { run, campers, groups, days, timeBlocks, outerRows, preferences, assignments, occurrences }
 }
 
 describe('buildElectiveRunProjectionExport', () => {
-  it('bundles all four sections under format_version: 1', () => {
+  it('bundles all four sections under format_version: 2', () => {
     const fx = fixture()
     const result = buildElectiveRunProjectionExport({ ...fx, staleCount: 0, capacityRows: [], generatedAt: '2026-09-26T00:00:00.000Z' })
 
-    expect(result.format_version).toBe(1)
+    // T318 (c4) bumped format_version 1 -> 2 for the added summary.unordered_count
+    // field, the same precedent exportChildSchedule.js used for its own added-field bump.
+    expect(result.format_version).toBe(2)
     expect(result.generated_at).toBe('2026-09-26T00:00:00.000Z')
     expect(result.child_schedules.campers).toHaveLength(2)
     expect(result.activity_rosters).toHaveLength(1)
@@ -64,10 +77,12 @@ describe('buildElectiveRunProjectionExport', () => {
       { camperId: 'c1', dayId: 'd1', timeBlockId: 't1', cellKind: 'elective', activityId: 'a1', activityName: 'Archery', spanBlocks: 1, isLinkedChoice: true, choiceId: 'ch1', choiceLabel: 'Bundle' },
       { camperId: 'c1', dayId: 'd1', timeBlockId: 't2', cellKind: 'elective', activityId: 'a2', activityName: 'Canoeing', spanBlocks: 1, isLinkedChoice: true, choiceId: 'ch1', choiceLabel: 'Bundle' },
     ]
-    const preferences = [{ camper_id: 'c1', choice_id: 'ch1' }]
+    // occurrence_id: null (a whole-run fallback row) so BOTH linked occurrences
+    // resolve to this one preference via the lookup's second, run-wide key arm.
+    const preferences = [{ camper_id: 'c1', choice_id: 'ch1', occurrence_id: null, rank: 1, rank_kind: 'cell-choice' }]
     const assignments = [
-      { camper_id: 'c1', occurrence_id: 'occ-1', preference_rank: 1 },
-      { camper_id: 'c1', occurrence_id: 'occ-2', preference_rank: 1 },
+      { camper_id: 'c1', choice_id: 'ch1', occurrence_id: 'occ-1', preference_rank: 1 },
+      { camper_id: 'c1', choice_id: 'ch1', occurrence_id: 'occ-2', preference_rank: 1 },
     ]
     const occurrences = [
       { id: 'occ-1', day_id: 'd1', time_block_id: 't1' },
@@ -85,5 +100,40 @@ describe('buildElectiveRunProjectionExport', () => {
     expect(rosterRowCount).toBe(2)
     expect(summaryAssignedCount).toBe(2)
     expect(rosterRowCount).toBe(summaryAssignedCount)
+  })
+
+  // T318 (c4) — threads an unordered-set preference through the whole
+  // projection and confirms the summary carries the new field.
+  it('threads an unordered-set preference through to summary.unordered_count', () => {
+    const fx = fixture()
+    fx.preferences = [
+      { camper_id: 'c1', choice_id: 'ch1', occurrence_id: 'occ-1', rank: 1, rank_kind: 'unordered-set' },
+      { camper_id: 'c2', choice_id: 'ch1', occurrence_id: 'occ-1', rank: 1, rank_kind: 'cell-choice' },
+    ]
+    const result = buildElectiveRunProjectionExport({ ...fx, staleCount: 0, capacityRows: [], generatedAt: 'x' })
+
+    expect(result.summary.unordered_count).toBe(1)
+    expect(result.summary.counts_by_rank).toEqual({ 1: 1 })
+  })
+
+  // T318 (c5) — a residual the owner already ruled on rather than asked to fix:
+  // FinalRunView's export input passes `occurrences: templateOccurrences`, empty
+  // on a reopened run. This pins the owner's analysis: with `occurrences: []`, a
+  // COORDINATE-ONLY preference (occurrence_id null — the shape a per-cell sheet
+  // has before any template resolves it) simply keeps occurrence_id null, lands
+  // under the whole-run key, and the lookup's second arm still hits — so an
+  // empty occurrence list does not misclassify a genuinely ordered preference as
+  // unordered.
+  it('c5 — an empty occurrences list does not misclassify a coordinate-only ordered preference as unordered', () => {
+    const fx = fixture()
+    fx.occurrences = []
+    fx.preferences = [
+      { camper_id: 'c1', choice_id: 'ch1', occurrence_id: null, coordinate: { dayName: 'Monday', periodLabel: 'Period 1' }, rank: 1, rank_kind: 'cell-choice' },
+      { camper_id: 'c2', choice_id: 'ch1', occurrence_id: null, coordinate: { dayName: 'Monday', periodLabel: 'Period 1' }, rank: 1, rank_kind: 'cell-choice' },
+    ]
+    const result = buildElectiveRunProjectionExport({ ...fx, staleCount: 0, capacityRows: [], generatedAt: 'x' })
+
+    expect(result.summary.unordered_count).toBe(0)
+    expect(result.summary.counts_by_rank).toEqual({ 1: 2 })
   })
 })

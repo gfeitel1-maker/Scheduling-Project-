@@ -48,6 +48,8 @@ import { capturePlacements } from '../src/ingest/capturePlacements.js'
 import { buildChildScheduleExport } from '../src/screens/elective/export/exportChildSchedule.js'
 import { buildActivityRosterExport } from '../src/screens/elective/export/exportActivityRoster.js'
 import { buildRunSummaryExport } from '../src/screens/elective/export/exportRunSummary.js'
+import { buildPreferenceLookup } from '../src/screens/elective/run/camperElectiveWeek.js'
+import { hasOrderingEvidence } from '../src/engine/rankKind.js'
 import { openAcceptanceCamp } from './electiveAcceptanceHarness.js'
 import { makeLocalClientOverHandlers } from './electiveAcceptanceLocalClient.js'
 import { panelPropsFromDatabase, solveWithRoster } from './electiveAcceptancePanelDrive.jsx'
@@ -330,32 +332,142 @@ describe('§6 (7) — every assignment appears exactly once in the matching rost
   })
 
   it('roster counts equal the summary counts', () => {
+    // T318 round 2 — mirrors the PRODUCTION call site (FinalRunView.jsx's own
+    // `input`), not a hand-trimmed projection of it: `preferences` are FULL
+    // rows (choice_id, occurrence_id, rank_kind), `assignments` carry
+    // choice_id and occurrence_id too, and `occurrences`/`days`/`timeBlocks`
+    // are threaded through. buildRunSummaryExport's join
+    // (buildPreferenceLookup) needs every one of those fields to resolve
+    // `rankKind` — round 1's trimmed SELECTs (camper_id/preference_rank only)
+    // fed it rows with no choice_id at all, so the join missed on EVERY row
+    // and every ranked assignment fell into `unordered_count` instead of
+    // `counts_by_rank`, which is exactly the CI failure this round fixes at
+    // the write side (electron/ops/commitElectiveRun.js) and pins here at the
+    // read side.
+    //
+    // Importing buildPreferenceLookup/hasOrderingEvidence here (rather than
+    // re-deriving the expected buckets by hand) means this assertion checks
+    // the BUCKETING — does buildRunSummaryExport sort already-correct rows
+    // into the right bucket — not the join itself. The join (whether an
+    // assignment's choice_id actually resolves to its own preference row) is
+    // independently pinned by electron/ops/commitElectiveRun.test.js's
+    // bundle-assignment test, which is the one place this could be wrong
+    // without this test noticing.
     const assignments = camp.db
-      .prepare('SELECT camper_id, preference_rank FROM elective_assignments WHERE run_id = ?').all(run.id)
+      .prepare(`
+        SELECT id, occurrence_id, camper_id, activity_id, preference_rank, source, is_locked, choice_id
+        FROM elective_assignments WHERE run_id = ?
+      `).all(run.id)
+    const preferences = camp.db
+      .prepare(`
+        SELECT id, camper_id, choice_id, occurrence_id, rank, rank_kind,
+               coordinate_day_label, coordinate_period_label
+        FROM elective_preferences WHERE run_id = ?
+      `).all(run.id)
+      .map((p) => ({
+        ...p,
+        coordinate: p.coordinate_day_label == null && p.coordinate_period_label == null
+          ? null
+          : { dayName: p.coordinate_day_label, periodLabel: p.coordinate_period_label },
+      }))
+    const occurrences = camp.db
+      .prepare('SELECT id, elective_set_id, day_id, time_block_id, tier_id FROM elective_occurrences WHERE run_id = ?')
+      .all(run.id)
+    const days = catalogs.days.map((d) => ({ ...d, name: d.label }))
+    const timeBlocks = catalogs.timeBlocks
+
     const summary = buildRunSummaryExport({
       run: { id: run.id, name: run.name, status: run.status, solver_generation: run.solver_generation, source_sha256: run.source_sha256 },
       assignments,
-      preferences: camp.db.prepare('SELECT camper_id FROM elective_preferences WHERE run_id = ?').all(run.id),
+      preferences,
+      occurrences,
+      days,
+      timeBlocks,
       capacityRows: [],
     })
-    // A SECOND FACT, not a restatement of the total. Round 1 summed
-    // `counts_by_rank` and the unranked remainder out of the SAME array
-    // buildRunSummaryExport was handed, so "roster counts equal summary counts"
-    // collapsed into the total equality already asserted above. What is checked
-    // here instead is the DISTRIBUTION: the summary's per-rank buckets against
-    // a SQL GROUP BY over the assignment rows. A summary that reported the
-    // right total split across the wrong ranks passed before and fails now.
-    const fromSql = Object.fromEntries(camp.db.prepare(`
-      SELECT preference_rank AS rank, COUNT(*) AS c FROM elective_assignments
-      WHERE run_id = ? AND preference_rank IS NOT NULL GROUP BY preference_rank
-    `).all(run.id).map((r) => [String(r.rank), r.c]))
-    expect(Object.keys(fromSql).length).toBeGreaterThan(1)
+
+    // T318 round 2 — A KNOWN-WRONG NUMBER, PINNED ON PURPOSE, not absorbed.
+    //
+    // This fixture's preference sheet (test/fixtures/elective-acceptance/
+    // preferences-resolved.csv) has NO `UNORDERED_SET_HEADER` column — verified
+    // by both this session and Architect by tracing src/ingest/preferenceSheet.js
+    // §6 — so it contains ZERO unordered-set campers. Every genuinely
+    // unordered-set placement this camp could produce is absent from this
+    // fixture by construction. Therefore `unordered_count` SHOULD be 0 here.
+    //
+    // It is 15, and the cause is a SEPARATE defect this ticket does not fix.
+    // NOT the "wrong-tier binding defect" an earlier draft of this comment
+    // named — that attribution was measured and REFUTED: for all 15 of these
+    // rows the camper's tier EQUALS the occurrence's tier (tierMatchesOcc 15,
+    // tierDiffersFromOcc 0, noGroup 0). The real cause is a per-tier scope gap
+    // in ADR D6: a bundle-claimed label has no choice at all for a tier that no
+    // bundle covers, because commitElectiveRun.js:488 suppresses the plain
+    // choice for the whole LABEL while a bundle's scope is PER TIER. These 15
+    // campers sit in a tier no bundle in this fixture covers, so
+    // commitElectiveRun.js:508-512 hits the mismatch branch and `continue`s —
+    // the preference row is NEVER PERSISTED — while the assignment is still
+    // written, keeping the `preference_rank` the in-memory solve used and a
+    // null `choice_id`.
+    //
+    // So there is nothing for buildPreferenceLookup (camperElectiveWeek.js) to
+    // join TO: not merely a null choice_id on the assignment, but an absent
+    // preference row. No read-side change can recover these. The rank on the
+    // assignment is real and ordered, so a director reading this run today sees
+    // "One of their choices" for a child's actual rank-1 request.
+    //
+    // This assertion exists so that number cannot silently drift or be
+    // absorbed by a self-consistent computation (the "independent second
+    // fact" below computes its expectation through the SAME join, so on its
+    // own it would stay green even if that scope gap got WORSE). When the gap
+    // is closed, this must go to 0 — and this
+    // assertion is EXPECTED to fail then. Update it to 0 at that point, with a
+    // comment saying the defect closed; do not delete it or loosen it back to
+    // a tautology.
+    expect(summary.unordered_count).toBe(15)
+
+    // AND THE IDENTITY, not only the cardinality — Red Hat's challenge to the
+    // line above: a count can survive for the wrong reason. A later change that
+    // adds one genuinely unordered-set camper while a NEW defect mis-buckets one
+    // more ordered row nets to 15 and this file would have shrugged. So pin WHY
+    // each of the 15 is here: every one must be a ranked assignment whose
+    // preference row is ABSENT from elective_preferences altogether, which is
+    // the scope gap's signature and nothing else's. A genuinely unordered-set
+    // camper HAS a persisted preference row (carrying rank_kind
+    // 'unordered-set'), so it would fail this and force a reader to look.
+    const persistedPrefKeys = new Set(
+      camp.db.prepare('SELECT camper_id, choice_id FROM elective_preferences WHERE run_id = ?')
+        .all(run.id).map((p) => `${p.camper_id}\u0000${p.choice_id}`)
+    )
+    const rankedWithNoPreferenceRow = assignments.filter((a) => (
+      a.preference_rank != null && !persistedPrefKeys.has(`${a.camper_id}\u0000${a.choice_id}`)
+    ))
+    expect(rankedWithNoPreferenceRow).toHaveLength(15)
+
+    // The independent second fact: the SAME bucketing, computed with the
+    // production join, against a plain SQL count of assignment rows —
+    // proving the total distributes the way the join actually resolved it,
+    // not merely that buildRunSummaryExport agrees with itself.
+    const preferenceFor = buildPreferenceLookup({ preferences, occurrences, days, timeBlocks })
+    const expectedByRank = {}
+    let expectedUnordered = 0
+    for (const a of assignments) {
+      if (a.preference_rank == null) continue
+      const rankKind = preferenceFor(a)?.rankKind ?? null
+      if (hasOrderingEvidence(rankKind)) {
+        expectedByRank[a.preference_rank] = (expectedByRank[a.preference_rank] ?? 0) + 1
+      } else {
+        expectedUnordered += 1
+      }
+    }
+    expect(Object.keys(expectedByRank).length).toBeGreaterThan(1)
     expect(Object.fromEntries(
       Object.entries(summary.counts_by_rank).map(([k, v]) => [String(k), v])
-    )).toEqual(fromSql)
+    )).toEqual(Object.fromEntries(Object.entries(expectedByRank).map(([k, v]) => [String(k), v])))
+    expect(summary.unordered_count).toBe(expectedUnordered)
 
     const ranked = Object.values(summary.counts_by_rank).reduce((a, b) => a + b, 0)
     const unranked = assignments.filter((a) => a.preference_rank == null).length
-    expect(ranked + unranked).toBe(rosterOf().reduce((n, e) => n + e.count, 0))
+    expect(ranked + summary.unordered_count + unranked).toBe(rosterOf().reduce((n, e) => n + e.count, 0))
   })
 })
+

@@ -11,7 +11,7 @@ import { buildElectiveAssignments } from './buildElectiveAssignments.js'
 const occ = (id) => ({ id })
 const offering = (occurrence_id, labelKey, activity_id, capacity = 1) =>
   ({ occurrence_id, labelKey, activity_id, capacity })
-const pref = (camper_id, labelKey, rank) => ({ camper_id, labelKey, rank })
+const pref = (camper_id, labelKey, rank, rank_kind) => ({ camper_id, labelKey, rank, rank_kind })
 // T247 linked-choice inputs, mirroring elective_choices / elective_choice_offerings.
 const choice = (id, labelKey, is_linked = 0) => ({ id, labelKey, is_linked })
 const member = (choice_id, occurrence_id, activity_id) => ({ choice_id, occurrence_id, activity_id })
@@ -37,8 +37,8 @@ describe('buildElectiveAssignments', () => {
       occurrences: [occ('o1')],
       offerings: [offering('o1', 'archery', 'a-arch', 1), offering('o1', 'gaga', 'a-gaga', 1)],
       preferences: [
-        pref('c1', 'archery', 1), pref('c1', 'gaga', 2),
-        pref('c2', 'archery', 1), pref('c2', 'gaga', 2),
+        pref('c1', 'archery', 1, 'cell-choice'), pref('c1', 'gaga', 2, 'cell-choice'),
+        pref('c2', 'archery', 1, 'cell-choice'), pref('c2', 'gaga', 2, 'cell-choice'),
       ],
     })
     const ranks = out.assignments.map((a) => a.preference_rank).sort()
@@ -469,7 +469,7 @@ describe('buildElectiveAssignments', () => {
       campers: [{ id: 'c1' }],
       occurrences: [occ('o1'), occ('o2')],
       offerings: [offering('o1', 'archery', 'a-arch', 5), offering('o2', 'archery', 'a-arch', 5)],
-      preferences: [pref('c1', 'archery', 2)],
+      preferences: [pref('c1', 'archery', 2, 'cell-choice')],
       choices: [choice('C', 'archery')],
       choiceOfferings: [member('C', 'o1', 'a-arch'), member('C', 'o2', 'a-arch')],
     })
@@ -1266,5 +1266,209 @@ describe('buildElectiveAssignments — 100-camper repeat distribution (Q3 revisi
       expect(r.shutOutPairs).toBeLessThan(summary.totalShutOut)
       expect(r.shutOutCampers).toBeLessThanOrEqual(r.campers)
     }
+  })
+})
+
+// T318 round 2 — NOT_TOP_CHOICE is a fabricated ordinal unless the WINNING
+// preference row carries positive evidence of ordering (`rank_kind` exactly
+// 'cell-choice' or 'ordered-fallback'). Round 1 closed this on the committed-run
+// display surfaces (camperElectiveWeek's rankLabel); this closes the same
+// defect at its source, the engine that emits the flag both display surfaces
+// read. Two emission sites, tier 2 (rankAt) and tier 1 linked-choice
+// (choiceRankMinOverMembers), covered separately below because they are
+// independent code paths.
+describe('buildElectiveAssignments — NOT_TOP_CHOICE requires positive ordering evidence (T318 round 2)', () => {
+  it('tier 2: does not flag an unordered-set camper bumped to rank 2', () => {
+    const out = buildElectiveAssignments({
+      campers: [{ id: 'c1' }, { id: 'c2' }],
+      occurrences: [occ('o1')],
+      offerings: [offering('o1', 'archery', 'a-arch', 1), offering('o1', 'gaga', 'a-gaga', 1)],
+      preferences: [
+        pref('c1', 'archery', 1, 'unordered-set'), pref('c1', 'gaga', 2, 'unordered-set'),
+        pref('c2', 'archery', 1, 'unordered-set'), pref('c2', 'gaga', 2, 'unordered-set'),
+      ],
+    })
+    const bumped = out.assignments.find((a) => a.preference_rank === 2)
+    expect(bumped.flags).not.toContain('NOT_TOP_CHOICE')
+  })
+
+  it('tier 1 (linked choice): does not flag an unordered-set camper whose winning rank is 2', () => {
+    const out = buildElectiveAssignments({
+      campers: [{ id: 'c1' }],
+      occurrences: [occ('o1'), occ('o2')],
+      offerings: [offering('o1', 'archery', 'a-arch', 5), offering('o2', 'archery', 'a-arch', 5)],
+      preferences: [pref('c1', 'archery', 2, 'unordered-set')],
+      choices: [choice('C', 'archery')],
+      choiceOfferings: [member('C', 'o1', 'a-arch'), member('C', 'o2', 'a-arch')],
+    })
+    expect(out.assignments).toHaveLength(2)
+    for (const a of out.assignments) expect(a.flags).toEqual([])
+  })
+
+  it('tier 2: an ordered-fallback camper bumped to rank 2 is still flagged', () => {
+    const out = buildElectiveAssignments({
+      campers: [{ id: 'c1' }, { id: 'c2' }],
+      occurrences: [occ('o1')],
+      offerings: [offering('o1', 'archery', 'a-arch', 1), offering('o1', 'gaga', 'a-gaga', 1)],
+      preferences: [
+        pref('c1', 'archery', 1, 'ordered-fallback'), pref('c1', 'gaga', 2, 'ordered-fallback'),
+        pref('c2', 'archery', 1, 'ordered-fallback'), pref('c2', 'gaga', 2, 'ordered-fallback'),
+      ],
+    })
+    const bumped = out.assignments.find((a) => a.preference_rank === 2)
+    expect(bumped.flags).toContain('NOT_TOP_CHOICE')
+  })
+
+  it('safe default: a preference with no rank_kind at all does not flag NOT_TOP_CHOICE', () => {
+    const out = buildElectiveAssignments({
+      campers: [{ id: 'c1' }, { id: 'c2' }],
+      occurrences: [occ('o1')],
+      offerings: [offering('o1', 'archery', 'a-arch', 1), offering('o1', 'gaga', 'a-gaga', 1)],
+      preferences: [
+        pref('c1', 'archery', 1), pref('c1', 'gaga', 2),
+        pref('c2', 'archery', 1), pref('c2', 'gaga', 2),
+      ],
+    })
+    const bumped = out.assignments.find((a) => a.preference_rank === 2)
+    expect(bumped.flags).not.toContain('NOT_TOP_CHOICE')
+  })
+
+  // THE FOLD (i) — a strictly better rank arriving from a DIFFERENT row carries
+  // that row's kind with it, not the kind of the row seen first. Two whole-run
+  // fallback rows for the same (camper, labelKey): the first names #5 as an
+  // unordered set, the second corrects it to #2 as an ordered cell-choice. The
+  // held value after both is folded (`better`) must be the SECOND row's kind,
+  // because it is the row that actually won.
+  it('fold: the kind travels with the winning (lower) rank from a different row', () => {
+    const out = buildElectiveAssignments({
+      campers: [{ id: 'c1' }],
+      occurrences: [occ('o1')],
+      offerings: [offering('o1', 'archery', 'a-arch', 1)],
+      preferences: [
+        { camper_id: 'c1', labelKey: 'archery', rank: 5, rank_kind: 'unordered-set' },
+        { camper_id: 'c1', labelKey: 'archery', rank: 2, rank_kind: 'cell-choice' },
+      ],
+    })
+    const a = out.assignments.find((x) => x.camper_id === 'c1')
+    expect(a.preference_rank).toBe(2)
+    expect(a.flags).toContain('NOT_TOP_CHOICE')
+  })
+
+  // THE FOLD (ii) — owner ruling 2026-09-29: a TIE (equal rank, differing kinds)
+  // collapses to "no positive evidence", the safe direction. A camper holding
+  // rank 2 from both an ordered and an unordered row has not unambiguously
+  // expressed a second choice.
+  it('fold: a tie between differing kinds at the same rank does not flag NOT_TOP_CHOICE', () => {
+    const out = buildElectiveAssignments({
+      campers: [{ id: 'c1' }],
+      occurrences: [occ('o1')],
+      offerings: [offering('o1', 'archery', 'a-arch', 1)],
+      preferences: [
+        { camper_id: 'c1', labelKey: 'archery', occurrence_id: 'o1', rank: 2, rank_kind: 'unordered-set' },
+        { camper_id: 'c1', labelKey: 'archery', occurrence_id: 'o1', rank: 2, rank_kind: 'cell-choice' },
+      ],
+    })
+    const a = out.assignments.find((x) => x.camper_id === 'c1')
+    expect(a.preference_rank).toBe(2)
+    expect(a.flags).not.toContain('NOT_TOP_CHOICE')
+  })
+
+  // Red Hat MEDIUM-HIGH — the tie rule's FIRST version collapsed to
+  // "no evidence" whenever the two kinds differed AS STRINGS, which is right
+  // for ordered-vs-unordered but wrong for ordered-vs-ordered: 'cell-choice'
+  // and 'ordered-fallback' are BOTH positive evidence, so that version also
+  // suppressed a REAL ordinal here — the opposite defect from the one this
+  // ticket closes. Reachable specifically on the TIER-1 LINKED-CHOICE path:
+  // `choiceBestOverMembers` seeds `best` from the camper's whole-run fallback
+  // row (labelKey-broadcast, no occurrence_id, `rank_kind: 'ordered-fallback'`)
+  // and folds in a cell-scoped row for one member occurrence
+  // (`rank_kind: 'cell-choice'`) at the SAME rank — a tie between two rows
+  // that both carry ordering evidence but are different literal kinds. Tier 2
+  // cannot reach this (`bestAt` overrides the fallback rather than folding
+  // it), so this fixture must go through `choiceOfferings`/`choices`, not a
+  // bare tier-2 preference.
+  it('fold: an ordered-vs-ordered tie (tier 1) still emits NOT_TOP_CHOICE, not just ordered-vs-unordered', () => {
+    const out = buildElectiveAssignments({
+      campers: [{ id: 'c1' }],
+      occurrences: [occ('o1'), occ('o2')],
+      offerings: [offering('o1', 'archery', 'a-arch', 5), offering('o2', 'archery', 'a-arch', 5)],
+      preferences: [
+        // Whole-run fallback (no occurrence_id) — broadcasts to every choice
+        // sharing this labelKey, same as a real ETL row with no cell scope.
+        { camper_id: 'c1', labelKey: 'archery', rank: 2, rank_kind: 'ordered-fallback' },
+        // A cell-scoped row for ONE member occurrence, same rank, different kind.
+        { camper_id: 'c1', labelKey: 'archery', occurrence_id: 'o1', rank: 2, rank_kind: 'cell-choice' },
+      ],
+      choices: [choice('C', 'archery')],
+      choiceOfferings: [member('C', 'o1', 'a-arch'), member('C', 'o2', 'a-arch')],
+    })
+    expect(out.assignments).toHaveLength(2)
+    for (const a of out.assignments) {
+      expect(a.preference_rank).toBe(2)
+      expect(a.flags).toEqual(['NOT_TOP_CHOICE'])
+    }
+  })
+
+  // Code Reviewer HIGH (round 2 of round 2) — `elective_preferences.rank` is a
+  // nullable INTEGER (electron/db/schema.sql), so a stored preference row can
+  // legitimately hold `rank: null` for one member occurrence of a linked
+  // choice while another member occurrence holds a real rank. Before this fix,
+  // `choiceBestOverMembers` read that stored `null` off `entry.byOccurrence`
+  // and dereferenced `.rank` on it directly, crashing the ENTIRE solve for
+  // every camper rather than degrading just this one camper's fold — strictly
+  // worse than the pre-T318 behaviour (a silent wrong answer). A null-rank row
+  // expresses no preference and must be excluded from the fold outright: it
+  // must not win, and it must not carry its kind into whatever does win.
+  it('does not crash when one member occurrence of a linked choice holds a null-rank row, and the ranked row still wins', () => {
+    const args = {
+      campers: [{ id: 'c1' }],
+      occurrences: [occ('o1'), occ('o2')],
+      offerings: [offering('o1', 'archery', 'a-arch', 5), offering('o2', 'archery', 'a-arch', 5)],
+      preferences: [
+        { camper_id: 'c1', choice_id: 'C', occurrence_id: 'o1', rank: null, rank_kind: null },
+        { camper_id: 'c1', choice_id: 'C', occurrence_id: 'o2', rank: 2, rank_kind: 'cell-choice' },
+      ],
+      choices: [choice('C', 'archery')],
+      choiceOfferings: [member('C', 'o1', 'a-arch'), member('C', 'o2', 'a-arch')],
+    }
+    let out
+    expect(() => { out = buildElectiveAssignments(args) }).not.toThrow()
+    expect(out.assignments).toHaveLength(2)
+    for (const a of out.assignments) {
+      expect(a.preference_rank).toBe(2)
+      expect(a.flags).toEqual(['NOT_TOP_CHOICE'])
+    }
+  })
+
+  // PLACEMENT IDENTITY — rank_kind must never change WHO gets WHAT. A fixture
+  // with a unique min-cost optimum (no ties, so there is only one correct
+  // placement) hand-verified below: c1's only cheap option is archery (cost 1
+  // vs 5 for gaga), c2's is gaga (cost 1 vs 2 for archery); swapping either
+  // camper strictly increases total cost, so this is the one optimal
+  // assignment regardless of which rank_kind each preference carries. The
+  // expected array is a literal computed by hand from the cost matrix, not by
+  // calling buildElectiveAssignments — comparing a function's output to itself
+  // proves nothing.
+  it('placement identity: rank_kind affects flags only, never who gets what', () => {
+    const out = buildElectiveAssignments({
+      campers: [{ id: 'c1' }, { id: 'c2' }],
+      occurrences: [occ('o1')],
+      offerings: [offering('o1', 'archery', 'a-arch', 1), offering('o1', 'gaga', 'a-gaga', 1)],
+      preferences: [
+        pref('c1', 'archery', 1, 'cell-choice'), pref('c1', 'gaga', 5, 'unordered-set'),
+        pref('c2', 'archery', 2, 'unordered-set'), pref('c2', 'gaga', 1, 'cell-choice'),
+      ],
+    })
+    const placements = out.assignments.map((a) => ({
+      camper_id: a.camper_id,
+      occurrence_id: a.occurrence_id,
+      labelKey: a.labelKey,
+      activity_id: a.activity_id,
+      preference_rank: a.preference_rank,
+    }))
+    expect(placements).toEqual([
+      { camper_id: 'c1', occurrence_id: 'o1', labelKey: 'archery', activity_id: 'a-arch', preference_rank: 1 },
+      { camper_id: 'c2', occurrence_id: 'o1', labelKey: 'gaga', activity_id: 'a-gaga', preference_rank: 1 },
+    ])
   })
 })

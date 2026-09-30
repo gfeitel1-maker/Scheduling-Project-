@@ -862,7 +862,9 @@ describe('scripts/mcp/tools.js — elective run machine access', () => {
       const { dbPath, runId } = bootstrapRun(dir)
       const result = exportElectiveAssignmentsTool({ run_id: runId }, { dbPath })
       expect(result.ok).toBe(true)
-      expect(result.export.format_version).toBe(1)
+      // T318 bumped the combined projection 1 -> 2 (additive `unordered_count` on the
+      // summary); this pin tracks src/screens/elective/export/exportElectiveRunProjection.js.
+      expect(result.export.format_version).toBe(2)
       expect(result.export).toHaveProperty('child_schedules')
       expect(result.export).toHaveProperty('activity_rosters')
       expect(result.export).toHaveProperty('exceptions')

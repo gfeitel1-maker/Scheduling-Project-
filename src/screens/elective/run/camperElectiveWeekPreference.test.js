@@ -112,6 +112,22 @@ describe('buildCamperElectiveWeek — the preference behind a placement', () => 
     ])
   })
 
+  // T318 (c1) — the week entry must carry the joined preference's rank_kind, so
+  // rankLabel can refuse an ordinal it has no evidence for.
+  it('carries the joined preference’s rank_kind onto the entry', () => {
+    const [entry] = week([
+      { id: 'pref-1', camper_id: 'cam-1', choice_id: 'choice-gaga', occurrence_id: 'occ-a', rank: 1, rank_kind: 'unordered-set', coordinate: null },
+    ]).entries
+    expect(entry.preferenceId).toBe('pref-1')
+    expect(entry.rankKind).toBe('unordered-set')
+  })
+
+  it('is null for a placement with no joinable preference, alongside a null preferenceId', () => {
+    const [entry] = week([]).entries
+    expect(entry.preferenceId).toBe(null)
+    expect(entry.rankKind).toBe(null)
+  })
+
   it('omitting preferences entirely leaves the rest of the week unchanged', () => {
     // T296's callers pass no `preferences`; they must keep working.
     const [entry] = buildCamperElectiveWeek({

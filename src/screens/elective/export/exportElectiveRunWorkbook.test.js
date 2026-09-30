@@ -64,6 +64,28 @@ describe('buildElectiveRunWorkbook', () => {
     expect(values).toContain(`'${payload}`)
   })
 
+  // T318 (c4) — the Summary sheet's "Rank N: count" rows must never include a
+  // camper whose sheet was read as an unordered set; that camper's real, ETL-
+  // written integer rank belongs in a separate "One of their choices" row,
+  // shown only when there is at least one such camper.
+  it('adds a "One of their choices" Summary row when unordered_count > 0, using the same words the screen uses', () => {
+    const fx = fixture()
+    fx.assignments = [{ camper_id: 'c1', choice_id: 'ch1', occurrence_id: 'occ-1', preference_rank: 1 }]
+    fx.preferences = [{ camper_id: 'c1', choice_id: 'ch1', occurrence_id: 'occ-1', rank: 1, rank_kind: 'unordered-set' }]
+    const workbook = buildElectiveRunWorkbook(fx)
+    const sheet = workbook.Sheets['Summary']
+    expect(cellsOf(sheet)).toContain('One of their choices')
+  })
+
+  it('omits the "One of their choices" row when unordered_count is 0', () => {
+    const fx = fixture()
+    fx.assignments = [{ camper_id: 'c1', choice_id: 'ch1', occurrence_id: 'occ-1', preference_rank: 1 }]
+    fx.preferences = [{ camper_id: 'c1', choice_id: 'ch1', occurrence_id: 'occ-1', rank: 1, rank_kind: 'cell-choice' }]
+    const workbook = buildElectiveRunWorkbook(fx)
+    const sheet = workbook.Sheets['Summary']
+    expect(cellsOf(sheet)).not.toContain('One of their choices')
+  })
+
   it('every sheet is built via aoaToSanitizedSheet — plants a defect NOT named in the sanitizer description: a leading-tab injection payload', () => {
     // The sanitizer's own header comment names =, +, -, @ and control chars; this plants a
     // leading-CARRIAGE-RETURN payload (a control char the sanitizer's regex also covers) to prove
