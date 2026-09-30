@@ -115,3 +115,7 @@ accepted residual) — **confirmed by the security agent** to drop no real invar
 Lower-tier follow-up (not blocking): README P2 WAN note when the Tier-4 gate flips; the pre-existing
 duplicated `schema_migrations` bullet in `PLATFORM_STATE.md`; ADR `implementation_state` vocabulary
 normalization (hyphen/underscore, `implemented`/`shipped`/`complete`) — a safeguards-phase job.
+
+---
+
+**2026-09-30 disposition note (sweeps PR B, board q-small-sweeps-batch):** the README P2 WAN note is not actionable now — `INTERNET_TRANSPORT_SIGNOFF` in `docs/current/PLATFORM_STATE.md:128` is still `false`, `README.md` carries no WAN/rendezvous text to correct (`grep -in 'wan\|rendezvous\|internet' README.md` matches only the unrelated hosting caveat and a Wi-Fi settings path), and the note was conditioned on the Tier-4 gate flipping, which has not happened. Remains queued behind that flip; nothing else in this ticket changed.
