@@ -390,16 +390,24 @@ export function findOpByClientWriteId(db, client_write_id) {
 // and a genuine disagreement surfaces as a `conflicts` row for a human.
 //
 // _Prior: the op-log carried its own per-scope arbitration beside this
-// primitive — a bulk_replace op carried `based_on_seq` (the highest op `seq`
-// the submitting device had observed for that scope), recomputed on the Host
-// at submission time by ~~detectBulkReplaceConflict~~ against
-// ~~latestScopeOpSeq~~ and recorded via ~~recordConflict~~, with the
-// deliberately coarse rule that ANY newer op anywhere in the scope counted.
-// All three functions went with the WS Host path (T311 finding 2; see the
-// retired-mechanism note at the top of this file): nothing has passed
-// `based_on_seq` since the Stage 6c cutover, and the arbitration it fed is
-// now the reconciler's. The `operations.based_on_seq` column remains in the
-// schema, written by nothing._
+// primitive — a submitting device computed `based_on_seq` (the highest op
+// `seq` it had observed for that scope) and passed it at submission time to
+// ~~detectBulkReplaceConflict~~, which compared it against
+// ~~latestScopeOpSeq~~ and recorded a disagreement via ~~recordConflict~~,
+// with the deliberately coarse rule that ANY newer op anywhere in the scope
+// counted. All three functions went with the WS Host path (T311 finding 2;
+// see the retired-mechanism note at the top of this file): nothing has
+// passed `based_on_seq` since the Stage 6c cutover, and the arbitration it
+// fed is now the reconciler's._
+//
+// `based_on_seq` was only ever a JavaScript parameter of that deleted
+// function, never a persisted column: the `operations` table in
+// electron/db/schema.sql has no such column and no commit ever added one,
+// and appendBulkReplaceOp — the only writer of a `bulk_replace` op —
+// neither accepts it nor stores it (the op's `value` is the sanitized rows
+// alone). So nothing is left to drop here and no migration is owed. T311's
+// own framing asserted the column still existed in the schema; it never
+// did.
 export const BULK_REPLACE_FIELD = '__bulk_replace__'
 
 export function isBulkReplaceOp(op) {

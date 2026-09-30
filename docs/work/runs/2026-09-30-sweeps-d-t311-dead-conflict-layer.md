@@ -2,8 +2,9 @@
 task: "sweeps PR D — delete the op log's dead conflict-arbitration layer (T311 finding 2)"
 document_type: run
 date: 2026-09-30
-round: 1
-status: in-progress
+round: 2
+status: pass
+verdict: PASS
 task_class: database-sync
 governing_docs:
   - docs/governance/constitution/CONSTITUTION.md
@@ -35,7 +36,15 @@ deterministic_checks:
   - "npm run build"
   - "npm run check:governance"
   - "npm run test:integration"
-  - "git diff --name-only origin/main (footprint check)"
+  - "git show --stat HEAD (footprint check)"
+completion_evidence:
+  - "npx eslint electron — exit 0"
+  - "npx vitest run --no-file-parallelism electron/ops/operations.test.js electron/ops/bulkReplace.test.js electron/ops/projectionsCoverage.test.js electron/ops/ingestUndo.test.js electron/ops/deleteRecord.test.js — exit 0, 5 files / 141 tests"
+  - "npm run build — exit 0"
+  - "npm run check:governance — exit 0, advisory platform-state-stale only"
+  - "npm run test:integration — exit 0, 26/26 libp2p scenarios"
+  - "symbol-absence grep for the four deleted names — clean (11 survivors, all historical prose or under electron/db/)"
+  - "git show --stat HEAD — ten permitted files, nothing under electron/db/"
 human_gates:
   - "database-sync human gate per GOVERNANCE_INDEX.md §3 is 'ADR + migration/rollback plan'. No schema version, no migration, no table drop here, so the migration/rollback half is vacuous. Whether the deletion itself warrants its own ADR beyond the existing 2026-09-06 one is an OPEN POINT for the owner (unavailable at time of run)."
 verdict: null
@@ -69,8 +78,14 @@ than these functions; and eslint, the named vitest files, `npm run build`,
 - Any schema version bump, ticket number, or status flip.
 - Deleting the `listPendingConflicts` coverage because its test file referenced `recordConflict`.
   That is live IPC-backed behaviour (`electron/main.js` → `shoresh:list-conflicts`).
-- Leaving `based_on_seq` column handling changed. The column stays; only the arbitration
-  functions go.
+- Changing anything about `based_on_seq` in the schema. There is nothing to change: it was only
+  ever a JavaScript parameter of the deleted `detectBulkReplaceConflict`, never a persisted
+  column. `CREATE TABLE IF NOT EXISTS operations` in `electron/db/schema.sql` has no such column,
+  `git log --all -S"based_on_seq" -- electron/db/schema.sql` returns no commit, and
+  `appendBulkReplaceOp` — the only writer of a `bulk_replace` op — neither accepts nor persists
+  it. So nothing is owed: no drop, no migration. Only the arbitration functions go.
+  **The inherited T311 framing asserted the column still existed in the schema; that assertion
+  was wrong, and this run corrected it** (round 2, after the round-1 comment rewrite repeated it).
 - Leaving any comment that still describes one of the four as the live path.
 
 ## Task class and what it pulls in
@@ -123,8 +138,16 @@ Two live neighbours that must survive intact:
 | named vitest files | exit 0 | `operations.test.js`, `bulkReplace.test.js`, `projectionsCoverage.test.js`, `ingestUndo.test.js`, `deleteRecord.test.js` — **5 files passed, 141 tests passed** |
 | npm run build | exit 0 | `✓ built in 3.79s` (pre-existing >500 kB chunk advisory only) |
 | npm run check:governance | exit 0 after `npm run index:work` | before the index refresh: 1 blocking `index-stale` (this run record) + the pre-existing advisory `platform-state-stale`. After: advisory `platform-state-stale` only, which is the one acceptable finding. |
-| npm run test:integration | not run by Maker | Verifier owns it (brief). |
-| footprint (git diff --name-only) | 8 files: 7 under `electron/ops/`, plus docs | `bulkReplace.test.js`, `deleteRecord.js`, `ingest.js`, `operations.js`, `operations.test.js`, `projections.js`, `projectionsCoverage.test.js`. Nothing under `electron/db/`. |
+| npm run test:integration | **exit 0** | run by Verifier (mandatory for `database-sync`): **26/26 libp2p scenarios**. |
+| footprint | **10 files** — `git show --stat HEAD` | 7 under `electron/ops/` (`bulkReplace.test.js`, `deleteRecord.js`, `ingest.js`, `operations.js`, `operations.test.js`, `projections.js`, `projectionsCoverage.test.js`) plus `docs/work/INDEX.md`, this run record, and the T311 ticket. Nothing under `electron/db/`. |
+| symbol-absence grep (all four deleted names) | clean | 11 surviving references, every one either historical prose or under `electron/db/` (the out-of-scope boundary, open points 1–2 below). |
+
+**`git show --stat HEAD` is the footprint instrument here, not `git diff origin/main..HEAD`.**
+The two-dot form is the wrong tool on this branch: `origin/main` has advanced past this branch's
+merge-base, so other workers' merged commits are reported as if they were changes in this run.
+Verifier's round-1 Gate 7 FAIL was exactly that artifact. `git log --oneline origin/main..HEAD`
+is one commit, and `git show --stat HEAD` lists the ten permitted files. A reader re-deriving this
+with the two-dot diff will reproduce the same false red.
 
 ### Line counts (`git diff --numstat`, code only)
 
@@ -307,7 +330,7 @@ assertions below it are about live IPC-backed behaviour.
 
 | Test / block | Category | Disposition |
 |---|---|---|
-| `describe('per-scope conflict detection (round 2)')` — 5 cases (3 × `latestScopeOpSeq`, 2 × `detectBulkReplaceConflict`) | **(a)** exercised ONLY deleted functions | **Removed** as one block. Reason: both functions are deleted and nothing live passes `based_on_seq`. The `based_on_seq` **column** is untouched in the schema, as the brief requires; only the arbitration that read it is gone. The block's `appendOp` import (used by nothing else in the file after removal) went with it — orphaned by this change. |
+| `describe('per-scope conflict detection (round 2)')` — 5 cases (3 × `latestScopeOpSeq`, 2 × `detectBulkReplaceConflict`) | **(a)** exercised ONLY deleted functions | **Removed** as one block. Reason: both functions are deleted and nothing live passes `based_on_seq`. `electron/db/schema.sql` is untouched, as the brief requires — and there was nothing in it to touch: `based_on_seq` was a parameter of `detectBulkReplaceConflict`, never a column (round-2 correction; see "What does not count as done"). Only the arbitration that read the parameter is gone. The block's `appendOp` import (used by nothing else in the file after removal) went with it — orphaned by this change. |
 
 ### `electron/ops/projectionsCoverage.test.js` — exemption rationale re-derived, not widened
 
@@ -340,7 +363,7 @@ strikethrough convention):
 | "via latestOp/detectConflict below" | replaced by the reconciler citation above |
 | `_Prior:` "appendOp/detectConflict run" | `appendOp/~~detectConflict~~` |
 | "doesn't fit detectConflict's ... model" | "never fitted the op-log's retired per-field ... model either" |
-| the whole "Conflict-detection semantics (round 2)" block, ~43 lines describing `based_on_seq` / `latestScopeOpSeq` / `detectBulkReplaceConflict` / `recordConflict` as the live per-scope mechanism | replaced by ≈17 lines: the CRDT reconciler named as the arbiter, then a `_Prior:` paragraph with all three names struck through, stating the column remains in the schema written by nothing |
+| the whole "Conflict-detection semantics (round 2)" block, ~43 lines describing `based_on_seq` / `latestScopeOpSeq` / `detectBulkReplaceConflict` / `recordConflict` as the live per-scope mechanism | replaced by ≈19 lines: the CRDT reconciler named as the arbiter, then a `_Prior:` paragraph with all three names struck through. **Round 2 corrected this block twice**: it had said "the `operations.based_on_seq` column remains in the schema, written by nothing" — there is no such column and never was (see "What does not count as done") — and its `_Prior:` span contained a bare, un-backticked `bulk_replace`, whose underscore was consumed as the closing italic delimiter and left the paragraph's real trailing `_` stray. |
 | `latestOpSeq`'s `_Prior:` citing "`latestScopeOpSeq` above" | reasoning restated inline (host_seq v18 → `applyRemoteOp` → Stage 6c → `host_seq IS NULL`), with `~~latestScopeOpSeq~~` noted as deleted |
 | `latestOpForEntity` / `detectConflict` doc comments | deleted with their functions |
 | D2 block, "an app-level uniqueness constraint detectConflict cannot see" | "...per-record arbitration cannot see", reconciler named, `~~detectConflict~~` noted as deleted by T311 finding 2 |
@@ -374,15 +397,77 @@ Outside `operations.js` (4 sites, minimal as instructed):
 
 ## Verifier verdict
 
-PASS / FAIL / UNVERIFIED —
+**PASS** — Verifier, round 1, all seven gates run in this worktree.
 
-> Verifier alone writes this line and the `verdict` field.
+Verifier's one round-1 FAIL was Gate 7 (footprint), and it is a measurement artifact rather than a
+defect in the change: it used the two-dot `git diff origin/main..HEAD` while `origin/main` had
+advanced past this branch's merge-base, so other workers' already-merged commits were counted as
+this run's changes. Superseded by `git show --stat HEAD`, which lists exactly the ten permitted
+files (`git log --oneline origin/main..HEAD` is one commit).
+
+| Gate | Exit code | Result |
+|---|---|---|
+| `npx eslint electron` | 0 | no output |
+| named vitest files (5) | 0 | 5 files / 141 tests passed |
+| `npm run build` | 0 | pre-existing chunk-size advisory only |
+| `npm run check:governance` | 0 | advisory `platform-state-stale` only |
+| `npm run test:integration` | 0 | **26/26 libp2p scenarios** |
+| symbol-absence grep | 0 | 11 survivors, all historical prose or under `electron/db/` |
+| footprint | — | FAIL as measured two-dot; **artifact**, see above |
+
+Security scored **5**, confirming `appendOp`, `runAtomic`, `coerceOpValue`,
+`MAX_FIELD_VALUE_LENGTH`, `findOpByClientWriteId`, `detectUniqueFieldCollision` and
+`UNIQUE_FIELD_ENTITIES` byte-identical to `origin/main` — nothing that enforced a write invariant
+was lost with the arbitration layer.
 
 ## Grader score
 
 Average — , lowest dimension — .
 
 ## Findings carried forward
+
+1. **The DELETE_FIELD-versus-concurrent-field-edit defect class now has zero test coverage
+   anywhere.** This is a gap, not a reassurance. Code Reviewer (MEDIUM) and Security (LOW)
+   converged on it independently.
+
+   The class originates as "Round 2 Security MEDIUM #2" and was guarded inside the now-deleted
+   `detectConflict`. The three tests that covered it were correctly deleted with their dead
+   subject — but no equivalent coverage exists on the live CRDT path. `electron/automerge/reconcile.js`
+   calls `A.getConflicts` only for keys currently **present** in the collection, while a
+   DELETE_FIELD removes the record's field keys outright rather than writing a tombstone value
+   into the scanned key-space; and no test under `electron/automerge/*.test.js` exercises a
+   concurrent delete versus a concurrent field edit.
+
+   Security established that the gap **predates this commit**: it was introduced by the Stage 6c
+   CRDT cutover and is documented as an accepted consequence in
+   `docs/adr/2026-09-06-productionize-automerge-libp2p-sync.md`, which states that under Automerge
+   "concurrent delete+assign is a first-class, expected occurrence". So this run neither introduced
+   nor widened it — **but it did remove the last artifact that would have made a future reader
+   notice it.** That is why the finding is recorded here rather than treated as out of scope.
+
+   Carried forward for the board: either an explicit reconcile-level test for
+   concurrent-delete-versus-concurrent-edit, or an ADR note stating why the flat-record shape makes
+   the "resurrect a near-empty row" shape structurally impossible. **Neither exists today.**
+   No ticket created and no number allocated — that is the board's call.
+
+2. **`electron/db/schema.sql`** — the `conflicts` table comment still cites `detectConflict` in
+   `handleSubmitOp` / an `op_conflict` message, both gone and now deleted outright. Not edited:
+   `electron/db/` is a hard boundary for this run. (Open point 1.)
+
+3. **`electron/db/localDb.js`** — cites `latestScopeOpSeq` in `electron/ops/operations.js` as the
+   home of the `COALESCE` reasoning; that function no longer exists and the reasoning now lives on
+   `latestOpSeq`. Not edited, same boundary. (Open point 2.)
+
+4. **`electron/ops/ingestUndo.test.js`** — a comment citing "`latestOpSeq`/`latestScopeOpSeq`'s
+   convention", the exact twin of the `ingest.js` Invariant-4 site that was in scope. Left alone
+   rather than quietly widening the footprint. One-line fix. (Open point 3.)
+
+5. **Pre-existing unbalanced `_Prior:` spans, not touched by this run.** While fixing the one
+   delimiter defect this commit introduced, a mechanical parity check found the same imbalance in
+   `_Prior:` blocks this commit did not author: `electron/ops/operations.js` (three blocks),
+   `electron/ops/deleteRecord.js`, `electron/ops/projections.js` and
+   `electron/ops/operations.test.js`. Cause in each case is the same — a bare, un-backticked
+   snake_case identifier inside the italic span. Left alone deliberately: out of this run's scope.
 
 ## Decision
 
