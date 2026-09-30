@@ -27,11 +27,38 @@ const DIGEST_FIELDS = [
   'is_linked_choice', 'choice_label',
 ]
 
+// T320 round 2, F1 — the BOOLEAN/INTEGER BOUNDARY. `is_linked_choice` is the
+// one DIGEST_FIELDS entry whose two producers disagree on TYPE, not just
+// value: electiveRunOuterSchedule.js's derive side writes a JS boolean
+// (`!!row.is_linked_choice`, or a literal `false`), while the held side
+// re-reads the column from SQLite, where better-sqlite3 returns the
+// NOT-NULL-DEFAULT-0 INTEGER column as a JS number (0/1). Without this,
+// `is_linked_choice=false` and `is_linked_choice=0` are different STRINGS to
+// createHash, so the digest computed at finalize time (over in-memory rows)
+// can never equal the digest computed by any later read (over a fresh
+// SELECT) — every finalized run reports snapshotIncomplete forever. Every
+// other DIGEST_FIELDS entry was audited against both producers
+// (electiveRunOuterSchedule.js's `rows.push`/inherited branches vs this
+// module's own held SELECT) and found to agree in both type and null-vs-
+// undefined handling — id/camper_id/day_id/time_block_id/activity_id are
+// always-set strings on both sides; activity_name/location_id/location_name/
+// choice_id/choice_label are consistently JS `null` (never `undefined`) on
+// both the derive side's `?? null` and a SQLite NULL column read back by
+// better-sqlite3; span_blocks and cell_kind agree in type (INTEGER/TEXT) on
+// both sides. `is_linked_choice` is the only divergence, so this is the only
+// field-specific normalization needed — but it lives in ONE place (here) so
+// neither call site (computeExpectedSnapshotDigest,
+// computeHeldSnapshotDigest) has to remember to coerce it.
+function normalizedFieldValue(field, value) {
+  if (field === 'is_linked_choice') return value ? 1 : 0
+  return value ?? '\0NULL'
+}
+
 function digestOf(rows) {
   const sorted = [...rows].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   const hash = createHash('sha256')
   for (const row of sorted) {
-    hash.update(DIGEST_FIELDS.map((f) => `${f}=${row[f] ?? '\0NULL'}`).join('|'))
+    hash.update(DIGEST_FIELDS.map((f) => `${f}=${normalizedFieldValue(f, row[f])}`).join('|'))
     hash.update('')
   }
   return hash.digest('hex')
