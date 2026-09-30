@@ -87,9 +87,20 @@ export const BOOTSTRAP_SQL_ALLOWLIST = Object.freeze(['camps', 'devices', 'cohor
  * THE DECLARED SHAPE OF THE CAMP, stated before it is built.
  *
  * Every number here comes from §6's own prose, not from running the code and
- * writing down what came out. `assertManifest` below checks the built camp
- * against it, so a fixture that quietly stops being the camp §6 describes fails
- * loudly instead of making twelve downstream assertions vacuous.
+ * writing down what came out — except the two occurrence counts, which §6's
+ * floor of 3 cannot express and whose divergence is reconciled in place below.
+ *
+ * `manifestChecks` at the bottom of this module reads the built camp, and
+ * electron/electiveAcceptanceFixture.integration.test.js asserts it against
+ * these declarations — so a fixture that quietly stops being the camp §6
+ * describes fails loudly instead of making twelve downstream assertions
+ * vacuous. (Round 1's docstring named an `assertManifest` that has never
+ * existed.)
+ *
+ * EVERY KEY HERE IS CHECKED SOMEWHERE, and that is itself enforced: the guard
+ * file carries a coverage registry naming, per key, the test that checks it,
+ * and fails when a key is added without one. A declared-but-unchecked field is
+ * the shape round 1 shipped three of.
  */
 export const ACCEPTANCE_MANIFEST = Object.freeze({
   campName: 'Acceptance Camp',
@@ -101,16 +112,19 @@ export const ACCEPTANCE_MANIFEST = Object.freeze({
   // the grid file normalises to a hyphen), because that is the string the
   // preference sheets' Period column has to match.
   electivePeriod: '10:50-11:30',
-  // §6: "3 elective occurrences". Three is the count on the GENERATED route,
-  // which is the route the run is solved against: Monday and Tuesday carry the
-  // set for both tiers, Wednesday for Younger only — five cells... no: the
-  // count §6 names is per the route being solved. See `occurrenceCells` below,
-  // which states the cells rather than a number, and the two routes' counts
-  // separately, so neither can be mistaken for the other.
-  // WHICH CELLS EACH ROUTE PLACES THE SET ON, per tier. Not a count: §6's "3
-  // elective occurrences" is a number about one route, and the two routes must
-  // differ, so stating the cells is the only form of this that cannot be read
-  // as the wrong route's number.
+  // WHICH CELLS EACH ROUTE PLACES THE SET ON, per tier, with both routes'
+  // occurrence counts stated separately below.
+  //
+  // §6 SAYS "3 elective occurrences" AND THIS CAMP HAS 4 AND 6. That is a
+  // deliberate divergence, not a drift, and here is the reconciliation. An
+  // occurrence is (set, day, block, TIER), so a count is a fact about ONE
+  // route; §6's "3" is a floor describing the smallest camp that exercises the
+  // conditions, and the conditions this fixture has to reach need more than
+  // that floor: the linked bundle needs TWO Older occurrences (Monday and
+  // Tuesday), the eligibility rejection needs a Wednesday the Older tier does
+  // NOT have, and §6 also requires the two routes to differ — which is only
+  // expressible as different counts. Generated is therefore 4 and manual 6,
+  // both pinned exactly by the fixture guard.
   //
   // THE GENERATED SHAPE IS CONSTRAINED, and the constraint is `locations.capacity`.
   // findRouteConflicts counts ONE OCCUPANT PER GROUP whose cell could use a
@@ -572,14 +586,24 @@ export async function buildAcceptanceCamp(db, { handlers, token, campId, deviceI
 export async function assignBunks(db, { handlers, token, campId, groupIdByName }) {
   const byTier = { Younger: ['Younger 1', 'Younger 2'], Older: ['Older 1', 'Older 2'] }
   const campers = db
-    .prepare('SELECT id, division_label FROM campers WHERE camp_id = ? ORDER BY id')
+    .prepare('SELECT id, display_name, division_label FROM campers WHERE camp_id = ? ORDER BY id')
     .all(campId)
   if (campers.length === 0) throw new Error('assignBunks: no campers to place in bunks')
   const seen = { Younger: 0, Older: 0 }
   for (const camper of campers) {
     const groupNames = byTier[camper.division_label]
     if (!groupNames) throw new Error(`assignBunks: camper division ${camper.division_label} names no tier`)
-    const groupName = groupNames[seen[camper.division_label] % groupNames.length]
+    // §6 asks for "one duplicate display name in the SAME group". Alternating
+    // over campers sorted by id would put the two same-named children in one
+    // group only by ACCIDENT of UUID ordering — a fact §6 requires, decided by
+    // a coin flip, and nothing downstream would notice the flip landing the
+    // other way. They are placed together explicitly instead, and the fixture
+    // guard asserts it. The counter still advances so every other camper's
+    // group stays a pure alternation.
+    const isSameGroupDuplicate = camper.display_name === ACCEPTANCE_MANIFEST.duplicateNameSameGroup
+    const groupName = isSameGroupDuplicate
+      ? groupNames[0]
+      : groupNames[seen[camper.division_label] % groupNames.length]
     seen[camper.division_label] += 1
     const r = await handlers.write({
       token, entity: 'campers', entity_id: camper.id, field: 'group_id', value: groupIdByName.get(groupName),
@@ -622,7 +646,21 @@ export function manifestChecks(db, fx) {
     templateId, fx.electiveSetId
   ).length
 
+  // AN OCCURRENCE IS (set, day, block, TIER) — never (…, group), which is what
+  // `countElectiveCells` above counts. Both are kept because they are different
+  // numbers about the same placement and the manifest declares both.
+  const countOccurrences = (templateId) => all(`
+    SELECT DISTINCT s.day_id, s.time_block_id, g.tier_id
+    FROM template_slots s JOIN groups g ON g.id = s.group_id
+    WHERE s.template_id = ? AND s.elective_set_id = ?
+  `, templateId, fx.electiveSetId).length
+
   return {
+    campName: one('SELECT name FROM camps WHERE id = ?', fx.campId).name,
+    electivePeriodBlock: one('SELECT name FROM time_blocks WHERE id = ?', fx.periodId).name,
+    manualOccurrences: countOccurrences(fx.manualTemplateId),
+    generatedOccurrences: countOccurrences(fx.generatedTemplateId),
+    sharedLocationCapacity: one('SELECT capacity FROM locations WHERE id = ?', fx.locationIdByName.get(M.sharedLocation)).capacity,
     tiers: all('SELECT name FROM tiers WHERE camp_id = ? ORDER BY name', fx.campId).map((r) => r.name),
     groups: all('SELECT name FROM groups WHERE camp_id = ? ORDER BY name', fx.campId).map((r) => r.name),
     days: all('SELECT label FROM days_of_operation WHERE camp_id = ? ORDER BY sort_order', fx.campId).map((r) => r.label),

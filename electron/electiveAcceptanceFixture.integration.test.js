@@ -29,11 +29,21 @@ vi.mock('electron', () => ({
 
 import { CURRENT_SCHEMA_VERSION, getSchemaVersion } from './db/localDb.js'
 import { openAcceptanceCamp } from './electiveAcceptanceHarness.js'
-import { ACCEPTANCE_MANIFEST, manifestChecks } from './fixtures/electiveAcceptanceCamp.js'
+import { ACCEPTANCE_MANIFEST, manifestChecks, importResolvedSheet } from './fixtures/electiveAcceptanceCamp.js'
 
 let camp
+let imported
 
-beforeAll(async () => { camp = await openAcceptanceCamp() }, 60_000)
+beforeAll(async () => {
+  camp = await openAcceptanceCamp()
+  // The roster too, because three manifest fields are facts about the SHEET's
+  // campers and a guard that skipped them would be declaring what it does not
+  // check.
+  imported = await importResolvedSheet(camp.db, {
+    dbPath: camp.file, handlers: camp.handlers, token: camp.token, authorUserId: camp.userId,
+    campId: camp.fixture.campId, groupIdByName: camp.fixture.groupIdByName,
+  })
+}, 60_000)
 afterAll(() => { camp?.close() })
 
 const M = ACCEPTANCE_MANIFEST
@@ -108,6 +118,13 @@ describe('T251 — the acceptance camp is the camp §6 describes', () => {
     //     generated route for Younger only — which is what makes the
     //     eligibility rejection a property of a real route rather than a staged
     //     row, and what makes condition 9's staleness test a real template edit.
+    //     PINNED EXACTLY, both routes. `manual > generated` is true of a large
+    //     family of camps and says nothing about which cells moved; these two
+    //     numbers are the manifest's own declarations, and §6's floor of 3 is
+    //     reconciled against them in the manifest itself.
+    expect({ manual: c.manualOccurrences, generated: c.generatedOccurrences }).toEqual({
+      manual: M.manualOccurrenceCount, generated: M.generatedOccurrenceCount,
+    })
     expect(c.manualElectiveCells).toBeGreaterThan(c.generatedElectiveCells)
     // (b) the generated route carries Boating at the Monday elective period for
     //     Older 2 — §6's outer location conflict.
@@ -176,5 +193,99 @@ describe('T251 — the acceptance camp is the camp §6 describes', () => {
 
   it('bootstraps exactly one cohort', () => {
     expect(camp.db.prepare('SELECT COUNT(*) c FROM cohorts WHERE camp_id = ?').get(camp.fixture.campId).c).toBe(1)
+  })
+
+  it('is the camp named, at the period named, with the shared location at the capacity named', () => {
+    const c = manifestChecks(camp.db, camp.fixture)
+    expect({
+      campName: c.campName,
+      electivePeriod: c.electivePeriodBlock,
+      sharedLocationCapacity: c.sharedLocationCapacity,
+    }).toEqual({
+      campName: M.campName,
+      electivePeriod: M.electivePeriod,
+      sharedLocationCapacity: M.sharedLocationCapacity,
+    })
+  })
+
+  it('overwrites exactly the generated cell the manifest names', () => {
+    const slot = camp.db
+      .prepare('SELECT group_id, day_id FROM template_slots WHERE id = ?').get(camp.fixture.outerConflictSlotId)
+    expect(slot.group_id).toBe(camp.fixture.groupIdByName.get(M.outerConflictCell.group))
+    expect(slot.day_id).toBe(camp.fixture.dayIdByLabel.get(M.outerConflictCell.day))
+  })
+})
+
+// A DECLARED FIELD NOBODY CHECKS IS WORSE THAN NO FIELD: it reads as a
+// guarantee. Round 1 shipped three of them (`generatedOccurrenceCount`,
+// `manualOccurrenceCount`, and a `wholeRunFallbackCampers` that was also
+// WRONG), and nothing said so. This registry is the mechanism that says so:
+// every key of ACCEPTANCE_MANIFEST must name the test that checks it, and a
+// new key with no entry fails here rather than in six months.
+//
+// The values are documentation for a reader, and the KEY SET is what is
+// enforced — a wrong file name here is a stale comment, not a false green,
+// which is why this is a registry and not an attempt to grep the suite.
+const CHECKED_BY = {
+  campName: 'this file — is the camp named…',
+  tiers: 'this file — has two tiers…',
+  groupsPerTier: 'this file — has four groups…',
+  groups: 'this file — has four groups…',
+  days: 'this file — has the three operating days…',
+  electivePeriod: 'this file — is the camp named…',
+  occurrenceCells: 'this file — via the two occurrence counts below it',
+  generatedOccurrenceCount: 'this file — the two routes differ…',
+  manualOccurrenceCount: 'this file — the two routes differ…',
+  offerings: 'this file — has six offerings…',
+  sharedLocation: 'this file — shares one location…',
+  sharedLocationElective: 'this file — shares one location…',
+  sharedLocationOuterActivity: 'this file — the two routes differ…',
+  sharedLocationCapacity: 'this file — is the camp named…',
+  outerConflictCell: 'this file — overwrites exactly the generated cell…',
+  camperCount: 'electiveAcceptanceImport.integration.test.js — commits the same sheet…',
+  duplicateNameDifferentGroups: 'electiveAcceptanceImport.integration.test.js — keeps the legal duplicate…',
+  duplicateNameSameGroup: 'electiveAcceptanceImport.integration.test.js — refuses the sheet…',
+  wholeRunFallbackCampers: 'this file — every whole-run camper answered without a coordinate',
+  linkedChoiceCampers: 'electiveAcceptanceSolve.integration.test.jsx — (8) the linked choice…',
+  missingExternalIdCamper: 'electiveAcceptanceImport.integration.test.js — keeps the legal duplicate…',
+  inactiveCamper: 'electiveAcceptanceImport.integration.test.js — deactivating a camper…',
+  recurringEvent: 'electiveAcceptanceSurfaces.integration.test.jsx — the ingest category leak',
+  bundle: 'this file — has a bundle spanning exactly two periods…',
+  bundleNamedOffCatalogue: 'electiveAcceptanceImport.integration.test.js — the camp really has a bundle…',
+  refusedBundles: 'this file — has two MORE bundles…',
+}
+
+describe('T251 — every field the manifest declares is checked by some test', () => {
+  it('names a checking test for every manifest key, and no stale keys', () => {
+    expect(Object.keys(CHECKED_BY).sort()).toEqual(Object.keys(M).sort())
+  })
+
+  // §6: "one duplicate display name in the SAME group". Asserted rather than
+  // left to UUID ordering — see assignBunks.
+  it('puts the two same-named campers in ONE group, and the legal duplicate in two tiers', () => {
+    const rows = camp.db
+      .prepare('SELECT group_id FROM campers WHERE camp_id = ? AND display_name = ?')
+      .all(camp.fixture.campId, M.duplicateNameSameGroup)
+    expect(rows).toHaveLength(2)
+    expect(new Set(rows.map((r) => r.group_id)).size).toBe(1)
+
+    const other = camp.db
+      .prepare('SELECT division_label FROM campers WHERE camp_id = ? AND display_name = ?')
+      .all(camp.fixture.campId, M.duplicateNameDifferentGroups)
+    expect(new Set(other.map((r) => r.division_label))).toEqual(new Set(M.tiers))
+  })
+
+  // The one manifest field with no natural home elsewhere: the whole-run
+  // campers are exactly the rows the sheet wrote with no coordinate.
+  it('every whole-run camper answered without a coordinate', () => {
+    for (const name of M.wholeRunFallbackCampers) {
+      const rows = camp.db.prepare(`
+        SELECT p.coordinate_day_label FROM elective_preferences p
+        JOIN campers c ON c.id = p.camper_id
+        WHERE p.run_id = ? AND c.display_name = ?
+      `).all(imported.runId, name)
+      expect(rows.length).toBeGreaterThan(0)
+      expect(rows.filter((r) => r.coordinate_day_label != null)).toEqual([])
+    }
   })
 })
