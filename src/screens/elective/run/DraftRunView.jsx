@@ -712,14 +712,17 @@ export default function DraftRunView({
             </div>
           ) : null}
 
-          {/* T250 A3 — the reconstructed roster for a cold-open regenerate is
-              "every camper with a preference or a placement on this run", not
-              the original sheet's full roster — this says so rather than
-              leaving it a silent gap (the "engine surfaces, never silently
-              absorbs" rule). */}
+          {/* T320 part 2 item 3 — the roster for a cold-open regenerate is now
+              the SHEET's own, sourced from elective_run_findings
+              (SHEET_CAMPER_WITHOUT_PREFERENCE), so a camper who ranked nothing
+              and was placed nowhere is still in scope. T250 A3's sentence here
+              said "not the original sheet's full roster", which was honest of
+              the old (preferences ∪ assignments) derivation and is no longer
+              true. */}
           {regenerate && coldRegenerate ? (
             <div data-testid="run-cold-regenerate-note" style={styles.actionsHint}>
-              Regenerating a reopened run reconsiders every camper who has a preference or a placement on it.
+              Regenerating a reopened run reconsiders every camper this run's sheet named — including anyone
+              with no ranked choice and no placement.
             </div>
           ) : null}
 

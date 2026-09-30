@@ -889,10 +889,10 @@ describe('AssignmentPanel — T250 A3: cold-open hydration and regenerate', () =
     // is present.
     const offer = await screen.findByTestId('run-staleness-offer')
     expect(within(offer).getByRole('button', { name: /Re-derive and regenerate/i })).toBeTruthy()
-    // The disclosure note: a cold-open regenerate reconstructs the roster
-    // from preferences/assignments only, not the original sheet.
+    // T320 part 2 item 3 — the disclosure note: the roster is the SHEET's own,
+    // including a camper who ranked nothing and was placed nowhere.
     expect(screen.getByTestId('run-cold-regenerate-note').textContent).toMatch(
-      /reconsiders every camper who has a preference or a placement on it/
+      /reconsiders every camper this run's sheet named — including anyone with no ranked choice and no placement/
     )
   })
 

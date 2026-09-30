@@ -174,6 +174,35 @@ describe('projector — tombstone admission gate (T233)', () => {
     expect(db.prepare('SELECT * FROM tombstones WHERE id = ?').get(camperId)).toBeUndefined()
   })
 
+  // T320 part 2 item 3 — elective_run_findings now carries a real camper_id
+  // (the SHEET_CAMPER_WITHOUT_PREFERENCE roster kind), so it joins the three
+  // entities above in the erasure sweep. Same assertion they already carry.
+  it('an elective_run_findings row for a tombstoned camper is suppressed and deleted', () => {
+    installHostKey(db)
+    const camperId = 'camper-7'
+    const findingId = 'finding-1'
+    let doc = createEmptyDoc()
+    doc = putCamper(doc, camperId)
+    doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-1', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-1', field: 'name', value: 'Run 1' })
+    doc = applyWrite(doc, { entity: 'elective_run_findings', entity_id: findingId, field: 'run_id', value: 'run-1' })
+    doc = applyWrite(doc, { entity: 'elective_run_findings', entity_id: findingId, field: 'solver_generation', value: 'gen-1' })
+    doc = applyWrite(doc, { entity: 'elective_run_findings', entity_id: findingId, field: 'kind', value: 'SHEET_CAMPER_WITHOUT_PREFERENCE' })
+    doc = applyWrite(doc, { entity: 'elective_run_findings', entity_id: findingId, field: 'message', value: 'no ranked choice' })
+    doc = applyWrite(doc, { entity: 'elective_run_findings', entity_id: findingId, field: 'camper_id', value: camperId })
+
+    // Green before the tombstone: the row genuinely projects, so its later
+    // absence is the sweep working rather than a row that never existed.
+    projectAll(db, doc)
+    expect(db.prepare('SELECT camper_id FROM elective_run_findings WHERE id = ?').get(findingId).camper_id).toBe(camperId)
+
+    doc = tombstoneDoc(doc, db, { id: camperId, entity: 'campers', version: 1 })
+    projectAll(db, doc)
+
+    expect(db.prepare('SELECT * FROM campers WHERE id = ?').get(camperId)).toBeUndefined()
+    expect(db.prepare('SELECT * FROM elective_run_findings WHERE id = ?').get(findingId)).toBeUndefined()
+  })
+
   it('T233 round 2 finding 4: no entity is ever both tombstone-denylisted and bulk-replace-modeled', () => {
     // upsertEntity (projector.js) returns after the BULK_REPLACE_MODELED_ENTITIES branch, BEFORE
     // the tombstone denylist gate runs — a future bulk-replace entity added to

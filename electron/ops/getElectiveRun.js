@@ -211,22 +211,41 @@ export function getElectiveRun(db, { runId }) {
   // a second lookup. Feeds both the cold-regenerate roster (A3) and the
   // same-name disambiguator (B3).
   //
-  // KNOWN GAP, named rather than silently absorbed: a camper who was in the
-  // original sheet with NEITHER a preference nor an assignment row on this
-  // run is not in this set. No schema change closes that — there is no table
-  // recording "considered for this run" independent of a preference or a
-  // placement — so this stays an open gap rather than an invented column.
+  // T320 part 2 item 3 — the third arm CLOSES what was a named KNOWN GAP here:
+  // a camper who was on the original sheet with NEITHER a preference nor an
+  // assignment row. commitElectiveRun now records that fact as an
+  // elective_run_findings row of kind SHEET_CAMPER_WITHOUT_PREFERENCE, so the
+  // universe is the SHEET's own rather than one derived from what the run
+  // happened to produce. The arm deliberately does NOT filter on
+  // solver_generation (unlike eligibilityFindings below): a roster is
+  // cumulative across generations, so a camper first recorded on one
+  // generation is still in the universe after a regenerate mints the next.
+  const camperScopeSql = `
+          SELECT camper_id FROM elective_preferences WHERE run_id = :runId
+          UNION
+          SELECT camper_id FROM elective_assignments WHERE run_id = :runId
+          UNION
+          SELECT camper_id FROM elective_run_findings
+           WHERE run_id = :runId AND kind = 'SHEET_CAMPER_WITHOUT_PREFERENCE'
+             AND camper_id IS NOT NULL`
   const campers = db
     .prepare(
       `SELECT DISTINCT c.id, c.display_name, c.division_label, c.group_id, c.external_id, c.is_unattributed, g.name AS group_name
          FROM campers c LEFT JOIN groups g ON g.id = c.group_id
-        WHERE c.id IN (
-          SELECT camper_id FROM elective_preferences WHERE run_id = ?
-          UNION
-          SELECT camper_id FROM elective_assignments WHERE run_id = ?
-        )`
+        WHERE c.id IN (${camperScopeSql})`
     )
-    .all(runId, runId)
+    .all({ runId })
+
+  // Returned rather than rendered: which campers the sheet named and this run
+  // has nothing for, so a screen can say so without re-reading. Whether to
+  // NAME them to a director is a product call the owner has not made.
+  const sheetOnlyCampers = db
+    .prepare(
+      `SELECT DISTINCT camper_id FROM elective_run_findings
+        WHERE run_id = :runId AND kind = 'SHEET_CAMPER_WITHOUT_PREFERENCE' AND camper_id IS NOT NULL`
+    )
+    .all({ runId })
+    .map((r) => r.camper_id)
 
   // T320 item 2 — DURABLE DANGLING-ASSIGNMENT DERIVATION, replacing the
   // session-scoped commit-response read as the source of truth. A manual row
@@ -248,8 +267,15 @@ export function getElectiveRun(db, { runId }) {
   // THIS run's CURRENT solver generation (not pruned on regeneration, unlike
   // occurrences — filtered by generation at read time instead, per the ADR's
   // item 4 "deliberate asymmetry" note).
+  // T320 part 2 item 3 — SHEET_CAMPER_WITHOUT_PREFERENCE is excluded so the
+  // eligibility bucket (and through it exportRunExceptions.js) keeps exactly
+  // the meaning item 4 gave it. The roster kind is surfaced as
+  // sheetOnlyCampers above instead.
   const eligibilityFindings = db
-    .prepare('SELECT kind, camper_id, choice_id, occurrence_id, message FROM elective_run_findings WHERE run_id = ? AND solver_generation = ?')
+    .prepare(
+      "SELECT kind, camper_id, choice_id, occurrence_id, message FROM elective_run_findings " +
+      "WHERE run_id = ? AND solver_generation = ? AND kind != 'SHEET_CAMPER_WITHOUT_PREFERENCE'"
+    )
     .all(runId, gen)
 
   // T320 item 4 — resource conflicts computed LIVE for a draft run (the same
@@ -262,7 +288,7 @@ export function getElectiveRun(db, { runId }) {
 
   return {
     rows, staleCount, finalizedAgainstStaleGeneration, overCapacityOccurrences, occurrences,
-    preferences, choices, campers, danglingFindings, eligibilityFindings, resourceConflicts,
+    preferences, choices, campers, sheetOnlyCampers, danglingFindings, eligibilityFindings, resourceConflicts,
     // T320 item 1 — cross-handler parity with getElectiveRunOuterSchedule.js:
     // the SAME computeSnapshotCompleteness call.
     ...computeSnapshotCompleteness(db, run),

@@ -410,6 +410,16 @@ describe('finalizeElectiveRunHandler', () => {
     // and keeps its gen1 stamp — exactly D5's "stale rows are inert" case.
     const regenCamperId = randomUUID()
     const occurrenceId2 = deriveElectiveOccurrenceId(runId, fx.setId, fx.dayId, fx.timeBlockId, fx.tierId)
+    // T320 part 2 item 2 — THE SCENARIO THIS TEST PINS IS A TWO-DEVICE ONE, and
+    // it now has to be modelled as such. commitElectiveRun refuses a commit
+    // onto a run whose LOCAL status is 'final' ('RUN_IS_FINAL'), so a single db
+    // can no longer stand in for "device B regenerates a run device A has
+    // already finalized". B's own SQLite says 'draft' at that moment — it has
+    // not merged A's finalize yet — which is exactly what this line represents.
+    // The finalize's snapshot rows, stamped with the OLD generation, are
+    // already written and are left alone; A's status write is re-applied below,
+    // standing for the merge that carries it to B.
+    db.prepare("UPDATE elective_assignment_runs SET status = 'draft' WHERE id = ?").run(runId)
     const regenOut = await handlers.commitElectiveRun({
       token, name: 'Week 1 electives (regenerated)',
       parsed: {
@@ -425,6 +435,8 @@ describe('finalizeElectiveRunHandler', () => {
       runId,
     })
     expect(regenOut.ok).toBe(true)
+    // A's finalize merges in, after B's regeneration op.
+    db.prepare("UPDATE elective_assignment_runs SET status = 'final' WHERE id = ?").run(runId)
 
     const after = await handlers.getElectiveRun({ token, runId })
     // (a)

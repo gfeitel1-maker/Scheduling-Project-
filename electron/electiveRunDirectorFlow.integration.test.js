@@ -124,12 +124,15 @@ function seedFixture(db, { campId, templateId = 'tpl-1', capacity = { mode: 'unl
   return { groupId, tierId, setId, activityId, locationId, camperId, dayId, timeBlockId, templateId }
 }
 
-function buildRun(db, campId, fx, { runId = randomUUID(), extraCampers = [] } = {}) {
+// T320 part 2 item 3 — `rosterOnlyCampers` land in parsed.campers and NOWHERE
+// else, so commitElectiveRun writes a SHEET_CAMPER_WITHOUT_PREFERENCE finding
+// row for each of them.
+function buildRun(db, campId, fx, { runId = randomUUID(), extraCampers = [], rosterOnlyCampers = [] } = {}) {
   const occurrenceId = deriveElectiveOccurrenceId(runId, fx.setId, fx.dayId, fx.timeBlockId, fx.tierId)
   const occurrences = [{ id: occurrenceId, elective_set_id: fx.setId, day_id: fx.dayId, time_block_id: fx.timeBlockId, tier_id: fx.tierId }]
   const campers = [{ id: fx.camperId, name: 'Ari Green' }, ...extraCampers]
   const parsed = {
-    campers: campers.map((c) => ({ id: c.id, display_name: c.name, external_id: null })),
+    campers: [...campers, ...rosterOnlyCampers].map((c) => ({ id: c.id, display_name: c.name, external_id: null })),
     choices: [{ label: 'Archery', labelKey: 'archery' }],
     preferences: campers.map((c) => ({ camper_id: c.id, occurrence_id: occurrenceId, label: 'Archery', labelKey: 'archery', rank: 1 })),
     sameNameCampers: [],
@@ -231,6 +234,25 @@ describe('deleteElectiveRun (ops)', () => {
     expect(result.ok).toBe(true)
     expect(db.prepare('SELECT COUNT(*) c FROM elective_assignment_runs WHERE id = ?').get(runId).c).toBe(0)
     expect(db.prepare('SELECT COUNT(*) c FROM elective_run_outer_snapshots WHERE run_id = ?').get(runId).c).toBe(0)
+  })
+
+  // T320 part 2 item 3 — elective_run_findings rows now carry a real camper_id,
+  // so an orphan is orphaned PII. The cascade's step 1.
+  it('cascades elective_run_findings, so a deleted run leaves no camper_id behind', async () => {
+    const { campId } = await seedAdmin()
+    const fx = seedFixture(db, { campId })
+    const rosterOnlyId = randomUUID()
+    const { runId } = buildRun(db, campId, fx, {
+      rosterOnlyCampers: [{ id: rosterOnlyId, name: 'Tal Bar' }],
+    })
+
+    // Assert the ROW exists first: its later absence is the cascade working,
+    // not a row that was never written.
+    expect(db.prepare('SELECT camper_id FROM elective_run_findings WHERE run_id = ?').all(runId)
+      .map((r) => r.camper_id)).toEqual([rosterOnlyId])
+
+    expect(deleteElectiveRun(db, { runId }, { author_user_id: null, device_id: deviceId }).ok).toBe(true)
+    expect(db.prepare('SELECT COUNT(*) c FROM elective_run_findings WHERE run_id = ?').get(runId).c).toBe(0)
   })
 
   it('returns { error: "not-found" } for a missing runId, so a retry after success is safe', () => {

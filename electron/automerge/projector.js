@@ -374,6 +374,11 @@ export const TOMBSTONE_DENYLISTED_ENTITIES = {
   campers: { idField: 'id', tombstoneEntity: 'campers' },
   elective_preferences: { idField: 'camper_id', tombstoneEntity: 'campers' },
   elective_assignments: { idField: 'camper_id', tombstoneEntity: 'campers' },
+  // T320 part 2 item 3 — these rows now carry a real `camper_id` (the
+  // SHEET_CAMPER_WITHOUT_PREFERENCE roster kind), so without this entry a
+  // purged camper's id would survive in a table the erasure sweep does not
+  // touch.
+  elective_run_findings: { idField: 'camper_id', tombstoneEntity: 'campers' },
 }
 
 // T233 round 2, finding 4: upsertEntity (below) returns early for a BULK_REPLACE_MODELED_ENTITIES
