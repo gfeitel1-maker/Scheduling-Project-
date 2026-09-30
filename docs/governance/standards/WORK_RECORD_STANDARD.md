@@ -198,16 +198,24 @@ filesystem walk):
 - `closure-claim-without-id` (`checkClosureClaimWithoutId`, added 2026-09-30) — a subject makes the
   closure claim in plain words but names no id for `parseCompletionRefs` to find, e.g.
   `T309: close the ticket — status was left open at merge` (#636) or `docs(T311): close the ticket`
-  (#640). Phrase pattern: `/clos(?:e|es|ed)\s+(?:the\s+)?ticket/i`, fires only when it matches
-  **and** `parseCompletionRefs` returns nothing for that subject. Measured against every subject on
-  `origin/main`: the phrase matches eleven subjects, all eleven genuine closures that named their
-  ticket a different way (a `docs(T<n>):` prefix) instead of as `closes T<n>` — eleven true
-  positives, zero false positives. `close out` was deliberately **excluded**, not missed: it
-  matches seven more subjects, two of which (`docs(handoff): close out
-  force-subagent-skill-invocation with transcript proof`, `docs: close out doc-staleness
-  remediation (Batches A–E already on main)`) close no ticket at all, so firing on them would
-  prescribe a `closes T<n>` that does not exist — a guard that fires correctly and still prescribes
-  the wrong remedy.
+  (#640). Phrase pattern: `/clos(?:e|es|ed)\s+(?:the\s+(?:\S+\s+){0,3})?ticket/i`, fires only when
+  it matches **and** `parseCompletionRefs` returns nothing for that subject. Measured against every
+  subject on `origin/main`: the phrase matches twelve subjects, all twelve genuine closures that
+  named their ticket a different way (a `docs(T<n>):` prefix) instead of as `closes T<n>` — twelve
+  true positives, zero false positives. **Widened 2026-09-30 (round 2):** a bare `(?:the\s+)?` gap
+  missed `T171: close the consolidation/gate-hardening ticket — all archive_when clauses met`
+  (#505), which has a noun phrase between "the" and "ticket" — this defeated the finding itself,
+  alongside `checkStatusDrift` and `checkRunRecordFiled`. The gap now allows up to three words
+  between "the" and "ticket", but only when "the" is present, so the real subject `chore: add
+  closed to ticket status enum and a closure note section` still stays silent (no "the" for the
+  gap to follow). `close out` was deliberately **excluded**, not missed: a fresh count finds five
+  subjects, two of which (`docs(handoff): close out force-subagent-skill-invocation with transcript
+  proof`, `docs: close out doc-staleness remediation (Batches A–E already on main)`) close no
+  ticket at all, so firing on them would prescribe a `closes T<n>` that does not exist — a guard
+  that fires correctly and still prescribes the wrong remedy. Reversed word order is also
+  deliberately excluded: `Open-ticket audit: six tickets closed, activity colour retired, and the
+  dev grid renders again` (#371) claims closure but names no id at all, so even a firing finding
+  could only say "name what you closed," not point at a drifted ticket.
 
 **Scope.** The check only looks at commit subjects reachable from `HEAD` but not from
 `origin/main` (`git log origin/main..HEAD --format=%s`) — it is a going-forward gate over the
@@ -226,12 +234,12 @@ That CI skip is one member of a broader pattern — a check that answers a narro
 `Merge S##` also flip that document's status?* It does not, and cannot, answer *"did every ticket
 whose work merged get flipped?"* Two structural reasons, both verified:
 
-- It matches only the `closes`/`Merge` keyword, deliberately (§3.2). This repository's merge
-  subjects are overwhelmingly `T<n>: title (#pr)` — a topic marker, not a completion claim (a
-  work-in-progress commit carries it too). Measured 2026-09-26: of the last 40 merges to `main`,
-  2 carried the keyword. Widening the regex to treat the `T<n>:` prefix as a closure would demand
-  `completed` on every in-progress commit that names its ticket — over-firing, which §3.2 names as
-  how a gate stops meaning anything.
+- It matches only the `close`/`closes`/`closed`/`Merge` keyword set, deliberately (§3.2). This
+  repository's merge subjects are overwhelmingly `T<n>: title (#pr)` — a topic marker, not a
+  completion claim (a work-in-progress commit carries it too). Measured 2026-09-26: of the last 40
+  merges to `main`, 2 carried the keyword. Widening the regex to treat the `T<n>:` prefix as a
+  closure would demand `completed` on every in-progress commit that names its ticket —
+  over-firing, which §3.2 names as how a gate stops meaning anything.
 - It runs pre-merge over `git log origin/main..HEAD` (`scripts/check-governance.js`). The
   squash-merge subject does not exist when it runs, and once merged it is in `origin/main`, outside
   that diff. A commit that lands a ticket's code without the keyword never enters the gate's field

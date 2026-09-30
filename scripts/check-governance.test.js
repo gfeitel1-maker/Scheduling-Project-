@@ -350,6 +350,19 @@ describe('checkClosureClaimWithoutId', () => {
       'docs: close out doc-staleness remediation (Batches A–E already on main)',
     ])).toEqual([])
   })
+
+  it('fires when an intervening noun phrase sits between "the" and "ticket"', () => {
+    const findings = checkClosureClaimWithoutId([
+      'T171: close the consolidation/gate-hardening ticket — all archive_when clauses met',
+    ])
+    expect(findings.map((f) => f.code)).toEqual(['closure-claim-without-id'])
+  })
+
+  it('is silent on "closed to ticket status enum" — no "the" after the verb means no gap is allowed', () => {
+    expect(checkClosureClaimWithoutId([
+      'chore: add closed to ticket status enum and a closure note section',
+    ])).toEqual([])
+  })
 })
 
 describe('checkAll — git subject gathering', () => {

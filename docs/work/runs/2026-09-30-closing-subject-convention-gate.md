@@ -135,6 +135,8 @@ than a silently narrow pattern.
 
 ## Gates
 
+### Round 1
+
 | Gate | Result | Evidence |
 |---|---|---|
 | `npx vitest run --no-file-parallelism scripts/check-governance.test.js test/governance.test.js` | PASS | exit 0, `Test Files 2 passed (2)`, `Tests 103 passed (103)` |
@@ -143,6 +145,30 @@ than a silently narrow pattern.
 | `npm run agents:check` | PASS | exit 0, `All generated profiles are byte-identical to the committed .claude/agents/*.md files.` |
 | red-then-green (widened verb + possessive guard) | RED→GREEN | RED: `npx vitest run --no-file-parallelism scripts/check-governance.test.js` → exit 1, 9 failed, including `parseCompletionRefs > matches "Close T##" as a bare claim…`, `> matches "closed T##"`, `> does not treat a possessive as a claim…` (54 passed). A first implementation using a bare `(?!')` lookahead then failed a 10th, separately-added test — `the possessive guard must not backtrack into a shorter, wrong id` — with `expected [] to deeply equal ['T20']`, because `\d+` backtracks past the apostrophe; fixed by widening the lookahead to `(?![a-z0-9'])`. GREEN: full suite exit 0, `Tests 64 passed (64)`. |
 | red-then-green (`closure-claim-without-id`) | RED→GREEN | RED: same run as above — `checkClosureClaimWithoutId is not a function` on all 7 new tests in that `describe` block. GREEN: same run as above, all 7 pass alongside the rest (64/64). |
+
+### Round 2 — Red Hat's three defects plus one documentation clause
+
+Red Hat ran the round-1 phrase pattern over every subject of `git log origin/main --format=%s`
+(1609 lines) and found: (1) `T171: close the consolidation/gate-hardening ticket — all
+archive_when clauses met (#505)` is a real historical closure that the phrase pattern, and
+`parseCompletionRefs`, both miss — defeating the very finding this item added; (2) the standard's
+"seven more subjects" figure for `close out` was wrong, a fresh count is five; (3) §3.3's opening
+bullet ("It matches only the `closes`/`Merge` keyword") went stale the moment round 1 widened the
+keyword set to `close`/`closes`/`closed`/`Merge`, contradicting §3.2 inside the same file. A fourth,
+non-blocking documentation clause records that reversed word order (`Open-ticket audit: six
+tickets closed, … (#371)`) is also deliberately excluded.
+
+| Gate | Result | Evidence |
+|---|---|---|
+| red-then-green (phrase pattern admits an intervening noun phrase, gated on "the") | RED→GREEN | RED: `npx vitest run scripts/check-governance.test.js` → exit 0 reported by vitest but 1 test failed — `checkClosureClaimWithoutId > fires when an intervening noun phrase sits between "the" and "ticket"`, `expected [] to deeply equal ['closure-claim-without-id']` (65 passed, 1 failed, 66 total) — the old pattern `/clos(?:e|es|ed)\s+(?:the\s+)?ticket/i` does not match the T171 subject. GREEN: same command after changing the regex to `/clos(?:e|es|ed)\s+(?:the\s+(?:\S+\s+){0,3})?ticket/i` → exit 0, `Tests 66 passed (66)` — the new intervening-phrase test and the paired over-fire pin (`"closed to ticket status enum"` stays silent) both pass, and all pre-existing tests stayed green unchanged. |
+| fresh corpus re-measurement | counted, not assumed | `git log origin/main --format=%s` → 1609 subjects (saved to a scratch file). New phrase pattern: **12** true positives (was 11; +1 for T171), 0 false positives — verified each of the 12 against `parseCompletionRefs`, all return `[]`, so all 12 correctly still fire `closure-claim-without-id`. Verification-case check: `close the ticket` matches, `close ticket` matches, `close the consolidation/gate-hardening ticket` matches, `chore: add closed to ticket status enum and a closure note section` does NOT match — all four as prescribed. `close out`: **5** matches (not 7), via `grep -in "close out" <subjects file>` — `T205: close out the days_of_operation uniqueness ticket (audit + status flip) (#517)`, `Close out T188, and give the gate somewhere to run (T191 CI) (#461)`, `docs(handoff): close out force-subagent-skill-invocation with transcript proof`, `docs(T90): close out — run record, gate report, ticket → completed`, `docs: close out doc-staleness remediation (Batches A–E already on main)`. |
+| `npx vitest run scripts/check-governance.test.js test/governance.test.js` | PASS | exit 0, `Test Files 2 passed (2)`, `Tests 105 passed (105)` |
+| `npm run check:governance` | PASS | exit 0, `check:governance — no findings.` (no `index-stale` this round, so `npm run index:work` was not run per the brief's if-and-only-if condition) |
+| `npx eslint scripts/check-governance.js scripts/check-governance.test.js` | PASS | exit 0, no output |
+| `npm run agents:check` | PASS | exit 0, `All generated profiles are byte-identical to the committed .claude/agents/*.md files.` |
+
+**Final phrase pattern** (identical in both the script and the standard):
+`/clos(?:e|es|ed)\s+(?:the\s+(?:\S+\s+){0,3})?ticket/i`
 
 ## Verifier verdict
 
@@ -157,17 +183,17 @@ Average — , lowest dimension — . Pass is ≥ 4.0 with no dimension below 3.
 
 ## Findings carried forward
 
-- `docs/work/INDEX.md` is stale (`index-stale`, blocking per §7's severity list) at the time this
-  record was written. Confirmed pre-existing and unrelated to this item's code — it is produced by
-  the untracked run-record doc this item's brief supplied, not by the regex/predicate change (see
-  the `check:governance` gate row above for the stash-based confirmation). Regenerating it
-  (`npm run index:work`) is out of this item's file scope, so it is surfaced here rather than fixed
-  silently. Whoever lands this change next should run `npm run index:work` as part of normal
-  landing hygiene.
+- `docs/work/INDEX.md` staleness from round 1 is resolved as of round 2 — `check:governance`
+  reports no findings (see the round-2 gate row above), so no `npm run index:work` run was needed
+  or performed by this round.
 - This item's own two closure shapes remain: `close T215, T217 item 3` (captures `T215` only) and
   `close T53-T60` (captures `T53` only) are both still under-captured by design, per §3.2's existing
   multi-ID convention (documented in this record's "The audit the widening requires" section above,
   not a new gap introduced here).
+- The multi-ID list shape Red Hat flagged in round 2 (`close T218 and T222`, `close T53-T60`,
+  `close T215, T217 item 3` — captures only the first id) is the same pre-existing, documented gap
+  as the point above. Red Hat rated it HIGH; it is being routed to the Build Board as its own item
+  rather than bundled into this change, per this round's explicit brief.
 - The real main-side, going-forward board-truth audit gate (a merged `T<n>:` commit whose ticket
   never flips to `completed`) remains unbuilt. Tracked as `T283`, not touched by this item per the
   brief's explicit instruction.

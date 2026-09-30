@@ -369,23 +369,46 @@ export function parseCompletionRefs(subject) {
  * and `checkRunRecordFiled` both stay silent on a subject that is, in English,
  * a closure claim. This check catches the claim itself.
  *
- * MEASURED, NARROW ON PURPOSE. `clos(e|es|ed)\s+(the\s+)?ticket` against every
- * subject on origin/main matches ELEVEN, and all eleven are real closures that
- * named their ticket a different way (a `docs(T<n>):` prefix) instead of as
- * `closes T<n>` — eleven true positives, zero false positives. The adjective
- * sense ("fails closed", "left closed") never collides, because the phrase
- * requires the word "ticket" immediately after close/closes/closed.
+ * MEASURED, NARROW ON PURPOSE. `clos(e|es|ed)\s+(?:the\s+(?:\S+\s+){0,3})?ticket`
+ * against every subject on origin/main matches TWELVE, and all twelve are real
+ * closures that named their ticket a different way (a `docs(T<n>):` prefix)
+ * instead of as `closes T<n>` — twelve true positives, zero false positives.
+ * The adjective sense ("fails closed", "left closed") never collides, because
+ * the phrase requires the word "ticket" immediately after close/closes/closed
+ * (optionally through a short "the <phrase>" gap — see WIDENED below).
  *
- * `close out` was deliberately EXCLUDED, not missed. It matches seven more
- * subjects, and two of them close no ticket at all — `docs(handoff): close out
- * force-subagent-skill-invocation with transcript proof` and `docs: close out
- * doc-staleness remediation (Batches A–E already on main)` — so firing on
- * "close out" would prescribe a `closes T<n>` for a subject that has none to
- * give. A guard that fires correctly and still prescribes the wrong remedy is
- * the failure mode this file's other comments already name; better to leave
- * the phrase narrow than widen it into that trap.
+ * WIDENED 2026-09-30 (round 2). A bare `(?:the\s+)?` before "ticket" missed a
+ * real subject: `T171: close the consolidation/gate-hardening ticket — all
+ * archive_when clauses met` (#505) has a noun phrase between "the" and
+ * "ticket", so it matched neither this phrase pattern nor `COMPLETION_REF`
+ * above (no bare id follows "close") — it defeated this very finding at the
+ * same time as `checkStatusDrift` and `checkRunRecordFiled`. The fix allows up
+ * to three words between "the" and "ticket" (`(?:the\s+(?:\S+\s+){0,3})?`),
+ * but ONLY when "the" is present — an unguarded gap over-fires: the real
+ * subject `chore: add closed to ticket status enum and a closure note section`
+ * would then match "closed to ticket", a false positive, because there is no
+ * "the" for the gap to follow. Requiring "the" first is what keeps that
+ * subject silent while admitting T171's.
+ *
+ * `close out` was deliberately EXCLUDED, not missed. A fresh count finds FIVE
+ * subjects, not the seven once recorded here — re-count with
+ * `grep -in "close out" <(git log origin/main --format=%s)` rather than
+ * trusting this number again. Two of the five close no ticket at all —
+ * `docs(handoff): close out force-subagent-skill-invocation with transcript
+ * proof` and `docs: close out doc-staleness remediation (Batches A–E already
+ * on main)` — so firing on "close out" would prescribe a `closes T<n>` for a
+ * subject that has none to give. A guard that fires correctly and still
+ * prescribes the wrong remedy is the failure mode this file's other comments
+ * already name; better to leave the phrase narrow than widen it into that
+ * trap.
+ *
+ * Reversed word order is ALSO deliberately excluded: `Open-ticket audit: six
+ * tickets closed, activity colour retired, and the dev grid renders again`
+ * (#371) claims closure but names no id at all, so even a firing finding
+ * could only say "name what you closed" — it could not point at a drifted
+ * ticket, unlike every case this check does catch. Not worth catching.
  */
-const CLOSURE_CLAIM_WITHOUT_ID = /clos(?:e|es|ed)\s+(?:the\s+)?ticket/i
+const CLOSURE_CLAIM_WITHOUT_ID = /clos(?:e|es|ed)\s+(?:the\s+(?:\S+\s+){0,3})?ticket/i
 
 export function checkClosureClaimWithoutId(subjects) {
   const out = []
