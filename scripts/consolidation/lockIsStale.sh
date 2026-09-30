@@ -106,9 +106,14 @@ if [[ ! -e "$LOCK" ]]; then
   exit 1
 fi
 
-MTIME="$(stat -f %m "$LOCK" 2>/dev/null)"
-if [[ -z "$MTIME" ]]; then
-  MTIME="$(stat -c %Y "$LOCK" 2>/dev/null)"
+# GNU stat first, BSD stat second — and validate EACH answer, never just emptiness.
+# On Linux `stat -f %m` does not fail: `-f` there means "file-system status" and `%m`
+# is the MOUNT POINT, so it prints e.g. "/" — non-empty, non-numeric — and an
+# emptiness-only fallback never runs. That read every lock as CANNOT TELL on the CI
+# runner (2026-09-30, #676) while passing on macOS.
+MTIME="$(stat -c %Y "$LOCK" 2>/dev/null)"
+if [[ ! "$MTIME" =~ ^[0-9]+$ ]]; then
+  MTIME="$(stat -f %m "$LOCK" 2>/dev/null)"
 fi
 if [[ -z "$MTIME" || ! "$MTIME" =~ ^[0-9]+$ ]]; then
   print -u2 -- "lockIsStale: stat failed on $LOCK — cannot determine staleness"
