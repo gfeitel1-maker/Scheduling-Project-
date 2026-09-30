@@ -27,6 +27,8 @@ import { PROJECTIONS } from '../../electron/ops/projections.js'
 import { repairProjectionForEntity, checkProjectionHealth } from '../../electron/ops/projectionRepair.js'
 import { listDocumentWriteFailures } from '../../electron/ops/documentWriteFailures.js'
 import { listDeviceHealthEvents } from '../../electron/ops/deviceHealthEvents.js'
+import { buildElectiveRunProjectionInput } from '../../electron/ops/electiveRunProjectionInput.js'
+import { buildElectiveRunProjectionExport } from '../../src/screens/elective/export/exportElectiveRunProjection.js'
 import path from 'node:path'
 import {
   rebuildProjectionFromDocumentAtPath,
@@ -570,5 +572,42 @@ export function rebuildProjectionFromDocumentTool(args, { dbPath, allowWrite, db
       return { ok: false, error: err.message }
     }
     throw err
+  }
+}
+
+// T198 — the run's identity, assignments, preferences and findings, over
+// buildElectiveRunProjectionInput (electron/ops/electiveRunProjectionInput.js) — the ONE assembly
+// this and exportElectiveAssignmentsTool below both call, so the two can never disagree about a run's
+// data the way a second hand-rolled query would risk. Read-only, camp-scoped: no --allow-write gate,
+// matching the schedule_state/export_schedule/camper_preferences precedent.
+export function getElectiveAssignmentRunTool(args, { dbPath, dbKey }) {
+  if (!args?.run_id) return { ok: false, error: 'run_id is required', exitCode: 1 }
+  const db = openLocalDb(dbPath, { key: dbKey ?? null })
+  try {
+    const result = buildElectiveRunProjectionInput(db, { runId: args.run_id })
+    if (!result.ok) return { ok: false, error: result.error, exitCode: 1 }
+    return { ok: true, ...result.input, exitCode: 0 }
+  } finally {
+    db.close()
+  }
+}
+
+// T198 — the versioned combined projection document (format_version 1: child schedules, activity
+// roster, exceptions, summary — src/screens/elective/export/exportElectiveRunProjection.js) for one
+// run. Built from the SAME buildElectiveRunProjectionInput this file's getElectiveAssignmentRunTool
+// calls, so the MCP export, the CLI's `electives export`, and the UI's own export can never assemble
+// three different documents for one run — see the parity assertion in
+// electron/electiveAcceptanceSurfaces.integration.test.jsx. JSON only: MCP's stdio transport returns
+// one JSON envelope, so an XLSX workbook (a binary file on disk) is a CLI-only format — see
+// scripts/electivesCli.js's export action for `format: 'xlsx'`.
+export function exportElectiveAssignmentsTool(args, { dbPath, dbKey }) {
+  if (!args?.run_id) return { ok: false, error: 'run_id is required', exitCode: 1 }
+  const db = openLocalDb(dbPath, { key: dbKey ?? null })
+  try {
+    const result = buildElectiveRunProjectionInput(db, { runId: args.run_id })
+    if (!result.ok) return { ok: false, error: result.error, exitCode: 1 }
+    return { ok: true, export: buildElectiveRunProjectionExport(result.input), exitCode: 0 }
+  } finally {
+    db.close()
   }
 }

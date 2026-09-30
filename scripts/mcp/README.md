@@ -58,6 +58,18 @@ whatever `.shoresh` path was chosen. Point `--db` at the exact file you want to 
 | `setup_summary` | no | Row counts across every setup entity — a quick health check. |
 | `schedule_state` | no | Read **and validate** one candidate schedule (Manual/Generated) for one week: template, placed slots, and **engine-computed findings/conflicts** (re-runs the pure engine over the stored placement, moving nothing). |
 | `export_schedule` | no | One candidate schedule as a stable, versioned JSON document (`format_version` 1) — the portable "move it anywhere" format: camp/week/route, the group/day/time-block axes, and one record per occupied cell. |
+| `get_elective_assignment_run` | no | One elective assignment run by `run_id` — its identity, the placements (camper, occurrence, activity, rank, lock state), the run's occurrences, choices and stored preferences, and the run's findings: stale-generation count and over-capacity occurrences. |
+| `export_elective_assignments` | no | That same run as a stable, versioned JSON document — child schedules, activity rosters, exceptions and summary. Built from the one shared assembly the app's own export uses, so the machine surface and the screen cannot disagree (T198). |
+
+### Elective runs — and what is *not* here
+
+`get_elective_assignment_run` and `export_elective_assignments` are read-only and take a
+`run_id`. There is **no `generate` verb**: nothing here solves a run. That is a deliberate
+gap, not an oversight — see the Known limits section of
+[`docs/work/tickets/T198-machine-access-adapters.md`](../../docs/work/tickets/T198-machine-access-adapters.md).
+Campers and elective entities are also deliberately absent from `list_entities` — the
+participant domain is reachable only through purpose-built tools like these, never as a
+generic entity dump (guarded by `scripts/mcp/entityMapExclusion.test.js`).
 
 ### Validating a schedule
 

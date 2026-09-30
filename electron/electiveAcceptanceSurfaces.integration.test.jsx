@@ -1,30 +1,39 @@
 // @vitest-environment jsdom
 //
-// T199 spec §6, conditions (11) and (12), plus the ingest category leak. T251.
+// T199 spec §6, conditions (11) and (12), plus the ingest category leak. T251, T198.
 //
-//   (11) "JSON, XLSX, UI, CLI and MCP agree"  — READ GAP-5 BELOW
+//   (11) "JSON, XLSX, UI, CLI and MCP agree"
 //   (12) "no manual database edits"
 //
-// ── GAP-5, AND WHY (11)'s TITLE PROMISES MORE THAN ANY TEST CAN KEEP ──────
+// ── (11), AND WHAT CLOSED THE GAP THIS FILE USED TO DOCUMENT ──────────────
 //
-// THERE IS NO MCP OR CLI READ PATH FOR AN ELECTIVE RUN'S PROJECTION. MCP's
-// `export_schedule` calls buildScheduleExport from src/utils/exportScheduleJson.js
-// (scripts/mcp/tools.js:434-470) — that is the GROUP schedule, not the
-// elective-run projection. `scripts/preferenceSheetCli.js` has no read action
-// at all. So (11) cannot mean "five surfaces render the same run"; four of the
-// five do not expose one.
+// T198 added the missing MCP and CLI read paths for an elective run's projection:
+// MCP's `get_elective_assignment_run`/`export_elective_assignments` tools
+// (scripts/mcp/tools.js's getElectiveAssignmentRunTool/exportElectiveAssignmentsTool)
+// and the CLI's `electives export` action (scripts/electivesCli.js's runElectivesCli).
+// Both are built from buildElectiveRunProjectionInput
+// (electron/ops/electiveRunProjectionInput.js) — the ONE assembly of a run's
+// projection input, itself built from the SAME ops functions the UI's IPC
+// handlers call (getElectiveRun, getElectiveRunOuterSchedule) — so a prior
+// GAP-5 ("no MCP/CLI read path exists") no longer holds, and (11) can now mean
+// what its title says for these two surfaces: the MCP tool's export, the CLI's
+// export, and the projection this file's own `beforeAll` assembles from the
+// real handlers are asserted DEEP-EQUAL below, not merely "both non-empty".
 //
-// What it CAN mean, and what is asserted here, is what those surfaces DO
-// expose:
-//   JSON  — buildElectiveRunProjectionExport, the one combined document.
+// `preferenceSheetCli.js`'s preview remains its only READ (this file's
+// separate test on it, below, is unchanged), and `export_schedule` remains the
+// GROUP schedule, not the elective-run projection — both true facts, neither
+// a gap.
+//
+// What is asserted here, across all five surfaces, is:
+//   JSON  — buildElectiveRunProjectionExport, the one combined document, via
+//           the MCP tool and the CLI action (three-way equality test below).
 //   XLSX  — exportElectiveRunWorkbook, built from that same document.
 //   UI    — getElectiveRun, the read the Draft/Final screens make.
-//   MCP   — `camper_preferences` over elective_preferences, and
-//           `export_schedule`, which must show the elective cells AS elective.
-//   CLI   — preferenceSheetCli's preview, the only read it has.
-// plus THE ABSENCE, asserted as an enumeration of MCP's tool names: if an
-// elective-run export tool is ever added, this goes red and (11) has to grow a
-// row rather than quietly continuing to mean less than it says.
+//   MCP   — `camper_preferences` over elective_preferences, `export_schedule`
+//           (which must show the elective cells AS elective), and the two new
+//           elective-run tools above.
+//   CLI   — preferenceSheetCli's preview, and electivesCli's export.
 //
 // ── CONDITION (12), MADE MECHANICAL ──────────────────────────────────────
 //
@@ -68,8 +77,9 @@ vi.mock('../src/localClient', () => ({
   }),
 }))
 
-import { camperPreferencesTool, exportScheduleTool } from '../scripts/mcp/tools.js'
+import { camperPreferencesTool, exportScheduleTool, exportElectiveAssignmentsTool } from '../scripts/mcp/tools.js'
 import { runPreferenceSheetCli } from '../scripts/preferenceSheetCli.js'
+import { runElectivesCli } from '../scripts/electivesCli.js'
 import { filterFreeChoiceActivities } from '../src/engine/freeChoiceActivities.js'
 import { buildElectiveRunProjectionExport } from '../src/screens/elective/export/exportElectiveRunProjection.js'
 import { buildElectiveRunWorkbook } from '../src/screens/elective/export/exportElectiveRunWorkbook.js'
@@ -207,10 +217,13 @@ describe('§6 (11) — MCP agrees with the database, on the surfaces MCP has', (
     )
   })
 
-  // GAP-5, ASSERTED AS AN ENUMERATION. Do not stretch "agree" to cover a
-  // surface that does not exist: pin the tool list instead, so adding an
-  // elective-run export tool forces this condition to grow a row.
-  it('GAP-5 — MCP exposes no elective-run projection tool', () => {
+  // GAP-5 — UPDATED, not deleted (T198 closed it). Formerly asserted the ABSENCE
+  // of an elective-run export tool, as an enumeration of MCP's tool names — that
+  // enumeration is kept (still catches an eleventh tool being added silently),
+  // but the absence it used to prove no longer holds, so the fact recorded below
+  // is now the tool list's POSITIVE membership plus a real cross-surface proof,
+  // not a `not.toContain`.
+  it('the MCP tool list includes the elective-run projection tools, and export_schedule is still the group schedule, not this one', () => {
     const source = fs.readFileSync(path.join(process.cwd(), 'scripts/mcp/server.js'), 'utf8')
     const names = [...source.matchAll(/^\s{4}name: '([a-z_]+)',$/gm)].map((m) => m[1])
     expect(names.length).toBeGreaterThan(10)
@@ -221,12 +234,73 @@ describe('§6 (11) — MCP agrees with the database, on the surfaces MCP has', (
       'camper_preferences', 'set_camper_preference', 'remove_camper_preference',
       'list_entities', 'setup_summary', 'schedule_state', 'export_schedule',
       'check_projection_health', 'repair_projection_entity', 'rebuild_projection_from_document',
+      'get_elective_assignment_run', 'export_elective_assignments',
     ])
-    // And `export_schedule` is the GROUP schedule, not the run's projection —
-    // the fact that makes the list above the honest answer.
+    // `export_schedule` is still the GROUP schedule, not the run's projection —
+    // that fact did not change. What changed is that the run's projection now
+    // has its OWN MCP tool, built from buildElectiveRunProjectionExport, which
+    // is the fact the three-way equality test right below proves rather than
+    // asserting by string search alone.
     const toolsSource = fs.readFileSync(path.join(process.cwd(), 'scripts/mcp/tools.js'), 'utf8')
     expect(toolsSource).toContain('buildScheduleExport')
-    expect(toolsSource).not.toContain('buildElectiveRunProjectionExport')
+    expect(toolsSource).toContain('buildElectiveRunProjectionExport')
+  })
+
+  // THE THREE-WAY EQUALITY (11)'s title actually promises for this surface now
+  // that T198 has built it: the MCP tool's export, the CLI's export, and the
+  // projection this file's own `beforeAll` assembled from the real handlers
+  // (getElectiveRun, getElectiveRunOuterSchedule, list — the UI-equivalent
+  // read) must be the SAME document for the SAME run, because all three are
+  // built from one assembly (buildElectiveRunProjectionInput,
+  // electron/ops/electiveRunProjectionInput.js) feeding one export builder
+  // (buildElectiveRunProjectionExport) — never three independent re-derivations
+  // that could silently drift apart.
+  //
+  // ONE FIELD IS EXCLUDED: `generated_at`, a wall-clock timestamp each of the
+  // three calls stamps fresh (buildElectiveRunProjectionExport's own default,
+  // `new Date().toISOString()`) — a true difference in WHEN each call ran, not
+  // a data disagreement, so it is the one field normalized out below rather
+  // than a real exclusion of a DATA field. Everything else, INCLUDING
+  // `occurrences`-derived data (activity_rosters' capacity lookups,
+  // exceptions.unresolved), is compared in full: this run's beforeAll
+  // projection, the MCP tool, and the CLI all source `occurrences` from the
+  // SAME getElectiveRun read via buildElectiveRunProjectionInput, so there is
+  // no divergence here to carve out. That is NOT true of every occurrences
+  // consumer in this codebase — FinalRunView.jsx's exportFullReport() passes
+  // `occurrences: templateOccurrences` (a schedule-template-slots prop) where
+  // this module passes the run's own elective_occurrences rows, a divergence
+  // that PRE-DATES T198 and is out of this ticket's scope (fixing it is a UI
+  // screen change T198 does not list) — but FinalRunView is not one of the
+  // three surfaces compared here, so its divergence does not reach this test.
+  it('MCP export, CLI export, and the UI-equivalent projection built in beforeAll are deep-equal (generated_at excepted)', () => {
+    const mcp = exportElectiveAssignmentsTool({ run_id: run.id }, { dbPath: camp.file })
+    expect(mcp.ok).toBe(true)
+    const cli = runElectivesCli({ action: 'export', runId: run.id, dbPath: camp.file, format: 'json' })
+    expect(cli.ok).toBe(true)
+
+    // `generated_at` is stamped at BOTH the top level and inside
+    // child_schedules (exportChildSchedule.js's own format_version-2 document),
+    // so the wall-clock exclusion has to be deep, not a top-level destructure.
+    const withoutGeneratedAt = (value) => {
+      if (Array.isArray(value)) return value.map(withoutGeneratedAt)
+      if (value && typeof value === 'object') {
+        const out = {}
+        for (const [k, v] of Object.entries(value)) {
+          if (k === 'generated_at') continue
+          out[k] = withoutGeneratedAt(v)
+        }
+        return out
+      }
+      return value
+    }
+    expect(withoutGeneratedAt(mcp.export)).toEqual(withoutGeneratedAt(projection))
+    expect(withoutGeneratedAt(cli.export)).toEqual(withoutGeneratedAt(projection))
+
+    // Non-vacuity on the fields the header comment above singles out as
+    // occurrences-derived, so an accidental empty-on-both-sides pass cannot
+    // hide behind the equality assertion alone.
+    expect(mcp.export.exceptions.unresolved.length + mcp.export.activity_rosters.length).toBeGreaterThan(0)
+    expect(cli.export.exceptions.unresolved.length + cli.export.activity_rosters.length).toBeGreaterThan(0)
   })
 })
 
