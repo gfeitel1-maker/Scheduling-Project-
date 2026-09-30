@@ -261,6 +261,14 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // migration to touch). What the camp means changes only once a director authors a
   // bundle, which is an ordinary op like any other.
   81,
+  // v83 (T320, docs/adr/2026-09-30-elective-run-durability.md) adds two nullable
+  // columns to elective_assignment_runs (snapshot_expected_rows, snapshot_digest)
+  // and one wholly new table (elective_run_findings). No ALTER backfill, no
+  // appendOp — both new columns stay NULL on every existing row (a pre-v83 final
+  // run gets no snapshot-completeness benefit until re-finalized, per the ADR's
+  // migration posture), and the new table starts empty. What an existing camp
+  // means is unchanged until a finalize or a commit writes into either.
+  83,
 ])
 
 /** True if applying `version` can change what the camp means. */

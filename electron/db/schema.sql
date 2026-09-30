@@ -1611,7 +1611,14 @@ CREATE TABLE IF NOT EXISTS elective_assignment_runs (
   -- a draft run has neither; a legacy pre-v74 'final' run migrates forward
   -- with both NULL rather than a backfilled guess.
   finalized_at TEXT,
-  finalized_by TEXT
+  finalized_by TEXT,
+  -- v83 (T320, docs/adr/2026-09-30-elective-run-durability.md item 1). What a
+  -- finalize expected the outer snapshot to contain, so a reader can tell a
+  -- fully-arrived snapshot from a partially-synced one (a stub-seeded row with
+  -- only its identity columns populated still COUNTS as present but changes
+  -- the digest). Both NULL until a finalize writes them; immutable thereafter.
+  snapshot_expected_rows INTEGER,
+  snapshot_digest TEXT
 );
 
 -- elective_occurrences (v66). A concrete (set, day, block, tier) cell the run
@@ -1801,6 +1808,25 @@ CREATE TABLE IF NOT EXISTS elective_run_outer_snapshots (
   choice_id TEXT,
   is_linked_choice INTEGER NOT NULL DEFAULT 0,
   choice_label TEXT
+);
+
+-- elective_run_findings (v83, T320, docs/adr/2026-09-30-elective-run-durability.md item 4).
+-- A commit-time finding persisted so a later export can read it, rather than the empty
+-- `not_computed` placeholder the exceptions export shipped before this. Eligibility-class
+-- only this slice ('UNSUPPORTED_LINKED_CHOICE') — see electron/ops/deriveElectiveRunFindingId.js's
+-- ELIGIBILITY_FINDING_KINDS. NOT pruned on regeneration, unlike elective_occurrences: a finding row
+-- has no "still locked" exemption to preserve, so an ordinary generation-scoped read filter is
+-- sufficient (see the ADR's item 4 "deliberate asymmetry" note).
+-- Derived id: deriveElectiveRunFindingId(run_id, solver_generation, kind, camper_id, choice_id, occurrence_id).
+CREATE TABLE IF NOT EXISTS elective_run_findings (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  solver_generation TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  camper_id TEXT,
+  choice_id TEXT,
+  occurrence_id TEXT,
+  message TEXT NOT NULL
 );
 
 -- T312 — A CAMP'S REMEMBERED COLUMN MAPPING for the elective preference import.
