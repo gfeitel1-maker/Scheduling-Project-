@@ -1,7 +1,7 @@
 ---
 title: T251-t199-acceptance-fixture
 document_type: ticket
-status: open
+status: in-progress
 created: 2026-09-23
 archive_when: the spec §6 acceptance fixture passes under electron:dev with no manual database edits, the full gate is green, and T199's own exit condition is satisfied
 governing_docs: [docs/governance/standards/TESTING_STANDARD.md, docs/governance/standards/DESIGN_STANDARD.md, SECURITY.md]
@@ -48,3 +48,24 @@ T243, T244, T245, T246, T247, T248, T249, T250 — all of them. This is the term
 decomposition and cannot start meaningfully before the others are substantially done, though QA
 prep (fixture data assembly, accessibility checklist) can begin in parallel once T250 has a
 renderable screen.
+
+## State — 2026-09-30 (round 2, escalated)
+
+The spec §6 fixture is built and asserted; see
+[docs/work/runs/2026-09-30-t251-t199-acceptance-fixture.md](../runs/2026-09-30-t251-t199-acceptance-fixture.md)
+and the screenshots under `docs/work/evidence/T251/`.
+
+**This ticket cannot close, and neither can T199, because T199's exit condition is not met.** Driving
+the real Electron app against this fixture's own camp found four gaps in the director flow, each
+confirmed against `src/` and none of them absorbed here per this ticket's own Non-goals:
+
+- No Finalize control exists anywhere in the app, so `FinalRunView`, the `OUTER_RESOURCE_CONFLICT`
+  refusal and the linked-bundle rendering are unreachable by a director.
+- No reachable regenerate control, so locking a seat has no observable consequence.
+- The same-name refusal renders as a screen-reader-only announcement when the camp has two candidate
+  schedules; the sheet then solves and offers to commit, silently merging the duplicate pair.
+- No Delete control for an elective run, so ADR D10's honest-cost copy has nothing to sit on.
+
+The D8 at-rest-encryption disclosure passes at every entry tested.
+
+These are findings against T249/T250 and are for the owner's board, not for this ticket to fix.
