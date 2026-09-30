@@ -63,7 +63,12 @@ for DAY in "$@"; do
     "$SCRIPTS/lockIsStale.sh" "$LOCK"
     staleRc=$?
     if [[ $staleRc -eq 0 ]]; then
-      age=$(( $(date +%s) - $(stat -f %m "$LOCK" 2>/dev/null || stat -c %Y "$LOCK" 2>/dev/null) ))
+      # Same probe order as lockIsStale.sh: GNU `stat -f %m` SUCCEEDS on Linux (prints the
+      # mount point), so an `||` fallback would never run and the arithmetic would throw.
+      mtime="$(stat -c %Y "$LOCK" 2>/dev/null)"
+      [[ "$mtime" =~ ^[0-9]+$ ]] || mtime="$(stat -f %m "$LOCK" 2>/dev/null)"
+      [[ "$mtime" =~ ^[0-9]+$ ]] || mtime=$(date +%s)
+      age=$(( $(date +%s) - mtime ))
       print -u2 -- "STALE LOCK $DAY — $LOCK is ${age}s old; a prior run likely died without cleaning up. Removing and retaking."
       rm -rf "$LOCK"
       if ! mkdir "$LOCK" 2>/dev/null; then
