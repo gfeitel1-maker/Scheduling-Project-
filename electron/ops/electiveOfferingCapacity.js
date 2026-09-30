@@ -9,9 +9,13 @@
 // now NAMEABLE instead of each caller re-deriving it.
 //
 // `unknownLimit` is ('limited', NULL): a capacity that is declared but not
-// stated. Nothing in this codebase surfaces that to a director today, and
-// T245 deliberately does not invent a finding for it — each caller keeps
-// exactly the behaviour it has.
+// stated. T245 deliberately did not invent a finding for it here — each
+// caller kept exactly the behaviour it had. T316 adds that finding at the
+// generation-time caller (buildOfferings.js's findBlankCapacities, surfaced
+// by AssignmentPanel, which refuses to solve while one exists rather than
+// letting the row reach the engine as capacity 0). The read-time caller
+// (getElectiveRunHandler, electron/main.js) is unchanged and still skips it
+// silently — see that comment for why that gap is not this ticket's.
 //
 // Tolerates the undefined/undefined shape src/localClient.mock.js's rows can
 // have (buildOfferings.js's H5 comment), defaulting to schema.sql's own

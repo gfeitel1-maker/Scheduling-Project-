@@ -24,6 +24,23 @@ describe('AssignmentPreview', () => {
     expect(screen.queryByText(/commit/i)).toBeNull()
   })
 
+  // T316 — a run refused before any assignment exists (e.g. a blank limited
+  // capacity) must still tell the director why, not just "no campers placed".
+  it('shows findings alongside the zero-assignment sub-state, with NO Commit button', () => {
+    const findings = [{
+      kind: 'INVALID_CAPACITY', activity_id: 'act-1',
+      message: '"Archery" is set to limited capacity but the number is blank — fill it in to run electives.',
+    }]
+    render(
+      <AssignmentPreview
+        assignments={[]} findings={findings} occurrences={OCC} days={DAYS} timeBlocks={TBS}
+        activities={ACTIVITIES} campers={CAMPERS} role="admin" onCommit={vi.fn()} committing={false}
+      />
+    )
+    expect(screen.getByText(/is set to limited capacity/)).not.toBeNull()
+    expect(screen.queryByText(/commit/i)).toBeNull()
+  })
+
   it('disables the commit control for a non-admin role', () => {
     const assignments = [{ camper_id: 'cam-1', occurrence_id: 'occ-1', activity_id: 'act-1', preference_rank: 1, flags: [] }]
     render(

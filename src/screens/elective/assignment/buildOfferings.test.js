@@ -3,7 +3,7 @@
 // 0)`, so capacity 0 or null CLOSES the offering. capacity_mode:'unlimited'
 // must never reach the engine as 0/null.
 import { describe, it, expect } from 'vitest'
-import { buildOfferings } from './buildOfferings'
+import { buildOfferings, findBlankCapacities } from './buildOfferings'
 import { buildElectiveAssignments } from '../../../engine/buildElectiveAssignments'
 
 describe('buildOfferings', () => {
@@ -93,6 +93,43 @@ describe('buildOfferings', () => {
     })
     const findings = findMismatches({ offerings, preferences: [{ camper_id: 'cam-1', labelKey: 'archery', label: 'Archery', rank: 1 }] })
     expect(findings.length).toBeGreaterThan(0)
+  })
+})
+
+// T316 — a confirmed offering declared 'limited' with a blank capacity_limit
+// (`resolveOfferingCapacity`'s `unknownLimit`) must be NAMED, not silently
+// closed at capacity 0. Owner ruling 2026-09-29: "blank capacities need to be
+// filled in."
+describe('buildOfferings: a blank limited capacity is named and excluded, not closed at 0', () => {
+  const activities = [{ id: 'act-1', name: 'Archery' }, { id: 'act-2', name: 'Swim' }]
+  const occurrences = [{ id: 'occ-1' }]
+
+  it('findBlankCapacities names the activity, carries its ids, and buildOfferings drops the row entirely — while a sibling GOOD offering still exists', () => {
+    const setActivities = [
+      { id: 'osa-1', activity_id: 'act-1', status: 'confirmed', capacity_mode: 'limited', capacity_limit: null },
+      { id: 'osa-2', activity_id: 'act-2', status: 'confirmed', capacity_mode: 'unlimited', capacity_limit: null },
+    ]
+
+    const findings = findBlankCapacities({ setActivities, activities })
+    expect(findings).toHaveLength(1)
+    expect(findings[0]).toMatchObject({ kind: 'INVALID_CAPACITY', activity_id: 'act-1', set_activity_id: 'osa-1' })
+    expect(findings[0].message).toContain('"Archery"')
+
+    const offerings = buildOfferings({ occurrences, setActivities, activities })
+    // Absence, not a call count: the row must produce NO offering at all...
+    expect(offerings.find((o) => o.activity_id === 'act-1')).toBeUndefined()
+    // ...and never sneak back in as a closed (capacity 0) offering...
+    expect(offerings.some((o) => o.capacity === 0)).toBe(false)
+    // ...while the sibling offering proves this isn't just an empty/broken fixture.
+    expect(offerings.find((o) => o.activity_id === 'act-2')).toBeDefined()
+  })
+
+  it('produces no finding for a non-confirmed row with a blank limited capacity', () => {
+    const findings = findBlankCapacities({
+      setActivities: [{ id: 'osa-1', activity_id: 'act-1', status: 'proposed', capacity_mode: 'limited', capacity_limit: null }],
+      activities,
+    })
+    expect(findings).toEqual([])
   })
 })
 

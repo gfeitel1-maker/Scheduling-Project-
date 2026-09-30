@@ -88,7 +88,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 import { buildElectiveAssignments } from '../../../engine/buildElectiveAssignments.js'
-import { findMismatches } from './buildOfferings.js'
+import { findMismatches, findBlankCapacities } from './buildOfferings.js'
 import { findingDisplayMessage } from './findingDisplayMessage.js'
 import { electiveChoiceLabelKey } from '../../../../electron/ops/electiveDerivedIds.js'
 
@@ -220,6 +220,19 @@ const FIXTURES = {
   UNRANKED_OFFERING: {
     namesActivity: true,
     produce: () => ({ findings: findMismatches({ offerings: [artsOffering()], preferences: [] }) }),
+  },
+  // T316 — a confirmed offering declared 'limited' with a blank capacity.
+  // NAMES THE OFFERING: this producer has `activities` to hand, unlike the
+  // pure engine, so it names the activity directly rather than through a
+  // quoted labelKey substitution.
+  INVALID_CAPACITY: {
+    namesActivity: true,
+    produce: () => ({
+      findings: findBlankCapacities({
+        setActivities: [{ id: 'osa-arts', activity_id: ARTS.id, status: 'confirmed', capacity_mode: 'limited', capacity_limit: null }],
+        activities: ACTIVITIES,
+      }),
+    }),
   },
 }
 

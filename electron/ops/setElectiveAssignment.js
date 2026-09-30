@@ -135,10 +135,18 @@ export function setElectiveAssignment(db, {
 
   // Capacity, resolved by the ONE helper the engine's offering builder uses
   // (electiveOfferingCapacity.js). An 'unlimited' offering is never checked.
-  // ('limited', NULL) resolves to a capacity of 0 here, which is exactly what
-  // buildOfferings.js/buildElectiveAssignments already do with such a row
-  // (`Math.max(0, capacity_limit ?? 0)` closes the offering) — this path
-  // mirrors the engine rather than inventing a third reading.
+  // ('limited', NULL) resolves to a capacity of 0 here, treating a
+  // misconfigured (blank-capacity) offering as full. Before T316 this
+  // mirrored buildOfferings.js/buildElectiveAssignments, which also mapped
+  // such a row to capacity 0. As of T316 it no longer does: buildOfferings.js
+  // now EXCLUDES an unknownLimit row from generation entirely, and
+  // AssignmentPanel refuses to solve while one exists. This write path was
+  // deliberately left reading capacity 0 for that case — a director's manual
+  // move/lock against a misconfigured offering is rejected here as
+  // OCCURRENCE_FULL with capacity: 0, as though the offering were full
+  // rather than blank. Changing this path's rejection semantics is a
+  // contract change outside T316's scope; this comment records the
+  // divergence, it does not resolve it.
   const capacityResult = resolveOfferingCapacity(setActivity)
   if (capacityResult.kind !== 'unlimited') {
     const capacity = capacityResult.kind === 'limited' ? capacityResult.capacity : 0
