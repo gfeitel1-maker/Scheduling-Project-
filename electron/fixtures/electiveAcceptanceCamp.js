@@ -148,10 +148,21 @@ export const ACCEPTANCE_MANIFEST = Object.freeze({
   // chosen — see the note in scripts/fixtures/make-preference-corpus.mjs and
   // the gap held open by electiveAcceptanceImport.integration.test.js.
   bundle: { name: 'Ropes', activity: 'Ropes', tier: 'Older', days: ['Monday', 'Tuesday'] },
-  // The SECOND bundle, authored so that UNSUPPORTED_LINKED_CHOICE is PRODUCED
-  // rather than merely absent: it shares Tuesday with the first, which is case
-  // (c) at src/engine/buildElectiveAssignments.js:684-696.
-  refusedBundle: { name: 'Ceramics', activity: 'Ceramics', tier: 'Older', days: ['Tuesday', 'Wednesday'] },
+  // TWO MORE BUNDLES, authored so that UNSUPPORTED_LINKED_CHOICE is PRODUCED
+  // rather than merely absent: case (c) at
+  // src/engine/buildElectiveAssignments.js:684-696 fires when two linked
+  // choices share a member occurrence.
+  //
+  // THEY ARE SCOPED TO THE OTHER TIER, and that is forced. Case (c) refuses
+  // BOTH sharing choices, not just the later one, so a second bundle overlapping
+  // `bundle` above would take `bundle` down with it and condition (8) would have
+  // nothing left to assert — measured, not reasoned: the first attempt did
+  // exactly that and tier 1 placed nobody. These two overlap EACH OTHER, on
+  // Younger cells, which leaves the Older bundle live.
+  refusedBundles: [
+    { name: 'Ceramics', activity: 'Ceramics', tier: 'Younger', days: ['Tuesday', 'Wednesday'] },
+    { name: 'Woodshop', activity: 'Woodshop', tier: 'Younger', days: ['Tuesday', 'Wednesday'] },
+  ],
 })
 
 const nameMap = (rows) => new Map(rows.map((r) => [r.name, r.id]))
@@ -423,7 +434,8 @@ export async function buildAcceptanceCamp(db, { handlers, token, campId, deviceI
   // authors them through the generic `write`, which is therefore the production
   // path (docs/adr/2026-09-29-linked-elective-bundles.md D1).
   const bundleIds = {}
-  for (const [key, spec] of [['bundle', M.bundle], ['refusedBundle', M.refusedBundle]]) {
+  const bundleSpecs = [['bundle', M.bundle], ...M.refusedBundles.map((spec, i) => [`refusedBundle${i}`, spec])]
+  for (const [key, spec] of bundleSpecs) {
     const bundleId = randomUUID()
     // No camp_id: elective_bundles is scoped by its elective set, and
     // electron/ops/projections.js:605 does not list one as a writable field.

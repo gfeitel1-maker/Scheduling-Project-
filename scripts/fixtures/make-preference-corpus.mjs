@@ -585,8 +585,24 @@ function acRanks(division, day, i) {
 // answer for WEDNESDAY, where the Generated route places this set on the Younger
 // tier only -- spec section 6's "one eligibility rejection", and the reason the
 // asymmetry between the two routes is in the fixture at all.
+//
+// THE FIRST FOUR OLDER CAMPERS ANSWER FOR THE WHOLE RUN INSTEAD OF PER CELL
+// (an empty list here), and that is forced by a defect rather than chosen.
+// resolvePreferenceCoordinates binds a coordinate to the FIRST occurrence at a
+// (day, block) cell REGARDLESS OF TIER (src/screens/elective/assignment/
+// resolvePreferenceCoordinates.js:73-79), so on a tier-spanning set every
+// per-cell preference of the non-first tier lands on the other tier's
+// occurrence. Measured on this very fixture: 75 of 174 resolved preferences,
+// and only 4 of the Older tier's 26 placements honoured a stated choice. A
+// preference bound to the wrong tier's occurrence is also outside the bundle's
+// member set, so `choiceRankMinOverMembers` finds no rank and the linked tier
+// has no candidates at all -- which is why these four use the whole-run shape,
+// a shape section 6 already calls for and which the defect does not touch.
+// electron/electiveAcceptanceSolve.integration.test.jsx holds the defect open
+// as a named, asserted gap.
 function acDaysFor(division, i) {
   if (division === AC_YOUNGER) return ['Monday', 'Tuesday', 'Wednesday']
+  if (i < 4) return []
   return i >= 4 && i <= 6 ? ['Monday', 'Tuesday', 'Wednesday'] : ['Monday', 'Tuesday']
 }
 
@@ -606,7 +622,12 @@ function acceptanceRows({ resolved }) {
       if (resolved) externalId = resolvedIds[unidentified] ?? ''
       unidentified += 1
     }
-    for (const day of acDaysFor(division, i)) {
+    const days = acDaysFor(division, i)
+    if (days.length === 0) {
+      rows.push([externalId, name, division, '', '', ...acRanks(division, 'Monday', i)])
+      continue
+    }
+    for (const day of days) {
       rows.push([externalId, name, division, day, AC_PERIOD, ...acRanks(division, day, i)])
     }
   }

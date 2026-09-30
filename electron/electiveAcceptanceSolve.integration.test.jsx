@@ -1,0 +1,507 @@
+// @vitest-environment jsdom
+//
+// T199 spec §6, conditions (3), (4), (5), (8), and (2)'s SOLVE half. T251.
+//
+//   (3) "no offering exceeds capacity"
+//   (4) "no camper violates eligibility"   — READ THE GAP BELOW BEFORE TRUSTING
+//                                            THIS TITLE
+//   (5) "every lock is retained"           — SINGLE DEVICE ONLY, see GAP-3
+//   (8) "the linked choice places in both member occurrences or neither"
+//   (2) "two runs over identical input produce byte-equivalent normalized
+//       output" — the solve half; the import half is in
+//       electron/electiveAcceptanceImport.integration.test.js.
+//
+// ── WHAT IS DRIVEN, AND WHY IT IS THE REAL COMPONENT ──────────────────────
+//
+// There is NO production module that composes solver inputs from a database.
+// The whole orchestration — deriveOccurrences -> buildOfferings ->
+// deriveChoices -> resolvePreferenceCoordinates -> buildAttendance ->
+// buildElectiveAssignments -> commitElectiveRun — lives inside one React
+// callback, `solve()` at
+// src/screens/elective/assignment/AssignmentPanel.jsx:611-700, whose only
+// non-test caller is the component's own render
+// (src/screens/elective/assignment/AssignmentPanel.jsx:669).
+// `runPreferenceSheetCli` commits `assignments: []` deliberately
+// (scripts/preferenceSheetCli.js:355-379) and
+// `commitElectiveRunHandler` takes an already-solved array
+// (electron/main.js:2070-2098).
+//
+// So a test that called those seven modules in order would be asserting that
+// the test agrees with the test. That is the T62 defect shape, and this module
+// family has ALREADY shipped it once:
+// src/screens/elective/assignment/buildAttendance.js:16-27 records that the
+// module read `camper.division` while the parser only ever produced
+// `camper.division_label`, so attendance scoping never worked in the shipped
+// app — and its own tests missed it for months because the fixtures hand-built
+// `{ division: ... }` matching the code's wrong assumption.
+//
+// This file therefore RENDERS AssignmentPanel in jsdom, hands it props read out
+// of the real database through the real `list` IPC handler, and clicks the real
+// controls. `localClient` is replaced by a thin forwarder onto
+// `makeHandlers(db, deviceId, {})` — the REAL IPC handlers over a real
+// better-sqlite3 file through the full migration chain (see
+// ./electiveAcceptanceLocalClient.js, which says at length why that is the
+// architecture and not a shortcut). It is NOT src/localClient.mock.js.
+//
+// ── THREE GAPS THE TITLES ABOVE MUST NOT BE READ PAST ──────────────────────
+//
+// GAP-2 — (4) IS NARROWER THAN ITS ENGLISH. The solver has no eligibility
+// concept beyond attendance: its only gate is `attends(id, occurrenceId)`
+// (src/engine/buildElectiveAssignments.js:378). What is asserted here is
+// exactly "no assignment names an occurrence the camper does not attend".
+// Age rules, prerequisites, or any other notion of eligibility are not
+// modelled anywhere and are not checked here.
+//
+// GAP-3 — (5) IS SINGLE-DEVICE ONLY. commitElectiveRun.js:216-237 states it
+// itself: `is_locked = 1` is read from THIS device's projection, so a lock a
+// peer set that has not merged here yet is invisible, and its row is rewritten
+// to source='solver' while `is_locked` stays 1. A single-node fixture cannot
+// exhibit that, and
+// test/integration/scenarios/36-finalized-elective-run-survives-sync.automerge.js
+// does not claim it either.
+//
+// (3)'s BLIND SPOT: NO_CAPACITY can never fire in this camp, because `Garden`
+// is unlimited and is offered at every occurrence, so no camper is ever
+// unplaceable. That is asserted below as a fact about the fixture rather than
+// left as a silent absence.
+//
+// (2)'s BLIND SPOT, stated rather than solved: non-determinism that is stable
+// within one Node process — an iteration order that is consistent per-process
+// but not across processes — is invisible to two solves in one test run.
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import fs from 'node:fs'
+import os from 'node:os'
+
+vi.mock('electron', () => ({
+  app: { getPath: vi.fn(() => os.tmpdir()), whenReady: vi.fn(() => Promise.resolve()), on: vi.fn() },
+  BrowserWindow: vi.fn(),
+  ipcMain: { handle: vi.fn() },
+  contextBridge: { exposeInMainWorld: vi.fn() },
+  ipcRenderer: { invoke: vi.fn(), on: vi.fn() },
+}))
+
+// The forwarder is late-bound: the database does not exist until beforeAll, and
+// a vi.mock factory is hoisted above it. Every property access goes through to
+// whatever `ref.impl` holds at call time, so nothing here decides anything.
+const ref = vi.hoisted(() => ({ impl: null }))
+vi.mock('../src/localClient', () => ({
+  localClient: new Proxy({}, {
+    get: (_t, prop) => (...args) => {
+      if (!ref.impl) throw new Error(`localClient.${String(prop)} called before the fixture was built`)
+      if (typeof ref.impl[prop] !== 'function') throw new Error(`localClient.${String(prop)} is not forwarded`)
+      return ref.impl[prop](...args)
+    },
+  }),
+}))
+
+import AssignmentPanel from '../src/screens/elective/assignment/AssignmentPanel.jsx'
+import { openAcceptanceCamp } from './electiveAcceptanceHarness.js'
+import { makeLocalClientOverHandlers } from './electiveAcceptanceLocalClient.js'
+import { ACCEPTANCE_MANIFEST, SHEET_RESOLVED } from './fixtures/electiveAcceptanceCamp.js'
+import { resolveOfferingCapacity } from './ops/electiveOfferingCapacity.js'
+import { deriveLinkedElectiveChoiceId } from './ops/electiveDerivedIds.js'
+
+const M = ACCEPTANCE_MANIFEST
+
+let camp
+let props
+
+beforeAll(async () => {
+  camp = await openAcceptanceCamp()
+  ref.impl = makeLocalClientOverHandlers(camp.handlers, camp.token)
+
+  // EVERY PROP READ OUT OF THE DATABASE through the real `list` handler — the
+  // same call ElectiveSetDetail makes. Nothing is hand-built, so a prop shaped
+  // differently from what the app passes cannot creep in.
+  const list = (entity) => camp.handlers.list(camp.token, entity)
+  props = {
+    electiveSetId: camp.fixture.electiveSetId,
+    campId: camp.fixture.campId,
+    setActivities: list('elective_set_activities').filter((r) => r.elective_set_id === camp.fixture.electiveSetId),
+    activities: list('activities'),
+    groups: list('groups'),
+    tiers: list('tiers'),
+    days: list('days_of_operation'),
+    timeBlocks: list('time_blocks'),
+    templateSlots: list('template_slots'),
+    scheduleTemplates: list('schedule_templates'),
+    scheduleWeeks: list('schedule_weeks'),
+    bundles: list('elective_bundles'),
+    bundlePeriods: list('elective_bundle_periods'),
+    bundleTiers: list('elective_bundle_tiers'),
+    role: 'admin',
+    // A null clears the banner (AssignmentPanel.jsx:343); anything else is a
+    // real failure the panel surfaced, and a test that swallowed it would be
+    // asserting about a panel stuck in a phase it could not explain.
+    onError: (message) => { if (message != null) throw new Error(`AssignmentPanel reported: ${message}`) },
+    onNavigate: () => {},
+  }
+}, 60_000)
+
+afterAll(() => { camp?.close() })
+
+// ── driving the real panel ─────────────────────────────────────────────────
+
+const runIds = () => new Set(camp.db.prepare('SELECT id FROM elective_assignment_runs').all().map((r) => r.id))
+
+/**
+ * Import the sheet, choose a route, solve, commit — and return the run id the
+ * commit created.
+ *
+ * The id is recovered by diffing the run table rather than read from the
+ * component: elective_assignment_runs has no created_at and no ordering column,
+ * so "the latest run" is not a question SQL can answer here.
+ */
+async function solveAndCommit({ route = 'generated', keepMounted = false } = {}) {
+  const before = runIds()
+  const view = render(<AssignmentPanel {...props} />)
+  const input = view.container.querySelector('input[type="file"]')
+  const file = new File([fs.readFileSync(SHEET_RESOLVED)], 'preferences-resolved.csv', { type: 'text/csv' })
+  fireEvent.change(input, { target: { files: [file] } })
+
+  await waitFor(() => expect(screen.getByText(/Confirm Mapping/)).toBeTruthy(), { timeout: 10_000 })
+  fireEvent.click(screen.getByText(/Confirm Mapping/))
+
+  // Two routes carry this set, so the panel asks which — the real chooser, not
+  // a prop. That the question is ASKED is itself §6's "neither route is
+  // canonical" showing up in the UI.
+  const chooser = await screen.findByText(new RegExp(`· ${route} ·`), {}, { timeout: 10_000 })
+  fireEvent.click(chooser)
+
+  const commitButton = await screen.findByText(/Commit Assignments/, {}, { timeout: 10_000 })
+  fireEvent.click(commitButton)
+  let created = null
+  await waitFor(() => {
+    created = [...runIds()].find((id) => !before.has(id)) ?? null
+    expect(created).toBeTruthy()
+  }, { timeout: 10_000 })
+  await waitFor(
+    () => expect(camp.db.prepare('SELECT COUNT(*) c FROM elective_assignments WHERE run_id = ?').get(created).c).toBeGreaterThan(0),
+    { timeout: 10_000 }
+  )
+  if (!keepMounted) view.unmount()
+  const run = camp.db
+    .prepare('SELECT id, name, solver_generation, schedule_template_id FROM elective_assignment_runs WHERE id = ?')
+    .get(created)
+  return keepMounted ? { ...run, view } : run
+}
+
+const assignmentsOf = (runId) => camp.db.prepare(`
+  SELECT a.camper_id, a.activity_id, a.occurrence_id, a.preference_rank, a.source, a.is_locked,
+         o.day_id, o.time_block_id, o.tier_id
+  FROM elective_assignments a
+  JOIN elective_occurrences o ON o.id = a.occurrence_id
+  WHERE a.run_id = ?
+  ORDER BY o.day_id, o.time_block_id, o.tier_id, a.camper_id
+`).all(runId)
+
+const camperTier = () => new Map(camp.db
+  .prepare('SELECT id, division_label FROM campers WHERE camp_id = ?').all(camp.fixture.campId)
+  .map((r) => [r.id, camp.fixture.tierIdByName.get(r.division_label) ?? null]))
+
+describe('§6 — the real panel solves and commits against the generated route', () => {
+  let run
+  let rows
+
+  beforeAll(async () => {
+    run = await solveAndCommit()
+    rows = assignmentsOf(run.id)
+  }, 60_000)
+
+  it('produced a run against the generated template, with assignments', () => {
+    expect(run.schedule_template_id).toBe(camp.fixture.generatedTemplateId)
+    expect(rows.length).toBeGreaterThan(0)
+  })
+
+  it('(3) no offering exceeds capacity, resolved the way the app resolves it', () => {
+    // resolveOfferingCapacity, NOT a raw read of capacity_limit — that is the
+    // ONE place capacity is decided (electron/ops/electiveOfferingCapacity.js),
+    // and reading the column directly turns the unlimited offering into 0.
+    const limitByActivity = new Map()
+    for (const sa of props.setActivities) {
+      const resolved = resolveOfferingCapacity(sa)
+      limitByActivity.set(sa.activity_id, resolved.kind === 'limited' ? resolved.capacity : Infinity)
+    }
+    const counts = new Map()
+    for (const r of rows) {
+      const key = `${r.occurrence_id} ${r.activity_id}`
+      counts.set(key, (counts.get(key) ?? 0) + 1)
+    }
+    const over = []
+    for (const [key, n] of counts) {
+      const activityId = key.split(' ')[1]
+      if (n > limitByActivity.get(activityId)) over.push({ key, n, limit: limitByActivity.get(activityId) })
+    }
+    expect(over).toEqual([])
+  })
+
+  it('(3) the capacity shortfall is real — campers reached second and third choice', () => {
+    // Without this, "nothing exceeded capacity" would be satisfied by a camp
+    // where nothing was ever contended. §6 asks for one shortfall; at the
+    // Monday/Younger cell nine of eleven campers rank a three-seat offering.
+    const ranks = new Set(rows.map((r) => r.preference_rank).filter((r) => r != null))
+    expect(ranks.has(1)).toBe(true)
+    expect(ranks.has(2)).toBe(true)
+    expect(ranks.has(3)).toBe(true)
+  })
+
+  it('(3) every camper who attends an occurrence is placed in it — capacity limited nobody OUT', () => {
+    // THE OTHER HALF OF (3), and the half that catches the real mistake.
+    // "Nothing exceeded capacity" is satisfied trivially by an offering that
+    // reads as CLOSED: `buildOfferings`'s own header calls this the capacity
+    // trap — `Math.max(0, o.capacity ?? 0)` means a null or 0 SHUTS an offering,
+    // so a naive `capacity_limit ?? 0` read turns the unlimited Garden into
+    // zero seats and simply places fewer campers. Measured: with only the
+    // over-capacity check above, that mutation stayed green.
+    //
+    // One unlimited offering exists at every occurrence, so the correct result
+    // is that EVERY attending camper has a seat.
+    const unlimited = props.setActivities.filter((sa) => resolveOfferingCapacity(sa).kind === 'unlimited')
+    expect(unlimited).toHaveLength(1)
+
+    const tierOf = camperTier()
+    const occurrences = camp.db
+      .prepare('SELECT id, tier_id FROM elective_occurrences WHERE run_id = ?').all(run.id)
+    const placed = new Map()
+    for (const r of rows) {
+      if (!placed.has(r.occurrence_id)) placed.set(r.occurrence_id, new Set())
+      placed.get(r.occurrence_id).add(r.camper_id)
+    }
+    // AND the unlimited offering is actually USED. Without this, closing it is
+    // invisible: this camp has 31 finite seats per occurrence against 13
+    // attending campers, so a Garden read as zero seats still places everybody
+    // — measured, the "everyone is placed" check alone stayed green under the
+    // raw-`capacity_limit ?? 0` mutation. Campers rank Garden first at several
+    // cells, so an empty Garden is the symptom of a mis-resolved capacity.
+    const gardenId = camp.fixture.activityIdByName.get('Garden')
+    expect(unlimited[0].activity_id).toBe(gardenId)
+    expect(rows.filter((r) => r.activity_id === gardenId).length).toBeGreaterThan(0)
+
+    const short = []
+    for (const o of occurrences) {
+      const attending = [...tierOf].filter(([, t]) => t === o.tier_id).map(([id]) => id)
+      const here = placed.get(o.id) ?? new Set()
+      const missing = attending.filter((id) => !here.has(id))
+      if (missing.length > 0) short.push({ occurrence: o.id, missing: missing.length, attending: attending.length })
+    }
+    expect(short).toEqual([])
+  })
+
+  it('(4) GAP-2 — no assignment names an occurrence the camper does not attend', () => {
+    // This is exactly what the solver checks and no more: its only gate is
+    // `attends(id, occurrenceId)` (buildElectiveAssignments.js:378). It is
+    // narrower than §6's English; see the file header.
+    const tierOf = camperTier()
+    const violations = rows.filter((r) => tierOf.get(r.camper_id) !== r.tier_id)
+    expect(violations).toEqual([])
+  })
+
+  it('(4) no camper was excluded by FAILING TO MATCH a division, which would look the same', () => {
+    // buildAttendance excludes a camper whose division_label matches no tier
+    // (`unmatched`), and such a camper is excluded from EVERY occurrence — which
+    // satisfies "no camper violates eligibility" while meaning the opposite of
+    // what it sounds like. So: every camper the sheet named is placed somewhere.
+    // This is the assertion that keeps (4) from passing because attendance
+    // scoping is broken rather than because it works.
+    const placed = new Set(rows.map((r) => r.camper_id))
+    const roster = camp.db
+      .prepare('SELECT id, display_name FROM campers WHERE camp_id = ?').all(camp.fixture.campId)
+    expect(roster).toHaveLength(M.camperCount)
+    expect(roster.filter((c) => !placed.has(c.id)).map((c) => c.display_name)).toEqual([])
+  })
+
+  it('(4) the eligibility rejection is REAL — Older campers asked for a cell only Younger has', () => {
+    // Without this the assertion above passes in a camp where every camper was
+    // eligible for everything. Three Older campers write a Wednesday row; the
+    // generated route places this set on Wednesday for Younger only, so their
+    // choice resolves to a Younger occurrence they do not attend.
+    const wednesday = camp.fixture.dayIdByLabel.get('Wednesday')
+    const older = camp.fixture.tierIdByName.get('Older')
+    const wedOccurrences = camp.db
+      .prepare('SELECT DISTINCT tier_id FROM elective_occurrences WHERE run_id = ? AND day_id = ?')
+      .all(run.id, wednesday).map((r) => r.tier_id)
+    expect(wedOccurrences).not.toContain(older)
+
+    const olderCampers = new Set([...camperTier()].filter(([, t]) => t === older).map(([id]) => id))
+    const wednesdayPreferences = camp.db.prepare(`
+      SELECT p.camper_id FROM elective_preferences p
+      WHERE p.run_id = ? AND p.coordinate_day_label = 'Wednesday'
+    `).all(run.id).filter((p) => olderCampers.has(p.camper_id))
+    expect(wednesdayPreferences.length).toBeGreaterThan(0)
+
+    // And they are not placed on Wednesday.
+    const placedThere = rows.filter((r) => r.day_id === wednesday && olderCampers.has(r.camper_id))
+    expect(placedThere).toEqual([])
+  })
+
+  it('(8) the linked choice placed in BOTH member occurrences or neither', () => {
+    const bundleActivity = camp.fixture.activityIdByName.get(M.bundle.activity)
+    const older = camp.fixture.tierIdByName.get('Older')
+    const memberDays = M.bundle.days.map((d) => camp.fixture.dayIdByLabel.get(d))
+
+    const seatsByCamper = new Map()
+    for (const r of rows) {
+      if (r.tier_id !== older || r.activity_id !== bundleActivity) continue
+      if (!memberDays.includes(r.day_id)) continue
+      if (!seatsByCamper.has(r.camper_id)) seatsByCamper.set(r.camper_id, new Set())
+      seatsByCamper.get(r.camper_id).add(r.day_id)
+    }
+    // ATOMICITY: nobody holds exactly one of the two.
+    for (const [camperId, days] of seatsByCamper) {
+      expect({ camperId, days: days.size }).toEqual({ camperId, days: memberDays.length })
+    }
+    // NON-VACUITY: tier 1 actually ran, and ran for THIS bundle.
+    //
+    // Scoped to the live bundle's own per-tier choice, NOT to "some linked
+    // choice exists": the two deliberately-refused bundles are linked too, so a
+    // bare `is_linked = 1` count stays green when this bundle collapses to one
+    // period — measured, that is exactly what happened.
+    expect(seatsByCamper.size).toBeGreaterThan(0)
+    const choiceId = deriveLinkedElectiveChoiceId(run.id, camp.fixture.bundleIds.bundle, older)
+    const choice = camp.db
+      .prepare('SELECT label, is_linked FROM elective_choices WHERE id = ? AND run_id = ?').get(choiceId, run.id)
+    expect(choice).toMatchObject({ label: M.bundle.name, is_linked: 1 })
+    const members = camp.db
+      .prepare('SELECT DISTINCT occurrence_id FROM elective_choice_offerings WHERE choice_id = ?').all(choiceId)
+    expect(members).toHaveLength(memberDays.length)
+    // Every seat holder holds exactly the choice's OWN member occurrences —
+    // not merely two seats that happen to be in the bundle's activity.
+    const memberOccurrences = new Set(members.map((m) => m.occurrence_id))
+    for (const [camperId, days] of seatsByCamper) {
+      const held = new Set(rows
+        .filter((r) => r.camper_id === camperId && r.activity_id === bundleActivity && memberOccurrences.has(r.occurrence_id))
+        .map((r) => r.occurrence_id))
+      expect({ camperId, held: held.size, days: days.size }).toEqual({
+        camperId, held: memberOccurrences.size, days: memberDays.length,
+      })
+    }
+  })
+})
+
+describe('§6 (5) — every lock is retained (SINGLE DEVICE, GAP-3)', () => {
+  it('a locked seat survives a re-solve of the SAME run, driven from the real Draft screen', async () => {
+    const run = await solveAndCommit({ keepMounted: true })
+
+    // THE LOCK, through the real IPC handler the Draft screen's own move/lock
+    // control calls (T245/T246).
+    const seat = assignmentsOf(run.id).find((r) => r.preference_rank != null)
+    expect(seat).toBeTruthy()
+    const out = await camp.handlers.setElectiveAssignment({
+      token: camp.token,
+      runId: run.id,
+      camperId: seat.camper_id,
+      occurrenceId: seat.occurrence_id,
+      activityId: seat.activity_id,
+      locked: true,
+    })
+    expect(out.ok).toBe(true)
+    const beforeRow = camp.db
+      .prepare('SELECT is_locked, source, activity_id, solver_generation FROM elective_assignments WHERE run_id = ? AND camper_id = ? AND occurrence_id = ?')
+      .get(run.id, seat.camper_id, seat.occurrence_id)
+    expect(beforeRow).toMatchObject({ is_locked: 1, source: 'manual', activity_id: seat.activity_id })
+
+    // A RE-SOLVE OF THE SAME RUN, and this is the only way to reach one.
+    // AssignmentPanel mints a fresh runId per solve, so a second import is a
+    // DIFFERENT run and never touches these rows — a lock test built that way
+    // passes with commitElectiveRun's `protectedIds` filter deleted (measured).
+    // The only path to `regenerate()` — which keeps the runId — is DraftRunView,
+    // and its control appears only once this session has something to re-solve
+    // FOR: a preference edit. So the director's real sequence is driven here:
+    // open the run, correct one camper's choice, "Solve again", commit.
+    // BY ID, not by name: every run this camp has is called "Elective
+    // assignment — <today>", so a by-text query matches several.
+    fireEvent.click(await screen.findByTestId(`run-list-row-${run.id}`, {}, { timeout: 10_000 }))
+
+    // A DIFFERENT camper from the locked one, so the edit cannot be what keeps
+    // the locked row alive.
+    const editable = assignmentsOf(run.id).find((r) => r.camper_id !== seat.camper_id)
+    fireEvent.click(await screen.findByTestId(`camper-week-open-${editable.camper_id}`, {}, { timeout: 10_000 }))
+    const week = await screen.findByTestId('camper-week', {}, { timeout: 10_000 })
+    const rowId = week.querySelector('[data-testid^="camper-week-row-"]')
+      .getAttribute('data-testid').replace('camper-week-row-', '')
+    fireEvent.click(screen.getByTestId(`camper-week-edit-${rowId}`))
+    const select = await screen.findByTestId(`camper-week-choice-${rowId}`, {}, { timeout: 10_000 })
+    const option = [...select.querySelectorAll('option')].find((o) => o.value && o.value !== select.value)
+    expect(option).toBeTruthy()
+    fireEvent.change(select, { target: { value: option.value } })
+
+    fireEvent.click(await screen.findByTestId('run-preference-resolve', {}, { timeout: 10_000 }))
+    fireEvent.click(await screen.findByText(/Commit Assignments/, {}, { timeout: 10_000 }))
+
+    // The run's generation moved — so this really was a re-solve of THIS run
+    // and not a no-op. Without this the assertion below would hold trivially.
+    await waitFor(() => {
+      const gen = camp.db.prepare('SELECT solver_generation FROM elective_assignment_runs WHERE id = ?').get(run.id)
+      expect(gen.solver_generation).not.toBe(run.solver_generation)
+    }, { timeout: 10_000 })
+
+    const after = camp.db
+      .prepare('SELECT is_locked, source, activity_id, solver_generation FROM elective_assignments WHERE run_id = ? AND camper_id = ? AND occurrence_id = ?')
+      .get(run.id, seat.camper_id, seat.occurrence_id)
+    expect(after).toEqual(beforeRow)
+    run.view.unmount()
+  }, 120_000)
+})
+
+describe('§6 (2) solve half — two solves over identical input agree', () => {
+  it('the same sheet solved twice produces the same placements', async () => {
+    // Compared by COORDINATE, not by id: every id in a run is derived from the
+    // runId, and the panel mints a fresh one per solve, so two identical solves
+    // legitimately carry different ids. What must not differ is who is placed
+    // where.
+    const shapeOf = (runId) => assignmentsOf(runId).map((r) => [
+      r.camper_id, r.day_id, r.time_block_id, r.tier_id, r.activity_id, r.preference_rank, r.source ?? null,
+    ])
+    const first = await solveAndCommit()
+    const second = await solveAndCommit()
+    expect(second.id).not.toBe(first.id)
+    expect(JSON.stringify(shapeOf(second.id))).toBe(JSON.stringify(shapeOf(first.id)))
+  }, 60_000)
+})
+
+describe('GAP — a per-cell preference binds to the WRONG TIER on a tier-spanning set', () => {
+  // FOUND BY RUNNING THIS FIXTURE, not by reading the code.
+  //
+  // resolvePreferenceCoordinates builds `occurrenceAtCell` keyed on
+  // (day_id, time_block_id) ONLY and keeps the FIRST occurrence it sees at each
+  // cell, regardless of tier
+  // (src/screens/elective/assignment/resolvePreferenceCoordinates.js:73-79).
+  // Its stated reason is that "buildAttendance is what scopes a camper to a
+  // tier" — but attendance can only EXCLUDE a camper from an occurrence; it
+  // cannot re-point a preference that was bound to the wrong one. So on a set
+  // placed for two tiers at the same day and period, every per-cell preference
+  // belonging to whichever tier is not first lands on the other tier's
+  // occurrence, `attends()` then refuses it, and the camper is placed as if
+  // they had ranked nothing.
+  //
+  // That is precisely the failure the module's own header says it exists to
+  // prevent: "campers were placed in activities they had not chosen for that
+  // cell, and preference_rank reported a first choice that had not been
+  // honoured" — a confident wrong answer, not a visible failure.
+  //
+  // MEASURED on this camp: 51 of 150 resolved preferences bound across tiers,
+  // and only 12 of the Older tier's 26 placements carried any rank at all.
+  //
+  // T251 may not fix production code, so the gap is asserted instead: the four
+  // campers the linked choice needs were moved onto the whole-run shape (which
+  // the defect does not touch) so condition (8) stays live, and THIS goes RED
+  // the day the binding is made tier-aware.
+  it('Older campers who ranked a cell are placed there unranked', async () => {
+    const run = await solveAndCommit()
+    const older = camp.fixture.tierIdByName.get('Older')
+    const rows = assignmentsOf(run.id).filter((r) => r.tier_id === older)
+
+    // Every one of these campers stated three ranked choices for this cell.
+    const statedFor = new Set(camp.db.prepare(`
+      SELECT camper_id || '|' || coordinate_day_label AS k FROM elective_preferences
+      WHERE run_id = ? AND coordinate_day_label IS NOT NULL
+    `).all(run.id).map((r) => r.k))
+    const dayLabel = new Map([...camp.fixture.dayIdByLabel].map(([label, id]) => [id, label]))
+
+    const unhonoured = rows.filter(
+      (r) => r.preference_rank == null && statedFor.has(`${r.camper_id}|${dayLabel.get(r.day_id)}`)
+    )
+    expect(unhonoured.length).toBeGreaterThan(0)
+  }, 60_000)
+})
