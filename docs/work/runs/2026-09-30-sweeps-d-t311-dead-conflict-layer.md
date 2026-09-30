@@ -422,7 +422,19 @@ was lost with the arbitration layer.
 
 ## Grader score
 
-Average — , lowest dimension — .
+Average — **4.0**, lowest dimension — **3** (evidence quality). Pass is ≥ 4.0 with no dimension
+below 3, so this clears the threshold on its lowest point rather than comfortably.
+
+| Dimension | Score | What moved it |
+|---|---|---|
+| Specification fidelity | 5 | The four functions and their exports are gone; the live `listPendingConflicts` coverage was re-expressed, not dropped; footprint exactly as authorised |
+| Maintainability | 4 | Comments now true after round 2; five pre-existing unbalanced `_Prior:` spans deliberately left (finding 5) |
+| Security | 5 | Seven op-log write-invariant symbols byte-identical to `origin/main`; nothing under `electron/db/`, `electron/auth/`, `electron/sync/` |
+| Resilience | 4 | Dynamic dispatch, IPC names, rollback modules, transitive test masking, the `conflicts` two-worlds row shape and the legacy-row upgrade path all attacked and clean |
+| Evidence quality | 3 | Round 1 planted a false factual claim (`operations.based_on_seq` as a schema column — it never existed) and an unbalanced comment delimiter. Review caught both and round 2 corrected them, which is the loop working; the miss still belongs to round 1. |
+
+Grader's own note, worth keeping: the DELETE_FIELD coverage gap (finding 1) is handled adequately
+*because* it is carried forward as a finding rather than absorbed into "we deleted dead code".
 
 ## Findings carried forward
 
@@ -471,4 +483,28 @@ Average — , lowest dimension — .
 
 ## Decision
 
-PASS / RETRY / ESCALATE —
+**PASS** (Governor, round 2). Verifier returned PASS on all eight gates with no unresolved
+UNVERIFIED claim, including the mandatory `npm run test:integration` (exit 0, 26/26 libp2p
+scenarios) that task class `database-sync` requires. Grader is 4.0 with no dimension below 3. Every
+actionable finding from Code Reviewer, Red Hat and Security was fixed in round 2; the one
+substantive residual (finding 1) is pre-existing, ADR-documented, and carried forward rather than
+closed.
+
+Not pushed, no PR, no merge — per the dispatch brief. Two commits on
+`claude/sweeps-d-t311-dead-conflict-layer`: `e7285714` (the deletion) and `9232ad2b` (the
+corrections).
+
+### Open points for the owner
+
+1. **The human gate for `database-sync` is "ADR + migration/rollback plan"** (`GOVERNANCE_INDEX.md`
+   §3). The migration/rollback half is vacuous here — no schema version, no migration, no table
+   drop. Whether the deletion itself warrants its own ADR beyond
+   `docs/adr/2026-09-06-productionize-automerge-libp2p-sync.md`, which already records the CRDT
+   reconciler as the replacement, is a human call. Owner unavailable at time of run.
+2. **T311's own framing was wrong on a fact** and the correction is worth propagating: it asserted
+   that `operations.based_on_seq` "still exists in the schema". It never existed — `based_on_seq`
+   was only ever a parameter of the deleted `detectBulkReplaceConflict`. Nothing is owed a
+   migration. Round 1 repeated the error in a code comment before review caught it.
+3. **Findings 2-4 are one-line comment fixes blocked only by this run's `electron/db/` boundary**
+   and its footprint discipline. They are cheap and should be swept by whoever next has
+   `electron/db/` in scope.
