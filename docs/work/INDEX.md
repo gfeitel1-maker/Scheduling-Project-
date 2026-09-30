@@ -77,7 +77,6 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [A whole-sheet planner grid imports through the director's panel](../../docs/work/tickets/T305-a-whole-sheet-planner-grid-imports-through-the-panel.md) | open | [T306-the-director-can-name-an-unnamed-submission](../../docs/work/tickets/T306-the-director-can-name-an-unnamed-submission.md) · [T307-a-directors-column-correction-is-honoured](../../docs/work/tickets/T307-a-directors-column-correction-is-honoured.md) · [T313-one-spelling-for-a-provisional-subject](../../docs/work/tickets/T313-one-spelling-for-a-provisional-subject.md) |
-| [Every setup importer reads the tab that holds its entity](../../docs/work/tickets/T315-every-setup-importer-reads-its-own-tab.md) | open | — |
 
 ### unclassified
 
@@ -243,6 +242,7 @@ They are different facts and a run can carry a bad one of each.
 | Date | Run | Class | Status | Verdict |
 |---|---|---|---|---|
 | 2026-09-30 | [docs(T314): closes T314 — status was left open at merge](../../docs/work/runs/2026-09-30-docs-t314-closes-t314-status-was-left-open-at-merge.md) | ui-ux-design | pass | pass |
+| 2026-09-30 | [docs(T315): closes T315 — status was left open at merge](../../docs/work/runs/2026-09-30-docs-t315-closes-t315-status-was-left-open-at-merge.md) | ui-ux-design | pass | pass |
 | 2026-09-29 | [docs(T311): closes T311 — the sweep landed; findings go to the board, not to tickets](../../docs/work/runs/2026-09-29-docs-t311-closes-t311-the-sweep-landed-findings-go-to-the-bo.md) | documentation-governance | pass | pass |
 | 2026-09-29 | [docs(T313): closes T313 — status was left open at merge](../../docs/work/runs/2026-09-29-docs-t313-closes-t313-status-was-left-open-at-merge.md) | database-sync | pass | pass |
 | 2026-09-29 | [T302: a new elective finding cannot reach a director naming an activity by its label key (closes T302)](../../docs/work/runs/2026-09-29-t302-a-new-elective-finding-cannot-reach-a-director-naming-a.md) | test-infrastructure | pass | PASS |
