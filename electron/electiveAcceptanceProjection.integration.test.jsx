@@ -483,30 +483,49 @@ describe('§6 (7) — every assignment appears exactly once in the matching rost
     // NOT the same defect as the scope gap itself: for all 12 of these rows
     // the camper's tier EQUALS the occurrence's tier (checked below, via
     // hasPref: false on every row — a join miss, not a tier mismatch). The
-    // real cause is a per-tier scope gap in ADR D6: a bundle-claimed label has
-    // no choice at all for a tier that no bundle covers, because
-    // commitElectiveRun.js:488 suppresses the plain choice for the whole LABEL
-    // while a bundle's scope is PER TIER. These 12 campers sit in a tier no
-    // bundle in this fixture covers, so commitElectiveRun.js:508-512 hits the
-    // mismatch branch and `continue`s — the preference row is NEVER
-    // PERSISTED — while the assignment is still written, keeping the
-    // `preference_rank` the in-memory solve used and a null or bundle
-    // `choice_id`.
+    // root cause is the D6 per-tier scope gap (a bundle-claimed label has no
+    // choice at all for a tier no bundle covers — `resolveWriteChoiceId` in
+    // electron/ops/commitElectiveRun.js returns `mismatch: true` for exactly
+    // these campers), but as of board item 9b's defect-3 fix
+    // (`resolveWriteChoiceId`'s caller in the preference-write loop, and see
+    // that function's own "BOARD ITEM 9b" comment) the mismatch branch no
+    // longer skips the preference row — it PERSISTS it, bound to the flat
+    // choice minted for the label. So "the preference row is never persisted"
+    // is no longer why this bucket is 12. CONFIRMED BY PROBE (2026-09-30,
+    // temporary it.only against this exact fixture, deleted after use): of
+    // the 12, 8 DO have a persisted preference row naming the right label at
+    // the right rank — but `buildPreferenceLookup` (src/screens/elective/run/
+    // camperElectiveWeek.js) refuses to even look one up when
+    // `row.choice_id == null`, and the ASSIGNMENT loop (the same file,
+    // "ROUND 2 CORRECTION" comment above its own `resolveWriteChoiceId` call)
+    // deliberately writes `choice_id: null` on the very same mismatch,
+    // instead of the flat fallback id the preference loop uses. That
+    // asymmetry — one loop binds the mismatch to the flat choice, the other
+    // nulls it — is what breaks the join for these 8, not a missing row. The
+    // other 4 (measured below) DO have a preference row sharing the
+    // assignment's own choice_id, but `resolvePreferenceCoordinates` binds
+    // that (camper, label) pair to a different one of several duplicate
+    // same-label preference rows than the occurrence the solver actually
+    // placed them in, so the occurrence-aware join still misses.
     //
-    // So there is nothing for buildPreferenceLookup (camperElectiveWeek.js) to
-    // join TO: not merely a null choice_id on the assignment, but an absent
-    // preference row. No read-side change can recover these. The rank on the
-    // assignment is real and ordered, so a director reading this run today sees
-    // "One of their choices" for a child's actual rank-1 request.
+    // So a director reading this run today sees "One of their choices" for a
+    // child's actual rank-1 request in both cases — the rank on the
+    // assignment is real and ordered, but nothing here can join it back to
+    // that evidence.
     //
     // This assertion exists so that number cannot silently drift or be
     // absorbed by a self-consistent computation (the "independent second
     // fact" below computes its expectation through the SAME join, so on its
-    // own it would stay green even if that scope gap got WORSE). When the gap
-    // is closed, this must go to 0 — and this
-    // assertion is EXPECTED to fail then. Update it to 0 at that point, with a
-    // comment saying the defect closed; do not delete it or loosen it back to
-    // a tautology.
+    // own it would stay green even if either gap got WORSE). Closing it needs
+    // one of: buildPreferenceLookup joining on labelKey/rank when an
+    // assignment's choice_id is null, the assignment loop binding the flat
+    // fallback choice instead of nulling it (mirroring the preference loop),
+    // or resolvePreferenceCoordinates binding duplicate same-label rows to the
+    // occurrence the solver actually used. None of those is this ticket's
+    // scope. When one lands, this must go to 0 — and this assertion is
+    // EXPECTED to fail then. Update it to 0 at that point, with a comment
+    // saying which fix closed it; do not delete it or loosen it back to a
+    // tautology.
     expect(summary.unordered_count).toBe(12)
 
     // AND THE IDENTITY, not only the cardinality — Red Hat's challenge to the

@@ -52,11 +52,11 @@
 // Age rules, prerequisites, or any other notion of eligibility are not
 // modelled anywhere and are not checked here.
 //
-// GAP-3 — (5) IS SINGLE-DEVICE ONLY. commitElectiveRun.js:216-237 states it
-// itself: `is_locked = 1` is read from THIS device's projection, so a lock a
-// peer set that has not merged here yet is invisible, and its row is rewritten
-// to source='solver' while `is_locked` stays 1. A single-node fixture cannot
-// exhibit that, and
+// GAP-3 — (5) IS SINGLE-DEVICE ONLY. commitElectiveRun.js's own "THE RESIDUAL
+// GAP" comment (above its `lockedRows` read) states it itself: `is_locked = 1`
+// is read from THIS device's projection, so a lock a peer set that has not
+// merged here yet is invisible, and its row is rewritten to source='solver'
+// while `is_locked` stays 1. A single-node fixture cannot exhibit that, and
 // test/integration/scenarios/36-finalized-elective-run-survives-sync.automerge.js
 // does not claim it either.
 //
@@ -273,8 +273,9 @@ describe('§6 — the real panel solves and commits against the generated route'
   // outright — the whole condition stayed GREEN.
   //
   // WHY. (a) The `is_linked = 1` choices and their offerings are written
-  // UNCONDITIONALLY by commitElectiveRun.js:449-462, "whether or not any
-  // preference this commit carries names their label", so their presence was a
+  // UNCONDITIONALLY by commitElectiveRun.js's bundle-choices write loop
+  // ("written FIRST, unconditionally, whether or not any preference this
+  // commit carries names their label"), so their presence was a
   // fact about the fixture's own write calls and not about the solve. (b) The
   // bundle's four campers rank it whole-run, so its two member occurrences saw
   // IDENTICAL demand, and the ordinary solver is deterministic and
