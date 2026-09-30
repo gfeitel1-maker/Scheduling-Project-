@@ -39,7 +39,12 @@ const ORG_DIR = process.env.SHORESH_ORG_DIR
   ? path.resolve(process.env.SHORESH_ORG_DIR)
   : path.join(ROOT, 'docs', 'governance', 'agent-fragments');
 const FRAGMENTS_DIR = path.join(ORG_DIR, 'fragments');
-const MANIFEST_PATH = path.join(BINDINGS_DIR, 'manifest.json');
+// T221: a test must be able to corrupt a manifest to exercise the DIFFERS
+// path without ever writing to the committed repo artifact, so the path is
+// overridable the same way ORG_DIR is above.
+const MANIFEST_PATH = process.env.SHORESH_AGENT_MANIFEST
+  ? path.resolve(process.env.SHORESH_AGENT_MANIFEST)
+  : path.join(BINDINGS_DIR, 'manifest.json');
 
 const PLACEHOLDER_RE = /\{\{([A-Z_]+)\}\}/g;
 
