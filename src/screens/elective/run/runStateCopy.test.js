@@ -99,6 +99,21 @@ describe('T250 B2 — satisfactionSummary distinguishes campers from placements'
     ]
     expect(satisfactionSummary({ rows })).toMatch(/^2 campers placed, 3 placements across 2 occurrences\./)
   })
+
+  // Round 2 FIX 5(b) (Code Reviewer, LOW) — elective_assignments.camper_id is
+  // nullable in the schema (a null-camper row is schema-permitted, not known
+  // to be produced today). `new Set(rows.map(r => r.camper_id)).size` counts
+  // a null camper_id as ONE distinct "camper" alongside every real one, so a
+  // run with two real campers and one null-camper row reported "3 campers
+  // placed" — one camper too many. The row still counts toward placements.
+  it('does not count a null camper_id as a distinct camper, but still counts its placement', () => {
+    const rows = [
+      { camper_id: 'c1', occurrence_id: 'occ-1', preference_rank: 1 },
+      { camper_id: 'c2', occurrence_id: 'occ-1', preference_rank: 2 },
+      { camper_id: null, occurrence_id: 'occ-1', preference_rank: 1 },
+    ]
+    expect(satisfactionSummary(rows)).toMatch(/^2 campers placed, 3 placements across 1 occurrence\./)
+  })
 })
 
 describe('T250 B3 — camperDisambiguator degrades group name -> external_id -> nothing', () => {

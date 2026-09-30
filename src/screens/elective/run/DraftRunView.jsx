@@ -9,7 +9,7 @@
 // permissions.js's ENTITIES, so authorize() default-denies staff) — this file
 // deliberately does not re-implement a second gate, and nothing here is
 // reachable from src/components/layout/navSections.js.
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { localClient } from '../../../localClient'
 import { describeWriteFailure } from '../../../utils/writeErrorMessage'
 import { S, RunStateArea, RunStateRow, RunIdentity, RunError } from './RunStateRows.jsx'
@@ -146,6 +146,13 @@ export default function DraftRunView({
   // signal would be a different claim needing a persisted marker to be honest,
   // and inventing one is not this ticket's.
   const [preferencesEdited, setPreferencesEdited] = useState(false)
+  // Round 2 FIX 5(c) (Code Reviewer, LOW) — the synchronous re-entrancy guard
+  // AssignmentPanel's commit() already carries as `committingRef`, added here
+  // for the identical reason (see that comment): `disabled={finalizing}` only
+  // closes the gap once React has re-rendered, which is not synchronous with
+  // the click — a tablet double-tap can land both taps before that render,
+  // and both would call finalizeElectiveRun.
+  const finalizingRef = useRef(false)
 
   const rows = state.rows
   // Round 2 FIX 3 — resolved once per state.campers change, across the WHOLE
@@ -292,11 +299,21 @@ export default function DraftRunView({
   // | {ok:false, error:'ALREADY_FINAL'} | {ok:false, error:'STALE_OUTER_SCHEDULE'|
   // 'OUTER_RESOURCE_CONFLICT', findings} | {ok:false, error:<other string>}.
   async function finalizeRun() {
+    // Round 2 FIX 5(c) — synchronous guard; see finalizingRef's own comment.
+    if (finalizingRef.current) return
+    finalizingRef.current = true
     setFinalizing(true)
     setFinalizeRefusal(null)
     try {
       const out = await localClient.finalizeElectiveRun({ runId: run.id })
       if (out?.ok) {
+        // Round 2 FIX 5(d) (Code Reviewer, LOW) — KNOWN GAP: no finalized_by
+        // here, because finalizeElectiveRun's success shape does not return
+        // it, so RunIdentity shows "finalized <date>" with no "by <user>"
+        // until this run is reopened. RunIdentity itself already renders
+        // that absence coherently (finalized_by is its own independently
+        // Boolean-filtered segment) — not fixed by widening the IPC return,
+        // which would be a bigger change than this gap needs.
         onFinalized?.({ ...run, status: 'final', finalized_at: out.finalizedAt })
         return
       }
@@ -311,6 +328,7 @@ export default function DraftRunView({
       setFinalizeRefusal({ error: describeWriteFailure(err, 'That could not be finalized.'), findings: [] })
     } finally {
       setFinalizing(false)
+      finalizingRef.current = false
     }
   }
 
@@ -410,7 +428,7 @@ export default function DraftRunView({
           testId={`run-state-notice-${noticeKey}`}
           first={index === 0}
           last={index === stateRowCount - 1}
-          message={f.message}
+          message={f.message ?? f.kind ?? JSON.stringify(f)}
         />
       )
     }),

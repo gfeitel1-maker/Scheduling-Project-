@@ -173,6 +173,27 @@ describe('T250 A1 — Finalize run', () => {
     resolveFinalize({ ok: true, finalizedAt: 'x', snapshotRows: 0 })
   })
 
+  // Round 2 FIX 5(c) (Code Reviewer, LOW) — finalizeRun() had only
+  // `disabled={finalizing}`, a state-driven guard that cannot close the
+  // window between a tablet double-tap and React's next re-render (the same
+  // reason AssignmentPanel's commit() carries a synchronous `committingRef`
+  // alongside its own `committing` prop — see that comment). Two clicks
+  // fired in the same tick both land before React flushes the disabled
+  // state, so both invoked finalizeElectiveRun.
+  it('a second click while finalizing does not issue a second finalizeElectiveRun call', async () => {
+    let resolveFinalize
+    localClient.finalizeElectiveRun.mockImplementation(
+      () => new Promise((resolve) => { resolveFinalize = resolve })
+    )
+    render(<DraftRunView run={DRAFT_RUN} onFinalized={vi.fn()} {...catalogs()} />)
+    const button = await screen.findByRole('button', { name: 'Finalize run' })
+    fireEvent.click(button)
+    fireEvent.click(button)
+    fireEvent.click(button)
+    expect(localClient.finalizeElectiveRun).toHaveBeenCalledTimes(1)
+    resolveFinalize({ ok: true, finalizedAt: 'x', snapshotRows: 0 })
+  })
+
   it('STALE_OUTER_SCHEDULE renders the verbatim copy paired with a Re-derive and regenerate action', async () => {
     localClient.finalizeElectiveRun.mockResolvedValue({ ok: false, error: 'STALE_OUTER_SCHEDULE', findings: [{ kind: 'OCCURRENCE_REMOVED', occurrenceId: 'occ-1' }] })
     const onRegenerate = vi.fn()
@@ -416,6 +437,20 @@ describe('T250 B1 — a mixed findings array renders each kind with its own sent
     const area = screen.getByTestId('run-state-area')
     expect(area.querySelectorAll('[data-testid^="run-state-"]')).toHaveLength(3)
   })
+
+  // Round 2 FIX 5(a) (Code Reviewer, LOW) — a commitNotices row rendered
+  // `message={f.message}` with no fallback, so a finding kind without a
+  // `.message` (any future OTHER kind BUNDLE_TIER_NOT_COVERED-shaped kind
+  // commitElectiveRun ever adds) renders a BLANK row instead of something a
+  // director can read. Same fallback shape FinalizeFindingsList already uses.
+  it('falls back to kind, then JSON, for a commit notice with no .message — never a blank row', async () => {
+    render(<DraftRunView run={DRAFT_RUN} danglingFindings={[
+      { kind: 'SOME_FUTURE_KIND', camper_id: 'camper-9' },
+    ]} {...catalogs()} />)
+
+    const row = await screen.findByTestId('run-state-notice-camper-9-SOME_FUTURE_KIND')
+    expect(row.textContent).toBe('SOME_FUTURE_KIND')
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -628,6 +663,23 @@ describe('T250 archive_when — Final: read-only run identity', () => {
     expect(identity.textContent).toMatch(/Final/)
     // Immutable: no move/lock table on a Final run.
     expect(screen.queryByTestId('placement-row-a1')).toBeNull()
+  })
+
+  // Round 2 FIX 5(d) (Code Reviewer, LOW) — DraftRunView's own success
+  // transition (`onFinalized?.({ ...run, status: 'final', finalized_at:
+  // out.finalizedAt })`) sends no finalized_by, because
+  // finalizeElectiveRun's success shape does not return it — so a run just
+  // finalized in THIS session shows "finalized <date>" with no "by <user>"
+  // until it is reopened. VERIFIED: RunIdentity already renders this
+  // coherently — finalized_by is its own independent Boolean-filtered
+  // segment, so its absence drops cleanly with no "by undefined" and no
+  // stray separator. No code change needed here; this pins that fact.
+  it('renders "finalized <date>" with no dangling "by" fragment when finalized_by is absent', async () => {
+    render(<FinalRunView run={{ ...FINAL_RUN, finalized_by: undefined }} campers={CAMPERS} {...catalogs()} />)
+    const identity = await screen.findByTestId('run-identity')
+    expect(identity.textContent).toMatch(/finalized 2026-09-24/)
+    expect(identity.textContent).not.toMatch(/by /)
+    expect(identity.textContent).not.toMatch(/undefined/)
   })
 })
 

@@ -151,7 +151,11 @@ const RANK_WORDS = ['a first choice', 'a second choice', 'a third choice']
 // rank-breakdown clause below is already correctly per-PLACEMENT and is
 // UNCHANGED.
 export function satisfactionSummary({ rows = [], preferences = [], occurrences = [], days = [], timeBlocks = [] } = {}) {
-  const camperCount = new Set(rows.map((r) => r.camper_id)).size
+  // Round 2 FIX 5(b) — elective_assignments.camper_id is nullable in the
+  // schema (a null-camper row is schema-permitted, not known to be produced
+  // today). Filtered out of the DISTINCT-camper count only; the row still
+  // counts toward placementCount below.
+  const camperCount = new Set(rows.map((r) => r.camper_id).filter((id) => id != null)).size
   const placementCount = rows.length
   const occurrenceCount = new Set(rows.map((r) => r.occurrence_id)).size
   const preferenceFor = buildPreferenceLookup({ preferences, occurrences, days, timeBlocks })
