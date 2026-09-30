@@ -77,7 +77,8 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [A whole-sheet planner grid imports through the director's panel](../../docs/work/tickets/T305-a-whole-sheet-planner-grid-imports-through-the-panel.md) | open | [T306-the-director-can-name-an-unnamed-submission](../../docs/work/tickets/T306-the-director-can-name-an-unnamed-submission.md) · [T307-a-directors-column-correction-is-honoured](../../docs/work/tickets/T307-a-directors-column-correction-is-honoured.md) · [T313-one-spelling-for-a-provisional-subject](../../docs/work/tickets/T313-one-spelling-for-a-provisional-subject.md) |
-| [The import panel reads every tab of a workbook, not just the first](../../docs/work/tickets/T314-the-import-panel-reads-every-tab-of-a-workbook.md) | open | — |
+| [The import panel reads every tab of a workbook, not just the first](../../docs/work/tickets/T314-the-import-panel-reads-every-tab-of-a-workbook.md) | open | [T315-every-setup-importer-reads-its-own-tab](../../docs/work/tickets/T315-every-setup-importer-reads-its-own-tab.md) |
+| [Every setup importer reads the tab that holds its entity](../../docs/work/tickets/T315-every-setup-importer-reads-its-own-tab.md) | open | — |
 
 ### unclassified
 

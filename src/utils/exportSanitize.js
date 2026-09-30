@@ -127,6 +127,76 @@ export function readWorkbookRows(data, { type, byteLength, limits = IMPORT_LIMIT
   }))
 }
 
+// WHICH SHEET holds a given ENTITY's rows — the setup screens' counterpart to
+// `selectPreferenceSheet` (T315).
+//
+// Every per-entity importer read `wb.Sheets[wb.SheetNames[0]]`, so a director whose table sat on any
+// tab but the first got one of two outcomes, both measured on a workbook in the app's own export
+// order (Programs, Age Divisions, Groups, Days, Time Blocks, Activities):
+//
+//   * Days and Anchors read the `Programs` tab, found none of their fields, and imported NOTHING;
+//   * Groups and Activities read `name` off the `Programs` tab and would have imported the camp's
+//     PROGRAM as a group and as an activity — a plausible-looking row that nobody created. Silence
+//     with wrong data in it, which is the worse half.
+//
+// THE ORDER IS THE DESIGN, and each step earns its place:
+//   1. the sheet NAME, when the workbook has one (case- and space-insensitive). Exact, and it is what
+//      this app's own export writes, so it needs no guessing about columns.
+//   2. the required COLUMNS, for a third-party file that names its tabs anything. The FIRST sheet
+//      carrying all of them wins; several matching is accept-and-report, not a merge.
+//   3. the FIRST sheet, unchanged from before. A single-sheet file — the ordinary third-party case —
+//      therefore behaves exactly as it always did, which is what keeps this from being a rewrite of
+//      every importer's contract.
+//
+// Returns the rows as OBJECTS keyed by header, which is what these importers consume — deliberately
+// NOT the same shape as `readWorkbookRows` (array-of-arrays, for the preference transforms). Two row
+// shapes, because two families of caller genuinely need different ones; one READ boundary underneath
+// both, which is the thing that must not fork.
+export function readEntitySheet(data, { type, byteLength, sheetName = null, requiredColumns = [], limits = IMPORT_LIMITS } = {}) {
+  const workbook = readWorkbookSafely(data, { type, byteLength, limits })
+  const names = workbook.SheetNames ?? []
+
+  const fold = (v) => String(v ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
+  // FAILS SOFT, and the guard is load-bearing rather than defensive noise: a header probe that
+  // throws takes the whole import down, turning "this tab is not the one" into "that import file
+  // could not be read". `Array.isArray` because the first element is only an array for a sheet
+  // `header: 1` could read as a grid — anything else means this tab tells us nothing about its
+  // columns, which is an answer, not an error.
+  const headersOf = (name) => {
+    let aoa
+    try {
+      aoa = XLSX.utils.sheet_to_json(workbook.Sheets[name], { header: 1, blankrows: false, defval: '' })
+    } catch {
+      return new Set()
+    }
+    return new Set(Array.isArray(aoa?.[0]) ? aoa[0].map(fold) : [])
+  }
+
+  // 1. by name.
+  let picked = sheetName ? names.find((n) => fold(n) === fold(sheetName)) : undefined
+
+  // 2. by columns.
+  if (!picked && requiredColumns.length > 0) {
+    picked = names.find((n) => {
+      const headers = headersOf(n)
+      return requiredColumns.every((c) => headers.has(fold(c)))
+    })
+  }
+
+  // 3. the first sheet, exactly as before.
+  const selected = picked ?? names[0] ?? null
+
+  return {
+    sheet: selected,
+    rows: selected
+      ? XLSX.utils.sheet_to_json(workbook.Sheets[selected], { defval: '' }).map(unescapeRow)
+      : [],
+    // Named so a screen can say which tab it read, which matters most in the case this fixes: a
+    // director who expected tab 2 and a screen that silently took tab 1 had no way to tell.
+    otherSheets: names.filter((n) => n !== selected),
+  }
+}
+
 // Fail closed AFTER parse but BEFORE reading any cell — bound sheet and per-sheet
 // row counts so a decompressed bomb cannot be walked. Throws; imports nothing.
 export function assertWorkbookComplexity(workbook, limits = IMPORT_LIMITS) {

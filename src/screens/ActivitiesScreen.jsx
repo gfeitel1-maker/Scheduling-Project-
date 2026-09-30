@@ -3,13 +3,14 @@ import { describeWriteFailure, deleteRefusalMessage } from '../utils/writeErrorM
 import { whitespaceInsensitiveName } from '../ingest/preview'
 import { mapWithCollisions } from '../ingest/mapWithCollisions.js'
 import * as XLSX from 'xlsx'
-import { aoaToSanitizedSheet, readWorkbookSafely, unescapeRow } from '../utils/exportSanitize.js'
+import { aoaToSanitizedSheet, readEntitySheet } from '../utils/exportSanitize.js'
 import { localClient } from '../localClient'
 import { ChevronIcon, OutdoorIcon } from '../components/icons'
 import { S, prefersReducedMotion, useEnterTransition } from '../styles/shared'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import ImportModal from '../components/setup/ImportModal'
+import ImportPreviewSubtitle from '../components/setup/ImportPreviewSubtitle.jsx'
 import SetupScreenShell from '../components/setup/SetupScreenShell'
 import ProvenanceDot from '../components/setup/ProvenanceDot'
 import { provenanceDotStyles } from '../components/setup/provenanceDotStyles.js'
@@ -481,6 +482,10 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
   const [modal, setModal] = useState(null) // null | { activity } — activity=null means new
   const [importStep, setImportStep] = useState(null)
   const [importRows, setImportRows] = useState([])
+  // T315 — which tab this workbook's rows came from, when there was more than one to
+  // choose between. Null on a single-sheet file: there was no choice, so there is
+  // nothing to report.
+  const [importSheetNote, setImportSheetNote] = useState(null)
   const [importResult, setImportResult] = useState(null)
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState(null)
@@ -873,8 +878,15 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
       try {
       // F4 — bound size (on file.size, pre-parse) and sheet/row counts before
       // any cell is read, so an oversize/zip-bomb file imports nothing.
-      const wb = readWorkbookSafely(ev.target.result, { type: 'array', byteLength: file.size })
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }).map(unescapeRow)
+            // T315 — the tab that holds THIS entity, not blindly the first. A director whose
+      // table sat on a later tab imported nothing here, and on the screens keyed on `name`
+      // it was worse: the camp's `Programs` tab was read and its program imported as a row
+      // of this entity. `readEntitySheet` tries the sheet NAME this app's own export
+      // writes, then the required COLUMNS for a third-party file, then falls back to the
+      // first sheet — so a single-sheet file behaves exactly as it always did.
+      const { sheet: importedSheet, rows, otherSheets } = readEntitySheet(ev.target.result, {
+        type: 'array', byteLength: file.size, sheetName: 'Activities', requiredColumns: ['name'],
+      })
       // T255 Slice B — schema v73 lets two age divisions/activities/locations
       // share a name within one camp (they can arrive from a cross-device
       // merge). A plain last-write-wins Object.fromEntries/Map silently bound
@@ -966,7 +978,11 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
           warning,
         }
       })
-      setImportRows(parsed); setImportStep('preview')
+      setImportRows(parsed)
+      // Said only when the workbook HAD more than one tab: on a single-sheet file there was no
+      // choice to report, and a line about it would be noise.
+      setImportSheetNote(otherSheets.length > 0 ? { sheet: importedSheet, others: otherSheets } : null)
+      setImportStep('preview')
       } catch (err) {
         setError(describeWriteFailure(err, 'That import file could not be read.'))
       }
@@ -1318,7 +1334,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
         importing={importing}
         onConfirm={confirmImport}
         onCancel={() => { setImportStep(null); setImportRows([]) }}
-        previewSubtitle={<>{readyRows.length} ready{warnRows.length > 0 && `, ${warnRows.length} with warnings (skipped)`}</>}
+        previewSubtitle={<ImportPreviewSubtitle ready={readyRows.length} warn={warnRows.length} sheetNote={importSheetNote} />}
         renderCell={(r, c) => {
           if (c.key === 'name') return r.name || '—'
           if (c.key === 'location') return (

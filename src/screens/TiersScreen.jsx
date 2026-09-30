@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
-import { aoaToSanitizedSheet, readWorkbookSafely, unescapeRow } from '../utils/exportSanitize.js'
+import { aoaToSanitizedSheet, readEntitySheet } from '../utils/exportSanitize.js'
 import { localClient } from '../localClient'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import DuplicateNameDot from '../components/setup/DuplicateNameDot'
@@ -11,6 +11,7 @@ import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import ImportModal from '../components/setup/ImportModal'
+import ImportPreviewSubtitle from '../components/setup/ImportPreviewSubtitle.jsx'
 import SetupScreenShell from '../components/setup/SetupScreenShell'
 import InlineAddRow from '../components/setup/InlineAddRow'
 
@@ -113,6 +114,9 @@ export default function TiersScreen({ campId, role, onNavigate }) {
   const [adding, setAdding] = useState(false)
   const [importStep, setImportStep] = useState(null) // null | 'preview' | 'done'
   const [importRows, setImportRows] = useState([])
+  // T315 — which tab these rows came from, when there was more than one to choose
+  // between. Null on a single-sheet file: no choice, so nothing to report.
+  const [importSheetNote, setImportSheetNote] = useState(null)
   const [importResult, setImportResult] = useState(null)
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState(null)
@@ -307,9 +311,13 @@ export default function TiersScreen({ campId, role, onNavigate }) {
     const reader = new FileReader()
     reader.onload = ev => {
       try {
-      const wb = readWorkbookSafely(ev.target.result, { type: 'array', byteLength: file.size })
-      const ws = wb.Sheets[wb.SheetNames[0]]
-      const rows = XLSX.utils.sheet_to_json(ws, { defval: '' }).map(unescapeRow)
+      // T315 — the tab that holds THIS entity, not blindly the first. This screen keys on
+      // `name`, and the app's own export puts a `Programs` tab first, so before this a
+      // director importing their own exported workbook got the camp's PROGRAM imported as a
+      // row of this entity: a succeeding import with wrong data in it, not a refusal.
+      const { sheet: importedSheet, rows, otherSheets } = readEntitySheet(ev.target.result, {
+        type: 'array', byteLength: file.size, sheetName: 'Age Divisions', requiredColumns: ['name'],
+      })
       const parsed = rows.map(r => {
         const name = String(r.name || '').trim()
         const sort_order = r.sort_order !== '' ? Number(r.sort_order) : null
@@ -319,6 +327,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
         return { name, sort_order, warning }
       })
       setImportRows(parsed)
+      setImportSheetNote(otherSheets.length > 0 ? { sheet: importedSheet, others: otherSheets } : null)
       setImportStep('preview')
       } catch (err) {
         setError(describeWriteFailure(err, 'That import file could not be read.'))
@@ -449,6 +458,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
         rows={importRows}
         readyCount={readyRows.length}
         warnCount={warnRows.length}
+        previewSubtitle={<ImportPreviewSubtitle ready={readyRows.length} warn={warnRows.length} sheetNote={importSheetNote} />}
         result={importResult}
         importing={importing}
         onConfirm={confirmImport}
