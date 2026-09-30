@@ -68,3 +68,35 @@ describe('satisfactionSummary', () => {
     expect(summary).toMatch(/2 got one of their choices/)
   })
 })
+
+// T250 B2 — satisfactionSummary must count CAMPERS and PLACEMENTS separately.
+// A camper has one row per occurrence, so `rows.length` alone reports
+// placements as though they were campers (a 26-camper run with a 2-block
+// activity read "52 campers placed").
+describe('T250 B2 — satisfactionSummary distinguishes campers from placements', () => {
+  it('reports zero rows as "No campers placed yet."', () => {
+    expect(satisfactionSummary({ rows: [] })).toBe('No campers placed yet.')
+  })
+
+  it('reports one camper with one placement in the singular', () => {
+    const rows = [{ camper_id: 'c1', occurrence_id: 'occ-1', preference_rank: 1 }]
+    expect(satisfactionSummary({ rows })).toMatch(/^1 camper placed, 1 placement across 1 occurrence\./)
+  })
+
+  it('counts DISTINCT campers, not rows, when one camper has two placements (a multi-occurrence activity)', () => {
+    const rows = [
+      { camper_id: 'c1', occurrence_id: 'occ-1', preference_rank: 1 },
+      { camper_id: 'c1', occurrence_id: 'occ-2', preference_rank: 1 },
+    ]
+    expect(satisfactionSummary({ rows })).toMatch(/^1 camper placed, 2 placements across 2 occurrences\./)
+  })
+
+  it('pluralizes campers, placements and occurrences independently', () => {
+    const rows = [
+      { camper_id: 'c1', occurrence_id: 'occ-1', preference_rank: 1 },
+      { camper_id: 'c1', occurrence_id: 'occ-2', preference_rank: 1 },
+      { camper_id: 'c2', occurrence_id: 'occ-1', preference_rank: 2 },
+    ]
+    expect(satisfactionSummary({ rows })).toMatch(/^2 campers placed, 3 placements across 2 occurrences\./)
+  })
+})

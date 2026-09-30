@@ -79,7 +79,17 @@ const RANK_WORDS = ['a first choice', 'a second choice', 'a third choice']
 // ordered preference behind it — 'unordered-set', a null kind, or a row that
 // cannot be joined at all — moves into the `unordered` bucket instead of a
 // numbered one, per the same fabrication-proof rule rankLabel enforces.
+//
+// T250 B2 — a camper has ONE ROW PER OCCURRENCE (a multi-block activity is
+// still one session, but is two elective_assignments rows: one per occupied
+// occurrence), so `rows.length` alone counts placements, not campers. A
+// 26-camper run with even one multi-occurrence placement read "more campers
+// placed than exist." camperCount is the distinct set of camper_id; the
+// rank-breakdown clause below is already correctly per-PLACEMENT and is
+// UNCHANGED.
 export function satisfactionSummary({ rows = [], preferences = [], occurrences = [], days = [], timeBlocks = [] } = {}) {
+  const camperCount = new Set(rows.map((r) => r.camper_id)).size
+  const placementCount = rows.length
   const occurrenceCount = new Set(rows.map((r) => r.occurrence_id)).size
   const preferenceFor = buildPreferenceLookup({ preferences, occurrences, days, timeBlocks })
   const buckets = [0, 0, 0, 0] // first, second, third, lower
@@ -111,6 +121,10 @@ export function satisfactionSummary({ rows = [], preferences = [], occurrences =
   // a first choice still reads as a sentence.
   if (parts.length > 0) parts[0] = parts[0].replace(/^(\d+) /, '$1 got ')
 
-  const placed = `${rows.length} ${rows.length === 1 ? 'camper' : 'campers'} placed across ${occurrenceCount} ${occurrenceCount === 1 ? 'occurrence' : 'occurrences'}.`
+  if (placementCount === 0) return 'No campers placed yet.'
+
+  const placed = `${camperCount} ${camperCount === 1 ? 'camper' : 'campers'} placed, ` +
+    `${placementCount} ${placementCount === 1 ? 'placement' : 'placements'} across ` +
+    `${occurrenceCount} ${occurrenceCount === 1 ? 'occurrence' : 'occurrences'}.`
   return parts.length > 0 ? `${placed} ${parts.join(', ')}.` : placed
 }
