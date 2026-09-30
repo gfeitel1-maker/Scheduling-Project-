@@ -580,6 +580,17 @@ export async function buildAcceptanceCamp(db, { handlers, token, campId, deviceI
  * exists before any preference sheet, and a director sets it on the camper.
  * That is an ordinary field write, so it goes through the real handler.
  *
+ * UPDATE (board item, 2026-09-30) — this same DB-written `campers.group_id`
+ * is now ALSO what AssignmentPanel.jsx reads (via its own `campers` prop,
+ * loaded the same way groups/tiers are) to enrich a solve's attendance
+ * scoping when the sheet's own division resolution comes up null — see
+ * buildAttendance.js's `noCells`/group-scoping and
+ * electiveAcceptancePanelDrive.jsx's `solveWithRoster`, which re-reads the
+ * roster after this function runs so the SECOND solve sees it. With that
+ * wiring in place, §6's condition 6 is fully MET, not vacuous, including at
+ * the outer location conflict coordinate this file's `outerConflictSlotId`
+ * creates (see electiveAcceptanceProjection.integration.test.jsx).
+ *
  * DETERMINISTIC (sorted id, alternating), never random: two runs of this
  * fixture must produce the same camp, or §6's condition 2 would be measuring
  * the fixture instead of the solver.

@@ -59,7 +59,16 @@ import { mapWithCollisions } from '../../../ingest/mapWithCollisions.js'
  * @param {{id: string, division_label?: string|null, group_id?: string|null}[]} input.campers
  * @param {{id: string, tier_id: string|null, group_ids?: string[]}[]} input.occurrences
  * @param {{id: string, name: string}[]} input.tiers
- * @returns {{attendance: Record<string, string[]>, unmatchedCount: number, unmatched: object[], ambiguous: object[]}}
+ * @returns {{attendance: Record<string, string[]>, unmatchedCount: number, unmatched: object[], ambiguous: object[], noCells: object[]}}
+ *   `noCells` (Constitution Art. V) -- a correctly identified camper whose
+ *   group is legitimately absent from every occurrence of their matched tier
+ *   (the tier itself DOES have occurrences; their group just isn't among the
+ *   groups that carry it) gets `attendance[id]: []`, and buildElectiveAssignments
+ *   only ever iterates campers per-occurrence, so that camper would otherwise
+ *   vanish from every export with no visible cause. Grouped by group_id, the
+ *   same per-value shape as `unmatched`/`ambiguous` -- and deliberately
+ *   disjoint from both: this is not an R1 violation (the camper WAS
+ *   identified) and must never increment unmatchedCount.
  */
 export function buildAttendance({ campers = [], occurrences = [], tiers = [] } = {}) {
   // T255 Slice B, finding 6 — schema v73 lets two tiers share a name, so a
@@ -86,6 +95,10 @@ export function buildAttendance({ campers = [], occurrences = [], tiers = [] } =
   // (the name IS one of the camp's real divisions), it is a same-camp name
   // collision the director resolves by renaming a division, not the sheet.
   const ambiguousByValue = new Map()
+  // Art. V follow-up — same per-value grouping shape, keyed on group_id
+  // rather than a sheet value: the cause here is the camp's own roster, not
+  // anything the director typed.
+  const noCellByGroup = new Map()
   // tierNames keeps BOTH tiers of an ambiguous pair — suggestDivisionMatch may
   // therefore suggest a name that is itself ambiguous. That is unchanged by
   // this fix: the suggestion is advisory text only (T144, propose never
@@ -123,9 +136,24 @@ export function buildAttendance({ campers = [], occurrences = [], tiers = [] } =
       continue
     }
     const tierOccurrences = occurrences.filter((o) => o.tier_id === matchedTierId)
-    attendance[camper.id] = camper.group_id != null
-      ? tierOccurrences.filter((o) => (o.group_ids ?? []).includes(camper.group_id)).map((o) => o.id)
-      : tierOccurrences.map((o) => o.id)
+    if (camper.group_id != null) {
+      const groupOccurrences = tierOccurrences.filter((o) => (o.group_ids ?? []).includes(camper.group_id))
+      attendance[camper.id] = groupOccurrences.map((o) => o.id)
+      if (groupOccurrences.length === 0 && tierOccurrences.length > 0) {
+        if (!noCellByGroup.has(camper.group_id)) {
+          noCellByGroup.set(camper.group_id, { group_id: camper.group_id, camperCount: 0 })
+        }
+        noCellByGroup.get(camper.group_id).camperCount += 1
+      }
+    } else {
+      attendance[camper.id] = tierOccurrences.map((o) => o.id)
+    }
   }
-  return { attendance, unmatchedCount, unmatched: [...unmatchedByValue.values()], ambiguous: [...ambiguousByValue.values()] }
+  return {
+    attendance,
+    unmatchedCount,
+    unmatched: [...unmatchedByValue.values()],
+    ambiguous: [...ambiguousByValue.values()],
+    noCells: [...noCellByGroup.values()],
+  }
 }

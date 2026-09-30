@@ -100,10 +100,11 @@ function gridCells() {
 // table the export reads is the circularity this whole condition exists to
 // avoid.
 //
-// SAID PLAINLY: this override changes no result TODAY, because that coordinate
-// never reaches the inherited set at all — the GAP below measures why and
-// asserts it in both directions. It is here so the condition is already correct
-// the day the gap closes, rather than going green against the wrong document.
+// SAID PLAINLY: this override now DOES change the result (board item,
+// 2026-09-30) — that coordinate reaches the inherited set as Boating, exactly
+// as this map says, and the test below asserts it in both directions. It was
+// written before the gap closed so the condition was already correct the day
+// it did, rather than going green against the wrong document.
 const OUTER_CONFLICT_KEY =
   `${ACCEPTANCE_MANIFEST.outerConflictCell.group}|${ACCEPTANCE_MANIFEST.outerConflictCell.day}|${ACCEPTANCE_MANIFEST.electivePeriod}`
 const expectedAt = (grid, key) =>
@@ -165,25 +166,26 @@ describe("§6 (6) — a child's non-elective cells equal the group template the 
     }
   })
 
-  // GAP — THE ONE CELL THE GENERATED ROUTE OVERWRITES IS NOT REACHABLE AS AN
-  // INHERITED CELL AT ALL, and the reason is a production defect, not an
-  // export narrowing.
+  // MET (2026-09-30, board item) — THE ONE CELL THE GENERATED ROUTE
+  // OVERWRITES IS NOW REACHABLE AS AN INHERITED CELL. Formerly a GAP.
   //
-  // An occurrence is (set, day, block, TIER) — never (…, group). The generated
-  // route places the set on Older 1 only at Monday/10:50 and gives Older 2
-  // `Boating`, but the Older/Monday occurrence that Older 1's cell creates is a
-  // TIER-level occurrence, so buildAttendance admits every Older camper to it,
-  // including Older 2's. Those campers are then placed in an elective at a
-  // period their own group spends at Boating, and F4 in
-  // electron/ops/electiveRunOuterSchedule.js correctly suppresses the inherited
-  // Boating span underneath it — one placement per block.
+  // An occurrence is (set, day, block, TIER) — never (…, group), but it now
+  // ALSO carries a derived, non-persisted `group_ids`: which groups' slots
+  // actually created or joined that cell (deriveOccurrences.js). The
+  // generated route places the set on Older 1 only at Monday/10:50 and gives
+  // Older 2 `Boating`, so the Older/Monday occurrence's `group_ids` names
+  // only Older 1's group. buildAttendance.js now scopes a camper by their
+  // ROSTER group_id (roster-owned, same precedence as commitElectiveRun.js's
+  // own "sheet may SET, never CLEAR" rule) when it is known, so Older 2's
+  // campers are excluded from that occurrence — never placed in an elective
+  // there — and F4 in electron/ops/electiveRunOuterSchedule.js (which
+  // suppresses an inherited span only underneath a REAL elective placement)
+  // has nothing to suppress. The inherited Boating span reaches the export.
   //
-  // So condition (6) CANNOT cover this coordinate today. Asserted in both
-  // directions rather than left as a silent absence: it is absent from the
-  // inherited set, AND the elective placement that displaced it is present. The
-  // day tier-level occurrences learn which groups actually carry the set, the
-  // second half goes red; the day the export starts emitting it, the first does.
-  it('GAP — the overwritten generated cell arrives as an ELECTIVE, not as the group’s Boating', () => {
+  // Asserted in both directions, as the GAP version was: present in the
+  // inherited set, AND absent from the elective placements that used to
+  // displace it.
+  it('the overwritten generated cell arrives as the INHERITED Boating cell, not an elective', () => {
     const groupIdByName = new Map(catalogs.groups.map((g) => [g.name, g.id]))
     const conflictGroupId = groupIdByName.get(M.outerConflictCell.group)
     const campersThere = catalogs.campers.filter((c) => c.group_id === conflictGroupId)
@@ -195,9 +197,13 @@ describe("§6 (6) — a child's non-elective cells equal the group template the 
         && r.timeBlockId === camp.fixture.periodId
         && campersThere.some((c) => c.id === r.camperId)
     )
+    // NON-VACUITY — kept from the GAP version: without this the assertions
+    // below would be trivially satisfied by an empty row set.
     expect(at.length).toBeGreaterThan(0)
-    expect([...new Set(at.map((r) => r.cellKind))]).toEqual(['elective'])
-    expect(at.map((r) => r.activityName)).not.toContain(M.sharedLocationOuterActivity)
+    expect([...new Set(at.map((r) => r.cellKind))]).toEqual(['inherited'])
+    expect(at.map((r) => r.activityName)).toEqual(
+      at.map(() => M.sharedLocationOuterActivity)
+    )
   })
 
   it('the child export names the group the camper is actually in', () => {
@@ -395,7 +401,20 @@ describe('§6 (7) — every assignment appears exactly once in the matching rost
     // unordered-set placement this camp could produce is absent from this
     // fixture by construction. Therefore `unordered_count` SHOULD be 0 here.
     //
-    // It is 15, and the cause is a SEPARATE defect this ticket does not fix.
+    // It is 14 (was 15 before the board item fixed below), and the cause is a
+    // SEPARATE defect this ticket does not fix.
+    //
+    // 15 -> 14, DERIVED, not fitted: the board item (2026-09-30) closing the
+    // GAP test below removed exactly one wrongly-seated assignment — the
+    // Older 2 camper who used to be admitted to the Older/Monday occurrence
+    // (created only by Older 1's slot) is now correctly excluded, so that
+    // occurrence's assignment count for Older 2 drops by one. Confirmed with
+    // a one-off debug probe before writing this number: the null-choice
+    // assignment set (this bucket's source, per the comment below) went from
+    // 15 rows to 14, and the removed row's camper belonged to Older 2 at the
+    // Older/Monday occurrence — the exact coordinate the GAP test's inversion
+    // covers. Nothing else about this bucket's cause (the ADR D6 per-tier
+    // scope gap below) changed.
     // NOT the "wrong-tier binding defect" an earlier draft of this comment
     // named — that attribution was measured and REFUTED: for all 15 of these
     // rows the camper's tier EQUALS the occurrence's tier (tierMatchesOcc 15,
@@ -423,13 +442,13 @@ describe('§6 (7) — every assignment appears exactly once in the matching rost
     // assertion is EXPECTED to fail then. Update it to 0 at that point, with a
     // comment saying the defect closed; do not delete it or loosen it back to
     // a tautology.
-    expect(summary.unordered_count).toBe(15)
+    expect(summary.unordered_count).toBe(14)
 
     // AND THE IDENTITY, not only the cardinality — Red Hat's challenge to the
     // line above: a count can survive for the wrong reason. A later change that
     // adds one genuinely unordered-set camper while a NEW defect mis-buckets one
-    // more ordered row nets to 15 and this file would have shrugged. So pin WHY
-    // each of the 15 is here: every one must be a ranked assignment whose
+    // more ordered row nets to 14 and this file would have shrugged. So pin WHY
+    // each of the 14 is here: every one must be a ranked assignment whose
     // preference row is ABSENT from elective_preferences altogether, which is
     // the scope gap's signature and nothing else's. A genuinely unordered-set
     // camper HAS a persisted preference row (carrying rank_kind
@@ -441,7 +460,7 @@ describe('§6 (7) — every assignment appears exactly once in the matching rost
     const rankedWithNoPreferenceRow = assignments.filter((a) => (
       a.preference_rank != null && !persistedPrefKeys.has(`${a.camper_id}\u0000${a.choice_id}`)
     ))
-    expect(rankedWithNoPreferenceRow).toHaveLength(15)
+    expect(rankedWithNoPreferenceRow).toHaveLength(14)
 
     // The independent second fact: the SAME bucketing, computed with the
     // production join, against a plain SQL count of assignment rows —

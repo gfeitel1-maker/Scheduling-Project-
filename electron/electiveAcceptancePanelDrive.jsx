@@ -37,6 +37,7 @@ export function panelPropsFromDatabase(camp, { onError } = {}) {
     activities: list('activities'),
     groups: list('groups'),
     tiers: list('tiers'),
+    campers: list('campers'),
     days: list('days_of_operation'),
     timeBlocks: list('time_blocks'),
     templateSlots: list('template_slots'),
@@ -118,5 +119,12 @@ export async function solveWithRoster(camp, props, options) {
     handlers: camp.handlers, token: camp.token,
     campId: camp.fixture.campId, groupIdByName: camp.fixture.groupIdByName,
   })
-  return solveAndCommit(camp, props, options)
+  // Board item (2026-09-30) — `props.campers` was read ONCE by the caller,
+  // before assignBunks wrote real bunk group_ids. A real screen re-mounts
+  // (ElectiveSetDetail/ScheduleElectivesScreen's own `load()`) and would see
+  // the fresh roster; re-reading it here is what keeps this SECOND solve
+  // faithful to "the camp as a director actually has it" (this function's own
+  // doc comment above) rather than solving against a stale pre-bunk snapshot.
+  const refreshedProps = { ...props, campers: camp.handlers.list(camp.token, 'campers') }
+  return solveAndCommit(camp, refreshedProps, options)
 }
