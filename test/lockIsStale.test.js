@@ -16,7 +16,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 const SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), '../scripts/consolidation/lockIsStale.sh')
@@ -54,6 +54,26 @@ function ageLock(lockPath, daysAgo) {
   execFileSync('touch', ['-t', `${yyyy}${MM}${dd}${hh}${mm}`, lockPath])
 }
 
+function writeHolderPid(lockPath, content) {
+  fs.writeFileSync(path.join(lockPath, 'holder.pid'), content)
+}
+
+// A pid guaranteed dead: spawn a trivial process synchronously and let it run to
+// completion before we ever use its pid. spawnSync only returns once the child has
+// exited, so by the time we read `.pid` the process is already reaped.
+function reapedDeadPid() {
+  const result = spawnSync('true', [])
+  const pid = result.pid
+  // Confirm it is actually gone rather than assuming — kill -0 throws ESRCH if dead.
+  try {
+    process.kill(pid, 0)
+    throw new Error(`pid ${pid} is unexpectedly still alive — test assumption broken`)
+  } catch (err) {
+    if (err.code !== 'ESRCH') throw err
+  }
+  return pid
+}
+
 describe('lockIsStale.sh — stale, not-stale, and cannot tell', () => {
   it('a fresh lock (just created) is not stale', () => {
     expect(run([makeLock('fresh.lock')])).toBe(1)
@@ -89,5 +109,48 @@ describe('lockIsStale.sh — stale, not-stale, and cannot tell', () => {
     ageLock(stale, 2)
     expect(run([stale])).toBe(0)
     expect(run([path.join(dir, 'absent-for-diff.lock')])).toBe(1)
+  })
+})
+
+describe('lockIsStale.sh — PID liveness overrides age (round 2)', () => {
+  it('an old lock whose recorded holder PID is alive is NOT stale', () => {
+    const lock = makeLock('old-live-holder.lock')
+    // Write the pid file BEFORE aging the directory: creating a file inside a directory
+    // bumps that directory's own mtime back to "now" on APFS, which would silently
+    // un-age the fixture if done in the other order.
+    writeHolderPid(lock, String(process.pid))
+    ageLock(lock, 2)
+    expect(run([lock])).toBe(1)
+  })
+
+  it('an old lock whose recorded holder PID is dead is stale', () => {
+    const lock = makeLock('old-dead-holder.lock')
+    writeHolderPid(lock, String(reapedDeadPid()))
+    ageLock(lock, 2)
+    expect(run([lock])).toBe(0)
+  })
+
+  it('an old lock with no holder.pid file is stale (backward compat, pre-dates the pid file)', () => {
+    const lock = makeLock('old-no-pidfile.lock')
+    ageLock(lock, 2)
+    expect(run([lock])).toBe(0)
+  })
+
+  it.each([
+    ['empty', ''],
+    ['non-numeric', 'banana'],
+    ['negative', '-5'],
+  ])('an old lock with a malformed (%s) holder.pid is cannot-tell, and is NOT removed', (_label, content) => {
+    const lock = makeLock('old-malformed-holder.lock')
+    writeHolderPid(lock, content)
+    ageLock(lock, 2)
+    expect(run([lock])).toBe(2)
+    expect(fs.existsSync(lock)).toBe(true)
+  })
+
+  it('a fresh lock with a dead recorded holder is NOT stale — age not exceeded, so liveness is never consulted', () => {
+    const lock = makeLock('fresh-dead-holder.lock')
+    writeHolderPid(lock, String(reapedDeadPid()))
+    expect(run([lock])).toBe(1)
   })
 })

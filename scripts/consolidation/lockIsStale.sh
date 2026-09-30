@@ -33,6 +33,48 @@
 #             on it (permission denied, path changed out from under us, unreadable), or
 #             max-age-seconds was given but is not a positive integer. An unreadable lock is
 #             not a licence to delete it — the caller must SKIP and say why, not guess.
+#
+# ROUND 2 (Red Hat HIGH finding): age alone is not staleness. A `claude -p` mine that
+# legitimately runs past max-age-seconds looked identical, by mtime, to a lock abandoned by
+# a `kill -9` — a second invocation would `rm -rf` the first one's still-live lock and
+# retake it, and whichever process's `mv` to $PROPOSAL landed second would silently
+# overwrite the first's correct output. Age is now only a PRECONDITION for asking about
+# liveness, never the answer by itself:
+#
+#   - age NOT exceeded            -> exit 1 (not stale), full stop. Liveness is never
+#                                     consulted — a fresh lock is not stale regardless of
+#                                     who holds it or whether that holder is alive.
+#   - age exceeded, no holder.pid -> exit 0 (stale). Backward compatibility: a lock taken
+#                                     before this change recorded no holder, and an
+#                                     age-exceeded lock with nothing to check liveness
+#                                     against must stay removable, or the original
+#                                     kill-9-orphan bug this file exists to fix comes
+#                                     straight back.
+#   - age exceeded, holder.pid present and the recorded PID answers `kill -0` -> exit 1
+#                                     (not stale) — the process that took the lock is
+#                                     still running, however long it has taken.
+#   - age exceeded, holder.pid present and the recorded PID does NOT answer `kill -0`
+#                                     -> exit 0 (stale) — the holder died without cleaning
+#                                     up (the original bug), so the lock is reclaimable.
+#   - age exceeded, holder.pid present but malformed (empty, non-numeric, negative)
+#                                     -> exit 2 (cannot tell), lock left untouched. A
+#                                     malformed pid file is "cannot tell", never a licence
+#                                     to delete — same three-valued discipline as an
+#                                     unreadable `stat`.
+#
+# RESIDUAL RISK THIS PREDICATE CANNOT SEE: PID reuse. `kill -0 $pid` only proves SOME
+# process currently holds that pid, not that it is the same process that wrote holder.pid.
+# After a reboot, or on a long-lived machine that has cycled through the ~4 million pid
+# space, a dead holder's pid can be reassigned to an unrelated live process, which would
+# make a genuinely abandoned lock look alive forever — reintroducing the original
+# kill-9-orphan hang in a rarer, harder-to-diagnose form. Recording and checking the
+# holder's process start time (`ps -o lstart=`) alongside the pid would narrow this, but
+# was deliberately not built: its output format is locale- and OS-dependent, it adds
+# parsing surface with no test able to safely force a real pid-reuse collision to prove it
+# correct, and the failure mode it would close is a rare edge case on top of an already
+# rare edge case (a day-scale nightly job on one dev machine). If this predicate is ever
+# reused somewhere pids cycle fast or reboots are frequent, that tradeoff should be
+# revisited.
 set -u
 
 if (( $# < 1 )); then
@@ -65,8 +107,25 @@ fi
 NOW=$(date +%s)
 AGE=$(( NOW - MTIME ))
 
-if (( AGE > MAX_AGE )); then
+if (( AGE <= MAX_AGE )); then
+  # Not old enough to question yet — liveness is irrelevant at this point.
+  exit 1
+fi
+
+PIDFILE="$LOCK/holder.pid"
+if [[ ! -f "$PIDFILE" ]]; then
+  # Age-exceeded, nothing recorded to check liveness against: backward-compat stale path.
   exit 0
 fi
 
-exit 1
+PID="$(<"$PIDFILE")"
+if [[ ! "$PID" =~ ^[1-9][0-9]*$ ]]; then
+  print -u2 -- "lockIsStale: malformed pid in $PIDFILE — cannot determine staleness"
+  exit 2
+fi
+
+if kill -0 "$PID" 2>/dev/null; then
+  exit 1
+fi
+
+exit 0
