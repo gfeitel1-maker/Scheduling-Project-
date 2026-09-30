@@ -20,6 +20,7 @@ import CamperWeekPanel from './CamperWeekPanel.jsx'
 // nothing recognises, and every reader's safe default then silently declines
 // to show the ordinal. See src/engine/rankKind.js's header.
 import { CELL_CHOICE } from '../../../engine/rankKind.js'
+import { A } from '../assignment/assignmentStyles.js'
 import {
   RELEASE_LOCK_LABEL, camperDisambiguator, danglingMessage, occurrenceLabel, overCapacityMessage,
   satisfactionSummary, stalenessOfferMessage,
@@ -32,16 +33,99 @@ const styles = {
   td: { padding: '6px 8px', borderBottom: '1px solid var(--border)' },
   offer: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, fontSize: 13, marginBottom: 14 },
   camperDisambiguator: { fontSize: 11, color: 'var(--text-secondary)' },
+  actionsBand: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 },
+  actionsHint: { fontSize: 12, color: 'var(--text-secondary)' },
+  findingsList: { margin: '8px 0 0', paddingLeft: 20, fontSize: 12 },
+  // The pairing: the state, then its remedy, with nothing between them — same
+  // shape as FinalRunView's own stale-generation pairing.
+  pairing: { marginBottom: 16 },
+  pairingAction: {
+    border: '1px solid color-mix(in srgb, var(--accent) 45%, var(--border))',
+    borderTop: 'none',
+    borderBottomLeftRadius: 6,
+    borderBottomRightRadius: 6,
+    background: 'color-mix(in srgb, var(--accent) 12%, var(--surface))',
+    padding: '0 14px 10px',
+  },
+}
+
+const FINALIZE_MESSAGES = {
+  STALE_OUTER_SCHEDULE:
+    "This run's schedule changed on another device since you last regenerated. Finalizing now would lock in an outdated version.",
+  OUTER_RESOURCE_CONFLICT:
+    'A location or activity this run depends on is now double-booked on the main schedule. Fix the conflict there, then finalize again.',
+  ALREADY_FINAL: 'This run was already finalized — on this device or another. Reloading it now.',
+}
+
+// T250 A2 — the inline refusal a Finalize attempt produced. One row per the
+// verbatim copy the ticket specifies, `findings` rendered as a plain list
+// (up to 3) with the remainder collapsed behind a native <details>/<summary>,
+// the same idiom ParseSummary already uses for its own collapsible sections.
+function FinalizeFindingsList({ findings }) {
+  if (!findings || findings.length === 0) return null
+  const shown = findings.slice(0, 3)
+  const rest = findings.length - shown.length
+  return (
+    <>
+      <ul style={styles.findingsList}>
+        {shown.map((f, i) => (
+          <li key={i}>{f.message ?? f.kind ?? JSON.stringify(f)}</li>
+        ))}
+      </ul>
+      {rest > 0 ? (
+        <details style={A.disclosure}>
+          <summary style={A.disclosureSummary}>+{rest} more</summary>
+          <ul style={styles.findingsList}>
+            {findings.slice(3).map((f, i) => (
+              <li key={i}>{f.message ?? f.kind ?? JSON.stringify(f)}</li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
+    </>
+  )
+}
+
+function FinalizeRefusalRow({ refusal, onRegenerate, lockedAssignments }) {
+  const { error, findings } = refusal
+  const known = FINALIZE_MESSAGES[error]
+  const message = known ?? `Finalizing failed: ${error}. Nothing was changed — try again, or contact support if this keeps happening.`
+
+  if (error === 'STALE_OUTER_SCHEDULE') {
+    return (
+      <div data-testid="run-state-finalize-refusal" style={styles.pairing}>
+        <RunStateRow testId="run-state-finalize-stale" message={<>{message}<FinalizeFindingsList findings={findings} /></>} first alert />
+        {onRegenerate ? (
+          <div style={styles.pairingAction}>
+            <button className="press-97" style={S.btnSecondary} onClick={() => onRegenerate({ lockedAssignments })}>
+              Re-derive and regenerate
+            </button>
+          </div>
+        ) : null}
+      </div>
+    )
+  }
+
+  return (
+    <RunStateRow
+      testId="run-state-finalize-refusal"
+      first last alert
+      message={<>{message}<FinalizeFindingsList findings={findings} /></>}
+    />
+  )
 }
 
 export default function DraftRunView({
-  run, danglingFindings = [], onRegenerate, onBack,
+  run, danglingFindings = [], onRegenerate, onFinalized, onBack,
   activities = [], days = [], timeBlocks = [], templateOccurrences = [],
   scheduleTemplates = [], scheduleWeeks = [], tiers = [],
 }) {
   const { state, setState, loaded, loadError, reload } = useRunState(run.id)
   const [error, setError] = useState(null)
   const [released, setReleased] = useState([])
+  const [finalizing, setFinalizing] = useState(false)
+  // { error, findings } for the refusal row, or null when nothing to say.
+  const [finalizeRefusal, setFinalizeRefusal] = useState(null)
   // T297 — set by a preference edit, and the ONLY thing that offers the re-solve
   // below. Session-scoped by design rather than by omission: the offer means
   // "you changed something and have not re-solved since", which is a fact about
@@ -181,6 +265,33 @@ export default function DraftRunView({
     setReleased((r) => [...r, finding.assignment_id])
   }
 
+  // T250 A1/A2 — locks this run. finalizeElectiveRun's real return shape
+  // (electron/ops/finalizeElectiveRun.js): {ok:true, finalizedAt, snapshotRows}
+  // | {ok:false, error:'ALREADY_FINAL'} | {ok:false, error:'STALE_OUTER_SCHEDULE'|
+  // 'OUTER_RESOURCE_CONFLICT', findings} | {ok:false, error:<other string>}.
+  async function finalizeRun() {
+    setFinalizing(true)
+    setFinalizeRefusal(null)
+    try {
+      const out = await localClient.finalizeElectiveRun({ runId: run.id })
+      if (out?.ok) {
+        onFinalized?.({ ...run, status: 'final', finalized_at: out.finalizedAt })
+        return
+      }
+      if (out?.error === 'ALREADY_FINAL') {
+        setFinalizeRefusal({ error: out.error, findings: [] })
+        await reload()
+        onFinalized?.({ ...run, status: 'final' })
+        return
+      }
+      setFinalizeRefusal({ error: out?.error ?? 'unknown error', findings: out?.findings ?? [] })
+    } catch (err) {
+      setFinalizeRefusal({ error: describeWriteFailure(err, 'That could not be finalized.'), findings: [] })
+    } finally {
+      setFinalizing(false)
+    }
+  }
+
   // The seats the director locked by hand, which BOTH re-solve offers carry so a
   // regenerate cannot undo them. One definition: the staleness offer and the
   // preference offer had byte-identical copies.
@@ -244,6 +355,17 @@ export default function DraftRunView({
         />
       )
     }),
+    // T250 A2 — appended AFTER the over-capacity and dangling rows: whatever
+    // refusal the last Finalize attempt produced, inline in the run's own
+    // run-state area rather than a separate block.
+    finalizeRefusal ? (
+      <FinalizeRefusalRow
+        key="finalize-refusal"
+        refusal={finalizeRefusal}
+        onRegenerate={onRegenerate}
+        lockedAssignments={lockedAssignments}
+      />
+    ) : null,
   ]
 
   return (
@@ -258,6 +380,23 @@ export default function DraftRunView({
           </div>
 
           <RunStateArea>{stateRows}</RunStateArea>
+
+          {/* T250 A1 — the actions band. Positioned directly below the
+              run-state area and above the staleness/preference offers and the
+              move/lock table, per the spec's layout order. */}
+          <div style={styles.actionsBand}>
+            <button
+              className="press-97"
+              style={S.btnPrimary}
+              disabled={finalizing}
+              onClick={finalizeRun}
+            >
+              {finalizing ? 'Finalizing…' : 'Finalize run'}
+            </button>
+            <span style={styles.actionsHint}>
+              Locks this run. You&apos;ll see it as Final, and can always start a new version later.
+            </span>
+          </div>
 
           {/* An offer, never a block: the table below stays fully usable.
               The FACT is stated whenever there is one, and the control appears

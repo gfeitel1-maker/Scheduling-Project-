@@ -298,6 +298,10 @@ export default function AssignmentPanel({
   // independently of the import phase machine above (which it deliberately
   // does not disturb).
   const [viewRun, setViewRun] = useState(null)
+  // T250 A1 — set true only by a successful finalizeRun() in THIS session, so
+  // FinalRunView's entrance transition fires on the Finalize -> Final
+  // transition and never on a Final run opened cold from the run list.
+  const [justFinalized, setJustFinalized] = useState(false)
   const [danglingFindings, setDanglingFindings] = useState([])
   // What this director settled on THIS parse \u2014 a list of
   // `{ label, action, activityName }` \u2014 and the label currently being acted on.
@@ -925,6 +929,23 @@ export default function AssignmentPanel({
     solve(occurrences, lockedAssignments, null, runPreferences, runChoices)
   }
 
+  // T250 A1 — DraftRunView calls this after a successful finalizeRun(). This
+  // panel is the only place that CAN move a run from Draft to Final: DraftRunView
+  // itself has no way to change the `run` prop it was handed.
+  function onFinalized(finalizedRun) {
+    setJustFinalized(true)
+    setViewRun(finalizedRun)
+  }
+
+  // Any OTHER way of arriving at a run view (opened from the list, or a fresh
+  // commit) is not the finalize transition — reset the flag so a stale `true`
+  // from an earlier finalize in this session cannot animate a run that was
+  // simply reopened.
+  function openRun(run) {
+    setJustFinalized(false)
+    setViewRun(run)
+  }
+
   // Q1/Q2: a finalized run is immutable and there is no reopen. With today's
   // IPC the honest minimal behaviour is to put the director back at the import
   // flow, which mints a fresh runId on the next solve — a NEW run, never this
@@ -1004,11 +1025,13 @@ export default function AssignmentPanel({
             campers={parsed?.campers ?? []}
             onStartRevision={startRevision}
             onBack={() => setViewRun(null)}
+            justFinalized={justFinalized}
             {...runViewCatalogs}
           />
         ) : (
           <DraftRunView
             run={viewRun}
+            onFinalized={onFinalized}
             /* KNOWN GAP, not an oversight: danglingFindings are SESSION-SCOPED.
                commitElectiveRun returns them, this panel holds them in React
                state, and a run reopened in a later session therefore always
@@ -1042,7 +1065,7 @@ export default function AssignmentPanel({
           <button className="press-97" onClick={() => fileInputRef.current?.click()} style={S.btnSecondary}>
             Import Camper Preferences
           </button>
-          <div style={{ marginTop: 20, textAlign: 'left' }}><RunList onOpen={setViewRun} /></div>
+          <div style={{ marginTop: 20, textAlign: 'left' }}><RunList onOpen={openRun} /></div>
         </div>
       )}
 
@@ -1158,7 +1181,7 @@ export default function AssignmentPanel({
             <button className="press-97" onClick={exportJson} style={S.btnSecondary}>Export as JSON</button>
           </div>
           <button className="press-97" onClick={reset} style={S.btnUtility}>Assign Another Sheet</button>
-          <div style={{ marginTop: 20 }}><RunList onOpen={setViewRun} /></div>
+          <div style={{ marginTop: 20 }}><RunList onOpen={openRun} /></div>
         </div>
       )}
       </>)}

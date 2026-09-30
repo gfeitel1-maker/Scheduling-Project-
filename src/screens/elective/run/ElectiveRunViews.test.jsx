@@ -33,6 +33,8 @@ vi.mock('../../../localClient', () => ({
     setElectiveAssignment: vi.fn(),
     getElectiveRunOuterSchedule: vi.fn(),
     list: vi.fn(),
+    finalizeElectiveRun: vi.fn(),
+    deleteElectiveRun: vi.fn(),
   },
 }))
 
@@ -120,6 +122,8 @@ beforeEach(() => {
   localClient.setElectiveAssignment.mockReset().mockResolvedValue({ ok: true, assignmentId: 'a1' })
   localClient.getElectiveRunOuterSchedule.mockReset().mockResolvedValue({ rows: [], runStatus: 'final' })
   localClient.list.mockReset().mockResolvedValue(CAMPERS)
+  localClient.finalizeElectiveRun.mockReset()
+  localClient.deleteElectiveRun.mockReset()
 })
 
 // ---------------------------------------------------------------------------
@@ -138,6 +142,120 @@ describe('T250 archive_when — Draft: run list', () => {
 
     fireEvent.click(draftRow)
     expect(onOpen).toHaveBeenCalledWith(DRAFT_RUN)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// T250 A1 + A2 — Finalize control and its inline refusals.
+// ---------------------------------------------------------------------------
+describe('T250 A1 — Finalize run', () => {
+  it('calls finalizeElectiveRun and, on success, hands the finalized run to onFinalized', async () => {
+    localClient.finalizeElectiveRun.mockResolvedValue({ ok: true, finalizedAt: '2026-09-30T12:00:00.000Z', snapshotRows: 3 })
+    const onFinalized = vi.fn()
+    render(<DraftRunView run={DRAFT_RUN} onFinalized={onFinalized} {...catalogs()} />)
+    const button = await screen.findByRole('button', { name: 'Finalize run' })
+    fireEvent.click(button)
+    await waitFor(() => expect(localClient.finalizeElectiveRun).toHaveBeenCalledWith({ runId: 'run-1' }))
+    await waitFor(() => expect(onFinalized).toHaveBeenCalled())
+    const finalized = onFinalized.mock.calls[0][0]
+    expect(finalized.status).toBe('final')
+    expect(finalized.finalized_at).toBe('2026-09-30T12:00:00.000Z')
+  })
+
+  it('disables the button and shows Finalizing… while the write is in flight', async () => {
+    let resolveFinalize
+    localClient.finalizeElectiveRun.mockReturnValue(new Promise((resolve) => { resolveFinalize = resolve }))
+    render(<DraftRunView run={DRAFT_RUN} onFinalized={vi.fn()} {...catalogs()} />)
+    const button = await screen.findByRole('button', { name: 'Finalize run' })
+    fireEvent.click(button)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Finalizing…' }).disabled).toBe(true))
+    resolveFinalize({ ok: true, finalizedAt: 'x', snapshotRows: 0 })
+  })
+
+  it('STALE_OUTER_SCHEDULE renders the verbatim copy paired with a Re-derive and regenerate action', async () => {
+    localClient.finalizeElectiveRun.mockResolvedValue({ ok: false, error: 'STALE_OUTER_SCHEDULE', findings: [{ kind: 'OCCURRENCE_REMOVED', occurrenceId: 'occ-1' }] })
+    const onRegenerate = vi.fn()
+    render(<DraftRunView run={DRAFT_RUN} onFinalized={vi.fn()} onRegenerate={onRegenerate} {...catalogs()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Finalize run' }))
+    const row = await screen.findByText(/This run's schedule changed on another device since you last regenerated/)
+    const action = screen.getByRole('button', { name: /Re-derive and regenerate/i })
+    fireEvent.click(action)
+    expect(onRegenerate).toHaveBeenCalled()
+    void row
+  })
+
+  it('OUTER_RESOURCE_CONFLICT renders the verbatim copy with no action button', async () => {
+    localClient.finalizeElectiveRun.mockResolvedValue({ ok: false, error: 'OUTER_RESOURCE_CONFLICT', findings: [{ locationId: 'loc-1' }] })
+    render(<DraftRunView run={DRAFT_RUN} onFinalized={vi.fn()} {...catalogs()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Finalize run' }))
+    const row = await screen.findByText(/A location or activity this run depends on is now double-booked/)
+    expect(within(row.closest('[role="alert"]')).queryByRole('button')).toBeNull()
+  })
+
+  it('ALREADY_FINAL reloads and transitions to the finalized run', async () => {
+    localClient.finalizeElectiveRun.mockResolvedValue({ ok: false, error: 'ALREADY_FINAL' })
+    const onFinalized = vi.fn()
+    render(<DraftRunView run={DRAFT_RUN} onFinalized={onFinalized} {...catalogs()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Finalize run' }))
+    await waitFor(() => expect(onFinalized).toHaveBeenCalled())
+    expect(onFinalized.mock.calls[0][0].status).toBe('final')
+  })
+
+  it('an unrecognised error string renders verbatim, with nothing changed', async () => {
+    localClient.finalizeElectiveRun.mockResolvedValue({ ok: false, error: 'run has no assignments' })
+    render(<DraftRunView run={DRAFT_RUN} onFinalized={vi.fn()} {...catalogs()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Finalize run' }))
+    await screen.findByText(/Finalizing failed: run has no assignments\. Nothing was changed/)
+  })
+
+  it('renders up to 3 findings as a list, collapsing the remainder behind "+N more"', async () => {
+    localClient.finalizeElectiveRun.mockResolvedValue({
+      ok: false, error: 'OUTER_RESOURCE_CONFLICT',
+      findings: [
+        { locationId: 'loc-1', message: 'Finding one' },
+        { locationId: 'loc-2', message: 'Finding two' },
+        { locationId: 'loc-3', message: 'Finding three' },
+        { locationId: 'loc-4', message: 'Finding four' },
+        { locationId: 'loc-5', message: 'Finding five' },
+      ],
+    })
+    render(<DraftRunView run={DRAFT_RUN} onFinalized={vi.fn()} {...catalogs()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Finalize run' }))
+    const row = await screen.findByTestId('run-state-finalize-refusal')
+    const lists = row.querySelectorAll('ul')
+    expect(lists[0].querySelectorAll('li')).toHaveLength(3)
+    expect(screen.getByText('+2 more')).toBeTruthy()
+  })
+
+  it('the refusal row is an alert and receives focus', async () => {
+    localClient.finalizeElectiveRun.mockResolvedValue({ ok: false, error: 'OUTER_RESOURCE_CONFLICT', findings: [] })
+    render(<DraftRunView run={DRAFT_RUN} onFinalized={vi.fn()} {...catalogs()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Finalize run' }))
+    const row = await screen.findByRole('alert')
+    await waitFor(() => expect(document.activeElement).toBe(row))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// T250 A1 — FinalRunView's own entrance transition is transient: it applies
+// ONLY on the in-session Finalize -> Final transition (justFinalized), never
+// on a Final run opened cold from the run list (T250 round 2, FIX 4's
+// standing rule: a screen that already has findings/state when it mounts
+// renders at rest).
+// ---------------------------------------------------------------------------
+describe('T250 A1 — FinalRunView animates only the in-session finalize transition', () => {
+  it('renders at rest (no justFinalized prop) exactly like a cold-opened Final run', async () => {
+    render(<FinalRunView run={FINAL_RUN} campers={CAMPERS} {...catalogs()} />)
+    const identity = await screen.findByTestId('run-identity')
+    void identity
+    // No justFinalized => no opacity/transform override on the wrapper.
+    expect(screen.getByTestId('final-run-view').style.transition).toBe('')
+  })
+
+  it('applies an entrance transition when justFinalized is true', async () => {
+    render(<FinalRunView run={FINAL_RUN} campers={CAMPERS} justFinalized {...catalogs()} />)
+    await screen.findByTestId('run-identity')
+    expect(screen.getByTestId('final-run-view').style.transition).not.toBe('')
   })
 })
 
