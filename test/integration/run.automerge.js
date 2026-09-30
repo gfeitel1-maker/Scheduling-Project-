@@ -45,6 +45,7 @@ import { run as scenario33 } from './scenarios/33-move-convergence.automerge.js'
 import { run as scenario34 } from './scenarios/34-locked-seat-survives-regeneration.automerge.js'
 import { run as scenario35 } from './scenarios/35-schema-version-gate.automerge.js'
 import { run as scenario36 } from './scenarios/36-finalized-elective-run-survives-sync.automerge.js'
+import { run as scenario37 } from './scenarios/37-join-then-write-broadcasts-without-restart.automerge.js'
 
 // Scenario 08 (concurrent-create data loss) and scenario 28 (two directors
 // disagree about one slot) are both FIXED and both pass consistently, having
@@ -99,6 +100,10 @@ const SCENARIOS = [
   // finalizes, so neither touches elective_run_outer_snapshots — the table that
   // exists only after a finalize.
   { name: '36 a FINALIZED elective run survives sync and a projection rebuild (libp2p)', fn: scenario36 },
+  // join() never wired the local-write broadcaster the way start()/restart()
+  // do, so a device that had only ever joined could write and never push it.
+  // See harnessAutomerge.js join().
+  { name: '37 a joined device\'s write broadcasts with no restart (libp2p)', fn: scenario37 },
 ]
 
 // COVERAGE, so the count above is readable without arithmetic:
