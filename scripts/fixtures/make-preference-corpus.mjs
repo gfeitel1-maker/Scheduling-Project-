@@ -533,7 +533,12 @@ const AC_ROSTER = [
 // coordinate. The legal shape commitElectiveRun.js:70-92 requires be accepted.
 const AC_WHOLE_RUN = [
   ['Nadav Calcite', 'SYN-1012', AC_YOUNGER], ['Ronit Dolomite', 'SYN-1013', AC_YOUNGER],
-  ['Netanel Siltstone', 'SYN-2009', AC_OLDER], ['Zohar Peridot', 'SYN-2010', AC_OLDER],
+  ['Netanel Siltstone', 'SYN-2009', AC_OLDER],
+  // Spec section 6's "one missing external id". A UNIQUE name, so it is an
+  // absent id and nothing else -- putting it on one of the same-named rows
+  // instead would conflate it with the collision case, which is a different
+  // fact the sheet already carries twice over.
+  ['Zohar Peridot', null, AC_OLDER],
 ]
 
 // The ranked answers, by (division, day, camper index within that division's
@@ -606,7 +611,7 @@ function acceptanceRows({ resolved }) {
     }
   }
   for (const [name, id, division] of AC_WHOLE_RUN) {
-    rows.push([id, name, division, '', '', 'Swim', 'Ceramics', 'Garden'])
+    rows.push([id ?? '', name, division, '', '', 'Swim', 'Ceramics', 'Garden'])
   }
   return rows
 }

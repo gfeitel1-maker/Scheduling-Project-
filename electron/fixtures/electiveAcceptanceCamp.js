@@ -69,6 +69,7 @@ import { inferFixedEvents } from '../../src/ingest/fixedEvents.js'
 import { derivePinOnlyActivityNames } from '../../src/ingest/pinOnlyActivityNames.js'
 import { inferActivityRules } from '../../src/ingest/activityRules.js'
 import { capturePlacements } from '../../src/ingest/capturePlacements.js'
+import { runPreferenceSheetCli } from '../../scripts/preferenceSheetCli.js'
 
 export const FIXTURE_DIR = path.join(process.cwd(), 'test/fixtures/elective-acceptance')
 export const GRID_FILE = path.join(FIXTURE_DIR, 'camp-grid.txt')
@@ -136,6 +137,11 @@ export const ACCEPTANCE_MANIFEST = Object.freeze({
   duplicateNameDifferentGroups: 'Ari Feldspar',
   duplicateNameSameGroup: 'Rivka Sandarch',
   wholeRunFallbackCampers: ['Nadav Calcite', 'Ronit Dolomite', 'Netanel Siltstone', 'Zohar Peridot'],
+  // §6: "one missing external id" and "one inactive camper". Two DIFFERENT
+  // children: folding them onto one camper would let a single wrong row make
+  // both assertions pass or both fail together.
+  missingExternalIdCamper: 'Zohar Peridot',
+  inactiveCamper: 'Dalia Travertine',
   // The recurring event the ingest category leak is exhibited on.
   recurringEvent: 'Menucha',
   // The bundle. NAMED AFTER ITS OWN ACTIVITY, and that is forced rather than
@@ -446,6 +452,34 @@ export async function buildAcceptanceCamp(db, { handlers, token, campId, deviceI
     locationIdByName, offeringIdByActivity,
     ingest,
   }
+}
+
+/**
+ * §6's roster, landed: the resolved sheet imported through the real CLI core,
+ * plus the one deactivation.
+ *
+ * SEPARATE from buildAcceptanceCamp because
+ * electiveAcceptanceImport.integration.test.js has to drive the import itself —
+ * condition (1) IS the import refusing and then not refusing. Every other T251
+ * file calls this, so there is still exactly one construction.
+ *
+ * `is_active = 0` goes through the real `write` handler and not an UPDATE: a
+ * director deactivating a camper is an ordinary field edit, and the op log is
+ * how it reaches the camp's other devices.
+ */
+export async function importResolvedSheet(db, { dbPath, handlers, token, authorUserId }) {
+  const out = runPreferenceSheetCli({ file: SHEET_RESOLVED, dbPath, action: 'commit', authorUserId })
+  if (!out.ok) throw new Error(`importResolvedSheet: the resolved sheet did not commit — ${out.error ?? out.blocked}`)
+
+  // §6's "one inactive camper". Chosen by NAME, not by position, so a roster
+  // change cannot silently move it onto a different child.
+  const name = ACCEPTANCE_MANIFEST.inactiveCamper
+  const row = db.prepare('SELECT id FROM campers WHERE display_name = ? AND is_active = 1').get(name)
+  if (!row) throw new Error(`importResolvedSheet: no active camper named ${name} to deactivate`)
+  const result = await handlers.write({ token, entity: 'campers', entity_id: row.id, field: 'is_active', value: '0' })
+  if (result?.status !== 'applied') throw new Error(`importResolvedSheet: deactivating ${name} failed (${result?.status})`)
+
+  return { runId: out.runId, inactiveCamperId: row.id, cli: out }
 }
 
 /**
