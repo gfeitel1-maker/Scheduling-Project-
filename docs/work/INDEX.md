@@ -218,7 +218,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [Linked multi-period elective bundles — storage shape and the per-tier choice-id/rank collision](../../docs/adr/2026-09-29-linked-elective-bundles.md) | proposed | not_started | [2026-09-30-t251-t199-acceptance-fixture](../../docs/work/runs/2026-09-30-t251-t199-acceptance-fixture.md) · [T301-linked-elective-choices-never-reach-the-solver](../../docs/work/tickets/T301-linked-elective-choices-never-reach-the-solver.md) |
 | [A per-op savepoint inside an atomic boundary — who owns rollback for one op](../../docs/adr/2026-09-29-per-op-savepoint-inside-an-atomic-boundary.md) | accepted | implemented | [T309-op-log-import-write-cost](../../docs/work/tickets/T309-op-log-import-write-cost.md) |
 | [Elective run durability pass — partial-snapshot detection, dangling-assignment persistence, the move picker's contract, and persisted eligibility/resource findings (v83)](../../docs/adr/2026-09-30-elective-run-durability.md) | accepted | partial (part 1 — snapshot completeness, occurrence pruning, re-place picker, persisted eligibility findings — merged; part 2 — tombstone-aware stub seed, refuse commit onto a final run, camper with neither preference nor assignment visible to cold regenerate — not started) | [T320-elective-run-durability](../../docs/work/tickets/T320-elective-run-durability.md) |
-| [Every setup import door is format-agnostic](../../docs/adr/2026-09-30-format-agnostic-setup-import.md) | proposed | not-started | — |
+| [Every setup import door is format-agnostic](../../docs/adr/2026-09-30-format-agnostic-setup-import.md) | accepted | not-started (part 1 — the binder; part 2 — atomic multi-row import) | — |
 
 ## Runs
 

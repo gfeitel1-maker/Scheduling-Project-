@@ -1,9 +1,10 @@
 ---
 title: "Every setup import door is format-agnostic"
 document_type: adr
-status: proposed
+status: accepted
+approved: 2026-09-30 (owner, via the organizer session: "go for it" — accepted with ONE AMENDMENT: the atomic multi-row import (§4.9) is a decision item and part 2 of the same ticket; §13 resolved to the ADR's own defaults)
 authority: normative
-implementation_state: not-started
+implementation_state: not-started (part 1 — the binder; part 2 — atomic multi-row import)
 date: 2026-09-30
 task_class: architecture
 governing_docs:
@@ -269,6 +270,22 @@ deliberately the same shape each screen's parser already consumes (`r.tier_name`
 each screen's `rows.map(r => { ... })` block changes only its **input source** (`applyEntityMapping`
 output instead of `readEntitySheet`'s raw rows), not its body.
 
+### 4.9 Decision item (owner amendment, 2026-09-30): a setup import commits all rows or none
+
+A multi-row setup import through any of the seven doors is **atomic**: either every row the
+director confirmed is written, or none is, and a failure says so in the door's own residue/report
+surface rather than leaving half a sheet loaded with no way to tell. Today `confirmImport`'s loop
+isolates each row (try/catch, `skipped++`), which protects against a bad row but not against a crash
+between rows. The mechanism: wrap the confirmed row set in the existing `runAtomic` transaction seam
+that `electron/ops/commitElectiveRun.js` and `finalizeElectiveRun.js` already use for exactly this
+guarantee, so a thrown error rolls back every op of that import. Per-row *skips* the director was
+shown in the preview remain skips (they are decisions, not failures); an *unexpected* failure aborts
+the whole import and is reported as one line naming the row it failed on. Red Hat reviews the
+write path (§8). This is **part 2** of the ticket; part 1 (the binder, §4.1–4.8) lands first.
+
+Acceptance for part 2: a fixture import with an injected failure on row N leaves the database
+byte-identical to before the import (proven by test), and the door reports the failure and the row.
+
 ## 5. Acceptance criterion 1 — export → re-import → identical state
 
 **Test:** build a fixture camp's entities in memory, run `buildCampDataWorkbook` (or
@@ -358,8 +375,9 @@ exercised:
 - **No transaction across a multi-row import.** A failure partway through `confirmImport`'s loop
   leaves a partially-imported set; the loop already isolates each row (try/catch, `skipped++`) so a
   bad row does not wedge the whole import, but a crash between rows is not recoverable atomically.
-  Out of scope to fix here — it is not caused or worsened in kind by this ADR, only in frequency of
-  successful writes.
+  _Prior: this ADR first marked that out of scope._ **Owner amendment (2026-09-30): IN SCOPE, as
+  part 2 of the same ticket — see §4.9.** It is a director-facing defect at the very seam this ADR
+  changes, and because the binder makes imports succeed far more often, it will be hit more.
 - **No idempotency key on the import itself.** Re-running a failed import relies entirely on
   name-based dedup being correct and stable; the binder does not change what "the same row" means to
   any screen, so this risk is unchanged, but it is worth stating plainly rather than assuming it away
@@ -456,6 +474,8 @@ Unchanged (read, not modified, to ground this design):
   change needed.
 
 ## 13. Open questions for the owner
+
+**Resolved 2026-09-30 (owner, "go for it", via the organizer): all three to this ADR's own defaults — (1) bridged synonyms now, no vocabulary convergence; (2) remembered mapping stays per camp as T312; (3) a whole-workbook importer is a future ticket, not this one.** The questions are kept below as asked.
 
 1. **Should the export headers and the import catalogue converge on one canonical human-readable
    vocabulary** (i.e., also rename `exportWorkbook.js`'s raw-key headers like `unit`/`label` to match
