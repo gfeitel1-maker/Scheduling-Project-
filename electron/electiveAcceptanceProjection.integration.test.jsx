@@ -247,40 +247,60 @@ describe('§6 (7) — every assignment appears exactly once in the matching rost
     expect(total).toBeGreaterThan(0)
   })
 
-  // GAP — A LINKED CHOICE NEVER CLUSTERS IN ANY EXPORT.
+  // MET (2026-09-30, board item 9b) — A LINKED CHOICE NOW CLUSTERS IN THE
+  // EXPORTS. Formerly a GAP.
   //
-  // exportActivityRoster.js and exportChildSchedule.js both cluster a bundled
-  // placement into one entry via clusterLinkedElectiveRows, keyed on the outer
-  // row's `choice_id`/`is_linked_choice`. Those come from
-  // `elective_assignments.choice_id` — and commitElectiveRun sets that from
-  // `choiceIdByKey.get(a.labelKey)` (:595), a map populated ONLY from the
-  // sheet's own choices (:470), which D6 makes it SKIP for exactly the labels a
-  // bundle claims (:467). So a bundle's own per-tier choice id is written to
+  // _Prior: exportActivityRoster.js and exportChildSchedule.js both cluster a
+  // bundled placement into one entry via clusterLinkedElectiveRows, keyed on
+  // the outer row's `choice_id`/`is_linked_choice`. Those came from
+  // `elective_assignments.choice_id` — and commitElectiveRun set that from
+  // `choiceIdByKey.get(a.labelKey)`, a map populated ONLY from the sheet's own
+  // (non-bundle) choices, which D6 made it SKIP for exactly the labels a
+  // bundle claims. So a bundle's own per-tier choice id was written to
   // elective_choices and to elective_choice_offerings, and never onto the
-  // assignment rows it produced. Every linked placement reaches the exports as
-  // N ordinary rows.
+  // assignment rows it produced. Every linked placement reached the exports as
+  // N ordinary rows._
   //
-  // CONSEQUENCE FOR §6: the "appears exactly once" half of condition (7) is
-  // asserted on the assignment grain, which is the grain the data actually has.
-  // exportActivityRoster.js's F5 note describes `count` (member rows) and
-  // `members.length` (campers) as deliberately different numbers — in this camp
-  // they cannot differ, so T251's mutation (7) (swapping one for the other) is
-  // UNOBSERVABLE here. Recorded rather than worked around.
-  it('GAP — no assignment carries a bundle choice id, so nothing clusters', () => {
+  // Closed by `resolveWriteChoiceId` (electron/ops/commitElectiveRun.js): the
+  // assignment-write loop now asks it too, so a linked placement's own
+  // per-tier bundle choice id is written onto `elective_assignments.choice_id`
+  // exactly as the plain-choice loop already did for `elective_preferences`.
+  //
+  // THE COUNT IS DERIVED FROM THE FIXTURE, not a number someone wrote down:
+  // condition (8) (electron/electiveAcceptanceSolve.integration.test.jsx)
+  // pins the cohort that WINS the linked choice at `Math.min(capacity,
+  // cohort.size)` campers, each holding a seat at every one of the bundle's
+  // member days — so the assignment grain is exactly that many campers times
+  // that many days.
+  it('MET — every linked placement carries its bundle choice id, and clusters to one export entry', () => {
     const bundleChoiceIds = camp.db
       .prepare('SELECT id FROM elective_choices WHERE run_id = ? AND is_linked = 1').all(run.id)
       .map((r) => r.id)
     expect(bundleChoiceIds.length).toBeGreaterThan(0)
 
+    const capacity = M.offerings[M.bundle.activity][1]
+    const winners = Math.min(capacity, M.linkedChoiceCampers.length)
+    const expectedTagged = winners * M.bundle.days.length
+
     const placeholders = bundleChoiceIds.map(() => '?').join(',')
     const tagged = camp.db
       .prepare(`SELECT COUNT(*) c FROM elective_assignments WHERE run_id = ? AND choice_id IN (${placeholders})`)
       .get(run.id, ...bundleChoiceIds).c
-    expect(tagged).toBe(0)
+    expect(tagged).toBe(expectedTagged)
 
-    // And so no export entry is ever a cluster.
-    expect(rosterOf().filter((e) => e.count !== e.members.length)).toEqual([])
-    expect(outer.rows.filter((r) => r.isLinkedChoice)).toEqual([])
+    // And so exactly one export entry clusters — its count (assignment grain)
+    // and members.length (camper grain) are now genuinely different numbers,
+    // which is exactly what exportActivityRoster.js's F5 note says must hold
+    // for a linked choice.
+    const clustered = rosterOf().filter((e) => e.count !== e.members.length)
+    expect(clustered).toHaveLength(1)
+    expect(clustered[0]).toMatchObject({
+      activity_name: M.bundle.name,
+      count: expectedTagged,
+    })
+    expect(clustered[0].members).toHaveLength(winners)
+
+    expect(outer.rows.filter((r) => r.isLinkedChoice)).toHaveLength(expectedTagged)
   })
 
   // THE "EXACTLY ONCE IN THE MATCHING ROSTER" HALF, which round 1 did not
@@ -290,24 +310,57 @@ describe('§6 (7) — every assignment appears exactly once in the matching rost
   // Tuesday/Archery passes every one of them. Nothing joined the roster back to
   // the assignment rows on the coordinate, so nothing could notice.
   //
+  // MET (2026-09-30, board item 9b) — NOW ACCOUNTS FOR CLUSTERING. This camp
+  // DOES produce a linked cluster (see the MET test above), and a cluster's
+  // entry is labelled with the CHOICE's name rather than an activity's, and
+  // carries only ONE member row per camper even though that camper's real
+  // assignment rows span every one of the bundle's member days. So "the
+  // coordinate the assignment row gives them" is not a 1:1 statement for a
+  // linked camper — it is collapsed to the bundle's ANCHOR occurrence, exactly
+  // as exportActivityRoster.js collapses it (`unit.memberRows[0]`, whose order
+  // comes from electiveRunOuterSchedule.js's own
+  // `ORDER BY a.camper_id, o.day_id, o.time_block_id`). The expected set below
+  // reproduces that exact collapse independently, from the raw assignment
+  // rows and the SAME ordering column the production query uses — not from
+  // the roster or from clusterLinkedElectiveRows — so this still catches a
+  // real join/grouping mistake rather than restating the export's own logic.
+  //
   // Set equality, not multiset: (camper, day, block, activity) is unique per
-  // assignment row by construction (deriveElectiveAssignmentId keys on run +
-  // camper + occurrence), and the no-duplicate-within-an-entry assertion below
-  // covers the roster side. Exact because this camp produces no linked cluster
-  // — a cluster's entry is labelled with the CHOICE's name rather than an
-  // activity's, and the gap above asserts there are none.
+  // NON-linked assignment row by construction (deriveElectiveAssignmentId keys
+  // on run + camper + occurrence); a linked camper's N rows collapse to the
+  // one key below. The no-duplicate-within-an-entry assertion below covers the
+  // roster side.
   it('every roster member sits at the coordinate the assignment row gives them', () => {
     const key = (camperId, day, block, activity) => `${camperId}|${day}|${block}|${activity}`
-    const fromSql = camp.db.prepare(`
-      SELECT a.camper_id, d.label AS day, tb.name AS time_block, act.name AS activity_name
+    const raw = camp.db.prepare(`
+      SELECT a.camper_id, a.choice_id, ch.is_linked, ch.label AS choice_label,
+             o.day_id, o.time_block_id, d.label AS day, tb.name AS time_block, act.name AS activity_name
       FROM elective_assignments a
       JOIN elective_occurrences o ON o.id = a.occurrence_id
       JOIN days_of_operation d ON d.id = o.day_id
       JOIN time_blocks tb ON tb.id = o.time_block_id
       JOIN activities act ON act.id = a.activity_id
+      LEFT JOIN elective_choices ch ON ch.id = a.choice_id
       WHERE a.run_id = ?
-    `).all(run.id).map((r) => key(r.camper_id, r.day, r.time_block, r.activity_name))
-    expect(fromSql.length).toBeGreaterThan(0)
+      ORDER BY a.camper_id, o.day_id, o.time_block_id
+    `).all(run.id)
+    expect(raw.length).toBeGreaterThan(0)
+
+    const seenLinkedAnchor = new Set()
+    const fromSql = []
+    for (const r of raw) {
+      if (r.is_linked) {
+        const clusterKey = `${r.camper_id}|${r.choice_id}`
+        if (seenLinkedAnchor.has(clusterKey)) continue
+        seenLinkedAnchor.add(clusterKey)
+        fromSql.push(key(r.camper_id, r.day, r.time_block, r.choice_label))
+      } else {
+        fromSql.push(key(r.camper_id, r.day, r.time_block, r.activity_name))
+      }
+    }
+    // NON-VACUITY: at least one row really did collapse, so the branch above
+    // is exercised and this is not silently back to the old per-row form.
+    expect(fromSql.length).toBeLessThan(raw.length)
 
     const fromRoster = rosterOf().flatMap(
       (e) => e.members.map((m) => key(m.camper_id, e.day, e.time_block, e.activity_name))
@@ -401,32 +454,44 @@ describe('§6 (7) — every assignment appears exactly once in the matching rost
     // unordered-set placement this camp could produce is absent from this
     // fixture by construction. Therefore `unordered_count` SHOULD be 0 here.
     //
-    // It is 14 (was 15 before the board item fixed below), and the cause is a
-    // SEPARATE defect this ticket does not fix.
+    // It is 12 (was 15, then 14, now 12 — see the derivation below), and the
+    // cause is a SEPARATE defect this ticket does not fix.
     //
-    // 15 -> 14, DERIVED, not fitted: the board item (2026-09-30) closing the
-    // GAP test below removed exactly one wrongly-seated assignment — the
-    // Older 2 camper who used to be admitted to the Older/Monday occurrence
-    // (created only by Older 1's slot) is now correctly excluded, so that
-    // occurrence's assignment count for Older 2 drops by one. Confirmed with
-    // a one-off debug probe before writing this number: the null-choice
-    // assignment set (this bucket's source, per the comment below) went from
-    // 15 rows to 14, and the removed row's camper belonged to Older 2 at the
-    // Older/Monday occurrence — the exact coordinate the GAP test's inversion
-    // covers. Nothing else about this bucket's cause (the ADR D6 per-tier
-    // scope gap below) changed.
-    // NOT the "wrong-tier binding defect" an earlier draft of this comment
-    // named — that attribution was measured and REFUTED: for all 15 of these
-    // rows the camper's tier EQUALS the occurrence's tier (tierMatchesOcc 15,
-    // tierDiffersFromOcc 0, noGroup 0). The real cause is a per-tier scope gap
-    // in ADR D6: a bundle-claimed label has no choice at all for a tier that no
-    // bundle covers, because commitElectiveRun.js:488 suppresses the plain
-    // choice for the whole LABEL while a bundle's scope is PER TIER. These 15
-    // campers sit in a tier no bundle in this fixture covers, so
-    // commitElectiveRun.js:508-512 hits the mismatch branch and `continue`s —
-    // the preference row is NEVER PERSISTED — while the assignment is still
-    // written, keeping the `preference_rank` the in-memory solve used and a
-    // null `choice_id`.
+    // 15 -> 14 -> 12. The 15->14 step is unchanged from the prior note: an
+    // earlier board item closing the (then-)GAP test removed one wrongly-
+    // seated Older 2 assignment at the Older/Monday occurrence.
+    //
+    // 14 -> 12 is THIS round. Board item 9b's two defect fixes land together
+    // in one commit pair, and only ONE of them moves this number — MEASURED,
+    // not assumed, by toggling each independently against this exact fixture:
+    // reverting the bundle-choice-id fix alone (electron/ops/
+    // commitElectiveRun.js's resolveWriteChoiceId) leaves this bucket
+    // unaffected (it only changes whether an assignment's `choice_id` names a
+    // bundle, not whether a preference row was persisted for it), while
+    // disabling the tier-aware coordinate fix alone (passing
+    // `tierIdByCamperId: null` into resolvePreferenceCoordinates from
+    // AssignmentPanel.jsx) drops this bucket to 9. So the tier fix is what
+    // moves it, and it moves it UP (9 -> 12 when the fix is restored), not
+    // down: correcting the binding means the 7 Older campers the Solve file's
+    // own GAP-turned-MET test tracks (§6 (4) "Older campers who ranked a cell
+    // are placed there unranked") now carry a real `preference_rank` at their
+    // OWN tier's occurrence instead of null — so more assignment rows are
+    // "ranked" than before, and the ones among them whose camper sits in a
+    // tier no bundle covers still hit the D6 per-tier scope gap below and add
+    // to this bucket instead of landing in counts_by_rank.
+    //
+    // NOT the same defect as the scope gap itself: for all 12 of these rows
+    // the camper's tier EQUALS the occurrence's tier (checked below, via
+    // hasPref: false on every row — a join miss, not a tier mismatch). The
+    // real cause is a per-tier scope gap in ADR D6: a bundle-claimed label has
+    // no choice at all for a tier that no bundle covers, because
+    // commitElectiveRun.js:488 suppresses the plain choice for the whole LABEL
+    // while a bundle's scope is PER TIER. These 12 campers sit in a tier no
+    // bundle in this fixture covers, so commitElectiveRun.js:508-512 hits the
+    // mismatch branch and `continue`s — the preference row is NEVER
+    // PERSISTED — while the assignment is still written, keeping the
+    // `preference_rank` the in-memory solve used and a null or bundle
+    // `choice_id`.
     //
     // So there is nothing for buildPreferenceLookup (camperElectiveWeek.js) to
     // join TO: not merely a null choice_id on the assignment, but an absent
@@ -442,31 +507,42 @@ describe('§6 (7) — every assignment appears exactly once in the matching rost
     // assertion is EXPECTED to fail then. Update it to 0 at that point, with a
     // comment saying the defect closed; do not delete it or loosen it back to
     // a tautology.
-    expect(summary.unordered_count).toBe(14)
+    expect(summary.unordered_count).toBe(12)
 
     // AND THE IDENTITY, not only the cardinality — Red Hat's challenge to the
     // line above: a count can survive for the wrong reason. A later change that
     // adds one genuinely unordered-set camper while a NEW defect mis-buckets one
-    // more ordered row nets to 14 and this file would have shrugged. So pin WHY
-    // each of the 14 is here: every one must be a ranked assignment whose
-    // preference row is ABSENT from elective_preferences altogether, which is
-    // the scope gap's signature and nothing else's. A genuinely unordered-set
-    // camper HAS a persisted preference row (carrying rank_kind
-    // 'unordered-set'), so it would fail this and force a reader to look.
-    const persistedPrefKeys = new Set(
-      camp.db.prepare('SELECT camper_id, choice_id FROM elective_preferences WHERE run_id = ?')
-        .all(run.id).map((p) => `${p.camper_id}\u0000${p.choice_id}`)
-    )
+    // more ordered row nets to 12 and this file would have shrugged. So pin WHY
+    // each of the 12 is here: every one must be a ranked assignment for which
+    // buildPreferenceLookup — the SAME join buildRunSummaryExport and the Draft
+    // screen actually use — finds no preference row. A genuinely unordered-set
+    // camper's join DOES resolve (to a row carrying rank_kind 'unordered-set'),
+    // so it would fail this and force a reader to look.
+    //
+    // MEASURED 2026-09-30, and why this is no longer a bare `camper_id +
+    // choice_id` lookup: of these 12, only 8 have NO preference row at all for
+    // that (camper, choice) pair. The other 4 DO have one — a real preference
+    // row naming the same choice — but `resolvePreferenceCoordinates` binds it
+    // to a DIFFERENT occurrence than the one the solver actually placed the
+    // camper in (this fixture has more than one preference row per camper per
+    // choice at different coordinates, and only one of them can bind). A bare
+    // `(camper_id, choice_id)` set, ignoring the occurrence, called those 4
+    // "present" and undercounted at 8 — exactly the kind of survive-for-the-
+    // wrong-reason gap this check exists to close. `buildPreferenceLookup` is
+    // occurrence-aware and is the one true answer to "does this assignment have
+    // a preference behind it"; asking anything weaker here would test a
+    // question production code never asks.
+    const preferenceFor = buildPreferenceLookup({ preferences, occurrences, days, timeBlocks })
     const rankedWithNoPreferenceRow = assignments.filter((a) => (
-      a.preference_rank != null && !persistedPrefKeys.has(`${a.camper_id}\u0000${a.choice_id}`)
+      a.preference_rank != null && preferenceFor(a) == null
     ))
-    expect(rankedWithNoPreferenceRow).toHaveLength(14)
+    expect(rankedWithNoPreferenceRow).toHaveLength(12)
 
     // The independent second fact: the SAME bucketing, computed with the
-    // production join, against a plain SQL count of assignment rows —
-    // proving the total distributes the way the join actually resolved it,
-    // not merely that buildRunSummaryExport agrees with itself.
-    const preferenceFor = buildPreferenceLookup({ preferences, occurrences, days, timeBlocks })
+    // production join (`preferenceFor`, already built above), against a plain
+    // SQL count of assignment rows — proving the total distributes the way the
+    // join actually resolved it, not merely that buildRunSummaryExport agrees
+    // with itself.
     const expectedByRank = {}
     let expectedUnordered = 0
     for (const a of assignments) {
