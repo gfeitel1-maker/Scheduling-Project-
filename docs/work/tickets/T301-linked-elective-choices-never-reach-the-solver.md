@@ -198,6 +198,47 @@ the real screen, a camper who ranks it is placed in every one of its periods or 
 from the real UI reaches the solver correctly. Left `open` for Governor to close after review rather than
 self-archived here.
 
+## 2026-09-30 — board item 9b closed five gaps in this seam, and left three known limits
+
+Board item 9b (`i-t301-bundle-preference-and-choice-id-gaps`, commits `f26495c1`, `3d67e98d`,
+`7825b793`, `0b267042`) worked this ticket's seam. Five defects closed:
+
+1. `buildPreferenceCatalog` now reads bundles, so a sheet can rank a bundle **by its own name** —
+   ADR D4's central claim, which was not true until now. The CLI's hand-rolled second catalogue is
+   gone; both doors call the one function.
+2. A linked choice's `choice_id` now reaches `elective_assignments` in a tier-divisioned camp. The
+   tier came from the unenriched sheet campers, so a Division column naming a *tier* left
+   `group_id` null and every such camper fell to the mismatch branch.
+3. The paragraph above ("skipped, not thrown … no finding is raised for it") **is superseded**.
+   A camper a bundle's scope does not cover now KEEPS their ranked preference row, bound to a flat
+   choice minted on demand, *and* a `BUNDLE_TIER_NOT_COVERED` finding is raised. Both halves —
+   Art. V. This narrows ADR D6; a dated amendment note is appended under D6 there.
+4. `setElectiveAssignment` no longer binds `choice_id` tier-blind by label; it resolves from
+   `elective_choice_offerings` on `(occurrence_id, activity_id)`.
+5. `resolvePreferenceCoordinates` no longer binds a per-cell preference to the first occurrence at
+   a cell; it binds the camper's own tier's occurrence.
+
+### Known limits left open, deliberately
+
+- **Defect 3's fix is asymmetric, and this is the highest-value follow-up.** The preference loop
+  binds an uncovered camper's row to the flat choice; the ASSIGNMENT loop still writes
+  `choice_id: null` for the same mismatch (a posture with a documented reason — a hard throw there
+  once failed a whole commit). `buildPreferenceLookup` returns null whenever the assignment's
+  `choice_id` is null, so the join misses and a director reading the run sees "One of their
+  choices" where a child's actual rank-1 request should appear. Measured: 8 of the 12 rows in
+  `electiveAcceptanceProjection.integration.test.jsx`'s pinned `unordered_count`.
+- **A clustered roster entry reads confusingly.** Closing defect 2 switched on
+  `clusterLinkedElectiveRows` end-to-end for the first time. `exportElectiveRunWorkbook.js` now
+  emits one row per member each repeating the cluster's `Count`, showing only the anchor day even
+  though the camper attends the set on several. Product-copy judgement, owner's call.
+- **`buildAttendance.js` still holds its own copy of the division-to-tier ambiguity map**, byte-
+  identical to `camperElectiveIdentity.js`'s, with no shared test keeping them aligned. Folding it
+  in was scoped out as a refactor beyond the five defects.
+- **Re-committing after a director fixes a camper's roster group leaves an orphaned preference row**
+  bound to the flat choice. This orphan class is pre-existing — `choice_id` is a component of
+  `deriveElectivePreferenceId` and no prune path exists anywhere — so this is one more way in, not
+  a new class. No reader was found that lists raw preferences per camper.
+
 ## Non-goals
 
 - Not a change to tier 2, the per-occurrence pass every real run uses today.

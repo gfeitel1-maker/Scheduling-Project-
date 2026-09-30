@@ -31,7 +31,7 @@ import { importEventRunName } from '../src/ingest/importEventRunName.js'
 import { commitElectiveRun, describeElectiveRunRefusal } from '../electron/ops/commitElectiveRun.js'
 import { deriveImportedElectiveRunId, opaque } from '../electron/ops/electiveDerivedIds.js'
 import { detectGridLayout, residueParts } from '../src/ingest/preferenceSheet.js'
-import { readPreferenceSheet, selectPreferenceSheet } from '../src/ingest/preferenceImport.js'
+import { buildPreferenceCatalog, readPreferenceSheet, selectPreferenceSheet } from '../src/ingest/preferenceImport.js'
 import { readWorkbookRows } from '../src/utils/exportSanitize.js'
 
 function baseResult({ file, dbPath, action }) {
@@ -221,11 +221,29 @@ export function runPreferenceSheetCli({
     // against groups and then tiers. Read-only — this path never creates a
     // group, a tier or an activity from an imported file, which is T224's
     // lesson stated as a rule.
-    const catalog = {
+    //
+    // ASSEMBLED BY `buildPreferenceCatalog`, NOT INLINE (board item 9b). This
+    // hand-rolled the same three reads until now, which made two catalogues out
+    // of one rule — and electiveAcceptanceImport.integration.test.js's round-2
+    // mutation measured the consequence exactly: teaching the shared helper
+    // about bundles left THIS door blind, because this door never called it.
+    // The reads stay here (this module owns the db); only the assembly moved.
+    //
+    // BUNDLES ARE READ CAMP-WIDE, across every elective set, deliberately. A
+    // sheet arrives before any run and names labels, not sets — there is no set
+    // to scope by at resolution time — and the panel door has the same problem.
+    // Scoping one door and not the other is how a bundle would resolve through
+    // the CLI and not the screen.
+    const catalog = buildPreferenceCatalog({
       activities: db.prepare('SELECT name FROM activities WHERE camp_id = ?').all(camp.id).map((r) => r.name),
       groups: db.prepare('SELECT id, name FROM groups WHERE camp_id = ?').all(camp.id),
       tiers: db.prepare('SELECT id, name FROM tiers WHERE camp_id = ?').all(camp.id),
-    }
+      bundles: db
+        .prepare(`SELECT b.name FROM elective_bundles b
+                  JOIN elective_sets s ON s.id = b.elective_set_id
+                  WHERE s.camp_id = ?`)
+        .all(camp.id),
+    })
 
     // THE LAYOUT IS INFERRED AFTER THE CATALOG IS READ, and the order is
     // load-bearing (T285 slice C). An INVERTED MATRIX — one column per activity,

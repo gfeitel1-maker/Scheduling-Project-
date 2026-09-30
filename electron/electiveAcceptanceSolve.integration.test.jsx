@@ -52,11 +52,11 @@
 // Age rules, prerequisites, or any other notion of eligibility are not
 // modelled anywhere and are not checked here.
 //
-// GAP-3 — (5) IS SINGLE-DEVICE ONLY. commitElectiveRun.js:216-237 states it
-// itself: `is_locked = 1` is read from THIS device's projection, so a lock a
-// peer set that has not merged here yet is invisible, and its row is rewritten
-// to source='solver' while `is_locked` stays 1. A single-node fixture cannot
-// exhibit that, and
+// GAP-3 — (5) IS SINGLE-DEVICE ONLY. commitElectiveRun.js's own "THE RESIDUAL
+// GAP" comment (above its `lockedRows` read) states it itself: `is_locked = 1`
+// is read from THIS device's projection, so a lock a peer set that has not
+// merged here yet is invisible, and its row is rewritten to source='solver'
+// while `is_locked` stays 1. A single-node fixture cannot exhibit that, and
 // test/integration/scenarios/36-finalized-elective-run-survives-sync.automerge.js
 // does not claim it either.
 //
@@ -273,8 +273,9 @@ describe('§6 — the real panel solves and commits against the generated route'
   // outright — the whole condition stayed GREEN.
   //
   // WHY. (a) The `is_linked = 1` choices and their offerings are written
-  // UNCONDITIONALLY by commitElectiveRun.js:449-462, "whether or not any
-  // preference this commit carries names their label", so their presence was a
+  // UNCONDITIONALLY by commitElectiveRun.js's bundle-choices write loop
+  // ("written FIRST, unconditionally, whether or not any preference this
+  // commit carries names their label"), so their presence was a
   // fact about the fixture's own write calls and not about the solve. (b) The
   // bundle's four campers rank it whole-run, so its two member occurrences saw
   // IDENTICAL demand, and the ordinary solver is deterministic and
@@ -347,29 +348,30 @@ describe('§6 — the real panel solves and commits against the generated route'
   })
 })
 
-describe('GAP — no preference ever reaches the database carrying a bundle choice id', () => {
+describe('MET — a linked preference reaches the database carrying its bundle choice id', () => {
   // FOUND BY SCOPING CONDITION (8)'s COHORT (round 2), not by reading the code.
   //
-  // D6 resolves a bundle-labelled preference to the camper's OWN tier's choice
-  // via `tierIdByGroupId.get(camperById.get(p.camper_id).group_id)`
-  // (electron/ops/commitElectiveRun.js:489-490), and `camperById` is built from
-  // `parsed.campers` — the SHEET's campers, not the database's
-  // (commitElectiveRun.js:181). A sheet whose Division column names a TIER
-  // leaves `group_id` null by design ("a `tiers` match → sets NOTHING
-  // referential", src/ingest/preferenceSheet.js:725-731), so `camperTierId` is
-  // null for every camper on such a sheet and EVERY bundle-labelled preference
-  // is recorded as a tier mismatch and skipped.
+  // _Prior: D6 resolved a bundle-labelled preference to the camper's OWN
+  // tier's choice via `tierIdByGroupId.get(camperById.get(p.camper_id).group_id)`,
+  // and `camperById` was built from `parsed.campers` — the SHEET's campers,
+  // not the database's. A sheet whose Division column names a TIER leaves
+  // `group_id` null by design ("a `tiers` match → sets NOTHING referential"),
+  // so `camperTierId` was null for every camper on such a sheet and EVERY
+  // bundle-labelled preference was recorded as a tier mismatch and skipped.
   //
-  // The engine is unaffected — it matches preferences to choices by labelKey
-  // through the panel's own freshly derived choices, which is why condition (8)
-  // above is live and reds when the linked tier is removed. What is lost is the
-  // PERSISTED link: `elective_preferences.choice_id` never names a bundle, so
-  // nothing downstream of the database can tell a bundle preference from an
-  // ordinary one. The projection file records the matching loss on
-  // `elective_assignments.choice_id`.
+  // The engine was unaffected — it matches preferences to choices by labelKey
+  // through the panel's own freshly derived choices, which is why condition
+  // (8) below was live and red when the linked tier is removed. What was lost
+  // was the PERSISTED link: `elective_preferences.choice_id` never named a
+  // bundle, so nothing downstream of the database could tell a bundle
+  // preference from an ordinary one._
   //
-  // This goes red the day D6 resolves the tier from the camper's stored group.
-  it('every linked choice exists, and not one preference names it', async () => {
+  // Closed by board item 9b: `resolveWriteChoiceId` (electron/ops/
+  // commitElectiveRun.js) now resolves a camper's tier through
+  // `identity.tierIdOf`, which reads the ROSTER camper (not the sheet row), so
+  // a Division-column-as-tier sheet no longer starves every bundle
+  // preference of a persisted choice id.
+  it('every linked choice exists, and a real preference names it', async () => {
     const run = await solveAndCommit()
     const linkedIds = camp.db
       .prepare('SELECT id FROM elective_choices WHERE run_id = ? AND is_linked = 1').all(run.id).map((r) => r.id)
@@ -379,11 +381,24 @@ describe('GAP — no preference ever reaches the database carrying a bundle choi
     const named = camp.db
       .prepare(`SELECT COUNT(*) c FROM elective_preferences WHERE run_id = ? AND choice_id IN (${placeholders})`)
       .get(run.id, ...linkedIds).c
-    expect(named).toBe(0)
-    // And this is a loss, not an empty run: preferences DID land, on flat
-    // choices only.
+    // PINNED (measured 2026-09-30), not merely non-zero, so this file
+    // recomputes a number rather than tolerating whatever the fix produces.
+    // 38 preference rows across 20 distinct campers naming 3 of this camp's 4
+    // bundle choices (one bundle in the fixture's own preference sheet is
+    // never named by any camper, so it mints a choice row — unconditionally,
+    // per the comment on condition (8) below — but no preference ever points
+    // at it).
+    expect(named).toBe(38)
+    const rows = camp.db
+      .prepare(`SELECT camper_id, choice_id FROM elective_preferences WHERE run_id = ? AND choice_id IN (${placeholders})`)
+      .all(run.id, ...linkedIds)
+    expect(new Set(rows.map((r) => r.camper_id)).size).toBe(20)
+    expect(new Set(rows.map((r) => r.choice_id)).size).toBe(3)
+
+    // And every OTHER preference still lands too — this is an addition to
+    // what reaches the database, not a narrowing of it.
     expect(camp.db.prepare('SELECT COUNT(*) c FROM elective_preferences WHERE run_id = ?').get(run.id).c)
-      .toBeGreaterThan(0)
+      .toBeGreaterThan(named)
   }, 60_000)
 })
 
@@ -468,42 +483,41 @@ describe('§6 (2) solve half — two solves over identical input agree', () => {
   }, 60_000)
 })
 
-describe('GAP — a per-cell preference binds to the WRONG TIER on a tier-spanning set', () => {
+describe('MET — a per-cell preference binds to the camper\u2019s OWN tier on a tier-spanning set', () => {
   // FOUND BY RUNNING THIS FIXTURE, not by reading the code.
   //
-  // resolvePreferenceCoordinates builds `occurrenceAtCell` keyed on
-  // (day_id, time_block_id) ONLY and keeps the FIRST occurrence it sees at each
-  // cell, regardless of tier
-  // (src/screens/elective/assignment/resolvePreferenceCoordinates.js:73-79).
-  // Its stated reason is that "buildAttendance is what scopes a camper to a
-  // tier" — but attendance can only EXCLUDE a camper from an occurrence; it
-  // cannot re-point a preference that was bound to the wrong one. So on a set
-  // placed for two tiers at the same day and period, every per-cell preference
-  // belonging to whichever tier is not first lands on the other tier's
-  // occurrence, `attends()` then refuses it, and the camper is placed as if
-  // they had ranked nothing.
+  // _Prior: resolvePreferenceCoordinates built `occurrenceAtCell` keyed on
+  // (day_id, time_block_id) ONLY and kept the FIRST occurrence it saw at each
+  // cell, regardless of tier. Its stated reason was that "buildAttendance is
+  // what scopes a camper to a tier" — but attendance can only EXCLUDE a camper
+  // from an occurrence; it cannot re-point a preference that was bound to the
+  // wrong one. So on a set placed for two tiers at the same day and period,
+  // every per-cell preference belonging to whichever tier is not first landed
+  // on the other tier's occurrence, `attends()` then refused it, and the
+  // camper was placed as if they had ranked nothing.
   //
-  // That is precisely the failure the module's own header says it exists to
+  // That was precisely the failure the module's own header says it exists to
   // prevent: "campers were placed in activities they had not chosen for that
   // cell, and preference_rank reported a first choice that had not been
   // honoured" — a confident wrong answer, not a visible failure.
   //
-  // MEASURED on this camp, 2026-09-29, by the assertion below: of the Older
-  // tier's 26 placements, 7 sit at a cell the camper DID rank and carry no
-  // rank at all. Round 1 carried two different numbers for this one defect —
-  // "51 of 150 / 12 of 26" here and "75 of 174 / 4 of 26" in
+  // MEASURED on this camp before the fix, 2026-09-29: of the Older tier's 26
+  // placements, 7 sat at a cell the camper DID rank and carried no rank at
+  // all. Round 1 carried two different numbers for this one defect — "51 of
+  // 150 / 12 of 26" here and "75 of 174 / 4 of 26" in
   // scripts/fixtures/make-preference-corpus.mjs — neither reproducible, both
-  // taken at a seam that is not the database: `elective_preferences.occurrence_id`
-  // is NULL on every row in this camp (the parser emits no occurrence, and the
-  // cross-tier binding happens later, inside resolvePreferenceCoordinates, on
-  // its way to the engine). Both comments now carry this same statement, which
-  // is the one the test actually computes.
+  // taken at a seam that is not the database:
+  // `elective_preferences.occurrence_id` is NULL on every row in this camp
+  // (the parser emits no occurrence, and the cross-tier binding happens
+  // later, inside resolvePreferenceCoordinates, on its way to the engine)._
   //
-  // T251 may not fix production code, so the gap is asserted instead: the four
-  // campers the linked choice needs were moved onto the whole-run shape (which
-  // the defect does not touch) so condition (8) stays live, and THIS goes RED
-  // the day the binding is made tier-aware.
-  it('Older campers who ranked a cell are placed there unranked', async () => {
+  // Closed by board item 9b: `resolvePreferenceCoordinates` now also builds
+  // `occurrenceAtCellTier`, keyed on (day_id, time_block_id, tier_id), and
+  // AssignmentPanel.jsx passes it a `tierIdByCamperId` map (from
+  // `makeCamperIdentityResolver`) so a camper's cell preference binds to
+  // THEIR OWN tier's occurrence when one exists — first-at-cell remains only
+  // the fallback for an unidentifiable tier.
+  it('Older campers who ranked a cell are placed there WITH the rank they gave it', async () => {
     const run = await solveAndCommit()
     const older = camp.fixture.tierIdByName.get('Older')
     const rows = assignmentsOf(run.id).filter((r) => r.tier_id === older)
@@ -518,9 +532,10 @@ describe('GAP — a per-cell preference binds to the WRONG TIER on a tier-spanni
     const unhonoured = rows.filter(
       (r) => r.preference_rank == null && statedFor.has(`${r.camper_id}|${dayLabel.get(r.day_id)}`)
     )
-    // PINNED, not merely non-zero, so the comment above is a measurement this
-    // file recomputes rather than a number someone wrote down once.
+    // PINNED, not merely zero, so this file recomputes the same measurement
+    // it recomputed as a gap — olderPlacements unchanged at 26, unhonoured
+    // driven to 0.
     expect({ olderPlacements: rows.length, unhonoured: unhonoured.length })
-      .toEqual({ olderPlacements: 26, unhonoured: 7 })
+      .toEqual({ olderPlacements: 26, unhonoured: 0 })
   }, 60_000)
 })

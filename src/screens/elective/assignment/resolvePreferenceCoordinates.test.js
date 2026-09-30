@@ -32,6 +32,7 @@
 // started, and it is T278's own defect class one layer downstream.
 import { describe, it, expect } from 'vitest'
 import { resolvePreferenceCoordinates } from './resolvePreferenceCoordinates.js'
+import { buildElectiveAssignments } from '../../../engine/buildElectiveAssignments.js'
 
 const DAYS = [
   { id: 'd-mon', label: 'Monday' },
@@ -193,5 +194,129 @@ describe('resolvePreferenceCoordinates', () => {
     expect(a.residue).toEqual([])
     expect(b.preferences[0].occurrence_id).toBeUndefined()
     expect(b.residue[0].templateId).toBe('route-b')
+  })
+})
+
+// Board item 9b — WHICH TIER'S OCCURRENCE AT A SHARED CELL.
+//
+// PRE-EXISTING, and tier-level. Occurrences are keyed on tier (deriveOccurrences)
+// and `group_ids` is derived metadata — several groups of one tier share ONE
+// occurrence — so there is no group axis to scope on here and #670 added none.
+// What there is: a cell carrying two tiers' occurrences, where first-at-cell
+// bound every camper outside the first tier to a FOREIGN occurrence.
+//
+// The consequence is not a mis-binding a director can see. `bestAt` in
+// src/engine/buildElectiveAssignments.js reads
+// `entry.byOccurrence.has(occurrenceId) ? entry.byOccurrence.get(...) : entry.fallback`,
+// and a coordinate row bound to the foreign occurrence populates `byOccurrence`
+// for THAT id and leaves `fallback` null. So at the camper's OWN occurrence the
+// lookup misses, falls through to a null fallback, `rankAt` returns null, and
+// the cost function substitutes UNRANKED_COST — seating them in something they
+// did not ask for while their ranked answer sits in memory unread. The second
+// test drives the real engine because the binding alone does not demonstrate
+// that.
+describe('binding a per-cell preference to the CAMPER\'S OWN tier', () => {
+  const TWO_TIER_OCCURRENCES = [
+    { id: 'o-jr-mon3', day_id: 'd-mon', time_block_id: 'tb-3', tier_id: 't-jr' },
+    { id: 'o-sr-mon3', day_id: 'd-mon', time_block_id: 'tb-3', tier_id: 't-sr' },
+  ]
+  const coordinatePreference = (camperId) => ({
+    camper_id: camperId, labelKey: 'swim', rank: 1, coordinate: { dayName: 'Monday', periodLabel: 'Period 3' },
+  })
+
+  it('binds a Seniors camper to the SENIORS occurrence, not the first one at the cell', () => {
+    const { preferences, residue } = resolvePreferenceCoordinates({
+      preferences: [coordinatePreference('cam-sr')],
+      occurrences: TWO_TIER_OCCURRENCES,
+      days: DAYS,
+      timeBlocks: TIME_BLOCKS,
+      tierIdByCamperId: { 'cam-sr': 't-sr' },
+    })
+    expect(preferences[0].occurrence_id).toBe('o-sr-mon3')
+    expect(residue).toEqual([])
+  })
+
+  it('binds a Juniors camper at the same cell to the JUNIORS occurrence', () => {
+    const { preferences } = resolvePreferenceCoordinates({
+      preferences: [coordinatePreference('cam-jr')],
+      occurrences: TWO_TIER_OCCURRENCES,
+      days: DAYS,
+      timeBlocks: TIME_BLOCKS,
+      tierIdByCamperId: { 'cam-jr': 't-jr' },
+    })
+    expect(preferences[0].occurrence_id).toBe('o-jr-mon3')
+  })
+
+  it('falls back to the first occurrence at the cell when the tier is unknown', () => {
+    // R1's shape, one layer down: a camper we cannot identify is not dropped.
+    for (const tierIdByCamperId of [{}, { 'cam-x': null }, undefined]) {
+      const { preferences } = resolvePreferenceCoordinates({
+        preferences: [coordinatePreference('cam-x')],
+        occurrences: TWO_TIER_OCCURRENCES,
+        days: DAYS,
+        timeBlocks: TIME_BLOCKS,
+        tierIdByCamperId,
+      })
+      expect(preferences[0].occurrence_id).toBe('o-jr-mon3')
+    }
+  })
+
+  it('a tier with no occurrence at that cell falls back rather than binding nothing', () => {
+    const { preferences } = resolvePreferenceCoordinates({
+      preferences: [coordinatePreference('cam-mid')],
+      occurrences: TWO_TIER_OCCURRENCES,
+      days: DAYS,
+      timeBlocks: TIME_BLOCKS,
+      tierIdByCamperId: { 'cam-mid': 't-middles' },
+    })
+    expect(preferences[0].occurrence_id).toBe('o-jr-mon3')
+  })
+})
+
+// THE OBSERVABLE CONSEQUENCE, driven through the real engine. The binding
+// assertions above are necessary and not sufficient: what a director sees is a
+// rank being honoured or not.
+describe('the engine reads back the rank only at the occurrence the coordinate bound to', () => {
+  const OCCS = [
+    { id: 'o-jr-mon3', day_id: 'd-mon', time_block_id: 'tb-3', tier_id: 't-jr' },
+    { id: 'o-sr-mon3', day_id: 'd-mon', time_block_id: 'tb-3', tier_id: 't-sr' },
+  ]
+  const OFFERINGS = OCCS.flatMap((o) => [
+    { occurrence_id: o.id, labelKey: 'swim', activity_id: 'act-swim', capacity: 99, minimum: null },
+    { occurrence_id: o.id, labelKey: 'archery', activity_id: 'act-archery', capacity: 99, minimum: null },
+  ])
+
+  const solveWith = (tierIdByCamperId) => {
+    const { preferences } = resolvePreferenceCoordinates({
+      preferences: [{
+        camper_id: 'cam-sr', labelKey: 'swim', rank: 1,
+        coordinate: { dayName: 'Monday', periodLabel: 'Period 3' },
+      }],
+      occurrences: OCCS, days: DAYS, timeBlocks: TIME_BLOCKS, tierIdByCamperId,
+    })
+    return buildElectiveAssignments({
+      campers: [{ id: 'cam-sr', display_name: 'Noa Katz' }],
+      occurrences: OCCS,
+      offerings: OFFERINGS,
+      preferences,
+      // The camper attends only their OWN tier's occurrence, which is what
+      // buildAttendance produces for them.
+      attendance: { 'cam-sr': ['o-sr-mon3'] },
+    })
+  }
+
+  it("honours the rank at the camper's own occurrence when the tier is known", () => {
+    const { assignments } = solveWith({ 'cam-sr': 't-sr' })
+    const seat = assignments.find((a) => a.camper_id === 'cam-sr' && a.occurrence_id === 'o-sr-mon3')
+    expect(seat.preference_rank).toBe(1)
+    expect(seat.activity_id).toBe('act-swim')
+  })
+
+  it('reports NO rank at all when the coordinate bound to the other tier — the silent loss', () => {
+    // Drives the pre-fix behaviour by withholding the tier, which is exactly
+    // what the caller did before this parameter existed.
+    const { assignments } = solveWith({})
+    const seat = assignments.find((a) => a.camper_id === 'cam-sr' && a.occurrence_id === 'o-sr-mon3')
+    expect(seat.preference_rank).toBeNull()
   })
 })

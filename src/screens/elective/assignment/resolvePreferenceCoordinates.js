@@ -55,6 +55,10 @@ import { coordinateKey as key, periodAliases } from '../../../ingest/preferenceC
  * @param {Array}   args.timeBlocks   the camp's `time_blocks` ({id, name}).
  * @param {string}  [args.templateId] named in residue, because §13.2's answer is
  *   per-template and two routes may disagree.
+ * @param {Record<string,string|null>} [args.tierIdByCamperId] which tier each camper is
+ *   in, from `makeCamperIdentityResolver` (electron/ops/camperElectiveIdentity.js). A cell
+ *   can carry one occurrence per tier; this picks the camper's own. Omitted or unknown
+ *   falls back to the first occurrence at the cell — see the map construction below.
  *
  * @returns {{preferences: Array, residue: Array}} new preference objects, plus the
  *   loud half: a coordinate that bound to nothing is REPORTED, never dropped and
@@ -66,18 +70,47 @@ export function resolvePreferenceCoordinates({
   days = [],
   timeBlocks = [],
   templateId = null,
+  tierIdByCamperId = null,
 } = {}) {
   const dayIdByLabel = new Map(days.map((d) => [key(d.label), d.id]))
   const blockIdByLabel = new Map(timeBlocks.map((b) => [key(b.name), b.id]))
 
-  // (day_id, time_block_id) -> occurrence. A tier-spanning set can place the same
-  // coordinate for several tiers; `buildAttendance` is what scopes a camper to a
-  // tier, so the FIRST occurrence at a cell is taken here and tier selection stays
-  // where it already lives rather than being re-decided in two places.
+  // (day_id, time_block_id) -> occurrence, and (cell, tier) -> occurrence.
+  //
+  // CORRECTION (board item 9b). This kept only the first map, on the reasoning
+  // that "`buildAttendance` is what scopes a camper to a tier, so tier selection
+  // stays where it already lives rather than being re-decided in two places".
+  // The premise is true and the conclusion does not follow: `buildAttendance`
+  // decides which occurrences a camper may be PLACED in; this decides which
+  // occurrence their written answer is ABOUT. Different questions, and answering
+  // the second with first-at-cell is not deference — it is a guess.
+  //
+  // WHAT THE GUESS COSTS, traced through the engine and pinned by this module's
+  // own test rather than asserted. `bestAt` (src/engine/buildElectiveAssignments.js)
+  // is `entry.byOccurrence.has(occurrenceId) ? entry.byOccurrence.get(...) : entry.fallback`.
+  // Binding a Seniors camper's coordinate to the Juniors occurrence populates
+  // `byOccurrence` under the JUNIORS id and leaves `fallback` null — so at the
+  // Seniors occurrence, the only one they attend, the lookup misses, falls
+  // through to that null fallback, `rankAt` returns null, and the cost function
+  // substitutes UNRANKED_COST. They are seated in something they did not ask for
+  // while their ranked answer is never read. Silent, and it hits every camper
+  // outside the first tier at a shared cell.
+  //
+  // TIER IS THE WHOLE AXIS, and no more. Occurrences are keyed on tier_id;
+  // `group_ids` is derived metadata and several groups of one tier share ONE
+  // occurrence, so there is no group-level choice to make here. This is
+  // PRE-EXISTING and tier-level — #670 added no new binding axis.
+  //
+  // FIRST-AT-CELL STAYS AS THE FALLBACK for an unknown tier, deliberately: owner
+  // ruling R1's shape one layer down — a camper we cannot identify is still
+  // considered, never dropped.
   const occurrenceAtCell = new Map()
+  const occurrenceAtCellTier = new Map()
   for (const o of occurrences) {
     const cell = `${o.day_id}\u0000${o.time_block_id}`
     if (!occurrenceAtCell.has(cell)) occurrenceAtCell.set(cell, o)
+    const cellTier = `${cell}\u0000${o.tier_id ?? ''}`
+    if (!occurrenceAtCellTier.has(cellTier)) occurrenceAtCellTier.set(cellTier, o)
   }
 
   const residue = []
@@ -137,7 +170,11 @@ export function resolvePreferenceCoordinates({
       return p
     }
 
-    const occurrence = occurrenceAtCell.get(`${dayId}\u0000${blockId}`)
+    const cell = `${dayId}\u0000${blockId}`
+    const camperTierId = tierIdByCamperId?.[p.camper_id] ?? null
+    const occurrence =
+      (camperTierId == null ? undefined : occurrenceAtCellTier.get(`${cell}\u0000${camperTierId}`))
+      ?? occurrenceAtCell.get(cell)
     if (!occurrence) {
       // A real day and a real period, but THIS template puts no elective cell
       // there. The camper asked for a session this schedule does not have, which

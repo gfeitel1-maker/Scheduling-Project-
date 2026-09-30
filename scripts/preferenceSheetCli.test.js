@@ -406,3 +406,83 @@ describe('runPreferenceSheetCli', () => {
       .toMatch(/no device/)
   })
 })
+
+// Board item 9b — THE CLI DOOR SEES BUNDLE NAMES.
+//
+// Kept as its own describe because it needs a camp with an elective set and a
+// bundle, which none of the fixtures above have. The assertion is OBSERVABLE
+// rather than a peek at the catalog object: a label a bundle claims must stop
+// coming back as UNRESOLVED_CHOICE_LABEL residue. Asserting on the catalog
+// itself would pass against a catalog nothing reads.
+describe('runPreferenceSheetCli — a bundle is a label a sheet may name', () => {
+  const dirs = []
+  afterEach(() => {
+    for (const dir of dirs) fs.rmSync(dir, { recursive: true, force: true })
+    dirs.length = 0
+  })
+
+  const BUNDLE_NAME = 'Ropes Intensive'
+
+  function campWithBundle(dir, { inAnotherSet = false } = {}) {
+    const { dbPath, campId, userId } = bootstrapDb(dir)
+    const db = openLocalDb(dbPath)
+    const activityId = randomUUID()
+    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run(activityId, campId, 'Ropes')
+    const setId = randomUUID()
+    db.prepare('INSERT INTO elective_sets (id, camp_id, name) VALUES (?, ?, ?)').run(setId, campId, 'Session 1')
+    let ownerSetId = setId
+    if (inAnotherSet) {
+      ownerSetId = randomUUID()
+      db.prepare('INSERT INTO elective_sets (id, camp_id, name) VALUES (?, ?, ?)')
+        .run(ownerSetId, campId, 'Session 2')
+    }
+    db.prepare('INSERT INTO elective_bundles (id, elective_set_id, activity_id, name) VALUES (?, ?, ?, ?)')
+      .run(randomUUID(), ownerSetId, activityId, BUNDLE_NAME)
+    db.close()
+    return { dbPath, campId, userId }
+  }
+
+  function sheetNaming(dir, label) {
+    const file = path.join(dir, 'prefs.csv')
+    fs.writeFileSync(file, `Camper,Division,#1\nAvi Cohen,Older,${label}\n`)
+    return file
+  }
+
+  it('a preference naming a bundle by its director-given name resolves', () => {
+    const dir = makeTmpDir()
+    dirs.push(dir)
+    const { dbPath } = campWithBundle(dir)
+
+    const out = runPreferenceSheetCli({ file: sheetNaming(dir, BUNDLE_NAME), dbPath, action: 'preview' })
+
+    expect(out.error).toBe(null)
+    expect(out.residue.filter((r) => r.kind === 'UNRESOLVED_CHOICE_LABEL' && r.label === BUNDLE_NAME)).toEqual([])
+    expect(out.counts.preferences).toBe(1)
+  })
+
+  it('a bundle in ANOTHER elective set resolves too — the read is CAMP-WIDE', () => {
+    // Deliberate, and it is the whole reason this door reads camp-wide rather
+    // than scoping to one set: the panel door has no single set to scope by at
+    // classification time either, and a bundle that resolves through one door
+    // and not the other is exactly the two-catalogues drift
+    // buildPreferenceCatalog exists to prevent.
+    const dir = makeTmpDir()
+    dirs.push(dir)
+    const { dbPath } = campWithBundle(dir, { inAnotherSet: true })
+
+    const out = runPreferenceSheetCli({ file: sheetNaming(dir, BUNDLE_NAME), dbPath, action: 'preview' })
+
+    expect(out.residue.filter((r) => r.kind === 'UNRESOLVED_CHOICE_LABEL' && r.label === BUNDLE_NAME)).toEqual([])
+  })
+
+  it('a label NO bundle and no activity claims is still unresolved — the catalogue did not go blind', () => {
+    const dir = makeTmpDir()
+    dirs.push(dir)
+    const { dbPath } = campWithBundle(dir)
+
+    const out = runPreferenceSheetCli({ file: sheetNaming(dir, 'Underwater Basketweaving'), dbPath, action: 'preview' })
+
+    expect(out.residue.some((r) => r.kind === 'UNRESOLVED_CHOICE_LABEL' && r.label === 'Underwater Basketweaving'))
+      .toBe(true)
+  })
+})

@@ -31,6 +31,11 @@ import { buildOfferings, findMismatches, findBlankCapacities } from './buildOffe
 import { resolvePreferenceCoordinates } from './resolvePreferenceCoordinates.js'
 import { electiveChoiceLabelKey } from '../../../../electron/ops/electiveDerivedIds.js'
 import { buildAttendance } from './buildAttendance.js'
+// Board item 9b — the ONE camper-tier rule, shared with commitElectiveRun so the
+// solve and the commit cannot disagree about which tier a camper is in. Importing
+// a pure module from electron/ops is established in this directory already
+// (buildAttendance.js imports electiveDerivedIds.js from the same place).
+import { makeCamperIdentityResolver } from '../../../../electron/ops/camperElectiveIdentity.js'
 import { exportElectiveRunExcel, buildElectiveRunExport } from './exportElectiveRun.js'
 import MappingCorrector from './MappingCorrector.jsx'
 import ParseSummary from './ParseSummary.jsx'
@@ -277,6 +282,13 @@ export default function AssignmentPanel({
   // "group_id is ROSTER-OWNED" comment): fills in a camper's real bunk group
   // when the sheet's own division column did not resolve to one.
   campers = [],
+  // Board item 9b — every elective bundle name in the CAMP, not just this set's.
+  // These join the label catalogue, which is what makes a bundle's
+  // director-given name a label a camper's sheet may rank (ADR D4). Camp-wide
+  // deliberately, matching scripts/preferenceSheetCli.js's own read: a sheet
+  // names labels, not sets, and a bundle that resolves through one door and not
+  // the other is exactly the drift buildPreferenceCatalog exists to prevent.
+  catalogBundleNames = [],
 }) {
   const [phase, setPhase] = useState('empty')
   const [rows, setRows] = useState(null)
@@ -392,8 +404,14 @@ export default function AssignmentPanel({
       // handing the director a tab picker would hand them classification this code does.
       // The catalog goes in because an INVERTED MATRIX is recognisable only by matching
       // headers against the camp's own activities, so a tab cannot be classified without it.
-      const selectionCatalog = buildPreferenceCatalog({ activities, groups, tiers })
-      const selection = selectPreferenceSheet({ sheets: fileSheets, catalog: selectionCatalog })
+      // ONE catalog for both the tab classifier and the layout inference below.
+      // They were two byte-identical calls in this one function, which is how
+      // adding `bundles` to the catalogue meant editing three sites in this file
+      // — the hazard the note at confirmMapping's own call names ("a second call
+      // shape is a second T224, because the arguments are where the behaviour
+      // lives").
+      const catalog = buildPreferenceCatalog({ activities, groups, tiers, bundles: catalogBundleNames })
+      const selection = selectPreferenceSheet({ sheets: fileSheets, catalog })
       // Nothing readable on any tab still LANDS as a read that found nothing rather than a
       // refusal (ADR §14.1) — `confirmMapping` reports what could not be resolved. Falling
       // back to tab 1 keeps that message about a real sheet instead of an empty array.
@@ -429,7 +447,6 @@ export default function AssignmentPanel({
       // is resolved against the camp's own entities — so what they are asked to
       // confirm is what the transform will actually do. `inferPreferenceMapping`
       // on row 0 with no catalog was a different reading from the one that ran.
-      const catalog = buildPreferenceCatalog({ activities, groups, tiers })
       const inferred = inferPreferenceLayout(fileRows, { catalog })
 
       // T312 — a mapping this camp has confirmed before arrives PRE-FILLED, and
@@ -596,7 +613,9 @@ export default function AssignmentPanel({
     // unreachable. Every number this program measured described the CLI and not the
     // product. ADR section 3.2: a second call shape is a second T224, because the
     // arguments are where the behaviour lives.
-    const catalog = buildPreferenceCatalog({ activities: [...activities, ...extraActivities], groups, tiers })
+    const catalog = buildPreferenceCatalog({
+      activities: [...activities, ...extraActivities], groups, tiers, bundles: catalogBundleNames,
+    })
     let result
     try {
       // The transform is pure but not incapable of throwing — a derived id's
@@ -729,34 +748,42 @@ export default function AssignmentPanel({
       //
       // Nothing is written back: the stored rows keep their coordinates, and the
       // resolved occurrence lives only for this solve against this template.
+      // WHO EACH CAMPER IS — group and tier — resolved ONCE, here, because the
+      // next two calls both need it and used to answer it differently (the
+      // coordinate binder did not ask at all). See
+      // electron/ops/camperElectiveIdentity.js for the precedence and, in
+      // particular, for why the sheet's division outranks the roster group's
+      // tier. Used for THIS solve only — never written back into
+      // `parsed`/`setParsed`, whose consumers (MappingCorrector, ParseSummary)
+      // must keep showing what the sheet actually said.
+      //
+      // ENRICHMENT (#670, unchanged in behaviour, singular in definition): the
+      // sheet's own resolved group_id wins when present, the roster fills the
+      // gap when the sheet named only a tier (division_label "Older" matches no
+      // group named "Older"), and the roster never overrides a group_id the
+      // sheet itself resolved — commitElectiveRun.js's "a preference sheet may
+      // SET a group it resolved; it may never clear one it simply failed to
+      // resolve", read in this direction.
+      const identity = makeCamperIdentityResolver({
+        sheetCampers: parsed.campers, rosterCampers: campers, groups, tiers,
+      })
+      const enrichedCampers = identity.enriched
+      const tierIdByCamperId = Object.fromEntries(identity.tierIdByCamperId)
       const resolvedPreferences = resolvePreferenceCoordinates({
         preferences: runPreferences ?? parsed.preferences,
         occurrences: occs,
         days,
         timeBlocks,
         templateId: chosenTemplateId ?? templateId,
+        // A cell can carry one occurrence per tier; without this every camper
+        // outside the FIRST tier at that cell bound to a foreign occurrence and
+        // their rank was never read back. See the module's own note.
+        tierIdByCamperId,
       })
       // H4 — occurrences are tier-scoped but campers are not; without this a
       // set placed on both a Juniors cell and a Seniors cell at the same
-      // day/block seats the SAME campers in both.
-      //
-      // ENRICHMENT (board item, 2026-09-30) — the sheet's Division column is a
-      // label the director typed; `campers` (this screen's own roster prop,
-      // read the same way groups/tiers are) is the camp's fact. group_id is
-      // ROSTER-OWNED (commitElectiveRun.js ~467-487's own comment: "A
-      // preference sheet may SET a group it resolved; it may never clear one
-      // it simply failed to resolve" — `group_id: c.group_id ?? undefined`).
-      // Same precedence here: the sheet's own resolved group_id wins when
-      // present, the roster fills the gap when the sheet named only a tier
-      // (division_label "Older" matches no group named "Older"), and the
-      // roster never overrides a group_id the sheet itself resolved.
-      // `enrichedCampers` is used for THIS solve only — never written back
-      // into `parsed`/`setParsed`, whose consumers (MappingCorrector,
-      // ParseSummary) must keep showing what the sheet actually said.
-      const rosterGroupIdById = new Map(campers.map((c) => [c.id, c.group_id]))
-      const enrichedCampers = parsed.campers.map((c) =>
-        c.group_id != null ? c : (rosterGroupIdById.get(c.id) != null ? { ...c, group_id: rosterGroupIdById.get(c.id) } : c)
-      )
+      // day/block seats the SAME campers in both. `enrichedCampers` comes from
+      // the identity resolver above.
       const { attendance, unmatched, ambiguous, noCells, divisionMismatches } = buildAttendance({
         campers: enrichedCampers, occurrences: occs, tiers, groups,
       })
