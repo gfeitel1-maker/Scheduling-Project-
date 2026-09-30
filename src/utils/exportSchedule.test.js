@@ -97,15 +97,19 @@ describe('exportToExcel — events overlay branch', () => {
 // 346-348). Instead it is an is_span_head CHAIN — a head row plus one real
 // template_slots row PER COVERED PERIOD, every row sharing the same
 // activity_id, tails marked is_span_head === false (src/screens/schedule/
-// useSlotMutations.js's collectSpanTails, lines 49-65). The shape below is
-// what exportToExcel actually receives at runtime, not the raw SQLite
-// integer: useScheduleData.js normalizes every row through normalizeSlots()
-// (src/utils/normalizeSlots.js:27-30,74-78) before ScheduleScreen.jsx hands
-// the bundle to exportToExcel (src/screens/ScheduleScreen.jsx:888), and
-// normalizeSlots's toSlotBool turns the nullable INTEGER column into
-// true/false/null/undefined — never 0/1. So the head row here carries
-// is_span_head: true and the tail carries is_span_head: false, matching what
-// a reloaded merged slot looks like in the renderer.
+// useSlotMutations.js's collectSpanTails, lines 49-65). The fixture below
+// carries is_span_head: true/false on the head/tail rows for SHAPE FIDELITY
+// with what a reloaded merged slot looks like after useScheduleData.js's
+// normalizeSlots() (src/utils/normalizeSlots.js:27-30,74-78) runs its
+// toSlotBool coercion on the nullable INTEGER column — but exportToExcel
+// never reads is_span_head at all (src/utils/exportSchedule.js:18-20,36-38
+// and src/utils/scheduleCells.js:39-54 resolve a cell purely from
+// group_id/day_id/time_block_id plus is_anchor/event_id/elective_set_id/
+// activity_id). What this test actually asserts is per-period coverage: N
+// template_slots rows sharing one activity_id across N distinct time blocks
+// produce N separate Excel cells, one per covered period. Whether those N
+// cells should instead be MERGED into a single visually-spanning cell is a
+// separate question this test does not assert either way.
 describe('exportToExcel — multi-period span (T248 leftover)', () => {
   const spanDays = [{ id: 'd1', label: 'Monday' }]
   const spanBlocks = [

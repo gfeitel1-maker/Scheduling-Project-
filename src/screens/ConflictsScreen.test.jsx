@@ -3,8 +3,9 @@ import { useState } from 'react'
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, cleanup, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import ConflictsScreen from './ConflictsScreen'
+import ConflictsScreen, { UNIQUE_CONFLICT_NAV_TARGET } from './ConflictsScreen'
 import { noticeForStatus } from './conflictsNotice'
+import { NAV_SECTIONS, ROOTS_ITEM, ADMIN_MENU_ITEMS, ADMIN_ONLY_MENU_ITEMS } from '../components/layout/navSections'
 
 afterEach(() => cleanup())
 
@@ -411,5 +412,46 @@ describe('ConflictCard kind: "unique" (T242) — informational, no ChoiceBox', (
     expect(conflict.kind).toBeUndefined()
     renderPending([conflict])
     expect(screen.queryAllByRole('button', { name: /keep this version/i }).length).toBeGreaterThan(0)
+  })
+
+  // Fix 1 (Red Hat, reproduced): `UNIQUE_CONFLICT_NAV_TARGET[conflict.entity]`
+  // was an unguarded bracket lookup on a plain object literal, so it inherits
+  // from Object.prototype. An entity value equal to an inherited property
+  // name (constructor/toString/hasOwnProperty) resolved truthy — rendering an
+  // interactive element whose label came from `.label` on a Function object
+  // (undefined), with an onClick that would call onNavigate(undefined).
+  // conflict.entity is unvalidated, sourced from op-log data that can arrive
+  // from a paired device merge — not purely code-controlled.
+  it.each(['constructor', 'toString', 'hasOwnProperty'])(
+    'a prototype-polluting entity ("%s") renders no interactive element',
+    (entity) => {
+      renderPending([makeUniqueConflict({
+        id: `unique:${entity}:camp1:x`,
+        entity,
+        field: 'x',
+        value: 'y',
+      })])
+      expect(screen.queryByRole('button')).toBeNull()
+    }
+  )
+})
+
+// Fix 2 (Red Hat): the nav target's screen key must be a real, currently
+// navigable key — not a string that quietly falls through App.jsx's
+// `SCREENS[resolvedScreen] || TiersScreen` fallback if the screen were ever
+// retired (as camp_maps' spatial layer already was once).
+describe('UNIQUE_CONFLICT_NAV_TARGET (Fix 2): every named screen is real nav vocabulary', () => {
+  it('every screen key exists among navSections.js\'s real nav item keys', () => {
+    const navKeys = new Set([
+      ROOTS_ITEM.key,
+      ...NAV_SECTIONS.flatMap((section) => section.items.map((item) => item.key)),
+      ...ADMIN_MENU_ITEMS.map((item) => item.key),
+      ...ADMIN_ONLY_MENU_ITEMS.map((item) => item.key),
+    ])
+    const namedTargets = Object.values(UNIQUE_CONFLICT_NAV_TARGET)
+    expect(namedTargets.length).toBeGreaterThan(0)
+    for (const target of namedTargets) {
+      expect(navKeys.has(target.screen)).toBe(true)
+    }
   })
 })
