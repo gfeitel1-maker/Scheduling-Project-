@@ -23,7 +23,7 @@ import { CELL_CHOICE } from '../../../engine/rankKind.js'
 import DeleteRunDialog from './DeleteRunDialog.jsx'
 import { A } from '../assignment/assignmentStyles.js'
 import {
-  RELEASE_LOCK_LABEL, danglingMessage, occurrenceLabel, overCapacityMessage,
+  DANGLING_MOVE_PLACEHOLDER, REMOVE_PLACEMENT_LABEL, danglingMessage, occurrenceLabel, overCapacityMessage,
   resolveCamperDisambiguators, satisfactionSummary, stalenessOfferMessage,
 } from './runStateCopy.js'
 
@@ -36,6 +36,19 @@ const styles = {
   camperDisambiguator: { fontSize: 11, color: 'var(--text-secondary)' },
   actionsBand: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 },
   actionsHint: { fontSize: 12, color: 'var(--text-secondary)' },
+  // T320 (docs/adr/2026-09-30-elective-run-durability.md item 3;
+  // docs/work/specs/2026-09-30-t320-dangling-replace-picker.md).
+  danglingMoveSelect: {
+    fontFamily: 'inherit',
+    fontSize: 13,
+    padding: '5px 8px',
+    borderRadius: 6,
+    border: '1px solid color-mix(in srgb, var(--accent) 45%, var(--border))',
+    background: 'var(--surface)',
+    color: 'var(--text)',
+    maxWidth: 280,
+    cursor: 'pointer',
+  },
   findingsList: { margin: '8px 0 0', paddingLeft: 20, fontSize: 12 },
   // The pairing: the state, then its remedy, with nothing between them — same
   // shape as FinalRunView's own stale-generation pairing.
@@ -133,7 +146,22 @@ export default function DraftRunView({
 }) {
   const { state, setState, loaded, loadError, reload } = useRunState(run.id)
   const [error, setError] = useState(null)
-  const [released, setReleased] = useState([])
+  // T320 — a picker MOVE/REMOVE result, tracked separately from the (now
+  // removed) "Release lock" session-state: a distinct array rather than
+  // overloading a differently-named one, per the spec's own instruction ("a
+  // reader of released.includes(id) today reasonably expects 'the lock was
+  // released'"). Used only as the pre-`loaded` fallback filter — see
+  // danglingRows below.
+  const [movedAway, setMovedAway] = useState([])
+  // Per-row in-flight guard for the move/remove select or button — keyed to
+  // one assignment id so one row's write does not disable every other row's
+  // control.
+  const [movingId, setMovingId] = useState(null)
+  // T320 spec "Keyboard and focus" — a director keyboard-focused on a
+  // dangling row's control loses their focus target when the row is removed
+  // on success; this gives them a stable landing spot, mirroring
+  // RunStateRow's own alert-row ref.focus() precedent.
+  const summaryRef = useRef(null)
   const [finalizing, setFinalizing] = useState(false)
   // { error, findings } for the refusal row, or null when nothing to say.
   const [finalizeRefusal, setFinalizeRefusal] = useState(null)
@@ -192,10 +220,12 @@ export default function DraftRunView({
 
   // One write path for every lock/move on this screen, so lock semantics do not
   // drift between the table and the "Release lock" button.
-  async function writeAssignment({ camperId, occurrenceId, activityId, locked }) {
+  async function writeAssignment({ camperId, occurrenceId, activityId, locked, replacesAssignmentId = null }) {
     setError(null)
     try {
-      const out = await localClient.setElectiveAssignment({ runId: run.id, camperId, occurrenceId, activityId, locked })
+      const out = await localClient.setElectiveAssignment({
+        runId: run.id, camperId, occurrenceId, activityId, locked, replacesAssignmentId,
+      })
       if (!out?.ok) {
         setError(out?.message ?? out?.error ?? 'That placement could not be saved.')
         return false
@@ -265,33 +295,52 @@ export default function DraftRunView({
     }
   }
 
-  // RELEASING THE LOCK DOES NOT RESOLVE THE DANGLING CONDITION, so this row
-  // must not disappear as though it had.
+  // T320 item 3 (docs/adr/2026-09-30-elective-run-durability.md;
+  // docs/work/specs/2026-09-30-t320-dangling-replace-picker.md; Governor
+  // rulings R6/R7) — THE ACTUAL REMEDY. "Release lock" alone left `source`
+  // unchanged, so the identical row re-reported on the next regenerate; a
+  // MOVE routes through `replacesAssignmentId`, which tombstones the source
+  // row in the same transaction as the destination write
+  // (setElectiveAssignment.js), so the finding clears mechanically — no
+  // second regenerate needed.
   //
-  // setElectiveAssignment writes source:'manual' on EVERY write through that
-  // path (electron/ops/setElectiveAssignment.js), and commitElectiveRun derives
-  // DANGLING_MANUAL_ASSIGNMENT from source='manual' rows whose occurrence_id is
-  // outside the derived occurrence set — keyed on `source`, never on
-  // `is_locked`. Unlocking leaves `source` exactly where it was, so the very
-  // next regenerate re-reports the identical row. Round 1 collapsed the row
-  // away on a successful write, which told the director it was fixed.
-  //
-  // What the write DOES do is real and worth keeping: the lock is genuinely
-  // released. So the action retires once performed and the row stays, stating
-  // the condition that is still true. The spec chose this remedy without
-  // knowing `source` stays 'manual'; a remedy that actually closes the
-  // condition has to move the placement onto an occurrence this run still has,
-  // which is a picker and copy this ticket was not asked to invent.
-  async function releaseLock(finding) {
+  // `locked: true`, not `false` — mirrors the move/lock table's own
+  // manual-move convention: a move made by hand must survive the next
+  // regenerate, not be handed straight back to the solver.
+  async function moveDangling(finding, occurrenceId) {
     const row = rows.find((r) => r.id === finding.assignment_id)
+    setMovingId(finding.assignment_id)
     const ok = await writeAssignment({
       camperId: finding.camper_id,
-      occurrenceId: finding.occurrence_id,
+      occurrenceId,
       activityId: row?.activity_id ?? null,
-      locked: false,
+      locked: true,
+      replacesAssignmentId: finding.assignment_id,
     })
+    setMovingId(null)
     if (!ok) return
-    setReleased((r) => [...r, finding.assignment_id])
+    setMovedAway((m) => [...m, finding.assignment_id])
+    summaryRef.current?.focus()
+    await reload()
+  }
+
+  // R7 — the zero-live-occurrence branch: a control that can genuinely
+  // resolve the condition (unlike the old "Release lock", which never could)
+  // via setElectiveAssignment's remove-only shape
+  // (occurrenceId: null, activityId: null, replacesAssignmentId given).
+  async function removeDangling(finding) {
+    setMovingId(finding.assignment_id)
+    const ok = await writeAssignment({
+      camperId: finding.camper_id,
+      occurrenceId: null,
+      activityId: null,
+      replacesAssignmentId: finding.assignment_id,
+    })
+    setMovingId(null)
+    if (!ok) return
+    setMovedAway((m) => [...m, finding.assignment_id])
+    summaryRef.current?.focus()
+    await reload()
   }
 
   // T250 A1/A2 — locks this run. finalizeElectiveRun's real return shape
@@ -383,7 +432,22 @@ export default function DraftRunView({
   // already-computed findings with their OWN message from commitElectiveRun,
   // rendered verbatim rather than hidden or mislabeled.
   const overCapacityRows = state.overCapacityOccurrences
-  const danglingRows = danglingFindings.filter((f) => f.kind === 'DANGLING_MANUAL_ASSIGNMENT')
+  // T320 (docs/adr/2026-09-30-elective-run-durability.md item 2, open
+  // question 1) — the RENDERING SOURCE is now the durable getElectiveRun-
+  // returned `state.danglingFindings`, which survives a cold reopen; the
+  // `danglingFindings` PROP (commitElectiveRun's own session-scoped response
+  // field) is used only as an immediate pre-refresh fallback, before this
+  // screen's own read has completed (`loaded` false). Once loaded, the
+  // durable value wins even if it is empty — an empty durable read
+  // legitimately means "nothing dangling right now", which must not be
+  // shadowed by a stale prop from an earlier action this session.
+  const danglingRows = (loaded
+    ? state.danglingFindings
+    : danglingFindings.filter((f) => f.kind === 'DANGLING_MANUAL_ASSIGNMENT')
+  // `movedAway` filters here too: the moment a move/remove succeeds the row
+  // must vanish immediately, before the awaited reload() resolves and the
+  // durable read catches up.
+  ).filter((f) => !movedAway.includes(f.assignment_id))
   const commitNotices = danglingFindings.filter((f) => f.kind !== 'DANGLING_MANUAL_ASSIGNMENT')
   const stateRowCount = overCapacityRows.length + danglingRows.length + commitNotices.length
 
@@ -399,18 +463,49 @@ export default function DraftRunView({
     )),
     ...danglingRows.map((f, i) => {
       const index = overCapacityRows.length + i
+      const camperName = rows.find((r) => r.camper_id === f.camper_id)?.camper_name ?? f.camper_id
+      const isMoving = movingId === f.assignment_id
+      // R6 (spec "What replaces Release lock") — mutually exclusive per row
+      // render: a picker when this run has a live occurrence to move into,
+      // else the R7 "Remove placement" action. Never both. (A row that was
+      // just moved/removed this session is already excluded from
+      // danglingRows above, so no `movedAway` check is needed here.)
+      const action = templateOccurrences.length > 0 ? (
+        <select
+          data-testid={`run-state-dangling-move-${f.assignment_id}`}
+          aria-label={`Move ${camperName}'s placement`}
+          style={styles.danglingMoveSelect}
+          disabled={isMoving}
+          value=""
+          onChange={(e) => {
+            const occurrenceId = e.target.value
+            if (occurrenceId) moveDangling(f, occurrenceId)
+          }}
+        >
+          <option value="" disabled>{DANGLING_MOVE_PLACEHOLDER}</option>
+          {templateOccurrences.map((o) => (
+            <option key={o.id} value={o.id}>{labelForTemplateOccurrence(o)}</option>
+          ))}
+        </select>
+      ) : (
+        <button
+          className="press-97"
+          style={S.btnSecondary}
+          data-testid={`run-state-dangling-remove-${f.assignment_id}`}
+          disabled={isMoving}
+          onClick={() => removeDangling(f)}
+        >
+          {REMOVE_PLACEMENT_LABEL}
+        </button>
+      )
       return (
         <RunStateRow
           key={`dm-${f.assignment_id}`}
           testId={`run-state-dangling-${f.assignment_id}`}
           first={index === 0}
           last={index === stateRowCount - 1}
-          message={danglingMessage({ camperName: rows.find((r) => r.camper_id === f.camper_id)?.camper_name ?? f.camper_id })}
-          action={released.includes(f.assignment_id) ? null : (
-            <button className="press-97" style={S.btnSecondary} onClick={() => releaseLock(f)}>
-              {RELEASE_LOCK_LABEL}
-            </button>
-          )}
+          message={danglingMessage({ camperName })}
+          action={action}
         />
       )
     }),
@@ -452,7 +547,7 @@ export default function DraftRunView({
       <RunError message={error ?? loadError} />
       {loaded ? (
         <>
-          <div data-testid="run-satisfaction-summary" style={styles.summary}>
+          <div data-testid="run-satisfaction-summary" style={styles.summary} ref={summaryRef} tabIndex={-1}>
             {satisfactionSummary({ rows, preferences: state.preferences, occurrences: state.occurrences, days, timeBlocks })}
           </div>
 

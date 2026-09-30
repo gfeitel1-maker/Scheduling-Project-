@@ -57,7 +57,7 @@ import RunList from './RunList.jsx'
 import DraftRunView from './DraftRunView.jsx'
 import FinalRunView from './FinalRunView.jsx'
 import { prefersReducedMotion } from '../../../styles/shared'
-import { RELEASE_LOCK_LABEL, START_REVISION_LABEL, STALE_GENERATION_COPY } from './runStateCopy.js'
+import { START_REVISION_LABEL, STALE_GENERATION_COPY } from './runStateCopy.js'
 import { DELETE_RUN_COST_COPY } from './DeleteRunDialog.jsx'
 
 // Fabricated names only — real camper data is refused at a tested gate until
@@ -350,49 +350,70 @@ describe('T250 archive_when — Draft: overCapacityOccurrences surfaced live', (
 // ---------------------------------------------------------------------------
 // archive_when: Draft — "DANGLING_MANUAL_ASSIGNMENT ... surfaced live"
 // ---------------------------------------------------------------------------
-describe('T250 archive_when — Draft: DANGLING_MANUAL_ASSIGNMENT surfaced live', () => {
+describe('T250/T320 archive_when — Draft: DANGLING_MANUAL_ASSIGNMENT surfaced live', () => {
   const dangling = [{
     kind: 'DANGLING_MANUAL_ASSIGNMENT', assignment_id: 'a3',
     camper_id: 'camper-3', occurrence_id: 'occ-gone', message: 'ignored — T250 owns this screens copy',
   }]
 
-  it('names the affected camper and offers Release lock, which drops the lock via setElectiveAssignment', async () => {
+  // T320 (docs/adr/2026-09-30-elective-run-durability.md item 3; Governor
+  // ruling R6) — "Release lock" is GONE from this row entirely. With live
+  // occurrences available (catalogs()'s default templateOccurrences), the
+  // row shows a "Move to…" picker that routes through
+  // setElectiveAssignment's replacesAssignmentId, and the finding clears
+  // (via a durable re-read) rather than merely retiring an action.
+  it('names the affected camper, offers a move picker, and the row clears once the finding no longer holds', async () => {
+    localClient.getElectiveRun
+      .mockResolvedValueOnce({ ...CLEAN_RUN_STATE, danglingFindings: dangling })
+      .mockResolvedValue({ ...CLEAN_RUN_STATE, danglingFindings: [] })
+    localClient.setElectiveAssignment.mockResolvedValue({ ok: true, assignmentId: 'new-a3' })
     render(<DraftRunView run={DRAFT_RUN} danglingFindings={dangling} {...catalogs()} />)
     const row = await screen.findByTestId('run-state-dangling-a3')
     expect(row.textContent).toMatch(
       /Testcamper Charlie's locked placement no longer matches this run — regenerating removed the occurrence it pointed to\./
     )
-
-    fireEvent.click(within(row).getByRole('button', { name: 'Release lock' }))
+    const select = within(row).getByTestId('run-state-dangling-move-a3')
+    fireEvent.change(select, { target: { value: 'occ-1' } })
     await waitFor(() => expect(localClient.setElectiveAssignment).toHaveBeenCalled())
     expect(localClient.setElectiveAssignment).toHaveBeenCalledWith({
-      runId: 'run-1', camperId: 'camper-3', occurrenceId: 'occ-gone', activityId: 'act-2', locked: false,
+      runId: 'run-1', camperId: 'camper-3', occurrenceId: 'occ-1', activityId: 'act-2',
+      locked: true, replacesAssignmentId: 'a3',
     })
-    // Round 2: the row does NOT go away. Releasing the lock does not resolve
-    // the dangling condition — see the FIX 2 describe block below.
-    await waitFor(() =>
-      expect(within(screen.getByTestId('run-state-dangling-a3')).queryByRole('button')).toBeNull())
+    // The row is gone once the write succeeds and the durable read agrees.
+    await waitFor(() => expect(screen.queryByTestId('run-state-dangling-a3')).toBeNull())
   })
 
   it('orders over-capacity rows before dangling rows, per the spec fixed order', async () => {
     localClient.getElectiveRun.mockResolvedValue({
       ...CLEAN_RUN_STATE,
+      danglingFindings: dangling,
       overCapacityOccurrences: [{ occurrenceId: 'occ-1', activityId: 'act-1', capacity: 1, filled: 2 }],
     })
     render(<DraftRunView run={DRAFT_RUN} danglingFindings={dangling} {...catalogs()} />)
     const area = await screen.findByTestId('run-state-area')
-    const ids = [...area.querySelectorAll('[data-testid^="run-state-"]')].map((n) => n.dataset.testid)
+    const ids = [...area.querySelectorAll('[data-testid^="run-state-"][role]')].map((n) => n.dataset.testid)
     expect(ids).toEqual(['run-state-over-capacity-occ-1-act-1', 'run-state-dangling-a3'])
   })
 
-  it('surfaces a failed Release lock write instead of swallowing it', async () => {
+  it('surfaces a failed move write instead of swallowing it, and the row stays', async () => {
+    localClient.getElectiveRun.mockResolvedValue({ ...CLEAN_RUN_STATE, danglingFindings: dangling })
     localClient.setElectiveAssignment.mockResolvedValue({ ok: false, error: 'RUN_NOT_DRAFT' })
     render(<DraftRunView run={DRAFT_RUN} danglingFindings={dangling} {...catalogs()} />)
     const row = await screen.findByTestId('run-state-dangling-a3')
-    fireEvent.click(within(row).getByRole('button', { name: 'Release lock' }))
+    fireEvent.change(within(row).getByTestId('run-state-dangling-move-a3'), { target: { value: 'occ-1' } })
     await waitFor(() => expect(screen.getByTestId('run-view-error').textContent).toMatch(/RUN_NOT_DRAFT/))
     // ...and the row stays, because nothing was resolved.
     expect(screen.getByTestId('run-state-dangling-a3')).toBeTruthy()
+  })
+
+  // T320 — S5, cold reopen: this run was NEVER committed this session
+  // (no commit-response prop at all), and the row still renders, proving the
+  // durable derivation — not the session-scoped prop — is what's showing it.
+  it('T320 S5 — renders on a COLD REOPEN, with no commit-response prop in play', async () => {
+    localClient.getElectiveRun.mockResolvedValue({ ...CLEAN_RUN_STATE, danglingFindings: dangling })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+    const row = await screen.findByTestId('run-state-dangling-a3')
+    expect(row.textContent).toMatch(/Testcamper Charlie's locked placement no longer matches this run/)
   })
 })
 
@@ -419,11 +440,16 @@ describe('T250 B1 — a mixed findings array renders each kind with its own sent
   ]
 
   it('renders the dangling sentence for DANGLING_MANUAL_ASSIGNMENT, and each OTHER finding under its own verbatim message, one row per finding, no action button', async () => {
+    localClient.getElectiveRun.mockResolvedValue({
+      ...CLEAN_RUN_STATE,
+      danglingFindings: [mixed[0]],
+    })
     render(<DraftRunView run={DRAFT_RUN} danglingFindings={mixed} {...catalogs()} />)
 
     const danglingRow = await screen.findByTestId('run-state-dangling-a3')
     expect(danglingRow.textContent).toMatch(/Testcamper Charlie's locked placement no longer matches this run/)
-    expect(within(danglingRow).getByRole('button', { name: 'Release lock' })).toBeTruthy()
+    // T320 — the dangling row's action is now the move picker, not a button.
+    expect(within(danglingRow).getByTestId('run-state-dangling-move-a3')).toBeTruthy()
 
     const prefRow = screen.getByTestId('run-state-notice-pref-1')
     expect(prefRow.textContent).toBe('This file still lists a preference you removed by hand, so it was not added back.')
@@ -435,7 +461,7 @@ describe('T250 B1 — a mixed findings array renders each kind with its own sent
 
     // Exactly one row per finding — no collision, no dropped row.
     const area = screen.getByTestId('run-state-area')
-    expect(area.querySelectorAll('[data-testid^="run-state-"]')).toHaveLength(3)
+    expect(area.querySelectorAll('[data-testid^="run-state-"][role]')).toHaveLength(3)
   })
 
   // Round 2 FIX 5(a) (Code Reviewer, LOW) — a commitNotices row rendered
@@ -525,6 +551,10 @@ describe('T250 archive_when — Draft: move/lock', () => {
     await waitFor(() => expect(localClient.setElectiveAssignment).toHaveBeenCalled())
     expect(localClient.setElectiveAssignment).toHaveBeenCalledWith({
       runId: 'run-1', camperId: 'camper-1', occurrenceId: 'occ-2', activityId: 'act-1', locked: true,
+      // T320 — writeAssignment (the one shared write path) now always threads
+      // replacesAssignmentId through; null for an ordinary move/lock through
+      // the table, which never replaces a dangling row.
+      replacesAssignmentId: null,
     })
   })
 
@@ -536,6 +566,7 @@ describe('T250 archive_when — Draft: move/lock', () => {
     fireEvent.click(lock)
     await waitFor(() => expect(localClient.setElectiveAssignment).toHaveBeenCalledWith({
       runId: 'run-1', camperId: 'camper-1', occurrenceId: 'occ-1', activityId: 'act-1', locked: true,
+      replacesAssignmentId: null,
     }))
     await waitFor(() => expect(within(screen.getByTestId('placement-row-a1')).getByTestId('placement-lock-a1').checked).toBe(true))
   })
@@ -764,7 +795,7 @@ describe('T250 archive_when — Final: overCapacityOccurrences', () => {
     })
     render(<FinalRunView run={FINAL_RUN} campers={CAMPERS} {...catalogs()} />)
     const area = await screen.findByTestId('run-state-area')
-    const ids = [...area.querySelectorAll('[data-testid^="run-state-"]')]
+    const ids = [...area.querySelectorAll('[data-testid^="run-state-"][role]')]
       .map((n) => n.dataset.testid)
       .filter((id) => id !== 'run-state-stale-pairing')
     expect(ids).toEqual(['run-state-stale-generation', 'run-state-over-capacity-occ-2-act-2'])
@@ -847,8 +878,9 @@ describe('T250 archive_when — Final: export', () => {
     await waitFor(() => expect(click).toHaveBeenCalled())
     expect(localClient.list).toHaveBeenCalledWith('elective_preferences')
     const payload = JSON.parse(await created[created.length - 1].text())
-    // T318 (c4) bumped format_version 1 -> 2 for the added summary.unordered_count field.
-    expect(payload.format_version).toBe(2)
+    // T320 bumped format_version 2 -> 3 (exceptions.eligibility/.resource
+    // meaning change — see exportElectiveRunProjection.js's own comment).
+    expect(payload.format_version).toBe(3)
     // Only this run's preferences (run_id: 'run-2') feed the export — the 'run-other' row is
     // filtered out client-side since localClient.list returns all camp-scoped rows.
     expect(payload.exceptions.unranked.some((u) => u.camper_id === 'camper-9')).toBe(false)
@@ -1039,33 +1071,54 @@ describe('T250 round 2 — Final: an unread run never reads as a clean one', () 
 })
 
 // ---------------------------------------------------------------------------
-// Round 2, FIX 2 — Release lock must not claim a fix it did not make.
+// T320 (docs/adr/2026-09-30-elective-run-durability.md item 3) REPLACES this
+// block's old premise. _Prior: "Round 2, FIX 2 — Release lock must not claim
+// a fix it did not make" pinned that releasing the lock left `source`
+// untouched, so the row could never actually clear. Governor ruling R6/R7
+// removed "Release lock" from this row entirely and replaced it with a
+// picker that routes through `replacesAssignmentId`, which DOES resolve the
+// condition — this block now asserts the opposite of what it used to: the
+// remedy genuinely works._
 //
-// setElectiveAssignment writes source:'manual' on EVERY write through that
-// path (electron/ops/setElectiveAssignment.js), and commitElectiveRun derives
-// DANGLING_MANUAL_ASSIGNMENT from source='manual' rows whose occurrence_id is
-// outside the derived occurrence set — keyed on `source`, never on `is_locked`.
-// Releasing the lock therefore changes nothing about the dangling condition:
-// the next regenerate re-reports the identical row. A row that vanishes on
-// click tells the director it is fixed. It is not.
+// Two sub-cases, per R6/R7: a move (live occurrences exist) and a remove
+// (none do).
 // ---------------------------------------------------------------------------
-describe('T250 round 2 — Draft: Release lock does not pretend to resolve the dangling row', () => {
+describe('T320 — the picker genuinely resolves the dangling row (unlike the old Release lock)', () => {
   const dangling = [{
     kind: 'DANGLING_MANUAL_ASSIGNMENT', assignment_id: 'a3',
     camper_id: 'camper-3', occurrence_id: 'occ-gone', message: 'ignored — T250 owns this screens copy',
   }]
 
-  it('keeps the row after a successful release, and retires only the action it actually performed', async () => {
+  it('a move tombstones the source row via replacesAssignmentId, and the row is gone once the durable read agrees', async () => {
+    localClient.getElectiveRun
+      .mockResolvedValueOnce({ ...CLEAN_RUN_STATE, danglingFindings: dangling })
+      .mockResolvedValue({ ...CLEAN_RUN_STATE, danglingFindings: [] })
+    localClient.setElectiveAssignment.mockResolvedValue({ ok: true, assignmentId: 'new-a3' })
     render(<DraftRunView run={DRAFT_RUN} danglingFindings={dangling} {...catalogs()} />)
     const row = await screen.findByTestId('run-state-dangling-a3')
-    fireEvent.click(within(row).getByRole('button', { name: RELEASE_LOCK_LABEL }))
-    await waitFor(() => expect(localClient.setElectiveAssignment).toHaveBeenCalled())
+    fireEvent.change(within(row).getByTestId('run-state-dangling-move-a3'), { target: { value: 'occ-1' } })
+    await waitFor(() => expect(localClient.setElectiveAssignment).toHaveBeenCalledWith(
+      expect.objectContaining({ replacesAssignmentId: 'a3' })
+    ))
+    await waitFor(() => expect(screen.queryByTestId('run-state-dangling-a3')).toBeNull())
+  })
 
-    // The lock is genuinely gone, so its control is gone...
-    await waitFor(() =>
-      expect(within(screen.getByTestId('run-state-dangling-a3')).queryByRole('button')).toBeNull())
-    // ...but the dangling condition is untouched, so the row stays.
-    expect(screen.getByTestId('run-state-dangling-a3')).toBeTruthy()
+  // R7 — the zero-live-occurrence fallback is "Remove placement", NOT the old
+  // "Release lock": a genuinely resolvable action, per the standing "no
+  // control whose action cannot do what it says" rule.
+  it('with zero live occurrences, "Remove placement" removes the row via a remove-only write', async () => {
+    localClient.getElectiveRun
+      .mockResolvedValueOnce({ ...CLEAN_RUN_STATE, danglingFindings: dangling })
+      .mockResolvedValue({ ...CLEAN_RUN_STATE, danglingFindings: [] })
+    localClient.setElectiveAssignment.mockResolvedValue({ ok: true, assignmentId: null, removed: 'a3' })
+    render(<DraftRunView run={DRAFT_RUN} danglingFindings={dangling} {...catalogs()} templateOccurrences={[]} />)
+    const row = await screen.findByTestId('run-state-dangling-a3')
+    fireEvent.click(within(row).getByTestId('run-state-dangling-remove-a3'))
+    await waitFor(() => expect(localClient.setElectiveAssignment).toHaveBeenCalledWith({
+      runId: 'run-1', camperId: 'camper-3', occurrenceId: null, activityId: null,
+      locked: undefined, replacesAssignmentId: 'a3',
+    }))
+    await waitFor(() => expect(screen.queryByTestId('run-state-dangling-a3')).toBeNull())
   })
 })
 
@@ -1100,7 +1153,7 @@ describe('T250 round 2 — Draft: staleness is stated even when regenerate is un
 describe('T250 round 2 — the run-state area renders at rest on first mount', () => {
   function assertAtRest() {
     const area = screen.getByTestId('run-state-area')
-    for (const node of [area, ...area.querySelectorAll('[data-testid^="run-state-"]')]) {
+    for (const node of [area, ...area.querySelectorAll('[data-testid^="run-state-"][role]')]) {
       expect(node.style.transition).toBe('')
       expect(node.style.transform).toBe('')
       expect(node.style.opacity).toBe('')
