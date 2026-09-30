@@ -369,13 +369,19 @@ export function parseCompletionRefs(subject) {
  * and `checkRunRecordFiled` both stay silent on a subject that is, in English,
  * a closure claim. This check catches the claim itself.
  *
- * MEASURED, NARROW ON PURPOSE. `clos(e|es|ed)\s+(?:the\s+(?:\S+\s+){0,3})?ticket`
- * against every subject on origin/main matches TWELVE, and all twelve are real
- * closures that named their ticket a different way (a `docs(T<n>):` prefix)
- * instead of as `closes T<n>` — twelve true positives, zero false positives.
- * The adjective sense ("fails closed", "left closed") never collides, because
- * the phrase requires the word "ticket" immediately after close/closes/closed
- * (optionally through a short "the <phrase>" gap — see WIDENED below).
+ * MEASURED, NARROW ON PURPOSE, AGAINST A CORPUS — NOT A MECHANICAL GUARANTEE.
+ * What actually excludes the adjective sense ("fails closed", "left closed")
+ * is the boundary lookahead `(?![-\w])` after `tickets?` — nothing immediately
+ * after the word "ticket"/"tickets" may be a word character or hyphen, which
+ * is what keeps a compound noun like "ticketing"/"ticketmaster"/
+ * "ticket-booking"/"ticketed-event" from matching at all (an earlier version
+ * of this comment claimed the adjective sense "never collides"; Red Hat
+ * disproved that against a fresh corpus sweep — see NARROWED below). And what
+ * stops a match from crossing a clause boundary (`closes the loop; the ticket
+ * stays open`) is the `[\w/-]+` token class for the intervening gap, not `\S+`,
+ * which would otherwise cross a `;`. Both are measured against a corpus of
+ * real subjects, not proven against all future English — see NARROWED below
+ * for the residual this does not close.
  *
  * WIDENED 2026-09-30 (round 2). A bare `(?:the\s+)?` before "ticket" missed a
  * real subject: `T171: close the consolidation/gate-hardening ticket — all
@@ -407,8 +413,41 @@ export function parseCompletionRefs(subject) {
  * (#371) claims closure but names no id at all, so even a firing finding
  * could only say "name what you closed" — it could not point at a drifted
  * ticket, unlike every case this check does catch. Not worth catching.
+ *
+ * NARROWED 2026-09-30 (bounded resolution round, board-worker decision — see
+ * this date's run record for the verbatim ruling and the owner flag). Round
+ * 2's `\S+` gap and bare `ticket` were both proven to over-fire by Red Hat's
+ * corpus sweep: `close the ticketing system outage`, `closed the ticketmaster
+ * integration bug`, `close the ticket-booking flow for campers`, `closes the
+ * ticketed-event feature` all matched the bare noun with no word boundary
+ * after it, and `closes the loop; the ticket stays open` matched because
+ * `\S+` crosses a `;` clause boundary. Two mechanical fixes, not a rewrite:
+ *
+ * - `tickets?(?![-\w])` — a boundary lookahead excludes the compound-noun
+ *   senses above (nothing immediately after "ticket"/"tickets" may be a word
+ *   character or hyphen), and it catches the plural (`close the two tickets`)
+ *   by design rather than by accident of a missing boundary.
+ * - `[\w/-]+` in place of `\S+` for the intervening-token gap — it still
+ *   admits a slash-joined noun phrase (`the consolidation/gate-hardening
+ *   ticket`, T171) but stops at a clause boundary like `;`, so `closes the
+ *   loop; the ticket stays open` no longer matches.
+ *
+ * This is measured against a corpus, the same way the original pattern was —
+ * not mechanically guaranteed against all future English. The corpus counts
+ * as of this narrowing are recorded in WORK_RECORD_STANDARD.md §3.2 and in
+ * this date's run record.
+ *
+ * RESIDUAL, DOCUMENTED RATHER THAN HIDDEN: these two fixes dispose of the
+ * compound-noun class completely and of the clause-crossing instance of the
+ * negation finding, but NOT of negation generally — `do not close the wrong
+ * ticket` and `never close the ticket without director sign-off` still fire,
+ * because "wrong" and "the" are ordinary `[\w/-]+` tokens, same as any real
+ * noun phrase. What makes that acceptable is the remedy text below, not the
+ * pattern: a negated subject is told to reword so it does not claim a
+ * closure — correct advice — rather than being told to invent a `closes T<n>`
+ * for a ticket that must stay open. See the pinned test for this shape.
  */
-const CLOSURE_CLAIM_WITHOUT_ID = /clos(?:e|es|ed)\s+(?:the\s+(?:\S+\s+){0,3})?ticket/i
+const CLOSURE_CLAIM_WITHOUT_ID = /clos(?:e|es|ed)\s+(?:the\s+(?:[\w/-]+\s+){0,3})?tickets?(?![-\w])/i
 
 export function checkClosureClaimWithoutId(subjects) {
   const out = []
@@ -419,9 +458,9 @@ export function checkClosureClaimWithoutId(subjects) {
     if (!CLOSURE_CLAIM_WITHOUT_ID.test(subject)) continue
     if (parseCompletionRefs(subject).length) continue
     out.push(finding('closure-claim-without-id',
-      `"${subject}" claims in words to close a ticket but names no id. Write the subject as ` +
-      `\`closes T<n>\` (or \`closed T<n>\` / \`close T<n>\`) so the gate can check it — and retitle ` +
-      `the pull request too, since its title becomes the squash-merge commit subject.`))
+      `"${subject}" claims in words to close a ticket but names no id — if it does close one, ` +
+      `write \`closes T<n>\`; if it does not, reword the subject so it does not claim to. And ` +
+      `retitle the pull request too, since its title becomes the squash-merge commit subject.`))
   }
   return out
 }

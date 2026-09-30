@@ -295,3 +295,117 @@ accepting the T171 blind spot.
 - **T283** (the real main-side board-truth audit gate) remains open and untouched.
 
 > Round 2 failure escalates to the user with open findings. It does not become a round 3.
+
+## Bounded resolution round — board-worker decision
+
+This is not round 3 — the owner was unavailable, and a board worker acted under the owner's
+delegated queue authority to resolve the round-2 escalation within a bounded scope
+(`scripts/check-governance.js`, `scripts/check-governance.test.js`, `WORK_RECORD_STANDARD.md`
+§3.2/§3.3 only, this run record, and `docs/work/INDEX.md` via `npm run index:work`). No ticket
+number, no status flip, no push/PR/merge happened in this round.
+
+**The decision, verbatim, flagged for the owner's review:**
+
+> KEEP the finding BLOCKING, and apply exactly your two narrowings — `tickets?(?![-\w])` and
+> intervening tokens limited to `[\w/-]+` — which by your own analysis dispose of both confirmed
+> over-fires ("ticketing system" fails the boundary; "loop;" fails the token class). Rationale: an
+> advisory warning inside a green gate is the abstention pattern this repository's standards already
+> name as worse than no check (TESTING_STANDARD "what a green verdict claims"; the owner's ruling on
+> this item was that the gate must fire).
+
+This is a **worker decision made while the owner was unavailable**, not an owner ruling — it is
+flagged here for the owner to review and overturn if they disagree. It selects the narrower of
+Grader's two alternatives from round 2 (keep blocking, add the two mechanical narrowings) over the
+recommended severity downgrade to advisory.
+
+**Applied.** `CLOSURE_CLAIM_WITHOUT_ID` became
+`/clos(?:e|es|ed)\s+(?:the\s+(?:[\w/-]+\s+){0,3})?tickets?(?![-\w])/i` — identical text in
+`scripts/check-governance.js` and `WORK_RECORD_STANDARD.md` §3.2. `closure-claim-without-id` stays
+out of `ADVISORY_CODES` (confirmed unchanged: still a named set of one, `platform-state-stale`).
+Remedy text rewritten to: "this subject says it closes a ticket but names none — if it does close
+one, write `closes T<n>`; if it does not, reword the subject so it does not claim to" (plus the
+existing PR-title-becomes-squash-subject note, unchanged). The doc comment's "never collides"
+overclaim (disproved by Red Hat's corpus sweep) was deleted and replaced with what is actually true:
+the `(?![-\w])` boundary lookahead is what excludes the compound-noun senses, the `[\w/-]+` token
+class is what stops a clause-boundary crossing, and both are measured against a corpus, not
+mechanically guaranteed.
+
+**Tests — red then green, one per over-fire shape Red Hat confirmed.** 13 new tests added to
+`scripts/check-governance.test.js` (5 demonstrating the over-fires that had to go silent, 3 re-pinning
+existing shapes explicitly, 3 confirming the fix still fires on the shapes it must still catch, 1 new
+deliberate plural pin, 1 known-tolerated-residual pin):
+
+RED — `npx vitest run scripts/check-governance.test.js` → `EXIT=1`, 5 failed (all correctly, for the
+over-fire shapes, 76 passed):
+- `checkClosureClaimWithoutId > is silent on "close the ticketing system outage" — compound noun, not the word "ticket"`
+- `checkClosureClaimWithoutId > is silent on "closed the ticketmaster integration bug" — compound noun`
+- `checkClosureClaimWithoutId > is silent on "close the ticket-booking flow for campers" — compound noun`
+- `checkClosureClaimWithoutId > is silent on "closes the ticketed-event feature" — compound noun`
+- `checkClosureClaimWithoutId > is silent on "closes the loop; the ticket stays open" — clause boundary, not a claim about the ticket`
+
+GREEN — same command after applying the narrowed regex and remedy text: `EXIT=0`,
+`Test Files 1 passed (1)`, `Tests 81 passed (81)`.
+
+**Corpus re-measurement**, run against the actual `checkClosureClaimWithoutId` function (not a
+standalone grep, so it reflects exactly what the shipped predicate does):
+
+```
+git log origin/main --format=%s   # 1610 subjects (one more than round 2's 1609 — main advanced)
+```
+
+Result: **12** true positives fire (same twelve subjects as round 2 — `docs(T311): close the
+ticket…` (#640), `T309: close the ticket…` (#636), `docs(T267): close the ticket…` (#602), `T255:
+close the ticket…` (#535), `T171: close the consolidation/gate-hardening ticket…` (#505), `T40:
+close the ticket…` (#380), and the five `docs(T##): close ticket` subjects for T46/T35/T33/T34/T47),
+**0** false positives — verified each of the 12 has `parseCompletionRefs` return `[]`, confirming the
+gate is right to demand an id from all twelve. `close out`: still **5** matches (unchanged by this
+narrowing, since none of the five contain "ticket" adjacent in the affected way) —
+`T205: close out the days_of_operation uniqueness ticket…` (#517), `Close out T188…` (#461),
+`docs(handoff): close out force-subagent-skill-invocation…`, `docs(T90): close out…`, `docs: close
+out doc-staleness remediation…`.
+
+**The shape Red Hat found missing from the residual list**, checked directly rather than assumed:
+`Close six tickets whose work shipped, and finish the one condition that had not (#491)` — a genuine
+closure-claim-without-id. Does it fire now that the pattern accepts `tickets?`? **No.** The claim
+precedes the noun with no "the" between verb and noun (`Close six tickets`, not `close the … the
+ticket`), and the pattern's intervening-word gap is gated on "the" being present (documented, not
+accidental — see §3.2's residual note above and the doc comment in the script). This is now recorded
+in both the script's doc comment location context and `WORK_RECORD_STANDARD.md` §3.2, rather than
+silently left off the residual list as it was at the end of round 2.
+
+**Exit codes, captured properly this round** (each command run as two bare statements, no pipe):
+
+| Command | Exit |
+|---|---|
+| `npx vitest run scripts/check-governance.test.js` (RED, before the fix) | `EXIT=1`, 5 failed / 76 passed |
+| `npx vitest run scripts/check-governance.test.js` (GREEN, after the fix) | `EXIT=0`, 81 passed |
+| `npx vitest run scripts/check-governance.test.js test/governance.test.js` | `EXIT=0`, `Test Files 2 passed (2)`, `Tests 120 passed (120)` |
+| `npm run check:governance` | `EXIT=0`, `check:governance — no findings.` (no `index-stale`; `npm run index:work` was not run, per the brief's if-and-only-if condition) |
+| `npx eslint scripts/check-governance.js scripts/check-governance.test.js` | `EXIT=0`, no output |
+| `npm run agents:check` | `EXIT=0`, `All generated profiles are byte-identical to the committed .claude/agents/*.md files.` |
+
+Both round-1 and round-2 tables above recorded a RED run as `exit 0` while naming failing tests,
+which the Verifier verdict already flagged as a mis-capture (vitest exits non-zero on failure). This
+round's RED/GREEN pair was captured as two bare statements with no pipe (`npx vitest run …; echo
+EXIT=$?`), exactly as this round's brief required, and the exit codes above are trustworthy as
+written.
+
+**Negation residual — documented, not fixed, exactly as decided.** `do not close the wrong ticket`
+still fires `closure-claim-without-id` (pinned as a test in `scripts/check-governance.test.js`,
+labeled a KNOWN OVER-FIRE tolerated by design). What makes this acceptable is the new remedy text: a
+negated subject is told to reword so it does not claim a closure, which is correct advice, rather
+than being told to invent a `closes T<n>` it would then have to fabricate for a ticket that must stay
+open. Recorded in both the script's doc comment and `WORK_RECORD_STANDARD.md` §3.2 as a residual,
+not smoothed over.
+
+**Files touched this round:** `scripts/check-governance.js` (regex, doc comment, remedy text),
+`scripts/check-governance.test.js` (13 new tests), `docs/governance/standards/WORK_RECORD_STANDARD.md`
+(§3.2 mirrored verbatim; §3.3 left as-is — it does not cite the pattern text and was not made stale
+by this change). `docs/work/INDEX.md` was not touched — `check:governance` reported no `index-stale`
+finding this round.
+
+This section does not alter the round-1/round-2 narrative, the `round` frontmatter field (still
+`2`), or the Agents table above. The overall `status: escalated` and round-2 outcome stand; this
+section records a bounded, scoped resolution of two of its four open findings (1 and 2 — the HIGH
+CONFIRMED over-fire classes) under delegated worker authority, flagged for the owner, not a claim
+that the escalation itself is closed or reversed.
