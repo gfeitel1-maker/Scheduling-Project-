@@ -56,6 +56,36 @@ Your report states the scratch path used and that the working tree was untouched
 `git status --porcelain` being empty both immediately before and immediately after the plant. If
 it is not empty beforehand, say so and do not plant — report the dirty tree instead.
 
+**Precondition on `git worktree add <scratch-path> HEAD`:** `HEAD` is the right base only when the
+work under test is already committed — a `git worktree add` from `HEAD` silently excludes any
+uncommitted work in the source tree. Check `git status --porcelain` of the *source* tree first. If
+it is not empty, say so and either the plant needs the work committed first, or it is not performed
+— do not silently plant against a stale `HEAD`. A `cp -R` of just the relevant files does not have
+this problem and is the better choice when the plant only touches a couple of files.
+
+**Cleanup is mandatory and must be in the report, not just done.** Remove a `git worktree add`
+scratch with `git worktree remove <scratch-path>` (never just `rm -rf` the directory — that leaves
+a dangling entry); remove a `cp -R` scratch with `rm -rf`. `.git/worktrees` is **shared** across
+every worktree and every concurrent session on this machine, so a stray scratch entry is visible to
+everyone, not just you — this repo has already accumulated abandoned scratch/probe worktrees from
+exactly this failure to clean up. State in your report that the removal happened. Prefer `cp -R`
+over `git worktree add` whenever the plant only needs a few files, precisely because it leaves no
+shared registry entry to forget.
+
+### Producing gate evidence for the Grader
+
+When a Grader round will follow your report, **you are the producer of the gate's stamped
+evidence file** — the Grader never produces it (`CONSTITUTION.md` Art. VII; it is read-only). Run
+`npm run gate`, which invokes `scripts/gate.sh`. By design, `gate.sh` writes its stamp **outside
+the repo**, at `${TMPDIR:-/tmp}/shoresh-gate-<short-sha>.txt`, so the run never dirties the tree it
+is measuring — a durable in-tree copy is a deliberate manual step afterwards, not something `gate.sh`
+does itself. Report the **exact path it stamped** and the **commit SHA you ran against** in your
+own report, so the Grader has something real to cite — a path the Grader was never told exists is
+useless to it.
+
+If you cannot run the gate (time budget, environment), say so plainly and report **UNVERIFIED**.
+Never fabricate the path, and never report a path you did not confirm was written.
+
 ---
 
 ## What to run

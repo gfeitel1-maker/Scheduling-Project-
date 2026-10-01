@@ -207,8 +207,8 @@ itself correct before a review round could even run. State this sentence in ever
 same as the read-only contract above: *a Grader FAIL stops the loop and escalates to the user; it is
 never routed back to Maker as a new round.*
 
-**RETRY** (round 1 produced no Grader verdict — interrupted Maker, or Governor must correct its own
-brief — never a Grader FAIL):
+**RETRY — reachable ONLY when round 1 produced no Grader verdict at all** (interrupted Maker, or a
+brief Governor must itself correct). **Never a Grader FAIL of any kind:**
 → Invoke `context-compression`.
 → Compose revised Maker brief. Include:
   - Whatever is known so far (partial reviewer findings if any ran, Verifier's raw evidence, or the

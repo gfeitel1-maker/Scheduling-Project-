@@ -26,12 +26,12 @@
       "generated_hash": "72f6aab8e05bb5b3"
     },
     "governor": {
-      "adapter_hash": "04783f06770fded6",
-      "generated_hash": "19c5a82332b934ff"
+      "adapter_hash": "3e544c9751b3d080",
+      "generated_hash": "e6a2bc4b1996402b"
     },
     "grader": {
-      "adapter_hash": "5a10c0a5736646ea",
-      "generated_hash": "358ea714e27362f0"
+      "adapter_hash": "1d996ac6827a919d",
+      "generated_hash": "ae7df2ff57cd873b"
     },
     "maker": {
       "adapter_hash": "bcaf64f51a13cd8b",
@@ -54,8 +54,8 @@
       "generated_hash": "c8a2fdb8004f363f"
     },
     "verifier": {
-      "adapter_hash": "f3b388a79a9b80f8",
-      "generated_hash": "92a998293c8ba9fc"
+      "adapter_hash": "a84b4352a56658cd",
+      "generated_hash": "7c7c4a6a1cdaa7cc"
     }
   }
 }
