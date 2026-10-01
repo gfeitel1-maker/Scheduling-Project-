@@ -4055,6 +4055,43 @@ const DEVICE_HEALTH_EVENTS_DDL = `
       renameColumnIfPresent('template_slots', 'is_anchor', 'is_fixed_event')
       renameColumnIfPresent('cohorts', 'anchor_model', 'fixed_event_model')
       renameColumnIfPresent('compound_cell_decisions', 'anchor_name', 'base_name')
+
+      // schedule_snapshots.slots is a TEXT column holding an independent JSON copy of slot
+      // data — every writer (src/screens/schedule/useSnapshots.js, electron/ops/
+      // materializeImportedVersion.js, the v26 orphan backfill above) has always used the
+      // snake_case DB-row shape, so an existing blob's elements carry anchor_id/is_anchor, not
+      // the engine's camelCase type/anchorId (there is no `type` key in a snapshot blob). The
+      // column rename above does not touch this independent copy — without rewriting it, a
+      // restored snapshot would silently lose every fixed event once nothing reads the old key
+      // names: the T62 shape, with no error and no failing test.
+      //
+      // KEY-TARGETED, never a text/regex replace on the blob string: a value elsewhere in the
+      // same element can legitimately contain the substring "anchor" (an activity_id, a flags
+      // note) and must not be touched.
+      //
+      // Each row's parse/transform is wrapped in its own try/catch: a NULL, empty, malformed, or
+      // non-array `slots` value is left exactly as it was and must never abort the migration for
+      // every other row.
+      const renameSnapshotSlotKeys = (slots) =>
+        slots.map((el) => {
+          if (!el || typeof el !== 'object') return el
+          const out = { ...el }
+          if ('anchor_id' in out) { out.fixed_event_id = out.anchor_id; delete out.anchor_id }
+          if ('is_anchor' in out) { out.is_fixed_event = out.is_anchor; delete out.is_anchor }
+          return out
+        })
+      const updateSnapshotSlots = db.prepare('UPDATE schedule_snapshots SET slots = ? WHERE id = ?')
+      for (const row of db.prepare('SELECT id, slots FROM schedule_snapshots').all()) {
+        try {
+          const parsed = JSON.parse(row.slots)
+          if (!Array.isArray(parsed)) continue
+          updateSnapshotSlots.run(JSON.stringify(renameSnapshotSlotKeys(parsed)), row.id)
+        } catch {
+          // Malformed/non-JSON blob — left untouched, counted nowhere (no director-facing
+          // surface for this host-local recovery table), consistent with every other
+          // defensive migration block in this file.
+        }
+      }
     })()
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (84, ?)').run(

@@ -36,12 +36,35 @@ const renameColumnIfPresent = (db, table, oldName, newName) => {
 /**
  * @returns {{ok:true}}
  */
+// Inverse of the forward migration's schedule_snapshots.slots blob rewrite — same key-targeted
+// transform, same per-row try/catch so a malformed/NULL/non-array value is left untouched and
+// cannot abort the rollback for every other row.
+const renameSnapshotSlotKeysBack = (slots) =>
+  slots.map((el) => {
+    if (!el || typeof el !== 'object') return el
+    const out = { ...el }
+    if ('fixed_event_id' in out) { out.anchor_id = out.fixed_event_id; delete out.fixed_event_id }
+    if ('is_fixed_event' in out) { out.is_anchor = out.is_fixed_event; delete out.is_fixed_event }
+    return out
+  })
+
 export function rollbackV84(db) {
   db.transaction(() => {
     renameColumnIfPresent(db, 'template_slots', 'fixed_event_id', 'anchor_id')
     renameColumnIfPresent(db, 'template_slots', 'is_fixed_event', 'is_anchor')
     renameColumnIfPresent(db, 'cohorts', 'fixed_event_model', 'anchor_model')
     renameColumnIfPresent(db, 'compound_cell_decisions', 'base_name', 'anchor_name')
+
+    const updateSnapshotSlots = db.prepare('UPDATE schedule_snapshots SET slots = ? WHERE id = ?')
+    for (const row of db.prepare('SELECT id, slots FROM schedule_snapshots').all()) {
+      try {
+        const parsed = JSON.parse(row.slots)
+        if (!Array.isArray(parsed)) continue
+        updateSnapshotSlots.run(JSON.stringify(renameSnapshotSlotKeysBack(parsed)), row.id)
+      } catch {
+        // Malformed/non-JSON blob — left untouched, same defensive posture as the forward migration.
+      }
+    }
   })()
 
   // `>= 84`, never `= 84` — a bare equality leaves any LATER migration row behind, so a database

@@ -183,3 +183,158 @@ describe('migration v84: the rename CARRIES row values, not just the column', ()
     db.close()
   })
 })
+
+// ---------------------------------------------------------------------------
+// schedule_snapshots.slots JSON blob rewrite.
+//
+// The column rename above only touches template_slots itself. A schedule_snapshots
+// row holds its own INDEPENDENT copy of slot data, serialized to JSON text — every
+// writer (src/screens/schedule/useSnapshots.js, electron/ops/materializeImportedVersion.js,
+// the v26 orphan backfill above) has always used the snake_case DB-row shape, so an
+// existing blob's elements carry `anchor_id`/`is_anchor`, not the engine's camelCase
+// `type`/`anchorId` (confirmed by reading every writer; there is no `type` key in a
+// snapshot blob). Once the column is renamed and nothing reads the old key names,
+// restoring an old snapshot would silently lose every fixed event — the T62 shape,
+// with no error and no failing test — unless the stored JSON is rewritten too.
+// ---------------------------------------------------------------------------
+
+const seedTemplate = (db, { id = 'tpl1', campId = 'camp1', kind = 'manual', name = 'Week 1' } = {}) => {
+  db.prepare('INSERT INTO schedule_templates (id, camp_id, kind, name) VALUES (?, ?, ?, ?)').run(id, campId, kind, name)
+  return id
+}
+
+const seedSnapshot = (db, { id, templateId, slots }) => {
+  db.prepare(
+    "INSERT INTO schedule_snapshots (id, template_id, created_at, slots) VALUES (?, ?, '2026-01-01T00:00:00.000Z', ?)"
+  ).run(id, templateId, slots)
+}
+
+describe('migration v84: rewrites the stored schedule_snapshots.slots JSON blob', () => {
+  it('non-vacuity: the seeded pre-migration blob really contains anchor_id/is_anchor', () => {
+    const raw = JSON.stringify([
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, anchor_id: 'fe1', is_anchor: true, flags: {} },
+    ])
+    expect(raw).toContain('"anchor_id"')
+    expect(raw).toContain('"is_anchor"')
+  })
+
+  it('renames anchor_id/is_anchor to fixed_event_id/is_fixed_event on every element, carrying values, element count unchanged', () => {
+    const db = preV84Db()
+    seedCamp(db)
+    const templateId = seedTemplate(db)
+    const slots = [
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, anchor_id: 'fe1', is_anchor: true, flags: {} },
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'act1', anchor_id: null, is_anchor: false, flags: {} },
+      { group_id: 'g2', day_id: 'd1', time_block_id: 'b1', activity_id: null, anchor_id: 'fe2', is_anchor: true, flags: { UNFILLABLE: true } },
+    ]
+    seedSnapshot(db, { id: 'snap1', templateId, slots: JSON.stringify(slots) })
+
+    initSchema(db) // runs v84
+
+    const row = db.prepare('SELECT slots FROM schedule_snapshots WHERE id = ?').get('snap1')
+    const rewritten = JSON.parse(row.slots)
+    expect(rewritten).toHaveLength(3)
+    for (const el of rewritten) {
+      expect(el).not.toHaveProperty('anchor_id')
+      expect(el).not.toHaveProperty('is_anchor')
+      expect(el).toHaveProperty('fixed_event_id')
+      expect(el).toHaveProperty('is_fixed_event')
+    }
+    expect(rewritten[0].fixed_event_id).toBe('fe1')
+    expect(rewritten[0].is_fixed_event).toBe(true)
+    expect(rewritten[1].fixed_event_id).toBeNull()
+    expect(rewritten[1].is_fixed_event).toBe(false)
+    expect(rewritten[2].fixed_event_id).toBe('fe2')
+    expect(rewritten[2].is_fixed_event).toBe(true)
+    db.close()
+  })
+
+  it('KEY-TARGETED, not a text replace: values and an unrelated flags key containing the substring "anchor" survive byte-identical', () => {
+    const db = preV84Db()
+    seedCamp(db)
+    const templateId = seedTemplate(db)
+    const slots = [
+      {
+        group_id: 'g1', day_id: 'd1', time_block_id: 'b1',
+        activity_id: 'anchor-day-activity', // substring "anchor" INSIDE a value that must not be touched
+        anchor_id: 'fe1', is_anchor: true,
+        flags: { note: 'moved off anchor_id manually', anchor_like_key: 'keep me' },
+      },
+    ]
+    seedSnapshot(db, { id: 'snap2', templateId, slots: JSON.stringify(slots) })
+
+    initSchema(db) // runs v84
+
+    const row = db.prepare('SELECT slots FROM schedule_snapshots WHERE id = ?').get('snap2')
+    const rewritten = JSON.parse(row.slots)
+    expect(rewritten).toHaveLength(1)
+    const el = rewritten[0]
+    expect(el.activity_id).toBe('anchor-day-activity')
+    expect(el.flags).toEqual({ note: 'moved off anchor_id manually', anchor_like_key: 'keep me' })
+    expect(el.fixed_event_id).toBe('fe1')
+    expect(el.is_fixed_event).toBe(true)
+    expect(el.group_id).toBe('g1')
+    expect(el.day_id).toBe('d1')
+    expect(el.time_block_id).toBe('b1')
+    db.close()
+  })
+
+  it('leaves every other key untouched across all elements', () => {
+    const db = preV84Db()
+    seedCamp(db)
+    const templateId = seedTemplate(db)
+    const slots = [
+      { group_id: 'gX', day_id: 'dX', time_block_id: 'bX', activity_id: 'actX', anchor_id: null, is_anchor: false, flags: { UNFILLABLE: true, UNFILLABLE_reason: 'x' } },
+    ]
+    seedSnapshot(db, { id: 'snap3', templateId, slots: JSON.stringify(slots) })
+
+    initSchema(db)
+
+    const el = JSON.parse(db.prepare('SELECT slots FROM schedule_snapshots WHERE id = ?').get('snap3').slots)[0]
+    expect(el.group_id).toBe('gX')
+    expect(el.day_id).toBe('dX')
+    expect(el.time_block_id).toBe('bX')
+    expect(el.activity_id).toBe('actX')
+    expect(el.flags).toEqual({ UNFILLABLE: true, UNFILLABLE_reason: 'x' })
+    db.close()
+  })
+
+  it('a malformed/NULL/non-array slots value is left untouched and does not abort the migration', () => {
+    const db = preV84Db()
+    seedCamp(db)
+    const templateId = seedTemplate(db)
+    db.prepare("INSERT INTO schedule_snapshots (id, template_id, created_at, slots) VALUES ('snap-null', ?, '2026-01-01T00:00:00.000Z', NULL)").run(templateId)
+    db.prepare("INSERT INTO schedule_snapshots (id, template_id, created_at, slots) VALUES ('snap-empty', ?, '2026-01-01T00:00:00.000Z', '')").run(templateId)
+    db.prepare("INSERT INTO schedule_snapshots (id, template_id, created_at, slots) VALUES ('snap-badjson', ?, '2026-01-01T00:00:00.000Z', '{not json')").run(templateId)
+    db.prepare(`INSERT INTO schedule_snapshots (id, template_id, created_at, slots) VALUES ('snap-notarray', ?, '2026-01-01T00:00:00.000Z', '{"a":1}')`).run(templateId)
+
+    expect(() => initSchema(db)).not.toThrow() // runs v84
+
+    expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
+    expect(db.prepare("SELECT slots FROM schedule_snapshots WHERE id = 'snap-null'").get().slots).toBeNull()
+    expect(db.prepare("SELECT slots FROM schedule_snapshots WHERE id = 'snap-empty'").get().slots).toBe('')
+    expect(db.prepare("SELECT slots FROM schedule_snapshots WHERE id = 'snap-badjson'").get().slots).toBe('{not json')
+    expect(db.prepare("SELECT slots FROM schedule_snapshots WHERE id = 'snap-notarray'").get().slots).toBe('{"a":1}')
+    db.close()
+  })
+
+  it('round-trips through the rollback: migrate up, roll back, blobs are back to anchor_id/is_anchor with values intact', () => {
+    const db = preV84Db()
+    seedCamp(db)
+    const templateId = seedTemplate(db)
+    const slots = [
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, anchor_id: 'fe1', is_anchor: true, flags: {} },
+    ]
+    seedSnapshot(db, { id: 'snap-rt', templateId, slots: JSON.stringify(slots) })
+
+    initSchema(db) // forward: anchor_id/is_anchor -> fixed_event_id/is_fixed_event
+    rollbackV84(db) // back: fixed_event_id/is_fixed_event -> anchor_id/is_anchor
+
+    const el = JSON.parse(db.prepare("SELECT slots FROM schedule_snapshots WHERE id = 'snap-rt'").get().slots)[0]
+    expect(el).not.toHaveProperty('fixed_event_id')
+    expect(el).not.toHaveProperty('is_fixed_event')
+    expect(el.anchor_id).toBe('fe1')
+    expect(el.is_anchor).toBe(true)
+    db.close()
+  })
+})
