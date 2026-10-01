@@ -303,7 +303,7 @@ describe('flags round-trips through bulk_replace as a parsed object (Round 2 Fix
 })
 
 // Regression at the real defect: a merge-down writes is_span_head:false, the
-// resulting op_applied fires loadAll(), and the reloaded rows come back as
+// resulting op-applied event fires loadAll(), and the reloaded rows come back as
 // integers. Without coercion isActivityTail()/getActivityRowSpan() stop
 // recognising the tail and the head activity renders twice in two unmerged
 // cells; recalcStats' `is_anchor === false` filters likewise match nothing.
@@ -598,7 +598,7 @@ describe('§7.3 — onOpApplied triggers schedule reload (conflict-resolution re
     expect(localClient.onOpApplied).toHaveBeenCalledTimes(1)
     const listCallsAfterMount = localClient.list.mock.calls.length
 
-    // Simulate an op_applied event (e.g. after a conflict resolution) by
+    // Simulate an op-applied event (e.g. after a conflict resolution) by
     // firing the captured callback — same path as the real shoresh:op-applied
     // IPC event going through localClient.onOpApplied.
     expect(opAppliedListeners.length).toBeGreaterThan(0)

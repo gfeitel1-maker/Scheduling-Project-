@@ -467,10 +467,18 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   }, [templateData])
 
   // §7.3: Re-run the schedule after any op is applied — this covers conflict
-  // resolution (resolveConflict IPC → syncClient.write → server broadcasts
-  // op_applied → wireOpApplied → shoresh:op-applied) as well as ordinary
-  // writes from other devices. The op_applied event already fires naturally
-  // on those paths; we just need ScheduleScreen to react to it.
+  // resolution (resolveConflict IPC → main.js's syncClient.write →
+  // onOpApplied → wireOpApplied → shoresh:op-applied) as well as writes from
+  // other devices, which reach the same renderer event by a different route: a
+  // merged document → projectAll → syncNode.js's onRemoteOps → startupGuard.js,
+  // which sends shoresh:op-applied per field. The event already fires naturally
+  // on both paths; we just need ScheduleScreen to react to it.
+  //
+  // _Prior: the first chain was written "syncClient.write → server broadcasts
+  // op_applied → wireOpApplied". There is no server and no `op_applied` wire
+  // message — both went at the Stage 6 cutover. `syncClient` here is main.js's
+  // local createLocalWriteClient instance, which is live, and the renderer event
+  // is spelled `op-applied`; only the broadcasting middle was retired._
   //
   // This is best-effort / fire-and-forget: a failure in reload() surfaces via
   // loadError (the screen's own error banner) rather than crashing the
