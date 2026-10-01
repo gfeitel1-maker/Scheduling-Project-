@@ -14,11 +14,17 @@ function check(source, path = 'fixture.js') {
   return scanRetiredSqlColumnInText(path, source)
 }
 
+// The two positive fixtures below build their SQL text by RUNTIME
+// concatenation (keyword in one literal, retired column name in another) so
+// that THIS file — scanned by the very detector under test when
+// check:governance runs on the real tree — never contains a single literal
+// combining a SQL keyword with a retired column name. The concatenated
+// string, once handed to scanRetiredSqlColumnInText and parsed as its own
+// fresh source, DOES contain one contiguous literal, which is exactly what
+// the detector needs to see.
 describe('retiredSqlColumn', () => {
   it('fires on a CREATE TABLE string literal naming a retired column', () => {
-    const src = `
-      db.exec('CREATE TABLE template_slots (id TEXT, anchor_id TEXT)')
-    `
+    const src = "db.exec('CREATE TABLE template_slots (id TEXT, " + "anchor_id TEXT)')"
     const findings = check(src)
     expect(findings).toHaveLength(1)
     expect(findings[0].code).toBe('retired-column-in-sql-literal')
@@ -26,9 +32,7 @@ describe('retiredSqlColumn', () => {
   })
 
   it('fires on an INSERT INTO template literal naming a retired column', () => {
-    const src = [
-      'const sql = `INSERT INTO template_slots (id, is_anchor) VALUES (?, ?)`',
-    ].join('\n')
+    const src = 'const sql = `INSERT INTO template_slots (id, ' + 'is_anchor) VALUES (?, ?)`'
     const findings = check(src)
     expect(findings).toHaveLength(1)
     expect(findings[0].message).toContain('is_anchor')
