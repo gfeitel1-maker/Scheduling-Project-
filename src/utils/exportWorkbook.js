@@ -15,9 +15,13 @@ import { aoaToSanitizedSheet } from './exportSanitize.js'
 // worksheet — never a hand-built cell object, which would bypass the escape
 // (Security F3).
 
-// Bumped if the workbook contract (sheets/columns/metadata) changes, so a stale
-// artifact re-imported by a newer S4b can be recognised as an older shape.
-export const PLAN_VERSION = 1
+// Bumped when the workbook contract (sheets/columns/metadata) changes — metadata
+// only, recording the layout change for a human reading the sheet; nothing on
+// the re-import path reads or validates it (Red Hat, slice B1 review).
+// v2 (SLICE B1, board q-export-columns-do-not-round-trip, ADR
+// 2026-09-30-format-agnostic-setup-import.md 2026-10-01 amendment): Days gains
+// `day_of_week`, Time Blocks gains `part_of_day`.
+export const PLAN_VERSION = 2
 
 // The hidden metadata sheet's name. S4b reads camp_id/cohort_id/base_generation
 // + the per-row baseline out of it; a re-import whose metadata is missing or
@@ -52,10 +56,14 @@ export const SHEET_LAYOUT = Object.freeze([
     entity: 'groups', sheet: 'Groups', nameKey: 'name',
     columns: [{ key: 'name' }, { key: 'unit', label: true }, { key: 'availability' }],
   },
-  { entity: 'days_of_operation', sheet: 'Days', nameKey: 'label', ordered: true, columns: [{ key: 'label' }] },
+  // day_of_week (SLICE B1): DaysScreen's own re-import requires it — without it, a
+  // re-imported row has no day_of_week to bind and the screen's own confirm step skips it.
+  { entity: 'days_of_operation', sheet: 'Days', nameKey: 'label', ordered: true, columns: [{ key: 'label' }, { key: 'day_of_week' }] },
+  // part_of_day (SLICE B1): TimeBlocksScreen.confirmImport skips any row with a blank/invalid
+  // part_of_day, so without this column a re-imported file imports zero rows.
   {
     entity: 'time_blocks', sheet: 'Time Blocks', nameKey: 'name', ordered: true,
-    columns: [{ key: 'name' }, { key: 'start_time', time: true }, { key: 'end_time', time: true }],
+    columns: [{ key: 'name' }, { key: 'start_time', time: true }, { key: 'end_time', time: true }, { key: 'part_of_day' }],
   },
   {
     entity: 'activities', sheet: 'Activities', nameKey: 'name',

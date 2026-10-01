@@ -495,3 +495,50 @@ Unchanged (read, not modified, to ground this design):
    lost, not because this ADR needs an answer to proceed.
 
 _Implementation state, 2026-09-30: part 1 — the binder; part 2 — atomic multi-row import. Normalised from `not-started (part 1 — the binder; part 2 — atomic multi-row import)` to `not-started` for the `WORK_RECORD_STANDARD.md` enum._
+
+## Amendment (2026-10-01) — §12's exportWorkbook freeze lifted for §5 compliance (slice B1)
+
+Board item `q-export-columns-do-not-round-trip`, slice B1. Under the owner's ADR delegation (the
+organizer's organizer2/organizer4 ruling on this board item), **§11/§12's freeze of
+`exportWorkbook.js` is lifted for this item** — the app's own export is the round-trip format this
+ADR's §5 acceptance criterion requires, and §5 wins where it conflicts with the earlier freeze.
+
+The original text is left in place above, unedited, for the record:
+
+- §11 ("Out of scope"): "Changing `exportWorkbook.js` / `commitPlan` / the S4a/S4b enrichment
+  round-trip contract at all." — **superseded for `exportWorkbook.js` only.** `commitPlan`/
+  `commitIngest` (`electron/ops/ingest.js`) remain untouched and out of scope; the setup doors do
+  not route through them (§8, §12 "Unchanged").
+- §12 ("Files/modules affected" → "Unchanged (read, not modified...)"): "`src/utils/
+  buildCampDataWorkbook.js`, `src/utils/exportWorkbook.js` — reused as header sources only." —
+  **superseded for `exportWorkbook.js`; `buildCampDataWorkbook.js` is still unchanged**, per its own
+  explicit non-goal ("never re-imported," §12 original text, ADR §2.4).
+
+**Why:** slice A's own round-trip tests (`src/ingest/entityColumnMapping.test.js`) measured and
+recorded, as an honest gap rather than hiding it, that `exportWorkbook.js`'s Days sheet omits
+`day_of_week` and its Time Blocks sheet omits `part_of_day` — both required fields their own
+screens' importers (`DaysScreen.jsx`, `TimeBlocksScreen.jsx`) skip a row for when missing. §5's
+acceptance criterion ("export → re-import → identical state") cannot hold for these two doors while
+that gap exists; closing it requires completing `exportWorkbook.js`, which §11/§12 as originally
+written forbade.
+
+**What changed (slice B1, `src/utils/exportWorkbook.js`):**
+
+- `SHEET_LAYOUT`'s Days entry gains a `day_of_week` column (plain field, no transform).
+- `SHEET_LAYOUT`'s Time Blocks entry gains a `part_of_day` column (plain field, no transform).
+- `PLAN_VERSION` bumped 1 → 2, per the file's own stated contract ("bumped when the workbook
+  contract... changes"). This is metadata only, recorded for a human reading the sheet — nothing on
+  the re-import path reads or validates `plan_version` (confirmed by Red Hat; the comment at
+  `PLAN_VERSION`'s declaration was corrected to stop implying otherwise).
+
+**Deferred to slice B2 (separate item, export-only, decoupled from the S4b path):** a new Anchors
+sheet for `fixed_events` — `exportWorkbook.js` currently has no round-trip source for this entity at
+all, so a director's own "Download worksheet" export cannot round-trip through
+`AnchorsScreen.jsx`'s importer yet. The organizer split this out of B1 rather than landing it
+alongside the two-column change; §11/§12's freeze remains lifted for `exportWorkbook.js` as a file,
+so B2 does not need a further amendment to proceed.
+
+**Not changed:** `commitPlan`/`commitIngest`, the S4a/S4b enrichment-workbook contract's own
+semantics (baseline diffing, staleness gate, hidden metadata sheet), `buildCampDataWorkbook.js`, or
+any entity `exportWorkbook.js` did not already cover. This amendment widens what `exportWorkbook.js`
+exports; it does not change how S4b consumes it.
