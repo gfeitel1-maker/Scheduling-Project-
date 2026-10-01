@@ -1084,6 +1084,33 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog, grid
     // a camp's first import.
     if (resolved.length === 0) {
       if (!catalogAbsent) {
+        // A named row whose cells name no known activity is normally junk — a
+        // 'Total Campers' footer, exactly what this skip (P13) exists to drop.
+        // But its IDENTITY is still registered for the same-name resolver,
+        // because if this name collapses onto a KEPT camper's derived id it is
+        // NOT junk: it is a second child silently merged onto the first and then
+        // discarded (board item i-same-name-sheet-solves-silently-dropping-a-
+        // camper, seen live 2026-09-30 — a same-name sheet solved 2 of 3 with no
+        // refusal because one row's choices were outside the camp's catalog and
+        // so were skipped here before the collision could be seen). Registered
+        // with no slots and `dropped: true`; the resolver flags it ONLY when a
+        // kept row shares its id, so an ordinary unique junk footer is still just
+        // skipped.
+        if (displayName) {
+          const nameKey = electiveChoiceLabelKey(displayName)
+          if (!rowsByName.has(nameKey)) rowsByName.set(nameKey, { display_name: displayName, rows: [] })
+          rowsByName.get(nameKey).rows.push({
+            rowNumber,
+            camperId: deriveCamperId(campId, { externalId: externalId || null, displayName }),
+            hasExternalId: Boolean(externalId),
+            divisionLabel: cell(row, mapping?.divisionIndex) || null,
+            // No camper record and no preferences were written for this row, so it
+            // fills no slots; `dropped` marks it so RESOLVER 4 flags it only when a
+            // KEPT row shares its derived id.
+            slots: new Set(),
+            dropped: true,
+          })
+        }
         skippedRows.push({
           rowNumber,
           reason: 'no rank cell names a known activity',
@@ -1155,6 +1182,9 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog, grid
         camperId: id,
         hasExternalId: Boolean(externalId),
         divisionLabel,
+        // This row produced a camper record and preferences, so it is NOT a
+        // dropped-as-junk row (see the skip note in PASS 1 and registerNameRow).
+        dropped: false,
         // THE SLOTS THIS ROW FILLS — see the identity resolver below. Computed
         // from the row's own resolved cells, so it describes what the row
         // actually says rather than what its layout implies.
@@ -1548,8 +1578,29 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog, grid
     }
     // Rows that carry NO resolved cells cannot be told apart by slot, so they
     // fall back to the original rule: several rows for one name is a collision.
-    const emptyRows = entry.rows.filter((r) => r.slots.size === 0)
+    // DROPPED rows are excluded here — two unique junk footers that happen to
+    // share a name must not block an import — and handled by the kept-id rule
+    // below instead.
+    const emptyRows = entry.rows.filter((r) => !r.dropped && r.slots.size === 0)
     if (emptyRows.length > 1) for (const r of emptyRows) collidingRows.set(r.rowNumber, r)
+
+    // A row DROPPED for unresolved choices against a catalogued camp (PASS 1's
+    // P13 skip) is normally junk. But a dropped row that collapsed onto a KEPT
+    // camper's derived id is NOT junk: it is a second child merged onto the first
+    // and then silently discarded — the exact silent drop this guard exists to
+    // prevent (board item i-same-name-sheet-solves-silently-dropping-a-camper).
+    // When that happens, name EVERY row on that id (kept and dropped) so the
+    // refusal lists the pair with their divisions. A dropped row with no kept
+    // partner (two junk footers of one name) is left alone.
+    const keptIds = new Set(entry.rows.filter((r) => !r.dropped).map((r) => r.camperId))
+    const silentlyDroppedIds = new Set(
+      entry.rows.filter((r) => r.dropped && keptIds.has(r.camperId)).map((r) => r.camperId)
+    )
+    if (silentlyDroppedIds.size > 0) {
+      for (const r of entry.rows) {
+        if (silentlyDroppedIds.has(r.camperId)) collidingRows.set(r.rowNumber, r)
+      }
+    }
 
     if (collidingRows.size === 0) continue
     const colliding = [...collidingRows.values()].sort((a, b) => a.rowNumber - b.rowNumber)

@@ -349,6 +349,41 @@ describe('runPreferenceSheetCli', () => {
     expect(counts(dbPath)).toEqual(before)
   })
 
+  // The LIVE-WALK condition (board item i-same-name-sheet-solves-silently-
+  // dropping-a-camper, seen 2026-09-30 on the acceptance camp). The test above
+  // uses an EMPTY catalog, so every row is read and the collision is obvious. The
+  // real camp had a CATALOG, and the second Ari's choices (Robotics/Soccer/Dance)
+  // were outside it — so that row was skipped as junk BEFORE the same-name guard
+  // could see it, the sheet solved 2 of 3, and nothing said who was dropped. With
+  // a partial catalog the preview must still block and the commit must write
+  // nothing, through the real CLI ingest path.
+  it('blocks the same-name sheet even when a same-name row’s choices are outside the camp catalog, writing nothing', () => {
+    const dir = makeTmpDir()
+    dirs.push(dir)
+    const { dbPath, campId } = bootstrapDb(dir)
+    // Ari #1's choices (Archery, Ceramics) are catalogued; Ari #2's
+    // (Robotics, Soccer, Dance) are not — the live-walk shape.
+    const seed = openLocalDb(dbPath)
+    for (const name of ['Archery', 'Ceramics']) {
+      seed.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run(randomUUID(), campId, name)
+    }
+    seed.close()
+    const before = counts(dbPath)
+
+    const preview = runPreferenceSheetCli({ file: SAME_NAME_SHEET, dbPath, action: 'preview' })
+    expect(preview.ok).toBe(true)
+    expect(preview.sameNameCampers).toHaveLength(1)
+    expect(preview.sameNameCampers[0].display_name).toBe('Ari Feldman')
+    // The divisions are what let a director tell the two children apart.
+    expect(preview.sameNameCampers[0].divisionLabels).toEqual(['Alonim', 'Nitzanim'])
+    expect(preview.blocked).toMatch(/more than one row/)
+
+    const commit = runPreferenceSheetCli({ file: SAME_NAME_SHEET, dbPath, action: 'commit' })
+    expect(commit.ok).toBe(false)
+    expect(commit.error).toMatch(/more than one row/)
+    expect(counts(dbPath)).toEqual(before)
+  })
+
   // T285 SLICE E/F INVERTED THIS DELIBERATELY. It used to assert that a SCHEDULE
   // file fed to the preference reader is REFUSED for having no ranked columns.
   //
