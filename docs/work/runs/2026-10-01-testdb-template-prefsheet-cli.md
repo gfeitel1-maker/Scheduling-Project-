@@ -9,7 +9,7 @@ governing_docs: [docs/governance/standards/TESTING_STANDARD.md, docs/governance/
 related_tickets: [docs/work/tickets/T51-mcp-cli-ingestion.md]
 related_specs: []
 related_adrs: []
-selected_agents: [architect, maker, code-reviewer, red-hat, verifier, grader]
+selected_agents: [governor, architect, maker, code-reviewer, red-hat, verifier, grader]
 omitted_agents:
   - agent: designer
     reason: not-applicable
