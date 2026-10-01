@@ -1,3 +1,8 @@
+---
+document_type: evidence
+status: closed
+---
+
 # T293 anchor sweep ledger
 
 Method: `grep -a -rn -i "anchor" --include='*.js' --include='*.jsx' --include='*.sql' --include='*.md' --include='*.csv' src electron scripts docs test`
@@ -23,10 +28,10 @@ and the slot JSON persisted inside `schedule_snapshots.slots`, engine symbols an
 files, finding kinds, the screen + nav key, and descriptive-doc mentions.
 
 **KEEP AS HISTORICAL** — prose whose job is to record that the old term existed: ADR and ticket
-bodies, `docs/archive/**`, `_Prior:`-marked and struck-through lines in descriptive docs, the v17/v77
-schema.sql comments, and the migration/rollback code that must name the old column in order to
-rename it. Per CLAUDE.md, whole-file historical layers (ADRs, tickets, handoffs, archive) are out of
-scope by design.
+bodies, the retired/historical `docs/archive/**` tree, `_Prior:`-marked and struck-through lines in
+descriptive docs, the v17/v77 schema.sql comments, and the migration/rollback code that must name
+the old column in order to rename it. Per CLAUDE.md, whole-file historical layers (ADRs, tickets,
+handoffs, archive) are out of scope by design.
 
 **DIFFERENT SENSE — not scheduling vocabulary:** the `--anchor` CSS design token; "trust anchor" in
 security prose. Left alone deliberately.
