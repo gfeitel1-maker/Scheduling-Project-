@@ -27,16 +27,30 @@ function pairingStatusLabel(status) {
 const ERASURE_COPY = {
   LOGICALLY_ERASED: {
     label: 'Hidden',
+    // Attributed on purpose: this is the peer's own self-report over the
+    // authenticated channel, not something this device independently verified
+    // (schema.sql's peer_tombstone_reports note — "advisory display data only").
+    // Stating it as unattributed fact would overclaim in exactly the honesty-
+    // sensitive way the never-claims guard against.
     title:
-      'This device has applied the purge: the camper is hidden from view here. ' +
-      'The record is suppressed, not deleted — its raw data may remain in sync ' +
-      'history. This is guess-resistant logical erasure, not cryptographic.',
+      'This device reports that it has applied the purge: the camper is hidden ' +
+      'from view there. The record is suppressed, not deleted — its raw data may ' +
+      'remain in sync history. This is guess-resistant logical erasure, not ' +
+      'cryptographic.',
   },
   UNKNOWN: {
     label: 'Not confirmed',
     title:
-      'This device has not confirmed it applied the purge. It may be offline or ' +
-      'not yet caught up — its state is unknown, never silently treated as erased.',
+      'This device has not reported applying the purge. It may be offline or not ' +
+      'yet caught up — its state is unknown, never silently treated as erased.',
+  },
+  // A device that is not currently in the camp (pending, denied, or revoked)
+  // cannot report over the authenticated channel, so a "not yet caught up"
+  // reading would be misleading — a revoked device will NEVER catch up unless
+  // re-approved. Purge status is tracked only for active peers (Red Hat MEDIUM).
+  NOT_TRACKED: {
+    label: '—',
+    title: 'Purge status is tracked only for devices currently in the camp.',
   },
 }
 
@@ -152,13 +166,20 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
 
   // T322 S3b — the read-only per-peer purge badge for one device row. The local
   // device is not a propagation target and never self-reports, so it shows a
-  // plain "This device" rather than a fabricated state (never-claim #4). A peer
-  // with no verdict yet falls back to UNKNOWN, never silently erased.
-  function renderErasureCell(deviceRowId) {
-    if (deviceRowId === erasure.localDeviceId) {
+  // plain "This device" rather than a fabricated state (never-claim #4). A device
+  // that is not an active peer (pending/denied/revoked) cannot report, so it
+  // reads "—" rather than an "unknown — may catch up" copy that would mislead for
+  // a revoked device (Red Hat MEDIUM). An active peer with no verdict yet falls
+  // back to UNKNOWN, never silently erased.
+  function renderErasureCell(device) {
+    if (device.id === erasure.localDeviceId) {
       return <span style={styles.erasureLocal}>This device</span>
     }
-    const state = erasure.states[deviceRowId] ?? 'UNKNOWN'
+    const inFleet = !!device.authorized_at && !device.revoked_at
+    if (!inFleet) {
+      return <span style={styles.erasureLocal} title={ERASURE_COPY.NOT_TRACKED.title}>{ERASURE_COPY.NOT_TRACKED.label}</span>
+    }
+    const state = erasure.states[device.id] ?? 'UNKNOWN'
     const copy = ERASURE_COPY[state] ?? ERASURE_COPY.UNKNOWN
     return (
       <span
@@ -274,7 +295,7 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
                 <th style={S.th}>Device Name</th>
                 <th style={S.th}>ID</th>
                 <th style={S.th}>Status</th>
-                {erasure.hasErasure && <th style={S.th}>Record purge</th>}
+                {erasure.hasErasure && <th style={S.th}>Purge status</th>}
                 <th style={S.th}>Authorized At</th>
                 <th style={S.th}>Actions</th>
               </tr>
@@ -293,7 +314,7 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
                       </span>
                     </td>
                     {erasure.hasErasure && (
-                      <td style={S.td}>{renderErasureCell(device.id)}</td>
+                      <td style={S.td}>{renderErasureCell(device)}</td>
                     )}
                     <td style={S.td}>{fmt(device.authorized_at)}</td>
                     <td style={S.td}>

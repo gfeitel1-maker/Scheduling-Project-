@@ -70,6 +70,16 @@ describe('computePeerErasureStates — pure per-peer verdict', () => {
     expect(states).toEqual({ 'peer-1': 'LOGICALLY_ERASED' })
   })
 
+  it('treats a malformed tombstone version as not-caught-up, never a fabricated erased', () => {
+    const states = computePeerErasureStates({
+      tombstones: [{ id: 'camper-a', version: Number.NaN }],
+      // the peer HAS a report for this id — the bug would be flipping it erased
+      reports: [{ device_id: 'peer-1', tombstone_id: 'camper-a', version: 9 }],
+      peerDeviceIds: ['peer-1'],
+    })
+    expect(states).toEqual({ 'peer-1': 'UNKNOWN' })
+  })
+
   it('returns an empty map when there are no tombstones (no purge → nothing to show)', () => {
     const states = computePeerErasureStates({
       tombstones: [],

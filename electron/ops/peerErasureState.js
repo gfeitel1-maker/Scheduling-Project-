@@ -48,6 +48,16 @@ export function computePeerErasureStates({ tombstones, reports, peerDeviceIds })
     const seen = byDevice.get(deviceId)
     let caughtUpOnAll = true
     for (const t of tombstones) {
+      // A malformed tombstone version (non-finite) must NEVER be treated as
+      // satisfied — `reported < NaN` is false, which would otherwise let a
+      // garbage tombstone silently flip a peer to LOGICALLY_ERASED (a fabricated
+      // "erased" is the one direction this badge must never fail in). The
+      // production caller is SQL-constrained, but this function is exported and
+      // pure-testable, so it defends its own contract.
+      if (typeof t.version !== 'number' || !Number.isFinite(t.version)) {
+        caughtUpOnAll = false
+        break
+      }
       const reported = seen?.get(t.id)
       if (reported === undefined || reported < t.version) {
         caughtUpOnAll = false

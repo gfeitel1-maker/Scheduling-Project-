@@ -133,7 +133,7 @@ describe('DeviceManagerScreen — per-peer erasure badge', () => {
     render(<DeviceManagerScreen campId="c1" role="admin" deviceMode="host" />)
 
     expect(await screen.findByText('MacBook')).toBeTruthy()
-    expect(screen.queryByText('Record purge')).toBeNull()
+    expect(screen.queryByText('Purge status')).toBeNull()
     expect(screen.queryByText('Hidden')).toBeNull()
     expect(screen.queryByText('Not confirmed')).toBeNull()
   })
@@ -148,7 +148,7 @@ describe('DeviceManagerScreen — per-peer erasure badge', () => {
 
     render(<DeviceManagerScreen campId="c1" role="admin" deviceMode="host" />)
 
-    expect(await screen.findByText('Record purge')).toBeTruthy()
+    expect(await screen.findByText('Purge status')).toBeTruthy()
     const badge = screen.getByText('Hidden')
     expect(badge).toBeTruthy()
     const title = badge.getAttribute('title') || ''
@@ -156,6 +156,8 @@ describe('DeviceManagerScreen — per-peer erasure badge', () => {
     expect(title).toMatch(/suppressed, not deleted/i)
     expect(title).toMatch(/not cryptographic/i)
     expect(title).not.toMatch(/wiped|gone/i)
+    // attributed, not stated as independently-verified fact (Red Hat MEDIUM)
+    expect(title).toMatch(/reports that it has applied/i)
   })
 
   it('shows an unreached peer as Not confirmed, never silently erased', async () => {
@@ -205,5 +207,45 @@ describe('DeviceManagerScreen — per-peer erasure badge', () => {
     render(<DeviceManagerScreen campId="c1" role="admin" deviceMode="host" />)
 
     expect(await screen.findByText('Not confirmed')).toBeTruthy()
+  })
+
+  // Red Hat MEDIUM — a revoked device is cut off the authenticated channel and
+  // can never report again; "Not confirmed / may catch up" would mislead. It is
+  // not an active peer, so its purge status is simply not tracked ("—").
+  it('shows a revoked device as not-tracked, never a misleading may-catch-up state', async () => {
+    localClient.listDevices.mockResolvedValue([
+      authorizedDevice({ id: 'peer-1', name: 'Old Laptop', revoked_at: '2026-09-01T00:00:00.000Z', pairing_status: 'revoked' }),
+    ])
+    localClient.listPeerErasureState.mockResolvedValue({
+      hasErasure: true,
+      states: {}, // backend may still carry a stale row, but the UI must not imply catch-up
+      localDeviceId: 'local-host',
+    })
+
+    render(<DeviceManagerScreen campId="c1" role="admin" deviceMode="host" />)
+
+    expect(await screen.findByText('Purge status')).toBeTruthy()
+    // getByTitle, not getByText('—'): the Authorized-At column can also render
+    // '—', so the unique title is what identifies the purge cell.
+    expect(screen.getByTitle(/tracked only for devices currently in the camp/i)).toBeTruthy()
+    expect(screen.queryByText('Not confirmed')).toBeNull()
+    expect(screen.queryByText('Hidden')).toBeNull()
+  })
+
+  it('shows a pending (not-yet-approved) device as not-tracked', async () => {
+    localClient.listDevices.mockResolvedValue([
+      { id: 'peer-2', name: 'Unapproved Tablet', pairing_status: 'pending', authorized_at: null, revoked_at: null },
+    ])
+    localClient.listPeerErasureState.mockResolvedValue({
+      hasErasure: true,
+      states: {},
+      localDeviceId: 'local-host',
+    })
+
+    render(<DeviceManagerScreen campId="c1" role="admin" deviceMode="host" />)
+
+    expect(await screen.findByText('Purge status')).toBeTruthy()
+    expect(screen.getByTitle(/tracked only for devices currently in the camp/i)).toBeTruthy()
+    expect(screen.queryByText('Not confirmed')).toBeNull()
   })
 })
