@@ -62,6 +62,12 @@ because the runner is a clean machine and a green local gate cannot separate "co
 pushing**; CI runs it anyway, on a quieter machine, in about half the time. See
 `docs/governance/standards/TESTING_STANDARD.md` §1.
 
+**`npm run check:governance` is required before every push, no exceptions** — unlike the full
+`npm run verify`, this one is not conditional on what changed or deferred to CI. It runs in about a
+second and catches run-record/frontmatter findings (a stale status field, a malformed `related_tickets`
+array, a missing agent accounting entry) that a later CI run reports anyway, just slower and after a
+round-trip.
+
 **Only one local gate runs at a time.** `npm run verify` takes a machine-wide lock
 (`scripts/gateLock.js`) keyed to the repository, so a second one waits and names the holder instead
 of both thrashing a 4-core machine. `SHORESH_VERIFY_NO_LOCK=1` bypasses it.

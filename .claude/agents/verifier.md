@@ -105,6 +105,35 @@ Start from the task brief's stated success predicate and any "Not done if" / "Te
 [`docs/governance/standards/TESTING_STANDARD.md`](../../docs/governance/standards/TESTING_STANDARD.md)
 owns the gate list. It is the source of truth; this section summarizes it.
 
+**The default local bar — not the full gate, and the rest of this section still applies.** Per
+`TESTING_STANDARD.md` §1, **CI is the gate of record for merging**: `.github/workflows/gate.yml`
+runs the full `npm run verify` on every pull request, on a clean Linux runner, and a red CI run
+blocks a merge whatever a local run said. Because of that, your DEFAULT local bar for a round —
+i.e., what you run with no further instruction — is:
+
+1. The test file(s) for every file the round touched (e.g.
+   `npx vitest run --no-file-parallelism <changed-file>.test.js`).
+2. `npm run schema:check` — only when `electron/db/**` or `electron/db/schema.sql` changed.
+3. `npm run check:governance` and `npm run lint`.
+
+This list is the **floor**, not a replacement for the bullets below it — the full gate's remaining
+steps (`build`, `test:integration`, the full `test` suite, `security`, `licenses:check`,
+`agents:check`) are each still governed by their own bullet, which now says explicitly when you run
+each one locally versus leave it to CI.
+
+**`npm run check:governance` is UNCONDITIONAL — not merely item 3 of the list above.** It runs
+before every push, every round, regardless of what changed, with no exception. This is an owner
+standing rule (2026-10-01): four reds landed in one day that were one-second run-record/frontmatter
+findings this check catches locally in under two seconds — there is no change small enough, or
+round judged "done enough", to skip it for.
+
+**The full local `npm run verify` is the exception, not the default — run it only when the
+Governor brief explicitly names it.** This is a gap-closure to match what `TESTING_STANDARD.md` §1
+and `CLAUDE.md` already say, not a change to either: a local green was never *necessary* to open a
+PR, only sufficient-but-redundant, since CI repeats the identical eight steps on a cleaner machine in
+about half the time. Running the full gate by default when nothing asked for it burns ~13 minutes
+re-proving what CI will prove anyway.
+
 - `npm run test` (or the specific test file(s) the brief names, if running the full suite is impractical mid-loop)
   - **Run it synchronously and read the raw output.** The full suite is ~11 min — past the foreground
     command ceiling. Do **not** background it and then park on a `Monitor`/notification to re-wake you;
@@ -127,15 +156,24 @@ owns the gate list. It is the source of truth; this section summarizes it.
     ceiling requires it) before calling that failure pre-existing. When in doubt, report the
     failure — do not infer innocence from file path.
 - `npm run lint`
-- `npm run build`, when the task could plausibly break the build (schema/dependency/import changes — always; a pure copy change — use judgment, but default to running it)
-- **`node test/integration/run.js` — mandatory** for any change touching sync, auth, or schema
-  (`electron/sync/**`, `electron/auth/**`, `electron/ops/**`, migrations), and for release prep.
-  This is not extra thoroughness: the harness spawns real child processes, and the unit suite runs
-  in one process, so it **structurally cannot** observe pairing, revocation, token renewal, conflict
-  detection, clock skew, or role changes. For those tasks a green `npm run test` answers a different
-  question. Report it UNVERIFIED if you cannot run it — never treat its absence as a pass.
+- `npm run build` and `node test/integration/run.js` (`npm run test:integration`) are part of the
+  **full gate** — `TESTING_STANDARD.md` §1 steps 4 and 6 of `npm run verify` — which CI already runs
+  on every pull request. Neither is part of your **default local bar** (see above). Run either
+  locally only when the Governor brief explicitly names it, or when you are iterating a specific
+  failure in that step and need a tight local loop to confirm a fix — not reflexively because the
+  change "touches schema/sync/auth". That reasoning describes what the full gate verifies, not what
+  you default to running locally; CI is the gate of record for whether it is actually satisfied.
+  - `node test/integration/run.js` exists because the harness spawns real child processes, and the
+    unit suite runs in one process, so it **structurally cannot** observe pairing, revocation, token
+    renewal, conflict detection, clock skew, or role changes — a green `npm run test` answers a
+    different question. If the brief's success predicate makes a claim only this harness can check
+    and you have **not** run it yourself this round, report that specific claim **UNVERIFIED** —
+    CI running it later is not evidence you can cite now, since your report precedes that run. Never
+    treat its absence as a pass.
 - **Schema changes:** a migrated database and a freshly created one must produce an identical
-  schema. Verify it explicitly; no general suite result covers it.
+  schema. `npm run schema:check` (part of your default bar when `electron/db/**`/`schema.sql`
+  changed) covers this via its migration-parity tests; if the brief names a schema property that
+  isn't covered by an existing assertion, verify it explicitly rather than assuming the suite does.
 - **Completion claims involving persistence, auth, or sync must be verified under
   `npm run electron:dev`, not the browser at `localhost:5200`.** That URL runs a dev mock, not the
   real data layer — it has already hidden a defect where every write silently no-op'd. A claim
