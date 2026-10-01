@@ -39,27 +39,48 @@ Given two paired devices A and B sharing a camp, after A purges a camper:
 
 ### S3a — backing signal (primary's seam: `electron/sync/automerge/**`), sequenced AFTER the camper-id build (T321)
 
-A peer **self-reports its highest APPLIED purge-tombstone version** over the existing
-authenticated sync channel — not a per-op ack, a single self-reported frontier. Persist
-it on the reporting peer's `devices` row (new column, e.g. `applied_tombstone_version`,
-default NULL = never reported). The report is the receiver's own truth (the highest
-tombstone version its projector has actually applied), consistent with T233's
-"receiver-applied, not sender-sent" principle and with the Stage-6 reality that the
-legacy per-peer delivery watermark (`devices.last_synced_seq`, the retired `ws://`
-`op_applied_ack` path) no longer exists.
+**Superseded design (2026-10-01, Architect + ADR addendum — see
+`docs/adr/2026-09-19-multi-device-erasure-propagation.md`'s "Addendum" section):** the
+scalar `devices.applied_tombstone_version` column originally proposed below is UNSOUND.
+`tombstones.version` is per-id (mirrors `cred_version`), not a global sequence — every
+camper purge mints its own tombstone starting at version 1, so `MAX(version)` across all
+tombstones is 1 forever once any purge has happened. A single self-reported scalar
+compared against that "max" produces false `LOGICALLY_ERASED` reads. Build to the
+corrected design instead:
 
-- Test-first at the sync + schema seam (constitution rule 5): a peer that has applied
-  tombstone vN reports `>= N`; a peer that has not reports `< N` or NULL; the column is
-  written from the authenticated channel only, never from an unauthenticated source.
-- Trust: the reported value is advisory display data about that peer's own state; it must
-  not weaken any admission gate. Do not route it through the document (same off-document
-  trust-root discipline T233 S1 established).
+A peer **self-reports the set of `(tombstone id, version)` pairs it has verified and
+projected** — not a single scalar frontier, not a per-op ack — over the existing
+authenticated sync channel (the `authenticate` handshake in `mutualAuth.js`/
+`evaluateAuthenticate`, the same wire point and trust boundary `schemaVersion` already
+uses). The receiver persists this into a new table,
+`peer_tombstone_reports(device_id, tombstone_id, version, reported_at)`, written only
+after `evaluateAuthenticate` admits the device — never from document merge, never from an
+unauthenticated message. This is the receiver's own truth (what its projector has
+actually verified+applied), consistent with T233's "receiver-applied, not sender-sent"
+principle and with the Stage-6 reality that the legacy per-peer delivery watermark
+(`devices.last_synced_seq`, the retired `ws://` `op_applied_ack` path) no longer exists.
+
+- Test-first at the sync + schema seam (constitution rule 5): a peer that has verified
+  tombstone `(id, vN)` reports a row with `version >= N` for that id; a peer that has not
+  seen that id's tombstone has no row for it (reads as `UNKNOWN`, never a stale/wrong
+  version); the table is written from the authenticated channel only, never from an
+  unauthenticated source.
+- Trust: the reported rows are advisory display data about that peer's own state; they
+  must not weaken any admission gate. Do not route this through the document (same
+  off-document trust-root discipline T233 S1 established).
+- S3b's lookup becomes per-id, not a scalar comparison: `LOGICALLY_ERASED` for peer P and
+  tombstone T iff `peer_tombstone_reports` has a row for `(P, T.id)` with
+  `version >= T.version`; otherwise `UNKNOWN`.
 
 ### S3b — director UI (this worker's seam: `src/screens/DeviceManagerScreen.jsx`), follows S3a
 
-Render a **read-only flag** on each device row derived from that peer's
-`applied_tombstone_version` vs the current max tombstone version: `UNKNOWN` vs
-`LOGICALLY_ERASED`. Flag vocabulary, **not a banner**; no new screen; no per-peer action.
+Render a **read-only flag** on each device row. Per the corrected S3a design (this
+ticket's S3a section, and the ADR's 2026-10-01 addendum): for a given camper's tombstone
+`T`, look up `peer_tombstone_reports` for `(peer device_id, T.id)` — `LOGICALLY_ERASED` iff
+a row exists with `version >= T.version`; otherwise `UNKNOWN`. This is a per-id lookup, NOT
+a scalar-vs-max comparison — there is no single "current max tombstone version" to compare
+against (tombstone `version` is per-camper-id, not a global sequence). Flag vocabulary,
+**not a banner**; no new screen; no per-peer action.
 
 **Acceptance criteria — the four never-claims (adopted verbatim from the scoping note):**
 1. Never "deleted" / "gone" / "wiped" — say *suppressed / invisible fleet-wide*, not
