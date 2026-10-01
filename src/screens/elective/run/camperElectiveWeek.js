@@ -95,6 +95,26 @@ function orderIndex(catalog) {
   return (id) => index.get(id) ?? LAST
 }
 
+// board item 9b round 3 — one tier per camper, derived from their OWN
+// assignment rows. FIRST ROW WINS when a camper's rows somehow span two
+// DIFFERENT tiers' occurrences (should not occur — buildAttendance scopes a
+// camper to one tier's occurrences — but array order is a deterministic,
+// documented answer rather than leaving it to Map insertion order by
+// accident). Returns null (not {}) when nothing could be derived, so an
+// empty/absent `rows` reproduces the exact tier-blind resolver call every
+// caller made before this parameter existed.
+function deriveTierIdByCamperId(rows, occurrences) {
+  if (!rows || rows.length === 0) return null
+  const occurrenceById = new Map(occurrences.map((o) => [o.id, o]))
+  const tierIdByCamperId = {}
+  for (const row of rows) {
+    if (row.camper_id == null || row.camper_id in tierIdByCamperId) continue
+    const tierId = occurrenceById.get(row.occurrence_id)?.tier_id ?? null
+    if (tierId != null) tierIdByCamperId[row.camper_id] = tierId
+  }
+  return Object.keys(tierIdByCamperId).length > 0 ? tierIdByCamperId : null
+}
+
 /**
  * A lookup from one placement (a row with camper_id/choice_id/occurrence_id) to
  * `{ id, rankKind }` for the preference row behind it, or null.
@@ -113,12 +133,25 @@ function orderIndex(catalog) {
  * Null is a real answer: a placement the camper ranked nothing for (the bronze
  * "not requested" row) genuinely has no statement to correct, so the edit there
  * is an ADD.
+ *
+ * board item 9b round 3 — `rows` (optional) is the run's own assignment rows.
+ * A coordinate-only preference at a cell more than one TIER shares resolves
+ * to an occurrence only when the resolver knows which tier it is for
+ * (resolvePreferenceCoordinates' `tierIdByCamperId`); without it the resolver
+ * falls back to whichever occurrence is first at that cell, which is wrong for
+ * every camper outside that one tier and makes this join miss. Every caller
+ * already holds its run's assignment rows, and a camper is only ever placed in
+ * an occurrence of their own tier (buildAttendance scopes them), so the tier
+ * the solver actually used is recoverable from `row.occurrence_id ->
+ * occurrence.tier_id` — no roster re-derivation, no new catalog read. Omitted,
+ * this behaves exactly as before (tier-blind), so no existing caller changes.
  */
-export function buildPreferenceLookup({ preferences, occurrences, days, timeBlocks }) {
+export function buildPreferenceLookup({ preferences, occurrences, days, timeBlocks, rows = NONE }) {
+  const tierIdByCamperId = deriveTierIdByCamperId(rows, occurrences)
   // Bound ONCE for the whole week, against this run's occurrences. After that
   // there are two tiers, which is exactly what the engine's `rankAt` has: a row
   // scoped to the occurrence, else a whole-run fallback.
-  const bound = resolvePreferenceCoordinates({ preferences, occurrences, days, timeBlocks }).preferences
+  const bound = resolvePreferenceCoordinates({ preferences, occurrences, days, timeBlocks, tierIdByCamperId }).preferences
   const keyOf = (camperId, choiceId, occurrenceId) => (
     `${camperId}\u0000${choiceId}\u0000${occurrenceId ?? ''}`
   )
@@ -166,7 +199,7 @@ export function buildCamperElectiveWeek({
 
   const mine = rows.filter((r) => r.camper_id === camperId)
   const occurrenceOf = (row) => occurrenceById.get(row.occurrence_id)
-  const preferenceFor = buildPreferenceLookup({ preferences, occurrences, days, timeBlocks })
+  const preferenceFor = buildPreferenceLookup({ preferences, occurrences, days, timeBlocks, rows })
 
   const entries = mine
     .slice()

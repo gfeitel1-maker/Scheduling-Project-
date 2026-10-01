@@ -271,6 +271,36 @@ describe('binding a per-cell preference to the CAMPER\'S OWN tier', () => {
     })
     expect(preferences[0].occurrence_id).toBe('o-jr-mon3')
   })
+
+  // board item 9b round 3 — a PIN, not a new behaviour: two same-label rows
+  // for ONE camper at DIFFERENT occurrences, one of them at a cell two tiers
+  // share. Each row must bind independently against its OWN coordinate and
+  // the camper's own tier; a bug that collapsed both rows onto one shared key
+  // (e.g. keying only by label, not by coordinate) would make this fail. This
+  // is the exact duplicate-row shape camperElectiveWeek.js's
+  // buildPreferenceLookup has to join against (see that module's own test for
+  // the join half of this story — the resolver's binding, pinned here, is
+  // already correct and must stay that way).
+  it('binds TWO same-label rows for one camper at different occurrences, each to the camper’s own tier', () => {
+    const SHARED_CELL_OCCURRENCES = [
+      { id: 'o-jr-mon3', day_id: 'd-mon', time_block_id: 'tb-3', tier_id: 't-jr' },
+      { id: 'o-sr-mon3', day_id: 'd-mon', time_block_id: 'tb-3', tier_id: 't-sr' },
+      // A single-tier cell, so the second row has only one occurrence to bind to.
+      { id: 'o-sr-fri6', day_id: 'd-fri', time_block_id: 'tb-6', tier_id: 't-sr' },
+    ]
+    const { preferences, residue } = resolvePreferenceCoordinates({
+      preferences: [
+        { camper_id: 'cam-sr', labelKey: 'swim', rank: 1, coordinate: { dayName: 'Monday', periodLabel: '3' } },
+        { camper_id: 'cam-sr', labelKey: 'swim', rank: 2, coordinate: { dayName: 'Friday', periodLabel: '6' } },
+      ],
+      occurrences: SHARED_CELL_OCCURRENCES,
+      days: DAYS,
+      timeBlocks: TIME_BLOCKS,
+      tierIdByCamperId: { 'cam-sr': 't-sr' },
+    })
+    expect(preferences.map((p) => p.occurrence_id)).toEqual(['o-sr-mon3', 'o-sr-fri6'])
+    expect(residue).toEqual([])
+  })
 })
 
 // THE OBSERVABLE CONSEQUENCE, driven through the real engine. The binding

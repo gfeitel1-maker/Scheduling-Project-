@@ -332,7 +332,7 @@ export function satisfactionSummary({ rows = [], preferences = [], occurrences =
   const camperCount = new Set(rows.map((r) => r.camper_id).filter((id) => id != null)).size
   const placementCount = rows.length
   const occurrenceCount = new Set(rows.map((r) => r.occurrence_id)).size
-  const preferenceFor = buildPreferenceLookup({ preferences, occurrences, days, timeBlocks })
+  const preferenceFor = buildPreferenceLookup({ preferences, occurrences, days, timeBlocks, rows })
   const buckets = [0, 0, 0, 0] // first, second, third, lower
   let outside = 0
   let unordered = 0

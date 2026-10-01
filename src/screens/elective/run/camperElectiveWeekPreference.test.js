@@ -5,7 +5,7 @@
 //
 // Fabricated names only.
 import { describe, it, expect } from 'vitest'
-import { buildCamperElectiveWeek } from './camperElectiveWeek.js'
+import { buildCamperElectiveWeek, buildPreferenceLookup } from './camperElectiveWeek.js'
 
 const DAYS = [
   { id: 'day-mon', label: 'Monday', sort_order: 1 },
@@ -137,5 +137,54 @@ describe('buildCamperElectiveWeek — the preference behind a placement', () => 
     expect(entry).toMatchObject({
       assignmentId: 'asg-1', activityName: 'Gaga', rank: 1, isFallback: false, preferenceId: null,
     })
+  })
+})
+
+// board item 9b round 3 (T321-equivalent, no ticket) — the join itself is
+// tier-blind at 3 of the 4 acceptance-fixture misses: buildPreferenceLookup
+// called resolvePreferenceCoordinates WITHOUT tierIdByCamperId, so a
+// coordinate preference at a cell TWO TIERS SHARE bound to whichever
+// occurrence is first in array order, not the camper's own. The solve/commit
+// path (AssignmentPanel.jsx) already derives tierIdByCamperId and passes it to
+// the resolver directly; buildPreferenceLookup had no such parameter at all.
+//
+// Fix shape: an optional `rows` param (the run's own assignment rows, which
+// every caller already holds) lets buildPreferenceLookup recover the tier
+// INTERNALLY — a camper is only ever placed in occurrences of their own tier
+// (buildAttendance scopes them), so `row.occurrence_id -> occurrence.tier_id`
+// is the tier the solver actually used. No new catalog read, no roster
+// re-derivation.
+describe('buildPreferenceLookup — tier-aware join at a cell two tiers share', () => {
+  const TWO_TIER_OCCURRENCES = [
+    { id: 'occ-jr', day_id: 'day-mon', time_block_id: 'tb-1', tier_id: 'tier-jr' },
+    { id: 'occ-sr', day_id: 'day-mon', time_block_id: 'tb-1', tier_id: 'tier-sr' },
+  ]
+  // A Seniors camper's assignment: the solver placed them at the SENIORS
+  // occurrence of this shared cell (buildAttendance would never place a
+  // Seniors camper at occ-jr).
+  const assignmentRow = {
+    id: 'asg-sr', camper_id: 'cam-sr', occurrence_id: 'occ-sr', activity_id: 'act-swim',
+    choice_id: 'choice-swim', preference_rank: 1, camper_name: 'Noa Katz',
+  }
+  // The camper's sheet named the cell, not an occurrence — exactly the shape
+  // a per-cell preference sheet produces before solve-time binding.
+  const coordinatePreference = {
+    id: 'pref-sr', camper_id: 'cam-sr', choice_id: 'choice-swim', occurrence_id: null, rank: 1,
+    coordinate: { dayName: 'Monday', periodLabel: 'Period 1' },
+  }
+
+  it('tier-blind (no rows): binds to the FIRST occurrence at the cell, not the camper’s own, so the join misses', () => {
+    const lookup = buildPreferenceLookup({
+      preferences: [coordinatePreference], occurrences: TWO_TIER_OCCURRENCES, days: DAYS, timeBlocks: TIME_BLOCKS,
+    })
+    expect(lookup(assignmentRow)).toBeNull()
+  })
+
+  it('tier-aware (rows passed): derives the camper’s tier from their own assignment and the join finds the row', () => {
+    const lookup = buildPreferenceLookup({
+      preferences: [coordinatePreference], occurrences: TWO_TIER_OCCURRENCES, days: DAYS, timeBlocks: TIME_BLOCKS,
+      rows: [assignmentRow],
+    })
+    expect(lookup(assignmentRow)?.id).toBe('pref-sr')
   })
 })

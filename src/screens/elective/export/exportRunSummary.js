@@ -46,7 +46,7 @@ export function buildRunSummaryExport({
   }
   const counts_by_rank = {}
   let unordered_count = 0
-  const preferenceFor = buildPreferenceLookup({ preferences, occurrences, days, timeBlocks })
+  const preferenceFor = buildPreferenceLookup({ preferences, occurrences, days, timeBlocks, rows: assignments })
   const assignedCamperIds = new Set()
   for (const a of assignments) {
     assignedCamperIds.add(a.camper_id)
