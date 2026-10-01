@@ -12,6 +12,7 @@ import { isPlaintextSqliteFile, rawKeyPragma, migratePlaintextToEncrypted } from
 // the right tool; it never loads the fork unless encryption is actually on.
 const _lazyRequire = createRequire(import.meta.url)
 import { deriveScheduleTemplateId } from '../ops/scheduleTemplateId.js'
+import { deriveCamperId } from '../ops/electiveDerivedIds.js'
 import { deriveLocationId } from '../ops/locationId.js'
 import { deriveDayId } from '../ops/dayId.js'
 import { applyProjection } from '../ops/projections.js'
@@ -39,7 +40,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // campers.division_label/is_unattributed and elective_preferences.rank_kind/
 // coordinate_day_label/coordinate_period_label) all land in this file; 79 is the
 // current version.
-export const CURRENT_SCHEMA_VERSION = 84
+export const CURRENT_SCHEMA_VERSION = 85
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -4095,6 +4096,69 @@ const DEVICE_HEALTH_EVENTS_DDL = `
     })()
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (84, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v85 (T321, docs/adr/2026-10-01-camper-id-high-entropy-format.md) — the new
+  // camper_identity_keys table (schema.sql already creates it unconditionally;
+  // this block is for a database upgrading from an earlier version, same
+  // two-places discipline as v82/camp_seedlings) PLUS the back-fill: one row
+  // per EXISTING ext/name-mode camper (acceptance criterion 6).
+  //
+  // Guard `>= 84 && < 85`, never a bare `< 85` (this repo's standing gotcha).
+  if (getSchemaVersion(db) >= 84 && getSchemaVersion(db) < 85) {
+    db.transaction(() => {
+      db.exec(`CREATE TABLE IF NOT EXISTS camper_identity_keys (
+        id TEXT PRIMARY KEY,
+        camp_id TEXT NOT NULL REFERENCES camps(id),
+        key_mode TEXT NOT NULL,
+        key_value TEXT NOT NULL,
+        camper_id TEXT NOT NULL
+      )`)
+      db.exec(
+        'CREATE INDEX IF NOT EXISTS idx_camper_identity_keys_camper ' +
+        'ON camper_identity_keys (camper_id)'
+      )
+
+      // Back-fill. RE-DERIVE (key_mode, key_value) from each existing camper's
+      // own external_id/display_name columns — the inverse of deriveCamperId's
+      // forward derivation. This works because an EXISTING camper's own `id`
+      // was minted the same way, pre-ADR (commitElectiveRun.js's old direct
+      // assignment), so the same inputs reproduce the same lookup id.
+      //
+      // `sub`-mode (is_unattributed = 1) campers are explicitly SKIPPED — a
+      // provisional subject has no name/external_id yet to derive a lookup key
+      // from, and the ADR migration section says so plainly: "nothing to
+      // back-fill until attributed".
+      //
+      // Does NOT change campers.id for any existing row (ADR "Tombstones &
+      // digest keys already written" — deliberate, pre-production, no live
+      // data).
+      const existing = db
+        .prepare(
+          `SELECT id, camp_id, external_id, display_name
+             FROM campers
+            WHERE is_unattributed IS NOT 1`
+        )
+        .all()
+      const insertKey = db.prepare(
+        'INSERT OR IGNORE INTO camper_identity_keys (id, camp_id, key_mode, key_value, camper_id) VALUES (?, ?, ?, ?, ?)'
+      )
+      for (const camper of existing) {
+        const external = String(camper.external_id ?? '').trim()
+        const keyMode = external.length > 0 ? 'ext' : 'name'
+        const keyValue = external.length > 0 ? external : String(camper.display_name ?? '').trim()
+        if (keyValue.length === 0) continue
+        const lookupId = deriveCamperId(camper.camp_id, {
+          externalId: external.length > 0 ? external : null,
+          displayName: external.length > 0 ? null : camper.display_name,
+        })
+        insertKey.run(lookupId, camper.camp_id, keyMode, keyValue, camper.id)
+      }
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (85, ?)').run(
       new Date().toISOString()
     )
   }

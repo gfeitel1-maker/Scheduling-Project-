@@ -274,6 +274,7 @@ const GENESIS_ENTITIES = [
   'fixed_events',
   'camp_maps',
   'camp_seedlings',
+  'camper_identity_keys',
   'campers',
   'camps',
   'cohorts',
@@ -357,8 +358,19 @@ const GENESIS_ENTITIES = [
 // prior regeneration: pre-production, no live camps on this sync engine, existing `.automerge`
 // files may be discarded. New pinned head:
 // 58437ad536652179974a67116cf62f09f948a19014c8bf683b1fec2b16fe7219
+// ELEVENTH REGENERATION (T321, docs/adr/2026-10-01-camper-id-high-entropy-format.md): the new
+// `camper_identity_keys` entity entered MODELED_ENTITIES automatically (it is DERIVED from
+// DIRECT_CAMP_ENTITIES ∪ PARENT_SCOPED_ENTITIES, see campScopedEntities.js), so the subset guard
+// below threw — same forcing function as the sixth/eighth/tenth regenerations, observed rather
+// than skipped. Inserted into GENESIS_ENTITIES in alphabetically-sorted position: '_' (0x5F) sorts
+// before any lowercase letter, so `camper_identity_keys` sorts before `campers` (its sixth
+// character differs: '_' vs 's'), right after `camp_seedlings`. Regenerated with the SAME recipe
+// (same ACTOR, same TIME — confirmed that recipe still reproduces the TENTH regeneration's bytes
+// byte-for-byte before adding the new entry), same acceptance as every prior regeneration:
+// pre-production, no live camps on this sync engine, existing `.automerge` files may be discarded.
+// New pinned head: 012398ef68af7ea00c6d8b20b5a9bacaa47cd9b0462089d127df77e1bf09310b
 const GENESIS_B64 =
-  'hW9Kg/0cW0QAvwMBECWl3YlnQBZYZHRLlRX3P0UBWEN61TZlIXmXSmcRbPYvCflIoZAUyL9oOx/sKxb+chkGAQIDAhMCIwZAAlYCBx3KAiECIwo0AUICVgKAAQJ/AH8Bfy1/1P6C1QZ/AH8HbZHhbhshEIR/OVESx7KrWkmlvlUfAGGY86FwLNoBN377ijvZxlZ/wX4Ls7O7f16tK+EUSgBfnJ2ymWzmZr4R8DGkI59bCOWqnXx2MooWvnt7NnKCavDgztszjQxGMtSWIOkTEU0bxpLhmCakYrQm/vxPgh9XeKjJR5gMDeK5f+QlQLl9oPx1BW6U4GBkGKDN/PYh05UX56oq0h3MigELvNXWmswQkm+Cv++o1AI1TDZzlL4NopjbbN97zjVObRhHlZr5tgSMUrhb7iVMMIco7otPM+F6CIje2FpG0e0SZJUTkk0O6yF8w5vl6dMi+xLFzXvgD7oRvkbcbN5QwZSjLeDmiv4CX9wxwwUbTdvy7O2jJ53Ddce5uegtf/b3oaGTDK7mHb51Gq9FpgOLJHBVCeVnM3GZ39ng28XK1sx+TswtdnR5fum4S/wDLQB+AQIZAX5mGxABLS0ALQAtAAA='
+  'hW9Kg/t5mAwAygMBECWl3YlnQBZYZHRLlRX3P0UBASOY72ivfqAMbYsgtam6yqR82bBGIInRJ9934b8JMQsGAQIDAhMCIwZAAlYCBx3VAiECIwo0AUICVgKAAQJ/AH8Bfy5/1P6C1QZ/AH8HbZHRbiIxDEWfaNWWIlgVtZX2q/YHrJDcYSIycZSbsJ2/X81EwID2KfaxY/vaf16NLf7siwdfrBmSDCZxM1sEXPDxyI/JRRbvEIsvo5ww8rlBrqaXz1Z7zYXvzoyiZ+TsHbhzZqRoJ5qQTfEavxAwNYQY0h/jgFgk18iP/wT4eYWHGl2AJGSvjvtHXjwytw+U31dge/UWol2HPCnaPkQW7dXamjPiHUwZHRq89c41Suejmwr+vqNaC7IwmsRelzKIIreFvy851zhPyzhmrYlvzWHQwl2zix8gh6D2xKeZcN15BCemll7ztjkp6xnRRIt153/gpKU+tbIvQe18B/6i7eFqwG3MGyoYUjAF3FzRX+DEHROsN0GmK8+zfS7JYsL1gnNzqdf+7O9dodUEruYbvi1qvBYdDiwawVUlMr+mIS77GwU/NlROYvZzYJa4oC39ongR+AcuAH4BAhoBfmUcEAEuLgAuAC4AAA=='
 
 function genesisDoc() {
   return A.clone(A.load(Uint8Array.from(Buffer.from(GENESIS_B64, 'base64'))))

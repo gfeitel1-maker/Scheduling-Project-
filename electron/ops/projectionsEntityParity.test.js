@@ -58,6 +58,10 @@ const PERMISSIONS_ADMIN_ONLY_EXCEPTIONS = new Set([
   // camp's sheets are READ on every future import. The reason is carried in full
   // beside the matching entry in electron/auth/permissionsEntityParity.test.js.
   'camp_seedlings',
+  // T321 — the name/external-id -> camper_id lookup. Admin-only, same posture
+  // as campers itself; see the matching entry in
+  // electron/auth/permissionsEntityParity.test.js for the full reason.
+  'camper_identity_keys',
   // Round 2, M2: spread from the single definition rather than re-typed.
   ...PARTICIPANT_ENTITIES,
 ])

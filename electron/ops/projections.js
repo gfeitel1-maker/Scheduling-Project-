@@ -1050,6 +1050,25 @@ export const PROJECTIONS = {
       )
     },
   },
+  // T321 (v85, docs/adr/2026-10-01-camper-id-high-entropy-format.md) — the
+  // deterministic, convergent name/external-id -> random camper_id lookup.
+  // Same camp-scoped, ensureExists shape as `campers` above. `key_mode` and
+  // `key_value` are NOT NULL with no default; the placeholders below supply
+  // empty strings, matching `ensureExists`'s job everywhere else in this file
+  // (satisfy a NOT NULL column so a forward reference before the real write
+  // lands does not throw — the real write always follows immediately).
+  camper_identity_keys: {
+    table: 'camper_identity_keys',
+    key: 'id',
+    fields: ['camp_id', 'key_mode', 'key_value', 'camper_id'],
+    ensureExists: (db, id) => {
+      const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
+      getStmt(
+        db,
+        "INSERT OR IGNORE INTO camper_identity_keys (id, camp_id, key_mode, key_value, camper_id) VALUES (?, ?, '', '', '')"
+      ).run(id, camp?.id ?? null)
+    },
+  },
   // Camp-scoped. `name` is NOT NULL with no default; `status` and the two
   // solver columns have defaults, so the placeholder supplies name only.
   elective_assignment_runs: {

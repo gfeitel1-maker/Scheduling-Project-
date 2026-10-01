@@ -1600,6 +1600,36 @@ CREATE TABLE IF NOT EXISTS campers (
   is_unattributed INTEGER
 );
 
+-- camper_identity_keys (v85, ADR docs/adr/2026-10-01-camper-id-high-entropy-
+-- format.md, Option B). campers.id is now a random, opaque, high-entropy token
+-- for every newly-created camper, carrying no information about the camper.
+-- This table is the deterministic, convergent, replicated mapping from a
+-- sheet-import lookup key — (camp_id, key_mode, key_value), exactly what
+-- deriveCamperId (electron/ops/electiveDerivedIds.js) computes — to the random
+-- camper_id it resolves to. Its OWN `id` IS that derived lookup key, which is
+-- what makes two devices importing the same new camper converge on one row
+-- (last-write-wins on `camper_id`) instead of forking into two.
+--
+-- `key_value` holds the canonical name/external-id key in CLEARTEXT
+-- (ADR decision 5) — deliberately: this is the one purgeable place a child's
+-- name lives, instead of being smeared into campers.id, every camper_id FK,
+-- every purge tombstone and every digest-map key forever. Purging a camper
+-- deletes this row the same transaction as the camper row itself
+-- (electron/automerge/purgeSupportCommand.js), and it is tombstone-denylisted
+-- (electron/automerge/projector.js TOMBSTONE_DENYLISTED_ENTITIES) the same way.
+CREATE TABLE IF NOT EXISTS camper_identity_keys (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  key_mode TEXT NOT NULL,
+  key_value TEXT NOT NULL,
+  camper_id TEXT NOT NULL
+);
+
+-- Purge/rekey both look up by camper_id (the reverse direction from the
+-- table's own derived primary key), so that direction gets its own index.
+CREATE INDEX IF NOT EXISTS idx_camper_identity_keys_camper
+  ON camper_identity_keys (camper_id);
+
 -- elective_assignment_runs (v66). One director-initiated assignment attempt.
 -- `status` is the run lifecycle. `solver_generation` is ADR D5's marker: this
 -- slice STORES it, T196 ENFORCES it — "stores the marker" and "honours the

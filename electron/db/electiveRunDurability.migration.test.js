@@ -61,8 +61,10 @@ describe('migration v83: version and table/column presence', () => {
     // track the real current head, same reasoning as electiveRunLifecycle.migration.test.js's
     // "lands at the current schema version" test. The v83-specific row count below is unaffected
     // by that — it is checking that v83's OWN migration landed, not that v83 is the current head.
-    expect(CURRENT_SCHEMA_VERSION).toBe(84)
-    expect(getSchemaVersion(db)).toBe(84)
+    // T321 (v85) landed after this file was written; CURRENT_SCHEMA_VERSION
+    // tracks the real current head, same reasoning this test already states.
+    expect(CURRENT_SCHEMA_VERSION).toBe(85)
+    expect(getSchemaVersion(db)).toBe(85)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 83').get().c).toBe(1)
     db.close()
   })
