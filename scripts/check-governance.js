@@ -20,6 +20,9 @@ import { asList } from './frontmatter.js'
 import { readDocs, REFERENCE_FIELDS } from './build-work-index.js'
 import { checkDocFacts } from './doc-facts.js'
 import { checkNoLiteralNul } from './noLiteralNul.js'
+import { checkStaleSettingsKey } from './staleSettingsKey.js'
+import { checkVacuousFilterAssertion } from './vacuousFilterAssertion.js'
+import { checkRetiredSqlColumn } from './retiredSqlColumn.js'
 
 export { checkNoLiteralNul }
 
@@ -105,11 +108,19 @@ const finding = (code, message) => ({ code, message })
 // Codes that REPORT but do not fail the run. Owner ruling, 2026-09-26: "stale doc
 // cannot block." Everything not listed here is blocking, per this file's header.
 //
-// Deliberately a named list of ONE, not a severity field on every rule. A severity
+// Deliberately a named list, not a severity field on every rule. A severity
 // argument on `finding()` invites each new rule's author to pick their own, and the
 // blocking default is the property worth protecting. Adding a code here is a visible,
 // reviewable act.
-export const ADVISORY_CODES = new Set(['platform-state-stale'])
+//
+// `vacuous-filter-assertion` added here per the BLOCKING-DECISION PROTOCOL in
+// vacuousFilterAssertion.js's header: a corpus run on the clean tree (2026-10-01)
+// found 57 genuinely vacuous tests (the only assertion is that a filtered/derived
+// collection is empty, with no companion assertion proving the positive path ran)
+// rather than detector false positives. Fixing 57 pre-existing tests is out of
+// scope for the rename-silent-lookup-gate ticket that added this detector; each
+// file:line is carried forward in that ticket's run record rather than fixed here.
+export const ADVISORY_CODES = new Set(['platform-state-stale', 'vacuous-filter-assertion'])
 
 /**
  * @param doc    {{path, data, error}} as produced by readDocs
@@ -1030,6 +1041,13 @@ export function checkAll(root, execFn = (cmd) => execSync(cmd, { encoding: 'utf8
   // (heuristic, advisory, commit-date-based) this compares a doc's marked claim to a
   // value derived from source, so it is BLOCKING: a marked fact is an exact claim.
   findings.push(...checkDocFacts(root))
+
+  // T<rename-silent-lookup-gate> — catches the "wide rename, lookup silently
+  // returns nothing" class (#696 shipped five instances). See each module's
+  // header for scope and cannot-see limits.
+  findings.push(...checkStaleSettingsKey(root, { execFn }))
+  findings.push(...checkVacuousFilterAssertion(root, { execFn }))
+  findings.push(...checkRetiredSqlColumn(root, { execFn }))
 
   // A literal NUL byte anywhere in the tracked source tree makes plain grep
   // silently treat that file as binary — see noLiteralNul.js's header. BLOCKING,
