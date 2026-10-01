@@ -21,9 +21,20 @@ vi.mock('../../../localClient', () => ({
   },
 }))
 
+// Round 2, Code Reviewer MEDIUM — wraps the REAL implementation (pass-through
+// by default) so one test can force a single call to throw, simulating a
+// malformed slot surfacing during resumeFromDraft's own deriveOccurrences
+// call without breaking every other test's (unmocked) use of the real thing.
+vi.mock('./deriveOccurrences.js', async (importOriginal) => {
+  const actual = await importOriginal()
+  return { ...actual, deriveOccurrences: vi.fn(actual.deriveOccurrences) }
+})
+
 import AssignmentPanel from './AssignmentPanel.jsx'
 import { localClient } from '../../../localClient'
 import { deriveCamperId } from '../../../../electron/ops/electiveDerivedIds.js'
+import { __clearAllElectiveDrafts, getDraft } from './electiveDraftStore.js'
+import { deriveOccurrences } from './deriveOccurrences.js'
 
 const GROUPS = [{ id: 'grp-1', tier_id: 'tier-juniors' }, { id: 'grp-2', tier_id: 'tier-seniors' }]
 const DAYS = [{ id: 'day-1', name: 'Monday' }]
@@ -73,6 +84,11 @@ beforeEach(() => {
   // default today (SHORESH_AT_REST_ENCRYPTION is unset). T249's own suite sets
   // this per test.
   localClient.getSecurityStatus.mockResolvedValue({ atRestEncryptionEnabled: false })
+  // The draft store is a module-level singleton (by design -- it must survive
+  // an AssignmentPanel unmount). Without this, a draft saved by one test's
+  // 'camp-1'/'set-1' leaks into the next.
+  __clearAllElectiveDrafts()
+  deriveOccurrences.mockClear()
 })
 
 describe('AssignmentPanel — M1 empty state offers a real route, not a dead end', () => {
@@ -87,7 +103,7 @@ describe('AssignmentPanel — M1 empty state offers a real route, not a dead end
 
 async function driveToPreview({ file, extraProps = {} } = {}) {
   const props = baseProps(extraProps)
-  render(<AssignmentPanel {...props} />)
+  const view = render(<AssignmentPanel {...props} />)
   const input = document.querySelector('input[type="file"]')
   const sheetFile = file ?? new File(['Name\t#1\nAri\tArchery'], 'sheet.txt', { type: 'text/plain' })
   fireEvent.change(input, { target: { files: [sheetFile] } })
@@ -96,6 +112,7 @@ async function driveToPreview({ file, extraProps = {} } = {}) {
   await waitFor(() => expect(screen.getByText(/Solve/i)).toBeTruthy())
   fireEvent.click(screen.getByText(/Solve/i))
   await waitFor(() => expect(screen.getByText(/Commit Assignments/)).toBeTruthy())
+  return view
 }
 
 // T316 — a confirmed offering declared 'limited' with a blank capacity
@@ -1181,5 +1198,226 @@ describe('AssignmentPanel — a commit leaves Committing… on its own', () => {
 
     await waitFor(() => expect(screen.queryByText(/Committing…/)).toBeNull())
     await waitFor(() => expect(screen.getByText('Assignments committed')).toBeTruthy())
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Board item i-elective-attendance-residuals (a) -- DIVISION_ROSTER_MISMATCH's
+// own message tells the director to fix a camper's group on another screen.
+// Doing that unmounts AssignmentPanel, which used to discard rows/mapping/
+// parsed/result/occurrences/resolutions outright (plain useState, nulled on
+// unmount) and force a full re-upload. These tests pin the fix: a preview
+// draft survives the unmount and reopens re-solved against whatever the
+// roster looks like now -- not a frozen, stale preview.
+// ---------------------------------------------------------------------------
+describe('AssignmentPanel — board item i-elective-attendance-residuals: resuming a preview draft across navigation', () => {
+  // Two campers so a mismatch on ONE of them still leaves the other placed —
+  // otherwise assignments.length === 0 and AssignmentPreview never renders a
+  // Commit button at all (its own "No campers could be placed" branch), which
+  // would make this fixture unable to exercise the acceptance predicate.
+  const SHEET = new File(
+    ['Name\tDivision\t#1\nAri\tJuniors\tArchery\nBen\tJuniors\tArchery'],
+    'sheet.txt', { type: 'text/plain' }
+  )
+  const ARI_ID = deriveCamperId('camp-1', { displayName: 'Ari' })
+  const BEN_ID = deriveCamperId('camp-1', { displayName: 'Ben' })
+
+  // Ben's roster group always matches the sheet (Juniors/grp-1); only Ari's
+  // group_id varies between the two calls, exactly like a director correcting
+  // one camper's bunk on the Campers screen.
+  function campersWithAriIn(groupId) {
+    return [
+      { id: ARI_ID, display_name: 'Ari', group_id: groupId, division_label: null },
+      { id: BEN_ID, display_name: 'Ben', group_id: 'grp-1', division_label: null },
+    ]
+  }
+
+  async function reachPreview(campers) {
+    const view = render(<AssignmentPanel {...baseProps({ campers })} />)
+    fireEvent.change(document.querySelector('input[type="file"]'), { target: { files: [SHEET] } })
+    await waitFor(() => expect(screen.getByText(/Confirm Mapping/)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Confirm Mapping/))
+    await waitFor(() => expect(screen.getByText(/Solve/i)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Solve/i))
+    await waitFor(() => expect(screen.getByText(/Commit Assignments/)).toBeTruthy())
+    return view
+  }
+
+  it('reopens at preview with the same sheet, the mismatch re-evaluated and gone once the roster is fixed, and commit still works', async () => {
+    // Ari's sheet division is Juniors but grp-2 is a Seniors group — mismatch.
+    const view = await reachPreview(campersWithAriIn('grp-2'))
+    expect(screen.getByText(/but the camp has them in/)).toBeTruthy()
+    // Only Ben placed; Ari withheld pending the mismatch.
+    expect(screen.getByText(/1 camper placed/)).toBeTruthy()
+
+    view.unmount()
+
+    // The director fixed it: Ari's roster group now matches the sheet.
+    localClient.commitElectiveRun.mockResolvedValue({ ok: true, runId: 'r1', counts: { campers: 2 } })
+    render(<AssignmentPanel {...baseProps({ campers: campersWithAriIn('grp-1') })} />)
+
+    // Remounts straight to preview — no re-upload, no mapping step.
+    await waitFor(() => expect(screen.getByText(/Commit Assignments/)).toBeTruthy())
+    expect(screen.queryByText(/Confirm Mapping/)).toBeNull()
+    // Findings are RE-EVALUATED against the corrected roster, not restored stale.
+    expect(screen.queryByText(/but the camp has them in/)).toBeNull()
+    // Both campers now placed — the same parsed sheet re-solved, not a
+    // narrower one.
+    expect(screen.getByText(/2 campers placed/)).toBeTruthy()
+
+    fireEvent.click(screen.getByText(/Commit Assignments/))
+    await waitFor(() => expect(localClient.commitElectiveRun).toHaveBeenCalled())
+    const payload = localClient.commitElectiveRun.mock.calls[0][0]
+    expect(payload.assignments.map((a) => a.camper_id).sort()).toEqual([ARI_ID, BEN_ID].sort())
+  })
+
+  it('surfaces a resumed-draft flag (not a banner) on the reopened preview', async () => {
+    const view = await reachPreview(campersWithAriIn('grp-1'))
+    view.unmount()
+    render(<AssignmentPanel {...baseProps({ campers: campersWithAriIn('grp-1') })} />)
+    await waitFor(() => expect(screen.getByText(/Commit Assignments/)).toBeTruthy())
+    expect(screen.getByText(/resumed/i)).toBeTruthy()
+  })
+
+  it('clears the template no longer existing rather than resuming into a broken state', async () => {
+    const view = await reachPreview(campersWithAriIn('grp-1'))
+    view.unmount()
+    const onError = vi.fn()
+    // No candidate templates this time — the set's placement on the schedule
+    // was removed between sessions.
+    render(<AssignmentPanel {...baseProps({ campers: campersWithAriIn('grp-1'), templateSlots: [], onError })} />)
+    await waitFor(() => expect(screen.getByText(/isn.t on a schedule yet/i)).toBeTruthy())
+  })
+
+  // Round 2, Code Reviewer MEDIUM — resumeFromDraft used to populate
+  // rows/mapping/parsed/templateId/resumedDraft BEFORE calling
+  // deriveOccurrences, so a throw there (a malformed slot, same hazard H2
+  // guards against elsewhere in this file) left the panel HALF-resumed:
+  // those fields set, but phase never left 'empty' and nothing was solved.
+  // chooseTemplateAndSolve never has this bug (it derives first); resume must
+  // match it.
+  it('a deriveOccurrences failure on resume leaves phase empty with no stale rows/parsed, not a half-resumed state', async () => {
+    const { deriveOccurrences: realDeriveOccurrences } = await vi.importActual('./deriveOccurrences.js')
+    const view = await reachPreview(campersWithAriIn('grp-1'))
+    view.unmount()
+
+    deriveOccurrences
+      // The remounted component's own `templates` useMemo — must succeed, or
+      // this would test the WRONG guard (the template-not-found path above).
+      .mockImplementationOnce((...args) => realDeriveOccurrences(...args))
+      // resumeFromDraft's own call, re-deriving against a freshly minted runId.
+      .mockImplementationOnce(() => { throw new Error('boom — simulated malformed slot') })
+
+    const onError = vi.fn()
+    render(<AssignmentPanel {...baseProps({ campers: campersWithAriIn('grp-1'), onError })} />)
+
+    await waitFor(() => expect(onError).toHaveBeenCalledWith(expect.stringMatching(/Could not prepare this schedule/)))
+    // Still the empty entry state — not stuck mid-resume with rows/parsed set
+    // but nothing rendered for them.
+    expect(screen.getByText(/Import Camper Preferences/i)).toBeTruthy()
+    expect(screen.queryByText(/Commit Assignments/)).toBeNull()
+    expect(screen.queryByText(/Confirm Mapping/)).toBeNull()
+    // THE actual tell for "half-resumed": in the buggy ordering,
+    // draftLiveRef/parsed/templateId were set BEFORE the throw, which made
+    // the SAVE effect's own guard (`draftLiveRef.current && parsed &&
+    // templateId`) pass and immediately re-persist a stale draft — resurrecting
+    // the very draft `clearDraft` in the catch had just removed. A clean
+    // failure must leave no draft behind at all.
+    expect(getDraft('camp-1', 'set-1')).toBeNull()
+  })
+})
+
+describe('AssignmentPanel — picking a new file while a draft is in progress confirms before replacing it', () => {
+  it('shows a styled confirm modal (not window.confirm) and, on confirm, clears the draft and parses the new file', async () => {
+    const originalConfirm = window.confirm
+    window.confirm = vi.fn(() => { throw new Error('window.confirm must not be used') })
+    try {
+      await driveToPreview()
+      const newFile = new File(['Name\t#1\nBen\tArchery'], 'sheet2.txt', { type: 'text/plain' })
+      fireEvent.change(document.querySelector('input[type="file"]'), { target: { files: [newFile] } })
+
+      await waitFor(() => expect(screen.getByText(/Replace the sheet/i)).toBeTruthy())
+      expect(window.confirm).not.toHaveBeenCalled()
+      fireEvent.click(screen.getByRole('button', { name: /Replace It/i }))
+
+      await waitFor(() => expect(screen.getByText(/Confirm Mapping/)).toBeTruthy())
+    } finally {
+      window.confirm = originalConfirm
+    }
+  })
+
+  it('canceling keeps the existing draft/preview and does not parse the new file', async () => {
+    await driveToPreview()
+    const newFile = new File(['Name\t#1\nBen\tArchery'], 'sheet2.txt', { type: 'text/plain' })
+    fireEvent.change(document.querySelector('input[type="file"]'), { target: { files: [newFile] } })
+
+    await waitFor(() => expect(screen.getByText(/Replace the sheet/i)).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: /Cancel/i }))
+
+    expect(screen.queryByText(/Replace the sheet/i)).toBeNull()
+    expect(screen.getByText(/Commit Assignments/)).toBeTruthy()
+    expect(screen.queryByText(/Confirm Mapping/)).toBeNull()
+  })
+})
+
+describe('AssignmentPanel — a successful commit clears the draft', () => {
+  it('remounting after commit shows the empty state, not a resumed draft', async () => {
+    localClient.commitElectiveRun.mockResolvedValue({ ok: true, runId: 'r1', counts: { campers: 1 } })
+    const view = await driveToPreview()
+    fireEvent.click(screen.getByText(/Commit Assignments/))
+    await waitFor(() => expect(screen.getByText(/Assign Another Sheet/i)).toBeTruthy())
+
+    view.unmount()
+    render(<AssignmentPanel {...baseProps()} />)
+    await waitFor(() => expect(screen.getByText(/Import Camper Preferences/i)).toBeTruthy())
+    expect(screen.queryByText(/Commit Assignments/)).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Round 2, Red Hat HIGH — commit -> open the run from RunList -> regenerate()
+// re-reaches 'preview' WITHOUT a fresh pre-commit parse (rows/mapping/
+// sourceLabel/submissionKey were never set on this path). The save effect
+// must not mistake that for a genuine in-progress import and persist a
+// null-riddled pseudo-draft, which would later auto-resume and mis-fire
+// ReplaceDraftModal with a false "rows/mapping will be lost" warning.
+// ---------------------------------------------------------------------------
+describe('AssignmentPanel — board item i-elective-attendance-residuals: commit -> open run -> regenerate leaves no phantom draft', () => {
+  it('after regenerating a just-committed run, remounting shows the empty state with no resumed-draft flag, and a fresh file pick does not trigger the replace-draft confirm', async () => {
+    localClient.commitElectiveRun.mockResolvedValue({ ok: true, runId: 'r1', counts: { campers: 1 } })
+    // Set BEFORE driving to commit: RunList fetches once, on its own mount
+    // (right after commit lands the panel on phase 'committed'), so the mock
+    // must already be in place by then.
+    localClient.listElectiveRuns.mockResolvedValue([
+      { id: 'r1', name: 'Import', status: 'draft', source_filename: null },
+    ])
+    localClient.getElectiveRun.mockResolvedValue({
+      rows: [], occurrences: [], preferences: [], choices: [], campers: [],
+      staleCount: 0, finalizedAgainstStaleGeneration: false, overCapacityOccurrences: [],
+    })
+    const view = await driveToPreview()
+    fireEvent.click(screen.getByText(/Commit Assignments/))
+    await waitFor(() => expect(screen.getByText(/Assign Another Sheet/i)).toBeTruthy())
+
+    fireEvent.click(await screen.findByTestId('run-list-row-r1'))
+
+    const regenButton = await screen.findByTestId('run-regenerate')
+    fireEvent.click(regenButton)
+    // regenerate() re-solves and lands back on 'preview' — the same control
+    // this panel always shows there.
+    await waitFor(() => expect(screen.getByText(/Commit Assignments/)).toBeTruthy())
+
+    view.unmount()
+    render(<AssignmentPanel {...baseProps()} />)
+    await waitFor(() => expect(screen.getByText(/Import Camper Preferences/i)).toBeTruthy())
+    expect(screen.queryByText(/Commit Assignments/)).toBeNull()
+    expect(screen.queryByText(/resumed/i)).toBeNull()
+
+    // No draft exists, so a fresh file pick must go straight to parsing —
+    // never the replace-draft confirm.
+    const newFile = new File(['Name\t#1\nBen\tArchery'], 'sheet2.txt', { type: 'text/plain' })
+    fireEvent.change(document.querySelector('input[type="file"]'), { target: { files: [newFile] } })
+    await waitFor(() => expect(screen.getByText(/Confirm Mapping/)).toBeTruthy())
+    expect(screen.queryByText(/Replace the sheet/i)).toBeNull()
   })
 })
