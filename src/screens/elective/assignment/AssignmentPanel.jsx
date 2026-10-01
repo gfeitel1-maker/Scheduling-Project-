@@ -142,6 +142,27 @@ const disclosureStyles = {
     transition: 'opacity var(--motion-fast) var(--ease-out)',
   },
   detail: { marginTop: 4, fontSize: 12, opacity: 0.85 },
+  // board-freeze-residuals item 8 — the unencrypted case is a standing status,
+  // not an alert someone needs to dismiss, so it takes the project's flag
+  // vocabulary (compact tone-coded label — see Sidebar.jsx's TONE_COLOR/
+  // rollup rendering) instead of S.cautionBanner's full-width chrome
+  // (background fill + border + padding). No box, just a marked, colored
+  // line — the full copy still renders, just without the banner strip.
+  flag: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: 6,
+    marginBottom: 16,
+    fontSize: 12,
+    lineHeight: 1.4,
+    color: 'color-mix(in srgb, var(--accent) 70%, var(--text))',
+  },
+  flagMark: {
+    fontWeight: 700,
+    fontFamily: 'var(--font-mono)',
+    color: 'var(--accent)',
+    flexShrink: 0,
+  },
 }
 
 function EncryptionDisclosure() {
@@ -162,9 +183,12 @@ function EncryptionDisclosure() {
   }
   // No dismiss affordance, deliberately. Nothing in here is a control.
   return (
-    <div data-testid="encryption-disclosure" data-encryption-state="unencrypted" role="note" style={S.cautionBanner}>
-      {ENCRYPTION_DISCLOSURE}
-      {detail ? <div style={disclosureStyles.detail}>{detail}</div> : null}
+    <div data-testid="encryption-disclosure" data-encryption-state="unencrypted" role="note" style={disclosureStyles.flag}>
+      <span style={disclosureStyles.flagMark}>!</span>
+      <span>
+        {ENCRYPTION_DISCLOSURE}
+        {detail ? <div style={disclosureStyles.detail}>{detail}</div> : null}
+      </span>
     </div>
   )
 }

@@ -177,6 +177,11 @@ describe('AssignmentPanel — H3 commit re-entrancy', () => {
 // ---------------------------------------------------------------------------
 
 const DISCLOSURE = /not yet encrypted at rest/i
+// The exact string AssignmentPanel.jsx's ENCRYPTION_DISCLOSURE constant
+// holds, so the flag-conversion test (item 8) can assert the full copy
+// survives, not just a fragment of it.
+const ENCRYPTION_DISCLOSURE_TEXT =
+  'Camper data in this feature is not yet encrypted at rest. Do not use real camper names until this is enabled.'
 
 async function disclosure() {
   return await screen.findByTestId('encryption-disclosure')
@@ -189,6 +194,22 @@ describe('T249 -- the encryption disclosure renders whenever encryption is not a
     expect(row.getAttribute('data-encryption-state')).toBe('unencrypted')
     expect(row.textContent).toMatch(DISCLOSURE)
     expect(row.textContent).toMatch(/Do not use real camper names/i)
+  })
+
+  // board-freeze-residuals item 8 — D8's unencrypted disclosure was full
+  // banner-chrome (S.cautionBanner: background fill + border + padding,
+  // src/styles/shared.js), which the project's standing rule treats as
+  // "inherent SaaS nonsense" for standing state; it belongs in the flag
+  // vocabulary instead (compact tone-coded label, no box chrome). The full
+  // ENCRYPTION_DISCLOSURE copy must still reach the user — converting to a
+  // flag must not truncate or drop it.
+  it('renders the unencrypted state as a compact flag, not full banner chrome, while keeping the full copy', async () => {
+    render(<AssignmentPanel {...baseProps()} />)
+    const row = await disclosure()
+    expect(row.textContent).toContain(ENCRYPTION_DISCLOSURE_TEXT)
+    expect(row.style.background).toBe('')
+    expect(row.style.border).toBe('')
+    expect(row.style.padding).toBe('')
   })
 
   it('renders a neutral CHECKING row rather than nothing while the async read is in flight', async () => {
