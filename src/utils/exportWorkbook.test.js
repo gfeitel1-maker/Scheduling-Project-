@@ -30,12 +30,12 @@ function fixture() {
       { id: 'grp-2', name: 'Yeladim 2', tier_id: 'unit-b', availability: '', source: 'import' },
     ],
     days_of_operation: [
-      { id: 'day-1', label: 'Monday', sort_order: 1 },
-      { id: 'day-2', label: 'Tuesday', sort_order: 2 },
+      { id: 'day-1', label: 'Monday', day_of_week: 1, sort_order: 1 },
+      { id: 'day-2', label: 'Tuesday', day_of_week: 2, sort_order: 2 },
     ],
     time_blocks: [
-      { id: 'tb-1', name: 'First Period', start_time: '08:40:00', end_time: '09:30:00', sort_order: 1 },
-      { id: 'tb-2', name: 'Second Period', start_time: '09:40', end_time: '10:30', sort_order: 2 },
+      { id: 'tb-1', name: 'First Period', start_time: '08:40:00', end_time: '09:30:00', part_of_day: 'morning', sort_order: 1 },
+      { id: 'tb-2', name: 'Second Period', start_time: '09:40', end_time: '10:30', part_of_day: 'morning', sort_order: 2 },
     ],
     // M4: locations is an extra input, resolved into the activities sheet's
     // `location` column (via SHEET_LAYOUT) AND rendered as its own visible,
@@ -114,6 +114,20 @@ describe('exportWorkbook — sheets + columns', () => {
     const acts = sheetRows(wb, 'Activities')
     expect(acts[0].eligible_groups).toBe('Yeladim 1, Yeladim 2')
     expect(acts[1].eligible_groups).toBe('')
+  })
+
+  // SLICE B1: Days and Time Blocks now carry the columns their own screens require on
+  // re-import (day_of_week, part_of_day) — previously exportWorkbook wrote only the
+  // human-display columns, which left those two screens unable to re-import their own export.
+  it('Days carries day_of_week and Time Blocks carries part_of_day', () => {
+    const wb = exportWorkbook(fixture())
+    const days = sheetRows(wb, 'Days')
+    expect(String(days[0].day_of_week)).toBe('1')
+    expect(String(days[1].day_of_week)).toBe('2')
+
+    const blocks = sheetRows(wb, 'Time Blocks')
+    expect(blocks[0].part_of_day).toBe('morning')
+    expect(blocks[1].part_of_day).toBe('morning')
   })
 
   it('Status reflects inferred/confirmed from provenance', () => {

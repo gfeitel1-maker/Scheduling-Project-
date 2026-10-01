@@ -183,17 +183,13 @@ describe('module-level round trip (ADR §5, at the binder level)', () => {
   // a different, already-known non-goal (ADR §2.4), not this binder's job to work around.
   // exportWorkbook's sheets are plain [header, ...rows], which is what a true byte round trip
   // through readEntitySheet needs.
-  // exportWorkbook is an INCOMPLETE round-trip source for Days, and this test says so
-  // out loud rather than hiding it. exportWorkbook.js's Days sheet writes only `label`
-  // (src/utils/exportWorkbook.js:55) — never `day_of_week` — so no synonym can recover a
-  // column that is not in the file, and the binder correctly reports `day_of_week` as
-  // unmapped. Downstream (slice B) DaysScreen skips every row missing day_of_week, which is
-  // the verbatim defect this item exists to kill. That is exportWorkbook's incompleteness
-  // (src/utils, frozen by ADR §12), NOT a binder bug: closing §5 for Days needs the export
-  // completed or a label->day_of_week derivation on import — raised to the organizer, board
-  // note on q-export-columns-do-not-round-trip. An earlier draft of this test asserted only
-  // `roles.label` and omitted the `unmapped` check, which hid this gap (Red Hat, slice-A review).
-  it('days_of_operation: exportWorkbook OMITS day_of_week, so the binder reports it unmapped (honest gap, not a silent 0-row import)', () => {
+  // SLICE B1 (board q-export-columns-do-not-round-trip, organizer ruling 2026-10-01, option
+  // a — the app's own export IS the round-trip format): exportWorkbook's Days sheet now
+  // carries `day_of_week` (src/utils/exportWorkbook.js SHEET_LAYOUT) alongside `label`, so the
+  // gap slice A recorded as honest-but-open is now CLOSED — a full export binds every required
+  // field and `unmapped` is empty. See the ADR's 2026-10-01 amendment lifting §12's freeze for
+  // exportWorkbook.
+  it('days_of_operation: exportWorkbook now carries day_of_week — a full export binds every required field, unmapped is empty', () => {
     const wb = exportWorkbook({
       days_of_operation: [{ id: 'd1', label: 'Tuesday', day_of_week: 2, sort_order: 0 }],
       camp_id: 'camp1',
@@ -204,17 +200,17 @@ describe('module-level round trip (ADR §5, at the binder level)', () => {
     const catalog = ENTITY_FIELD_CATALOGS.days_of_operation
     const mapping = inferEntityMapping(header, catalog)
     expect(mapping.roles.label).not.toBeUndefined()
-    // The gap, asserted: day_of_week has no column in exportWorkbook's Days sheet to bind to.
-    expect(mapping.unmapped).toContain('day_of_week')
-    // What the export DID carry still maps correctly.
+    expect(mapping.roles.day_of_week).not.toBeUndefined()
+    expect(mapping.unmapped).toEqual([])
     const out = applyEntityMapping(rows, mapping, catalog)
     expect(out[0].label).toBe('Tuesday')
+    expect(String(out[0].day_of_week)).toBe('2')
   })
 
-  // The same incompleteness for Time Blocks: exportWorkbook writes name/start_time/end_time
-  // (exportWorkbook.js:58) but not part_of_day, which TimeBlocksScreen requires (a blank one
-  // warns and the row is skipped). Asserted, not hidden — same org-raised export gap.
-  it('time_blocks: exportWorkbook OMITS part_of_day, so the binder reports it unmapped', () => {
+  // Same closure for Time Blocks: exportWorkbook now writes `part_of_day`
+  // (src/utils/exportWorkbook.js SHEET_LAYOUT), which TimeBlocksScreen requires (a blank one
+  // warns and the row is skipped) — so a full export no longer imports zero rows.
+  it('time_blocks: exportWorkbook now carries part_of_day — a full export binds every required field, unmapped is empty', () => {
     const wb = exportWorkbook({
       time_blocks: [{ id: 'tb1', name: 'Period 1', start_time: '09:00', end_time: '10:00', part_of_day: 'morning' }],
       camp_id: 'camp1',
@@ -227,7 +223,10 @@ describe('module-level round trip (ADR §5, at the binder level)', () => {
     expect(mapping.roles.name).not.toBeUndefined()
     expect(mapping.roles.start_time).not.toBeUndefined()
     expect(mapping.roles.end_time).not.toBeUndefined()
-    expect(mapping.unmapped).toContain('part_of_day')
+    expect(mapping.roles.part_of_day).not.toBeUndefined()
+    expect(mapping.unmapped).toEqual([])
+    const out = applyEntityMapping(rows, mapping, catalog)
+    expect(out[0].part_of_day).toBe('morning')
   })
 
   it('groups: exportWorkbook -> bytes -> readEntitySheet -> inferEntityMapping -> applyEntityMapping carries the FK-resolved name by NATURAL KEY', () => {
