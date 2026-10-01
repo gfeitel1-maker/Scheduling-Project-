@@ -97,7 +97,7 @@ const SELF = path.basename(fileURLToPath(import.meta.url))
 // added the real column, so the exemption is retired — a fixture setting activity_id is no longer
 // fiction, and the guard below (every exemption/alias is still accurate) would fail loudly on a
 // stale exemption if this entry stayed.
-const ANCHOR_EXEMPT = {
+const FIXED_EVENT_EXEMPT = {
   _isSpanHead:
     'Engine-internal marker buildSchedule.js writes onto an expanded anchor. Never persisted.',
 }
@@ -112,19 +112,19 @@ const SLOT_KEY_TO_COLUMN = {
   dayId: 'day_id',
   blockId: 'time_block_id',
   activityId: 'activity_id',
-  anchorId: 'anchor_id',
+  anchorId: 'fixed_event_id',
   electiveSetId: 'elective_set_id',
   eventId: 'event_id',
   templateId: 'template_id',
   isReleased: 'is_released',
-  isAnchor: 'is_anchor',
+  isAnchor: 'is_fixed_event',
   isSpanHead: 'is_span_head',
 }
 
 const SLOT_EXEMPT = {
   type:
     'Engine-derived discriminator on the in-memory slot ("activity" | "anchor" | "elective" | ' +
-    '"event" | "open"). Not persisted — the DB reconstructs it from is_anchor / elective_set_id / event_id.',
+    '"event" | "open"). Not persisted — the DB reconstructs it from is_fixed_event / elective_set_id / event_id.',
   cohort_id:
     'Cohort provenance carried on the in-memory slot so a multi-cohort run can be reassembled. ' +
     'template_slots is per-template and has no cohort column.',
@@ -145,7 +145,7 @@ const CANARY_ANCHOR_KEYS = [
   'span_blocks',
   'group_ids',
   'is_all_groups',
-  'unit_ids', // only reachable via the call-argument pattern (anchorScope.test.js)
+  'unit_ids', // only reachable via the call-argument pattern (fixedEventScope.test.js)
   'name',
 ]
 const CANARY_SLOT_KEYS = ['groupId', 'dayId', 'blockId', 'electiveSetId', 'eventId']
@@ -466,7 +466,7 @@ function collectFixtures() {
 
   for (const file of fs.readdirSync(ENGINE_DIR).sort()) {
     if (!file.endsWith('.test.js')) continue
-    // Never scan this guard itself. Its own ANCHOR_EXEMPT / SLOT_KEY_TO_COLUMN
+    // Never scan this guard itself. Its own FIXED_EVENT_EXEMPT / SLOT_KEY_TO_COLUMN
     // tables are objects whose names match the anchor/slot patterns, so a
     // self-scan would feed the guard its own exemption list as evidence.
     if (file === SELF) continue
@@ -498,7 +498,7 @@ function anchorOffenders(fixtures, columns) {
   const out = []
   for (const f of fixtures) {
     for (const key of f.keys) {
-      if (columns.has(key) || key in ANCHOR_EXEMPT) continue
+      if (columns.has(key) || key in FIXED_EVENT_EXEMPT) continue
       out.push(`${f.file}:${f.line} carries "${key}", which fixed_events does not have`)
     }
   }
@@ -570,9 +570,9 @@ describe('engine fixtures stay in parity with the real schema (T187)', () => {
 
     it('derived the anchor-consuming function list from engine source, non-empty', () => {
       // If this empties out, the call-argument pattern silently stops finding
-      // anything and anchorScope.test.js's fixtures go unchecked.
+      // anything and fixedEventScope.test.js's fixtures go unchecked.
       expect(scan.consumers.length).toBeGreaterThanOrEqual(3)
-      expect(scan.consumers).toContain('resolveAnchorGroupIds')
+      expect(scan.consumers).toContain('resolveFixedEventGroupIds')
     })
 
     it('every live extraction pattern is still finding a real fixture', () => {
@@ -675,7 +675,7 @@ describe('engine fixtures stay in parity with the real schema (T187)', () => {
     })
 
     it('catches a phantom key at a bare call-argument site', () => {
-      const s = scanSynthetic(`resolveAnchorGroupIds({ unit_ids: ['t1'], bogus_col: 1 }, groups)`)
+      const s = scanSynthetic(`resolveFixedEventGroupIds({ unit_ids: ['t1'], bogus_col: 1 }, groups)`)
       expect(anchorOffenders(s.anchors, columns.fixed_events).join(' ')).toContain('bogus_col')
     })
 
@@ -769,7 +769,7 @@ describe('engine fixtures stay in parity with the real schema (T187)', () => {
     })
 
     it('every exemption and alias is still accurate — a stale one is a lie about the schema', () => {
-      for (const key of Object.keys(ANCHOR_EXEMPT)) {
+      for (const key of Object.keys(FIXED_EVENT_EXEMPT)) {
         expect(columns.fixed_events.has(key), `anchor exemption "${key}" is now a real column`).toBe(false)
       }
       for (const key of Object.keys(SLOT_EXEMPT)) {

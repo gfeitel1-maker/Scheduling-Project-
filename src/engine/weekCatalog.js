@@ -1,5 +1,5 @@
-import { resolveAnchorActivityIds } from './anchorActivityLink.js'
-import { resolveAnchorGroupIds } from './anchorScope.js'
+import { resolveFixedEventActivityIds } from './fixedEventActivityLink.js'
+import { resolveFixedEventGroupIds } from './fixedEventScope.js'
 
 // Pure pre-pass that resolves the camp-wide catalog against a single week's
 // exclusion rows before handing the filtered sets to buildSchedule.
@@ -53,10 +53,10 @@ export function resolveWeekCatalog({
   const suppressedAnchors = []
 
   // An anchor links to its activity via `fixed_events.activity_id` — see
-  // anchorActivityLink.js. T267 PR2 cuts this over from the earlier
+  // fixedEventActivityLink.js. T267 PR2 cuts this over from the earlier
   // name-matching fallback to a direct id lookup.
   for (const anchor of anchors) {
-    const anchorActivityIds = resolveAnchorActivityIds(anchor)
+    const anchorActivityIds = resolveFixedEventActivityIds(anchor)
     if (anchorActivityIds.some((id) => excludedActivityIds.has(id))) {
       suppressedAnchors.push({ anchor, reason: 'activity-excluded' })
       continue
@@ -73,7 +73,7 @@ export function resolveWeekCatalog({
       // T180: resolve through the SHARED scope resolver, not group_ids
       // directly — a division-scoped (unit_ids) event carries an empty
       // group_ids, and reading that raw made it impossible to suppress.
-      const anchorGroupIds = resolveAnchorGroupIds(anchor, groups)
+      const anchorGroupIds = resolveFixedEventGroupIds(anchor, groups)
 
       if (
         anchorGroupIds.length > 0 &&
