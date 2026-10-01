@@ -17,7 +17,7 @@ import { execSync } from 'node:child_process'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { asList } from './frontmatter.js'
-import { readDocs, generate, INDEX_PATH, REFERENCE_FIELDS } from './build-work-index.js'
+import { readDocs, REFERENCE_FIELDS } from './build-work-index.js'
 import { checkDocFacts } from './doc-facts.js'
 import { checkNoLiteralNul } from './noLiteralNul.js'
 
@@ -109,12 +109,6 @@ const finding = (code, message) => ({ code, message })
 // argument on `finding()` invites each new rule's author to pick their own, and the
 // blocking default is the property worth protecting. Adding a code here is a visible,
 // reviewable act.
-//
-// `index-stale` is NOT here and stays blocking: `npm run index:work` regenerates it
-// in seconds, so blocking costs nothing and keeps a generated file honest. This rule
-// is different in kind — it asks for PROSE describing a structural change, which no
-// script can produce on demand, and which is exactly why it stranded three sessions
-// on 2026-09-26 behind a red none of them had caused.
 export const ADVISORY_CODES = new Set(['platform-state-stale'])
 
 /**
@@ -242,16 +236,6 @@ function checkRun(d, at) {
   }
 
   return out
-}
-
-export function checkIndexFreshness(committed, generated) {
-  if (committed === null || committed === undefined) {
-    return [finding('index-missing', `${INDEX_PATH} does not exist — run \`npm run index:work\``)]
-  }
-  if (committed !== generated) {
-    return [finding('index-stale', `${INDEX_PATH} is stale — run \`npm run index:work\``)]
-  }
-  return []
 }
 
 /**
@@ -1037,10 +1021,6 @@ export function checkAll(root, execFn = (cmd) => execSync(cmd, { encoding: 'utf8
   const exists = (p) => existsSync(join(root, p))
   const docs = readDocs(root)
   const findings = docs.flatMap((doc) => checkDoc(doc, exists))
-
-  const path = join(root, INDEX_PATH)
-  const committed = existsSync(path) ? readFileSync(path, 'utf8') : null
-  findings.push(...checkIndexFreshness(committed, generate(root)))
 
   findings.push(...checkPlatformStateFreshness(root, execFn))
 

@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { buildGraph, renderIndex, GENERATED_HEADER } from './build-work-index.js'
+import { readFileSync } from 'node:fs'
+import { join, dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { buildGraph, renderIndex, GENERATED_HEADER, SOURCE_DIRS } from './build-work-index.js'
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 // Fixtures are hand-written rather than read from docs/, so these tests keep
 // passing while the real documents change. A test that reads the live corpus
@@ -153,5 +158,33 @@ describe('renderIndex', () => {
     // An empty section must read as "checked, none found" — not as a section
     // that was skipped. Silence and zero are different claims.
     expect(render([TICKET, ADR])).toMatch(/None\./)
+  })
+})
+
+// docs/work/INDEX.md stopped being committed (see
+// docs/adr/2026-10-01-work-index-is-generated-not-committed.md) — docs/work/README.md is the
+// committed entry point a reader lands on instead. It must name every directory this builder
+// actually reads from, or it silently drifts from the generator's real inputs.
+describe('docs/work/README.md names every SOURCE_DIRS entry', () => {
+  // A one-directional "mentions" check only catches an addition to SOURCE_DIRS that the
+  // README forgot to list — it stays green when a directory is REMOVED from SOURCE_DIRS while
+  // the README goes on claiming it's still a board input (proven: dropping
+  // 'docs/work/handoffs' from SOURCE_DIRS left this guard green). The fenced block in the
+  // README is parsed and compared by set equality instead, so drift in either direction fails,
+  // each side's extra/missing entries named separately.
+  function readmeSourceDirs() {
+    const readme = readFileSync(join(ROOT, 'docs', 'work', 'README.md'), 'utf8')
+    const start = readme.indexOf('<!-- source-dirs -->')
+    const end = readme.indexOf('<!-- /source-dirs -->')
+    if (start === -1 || end === -1) throw new Error('docs/work/README.md is missing the <!-- source-dirs --> fence')
+    const block = readme.slice(start, end)
+    return [...block.matchAll(/`(docs\/[a-z0-9/-]+)`/g)].map((m) => m[1])
+  }
+
+  it('matches SOURCE_DIRS exactly — no directory missing, none extra', () => {
+    const readmeDirs = readmeSourceDirs()
+    const missing = SOURCE_DIRS.filter((dir) => !readmeDirs.includes(dir))
+    const extra = readmeDirs.filter((dir) => !SOURCE_DIRS.includes(dir))
+    expect({ missing, extra }).toEqual({ missing: [], extra: [] })
   })
 })

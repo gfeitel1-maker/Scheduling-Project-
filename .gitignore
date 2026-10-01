@@ -50,6 +50,10 @@ electron/build-info.json
 # graphify knowledge-graph artifact (regenerated locally; never committed)
 graphify-out/
 
+# Generated board, regenerated on demand with `npm run index:work`; never committed — see
+# docs/adr/2026-10-01-work-index-is-generated-not-committed.md
+docs/work/INDEX.md
+
 # Agent scratch dumps at the repo root — never project assets.
 # Real sample data belongs in docs/work/specs/samples/.
 scratchpad_*

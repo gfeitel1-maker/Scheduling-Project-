@@ -42,9 +42,9 @@ Nothing else by default. Everything below is loaded because a task class calls f
 | **Scheduling engine** | [`standards/ARCHITECTURE_STANDARD.md`](standards/ARCHITECTURE_STANDARD.md) §8 · `CONSTITUTION.md` Art. V | `PLATFORM_STATE.md` §engine | **`buildSchedule.test.js` (mandatory)** · test · lint · build | flag taxonomy or placement priority |
 | **Database / sync** | relevant ADRs · `2026-07-24-bulk-replace-seq-fix`, `2026-07-28-first-pairing-domain-sync-and-template-identity` | `PLATFORM_STATE.md` §schema | **integration (mandatory)** · fresh-vs-migrated schema equivalence · test · lint · build | **ADR + migration/rollback plan** |
 | **Copy / terminology** | `CONSTITUTION.md` Art. V | — | lint | terminology is product judgement |
-| **Documentation / governance** | this index · `CONSTITUTION.md` · [`standards/WORK_RECORD_STANDARD.md`](standards/WORK_RECORD_STANDARD.md) | `../work/INDEX.md` | link + reference check · `check:governance` | **any change to a constitution or standard** |
+| **Documentation / governance** | this index · `CONSTITUTION.md` · [`standards/WORK_RECORD_STANDARD.md`](standards/WORK_RECORD_STANDARD.md) | [`../work/README.md`](../work/README.md) | link + reference check · `check:governance` | **any change to a constitution or standard** |
 | **Concurrency** | [`standards/ARCHITECTURE_STANDARD.md`](standards/ARCHITECTURE_STANDARD.md) · relevant sync/op-log ADRs | `PLATFORM_STATE.md` §sync | **integration (mandatory)** · test · lint · build | **any change to write-ordering or op-log replay semantics** |
-| **Test infrastructure** | [`standards/TESTING_STANDARD.md`](standards/TESTING_STANDARD.md) | `../work/INDEX.md` | test · lint · build | changing a shared harness, setup file, or gate budget |
+| **Test infrastructure** | [`standards/TESTING_STANDARD.md`](standards/TESTING_STANDARD.md) | [`../work/README.md`](../work/README.md) | test · lint · build | changing a shared harness, setup file, or gate budget |
 | **Working copies / cleanup** | [`standards/WORKING_COPY_STANDARD.md`](standards/WORKING_COPY_STANDARD.md) | the 06:30 integration report | `zsh -n scripts/integration.sh` · `check:governance` | **any deletion of a branch or worktree** |
 
 **[`standards/WORK_RECORD_STANDARD.md`](standards/WORK_RECORD_STANDARD.md) applies to every row

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  checkDoc, checkIndexFreshness, checkPlatformStateFreshness, PLATFORM_STATE_PATH, AGENTS,
+  checkDoc, checkPlatformStateFreshness, PLATFORM_STATE_PATH, AGENTS,
   parseCompletionRefs, resolveIds, isClosed, checkStatusDrift, checkAll,
   checkClosureClaimWithoutId, checkNoLiteralNul,
 } from './check-governance.js'
@@ -581,19 +581,5 @@ describe('checkNoLiteralNul', () => {
   it('stays silent on coverage when the scanned globs are a healthy share of the tree', () => {
     const findings = checkNoLiteralNul('/fake/root', { execFn: makeExecFn({}), readFn: cleanRead })
     expect(findings.map((f) => f.code)).not.toContain('literal-nul-coverage-floor')
-  })
-})
-
-describe('checkIndexFreshness', () => {
-  it('reports nothing when the committed index matches what would be generated', () => {
-    expect(checkIndexFreshness('same bytes', 'same bytes')).toEqual([])
-  })
-
-  it('reports a stale index, so a forgotten regeneration surfaces as a finding', () => {
-    expect(checkIndexFreshness('old', 'new').map((f) => f.code)).toEqual(['index-stale'])
-  })
-
-  it('reports a missing index rather than treating absence as fresh', () => {
-    expect(checkIndexFreshness(null, 'new').map((f) => f.code)).toEqual(['index-missing'])
   })
 })
