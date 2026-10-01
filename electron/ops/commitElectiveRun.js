@@ -766,13 +766,26 @@ export function commitElectiveRun(db, {
         // tier cannot resolve. The acceptance fixture's own "Younger"-division
         // camper hit exactly this and a hard throw failed the whole commit —
         // turning an ordinary roster gap into a director-facing outage. So
-        // this mirrors the PREFERENCE loop's posture instead: skip the
-        // choice_id (null, exactly the pre-fix value for this one case,
-        // never for the now-correctly-resolved majority), keep the placement
-        // (it is real — the camper WAS put there), and say so via the same
-        // BUNDLE_TIER_NOT_COVERED finding the preference loop already emits,
-        // deduped so a camper hitting this on both a preference and an
-        // assignment for the same label is told once.
+        // this mirrors the PREFERENCE loop's posture instead: keep the
+        // placement (it is real — the camper WAS put there), and say so via
+        // the same BUNDLE_TIER_NOT_COVERED finding the preference loop
+        // already emits, deduped so a camper hitting this on both a
+        // preference and an assignment for the same label is told once.
+        //
+        // BOARD ITEM 9b round 2 — `choice_id` now binds to `resolved.choiceId`
+        // UNCONDITIONALLY, the same value the preference loop above wrote for
+        // this camper+label, rather than being nulled out on a mismatch. That
+        // id IS the on-demand flat choice `resolveWriteChoiceId` mints for a
+        // bundle-claimed label a camper's tier doesn't reach (see
+        // `labelsNeedingFlatChoice` above) — binding to it, not discarding it,
+        // is what lets the assignment↔preference join (buildPreferenceLookup,
+        // src/screens/elective/run/camperElectiveWeek.js) find the camper's
+        // own rank instead of rendering the unordered bucket for a rank-1
+        // request. `resolved.choiceId` is still genuinely null for an
+        // assignment-only mismatch (a solver fallback placement for a camper
+        // who never ranked this label at all): `labelsNeedingFlatChoice` is
+        // computed from preferences only, so no flat choice was ever minted
+        // to bind to, and null is the correct, not a leftover, answer there.
         const resolved = resolveWriteChoiceId(a.labelKey, a.camper_id)
         if (resolved.mismatch) noteMismatch(a.camper_id, a.labelKey, a.labelKey)
         write('elective_assignments', assignmentId, {
@@ -780,7 +793,7 @@ export function commitElectiveRun(db, {
           occurrence_id: a.occurrence_id,
           camper_id: a.camper_id,
           activity_id: a.activity_id,
-          choice_id: resolved.mismatch ? null : resolved.choiceId,
+          choice_id: resolved.choiceId,
           preference_rank: a.preference_rank ?? null,
           source: 'solver',
           solver_generation: solverGeneration,

@@ -17,6 +17,7 @@ import {
 } from './electiveDerivedIds.js'
 import { buildElectiveAssignments } from '../../src/engine/buildElectiveAssignments.js'
 import { deriveChoices } from '../../src/screens/elective/assignment/deriveChoices.js'
+import { buildPreferenceLookup, rankLabel, UNORDERED_RANK_LABEL } from '../../src/screens/elective/run/camperElectiveWeek.js'
 
 const dirs = []
 function freshDb() {
@@ -193,6 +194,89 @@ describe("a camper the bundle's scope genuinely does not cover", () => {
       }],
     })
     expect(out.ok).toBe(true)
+    expect(out.findings.filter((f) => f.kind === 'BUNDLE_TIER_NOT_COVERED')).toHaveLength(1)
+    db.close()
+  })
+
+  it("binds the ASSIGNMENT to the SAME flat choice the preference got — the join is not broken", () => {
+    // Board item 9b's asymmetry: the preference loop already wrote the flat
+    // choice minted on demand; the assignment loop used to null it out
+    // instead, so an assignment-and-preference join for the same camper+label
+    // missed and the run view rendered the unordered bucket for a rank-1
+    // request. Both rows must point at the SAME minted choice.
+    const { db, campId } = freshDb()
+    seedTwoTierCamp(db, campId, { scopeMode: 'only', bundleTiers: ['tier-jr'] })
+    const runId = randomUUID()
+    const occurrences = twoTierOccurrences(runId)
+    const srOccurrence = occurrences.find((o) => o.tier_id === 'tier-sr' && o.time_block_id === 'tb-1')
+    const out = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1', runId, occurrences,
+      parsed: {
+        campers: [{ id: 'cam-sr', display_name: 'Noa Katz', external_id: null, group_id: null, division_label: 'Seniors' }],
+        choices: [{ label: 'Archery', labelKey: ARCHERY_KEY }],
+        preferences: [{
+          camper_id: 'cam-sr', occurrence_id: srOccurrence.id, label: 'Archery', labelKey: ARCHERY_KEY,
+          rank: 1, rank_kind: 'cell-choice',
+        }],
+        sameNameCampers: [],
+        skippedRows: [],
+      },
+      assignments: [{
+        camper_id: 'cam-sr', occurrence_id: srOccurrence.id, labelKey: ARCHERY_KEY,
+        activity_id: 'act-archery', preference_rank: 1, flags: [],
+      }],
+    })
+    expect(out.ok).toBe(true)
+
+    const pref = db.prepare('SELECT * FROM elective_preferences WHERE run_id = ? AND camper_id = ?').get(runId, 'cam-sr')
+    const assignment = db.prepare('SELECT * FROM elective_assignments WHERE run_id = ? AND camper_id = ?').get(runId, 'cam-sr')
+    expect(pref.choice_id).not.toBeNull()
+    expect(assignment.choice_id).toBe(pref.choice_id)
+
+    // The run view derives its rank label from this exact join
+    // (buildPreferenceLookup/rankLabel in camperElectiveWeek.js). Prove the
+    // join actually resolves to a numbered choice, not the unordered bucket,
+    // which is the user-visible symptom this fix repairs.
+    const lookup = buildPreferenceLookup({
+      preferences: [pref],
+      occurrences,
+      days: [{ id: 'day-1', label: 'Monday' }],
+      timeBlocks: [{ id: 'tb-1', name: 'Period 1' }],
+    })
+    const bound = lookup(assignment)
+    expect(bound).toBeTruthy()
+    expect(rankLabel(assignment.preference_rank, bound.rankKind)).toBe('First choice')
+    expect(rankLabel(assignment.preference_rank, bound.rankKind)).not.toBe(UNORDERED_RANK_LABEL)
+    db.close()
+  })
+
+  it('an assignment-only mismatch (the camper never ranked this label) stays null — no flat choice exists to bind to', () => {
+    // `labelsNeedingFlatChoice` is computed from PREFERENCES only. A solver
+    // fallback placement for a camper who never ranked this label at all
+    // means no flat choice was ever minted, so `resolved.choiceId` is
+    // genuinely null here — that is correct, not a leftover of the old bug.
+    const { db, campId } = freshDb()
+    seedTwoTierCamp(db, campId, { scopeMode: 'only', bundleTiers: ['tier-jr'] })
+    const runId = randomUUID()
+    const occurrences = twoTierOccurrences(runId)
+    const srOccurrence = occurrences.find((o) => o.tier_id === 'tier-sr' && o.time_block_id === 'tb-1')
+    const out = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1', runId, occurrences,
+      parsed: {
+        campers: [{ id: 'cam-sr', display_name: 'Noa Katz', external_id: null, group_id: null, division_label: 'Seniors' }],
+        choices: [{ label: 'Archery', labelKey: ARCHERY_KEY }],
+        preferences: [],
+        sameNameCampers: [],
+        skippedRows: [],
+      },
+      assignments: [{
+        camper_id: 'cam-sr', occurrence_id: srOccurrence.id, labelKey: ARCHERY_KEY,
+        activity_id: 'act-archery', preference_rank: null, flags: [],
+      }],
+    })
+    expect(out.ok).toBe(true)
+    const assignment = db.prepare('SELECT * FROM elective_assignments WHERE run_id = ? AND camper_id = ?').get(runId, 'cam-sr')
+    expect(assignment.choice_id).toBeNull()
     expect(out.findings.filter((f) => f.kind === 'BUNDLE_TIER_NOT_COVERED')).toHaveLength(1)
     db.close()
   })
