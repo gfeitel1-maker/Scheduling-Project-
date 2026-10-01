@@ -24,6 +24,7 @@ export const app = {
   quit: noop,
   isReady: () => true,
   setName: noop,
+  setAboutPanelOptions: noop,
   setPath: noop,
   getName: () => 'shoresh-dev',
   getVersion: () => '0.0.0-fixture',

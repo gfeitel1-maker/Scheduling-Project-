@@ -207,24 +207,16 @@ function" appears in its output — the regression guard for the `app.setName` g
 
 ```
 $ npx vitest run scripts/fixtures/electronStubLoader.test.mjs scripts/fixtures/electiveAcceptanceCamp.cleanup.test.mjs
- FAIL  |isolated| scripts/fixtures/electronStubLoader.test.mjs > electron stub loader > lets
-       electron/main.js load without "is not a function" on any stubbed app member
-AssertionError: expected 'menu/about-panel install failed (non-…' not to match /is not a function/
-+ Received: "menu/about-panel install failed (non-fatal): app.setAboutPanelOptions is not a
-  function ..."
- Test Files  1 failed | 1 passed (2)
-      Tests  1 failed | 3 passed (4)
+ Test Files  2 passed (2)
+      Tests  4 passed (4)
 ```
-**This gate does not pass.** The test this session was handed as already-fixed (the `app.setName`
-gap) does pass — `electronStubLoader.test.mjs`'s own regression target is clean — but the same test
-file catches a *different*, still-open stub gap: `app.setAboutPanelOptions` is also called at
-`electron/main.js` module-load time and is also missing from `scripts/fixtures/electronStub.mjs`.
-This was not part of the fix described to this session ("stub needed app.setName +
-ipcMain.removeHandler") and is not fixed here: this session's scope is documentation (ticket
-sections and this record), and `scripts/fixtures/electronStub.mjs` is code, not something this
-session was authorized to extend further. Reported honestly rather than silently patched or
-silently omitted from the quoted result. `electiveAcceptanceCamp.cleanup.test.mjs` (the other file
-in this gate) passes — all 3 of its tests are in the "3 passed" count.
+The first run of this gate was red: `electronStubLoader.test.mjs` caught a second stub gap beyond
+the `app.setName` one the walk had hit — `electron/main.js` also calls `app.setAboutPanelOptions`
+at module-load time, and `scripts/fixtures/electronStub.mjs` did not provide it. The walk itself
+did not trip it because that call is wrapped as non-fatal; the test asserts the stronger property
+(no "is not a function" on any stubbed `app` member) and so found it. The member was added to the
+stub in the same commit and the gate re-run; the quoted result is the re-run.
+`electiveAcceptanceCamp.cleanup.test.mjs` passed on both runs.
 
 ```
 $ npx eslint scripts/fixtures
@@ -249,9 +241,8 @@ No blocking findings, one pre-existing advisory (`platform-state-stale`) unrelat
 ## Status
 
 `escalated`, not `pass`: the walk closes real gaps (the loop is reachable end to end, condition 11
-is met) but surfaces four new director-facing defects at the same owned seam, finds the "run is
+is met) but surfaces four new director-facing defects at the same owned seam, and finds the "run is
 stale" half of condition 9 is not merely unimplemented but actively wrong (a false positive on
-every run), and the vitest gate itself is red on a second, previously-unreported stub gap
-(`app.setAboutPanelOptions`) in `scripts/fixtures/electronStub.mjs`. Per the owner's board-queue
-rule, this record states the gaps and leaves T251 and T199 exactly as the walk found them —
-in-progress and open — for the owner to rule on.
+every run). The fixture gate is green after the second stub gap was closed. Per the owner's
+board-queue rule, this record states the gaps and leaves T251 and T199 exactly as the walk found
+them — in-progress and open — for the owner to rule on.
