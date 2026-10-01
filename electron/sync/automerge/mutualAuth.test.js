@@ -24,7 +24,27 @@ describe('wireMutualAuth', () => {
     expect(handle.dial).toHaveBeenCalledWith('peer-b', { signal: expect.any(AbortSignal) })
     expect(handle.authenticateWith).toHaveBeenCalledWith(
       'peer-b',
-      { type: 'authenticate', token: 'tok-1', device_id: 'device-a', schemaVersion: CURRENT_SCHEMA_VERSION },
+      { type: 'authenticate', token: 'tok-1', device_id: 'device-a', schemaVersion: CURRENT_SCHEMA_VERSION, appliedTombstones: [] },
+      { signal: expect.any(AbortSignal) }
+    )
+  })
+
+  // T322 S3a: appliedTombstones defaults to [] when the caller doesn't inject
+  // getAppliedTombstones (production's own default; syncNode.js is the one real
+  // caller that supplies a real one, reading peer_tombstone_reports' sibling
+  // table `tombstones`). Read fresh per attempt, same discipline as
+  // getSchemaVersion — a function, not a value captured once at wire time.
+  it('includes this device\'s self-reported applied tombstones in the authenticate frame', async () => {
+    const handle = fakeHandle()
+    const getAppliedTombstones = vi.fn(() => [{ id: 'camper-x', version: 1 }])
+    wireMutualAuth(handle, { deviceId: 'device-a', getToken: () => 'tok-1', isPeerTrusted: () => true, getAppliedTombstones })
+
+    handle.fireDiscovery('peer-b')
+    await new Promise((r) => setTimeout(r, 10))
+
+    expect(handle.authenticateWith).toHaveBeenCalledWith(
+      'peer-b',
+      { type: 'authenticate', token: 'tok-1', device_id: 'device-a', schemaVersion: CURRENT_SCHEMA_VERSION, appliedTombstones: [{ id: 'camper-x', version: 1 }] },
       { signal: expect.any(AbortSignal) }
     )
   })
@@ -164,7 +184,7 @@ describe('wireMutualAuth — local trust filter (T208)', () => {
 
     expect(handle.authenticateWith).toHaveBeenCalledWith(
       'peer-trusted',
-      { type: 'authenticate', token: 'tok-1', device_id: 'device-a', schemaVersion: CURRENT_SCHEMA_VERSION },
+      { type: 'authenticate', token: 'tok-1', device_id: 'device-a', schemaVersion: CURRENT_SCHEMA_VERSION, appliedTombstones: [] },
       { signal: expect.any(AbortSignal) }
     )
   })
@@ -364,7 +384,7 @@ describe('wireMutualAuth — negative cache for untrusted peers (T208 round 2)',
     await new Promise((r) => setTimeout(r, 5))
     expect(handle.authenticateWith).toHaveBeenCalledWith(
       'peer-b',
-      { type: 'authenticate', token: 'tok-1', device_id: 'device-a', schemaVersion: CURRENT_SCHEMA_VERSION },
+      { type: 'authenticate', token: 'tok-1', device_id: 'device-a', schemaVersion: CURRENT_SCHEMA_VERSION, appliedTombstones: [] },
       { signal: expect.any(AbortSignal) }
     )
   })

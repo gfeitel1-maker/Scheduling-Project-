@@ -470,7 +470,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     // (bindOrVerifyPeerIdentity) — recordLibp2pPeerId's unconditional
     // overwrite is no longer called here, since it would let a reinstalled/
     // impostor device bypass the mismatch check.
-    const result = evaluateAuthenticate(db, { token: msg.token, device_id: msg.device_id, peerId: fromPeerId })
+    const result = evaluateAuthenticate(db, { token: msg.token, device_id: msg.device_id, peerId: fromPeerId, appliedTombstones: msg.appliedTombstones })
     if (result.ok) {
       // T271 round 3 (docs/adr/2026-09-26-schema-version-gate-before-merge.md, Decision 2): record
       // this peer's OWN reported schema version — the authoritative signal for isPeerSyncCompatible
@@ -680,9 +680,14 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
   // unit-testable with an injected emitter. Default (unset) keeps addresses classified, never
   // literal, in shipped behavior; an operator running the WAN test matrix by hand opts in.
   const emitter = createConnectivityEmitter({ verboseAddrs: process.env.SHORESH_CONNECTIVITY_LOG_ADDRS === '1' })
+  // T322 S3a: this device's own self-report, read fresh on every dial/authenticate attempt
+  // (mutualAuth.js's own discipline for getSchemaVersion) — `tombstones` is this device's set of
+  // verified-and-projected purge tombstones, exactly the fact a peer's onAuthenticate persists
+  // into ITS OWN peer_tombstone_reports about THIS device.
+  const getAppliedTombstones = () => db.prepare('SELECT id, version FROM tombstones').all()
   wireMutualAuth(
     { dial: transport.dial, authenticateWith: transport.authenticateWith, onPeerDiscovery: transport.onPeerDiscovery },
-    { deviceId, getToken: () => authToken, onRejected: onAuthRejected, isPeerTrusted: isPeerTrusted ?? createBoundPeerTrust(db), emitter, getSchemaVersion: getHandshakeSchemaVersion }
+    { deviceId, getToken: () => authToken, onRejected: onAuthRejected, isPeerTrusted: isPeerTrusted ?? createBoundPeerTrust(db), emitter, getSchemaVersion: getHandshakeSchemaVersion, getAppliedTombstones }
   )
 
   return {
