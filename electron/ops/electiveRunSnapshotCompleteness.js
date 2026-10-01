@@ -79,21 +79,82 @@ function digestOf(rows) {
 
 // Called by finalizeElectiveRun.js with the SAME `snapshots` array it already
 // builds, BEFORE writing — this is the single source of truth for "what the
-// export should contain."
+// export should contain." LEGACY whole-set digest: a run finalized before
+// erasure-aware comparison existed stores this shape (a bare 64-hex-char
+// sha256), and computeSnapshotCompleteness keeps comparing it the OLD way
+// forever (see LEGACY_DIGEST_RE below) — no re-finalize path exists to
+// upgrade an old run's stored digest, so this function and its format must
+// stay exactly as they are.
 export function computeExpectedSnapshotDigest(rows) {
   return digestOf(rows)
 }
 
-// Called by getElectiveRun.js / getElectiveRunOuterSchedule.js with the
-// CURRENTLY-HELD rows for this run.
-export function computeHeldSnapshotDigest(db, runId) {
-  const rows = db.prepare(
+function selectHeldRows(db, runId) {
+  return db.prepare(
     `SELECT id, camper_id, day_id, time_block_id, activity_id, activity_name,
             location_id, location_name, span_blocks, cell_kind, choice_id,
             is_linked_choice, choice_label
        FROM elective_run_outer_snapshots WHERE run_id = ? ORDER BY id`
   ).all(runId)
-  return digestOf(rows)
+}
+
+// Called by getElectiveRun.js / getElectiveRunOuterSchedule.js with the
+// CURRENTLY-HELD rows for this run. Only used for the LEGACY whole-set
+// comparison now (see computeSnapshotCompleteness) — the erasure-aware path
+// below digests one camper's rows at a time instead.
+export function computeHeldSnapshotDigest(db, runId) {
+  return digestOf(selectHeldRows(db, runId))
+}
+
+// T320 board follow-up (erasure-aware completeness) — `snapshot_digest` for a NEWLY finalized run
+// is now a per-camper map: { [camperId]: { rows: <count>, digest: <sha256 over just that camper's
+// rows> } }, JSON-serialized. This lets the read side exclude a since-erased camper from the
+// comparison by dropping their entry, rather than comparing against one whole-set hash that an
+// erasure can never match again. Built from the SAME in-memory `rows` finalizeElectiveRun.js
+// already derived — never a second read of elective_run_outer_snapshots.
+export function computeExpectedSnapshotDigestByCamper(rows) {
+  const byCamper = new Map()
+  for (const r of rows) {
+    if (!byCamper.has(r.camper_id)) byCamper.set(r.camper_id, [])
+    byCamper.get(r.camper_id).push(r)
+  }
+  const map = {}
+  for (const [camperId, camperRows] of byCamper) {
+    map[camperId] = { rows: camperRows.length, digest: digestOf(camperRows) }
+  }
+  return JSON.stringify(map)
+}
+
+// A legacy stored digest is exactly digestOf's own output shape: lowercase hex, sha256 length.
+// Anything else is either the new per-camper JSON map or corrupt — never ambiguous with this.
+const LEGACY_DIGEST_RE = /^[0-9a-f]{64}$/
+
+// Parses `snapshot_digest` as a per-camper map and returns it, or null if the string is not valid
+// JSON, is not a plain object, or any entry is missing a numeric `rows`/string `digest`. A null
+// return is read by computeSnapshotCompleteness as CORRUPT, never as complete and never silently
+// as legacy — an owner requirement, since silently treating a corrupt value as "nothing to compare
+// against" would let a broken digest field mask real incompleteness.
+function parsePerCamperDigestMap(raw) {
+  let parsed
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+  for (const entry of Object.values(parsed)) {
+    if (entry === null || typeof entry !== 'object') return null
+    if (typeof entry.rows !== 'number' || typeof entry.digest !== 'string') return null
+  }
+  return parsed
+}
+
+// The tombstoned camper ids this device has VERIFIED and projected (electron/automerge/
+// projector.js's upsertTombstonesEntity already refused anything unsigned/stale before a row
+// lands here) — the same fleet-wide fact projector.js's TOMBSTONE_DENYLISTED_ENTITIES gate reads
+// to delete a purged camper's rows, reused here so both sides of "is this camper gone" agree.
+function tombstonedCamperIds(db) {
+  return new Set(db.prepare("SELECT id FROM tombstones WHERE entity = 'campers'").all().map((r) => r.id))
 }
 
 // Shared by every reader (getElectiveRun.js, getElectiveRunOuterSchedule.js,
@@ -104,17 +165,84 @@ export function computeSnapshotCompleteness(db, run) {
     return { expectedSnapshotRows: null, heldSnapshotRows: null, snapshotIncomplete: false }
   }
   const expected = run.snapshot_expected_rows
-  // A legacy/pre-v83 final run (or a final run whose snapshot predates this
-  // column existing) has nothing to compare against — same "no snapshot
-  // generation" posture computeFinalizedAgainstStaleGeneration already takes
-  // for its own no-snapshot-rows case. Not incomplete; simply unknown.
+  const digestField = run.snapshot_digest
+
+  // elective_assignment_runs fields arrive ONE PER FIELD over Automerge in no guaranteed order
+  // (same fact the module banner at the top of this file documents for stub-seeded snapshot rows),
+  // so `snapshot_expected_rows` and `snapshot_digest` are two INDEPENDENT fields on the run itself
+  // and can land on this device in either order. `expected == null` is therefore NOT one case —
+  // it is two genuinely different situations that must not share a branch:
+  //   - BOTH absent: a legacy/pre-v83 final run (or one whose snapshot predates this column
+  //     existing) has nothing stored to compare against at all — same "no snapshot generation"
+  //     posture computeFinalizedAgainstStaleGeneration already takes for its own no-snapshot-rows
+  //     case. Not incomplete; simply unknown. KEEP THIS EXACTLY AS-IS — do not report incomplete
+  //     for a run that never recorded an expectation.
+  //   - digest PRESENT but expected still null: this device has synced `snapshot_digest` for a
+  //     run that demonstrably finalized with a stored expectation (the digest only exists because
+  //     finalizeElectiveRun.js wrote both fields together), but `snapshot_expected_rows` itself
+  //     has not arrived yet. That is not "unknown" — it is a partially-synced finalized run, and
+  //     reporting it complete would let an export run on a possibly zero-row snapshot. Fall through
+  //     to the same per-camper/corrupt-digest machinery below so it reports INCOMPLETE with the
+  //     real held numbers, not null.
+  // Collapsing these back into one branch ("if expected == null, not incomplete") is the exact
+  // regression this comment exists to prevent — see the "both absent" test immediately beside the
+  // "digest arrived first" test in electiveRunSnapshotCompleteness.test.js.
   if (expected == null) {
-    return { expectedSnapshotRows: null, heldSnapshotRows: null, snapshotIncomplete: false }
+    if (digestField == null) {
+      return { expectedSnapshotRows: null, heldSnapshotRows: null, snapshotIncomplete: false }
+    }
+    const held = db
+      .prepare('SELECT COUNT(*) c FROM elective_run_outer_snapshots WHERE run_id = ?')
+      .get(run.id).c
+    return { expectedSnapshotRows: null, heldSnapshotRows: held, snapshotIncomplete: true }
   }
-  const held = db
-    .prepare('SELECT COUNT(*) c FROM elective_run_outer_snapshots WHERE run_id = ?')
-    .get(run.id).c
-  const heldDigest = computeHeldSnapshotDigest(db, run.id)
-  const incomplete = held !== expected || heldDigest !== run.snapshot_digest
-  return { expectedSnapshotRows: expected, heldSnapshotRows: held, snapshotIncomplete: incomplete }
+
+  // FALLBACK 1: legacy plain-hex digest (what v83 wrote before erasure-aware comparison existed).
+  // Deliberately NOT retroactive — no re-finalize path exists to upgrade an old run's stored
+  // digest to the new per-camper shape — so this keeps comparing the OLD way, including staying
+  // incomplete forever after an erasure.
+  if (typeof digestField === 'string' && LEGACY_DIGEST_RE.test(digestField)) {
+    const held = db
+      .prepare('SELECT COUNT(*) c FROM elective_run_outer_snapshots WHERE run_id = ?')
+      .get(run.id).c
+    const heldDigest = computeHeldSnapshotDigest(db, run.id)
+    const incomplete = held !== expected || heldDigest !== digestField
+    return { expectedSnapshotRows: expected, heldSnapshotRows: held, snapshotIncomplete: incomplete }
+  }
+
+  const perCamperExpected = parsePerCamperDigestMap(digestField)
+  // FALLBACK 3: corrupt/unparseable digest — never complete, never silently legacy.
+  if (!perCamperExpected) {
+    const held = db
+      .prepare('SELECT COUNT(*) c FROM elective_run_outer_snapshots WHERE run_id = ?')
+      .get(run.id).c
+    return { expectedSnapshotRows: expected, heldSnapshotRows: held, snapshotIncomplete: true }
+  }
+
+  // Erasure-aware path: drop every tombstoned camper's entry from the expectation before
+  // comparing, so the finalized run's export can be complete again without ever re-including
+  // rows the fleet has agreed to erase.
+  const erased = tombstonedCamperIds(db)
+  const heldRows = selectHeldRows(db, run.id)
+  const heldByCamper = new Map()
+  for (const r of heldRows) {
+    if (!heldByCamper.has(r.camper_id)) heldByCamper.set(r.camper_id, [])
+    heldByCamper.get(r.camper_id).push(r)
+  }
+
+  let expectedRows = 0
+  let complete = true
+  for (const [camperId, entry] of Object.entries(perCamperExpected)) {
+    if (erased.has(camperId)) continue
+    expectedRows += entry.rows
+    const camperRows = heldByCamper.get(camperId) ?? []
+    if (camperRows.length !== entry.rows || digestOf(camperRows) !== entry.digest) complete = false
+  }
+  // A held camper this run's own expectation never named, and who is not erased, is itself a
+  // mismatch — same "never silently green" posture as the corrupt-digest fallback above.
+  for (const camperId of heldByCamper.keys()) {
+    if (!erased.has(camperId) && !(camperId in perCamperExpected)) complete = false
+  }
+
+  return { expectedSnapshotRows: expectedRows, heldSnapshotRows: heldRows.length, snapshotIncomplete: !complete }
 }

@@ -6,6 +6,7 @@ import { describe, it, expect } from 'vitest'
 import Database from 'better-sqlite3'
 import {
   computeExpectedSnapshotDigest,
+  computeExpectedSnapshotDigestByCamper,
   computeHeldSnapshotDigest,
   computeSnapshotCompleteness,
 } from './electiveRunSnapshotCompleteness.js'
@@ -18,9 +19,17 @@ function fixtureDb() {
       activity_id TEXT, activity_name TEXT, location_id TEXT, location_name TEXT,
       span_blocks INTEGER, solver_generation TEXT, cell_kind TEXT, choice_id TEXT,
       is_linked_choice INTEGER, choice_label TEXT
-    )
+    );
+    CREATE TABLE tombstones (
+      id TEXT PRIMARY KEY, entity TEXT NOT NULL, version INTEGER NOT NULL, sig TEXT NOT NULL,
+      created_at TEXT
+    );
   `)
   return db
+}
+
+function tombstone(db, { id, entity = 'campers', version = 1 }) {
+  db.prepare('INSERT INTO tombstones (id, entity, version, sig) VALUES (?, ?, ?, ?)').run(id, entity, version, 'sig')
 }
 
 const row = (over = {}) => ({
@@ -112,6 +121,189 @@ describe('computeHeldSnapshotDigest / computeExpectedSnapshotDigest agree on ide
 // `...choice_label=` + `id=X` + `id=Y|...`). Two genuinely different snapshot
 // row sets (different ids, different choice_label) would report "complete"
 // against each other's digest.
+// FIXED (board item, same loop that added elective_run_outer_snapshots to projector.js's
+// TOMBSTONE_DENYLISTED_ENTITIES and to purgeSupportCommand.js's local delete set). This describe
+// block used to PIN the defect (erasure makes a finalized run permanently unexportable) and was
+// "MEANT to go red the day someone actually fixes this" — today is that day. snapshot_digest is
+// now a per-camper map (computeExpectedSnapshotDigestByCamper), so a tombstoned camper's expected
+// rows/digest are excluded from the comparison rather than causing a permanent mismatch against
+// the whole-set digest.
+describe('erasure-aware completeness: a tombstoned camper is excluded from the comparison', () => {
+  it('reports complete after a camper is erased, with expected/held both reduced to the surviving campers', () => {
+    const db = fixtureDb()
+    const expectedRows = [row({ id: 'snap-1', camper_id: 'c1' }), row({ id: 'snap-2', camper_id: 'c2' })]
+    const expectedDigest = computeExpectedSnapshotDigestByCamper(expectedRows)
+    const insert = db.prepare(
+      `INSERT INTO elective_run_outer_snapshots
+        (id, run_id, camper_id, day_id, time_block_id, activity_id, activity_name, location_id,
+         location_name, span_blocks, solver_generation, cell_kind, choice_id, is_linked_choice, choice_label)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    )
+    for (const r of expectedRows) {
+      insert.run(r.id, r.run_id, r.camper_id, r.day_id, r.time_block_id, r.activity_id, r.activity_name,
+        r.location_id, r.location_name, r.span_blocks, null, r.cell_kind, r.choice_id, r.is_linked_choice, r.choice_label)
+    }
+    const run = { id: 'run-1', status: 'final', snapshot_expected_rows: 2, snapshot_digest: expectedDigest }
+
+    // Sanity: complete before any erasure.
+    expect(computeSnapshotCompleteness(db, run).snapshotIncomplete).toBe(false)
+
+    // Simulate the erasure sweep (projector.js's TOMBSTONE_DENYLISTED_ENTITIES /
+    // purgeSupportCommand.js's local delete): camper c1's snapshot row is gone, AND the fleet-wide
+    // signed tombstone fact is recorded (same table the projector's denylist gate reads).
+    db.prepare('DELETE FROM elective_run_outer_snapshots WHERE camper_id = ?').run('c1')
+    tombstone(db, { id: 'c1' })
+
+    const result = computeSnapshotCompleteness(db, run)
+
+    expect(result.heldSnapshotRows).toBe(1)
+    expect(result.expectedSnapshotRows).toBe(1)
+    expect(result.snapshotIncomplete).toBe(false)
+  })
+
+  // Anti-vacuity (brief item (d)): a genuinely missing row for a NON-erased camper must still
+  // fire SNAPSHOT_INCOMPLETE. If the fix merely relaxed the comparison (e.g. dropped the digest
+  // check, or only compared counts), this would wrongly read complete.
+  it('still reports incomplete when a NON-erased camper is missing a row, even with an unrelated camper tombstoned', () => {
+    const db = fixtureDb()
+    const expectedRows = [row({ id: 'snap-1', camper_id: 'c1' }), row({ id: 'snap-2', camper_id: 'c2' })]
+    const expectedDigest = computeExpectedSnapshotDigestByCamper(expectedRows)
+    const insert = db.prepare(
+      `INSERT INTO elective_run_outer_snapshots
+        (id, run_id, camper_id, day_id, time_block_id, activity_id, activity_name, location_id,
+         location_name, span_blocks, solver_generation, cell_kind, choice_id, is_linked_choice, choice_label)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    )
+    for (const r of expectedRows) {
+      insert.run(r.id, r.run_id, r.camper_id, r.day_id, r.time_block_id, r.activity_id, r.activity_name,
+        r.location_id, r.location_name, r.span_blocks, null, r.cell_kind, r.choice_id, r.is_linked_choice, r.choice_label)
+    }
+    const run = { id: 'run-1', status: 'final', snapshot_expected_rows: 2, snapshot_digest: expectedDigest }
+
+    // c1 is tombstoned (unrelated to the bug we're probing) but c2's row is independently lost —
+    // a real data-loss scenario this guard must still catch.
+    tombstone(db, { id: 'c1' })
+    db.prepare('DELETE FROM elective_run_outer_snapshots WHERE camper_id = ?').run('c2')
+
+    const result = computeSnapshotCompleteness(db, run)
+
+    expect(result.snapshotIncomplete).toBe(true)
+  })
+
+  // Fallback 2 (brief): a CORRUPT/unparseable digest (not legacy 64-hex, not valid per-camper
+  // JSON) must read as INCOMPLETE — never complete, never silently treated as legacy.
+  it('reports incomplete for a corrupt/unparseable snapshot_digest', () => {
+    const db = fixtureDb()
+    db.prepare(
+      `INSERT INTO elective_run_outer_snapshots
+        (id, run_id, camper_id, day_id, time_block_id, activity_id, activity_name, location_id,
+         location_name, span_blocks, solver_generation, cell_kind, choice_id, is_linked_choice, choice_label)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).run('snap-1', 'run-1', 'c1', 'd1', 'tb1', 'a1', 'Pottery', 'l1', 'Art Room', 1, null, 'elective', null, 0, null)
+
+    for (const corrupt of ['{not json', '[]', 'null', '42', '{"c1":{"rows":"one","digest":"x"}}']) {
+      const run = { id: 'run-1', status: 'final', snapshot_expected_rows: 1, snapshot_digest: corrupt }
+      expect(computeSnapshotCompleteness(db, run).snapshotIncomplete).toBe(true)
+    }
+  })
+
+  // Fallback 1 (brief): a LEGACY 64-hex-char digest (what v83 wrote before erasure-awareness)
+  // keeps TODAY's whole-set comparison exactly as-is — erasure-awareness is deliberately NOT
+  // retroactive, so a legacy-digest run stays incomplete forever after an erasure.
+  it('a legacy plain-hex digest keeps the old whole-set comparison, including staying incomplete after an erasure', () => {
+    const db = fixtureDb()
+    const expectedRows = [row({ id: 'snap-1', camper_id: 'c1' }), row({ id: 'snap-2', camper_id: 'c2' })]
+    const legacyDigest = computeExpectedSnapshotDigest(expectedRows) // whole-set sha256 hex
+    expect(legacyDigest).toMatch(/^[0-9a-f]{64}$/)
+    const insert = db.prepare(
+      `INSERT INTO elective_run_outer_snapshots
+        (id, run_id, camper_id, day_id, time_block_id, activity_id, activity_name, location_id,
+         location_name, span_blocks, solver_generation, cell_kind, choice_id, is_linked_choice, choice_label)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    )
+    for (const r of expectedRows) {
+      insert.run(r.id, r.run_id, r.camper_id, r.day_id, r.time_block_id, r.activity_id, r.activity_name,
+        r.location_id, r.location_name, r.span_blocks, null, r.cell_kind, r.choice_id, r.is_linked_choice, r.choice_label)
+    }
+    const run = { id: 'run-1', status: 'final', snapshot_expected_rows: 2, snapshot_digest: legacyDigest }
+    expect(computeSnapshotCompleteness(db, run).snapshotIncomplete).toBe(false)
+
+    db.prepare('DELETE FROM elective_run_outer_snapshots WHERE camper_id = ?').run('c1')
+    tombstone(db, { id: 'c1' })
+
+    expect(computeSnapshotCompleteness(db, run).snapshotIncomplete).toBe(true)
+  })
+})
+
+// Red Hat HIGH (board 2b follow-up) — elective_assignment_runs fields arrive ONE PER FIELD over
+// Automerge in no guaranteed order, so a device can hold status='final' and a fully-synced
+// snapshot_digest while snapshot_expected_rows has not landed yet. The pre-existing `expected ==
+// null` guard treated that exactly like the legacy/pre-v83 "nothing stored" case and returned
+// snapshotIncomplete: false — silently truncating an export of a barely-synced finalized run.
+describe('partial field arrival: snapshot_expected_rows and snapshot_digest can land independently', () => {
+  it('reports INCOMPLETE when snapshot_digest has arrived but snapshot_expected_rows has not yet (not the legacy "both absent" case)', () => {
+    const db = fixtureDb()
+    const expectedRows = [row({ id: 'snap-1', camper_id: 'c1' })]
+    const digest = computeExpectedSnapshotDigestByCamper(expectedRows)
+    // Only ONE row held, same as expectedRows — digest/held agree with each other, but
+    // snapshot_expected_rows itself has not synced to this device yet.
+    db.prepare(
+      `INSERT INTO elective_run_outer_snapshots
+        (id, run_id, camper_id, day_id, time_block_id, activity_id, activity_name, location_id,
+         location_name, span_blocks, solver_generation, cell_kind, choice_id, is_linked_choice, choice_label)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).run('snap-1', 'run-1', 'c1', 'd1', 'tb1', 'a1', 'Pottery', 'l1', 'Art Room', 1, null, 'elective', null, 0, null)
+
+    const run = { id: 'run-1', status: 'final', snapshot_expected_rows: null, snapshot_digest: digest }
+    const result = computeSnapshotCompleteness(db, run)
+
+    expect(result.snapshotIncomplete).toBe(true)
+    // Honest held numbers, not null — same posture as the corrupt-digest fallback.
+    expect(result.heldSnapshotRows).toBe(1)
+  })
+
+  it('still reports NOT incomplete when BOTH snapshot_expected_rows and snapshot_digest are absent (legacy/pre-v83 final run, regression guard)', () => {
+    const db = fixtureDb()
+    const run = { id: 'run-1', status: 'final', snapshot_expected_rows: null, snapshot_digest: null }
+    expect(computeSnapshotCompleteness(db, run)).toEqual({
+      expectedSnapshotRows: null, heldSnapshotRows: null, snapshotIncomplete: false,
+    })
+  })
+
+  it('mirror case: snapshot_expected_rows present but snapshot_digest absent already reports INCOMPLETE (falls through to the corrupt-digest fallback)', () => {
+    const db = fixtureDb()
+    db.prepare(
+      `INSERT INTO elective_run_outer_snapshots
+        (id, run_id, camper_id, day_id, time_block_id, activity_id, activity_name, location_id,
+         location_name, span_blocks, solver_generation, cell_kind, choice_id, is_linked_choice, choice_label)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).run('snap-1', 'run-1', 'c1', 'd1', 'tb1', 'a1', 'Pottery', 'l1', 'Art Room', 1, null, 'elective', null, 0, null)
+
+    const run = { id: 'run-1', status: 'final', snapshot_expected_rows: 1, snapshot_digest: null }
+    const result = computeSnapshotCompleteness(db, run)
+
+    expect(result.snapshotIncomplete).toBe(true)
+  })
+
+  it('a non-final run is unaffected by partial field arrival', () => {
+    const db = fixtureDb()
+    const run = { id: 'run-1', status: 'draft', snapshot_expected_rows: null, snapshot_digest: computeExpectedSnapshotDigestByCamper([row()]) }
+    expect(computeSnapshotCompleteness(db, run)).toEqual({
+      expectedSnapshotRows: null, heldSnapshotRows: null, snapshotIncomplete: false,
+    })
+  })
+})
+
+describe('computeExpectedSnapshotDigestByCamper (write side)', () => {
+  it('groups rows by camper_id into a per-camper {rows, digest} map', () => {
+    const rows = [row({ id: 'snap-1', camper_id: 'c1' }), row({ id: 'snap-2', camper_id: 'c2' })]
+    const map = JSON.parse(computeExpectedSnapshotDigestByCamper(rows))
+    expect(Object.keys(map).sort()).toEqual(['c1', 'c2'])
+    expect(map.c1).toEqual({ rows: 1, digest: computeExpectedSnapshotDigest([rows[0]]) })
+    expect(map.c2).toEqual({ rows: 1, digest: computeExpectedSnapshotDigest([rows[1]]) })
+  })
+})
+
 describe('digestOf row/field separation (Red Hat HIGH)', () => {
   it('computes DIFFERENT digests for two row sets whose field VALUES differ, even though the old unescaped/no-op-separator serialization made them collide', () => {
     const common = {
