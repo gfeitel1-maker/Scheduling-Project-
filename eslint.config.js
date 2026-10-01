@@ -48,7 +48,7 @@ export default defineConfig([
     // test/integration/**/*.js are Node scripts too — they are not named
     // *.test.js because they are driven by test/integration/run.js rather than
     // by Vitest, which left them outside the node globals until 2026-08-01.
-    files: ['electron/**/*.js', 'scripts/**/*.js', 'test/**/*.js', '**/*.test.{js,jsx}'],
+    files: ['electron/**/*.js', 'scripts/**/*.js', 'test/**/*.js', '**/*.test.{js,jsx}', '.claude/hooks/**/*.js'],
     languageOptions: {
       globals: globals.node,
     },

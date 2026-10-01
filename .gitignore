@@ -2,9 +2,14 @@
 .env.*
 # Local Claude state (settings.local.json, worktrees, caches) stays out of git,
 # but the agent team definitions are project assets and MUST be tracked — they
-# are the prompts the workflow runs on.
+# are the prompts the workflow runs on. Likewise .claude/settings.json (shared
+# project hook config, e.g. the reviewer-read-only PreToolUse hook) and the
+# hook scripts it wires in .claude/hooks/ are project assets, not local state —
+# settings.local.json remains ignored.
 .claude/*
 !.claude/agents/
+!.claude/hooks/
+!.claude/settings.json
 
 # Logs
 logs
