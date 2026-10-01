@@ -56,7 +56,12 @@ describe('purge collateral accounting is the single source of truth for the wipe
     // The core drift catcher: a table added to schema.sql outside MODELED_ENTITIES must be placed in
     // one of purgeCollateral.js's buckets, or this fails until it is categorized. A modeled table
     // mistakenly listed as collateral fails here too.
-    expect([...ALL_NON_MODELED_TABLES].sort()).toEqual(schemaNonModeled)
+    expect(
+      [...ALL_NON_MODELED_TABLES].sort(),
+      'a new non-modeled table must be added to exactly one of PURGE_WIPED_TABLES / ' +
+        'PURGE_LEDGER_TABLES / PURGE_PRESERVED_TABLES / PURGE_INFRASTRUCTURE_TABLES in ' +
+        'electron/automerge/purgeCollateral.js'
+    ).toEqual(schemaNonModeled)
   })
 
   it('no wiped/ledger/preserved/infrastructure table is secretly modeled', () => {

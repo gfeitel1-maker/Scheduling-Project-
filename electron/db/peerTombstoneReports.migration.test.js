@@ -45,8 +45,12 @@ function preV86Db(tag = 'v86-migrated') {
 describe('migration v86: version and table presence', () => {
   it('declares schema version 86 on a fresh db', () => {
     const db = freshDb()
-    expect(CURRENT_SCHEMA_VERSION).toBe(86)
-    expect(getSchemaVersion(db)).toBe(86)
+    // A fresh db always lands at the current head, whatever that is — pinning it to a
+    // literal (86) breaks on every later schema bump for a fact this test was never
+    // actually checking. What's actually under test — that v86's OWN migration marker
+    // landed — is the row count below, which is a legitimate literal because v86 is
+    // v86 forever, regardless of what head the app is at.
+    expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 86').get().c).toBe(1)
     db.close()
   })
@@ -61,7 +65,7 @@ describe('migration v86: version and table presence', () => {
     const db = preV86Db()
     expect(hasTable(db, 'peer_tombstone_reports')).toBe(false)
     initSchema(db)
-    expect(getSchemaVersion(db)).toBe(86)
+    expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
     expect(hasTable(db, 'peer_tombstone_reports')).toBe(true)
     db.close()
   })
