@@ -1640,3 +1640,202 @@ describe('T250 round 2 — the run-state area renders at rest on first mount', (
     vi.unstubAllGlobals()
   })
 })
+
+// ---------------------------------------------------------------------------
+// FOLD-IN 2 — the identical-bullets defect.
+//
+// Every unresolvable camper degrades to the SAME sentence fragment
+// (UNKNOWN_CAMPER_LABEL), so a disclosure listing six of them printed one
+// string six times. Naming them is impossible by construction: their campers
+// row is gone, and the only remaining distinguishing fact is the raw id, which
+// the sweep above forbids. So they are counted into ONE line instead.
+// ---------------------------------------------------------------------------
+describe('a camper disclosure never repeats one identical line', () => {
+  it('drops the disclosure entirely and states the fact inline when NOTHING resolves', async () => {
+    localClient.getElectiveRun.mockResolvedValue({
+      ...CLEAN_RUN_STATE,
+      campers: [],
+      rows: [],
+      sheetOnlyCampers: ['ghost-a', 'ghost-b'],
+    })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+    const row = await screen.findByTestId('run-state-sheet-only-campers')
+    expect(row.querySelector('summary')).toBeNull()
+    expect(row.textContent).toContain('These campers are no longer on the roster.')
+    // THE REGRESSION ASSERTION: two identical bullets today, zero after.
+    expect(within(row).queryAllByText('a camper who is no longer on the roster')).toHaveLength(0)
+  })
+
+  it('leaves the existing ONE-ghost degrade unchanged', async () => {
+    localClient.getElectiveRun.mockResolvedValue({
+      ...CLEAN_RUN_STATE,
+      sheetOnlyCampers: ['camper-1', 'deleted-camper-id-ghost'],
+    })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+    const row = await screen.findByTestId('run-state-sheet-only-campers')
+    expect(row.textContent).toContain('Testcamper Alpha')
+    expect(row.textContent).toContain('a camper who is no longer on the roster')
+    expect(row.textContent).not.toContain('deleted-camper-id-ghost')
+  })
+
+  it('folds several unresolvable campers into ONE counted line beside the named ones', async () => {
+    localClient.getElectiveRun.mockResolvedValue({
+      ...CLEAN_RUN_STATE,
+      sheetOnlyCampers: ['camper-1', 'ghost-a', 'ghost-b', 'ghost-c', 'ghost-d'],
+    })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+    const row = await screen.findByTestId('run-state-sheet-only-campers')
+    expect(within(row).getByText('5 campers')).toBeTruthy() // the summary counts everyone
+    expect(within(row).getByText('4 campers who are no longer on the roster')).toBeTruthy()
+    expect(within(row).queryAllByText('a camper who is no longer on the roster')).toHaveLength(0)
+  })
+
+  it('tells two campers sharing a name apart INSIDE the disclosure', async () => {
+    localClient.getElectiveRun.mockResolvedValue({
+      ...CLEAN_RUN_STATE,
+      campers: [
+        { id: 'twin-a', display_name: 'Testcamper Twin', group_name: 'Cabin One' },
+        { id: 'twin-b', display_name: 'Testcamper Twin', group_name: 'Cabin Two' },
+      ],
+      rows: [],
+      sheetOnlyCampers: ['twin-a', 'twin-b'],
+    })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+    const row = await screen.findByTestId('run-state-sheet-only-campers')
+    expect(within(row).getByText('Cabin One')).toBeTruthy()
+    expect(within(row).getByText('Cabin Two')).toBeTruthy()
+  })
+
+  it('bounds a large list without losing a single camper', async () => {
+    const many = Array.from({ length: 40 }, (_, i) => ({ id: `many-${i}`, display_name: `Testcamper N${i}` }))
+    localClient.getElectiveRun.mockResolvedValue({
+      ...CLEAN_RUN_STATE, campers: many, rows: [], sheetOnlyCampers: many.map((c) => c.id),
+    })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+    const row = await screen.findByTestId('run-state-sheet-only-campers')
+    const list = row.querySelector('ul')
+    expect(list.style.maxHeight).toBe('220px')
+    expect(list.style.overflowY).toBe('auto')
+    // BOUNDED, never truncated.
+    expect(list.querySelectorAll('li')).toHaveLength(40)
+    expect(within(row).getByText('Testcamper N39')).toBeTruthy()
+  })
+
+  it('renders ten campers at natural height, with no scroll container', async () => {
+    const ten = Array.from({ length: 10 }, (_, i) => ({ id: `ten-${i}`, display_name: `Testcamper T${i}` }))
+    localClient.getElectiveRun.mockResolvedValue({
+      ...CLEAN_RUN_STATE, campers: ten, rows: [], sheetOnlyCampers: ten.map((c) => c.id),
+    })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+    const row = await screen.findByTestId('run-state-sheet-only-campers')
+    const list = row.querySelector('ul')
+    expect(list.style.maxHeight).toBe('')
+    expect(list.style.overflowY).toBe('')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// FOLD-IN 1 — the plain Regenerate control on a cold-opened draft run.
+//
+// T250 A3 made `onRegenerate` available for a cold-opened run, but the only
+// controls that offered it were the three conditional offers. A director who
+// reopened a run with nothing stale and nothing edited had no way to re-solve.
+// ---------------------------------------------------------------------------
+describe('plain Regenerate in the actions band', () => {
+  const cold = (props = {}) => (
+    <DraftRunView run={DRAFT_RUN} onRegenerate={vi.fn()} coldRegenerate {...catalogs()} {...props} />
+  )
+
+  it('sits in the actions band, immediately after Finalize, when no offer is showing', async () => {
+    render(cold())
+    const button = await screen.findByTestId('run-regenerate')
+    expect(button.textContent).toBe('Regenerate')
+    expect(screen.queryByTestId('run-regenerate-unavailable')).toBeNull()
+    const band = button.parentElement
+    const buttons = [...band.querySelectorAll('button')]
+    expect(buttons[0].textContent).toBe('Finalize run')
+    expect(buttons[1]).toBe(button)
+  })
+
+  it('carries the locked seats, exactly as the staleness offer does', async () => {
+    const onRegenerate = vi.fn()
+    render(cold({ onRegenerate }))
+    fireEvent.click(await screen.findByTestId('run-regenerate'))
+    await waitFor(() => expect(onRegenerate).toHaveBeenCalledTimes(1))
+    expect(onRegenerate.mock.calls[0][0]).toEqual({
+      lockedAssignments: [{ camperId: 'camper-3', occurrenceId: 'occ-2', activityId: 'act-2' }],
+    })
+  })
+
+  it('never competes with the staleness offer', async () => {
+    localClient.getElectiveRun.mockResolvedValue({ ...CLEAN_RUN_STATE, staleCount: 2 })
+    render(cold())
+    await screen.findByTestId('run-staleness-offer')
+    expect(screen.queryByTestId('run-regenerate')).toBeNull()
+    expect(screen.getAllByRole('button', { name: /regenerat/i })).toHaveLength(1)
+  })
+
+  // (The preference-edit offer's half of the same rule is asserted where that
+  // offer is actually driven end-to-end — preferenceEditToResolve.test.jsx —
+  // rather than faked here.)
+
+  it('never competes with a STALE_OUTER_SCHEDULE refusal', async () => {
+    localClient.finalizeElectiveRun.mockResolvedValue({ ok: false, error: 'STALE_OUTER_SCHEDULE', findings: [] })
+    render(cold())
+    fireEvent.click(await screen.findByRole('button', { name: 'Finalize run' }))
+    await screen.findByTestId('run-state-finalize-stale')
+    expect(screen.queryByTestId('run-regenerate')).toBeNull()
+  })
+
+  it('shows busy while the cold status re-check is in flight, then regenerates', async () => {
+    let resolveList
+    localClient.listElectiveRuns.mockReturnValue(new Promise((r) => { resolveList = r }))
+    const onRegenerate = vi.fn()
+    render(cold({ onRegenerate }))
+    fireEvent.click(await screen.findByTestId('run-regenerate'))
+    await waitFor(() => {
+      const b = screen.getByTestId('run-regenerate')
+      expect(b.textContent).toBe('Regenerating…')
+      expect(b.disabled).toBe(true)
+      expect(b.getAttribute('aria-busy')).toBe('true')
+    })
+    expect(onRegenerate).not.toHaveBeenCalled()
+    resolveList([DRAFT_RUN])
+    await waitFor(() => expect(onRegenerate).toHaveBeenCalledTimes(1))
+  })
+
+  it('fires exactly one regenerate for a double click', async () => {
+    let resolveList
+    localClient.listElectiveRuns.mockReturnValue(new Promise((r) => { resolveList = r }))
+    const onRegenerate = vi.fn()
+    render(cold({ onRegenerate }))
+    const button = await screen.findByTestId('run-regenerate')
+    fireEvent.click(button)
+    fireEvent.click(button)
+    resolveList([DRAFT_RUN])
+    await waitFor(() => expect(onRegenerate).toHaveBeenCalledTimes(1))
+  })
+
+  it('refuses rather than regenerating when the run was finalized elsewhere', async () => {
+    localClient.listElectiveRuns.mockResolvedValue([{ ...DRAFT_RUN, status: 'final' }])
+    const onRegenerate = vi.fn()
+    const onFinalized = vi.fn()
+    render(cold({ onRegenerate, onFinalized }))
+    fireEvent.click(await screen.findByTestId('run-regenerate'))
+    await waitFor(() => expect(onFinalized).toHaveBeenCalled())
+    expect(onRegenerate).not.toHaveBeenCalled()
+  })
+
+  it('renders NO dead control when regenerate is unavailable — a sentence instead', async () => {
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+    const note = await screen.findByTestId('run-regenerate-unavailable')
+    expect(note.textContent).toBe("This run can't be regenerated right now — go back to Runs and open it again.")
+    expect(screen.queryByTestId('run-regenerate')).toBeNull()
+  })
+
+  it('says it is PREPARING while the panel is still hydrating the run', async () => {
+    render(<DraftRunView run={DRAFT_RUN} regeneratePending {...catalogs()} />)
+    const note = await screen.findByTestId('run-regenerate-unavailable')
+    expect(note.textContent).toBe('Preparing this run so it can be regenerated…')
+  })
+})

@@ -233,13 +233,21 @@ export function groupBundleTierNotCoveredFindings({ findings = [], campers = [],
     // was given. Splitting these further would need a label this run never
     // persisted (see F4's root cause).
     const key = JSON.stringify([f.label, tierId])
-    if (!byKey.has(key)) byKey.set(key, { label: f.label, tierId, tierName, names: [] })
+    if (!byKey.has(key)) byKey.set(key, { label: f.label, tierId, tierName, names: [], campers: [] })
     // F5 (Red Hat) — NEVER a raw camper_id in director-facing copy (the same
     // rule camperDisambiguator's own comment states): a camper row that is
     // gone (hard-deleted after an earlier generation) degrades to a truthful
     // sentence fragment instead.
-    const name = camperById.get(f.camper_id)?.display_name ?? UNKNOWN_CAMPER_LABEL
-    byKey.get(key).names.push(name)
+    const resolved = camperById.get(f.camper_id)?.display_name ?? null
+    byKey.get(key).names.push(resolved ?? UNKNOWN_CAMPER_LABEL)
+    // ADDITIVE, beside `names` rather than instead of it: the disclosure needs
+    // the camper id to look up a disambiguator (two campers can share a name),
+    // and `names` loses it. `name: null` IS the unresolvable signal, and an
+    // unresolvable camper carries NO id — the id exists only to resolve a
+    // disambiguator, which a camper with no row cannot have, and the F5 rule
+    // (never a raw camper id in anything this screen hands to the director)
+    // applies to the structure as much as to the sentence.
+    byKey.get(key).campers.push({ id: resolved ? f.camper_id : null, name: resolved })
   }
   return [...byKey.values()]
 }
@@ -275,6 +283,46 @@ export function sheetOnlyCampersMessage(count) {
   const verb = count === 1 ? 'has' : 'have'
   return `${count} ${camperWord} on this run's sheet ${verb} no ranked choice and no placement.`
 }
+
+// board item — a disclosure that printed UNKNOWN_CAMPER_LABEL once per
+// unresolvable camper read as six identical bullets. Naming them is impossible
+// by construction: their campers row is gone, so the only distinguishing fact
+// left is the raw id, which this screen never shows. So they are COUNTED into
+// one line instead, beside whatever campers did resolve.
+export function unresolvableCampersLabel(count) {
+  if (count <= 0) return null
+  return count === 1 ? UNKNOWN_CAMPER_LABEL : `${count} campers who are no longer on the roster`
+}
+
+// When NOTHING resolves there is nothing to disclose — a <details> whose only
+// content is its own summary restated. The fact goes inline instead.
+export function allCampersUnresolvableMessage(count) {
+  return count === 1
+    ? 'This camper is no longer on the roster.'
+    : 'These campers are no longer on the roster.'
+}
+
+// The plain regenerate control on a cold-opened draft run. Bare "Regenerate",
+// NOT "Re-derive and regenerate": "re-derive" names the extra thing the
+// staleness offer does (re-deriving against a changed schedule), and borrowing
+// its label here would promise work this control does not do.
+export const REGENERATE_LABEL = 'Regenerate'
+export const REGENERATE_BUSY_LABEL = 'Regenerating…'
+
+// A control that cannot act is never rendered as a dead control — but its
+// absence always carries a sentence, so the director is not left guessing why
+// the button they saw on another run is missing on this one.
+export function regenerateUnavailableNote(preparing) {
+  return preparing
+    ? 'Preparing this run so it can be regenerated…'
+    : "This run can't be regenerated right now — go back to Runs and open it again."
+}
+
+// T320 part 2 item 3 — authored here rather than inline in DraftRunView, which
+// is where every other director-facing string on that screen lives.
+export const COLD_REGENERATE_NOTE =
+  "Regenerating a reopened run reconsiders every camper this run's sheet named — including anyone " +
+  'with no ranked choice and no placement.'
 
 // C2 (board item 9b) — OUTER_RESOURCE_CONFLICT findings (findRouteConflicts,
 // src/engine/routeConflicts.js) carry no `.message`, only locationName/

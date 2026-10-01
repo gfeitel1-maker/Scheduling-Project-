@@ -13,6 +13,8 @@ import {
   occurrenceLabel, satisfactionSummary, camperDisambiguator, resolveCamperDisambiguators,
   groupBundleTierNotCoveredFindings, bundleTierNotCoveredGroupMessage,
   conflictFindingMessage, finalizeFindingMessage, sheetOnlyCampersMessage,
+  UNKNOWN_CAMPER_LABEL, unresolvableCampersLabel, allCampersUnresolvableMessage,
+  regenerateUnavailableNote,
 } from './runStateCopy.js'
 
 describe('occurrenceLabel', () => {
@@ -401,5 +403,57 @@ describe('sheetOnlyCampersMessage', () => {
 
   it('states the singular count and verb for exactly one', () => {
     expect(sheetOnlyCampersMessage(1)).toBe("1 camper on this run's sheet has no ranked choice and no placement.")
+  })
+})
+
+// --- The identical-bullets defect -------------------------------------------
+//
+// Every unresolvable camper degrades to the SAME sentence fragment, so a
+// disclosure listing six of them printed one string six times. An unresolvable
+// camper has no distinguishing fact BY CONSTRUCTION (their campers row is
+// gone), so they are counted, never enumerated.
+describe('unresolvable-camper copy', () => {
+  it('counts rather than repeats', () => {
+    expect(unresolvableCampersLabel(0)).toBeNull()
+    expect(unresolvableCampersLabel(1)).toBe(UNKNOWN_CAMPER_LABEL)
+    expect(unresolvableCampersLabel(4)).toBe('4 campers who are no longer on the roster')
+  })
+
+  it('states the fact inline when NOTHING resolves', () => {
+    expect(allCampersUnresolvableMessage(1)).toBe('This camper is no longer on the roster.')
+    expect(allCampersUnresolvableMessage(3)).toBe('These campers are no longer on the roster.')
+  })
+})
+
+describe('regenerateUnavailableNote', () => {
+  it('distinguishes preparing from genuinely unavailable', () => {
+    expect(regenerateUnavailableNote(true)).toBe('Preparing this run so it can be regenerated…')
+    expect(regenerateUnavailableNote(false)).toBe(
+      "This run can't be regenerated right now — go back to Runs and open it again."
+    )
+  })
+})
+
+describe('groupBundleTierNotCoveredFindings — camper entries beside the names', () => {
+  const campers = [{ id: 'cam-1', display_name: 'Ari Green', group_id: 'g-older' }]
+  const groups = [{ id: 'g-older', tier_id: 'tier-older' }]
+  const tiers = [{ id: 'tier-older', name: 'Older' }]
+
+  it('additionally returns `campers` entries, so the disclosure can disambiguate', () => {
+    const findings = [
+      { kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'cam-1', label: 'Ropes', tier_id: 'tier-older' },
+      { kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'gone', label: 'Ropes', tier_id: 'tier-older' },
+    ]
+    const [group] = groupBundleTierNotCoveredFindings({ findings, campers, groups, tiers })
+    // `names` is unchanged — every existing caller and assertion still holds.
+    expect(group.names).toEqual(['Ari Green', UNKNOWN_CAMPER_LABEL])
+    expect(group.campers).toEqual([
+      { id: 'cam-1', name: 'Ari Green' },
+      // A camper whose row is gone carries NO id: the id is only ever needed to
+      // look up a disambiguator, which an absent camper cannot have, and
+      // carrying it would put a raw camper id in a structure the F5 assertion
+      // above forbids it from.
+      { id: null, name: null },
+    ])
   })
 })

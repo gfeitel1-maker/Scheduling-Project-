@@ -329,6 +329,11 @@ export default function AssignmentPanel({
   // a run opened cold from the run list. Absent or mismatched, onRegenerate
   // stays undefined — a control that cannot work must not render.
   const [hydratedRunId, setHydratedRunId] = useState(null)
+  // The run whose cold-open hydration is IN FLIGHT. `regenerate` is unavailable
+  // during it exactly as it is when hydration has not been attempted — but the
+  // reason differs, and DraftRunView says which rather than leaving a director
+  // to guess why a control is missing.
+  const [hydrationFailedRunId, setHydrationFailedRunId] = useState(null)
   const [danglingFindings, setDanglingFindings] = useState([])
   // What this director settled on THIS parse \u2014 a list of
   // `{ label, action, activityName }` \u2014 and the label currently being acted on.
@@ -1020,9 +1025,10 @@ export default function AssignmentPanel({
   // T250 — a regenerate offered on the Draft screen when some of the run's
   // placements came from an earlier version of the schedule. Re-solves in
   // place, carrying the director's locked seats through, and lands back on the
-  // preview so they commit the new solve deliberately. Only offered when this
-  // session still holds the parsed sheet (a run opened cold from the list has
-  // no sheet in memory to re-solve from).
+  // preview so they commit the new solve deliberately. Offered when this
+  // session holds the parsed sheet — which, since T250 A3, includes a run
+  // opened cold from the list once the hydration effect below has
+  // reconstructed that sheet from the run's own persisted rows.
   // T297 — `preferences`/`choices` are the RUN's own stored rows, passed up by
   // DraftRunView after a preference edit. See solve()'s `choices` note for why
   // both halves have to travel together.
@@ -1077,6 +1083,18 @@ export default function AssignmentPanel({
   // against a run opened cold from the run list. Deliberately does NOT write
   // a parallel solve/commit pipeline — that would duplicate
   // commitElectiveRun's refusal/generation/lock logic in a second place.
+  // DERIVED, not a second piece of state: "hydration is in flight" is exactly
+  // "the effect below would run and has not finished", and the one outcome
+  // that condition cannot see is a failure — which is what
+  // `hydrationFailedRunId` records. A `setHydratingRunId(...)` in the effect
+  // body would be a cascading render for a fact already available here.
+  const coldHydrationPending = Boolean(
+    viewRun && viewRun.status === 'draft' &&
+    viewRun.id !== committedInfo?.runId &&
+    hydratedRunId !== viewRun.id &&
+    hydrationFailedRunId !== viewRun.id
+  )
+
   useEffect(() => {
     if (!viewRun || viewRun.status !== 'draft') return
     // Already solved THIS session (chooseTemplateAndSolve/regenerate already
@@ -1125,6 +1143,7 @@ export default function AssignmentPanel({
         setHydratedRunId(viewRun.id)
       } catch (err) {
         if (cancelled) return
+        setHydrationFailedRunId(viewRun.id)
         onError?.(describeWriteFailure(err, 'This run could not be prepared for regenerating.'))
       }
     })()
@@ -1233,6 +1252,7 @@ export default function AssignmentPanel({
             // former.
             onRegenerate={parsed && (viewRun.id === committedInfo?.runId || hydratedRunId === viewRun.id) ? regenerate : undefined}
             coldRegenerate={viewRun.id !== committedInfo?.runId && hydratedRunId === viewRun.id}
+            regeneratePending={coldHydrationPending}
             onBack={closeRunView}
             {...runViewCatalogs}
           />

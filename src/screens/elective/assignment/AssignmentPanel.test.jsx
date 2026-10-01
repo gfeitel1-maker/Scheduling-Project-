@@ -1043,3 +1043,95 @@ describe('AssignmentPanel — route chooser surfaces a declared camper with no r
     expect(screen.getByText(/1 camper\(s\) had no recognisable choice: Ben Stone/)).toBeTruthy()
   })
 })
+
+// ---------------------------------------------------------------------------
+// FOLD-IN 1 plumbing — `regeneratePending`.
+//
+// "Regenerate is not available YET" and "regenerate is not available" are
+// different facts, and the Draft screen says which. The flag is DERIVED from
+// the hydration condition rather than stored, so these pin the derivation.
+// ---------------------------------------------------------------------------
+describe('AssignmentPanel — regeneratePending while a cold-opened run hydrates', () => {
+  const COLD_RUN = {
+    id: 'pending-run-1', name: 'Pending Run', status: 'draft', source_filename: 'sheet.csv',
+    schedule_template_id: 'tpl-1', schedule_week_id: null, tier_id: 'tier-juniors',
+  }
+  const STATE = {
+    rows: [], occurrences: [], preferences: [], choices: [],
+    campers: [], staleCount: 0, finalizedAgainstStaleGeneration: false, overCapacityOccurrences: [],
+  }
+
+  // BOTH reads go through the same `getElectiveRun` mock: DraftRunView's own
+  // useRunState read (child effect, fires FIRST) and the panel's hydration read
+  // (parent effect, fires second). The fixtures below key off that order,
+  // because the panel's read is the only one `regeneratePending` describes.
+  it('says PREPARING while the hydration read is in flight, and stops once it settles', async () => {
+    let resolveHydration
+    localClient.listElectiveRuns.mockResolvedValue([COLD_RUN])
+    let call = 0
+    localClient.getElectiveRun.mockImplementation(() => {
+      call += 1
+      if (call === 1) return Promise.resolve(STATE)
+      return new Promise((r) => { resolveHydration = r })
+    })
+    render(<AssignmentPanel {...baseProps()} />)
+    fireEvent.click(await screen.findByTestId('run-list-row-pending-run-1'))
+
+    const note = await screen.findByTestId('run-regenerate-unavailable')
+    expect(note.textContent).toBe('Preparing this run so it can be regenerated…')
+    expect(screen.queryByTestId('run-regenerate')).toBeNull()
+
+    resolveHydration(STATE)
+    await waitFor(() => expect(screen.getByTestId('run-regenerate')).toBeTruthy())
+    expect(screen.queryByTestId('run-regenerate-unavailable')).toBeNull()
+  })
+
+  it('stops saying PREPARING when the hydration read FAILS, and reports it once', async () => {
+    const onError = vi.fn()
+    localClient.listElectiveRuns.mockResolvedValue([COLD_RUN])
+    let call = 0
+    localClient.getElectiveRun.mockImplementation(() => {
+      call += 1
+      if (call === 2) return Promise.reject(new Error('read failed'))
+      return Promise.resolve(STATE)
+    })
+    render(<AssignmentPanel {...baseProps({ onError })} />)
+    fireEvent.click(await screen.findByTestId('run-list-row-pending-run-1'))
+
+    await waitFor(() => expect(onError).toHaveBeenCalledTimes(1))
+    await waitFor(() => {
+      expect(screen.getByTestId('run-regenerate-unavailable').textContent).toBe(
+        "This run can't be regenerated right now — go back to Runs and open it again."
+      )
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// DEFECT B — "the commit that never leaves Committing…".
+//
+// The observed symptom was a renderer stuck on "Committing…" that appeared to
+// resolve only after navigating away and back. This pins the renderer's own
+// contract: resolution of the awaited IPC ALONE drives the transition, with no
+// navigation, no remount, and no second render trigger. If this passes, the
+// renderer has no navigation-gated transition and the stall is a consequence of
+// how long the awaited call itself took.
+// ---------------------------------------------------------------------------
+describe('AssignmentPanel — a commit leaves Committing… on its own', () => {
+  it('reaches the committed state with no navigation or remount', async () => {
+    let resolveCommit
+    localClient.commitElectiveRun.mockImplementation(() => new Promise((r) => { resolveCommit = r }))
+    localClient.getElectiveRun.mockResolvedValue({
+      rows: [], occurrences: [], preferences: [], choices: [], campers: [],
+      staleCount: 0, finalizedAgainstStaleGeneration: false, overCapacityOccurrences: [],
+    })
+    await driveToPreview()
+    fireEvent.click(screen.getByText(/Commit Assignments/))
+    await waitFor(() => expect(screen.getByText(/Committing…/)).toBeTruthy())
+
+    resolveCommit({ ok: true, runId: 'run-b', counts: { campers: 1, choices: 1, preferences: 1, assignments: 1 }, findings: [] })
+
+    await waitFor(() => expect(screen.queryByText(/Committing…/)).toBeNull())
+    await waitFor(() => expect(screen.getByText('Assignments committed')).toBeTruthy())
+  })
+})

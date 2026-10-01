@@ -261,6 +261,9 @@ describe('T297 — edit a preference, re-solve, and the placement changes', () =
       target: { value: deriveElectiveChoiceId(runId, 'ceramics') },
     })
     const resolveButton = await screen.findByTestId('run-preference-resolve')
+    // Exactly ONE regenerate control on screen: the actions band's plain
+    // Regenerate stands down whenever a more specific offer is up.
+    expect(screen.queryByTestId('run-regenerate')).toBeNull()
     fireEvent.click(resolveButton)
     // The re-solve is handed the RUN's own rows and choices. Handing it neither
     // would silently re-solve from the parsed sheet, which is the edit being
