@@ -42,7 +42,27 @@ export function parseLine(rawLine) {
 
   if (record.type === 'user') {
     const tur = record.toolUseResult
-    if (tur && typeof tur === 'object' && typeof tur.agentId === 'string' && typeof tur.status === 'string') {
+    const isBackgroundAck = tur && typeof tur === 'object' && typeof tur.agentId === 'string' && typeof tur.status === 'string'
+    if (!isBackgroundAck) {
+      // A FOREGROUND (synchronous) Agent dispatch returns its result inline: a tool_result block
+      // whose tool_use_id names the dispatch, and NO toolUseResult.agentId launch-ack (that record
+      // exists only for backgrounded tasks). The dispatch having RETURNED a result is its
+      // completion signal — a consumer joins this back to the Agent dispatch by tool_use_id. This
+      // is the only completion record a nested foreground loop ever produces for its reviewers;
+      // without it, opinionReportProvenance could never bind a synchronously-dispatched reviewer
+      // (confirmed against real Governor transcripts 2026-10-01: 0 toolUseResult.agentId records).
+      // Emitted for EVERY tool_result (Bash/Read included); the consumer keeps only those whose
+      // tool_use_id joins to an Agent dispatch, so a lone tool result is harmless noise.
+      const content = record.message?.content
+      if (Array.isArray(content)) {
+        for (const b of content) {
+          if (b && b.type === 'tool_result' && typeof b.tool_use_id === 'string') {
+            events.push({ kind: 'foreground_result', tool_use_id: b.tool_use_id })
+          }
+        }
+      }
+    }
+    if (isBackgroundAck) {
       // The launch-ack record carries BOTH toolUseResult (agentId/status) and, in the same
       // message's content array, the tool_result block whose tool_use_id names the dispatch that
       // produced it. Joining the two here — rather than in a second pass — is what lets a
