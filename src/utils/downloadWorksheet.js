@@ -12,6 +12,11 @@ export async function runWorksheetDownload(cohortId) {
   for (const entity of INGESTIBLE_ENTITIES) {
     entities[entity] = await localClient.list(entity).catch(() => [])
   }
+  // SLICE B2 (board q-export-columns-do-not-round-trip) — fixed_events is outside
+  // INGESTIBLE_ENTITIES (it has no S4b/commitPlan committer, see workbookToSource.js's
+  // `screenImportOnly` skip), but exportWorkbook's "Fixed Events" sheet still needs real rows
+  // or it ships empty, same as every other entity fetched above.
+  entities.fixed_events = await localClient.list('fixed_events').catch(() => [])
   const base_generation = await localClient.latestOpSeq().catch(() => 0)
   downloadWorkbook({
     ...entities,

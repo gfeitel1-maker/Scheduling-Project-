@@ -21,7 +21,10 @@ import { aoaToSanitizedSheet } from './exportSanitize.js'
 // v2 (SLICE B1, board q-export-columns-do-not-round-trip, ADR
 // 2026-09-30-format-agnostic-setup-import.md 2026-10-01 amendment): Days gains
 // `day_of_week`, Time Blocks gains `part_of_day`.
-export const PLAN_VERSION = 2
+// v3 (SLICE B2, same board item/ADR): adds the "Fixed Events" sheet for
+// `fixed_events`, flagged `screenImportOnly` — re-imported via AnchorsScreen's
+// own door, never the whole-workbook S4b path (workbookToSource skips it).
+export const PLAN_VERSION = 3
 
 // The hidden metadata sheet's name. S4b reads camp_id/cohort_id/base_generation
 // + the per-row baseline out of it; a re-import whose metadata is missing or
@@ -72,6 +75,27 @@ export const SHEET_LAYOUT = Object.freeze([
       { key: 'eligible_groups', labelList: true }, { key: 'location', label: true },
     ],
   },
+  // SLICE B2 (board q-export-columns-do-not-round-trip, ADR 2026-09-30-format-agnostic-
+  // setup-import.md 2026-10-01 amendment): fixed_events gets its own "Fixed Events" sheet so a
+  // director's own export round-trips through AnchorsScreen's importer. `screenImportOnly`
+  // marks this entry as re-imported ONLY through that screen's own door — workbookToSource
+  // (S4b, the whole-workbook re-import) skips any entry carrying this flag, so
+  // approved.fixed_events is never emitted there; commitPlan/commitIngest have no fixed_events
+  // committer and must never be asked for one. Columns mirror AnchorsScreen's own
+  // downloadTemplate/onFileChange header exactly (name, day_label, time_block_name,
+  // is_all_tiers, tier_names, notes) — OWNER NAMING CONSTRAINT: "Fixed Events" sheet and
+  // event-vocabulary columns only, never "anchor".
+  {
+    entity: 'fixed_events', sheet: 'Fixed Events', nameKey: 'name', screenImportOnly: true,
+    columns: [
+      { key: 'name' },
+      { key: 'day_label', label: true },
+      { key: 'time_block_name', label: true },
+      { key: 'is_all_tiers', bool: true },
+      { key: 'tier_names', labelList: true },
+      { key: 'notes' },
+    ],
+  },
 ])
 
 // Three-look vocabulary as WORDS (ADR §1). Derived from op provenance where the
@@ -99,15 +123,15 @@ function canonicalTime(value) {
   return `${hh}:${m[2]}:${m[3] ?? '00'}`
 }
 
-// activities.eligible_group_ids is a JSON id array; render as human group-name
-// labels (ADR §1), resolved back to ids on re-import (S4b) through the same name
-// maps commitPlan builds. Unresolvable ids are dropped from the label (the
-// stored id is still authoritative in the baseline).
-function eligibleGroupLabels(row, groupNameById) {
+// A JSON id-array column (activities.eligible_group_ids, fixed_events.unit_ids) rendered as
+// comma-separated human-name labels (ADR §1), resolved back to ids on re-import through the
+// same name maps the caller builds. Unresolvable ids are dropped from the label (the stored id
+// is still authoritative in the baseline, where a baseline exists).
+function idListLabels(idsJson, nameById) {
   let ids = []
-  try { ids = JSON.parse(row.eligible_group_ids ?? '[]') } catch { ids = [] }
+  try { ids = JSON.parse(idsJson ?? '[]') } catch { ids = [] }
   return (Array.isArray(ids) ? ids : [])
-    .map((id) => groupNameById.get(id))
+    .map((id) => nameById.get(id))
     .filter((n) => n != null)
     .join(', ')
 }
@@ -123,7 +147,22 @@ function cellValueFor(col, row, maps) {
     return row.location_id != null ? (maps.locationNameById.get(row.location_id) ?? '') : ''
   }
   if (col.labelList && col.key === 'eligible_groups') {
-    return eligibleGroupLabels(row, maps.groupNameById)
+    return idListLabels(row.eligible_group_ids, maps.groupNameById)
+  }
+  // SLICE B2 — fixed_events' FK/boolean/id-list columns, mirroring the `unit`/`location`/
+  // `eligible_groups` patterns above exactly.
+  if (col.label && col.key === 'day_label') {
+    return row.day_id != null ? (maps.dayNameById.get(row.day_id) ?? '') : ''
+  }
+  if (col.label && col.key === 'time_block_name') {
+    return row.time_block_id != null ? (maps.timeBlockNameById.get(row.time_block_id) ?? '') : ''
+  }
+  if (col.bool && col.key === 'is_all_tiers') {
+    // AnchorsScreen parses this back with `.toUpperCase() === 'TRUE'` — the literal must match.
+    return row.is_all_groups ? 'TRUE' : 'FALSE'
+  }
+  if (col.labelList && col.key === 'tier_names') {
+    return idListLabels(row.unit_ids, maps.tierNameById)
   }
   if (col.time) return canonicalTime(row[col.key])
   const v = row[col.key]
@@ -144,19 +183,22 @@ function cellValueFor(col, row, maps) {
  */
 export function exportWorkbook({
   cohorts = [], tiers = [], groups = [], days_of_operation = [], time_blocks = [], locations = [], activities = [],
+  fixed_events = [],
   camp_id = null, cohort_id = null, base_generation = null,
 } = {}) {
   // M4 §D6 / T121: 'locations' resolves the activities sheet's `location`
   // column AND gets its own visible Locations sheet below (name/capacity/kind)
   // so capacity survives an export→import round-trip and a director can bulk
-  // -edit capacity in Excel. SHEET_LAYOUT itself still stays six entries —
-  // the Locations sheet is built separately, outside the baseline/shoresh_id/
-  // Status machinery (see LOCATIONS_SHEET above).
-  const entities = { cohorts, tiers, groups, days_of_operation, time_blocks, activities }
+  // -edit capacity in Excel. SHEET_LAYOUT itself does not gain a Locations
+  // entry — the Locations sheet is built separately, outside the baseline/
+  // shoresh_id/Status machinery (see LOCATIONS_SHEET above).
+  const entities = { cohorts, tiers, groups, days_of_operation, time_blocks, activities, fixed_events }
   const maps = {
     tierNameById: new Map(tiers.map((t) => [t.id, t.name])),
     groupNameById: new Map(groups.map((g) => [g.id, g.name])),
     locationNameById: new Map(locations.map((l) => [l.id, l.name])),
+    dayNameById: new Map(days_of_operation.map((d) => [d.id, d.label])),
+    timeBlockNameById: new Map(time_blocks.map((b) => [b.id, b.name])),
   }
 
   const wb = XLSX.utils.book_new()

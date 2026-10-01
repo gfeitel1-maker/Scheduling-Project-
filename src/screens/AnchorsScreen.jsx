@@ -567,7 +567,7 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
       ['Swim', 'Monday,Wednesday,Friday', 'Afternoon Swim', 'FALSE', 'Yeladim,Tzofim', ''],
     ])
     const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Anchors')
+    XLSX.utils.book_append_sheet(wb, ws, 'Fixed Events')
     XLSX.writeFile(wb, 'anchors_template.xlsx')
   }
 
@@ -620,7 +620,7 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
       // writes, then the required COLUMNS for a third-party file, then falls back to the
       // first sheet — so a single-sheet file behaves exactly as it always did.
       const { sheet: importedSheet, rows, otherSheets } = readEntitySheet(await file.arrayBuffer(), {
-        type: 'array', byteLength: file.size, sheetName: 'Anchors', requiredColumns: ['name', 'day_label'],
+        type: 'array', byteLength: file.size, sheetName: 'Fixed Events', requiredColumns: ['name', 'day_label'],
       })
 
       // Expand each row into one record per day

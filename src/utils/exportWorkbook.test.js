@@ -56,6 +56,19 @@ function fixture() {
         eligible_group_ids: '[]', location_id: null, source: 'import',
       },
     ],
+    // SLICE B2 (board q-export-columns-do-not-round-trip) — fixed_events gets its own "Fixed
+    // Events" sheet, re-imported via AnchorsScreen's own door, not the whole-workbook S4b path
+    // (see `screenImportOnly` on this entity's SHEET_LAYOUT entry).
+    fixed_events: [
+      {
+        id: 'fe-1', name: 'Mifkad', day_id: 'day-1', time_block_id: 'tb-1',
+        is_all_groups: 1, unit_ids: '[]', notes: 'All-camp lineup',
+      },
+      {
+        id: 'fe-2', name: 'Swim', day_id: 'day-2', time_block_id: 'tb-2',
+        is_all_groups: 0, unit_ids: JSON.stringify(['unit-a', 'unit-b']), notes: '',
+      },
+    ],
   }
 }
 
@@ -138,6 +151,64 @@ describe('exportWorkbook — sheets + columns', () => {
     // Explicit status word wins.
     const wb2 = exportWorkbook({ ...fixture(), tiers: [{ id: 'u', name: 'X', status: 'Unknown' }] })
     expect(sheetRows(wb2, 'Age Divisions')[0][STATUS_COLUMN]).toBe('Unknown')
+  })
+})
+
+describe('exportWorkbook — Fixed Events sheet (SLICE B2, board q-export-columns-do-not-round-trip)', () => {
+  it('is in SHEET_LAYOUT, named "Fixed Events", and flagged screenImportOnly (not part of the S4b whole-workbook path)', () => {
+    const layout = SHEET_LAYOUT.find((l) => l.entity === 'fixed_events')
+    expect(layout).toBeTruthy()
+    expect(layout.sheet).toBe('Fixed Events')
+    expect(layout.screenImportOnly).toBe(true)
+  })
+
+  it('header carries shoresh_id, the six editable columns, and Status', () => {
+    const wb = exportWorkbook(fixture())
+    const header = XLSX.utils.sheet_to_json(wb.Sheets['Fixed Events'], { header: 1 })[0]
+    expect(header).toEqual([
+      ID_COLUMN, 'name', 'day_label', 'time_block_name', 'is_all_tiers', 'tier_names', 'notes', STATUS_COLUMN,
+    ])
+  })
+
+  it('resolves day_id and time_block_id to their human names', () => {
+    const wb = exportWorkbook(fixture())
+    const rows = sheetRows(wb, 'Fixed Events')
+    expect(rows[0].day_label).toBe('Monday')
+    expect(rows[0].time_block_name).toBe('First Period')
+    expect(rows[1].day_label).toBe('Tuesday')
+    expect(rows[1].time_block_name).toBe('Second Period')
+  })
+
+  it('renders is_all_groups as TRUE/FALSE text, matching AnchorsScreen\'s own parser', () => {
+    const wb = exportWorkbook(fixture())
+    const rows = sheetRows(wb, 'Fixed Events')
+    expect(rows[0].is_all_tiers).toBe('TRUE')
+    expect(rows[1].is_all_tiers).toBe('FALSE')
+  })
+
+  it('renders unit_ids as comma-separated division names, empty when none', () => {
+    const wb = exportWorkbook(fixture())
+    const rows = sheetRows(wb, 'Fixed Events')
+    expect(rows[0].tier_names).toBe('')
+    expect(rows[1].tier_names).toBe('Aleph, Bet')
+  })
+
+  it('carries name and notes through unchanged', () => {
+    const wb = exportWorkbook(fixture())
+    const rows = sheetRows(wb, 'Fixed Events')
+    expect(rows[0].name).toBe('Mifkad')
+    expect(rows[0].notes).toBe('All-camp lineup')
+    expect(rows[1].notes).toBe('')
+  })
+
+  it('an unresolvable day_id/time_block_id (dangling FK) renders blank, not a crash', () => {
+    const wb = exportWorkbook({
+      ...fixture(),
+      fixed_events: [{ id: 'fe-x', name: 'Ghost', day_id: 'missing-day', time_block_id: 'missing-block', is_all_groups: 1, unit_ids: '[]' }],
+    })
+    const rows = sheetRows(wb, 'Fixed Events')
+    expect(rows[0].day_label).toBe('')
+    expect(rows[0].time_block_name).toBe('')
   })
 })
 
