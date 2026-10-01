@@ -281,6 +281,83 @@ describe('T250 A1 — Finalize run', () => {
     const row = await screen.findByRole('alert')
     await waitFor(() => expect(document.activeElement).toBe(row))
   })
+
+  // F4 (Red Hat round 3) — via the Finalize button alone, a SECOND, DIFFERENT
+  // refusal already re-focuses correctly: finalizeRun() calls
+  // setFinalizeRefusal(null) before every attempt, which unmounts/remounts
+  // FinalizeRefusalRow and re-runs its mount effect regardless of the
+  // `[alert]` dependency array. Pinned here as a baseline, not the bug.
+  it('a SECOND, DIFFERENT refusal from a second Finalize click re-focuses', async () => {
+    localClient.finalizeElectiveRun.mockResolvedValueOnce({ ok: false, error: 'STALE_OUTER_SCHEDULE', findings: [] })
+    render(<DraftRunView run={DRAFT_RUN} onFinalized={vi.fn()} onRegenerate={vi.fn()} {...catalogs()} />)
+    const button = await screen.findByRole('button', { name: 'Finalize run' })
+    fireEvent.click(button)
+    const firstRow = await screen.findByRole('alert')
+    expect(firstRow.textContent).toMatch(/This run's schedule changed on another device/)
+    await waitFor(() => expect(document.activeElement).toBe(firstRow))
+
+    button.focus()
+    localClient.finalizeElectiveRun.mockResolvedValueOnce({ ok: false, error: 'OUTER_RESOURCE_CONFLICT', findings: [] })
+    fireEvent.click(button)
+    await waitFor(() => {
+      const row = screen.getByRole('alert')
+      expect(row.textContent).toMatch(/A location or activity this run depends on is now double-booked/)
+      expect(document.activeElement).toBe(row)
+    })
+  })
+
+  // F4 (Red Hat round 3) — THE REAL BUG, found by tracing which refusals
+  // share the SAME rendered shape. STALE_OUTER_SCHEDULE renders through a
+  // DIFFERENT branch (a wrapping <div> + its own paired action) than every
+  // other refusal (a bare <RunStateRow testId="run-state-finalize-refusal"
+  // first last alert />) — so a transition INTO or OUT OF STALE_OUTER_SCHEDULE
+  // changes the returned element's TYPE at that position, which React
+  // reconciles as an unmount+remount regardless of the `[alert]` dependency
+  // array (a mount always runs its effect). That accidentally masks the bug
+  // for that one transition.
+  //
+  // THE GENUINELY BROKEN PATH: guardedRegenerate's cold-status check
+  // (DraftRunView.jsx) calls `setFinalizeRefusal({ error:
+  // 'FINALIZED_ELSEWHERE', ... })` DIRECTLY, with no reset — and
+  // FINALIZED_ELSEWHERE renders through the SAME generic branch as e.g.
+  // OUTER_RESOURCE_CONFLICT. A director who sees an OUTER_RESOURCE_CONFLICT
+  // refusal and separately clicks the STALENESS OFFER's own "Re-derive and
+  // regenerate" button (a different control, reachable independent of the
+  // refusal row) can trigger guardedRegenerate's cold-check, which overwrites
+  // the SAME RunStateRow instance in place — same key, same `alert={true}`,
+  // never unmounted — so the mount effect never re-fires and neither
+  // announcement nor focus move happens.
+  it('OUTER_RESOURCE_CONFLICT -> FINALIZED_ELSEWHERE via the staleness offer\'s regenerate (same row instance, no reset) re-focuses too', async () => {
+    localClient.getElectiveRun.mockResolvedValue({ ...CLEAN_RUN_STATE, staleCount: 1 })
+    localClient.finalizeElectiveRun.mockResolvedValueOnce({ ok: false, error: 'OUTER_RESOURCE_CONFLICT', findings: [] })
+    localClient.listElectiveRuns.mockResolvedValue([{ ...DRAFT_RUN, status: 'final' }])
+    const onFinalized = vi.fn()
+    render(<DraftRunView run={DRAFT_RUN} onFinalized={onFinalized} onRegenerate={vi.fn()} coldRegenerate {...catalogs()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Finalize run' }))
+    const firstRow = await screen.findByRole('alert')
+    expect(firstRow.textContent).toMatch(/A location or activity this run depends on is now double-booked/)
+    await waitFor(() => expect(document.activeElement).toBe(firstRow))
+
+    // Move focus AWAY and CONFIRM it moved — fireEvent.click does not
+    // simulate a real browser's focus-follows-click, so without this
+    // explicit step and assertion, a later "focus is back on the row" check
+    // could pass vacuously because focus never actually left it.
+    firstRow.blur()
+    expect(document.activeElement).not.toBe(firstRow)
+
+    // THE STALENESS OFFER's OWN regenerate button — a separate control from
+    // the (button-less) OUTER_RESOURCE_CONFLICT refusal row — triggers the
+    // SAME guardedRegenerate cold-check.
+    const offer = await screen.findByTestId('run-staleness-offer')
+    fireEvent.click(within(offer).getByRole('button', { name: /Re-derive and regenerate/i }))
+
+    await waitFor(() => {
+      const row = screen.getByRole('alert')
+      expect(row.textContent).toMatch(/finalized on another device while you had it open/i)
+      expect(document.activeElement).toBe(row)
+    })
+  })
 })
 
 // ---------------------------------------------------------------------------

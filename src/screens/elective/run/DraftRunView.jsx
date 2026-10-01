@@ -241,6 +241,27 @@ export default function DraftRunView({
   const [finalizing, setFinalizing] = useState(false)
   // { error, findings } for the refusal row, or null when nothing to say.
   const [finalizeRefusal, setFinalizeRefusal] = useState(null)
+  // F4 (Red Hat round 3) — a monotonic id, bumped every time a NEW refusal is
+  // reported, used as FinalizeRefusalRow's `key` below. Without it, two
+  // refusals that render through the SAME branch (every error except
+  // STALE_OUTER_SCHEDULE, which alone gets a different wrapping shape) keep
+  // the identical React element position/type across the state change, so
+  // the row's own RunStateRow instance is never unmounted — and its
+  // `useEffect(..., [alert])` focus/announce effect, keyed only on the
+  // boolean `alert` (which stays `true` the whole time), never re-fires. A
+  // real repro: guardedRegenerate's cold-status check calls
+  // `setFinalizeRefusal({ error: 'FINALIZED_ELSEWHERE', ... })` directly (no
+  // intervening null, unlike finalizeRun()'s own reset), so a director who
+  // sees an OUTER_RESOURCE_CONFLICT refusal and then separately clicks the
+  // staleness offer's regenerate button got a silently-updated row with no
+  // re-announcement and no refocus. Forcing a `key` change on every report
+  // guarantees a genuine remount — and therefore a genuine mount-effect
+  // re-run — regardless of whether the two refusals happen to share a shape.
+  const [finalizeRefusalSeq, setFinalizeRefusalSeq] = useState(0)
+  function reportFinalizeRefusal(refusal) {
+    setFinalizeRefusalSeq((s) => s + 1)
+    setFinalizeRefusal(refusal)
+  }
   // T250 A4 — the Delete run confirmation, shown on demand.
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   // T297 — set by a preference edit, and the ONLY thing that offers the re-solve
@@ -443,14 +464,14 @@ export default function DraftRunView({
         return
       }
       if (out?.error === 'ALREADY_FINAL') {
-        setFinalizeRefusal({ error: out.error, findings: [] })
+        reportFinalizeRefusal({ error: out.error, findings: [] })
         await reload()
         onFinalized?.({ ...run, status: 'final' })
         return
       }
-      setFinalizeRefusal({ error: out?.error ?? 'unknown error', findings: out?.findings ?? [] })
+      reportFinalizeRefusal({ error: out?.error ?? 'unknown error', findings: out?.findings ?? [] })
     } catch (err) {
-      setFinalizeRefusal({ error: describeWriteFailure(err, 'That could not be finalized.'), findings: [] })
+      reportFinalizeRefusal({ error: describeWriteFailure(err, 'That could not be finalized.'), findings: [] })
     } finally {
       setFinalizing(false)
       finalizingRef.current = false
@@ -481,7 +502,7 @@ export default function DraftRunView({
       try {
         const current = (await localClient.listElectiveRuns())?.find((r) => r.id === run.id)
         if (current?.status === 'final') {
-          setFinalizeRefusal({ error: 'FINALIZED_ELSEWHERE', findings: [] })
+          reportFinalizeRefusal({ error: 'FINALIZED_ELSEWHERE', findings: [] })
           onFinalized?.({ ...run, status: 'final' })
           return
         }
@@ -726,7 +747,10 @@ export default function DraftRunView({
     // run-state area rather than a separate block.
     finalizeRefusal ? (
       <FinalizeRefusalRow
-        key="finalize-refusal"
+        // F4 — keyed on the report sequence, not a static string, so EVERY
+        // reported refusal is a genuine remount (see finalizeRefusalSeq's
+        // own comment above).
+        key={`finalize-refusal-${finalizeRefusalSeq}`}
         refusal={finalizeRefusal}
         onRegenerate={regenerate}
         lockedAssignments={lockedAssignments}
