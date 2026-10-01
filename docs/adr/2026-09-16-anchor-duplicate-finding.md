@@ -8,7 +8,7 @@ date: 2026-09-16
 program: engine-data-seam
 affects:
   - src/engine/buildSchedule.js
-  - src/engine/anchorActivityLink.js
+  - src/engine/fixedEventActivityLink.js
   - src/screens/schedule/useScheduleData.js
   - src/screens/ScheduleScreen.jsx
   - src/screens/schedule/useGeneration.js

@@ -36,8 +36,8 @@ export function buildScheduleLookups({
 // reference (the event/elective it points at was deleted).
 export function resolveSlotCell(slot, lookups) {
   if (!slot) return { kind: 'empty', ref_id: null, name: null }
-  if (slot.is_anchor) {
-    return { kind: 'anchor', ref_id: slot.anchor_id ?? null, name: lookups.anchorLookup.get(slot.anchor_id) ?? null }
+  if (slot.is_fixed_event) {
+    return { kind: 'anchor', ref_id: slot.fixed_event_id ?? null, name: lookups.anchorLookup.get(slot.fixed_event_id) ?? null }
   }
   if (slot.event_id) {
     const ev = lookups.eventLookup.get(slot.event_id)

@@ -12,7 +12,7 @@ affects:
   - src/utils/exportWorkbook.js
   - src/screens/GroupsScreen.jsx
   - src/screens/ActivitiesScreen.jsx
-  - src/screens/AnchorsScreen.jsx
+  - src/screens/FixedEventsScreen.jsx
   - src/screens/DaysScreen.jsx
   - src/screens/TiersScreen.jsx
   - src/screens/TimeBlocksScreen.jsx

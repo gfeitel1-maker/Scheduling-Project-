@@ -104,7 +104,7 @@ describe('exportToExcel — events overlay branch', () => {
 // toSlotBool coercion on the nullable INTEGER column — but exportToExcel
 // never reads is_span_head at all (src/utils/exportSchedule.js:18-20,36-38
 // and src/utils/scheduleCells.js:39-54 resolve a cell purely from
-// group_id/day_id/time_block_id plus is_anchor/event_id/elective_set_id/
+// group_id/day_id/time_block_id plus is_fixed_event/event_id/elective_set_id/
 // activity_id). What this test actually asserts is per-period coverage: N
 // template_slots rows sharing one activity_id across N distinct time blocks
 // produce N separate Excel cells, one per covered period. Whether those N

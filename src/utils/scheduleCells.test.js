@@ -35,7 +35,7 @@ describe('resolveSlotCell — structured cell records', () => {
   })
 
   it('anchor cell resolves anchor ref + name', () => {
-    const c = resolveSlotCell({ is_anchor: 1, anchor_id: 'anc-1' }, lookups)
+    const c = resolveSlotCell({ is_fixed_event: 1, fixed_event_id: 'anc-1' }, lookups)
     expect(c).toEqual({ kind: 'anchor', ref_id: 'anc-1', name: 'Lunch' })
   })
 
@@ -60,7 +60,7 @@ describe('resolveSlotCell — structured cell records', () => {
   })
 
   it('precedence: anchor beats event/elective/activity on the same row', () => {
-    const c = resolveSlotCell({ is_anchor: 1, anchor_id: 'anc-1', event_id: 'ev-1', activity_id: 'act-1' }, lookups)
+    const c = resolveSlotCell({ is_fixed_event: 1, fixed_event_id: 'anc-1', event_id: 'ev-1', activity_id: 'act-1' }, lookups)
     expect(c.kind).toBe('anchor')
   })
 })

@@ -16,7 +16,7 @@ affects:
   - src/ingest/sheetGrid.js
   - src/screens/ImportScreen.jsx
   - src/screens/ActivitiesScreen.jsx
-  - src/screens/AnchorsScreen.jsx
+  - src/screens/FixedEventsScreen.jsx
   - src/screens/DaysScreen.jsx
   - src/screens/GroupsScreen.jsx
   - src/screens/LocationsScreen.jsx

@@ -2,7 +2,7 @@
 // localClient.list(), which returns raw `SELECT *` output with no coercion
 // (electron/main.js). eligible_tier_ids / eligible_group_ids are stored as
 // JSON-stringified arrays (NULL means "no restriction"), never real arrays —
-// same class of bug as the is_anchor/is_span_head INTEGER columns fixed in
+// same class of bug as the is_fixed_event/is_span_head INTEGER columns fixed in
 // normalizeSlots.js. Every consumer that reads eligibility off an activity
 // row must go through this first, or `'[]'` (a 2-char truthy string) reads
 // as "restricted to nothing" instead of "no restrictions".

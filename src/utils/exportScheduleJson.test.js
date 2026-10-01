@@ -48,7 +48,7 @@ describe('buildScheduleExport — versioned JSON schedule export', () => {
 
   it('represents each cell kind: anchor / event / elective (with members)', () => {
     const slots = [
-      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', is_anchor: 1, anchor_id: 'anc-1' },
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', is_fixed_event: 1, fixed_event_id: 'anc-1' },
       { group_id: 'g2', day_id: 'd1', time_block_id: 'b1', event_id: 'ev-1' },
     ]
     const out = buildScheduleExport(base(slots))

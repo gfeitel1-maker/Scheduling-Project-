@@ -48,7 +48,7 @@ const week = { id: 'w1', name: 'Week 1' }
 // is dropped without disturbing order.
 const slots = [
   { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1' },              // plain activity
-  { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', is_anchor: 1, anchor_id: 'anc-1' },  // anchor
+  { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', is_fixed_event: 1, fixed_event_id: 'anc-1' },  // anchor
   { group_id: 'g2', day_id: 'd1', time_block_id: 'b1', event_id: 'ev-1' },                  // event
   { group_id: 'g2', day_id: 'd1', time_block_id: 'b2', elective_set_id: 'set-1' },          // elective + members
   { group_id: 'g3', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-3' },              // unicode name
