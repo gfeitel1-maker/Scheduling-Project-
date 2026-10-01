@@ -173,6 +173,14 @@ export function rollbackV73(db) {
         DROP INDEX IF EXISTS idx_groups_camp_name;
         CREATE UNIQUE INDEX IF NOT EXISTS idx_groups_camp_name ON groups(camp_id, name);
 
+        -- fixed_event_model (T293, v84), not anchor_model: unlike localDb.js's forward v73 block
+        -- (which must detect the live column name dynamically, because it can run BEFORE v84 on a
+        -- genuine forward migration), this rollback only ever runs AFTER a full initSchema() to
+        -- CURRENT — every real and test call site rolls back from v84+ — so the live cohorts
+        -- column is always already fixed_event_model by the time this rebuild's SELECT reads it.
+        -- This rebuild is undoing v73's UNIQUE constraint only, a reason orthogonal to the v84
+        -- column rename; restating the column under its OLD name here would make the SELECT read
+        -- a column that does not exist.
         CREATE TABLE cohorts_v72 (
           id TEXT PRIMARY KEY,
           camp_id TEXT NOT NULL REFERENCES camps(id),
@@ -180,12 +188,12 @@ export function rollbackV73(db) {
           session_week_start TEXT,
           session_week_end TEXT,
           capacity_source TEXT,
-          anchor_model TEXT,
+          fixed_event_model TEXT,
           sort_order INTEGER,
           UNIQUE(camp_id, name)
         );
-        INSERT INTO cohorts_v72 (id, camp_id, name, session_week_start, session_week_end, capacity_source, anchor_model, sort_order)
-          SELECT id, camp_id, name, session_week_start, session_week_end, capacity_source, anchor_model, sort_order FROM cohorts;
+        INSERT INTO cohorts_v72 (id, camp_id, name, session_week_start, session_week_end, capacity_source, fixed_event_model, sort_order)
+          SELECT id, camp_id, name, session_week_start, session_week_end, capacity_source, fixed_event_model, sort_order FROM cohorts;
         DROP TABLE cohorts;
         ALTER TABLE cohorts_v72 RENAME TO cohorts;
         DROP INDEX IF EXISTS idx_cohorts_camp_name;

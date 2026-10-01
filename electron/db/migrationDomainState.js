@@ -67,6 +67,16 @@ export const DOMAIN_STATE_MIGRATIONS = new Map([
   // instance (no live camp predates v57's document era yet), but classified honestly rather than
   // assumed safe.
   [77, 'backfills fixed_events.activity_id by name-match against activities (T267)'],
+  // v84 (T293, docs/adr/2026-10-01-anchors-become-fixed-and-recurring-events.md). The three
+  // column renames are table shape, but the migration ALSO rewrites schedule_snapshots.slots —
+  // a MODELED field (PROJECTIONS.schedule_snapshots.fields includes 'slots') — by direct SQL
+  // UPDATE, outside the document, same shape as v77's fixed_events.activity_id backfill above.
+  // Each element's anchor_id/is_anchor keys are renamed to fixed_event_id/is_fixed_event; the
+  // VALUES are unchanged, but the write still bypasses appendOp, so on a document-bearing camp
+  // that rewritten JSON would never reach the document and the next projectAll/merge could
+  // silently discard it. Unreachable today for the same reason v70/v77 were "first reachable
+  // instance" rather than already-happened — classified honestly rather than assumed safe.
+  [84, 'rewrites schedule_snapshots.slots element keys (anchor_id/is_anchor -> fixed_event_id/is_fixed_event) by direct SQL (T293)'],
 ])
 
 // DELIBERATELY NOT IN THE SET ABOVE, though they do run UPDATE against a table

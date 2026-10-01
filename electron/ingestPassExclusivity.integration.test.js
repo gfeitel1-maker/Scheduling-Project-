@@ -316,9 +316,9 @@ function scheduleFromDb() {
   expect(input.groups.length).toBeGreaterThan(0)
   expect(input.timeBlocks.length).toBeGreaterThan(0)
   expect(input.days.length).toBeGreaterThan(0)
-  expect(input.anchors.length).toBeGreaterThan(0)
+  expect(input.fixedEvents.length).toBeGreaterThan(0)
   // buildSchedule's documented flat signature (CLAUDE.md, "Schedule engine"):
-  // { groups, tiers, days, timeBlocks, activities, anchors, campId }. `cohorts`
+  // { groups, tiers, days, timeBlocks, activities, fixedEvents, campId }. `cohorts`
   // is deliberately NOT forwarded — the engine's other call shape expects
   // pre-assembled cohort ENTRIES ({ cohort, timeBlocks, tiers, groups, ... }),
   // which the screen builds and the raw rows are not.
@@ -336,8 +336,8 @@ function anchorPlacementsByName(result, name) {
   const anchorNameById = new Map(anchorRows().map((a) => [a.id, a.name]))
   const counts = new Map()
   for (const s of result.slots) {
-    if (s.type !== 'anchor' || s.is_span_head === false) continue
-    if (anchorNameById.get(s.anchorId) !== name) continue
+    if (s.type !== 'fixed_event' || s.is_span_head === false) continue
+    if (anchorNameById.get(s.fixedEventId) !== name) continue
     const k = `${s.groupId}|${s.dayId}`
     counts.set(k, (counts.get(k) || 0) + 1)
   }
