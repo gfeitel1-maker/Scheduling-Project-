@@ -335,7 +335,7 @@ function removeSlotRows(db, rows, { author_user_id, device_id }) {
 // the same destructive class as a group. Its anchors block the
 // delete through a real FK; its template_slots rows do NOT (day_id carries no
 // FK) and today are silently orphaned instead. An orphan is not harmless — it
-// is counted by latestScopeOpSeq, carried by bulkReplace, and rendered in a
+// is carried by bulkReplace and rendered in a
 // grid position that no longer exists — so it is deleted here too.
 function removeDayFromWeek(db, { day_id, slots, author_user_id, device_id }) {
   const del = (entity, entity_id) =>

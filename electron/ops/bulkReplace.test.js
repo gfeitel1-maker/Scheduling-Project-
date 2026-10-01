@@ -9,10 +9,7 @@ import {
   isBulkReplaceOp,
   BULK_REPLACE_FIELD,
   MAX_BULK_REPLACE_ROWS,
-  latestScopeOpSeq,
-  detectBulkReplaceConflict,
 } from './operations.js'
-import { appendOp } from './operations.js'
 
 // Discards the cached template. Per-test cleanup would rebuild the chain every time and
 // undo the saving, so this runs once, at the end (T188/F2).
@@ -168,89 +165,6 @@ describe('bulk_replace oversized payload never reaches the DB', () => {
     expect(rows.map((r) => r.id)).toEqual(['slot-orig-1', 'slot-orig-2'])
     const opCount = db.prepare('SELECT COUNT(*) as c FROM operations WHERE entity_id = ?').get('template-oversized').c
     expect(opCount).toBe(0)
-  })
-})
-
-describe('per-scope conflict detection (round 2)', () => {
-  it('latestScopeOpSeq is 0 for a scope with no ops yet', () => {
-    expect(latestScopeOpSeq(db, 'template_slots', 'template-fresh')).toBe(0)
-  })
-
-  it('latestScopeOpSeq reflects a prior bulk_replace on the same scope', () => {
-    const rows = [{ id: 's1', template_id: 'template-scope-a', group_id: 'group-1', activity_id: 'activity-swim', day_id: null, time_block_id: null }]
-    const op = appendBulkReplaceOp(db, {
-      entity: 'template_slots',
-      scope_id: 'template-scope-a',
-      rows,
-      author_user_id: 'user-1',
-      device_id: 'device-1',
-      client_write_id: 'cw-scope-a',
-    })
-    expect(latestScopeOpSeq(db, 'template_slots', 'template-scope-a')).toBe(op.seq)
-  })
-
-  it('latestScopeOpSeq reflects a field-level op on a row currently in the scope', () => {
-    const rows = [{ id: 'row-x', template_id: 'template-scope-b', group_id: 'group-1', activity_id: 'activity-swim', day_id: null, time_block_id: null }]
-    appendBulkReplaceOp(db, {
-      entity: 'template_slots',
-      scope_id: 'template-scope-b',
-      rows,
-      author_user_id: 'user-1',
-      device_id: 'device-1',
-      client_write_id: 'cw-scope-b-1',
-    })
-    // A field-level edit to row-x (entity_id = the row's own id, not the scope_id).
-    const fieldOp = appendOp(db, {
-      entity: 'template_slots',
-      entity_id: 'row-x',
-      field: 'activity_id',
-      value: 'activity-kayak',
-      author_user_id: 'user-1',
-      device_id: 'device-1',
-      parent_op_id: null,
-    })
-    expect(latestScopeOpSeq(db, 'template_slots', 'template-scope-b')).toBe(fieldOp.seq)
-  })
-
-  it('detectBulkReplaceConflict reports no conflict when based_on_seq is current', () => {
-    const rows = [{ id: 's1', template_id: 'template-scope-c', group_id: 'group-1', activity_id: 'activity-swim', day_id: null, time_block_id: null }]
-    const op = appendBulkReplaceOp(db, {
-      entity: 'template_slots',
-      scope_id: 'template-scope-c',
-      rows,
-      author_user_id: 'user-1',
-      device_id: 'device-1',
-      client_write_id: 'cw-scope-c',
-    })
-    const result = detectBulkReplaceConflict(db, { entity: 'template_slots', scope_id: 'template-scope-c', based_on_seq: op.seq })
-    expect(result.conflict).toBe(false)
-  })
-
-  it('detectBulkReplaceConflict reports a conflict when a newer field-level op landed in scope after based_on_seq', () => {
-    const rows = [{ id: 'row-y', template_id: 'template-scope-d', group_id: 'group-1', activity_id: 'activity-swim', day_id: null, time_block_id: null }]
-    const bulkOp = appendBulkReplaceOp(db, {
-      entity: 'template_slots',
-      scope_id: 'template-scope-d',
-      rows,
-      author_user_id: 'user-1',
-      device_id: 'device-1',
-      client_write_id: 'cw-scope-d',
-    })
-    // Device B's snapshot is taken right after the bulk_replace (based_on_seq = bulkOp.seq).
-    const staleBasedOnSeq = bulkOp.seq
-    // Device A then edits row-y's activity_id concurrently.
-    const fieldOp = appendOp(db, {
-      entity: 'template_slots',
-      entity_id: 'row-y',
-      field: 'activity_id',
-      value: 'activity-kayak',
-      author_user_id: 'user-1',
-      device_id: 'device-1',
-      parent_op_id: null,
-    })
-    const result = detectBulkReplaceConflict(db, { entity: 'template_slots', scope_id: 'template-scope-d', based_on_seq: staleBasedOnSeq })
-    expect(result.conflict).toBe(true)
-    expect(result.existingOp.id).toBe(fieldOp.id)
   })
 })
 

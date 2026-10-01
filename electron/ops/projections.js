@@ -1232,7 +1232,8 @@ export const PROJECTIONS = {
 
   // Registered so that DELETE_FIELD ops from deleteWeek.js can physically
   // remove stale conflict rows when their referenced entity is deleted.
-  // Conflicts are created by raw SQL (recordConflict in operations.js), no
+  // Conflicts are created by raw SQL (conflictStore.recordConflicts and
+  // recordUniqueConflicts in electron/automerge/conflictStore.js), not
   // via appendOp, so ensureExists is a no-op — a conflict row is never
   // created by projection replay. No field writes via op-log either.
   conflicts: {

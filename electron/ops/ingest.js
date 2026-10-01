@@ -1720,10 +1720,10 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   // or never-set, so it writes freely: value = delta.to, source = 'import', and
   // parent_op_id = the field's prior op id (null only when the field had no prior
   // op). Direct appendOp — the same local committer path commitCreate uses.
-  // _Prior: "detectConflict runs only on the WS submit_op path, not here (ADR §2
-  // R6)." There is no WS submit_op path — it was deleted at the Stage 6c cutover
-  // — so detectConflict now runs on NO production path at all (it is exercised
-  // only by operations.test.js). The conclusion this comment was drawing still
+  // _Prior: "~~detectConflict~~ runs only on the WS submit_op path, not here
+  // (ADR §2 R6)." There is no WS submit_op path — it was deleted at the Stage 6c
+  // cutover — and the function itself is now gone too, deleted from
+  // operations.js by T311 finding 2. The conclusion this comment was drawing still
   // holds and is now structural: an import write is not conflict-checked here.
   // Cross-device disagreement is settled by the CRDT reconciler
   // (electron/automerge/reconcile.js) off the merged document instead._
@@ -2889,7 +2889,7 @@ export function ingestUndo(db, { invertibleOps, createdEntityIds = [], author_us
       }
 
       // Invariant 4 (ADR, binding): PLAIN seq via latestOp, never
-      // COALESCE(host_seq, seq) via latestOpSeq/latestScopeOpSeq. Undo only
+      // COALESCE(host_seq, seq) via latestOpSeq. Undo only
       // ever runs against the SAME device's db that captured invertibleOps —
       // invertibleOps is renderer-memory-scoped (Invariant 5) and never
       // crosses a device boundary — so there is no Client-vs-Host

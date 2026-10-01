@@ -312,7 +312,7 @@ const PROJECTION_FIELD_EXCEPTIONS = {
     },
   ],
   conflicts: [
-    { column: 'entity', reason: 'Written only by raw SQL in recordConflict() (electron/ops/operations.js), never via appendOp/PROJECTIONS.' },
+    { column: 'entity', reason: 'Written only by raw SQL in recordConflicts()/recordUniqueConflicts() (electron/automerge/conflictStore.js), off the merged document, never via appendOp/PROJECTIONS.' },
     { column: 'entity_id', reason: 'Same as `entity` above — raw-SQL-only column on a non-appendOp table.' },
     { column: 'field', reason: 'Same as `entity` above — raw-SQL-only column on a non-appendOp table.' },
     { column: 'incoming_op', reason: 'Same as `entity` above — raw-SQL-only column on a non-appendOp table.' },
@@ -322,12 +322,12 @@ const PROJECTION_FIELD_EXCEPTIONS = {
     {
       column: 'resolved_at',
       reason:
-        "Set only by raw SQL at electron/ops/operations.js:515 (`UPDATE conflicts SET resolved_at = ? WHERE id = ?`, in the pending-conflict resolution scan), never via appendOp.",
+        'Set only by raw SQL (`UPDATE conflicts SET resolved_at = ? WHERE id = ?`) — by clearResolvedConflicts()/clearResolvedUniqueConflicts() in electron/automerge/conflictStore.js when the disagreement leaves the document, and by listPendingConflicts() in electron/ops/operations.js as its lazy resolution scan. Never via appendOp.',
     },
     {
       column: 'entity_ids',
       reason:
-        'v73 addition (Decision 1 of docs/adr/2026-09-23-merge-unique-collision-schema-and-conflict-shape.md) — same as `entity` above: written only by raw SQL in recordConflict(), never via appendOp/PROJECTIONS. conflicts rows are derived from the merged document and never replicated, so there is nothing to project.',
+        'v73 addition (Decision 1 of docs/adr/2026-09-23-merge-unique-collision-schema-and-conflict-shape.md) — same as `entity` above, narrower writer: set only by raw SQL in recordUniqueConflicts() (electron/automerge/conflictStore.js), never via appendOp/PROJECTIONS. conflicts rows are derived from the merged document and never replicated, so there is nothing to project.',
     },
     {
       column: 'kind',
