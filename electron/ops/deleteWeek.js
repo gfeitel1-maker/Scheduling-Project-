@@ -1,19 +1,37 @@
 import { appendOp, DELETE_FIELD, runAtomic } from './operations.js'
 
 // Permanently delete a week and every row scoped to it, in one transaction,
-// children before parents, every delete routed through the op-log so it
-// replicates and is auditable.
+// children before parents, every delete routed through appendOp. That routing
+// is what makes the delete auditable in THIS device's history, and it is also
+// what replicates it — not because the op log replicates (it does not; it is
+// device-local history and is never replayed across devices) but because
+// appendOp mirrors each write into the Automerge document on its way through
+// (operations.js's recordLocalWrite call).
 //
-// HOST ONLY — same pattern as deleteRecord.js and duplicateWeek.js. The
-// surviving reason is the second one: a join-mode device's delete could execute
-// against a count the director was shown earlier.
-//
-// _Prior: the first reason given was that "a Client cannot express a multi-op
-// atomic transaction over submit_op". `submit_op` and the WS transport it
-// belonged to were deleted at the Stage 6 cutover, so that premise is void —
-// every device runs the same local write path and can hold a transaction. Whether
-// the HOST-ONLY gate still belongs on the remaining reason alone is a product
-// judgement, not a comment fix; same shape as T311's finding 4 about
+// ⚠️ _Prior, and VOID rather than merely re-described: this header carried a
+// `HOST ONLY` access gate — "same pattern as deleteRecord.js and
+// duplicateWeek.js" — with a named "surviving reason": that a join-mode
+// device's delete could execute against a count the director was shown earlier.
+// There is no such gate. deleteWeekHandler (electron/main.js) enforces the
+// admin ROLE `schedule_weeks.delete` and nothing else, and a repo-wide search
+// for a device-role gate (isHost/HOST_ONLY/hostOnly/host_mode) finds no
+// enforcement of one anywhere under electron/ or src/ — the only live `isHost*`
+// symbol is Sidebar.jsx's `isHostNotSyncing` UI label, and `HOST_ONLY_TABLES`
+// in hostOnlyExclusion.test.js is about which tables stay OUT of the shared
+// document, not about who may call this. `HOST ONLY` is a Host/Client-era label
+// and that era ended at the Stage 6c cutover: this delete executes on whichever
+// device the director is using, joined or not, because every device holds the
+// whole document and the transaction is local — the same resolution
+// deleteRecord.js records for itself. Stated plainly because this is the app's
+// largest irreversible, non-restorable action, and no reader of this header may
+// be left believing a joined device is blocked from it. The count-drift
+// reasoning survives, corrected: it is why this delete is never QUEUED for
+// later, which is true on every device, and it was never evidence of a gate.
+// The reason given before that one — "a Client cannot express a multi-op atomic
+// transaction over submit_op" — is void twice over, since submit_op and the WS
+// transport it belonged to went at that same cutover and every device can now
+// hold the transaction. Whether a device-role gate SHOULD exist here is a
+// product judgement, not a comment fix; same shape as T311's finding 4 about
 // ingestCommit's gate._
 //
 // Cascade order per spec §4.1 — load-bearing, do not reorder:
@@ -36,8 +54,13 @@ import { appendOp, DELETE_FIELD, runAtomic } from './operations.js'
 //   - operations — append-only history, never deleted; this is what makes
 //     the delete auditable across devices.
 //
-// Returns { ops } for the caller to broadcast after commit,
-// or { error: 'last-week' } if this is the camp's only week.
+// Returns { ops } for the caller to REPORT after commit, or
+// { error: 'last-week' } if this is the camp's only week. _Prior: "for the
+// caller to broadcast after commit" — nothing broadcasts them. The only caller,
+// deleteWeekHandler in electron/main.js, strips `ops` off the result and returns
+// just its length as `ops_written`. The reason the ops are returned at all
+// survives: the caller needs the count, and replication has already happened
+// inside appendOp per the note above, so there is nothing left to send._
 export function deleteWeek(db, { weekId, campId }, { author_user_id, device_id } = {}) {
   if (typeof weekId !== 'string' || !weekId) return { error: 'no-week' }
 
