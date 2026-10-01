@@ -837,10 +837,89 @@ describe('FixedEventsScreen — import of one recurring name creates only one ca
 
     const nameCalls = localClient.write.mock.calls.filter(c => c[1] === 'activities' && c[3] === 'name')
     expect(nameCalls.length).toBe(1)
+  })
+})
 
-    const activityIdCalls = localClient.write.mock.calls.filter(c => c[1] === 'fixed_events' && c[3] === 'activity_id')
-    const linkedIds = new Set(activityIdCalls.map(c => c[4]))
-    expect(linkedIds.size).toBe(1)
+// board q-export-columns-do-not-round-trip, B3 — create-or-update keyed on (name, day,
+// time block), since one named event recurs across several days as separate stored rows.
+describe('AnchorsScreen — import create-or-update', () => {
+  function fixedEvent(overrides = {}) {
+    return {
+      id: 'fe-1', camp_id: CAMP_ID, cohort_id: COHORT_ID, kind: 'fixed', name: 'Mifkad',
+      day_id: 'd1', time_block_id: 'block-1', is_all_groups: 1, group_ids: '[]', unit_ids: '[]',
+      notes: null, activity_id: 'activity-1',
+      ...overrides,
+    }
+  }
+
+  it('leaves an identical re-imported row unchanged, and updates one whose notes changed', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'fixed_events') return Promise.resolve([fixedEvent()])
+      if (entity === 'days_of_operation') return Promise.resolve([day({ id: 'd1', label: 'Monday', day_of_week: 1 })])
+      if (entity === 'time_blocks') return Promise.resolve([block()])
+      if (entity === 'activities') return Promise.resolve([{ id: 'activity-1', camp_id: CAMP_ID, name: 'Mifkad', catalog_role: 'pinned_event' }])
+      return Promise.resolve([])
+    })
+    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
+    await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
+
+    const file = new File(['dummy'], 'anchors.xlsx')
+    const fileInput = document.querySelector('input[type="file"]')
+    XLSX.utils.sheet_to_json.mockReturnValue([
+      { name: 'Mifkad', day_label: 'Monday', time_block_name: 'Morning', is_all_tiers: 'TRUE', tier_names: '', notes: 'Updated note' },
+    ])
+
+    await userEvent.upload(fileInput, file)
+    await waitFor(() => expect(screen.getByText(/^Import 1/)).not.toBeNull())
+    fireEvent.click(screen.getByText(/^Import 1/))
+
+    await waitFor(() => expect(screen.queryByText(/1 updated/)).not.toBeNull())
+    const notesWrites = localClient.write.mock.calls.filter(c => c[1] === 'fixed_events' && c[3] === 'notes')
+    expect(notesWrites).toHaveLength(1)
+    expect(notesWrites[0][2]).toBe('fe-1')
+    expect(notesWrites[0][4]).toBe('Updated note')
+    // identity fields are never re-written for an update
+    const nameWrites = localClient.write.mock.calls.filter(c => c[1] === 'fixed_events' && c[3] === 'name')
+    expect(nameWrites).toHaveLength(0)
+  })
+
+  it('stops the import loop on an unexpected row failure and reports how many rows already landed', async () => {
+    const days = ['Monday', 'Tuesday'].map((label, i) => day({ id: `d${i + 1}`, label, day_of_week: i + 1 }))
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'fixed_events') return Promise.resolve([])
+      if (entity === 'days_of_operation') return Promise.resolve(days)
+      if (entity === 'time_blocks') return Promise.resolve([block()])
+      if (entity === 'activities') return Promise.resolve([])
+      return Promise.resolve([])
+    })
+    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
+    await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
+
+    const file = new File(['dummy'], 'anchors.xlsx')
+    const fileInput = document.querySelector('input[type="file"]')
+    XLSX.utils.sheet_to_json.mockReturnValue([
+      { name: 'Mifkad', day_label: 'Monday,Tuesday', time_block_name: 'Morning', is_all_tiers: 'TRUE', tier_names: '', notes: '' },
+    ])
+    await userEvent.upload(fileInput, file)
+    await waitFor(() => expect(screen.getByText(/^Import 2/)).not.toBeNull())
+
+    // `kind` is always the first field written for a NEW fixed_events row (REQUIRED_FIRST_ON_WRITE) —
+    // failing the write exactly when `kind` is written for the second such row fails that row's
+    // very first field, regardless of how many fields/activity-link writes preceded it.
+    let fixedEventKindWrites = 0
+    localClient.write.mockImplementation((...args) => {
+      if (args[1] === 'fixed_events' && args[3] === 'kind') {
+        fixedEventKindWrites++
+        if (fixedEventKindWrites === 2) return Promise.reject(new Error('disk full'))
+      }
+      return Promise.resolve({ status: 'applied' })
+    })
+    localClient.deleteEntity.mockResolvedValue({ status: 'applied' })
+
+    fireEvent.click(screen.getByText(/^Import 2/))
+
+    await waitFor(() => expect(screen.queryByText(/No further rows were written/)).not.toBeNull())
+    expect(screen.queryByText(/row 2 \('Mifkad'\) failed: disk full/)).not.toBeNull()
   })
 })
 

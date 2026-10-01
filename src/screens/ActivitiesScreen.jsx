@@ -18,6 +18,11 @@ import { duplicateSiblingsByIdFor } from './duplicateSiblings.js'
 import { filterFreeChoiceActivities } from '../engine/freeChoiceActivities'
 import WeekContextBar from '../components/schedule/WeekContextBar'
 import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialog'
+import { ENTITY_FIELD_CATALOGS, inferEntityMapping, applyEntityMapping, describeMappingIssue } from '../ingest/entityColumnMapping.js'
+import { resolveRowAction } from '../ingest/resolveRowAction.js'
+import { formatImportStopMessage } from '../ingest/importStopMessage.js'
+
+const ACTIVITIES_CATALOG = ENTITY_FIELD_CATALOGS.activities
 import { createScheduleRepository } from '../data/scheduleRepository'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { LocationPicker } from '../components/LocationPicker'
@@ -482,6 +487,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
   const [modal, setModal] = useState(null) // null | { activity } — activity=null means new
   const [importStep, setImportStep] = useState(null)
   const [importRows, setImportRows] = useState([])
+  const [importMapping, setImportMapping] = useState(null)
   // T315 — which tab this workbook's rows came from, when there was more than one to
   // choose between. Null on a single-sheet file: there was no choice, so there is
   // nothing to report.
@@ -887,6 +893,10 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
       const { sheet: importedSheet, rows, otherSheets } = readEntitySheet(ev.target.result, {
         type: 'array', byteLength: file.size, sheetName: 'Activities', requiredColumns: ['name'],
       })
+      const header = Object.keys(rows[0] ?? {})
+      const mapping = inferEntityMapping(header, ACTIVITIES_CATALOG)
+      const mappedRows = applyEntityMapping(rows, mapping, ACTIVITIES_CATALOG)
+      setImportMapping(mapping)
       // T255 Slice B — schema v73 lets two age divisions/activities/locations
       // share a name within one camp (they can arrive from a cross-device
       // merge). A plain last-write-wins Object.fromEntries/Map silently bound
@@ -913,7 +923,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
         l => String(l.name ?? '').trim()
       )
 
-      const parsed = rows.map(r => {
+      const parsed = mappedRows.map(r => {
         const name = String(r.name || '').trim()
         let warning = null
         if (!name) warning = 'Missing name'
@@ -995,7 +1005,6 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
     try {
       // Defense-in-depth: a stray malformed row here must not throw and
       // wedge the modal on "Importing…" forever.
-      const existingNames = new Set(activities.map(a => whitespaceInsensitiveName(a.name)))
       // D5 UI freeze, extended to this sheet-driven path (the sheet's
       // `location` column is a free-text place NAME, same resolution as
       // eligible_tiers/weather_alternative above): resolve it to a
@@ -1034,11 +1043,24 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
       // stays structurally safe (mapWithCollisions) rather than relying only
       // on that ordering.
       const { map: locationIdByName } = mapWithCollisions(locations, l => String(l.name ?? '').trim(), l => l.id)
-      let added = 0, skipped = 0
-      for (const row of importRows) {
+      const existingByKey = new Map(activities.map(a => [whitespaceInsensitiveName(a.name), a]))
+      // Code Reviewer HIGH+MEDIUM: only diff fields the sheet actually named. The parser
+      // fills in a DEFAULT for every optional column that's absent (max_groups_per_slot->1,
+      // priority->'low', etc.) so a CREATE has something to write — but diffing those
+      // defaults on an UPDATE would silently overwrite a director's real value with them.
+      // eligible_group_ids has NO catalog column at all (always [] from the parser) and is
+      // never provided, which is the fix for the exact bug Red Hat found: re-importing the
+      // app's OWN export (which never carries this column) was wiping a director's
+      // eligible_group_ids override to [] on every activity.
+      const ROLE_TO_DB_KEY = {
+        location: 'location_id', eligible_tiers: 'eligible_tier_ids', weather_alternative: 'weather_alternative_id',
+      }
+      const providedKeys = new Set(Object.keys(importMapping?.roles ?? {}).map(k => ROLE_TO_DB_KEY[k] ?? k))
+      let added = 0, updated = 0, unchanged = 0, skipped = 0
+      let stoppedAt = null
+      const totalCount = importRows.length
+      for (const [index, row] of importRows.entries()) {
         if (!row.name || row.warning) { skipped++; continue }
-        const lower = whitespaceInsensitiveName(row.name)
-        if (existingNames.has(lower)) { skipped++; continue }
 
         let locationId = null
         if (row.location) {
@@ -1066,34 +1088,46 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
           }
         }
 
-        const newId = crypto.randomUUID()
-        try {
-          // `name` first — same collision-fails-atomically reasoning as saveActivity.
-          await repository.createRecord('activities', newId, serializeFields({
-            name: row.name,
-            camp_id: campId,
-            location_id: locationId,
-            is_outdoor: row.is_outdoor,
-            max_groups_per_slot: row.max_groups_per_slot,
-            min_per_week: row.min_per_week,
-            max_per_week: row.max_per_week,
-            same_tier_only: row.same_tier_only,
-            priority: row.priority,
-            eligible_tier_ids: row.eligible_tier_ids,
-            eligible_group_ids: row.eligible_group_ids,
-            prefer_before_day: row.prefer_before_day,
-            prefer_before_day_min: row.prefer_before_day_min,
-            weather_alternative_id: row.weather_alternative_id,
-            notes: row.notes,
-          }))
-        } catch {
-          skipped++
-          continue
+        const candidateFields = {
+          location_id: locationId,
+          is_outdoor: row.is_outdoor,
+          max_groups_per_slot: row.max_groups_per_slot,
+          min_per_week: row.min_per_week,
+          max_per_week: row.max_per_week,
+          same_tier_only: row.same_tier_only,
+          priority: row.priority,
+          eligible_tier_ids: row.eligible_tier_ids,
+          eligible_group_ids: row.eligible_group_ids,
+          prefer_before_day: row.prefer_before_day,
+          prefer_before_day_min: row.prefer_before_day_min,
+          weather_alternative_id: row.weather_alternative_id,
+          notes: row.notes,
         }
-        added++
-        existingNames.add(lower)
+        const naturalKey = whitespaceInsensitiveName(row.name)
+        const resolution = resolveRowAction(naturalKey, candidateFields, existingByKey, providedKeys)
+        try {
+          if (resolution.action === 'unchanged') { unchanged++; continue }
+          if (resolution.action === 'update') {
+            await repository.writeFields('activities', resolution.existing.id, serializeFields(resolution.changedFields))
+            updated++
+            // Red Hat HIGH: refresh the baseline with the applied value for a later same-key row.
+            existingByKey.set(naturalKey, { ...resolution.existing, ...resolution.changedFields })
+            continue
+          }
+          const newId = crypto.randomUUID()
+          // `name` first — same collision-fails-atomically reasoning as saveActivity.
+          await repository.createRecord('activities', newId, serializeFields({ name: row.name, camp_id: campId, ...candidateFields }))
+          added++
+          existingByKey.set(naturalKey, { id: newId, name: row.name, ...candidateFields })
+        } catch (err) {
+          stoppedAt = formatImportStopMessage({
+            importedCount: added + updated, totalCount, rowNumber: index + 1,
+            rowName: row.name, reason: err?.message || 'an unexpected error',
+          })
+          break
+        }
       }
-      setImportResult({ added, skipped })
+      setImportResult({ added, updated, unchanged, skipped, stoppedAt })
       setImportStep('done')
     } catch (err) {
       setError(describeWriteFailure(err, 'That import could not be completed.'))
@@ -1331,10 +1365,14 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
         readyCount={readyRows.length}
         warnCount={warnRows.length}
         result={importResult}
+        confirmDisabled={!!importMapping && (importMapping.unmapped.length > 0 || importMapping.collision.length > 0)}
+        doneExtra={importResult?.stoppedAt && (
+          <div style={{ ...S.importWarnText, marginTop: 8 }}>{importResult.stoppedAt}</div>
+        )}
         importing={importing}
         onConfirm={confirmImport}
-        onCancel={() => { setImportStep(null); setImportRows([]) }}
-        previewSubtitle={<ImportPreviewSubtitle ready={readyRows.length} warn={warnRows.length} sheetNote={importSheetNote} />}
+        onCancel={() => { setImportStep(null); setImportRows([]); setImportMapping(null) }}
+        previewSubtitle={<ImportPreviewSubtitle ready={readyRows.length} warn={warnRows.length} sheetNote={importSheetNote} mappingIssue={describeMappingIssue(importMapping)} />}
         renderCell={(r, c) => {
           if (c.key === 'name') return r.name || '—'
           if (c.key === 'location') return (

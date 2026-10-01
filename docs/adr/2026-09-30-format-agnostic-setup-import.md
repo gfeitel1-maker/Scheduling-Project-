@@ -603,3 +603,36 @@ and per-day fan-out logic the S4b committers do not have.
 whole-workbook `fixed_events` re-import (bypassing `AnchorsScreen.jsx` entirely) remains a future
 decision, not this slice's. `buildCampDataWorkbook.js` is untouched (it already named this sheet
 "Fixed Events" and was the naming precedent this slice matched, not changed).
+
+## Amendment (2026-10-01) — §4.9 split: the honest half ships now, true atomicity is a named follow-on
+
+Code Reviewer flagged a doc-vs-code contradiction: §4.9 above commits this ADR to **atomic**
+multi-row imports (`runAtomic`, all-or-none, part 2 of the ticket) but slice B3's actual
+`confirmImport` change across all seven doors is a **hard-stop-and-report**, not a rollback —
+rows already written before an unexpected failure stay written. This amendment records the
+organizer's resolution, splitting §4.9's "part 2" into two pieces rather than changing what §4.9
+originally said (struck through nowhere; the original text above stands as the decision history).
+
+**What ships now (B3, this slice):**
+- Pre-validate at the gate — mapping/required-column problems block confirm entirely, before any
+  row is written (§4.1–§4.8's binder gating, unchanged by this amendment).
+- Per-row, a *predicted* outcome (unchanged, a resolved cohort mismatch, a derive-or-name row the
+  director already resolved) is not a failure and never stops the loop.
+- An *unexpected* mid-loop failure stops the loop immediately: rows already written stay written,
+  the door reports "Imported N of M rows; row K ('\<name\>') failed: \<reason\>. No further rows
+  were written." (`src/ingest/importStopMessage.js`, one spelling shared by all seven doors plus
+  `useCrudScreen.importRows`).
+- **No copy anywhere calls this "atomic."** It is a hard-stop-and-report. Director-facing and
+  code-comment language was audited for the word; where it appeared describing this behavior it
+  was corrected to say what actually happens.
+
+**What is deferred, named, and still owned by this ADR (not a new ADR):** true all-or-none
+rollback — wrapping a confirmed row set in `runAtomic` the way `commitElectiveRun.js`/
+`finalizeElectiveRun.js` already do, so a thrown error unwinds every op of that import rather than
+leaving the rows written before the failure in place — is delivered by a separate
+`electron/ops/importSetupRows` (`runAtomic`) primitive. That primitive is owned by the primary
+worker on this ticket, within this ADR (§4.9's acceptance criterion is unchanged: "a fixture
+import with an injected failure on row N leaves the database byte-identical to before the
+import"). Part 2 final swaps all seven doors from the hard-stop-and-report loop onto that
+primitive once it lands. Until then, §4.9's "atomic" language describes the TARGET state this
+amendment is honest about not yet being true.

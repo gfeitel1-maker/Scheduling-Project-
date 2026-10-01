@@ -223,7 +223,7 @@ describe('useCrudScreen — importRows', () => {
       importResult = await result.current.importRows(parsedRows, { mapRow, duplicateCheck })
     })
 
-    expect(importResult).toEqual({ added: 1, skipped: 2 })
+    expect(importResult).toEqual({ added: 1, updated: 0, unchanged: 0, skipped: 2, stoppedAt: null })
     expect(repository.calls.createRecord).toEqual([['days_of_operation', 'new-id', { label: 'Tuesday', camp_id: 'camp-1' }]])
   })
 
@@ -247,6 +247,108 @@ describe('useCrudScreen — importRows', () => {
       importResult = await result.current.importRows(parsedRows, { mapRow, duplicateCheck })
     })
 
-    expect(importResult).toEqual({ added: 1, skipped: 1 })
+    expect(importResult).toEqual({ added: 1, updated: 0, unchanged: 0, skipped: 1, stoppedAt: null })
+  })
+
+  // board q-export-columns-do-not-round-trip, B3 — findExisting/buildChangedFields replace a
+  // boolean duplicateCheck with create-or-update: a changed field writes via writeFields, an
+  // identical one writes nothing.
+  it('updates an existing row via findExisting/buildChangedFields when a field changed, and leaves an identical one unchanged', async () => {
+    const localClient = makeFakeLocalClient([
+      { id: 'existing-mon', camp_id: 'camp-1', label: 'Monday', day_of_week: 1 },
+      { id: 'existing-tue', camp_id: 'camp-1', label: 'Tuesday', day_of_week: 2 },
+    ])
+    const repository = fakeRepository()
+    const { result } = renderHook(() =>
+      useCrudScreen({ entity: 'days_of_operation', campId: 'camp-1', localClient, repository, scopeFilter, buildCreateFields: (f) => f })
+    )
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    const parsedRows = [
+      { label: 'Monday', day_of_week: 5, warning: null }, // changed day_of_week -> update
+      { label: 'Tuesday', day_of_week: 2, warning: null }, // identical -> unchanged
+    ]
+    const findExisting = (seen, row) => seen.find((r) => String(r.label).toLowerCase() === String(row.label).toLowerCase())
+    const buildChangedFields = (existing, row) =>
+      String(existing.day_of_week) !== String(row.day_of_week) ? { day_of_week: row.day_of_week } : null
+    const mapRow = (row) => ({ label: row.label, day_of_week: row.day_of_week, camp_id: 'camp-1' })
+
+    let importResult
+    await act(async () => {
+      importResult = await result.current.importRows(parsedRows, { mapRow, findExisting, buildChangedFields })
+    })
+
+    expect(importResult).toEqual({ added: 0, updated: 1, unchanged: 1, skipped: 0, stoppedAt: null })
+    expect(repository.calls.writeFields).toEqual([['days_of_operation', 'existing-mon', { day_of_week: 5 }]])
+  })
+
+  // Red Hat HIGH — a SECOND row sharing a natural key must diff against what the FIRST row
+  // actually applied, not the stale pre-import value. Row 1 sets priority low -> high
+  // (applied); row 2 sets it back to low — diffed against the stale original ('low') that
+  // reads as "unchanged" and row 2's own change is silently dropped.
+  it('a later row sharing the same key diffs against the FIRST row\'s applied value, not the stale original', async () => {
+    const localClient = makeFakeLocalClient([
+      { id: 'existing-1', camp_id: 'camp-1', label: 'Archery', priority: 'low' },
+    ])
+    const repository = fakeRepository()
+    const { result } = renderHook(() =>
+      useCrudScreen({ entity: 'activities', campId: 'camp-1', localClient, repository, scopeFilter, buildCreateFields: (f) => f })
+    )
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    const parsedRows = [
+      { label: 'Archery', priority: 'high', warning: null }, // low -> high, an update
+      { label: 'Archery', priority: 'low', warning: null },  // same key, back to low — must ALSO update
+    ]
+    const findExisting = (seen, row) => seen.find((r) => String(r.label).toLowerCase() === String(row.label).toLowerCase())
+    const buildChangedFields = (existing, row) =>
+      String(existing.priority) !== String(row.priority) ? { priority: row.priority } : null
+    const mapRow = (row) => ({ label: row.label, priority: row.priority, camp_id: 'camp-1' })
+
+    let importResult
+    await act(async () => {
+      importResult = await result.current.importRows(parsedRows, { mapRow, findExisting, buildChangedFields })
+    })
+
+    expect(importResult).toEqual({ added: 0, updated: 2, unchanged: 0, skipped: 0, stoppedAt: null })
+    expect(repository.calls.writeFields).toEqual([
+      ['activities', 'existing-1', { priority: 'high' }],
+      ['activities', 'existing-1', { priority: 'low' }],
+    ])
+  })
+
+  it('stops the loop on an unexpected createRecord failure and reports how many rows already landed', async () => {
+    const localClient = makeFakeLocalClient([])
+    let callCount = 0
+    const repository = fakeRepository({
+      createRecord: () => {
+        callCount++
+        return callCount === 2 ? Promise.reject(new Error('disk full')) : Promise.resolve()
+      },
+    })
+    const { result } = renderHook(() =>
+      useCrudScreen({ entity: 'days_of_operation', campId: 'camp-1', localClient, repository, scopeFilter, buildCreateFields: (f) => f })
+    )
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    const parsedRows = [
+      { label: 'Monday', warning: null },
+      { label: 'Tuesday', warning: null },
+      { label: 'Wednesday', warning: null },
+    ]
+    const duplicateCheck = () => false
+    const mapRow = (row) => ({ label: row.label, camp_id: 'camp-1' })
+
+    let importResult
+    await act(async () => {
+      importResult = await result.current.importRows(parsedRows, { mapRow, duplicateCheck })
+    })
+
+    expect(importResult.added).toBe(1)
+    expect(importResult.stoppedAt).toMatch(/Imported 1 of 3 rows; row 2 \('Tuesday'\) failed: disk full/)
+    expect(importResult.stoppedAt).toMatch(/No further rows were written/)
+    expect(importResult.stoppedAt.toLowerCase()).not.toContain('atomic')
+    // Wednesday was never attempted.
+    expect(repository.calls.createRecord).toHaveLength(2)
   })
 })

@@ -24,7 +24,7 @@ function statusFallback(rendered, row, column) {
 export default function ImportModal({
   step, title, width = 520, columns, rows, readyCount, warnCount, result,
   importing, onConfirm, onCancel, renderCell,
-  previewSubtitle, confirmLabel, doneSkippedSuffix, doneExtra,
+  previewSubtitle, confirmLabel, confirmDisabled, doneSkippedSuffix, doneExtra,
 }) {
   const dialogRef = useRef(null)
   const primaryRef = useRef(null)
@@ -95,7 +95,7 @@ export default function ImportModal({
             </table>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button className="press-97" onClick={onCancel} style={S.btnSecondary}>Cancel</button>
-              <button ref={primaryRef} className="press-97" onClick={onConfirm} disabled={importing || readyCount === 0} style={S.btnPrimary}>
+              <button ref={primaryRef} className="press-97" onClick={onConfirm} disabled={importing || readyCount === 0 || !!confirmDisabled} style={S.btnPrimary}>
                 {importing ? 'Importing…' : (confirmLabel ?? `Import ${readyCount}`)}
               </button>
             </div>
@@ -105,7 +105,13 @@ export default function ImportModal({
           <>
             <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 12 }}>{title}</div>
             <div style={{ fontSize: 14 }}>
-              <span style={{ color: 'var(--success)', fontWeight: 600 }}>{result?.added ?? 0} added</span>
+              <span style={{ color: 'var(--success)', fontWeight: 600 }}>{result?.added ?? 0} new</span>
+              {result?.updated > 0 && (
+                <span style={{ color: 'var(--text-secondary)', marginLeft: 10 }}>{result.updated} updated</span>
+              )}
+              {result?.unchanged > 0 && (
+                <span style={{ color: 'var(--text-secondary)', marginLeft: 10 }}>{result.unchanged} unchanged</span>
+              )}
               {result?.skipped > 0 && (
                 <span style={{ color: 'var(--text-secondary)', marginLeft: 10 }}>{result.skipped} skipped{doneSkippedSuffix ?? ''}</span>
               )}

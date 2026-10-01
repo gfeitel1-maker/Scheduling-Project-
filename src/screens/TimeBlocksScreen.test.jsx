@@ -426,7 +426,7 @@ describe('TimeBlocksScreen — deleteAll', () => {
 })
 
 describe('TimeBlocksScreen — import', () => {
-  it('imports rows from Excel, skipping duplicates (case-insensitive) and rows with a validation warning', async () => {
+  it('imports rows from Excel, leaving an unchanged duplicate alone (case-insensitive) and skipping rows with a validation warning', async () => {
     render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Block 1')).not.toBeNull())
 
@@ -446,10 +446,32 @@ describe('TimeBlocksScreen — import', () => {
     await waitFor(() => expect(screen.queryByText(/1 with warnings/)).not.toBeNull())
     fireEvent.click(screen.getByText(/Import 2/))
 
-    await waitFor(() => expect(screen.queryByText(/1 added/)).not.toBeNull())
-    expect(screen.queryByText(/2 skipped/)).not.toBeNull()
+    await waitFor(() => expect(screen.queryByText(/1 new/)).not.toBeNull())
+    expect(screen.queryByText(/1 unchanged/)).not.toBeNull()
+    expect(screen.queryByText(/1 skipped/)).not.toBeNull()
     const namesWritten = localClient.write.mock.calls.filter(c => c[3] === 'name').map(c => c[4])
     expect(namesWritten).toEqual(['Block 2'])
+  })
+
+  // board q-export-columns-do-not-round-trip, B2b derive-or-name — part_of_day is NEVER
+  // derived from a time value (owner ruling). A file missing the column still imports;
+  // every row just needs a director's eye instead of the whole import being blocked.
+  it('never derives part_of_day from a time value — a missing column flags every row for a director\'s eye without blocking the import', async () => {
+    render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Block 1')).not.toBeNull())
+
+    const file = new File(['dummy'], 'time_blocks.xlsx')
+    const fileInput = document.querySelector('input[type="file"]')
+    XLSX.utils.sheet_to_json.mockReturnValue([
+      { name: 'Block 3', start_time: '11:00', end_time: '12:00' }, // no part_of_day column at all
+    ])
+    XLSX.read.mockReturnValue({ SheetNames: ['Time Blocks'], Sheets: { 'Time Blocks': {} } })
+
+    await userEvent.upload(fileInput, file)
+
+    await waitFor(() => expect(screen.queryByText(/part_of_day not specified/)).not.toBeNull())
+    // the row needing an eye is not "ready" — never silently guessed a part of day.
+    expect(screen.queryByText(/Import 1/)).toBeNull()
   })
 })
 

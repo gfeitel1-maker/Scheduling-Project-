@@ -369,7 +369,7 @@ describe('DaysScreen', () => {
     expect(screen.queryByText('Import from Excel')).not.toBeNull()
   })
 
-  it('imports days from Excel, skipping duplicates and rows with a warning', async () => {
+  it('imports days from Excel, leaving an unchanged duplicate alone (case-insensitive) and skipping rows with a warning', async () => {
     localClient.list.mockResolvedValue([day({ id: 'd1', label: 'Monday', day_of_week: 1 })])
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Edit Monday' })).not.toBeNull())
@@ -377,7 +377,7 @@ describe('DaysScreen', () => {
     const file = new File(['dummy'], 'days.xlsx')
     const fileInput = document.querySelector('input[type="file"]')
     XLSX.utils.sheet_to_json.mockReturnValue([
-      { label: 'monday', day_of_week: 1, sort_order: 1 }, // duplicate (case-insensitive)
+      { label: 'monday', day_of_week: 1, sort_order: 1 }, // duplicate (case-insensitive), identical -> unchanged
       { label: '', day_of_week: 2, sort_order: 2 },       // missing label -> warning
       { label: 'Tuesday', day_of_week: 2, sort_order: 2 }, // new, valid
     ])
@@ -387,9 +387,123 @@ describe('DaysScreen', () => {
     await waitFor(() => expect(screen.queryByText(/1 with warnings/)).not.toBeNull())
     fireEvent.click(screen.getByText(/Import 2/))
 
-    await waitFor(() => expect(screen.queryByText(/1 added/)).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText(/1 new/)).not.toBeNull())
+    expect(screen.queryByText(/1 unchanged/)).not.toBeNull()
     const labelsWritten = localClient.write.mock.calls.filter(c => c[3] === 'label').map(c => c[4])
     expect(labelsWritten).toEqual(['Tuesday'])
+  })
+
+  // board q-export-columns-do-not-round-trip, B3 — a re-imported row whose natural key
+  // (label) already exists but carries a changed field is UPDATED, not skipped.
+  it('updates an existing day when a re-imported row changes a field', async () => {
+    localClient.list.mockResolvedValue([day({ id: 'd1', label: 'Monday', day_of_week: 1 })])
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Edit Monday' })).not.toBeNull())
+
+    const file = new File(['dummy'], 'days.xlsx')
+    const fileInput = document.querySelector('input[type="file"]')
+    XLSX.utils.sheet_to_json.mockReturnValue([
+      { label: 'Monday', day_of_week: 2, sort_order: 2 }, // same label, changed day_of_week
+    ])
+    fireEvent.change(fileInput, { target: { files: [file] } })
+    await waitFor(() => expect(screen.queryByText(/1 ready/)).not.toBeNull())
+    fireEvent.click(screen.getByText(/Import 1/))
+
+    await waitFor(() => expect(screen.queryByText(/1 updated/)).not.toBeNull())
+    const dowWrites = localClient.write.mock.calls.filter(c => c[3] === 'day_of_week')
+    expect(dowWrites).toHaveLength(1)
+    expect(dowWrites[0][2]).toBe('d1')
+  })
+
+  // Red Hat HIGH — a SECOND sheet row sharing a natural key must diff against what the
+  // FIRST row actually applied, not the stale pre-import value. Without this, row 1 sets
+  // day_of_week 1 -> 3 (applied), row 2 sets it back to 1 — diffed against the stale
+  // original (1) that reads as "unchanged" and row 2's own change is silently dropped,
+  // leaving the DB at 3 instead of row 2's 1.
+  it('a later row sharing the same key diffs against the FIRST row\'s applied value, not the stale original (last-row-wins is honest)', async () => {
+    localClient.list.mockResolvedValue([day({ id: 'd1', label: 'Monday', day_of_week: 1 })])
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Edit Monday' })).not.toBeNull())
+
+    const file = new File(['dummy'], 'days.xlsx')
+    const fileInput = document.querySelector('input[type="file"]')
+    XLSX.utils.sheet_to_json.mockReturnValue([
+      { label: 'Monday', day_of_week: 3 }, // first: 1 -> 3, an update
+      { label: 'Monday', day_of_week: 1 }, // second, same key: back to 1 — must ALSO update
+    ])
+    fireEvent.change(fileInput, { target: { files: [file] } })
+    await waitFor(() => expect(screen.queryByText(/2 ready/)).not.toBeNull())
+    fireEvent.click(screen.getByText(/Import 2/))
+
+    await waitFor(() => expect(screen.queryByText(/2 updated/)).not.toBeNull())
+    const dowWrites = localClient.write.mock.calls.filter(c => c[3] === 'day_of_week').map(c => c[4])
+    expect(dowWrites).toEqual([3, 1])
+  })
+
+  // board q-export-columns-do-not-round-trip, B2b derive-or-name — a file with no
+  // day_of_week column at all still imports, deriving it from a recognizable weekday
+  // name in the label instead of blocking the whole import.
+  it('derives day_of_week from a weekday-name label when the column is absent', async () => {
+    localClient.list.mockResolvedValue([])
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Import from Excel')).not.toBeNull())
+
+    const file = new File(['dummy'], 'days.xlsx')
+    const fileInput = document.querySelector('input[type="file"]')
+    XLSX.utils.sheet_to_json.mockReturnValue([{ label: 'Wednesday' }])
+    fireEvent.change(fileInput, { target: { files: [file] } })
+
+    await waitFor(() => expect(screen.queryByText(/1 ready/)).not.toBeNull())
+    fireEvent.click(screen.getByText(/Import 1/))
+    await waitFor(() => expect(screen.queryByText(/1 new/)).not.toBeNull())
+    const dowWrites = localClient.write.mock.calls.filter(c => c[3] === 'day_of_week')
+    expect(dowWrites[0][4]).toBe(3)
+  })
+
+  it('flags a row that cannot be matched to a weekday as needing a director\'s eye, not a guess', async () => {
+    localClient.list.mockResolvedValue([])
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Import from Excel')).not.toBeNull())
+
+    const file = new File(['dummy'], 'days.xlsx')
+    const fileInput = document.querySelector('input[type="file"]')
+    XLSX.utils.sheet_to_json.mockReturnValue([{ label: 'Opening Day' }])
+    fireEvent.change(fileInput, { target: { files: [file] } })
+
+    await waitFor(() => expect(screen.queryByText(/cannot determine day_of_week/)).not.toBeNull())
+  })
+
+  // honest-atomicity-half — an UNEXPECTED failure stops the loop immediately and reports
+  // exactly how many rows landed before it, never claiming atomicity.
+  it('stops the import loop on an unexpected row failure and reports how many rows already landed', async () => {
+    localClient.list.mockResolvedValue([])
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Import from Excel')).not.toBeNull())
+
+    const file = new File(['dummy'], 'days.xlsx')
+    const fileInput = document.querySelector('input[type="file"]')
+    XLSX.utils.sheet_to_json.mockReturnValue([
+      { label: 'Monday', day_of_week: 1 },
+      { label: 'Tuesday', day_of_week: 2 },
+      { label: 'Wednesday', day_of_week: 3 },
+    ])
+    fireEvent.change(fileInput, { target: { files: [file] } })
+    await waitFor(() => expect(screen.queryByText(/3 ready/)).not.toBeNull())
+
+    localClient.write
+      .mockResolvedValueOnce({ status: 'applied' }) // Monday day_of_week
+      .mockResolvedValueOnce({ status: 'applied' }) // Monday label
+      .mockResolvedValueOnce({ status: 'applied' }) // Monday camp_id
+      .mockResolvedValueOnce({ status: 'applied' }) // Monday sort_order
+      .mockRejectedValueOnce(new Error('disk full')) // Tuesday's first write fails
+
+    fireEvent.click(screen.getByText(/Import 3/))
+
+    await waitFor(() => expect(screen.queryByText(/No further rows were written/)).not.toBeNull())
+    expect(screen.queryByText(/row 2 \('Tuesday'\) failed: disk full/)).not.toBeNull()
+    // Wednesday was never attempted.
+    const labelsWritten = localClient.write.mock.calls.filter(c => c[3] === 'label').map(c => c[4])
+    expect(labelsWritten).toEqual(['Monday'])
   })
 })
 

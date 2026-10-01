@@ -14,6 +14,12 @@ import ImportModal from '../components/setup/ImportModal'
 import ImportPreviewSubtitle from '../components/setup/ImportPreviewSubtitle.jsx'
 import SetupScreenShell from '../components/setup/SetupScreenShell'
 import InlineAddRow from '../components/setup/InlineAddRow'
+import { ENTITY_FIELD_CATALOGS, inferEntityMapping, applyEntityMapping, describeMappingIssue } from '../ingest/entityColumnMapping.js'
+import { resolveRowAction } from '../ingest/resolveRowAction.js'
+import { resolveRowCohort, describeCohortNote } from '../ingest/resolveRowCohort.js'
+import { formatImportStopMessage } from '../ingest/importStopMessage.js'
+
+const TIERS_CATALOG = ENTITY_FIELD_CATALOGS.tiers
 
 // Tiers' load is cohort-scoped (camp_id AND cohort_id), fetches groups
 // alongside tiers for groupCounts, and guards against a stale response
@@ -114,6 +120,8 @@ export default function TiersScreen({ campId, role, onNavigate }) {
   const [adding, setAdding] = useState(false)
   const [importStep, setImportStep] = useState(null) // null | 'preview' | 'done'
   const [importRows, setImportRows] = useState([])
+  const [importMapping, setImportMapping] = useState(null)
+  const [importCohortNote, setImportCohortNote] = useState(null)
   // T315 — which tab these rows came from, when there was more than one to choose
   // between. Null on a single-sheet file: no choice, so nothing to report.
   const [importSheetNote, setImportSheetNote] = useState(null)
@@ -318,15 +326,25 @@ export default function TiersScreen({ campId, role, onNavigate }) {
       const { sheet: importedSheet, rows, otherSheets } = readEntitySheet(ev.target.result, {
         type: 'array', byteLength: file.size, sheetName: 'Age Divisions', requiredColumns: ['name'],
       })
-      const parsed = rows.map(r => {
+      const header = Object.keys(rows[0] ?? {})
+      const mapping = inferEntityMapping(header, TIERS_CATALOG)
+      const mappedRows = applyEntityMapping(rows, mapping, TIERS_CATALOG)
+      setImportMapping(mapping)
+      const parsed = mappedRows.map(r => {
         const name = String(r.name || '').trim()
         const sort_order = r.sort_order !== '' ? Number(r.sort_order) : null
         let warning = null
         if (!name) warning = 'Missing name'
         else if (sort_order !== null && !(Number.isInteger(sort_order) && sort_order >= 0)) warning = 'sort_order must be a whole number 0 or greater'
-        return { name, sort_order, warning }
+        return { name, sort_order, cohortName: r.cohort_name, warning }
       })
       setImportRows(parsed)
+      // One disclosure line, not a per-row warning: the FIRST row with something to say
+      // (a resolved mismatch OR an unmatched cohort name — Red Hat MEDIUM-HIGH, these are
+      // two different problems with distinct wording via describeCohortNote) is enough to
+      // tell the director (B3 cohort fix b) — the import proceeds either way, never blocked.
+      const firstNote = parsed.map(r => describeCohortNote(resolveRowCohort(r.cohortName, cohorts, activeCohort), activeCohort)).find(Boolean)
+      setImportCohortNote(firstNote ?? null)
       setImportSheetNote(otherSheets.length > 0 ? { sheet: importedSheet, others: otherSheets } : null)
       setImportStep('preview')
       } catch (err) {
@@ -345,29 +363,50 @@ export default function TiersScreen({ campId, role, onNavigate }) {
       // reach this point (import parsing and load() both normalize name
       // to a string), but a stray malformed row here must not throw and
       // wedge the modal on "Importing…" forever — coerce rather than crash.
-      const existingNames = new Set(tiers.map(t => String(t.name ?? '').toLowerCase()))
-      let added = 0, skipped = 0
-      for (const row of importRows) {
+      const existingByKey = new Map(tiers.map(t => [String(t.name ?? '').toLowerCase(), t]))
+      // Code Reviewer HIGH+MEDIUM: only diff fields the sheet actually named — cohort_name's
+      // column maps to cohort_id, sort_order to itself. A column absent (e.g. no cohort_name
+      // on this sheet) must never overwrite the existing row with the active-cohort fallback.
+      const ROLE_TO_DB_KEY = { cohort_name: 'cohort_id', sort_order: 'sort_order' }
+      const providedKeys = new Set(Object.keys(importMapping?.roles ?? {}).map(k => ROLE_TO_DB_KEY[k] ?? k))
+      let added = 0, updated = 0, unchanged = 0, skipped = 0
+      let stoppedAt = null
+      const totalCount = importRows.length
+      for (const [index, row] of importRows.entries()) {
         if (!row.name || row.warning) { skipped++; continue }
-        const lower = String(row.name).toLowerCase()
-        if (existingNames.has(lower)) { skipped++; continue }
         const sortVal = row.sort_order !== null ? row.sort_order : (tiers.length + added + 1)
+        const { cohortId } = resolveRowCohort(row.cohortName, cohorts, activeCohort)
+        const candidateFields = { sort_order: sortVal, cohort_id: cohortId }
+        const key = String(row.name).toLowerCase()
+        const resolution = resolveRowAction(row.name, candidateFields, existingByKey, providedKeys)
         try {
+          if (resolution.action === 'unchanged') { unchanged++; continue }
+          if (resolution.action === 'update') {
+            await repository.writeFields('tiers', resolution.existing.id, resolution.changedFields)
+            updated++
+            // Red Hat HIGH: refresh the baseline with the applied value for a later same-key row.
+            existingByKey.set(key, { ...resolution.existing, ...resolution.changedFields })
+            continue
+          }
           const id = crypto.randomUUID()
           // `name` first — same collision-fails-atomically reasoning as addTier.
           await repository.createRecord('tiers', id, {
             name: row.name,
             camp_id: campId,
-            cohort_id: activeCohort.id,
+            cohort_id: cohortId,
             sort_order: sortVal,
           })
           added++
-          existingNames.add(lower)
-        } catch {
-          skipped++
+          existingByKey.set(key, { id, name: row.name, sort_order: sortVal, cohort_id: cohortId })
+        } catch (err) {
+          stoppedAt = formatImportStopMessage({
+            importedCount: added + updated, totalCount, rowNumber: index + 1,
+            rowName: row.name, reason: err?.message || 'an unexpected error',
+          })
+          break
         }
       }
-      setImportResult({ added, skipped })
+      setImportResult({ added, updated, unchanged, skipped, stoppedAt })
       setImportStep('done')
     } catch (err) {
       setError(describeWriteFailure(err, 'That import could not be completed.'))
@@ -458,14 +497,23 @@ export default function TiersScreen({ campId, role, onNavigate }) {
         rows={importRows}
         readyCount={readyRows.length}
         warnCount={warnRows.length}
-        previewSubtitle={<ImportPreviewSubtitle ready={readyRows.length} warn={warnRows.length} sheetNote={importSheetNote} />}
+        previewSubtitle={<>
+          <ImportPreviewSubtitle ready={readyRows.length} warn={warnRows.length} sheetNote={importSheetNote} mappingIssue={describeMappingIssue(importMapping)} />
+          {importCohortNote && <div style={{ color: 'var(--text-secondary)', marginTop: 4 }}>{importCohortNote}</div>}
+        </>}
+        confirmDisabled={!!importMapping && (importMapping.unmapped.length > 0 || importMapping.collision.length > 0)}
         result={importResult}
+        doneExtra={(importResult?.stoppedAt || importCohortNote) && (
+          <div style={{ marginTop: 8 }}>
+            {importCohortNote && <div style={{ color: 'var(--text-secondary)' }}>{importCohortNote}</div>}
+            {importResult?.stoppedAt && <div style={S.importWarnText}>{importResult.stoppedAt}</div>}
+          </div>
+        )}
         importing={importing}
         onConfirm={confirmImport}
-        onCancel={() => { setImportStep(null); setImportRows([]) }}
-        previewSubtitle={<>{readyRows.length} row{readyRows.length !== 1 ? 's' : ''} ready{warnRows.length > 0 && `, ${warnRows.length} with warnings (will be skipped)`}</>}
+        onCancel={() => { setImportStep(null); setImportRows([]); setImportMapping(null); setImportCohortNote(null) }}
         confirmLabel={`Import ${readyRows.length} age division${readyRows.length !== 1 ? 's' : ''}`}
-        doneSkippedSuffix=" (duplicate or invalid)"
+        doneSkippedSuffix=" (invalid)"
         renderCell={(r, c) => {
           if (c.key === 'name') return r.name || <span style={{ color: 'var(--warning)' }}>—</span>
         }}

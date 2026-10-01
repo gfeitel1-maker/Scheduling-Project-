@@ -193,7 +193,7 @@ describe('LocationsScreen', () => {
     expect(localClient.write).not.toHaveBeenCalled()
   })
 
-  it('imports locations from Excel through the shared importRows path, skipping dupes and warnings', async () => {
+  it('imports locations from Excel through the shared importRows path, updating a changed duplicate and skipping warnings', async () => {
     localClient.list.mockImplementation((entity) => {
       if (entity === 'locations') return Promise.resolve([location({ id: 'loc-1', name: 'Pool' })])
       return Promise.resolve([])
@@ -204,7 +204,7 @@ describe('LocationsScreen', () => {
     const file = new File(['dummy'], 'locations.xlsx')
     const fileInput = document.querySelector('input[type="file"]')
     const rows = [
-      { name: 'pool', capacity: 2, kind: 'pool' },        // duplicate (case-insensitive) -> skipped
+      { name: 'pool', capacity: 2, kind: 'pool' },        // duplicate (case-insensitive), changed fields -> updated
       { name: '', capacity: 1, kind: '' },                 // missing name -> warning -> skipped
       { name: 'Gym', capacity: 4, kind: 'court' },         // new, valid
     ]
@@ -213,16 +213,23 @@ describe('LocationsScreen', () => {
     await userEvent.upload(fileInput, file)
 
     // The case-insensitive dupe ('pool') is not parse-flagged — it looks ready
-    // and is only skipped at confirm-time by importRows' duplicateCheck. So the
-    // preview counts 2 ready (pool + Gym) and 1 with warnings (the blank name).
+    // and is only resolved to create/update/unchanged at confirm-time by
+    // importRows' findExisting/buildChangedFields. So the preview counts 2
+    // ready (pool + Gym) and 1 with warnings (the blank name).
     await waitFor(() => expect(screen.queryByText(/1 with warnings/)).not.toBeNull())
     fireEvent.click(screen.getByText(/Import 2/))
 
-    await waitFor(() => expect(screen.queryByText(/1 added/)).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText(/1 new/)).not.toBeNull())
+    // the 'pool' duplicate now carries a changed capacity/kind vs the existing row — an
+    // UPDATE (board q-export-columns-do-not-round-trip, B3), not a silent skip.
+    expect(screen.queryByText(/1 updated/)).not.toBeNull()
     const namesWritten = localClient.write.mock.calls.filter((c) => c[3] === 'name').map((c) => c[4])
     expect(namesWritten).toEqual(['Gym'])
-    const capsWritten = localClient.write.mock.calls.filter((c) => c[3] === 'capacity').map((c) => c[4])
-    expect(capsWritten).toEqual([4])
+    const capsWritten = localClient.write.mock.calls.filter((c) => c[1] === 'locations' && c[3] === 'capacity').map((c) => c[4])
+    expect(capsWritten).toContain(4)
+    const existingCapWrite = localClient.write.mock.calls.filter((c) => c[2] === 'loc-1' && c[3] === 'capacity')
+    expect(existingCapWrite).toHaveLength(1)
+    expect(existingCapWrite[0][4]).toBe(2)
   })
 
   it('edits capacity via the stepper in the inline edit row and saves the new value', async () => {

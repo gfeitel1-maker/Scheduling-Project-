@@ -2,6 +2,22 @@
 // and FixedEventsScreen — day_of_week is an engine-facing 0..6 index (see buildSchedule.js).
 export const DOW = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
+const DOW_ABBR = DOW.map((d) => d.slice(0, 3).toLowerCase())
+
+// Board item q-export-columns-do-not-round-trip (item 7), slice B2b derive-or-name —
+// a file with no day_of_week column (or a blank cell) still carries a recognizable
+// weekday NAME in the label ("Monday"/"Mon", case-insensitive); this recovers the
+// 0..6 index from it rather than making the director re-type a column. Returns
+// null when the label is not a weekday name, which DaysScreen treats as
+// needing a director's eye rather than a guess.
+export function weekdayFromLabel(label) {
+  const folded = String(label ?? '').trim().toLowerCase()
+  if (folded === '') return null
+  const full = DOW.findIndex((d) => d.toLowerCase() === folded)
+  if (full !== -1) return full
+  return DOW_ABBR.indexOf(folded) === -1 ? null : DOW_ABBR.indexOf(folded)
+}
+
 // Defense-in-depth: malformed JSON in an id-list column (e.g. a corrupted/tampered
 // op) must not crash a list render — default to [].
 export function parseIdList(raw) {

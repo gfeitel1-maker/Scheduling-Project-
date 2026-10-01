@@ -406,9 +406,9 @@ describe('GroupsScreen', () => {
 })
 
 describe('GroupsScreen — import', () => {
-  it('imports rows from Excel, resolving age division names and skipping duplicates and rows with a warning', async () => {
+  it('imports rows from Excel, resolving age division names, updating a changed field on a duplicate name, and skipping rows with a warning', async () => {
     localClient.list.mockImplementation((entity) =>
-      Promise.resolve(entity === 'groups' ? [group({ id: 'g1', name: 'Yeladim 1' })] : [tier({ id: 'tier-1', name: 'Yeladim' })])
+      Promise.resolve(entity === 'groups' ? [group({ id: 'g1', name: 'Yeladim 1', tier_id: null })] : [tier({ id: 'tier-1', name: 'Yeladim' })])
     )
     render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
@@ -417,7 +417,9 @@ describe('GroupsScreen — import', () => {
     const fileInput = document.querySelector('input[type="file"]')
 
     const rows = [
-      { name: 'yeladim 1', tier_name: 'Yeladim', availability: 'all' }, // duplicate, case-insensitive
+      // same name (case-insensitive), but tier_id changes null -> 'tier-1': an UPDATE, not a skip
+      // (board q-export-columns-do-not-round-trip, B3 create-or-update).
+      { name: 'yeladim 1', tier_name: 'Yeladim', availability: 'all' },
       { name: '', tier_name: '', availability: 'all' }, // missing name -> warning
       { name: 'Bogrim 1', tier_name: 'Yeladim', availability: 'morning' }, // new, valid
     ]
@@ -428,12 +430,16 @@ describe('GroupsScreen — import', () => {
     await waitFor(() => expect(screen.queryByText(/1 with warnings/)).not.toBeNull())
     fireEvent.click(screen.getByText(/Import 2/))
 
-    await waitFor(() => expect(screen.queryByText(/1 added/)).not.toBeNull())
-    expect(screen.queryByText(/2 skipped/)).not.toBeNull()
+    await waitFor(() => expect(screen.queryByText(/1 new/)).not.toBeNull())
+    expect(screen.queryByText(/1 updated/)).not.toBeNull()
+    expect(screen.queryByText(/1 skipped/)).not.toBeNull()
     const namesWritten = localClient.write.mock.calls.filter(c => c[3] === 'name').map(c => c[4])
     expect(namesWritten).toEqual(['Bogrim 1'])
     const availWritten = localClient.write.mock.calls.filter(c => c[3] === 'availability').map(c => c[4])
     expect(availWritten).toEqual(['morning'])
+    const tierWritesForExisting = localClient.write.mock.calls.filter(c => c[2] === 'g1' && c[3] === 'tier_id')
+    expect(tierWritesForExisting).toHaveLength(1)
+    expect(tierWritesForExisting[0][4]).toBe('tier-1')
   })
 
   it('flags an import row whose age division name does not match any existing age division', async () => {

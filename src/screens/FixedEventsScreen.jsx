@@ -17,6 +17,17 @@ import { parseIdList, makeSerializeFieldValue } from './setup/setupHelpers'
 import { resolveFixedEventUnitIds } from '../engine/fixedEventScope.js'
 import { whitespaceInsensitiveName } from '../ingest/preview.js'
 import { createLocationRecord, updateLocationCapacityRecord } from '../lib/locationDedup'
+import { ENTITY_FIELD_CATALOGS, inferEntityMapping, applyEntityMapping, describeMappingIssue } from '../ingest/entityColumnMapping.js'
+import { resolveRowAction } from '../ingest/resolveRowAction.js'
+import { resolveRowCohort, describeCohortNote } from '../ingest/resolveRowCohort.js'
+import { formatImportStopMessage } from '../ingest/importStopMessage.js'
+
+const FIXED_EVENTS_CATALOG = ENTITY_FIELD_CATALOGS.fixed_events
+// The natural key for a fixed/recurring event row is compound: the same NAME can
+// legitimately recur on several days, and the per-day expansion below turns each
+// into its own stored row (one `fixed_events` row per day_id) — so "this row" means
+// (name, day, time block), not name alone (board q-export-columns-do-not-round-trip, B3).
+const anchorNaturalKey = (name, dayId, timeBlockId) => `${String(name ?? '').toLowerCase()}|${dayId ?? ''}|${timeBlockId ?? ''}`
 
 // Repository-only migration (not the full useCrudScreen hook): load() fans out
 // across five parallel list() calls with per-cohort scoping, and the create
@@ -275,6 +286,8 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
   const [modal, setModal] = useState(null)
   const [importStep, setImportStep] = useState(null)
   const [importRows, setImportRows] = useState([])
+  const [importMapping, setImportMapping] = useState(null)
+  const [importCohortNote, setImportCohortNote] = useState(null)
   // T315 — which tab this workbook's rows came from, when there was more than one to
   // choose between. Null on a single-sheet file: there was no choice, so there is
   // nothing to report.
@@ -622,10 +635,14 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
       const { sheet: importedSheet, rows, otherSheets } = readEntitySheet(await file.arrayBuffer(), {
         type: 'array', byteLength: file.size, sheetName: 'Fixed Events', requiredColumns: ['name', 'day_label'],
       })
+      const header = Object.keys(rows[0] ?? {})
+      const mapping = inferEntityMapping(header, FIXED_EVENTS_CATALOG)
+      const mappedRows = applyEntityMapping(rows, mapping, FIXED_EVENTS_CATALOG)
+      setImportMapping(mapping)
 
       // Expand each row into one record per day
       const parsed = []
-      for (const r of rows) {
+      for (const r of mappedRows) {
         const name = String(r.name || '').trim()
         const dayRaw = String(r.day_label || '').trim()
         const dayLabels = dayRaw.toLowerCase() === 'all'
@@ -685,6 +702,7 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
           parsed.push({
             kind: rowKind, name, day_id: null, time_block_id, is_all_groups: isAllTiers, group_ids, unit_ids,
             notes: String(r.notes || '').trim() || null,
+            cohortName: r.cohort_name,
             warning: baseWarning || 'Missing day_label',
             _dayLabel: '—', _blockName: blockName, _tierNames: tierLabel,
           })
@@ -694,6 +712,7 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
             const warning = baseWarning || (!day_id ? `Day "${dayLabel}" not found` : null)
             parsed.push({
               kind: rowKind, name, day_id, time_block_id, is_all_groups: isAllTiers, group_ids, unit_ids,
+              cohortName: r.cohort_name,
               notes: String(r.notes || '').trim() || null,
               warning,
               _dayLabel: dayLabel, _blockName: blockName, _tierNames: tierLabel,
@@ -706,6 +725,11 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
       // Said only when the workbook HAD more than one tab: on a single-sheet file there was no
       // choice to report, and a line about it would be noise.
       setImportSheetNote(otherSheets.length > 0 ? { sheet: importedSheet, others: otherSheets } : null)
+      // One disclosure line, not a per-row warning: a resolved mismatch and an unmatched
+      // cohort name are two different problems with distinct wording (Red Hat MEDIUM-HIGH,
+      // describeCohortNote) — the import proceeds either way, never blocked on this.
+      const firstNote = parsed.map(r => describeCohortNote(resolveRowCohort(r.cohortName, cohorts, activeCohort), activeCohort)).find(Boolean)
+      setImportCohortNote(firstNote ?? null)
       setImportStep('preview')
     } catch (err) {
       setError(describeWriteFailure(err, 'That import file could not be read.'))
@@ -716,33 +740,70 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
     if (!activeCohort) return
     setImporting(true)
     try {
-      let added = 0, skipped = 0, skippedWithOrphan = 0, filedElsewhere = 0
+      let added = 0, updated = 0, unchanged = 0, skipped = 0, filedElsewhere = 0
+      let stoppedAt = null
+      const totalCount = importRows.length
       // Shared across the whole loop so same-named rows (a recurring event's
       // several days) link to one activity instead of each creating its own.
       const activityCache = [...activities]
-      for (const row of importRows) {
+      // Keyed by (name, day, time block) — the same row can recur on several days,
+      // each its own stored row (board q-export-columns-do-not-round-trip, B3).
+      const existingByKey = new Map(anchors.map(a => [anchorNaturalKey(a.name, a.day_id, a.time_block_id), a]))
+      // Code Reviewer HIGH+MEDIUM: only diff fields the sheet actually named. group_ids has
+      // no catalog column at all (T180 always derives it from unit_ids) and is never
+      // provided; activity_id is always resolved from the row's own name, not a column, so
+      // it counts as provided on every row.
+      const ROLE_TO_DB_KEY = {
+        time_block_name: 'time_block_id', is_all_tiers: 'is_all_groups',
+        tier_names: 'unit_ids', notes: 'notes', cohort_name: 'cohort_id',
+      }
+      const providedKeys = new Set([...Object.keys(importMapping?.roles ?? {}).map(k => ROLE_TO_DB_KEY[k] ?? k), 'activity_id'])
+      for (const [index, row] of importRows.entries()) {
         if (!row.name || row.warning) { skipped++; continue }
-        const { warning: _warning, _dayLabel, _blockName, _tierNames, ...record } = row
-        const newId = crypto.randomUUID()
+        const { warning: _warning, _dayLabel, _blockName, _tierNames, cohortName, ...record } = row
+        const { cohortId } = resolveRowCohort(cohortName, cohorts, activeCohort)
         try {
           const activityId = await resolveActivityLink(record.name, activityCache)
-          await writeFields(newId, { ...record, activity_id: activityId, camp_id: campId, cohort_id: activeCohort.id })
-        } catch {
-          const cleanedUp = await cleanupPartialRow(newId)
-          if (cleanedUp) {
-            skipped++
-          } else {
-            skippedWithOrphan++
+          const naturalKey = anchorNaturalKey(record.name, record.day_id, record.time_block_id)
+          const candidateFields = {
+            time_block_id: record.time_block_id, is_all_groups: record.is_all_groups,
+            group_ids: record.group_ids, unit_ids: record.unit_ids, notes: record.notes,
+            activity_id: activityId, cohort_id: cohortId,
           }
-          continue
+          const resolution = resolveRowAction(naturalKey, candidateFields, existingByKey, providedKeys)
+          if (resolution.action === 'unchanged') { unchanged++; continue }
+          if (resolution.action === 'update') {
+            await writeFields(resolution.existing.id, resolution.changedFields)
+            updated++
+            // Red Hat HIGH: refresh the baseline with the applied value for a later same-key row.
+            existingByKey.set(naturalKey, { ...resolution.existing, ...resolution.changedFields })
+            continue
+          }
+          const newId = crypto.randomUUID()
+          try {
+            await writeFields(newId, { kind: record.kind, day_id: record.day_id, ...candidateFields, camp_id: campId })
+          } catch (err) {
+            const cleanedUp = await cleanupPartialRow(newId)
+            throw cleanedUp ? err : new Error(`${err?.message || 'an unexpected error'} (and the partial row could not be cleaned up)`)
+          }
+          added++
+          existingByKey.set(naturalKey, { id: newId, name: record.name, day_id: record.day_id, ...candidateFields })
+          // A scoped row's kind can differ from this screen's `kind` (see the
+          // comment above rowKind's derivation) — never silent: the director
+          // sees a count of how many landed on the other list.
+          if (record.kind !== kind) filedElsewhere++
+        } catch (err) {
+          // Hard stop, not a rollback: an UNEXPECTED failure stops the loop immediately
+          // (board q-export-columns-do-not-round-trip, honest-atomicity-half) — this row's
+          // own partial write is cleaned up above, but earlier rows stay written.
+          stoppedAt = formatImportStopMessage({
+            importedCount: added + updated, totalCount, rowNumber: index + 1,
+            rowName: row.name, reason: err?.message || 'an unexpected error',
+          })
+          break
         }
-        added++
-        // A scoped row's kind can differ from this screen's `kind` (see the
-        // comment above rowKind's derivation) — never silent: the director
-        // sees a count of how many landed on the other list.
-        if (record.kind !== kind) filedElsewhere++
       }
-      setImportResult({ added, skipped, skippedWithOrphan, filedElsewhere }); setImportStep('done')
+      setImportResult({ added, updated, unchanged, skipped, filedElsewhere, stoppedAt }); setImportStep('done')
     } catch (err) {
       setError(describeWriteFailure(err, 'That import could not be completed.'))
       setImportStep(null); setImportRows([])
@@ -902,18 +963,19 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
         rows={importRows}
         readyCount={readyRows.length}
         warnCount={warnRows.length}
-        previewSubtitle={<ImportPreviewSubtitle ready={readyRows.length} warn={warnRows.length} sheetNote={importSheetNote} />}
+        previewSubtitle={<>
+          <ImportPreviewSubtitle ready={readyRows.length} warn={warnRows.length} sheetNote={importSheetNote} mappingIssue={describeMappingIssue(importMapping)} />
+          {importCohortNote && <div style={{ color: 'var(--text-secondary)', marginTop: 4 }}>{importCohortNote}</div>}
+        </>}
+        confirmDisabled={!!importMapping && (importMapping.unmapped.length > 0 || importMapping.collision.length > 0)}
         result={importResult}
         importing={importing}
         onConfirm={confirmImport}
-        onCancel={() => { setImportStep(null); setImportRows([]) }}
+        onCancel={() => { setImportStep(null); setImportRows([]); setImportMapping(null); setImportCohortNote(null) }}
         doneExtra={(
           <>
-            {importResult?.skippedWithOrphan > 0 && (
-              <span style={{ color: 'var(--warning)', marginLeft: 10 }}>
-                {importResult.skippedWithOrphan} skipped but couldn't be fully rolled back (admin required) — stray row(s) may remain
-              </span>
-            )}
+            {importCohortNote && <div style={{ color: 'var(--text-secondary)', marginTop: 8 }}>{importCohortNote}</div>}
+            {importResult?.stoppedAt && <div style={{ ...S.importWarnText, marginTop: 8 }}>{importResult.stoppedAt}</div>}
             {importResult?.filedElsewhere > 0 && (
               <span style={{ color: 'var(--text-secondary)', marginLeft: 10 }}>
                 {importResult.filedElsewhere} were group-scoped and filed under {kind === 'fixed' ? 'Recurring Events' : 'Fixed Events'} instead

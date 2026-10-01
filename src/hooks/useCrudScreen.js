@@ -11,6 +11,7 @@
 // screen so each entity keeps its own wording.
 import { useState, useEffect } from 'react'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
+import { formatImportStopMessage } from '../ingest/importStopMessage.js'
 
 export function useCrudScreen({
   entity,
@@ -103,20 +104,57 @@ export function useCrudScreen({
     }
   }
 
-  // Skips warned rows and rows duplicateCheck flags against rows seen so far
-  // (starting from current state, growing as each row is added — so two
-  // duplicate rows in the SAME import batch don't both get created). Uses
-  // the same create-with-cleanup path as add().
-  async function importRows(parsedRows, { mapRow, duplicateCheck }) {
+  // Skips warned rows. Against rows seen so far (starting from current state,
+  // growing as each row is added — so two duplicate rows in the SAME import
+  // batch resolve against each other too), either `duplicateCheck` (legacy:
+  // a true/false match always SKIPS, the original behavior) or `findExisting`
+  // (board q-export-columns-do-not-round-trip, B3: returns the matched existing
+  // row, or none) decides what a duplicate name means. With `findExisting`,
+  // `buildChangedFields(existing, row)` returns the fields that differ (an
+  // UPDATE, via writeFields) or a falsy value (UNCHANGED, no write) — the
+  // same create/update/unchanged split every hand-rolled setup screen's
+  // confirmImport now does, via src/ingest/resolveRowAction.js. Uses the
+  // same create-with-cleanup path as add() for a genuinely new row.
+  async function importRows(parsedRows, { mapRow, duplicateCheck, findExisting, buildChangedFields, rowLabel = (row) => row.name ?? row.label ?? '' }) {
     let added = 0
+    let updated = 0
+    let unchanged = 0
     let skipped = 0
+    let stoppedAt = null
     const seenRows = [...rows]
-    for (const row of parsedRows) {
+    const totalCount = parsedRows.length
+    for (const [index, row] of parsedRows.entries()) {
       if (row.warning) {
         skipped++
         continue
       }
-      if (duplicateCheck(seenRows, row)) {
+      const existing = findExisting ? findExisting(seenRows, row) : null
+      if (existing) {
+        const changedFields = buildChangedFields(existing, row)
+        if (!changedFields || Object.keys(changedFields).length === 0) {
+          unchanged++
+          continue
+        }
+        try {
+          await repository.writeFields(entity, existing.id, changedFields)
+          updated++
+          // Red Hat HIGH: refresh seenRows with the applied value, replacing (never
+          // mutating — `existing` may be a shared React-state object) the stale entry,
+          // so a LATER row sharing this key diffs against what was actually written.
+          const index = seenRows.indexOf(existing)
+          if (index !== -1) seenRows[index] = { ...existing, ...changedFields }
+        } catch (err) {
+          // Hard stop, not a rollback: an UNEXPECTED failure stops the loop immediately
+          // (board q-export-columns-do-not-round-trip, honest-atomicity-half).
+          stoppedAt = formatImportStopMessage({
+            importedCount: added + updated, totalCount, rowNumber: index + 1,
+            rowName: rowLabel(row), reason: err?.message || 'an unexpected error',
+          })
+          break
+        }
+        continue
+      }
+      if (!findExisting && duplicateCheck(seenRows, row)) {
         skipped++
         continue
       }
@@ -125,14 +163,17 @@ export function useCrudScreen({
         const fields = mapRow(row, added)
         await repository.createRecord(entity, id, fields)
         added++
-        seenRows.push(fields)
+        seenRows.push({ id, ...fields })
       } catch (err) {
-        console.error(`Failed to import row into ${entity}`, err)
-        skipped++
+        stoppedAt = formatImportStopMessage({
+          importedCount: added + updated, totalCount, rowNumber: index + 1,
+          rowName: rowLabel(row), reason: err?.message || 'an unexpected error',
+        })
+        break
       }
     }
     await load()
-    return { added, skipped }
+    return { added, updated, unchanged, skipped, stoppedAt }
   }
 
   return { rows, loading, error, setError, adding, add, save, deleteAll, importRows, reload: load }

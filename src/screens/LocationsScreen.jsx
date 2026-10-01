@@ -18,6 +18,8 @@ import ImportPreviewSubtitle from '../components/setup/ImportPreviewSubtitle.jsx
 import InlineAddRow from '../components/setup/InlineAddRow'
 import WeekContextBar from '../components/schedule/WeekContextBar'
 import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialog'
+import { ENTITY_FIELD_CATALOGS, inferEntityMapping, applyEntityMapping, describeMappingIssue } from '../ingest/entityColumnMapping.js'
+import { resolveRowAction } from '../ingest/resolveRowAction.js'
 import { CapacityStepper } from '../components/CapacityStepper'
 import {
   activeNearDuplicateGroups,
@@ -28,6 +30,8 @@ import {
 } from './locationMigrationReview'
 import { duplicateSiblingsById } from './locationDuplicates.js'
 import { useLatestTimeout } from '../hooks/useLatestTimeout'
+
+const LOCATIONS_CATALOG = ENTITY_FIELD_CATALOGS.locations
 
 // M3a — the Locations setup screen. docs/work/specs/2026-08-15-m3-locations-design.md Part 1.
 // M3c — the first-run migration review region (Part 3) + the delete path's
@@ -429,6 +433,7 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
   const [pendingExclusion, setPendingExclusion] = useState(null) // { location, slotCount }
   const [importStep, setImportStep] = useState(null)
   const [importPreviewRows, setImportPreviewRows] = useState([])
+  const [importMapping, setImportMapping] = useState(null)
   // T317 — which tab these rows came from, when there was more than one to choose
   // between. Null on a single-sheet file: no choice, so nothing to report.
   const [importSheetNote, setImportSheetNote] = useState(null)
@@ -713,8 +718,12 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
         type: 'array', byteLength: file.size,
         sheetName: 'Locations', requiredColumns: ['name', 'capacity'],
       })
+      const header = Object.keys(rows[0] ?? {})
+      const mapping = inferEntityMapping(header, LOCATIONS_CATALOG)
+      const mappedRows = applyEntityMapping(rows, mapping, LOCATIONS_CATALOG)
+      setImportMapping(mapping)
       const validKinds = new Set(KIND_OPTIONS.map(k => k.value))
-      const parsed = parseLocationsSheetRows(rows, validKinds)
+      const parsed = parseLocationsSheetRows(mappedRows, validKinds)
       setImportPreviewRows(parsed)
       setImportSheetNote(otherSheets.length > 0 ? { sheet: importedSheet, others: otherSheets } : null)
       setImportStep('preview')
@@ -728,16 +737,25 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
   async function confirmImport() {
     setImporting(true)
     try {
-      const { added, skipped } = await importRows(importPreviewRows, {
+      const { added, updated, unchanged, skipped, stoppedAt } = await importRows(importPreviewRows, {
         mapRow: (row) => ({
           name: row.name,
           camp_id: campId,
           capacity: row.capacity,
           ...(row.kind ? { kind: row.kind } : {}),
         }),
-        duplicateCheck: (seen, row) => seen.some((s) => String(s.name ?? '').toLowerCase() === row.name.toLowerCase()),
+        findExisting: (seen, row) => seen.find((s) => String(s.name ?? '').toLowerCase() === row.name.toLowerCase()),
+        buildChangedFields: (existing, row) => {
+          const candidateFields = { capacity: row.capacity, kind: row.kind ?? null }
+          // Code Reviewer HIGH+MEDIUM: `kind` only counts as provided when its column was
+          // actually bound — a sheet without a kind column (capacity is required, always
+          // bound) must never reset an existing location's kind to null.
+          const providedKeys = new Set(['capacity', ...(importMapping?.roles?.kind != null ? ['kind'] : [])])
+          const resolution = resolveRowAction(row.name, candidateFields, new Map([[row.name.toLowerCase(), existing]]), providedKeys)
+          return resolution.action === 'update' ? resolution.changedFields : null
+        },
       })
-      setImportResult({ added, skipped }); setImportStep('done')
+      setImportResult({ added, updated, unchanged, skipped, stoppedAt }); setImportStep('done')
     } finally {
       setImporting(false)
     }
@@ -954,10 +972,14 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
         readyCount={importReadyRows.length}
         warnCount={importWarnRows.length}
         result={importResult}
+        confirmDisabled={!!importMapping && (importMapping.unmapped.length > 0 || importMapping.collision.length > 0)}
+        doneExtra={importResult?.stoppedAt && (
+          <div style={{ ...S.importWarnText, marginTop: 8 }}>{importResult.stoppedAt}</div>
+        )}
         importing={importing}
         onConfirm={confirmImport}
-        onCancel={() => { setImportStep(null); setImportPreviewRows([]) }}
-        previewSubtitle={<ImportPreviewSubtitle ready={importReadyRows.length} warn={importWarnRows.length} sheetNote={importSheetNote} />}
+        onCancel={() => { setImportStep(null); setImportPreviewRows([]); setImportMapping(null) }}
+        previewSubtitle={<ImportPreviewSubtitle ready={importReadyRows.length} warn={importWarnRows.length} sheetNote={importSheetNote} mappingIssue={describeMappingIssue(importMapping)} />}
         renderCell={(r, c) => {
           if (c.key === 'name') return r.name || <span style={{ color: 'var(--warning)' }}>—</span>
           if (c.key === 'capacity') return r.capacity
