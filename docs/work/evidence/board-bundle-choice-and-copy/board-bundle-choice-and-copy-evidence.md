@@ -105,3 +105,12 @@ PAGE ERRORS: none.
    any of this task's seams. It does usefully re-confirm this round's M1 fix
    live: before M1 this row would have printed the raw camper ids
    (`cam-sheet1`/`cam-sheet2`); after M1 it degrades truthfully instead.
+
+## Independent Tester confirmation (closes the camper-names gap above)
+
+The Tester's own seed preserved the roster where mine replaced it, so
+`tester-scene1-zoom-findings.png` shows the sheet-only-campers disclosure
+rendering the real fabricated names "Shir Cohen" and "Omer Levi" — closing
+item 2 above as a genuine gap in MY seeding script, not in the product. The
+other three `tester-*.png` files are the Tester's independent director's-eye
+frames of the same features from a separately-seeded session.

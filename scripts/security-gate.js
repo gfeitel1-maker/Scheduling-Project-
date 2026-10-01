@@ -255,7 +255,7 @@ const CAMP_NAME_ALLOWED = new Set([
   // Synthetic names used as test fixtures, mockup data and prototype chrome. Verified synthetic
   // (they exist only in test/mockup files); safe in plaintext because they identify nobody.
   'kinneret', 'arazim', 'winnepesaukee', 'testwood', 'willowbrook', 'shemesh', 'probe',
-  'renamed', 'demo', 'sample', 'example', 'placeholder', 'fabricated', 'test',
+  'renamed', 'demo', 'sample', 'example', 'placeholder', 'fabricated', 'test', 'fixture',
   // The anonymised stand-ins the earlier scrub introduced — these ARE the anonymisation.
   'a', 'b', 'x', 'y', 'one', 'two', 'three', 'four', 'alpha', 'beta',
   // The product's own name, and domain/structural words that follow "Camp" in ordinary prose
