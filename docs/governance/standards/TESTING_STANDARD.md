@@ -26,7 +26,7 @@ authoritative list and order is `VERIFY_STEPS` in `scripts/verify.js`; this tabl
 | # | Command | Covers |
 |---|---|---|
 | 1 | `npm run agents:check` | Every `.claude/agents/` profile still round-trips from its bindings |
-| 2 | `npm run check:governance` | Frontmatter shape, reference paths, index freshness, status drift, and descriptive docs naming deleted paths |
+| 2 | `npm run check:governance` | Frontmatter shape, reference paths, index freshness, status drift, and descriptive docs naming deleted paths — including, since the rename-silent-lookup-gate work, `stale-settings-key` and `retired-column-in-sql-literal` (both BLOCKING) and `vacuous-filter-assertion` (ADVISORY; see `ADVISORY_CODES` in `scripts/check-governance.js`) |
 | 3 | `npm run licenses:check` | Third-party license manifest (`electron/third-party-licenses.json`) is current (`scripts/generate-licenses.js --check`) |
 | 4 | `npm run build` | The production bundle. The only step that exercises the bundler |
 | 5 | `npm run security` | npm-audit, secret scan, dangerous-pattern scan |
