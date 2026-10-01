@@ -14,8 +14,8 @@
       "generated_hash": "ff72bbf151a7d2eb"
     },
     "code-reviewer": {
-      "adapter_hash": "1e4bbbb5968e360f",
-      "generated_hash": "f5c24c3e23b4be1e"
+      "adapter_hash": "46ed1ab3b4895efa",
+      "generated_hash": "fae19e0b9a81dcc6"
     },
     "design-auditor": {
       "adapter_hash": "5602011c8e655eb8",
@@ -26,28 +26,28 @@
       "generated_hash": "72f6aab8e05bb5b3"
     },
     "governor": {
-      "adapter_hash": "3e544c9751b3d080",
-      "generated_hash": "e6a2bc4b1996402b"
+      "adapter_hash": "9a15157bf3548650",
+      "generated_hash": "427dd632784431b4"
     },
     "grader": {
-      "adapter_hash": "f9540cfbb44f4ea5",
-      "generated_hash": "e6846dd006d9e9cf"
+      "adapter_hash": "798322d9f03221a0",
+      "generated_hash": "ef739c1b33d5d59f"
     },
     "maker": {
       "adapter_hash": "bcaf64f51a13cd8b",
       "generated_hash": "b80e6c27d43cd15e"
     },
     "red-hat": {
-      "adapter_hash": "dd2f68f89afed91e",
-      "generated_hash": "a39f733c1dbd61d6"
+      "adapter_hash": "7ddbc9bb0da25fdd",
+      "generated_hash": "6e1bf070947ebf9c"
     },
     "security-assessment": {
       "adapter_hash": "ee8a800ad38d7619",
       "generated_hash": "8cf4f880cd15b6f3"
     },
     "security": {
-      "adapter_hash": "493e18d4421f7554",
-      "generated_hash": "d94eb042265198ee"
+      "adapter_hash": "47c74aeb8f440ccb",
+      "generated_hash": "f943220e6c33c2cf"
     },
     "tester": {
       "adapter_hash": "92d28efede65f9d0",
