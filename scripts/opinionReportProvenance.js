@@ -59,12 +59,23 @@ export function checkOpinionProvenance({ text, gateName }) {
   // Final (terminal) status per agentId. A later terminal event overwrites an earlier one, same
   // rule as observeRun.foldEvents' pendingByAgentId.
   const statusByAgentId = new Map()
+  // Dispatch tool_use_ids in dispatch order, so "most recent foreground dispatch of a type" is
+  // well-defined the same way agentIdOrder makes it well-defined for background ones.
+  const dispatchOrderToolUseIds = []
+  // tool_use_ids that returned a foreground tool_result — a synchronous dispatch's only completion
+  // signal (observeRun.parseLine emits 'foreground_result'; see the note there).
+  const foregroundCompletedToolUseIds = new Set()
 
   for (const rawLine of toLines(text)) {
     if (!rawLine) continue
     for (const ev of parseLine(rawLine)) {
       if (ev.kind === 'dispatch') {
-        if (ev.tool_use_id) subagentTypeByToolUseId.set(ev.tool_use_id, ev.subagent_type)
+        if (ev.tool_use_id) {
+          subagentTypeByToolUseId.set(ev.tool_use_id, ev.subagent_type)
+          dispatchOrderToolUseIds.push(ev.tool_use_id)
+        }
+      } else if (ev.kind === 'foreground_result') {
+        if (ev.tool_use_id) foregroundCompletedToolUseIds.add(ev.tool_use_id)
       } else if (ev.kind === 'resolution') {
         if (ev.tool_use_id && !agentIdByToolUseId.has(ev.tool_use_id)) {
           agentIdByToolUseId.set(ev.tool_use_id, ev.agentId)
@@ -94,6 +105,22 @@ export function checkOpinionProvenance({ text, gateName }) {
     if (subagentTypeByAgentId.get(agentId) !== subagentType) continue
     if (statusByAgentId.get(agentId) === 'completed') {
       return { bound: true, agentId }
+    }
+  }
+
+  // Foreground (synchronous) dispatches carry no agentId launch-ack, so the loop above (which keys
+  // on agentId) cannot see them. Bind instead on a dispatch of the matching type whose tool_use_id
+  // returned a foreground tool_result — most recent first, mirroring the background rule. The bound
+  // identity is the tool_use_id, since a foreground dispatch has no agentId. What this proves, and
+  // what it does not: that a subagent of the claimed type was dispatched AND returned a result in
+  // this transcript — not that the result self-reported success (a synchronous Agent result carries
+  // no status field), and not that it reviewed this specific commit. Same honesty envelope as the
+  // background path, one notch weaker on status, which is the most a foreground transcript records.
+  for (let i = dispatchOrderToolUseIds.length - 1; i >= 0; i--) {
+    const toolUseId = dispatchOrderToolUseIds[i]
+    if (subagentTypeByToolUseId.get(toolUseId) !== subagentType) continue
+    if (foregroundCompletedToolUseIds.has(toolUseId)) {
+      return { bound: true, agentId: toolUseId }
     }
   }
 

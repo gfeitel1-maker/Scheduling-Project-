@@ -136,6 +136,17 @@ If the CLI exits non-zero, that is a transcription/input error (e.g. a missing
 required field) — fix the input JSON and re-run. It is not a signal about the
 feature under review.
 
+**`sessionTranscript` must be the transcript that CONTAINS the reviewer dispatches.** The
+provenance check (`opinionReportProvenance.js`) binds each opinion report to a real dispatch of
+that subagent type found in the supplied transcript. In a nested loop the reviewers are dispatched
+by the **Governor**, so their dispatch records live in the **Governor's** session transcript, not
+the Grader's own — pass that transcript as `input.sessionTranscript`. As of 2026-10-01 the check
+recognizes **foreground (synchronous) dispatches** too: a reviewer dispatched synchronously has no
+`toolUseResult.agentId` launch-ack, only a returned `tool_result`, and that returned result is now
+accepted as the completion signal. If you cannot obtain the dispatch-bearing transcript, say so
+plainly — a binding you cannot make is disclosed as the `HIGH` "we cannot tell", never routed around
+with a hand-written report.
+
 ---
 
 ## Output Format
