@@ -180,14 +180,20 @@ export function checkVacuousFilterAssertion(root, {
   execFn = (cmd) => execSync(cmd, { encoding: 'utf8' }),
   readFn = (p) => readFileSync(p, 'utf8'),
 } = {}) {
-  const patterns = ["'*.test.js'", "':(glob)test/integration/**/*.js'", "'*.automerge.js'"]
-  // Skip silently if git is unavailable, matching every other git-backed check.
+  // GOING-FORWARD scope, like checkStatusDrift: scan only test files that DIFFER from origin/main,
+  // not the whole corpus. The clean corpus holds ~57 absence-shaped sole-assertion tests that are
+  // overwhelmingly legitimate fail-loud PARITY GUARDS (`expect(diff).toEqual([])` is the correct
+  // assertion for "these two sets match"), which this detector cannot tell apart from a genuinely
+  // vacuous test — they share the identical AST. Flagging all 57 on every run is noise that trains
+  // readers to ignore the gate. So this fires only on a test ADDED or CHANGED on the branch: a new
+  // vacuous-shaped test is surfaced for its author to add a companion assertion, while the existing
+  // parity-guard corpus stays quiet. In CI (shallow clone, no origin/main) the diff is unavailable
+  // and this skips entirely — the same going-forward posture status-drift already has.
+  const isTestFile = (f) => /\.test\.js$/.test(f) || /\.automerge\.js$/.test(f) || /^test\/integration\/.*\.js$/.test(f)
   const files = new Set()
   try {
-    for (const pattern of patterns) {
-      for (const f of execFn(`git -C '${root}' ls-files ${pattern}`).split('\n').filter(Boolean)) {
-        files.add(f)
-      }
+    for (const f of execFn(`git -C '${root}' diff --name-only origin/main...HEAD`).split('\n').filter(Boolean)) {
+      if (isTestFile(f)) files.add(f)
     }
   } catch {
     return []

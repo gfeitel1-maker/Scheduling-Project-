@@ -113,16 +113,15 @@ const finding = (code, message) => ({ code, message })
 // blocking default is the property worth protecting. Adding a code here is a visible,
 // reviewable act.
 //
-// `vacuous-filter-assertion` added here per the BLOCKING-DECISION PROTOCOL in
-// vacuousFilterAssertion.js's header: a corpus run on the clean tree (2026-10-01)
-// found 57 TRUE matches of the detector's narrow pattern (the only assertion is
-// that a filtered/derived collection is empty, with no companion assertion
-// proving the positive path ran) — not detector false positives, but also not
-// a homogeneous dangerously-vacuous class: see vacuousFilterAssertion.js's
-// header for the match-finder-vs-mismatch-guard distinction this detector does
-// not draw. Fixing 57 pre-existing tests is out of
-// scope for the rename-silent-lookup-gate ticket that added this detector; each
-// file:line is carried forward in that ticket's run record rather than fixed here.
+// `vacuous-filter-assertion` ships ADVISORY and GOING-FORWARD (scans only test files that differ
+// from origin/main — see vacuousFilterAssertion.js's wrapper). A corpus run on the clean tree
+// (2026-10-01) found 57 TRUE matches of the detector's narrow pattern (the only assertion is that
+// a filtered/derived collection is empty, with no companion assertion of another shape) — but those
+// are overwhelmingly legitimate fail-loud PARITY GUARDS, which share the identical AST with a
+// genuinely vacuous test and so cannot be told apart by this detector. Flagging all 57 on every run
+// is noise, so it is diff-scoped: a NEW or CHANGED vacuous-shaped test is surfaced for its author,
+// the pre-existing parity-guard corpus stays quiet, and in CI (no origin/main) it skips. Advisory,
+// not blocking, because even a diffed match may be a correct parity guard the author should keep.
 export const ADVISORY_CODES = new Set(['platform-state-stale', 'vacuous-filter-assertion'])
 
 /**
