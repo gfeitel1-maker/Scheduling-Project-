@@ -8,7 +8,7 @@ import {
 } from './scheduleCells.js'
 
 const activities = [{ id: 'act-1', name: 'Swimming' }, { id: 'act-2', name: 'Kayaking' }]
-const anchors = [{ id: 'anc-1', name: 'Lunch' }]
+const fixedEvents = [{ id: 'anc-1', name: 'Lunch' }]
 const electiveSets = [{ id: 'set-1', name: 'Afternoon Chugim' }]
 const electiveSetActivities = [
   { elective_set_id: 'set-1', activity_id: 'act-1' },
@@ -16,7 +16,7 @@ const electiveSetActivities = [
 ]
 const events = [{ id: 'ev-1', name: 'Color War' }]
 
-const lookups = buildScheduleLookups({ activities, anchors, electiveSets, electiveSetActivities, events })
+const lookups = buildScheduleLookups({ activities, fixedEvents, electiveSets, electiveSetActivities, events })
 
 describe('resolveSlotCell — structured cell records', () => {
   it('empty for a falsy slot', () => {

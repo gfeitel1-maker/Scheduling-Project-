@@ -65,6 +65,35 @@ describe('findRouteConflicts', () => {
     expect(bySource.elective).toBe('es1')
   })
 
+  // T293 regression: findRouteConflicts' first-argument property was renamed anchors -> fixedEvents.
+  // Two call sites (src/localClient.mock.js, electron/ops/electiveRunResourceConflicts.js) kept
+  // building the object with the OLD `anchors:` key — silently handing this function `undefined`,
+  // so fixedEventById stayed an empty Map and no fixed-event location conflict was ever detected.
+  // It compiles clean; nothing but a real fixed-event collision in a live call surfaces it. This
+  // test exercises findRouteConflicts the same way a correct call site must, with a fixed event and
+  // a regular activity booked into the SAME location/day/block over capacity.
+  it('flags a fixed event colliding with a regular activity in the same location/day/block (guards the anchors->fixedEvents key rename)', () => {
+    const fixedEvents = [{ id: 'fe1', name: 'Lunch', location_id: 'loc1' }]
+    const activities = [{ id: 'act1', name: 'Archery', location_id: 'loc1' }]
+    const slots = [
+      anchorSlot({ groupId: 'g1', cohort_id: 'c1', fixedEventId: 'fe1' }),
+      activitySlot({ groupId: 'g2', cohort_id: 'c2', activityId: 'act1' }),
+    ]
+
+    const conflicts = findRouteConflicts({ slots, activities, fixedEvents, electiveSetActivities: [], events: [], locations: [loc1] })
+
+    expect(conflicts).toHaveLength(1)
+    expect(conflicts[0].locationId).toBe('loc1')
+    const bySource = Object.fromEntries(conflicts[0].occupants.map((o) => [o.sourceKind, o.sourceId]))
+    expect(bySource.fixed_event).toBe('fe1')
+    expect(bySource.activity).toBe('act1')
+    // If a caller passed the old `anchors:` key instead, fixedEvents here would be undefined,
+    // fixedEventById would be an empty Map, and the fixed-event occupant would register with no
+    // location_id — this assertion is what catches that, not just conflicts.length.
+    const fixedOccupant = conflicts[0].occupants.find((o) => o.sourceKind === 'fixed_event')
+    expect(fixedOccupant.label).toBe('Lunch')
+  })
+
   it('flags an event in one cohort colliding with a regular activity in another', () => {
     const activities = [{ id: 'act1', name: 'Archery', location_id: 'loc1' }]
     const events = [{ id: 'ev1', name: 'Color War', location_id: 'loc1' }]

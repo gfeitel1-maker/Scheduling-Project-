@@ -456,7 +456,7 @@ export function exportScheduleTool(args, { dbPath, dbKey }) {
     const out = buildScheduleExport({
       slots,
       activities: listEntities(db, 'activities'),
-      anchors: listEntities(db, 'fixed_events'),
+      fixedEvents: listEntities(db, 'fixed_events'),
       groups: listEntities(db, 'groups'),
       days: listEntities(db, 'days_of_operation'),
       timeBlocks: listEntities(db, 'time_blocks'),

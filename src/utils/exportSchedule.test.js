@@ -25,7 +25,7 @@ const groups = [{ id: 'g1', name: 'Bunk 1' }]
 const days = [{ id: 'd1', label: 'Monday' }]
 const timeBlocks = [{ id: 'b1', name: 'Period 1', start_time: '09:00:00', end_time: '10:00:00' }]
 const activities = [{ id: 'act-1', name: 'Swimming' }, { id: 'act-2', name: 'Kayaking' }]
-const anchors = []
+const fixedEvents = []
 
 describe('exportToExcel — T105 §6 elective branch', () => {
   it('renders an elective cell as its set name + member list, not blank', () => {
@@ -35,7 +35,7 @@ describe('exportToExcel — T105 §6 elective branch', () => {
       { elective_set_id: 'set-1', activity_id: 'act-1' },
       { elective_set_id: 'set-1', activity_id: 'act-2' },
     ]
-    const wb = capturedWorkbook({ slots, activities, anchors, groups, days, timeBlocks, electiveSets, electiveSetActivities })
+    const wb = capturedWorkbook({ slots, activities, fixedEvents, groups, days, timeBlocks, electiveSets, electiveSetActivities })
 
     const dayRows = sheetRows(wb, 'Monday')
     // header row, then the one data row: [timeBlockLabel, groupCellValue]
@@ -47,7 +47,7 @@ describe('exportToExcel — T105 §6 elective branch', () => {
 
   it('a dangling elective_set_id (set deleted) renders "Elective (removed)" — aligned with SlotCell\'s render fallback (Red Hat fold-in C)', () => {
     const slots = [{ group_id: 'g1', day_id: 'd1', time_block_id: 'b1', elective_set_id: 'set-gone', activity_id: null }]
-    const wb = capturedWorkbook({ slots, activities, anchors, groups, days, timeBlocks, electiveSets: [], electiveSetActivities: [] })
+    const wb = capturedWorkbook({ slots, activities, fixedEvents, groups, days, timeBlocks, electiveSets: [], electiveSetActivities: [] })
 
     const dayRows = sheetRows(wb, 'Monday')
     expect(dayRows[1][1]).toBe('Elective (removed)')
@@ -57,7 +57,7 @@ describe('exportToExcel — T105 §6 elective branch', () => {
 
   it('an ordinary activity cell is unaffected by the elective branch', () => {
     const slots = [{ group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', elective_set_id: null }]
-    const wb = capturedWorkbook({ slots, activities, anchors, groups, days, timeBlocks })
+    const wb = capturedWorkbook({ slots, activities, fixedEvents, groups, days, timeBlocks })
     const dayRows = sheetRows(wb, 'Monday')
     expect(dayRows[1][1]).toBe('Swimming')
   })
@@ -70,7 +70,7 @@ describe('exportToExcel — events overlay branch', () => {
   it('renders an event cell as its event name, not blank', () => {
     const slots = [{ group_id: 'g1', day_id: 'd1', time_block_id: 'b1', event_id: 'ev-1', activity_id: null, elective_set_id: null }]
     const events = [{ id: 'ev-1', name: 'Color War' }]
-    const wb = capturedWorkbook({ slots, activities, anchors, groups, days, timeBlocks, events })
+    const wb = capturedWorkbook({ slots, activities, fixedEvents, groups, days, timeBlocks, events })
 
     const dayRows = sheetRows(wb, 'Monday')
     expect(dayRows[1][1]).toBe('Color War')
@@ -81,7 +81,7 @@ describe('exportToExcel — events overlay branch', () => {
 
   it('a dangling event_id (event deleted) renders "Event (removed)"', () => {
     const slots = [{ group_id: 'g1', day_id: 'd1', time_block_id: 'b1', event_id: 'ev-gone', activity_id: null, elective_set_id: null }]
-    const wb = capturedWorkbook({ slots, activities, anchors, groups, days, timeBlocks, events: [] })
+    const wb = capturedWorkbook({ slots, activities, fixedEvents, groups, days, timeBlocks, events: [] })
 
     const dayRows = sheetRows(wb, 'Monday')
     expect(dayRows[1][1]).toBe('Event (removed)')
@@ -124,7 +124,7 @@ describe('exportToExcel — multi-period span (T248 leftover)', () => {
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', elective_set_id: null, is_span_head: true },
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'act-1', elective_set_id: null, is_span_head: false },
     ]
-    const wb = capturedWorkbook({ slots, activities: spanActivities, anchors, groups: spanGroups, days: spanDays, timeBlocks: spanBlocks })
+    const wb = capturedWorkbook({ slots, activities: spanActivities, fixedEvents, groups: spanGroups, days: spanDays, timeBlocks: spanBlocks })
 
     const dayRows = sheetRows(wb, 'Monday')
     // header + one row per time block — assert the whole population, not just the row we expect.

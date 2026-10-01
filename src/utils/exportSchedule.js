@@ -6,9 +6,9 @@ import { buildScheduleLookups, resolveSlotCell, formatCellLabel } from './schedu
 // "(removed)" fallbacks) lives in scheduleCells.js so this Excel export and the
 // JSON export (buildScheduleExport below) share one source and cannot drift.
 
-export function exportToExcel({ slots, activities, anchors, groups, days, timeBlocks, electiveSets = [], electiveSetActivities = [], events = [] }) {
+export function exportToExcel({ slots, activities, fixedEvents, groups, days, timeBlocks, electiveSets = [], electiveSetActivities = [], events = [] }) {
   const wb = XLSX.utils.book_new()
-  const lookups = buildScheduleLookups({ activities, anchors, electiveSets, electiveSetActivities, events })
+  const lookups = buildScheduleLookups({ activities, fixedEvents, electiveSets, electiveSetActivities, events })
 
   // One sheet per day
   for (const day of days) {

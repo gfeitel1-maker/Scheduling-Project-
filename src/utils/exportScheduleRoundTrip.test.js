@@ -33,7 +33,7 @@ const activities = [
   { id: 'act-2', name: 'Kayaking' },
   { id: 'act-3', name: 'שחייה' }, // Hebrew — unicode must survive serialization
 ]
-const anchors = [{ id: 'anc-1', name: 'Lunch' }]
+const fixedEvents = [{ id: 'anc-1', name: 'Lunch' }]
 const events = [{ id: 'ev-1', name: 'Color War' }]
 const electiveSets = [{ id: 'set-1', name: 'Afternoon Chugim' }]
 const electiveSetActivities = [
@@ -60,11 +60,11 @@ const slots = [
   { group_id: 'g3', day_id: 'd2', time_block_id: 'b2', activity_id: 'act-1', is_span_head: 0 },  // span tail
 ]
 
-const fixture = { slots, activities, anchors, groups, days, timeBlocks, electiveSets, electiveSetActivities, events, camp, week, route: 'generated' }
+const fixture = { slots, activities, fixedEvents, groups, days, timeBlocks, electiveSets, electiveSetActivities, events, camp, week, route: 'generated' }
 
 const EXPECTED_CELLS = [
   { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', kind: 'activity', ref_id: 'act-1', name: 'Swimming' },
-  { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', kind: 'anchor', ref_id: 'anc-1', name: 'Lunch' },
+  { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', kind: 'fixed_event', ref_id: 'anc-1', name: 'Lunch' },
   { group_id: 'g2', day_id: 'd1', time_block_id: 'b1', kind: 'event', ref_id: 'ev-1', name: 'Color War' },
   { group_id: 'g2', day_id: 'd1', time_block_id: 'b2', kind: 'elective', ref_id: 'set-1', name: 'Afternoon Chugim', members: ['Swimming', 'Kayaking'] },
   { group_id: 'g3', day_id: 'd1', time_block_id: 'b1', kind: 'activity', ref_id: 'act-3', name: 'שחייה' },
@@ -108,7 +108,7 @@ describe('export round-trip — Layer 1 backbone', () => {
 
   it('every cell kind is represented (explicit coverage guarantee)', () => {
     const kinds = new Set(out.cells.map((c) => c.kind))
-    expect([...kinds].sort()).toEqual(['activity', 'anchor', 'elective', 'event'])
+    expect([...kinds].sort()).toEqual(['activity', 'elective', 'event', 'fixed_event'])
   })
 
   it('an empty cell is omitted, not exported blank', () => {

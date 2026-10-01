@@ -5,9 +5,9 @@
 // OUT OF SCOPE BY THIS GUARD'S OWN NAME-CLASSIFICATION DESIGN:
 // `elective_preferences` / `elective_choices` fixtures (T251, ADR
 // docs/adr/2026-09-26-per-cell-elective-preferences.md). This file's
-// classification below (ANCHOR_VAR_RE/ANCHOR_PROP_NAMES, SLOT_VAR_RE/
-// SLOT_PROP_NAMES) only recognizes anchor- and slot-shaped fixtures and checks
-// keys against `anchor_activities`/`template_slots` columns — it has no
+// classification below (FIXED_EVENT_VAR_RE/FIXED_EVENT_PROP_NAMES, SLOT_VAR_RE/
+// SLOT_PROP_NAMES) only recognizes fixed-event- and slot-shaped fixtures and checks
+// keys against `fixed_events`/`template_slots` columns — it has no
 // elective classification and no column map for `elective_preferences`. Do
 // not add an "exemption" entry for a key this guard never checks; that would
 // be dead code that looks like it is doing something. If this guard is ever
@@ -58,8 +58,8 @@
 // Do not weaken these to make a refactor pass. Fix the scanner instead.
 //
 // KNOWN RESIDUAL BLIND SPOTS (stated, not hidden):
-//   - classification is by NAME (`anchors:` / `preplacedSlots:` / a variable
-//     matching /anchor/i or /slots?$/). A fixture named nothing like an anchor
+//   - classification is by NAME (`anchors:`/`fixedEvents:` / `preplacedSlots:` / a variable
+//     matching /anchor|fixedEvent/i or /slots?$/). A fixture named nothing like a fixed event
 //     or a slot is not classified as one and goes unchecked. This is the one
 //     genuinely SILENT hole left: the guard never learns such a site exists.
 //   - computed keys (`{ [k]: v }`) cannot be resolved statically. They are not
@@ -234,8 +234,15 @@ function anchorConsumingFunctionNames() {
 // Fixture collection
 // ---------------------------------------------------------------------------
 
-const ANCHOR_VAR_RE = /anchor/i
-const ANCHOR_PROP_NAMES = new Set(['anchors'])
+// T293 (docs/adr/2026-10-01-anchors-become-fixed-and-recurring-events.md) renamed the object-
+// literal property fixtures are passed under (`anchors:` -> `fixedEvents:`), but left most local
+// variable NAMES in test fixtures alone (`const anchor = {...}`, `const lunchAnchor = {...}`) —
+// deliberately, since those are internal to each test file and outside the ADR's D5 symbol table.
+// Both forms are matched here, not just the new one: narrowing FIXED_EVENT_VAR_RE to only
+// `fixedEvent` would silently drop every still-`anchor`-named variable fixture out of coverage —
+// the exact "guard blinded while staying green" failure this file exists to prevent.
+const FIXED_EVENT_VAR_RE = /anchor|fixedEvent/i
+const FIXED_EVENT_PROP_NAMES = new Set(['anchors', 'fixedEvents'])
 const SLOT_VAR_RE = /^(preplaced|.*[Ss]lots?)$/
 const SLOT_PROP_NAMES = new Set(['preplacedSlots'])
 
@@ -422,12 +429,12 @@ function scanSource(file, src, consumers) {
   walk(ast, (n) => {
     // Pattern: `anchors: [...]` / `preplacedSlots: [...]` object properties.
     if (n.type === 'Property' && !n.computed && n.key?.type === 'Identifier') {
-      if (ANCHOR_PROP_NAMES.has(n.key.name)) sites.push({ node: n.value, kind: 'fixed_event', pattern: 'property' })
+      if (FIXED_EVENT_PROP_NAMES.has(n.key.name)) sites.push({ node: n.value, kind: 'fixed_event', pattern: 'property' })
       else if (SLOT_PROP_NAMES.has(n.key.name)) sites.push({ node: n.value, kind: 'slot', pattern: 'property' })
     }
     // Pattern: `const anchor = {...}` / `const preplaced = [...]`.
     if (n.type === 'VariableDeclarator' && n.id?.type === 'Identifier' && n.init) {
-      if (ANCHOR_VAR_RE.test(n.id.name)) sites.push({ node: n.init, kind: 'fixed_event', pattern: 'variable' })
+      if (FIXED_EVENT_VAR_RE.test(n.id.name)) sites.push({ node: n.init, kind: 'fixed_event', pattern: 'variable' })
       else if (SLOT_VAR_RE.test(n.id.name)) sites.push({ node: n.init, kind: 'slot', pattern: 'variable' })
     }
     // Pattern: first argument of an anchor-consuming engine function.

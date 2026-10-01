@@ -14,13 +14,13 @@ export const EVENT_REMOVED_LABEL = 'Event (removed)'
 
 export function buildScheduleLookups({
   activities = [],
-  anchors = [],
+  fixedEvents = [],
   electiveSets = [],
   electiveSetActivities = [],
   events = [],
 } = {}) {
   const actLookup = new Map(activities.map((a) => [a.id, a.name]))
-  const fixedEventLookup = new Map(anchors.map((a) => [a.id, a.name]))
+  const fixedEventLookup = new Map(fixedEvents.map((a) => [a.id, a.name]))
   const electiveSetLookup = new Map(electiveSets.map((s) => [s.id, s]))
   const eventLookup = new Map(events.map((e) => [e.id, e]))
   const electiveMembersBySet = new Map()
