@@ -104,7 +104,9 @@ describe('rollback bare-equality schema_migrations guard', () => {
     //
     // 45 is v84_down.js (T293, anchors-become-fixed-and-recurring-events), added after this
     // count was last pinned.
-    expect(files.length).toBe(45)
+    //
+    // 46 is v85_down.js (T321, camper-id-high-entropy-format).
+    expect(files.length).toBe(46)
   })
 
   it('every rollback file uses `>= N`, never bare `= N`, to delete its schema_migrations row', () => {
