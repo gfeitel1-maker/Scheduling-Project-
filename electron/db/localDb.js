@@ -4138,6 +4138,16 @@ const DEVICE_HEALTH_EVENTS_DDL = `
   //
   // Guard `>= 84 && < 85`, never a bare `< 85` (this repo's standing gotcha).
   if (getSchemaVersion(db) >= 84 && getSchemaVersion(db) < 85) {
+    // FK enforcement OFF for this whole block, same recipe (and same reason) as the v76/v77 block
+    // above: this table has `camp_id REFERENCES camps(id)`, and the v20 migration TEST's own
+    // `camps` -> `camps_tmp` -> `camps` simulation rewrites every OTHER table's FK clause text to
+    // point at camps_tmp, then drops it — which better-sqlite3 validates at PREPARE time whenever
+    // foreign_keys is ON, not just at write time, so even this block's own INSERTs into
+    // camper_identity_keys need enforcement off for their duration. Production code never renames
+    // camps, so this is a test-simulation artifact, not a real migration-safety gap (see
+    // localDb.migrations.test.js's own comment on this exact mechanism).
+    db.pragma('foreign_keys = OFF')
+    try {
     db.transaction(() => {
       db.exec(`CREATE TABLE IF NOT EXISTS camper_identity_keys (
         id TEXT PRIMARY KEY,
@@ -4192,6 +4202,9 @@ const DEVICE_HEALTH_EVENTS_DDL = `
         insertKey.run(lookupId, camper.camp_id, keyMode, keyValue, camper.id)
       }
     })()
+    } finally {
+      db.pragma('foreign_keys = ON')
+    }
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (85, ?)').run(
       new Date().toISOString()

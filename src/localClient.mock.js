@@ -607,6 +607,11 @@ export const MOCK_WRITE_ALLOWLIST = {
   ],
   elective_occurrences: ['run_id', 'elective_set_id', 'day_id', 'time_block_id', 'tier_id'],
   camp_seedlings: ['camp_id', 'kind', 'match_key', 'payload', 'status', 'confirmed_by', 'confirmed_at'],
+  // camper_identity_keys (T321, docs/adr/2026-10-01-camper-id-high-entropy-format.md): the
+  // name/external-id -> camper_id lookup table, mirrored verbatim from
+  // PROJECTIONS.camper_identity_keys.fields (electron/ops/projections.js) — see
+  // electron/ipcSurfaceParity.test.js for the drift check this entry satisfies.
+  camper_identity_keys: ['camp_id', 'key_mode', 'key_value', 'camper_id'],
   elective_choices: ['run_id', 'label', 'is_linked'],
   elective_choice_offerings: ['choice_id', 'occurrence_id', 'activity_id'],
   // occurrence_id added v78 (T265) — a preference is per (day, period) cell.
