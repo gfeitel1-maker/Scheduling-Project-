@@ -1,7 +1,7 @@
 ---
 title: T251-t199-acceptance-fixture
 document_type: ticket
-status: in-progress
+status: completed
 created: 2026-09-23
 archive_when: the spec §6 acceptance fixture passes under electron:dev with no manual database edits, the full gate is green, and T199's own exit condition is satisfied
 governing_docs: [docs/governance/standards/TESTING_STANDARD.md, docs/governance/standards/DESIGN_STANDARD.md, SECURITY.md]
@@ -131,3 +131,35 @@ pass; the console read `matchMedia('(prefers-reduced-motion: reduce)').matches =
 
 Full evidence table, freeze measurements, and the fixture-script fix made along the way are in
 [docs/work/runs/2026-09-30-t251-electron-dev-walk-director-flow.md](../runs/2026-09-30-t251-electron-dev-walk-director-flow.md).
+
+## Close-out — 2026-10-01
+
+All four director-facing defects the 2026-09-30 walk filed on the board are fixed and landed, so
+this ticket and T199 close together. Each by the PR that fixed it:
+
+- `i-bundle-tier-not-covered-wall-and-raw-codes` — the repeated-paragraph wall and the raw
+  `OUTER_RESOURCE_CONFLICT` codes: #683, with the residual copy defect in #685.
+- `i-final-run-always-reads-out-of-date-since-v76` — the false stale-generation row: #680.
+- `i-same-name-sheet-solves-silently-dropping-a-camper` — the silent merge: #687.
+- `i-write-ipc-freezes-app-after-commit-and-finalize` — the Commit/Finalize freeze: this PR, which
+  also folds in the plain Regenerate control on a cold-opened draft run and the identical-bullets
+  disclosure copy.
+
+The walk that found all four is
+[docs/work/runs/2026-09-30-t251-electron-dev-walk-director-flow.md](../runs/2026-09-30-t251-electron-dev-walk-director-flow.md).
+
+**Two spec §6 conditions close as asserted gaps, not as met**, and this flip does not imply
+otherwise:
+
+- **Condition 4 ("no camper violates eligibility") remains an asserted gap.** No pass — this walk
+  or any since — tested it either way. It is asserted by the engine's own unit tests, not by the
+  acceptance fixture.
+- **Reduced motion remains unverified.** DevTools reduced-motion emulation could not be driven in
+  the 2026-09-30 pass; the console read `matchMedia('(prefers-reduced-motion: reduce)').matches
+  === false` with a 0.14s transition observed, so no frame was filed and the claim is still not
+  made. The round-2 UI work in this PR adds no new animation (the one motion is the existing
+  `press-97`, already reduced-motion-gated in `src/index.css`), so it neither closes nor widens
+  this gap.
+
+Condition 9's "marks the run stale" half was closed by #680 removing the false positive; condition
+11 was met by T198 (#665).
