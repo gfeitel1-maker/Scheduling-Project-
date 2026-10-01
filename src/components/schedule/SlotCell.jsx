@@ -147,7 +147,7 @@ export default function SlotCell({
 
   if (slot.type === 'fixed_event') {
     return (
-      <div {...shellProps} aria-label={nameFor(anchor?.name || 'Anchor')} ref={setRef} onClick={() => triggerPress()}>
+      <div {...shellProps} aria-label={nameFor(anchor?.name || 'Fixed event')} ref={setRef} onClick={() => triggerPress()}>
         <div
           className="cell-inner cell-inner--anchor"
           style={{
@@ -163,7 +163,7 @@ export default function SlotCell({
             // collapsed rule can recolour it — an inline `color` would win.
             style={{ '--cell-name-color': ANCHOR_COLOR, fontSize: 11 }}
           >
-            {anchor?.name || 'Anchor'}
+            {anchor?.name || 'Fixed event'}
           </div>
         </div>
       </div>

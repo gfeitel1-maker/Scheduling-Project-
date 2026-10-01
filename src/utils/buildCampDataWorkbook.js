@@ -107,7 +107,7 @@ export const CAMP_DATA_SHEETS = Object.freeze([
     entity: 'cohorts',
     ordered: true,
     build(rows) {
-      const header = ['Name', 'Start Date', 'End Date', 'Capacity Source', 'Anchor Model']
+      const header = ['Name', 'Start Date', 'End Date', 'Capacity Source', 'Fixed-event model']
       const dataRows = sortEntities(rows, { ordered: true }).map((r) => [
         r.name ?? '',
         dateOnly(r.session_week_start),

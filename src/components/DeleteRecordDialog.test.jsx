@@ -121,3 +121,63 @@ describe('DeleteRecordDialog: a group names the campers it disconnects', () => {
     expect(screen.queryByText(/camper/i)).toBeNull()
   })
 })
+
+// q-delete-dialog-mislabels-fixed-as-recurring: fixed_events holds both kinds, and
+// the dialog once labelled every one "recurring", so a location used only by a FIXED
+// event was described to the director as having a recurring one. The count is now split
+// by kind from previewDelete's fixed_event_kind_counts, omitting a zero line.
+describe('DeleteRecordDialog: fixed-event deletions are named by kind, not all "recurring"', () => {
+  const noop3 = () => {}
+  function locationPreview(over = {}) {
+    return {
+      ok: true,
+      entity: 'locations',
+      entity_id: 'loc-1',
+      name: 'Dining Hall',
+      ref_count: 1,
+      activities: [],
+      fixed_event_count: 0,
+      fixed_event_kind_counts: { fixed: 0, recurring: 0 },
+      event_count: 0,
+      special_day_slot_count: 0,
+      event_slot_count: 0,
+      ...over,
+    }
+  }
+
+  it('a location used by one FIXED event says "1 fixed event", never "recurring"', () => {
+    render(
+      <DeleteRecordDialog
+        preview={locationPreview({ fixed_event_kind_counts: { fixed: 1, recurring: 0 } })}
+        onCancel={noop3}
+        onDeleted={noop3}
+      />
+    )
+    expect(screen.getAllByText(/1 fixed event/).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/recurring/)).toBeNull()
+  })
+
+  it('a location used by one RECURRING event says "1 recurring event", never "fixed event"', () => {
+    render(
+      <DeleteRecordDialog
+        preview={locationPreview({ fixed_event_kind_counts: { fixed: 0, recurring: 1 } })}
+        onCancel={noop3}
+        onDeleted={noop3}
+      />
+    )
+    expect(screen.getAllByText(/1 recurring event/).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/fixed event/)).toBeNull()
+  })
+
+  it('both kinds present names each, omitting no line', () => {
+    render(
+      <DeleteRecordDialog
+        preview={locationPreview({ ref_count: 3, fixed_event_kind_counts: { fixed: 2, recurring: 1 } })}
+        onCancel={noop3}
+        onDeleted={noop3}
+      />
+    )
+    expect(screen.getAllByText(/2 fixed events/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/1 recurring event/).length).toBeGreaterThan(0)
+  })
+})

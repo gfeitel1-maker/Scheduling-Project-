@@ -21,7 +21,7 @@ import { createLocationRecord, updateLocationCapacityRecord } from '../lib/locat
 // Repository-only migration (not the full useCrudScreen hook): load() fans out
 // across five parallel list() calls with per-cohort scoping, and the create
 // path is a per-day fan-out with granular orphan reporting that the shared
-// createRecord's swallow-and-rethrow cleanup cannot express — so saveAnchor's
+// createRecord's swallow-and-rethrow cleanup cannot express — so saveFixedEvent's
 // rollback bookkeeping and cleanupPartialRow stay screen-local. The seam owns
 // the field-level write loop (writeFields) and the delete-all loop.
 // See docs/adr/2026-08-12-setup-crud-shared-persistence-seam.md.
@@ -408,7 +408,7 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
     throw new Error(`"${name}" matches more than one activity in your catalog — rename one of them before saving.`)
   }
 
-  async function saveAnchor(id, fields) {
+  async function saveFixedEvent(id, fields) {
     if (!activeCohort) return
     const { selectedDays, ...rest } = fields
     let activityId
@@ -568,7 +568,7 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
     ])
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Fixed Events')
-    XLSX.writeFile(wb, 'anchors_template.xlsx')
+    XLSX.writeFile(wb, 'fixed_events_template.xlsx')
   }
 
   async function onFileChange(e) {
@@ -887,7 +887,7 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
           days={days}
           timeBlocks={timeBlocks}
           locations={locations}
-          onSave={saveAnchor}
+          onSave={saveFixedEvent}
           onClose={() => setModal(null)}
           onCreateLocation={createLocation}
           onUpdateLocationCapacity={updateLocationCapacity}
