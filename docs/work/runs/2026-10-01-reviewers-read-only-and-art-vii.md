@@ -3,7 +3,7 @@ task: Reviewer agents become read-only; a Grader FAIL ends the loop; the work-in
 document_type: run
 date: 2026-10-01
 round: 1
-status: in-progress
+status: escalated
 task_class: documentation-governance
 governing_docs:
   - docs/governance/constitution/CONSTITUTION.md
@@ -46,8 +46,11 @@ human_gates:
   - gate: ADR acceptance — docs/work/INDEX.md is generated, not committed
     ruling: 'OWNER 2026-10-01: "accept"'
     scope: 'docs/adr/2026-10-01-work-index-is-generated-not-committed.md flips to status: accepted, implementation_state: implemented (shipped in #682), in this PR, no separate CI cycle'
-verdict: null
-completion_evidence: []
+verdict: PASS
+completion_evidence:
+  - 'Verifier PASS against e2f7b653: agents:check EXIT=0, check:governance EXIT=0 (pre-existing platform-state-stale advisory only), vitest 3 files / 129 tests EXIT=0, eslint scripts EXIT=0, grep sweep all-prohibitions with a matching control pattern, footprint clean'
+  - 'test/governance.test.js reviewer read-only contract proven non-vacuous on a scratch copy outside the working tree: real vitest FAIL naming docs/governance/agent-bindings/grader.md EXIT=1, then EXIT=0 restored'
+  - 'No GateReport: scripts/opinionReportProvenance.js cannot bind opinion reports from a nested-subagent transcript (dispatch events present, zero resolution events) — disclosed per Art. II rule 3, never converted to a pass'
 archive_when: the four reviewer profiles have carried the read-only contract through one full loop and the mechanical-enforcement follow-up is either shipped or closed
 ---
 
@@ -156,24 +159,115 @@ Everything else a reviewer produces goes in its **reply**, not in a file.
 
 ## Gates
 
+Run by Verifier against `e2f7b653`, the third and final commit on `claude/reviewers-read-only`.
+
 | Gate | Result | Evidence |
 |---|---|---|
-| `npm run agents:check` | | |
-| `npm run check:governance` | | |
-| `npx vitest run scripts/generateAgentProfiles.test.js test/governance.test.js scripts/check-governance.test.js` | | |
-| `npx eslint scripts` | | |
-| grep sweep (no reviewer-produced evidence file, no stash) | | |
-| `git diff --name-only` footprint vs merge-base | | |
+| `npm run agents:check` | PASS (EXIT=0) | "All generated profiles are byte-identical to the committed `.claude/agents/*.md` files." No hand-edited profile; manifest not drifted |
+| `npm run check:governance` | PASS (EXIT=0) | one advisory finding, `platform-state-stale`, pre-existing and not from this diff |
+| `npx vitest run scripts/generateAgentProfiles.test.js test/governance.test.js scripts/check-governance.test.js` | PASS (EXIT=0) | Test Files 3 passed (3) / Tests 129 passed (129) — up from 127, the two new cases being the `reviewer read-only contract` block |
+| `npx eslint scripts` | PASS (EXIT=0) | 6 problems, 0 errors, 6 warnings — all pre-existing in `scripts/security-gate.js` / `scripts/verify.js`, neither touched here; no new warning on a diffed file |
+| grep sweep (no reviewer-produced evidence file, no stash) | PASS | over the 4 bindings + their 4 generated profiles: `npm run gate` 6 matches, **all prohibitions** (incl. "You are never the one who runs `npm run gate`"); `stash` 8 and `>>` 8, all prohibitions; `tee `, `Produce the results file`, `write the results`, `save the report` → 0 each. Control pattern `read-only` matched 16× across all 8 files, so the sweep demonstrably read them (a zero-match sweep is not trusted as a pass here — see `TESTING_STANDARD.md`) |
+| `git diff --name-only origin/main..HEAD` footprint | PASS | exactly the 6 generated profiles, the 7 binding files incl. `manifest.json`, `CONSTITUTION.md`, `TESTING_STANDARD.md`, the work-index ADR, this run record, `test/governance.test.js`. Nothing under `src/`, `electron/`, `scripts/`. No `docs/work/INDEX.md`. `CONSTITUTION.md` in `cd8d48dd` only. No `closes T` in any of the three commit messages. `git status --porcelain` empty |
+
+**Non-vacuity of the new guard** (`test/governance.test.js`, `reviewer read-only contract`): proven on a
+scratch copy outside the working tree per the procedure this same commit prescribes — real `vitest`
+FAIL naming `docs/governance/agent-bindings/grader.md` with `EXIT=1` after the clause was removed in
+the scratch, `EXIT=0` after restoring it, scratch removed, working tree untouched throughout. One
+caveat recorded rather than smoothed over: a first attempt proved the red with a standalone script
+*reproducing* the assertion logic instead of running the real binary — the reimplemented-predicate
+blind spot this repo has been bitten by before. The real-`vitest` run is the evidence of record; the
+reimplemented one is not.
 
 ## Verifier verdict
 
-PASS / FAIL / UNVERIFIED —
+**PASS** — all six gates EXIT=0 against `e2f7b653`, and all eight success-predicate claims traced to
+evidence in the committed tree. No UNVERIFIED claim.
 
 > Verifier alone writes this line and the `verdict` field.
 
 ## Grader score
 
-Average — , lowest dimension — . Pass is ≥ 4.0 with no dimension below 3.
+**No `GateReport` could be produced. There is therefore no score, and this run does not pass.**
+
+`scripts/gateReportCli.js` binds every opinion report to a real dispatch through
+`scripts/opinionReportProvenance.js` (T171) before the reducer may run, and refuses to write any
+GateReport — not even a `BLOCK` one — when a report is unbound. That binding joins a `kind: 'dispatch'`
+event to a `kind: 'resolution'` event on a shared `tool_use_id`. **In a nested subagent transcript
+there are no resolution events**: the `user` record carrying the tool_result for an `Agent` dispatch
+has no `toolUseResult` object at all, so `parseLine` emits none. Confirmed read-only against the real
+transcript for this run: seven `dispatch` events with correct `subagent_type` and `tool_use_id`
+(including `code-reviewer` and `red-hat`), **zero** resolutions, and
+`checkOpinionProvenance` returning `bound: false` for all four opinion gates. The parent session's own
+transcript does not contain these dispatches either, because a subagent made them.
+
+So the GateReport reducer **cannot be invoked at all when the Governor is itself a dispatched
+subagent.** The CLI's refusal is correct behaviour, not a bug: an unbound verdict would be precisely
+the plausible-looking artifact T171 exists to prevent. No transcript was simulated, constructed or
+hand-written to get past it — doing so would have been the same fabrication class this entire change
+was adopted to stop.
+
+Per `CONSTITUTION.md` Art. II rule 3 this is **disclosed missing evidence, not converted into a
+neutral or passing result.** Article VII's pass condition (an average ≥ 4.0) is unmet because there is
+no average, so the decision below is ESCALATE even though nothing is failing.
+
+**The Grader's un-reduced judgement, recorded as opinion and explicitly not a `GateReport`:** Verifier
+PASS; Code Reviewer PASS, score 4 (two LOWs); Red Hat PASS, score 4 (judging all four of its earlier
+procedural findings closed by `e2f7b653`, with two LOWs carried); **no BLOCKING finding from any
+gate**; it states this would have reduced to `overall_score: 4`, `lowest_dimension: 4`,
+`decision_eligibility: PASS_ELIGIBLE`. One calibration caveat, recorded rather than smoothed: the
+Grader was asked to re-read `git show e2f7b653` and judge the closures independently, and reports that
+it did, but it made a single tool call in that round — so its closure judgements should be read as
+agreement with Governor's summary, not as independent verification. The independent verification of
+those closures is the Verifier's gate stack and Governor's own read of the diff, both above.
+
+## Decision
+
+**ESCALATE** — not on a failure, on an evidence gap. Every deliverable in the success predicate is
+met, the Verifier returned PASS on all six gates, and no gate raised a BLOCKING finding. But no
+`GateReport` exists, so Article VII's pass condition is unmet, and rule 3 forbids calling that a pass.
+The open points below need the owner, not another round.
+
+Round 2 was never entered and is not being requested. Governor instead folded the round-1 reviewer
+findings back to Maker **before** the gate stack and before grading (commit `e2f7b653`), rather than
+grading a tree with two known HIGH findings and shipping a thin 4.0. That is itself a process choice
+worth the owner's eye: Article VII describes findings routing into a retry, and says nothing either
+way about correcting the work before the deterministic gate runs. Under the rule adopted here —
+where a Grader FAIL ends the loop outright — getting round 1 right is the only remaining lever, which
+is why it was used. If the owner wants that named explicitly in Article VII (permitted, or
+forbidden), it is a one-line amendment.
+
+> Under the rule adopted in this very run, a Grader FAIL ends the loop and escalates. It does not
+> become a round 2.
+
+## Open points for the owner
+
+1. **The GateReport reducer cannot run under a nested Governor** (detail in "Grader score" above).
+   Every Governor-as-subagent run from now on will be ungradeable by the typed reducer. Two honest
+   routes: run the loop from the main session when a GateReport is wanted (which `governor.md`'s
+   "Match orchestration depth to the work" already leans toward for other reasons), or extend
+   `opinionReportProvenance.js` to bind from a subagent transcript shape. The second is a `scripts/`
+   change with its own tests and was out of this PR's docs-only footprint.
+2. **`grader.md`, as shipped here, has no defined shape for a Verifier PASS with no `gate.sh` stamp.**
+   It covers "a path exists" and "UNVERIFIED with no path", but not "PASSED six named gates, produced
+   no stamp" — which is exactly what happened on first use. Either the Verifier should always run
+   `npm run gate` when a Grader round will follow, or the hand-written PASS case needs defining. A
+   product/process call, not a technical one.
+3. **A trivially fixable typo now costs a full owner escalation.** The ruling quoted was about not
+   carving out small-looking blockers, and it was applied literally. The owner was never asked to
+   confirm that second-order consequence, and `human_gates` quotes only the no-carve-out line.
+4. **`CONSTITUTION.md:115`** ("Verifier returning FAIL or UNVERIFIED at round 2") is now functionally
+   unreachable beside the new line 116 ("A Grader FAIL, at any round"). Deliberately left alone:
+   collapsing it would change a human-approval gate the owner did not rule on.
+5. **Two latent instances of the same defect class, out of scope here:**
+   `docs/governance/agent-bindings/architecture-auditor.md` and `security-assessment.md` still instruct
+   those roles to write self-authored evidence files into the tree
+   (`docs/work/architecture-reports/`, `docs/work/security/`). Neither role is named in the ruling and
+   neither is a "reviewer" in Article VII's new language, though both produce exactly the kind of
+   self-authored artifact the two incidents were about. For the board.
+6. **The four read-only blocks are four near-identical copies** with no templating mechanism in the
+   generator for project-specific shared text. The new governance test catches a *deleted* clause; it
+   does not catch four copies drifting in wording.
 
 ## Findings carried forward
 
@@ -185,14 +279,13 @@ Average — , lowest dimension — . Pass is ≥ 4.0 with no dimension below 3.
   and the CLI; adding `fs.existsSync` there would break its stated contract. The honest home is
   `scripts/gateReportCli.js`, which already does I/O and already SHA-binds `gateResults` to
   `commit` — out of this PR's docs-only footprint. Until then, the guard against a fabricated
-  evidence file is the Grader's instruction never to create one.
+  evidence file is the Grader's instruction never to create one, plus the new governance test.
 - **Follow-up (not done here): mechanical read-only enforcement** via a `PreToolUse` hook scoped by
   `agent_id`, with its validation script and the `.claude/settings.json` change it needs, reviewed
   by Security. See the rejected-options table above for why it is not in this PR.
-
-## Decision
-
-PASS / RETRY / ESCALATE —
-
-> Under the rule adopted in this very run, a Grader FAIL ends the loop and escalates. It does not
-> become a round 2.
+- **The contract held on its first loop, and that is evidence worth keeping.** Both reviewers ran
+  concurrently against one tree under the new block and neither wrote anything:
+  `git status --porcelain` showed only Governor's own edit to this run record, and
+  `docs/work/runs/evidence/` and `docs/work/runs/gate-reports/` gained no new file. The Grader, when
+  it could not produce a GateReport, reported the gap instead of writing a file — the exact decision
+  point at which it previously fabricated one.
