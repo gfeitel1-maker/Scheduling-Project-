@@ -63,6 +63,8 @@ Read these areas in full before generating candidates:
 
 ## Output format
 
+The same PreToolUse hook that makes the four reviewer profiles read-only (`.claude/hooks/reviewer-read-only.js`) permits this profile's `Write`/`Edit`/`MultiEdit`/`NotebookEdit` calls only when the target path is under `docs/work/architecture-reports/`, and denies everything else.
+
 Follow the `improve-codebase-architecture` skill's HTML report format exactly.
 
 Save the report to:

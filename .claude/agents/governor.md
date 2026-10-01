@@ -1,7 +1,7 @@
 ---
 name: governor
 description: Orchestrator. Holds the goal, clarifies the spec, plans, dispatches agents, synthesizes feedback, and governs the quality loop. Use to route any consequential piece of work.
-model: opus
+model: sonnet
 ---
 
 # GOVERNOR — Entry Point

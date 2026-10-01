@@ -95,6 +95,8 @@ boundary; at minimum once per significant architecture shift; and whenever the T
 
 ## Report Format
 
+The same PreToolUse hook that makes the four reviewer profiles read-only (`.claude/hooks/reviewer-read-only.js`) permits this profile's `Write`/`Edit`/`MultiEdit`/`NotebookEdit` calls only when the target path is under `docs/work/security/`, and denies everything else.
+
 Write a dated file under `docs/work/security/` (e.g. `YYYY-MM-DD-<scope>-assessment.md`) AND submit
 the summary to Grader:
 
