@@ -36,7 +36,7 @@ export function computeElectiveRunResourceConflicts(db, run, recordedOccurrences
   return findRouteConflicts({
     slots: scopedSlots,
     activities: db.prepare('SELECT * FROM activities').all(),
-    anchors: db.prepare('SELECT * FROM fixed_events').all(),
+    fixedEvents: db.prepare('SELECT * FROM fixed_events').all(),
     electiveSetActivities: db.prepare('SELECT * FROM elective_set_activities').all(),
     events: db.prepare('SELECT * FROM events').all(),
     locations: db.prepare('SELECT * FROM locations').all(),

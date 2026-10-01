@@ -249,6 +249,41 @@ describe('finalizeElectiveRunHandler', () => {
     expect(result.findings[0].locationId).toBe(fx.locationId)
   })
 
+  // T293 regression: electiveRunResourceConflicts.js builds findRouteConflicts' input object
+  // itself (electron/ops/electiveRunResourceConflicts.js), and that call site passed the OLD
+  // `anchors:` key after findRouteConflicts' parameter was renamed to `fixedEvents` — silently
+  // handing it undefined, so fixedEventById stayed an empty Map and NO fixed-event location
+  // conflict was ever detected (the destructure mismatch is invisible to ESLint and compiles
+  // clean). Case 3 above never caught this because it never seeds a fixed_events row. This one
+  // does: a fixed event booked into the SAME location/day/block as the run's own elective
+  // occurrence, over the location's capacity.
+  it('case 3b: OUTER_RESOURCE_CONFLICT from a fixed event colliding with the run\'s own elective occurrence', async () => {
+    const { campId, handlers, token } = await seedAdmin()
+    const fx = seedFixture(db, { campId })
+    const { runId } = buildRun(db, campId, fx)
+
+    db.prepare('UPDATE locations SET capacity = 1 WHERE id = ?').run(fx.locationId)
+    const fixedEventId = randomUUID()
+    db.prepare(
+      'INSERT INTO fixed_events (id, camp_id, name, location_id, kind) VALUES (?, ?, ?, ?, ?)'
+    ).run(fixedEventId, campId, 'Lunch', fx.locationId, 'fixed')
+    const fixedEventGroupId = randomUUID()
+    db.prepare('INSERT INTO groups (id, camp_id, name, tier_id) VALUES (?, ?, ?, ?)').run(fixedEventGroupId, campId, 'G-Fixed', fx.tierId)
+    db.prepare(
+      'INSERT INTO template_slots (id, template_id, group_id, fixed_event_id, is_fixed_event, day_id, time_block_id) VALUES (?, ?, ?, ?, 1, ?, ?)'
+    ).run(randomUUID(), fx.templateId, fixedEventGroupId, fixedEventId, fx.dayId, fx.timeBlockId)
+
+    const result = await handlers.finalizeElectiveRun({ token, runId })
+    expect(result.ok).toBe(false)
+    expect(result.error).toBe('OUTER_RESOURCE_CONFLICT')
+    expect(result.findings.length).toBeGreaterThan(0)
+    expect(result.findings[0].locationId).toBe(fx.locationId)
+    const sourceKinds = result.findings[0].occupants.map((o) => o.sourceKind).sort()
+    expect(sourceKinds).toContain('fixed_event')
+    const fixedOccupant = result.findings[0].occupants.find((o) => o.sourceKind === 'fixed_event')
+    expect(fixedOccupant.sourceId).toBe(fixedEventId)
+  })
+
   it('case 4: finalizing twice returns ALREADY_FINAL the second time and writes no duplicate snapshot rows', async () => {
     const { campId, handlers, token } = await seedAdmin()
     const fx = seedFixture(db, { campId })

@@ -2289,7 +2289,7 @@ export const mockShoresh = {
     const conflicts = findRouteConflicts({
       slots: scopedSlots,
       activities: state.activities || [],
-      anchors: state.fixed_events || [],
+      fixedEvents: state.fixed_events || [],
       electiveSetActivities: state.elective_set_activities || [],
       events: state.events || [],
       locations: state.locations || [],
