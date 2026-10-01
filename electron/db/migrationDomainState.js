@@ -287,6 +287,18 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // migration posture), and the new table starts empty. What an existing camp
   // means is unchanged until a finalize or a commit writes into either.
   83,
+  // v86 (T322 S3a, docs/adr/2026-09-19-multi-device-erasure-propagation.md's 2026-10-01
+  // addendum) creates one wholly new table, peer_tombstone_reports — a peer's self-reported
+  // set of (tombstone id, version) pairs it has verified-and-projected. Schema-only by the
+  // same reasoning as v81/v83's new tables: no ALTER of any existing table, no backfill, no
+  // appendOp, and the table starts empty. It is also HOST-LOCAL in the stronger sense those
+  // migrations' tables are not — it is never modeled into the Automerge document at all
+  // (no PROJECTIONS entry, no EXTRA_MODELED_ENTITIES/GENESIS_ENTITIES membership), written
+  // only from the authenticated sync handshake (electron/auth/connectionAuth.js), and purely
+  // advisory display data for a future director-facing UI (T322 S3b, not yet built). What an
+  // existing camp MEANS is entirely unaffected by this migration — there is no domain concept
+  // it changes, only a new per-peer bookkeeping fact one device records about another.
+  86,
 ])
 
 /** True if applying `version` can change what the camp means. */

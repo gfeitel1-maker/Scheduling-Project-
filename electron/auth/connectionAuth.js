@@ -45,6 +45,31 @@ function isNonEmptyString(v) {
 // of it. electron/authRejectedSender.js is the other half that must agree — see
 // its own comment._
 //
+// `appliedTombstones` (T322 S3a, docs/adr/2026-09-19-multi-device-erasure-propagation.md's
+// "Addendum (2026-10-01, Architect, T322 S3a)", optional): the peer's own self-reported set of
+// (tombstone id, version) pairs it has verified-and-projected, as `[{id, version}, ...]`.
+// Persisted into `peer_tombstone_reports`, keyed by `verified.deviceId` — the AUTHENTICATED
+// identity, never the raw `device_id` off the wire before verification — and ONLY after the
+// trust/revocation gate below passes, mirroring the peer-identity bind's own ordering. This is
+// advisory display data (S3b reads it) and must never feed back into any admission decision.
+// Tolerant of a missing/malformed value: an absent field, a non-array, or an individual entry
+// with a non-string id/non-non-negative-integer version is silently skipped — mirrors how
+// `msg.schemaVersion` tolerates a non-numeric value as "unknown" rather than throwing.
+function persistAppliedTombstones(db, deviceId, appliedTombstones) {
+  if (!Array.isArray(appliedTombstones)) return
+  const reportedAt = new Date().toISOString()
+  const upsert = db.prepare(
+    'INSERT OR REPLACE INTO peer_tombstone_reports (device_id, tombstone_id, version, reported_at) VALUES (?, ?, ?, ?)'
+  )
+  for (const entry of appliedTombstones) {
+    if (!entry || typeof entry !== 'object') continue
+    const { id, version } = entry
+    if (!isNonEmptyString(id)) continue
+    if (!Number.isInteger(version) || version < 0) continue
+    upsert.run(deviceId, id, version, reportedAt)
+  }
+}
+
 // `peerId` (T162, optional): the libp2p peer id that presented this token,
 // established by libp2p's own Noise handshake before this function is ever
 // called — not client-asserted data. When provided, bound via
@@ -53,7 +78,7 @@ function isNonEmptyString(v) {
 // authenticates from a different machine. Omitting it (every caller that
 // doesn't have a libp2p connection to report) skips the check entirely —
 // this is purely an admission-layer tightening, not a new required field.
-export function evaluateAuthenticate(db, { token, device_id, peerId }) {
+export function evaluateAuthenticate(db, { token, device_id, peerId, appliedTombstones }) {
   const verified = verifySessionToken(db, token)
   if (!verified || verified.deviceId !== device_id) {
     return { ok: false, code: 4401, reason: 'invalid_token' }
@@ -117,6 +142,8 @@ export function evaluateAuthenticate(db, { token, device_id, peerId }) {
       return { ok: false, code: 4405, reason: bind.reason }
     }
   }
+
+  persistAppliedTombstones(db, verified.deviceId, appliedTombstones)
 
   return { ok: true, verified }
 }

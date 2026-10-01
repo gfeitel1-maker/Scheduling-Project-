@@ -280,13 +280,18 @@ describe('migration v72->v74 composition: fresh vs a genuinely-migrated database
     const migrated = v72SeededDb('v72-to-74-version')
     initSchema(migrated) // runs the REAL v73 rebuild, then v74, v75, v76, then v77, then v78, in one pass
 
-    // The property is "a migrated database ends up where a fresh one is", not
-    // "both are at 74" — so the literal moves with every schema bump. Kept as a
-    // literal rather than CURRENT_SCHEMA_VERSION on both sides, because
-    // comparing two things that are both derived would pass even if the chain
-    // stopped stamping entirely. v85 (T321, camper-id-high-entropy-format) is the current head.
-    expect(getSchemaVersion(fresh)).toBe(85)
-    expect(getSchemaVersion(migrated)).toBe(85)
+    // The property is "a migrated database ends up where a fresh one is". A hand-pinned
+    // literal here broke on every later schema bump (v79 through T322 S3a's v86, ...) for
+    // a fact this test was never actually checking — "what is the current head" rather
+    // than "did the chain actually run". Compared against each side's OWN
+    // getSchemaVersion() rather than against each OTHER, so the earlier vacuity concern
+    // (two derived values that could both be wrong the same way) does not apply: if the
+    // migration chain silently stopped stamping, `migrated` would stay stuck at its
+    // pre-chain version and fail this comparison against the real source constant —
+    // CURRENT_SCHEMA_VERSION is declared once in localDb.js, not derived from running
+    // the chain under test.
+    expect(getSchemaVersion(fresh)).toBe(CURRENT_SCHEMA_VERSION)
+    expect(getSchemaVersion(migrated)).toBe(CURRENT_SCHEMA_VERSION)
 
     fresh.close()
     migrated.close()

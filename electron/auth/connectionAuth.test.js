@@ -197,6 +197,188 @@ describe('evaluateAuthenticate — shared admission decision', () => {
   })
 })
 
+// T322 S3a (docs/adr/2026-09-19-multi-device-erasure-propagation.md's "Addendum
+// (2026-10-01, Architect, T322 S3a)"): a peer self-reports, in its `authenticate`
+// request, the set of (tombstone id, version) pairs it has verified-and-projected.
+// evaluateAuthenticate persists this into peer_tombstone_reports, keyed by the
+// AUTHENTICATED verified.deviceId — never the raw, pre-verification device_id off
+// the wire — and ONLY after the trust/revocation gate passes.
+describe('evaluateAuthenticate — appliedTombstones self-report (T322 S3a)', () => {
+  const reportsFor = (deviceId) =>
+    db.prepare('SELECT * FROM peer_tombstone_reports WHERE device_id = ?').all(deviceId)
+
+  it('persists a verified tombstone report for an admitted device', () => {
+    const deviceId = randomUUID()
+    setupCampWithAuthorizedDevice(deviceId)
+    const token = issueCampToken(db, randomUUID(), deviceId)
+
+    const result = evaluateAuthenticate(db, {
+      token,
+      device_id: deviceId,
+      appliedTombstones: [{ id: 'camper-x', version: 1 }],
+    })
+
+    expect(result.ok).toBe(true)
+    const rows = reportsFor(deviceId)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ device_id: deviceId, tombstone_id: 'camper-x', version: 1 })
+    expect(rows[0].reported_at).toBeTruthy()
+  })
+
+  it('has no row for a tombstone id never included in the report', () => {
+    const deviceId = randomUUID()
+    setupCampWithAuthorizedDevice(deviceId)
+    const token = issueCampToken(db, randomUUID(), deviceId)
+
+    evaluateAuthenticate(db, { token, device_id: deviceId, appliedTombstones: [{ id: 'camper-x', version: 1 }] })
+
+    expect(db.prepare('SELECT 1 FROM peer_tombstone_reports WHERE device_id = ? AND tombstone_id = ?').get(deviceId, 'camper-never-reported')).toBeUndefined()
+  })
+
+  // THE FORGED/UNAUTHENTICATED-WRITE PLANT. A token that fails verification, or a
+  // revoked/unauthorized device, must never get its self-report persisted — the
+  // write must happen strictly AFTER the trust/revocation gate, never before.
+  it('never persists a report when the token fails verification', () => {
+    const deviceId = randomUUID()
+    setupCampWithAuthorizedDevice(deviceId)
+
+    const result = evaluateAuthenticate(db, {
+      token: 'not-a-real-token',
+      device_id: deviceId,
+      appliedTombstones: [{ id: 'camper-x', version: 1 }],
+    })
+
+    expect(result.ok).toBe(false)
+    expect(db.prepare('SELECT COUNT(*) c FROM peer_tombstone_reports').get().c).toBe(0)
+  })
+
+  it('never persists a report for a revoked device', () => {
+    const deviceId = randomUUID()
+    setupCampWithAuthorizedDevice(deviceId)
+    const token = issueCampToken(db, randomUUID(), deviceId)
+    db.prepare('UPDATE devices SET revoked_at = ? WHERE id = ?').run(new Date().toISOString(), deviceId)
+
+    const result = evaluateAuthenticate(db, {
+      token,
+      device_id: deviceId,
+      appliedTombstones: [{ id: 'camper-x', version: 1 }],
+    })
+
+    expect(result.ok).toBe(false)
+    expect(db.prepare('SELECT COUNT(*) c FROM peer_tombstone_reports').get().c).toBe(0)
+  })
+
+  it('never persists a report for an unauthorized (pending) device', () => {
+    const deviceId = randomUUID()
+    const campId = randomUUID()
+    db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(campId, 'Test Camp')
+    const hostKey = ensureHostSigningKey(db)
+    db.prepare('UPDATE camps SET signing_public_key = ? WHERE id = ?').run(hostKey.public_key, campId)
+    db.prepare("INSERT INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run(deviceId, 'Pending device')
+    const token = issueCampToken(db, randomUUID(), deviceId)
+
+    const result = evaluateAuthenticate(db, {
+      token,
+      device_id: deviceId,
+      appliedTombstones: [{ id: 'camper-x', version: 1 }],
+    })
+
+    expect(result.ok).toBe(false)
+    expect(db.prepare('SELECT COUNT(*) c FROM peer_tombstone_reports').get().c).toBe(0)
+  })
+
+  it('does not throw and does not corrupt the table on a non-array appliedTombstones', () => {
+    const deviceId = randomUUID()
+    setupCampWithAuthorizedDevice(deviceId)
+    const token = issueCampToken(db, randomUUID(), deviceId)
+
+    expect(() => evaluateAuthenticate(db, { token, device_id: deviceId, appliedTombstones: 'not-an-array' })).not.toThrow()
+    expect(reportsFor(deviceId)).toHaveLength(0)
+  })
+
+  it('skips a malformed entry (missing id) without throwing or blocking the rest of the batch', () => {
+    const deviceId = randomUUID()
+    setupCampWithAuthorizedDevice(deviceId)
+    const token = issueCampToken(db, randomUUID(), deviceId)
+
+    expect(() =>
+      evaluateAuthenticate(db, {
+        token,
+        device_id: deviceId,
+        appliedTombstones: [{ version: 1 }, { id: 'camper-y', version: 2 }],
+      })
+    ).not.toThrow()
+    const rows = reportsFor(deviceId)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].tombstone_id).toBe('camper-y')
+  })
+
+  it('skips a malformed entry (negative version) without throwing or blocking the rest of the batch', () => {
+    const deviceId = randomUUID()
+    setupCampWithAuthorizedDevice(deviceId)
+    const token = issueCampToken(db, randomUUID(), deviceId)
+
+    expect(() =>
+      evaluateAuthenticate(db, {
+        token,
+        device_id: deviceId,
+        appliedTombstones: [{ id: 'camper-bad', version: -1 }, { id: 'camper-y', version: 2 }],
+      })
+    ).not.toThrow()
+    const rows = reportsFor(deviceId)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].tombstone_id).toBe('camper-y')
+  })
+
+  it('skips a malformed entry (non-string id) without throwing or blocking the rest of the batch', () => {
+    const deviceId = randomUUID()
+    setupCampWithAuthorizedDevice(deviceId)
+    const token = issueCampToken(db, randomUUID(), deviceId)
+
+    expect(() =>
+      evaluateAuthenticate(db, {
+        token,
+        device_id: deviceId,
+        appliedTombstones: [{ id: 42, version: 1 }, { id: 'camper-y', version: 2 }],
+      })
+    ).not.toThrow()
+    const rows = reportsFor(deviceId)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].tombstone_id).toBe('camper-y')
+  })
+
+  it('is idempotent: re-authenticating with the same payload does not duplicate or error', () => {
+    const deviceId = randomUUID()
+    setupCampWithAuthorizedDevice(deviceId)
+    const token = issueCampToken(db, randomUUID(), deviceId)
+
+    evaluateAuthenticate(db, { token, device_id: deviceId, appliedTombstones: [{ id: 'camper-x', version: 1 }] })
+    evaluateAuthenticate(db, { token, device_id: deviceId, appliedTombstones: [{ id: 'camper-x', version: 1 }] })
+
+    const rows = reportsFor(deviceId)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].version).toBe(1)
+  })
+
+  it('persists only after the peer-identity binding check also passes', () => {
+    const deviceId = randomUUID()
+    setupCampWithAuthorizedDevice(deviceId)
+    const token = issueCampToken(db, randomUUID(), deviceId)
+    db.prepare('UPDATE devices SET libp2p_peer_id = ? WHERE id = ?').run('peer-a', deviceId)
+
+    const result = evaluateAuthenticate(db, {
+      token,
+      device_id: deviceId,
+      peerId: 'peer-b',
+      appliedTombstones: [{ id: 'camper-x', version: 1 }],
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.code).toBe(4405)
+    expect(reportsFor(deviceId)).toHaveLength(0)
+  })
+})
+
 // T162 (docs/adr/2026-09-14-device-identity-and-token-binding.md §3/§4):
 // evaluateAuthenticate/evaluateLogin gain a `peerId` parameter and bind it to
 // the device via bindOrVerifyPeerIdentity. Passing NO peerId (every test

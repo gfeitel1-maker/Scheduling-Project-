@@ -264,3 +264,42 @@ This ADR settles the erasure mechanism end to end: signed tombstone denylist (bu
 credential pattern) for reintroduction refusal + immediate logical erasure, which the owner has
 confirmed is the required guarantee. Genesis rotation is retained as documented break-glass for the
 rare physical-scrub / compromised-peer-eviction case, not discarded and not on this ticket's path.
+
+## Addendum (2026-10-01, Architect, T322 S3a) — the per-peer applied-signal is keyed by tombstone id, not a scalar frontier
+
+T233's own S3 scope and T322's build ticket (`docs/work/tickets/T322-per-peer-erasure-state-ui.md`)
+described the S3a backing signal in prose as a single self-reported scalar: a peer reports "its
+highest applied purge-tombstone version," stored as one `devices.applied_tombstone_version` column,
+compared against "the current max tombstone version." **That scalar design is unsound and was not
+built.** `tombstones.version` (minted in `purgeSupportCommand.js`) is per-id, mirroring `cred_version`
+on `users` — every new camper purge mints its OWN tombstone starting at version 1, used only for
+anti-replay/anti-downgrade on that one id. It is not a global sequence. Once any camper has ever been
+purged, `MAX(version)` across the whole table is 1 forever, so a peer that has synced only an old,
+unrelated tombstone would read as "caught up" on a brand-new, unsynced one — a false
+`LOGICALLY_ERASED`, violating this feature's own never-claim ("never certainty about a peer it cannot
+hear from") and ("never a count it cannot back").
+
+**Corrected design, built instead:** a peer self-reports the set of `(tombstone id, version)` pairs it
+has verified-and-projected (cheap: one row per ever-purged camper, camp-lifetime bounded), over the
+existing authenticated `authenticate` handshake (`mutualAuth.js`/`evaluateAuthenticate`), the same
+wire point and trust boundary `schemaVersion` already uses. The receiver persists this into a new
+table, `peer_tombstone_reports(device_id, tombstone_id, version, reported_at)`, written only after
+`evaluateAuthenticate` admits the device (never from document merge, never from an unauthenticated
+message). The per-peer flag becomes a per-id lookup: `LOGICALLY_ERASED` for peer P and tombstone T iff
+`peer_tombstone_reports` has a row for `(P, T.id)` with `version >= T.version`; otherwise `UNKNOWN`.
+No cross-device ordinal, no scalar comparison — the comparison is always a genuine per-id fact.
+
+This does not touch `tombstones.version`, `tombstoneSignature.js`'s signed payload
+(`{id, entity, version}`), or S1/S2's anti-replay semantics — fully additive. Filed as this addendum
+rather than a new ADR per the owner's standing delegation (`CONSTITUTION.md` Art. IV): the decision is
+a default consistent with this ADR's own already-ruled trust-root/off-document/authenticated-channel-
+only rules, not a new product-direction choice. The organizer accepts this addendum on the owner's
+behalf under that delegation; the owner is informed in the T322 PR description.
+
+Accepted tradeoffs: (1) storage is O(purged campers) per peer-pair, not O(1) — expected to stay small
+over a camp's lifetime; (2) the `appliedTombstones` handshake payload lists every purged camper's
+opaque id (never a name; high-entropy per T321) on every authenticate — no new information is
+disclosed (a peer already either has or lacks these ids), but it is a wire-format change worth a
+Security read during T322 S3a's review round; (3) `peer_tombstone_reports` rows for a revoked or
+removed device are left stale rather than cleaned up — harmless, since S3b only reads rows for
+currently-listed peers, and revisited only if it proves otherwise.

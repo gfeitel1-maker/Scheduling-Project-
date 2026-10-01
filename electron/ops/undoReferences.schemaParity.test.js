@@ -234,6 +234,13 @@ const ACCEPTED_NON_REFERENCES = [
   //    and camper_id points at campers (also not U2-deletable) --
   { table: 'camper_identity_keys', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity — mirrors camp_seedlings.camp_id' },
   { table: 'camper_identity_keys', column: 'camper_id', reason: 'points at campers, not a U2-deletable entity — mirrors elective_preferences.camper_id' },
+
+  // -- peer_tombstone_reports (T322 S3a, docs/adr/2026-09-19-multi-device-erasure-
+  //    propagation.md's "Addendum (2026-10-01, Architect, T322 S3a)"): a peer's self-
+  //    reported (tombstone id, version) set, written only from the authenticated
+  //    handshake. Neither column points at a U2-deletable entity --
+  { table: 'peer_tombstone_reports', column: 'device_id', reason: 'points at devices, not a U2-deletable entity — mirrors operations.device_id' },
+  { table: 'peer_tombstone_reports', column: 'tombstone_id', reason: 'points at tombstones, not a U2-deletable entity — a permanent signed denylist entry is never undo-deleted (mirrors RESTORE_DECISIONS.tombstones)' },
   { table: 'open_reconciliation_decisions', column: 'entity_id', reason: 'polymorphic (entity_type varies), schema.sql documents "not a FK" — mirrors source_aliases.entity_id' },
   { table: 'open_reconciliation_decisions', column: 'cohort_id', reason: 'host-local journal metadata (never synced); a stale pointer after undo makes a row not match on the next import, not a corrupted live record — mirrors source_aliases.cohort_id' },
   { table: 'open_reconciliation_decisions', column: 'import_run_id', reason: 'groups rows from one commitIngest call, not an entity pointer — mirrors import_evidence.import_run_id' },

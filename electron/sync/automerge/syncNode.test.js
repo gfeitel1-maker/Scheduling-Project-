@@ -264,3 +264,60 @@ describe('syncNode — Automerge merge + projector over a real transport', () =>
     expect(readRecord(b.getDoc(), 'activities', 'act-ok')?.name).toBe('Swim')
   })
 })
+
+// T322 S3a (docs/adr/2026-09-19-multi-device-erasure-propagation.md's "Addendum
+// (2026-10-01, Architect, T322 S3a)"): a peer self-reports, in its `authenticate`
+// frame, the set of (tombstone id, version) pairs it has verified-and-projected.
+// onAuthenticate must thread `msg.appliedTombstones` through to evaluateAuthenticate
+// unmodified, which persists it into peer_tombstone_reports ONLY after the
+// trust/revocation gate passes.
+describe('syncNode — onAuthenticate threads appliedTombstones through to the admission decision', () => {
+  it('persists the authenticating peer\'s self-reported applied tombstones, keyed by its verified device id', async () => {
+    const genesis = createEmptyDoc()
+    const a = await startSyncNode({ deviceId: 'device-a', db: dbA, doc: A.clone(genesis) })
+    const b = await startSyncNode({ deviceId: 'device-b', db: dbB, doc: A.clone(genesis) })
+    nodes.push(a, b)
+
+    await a.dial(b.getMultiaddrs()[0])
+    await waitFor(() => a.getPeers().length > 0)
+
+    const { tokenA } = setupAuthorizedDevicePair(dbA, dbB)
+
+    // Device A authenticates TO B, self-reporting one verified tombstone.
+    await a.authenticateWith(b.peerId, {
+      type: 'authenticate',
+      token: tokenA,
+      device_id: 'device-a',
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      appliedTombstones: [{ id: 'camper-x', version: 1 }],
+    })
+
+    const row = dbB.prepare('SELECT * FROM peer_tombstone_reports WHERE device_id = ? AND tombstone_id = ?').get('device-a', 'camper-x')
+    expect(row).toBeTruthy()
+    expect(row.version).toBe(1)
+    expect(row.reported_at).toBeTruthy()
+  })
+
+  it('leaves no row for a tombstone id the peer never reported', async () => {
+    const genesis = createEmptyDoc()
+    const a = await startSyncNode({ deviceId: 'device-a', db: dbA, doc: A.clone(genesis) })
+    const b = await startSyncNode({ deviceId: 'device-b', db: dbB, doc: A.clone(genesis) })
+    nodes.push(a, b)
+
+    await a.dial(b.getMultiaddrs()[0])
+    await waitFor(() => a.getPeers().length > 0)
+
+    const { tokenA } = setupAuthorizedDevicePair(dbA, dbB)
+
+    await a.authenticateWith(b.peerId, {
+      type: 'authenticate',
+      token: tokenA,
+      device_id: 'device-a',
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      appliedTombstones: [{ id: 'camper-x', version: 1 }],
+    })
+
+    const row = dbB.prepare('SELECT * FROM peer_tombstone_reports WHERE device_id = ? AND tombstone_id = ?').get('device-a', 'camper-never-seen')
+    expect(row).toBeUndefined()
+  })
+})

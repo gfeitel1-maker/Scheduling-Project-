@@ -1817,6 +1817,25 @@ CREATE TABLE IF NOT EXISTS tombstones (
   created_at TEXT
 );
 
+-- peer_tombstone_reports (v86, T322 S3a — docs/adr/2026-09-19-multi-device-erasure-
+-- propagation.md's "Addendum (2026-10-01, Architect, T322 S3a)"). A peer self-reports, over
+-- the authenticated `authenticate` handshake (mutualAuth.js/evaluateAuthenticate), the set of
+-- (tombstone id, version) pairs it has verified-and-projected. `tombstones.version` is PER-ID
+-- (mirrors cred_version), not a global sequence, so this is a set of per-id facts, never a
+-- single scalar frontier — see the ADR addendum for why a scalar design was unsound. Written
+-- ONLY from the authenticated channel, after the trust/revocation gate (connectionAuth.js);
+-- never from document merge, never from an unauthenticated message. This table does NOT
+-- replicate (off-document trust root, like `devices` and `tombstones` itself) — no PROJECTIONS
+-- entry, no appendOp, no director write path. Advisory display data only (S3b); must never
+-- influence any admission/trust decision.
+CREATE TABLE IF NOT EXISTS peer_tombstone_reports (
+  device_id TEXT NOT NULL,
+  tombstone_id TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  reported_at TEXT NOT NULL,
+  PRIMARY KEY (device_id, tombstone_id)
+);
+
 -- elective_run_outer_snapshots (v74, T243, docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-
 -- slices.md). A finalized run's per-camper, per-cell export snapshot — the "outer" grid position
 -- (day/time-block) a camper's assignment resolves to, frozen at finalization time so the export
