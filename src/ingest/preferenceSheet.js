@@ -49,6 +49,7 @@
 
 import { deriveCamperId, electiveChoiceLabelKey } from '../../electron/ops/electiveDerivedIds.js'
 import { recognitionKey } from './preview.js'
+import { mapWithCollisions } from './mapWithCollisions.js'
 // T318 round 2 — the three rank_kind values this ETL writes moved to
 // src/engine/rankKind.js, the choke point also imported by
 // buildElectiveAssignments.js and camperElectiveWeek.js's rankLabel, so the
@@ -752,6 +753,35 @@ function makeDivisionResolver({ groups = [], tiers = [] } = {}) {
   }
 }
 
+// Board item i-declared-camper-dropped-when-all-choices-outside-catalog — a row
+// with no external id and no recognisable choice is still a real camper, not
+// junk, when its NAME matches one the camp's roster already has. Keyed the same
+// way `rowsByName`/FORKED_IDENTITY key names (`electiveChoiceLabelKey`), so a
+// spelling variant that would collide there also resolves here.
+//
+// PRESENCE ONLY, NEVER THE ROSTER CAMPER'S ID. This decides keep-vs-skip and
+// nothing else; the row's camper id is always derived from the row itself
+// (`deriveCamperId`, name-mode for an id-less row), exactly as for any other
+// row. Substituting the matched roster camper's id would re-key a DIFFERENT
+// child who merely shares a name onto that existing camper — and because
+// `commitElectiveRun` writes `external_id` unconditionally, it would also null
+// the existing camper's external id. So a name match marks the row DECLARED; it
+// does not change whose record it becomes.
+//
+// A COLLIDING roster name (two roster campers sharing a name-key) still counts
+// as KNOWN to the roster, so such a row is DECLARED too — it must never be
+// silently dropped (owner's bar). `mapWithCollisions` drops a colliding key from
+// `map` but records it in `ambiguous`, and membership in EITHER means the name
+// is one the camp already has.
+function makeRosterNameMatcher(campers) {
+  const { map, ambiguous } = mapWithCollisions(campers, (c) => electiveChoiceLabelKey(c.display_name), (c) => c.id)
+  return (displayName) => {
+    if (!displayName) return false
+    const key = electiveChoiceLabelKey(displayName)
+    return map.has(key) || ambiguous.has(key)
+  }
+}
+
 /**
  * The two parts of a residue item, plus the two joined.
  *
@@ -809,6 +839,7 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog, grid
   const residue = []
   const { resolve: resolveLabel, empty: catalogAbsent } = makeLabelResolver(catalog?.activities ?? [], resolutions ?? {})
   const resolveDivision = makeDivisionResolver(catalog ?? {})
+  const isRosterName = makeRosterNameMatcher(catalog?.campers ?? [])
 
   const add = (kind, head, why, extra = {}) => residue.push({ kind, ...residueParts(head, why), ...extra })
 
@@ -910,6 +941,13 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog, grid
       skippedRows.push({ rowNumber, reason: 'no camper name' })
       return
     }
+
+    // Computed ONCE, here, rather than where `deriveCamperId` used to be called a
+    // second time further down (the P13/declared branch and the camper-creation
+    // block both need it). The id is derived from the ROW, never substituted from
+    // a roster name match — see makeRosterNameMatcher for why a match decides
+    // keep-vs-skip only, not identity.
+    const id = deriveCamperId(campId, { externalId: externalId || null, displayName: displayName || null })
 
     const dayName = cell(row, mapping?.dayIndex) || null
     const periodLabel = cell(row, mapping?.periodIndex) || null
@@ -1084,41 +1122,59 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog, grid
     // a camp's first import.
     if (resolved.length === 0) {
       if (!catalogAbsent) {
-        // A named row whose cells name no known activity is normally junk — a
-        // 'Total Campers' footer, exactly what this skip (P13) exists to drop.
-        // But its IDENTITY is still registered for the same-name resolver,
-        // because if this name collapses onto a KEPT camper's derived id it is
-        // NOT junk: it is a second child silently merged onto the first and then
-        // discarded (board item i-same-name-sheet-solves-silently-dropping-a-
-        // camper, seen live 2026-09-30 — a same-name sheet solved 2 of 3 with no
-        // refusal because one row's choices were outside the camp's catalog and
-        // so were skipped here before the collision could be seen). Registered
-        // with no slots and `dropped: true`; the resolver flags it ONLY when a
-        // kept row shares its id, so an ordinary unique junk footer is still just
-        // skipped.
-        if (displayName) {
-          const nameKey = electiveChoiceLabelKey(displayName)
-          if (!rowsByName.has(nameKey)) rowsByName.set(nameKey, { display_name: displayName, rows: [] })
-          rowsByName.get(nameKey).rows.push({
+        // A row with no recognisable choice is junk — a 'Total Campers' footer —
+        // UNLESS it is DECLARED: it carries an external id, or its name is one the
+        // camp's roster already has (`isRosterName`, incl. an ambiguous roster
+        // name). A junk footer is neither, so this is the split the owner drew
+        // (board item i-declared-camper-dropped-when-all-choices-outside-catalog):
+        // junk stays junk, a declared row becomes a preference-less camper record
+        // instead of being dropped with its choices simply missing the catalog.
+        const declared = Boolean(externalId) || isRosterName(displayName)
+        if (!declared) {
+          // UNCHANGED from before this board item — the P13 skip. Its IDENTITY is
+          // still registered for the same-name resolver, because if this name
+          // collapses onto a KEPT camper's derived id it is NOT junk: it is a
+          // second child silently merged onto the first and then discarded (board
+          // item i-same-name-sheet-solves-silently-dropping-a-camper, seen live
+          // 2026-09-30 — a same-name sheet solved 2 of 3 with no refusal because
+          // one row's choices were outside the camp's catalog and so were skipped
+          // here before the collision could be seen). Registered with no slots and
+          // `dropped: true`; the resolver flags it ONLY when a kept row shares its
+          // id, so an ordinary unique junk footer is still just skipped.
+          if (displayName) {
+            const nameKey = electiveChoiceLabelKey(displayName)
+            if (!rowsByName.has(nameKey)) rowsByName.set(nameKey, { display_name: displayName, rows: [] })
+            rowsByName.get(nameKey).rows.push({
+              rowNumber,
+              camperId: id,
+              hasExternalId: Boolean(externalId),
+              divisionLabel: cell(row, mapping?.divisionIndex) || null,
+              // No camper record and no preferences were written for this row, so it
+              // fills no slots; `dropped` marks it so RESOLVER 4 flags it only when a
+              // KEPT row shares its derived id.
+              slots: new Set(),
+              dropped: true,
+            })
+          }
+          skippedRows.push({
             rowNumber,
-            camperId: deriveCamperId(campId, { externalId: externalId || null, displayName }),
-            hasExternalId: Boolean(externalId),
-            divisionLabel: cell(row, mapping?.divisionIndex) || null,
-            // No camper record and no preferences were written for this row, so it
-            // fills no slots; `dropped` marks it so RESOLVER 4 flags it only when a
-            // KEPT row shares its derived id.
-            slots: new Set(),
-            dropped: true,
+            reason: 'no rank cell names a known activity',
+            contents: (row ?? []).map((v) => String(v ?? '').trim()).filter(Boolean),
           })
+          return
         }
-        skippedRows.push({
-          rowNumber,
-          reason: 'no rank cell names a known activity',
-          contents: (row ?? []).map((v) => String(v ?? '').trim()).filter(Boolean),
-        })
-        return
-      }
-      if (cells.length === 0) {
+        // DECLARED — not a return. A real camper with no recognisable choice is
+        // reported (not silently solved), and falls through into the ordinary
+        // camper-creation block below so a record is still written: empty slots,
+        // zero candidates, and a director who opens the run sees them and can add
+        // their choices by hand.
+        add(
+          'NO_RECOGNISABLE_CHOICE',
+          `${displayName || externalId}`,
+          'No rank cell on this row names an activity this camp has. Imported with no preferences — add their choices by hand.',
+          { rowNumber, camperId: id }
+        )
+      } else if (cells.length === 0) {
         skippedRows.push({ rowNumber, reason: 'no choices on this row' })
         return
       }
@@ -1127,7 +1183,6 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog, grid
     const divisionLabel = cell(row, mapping?.divisionIndex) || null
     const division = resolveDivision(divisionLabel)
 
-    const id = deriveCamperId(campId, { externalId: externalId || null, displayName: displayName || null })
     if (!byId.has(id)) {
       const camper = {
         id,
@@ -1528,19 +1583,32 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog, grid
 
     if (ids.size > 1) {
       if (entry.rows.some((r) => !r.hasExternalId)) {
+        // A pre-existing correctness fix, not a new case: a `dropped` row (P13
+        // skipped it — no recognisable choice, not declared) never got a camper
+        // record at all, so "resolve to different camper records" was false of
+        // it. The id-less row(s) simply did not match the catalog.
+        const droppedRows = entry.rows.filter((r) => r.dropped)
+        const keptRows = entry.rows.filter((r) => !r.dropped)
+        const why = droppedRows.length > 0
+          ? `Row${droppedRows.length === 1 ? ' ' : 's '}${droppedRows.map((r) => r.rowNumber).join(', ')} ` +
+            `did not match the camp's catalog, so no camper record was created for ` +
+            `${droppedRows.length === 1 ? 'it' : 'them'} \u2014 only for row${keptRows.length === 1 ? '' : 's'} ` +
+            `${keptRows.map((r) => r.rowNumber).join(', ')}.`
+          : `On rows ${entry.rows.map((r) => r.rowNumber).join(', ')}, which resolve to different camper ` +
+            'records because some carry a camper id and some do not.'
         add(
           'FORKED_IDENTITY',
           `\u201c${entry.display_name}\u201d`,
           // If they are two different children this is right; if it is one child they now
           // hold half their choices each, and an id on every row fixes it.
-          `On rows ${entry.rows.map((r) => r.rowNumber).join(', ')}, which resolve to different camper ` +
-            'records because some carry a camper id and some do not.',
+          why,
           {
             display_name: entry.display_name,
             rows: entry.rows.map((r) => ({
               rowNumber: r.rowNumber,
               divisionLabel: r.divisionLabel,
               hasExternalId: r.hasExternalId,
+              dropped: Boolean(r.dropped),
             })),
           }
         )

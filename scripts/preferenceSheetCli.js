@@ -243,6 +243,12 @@ export function runPreferenceSheetCli({
                   JOIN elective_sets s ON s.id = b.elective_set_id
                   WHERE s.camp_id = ?`)
         .all(camp.id),
+      // Board item i-declared-camper-dropped-when-all-choices-outside-catalog —
+      // the roster, so a row with no external id can still be DECLARED by a
+      // name match against a camper this camp already has. `parsed.residue`
+      // already surfaces NO_RECOGNISABLE_CHOICE once this is in the catalog; no
+      // separate CLI line is needed.
+      campers: db.prepare('SELECT id, display_name FROM campers WHERE camp_id = ?').all(camp.id),
     })
 
     // THE LAYOUT IS INFERRED AFTER THE CATALOG IS READ, and the order is

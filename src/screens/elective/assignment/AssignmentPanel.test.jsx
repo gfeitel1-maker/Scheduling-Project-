@@ -1010,3 +1010,36 @@ describe('AssignmentPanel — the camper identity resolver and the bundle catalo
     expect(parsed.residue?.filter((r) => r.kind === 'UNRESOLVED_CHOICE_LABEL') ?? []).toEqual([])
   })
 })
+
+// Board item i-declared-camper-dropped-when-all-choices-outside-catalog. The
+// route chooser (candidateTemplateIds.length > 1 && !templateId) lets a
+// director solve WITHOUT ever seeing ParseSummary, so the finding has to be
+// repeated above the route list — otherwise a declared camper with no
+// recognisable choice is imported silently on this path.
+describe('AssignmentPanel — route chooser surfaces a declared camper with no recognisable choice', () => {
+  const TWO_TEMPLATE_SLOTS = [
+    ...TEMPLATE_SLOTS,
+    { id: 's2', template_id: 'tpl-2', elective_set_id: 'set-1', day_id: 'day-1', time_block_id: 'tb-1', group_id: 'grp-1' },
+  ]
+  const TWO_TEMPLATES = [
+    ...SCHEDULE_TEMPLATES,
+    { id: 'tpl-2', camp_id: 'camp-1', week_id: null, name: 'Generated', kind: 'generated' },
+  ]
+
+  it('names the camper above the route list, keyed by their external id', async () => {
+    const props = baseProps({ templateSlots: TWO_TEMPLATE_SLOTS, scheduleTemplates: TWO_TEMPLATES })
+    render(<AssignmentPanel {...props} />)
+    const input = document.querySelector('input[type="file"]')
+    const sheetFile = new File(
+      ['Camper ID\tCamper Name\t#1\nCM-1\tBen Stone\tRobotics'],
+      'sheet.tsv',
+      { type: 'text/tab-separated-values' }
+    )
+    fireEvent.change(input, { target: { files: [sheetFile] } })
+    await waitFor(() => expect(screen.getByText(/Confirm Mapping/)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Confirm Mapping/))
+
+    await waitFor(() => expect(screen.getByText(/choose which to assign against/)).toBeTruthy())
+    expect(screen.getByText(/1 camper\(s\) had no recognisable choice: Ben Stone/)).toBeTruthy()
+  })
+})

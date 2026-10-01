@@ -224,6 +224,34 @@ describe('ParseSummary', () => {
       expect(screen.getByText('1 thing noted')).not.toBeNull()
     })
 
+    // Board item i-declared-camper-dropped-when-all-choices-outside-catalog —
+    // NO_RECOGNISABLE_CHOICE is an ACKNOWLEDGMENT (residueKinds.js), so it goes
+    // through the same generic grouping as every other acknowledgment: one
+    // statement, the names (heads) grouped under it.
+    it('groups every NO_RECOGNISABLE_CHOICE camper under one acknowledgment statement', () => {
+      const why = 'No rank cell on this row names an activity this camp has. Imported with no preferences — add their choices by hand.'
+      render(
+        <ParseSummary
+          parsed={withResidue([
+            parts('NO_RECOGNISABLE_CHOICE', 'Ben Stone', why),
+            parts('NO_RECOGNISABLE_CHOICE', 'Ari Green', why),
+          ])}
+          onSolve={vi.fn()}
+          onChooseDifferentFile={vi.fn()}
+        />
+      )
+      // Both campers share the identical `why`, so this is ONE acknowledgment
+      // statement (grouped like the 40-row Quidditch case), not two.
+      expect(screen.getAllByText(why)).toHaveLength(1)
+      const tokens = screen.getByText(/Ben Stone/)
+      expect(tokens.textContent).toContain('Ben Stone')
+      expect(tokens.textContent).toContain('Ari Green')
+      expect(screen.getByText('1 thing noted')).not.toBeNull()
+      // An acknowledgment, not a decision — still solvable, no action offered.
+      expect(screen.getByText('Solve Assignments')).not.toBeNull()
+      expect(screen.queryByText(/as an activity/)).toBeNull()
+    })
+
     it('falls back to the joined message for an item with no parts', () => {
       // A residue producer that has not been converted still renders, rather than
       // printing "undefined" at a director.

@@ -13,6 +13,7 @@ import {
   parsePreferenceSheet,
 } from './preferenceSheet.js'
 import { buildPreferenceCatalog } from './preferenceImport.js'
+import { deriveCamperId } from '../../electron/ops/electiveDerivedIds.js'
 
 const HEADER = ['Camper Name', 'Division', 'Swim Alternative (Y/N)', '#1', '#2', '#3', 'Additional Comments']
 const ROWS = [
@@ -237,6 +238,134 @@ describe('parsePreferenceSheet', () => {
     const out = parsePreferenceSheet([HEADER, ['', 'Arad', 'N', 'Archery', '', '', '']], { campId: 'camp-1', mapping })
     expect(out.campers).toHaveLength(0)
     expect(out.skippedRows).toEqual([{ rowNumber: 2, reason: 'no camper name' }])
+  })
+
+  // Board item i-declared-camper-dropped-when-all-choices-outside-catalog. A row
+  // whose cells name no known activity used to be P13 junk unconditionally — right
+  // for a 'Total Campers' footer, wrong for a real camper whose preferences simply
+  // did not make the camp's catalog. A row is DECLARED (carries an external id, or
+  // its name resolves to an existing roster camper) when it is NOT junk: it becomes
+  // a preference-less camper record, named in a finding, not silently dropped.
+  describe('a declared camper whose choices are all outside the catalog', () => {
+    it('is imported as a preference-less camper and named in a NO_RECOGNISABLE_CHOICE finding, when declared by an external id', () => {
+      const catalog = buildPreferenceCatalog({ activities: ['Archery'] })
+      const header = ['Camper ID', 'Camper Name', '#1', '#2']
+      const m = inferPreferenceMapping(header)
+      const rows = [header, ['CM-9', 'Yoni Stone', 'Robotics', 'Soccer']]
+      const out = parsePreferenceSheet(rows, { campId: 'camp-1', mapping: m, catalog })
+
+      expect(out.campers).toHaveLength(1)
+      expect(out.campers[0].external_id).toBe('CM-9')
+      expect(out.campers[0].display_name).toBe('Yoni Stone')
+      expect(out.preferences).toHaveLength(0)
+      expect(out.skippedRows).toHaveLength(0)
+
+      const findings = out.residue.filter((r) => r.kind === 'NO_RECOGNISABLE_CHOICE')
+      expect(findings).toHaveLength(1)
+      expect(findings[0].head).toContain('Yoni Stone')
+    })
+
+    it('is imported with the row’s OWN name-derived id (never the roster camper’s id) and named in a finding, when declared by a roster name match', () => {
+      // The roster camper here was created via an EXTERNAL id, so its id is NOT the
+      // name-derived id this sheet row (which carries no id) produces. Reusing the
+      // roster's id would silently re-key this row onto that existing camper — and
+      // because commitElectiveRun writes external_id unconditionally, null the
+      // existing camper's external id (Red Hat HIGH). So the match decides only
+      // keep-vs-skip; the id is the row's own.
+      const rosterId = deriveCamperId('camp-1', { externalId: 'CM-77', displayName: 'Ari Green' })
+      const catalog = buildPreferenceCatalog({
+        activities: ['Archery'],
+        campers: [{ id: rosterId, display_name: 'Ari Green' }],
+      })
+      const rows = [HEADER, ['Ari Green', 'Arad', 'N', 'Robotics', 'Soccer', '', '']]
+      const out = parsePreferenceSheet(rows, { campId: 'camp-1', mapping, catalog })
+
+      expect(out.campers).toHaveLength(1)
+      // The row's own name-mode id, NOT the roster camper's external-id-mode id.
+      expect(out.campers[0].id).toBe(deriveCamperId('camp-1', { displayName: 'Ari Green' }))
+      expect(out.campers[0].id).not.toBe(rosterId)
+      expect(out.preferences).toHaveLength(0)
+      expect(out.skippedRows).toHaveLength(0)
+
+      const findings = out.residue.filter((r) => r.kind === 'NO_RECOGNISABLE_CHOICE')
+      expect(findings).toHaveLength(1)
+      expect(findings[0].head).toContain('Ari Green')
+    })
+
+    // Red Hat HIGH regression: a DIFFERENT child who merely shares a name with a
+    // roster camper, importing a NORMAL (fully resolvable) sheet, must NOT be
+    // re-keyed onto the roster camper. The roster match applies only to the
+    // no-recognisable-choice branch as a keep-vs-skip signal; it never changes the
+    // id of a resolvable row.
+    it('does NOT merge a resolvable same-name row onto an existing roster camper', () => {
+      const rosterId = deriveCamperId('camp-1', { externalId: 'SAM-100', displayName: 'Sam Cohen' })
+      const catalog = buildPreferenceCatalog({
+        activities: ['Archery', 'Ceramics'],
+        campers: [{ id: rosterId, display_name: 'Sam Cohen' }],
+      })
+      const rows = [HEADER, ['Sam Cohen', 'Arad', 'N', 'Archery', 'Ceramics', '', '']]
+      const out = parsePreferenceSheet(rows, { campId: 'camp-1', mapping, catalog })
+
+      expect(out.campers).toHaveLength(1)
+      expect(out.campers[0].id).toBe(deriveCamperId('camp-1', { displayName: 'Sam Cohen' }))
+      expect(out.campers[0].id).not.toBe(rosterId) // not merged onto the roster camper
+      expect(out.preferences).toHaveLength(2) // their real choices, on their own record
+      expect(out.residue.some((r) => r.kind === 'NO_RECOGNISABLE_CHOICE')).toBe(false)
+    })
+
+    // Code Reviewer HIGH regression: an AMBIGUOUS roster name (two roster campers
+    // share it) still counts as KNOWN to the roster, so a no-choice row with that
+    // name is DECLARED and named — never silently dropped (Governor resolution:
+    // never drop a declared camper).
+    it('declares (and names) a no-choice row whose name matches two roster campers — never silently dropped', () => {
+      const catalog = buildPreferenceCatalog({
+        activities: ['Archery'],
+        campers: [
+          { id: 'roster-ari-1', display_name: 'Ari Green' },
+          { id: 'roster-ari-2', display_name: 'Ari Green' },
+        ],
+      })
+      const rows = [HEADER, ['Ari Green', 'Arad', 'N', 'Robotics', 'Soccer', '', '']]
+      const out = parsePreferenceSheet(rows, { campId: 'camp-1', mapping, catalog })
+
+      expect(out.campers).toHaveLength(1)
+      expect(out.campers[0].id).toBe(deriveCamperId('camp-1', { displayName: 'Ari Green' }))
+      const findings = out.residue.filter((r) => r.kind === 'NO_RECOGNISABLE_CHOICE')
+      expect(findings).toHaveLength(1)
+      expect(findings[0].head).toContain('Ari Green')
+    })
+
+    it('stays under the P13 skip — no camper, no finding — when the row carries neither an external id nor a roster-matched name', () => {
+      const catalog = buildPreferenceCatalog({ activities: ['Archery'] })
+      const rows = [HEADER, ['Someone Unknown', 'Arad', 'N', 'Robotics', '', '', '']]
+      const out = parsePreferenceSheet(rows, { campId: 'camp-1', mapping, catalog })
+
+      expect(out.campers).toHaveLength(0)
+      expect(out.skippedRows.map((s) => s.rowNumber)).toContain(2)
+      expect(out.residue.some((r) => r.kind === 'NO_RECOGNISABLE_CHOICE')).toBe(false)
+    })
+  })
+
+  // FORKED_IDENTITY must say the truth when one of the forked rows was never a
+  // camper record at all: the old wording ("resolve to different camper records")
+  // is false of a row that P13 dropped as junk — no record was created for it.
+  it('names a dropped row correctly in the FORKED_IDENTITY wording, when one of the forked rows matched no catalog activity', () => {
+    const catalog = buildPreferenceCatalog({ activities: ['Archery', 'Ceramics'] })
+    const header = ['Camper ID', 'Camper Name', '#1', '#2']
+    const m = inferPreferenceMapping(header)
+    const rows = [
+      header,
+      ['CM-1', 'Ari Green', 'Archery', 'Ceramics'],
+      ['', 'Ari Green', 'Robotics', 'Soccer'],
+    ]
+    const out = parsePreferenceSheet(rows, { campId: 'camp-1', mapping: m, catalog })
+
+    const forked = out.residue.filter((r) => r.kind === 'FORKED_IDENTITY')
+    expect(forked).toHaveLength(1)
+    expect(forked[0].why).toMatch(/did not match .* catalog/)
+    expect(forked[0].why).toMatch(/no camper record was created/)
+    const droppedRow = forked[0].rows.find((r) => r.rowNumber === 3)
+    expect(droppedRow.dropped).toBe(true)
   })
 })
 

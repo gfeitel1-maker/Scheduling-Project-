@@ -17,6 +17,13 @@
 // of which the director could act on; an acknowledgment that masquerades as work
 // is the same overstatement in a different costume.
 //
+// `NO_RECOGNISABLE_CHOICE` (board item
+// i-declared-camper-dropped-when-all-choices-outside-catalog) is deliberately
+// an ACKNOWLEDGMENT, not listed below: the camper record is already imported
+// (empty slots) by the time this fires, and "add their choices by hand" is
+// something a director does on the camper, not an action this residue row
+// can offer.
+//
 // A KIND IS AN ACKNOWLEDGMENT UNTIL PROVEN OTHERWISE. Listing a kind here as a
 // decision is a claim that an action for it EXISTS in the product — the standing
 // rule against a control whose options are all inert means the list and the
