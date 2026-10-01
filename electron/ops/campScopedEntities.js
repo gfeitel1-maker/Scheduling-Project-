@@ -55,6 +55,11 @@ export const DIRECT_CAMP_ENTITIES = new Set([
   // ADMIN-ONLY (D9) — registering here is a SCOPING fact, not a permission
   // grant; all seven are deliberately absent from permissions.js ENTITIES.
   'campers',
+  // T321 (docs/adr/2026-10-01-camper-id-high-entropy-format.md): the
+  // deterministic name/external-id -> random camper_id lookup. Direct-camp-
+  // scoped (camp_id NOT NULL), same posture as campers itself — ADMIN-ONLY,
+  // registering here is a SCOPING fact, not a permission grant.
+  'camper_identity_keys',
   'elective_assignment_runs',
   // T312: a camp's remembered column mapping for the elective preference import.
   // Direct-camp-scoped (camp_id NOT NULL), like elective_sets. REPLICATED by
@@ -295,6 +300,11 @@ export const DOMAIN_SNAPSHOT_ORDER = [
   // written to stay topologically correct even if any of those is later
   // hardened, rather than minimally.
   'campers', // references camps.id only (declared); group_id is soft
+  // T321 (v85); references camps.id only (declared); camper_id is soft (no
+  // DB-level FK to campers.id — same soft-reference posture as every other
+  // camper_id column in this list) — positioned after campers for readability,
+  // not because anything enforces the order.
+  'camper_identity_keys',
   'elective_assignment_runs', // references camps.id and schedule_weeks.id — MUST follow schedule_weeks, and does
   'elective_occurrences', // references elective_assignment_runs.id NOT NULL
   'elective_choices', // references elective_assignment_runs.id NOT NULL

@@ -28,6 +28,7 @@ import { hasContradictoryRanks } from '../../src/ingest/preferenceSheet.js'
 // solve path so the commit and the solve cannot disagree about which tier a
 // camper is in.
 import { makeCamperIdentityResolver } from './camperElectiveIdentity.js'
+import { resolveParsedCamperId } from './camperIdentityResolver.js'
 // T301 slice 3 (docs/adr/2026-09-29-linked-elective-bundles.md D6/D10) — the
 // SAME derivation solve-time uses, reused here rather than re-implemented:
 // bundles are re-derived fresh at commit time too, never trusted from a
@@ -227,6 +228,39 @@ export function commitElectiveRun(db, {
   // What stops `final` being reverted campwide is T244 round 2's field-level
   // guard above, not this.
   if (existingRun?.status === 'final') return { ok: false, error: 'RUN_IS_FINAL' }
+
+  // T321 (docs/adr/2026-10-01-camper-id-high-entropy-format.md): the parser
+  // (src/ingest/preferenceSheet.js) has no `db` and still computes `c.id` via
+  // the unchanged deriveCamperId — which is now only a LOOKUP key, not a real
+  // camper id. Resolve every parsed camper through camper_identity_keys here
+  // (the first point in this call with both `db` and the parsed rows) and
+  // remap every reference to the parser's id onto the resolved one, BEFORE
+  // anything below reads parsed.campers/preferences/assignments. This also
+  // repairs the cross-device orphan case (ADR decision 3) on a cache hit.
+  if (parsed?.campers?.length) {
+    const remap = new Map()
+    for (const c of parsed.campers) {
+      // Only an id in deriveCamperId's OWN format (`camper1:...`, the
+      // `camper${V}:` prefix with V=1) is a real lookup key to resolve — a
+      // large pre-existing test suite hands this function hand-written
+      // literal ids ('cam-1', 'cam-2') as a fixture convenience, never
+      // through the real parser, and those must pass through unchanged
+      // (same posture memory holds elsewhere: "we read data, we don't choose
+      // the format" — a literal test id is not a lookup key to reinterpret).
+      if (typeof c.id !== 'string' || !c.id.startsWith('camper1:')) continue
+      const { camperId } = resolveParsedCamperId(db, { campId, deviceId, authorUserId, camper: c })
+      remap.set(c.id, camperId)
+      c.id = camperId
+    }
+    for (const p of parsed.preferences ?? []) {
+      if (remap.has(p.camper_id)) p.camper_id = remap.get(p.camper_id)
+    }
+    for (const a of assignments ?? []) {
+      if (remap.has(a.camper_id)) a.camper_id = remap.get(a.camper_id)
+    }
+    // solverFindings (T320 item 4, below) never carries a real camper_id — every
+    // write in this function stamps it `null` — so nothing to remap there.
+  }
 
   const camperIds = new Set((parsed?.campers ?? []).map((c) => c.id))
   const occurrenceIds = new Set(occurrences.map((o) => o.id))

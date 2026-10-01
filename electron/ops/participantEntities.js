@@ -39,6 +39,13 @@ export const PARTICIPANT_ENTITIES = Object.freeze(
     // it there would silently GRANT staff read+write on run findings. This
     // registration here is what actually keeps it admin-only.
     'elective_run_findings',
+    // T321 (v85, docs/adr/2026-10-01-camper-id-high-entropy-format.md) — the
+    // tenth. key_value holds cleartext PII (a child's name or external id)
+    // more directly than some of the siblings above: it IS the identity key,
+    // not a denormalized reference to one. Same participant-domain posture —
+    // admin-only, audit-guarded, unrestorable, excluded from the MCP entity
+    // map.
+    'camper_identity_keys',
   ])
 )
 

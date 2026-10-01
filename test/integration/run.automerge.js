@@ -46,6 +46,7 @@ import { run as scenario34 } from './scenarios/34-locked-seat-survives-regenerat
 import { run as scenario35 } from './scenarios/35-schema-version-gate.automerge.js'
 import { run as scenario36 } from './scenarios/36-finalized-elective-run-survives-sync.automerge.js'
 import { run as scenario37 } from './scenarios/37-join-then-write-broadcasts-without-restart.automerge.js'
+import { run as scenario38 } from './scenarios/38-camper-identity-key-convergence.automerge.js'
 
 // Scenario 08 (concurrent-create data loss) and scenario 28 (two directors
 // disagree about one slot) are both FIXED and both pass consistently, having
@@ -104,6 +105,7 @@ const SCENARIOS = [
   // do, so a device that had only ever joined could write and never push it.
   // See harnessAutomerge.js join().
   { name: '37 a joined device\'s write broadcasts with no restart (libp2p)', fn: scenario37 },
+  { name: '38 two devices converge on one camper_identity_keys row (libp2p)', fn: scenario38 },
 ]
 
 // COVERAGE, so the count above is readable without arithmetic:

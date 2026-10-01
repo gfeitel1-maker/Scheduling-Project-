@@ -118,6 +118,13 @@ export const RESTORE_DECISIONS = Object.freeze({
     'refused: PII — a named child\'s frozen schedule export, same posture as elective_assignments. SECURITY BOUNDARY. No setup UI to restore into either way (T243).',
   elective_run_findings:
     'refused: a commit-time finding, re-derivable from the SAME commit/regenerate that produced it — restoring one is nonsensical the way restoring elective_occurrences is (ADR D6-equivalent for T320). No setup UI to restore into either way.',
+
+  // T321 (docs/adr/2026-10-01-camper-id-high-entropy-format.md): camper_identity_keys.key_value
+  // holds cleartext PII (a child's name, or an external roster id) exactly like campers.display_name
+  // above — restoring a deleted mapping row re-materializes that identity link from the op-log
+  // outside the D10 purge path, the same SECURITY BOUNDARY reasoning as campers' own entry.
+  camper_identity_keys:
+    'refused: PII — key_value is a child\'s name or external id, same as campers.display_name. SECURITY BOUNDARY: see the block comment above before changing this',
 })
 
 export const RESTORABLE_ENTITIES = Object.freeze(

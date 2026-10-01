@@ -86,6 +86,13 @@ function importAs(basename, content, options = {}) {
 const campers = () =>
   withDb((db) => db.prepare('SELECT id, display_name, is_unattributed FROM campers ORDER BY id').all())
 
+// T321 — `deriveCamperId` now returns only the `camper_identity_keys` LOOKUP
+// id, not the real `campers.id` (a random `camper2:<uuid>` token). Resolve
+// the lookup through that table, exactly as `resolveOrMintCamperId` does, to
+// get the id a device would actually use.
+const resolveCamperId = (lookupId) =>
+  withDb((db) => db.prepare('SELECT camper_id FROM camper_identity_keys WHERE id = ?').get(lookupId)?.camper_id)
+
 const prefRows = (camperId) =>
   withDb((db) =>
     db
@@ -210,9 +217,11 @@ describe('attribution REKEYS onto the canonical id', () => {
     )
     expect(out.ok).toBe(true)
 
-    const expectedId = deriveCamperId(campId, { externalId: null, displayName: 'Aviva Feldspar' })
+    const lookupId = deriveCamperId(campId, { externalId: null, displayName: 'Aviva Feldspar' })
+    const expectedId = resolveCamperId(lookupId)
     const rows = campers()
     expect(rows).toHaveLength(1)
+    expect(expectedId).toBeTruthy()
     expect(rows[0].id).toBe(expectedId)
     expect(rows[0].display_name).toBe('Aviva Feldspar')
     // The flag is CLEARED, not merely ignored.
@@ -245,7 +254,9 @@ describe('attribution REKEYS onto the canonical id', () => {
       attributeElectiveSubject(db, { campId, deviceId, subjectId: provisional.id, displayName: 'Aviva Feldspar' })
     )
 
-    const newId = deriveCamperId(campId, { externalId: null, displayName: 'Aviva Feldspar' })
+    const newLookupId = deriveCamperId(campId, { externalId: null, displayName: 'Aviva Feldspar' })
+    const newId = resolveCamperId(newLookupId)
+    expect(newId).toBeTruthy()
     const after = prefRows(newId)
     expect(after).toEqual(before) // same coordinates, same labels, nothing lost
     // Nothing left behind under the old id, and no total change.
@@ -338,7 +349,8 @@ describe('the CLI can name the subject at import time', () => {
     expect(rows).toHaveLength(1)
     expect(rows[0].display_name).toBe('Aviva Feldspar')
     expect(rows[0].is_unattributed).toBeNull()
-    expect(rows[0].id).toBe(deriveCamperId(campId, { externalId: null, displayName: 'Aviva Feldspar' }))
+    const lookupId = deriveCamperId(campId, { externalId: null, displayName: 'Aviva Feldspar' })
+    expect(rows[0].id).toBe(resolveCamperId(lookupId))
     expect((result.residue ?? []).filter((r) => r.kind === 'UNATTRIBUTED_SUBJECT')).toEqual([])
   })
 })

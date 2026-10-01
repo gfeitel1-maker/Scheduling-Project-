@@ -591,14 +591,26 @@ export async function buildAcceptanceCamp(db, { handlers, token, campId, deviceI
  * the outer location conflict coordinate this file's `outerConflictSlotId`
  * creates (see electiveAcceptanceProjection.integration.test.jsx).
  *
- * DETERMINISTIC (sorted id, alternating), never random: two runs of this
- * fixture must produce the same camp, or §6's condition 2 would be measuring
- * the fixture instead of the solver.
+ * DETERMINISTIC (sorted by display_name, alternating), never random: two runs
+ * of this fixture must produce the same camp, or §6's condition 2 would be
+ * measuring the fixture instead of the solver.
+ *
+ * T321 (docs/adr/2026-10-01-camper-id-high-entropy-format.md): sorted by `id`
+ * until this ADR — safe only because the pre-T321 id WAS a deterministic
+ * function of camp_id + name, so ordering by it was incidentally stable
+ * across runs. Post-T321, `campers.id` is a random opaque token (a fresh
+ * value every run), so `ORDER BY id` silently stopped being deterministic —
+ * this fixture would reshuffle which named camper lands in which bunk on
+ * every single run, exactly the "measuring the fixture instead of the
+ * solver" failure this function's own header warns against. `display_name`
+ * is sorted on instead: stable across runs by construction (the sheet's
+ * names never change), and nothing here depends on sort order correlating
+ * with id the way it happened to before.
  */
 export async function assignBunks(db, { handlers, token, campId, groupIdByName }) {
   const byTier = { Younger: ['Younger 1', 'Younger 2'], Older: ['Older 1', 'Older 2'] }
   const campers = db
-    .prepare('SELECT id, display_name, division_label FROM campers WHERE camp_id = ? ORDER BY id')
+    .prepare('SELECT id, display_name, division_label FROM campers WHERE camp_id = ? ORDER BY display_name, id')
     .all(campId)
   if (campers.length === 0) throw new Error('assignBunks: no campers to place in bunks')
   const seen = { Younger: 0, Older: 0 }

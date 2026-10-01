@@ -129,6 +129,14 @@ const PERMISSIONS_ADMIN_ONLY_EXCEPTIONS = {
       'domain posture as elective_run_outer_snapshots — a commit-time eligibility finding is part ' +
       "of the director's own workspace, not a staff-reachable surface.",
   },
+
+  camper_identity_keys: {
+    reason:
+      'T321 (docs/adr/2026-10-01-camper-id-high-entropy-format.md): the name/external-id -> ' +
+      'camper_id lookup. ADMIN-ONLY, same posture as campers itself — it is written and read only ' +
+      "inside the elective preference import and attributeElectiveSubject's rekey path, both " +
+      'admin-only by D9, and it holds a cleartext name key with no staff-reachable purpose.',
+  },
 }
 
 // Round 2, M2. The dict above is per-entity PROSE, so it is written by hand on

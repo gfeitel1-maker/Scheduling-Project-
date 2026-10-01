@@ -385,6 +385,14 @@ export const TOMBSTONE_DENYLISTED_ENTITIES = {
   // entry an erased camper's whole finalized schedule — and the camper id itself — would survive
   // in every exported run on every device.
   elective_run_outer_snapshots: { idField: 'camper_id', tombstoneEntity: 'campers' },
+  // T321 (docs/adr/2026-10-01-camper-id-high-entropy-format.md) — the
+  // name/external-id -> camper_id lookup row. Gated on `camper_id` like its
+  // siblings above, NOT its own `id` (the id is a derived lookup key, not the
+  // camper): without this entry a purged camper's mapping row — the one place
+  // this app now keeps a child's name in cleartext — would survive a purge on
+  // every device that receives the tombstone, defeating the whole point of the
+  // ADR.
+  camper_identity_keys: { idField: 'camper_id', tombstoneEntity: 'campers' },
 }
 // `elective_assignment_runs` (the run row itself) is deliberately ABSENT from this denylist — it
 // is not camper data, so it is not supposed to vanish when a camper is purged. Its
@@ -394,11 +402,12 @@ export const TOMBSTONE_DENYLISTED_ENTITIES = {
 // guess-resistance, not erasure — see SECURITY.md's camper-record-purge section and the digest-map-
 // keys amendment in docs/adr/2026-09-30-elective-run-durability.md before relying on it for more.
 //
-// Measured, not assumed, 2026-10-01: `camper_id` appears as a column on exactly four tables in
+// Measured, not assumed, 2026-10-01 (T321): `camper_id` appears as a column on exactly five tables in
 // electron/db/schema.sql (elective_preferences, elective_assignments, elective_run_outer_snapshots,
-// elective_run_findings), and all four are entries above, alongside `campers` itself. Re-run that
-// grep rather than trusting this sentence if you add a table — the previous version of this comment
-// claimed the same completeness and went stale the moment `snapshot_digest` started carrying ids.
+// elective_run_findings, camper_identity_keys), and all five are entries above, alongside `campers`
+// itself. Re-run that grep rather than trusting this sentence if you add a table — the previous
+// version of this comment claimed the same completeness and went stale the moment `snapshot_digest`
+// started carrying ids.
 
 // T233 round 2, finding 4: upsertEntity (below) returns early for a BULK_REPLACE_MODELED_ENTITIES
 // entity, BEFORE the denylist gate below ever runs — a future bulk-replace entity added to

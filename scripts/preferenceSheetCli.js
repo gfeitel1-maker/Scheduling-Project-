@@ -301,14 +301,27 @@ export function runPreferenceSheetCli({
       // Suppressed when the caller declared: they have already answered it. Suppressed
       // for an attributed subject too — a name is a fact about the child, so two
       // identical sheets under one name are one child by declaration, not by guess.
-      const alreadyThere = db.prepare('SELECT 1 FROM campers WHERE id = ?')
+      //
+      // T321 — `c.id` here is `deriveCamperId`'s LOOKUP key (`camper1:...`), not a
+      // real `campers.id`: since the high-entropy rework, commitElectiveRun resolves
+      // and remaps every parsed camper's id onto a minted random id AFTER this point,
+      // so `campers.id` can never literally equal a lookup key again. The
+      // pre-existing-camper signal now lives in `camper_identity_keys` — the same
+      // cache-hit check camperIdentityResolver.js's resolveOrMintByKey already makes
+      // (electron/ops/camperIdentityResolver.js:78) — not in `campers`.
+      const alreadyKeyed = db.prepare('SELECT camper_id FROM camper_identity_keys WHERE id = ?')
       const arrivalResidue = declaredArrival != null
         ? []
         : parsed.campers
-            .filter((c) => c.is_unattributed === 1 && alreadyThere.get(c.id) != null)
-            .map((c) => ({
+            .filter((c) => c.is_unattributed === 1)
+            .map((c) => ({ c, existing: alreadyKeyed.get(c.id) }))
+            .filter(({ existing }) => existing != null)
+            .map(({ c, existing }) => ({
               kind: 'INDISTINGUISHABLE_SUBMISSION',
-              camper_id: c.id,
+              // The REAL campers.id (post-T321, resolved through
+              // camper_identity_keys), not the raw lookup key `c.id` still carries
+              // at this point — the caller is told which camper row this landed on.
+              camper_id: existing.camper_id,
               submission_key: c.external_id,
               ...residueParts(
                 `Stored as “${c.display_name || 'unnamed'}”`,

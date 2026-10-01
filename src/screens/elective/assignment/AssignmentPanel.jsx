@@ -1043,7 +1043,7 @@ export default function AssignmentPanel({
       // SET a group it resolved; it may never clear one it simply failed to
       // resolve", read in this direction.
       const identity = makeCamperIdentityResolver({
-        sheetCampers: sheet.campers, rosterCampers: campers, groups, tiers,
+        campId, sheetCampers: sheet.campers, rosterCampers: campers, groups, tiers,
       })
       const enrichedCampers = identity.enriched
       const tierIdByCamperId = Object.fromEntries(identity.tierIdByCamperId)

@@ -503,12 +503,29 @@ the difference is worth stating.** Every device has to recompute that key from a
 holds in order to subtract an erased camper, so any derivation a device can do, a camp peer can do:
 someone holding a candidate id can hash it and confirm membership. An HMAC would not close that (its
 key would have to be replicated to stay recomputable, and no fleet secret survives a genesis
-rebuild). It matters because camper ids are not uniformly random — on the elective-sheet import path
-`deriveCamperId` embeds the canonicalized display name, so a peer who guesses a purged camper's name
-can rederive the id and confirm they were in that run, and because no re-finalize path exists the
-key is never scrubbed from a stored map. What the hashing buys is real and bounded: the id and name
-are no longer simply readable in a replicated field. See
-`docs/adr/2026-09-30-elective-run-durability.md`, "Amendment (2026-10-01): digest map keys".
+rebuild). What the hashing buys is real and bounded: the id and name are no longer simply readable
+in a replicated field. See `docs/adr/2026-09-30-elective-run-durability.md`, "Amendment
+(2026-10-01): digest map keys".
+
+**`campers.id` itself is opaque, not merely hashed where it is referenced (T321,
+`docs/adr/2026-10-01-camper-id-high-entropy-format.md`).** The caveat this section used to carry —
+that `deriveCamperId` embedded a camper's canonicalized display name directly into `campers.id`, so
+a peer who guessed a purged camper's name could rederive the id and confirm membership anywhere that
+id appeared — is closed, not merely narrowed. `campers.id` for every camper created under this
+scheme is a random, opaque token (`mintCamperId`) carrying no information about the camper; nothing
+can be guessed INTO it. The only place a camp's name/external-id key still exists is a new
+replicated entity, `camper_identity_keys` (the deterministic name/external-id -> `camper_id`
+lookup table sheet import resolves through before minting). That table is **purged and
+tombstone-denylisted exactly like `campers` itself** — `purgeCamperRecord` deletes a purged
+camper's `camper_identity_keys` row(s) in the same transaction as its other dependent-row deletes,
+and a stale peer re-sending its pre-purge copy of that row is refused at projection the same way a
+stale `campers` row is. So the narrower, honest remaining caveat is: while a camper is NOT purged,
+the camper_identity_keys row mapping their name to their id is itself a single, cleartext,
+replicated record (ADR decision 5 — the lookup's whole purpose requires the key to be readable) —
+exactly the same shape every `elective_choices` label key already has, not a new exposure class.
+Once purged, that one record is gone fleet-wide through the same mechanism as the camper row, and
+every other FK/tombstone/digest key carrying that camper's (now-opaque) id reveals nothing about who
+they were, before OR after the purge.
 
 **What this is, precisely: logical erasure ("invisible forever"), not physical byte-erasure.** The
 tombstone gates *projection*, so the record can never be seen or re-created on any device again — that

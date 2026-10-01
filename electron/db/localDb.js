@@ -12,6 +12,7 @@ import { isPlaintextSqliteFile, rawKeyPragma, migratePlaintextToEncrypted } from
 // the right tool; it never loads the fork unless encryption is actually on.
 const _lazyRequire = createRequire(import.meta.url)
 import { deriveScheduleTemplateId } from '../ops/scheduleTemplateId.js'
+import { deriveCamperId, electiveChoiceLabelKey } from '../ops/electiveDerivedIds.js'
 import { deriveLocationId } from '../ops/locationId.js'
 import { deriveDayId } from '../ops/dayId.js'
 import { applyProjection } from '../ops/projections.js'
@@ -39,7 +40,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // campers.division_label/is_unattributed and elective_preferences.rank_kind/
 // coordinate_day_label/coordinate_period_label) all land in this file; 79 is the
 // current version.
-export const CURRENT_SCHEMA_VERSION = 84
+export const CURRENT_SCHEMA_VERSION = 85
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -4095,6 +4096,117 @@ const DEVICE_HEALTH_EVENTS_DDL = `
     })()
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (84, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v85 (T321, docs/adr/2026-10-01-camper-id-high-entropy-format.md) — the new
+  // camper_identity_keys table (schema.sql already creates it unconditionally;
+  // this block is for a database upgrading from an earlier version, same
+  // two-places discipline as v82/camp_seedlings) PLUS the back-fill: one row
+  // per EXISTING ext/name-mode camper (acceptance criterion 6).
+  //
+  // ACCEPTED LIMITATION (Red Hat, T321 follow-up — see the ADR's "Migration
+  // back-fill does not replicate" section): the INSERTs below are raw SQLite,
+  // never appendOp, so these back-filled rows never reach the Automerge
+  // document and never replicate to a device that joins the camp AFTER this
+  // migration has run elsewhere. No migration in this file writes through
+  // appendOp (grep confirms it — every migration that needs a device-local-
+  // only effect says so explicitly, e.g. v55/projection_failures and the v24
+  // orphan-week snapshot above), and openLocalDb runs migrations against the
+  // raw SQLite file with no userDataDir/doc-path argument at all — the
+  // Automerge document for a camp is not even reachable from here. Forcing
+  // migration-time replication would be unprecedented in this codebase, not
+  // merely inconvenient. This is NOT forced.
+  //
+  // Consequence, stated plainly: a fresh device joining this camp after the
+  // migration gets the pre-existing `campers` rows (those always replicated)
+  // but zero camper_identity_keys rows for them. Re-importing an existing
+  // camper's sheet on that new device is a genuine cache miss, mints a
+  // temporary duplicate camper id, and writes its OWN camper_identity_keys
+  // row through the live (appendOp) resolver path — which DOES replicate.
+  // This self-heals: once that new row reaches the ORIGINAL device and that
+  // device's next resolveOrMintCamperId/attributeElectiveSubject touch for
+  // the same name runs, camperIdentityResolver.js's rekeyOrphans finds the
+  // pre-existing camper as the orphan (it is excluded from the lookup only
+  // because it predates this migration, not because of anything else) and
+  // moves its preferences/assignments onto the new device's id — the SAME
+  // mechanism acceptance criterion 4 already covers for two devices racing
+  // before either has ever seen this camper. See
+  // camperIdentityResolver.migrationBackfillConvergence.test.js for a test
+  // exercising exactly this sequence.
+  //
+  // Guard `>= 84 && < 85`, never a bare `< 85` (this repo's standing gotcha).
+  if (getSchemaVersion(db) >= 84 && getSchemaVersion(db) < 85) {
+    // FK enforcement OFF for this whole block, same recipe (and same reason) as the v76/v77 block
+    // above: this table has `camp_id REFERENCES camps(id)`, and the v20 migration TEST's own
+    // `camps` -> `camps_tmp` -> `camps` simulation rewrites every OTHER table's FK clause text to
+    // point at camps_tmp, then drops it — which better-sqlite3 validates at PREPARE time whenever
+    // foreign_keys is ON, not just at write time, so even this block's own INSERTs into
+    // camper_identity_keys need enforcement off for their duration. Production code never renames
+    // camps, so this is a test-simulation artifact, not a real migration-safety gap (see
+    // localDb.migrations.test.js's own comment on this exact mechanism).
+    db.pragma('foreign_keys = OFF')
+    try {
+    db.transaction(() => {
+      db.exec(`CREATE TABLE IF NOT EXISTS camper_identity_keys (
+        id TEXT PRIMARY KEY,
+        camp_id TEXT NOT NULL REFERENCES camps(id),
+        key_mode TEXT NOT NULL,
+        key_value TEXT NOT NULL,
+        camper_id TEXT NOT NULL
+      )`)
+      db.exec(
+        'CREATE INDEX IF NOT EXISTS idx_camper_identity_keys_camper ' +
+        'ON camper_identity_keys (camper_id)'
+      )
+
+      // Back-fill. RE-DERIVE (key_mode, key_value) from each existing camper's
+      // own external_id/display_name columns — the inverse of deriveCamperId's
+      // forward derivation. This works because an EXISTING camper's own `id`
+      // was minted the same way, pre-ADR (commitElectiveRun.js's old direct
+      // assignment), so the same inputs reproduce the same lookup id.
+      //
+      // `sub`-mode (is_unattributed = 1) campers are explicitly SKIPPED — a
+      // provisional subject has no name/external_id yet to derive a lookup key
+      // from, and the ADR migration section says so plainly: "nothing to
+      // back-fill until attributed".
+      //
+      // Does NOT change campers.id for any existing row (ADR "Tombstones &
+      // digest keys already written" — deliberate, pre-production, no live
+      // data).
+      const existing = db
+        .prepare(
+          `SELECT id, camp_id, external_id, display_name
+             FROM campers
+            WHERE is_unattributed IS NOT 1`
+        )
+        .all()
+      const insertKey = db.prepare(
+        'INSERT OR IGNORE INTO camper_identity_keys (id, camp_id, key_mode, key_value, camper_id) VALUES (?, ?, ?, ?, ?)'
+      )
+      for (const camper of existing) {
+        const external = String(camper.external_id ?? '').trim()
+        const keyMode = external.length > 0 ? 'ext' : 'name'
+        // ADR decision 5: `key_value` for name mode is the CANONICAL key
+        // (electiveChoiceLabelKey's output — lowercased, whitespace-stripped),
+        // not the raw display name, matching what the resolver writes for a
+        // freshly-minted row.
+        const keyValue =
+          external.length > 0 ? external : electiveChoiceLabelKey(String(camper.display_name ?? ''))
+        if (keyValue.length === 0) continue
+        const lookupId = deriveCamperId(camper.camp_id, {
+          externalId: external.length > 0 ? external : null,
+          displayName: external.length > 0 ? null : camper.display_name,
+        })
+        insertKey.run(lookupId, camper.camp_id, keyMode, keyValue, camper.id)
+      }
+    })()
+    } finally {
+      db.pragma('foreign_keys = ON')
+    }
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (85, ?)').run(
       new Date().toISOString()
     )
   }

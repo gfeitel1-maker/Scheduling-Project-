@@ -231,10 +231,14 @@ describe('campDocument — Stage 1 Automerge doc for days_of_operation', () => {
     // `elective_run_findings` added to PARENT_SCOPED_ENTITIES and so, automatically, to
     // MODELED_ENTITIES — same forcing function. An APPEND. Same acceptance as every regeneration
     // above.
+    //
+    // THIRTEENTH REGENERATION (T321, docs/adr/2026-10-01-camper-id-high-entropy-format.md):
+    // `camper_identity_keys` added to DIRECT_CAMP_ENTITIES and so, automatically, to
+    // MODELED_ENTITIES — same forcing function. Same acceptance as every regeneration above.
     it('createEmptyDoc always clones the same frozen genesis root', () => {
       const doc = createEmptyDoc()
       expect(A.getHeads(doc)).toEqual([
-        '58437ad536652179974a67116cf62f09f948a19014c8bf683b1fec2b16fe7219',
+        '012398ef68af7ea00c6d8b20b5a9bacaa47cd9b0462089d127df77e1bf09310b',
       ])
       // Two independent calls must produce the SAME head every time — a genesis that varied per
       // call (e.g. one deriving fresh randomness or doing a runtime top-up) would defeat the whole
