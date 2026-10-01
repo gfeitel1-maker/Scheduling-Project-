@@ -69,3 +69,65 @@ confirmed against `src/` and none of them absorbed here per this ticket's own No
 The D8 at-rest-encryption disclosure passes at every entry tested.
 
 These are findings against T249/T250 and are for the owner's board, not for this ticket to fix.
+
+## Walk 2026-09-30 — real app, screen access granted
+
+The board worker drove the real `electron:dev` app by hand against this ticket's own acceptance
+camp (19:10-20:16, with the owner's screen grant), the first time this flow was exercised end to
+end as a director rather than through a jsdom-rendered component. The first capture attempt failed
+honestly before anything was written: `screencapture` from the shell has no screen-recording
+permission on this machine, so its 24 frames were 24 copies of the desktop wallpaper, not the app.
+That evidence was deleted and the walk was re-captured through the Chrome DevTools Protocol
+(`Page.captureScreenshot` against the renderer of an Electron instance relaunched with
+`--remote-debugging-port=9222`), which writes real renderer pixels. The 16 new frames (2800x1694,
+200-410 KB, dated 2026-09-30) live at `docs/work/evidence/T251/`, alongside the 13 frames from the
+2026-09-29 pre-fix walk, which stay as the record of that state.
+
+**The loop is reachable end to end**: import a sheet, map it, solve it (Manual and Generated
+routes), commit, lock a seat, finalize, read the Final view, export, and start a new version from a
+stale run. That resolves the four gaps this ticket's "State — 2026-09-30 (round 2)" section
+reported — a Finalize control, a regenerate path, and a Delete control were all found; the
+same-name refusal is reachable too, but see below. The spec §6 condition "JSON, XLSX, UI, CLI and
+MCP agree" (condition 11 of the twelve pass conditions) is now met by T198 (#665).
+
+**But the walk surfaced four new director-facing defects at this same seam**, which is why status
+stays as it is rather than closing: under the owner's rule that a director-facing defect found at
+an owned seam is a reason the work is not finished, not a reason to record it and move on (subject
+to the owner's own override):
+
+- **`i-write-ipc-freezes-app-after-commit-and-finalize`** — Commit and Finalize each froze the main
+  process (sampled CPU-bound, pure JS stack) for 5-6 minutes on a 47-placement run, with every
+  renderer click dead for the duration. See `09b-generated-run-after-finalize-recovered.png`.
+- **`i-final-run-always-reads-out-of-date-since-v76`** — every Final run shows "This run was
+  finalized before a later change on another device synced in. It is out of date." even on a
+  single-device camp with no other device. This is a false alarm:
+  `electron/ops/finalizedAgainstStaleGeneration.js` compares every distinct
+  `elective_run_outer_snapshots.solver_generation` to the run's own, and rows inherited from a
+  parent carry `NULL` rather than the parent's value — 234 `NULL` rows against 78 matching rows for
+  the run in `09-final-run-view-identity-false-stale-row-start-new-version-export.png`. This is
+  spec §6's "changing the template marks the run stale and prevents finalization" condition
+  (condition 9) firing on every run, not just a changed one — the "marks the run stale" half stays
+  an asserted gap, now with a known false-positive cause rather than an unknown one.
+- **`i-same-name-sheet-solves-silently-dropping-a-camper`** — importing a sheet with two
+  same-named campers in different groups (`docs/work/specs/samples/fabricated-camper-preferences-
+  same-name.csv`) reaches the route chooser rather than being refused, and the Manual route then
+  solves "2 campers placed" against three distinct campers on the sheet — the second same-named
+  camper is silently merged into the first, dropping their rows rather than refusing or
+  disambiguating. `scripts/preferenceSheetCli.test.js` expects this exact file to be refused on the
+  CLI; the UI path does not refuse it. See `12a`/`12`/`12b`-prefixed frames.
+- **`i-bundle-tier-not-covered-wall-and-raw-codes`** — seen in the first, uncaptured pass: a wall of
+  repeated `BUNDLE_TIER_NOT_COVERED`-style paragraphs and raw `OUTER_RESOURCE_CONFLICT` code
+  bullets rendered on both routes, session-scoped to riding a commit result rather than appearing
+  on a cold open. Not reproduced in the captured pass because resolving the underlying Lakefront
+  capacity conflict (a legitimate director fix, 3->10 groups-at-once on the Locations screen) was
+  needed to reach Finalize at all.
+
+Spec §6 condition 4 ("no camper violates eligibility") remains an asserted gap, unchanged by this
+walk — the walk did not newly test it either way.
+
+Reduced motion stays unverified: DevTools' reduced-motion emulation could not be driven in this
+pass; the console read `matchMedia('(prefers-reduced-motion: reduce)').matches === false` with a
+0.14s transition observed, so no frame is filed for it and the claim is not made.
+
+Full evidence table, freeze measurements, and the fixture-script fix made along the way are in
+[docs/work/runs/2026-09-30-t251-electron-dev-walk-director-flow.md](../runs/2026-09-30-t251-electron-dev-walk-director-flow.md).

@@ -60,3 +60,34 @@ Delete control (so the D10 copy has nowhere to live), and the same-name refusal 
 when the camp has two candidate schedules. The D8 disclosure passes. See
 [docs/work/tickets/T251-t199-acceptance-fixture.md](T251-t199-acceptance-fixture.md) and
 [docs/work/runs/2026-09-30-t251-t199-acceptance-fixture.md](../runs/2026-09-30-t251-t199-acceptance-fixture.md).
+
+## Walk 2026-09-30 — real app, screen access granted
+
+The board worker drove the real `electron:dev` app by hand (19:10-20:16, owner's screen grant)
+against the T251 acceptance camp — the first director's-eye pass through this ticket's own flow
+table rather than through a jsdom-rendered component. A first capture attempt via shell
+`screencapture` produced 24 copies of the desktop wallpaper (no screen-recording permission on this
+machine); that evidence was deleted before anything was written, and the walk was re-captured via
+the Chrome DevTools Protocol against an Electron instance relaunched with
+`--remote-debugging-port=9222`, which writes real renderer pixels. 16 new frames live at
+`docs/work/evidence/T251/`.
+
+**The director flow table's every row is now reachable**: no run -> import preview -> ready to
+generate -> draft (move/lock/regenerate) -> final (export or start a revision), on both the Manual
+and Generated routes. The D8 at-rest-encryption disclosure (release precondition) is present at
+every entry tested, including a return to the run list and back. Spec §6 condition 11 ("JSON,
+XLSX, UI, CLI and MCP agree") is now met by T198 (#665).
+
+**This ticket's exit condition is still not met**, and status stays `open` under the owner's rule
+that a director-facing defect at an owned seam is a reason the work is not finished (subject to the
+owner's override) — the walk found four such defects, filed on the board as
+`i-write-ipc-freezes-app-after-commit-and-finalize`,
+`i-final-run-always-reads-out-of-date-since-v76`,
+`i-same-name-sheet-solves-silently-dropping-a-camper`, and
+`i-bundle-tier-not-covered-wall-and-raw-codes`. See
+[docs/work/tickets/T251-t199-acceptance-fixture.md](T251-t199-acceptance-fixture.md)'s own walk
+section for each defect's detail and evidence frames, and
+[docs/work/runs/2026-09-30-t251-electron-dev-walk-director-flow.md](../runs/2026-09-30-t251-electron-dev-walk-director-flow.md)
+for the full narrative. Spec §6 condition 4 (no camper violates eligibility) remains an asserted
+gap, untouched by this walk; reduced motion remains unverified (DevTools emulation could not be
+driven in this pass).
