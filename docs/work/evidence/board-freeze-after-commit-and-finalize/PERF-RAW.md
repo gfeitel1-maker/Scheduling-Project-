@@ -1,3 +1,12 @@
+---
+title: Raw performance measurement — commit/finalize document flush
+document_type: evidence
+status: completed
+created: 2026-10-01
+governing_docs: [docs/governance/standards/TESTING_STANDARD.md]
+related_adrs: [docs/adr/2026-09-29-per-op-savepoint-inside-an-atomic-boundary.md]
+---
+
 # Raw performance measurement — commit/finalize document flush
 
 Everything the ADR amendment's table is derived from. All numbers are
