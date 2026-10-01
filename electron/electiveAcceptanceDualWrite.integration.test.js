@@ -114,21 +114,57 @@ async function runCell(size) {
   )
   const handlers = makeHandlers(db, deviceId, {})
   const { token } = await handlers.login({ name: 'Director', pin: '123400' })
+  // write()/bulkReplace() refuse until a mode is chosen (main.js's syncClient
+  // is assigned in chooseMode's two branches) — same precondition
+  // seedAcceptanceCamp establishes before calling buildAcceptanceCamp.
+  await handlers.chooseMode({ mode: 'host', token })
+
+  // Every catalogue row below goes through the real `write`/`bulkReplace` IPC
+  // handlers, exactly as electron/fixtures/electiveAcceptanceCamp.js's
+  // buildAcceptanceCamp does — never a raw INSERT/UPDATE on these tables. §6
+  // (12)'s guard (electron/electiveAcceptanceSurfaces.integration.test.jsx)
+  // scans every electron/electiveAcceptance*.integration.test.* file as text
+  // and forbids exactly that; only camps/devices (above) and cohorts are
+  // allowlisted as unavoidable direct writes. See
+  // electron/fixtures/electiveAcceptanceCamp.js's BOOTSTRAP_SQL_ALLOWLIST.
+  const write = async (entity, id, fields) => {
+    for (const [field, value] of Object.entries(fields)) {
+      if (value === undefined) continue
+      const result = await handlers.write({ token, entity, entity_id: id, field, value })
+      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
+        throw new Error(`runCell: write failed for ${entity}.${field} (status: ${result?.status})`)
+      }
+    }
+  }
 
   const fx = {
     groupId: randomUUID(), tierId: randomUUID(), setId: randomUUID(),
     activityId: randomUUID(), locationId: randomUUID(),
     dayId: 'day-1', timeBlockId: 'tb-1', templateId: 'tpl-1',
   }
-  db.prepare('INSERT INTO tiers (id, camp_id, name) VALUES (?, ?, ?)').run(fx.tierId, campId, 'Bogrim')
-  db.prepare('INSERT INTO groups (id, camp_id, name, tier_id) VALUES (?, ?, ?, ?)').run(fx.groupId, campId, 'Bogrim A', fx.tierId)
-  db.prepare('INSERT INTO locations (id, camp_id, name, capacity) VALUES (?, ?, ?, ?)').run(fx.locationId, campId, 'Field', 10000)
-  db.prepare('INSERT INTO activities (id, camp_id, name, location_id, span_blocks) VALUES (?, ?, ?, ?, 1)').run(fx.activityId, campId, 'Archery', fx.locationId)
-  db.prepare('INSERT INTO elective_sets (id, camp_id, name) VALUES (?, ?, ?)').run(fx.setId, campId, 'AM Electives')
-  db.prepare('INSERT INTO elective_set_activities (id, elective_set_id, activity_id, capacity_mode, capacity_limit) VALUES (?, ?, ?, ?, ?)')
-    .run(randomUUID(), fx.setId, fx.activityId, 'unlimited', null)
-  db.prepare('INSERT INTO template_slots (id, template_id, group_id, elective_set_id, day_id, time_block_id) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(randomUUID(), fx.templateId, fx.groupId, fx.setId, fx.dayId, fx.timeBlockId)
+  await write('tiers', fx.tierId, { camp_id: campId, name: 'Bogrim' })
+  await write('groups', fx.groupId, { camp_id: campId, name: 'Bogrim A', tier_id: fx.tierId })
+  await write('locations', fx.locationId, { camp_id: campId, name: 'Field', capacity: '10000' })
+  await write('activities', fx.activityId, {
+    camp_id: campId, name: 'Archery', location_id: fx.locationId, span_blocks: '1',
+  })
+  await write('elective_sets', fx.setId, { camp_id: campId, name: 'AM Electives' })
+  await write('elective_set_activities', randomUUID(), {
+    elective_set_id: fx.setId, activity_id: fx.activityId, status: 'confirmed', capacity_mode: 'unlimited',
+  })
+  // template_slots rows are only ever created via bulkReplace in production
+  // (ScheduleScreen.jsx's generate()/restoreSnapshot(), same path
+  // buildAcceptanceCamp uses) — never a direct INSERT. template_id has no
+  // declared FK to schedule_templates (electron/ops/campScopedEntities.js), so
+  // this scope id needs no parent row, exactly as the prior raw INSERT also
+  // created no schedule_templates row.
+  await handlers.bulkReplace({
+    token, entity: 'template_slots', scope_id: fx.templateId,
+    rows: [{
+      id: randomUUID(), template_id: fx.templateId, group_id: fx.groupId,
+      elective_set_id: fx.setId, day_id: fx.dayId, time_block_id: fx.timeBlockId,
+    }],
+  })
 
   const runId = randomUUID()
   const occurrenceId = deriveElectiveOccurrenceId(runId, fx.setId, fx.dayId, fx.timeBlockId, fx.tierId)
