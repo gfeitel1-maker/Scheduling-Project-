@@ -1,0 +1,93 @@
+Captured via mcp__Claude_Browser__get_page_text, live app at http://localhost:5301.
+
+Scene: "Week 2 — resource conflict demo" draft run, immediately AFTER clicking
+the real "Finalize run" button (not a mocked IPC response in a jsdom test —
+an actual click against localClient.mock.js's finalizeElectiveRun, which
+F8's round-3 change extended to run findRouteConflicts against this run's own
+template_slots).
+
+Confirms:
+  - F8: the dev mock can produce a genuine OUTER_RESOURCE_CONFLICT refusal
+    from a real Finalize click, not just a unit-test-mocked IPC response.
+  - C2/F6: the refusal names the location, day/period, capacity and the
+    colliding activities — "Boathouse on Monday, Period 1 is double-booked
+    over its capacity of 1: Canoeing and Canoeing and Canoeing and Kayaking
+    are scheduled there at once." — the raw kind code "OUTER_RESOURCE_CONFLICT"
+    does not appear anywhere in the rendered text.
+
+Minor seeding artifact (not a product defect): "Canoeing" appears three times
+instead of twice in the occupant list. This is because my own console-run
+seeding script wrote template_slots rows across two separate exploratory
+passes while building this evidence; findRouteConflicts is correctly
+reporting every occupant row it was given — the duplication is in the TEST
+DATA I constructed, not in the conflict detector. Not fixed here since it
+does not affect correctness of the behavior being verified (the refusal
+fires, names the real location/day/period, never a raw kind code).
+
+---- RAW get_page_text OUTPUT (verbatim) ----
+Title: Shoresh
+URL: http://localhost:5301
+Source element: <main>
+---
+← Back to Elective Sets
+Afternoon Electives
+Clear offerings
+ACTIVITY	LOCATION	WHO CAN GO	CAPACITY	MINIMUM TO RUN	ACTIONS
+Ropes 1 bundle
+	—	Everyone			Remove
+
+Bundle name
+Delete bundle
+Periods — click to include or remove
+Monday
+Period 1
+Monday Period 1
+Manual only
+Applies to
+All divisions
+Only
+Except
+Only these divisions:
+Older
+Younger
++ Add another bundle
+
+Climbing 1 bundle
+	—	Everyone			Remove
+
+Bundle name
+Delete bundle
+Periods — click to include or remove
+Monday
+Period 1
+Monday Period 1
+Manual only
+Applies to
+All divisions
+Only
+Except
+Only these divisions:
+Older
+Younger
++ Add another bundle
+
+Canoeing + Add bundle	Boathouse	Everyone			Remove
+
+Kayaking + Add bundle	Boathouse	Everyone			Remove
+
+ADD OFFERING
+Camper data in this feature is not yet encrypted at rest. Do not use real camper names until this is enabled.
+Back to Runs
+Week 2 — resource conflict demo
+Draft · Manual · Older
+No campers placed yet.
+Finalize run
+Locks this run. You'll see it as Final, and can always start a new version later.
+1 camper on this run's sheet has no ranked choice and no placement.
+a camper who is no longer on the roster
+A location or activity this run depends on is now double-booked on the main schedule. Fix the conflict there, then finalize again.
+Boathouse on Monday, Period 1 is double-booked over its capacity of 1: Canoeing and Canoeing and Canoeing and Kayaking are scheduled there at once.
+Regenerating a reopened run reconsiders every camper this run's sheet named — including anyone with no ranked choice and no placement.
+CAMPER	PLACEMENT	LOCKED
+Delete run
+---- END RAW OUTPUT ----

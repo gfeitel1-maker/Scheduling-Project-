@@ -1,0 +1,73 @@
+Captured via mcp__Claude_Browser__get_page_text, live app at http://localhost:5301
+(this worktree's own `npx vite --port 5301`, port 5200 was occupied by a different
+worktree's dev server — confirmed via `lsof -p <pid>` showing a different cwd).
+
+Scene: cold-opened FINAL elective run, from the Electives → Afternoon Electives →
+Saved runs list → "Week 0 — finalized demo".
+
+Confirms C3 (finalized_by_name read-side join): the director's real name is shown,
+never the raw finalized_by user id.
+
+---- RAW get_page_text OUTPUT (verbatim) ----
+Title: Shoresh
+URL: http://localhost:5301
+Source element: <main>
+---
+← Back to Elective Sets
+Afternoon Electives
+Clear offerings
+ACTIVITY	LOCATION	WHO CAN GO	CAPACITY	MINIMUM TO RUN	ACTIONS
+Ropes 1 bundle
+	—	Everyone			Remove
+
+Bundle name
+Delete bundle
+Periods — click to include or remove
+Monday
+Period 1
+Monday Period 1
+Manual only
+Applies to
+All divisions
+Only
+Except
+Only these divisions:
+Older
+Younger
++ Add another bundle
+
+Climbing 1 bundle
+	—	Everyone			Remove
+
+Bundle name
+Delete bundle
+Periods — click to include or remove
+Monday
+Period 1
+Monday Period 1
+Manual only
+Applies to
+All divisions
+Only
+Except
+Only these divisions:
+Older
+Younger
++ Add another bundle
+
+Canoeing + Add bundle	Boathouse	Everyone			Remove
+
+Kayaking + Add bundle	Boathouse	Everyone			Remove
+
+ADD OFFERING
+Camper data in this feature is not yet encrypted at rest. Do not use real camper names until this is enabled.
+Back to Runs
+Week 0 — finalized demo
+Final · finalized 2026-10-01 · by Director Dana
+Export
+Export Full Report
+Start a new version
+Delete run
+---- END RAW OUTPUT ----
+
+Key line: "Final · finalized 2026-10-01 · by Director Dana"

@@ -1,0 +1,97 @@
+Captured via mcp__Claude_Browser__get_page_text, live app at http://localhost:5301.
+
+Scene: cold-opened DRAFT elective run "Week 1 — mismatches demo", sheet-only
+campers disclosure expanded.
+
+Confirms:
+  (a) C1(ii) — the Finalize actions band renders ABOVE the run-state findings
+      area: "Finalize run" / its hint text appears BEFORE
+      "2 campers on this run's sheet have no ranked choice and no placement."
+      in document order below.
+  (b) C(4) — sheetOnlyCampers are named (count + disclosure), durable on a
+      cold reopen (no live session needed) — this run was committed via the
+      browser console in an EARLIER navigation, then this page was freshly
+      reloaded/reopened from the run list.
+
+CAVEAT, found honestly while capturing this evidence (not in the original
+round-3 report, which claimed the disclosure showed "Shir Cohen"/"Omer Levi"):
+the two seeded campers now print "a camper who is no longer on the roster"
+instead of their names. Root cause: localClient.mock.js's commitElectiveRun
+does `state.campers = parsed.campers ?? []` — a FULL REPLACE, not a merge —
+so committing the LATER demo runs (Week 2 resource-conflict, Week 0
+finalized) in the SAME shared mock localStorage state overwrote the roster
+with each run's own (different) campers, losing Week 1's Shir Cohen/Omer Levi
+rows. This is a PRE-EXISTING mock limitation (state.campers was never
+cumulative across runs, unrelated to any of this task's seams) — not a
+regression from this round's work. It DOES usefully confirm M1's fix is
+live-correct: before M1, this would have printed the raw camper ids
+("cam-sheet1", "cam-sheet2"); after M1, it correctly degrades to the
+truthful sentence instead.
+
+---- RAW get_page_text OUTPUT (verbatim) ----
+Title: Shoresh
+URL: http://localhost:5301
+Source element: <main>
+---
+← Back to Elective Sets
+Afternoon Electives
+Clear offerings
+ACTIVITY	LOCATION	WHO CAN GO	CAPACITY	MINIMUM TO RUN	ACTIONS
+Ropes 1 bundle
+	—	Everyone			Remove
+
+Bundle name
+Delete bundle
+Periods — click to include or remove
+Monday
+Period 1
+Monday Period 1
+Manual only
+Applies to
+All divisions
+Only
+Except
+Only these divisions:
+Older
+Younger
++ Add another bundle
+
+Climbing 1 bundle
+	—	Everyone			Remove
+
+Bundle name
+Delete bundle
+Periods — click to include or remove
+Monday
+Period 1
+Monday Period 1
+Manual only
+Applies to
+All divisions
+Only
+Except
+Only these divisions:
+Older
+Younger
++ Add another bundle
+
+Canoeing + Add bundle	Boathouse	Everyone			Remove
+
+Kayaking + Add bundle	Boathouse	Everyone			Remove
+
+ADD OFFERING
+Camper data in this feature is not yet encrypted at rest. Do not use real camper names until this is enabled.
+Back to Runs
+Week 1 — mismatches demo
+Draft
+No campers placed yet.
+Finalize run
+Locks this run. You'll see it as Final, and can always start a new version later.
+2 campers on this run's sheet have no ranked choice and no placement.
+2 campers
+a camper who is no longer on the roster
+a camper who is no longer on the roster
+Regenerating a reopened run reconsiders every camper this run's sheet named — including anyone with no ranked choice and no placement.
+CAMPER	PLACEMENT	LOCKED
+Delete run
+---- END RAW OUTPUT ----

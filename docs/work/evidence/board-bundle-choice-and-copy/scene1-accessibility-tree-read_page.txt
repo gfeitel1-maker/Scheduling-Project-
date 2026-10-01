@@ -1,0 +1,35 @@
+Captured via mcp__Claude_Browser__read_page (filter=all), live app at
+http://localhost:5301, same "Week 1 — mismatches demo" draft run as
+scene1-sheet-only-campers-and-finalize-position-get_page_text.txt.
+
+Purpose: structural (ref-ordered) confirmation that the Finalize button
+(ref_168) appears BEFORE the sheet-only-campers note (ref_170) in DOM order —
+i.e. C1(ii)'s "Finalize above the findings area" ruling, verified
+structurally rather than just by prose order.
+
+---- RELEVANT EXCERPT (verbatim, full tree is longer) ----
+ button "Back to Runs" [ref_164]
+ generic "Week 1 — mismatches demo" [ref_165]
+ generic "Draft" [ref_166]
+ generic "No campers placed yet." [ref_167]
+ button "Finalize run" [ref_168]
+ generic "Locks this run. You'll see it as Final, and can always start a new version later." [ref_169]
+ note [ref_170]
+  generic "2 campers on this run's sheet have no ranked choice and no placement." [ref_171]
+   generic [ref_172]
+    generic "2 campers" [ref_173]
+    list [ref_174]
+     listitem "a camper who is no longer on the roster" [ref_175]
+     listitem "a camper who is no longer on the roster" [ref_176]
+ generic "Regenerating a reopened run reconsiders every camper this run's sheet named — including anyone with " [ref_177]
+ table [ref_178]
+  generic "Camper" [ref_179]
+  generic "Placement" [ref_180]
+  generic "Locked" [ref_181]
+ button "Delete run" [ref_182]
+---- END EXCERPT ----
+
+ref_168 (Finalize run button) precedes ref_170 (the sheet-only-campers note)
+in the ref sequence, which read_page assigns in DOM-traversal order —
+confirming Finalize renders above the findings area in the actual DOM, not
+just visually by coincidence of CSS.
