@@ -5,7 +5,7 @@
 // subprocess (docs/work/specs/2026-08-21-mcp-server-tool-schemas.md, "Test
 // seam").
 
-import { describe, it, expect, afterEach, vi } from 'vitest'
+import { describe, it, expect, afterEach, afterAll, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -24,6 +24,7 @@ vi.mock('../../src/engine/buildSchedule.js', async (importOriginal) => {
 })
 
 import { openLocalDb } from '../../electron/db/localDb.js'
+import { openTemplatedDb, cleanupTemplatedDbs } from '../../electron/db/testDbTemplate.js'
 import {
   ingestPreviewTool,
   ingestCommitTool,
@@ -44,6 +45,8 @@ import { seedAllFromSqlite } from '../../electron/automerge/seed.js'
 import { saveDoc } from '../../electron/sync/automerge/docStore.js'
 import buildSchedule from '../../src/engine/buildSchedule.js'
 
+afterAll(cleanupTemplatedDbs)
+
 const SAMPLE = path.join(process.cwd(), 'docs/work/specs/samples/campB-by-day.txt')
 
 function makeTmpDir() {
@@ -51,8 +54,7 @@ function makeTmpDir() {
 }
 
 function bootstrapDb(dir, { withDevice = true } = {}) {
-  const dbPath = path.join(dir, 'shoresh.sqlite')
-  const db = openLocalDb(dbPath)
+  const { db, file: dbPath } = openTemplatedDb()
   const campId = randomUUID()
   db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Camp Test', 'a'.repeat(64))
   let deviceId = null
@@ -703,7 +705,7 @@ describe('scripts/mcp/tools.js', () => {
       ).run(randomUUID(), groupId, deviceId, new Date().toISOString())
       db.prepare('INSERT INTO groups (id, camp_id, name) VALUES (?, ?, ?)').run(groupId, campId, 'Bears')
       const doc = seedAllFromSqlite(db)
-      saveDoc(dir, campId, doc) // dbPath === <dir>/shoresh.sqlite, so user_data_dir defaults to dir
+      saveDoc(path.dirname(dbPath), campId, doc) // user_data_dir defaults to path.dirname(dbPath)
       db.close()
 
       const result = rebuildProjectionFromDocumentTool({}, { dbPath, allowWrite: true })

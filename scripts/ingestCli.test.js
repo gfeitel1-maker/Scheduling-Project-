@@ -3,7 +3,7 @@
 // drives the exported runIngestCli directly — not via a subprocess — so
 // these exercise real logic and stay fast enough to be the focused gate.
 
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, afterAll } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -11,7 +11,10 @@ import { randomUUID } from 'node:crypto'
 import * as XLSX from 'xlsx'
 
 import { openLocalDb } from '../electron/db/localDb.js'
+import { openTemplatedDb, cleanupTemplatedDbs } from '../electron/db/testDbTemplate.js'
 import { runIngestCli } from './ingestCli.js'
+
+afterAll(cleanupTemplatedDbs)
 
 const SAMPLE = path.join(process.cwd(), 'docs/work/specs/samples/campB-by-day.txt')
 
@@ -19,9 +22,8 @@ function makeTmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-cli-'))
 }
 
-function bootstrapDb(dir) {
-  const dbPath = path.join(dir, 'shoresh.sqlite')
-  const db = openLocalDb(dbPath)
+function bootstrapDb() {
+  const { db, file: dbPath } = openTemplatedDb()
   const campId = randomUUID()
   const deviceId = randomUUID()
   db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Camp Test', 'a'.repeat(64))
@@ -126,8 +128,8 @@ describe('runIngestCli', () => {
   it('errors on a db with no camp bootstrapped', () => {
     const dir = makeTmpDir()
     dirs.push(dir)
-    const dbPath = path.join(dir, 'shoresh.sqlite')
-    openLocalDb(dbPath).close() // fresh schema, no camps row
+    const { db, file: dbPath } = openTemplatedDb()
+    db.close() // fresh schema, no camps row
 
     const result = runIngestCli({ file: SAMPLE, dbPath, action: 'preview' })
 

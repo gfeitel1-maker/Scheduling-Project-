@@ -7,15 +7,18 @@
 // Every expectation is derived from the FIXTURE (re-read and counted here),
 // never read back out of the module under test.
 
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, afterAll } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 
 import { openLocalDb } from '../electron/db/localDb.js'
+import { openTemplatedDb, cleanupTemplatedDbs } from '../electron/db/testDbTemplate.js'
 import { runPreferenceSheetCli } from './preferenceSheetCli.js'
 import { deriveCamperId } from '../electron/ops/electiveDerivedIds.js'
+
+afterAll(cleanupTemplatedDbs)
 
 const SAMPLES = path.join(process.cwd(), 'docs/work/specs/samples')
 const SHEET = path.join(SAMPLES, 'fabricated-camper-preferences-100.csv')
@@ -75,8 +78,7 @@ function makeTmpDir() {
 }
 
 function bootstrapDb(dir, { withCamp = true, withDevice = true } = {}) {
-  const dbPath = path.join(dir, 'shoresh.sqlite')
-  const db = openLocalDb(dbPath)
+  const { db, file: dbPath } = openTemplatedDb()
   let campId = null
   if (withCamp) {
     campId = randomUUID()
