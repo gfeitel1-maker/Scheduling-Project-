@@ -7,7 +7,7 @@
 //      bundled SQLite version — same precedent as v44_down's
 //      `ALTER TABLE activities DROP COLUMN ...`).
 //   2. No registry membership left dangling: this script does not touch
-//      PROJECTIONS (electron/ops/projections.js), syncClient.js, or
+//      PROJECTIONS (electron/ops/projections.js), campDocument.js, or
 //      localClient.mock.js — those are separate, deliberate code changes a
 //      schema-only rollback does not undo. A build still referencing either
 //      column in the registries would throw on the next write (column

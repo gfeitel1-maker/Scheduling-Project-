@@ -685,9 +685,24 @@ describe('applyProjection for week_activity_exclusions / week_group_exclusions',
   // parents — it is never stub-seeded, so a week_*_exclusions op that
   // outraces the week-level op (any device that hasn't yet seen this
   // schedule_weeks row) throws SQLITE_CONSTRAINT_FOREIGNKEY on the exclusion
-  // INSERT. That throw is caught by the generic handler in syncClient.js and
-  // logged, but the op is still marked applied — the exclusion silently never
-  // materializes. Mirrors T85's devices-row stub-seed for the same class of
+  // INSERT. _Prior: "that throw is caught by the generic handler in
+  // syncClient.js and logged, but the op is still marked applied" — syncClient.js
+  // went at the Stage 6 cutover. The sentence written in its place ("the throw
+  // leaves the op recorded while the exclusion silently never materializes")
+  // described the RETIRED mechanism's outcome and is false on both surviving
+  // paths, so name what each one actually does. LOCAL path: appendOp runs the
+  // INSERT INTO operations and applyProjection inside one transaction
+  // (operations.js — its own `db.transaction` at top level, or the enclosing
+  // runAtomic boundary's when nested), so the FK throw rolls the operations row
+  // back with it. Nothing is recorded, and the write fails loudly at the caller
+  // rather than silently. DOCUMENT-REPLAY path: there is no op-log insert at all
+  // to leave behind — projector.js synthesizes an op from the merged document
+  // and calls applyProjection directly, as operations.js states where that
+  // precondition is described. The stub-seed below therefore prevents the
+  // exclusion from failing to apply AT ALL on either path; it is not protecting
+  // against a recorded-but-unmaterialized op, because neither path can produce
+  // one._ Mirrors T85's
+  // devices-row stub-seed for the same class of
   // out-of-order FK failure. Deliberately does NOT pre-insert schedule_weeks
   // in this block's beforeEach — 'week-never-seen' must be genuinely absent
   // going into applyProjection.

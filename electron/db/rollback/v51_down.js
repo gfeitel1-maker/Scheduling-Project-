@@ -10,7 +10,7 @@
 //      rollback (v51's cross-column CHECK references `kind` alongside the
 //      scope columns, exactly the case ALTER TABLE DROP COLUMN rejects).
 //   2. No registry membership left dangling: this script does not touch
-//      PROJECTIONS (electron/ops/projections.js), syncClient.js, or
+//      PROJECTIONS (electron/ops/projections.js), campDocument.js, or
 //      localClient.mock.js — those are separate, deliberate code changes a
 //      schema-only rollback does not undo. A build still referencing `kind`
 //      in those registries would throw on the next write (column doesn't

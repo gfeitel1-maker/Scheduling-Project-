@@ -15,7 +15,7 @@
 //      data: it was intentionally discarded per the ADR's hard-cutover
 //      decision, and this rollback does not attempt to un-discard it.
 //   3. No registry membership restored: this script does not touch
-//      projections.js, campScopedEntities.js, restore.js, syncClient.js, the
+//      projections.js, campScopedEntities.js, restore.js, campDocument.js, the
 //      week-op modules, or the render-layer deletes (ADR §3–§5) — those are
 //      separate, deliberate code changes a schema-only rollback does not undo.
 //      A build still running the v53 code (which no longer references either

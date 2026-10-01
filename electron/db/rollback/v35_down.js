@@ -15,7 +15,7 @@
 //      rows) — the cell's elective content is genuinely lost, stated rather
 //      than hidden.
 //   3. No registry membership left dangling: this script does not touch
-//      PROJECTIONS, campScopedEntities.js, syncClient.js, or permissions.js —
+//      PROJECTIONS, campScopedEntities.js, campDocument.js, or permissions.js —
 //      those are separate, deliberate code changes a schema-only rollback
 //      does not undo. A build still referencing these entities/column in the
 //      registries would throw on the next write (table/column doesn't exist),

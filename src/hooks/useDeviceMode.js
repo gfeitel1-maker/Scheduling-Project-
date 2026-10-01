@@ -175,8 +175,18 @@ export function useDeviceMode() {
     pairingListenersRegistered.current = true
 
     // T87 Part 3: the Host has authoritatively rejected this device's token
-    // (revoked, tampered, mismatched device_id — see syncClient.js's
-    // onAuthRejected). Run the SAME cleanup as a locally-failed verifySession
+    // (revoked, tampered, mismatched device_id). The rejection reaches the
+    // renderer from syncStarter.js's onAuthRejected handler, which performs the
+    // 'shoresh:auth-rejected' send ITSELF; the mapping half it calls
+    // (codeForAuthRejectedReason) lives in electron/authRejectedSender.js.
+    // _Prior: this named main.js as that sender. main.js does send on this same
+    // channel, but it is a separate sender with a different trigger — a session
+    // THIS device finds locally invalid (T228 mid-session expiry) — so a reader
+    // chasing the peer-rejection path there lands on the wrong one. Before that,
+    // this pointed at "syncClient.js's onAuthRejected": that module was the
+    // channel's only sender until the Stage 6 cutover deleted it, which is the
+    // gap authRejectedSender.js's own header records._ Run the SAME cleanup as
+    // a locally-failed verifySession
     // check above, so a rejected token can never leave the UI showing a
     // stale 'session' phase — this forces phase back to 'login', the honest
     // not-yet-authenticated state. Also derive a director-facing reason so

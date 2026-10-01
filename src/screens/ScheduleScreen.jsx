@@ -467,10 +467,31 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   }, [templateData])
 
   // §7.3: Re-run the schedule after any op is applied — this covers conflict
-  // resolution (resolveConflict IPC → syncClient.write → server broadcasts
-  // op_applied → wireOpApplied → shoresh:op-applied) as well as ordinary
-  // writes from other devices. The op_applied event already fires naturally
-  // on those paths; we just need ScheduleScreen to react to it.
+  // resolution (resolveConflict IPC → main.js's syncClient.write →
+  // onOpApplied → wireOpApplied → shoresh:op-applied) as well as writes from
+  // other devices, which reach the same renderer event by a different route: a
+  // merged document → projectAll → syncNode.js's onRemoteOps fires →
+  // syncStarter.js's onRemoteOps handler (the hop that owns the threshold
+  // below) → startupGuard.js's dispatchRemoteOps.
+  //
+  // That second route covers SMALL merges only, and the shortfall is real, not
+  // theoretical. dispatchRemoteOps sends one shoresh:op-applied per changed
+  // field only while the batch is at or below REMOTE_OPS_COALESCE_THRESHOLD
+  // (20); above it, it sends a SINGLE shoresh:full-sync-applied and returns.
+  // This screen subscribes to onOpApplied and to nothing else —
+  // onFullSyncApplied exists (src/localClient.js, electron/preload.js) and this
+  // screen never calls it — so a catch-up merge from a device that was offline,
+  // which is exactly the hundreds-of-fields shape the threshold exists to
+  // collapse, delivers no event here and triggers no reload from this listener;
+  // the screen catches up only on its next load. Subscribing to
+  // onFullSyncApplied would close that gap and is a product change, not a
+  // comment fix, so it is recorded here rather than done.
+  //
+  // _Prior: the first chain was written "syncClient.write → server broadcasts
+  // op_applied → wireOpApplied". There is no server and no `op_applied` wire
+  // message — both went at the Stage 6 cutover. `syncClient` here is main.js's
+  // local createLocalWriteClient instance, which is live, and the renderer event
+  // is spelled `op-applied`; only the broadcasting middle was retired._
   //
   // This is best-effort / fire-and-forget: a failure in reload() surfaces via
   // loadError (the screen's own error banner) rather than crashing the

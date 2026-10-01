@@ -12,7 +12,7 @@
 //      never data to lose.
 //   3. No registry membership restored: this script does not touch
 //      PROJECTIONS (electron/ops/projections.js), campScopedEntities.js,
-//      permissions.js, syncClient.js, or the other plumbing files the v46
+//      permissions.js, campDocument.js, or the other plumbing files the v46
 //      migration's own PR updated — those are separate, deliberate code
 //      changes a schema-only rollback does not undo. A build still running
 //      the v46 code (which no longer references either table) simply never

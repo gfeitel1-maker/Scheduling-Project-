@@ -217,7 +217,8 @@ describe('parent-scoped entities — FK-safe ordering, including delete-reconcil
 
   it('DOMAIN_SNAPSHOT_ORDER position sanity: every PARENT_SCOPED_ENTITIES key appears after its parentTable', () => {
     // schedule_snapshots is deliberately excluded from DOMAIN_SNAPSHOT_ORDER itself (campScopedEntities.js's
-    // own comment: unbounded historical growth over a season, a full_sync-payload concern) — the
+    // own comment: unbounded growth over a season — _prior: framed as a
+    // `full_sync`-payload concern, that payload being the retired WS transport's) — the
     // projector positions it separately (projector.js's DOMAIN_ORDER_WITH_SNAPSHOTS), so it is
     // excluded from this particular sanity check on the raw array.
     const indexOf = (e) => DOMAIN_SNAPSHOT_ORDER.indexOf(e)

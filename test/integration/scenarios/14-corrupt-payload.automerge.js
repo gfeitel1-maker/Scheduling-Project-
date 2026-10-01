@@ -2,9 +2,10 @@
  * Scenario 14 (libp2p): malformed input from an admitted peer is rejected
  * without damaging anything.
  *
- * The WS original sent a `submit_op` missing its `entity` field and asserted a
- * partial row never reached the `operations` table. There is no submit_op and
- * no operations table on this path, so the same PROPERTY is asserted against
+ * The WS original, retired at the Stage 6 cutover, sent a `submit_op` missing
+ * its `entity` field and asserted a partial row never reached the `operations`
+ * table. There is no `submit_op` and no operations table on this path, so the
+ * same PROPERTY is asserted against
  * what a peer can actually send here: raw bytes on the document protocol.
  *
  * Three shapes, all from a peer that IS admitted — an unauthenticated peer is

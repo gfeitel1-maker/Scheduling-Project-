@@ -75,7 +75,7 @@ function normalizeUniqueConflict(msg) {
 }
 
 // Dispatches a raw conflict message to the right normalizer by `type` —
-// single seam both the mount-time fetch and the op_applied reconciliation
+// single seam both the mount-time fetch and the op-applied reconciliation
 // fetch call, so a `unique_conflict` row is never one accidental branch away
 // from an unhandled shape.
 function normalizeConflictMessage(msg) {

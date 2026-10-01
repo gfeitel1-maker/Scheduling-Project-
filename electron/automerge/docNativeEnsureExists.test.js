@@ -9,8 +9,9 @@
 //
 // This slice makes ensureExists itself doc-native: it takes an optional `knownRow` (the full
 // document row for this id, already fully known at once, unlike one-field-at-a-time op-log
-// replay) and consults it BEFORE falling back to the operations query. The op-log path (appendOp,
-// syncClient replay) passes no knownRow and is byte-for-byte unchanged.
+// replay) and consults it BEFORE falling back to the operations query. The op-log path (appendOp
+// and the typed committers; _prior: also "syncClient replay", deleted at the
+// Stage 6 cutover) passes no knownRow and is byte-for-byte unchanged.
 //
 // These tests prove the thing PR #322's bridge only worked around: project each of the six
 // entities into a FRESH database that has ZERO `operations` rows at all, using ONLY applyWrite

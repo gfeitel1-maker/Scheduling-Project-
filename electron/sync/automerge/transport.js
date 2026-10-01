@@ -378,14 +378,19 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     // available at that moment. This is inherent to first pairing, not an
     // oversight.
     //
-    // WHY IT IS ACCEPTABLE. The trust anchor is human, and it is the same
-    // anchor the WS path already relies on: the director typed THIS camp's
-    // join code, the director approved THIS device on the Host's screen, and
-    // the joining device just completed a PIN login against this peer's real
-    // user table. The op-log's `full_sync` handed a Client its identity on
-    // exactly that basis, with no cryptographic proof of the Host either — so
-    // this is parity, not a new exposure. From the next launch onward the
-    // device has `signing_public_key` and every ordinary path verifies.
+    // WHY IT IS ACCEPTABLE. The trust anchor is human: the director typed THIS
+    // camp's join code, the director approved THIS device on the Host's screen,
+    // and the joining device just completed a PIN login against this peer's real
+    // user table. From the next launch onward the device has
+    // `signing_public_key` and every ordinary path verifies.
+    //
+    // _Prior: this also argued "it is the same anchor the WS path already relies
+    // on ... the op-log's `full_sync` handed a Client its identity on exactly
+    // that basis, with no cryptographic proof of the Host either — so this is
+    // parity, not a new exposure." That transport was deleted at the Stage 6
+    // cutover, so the parity comparison no longer has a live counterpart and
+    // cannot carry the argument. The three human-anchor facts above are the whole
+    // justification now; read it on those terms._
     //
     // WHAT IT IS NOT. It is not a way to skip authentication generally, and
     // it grants nothing on the HOST — the joiner still had to pair and log in

@@ -7,10 +7,17 @@
 // reconstructed exactly as replaying the whole log would have produced it,
 // without touching any other entity's projected state.
 //
-// Callers: the automatic post-catch-up trigger in electron/sync/syncClient.js,
-// and the Machine Access Program's MCP support surface (scripts/mcp/), gated
-// there the same way ingest_commit already is (--allow-write). Not exposed as
-// renderer-facing IPC in v1 (ADR "Product decisions" #3).
+// Callers: exactly one — the Machine Access Program's MCP support surface
+// (scripts/mcp/tools.js's repair_projection_entity), gated there the same way
+// ingest_commit already is (--allow-write). Not exposed as renderer-facing IPC
+// in v1 (ADR "Product decisions" #3).
+//
+// _Prior: a second caller was listed here, "the automatic post-catch-up trigger
+// in electron/sync/syncClient.js". That module was deleted at the Stage 6
+// cutover and nothing replaced the trigger, so there is no automatic repair on
+// this device: a projection that falls out of step stays that way until the MCP
+// surface is pointed at it. Recorded rather than quietly dropped, because the
+// absence is a real operational fact and not merely a stale file name._
 import { isBulkReplaceOp, applyBulkReplaceProjection } from './operations.js'
 import { applyProjection } from './projections.js'
 import { STORE_PROJECTION, STORE_DOCUMENT_REPLAY, boundedErrorMessage } from './documentWriteFailures.js'

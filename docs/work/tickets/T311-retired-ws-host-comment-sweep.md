@@ -132,6 +132,12 @@ The brief's census pattern was `syncServer\.js|handleSubmitOp`, which matches 31
 retired vocabulary inside comments it was already rewriting there, plus one file it points a reader
 at (`pendingRestores.js`). The remaining ~30 files are a follow-up, not a claim of completeness.
 
+**2026-10-01 — the remainder is swept.** The ~30 files this ticket left as a follow-up are done
+(comment and doc prose only, zero executable change); the framing audit now reports zero UNFRAMED
+comment lines outside the two excluded files, the residue being seven string literals in executable
+code. Evidence, both audit tables, the live-identifier census and four findings carried forward:
+`docs/work/runs/2026-10-01-retired-vocab-sweep-remainder.md`.
+
 Deliberately untouched: `scripts/check-governance.js` and `scripts/checkDocFileRefs.test.js`, which
 name `syncServer.js` as fixture data for the doc-refs gate precisely BECAUSE it does not exist;
 `docs/current/PLATFORM_STATE.md`'s historical regions, which already describe the deletion

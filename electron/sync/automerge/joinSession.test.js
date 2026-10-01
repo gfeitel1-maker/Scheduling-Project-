@@ -169,8 +169,9 @@ describe('startJoinSession — a camp-less device joins for real', () => {
     expect(login.role).toBe('admin')
 
     // And the payoff: the camp arrives in the DOCUMENT (#325 models camps and
-    // users) and projects into the joiner's own SQLite. No full_sync, no
-    // seeding, nothing test-only.
+    // users) and projects into the joiner's own SQLite. No `full_sync` message
+    // (that was the retired WS transport's mechanism), no seeding, nothing
+    // test-only.
     const camp = await session.waitForCamp()
     expect(camp).not.toBeNull()
     expect(camp.name).toBe('Camp Kinneret')
@@ -235,9 +236,9 @@ describe('startJoinSession — a camp-less device joins for real', () => {
   })
 
   // The failure mode the ADR names as most likely to be got wrong: under the
-  // op-log, "logged in" and "has a camp" were one instant (full_sync was a
-  // single message). Under a CRDT they are two, and the gap is a state a
-  // device can genuinely get stuck in.
+  // retired WS transport, "logged in" and "has a camp" were one instant
+  // (`full_sync` was a single message). Under a CRDT they are two, and the gap
+  // is a state a device can genuinely get stuck in.
   it('reports a bounded wait rather than spinning when no document arrives', async () => {
     const host = await startHost({ onPairingRequest: () => {} })
     const started = await startJoinSession({

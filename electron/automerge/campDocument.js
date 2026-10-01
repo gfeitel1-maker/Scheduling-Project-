@@ -58,9 +58,10 @@ export const DEFERRED_ENTITIES = new Set()
 // applyBulkReplaceProjection for "replace every row for this template"). See applyBulkReplace below.
 // `camps` and `users` (Stage 6 prep, docs/work/plans/2026-09-07-stage6-cutover-plan.md): added
 // EXPLICITLY here, not via DIRECT_CAMP_ENTITIES — they are deliberately NOT in that registry.
-// DIRECT_CAMP_ENTITIES/DOMAIN_SNAPSHOT_ORDER (campScopedEntities.js) drive the legacy WS
-// first-pairing full_sync snapshot and its DIRECT_CAMP_ENTITIES<->DOMAIN_SNAPSHOT_ORDER parity
-// assertion; `camps` and `users` already have their own bespoke handling in that WS path
+// DIRECT_CAMP_ENTITIES/DOMAIN_SNAPSHOT_ORDER (campScopedEntities.js) DROVE the legacy WS
+// first-pairing full_sync snapshot — deleted at the Stage 6 cutover — and still drive its
+// DIRECT_CAMP_ENTITIES<->DOMAIN_SNAPSHOT_ORDER parity assertion, which outlived it; `camps` and
+// `users` had their own bespoke handling in that retired WS path
 // (syncClient.js's isValidFullSyncCamp/INSERT OR REPLACE INTO camps/users) and are not camp_id-
 // scoped "domain" entities in the sense that registry models (camps IS the camp; users is
 // authentication/identity, not schedule data). Folding them into DIRECT_CAMP_ENTITIES would also
