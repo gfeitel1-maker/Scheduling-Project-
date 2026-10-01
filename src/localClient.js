@@ -279,10 +279,11 @@ export const localClient = {
   commitElectiveRun: ({
     name, sourceFilename = null, sourceSha256 = null, parsed, assignments = [],
     occurrences = [], scheduleWeekId = null, scheduleTemplateId = null, runId = null,
+    findings = [],
   }) =>
     shoresh.commitElectiveRun({
       token: currentToken(), name, sourceFilename, sourceSha256, parsed, assignments,
-      occurrences, scheduleWeekId, scheduleTemplateId, runId,
+      occurrences, scheduleWeekId, scheduleTemplateId, runId, findings,
     }),
   listElectiveRuns: () => shoresh.listElectiveRuns(currentToken()),
   getElectiveRun: ({ runId }) => shoresh.getElectiveRun({ token: currentToken(), runId }),
