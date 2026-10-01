@@ -3,7 +3,7 @@ task: q-rename-silent-lookup-gate — three scripts/ detectors for the "wide ren
 document_type: run
 date: 2026-10-01
 round: 1
-status: in-progress
+status: pass
 task_class: test-infrastructure
 governing_docs: [docs/governance/standards/TESTING_STANDARD.md, docs/governance/constitution/CONSTITUTION.md]
 related_tickets: []
@@ -28,8 +28,15 @@ deterministic_checks:
   - npx eslint scripts (exit 0 — orphaned-import backstop)
   - footprint git diff --name-only origin/main (scripts/, optionally docs/governance/standards/TESTING_STANDARD.md, this run record; nothing under src/ or electron/)
 human_gates: []
-verdict: null
-completion_evidence: []
+verdict: PASS
+completion_evidence:
+  - "Verifier PASS (deterministic): each detector plant RED -> unplant GREEN on a scratch copy; A and C zero findings on the clean tree (blocking bar); B 57 advisory"
+  - "A (stale-settings-key) BLOCKING, C (retired-column-in-sql-literal) BLOCKING, B (vacuous-filter-assertion) ADVISORY — all wired into npm run check:governance"
+  - "npx eslint scripts EXIT 0; 23 unit tests across the three *.test.js EXIT 0; npm run check:governance EXIT 0 (0 blocking, 58 advisory)"
+  - "Round-1 Red Hat FP finding (detector A name-shadowing) closed via import-resolution gate + 3 new tests; re-verified 0 on the clean tree"
+  - "footprint exactly 10 files under scripts/ + docs/; nothing under src/ or electron/"
+  - "Grader PASS — overall 4.5 (code-reviewer 5, red-hat 4), lowest dimension 4; gate_report docs/work/runs/gate-reports/q-rename-silent-lookup-gate-r2.json"
+  - "commits (post-rebase on origin/main 1dccbe68): fe7b66f0, ad74404f, f958efa8"
 archive_when: merged to main and the board item q-rename-silent-lookup-gate is closed
 ---
 
@@ -169,14 +176,25 @@ exactly the two curated callees, no opportunistic growth.
 
 ## Verifier verdict
 
-PASS / FAIL / UNVERIFIED — <pending>
+PASS — each of the three detectors fired RED on a planted instance of its shape on a scratch copy
+(git worktree, never the real tree, never stash) and returned GREEN when the plant was removed;
+detectors A and C returned ZERO findings on the clean tree (the blocking bar), and A was confirmed
+non-vacuous (it resolves real import-bound call sites); B returned 57 advisory findings; `npx eslint
+scripts` EXIT 0; the three `*.test.js` ran 23 tests EXIT 0; `npm run check:governance` EXIT 0 (0
+blocking, 58 advisory); footprint `git diff --name-only origin/main HEAD` = exactly the 10 files,
+nothing under `src/` or `electron/`; working tree clean before and after. No UNVERIFIED claims.
 
 > Verifier alone writes this line and the `verdict` field. A FAIL or unresolved UNVERIFIED blocks
 > a pass outright, whatever Grader reports (`CONSTITUTION.md` Article VII).
 
 ## Grader score
 
-Average — , lowest dimension — . Pass is ≥ 4.0 with no dimension below 3.
+Average — 4.5, lowest dimension — 4 (resilience / Red Hat). Pass is ≥ 4.0 with no dimension below 3.
+Code Reviewer 5 (registries/denylist independently re-verified, 8 of B's 57 spot-checked as genuine,
+astWalk correct, plan-aligned); Red Hat 4 (all five round-1 soundness/honesty findings addressed, with
+remaining limitations disclosed); Verifier deterministic PASS; Security/Tester N/A (omitted).
+`decision_eligibility = PASS_ELIGIBLE`. Gate report:
+`docs/work/runs/gate-reports/q-rename-silent-lookup-gate-r2.json`.
 
 ## Findings carried forward
 
@@ -211,6 +229,11 @@ test/preferenceCorpusNames.test.js:146 — test/unattributedSubjectIdentity.test
 
 ## Decision
 
-PASS / RETRY / ESCALATE — <pending>
+PASS — Verifier PASS (no FAIL, no unresolved UNVERIFIED) and Grader 4.5 (≥ 4.0, no dimension below 3).
+The three detectors ship: A (`stale-settings-key`) and C (`retired-column-in-sql-literal`) BLOCKING with
+zero false positives on the clean tree, B (`vacuous-filter-assertion`) ADVISORY, each wired into
+`check:governance` and each stating what it cannot see. The Red Hat false-positive finding was corrected
+within round 1 (before any Grader verdict), not routed to a round 2. Not pushed/merged — the board worker
+owns integration.
 
 > A Grader FAIL ends this loop and escalates to the worker; it does not become a round 2.
