@@ -215,6 +215,57 @@ describe('purgeCamperRecord', () => {
     verifyDb.close()
   })
 
+  // T321 (docs/adr/2026-10-01-camper-id-high-entropy-format.md, acceptance criterion 5):
+  // camper_identity_keys holds the one cleartext-name-bearing row this ADR exists to make
+  // purgeable. Mirrors the elective_run_findings test's shape exactly, isolated to this one table.
+  it('purges a camper_identity_keys row for the purged camper, and counts it in removed', () => {
+    const { db, dbPath } = newDb('identitykeys')
+    const campId = randomUUID()
+    const deviceId = 'device-1'
+    const camperId = randomUUID()
+    const lookupId = 'camper1:5.camp1X.4.name.8.arigreen'
+    buildCampWithCamper(db, {
+      campId, deviceId, camperId, groupId: randomUUID(),
+      prefId: randomUUID(), runId: randomUUID(), choiceId: randomUUID(),
+    })
+    appendOp(db, { entity: 'camper_identity_keys', entity_id: lookupId, field: 'camp_id', value: campId, device_id: deviceId, author_user_id: 'u1' })
+    appendOp(db, { entity: 'camper_identity_keys', entity_id: lookupId, field: 'key_mode', value: 'name', device_id: deviceId, author_user_id: 'u1' })
+    appendOp(db, { entity: 'camper_identity_keys', entity_id: lookupId, field: 'key_value', value: 'arigreen', device_id: deviceId, author_user_id: 'u1' })
+    appendOp(db, { entity: 'camper_identity_keys', entity_id: lookupId, field: 'camper_id', value: camperId, device_id: deviceId, author_user_id: 'u1' })
+    expect(db.prepare('SELECT camper_id FROM camper_identity_keys WHERE id = ?').get(lookupId).camper_id).toBe(camperId)
+    installHostKey(db, campId)
+
+    const oldPeerDoc = seedAllFromSqlite(db)
+    const userDataDir = newUserDataDir('identitykeys')
+    saveDoc(userDataDir, campId, oldPeerDoc)
+    db.close()
+
+    const result = purgeCamperRecord({ dbPath, userDataDir, entityId: camperId })
+
+    expect(result.removed.camper_identity_keys).toBe(1)
+    const verifyDb = openLocalDb(dbPath)
+    expect(verifyDb.prepare('SELECT * FROM camper_identity_keys WHERE id = ?').get(lookupId)).toBeUndefined()
+    verifyDb.close()
+
+    // T233's own mechanism, applied here: a stale peer merging its PRE-PURGE copy
+    // of this exact mapping row back in must be refused at PROJECTION, never
+    // resurrecting the name->id link — the whole privacy payoff of this ADR
+    // (moving the one cleartext-bearing structure into something T233 already
+    // knows how to purge) depends on this holding for camper_identity_keys too.
+    const purgedDoc = loadDoc(userDataDir, campId)
+    const merged = A.merge(A.clone(purgedDoc), oldPeerDoc)
+    const identityKeyPrefix = recordKey(lookupId, '')
+    const reintroducedInDoc = Object.keys(merged.camper_identity_keys || {}).some((k) =>
+      k.startsWith(identityKeyPrefix)
+    )
+    expect(reintroducedInDoc).toBe(true)
+
+    const projDb = openLocalDb(dbPath)
+    projectAll(projDb, merged)
+    expect(projDb.prepare('SELECT * FROM camper_identity_keys WHERE id = ?').get(lookupId)).toBeUndefined()
+    projDb.close()
+  })
+
   it('non-vacuity: purges an operations row that was never materialized into a projection table', () => {
     const { db, dbPath } = newDb('opsonly')
     const campId = randomUUID()

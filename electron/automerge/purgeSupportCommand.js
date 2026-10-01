@@ -316,6 +316,12 @@ function purgeCamperRecordLocked({ dbPath, userDataDir, cipher = null, key = nul
         // T320 part 2 added elective_run_findings to TOMBSTONE_DENYLISTED_ENTITIES (projector.js)
         // but nobody added the matching local delete here — same treatment as its siblings above.
         elective_run_findings: oldDb.prepare('DELETE FROM elective_run_findings WHERE camper_id = ?').run(entityId).changes,
+        // T321 (docs/adr/2026-10-01-camper-id-high-entropy-format.md, acceptance criterion 5) — the
+        // name/external-id -> camper_id lookup row. This is the ONE place a purged camper's name
+        // still lives in cleartext; without this delete it would survive the purge even though the
+        // camper record itself is gone from every collection that describes a person, defeating the
+        // whole privacy payoff Option B exists for.
+        camper_identity_keys: oldDb.prepare('DELETE FROM camper_identity_keys WHERE camper_id = ?').run(entityId).changes,
         campers: oldDb.prepare('DELETE FROM campers WHERE id = ?').run(entityId).changes,
       }
 
