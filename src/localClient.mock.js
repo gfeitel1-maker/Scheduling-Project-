@@ -28,6 +28,12 @@ import { deriveElectiveRunFindingId } from '../electron/ops/deriveElectiveRunFin
 import { resolveImportedPlacements } from '../electron/ops/resolveImportedPlacements.js'
 import { deriveScheduleTemplateId } from '../electron/ops/scheduleTemplateId.js'
 import { hasContradictoryRanks } from './ingest/preferenceSheet.js'
+// F8 (board item 9b round 3) — the SAME pure validator
+// electron/ops/electiveRunResourceConflicts.js calls, so the mock's
+// OUTER_RESOURCE_CONFLICT refusal cannot drift from the real one. Both sides
+// of the src/-may-import-src exception this file already relies on
+// throughout (buildPlan, resolveImportedPlacements, etc.).
+import { findRouteConflicts } from './engine/routeConflicts.js'
 import { coordinateOf, sameDayLabel, samePeriodLabel } from './ingest/preferenceCoordinateKeys.js'
 
 import { parseDayOfWeek } from '../electron/ops/dayId.js'
@@ -2165,6 +2171,40 @@ export const mockShoresh = {
     const run = (state.elective_assignment_runs || []).find((r) => r.id === runId)
     if (!run) return { ok: false, error: 'run not found' }
     if (run.status === 'final') return { ok: false, error: 'ALREADY_FINAL' }
+    // F8 (board item 9b round 3) — mirrors electron/ops/
+    // electiveRunResourceConflicts.js's mapTemplateSlot + findRouteConflicts
+    // call: scope this run's own template_slots to its own occurrences'
+    // (day, block) cells, map to the shape findRouteConflicts expects, and
+    // refuse BEFORE writing 'final' when combined occupancy at any
+    // location/day/block exceeds that location's capacity. Mock/seed
+    // behavior only — no production (electron) code touched.
+    const cellKeys = new Set(
+      (state.elective_occurrences || [])
+        .filter((o) => o.run_id === runId)
+        .map((o) => `${o.day_id}|${o.time_block_id}`)
+    )
+    const scopedSlots = (run.schedule_template_id != null
+      ? (state.template_slots || []).filter((s) => s.template_id === run.schedule_template_id)
+      : []
+    )
+      .filter((s) => cellKeys.has(`${s.day_id}|${s.time_block_id}`))
+      .map((s) => ({
+        groupId: s.group_id, cohort_id: null, dayId: s.day_id, blockId: s.time_block_id,
+        ...(s.elective_set_id != null ? { type: 'elective', electiveSetId: s.elective_set_id }
+          : s.event_id != null ? { type: 'event', eventId: s.event_id }
+          : s.is_anchor ? { type: 'anchor', anchorId: s.anchor_id }
+          : s.activity_id != null ? { type: 'activity', activityId: s.activity_id }
+          : { type: null }),
+      }))
+    const conflicts = findRouteConflicts({
+      slots: scopedSlots,
+      activities: state.activities || [],
+      anchors: state.fixed_events || [],
+      electiveSetActivities: state.elective_set_activities || [],
+      events: state.events || [],
+      locations: state.locations || [],
+    })
+    if (conflicts.length > 0) return { ok: false, error: 'OUTER_RESOURCE_CONFLICT', findings: conflicts }
     const finalizedAt = new Date().toISOString()
     const { rows } = deriveMockOuterRows(state, run)
     state.elective_assignment_runs = (state.elective_assignment_runs || []).map((r) =>

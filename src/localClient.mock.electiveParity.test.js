@@ -100,3 +100,51 @@ describe('localClient.mock listElectiveRuns — finalized_by_name parity', () =>
     expect(run.finalized_by_name).toBeNull()
   })
 })
+
+// F8 (board item 9b round 3) — the mock's finalizeElectiveRun always
+// succeeded unconditionally, so a director-facing OUTER_RESOURCE_CONFLICT
+// Finalize refusal could never be reached through browser-dev (what Tester
+// drives), only pinned in jsdom unit tests with a mocked IPC response. Mirrors
+// electron/ops/electiveRunResourceConflicts.js's own mapTemplateSlot +
+// findRouteConflicts call, scoped to the run's own occurrences — mock/seed
+// behavior only, no new IPC, no production (electron) code touched.
+describe('localClient.mock finalizeElectiveRun — OUTER_RESOURCE_CONFLICT parity', () => {
+  it('refuses to finalize when the run\'s own template_slots double-book a location over capacity', async () => {
+    const state = JSON.parse(localStorage.getItem('shoresh-mock-state')) ?? {}
+    state.locations = [{ id: 'loc-1', name: 'Boathouse', capacity: 1 }]
+    state.activities = [
+      { id: 'act-canoe', name: 'Canoeing', location_id: 'loc-1' },
+      { id: 'act-kayak', name: 'Kayaking', location_id: 'loc-1' },
+    ]
+    state.template_slots = [
+      { template_id: 'tpl-1', group_id: 'grp-1', activity_id: 'act-canoe', day_id: 'day-1', time_block_id: 'tb-1' },
+      { template_id: 'tpl-1', group_id: 'grp-2', activity_id: 'act-kayak', day_id: 'day-1', time_block_id: 'tb-1' },
+    ]
+    localStorage.setItem('shoresh-mock-state', JSON.stringify(state))
+
+    const parsed = { ...PARSED, preferences: [{ camper_id: 'cam-1', label: 'Archery', labelKey: 'archery', rank: 1 }] }
+    const occurrences = [{ id: 'occ-1', elective_set_id: 'set-1', day_id: 'day-1', time_block_id: 'tb-1', tier_id: 'tier-1' }]
+    const out = await mockShoresh.commitElectiveRun({
+      name: 'Week 1', parsed, assignments: [], occurrences, scheduleTemplateId: 'tpl-1',
+    })
+    expect(out.ok).toBe(true)
+
+    const result = await mockShoresh.finalizeElectiveRun({ runId: out.runId })
+    expect(result.ok).toBe(false)
+    expect(result.error).toBe('OUTER_RESOURCE_CONFLICT')
+    expect(result.findings.length).toBeGreaterThan(0)
+    expect(result.findings[0].locationName).toBe('Boathouse')
+
+    // The run stays draft — a refused finalize must not have written 'final'.
+    const runs = await mockShoresh.listElectiveRuns()
+    expect(runs.find((r) => r.id === out.runId).status).toBe('draft')
+  })
+
+  it('finalizes normally when no conflict exists (no regression to the happy path)', async () => {
+    const parsed = { ...PARSED, preferences: [{ camper_id: 'cam-1', label: 'Archery', labelKey: 'archery', rank: 1 }] }
+    const out = await mockShoresh.commitElectiveRun({ name: 'Week 1', parsed, assignments: [] })
+    expect(out.ok).toBe(true)
+    const result = await mockShoresh.finalizeElectiveRun({ runId: out.runId })
+    expect(result.ok).toBe(true)
+  })
+})
