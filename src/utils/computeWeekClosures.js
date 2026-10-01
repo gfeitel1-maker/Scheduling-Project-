@@ -20,12 +20,12 @@
 // refused (CONSTITUTION Art. V), the same posture placeActivityManual already
 // takes for capacity clashes. It exists only on the manual route.
 //
-// Anchors (meals, tefillah, recurring events) and empty cells are skipped — an
-// empty cell has nothing placed to be closed, and an anchor is structural
+// Fixed events (meals, tefillah, recurring events) and empty cells are skipped — an
+// empty cell has nothing placed to be closed, and an fixed event is structural
 // chrome the exclusion UIs govern differently. This differs from
-// computeOverlaps, which no longer blanket-skips `s.is_fixed_event`: an anchor row
-// still occupies its place there (to correctly flag a non-anchor placement
-// sharing a full anchor location) even though it is itself never flagged.
+// computeOverlaps, which no longer blanket-skips `s.is_fixed_event`: an fixed event row
+// still occupies its place there (to correctly flag a non-fixed-event placement
+// sharing a full fixed event location) even though it is itself never flagged.
 //
 // LOCATION (week_location_exclusions) is a third exclusion type whose producer
 // and generate-route enforcement land with slice M5; the reason-accumulation

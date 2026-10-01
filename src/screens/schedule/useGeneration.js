@@ -11,11 +11,11 @@ import { resolvePriorityForGeneration } from '../../ingest/resolvePriorityForGen
 // saveSnapshot, resetUndoRedo, statsFor, and setSelectedGroup are injected too.
 //
 // Two behaviours are load-bearing and preserved verbatim:
-//   1. generate()/placeAnchors() build EXPLICIT generated-/manual-route setters
+//   1. generate()/placeFixedEvents() build EXPLICIT generated-/manual-route setters
 //      (not current-route): they can run from the first-run chooser / a route
 //      offer whose onClick calls setRoute(r) immediately before, so the `route`
 //      in closure is still the previous one.
-//   2. generate() (and placeAnchors) ABORT the destructive replaceWeek if the
+//   2. generate() (and placeFixedEvents) ABORT the destructive replaceWeek if the
 //      pre-emptive auto-saveSnapshot fails — no undo point, no bulk replace.
 export function useGeneration({
   routeState,
@@ -60,7 +60,7 @@ export function useGeneration({
     // current-route ones: this can be invoked from the first-run choice screen,
     // and from a route offer whose onClick calls setRoute(r) immediately before
     // — setRoute does not apply inside that handler, so `route` in closure is
-    // still the previous one. placeAnchors() is written the same way.
+    // still the previous one. placeFixedEvents() is written the same way.
     const setGenSlots = routeSetter(setSlotsByRoute, 'generated')
     const setGenFindings = routeSetter(setFindingsByRoute, 'generated')
     const setGenDismissed = routeSetter(setDismissedByRoute, 'generated')
@@ -162,7 +162,7 @@ export function useGeneration({
   // Starts the manual route's blank week: meals and fixed events already in
   // place, every other cell empty. It writes ONLY to the manual candidate — the
   // generated one is never read, moved or cleared here.
-  async function placeAnchors() {
+  async function placeFixedEvents() {
     setGenerating(true)
     // Explicitly manual-route setters, not the current-route ones: this can be
     // invoked from the first-run choice screen, where the route on screen is
@@ -239,14 +239,14 @@ export function useGeneration({
     // under its weekly target, as an honest list of what the week owes you.
     // Computed against the week-effective catalog (effGroups/effActivities) so a
     // closed group or activity does not show up owing time it will never run.
-    // No fixedEvents/weekId here — this is the MANUAL route (placeAnchors is the
+    // No fixedEvents/weekId here — this is the MANUAL route (placeFixedEvents is the
     // manual blank-week bootstrap), and FIXED_EVENT_DUPLICATE is generated-route
-    // only (a manual anchor/regular clash already surfaces as OVERLAP).
+    // only (a manual fixed-event/regular clash already surfaces as OVERLAP).
     setManualFindings(computeFindings({ slots: freshSlots, groups: effGroups, activities: effActivities, days }))
     setManualDismissed(new Set())
     if (groups.length > 0) setSelectedGroup(prev => prev ?? groups[0].id)
     setGenerating(false)
   }
 
-  return { generate, regenFromScratch, placeAnchors }
+  return { generate, regenFromScratch, placeFixedEvents }
 }

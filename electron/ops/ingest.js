@@ -35,7 +35,7 @@ import { recordNotAPlace, isWordDeclinedAsPlace } from './locationWordDecisions.
 
 // U2 (docs/adr/2026-08-17-onescreen-reconciliation-undo.md, "Finding 4 fix").
 // Delete order: reverse of INGESTIBLE_ENTITIES with fixed_events first —
-// nothing points into anchors (undoReferences.schemaParity.test.js proves
+// nothing points into fixed events (undoReferences.schemaParity.test.js proves
 // this), and cohorts last because everything that can point at a cohort is
 // deleted before it. A row is only deleted after everything else in D that
 // could reference it is already gone, so one upfront referential pass
@@ -124,11 +124,11 @@ export function replaceScope(db, { camp_id, author_user_id = null, device_id, so
     dependents[entity] = rows.length
   }
 
-  // Step 6 — anchors are camp-scoped directly, and fixed_events.day_id
+  // Step 6 — fixed events are camp-scoped directly, and fixed_events.day_id
   // references days_of_operation, so they must go before step 8.
-  const anchors = db.prepare('SELECT id FROM fixed_events WHERE camp_id = ?').all(camp_id)
-  for (const row of anchors) remove('fixed_events', row.id)
-  dependents.fixed_events = anchors.length
+  const fixedEvents = db.prepare('SELECT id FROM fixed_events WHERE camp_id = ?').all(camp_id)
+  for (const row of fixedEvents) remove('fixed_events', row.id)
+  dependents.fixed_events = fixedEvents.length
 
   // Step 7 — unhook the activity self-reference before deleting activities.
   // schema.sql declares weather_alternative_id plain TEXT, but deleteRecord.js
@@ -596,7 +596,7 @@ function buildExistingSnapshot(db, camp_id, cohort_id, mode) {
  * `fixedEvents` is a dedicated payload of proposed recurring fixed events
  * (docs/adr/2026-08-03-ingesting-recurring-fixed-events.md), NOT a key in
  * `approved`: the generic whitelist above still rejects `fixed_events`, and
- * anchors are writable only through commitPlan's validated fixed-event branch.
+ * fixed events are writable only through commitPlan's validated fixed-event branch.
  *
  * `activityRules` is a dedicated payload (T35), NOT a key in `approved`, keyed
  * by activity name -> `{ eligible_group_names, min_per_week, max_per_week,
@@ -872,7 +872,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
 
   // S2a: every field-value op this committer writes is import-authored. Set once
   // here and threaded into EVERY appendOp commitPlan makes — commitCreate's
-  // field loop, the fixed-events anchor writes, and replaceScope's field-value
+  // field loop, the fixed-events fixed event writes, and replaceScope's field-value
   // write (its `__deleted__` tombstones stay NULL). This is the commitPlan-WIDE
   // seam the ADR §2 census requires: 'import' is producible ONLY from here.
   const IMPORT_SOURCE = 'import'
@@ -1229,7 +1229,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   const fixedMoved = []
   const fixedScopeChanged = []
   // T183 PR-2 (Replace-mode division-scope preservation). `replaceScope` tears
-  // down every anchor AND every tier, so a director's division scope (unit_ids)
+  // down every fixed event AND every tier, so a director's division scope (unit_ids)
   // would be silently flattened to a grid group_ids snapshot on re-import. These
   // record the two outcomes of carrying it across the teardown: preserved (the
   // division was re-resolved to its recreated tier) vs flattened (the division
@@ -1238,7 +1238,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   const fixedScopePreserved = []
   const fixedScopeFlattened = []
   // slotKey -> { divisionNames: string[], name } for every live DIVISION-scoped
-  // anchor, captured BEFORE replaceScope deletes it. Division NAMES, not ids:
+  // fixed event, captured BEFORE replaceScope deletes it. Division NAMES, not ids:
   // the tier is recreated with a new id, so the name is what survives.
   const preservedDivisionScope = new Map()
   const restoredDivisionSlots = new Set()
@@ -1246,7 +1246,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   // addendum) — a director-confirmed multi-block candidate marked "just this
   // once" mints an `events` catalog row only, never a template_slots
   // placement. Separate from the fixedEvents arrays above: this is not an
-  // anchor and carries no day/block/group resolution.
+  // fixed event and carries no day/block/group resolution.
   const multiBlockEventsCreated = []
   // Red Hat HIGH #1 — a candidate recognized against an already-live events
   // row (by normalized name) on a re-import; no op written for it.
@@ -1255,11 +1255,11 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   // T72: slot identity of a fixed-event occurrence — "this activity, in this
   // block, on this day, for this cohort." is_all_groups/group_ids are attributes
   // of the occurrence, deliberately NOT part of the key (ADR §1). camp is fixed
-  // by the camp-scoped query. Used to recognize-then-skip an anchor already live.
-  const anchorSlotKey = (cohortId, dayId, tbId, name) =>
+  // by the camp-scoped query. Used to recognize-then-skip an fixed event already live.
+  const fixedEventSlotKey = (cohortId, dayId, tbId, name) =>
     `${cohortId ?? ''}|${dayId}|${tbId}|${normalizeName(name)}`
 
-  // T183 PR-2: the slot identity that SURVIVES a Replace teardown. anchorSlotKey
+  // T183 PR-2: the slot identity that SURVIVES a Replace teardown. fixedEventSlotKey
   // keys on day_id/time_block_id, but a Replace recreates days and time_blocks
   // with NEW ids (they are in REPLACEABLE_ENTITIES), so those ids cannot match
   // across the teardown. Division-scope preservation therefore keys on the
@@ -1270,12 +1270,12 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     `${cohortId ?? ''}|${normalizeName(dayLabel ?? '')}|${normalizeName(blockName ?? '')}|${normalizeName(name)}`
 
   // C1b: the drift-pairing group is (cohort_id, normalizeName(name)) — the
-  // dimension a director's move CAN'T change (saveAnchor mutates day_id/
+  // dimension a director's move CAN'T change (the FixedEventsScreen save mutates day_id/
   // time_block_id, never cohort_id or name; FixedEventsScreen.jsx:315 vs :326).
   // day_id/time_block_id are the two coordinates that CAN drift, hence the
-  // pairing key below one level under anchorSlotKey.
-  const anchorGroupKey = (cohortId, name) => `${cohortId ?? ''}|${normalizeName(name)}`
-  const anchorDaySlot = (dayId, tbId) => `${dayId}|${tbId}`
+  // pairing key below one level under fixedEventSlotKey.
+  const fixedEventGroupKey = (cohortId, name) => `${cohortId ?? ''}|${normalizeName(name)}`
+  const fixedEventDaySlot = (dayId, tbId) => `${dayId}|${tbId}`
 
   // Fixed-event reimport tombstone fix: slot keys of fixed_events whose
   // LATEST op is a DELETE_FIELD written with source==='human' — a director's
@@ -1312,7 +1312,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       const tbId = fields.get('time_block_id')
       const name = fields.get('name')
       if (!dayId || !tbId || !name) continue
-      rejected.add(anchorSlotKey(fields.get('cohort_id') ?? null, dayId, tbId, name))
+      rejected.add(fixedEventSlotKey(fields.get('cohort_id') ?? null, dayId, tbId, name))
     }
     return rejected
   }
@@ -1765,14 +1765,14 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     // UNIQUE(camp_id, name).
     if (mode === 'replace') {
       // T183 PR-2: snapshot division scope BEFORE the teardown erases it. Read
-      // the live anchors' unit_ids and resolve them to division NAMES against
+      // the live fixed events' unit_ids and resolve them to division NAMES against
       // the pre-teardown tiers (ids are about to change). Keyed by the
-      // scope-excluding anchorSlotKey, so an unchanged event re-matches after
+      // scope-excluding fixedEventSlotKey, so an unchanged event re-matches after
       // recreation. Only division-scoped rows (non-empty unit_ids) matter.
       const tierNameById = new Map(
         db.prepare('SELECT id, name FROM tiers WHERE camp_id = ?').all(camp_id).map((t) => [t.id, t.name]),
       )
-      // Pre-teardown day/block lookups: the anchor stores ids, but the survivor
+      // Pre-teardown day/block lookups: the fixed event stores ids, but the survivor
       // key is by LABEL/NAME (see divisionPreserveKey). Resolve here, before the
       // teardown deletes these rows.
       const dayLabelById = new Map(
@@ -1783,7 +1783,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       )
       // Scoped to THIS import's cohort: replaceScope tears down camp-wide, but
       // the fixedEvents recreate only touches this cohort, so snapshotting other
-      // cohorts' anchors would report them as "flattened" when the real cause is
+      // cohorts' fixed events would report them as "flattened" when the real cause is
       // simply that this import doesn't cover their cohort (a different, pre-
       // existing fact this report must not mislabel). `IS` binds null-safely.
       for (const row of db
@@ -1816,17 +1816,17 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     // is created until we know the import is not held.
     const recognition = seedRecognitionMaps()
 
-    // T72 anchor recognition set: slot keys of every live anchor row in the camp
+    // T72 fixed event recognition set: slot keys of every live fixed event row in the camp
     // (ADR §2). Built once, after teardown, inside the transaction — same
     // discipline as seedRecognitionMaps. A held import rolls this back with all.
-    const anchorSlots = new Set()
+    const fixedEventSlots = new Set()
     // C1a: slotKey -> live group scope, built in the same scan (ADR Phase C,
-    // C1a). anchorSlotKey deliberately excludes scope, so a director's scope
+    // C1a). fixedEventSlotKey deliberately excludes scope, so a director's scope
     // edit (FixedEventsScreen) is invisible to the recognize-then-skip branch
     // above unless compared separately here. Read-only per ADR §4 — this map
     // is consulted below to REPORT a drift, never to write one.
-    const liveAnchorScope = new Map()
-    // T183: the live group list WITH tier_id, so a division-scoped anchor's
+    const liveFixedEventScope = new Map()
+    // T183: the live group list WITH tier_id, so a division-scoped fixed event's
     // coverage can be resolved through the shared resolver below. The other
     // group reads in this file are `SELECT id, name` (label maps) and stay so.
     const liveGroupsWithTier = db
@@ -1835,8 +1835,8 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     for (const row of db
       .prepare('SELECT cohort_id, day_id, time_block_id, name, is_all_groups, group_ids, unit_ids, unit_id FROM fixed_events WHERE camp_id = ?')
       .all(camp_id)) {
-      const slotKey = anchorSlotKey(row.cohort_id, row.day_id, row.time_block_id, row.name)
-      anchorSlots.add(slotKey)
+      const slotKey = fixedEventSlotKey(row.cohort_id, row.day_id, row.time_block_id, row.name)
+      fixedEventSlots.add(slotKey)
       // Malformed group_ids/unit_ids (partial sync / hand-edited SQLite / old
       // migration) must not crash an unrelated import — mirror
       // FixedEventsScreen.jsx's parseIdList defensive posture: a parse failure
@@ -1854,7 +1854,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       const groupIds = parseIds(row.group_ids)
       const unitIds = parseIds(row.unit_ids)
       // T183: resolve the live coverage through the SHARED resolver so a
-      // DIVISION-scoped anchor (T180) — whose group_ids is empty by design,
+      // DIVISION-scoped fixed event (T180) — whose group_ids is empty by design,
       // scope living in unit_ids and resolved live — compares against its
       // CURRENT groups instead of against []. Reading group_ids raw here was
       // the spurious-drift bug: a re-import of an unchanged division-scoped
@@ -1893,23 +1893,23 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       } else {
         liveGroupIds = groupIds // plain group_ids scope (or null sentinel)
       }
-      liveAnchorScope.set(slotKey, { is_all_groups: liveIsAllGroups, group_ids: liveGroupIds })
+      liveFixedEventScope.set(slotKey, { is_all_groups: liveIsAllGroups, group_ids: liveGroupIds })
     }
 
     // Slice B one-off recognition (Red Hat HIGH #1, docs/adr/2026-08-24-
-    // merged-cell-multiblock-ingest.md addendum). Mirrors anchorSlots above —
+    // merged-cell-multiblock-ingest.md addendum). Mirrors fixedEventSlots above —
     // a live scan of the camp's existing `events` rows, by normalized name,
     // built once inside this same transaction, so re-confirming the same
     // one-off candidate on a re-import recognizes the row that already
     // exists instead of minting a second one. `events` has no slot-identity
-    // concept the way an anchor does (no day/time-block), so name is the
+    // concept the way an fixed event does (no day/time-block), so name is the
     // whole identity here — same "by name" resolution the recurring path
     // already relies on for fixedEvents.
     const liveEventNames = new Set(
       db.prepare('SELECT name FROM events WHERE camp_id = ?').all(camp_id).map((row) => normalizeName(row.name))
     )
 
-    // Fixed-event reimport tombstone fix: built right after the live-anchor
+    // Fixed-event reimport tombstone fix: built right after the live-fixed event
     // scan, inside the same transaction, so a held import rolls it back too.
     // Replace mode is an intentional clean slate — the director asked to rebuild
     // the camp from this source — so it CLEARS prior rejections (product owner
@@ -2160,7 +2160,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     // transaction above, so reaching here means entity_id is live.
     // T114 follow-up — the groups counterpart of the activities loop below.
     // A re-import that re-derives the same division should refresh the reason
-    // (the grid it read, the anchors it ignored), but must never attach this
+    // (the grid it read, the fixed events it ignored), but must never attach this
     // run's reasoning to a tier_id this run did not put there — the same rule
     // writeCoScheduleEvidence's verifyStored enforces, and for the same reason:
     // evidence that describes a value other than the stored one is worse than
@@ -2220,27 +2220,27 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     }
 
     // C1b: read-only slot-drift MOVED signal (docs/work/tickets/
-    // C1b-anchor-slot-drift-moved-signal.md). A director who moves a live
-    // anchor via FixedEventsScreen (day_id/time_block_id, never cohort_id or
-    // name — saveAnchor, FixedEventsScreen.jsx:315) leaves T72's exact-slot
+    // C1b-fixed event-slot-drift-moved-signal.md). A director who moves a live
+    // fixed event via FixedEventsScreen (day_id/time_block_id, never cohort_id or
+    // name — the FixedEventsScreen save,.jsx:315) leaves T72's exact-slot
     // recognize-then-skip blind to the drift: re-importing the ORIGINAL file
     // would silently mint a duplicate at the old slot. A naive "match by name
     // at a different slot" is unsafe (names aren't unique, per-day fan-out
     // breaks 1:1 cardinality) so this is a set-cardinality pre-pass, computed
-    // once here — after the live-anchor scan/teardown and name-map resolution,
+    // once here — after the live-fixed event scan/teardown and name-map resolution,
     // before ANY fixed-event write — partitioning both sides by (cohort_id,
     // normalizeName(name)) (ADR §1: is_all_groups/group_ids are occurrence
     // attributes, never part of slot identity, so they never enter this key
-    // either). Read-only: this pre-pass NEVER appends an op to an anchor row,
+    // either). Read-only: this pre-pass NEVER appends an op to an fixed event row,
     // it only decides which file slot the loop below reports as moved instead
     // of creating.
     const liveByGroup = new Map() // groupKey -> Set("dayId|tbId")
     for (const row of db
       .prepare('SELECT cohort_id, day_id, time_block_id, name FROM fixed_events WHERE camp_id = ?')
       .all(camp_id)) {
-      const g = anchorGroupKey(row.cohort_id, row.name)
+      const g = fixedEventGroupKey(row.cohort_id, row.name)
       if (!liveByGroup.has(g)) liveByGroup.set(g, new Set())
-      liveByGroup.get(g).add(anchorDaySlot(row.day_id, row.time_block_id))
+      liveByGroup.get(g).add(fixedEventDaySlot(row.day_id, row.time_block_id))
     }
 
     // Deliberately re-derives tbId/dayId from blockIdByName/dayIdByName here,
@@ -2252,18 +2252,18 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     for (const fe of plan.fixedEvents) {
       const tbId = blockIdByName.get(normalizeName(fe.time_block))
       if (!tbId) continue
-      const g = anchorGroupKey(cohort_id, fe.name)
+      const g = fixedEventGroupKey(cohort_id, fe.name)
       if (!fileByGroup.has(g)) fileByGroup.set(g, new Map())
       const slots = fileByGroup.get(g)
       for (const d of fe.days ?? []) {
         const dayId = dayIdByName.get(normalizeName(d))
         if (!dayId) continue
-        const slot = anchorDaySlot(dayId, tbId)
+        const slot = fixedEventDaySlot(dayId, tbId)
         if (!slots.has(slot)) slots.set(slot, fe.name)
       }
     }
 
-    // anchorSlotKey(cohort, day, tb, name) of the FILE's slot -> reason, for
+    // fixedEventSlotKey(cohort, day, tb, name) of the FILE's slot -> reason, for
     // the single file slot each qualifying group pairs against the single
     // live slot it left unmatched. Keyed by the FULL slot identity (not just
     // day|tb) so two different-named events sharing a day/time-block can
@@ -2280,7 +2280,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       const fileUnmatched = [...fileMap.keys()].filter((s) => {
         if (liveSet.has(s)) return false
         const [dayId, tbId] = s.split('|')
-        return !rejectedSlots.has(anchorSlotKey(cohort_id, dayId, tbId, fileMap.get(s)))
+        return !rejectedSlots.has(fixedEventSlotKey(cohort_id, dayId, tbId, fileMap.get(s)))
       })
       if (liveUnmatched.length !== 1 || fileUnmatched.length !== 1) continue // every other cardinality: no guess
       // The file still shows the OLD (stale) slot; the live row already lives
@@ -2293,7 +2293,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         + ` to ${liveName('days_of_operation', toDay)}/${liveName('time_blocks', toTb)}`
       // F2 (ADR §4): keep the structured from/to alongside the prose reason
       // instead of discarding it once the string is built.
-      movedBySlot.set(anchorSlotKey(cohort_id, fromDay, fromTb, name), {
+      movedBySlot.set(fixedEventSlotKey(cohort_id, fromDay, fromTb, name), {
         name,
         reason,
         from: { day: liveName('days_of_operation', fromDay), timeBlock: liveName('time_blocks', fromTb) },
@@ -2380,9 +2380,9 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         // T72: recognize-then-skip. If this slot is already live (or was just
         // created by an earlier day-row this same import), emit no ops and mint
         // no id — the occurrence is unchanged. Group-scope changes on an existing
-        // slot are recognized here and left untouched (anchor updates are out of
+        // slot are recognized here and left untouched (fixed event updates are out of
         // scope per ADR §4).
-        const slotKey = anchorSlotKey(cohort_id, dayId, tbId, fe.name)
+        const slotKey = fixedEventSlotKey(cohort_id, dayId, tbId, fe.name)
         // C1b: this exact file slot is the one the cardinality pre-pass
         // paired against a single unmatched live slot elsewhere — report the
         // drift and suppress the create. No op is appended for either side.
@@ -2399,11 +2399,11 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
           continue
         }
         // Live wins over tombstone — load-bearing for the restore escape
-        // hatch: a director who un-deletes the anchor via the trash can must
+        // hatch: a director who un-deletes the fixed event via the trash can must
         // see it recognized as unchanged, not rejected, on the next import.
-        if (anchorSlots.has(slotKey)) {
+        if (fixedEventSlots.has(slotKey)) {
           // C1a: group-scope drift, read-only (ADR Phase C, C1a; ADR §4 keeps
-          // anchor updates out of scope). Slot identity is unchanged — this
+          // fixed event updates out of scope). Slot identity is unchanged — this
           // still counts as `unchanged` (no create) — but the incoming
           // resolved scope may differ from the live row's scope, which is an
           // ORTHOGONAL fact worth surfacing alongside "unchanged", not a
@@ -2417,7 +2417,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
           // liveScope.group_ids to the `null` sentinel — that slot's scope is
           // uncomparable, so skip the drift check for it rather than crash or
           // guess.
-          const liveScope = liveAnchorScope.get(slotKey)
+          const liveScope = liveFixedEventScope.get(slotKey)
           if (droppedGroups === 0 && liveScope?.group_ids !== null) {
             // Round 2 fix 2: dedup both sides before compare — upstream import
             // sources are not guaranteed to dedup, and a duplicate group name
@@ -2449,9 +2449,9 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
           fixedRejected.push({ name: fe.name })
           continue
         }
-        anchorSlots.add(slotKey)
-        const anchorId = randomUUID()
-        // T183 PR-2: if this exact slot was a DIVISION-scoped anchor before the
+        fixedEventSlots.add(slotKey)
+        const fixedEventId = randomUUID()
+        // T183 PR-2: if this exact slot was a DIVISION-scoped fixed event before the
         // Replace teardown, restore that scope rather than writing the grid's
         // group snapshot — the director's division choice outranks a file that
         // cannot express divisions. Division NAMES are re-resolved to the newly
@@ -2474,18 +2474,18 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
             }
           }
         }
-        // B4: evidence for a CREATED anchor only (ADR scope: unchanged-anchor
+        // B4: evidence for a CREATED fixed event only (ADR scope: unchanged-fixed event
         // recompute is deferred — the skip branch above has only a slotKey,
-        // not a live anchor id, resolving it cleanly is a later slice).
+        // not a live fixed event id, resolving it cleanly is a later slice).
         // `fe.support` describes the WHOLE inferred event (days/scope across
         // all its occurrences), not this one day-row — the SAME support
-        // object is written against every anchor this fe's per-day fan-out
+        // object is written against every fixed event this fe's per-day fan-out
         // creates, deliberately, so a future "why?" read is not misread as a
         // per-day-specific observation.
         if (fe.support) {
           for (const field of ['days', 'scope']) {
             writeEvidence(db, {
-              camp_id, entity_type: 'fixed_events', entity_id: anchorId, field,
+              camp_id, entity_type: 'fixed_events', entity_id: fixedEventId, field,
               tag: 'inferred', confidence: fe.confidence, support: fe.support,
               import_run_id: evidenceRunId, committed_at: evidenceCommittedAt,
             })
@@ -2546,7 +2546,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
           // is handed in as an ordinary fixedEvents entry with span_blocks
           // set. Omitted (not written as an explicit 1) for every other
           // fixedEvents caller — schema/engine both already treat a NULL
-          // span_blocks as 1 (buildSchedule.js: `anchor.span_blocks || 1`),
+          // span_blocks as 1 (buildSchedule.js: `fixedEvent.span_blocks || 1`),
           // so leaving it unset is a true byte-identical no-op at the
           // op-log level, not just a value-equivalent one.
           ...(clampedSpanBlocks > 1 ? { span_blocks: clampedSpanBlocks } : {}),
@@ -2555,7 +2555,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
           if (value === null || value === undefined) continue
           write(db, {
             entity: 'fixed_events',
-            entity_id: anchorId,
+            entity_id: fixedEventId,
             field,
             value,
             author_user_id: author_user_id ?? null,
@@ -2565,7 +2565,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
             source: IMPORT_SOURCE,
           })
         }
-        fixedCreated.push({ anchorId, name: fe.name, confidence: fe.confidence, time_block: fe.time_block, days: fe.days })
+        fixedCreated.push({ fixedEventId, name: fe.name, confidence: fe.confidence, time_block: fe.time_block, days: fe.days })
       }
     }
 
@@ -2611,10 +2611,10 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     // name, AND recognize-then-skip against liveEventNames (Red Hat HIGH
     // #1) so re-confirming the same candidate on a re-import does not mint a
     // second row — same idempotency discipline T72 already gives the
-    // recurring path via anchorSlots above. Re-import provenance ON A FIELD
+    // recurring path via fixedEventSlots above. Re-import provenance ON A FIELD
     // (EVIDENCE_ENTITY_TYPES, hand-edit protection) is a separate, still-open
     // question (addendum open question 2) — this is only identity
-    // recognition, the same mechanism anchorSlots provides for anchors,
+    // recognition, the same mechanism fixedEventSlots provides for fixed events,
     // which is also not EVIDENCE_ENTITY_TYPES-based.
     const seenMultiBlockEventNames = new Set()
     for (const ev of plan.multiBlockEvents ?? []) {
@@ -2948,11 +2948,11 @@ export function ingestUndo(db, { invertibleOps, createdEntityIds = [], author_us
     // walked in U2_DELETE_ORDER (children before parents) with excludeSet
     // built up INCREMENTALLY as each row is confirmed deletable — not the
     // whole candidate set up front. This is what makes a cascading case
-    // resolve correctly: an anchor blocked by a live template_slots row is
+    // resolve correctly: an fixed event blocked by a live template_slots row is
     // NOT added to excludeSet, so when its parent day/time_block is checked
-    // next, the still-live anchor correctly counts as a real blocker too
+    // next, the still-live fixed event correctly counts as a real blocker too
     // (checking the whole pre-filtered candidate set up front would have
-    // wrongly treated the anchor as "as good as gone" and let the day/
+    // wrongly treated the fixed event as "as good as gone" and let the day/
     // time_block delete out from under it). The "Lake + Kayaking, both
     // undone together" case still resolves correctly because activities is
     // ordered before locations: Kayaking is confirmed deletable (nothing

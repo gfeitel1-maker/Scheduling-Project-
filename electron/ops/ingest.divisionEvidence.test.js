@@ -50,11 +50,11 @@ const evidenceFor = (groupName) => {
 const SUPPORT = {
   'Tzofim 1': {
     division: 'Tzofim', basis: 'name_stem', members: ['Tzofim 1', 'Tzofim 2'],
-    stem: 'Tzofim', qualifier_stripped: false, anchors_excluded: ['Lunch'],
+    stem: 'Tzofim', qualifier_stripped: false, fixed_events_excluded: ['Lunch'],
   },
   'Tzofim 2': {
     division: 'Tzofim', basis: 'name_stem', members: ['Tzofim 1', 'Tzofim 2'],
-    stem: 'Tzofim', qualifier_stripped: false, anchors_excluded: ['Lunch'],
+    stem: 'Tzofim', qualifier_stripped: false, fixed_events_excluded: ['Lunch'],
   },
 }
 
@@ -84,7 +84,7 @@ describe('division evidence', () => {
 
   it('carries the anchors that were excluded, which decide what the grid could show', () => {
     commit()
-    expect(evidenceFor('Tzofim 1').support.anchors_excluded).toEqual(['Lunch'])
+    expect(evidenceFor('Tzofim 1').support.fixed_events_excluded).toEqual(['Lunch'])
   })
 
   it('records a split so the director can see the names were overruled', () => {
@@ -94,7 +94,7 @@ describe('division evidence', () => {
       divisionSupport: {
         'Kittah 1': {
           division: 'Kittah 1', basis: 'split_by_co_occurrence', names_proposed: 'Kittah',
-          members: ['Kittah 1', 'Kittah 2'], stem: 'Kittah', qualifier_stripped: false, anchors_excluded: [],
+          members: ['Kittah 1', 'Kittah 2'], stem: 'Kittah', qualifier_stripped: false, fixed_events_excluded: [],
         },
       },
       camp_id: campId, device_id: deviceId,
@@ -134,7 +134,7 @@ describe('division evidence', () => {
       links: { groups: { 'Tzofim 1': 'Tzofim', 'Tzofim 2': 'Tzofim' } },
       divisionSupport: {
         ...SUPPORT,
-        'Tzofim 1': { ...SUPPORT['Tzofim 1'], anchors_excluded: ['Lunch', 'Carpool'] },
+        'Tzofim 1': { ...SUPPORT['Tzofim 1'], fixed_events_excluded: ['Lunch', 'Carpool'] },
       },
       camp_id: campId, device_id: deviceId,
     })
@@ -142,7 +142,7 @@ describe('division evidence', () => {
       'SELECT * FROM import_evidence WHERE camp_id = ? AND entity_type = ? AND field = ?'
     ).all(campId, 'groups', 'tier_id')
     expect(rows).toHaveLength(2)
-    expect(evidenceFor('Tzofim 1').support.anchors_excluded).toEqual(['Lunch', 'Carpool'])
+    expect(evidenceFor('Tzofim 1').support.fixed_events_excluded).toEqual(['Lunch', 'Carpool'])
   })
 })
 

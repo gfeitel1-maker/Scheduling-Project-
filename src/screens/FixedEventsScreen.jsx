@@ -27,7 +27,7 @@ const FIXED_EVENTS_CATALOG = ENTITY_FIELD_CATALOGS.fixed_events
 // legitimately recur on several days, and the per-day expansion below turns each
 // into its own stored row (one `fixed_events` row per day_id) — so "this row" means
 // (name, day, time block), not name alone (board q-export-columns-do-not-round-trip, B3).
-const anchorNaturalKey = (name, dayId, timeBlockId) => `${String(name ?? '').toLowerCase()}|${dayId ?? ''}|${timeBlockId ?? ''}`
+const fixedEventNaturalKey = (name, dayId, timeBlockId) => `${String(name ?? '').toLowerCase()}|${dayId ?? ''}|${timeBlockId ?? ''}`
 
 // Repository-only migration (not the full useCrudScreen hook): load() fans out
 // across five parallel list() calls with per-cohort scoping, and the create
@@ -61,7 +61,7 @@ const serializeFieldValue = makeSerializeFieldValue(BOOL_FIELDS, ARRAY_FIELDS)
 // single-screen migration task — flagged as a genuine, not-yet-scheduled
 // follow-up (project memory).
 
-function normalizeAnchor(row) {
+function normalizeFixedEvent(row) {
   return {
     ...row,
     is_all_groups: row.is_all_groups === 1 || row.is_all_groups === true,
@@ -72,8 +72,8 @@ function normalizeAnchor(row) {
   }
 }
 
-function AnchorModal({ anchor, kind, tiers, groups, days, timeBlocks, locations, onSave, onClose, onCreateLocation, onUpdateLocationCapacity }) {
-  const isNew = !anchor?.id
+function FixedEventModal({ fixedEvent, kind, tiers, groups, days, timeBlocks, locations, onSave, onClose, onCreateLocation, onUpdateLocationCapacity }) {
+  const isNew = !fixedEvent?.id
   // Fixed = all-camp by construction (docs/adr/2026-08-28-fixed-vs-recurring-
   // events.md §3 CHECK: kind='fixed' requires is_all_groups=1, unit_id/
   // group_ids empty) — the scope control below is hidden entirely on this
@@ -86,16 +86,16 @@ function AnchorModal({ anchor, kind, tiers, groups, days, timeBlocks, locations,
   // §7: no explainer copy, but the label itself must not lie about which
   // kind of event this form is creating).
   const kindLabel = isFixed ? 'Fixed Event' : 'Recurring Event'
-  const [name, setName] = useState(anchor?.name || '')
+  const [name, setName] = useState(fixedEvent?.name || '')
   // Fixed is always all-groups, Recurring is never all-groups (the CHECK
   // constraint forbids both other combinations) — this form never toggles
   // it, so it's a constant derived from `kind`, not React state.
   const isAllTiers = isFixed
-  // Multi-day: editing an existing anchor pre-selects its single day
-  const [selectedDays, setSelectedDays] = useState(anchor?.day_id ? [anchor.day_id] : [])
-  const [blockId, setBlockId] = useState(anchor?.time_block_id || '')
-  const [locationId, setLocationId] = useState(anchor?.location_id ?? null)
-  const [notes, setNotes] = useState(anchor?.notes || '')
+  // Multi-day: editing an existing fixed event pre-selects its single day
+  const [selectedDays, setSelectedDays] = useState(fixedEvent?.day_id ? [fixedEvent.day_id] : [])
+  const [blockId, setBlockId] = useState(fixedEvent?.time_block_id || '')
+  const [locationId, setLocationId] = useState(fixedEvent?.location_id ?? null)
+  const [notes, setNotes] = useState(fixedEvent?.notes || '')
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState(null)
   const enterStyle = useEnterTransition('liftFade')
@@ -107,10 +107,10 @@ function AnchorModal({ anchor, kind, tiers, groups, days, timeBlocks, locations,
   // suddenly reading as unscoped. A legacy row re-saved through this form
   // gains real `unit_ids`, which is the intended one-way repair.
   const [selectedTiers, setSelectedTiers] = useState(() => {
-    if (anchor?.unit_ids?.length) return [...anchor.unit_ids]
-    if (!anchor?.group_ids?.length) return []
+    if (fixedEvent?.unit_ids?.length) return [...fixedEvent.unit_ids]
+    if (!fixedEvent?.group_ids?.length) return []
     const ids = new Set(
-      anchor.group_ids.map(gid => groups.find(g => g.id === gid)?.tier_id).filter(Boolean)
+      fixedEvent.group_ids.map(gid => groups.find(g => g.id === gid)?.tier_id).filter(Boolean)
     )
     return [...ids]
   })
@@ -156,7 +156,7 @@ function AnchorModal({ anchor, kind, tiers, groups, days, timeBlocks, locations,
     // (same reasoning as electron/ops/ingest.js's identical field ordering).
     // When editing, update only the existing record's day; when creating, one record per day
     try {
-      await onSave(anchor?.id || null, {
+      await onSave(fixedEvent?.id || null, {
         name: name.trim(),
         kind,
         is_all_groups: isAllTiers,
@@ -183,7 +183,7 @@ function AnchorModal({ anchor, kind, tiers, groups, days, timeBlocks, locations,
     <div style={{ ...S.overlay, ...enterStyle }}>
       <div style={{ ...S.modalLg, width: 520 }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 18, marginBottom: 20 }}>
-          {isNew ? `Add ${kindLabel}` : `Edit: ${anchor.name}`}
+          {isNew ? `Add ${kindLabel}` : `Edit: ${fixedEvent.name}`}
         </div>
 
         <Field label="Name">
@@ -274,7 +274,7 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
   const eventLabelPlural = kind === 'fixed' ? 'fixed events' : 'recurring events'
   const eventLabelCap = kind === 'fixed' ? 'Fixed Event' : 'Recurring Event'
   const eventLabelPluralCap = kind === 'fixed' ? 'Fixed Events' : 'Recurring Events'
-  const [anchors, setAnchors] = useState([])
+  const [fixedEvents, setFixedEvents] = useState([])
   const [days, setDays] = useState([])
   const [timeBlocks, setTimeBlocks] = useState([])
   const [tiers, setTiers] = useState([])
@@ -295,7 +295,7 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
   const [importResult, setImportResult] = useState(null)
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState(null)
-  const [pendingDelete, setPendingDelete] = useState(null) // anchor being confirmed for delete
+  const [pendingDelete, setPendingDelete] = useState(null) // fixed event being confirmed for delete
   const [deleting, setDeleting] = useState(false)
   const [pendingDeleteAll, setPendingDeleteAll] = useState(false)
   const [deletingAll, setDeletingAll] = useState(false)
@@ -328,9 +328,9 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
         // a row with a missing/mismatched kind is a real bug to surface
         // (an unfiltered row disappearing from both lists), not to mask.
         .filter(a => a.camp_id === campId && a.cohort_id === activeCohort.id && a.kind === kind)
-        .map(normalizeAnchor)
+        .map(normalizeFixedEvent)
         .sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? '')))
-      setAnchors(list)
+      setFixedEvents(list)
       // Deduplicate days by day_of_week in case seed ran more than once
       const uniqueDays = (dData || [])
         .filter(d => d.camp_id === campId)
@@ -367,7 +367,7 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
     )
   }
 
-  // Thin wrapper, not a reimplementation: composes Anchors-only serialization
+  // Thin wrapper, not a reimplementation: composes fixed-events-only serialization
   // then delegates the field-level write loop to the shared repository.
   async function writeFields(id, fields) {
     await repository.writeFields('fixed_events', id, serializeFields(fields))
@@ -481,15 +481,15 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
     setModal(null)
   }
 
-  // Slice 2 — per-anchor "which weeks" control. '' selects "All weeks" and
+  // Slice 2 — per-fixed-event "which weeks" control. '' selects "All weeks" and
   // writes NULL, preserving today's implicit all-weeks meaning; picking a
   // specific week writes that week's id. Optimistic local update (mirrors
   // load()'s row shape) so the select reflects the change immediately rather
   // than waiting on a full reload.
-  async function changeAnchorWeek(id, scheduleWeekId) {
+  async function changeFixedEventWeek(id, scheduleWeekId) {
     try {
       await writeFields(id, { schedule_week_id: scheduleWeekId })
-      setAnchors(prev => prev.map(a => a.id === id ? { ...a, schedule_week_id: scheduleWeekId } : a))
+      setFixedEvents(prev => prev.map(a => a.id === id ? { ...a, schedule_week_id: scheduleWeekId } : a))
     } catch (err) {
       setError(describeWriteFailure(err, 'That week could not be saved.'))
     }
@@ -510,13 +510,13 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
     setLocations(prev => prev.map(l => l.id === locationId ? { ...l, capacity } : l))
   }
 
-  function deleteAnchor(id) {
-    const anchor = anchors.find(a => a.id === id)
-    if (!anchor) return
-    setPendingDelete(anchor)
+  function deleteFixedEvent(id) {
+    const fixedEvent = fixedEvents.find(a => a.id === id)
+    if (!fixedEvent) return
+    setPendingDelete(fixedEvent)
   }
 
-  async function confirmAnchorDelete() {
+  async function confirmFixedEventDelete() {
     if (!pendingDelete || deleteInFlight.current) return
     deleteInFlight.current = true
     setDeleting(true)
@@ -548,12 +548,12 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
   async function confirmDeleteAll() {
     setDeletingAll(true)
     try {
-      // Re-fetch immediately rather than using the closed-over `anchors`
+      // Re-fetch immediately rather than using the closed-over `fixedEvents`
       // state — a row synced in from another device between page-load and
       // this click must not be silently skipped. The delete loop itself now
       // lives in the shared repository; scoping (camp + cohort) stays here.
-      const freshAnchors = await localClient.list('fixed_events')
-      const ids = (freshAnchors || [])
+      const freshFixedEvents = await localClient.list('fixed_events')
+      const ids = (freshFixedEvents || [])
         .filter(a => a.camp_id === campId && a.cohort_id === activeCohort?.id)
         .map(a => a.id)
       const { succeeded, failed, failedDueToRole } = await repository.deleteAllRecords('fixed_events', ids)
@@ -606,7 +606,7 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
       // T255 Slice B — schema v73 lets two time blocks or two age divisions
       // share a name WITHIN one camp+cohort (this filter narrows the window,
       // it does not close it). A plain last-write-wins Object.fromEntries
-      // would silently bind an imported anchor to whichever same-named row
+      // would silently bind an imported fixed event to whichever same-named row
       // came last. mapWithCollisions refuses the colliding key instead.
       // The fold is bare .toLowerCase() with NO trim, so it folds DIFFERENTLY than
       // ingest's tierIdByName (normalizeName, which also collapses whitespace):
@@ -748,7 +748,7 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
       const activityCache = [...activities]
       // Keyed by (name, day, time block) — the same row can recur on several days,
       // each its own stored row (board q-export-columns-do-not-round-trip, B3).
-      const existingByKey = new Map(anchors.map(a => [anchorNaturalKey(a.name, a.day_id, a.time_block_id), a]))
+      const existingByKey = new Map(fixedEvents.map(a => [fixedEventNaturalKey(a.name, a.day_id, a.time_block_id), a]))
       // Code Reviewer HIGH+MEDIUM: only diff fields the sheet actually named. group_ids has
       // no catalog column at all (T180 always derives it from unit_ids) and is never
       // provided; activity_id is always resolved from the row's own name, not a column, so
@@ -764,7 +764,7 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
         const { cohortId } = resolveRowCohort(cohortName, cohorts, activeCohort)
         try {
           const activityId = await resolveActivityLink(record.name, activityCache)
-          const naturalKey = anchorNaturalKey(record.name, record.day_id, record.time_block_id)
+          const naturalKey = fixedEventNaturalKey(record.name, record.day_id, record.time_block_id)
           const candidateFields = {
             time_block_id: record.time_block_id, is_all_groups: record.is_all_groups,
             group_ids: record.group_ids, unit_ids: record.unit_ids, notes: record.notes,
@@ -817,20 +817,20 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
   const blockMap = Object.fromEntries(timeBlocks.map(b => [b.id, `${b.name} (${b.start_time?.slice(0,5)}–${b.end_time?.slice(0,5)})`]))
   const tierById = Object.fromEntries(tiers.map(t => [t.id, t.name]))
 
-  // T183: the division projection of anchor scope comes from the SHARED
+  // T183: the division projection of fixed-event scope comes from the SHARED
   // resolver (src/engine/fixedEventScope.js), the same precedence the engine uses
   // for group ids — so this label can no longer drift from the schedule. The
   // resolver flags a pre-v65 group_ids-only derivation as `inferred`; that
-  // stays honest on the tooltip (anchorTierTitle) rather than in the visible
+  // stays honest on the tooltip (fixedEventTierTitle) rather than in the visible
   // text, which keeps reading the division it covers instead of "—".
-  function anchorTierLabel(a) {
+  function fixedEventTierLabel(a) {
     const { mode, unitIds } = resolveFixedEventUnitIds(a, groups)
     if (mode === 'all') return 'All age divisions'
     const names = unitIds.map(tid => tierById[tid]).filter(Boolean)
     return names.length ? names.join(', ') : '—'
   }
 
-  function anchorTierTitle(a) {
+  function fixedEventTierTitle(a) {
     return resolveFixedEventUnitIds(a, groups).inferred
       ? 'Shown from the groups this event covers — not a saved division choice. Re-save it to store the divisions.'
       : undefined
@@ -842,7 +842,7 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
   return (
     <div style={{ maxWidth: 760 }}>
       <SetupScreenShell
-        countLabel={`${anchors.length} ${kind} event${anchors.length !== 1 ? 's' : ''}`}
+        countLabel={`${fixedEvents.length} ${kind} event${fixedEvents.length !== 1 ? 's' : ''}`}
         role={role}
         actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll }}
         fileInputRef={fileRef}
@@ -860,7 +860,7 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
       )}
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-        <button className="press-97" onClick={() => setModal({ anchor: null })} style={S.btnPrimary}>
+        <button className="press-97" onClick={() => setModal({ fixedEvent: null })} style={S.btnPrimary}>
           + Add {kind === 'fixed' ? 'Fixed' : 'Recurring'} Event
         </button>
       </div>
@@ -881,14 +881,14 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
               </tr>
             </thead>
             <tbody>
-              {anchors.length === 0 ? (
+              {fixedEvents.length === 0 ? (
                 <tr><td colSpan={6} style={S.emptyState}>
                   <div style={S.emptyStateTitle}>No {kind} events yet</div>
                   <div style={S.emptyStateBody}>Add your first {kind} event below.</div>
                 </td></tr>
-              ) : anchors.map(a => (
+              ) : fixedEvents.map(a => (
                 <tr key={a.id} style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
-                  onClick={() => setModal({ anchor: a })}
+                  onClick={() => setModal({ fixedEvent: a })}
                   onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
                   onMouseLeave={e => e.currentTarget.style.background = ''}
                   onFocus={e => e.currentTarget.style.background = 'var(--bg)'}
@@ -900,17 +900,17 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
                       role="button"
                       tabIndex={0}
                       aria-label={`Edit ${a.name}`}
-                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setModal({ anchor: a }) } }}
+                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setModal({ fixedEvent: a }) } }}
                       style={{ cursor: 'pointer' }}
                     >{a.name}</span>
                   </td>
                   <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 13 }}>{dayMap[a.day_id] || '—'}</td>
                   <td style={{ ...S.td, fontSize: 12, fontFamily: 'var(--font-mono)' }}>{blockMap[a.time_block_id] || '—'}</td>
-                  <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }} title={anchorTierTitle(a)}>{anchorTierLabel(a)}</td>
+                  <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }} title={fixedEventTierTitle(a)}>{fixedEventTierLabel(a)}</td>
                   <td style={{ ...S.td, fontSize: 12 }}>
                     <select
                       value={a.schedule_week_id || ''}
-                      onChange={e => changeAnchorWeek(a.id, e.target.value || null)}
+                      onChange={e => changeFixedEventWeek(a.id, e.target.value || null)}
                       onClick={e => e.stopPropagation()}
                       style={{ ...S.input, padding: '5px 8px', fontSize: 12, width: 'auto' }}
                     >
@@ -920,7 +920,7 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
                   </td>
                   <td style={{ ...S.td, textAlign: 'right' }}>
                     <button
-                      onClick={e => { e.stopPropagation(); deleteAnchor(a.id) }}
+                      onClick={e => { e.stopPropagation(); deleteFixedEvent(a.id) }}
                       disabled={role !== 'admin'}
                       title={role !== 'admin' ? 'Admin only' : undefined}
                       style={role !== 'admin' ? { ...S.btnRowDanger, marginLeft: 6, ...S.buttonDisabled } : { ...S.btnRowDanger, marginLeft: 6 }}
@@ -930,7 +930,7 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
               ))}
             </tbody>
           </table>
-          {anchors.length > 0 && (
+          {fixedEvents.length > 0 && (
             <div style={{ padding: '8px 16px', fontSize: 12, color: 'var(--text-secondary)', borderTop: '1px solid var(--border)' }}>
               Changing a {eventLabel}'s week won't move it on weeks already built — regenerate or re-place those to pick up the change.
             </div>
@@ -940,8 +940,8 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
       </SetupScreenShell>
 
       {modal && (
-        <AnchorModal
-          anchor={modal.anchor}
+        <FixedEventModal
+          fixedEvent={modal.fixedEvent}
           kind={kind}
           tiers={tiers}
           groups={groups}
@@ -998,7 +998,7 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
           recovery={`"${pendingDelete.name}" goes to Trash, and you can put it back from there.`}
           confirmLabel={`Delete ${eventLabelCap}`}
           busy={deleting}
-          onConfirm={confirmAnchorDelete}
+          onConfirm={confirmFixedEventDelete}
           onCancel={() => setPendingDelete(null)}
         />
       )}

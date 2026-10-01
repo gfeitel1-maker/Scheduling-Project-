@@ -345,7 +345,7 @@ export const DOMAIN_PARENT_SCOPED_ENTITIES = DOMAIN_SNAPSHOT_ORDER.filter(
 export const BULK_REPLACE_ENTITIES = {
   // Column list expanded (Sub-plan E Task 3): the original list only
   // anticipated id/template_id/group_id/activity_id/day_id/time_block_id.
-  // ScheduleScreen.jsx's generate()/placeAnchors()/restoreSnapshot() rows
+  // ScheduleScreen.jsx's generate()/placeFixedEvents()/restoreSnapshot() rows
   // also carry fixed_event_id, is_fixed_event, is_span_head, and flags — any row key
   // not listed here is rejected by validateBulkReplaceRows.
   template_slots: {
@@ -366,7 +366,7 @@ export const BULK_REPLACE_ENTITIES = {
       'elective_set_id',
       // v40 (Events overlay placement Slice 1, docs/adr/2026-08-22-events-
       // overlay-placement.md) — without this entry every bulk_replace write
-      // (generate/placeAnchors/restoreSnapshot in ScheduleScreen.jsx) that
+      // (generate/placeFixedEvents/restoreSnapshot in ScheduleScreen.jsx) that
       // includes an event_id value is rejected by validateBulkReplaceRows
       // before it reaches the DB.
       'event_id',

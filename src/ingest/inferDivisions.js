@@ -127,21 +127,21 @@ export function inferDivisions(groupNames) {
  * Merging on co-occurrence alone would fold every division that happens to
  * share an all-camp lunch into one, which is the opposite failure.
  *
- * ANCHORS MUST BE EXCLUDED (owner, 2026-09-13). An all-camp lunch puts every
- * group in one slot, so with anchors left in NOTHING would ever split — every
+ * FIXED EVENTS MUST BE EXCLUDED (owner, 2026-09-13). An all-camp lunch puts every
+ * group in one slot, so with fixed events left in NOTHING would ever split — every
  * group would appear to share a division with every other. The caller passes
- * the anchor activity names; without that exclusion this function is not
+ * the fixed-event activity names; without that exclusion this function is not
  * conservative, it is inert.
  *
  * @param {Object<string,string>} byGroup  inferDivisions(...) output
  * @param {Array<{groupName, dayName, blockLabel, activityName}>} placements
- * @param {Iterable<string>} [anchorActivityNames] all-camp/every-day activities to ignore
+ * @param {Iterable<string>} [fixedEventActivityNames] all-camp/every-day activities to ignore
  * @returns {Object<string,string>} the same shape, with contradicted divisions split
  */
-export function refineDivisionsByCoOccurrence(byGroup, placements, anchorActivityNames) {
-  const anchors = new Set([...(anchorActivityNames ?? [])].map((n) => String(n).trim().toLowerCase()))
+export function refineDivisionsByCoOccurrence(byGroup, placements, fixedEventActivityNames) {
+  const fixedEvents = new Set([...(fixedEventActivityNames ?? [])].map((n) => String(n).trim().toLowerCase()))
   const rows = (Array.isArray(placements) ? placements : [])
-    .filter((r) => !anchors.has(String(r?.activityName).trim().toLowerCase()))
+    .filter((r) => !fixedEvents.has(String(r?.activityName).trim().toLowerCase()))
   if (!rows.length) return { ...byGroup }
 
   // Which groups ever shared a slot with which.
@@ -211,9 +211,9 @@ export function refineDivisionsByCoOccurrence(byGroup, placements, anchorActivit
  * @param {Array} [placements] when supplied, divisions the grid contradicts are split
  * @returns {Array<{name: string, groupNames: string[]}>} sorted for a stable preview
  */
-export function inferDivisionEntities(groupNames, placements, anchorActivityNames) {
+export function inferDivisionEntities(groupNames, placements, fixedEventActivityNames) {
   let byGroup = inferDivisions(groupNames)
-  if (placements) byGroup = refineDivisionsByCoOccurrence(byGroup, placements, anchorActivityNames)
+  if (placements) byGroup = refineDivisionsByCoOccurrence(byGroup, placements, fixedEventActivityNames)
 
   const byDivision = new Map()
   for (const [group, division] of Object.entries(byGroup)) {
@@ -240,9 +240,9 @@ export function inferDivisionEntities(groupNames, placements, anchorActivityName
  * the explanation cannot drift from the decision it explains.
  *
  * @returns {Object<string,{division, basis, members, stem, qualifier_stripped,
- *          names_proposed?, anchors_excluded}>}
+ *          names_proposed?, fixed_events_excluded}>}
  */
-export function divisionSupportByGroup(groupNames, placements, anchorActivityNames) {
+export function divisionSupportByGroup(groupNames, placements, fixedEventActivityNames) {
   const names = (Array.isArray(groupNames) ? groupNames : [])
     .map((n) => String(n ?? '').trim())
     .filter(Boolean)
@@ -250,7 +250,7 @@ export function divisionSupportByGroup(groupNames, placements, anchorActivityNam
 
   const byName = inferDivisions(names)
   const byGroup = placements
-    ? refineDivisionsByCoOccurrence(byName, placements, anchorActivityNames)
+    ? refineDivisionsByCoOccurrence(byName, placements, fixedEventActivityNames)
     : { ...byName }
 
   // Stem per group, recomputed exactly as inferDivisions computes it, so the
@@ -274,7 +274,7 @@ export function divisionSupportByGroup(groupNames, placements, anchorActivityNam
   // saying so would imply a grid check that did not happen. Not reachable from
   // ImportScreen today (it always supplies placements) — closed here rather
   // than left to caller discipline.
-  const anchors = placements ? [...(anchorActivityNames ?? [])].map((n) => String(n)).sort() : []
+  const fixedEvents = placements ? [...(fixedEventActivityNames ?? [])].map((n) => String(n)).sort() : []
   const out = {}
   for (const name of names) {
     const division = byGroup[name]
@@ -293,9 +293,9 @@ export function divisionSupportByGroup(groupNames, placements, anchorActivityNam
       // this the division looks unexplainable from the raw names.
       qualifier_stripped: strippedOf[name],
       // Also load-bearing: an all-camp lunch puts every group in one slot, so
-      // with anchors left in NOTHING would ever split. Which activities were
+      // with fixed events left in NOTHING would ever split. Which activities were
       // ignored is part of why the answer is what it is.
-      anchors_excluded: anchors,
+      fixed_events_excluded: fixedEvents,
       ...(split ? { names_proposed: byName[name] } : {}),
     }
   }

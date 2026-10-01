@@ -204,10 +204,10 @@ const UNRESOLVED_SPREAD_SOURCES = [
   {
     file: 'src/screens/FixedEventsScreen.jsx',
     entity: 'fixed_events',
-    // Human-verified: `base` (saveAnchor(), `fields` from AnchorModal.save()
+    // Human-verified: `base` (saveFixedEvent(), `fields` from FixedEventModal.save()
     // minus `selectedDays`) and `record` (import path, `row` minus
     // warning/_dayLabel/_blockName/_tierNames). T267 PR2 adds `activity_id`:
-    // saveAnchor()/confirmImport() now resolve the typed/imported name to a
+    // saveFixedEvent()/confirmImport() now resolve the typed/imported name to a
     // catalogue activity and write its id (electron write path,
     // PROJECTIONS.fixed_events.fields registers it).
     // Item 7 B3 (create-or-update): the update path's writeFields now writes

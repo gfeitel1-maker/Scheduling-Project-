@@ -224,7 +224,12 @@ function anchorConsumingFunctionNames() {
       if (!isFn) return
       const fn = n.type === 'FunctionDeclaration' ? n : n.init
       const first = fn.params?.[0]
-      if (first?.type === 'Identifier' && first.name === 'anchor' && n.id?.name) names.add(n.id.name)
+      // Match both the old (`anchor`) and new (`fixedEvent`) first-param name: T293/T323
+      // renamed these engine resolvers' first parameter, and narrowing this to only `fixedEvent`
+      // (or leaving it on only `anchor`) would silently drop every consumer out of coverage —
+      // the exact "guard blinded while staying green" failure this file exists to prevent (cf. the
+      // FIXED_EVENT_VAR_RE comment below).
+      if (first?.type === 'Identifier' && (first.name === 'anchor' || first.name === 'fixedEvent') && n.id?.name) names.add(n.id.name)
     })
   }
   return names

@@ -7,7 +7,7 @@ import { describeDivisionEvidence } from './divisionProvenance.js'
 
 const base = {
   division: 'Tzofim', basis: 'name_stem', members: ['Tzofim 1', 'Tzofim 2', 'Tzofim 3'],
-  stem: 'Tzofim', qualifier_stripped: false, anchors_excluded: [],
+  stem: 'Tzofim', qualifier_stripped: false, fixed_events_excluded: [],
 }
 
 describe('describeDivisionEvidence', () => {
@@ -42,7 +42,7 @@ describe('describeDivisionEvidence', () => {
   })
 
   it('mentions ignored all-camp activities, since they decide what the grid could show', () => {
-    const s = describeDivisionEvidence({ ...base, anchors_excluded: ['Lunch', 'Carpool'] }, 'Tzofim 1')
+    const s = describeDivisionEvidence({ ...base, fixed_events_excluded: ['Lunch', 'Carpool'] }, 'Tzofim 1')
     expect(s).toContain('Lunch')
     expect(s).toMatch(/all-camp|ignored|every group/i)
   })

@@ -9,7 +9,7 @@ import { CellSpanChevron, UnfillableIcon, OpenElectiveIcon, OutdoorIcon } from '
 import './scheduleGrid.css'
 
 export default function SlotCell({
-  slot, activity, anchor, weatherMode,
+  slot, activity, fixedEvent, weatherMode,
   onRelease, onSelect,
   // Inline-write (replaces the removed EditModal picklist, 2026-08-09):
   // eligibleActivities is this cell's group's eligible activity list (computed
@@ -147,7 +147,7 @@ export default function SlotCell({
 
   if (slot.type === 'fixed_event') {
     return (
-      <div {...shellProps} aria-label={nameFor(anchor?.name || 'Fixed event')} ref={setRef} onClick={() => triggerPress()}>
+      <div {...shellProps} aria-label={nameFor(fixedEvent?.name || 'Fixed event')} ref={setRef} onClick={() => triggerPress()}>
         <div
           className="cell-inner cell-inner--anchor"
           style={{
@@ -163,7 +163,7 @@ export default function SlotCell({
             // collapsed rule can recolour it — an inline `color` would win.
             style={{ '--cell-name-color': ANCHOR_COLOR, fontSize: 11 }}
           >
-            {anchor?.name || 'Fixed event'}
+            {fixedEvent?.name || 'Fixed event'}
           </div>
         </div>
       </div>

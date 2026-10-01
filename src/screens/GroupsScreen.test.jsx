@@ -634,7 +634,7 @@ describe('GroupsScreen — age division provenance', () => {
   const SPLIT = {
     division: 'Kittah 1', basis: 'split_by_co_occurrence', names_proposed: 'Kittah',
     members: ['Kittah 1', 'Kittah 2'], stem: 'Kittah', qualifier_stripped: false,
-    anchors_excluded: ['Lunch'],
+    fixed_events_excluded: ['Lunch'],
   }
 
   it('shows no dot when nothing explains the division — quiet by default', async () => {

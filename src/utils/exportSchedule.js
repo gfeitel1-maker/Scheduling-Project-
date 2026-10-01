@@ -2,7 +2,7 @@ import * as XLSX from 'xlsx'
 import { aoaToSanitizedSheet } from './exportSanitize.js'
 import { buildScheduleLookups, resolveSlotCell, formatCellLabel } from './scheduleCells.js'
 
-// Cell-content resolution (anchor / event / elective / activity, plus the
+// Cell-content resolution (fixed event / event / elective / activity, plus the
 // "(removed)" fallbacks) lives in scheduleCells.js so this Excel export and the
 // JSON export (buildScheduleExport below) share one source and cannot drift.
 

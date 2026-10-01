@@ -8,7 +8,7 @@ function maps({ groups = [], days = [], blocks = [], activities = [], anchors = 
     dayIdByName: new Map(days.map(([n, id]) => [normalizeName(n), id])),
     blockIdByName: new Map(blocks.map(([n, id]) => [normalizeName(n), id])),
     activityIdByName: new Map(activities.map(([n, id]) => [normalizeName(n), id])),
-    anchorIdByName: new Map(anchors.map(([n, id]) => [normalizeName(n), id])),
+    fixedEventIdByName: new Map(anchors.map(([n, id]) => [normalizeName(n), id])),
   }
 }
 

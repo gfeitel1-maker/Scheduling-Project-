@@ -73,7 +73,7 @@ export const REQUIRED_AREAS = [
 // Present in the sidebar and on the setup screen, and never a *blocking* gap —
 // getSetupGaps/REQUIRED_AREAS never gate a draft build on these. That is a
 // deliberate posture, not "safe to ignore": Recurring Events (carpool,
-// flagpole, lunch, all-camp) are camp-wide anchors the engine already treats
+// flagpole, lunch, all-camp) are camp-wide fixed events the engine already treats
 // as first-class — buildSchedule.js places them in Pass 1, before anything
 // else, and locks those cells so nothing can be scheduled over them (~L108-293,
 // exclusion enforced ~L372). An empty camp is not "finished" the way a camp

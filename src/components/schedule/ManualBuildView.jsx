@@ -171,21 +171,21 @@ export default function ManualBuildView({
                       const ariaColIndex = dayIndex + 2
                       const cellKey = `${selectedGroup}|${day.id}|${block.id}`
 
-                      // The tail of an anchor span — covered by the head's grid-row span.
-                      if (slot?.is_fixed_event && geometry.isAnchorTail(selectedGroup, day.id, block.id)) return null
+                      // The tail of a fixed event span — covered by the head's grid-row span.
+                      if (slot?.is_fixed_event && geometry.isFixedEventTail(selectedGroup, day.id, block.id)) return null
 
                       // The tail of a merged activity span — covered by the head's grid-row span.
                       if (slot?.activity_id && !slot.is_fixed_event && geometry.isActivityTail(selectedGroup, day.id, block.id)) return null
 
                       if (slot?.is_fixed_event) {
-                        const rowSpan = geometry.getAnchorRowSpan(selectedGroup, day.id, block.id)
-                        const anchor = slot.fixed_event_id ? fixedEventMap.get(slot.fixed_event_id) : null
+                        const rowSpan = geometry.getFixedEventRowSpan(selectedGroup, day.id, block.id)
+                        const fixedEvent = slot.fixed_event_id ? fixedEventMap.get(slot.fixed_event_id) : null
                         return (
                           <SlotCell
                             key={day.id}
                             rowSpan={rowSpan}
                             slot={{ ...slot, type: 'fixed_event', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id }}
-                            anchor={anchor}
+                            fixedEvent={fixedEvent}
                             weatherMode={false}
                             isDndEnabled={false}
                             ariaColIndex={ariaColIndex}

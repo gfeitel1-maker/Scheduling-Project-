@@ -103,7 +103,7 @@ function seedRealisticCamp() {
   })
 
   // Move the live Mifkad anchor to a different time block (human edit,
-  // mirrors FixedEventsScreen.saveAnchor) so a re-import of the ORIGINAL slot
+  // mirrors FixedEventsScreen.saveFixedEvent) so a re-import of the ORIGINAL slot
   // reports MOVED instead of a duplicate create.
   const anchor = db.prepare('SELECT id, day_id, time_block_id FROM fixed_events WHERE camp_id = ?').get(campId)
   const block2 = db.prepare("SELECT id FROM time_blocks WHERE camp_id = ? AND name = ?").get(campId, '10:00-10:40').id
@@ -432,7 +432,7 @@ describe('FIX 1 — low-confidence FULLY-RESOLVED fixed event creates a confirm_
     const dry = commit({ ...BASE, fixedEvents: [lowConfidenceFixedEvent], dryRun: true })
     expect(dry.held).toBe(false)
     expect(dry.fixedEvents.createdEntries).toEqual([
-      { anchorId: expect.any(String), name: 'Quiet Time', confidence: 'low', time_block: '09:00-09:40', days: ['Monday'] },
+      { fixedEventId: expect.any(String), name: 'Quiet Time', confidence: 'low', time_block: '09:00-09:40', days: ['Monday'] },
     ])
 
     const report = buildReconciliationReport({

@@ -41,7 +41,7 @@ export function useSnapshots({
     setDismissedFindingKeys,
   } = routeState
 
-  // routeName is explicit so generate()/placeAnchors() can snapshot the route
+  // routeName is explicit so generate()/placeFixedEvents() can snapshot the route
   // they are building rather than whichever one happens to be on screen; every
   // other caller is a user action on the visible route and defaults to it.
   async function saveSnapshot(name, isAuto, routeName = route) {
@@ -143,14 +143,14 @@ export function useSnapshots({
     const dayIds = new Set(days.map(d => d.id))
     const timeBlockIds = new Set((timeBlocks || []).map(b => b.id))
     const activityIds = new Set(activities.map(a => a.id))
-    const anchorIds = new Set((fixedEvents || []).map(a => a.id))
+    const fixedEventIds = new Set((fixedEvents || []).map(a => a.id))
     let droppedCount = 0
     const survivingSlots = fullSnap.slots.filter(s => {
       const dead =
         !groupIds.has(s.group_id) ||
         !dayIds.has(s.day_id) ||
         !timeBlockIds.has(s.time_block_id) ||
-        (s.is_fixed_event && s.fixed_event_id && !anchorIds.has(s.fixed_event_id)) ||
+        (s.is_fixed_event && s.fixed_event_id && !fixedEventIds.has(s.fixed_event_id)) ||
         (!s.is_fixed_event && s.activity_id && !activityIds.has(s.activity_id))
       if (dead) droppedCount += 1
       return !dead

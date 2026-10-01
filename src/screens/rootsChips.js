@@ -1,5 +1,5 @@
 // Chips name the KINDS of thing a card holds, so a name earns one chip however
-// many rows carry it. Anchors are the case that forced this: one real import
+// many rows carry it. Fixed events are the case that forced this: one real import
 // made 112 of them and the card showed "Indoor Elective, Indoor Elective,
 // Indoor Elective, Instructional, Instructional, Instructional" — six chips
 // saying three things (T135). Exported for its own test.

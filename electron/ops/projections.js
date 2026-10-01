@@ -430,7 +430,7 @@ export const PROJECTIONS = {
       // Slice B (docs/adr/2026-08-24-merged-cell-multiblock-ingest.md
       // addendum): ingest now writes span_blocks on a confirmed recurring
       // multi-block candidate. Already a live, engine-consumed column
-      // (buildSchedule.js reads anchor.span_blocks || 1) — this just makes
+      // (buildSchedule.js reads fixedEvent.span_blocks || 1) — this just makes
       // it a writable field for the op-log path too.
       'span_blocks',
       // v51 (docs/adr/2026-08-28-fixed-vs-recurring-events.md §6) — Fixed
@@ -883,7 +883,7 @@ export const PROJECTIONS = {
       // That is accepted deliberately: discarding a write that cannot be
       // projected is better than the silent no-op that shipped a camp which
       // could not generate, and the renderer now reports the failure rather
-      // than hanging (ScheduleScreen generate()/placeAnchors() guard their
+      // than hanging (ScheduleScreen generate()/placeFixedEvents() guard their
       // ensureTemplateRow calls). It is recorded as a residual, not a claim
       // that the op survives.
       //

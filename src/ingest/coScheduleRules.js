@@ -52,24 +52,24 @@
 //     -> co-schedulable for Tzofim 1/2/3, and NOT for any other group on any
 //        day. This is a RECURRING activity (some groups, same time, many days).
 //   Carpool, all groups every day at the same time
-//     -> an ANCHOR. Co-schedulable like everything else, but the engine places
-//        anchors FIRST, so the rule barely matters for it.
+//     -> a FIXED EVENT. Co-schedulable like everything else, but the engine places
+//        fixed events FIRST, so the rule barely matters for it.
 //
-// Placement order the engine works in: anchors/fixed first, recurring second,
+// Placement order the engine works in: fixed events first, recurring second,
 // everything else third by priority.
 //
-// EVERY ACTIVITY GETS ITS OWN RULE, ANCHORS INCLUDED (owner: "the rule is
+// EVERY ACTIVITY GETS ITS OWN RULE, FIXED EVENTS INCLUDED (owner: "the rule is
 // applied to an activity not to a group").
 //
 // An all-camp lunch really can take the whole camp, so `max_groups_per_slot =
 // every group` is a TRUE fact about that lunch and belongs on it. Nothing is
 // filtered out of this function.
 //
-// The anchor exclusion the owner asked for lives where it actually matters —
-// `refineDivisionsByCoOccurrence` in inferDivisions.js — because there an
-// anchor's co-occurrence would wrongly imply that two groups belong to the
+// The fixed-event exclusion the owner asked for lives where it actually matters —
+// `refineDivisionsByCoOccurrence` in inferDivisions.js — because there a
+// fixed event's co-occurrence would wrongly imply that two groups belong to the
 // same DIVISION. That is the "never a factor for determining whether ANOTHER
-// activity set can be co-scheduled" case. An anchor's own rule is not another
+// activity set can be co-scheduled" case. A fixed event's own rule is not another
 // activity's rule.
 //
 // If a later source genuinely carries one of those two (a locations list with

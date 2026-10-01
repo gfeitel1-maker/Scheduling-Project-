@@ -75,7 +75,7 @@ describe('resolveWeekCatalog', () => {
       groupExclusions: [],
     })
     expect(result.suppressedFixedEvents).toHaveLength(1)
-    expect(result.suppressedFixedEvents[0].anchor.id).toBe('anch-1')
+    expect(result.suppressedFixedEvents[0].fixedEvent.id).toBe('anch-1')
     expect(result.suppressedFixedEvents[0].reason).toBe('activity-excluded')
     expect(result.fixedEvents.map((a) => a.id)).not.toContain('anch-1')
   })
@@ -87,7 +87,7 @@ describe('resolveWeekCatalog', () => {
       groupExclusions: [{ week_id: WEEK, group_id: 'grp-3' }],
     })
     expect(result.suppressedFixedEvents).toHaveLength(1)
-    expect(result.suppressedFixedEvents[0].anchor.id).toBe('anch-3')
+    expect(result.suppressedFixedEvents[0].fixedEvent.id).toBe('anch-3')
     expect(result.suppressedFixedEvents[0].reason).toBe('all-groups-excluded')
   })
 
@@ -98,7 +98,7 @@ describe('resolveWeekCatalog', () => {
       activityExclusions: [],
       groupExclusions: [{ week_id: WEEK, group_id: 'grp-1' }],
     })
-    const suppressedIds = result.suppressedFixedEvents.map((s) => s.anchor.id)
+    const suppressedIds = result.suppressedFixedEvents.map((s) => s.fixedEvent.id)
     expect(suppressedIds).not.toContain('anch-1')
     expect(result.fixedEvents.map((a) => a.id)).toContain('anch-1')
   })
@@ -125,7 +125,7 @@ describe('resolveWeekCatalog', () => {
       ],
     })
     expect(all.suppressedFixedEvents).toHaveLength(1)
-    expect(all.suppressedFixedEvents[0].anchor.id).toBe('anch-x')
+    expect(all.suppressedFixedEvents[0].fixedEvent.id).toBe('anch-x')
     expect(all.suppressedFixedEvents[0].reason).toBe('all-groups-excluded')
     expect(all.fixedEvents).toHaveLength(0)
   })
@@ -194,7 +194,7 @@ describe('resolveWeekCatalog', () => {
       locationExclusions: [{ week_id: WEEK, location_id: 'loc-pool' }],
     })
     expect(result.suppressedFixedEvents).toHaveLength(1)
-    expect(result.suppressedFixedEvents[0].anchor.id).toBe('anch-1')
+    expect(result.suppressedFixedEvents[0].fixedEvent.id).toBe('anch-1')
     expect(result.suppressedFixedEvents[0].reason).toBe('location-excluded')
     expect(result.fixedEvents.map((a) => a.id)).not.toContain('anch-1')
   })
@@ -233,7 +233,7 @@ describe('resolveWeekCatalog — fixedEvents linked by activity_id (real row sha
       groupExclusions: [], locationExclusions: [],
     })
     expect(result.fixedEvents).toHaveLength(0)
-    expect(result.suppressedFixedEvents).toEqual([{ anchor: nameAnchor, reason: 'activity-excluded' }])
+    expect(result.suppressedFixedEvents).toEqual([{ fixedEvent: nameAnchor, reason: 'activity-excluded' }])
   })
 
   it('suppresses an id-linked anchor when its activity’s location is closed for the week', () => {
@@ -243,7 +243,7 @@ describe('resolveWeekCatalog — fixedEvents linked by activity_id (real row sha
       locationExclusions: [{ week_id: WEEK, location_id: 'loc-pool' }],
     })
     expect(result.fixedEvents).toHaveLength(0)
-    expect(result.suppressedFixedEvents).toEqual([{ anchor: nameAnchor, reason: 'location-excluded' }])
+    expect(result.suppressedFixedEvents).toEqual([{ fixedEvent: nameAnchor, reason: 'location-excluded' }])
   })
 
   it('keeps an anchor whose name is an event, not an activity, when an unrelated activity closes', () => {

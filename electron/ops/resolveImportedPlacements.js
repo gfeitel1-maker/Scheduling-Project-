@@ -16,7 +16,7 @@ import { normalizeName } from '../../src/ingest/preview.js'
  *   dayIdByName: Map<string,string>,
  *   blockIdByName: Map<string,string>,
  *   activityIdByName: Map<string,string>,
- *   anchorIdByName: Map<string,string>,
+ *   fixedEventIdByName: Map<string,string>,
  * }} maps  keys are normalizeName(name)
  * @returns {{
  *   slots: Array<{group_id, day_id, time_block_id, activity_id, fixed_event_id, is_fixed_event, flags}>,
@@ -24,7 +24,7 @@ import { normalizeName } from '../../src/ingest/preview.js'
  * }}
  */
 export function resolveImportedPlacements(placements, maps) {
-  const { groupIdByName, dayIdByName, blockIdByName, activityIdByName, anchorIdByName } = maps
+  const { groupIdByName, dayIdByName, blockIdByName, activityIdByName, fixedEventIdByName } = maps
   const slots = []
   const unresolved = []
 
@@ -46,12 +46,12 @@ export function resolveImportedPlacements(placements, maps) {
       continue
     }
 
-    // Anchor-first.
-    const anchorId = anchorIdByName.get(normalizeName(activityName))
-    if (anchorId) {
+    // Fixed-event-first.
+    const fixedEventId = fixedEventIdByName.get(normalizeName(activityName))
+    if (fixedEventId) {
       slots.push({
         group_id: groupId, day_id: dayId, time_block_id: blockId,
-        activity_id: null, fixed_event_id: anchorId, is_fixed_event: true, flags: {},
+        activity_id: null, fixed_event_id: fixedEventId, is_fixed_event: true, flags: {},
       })
       continue
     }

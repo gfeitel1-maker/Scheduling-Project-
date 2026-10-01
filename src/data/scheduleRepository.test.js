@@ -149,7 +149,7 @@ describe('createScheduleTemplate — kind is written FIRST (projections write-or
 })
 
 describe('the single slot->row mapper — one mapper, three call-site shapes', () => {
-  // Engine-slot shape used by BOTH generate() and placeAnchors() (identical).
+  // Engine-slot shape used by BOTH generate() and placeFixedEvents() (identical).
   const engineOpenSlot = {
     groupId: 'g1', dayId: 'd1', blockId: 'b1', cohort_id: 'coh',
     type: 'open', activityId: 'act-1', fixedEventId: null, is_span_head: true, flags: { UNFILLABLE: true },

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// T56. Manual build's spanning comes from getAnchorRowSpan, not decideCell, so
+// T56. Manual build's spanning comes from getFixedEventRowSpan, not decideCell, so
 // its placement is asserted separately: a rowSpan > 1 ANCHOR head, the cell to
 // its right, and the skipped anchor tail.
 //

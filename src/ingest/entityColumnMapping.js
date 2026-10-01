@@ -1,6 +1,6 @@
 // Board item q-export-columns-do-not-round-trip — the format-agnostic binder
 // for the seven setup-import doors (Days, Groups, Tiers, Time Blocks,
-// Activities, Anchors/fixed events, Locations).
+// Activities, Fixed events, Locations).
 // docs/adr/2026-09-30-format-agnostic-setup-import.md §4.1-4.6.
 //
 // SLICE A (this file): the pure binder only. The seven screens are not wired
@@ -101,7 +101,7 @@ export const ENTITY_FIELD_CATALOGS = {
       // Required for the same reason as time_blocks' end_time: FixedEventsScreen.confirmImport
       // skips any warned row (FixedEventsScreen.jsx:724), and a blank time_block_name resolves
       // to no time_block_id and warns 'Time block "" not found' (:645-646), so a file
-      // missing this column imports zero anchors.
+      // missing this column imports zero fixed events.
       { key: 'time_block_name', required: true, synonyms: ['time_block_name', 'time block'] },
       { key: 'is_all_tiers', required: false, synonyms: ['is_all_tiers', 'all groups'] },
       { key: 'tier_names', required: false, synonyms: ['tier_names', 'age divisions'] },

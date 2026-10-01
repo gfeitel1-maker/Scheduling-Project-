@@ -96,7 +96,7 @@ describe('validateBulkReplaceRows', () => {
 
   // Sub-plan E Task 3: template_slots' column list was expanded to cover
   // fixed_event_id/is_fixed_event/is_span_head/flags, which ScheduleScreen.jsx's
-  // generate()/placeAnchors()/restoreSnapshot() rows all carry.
+  // generate()/placeFixedEvents()/restoreSnapshot() rows all carry.
   it('accepts a template_slots row using every newly-added column (fixed_event_id/is_fixed_event/is_span_head/flags)', () => {
     const result = validateBulkReplaceRows('template_slots', [
       {

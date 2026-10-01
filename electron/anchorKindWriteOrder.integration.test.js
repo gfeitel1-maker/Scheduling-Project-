@@ -8,7 +8,7 @@
 // (non-all-tiers) imported row narrows a fresh stub row
 // (ensureExists: kind='fixed' DEFAULT, is_all_groups=1) by writing
 // is_all_groups=false WHILE kind is still 'fixed', violating the CHECK and
-// throwing mid-import. AnchorModal.save and electron/ops/ingest.js already
+// throwing mid-import. FixedEventModal.save and electron/ops/ingest.js already
 // got this right (kind written first); the import path did not — the third
 // writer missed the same hazard.
 //

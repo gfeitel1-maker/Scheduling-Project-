@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
   getSlot,
-  isAnchorTail,
-  getAnchorRowSpan,
+  isFixedEventTail,
+  getFixedEventRowSpan,
   isActivityTail,
   getActivityRowSpan,
   makeGridGeometry,
@@ -75,16 +75,16 @@ describe('an anchor spanning two blocks', () => {
     slot({ id: 'a2', time_block_id: 'b2', is_fixed_event: true, fixed_event_id: 'anc-1', activity_id: null }),
   ]
   it('head is not an anchor tail and spans 2 rows', () => {
-    expect(isAnchorTail(slots, timeBlocks, 'g1', 'd1', 'b1')).toBe(false)
-    expect(getAnchorRowSpan(slots, timeBlocks, 'g1', 'd1', 'b1')).toBe(2)
+    expect(isFixedEventTail(slots, timeBlocks, 'g1', 'd1', 'b1')).toBe(false)
+    expect(getFixedEventRowSpan(slots, timeBlocks, 'g1', 'd1', 'b1')).toBe(2)
   })
   it('tail is an anchor tail', () => {
-    expect(isAnchorTail(slots, timeBlocks, 'g1', 'd1', 'b2')).toBe(true)
+    expect(isFixedEventTail(slots, timeBlocks, 'g1', 'd1', 'b2')).toBe(true)
   })
   it('a lone anchor spans 1 and is not a tail', () => {
     const lone = [slot({ id: 'a1', time_block_id: 'b1', is_fixed_event: true, fixed_event_id: 'anc-9', activity_id: null })]
-    expect(getAnchorRowSpan(lone, timeBlocks, 'g1', 'd1', 'b1')).toBe(1)
-    expect(isAnchorTail(lone, timeBlocks, 'g1', 'd1', 'b1')).toBe(false)
+    expect(getFixedEventRowSpan(lone, timeBlocks, 'g1', 'd1', 'b1')).toBe(1)
+    expect(isFixedEventTail(lone, timeBlocks, 'g1', 'd1', 'b1')).toBe(false)
   })
 })
 

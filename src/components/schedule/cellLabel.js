@@ -2,7 +2,7 @@
 // reader navigation reports row/column position and the span extent of merged
 // cells"). aria-rowspan gives a machine the extent; this gives it to a person.
 //
-// Composed only from data the view already holds — activity/overlay/anchor
+// Composed only from data the view already holds — activity/overlay/fixed event
 // name, the block names the cell covers, and the column's day (group view,
 // manual build, activity view) or group (day view, whose COLUMNS ARE GROUPS).
 // No fetch, no state.

@@ -59,7 +59,7 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
   const [groups, setGroups] = useState([])
   const [activities, setActivities] = useState([])
   // T266 — the free-choice subset, derived once. `activities` itself stays whole
-  // (anchor name resolution and any id->name lookup still need every row); only
+  // (activity-name resolution and any id->name lookup still need every row); only
   // the pickable menu is narrowed.
   const freeChoiceActivities = filterFreeChoiceActivities(activities)
   const [locations, setLocations] = useState([])
