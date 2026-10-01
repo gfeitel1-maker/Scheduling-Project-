@@ -181,11 +181,16 @@ export function checkVacuousFilterAssertion(root, {
   readFn = (p) => readFileSync(p, 'utf8'),
 } = {}) {
   const patterns = ["'*.test.js'", "':(glob)test/integration/**/*.js'", "'*.automerge.js'"]
+  // Skip silently if git is unavailable, matching every other git-backed check.
   const files = new Set()
-  for (const pattern of patterns) {
-    for (const f of execFn(`git -C '${root}' ls-files ${pattern}`).split('\n').filter(Boolean)) {
-      files.add(f)
+  try {
+    for (const pattern of patterns) {
+      for (const f of execFn(`git -C '${root}' ls-files ${pattern}`).split('\n').filter(Boolean)) {
+        files.add(f)
+      }
     }
+  } catch {
+    return []
   }
 
   const findings = []

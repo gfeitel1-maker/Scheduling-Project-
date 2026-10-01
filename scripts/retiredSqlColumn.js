@@ -96,10 +96,16 @@ export function checkRetiredSqlColumn(root, {
   execFn = (cmd) => execSync(cmd, { encoding: 'utf8' }),
   readFn = (p) => readFileSync(p, 'utf8'),
 } = {}) {
-  const files = execFn(`git -C '${root}' ls-files '*.js'`)
-    .split('\n')
-    .filter(Boolean)
-    .filter((f) => !f.startsWith('electron/db/'))
+  // Skip silently if git is unavailable, matching every other git-backed check.
+  let files
+  try {
+    files = execFn(`git -C '${root}' ls-files '*.js'`)
+      .split('\n')
+      .filter(Boolean)
+      .filter((f) => !f.startsWith('electron/db/'))
+  } catch {
+    return []
+  }
 
   const findings = []
   for (const f of files) {

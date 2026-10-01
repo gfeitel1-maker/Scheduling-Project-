@@ -174,7 +174,14 @@ export function checkStaleSettingsKey(root, {
   execFn = (cmd) => execSync(cmd, { encoding: 'utf8' }),
   readFn = (p) => readFileSync(p, 'utf8'),
 } = {}) {
-  const files = execFn(`git -C '${root}' ls-files '*.js'`).split('\n').filter(Boolean)
+  // Skip silently if git is unavailable (no origin/main, not a repo), matching every other
+  // git-backed check in check-governance.js — a missing git must never make check:governance throw.
+  let files
+  try {
+    files = execFn(`git -C '${root}' ls-files '*.js'`).split('\n').filter(Boolean)
+  } catch {
+    return []
+  }
   const findings = []
   for (const f of files) {
     let text
