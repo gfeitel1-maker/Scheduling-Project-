@@ -498,3 +498,28 @@ describe('the generated work index is not tracked by git', () => {
     expect(tracked).toBe('')
   })
 })
+
+// CONSTITUTION.md Art. VII: Code Reviewer, Red Hat, Security, and Grader are read-only — they
+// read, grep and run tests, and never write, plant, stash, or move the tree. Nothing before this
+// test mechanically checked that the four bindings actually carry that contract, so the rule
+// could silently rot the same way the Supabase guidance in .claude/agents/security.md once did
+// (see the file header above). Pinned on two short literals present in all four bindings today —
+// not a full-text match, so a wording tweak elsewhere in the file doesn't false-fail this.
+describe('reviewer read-only contract', () => {
+  const READ_ONLY_BINDINGS = ['code-reviewer', 'red-hat', 'security', 'grader'].map((name) =>
+    p('docs', 'governance', 'agent-bindings', `${name}.md`)
+  )
+
+  it('covers all four reviewer bindings', () => {
+    expect(READ_ONLY_BINDINGS.length).toBe(4)
+    expect(READ_ONLY_BINDINGS.every((f) => existsSync(f))).toBe(true)
+  })
+
+  it('each reviewer binding states it is read-only and never creates evidence', () => {
+    const missing = READ_ONLY_BINDINGS.filter((f) => {
+      const text = read(f)
+      return !text.includes('read-only') || !text.includes('never create')
+    })
+    expect(missing.map(rel)).toEqual([])
+  })
+})

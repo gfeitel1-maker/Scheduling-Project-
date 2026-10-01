@@ -139,6 +139,10 @@ Write the Maker brief. Include:
 - If Designer ran: attach Designer's spec as a constraint section titled "DESIGN SPEC — implement exactly as specified"
 - If Architect ran: attach Architect's design as a constraint section titled "ARCHITECTURE — implement exactly as designed"
 - Blocked routes from memory (patterns that failed before)
+- **The Grader-FAIL-is-a-stop sentence** (owner ruling, 2026-10-01; `CONSTITUTION.md` Art. VII): *a
+  Grader FAIL stops the loop and escalates to the user — it is never routed back to Maker as a new
+  round.* State this in every brief you write, Maker's included, not only the reviewer briefs — it
+  sets expectations correctly if a round doesn't get a second try.
 
 ### Phase 4 — Designer (conditional)
 
@@ -165,6 +169,12 @@ Dispatch simultaneously (foreground, same message/turn — see Dispatch discipli
 - Red Hat (`.claude/agents/red-hat.md`) — include: feature description, design decisions made
 - Code Reviewer (`.claude/agents/code-reviewer.md`) — include: the brief/design, the git range to review, feature description
 
+**Every brief to Code Reviewer, Security, and Red Hat states the read-only contract in one sentence**
+(`CONSTITUTION.md` Art. VII): *"You are read-only — no writes, no plants, no stash; report findings
+in your reply, and cite only evidence that already exists in the tree."* This is not optional
+boilerplate — it is the belt-and-suspenders reinforcement the Constitution requires alongside each
+profile's own Hard Constraints section.
+
 Wait for all four to return reports.
 
 ### Phase 6.5 — Verify
@@ -188,17 +198,27 @@ Wait for score + justification.
 → Signal complete to user. Summarize what was built, what was found and fixed, final score, Verifier evidence.
 → Write to memory: what worked, what patterns held, any new accepted exceptions.
 
-**RETRY** (score < threshold, or Verifier FAIL/UNVERIFIED, AND this is round 1):
+**A Grader FAIL ends the loop and escalates to the user — no carve-out, whatever the blocker looks
+like** (`CONSTITUTION.md` Art. VII, owner ruling 2026-10-01). A Verifier FAIL or unresolved
+UNVERIFIED reaches Grader as a FAIL and stops the loop the same way. **RETRY is no longer reachable
+from a Grader FAIL of any kind.** It survives only for a round 1 that produced **no Grader verdict
+at all** — an interrupted Maker (Maker signaled `INTERRUPTED`, not `DONE`), or a brief Governor must
+itself correct before a review round could even run. State this sentence in every Governor brief,
+same as the read-only contract above: *a Grader FAIL stops the loop and escalates to the user; it is
+never routed back to Maker as a new round.*
+
+**RETRY — reachable ONLY when round 1 produced no Grader verdict at all** (interrupted Maker, or a
+brief Governor must itself correct). **Never a Grader FAIL of any kind:**
 → Invoke `context-compression`.
 → Compose revised Maker brief. Include:
-  - All reviewer findings, consolidated by category, including Code Reviewer's plan-alignment/maintainability findings and Verifier's raw evidence
+  - Whatever is known so far (partial reviewer findings if any ran, Verifier's raw evidence, or the
+    corrected brief section)
   - Specific changes required (not "improve UX" — "the edit modal shows 'Currently: Empty' because activity_id is snake_case but the modal reads activityId — fix the key lookup")
-  - Grader justification so Maker knows why it failed
 → Go to Phase 5, round 2.
 
-**ESCALATE** (score < threshold, or Verifier FAIL/UNVERIFIED, AND this is round 2):
+**ESCALATE** (any Grader FAIL, at any round — including round 1):
 → Produce consolidated report for user:
-  - Best round score and which round it came from
+  - Round score (if any) and which round it came from
   - Open findings by severity (HIGH / MEDIUM / LOW), including any unresolved Verifier evidence gap
   - Specific recommendation for what needs human judgment
   - Do NOT signal complete. Ask the user how to proceed.
