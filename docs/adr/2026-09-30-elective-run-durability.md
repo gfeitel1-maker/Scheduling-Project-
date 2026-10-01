@@ -1279,6 +1279,7 @@ sheet's full roster".
 | `electron/ops/getElectiveRun.js` | Third UNION arm; `eligibilityFindings` kind exclusion; `sheetOnlyCampers` returned; the "KNOWN GAP" comment replaced |
 | `src/screens/elective/run/DraftRunView.jsx` | `REFUSAL_COPY.RUN_IS_FINAL` (exported); `guardedRegenerate`'s comment corrected; the cold-regenerate note text replaced verbatim |
 | `src/screens/elective/assignment/AssignmentPanel.jsx` | Map `RUN_IS_FINAL` to copy before `onError?.` at the commit call (line 933ff) |
+| `src/screens/elective/run/runStateCopy.js` | The refusal-copy map itself relocated here from `DraftRunView.jsx` — both `DraftRunView.jsx` and `AssignmentPanel.jsx` import it from this one module, so `RUN_IS_FINAL`'s copy cannot drift between the two doors that surface it |
 | `scripts/preferenceSheetCli.js` | Map `RUN_IS_FINAL` to a machine-door sentence with `exitCode: 1` |
 | `src/localClient.mock.js` | `commitElectiveRun` returns `RUN_IS_FINAL` on a final run; its `commitElectiveRun` writes the roster findings; `getElectiveRun`'s `campers`/`eligibilityFindings`/`sheetOnlyCampers` mirror the real shapes |
 

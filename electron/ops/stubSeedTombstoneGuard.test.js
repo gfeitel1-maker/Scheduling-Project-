@@ -21,6 +21,7 @@ import { commitElectiveRun } from './commitElectiveRun.js'
 import { deriveImportedElectiveRunId } from './electiveDerivedIds.js'
 import { createEmptyDoc, applyWrite } from '../automerge/campDocument.js'
 import { projectAll, rebuildFromDoc } from '../automerge/projector.js'
+import { ensureParentStub } from './projections.js'
 
 const dirs = []
 function freshDb() {
@@ -119,9 +120,14 @@ describe('stub seed — tombstone guard on elective_assignment_runs', () => {
     op(db, 'elective_assignment_runs', runId, DELETE_FIELD, 1)
     expect(db.prepare('SELECT * FROM elective_assignment_runs WHERE id = ?').get(runId)).toBeUndefined()
 
-    // Re-importing the identical sheet derives the SAME id. The recency
-    // predicate is self-correcting; a bare "a delete op exists" predicate
-    // would strand this forever.
+    // Re-importing the identical sheet derives the SAME id and is not
+    // stranded. NOTE: this does not pin the recency predicate itself —
+    // commitElectiveRun's own unguarded ensureExists rewrites the run's
+    // fields before the preferences loop runs in the same transaction, so by
+    // the time the guard is consulted a bare "a delete op exists" predicate
+    // and the real recency predicate already agree ("not deleted"). The test
+    // below exercises ensureParentStub directly to pin the recency behavior
+    // where it actually matters.
     const again = commitElectiveRun(db, {
       campId, deviceId: 'dev-1', name: 'Second import', runId, sourceSha256: sha,
       parsed, assignments: [], occurrences: [],
@@ -131,6 +137,34 @@ describe('stub seed — tombstone guard on elective_assignment_runs', () => {
     expect(row).toBeDefined()
     expect(row.name).not.toBe('')
     expect(db.prepare('SELECT COUNT(*) c FROM elective_preferences WHERE run_id = ?').get(runId).c).toBeGreaterThan(0)
+    db.close()
+  })
+
+  it('ensureParentStub keys off the MOST RECENT recorded act, not whether a delete op ever occurred', () => {
+    const { db, campId } = freshDb()
+    const runId = 'run-recency'
+    op(db, 'elective_assignment_runs', runId, 'camp_id', campId)
+    op(db, 'elective_assignment_runs', runId, 'name', 'Week 1 electives')
+    op(db, 'elective_assignment_runs', runId, DELETE_FIELD, 1)
+    expect(db.prepare('SELECT * FROM elective_assignment_runs WHERE id = ?').get(runId)).toBeUndefined()
+
+    // A delete op now exists in this run's history. A bare "does a delete op
+    // exist for this id" predicate can never tell the difference between
+    // this moment and the one after the next line — it would refuse forever.
+    let seeded = false
+    expect(ensureParentStub(db, 'elective_assignment_runs', runId, () => { seeded = true })).toBe(false)
+    expect(seeded).toBe(false)
+
+    // The run's OWN field is written again directly (not through a child's
+    // stub-seed path) — a legitimate re-create. The most recently recorded
+    // act for this id is now that field write, not the earlier delete.
+    op(db, 'elective_assignment_runs', runId, 'name', 'Week 1 electives, reborn')
+
+    // The recency predicate must now see "not deleted" and allow the seed,
+    // even though a delete op is still present earlier in this id's history.
+    seeded = false
+    expect(ensureParentStub(db, 'elective_assignment_runs', runId, () => { seeded = true })).toBe(true)
+    expect(seeded).toBe(true)
     db.close()
   })
 })
