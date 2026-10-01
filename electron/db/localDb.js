@@ -40,7 +40,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // campers.division_label/is_unattributed and elective_preferences.rank_kind/
 // coordinate_day_label/coordinate_period_label) all land in this file; 79 is the
 // current version.
-export const CURRENT_SCHEMA_VERSION = 85
+export const CURRENT_SCHEMA_VERSION = 86
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -4207,6 +4207,29 @@ const DEVICE_HEALTH_EVENTS_DDL = `
     }
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (85, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v86 (T322 S3a, docs/adr/2026-09-19-multi-device-erasure-propagation.md's "Addendum
+  // (2026-10-01, Architect, T322 S3a)") — the new peer_tombstone_reports table
+  // (schema.sql already creates it unconditionally; this block is for a database
+  // upgrading from an earlier version, same two-places discipline as v82/
+  // camp_seedlings and v85/camper_identity_keys). No back-fill: a peer's applied-
+  // tombstone set is learned only from that peer's own authenticated self-report,
+  // which this device cannot fabricate from anything it already has.
+  //
+  // Guard `>= 85 && < 86`, never a bare `< 86` (this repo's standing gotcha).
+  if (getSchemaVersion(db) >= 85 && getSchemaVersion(db) < 86) {
+    db.exec(`CREATE TABLE IF NOT EXISTS peer_tombstone_reports (
+      device_id TEXT NOT NULL,
+      tombstone_id TEXT NOT NULL,
+      version INTEGER NOT NULL,
+      reported_at TEXT NOT NULL,
+      PRIMARY KEY (device_id, tombstone_id)
+    )`)
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (86, ?)').run(
       new Date().toISOString()
     )
   }
