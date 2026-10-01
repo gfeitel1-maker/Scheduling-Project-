@@ -57,7 +57,7 @@ functions produce for a real import, not a fabricated read-model.
 | File | What it shows |
 | --- | --- |
 | `scene1-draft-run-mismatches-and-sheet-only.png` | Cold-opened Draft run "Week 1 — mismatches demo": Finalize renders ABOVE the run-state findings area (C1 ii), and the sheet-only-campers disclosure is expanded, showing the count + names row (C(4)), durable on a cold reopen. |
-| `scene2-outer-resource-conflict-refusal.png` | A REAL click of "Finalize run" (not a jsdom-mocked IPC response) against a run whose template_slots double-book the Boathouse — produces a live OUTER_RESOURCE_CONFLICT refusal naming the location, day/period, capacity and colliding activities (F8 + C2/F6): "Boathouse on Monday, Period 1 is double-booked over its capacity of 1: Canoeing and Canoeing and Canoeing and Kayaking are scheduled there at once." The raw kind code never appears. |
+| `scene2-outer-resource-conflict-refusal.png` | A REAL click of "Finalize run" (not a jsdom-mocked IPC response) against a run whose template_slots double-book the Boathouse — produces a live OUTER_RESOURCE_CONFLICT refusal naming the location, day/period, capacity and colliding activities (F8 + C2/F6): "Boathouse on Monday, Period 1 is double-booked over its capacity of 1: Canoeing and Kayaking are scheduled there at once." The raw kind code never appears. |
 | `scene3-finalized-run-director-name.png` | Cold-opened Final run "Week 0 — finalized demo": "Final · finalized 2026-10-01 · by Director Dana" — the real director's name, never a raw user id (C3). |
 
 `capture.mjs`'s own console output (`SEED RESULT`), reproduced here for the

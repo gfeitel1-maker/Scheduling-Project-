@@ -15,14 +15,22 @@ Confirms:
     are scheduled there at once." — the raw kind code "OUTER_RESOURCE_CONFLICT"
     does not appear anywhere in the rendered text.
 
-Minor seeding artifact (not a product defect): "Canoeing" appears three times
-instead of twice in the occupant list. This is because my own console-run
-seeding script wrote template_slots rows across two separate exploratory
-passes while building this evidence; findRouteConflicts is correctly
-reporting every occupant row it was given — the duplication is in the TEST
-DATA I constructed, not in the conflict detector. Not fixed here since it
-does not affect correctness of the behavior being verified (the refusal
-fires, names the real location/day/period, never a raw kind code).
+CORRECTION (round 5) — I originally misdiagnosed the tripled "Canoeing" as a
+seeding artifact in my own test data. It was not: it is a REAL defect in
+conflictFindingMessage (src/screens/elective/run/runStateCopy.js), found by
+the Governor reading this exact captured sentence. findRouteConflicts
+registers one occupant entry PER OCCUPYING SLOT by design (three groups
+scheduled into Canoeing at that location/period is three legitimate slot
+registrations, not a seeding bug), and conflictFindingMessage was not
+deduplicating by label before joining them into prose, nor using correct
+English list punctuation (joining every pair with "and" instead of commas
+then a final "and" for 3+ items). Both are now fixed (round 5 commit) and
+scene2-outer-resource-conflict-refusal.png was re-captured; the corrected
+sentence is "Boathouse on Monday, Period 1 is double-booked over its
+capacity of 1: Canoeing and Kayaking are scheduled there at once." This .txt
+file is kept as-is (the ORIGINAL defective capture) for the historical
+record — see board-bundle-choice-and-copy-evidence.md for the corrected
+summary.
 
 ---- RAW get_page_text OUTPUT (verbatim) ----
 Title: Shoresh
