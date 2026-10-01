@@ -3,8 +3,13 @@
 // row on the camp's manual schedule_templates), per
 // docs/adr/2026-09-02-imported-schedule-materializes-as-a-version.md.
 //
-// Writes go through syncClient.write (not a bare db.prepare) so they get the
-// op-log + Host broadcast for free — see the ADR and CLAUDE.md's op-log rule.
+// Writes go through the injected write client's write() (not a bare db.prepare)
+// so they get the op-log entry and the mirror into the Automerge document for
+// free — see the ADR and CLAUDE.md's op-log rule. _Prior: this said "op-log +
+// Host broadcast". There is no Host broadcasting writes: replication is the
+// document merging peer-to-peer over libp2p, and the op-log entry these writes
+// get is device-local history (Trash/Restore/entity history), not the way the
+// write reaches another device._
 // This mirrors createUser's write-per-field loop (electron/auth/localAuth.js).
 
 import { randomUUID } from 'node:crypto'

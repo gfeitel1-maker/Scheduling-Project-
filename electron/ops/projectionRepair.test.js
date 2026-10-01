@@ -2,10 +2,18 @@
 //
 // docs/adr/2026-09-04-projection-failure-detection-and-recovery.md — section 2
 // (recovery) and section 4 (regression scenario), the repairProjectionForEntity
-// half. The detect-side instrumentation (applyRemoteOp's two catch sites) is
-// covered in electron/sync/syncClient.test.js, since it can only be exercised
-// through a real op_applied message the way the rest of that file already
-// tests applyRemoteOp.
+// half.
+//
+// _Prior: the detect-side instrumentation was said to be "covered in
+// electron/sync/syncClient.test.js, since it can only be exercised through a
+// real op_applied message the way the rest of that file already tests
+// applyRemoteOp". `applyRemoteOp`, the `op_applied` wire message and that test
+// file were all deleted at the Stage 6 cutover, so this says nothing about where
+// detection is covered today. A remote write now arrives as a merged Automerge
+// document (syncNode.js's A.merge() -> projectAll ->
+// electron/automerge/projector.js), and a projection failure on that path is
+// recorded through documentWriteFailures.js rather than by a catch site in a
+// transport._
 //
 // Fixture note: the ADR's own worked example uses `locations` blocked by a
 // referencing `template_slots` row, but locations.* columns are deliberately

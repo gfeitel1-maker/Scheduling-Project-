@@ -27,12 +27,17 @@ function makeDb() {
 const deviceId = 'device-1'
 const authorUserId = 'u1'
 
-// A minimal fake syncClient whose write() does exactly what the real
-// host-local (no-serverUrl) syncClient.write does: appendOp against the SAME
-// db, which both records the op AND materializes it via the projection
-// (electron/ops/operations.js appendOp -> applyProjection). This is the
-// documented Host-local write path (Governor fact #1) — deterministic and
-// side-effect-identical to the real thing, without a WebSocket server.
+// A minimal fake write client whose write() does exactly what the real local
+// write client does (electron/sync/localWriteClient.js's createLocalWriteClient):
+// appendOp against the SAME db, which both records the op AND materializes it
+// via the projection (electron/ops/operations.js appendOp -> applyProjection).
+// Deterministic and side-effect-identical to the real thing.
+//
+// _Prior: this described the real collaborator as "the host-local (no-serverUrl)
+// syncClient.write", and said the fake avoided needing "a WebSocket server".
+// syncClient.js and the WS server were both deleted at the Stage 6 cutover;
+// there is no serverUrl variant to distinguish a host-local write from any
+// other, because every write is local now._
 function fakeSyncClient(db) {
   return {
     async write({ entity, entity_id, field, value, author_user_id: opAuthor }) {

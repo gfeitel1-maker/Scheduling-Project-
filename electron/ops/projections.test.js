@@ -685,9 +685,12 @@ describe('applyProjection for week_activity_exclusions / week_group_exclusions',
   // parents — it is never stub-seeded, so a week_*_exclusions op that
   // outraces the week-level op (any device that hasn't yet seen this
   // schedule_weeks row) throws SQLITE_CONSTRAINT_FOREIGNKEY on the exclusion
-  // INSERT. That throw is caught by the generic handler in syncClient.js and
-  // logged, but the op is still marked applied — the exclusion silently never
-  // materializes. Mirrors T85's devices-row stub-seed for the same class of
+  // INSERT. _Prior: "that throw is caught by the generic handler in
+  // syncClient.js and logged, but the op is still marked applied" — syncClient.js
+  // went at the Stage 6 cutover, so name the consequence rather than the handler:
+  // the throw leaves the op recorded while the exclusion silently never
+  // materializes, which is what the stub-seed below prevents._ Mirrors T85's
+  // devices-row stub-seed for the same class of
   // out-of-order FK failure. Deliberately does NOT pre-insert schedule_weeks
   // in this block's beforeEach — 'week-never-seen' must be genuinely absent
   // going into applyProjection.

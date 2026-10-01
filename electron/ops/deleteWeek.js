@@ -4,9 +4,17 @@ import { appendOp, DELETE_FIELD, runAtomic } from './operations.js'
 // children before parents, every delete routed through the op-log so it
 // replicates and is auditable.
 //
-// HOST ONLY — same pattern as deleteRecord.js and duplicateWeek.js. A Client
-// cannot express a multi-op atomic transaction over submit_op, and a Client's
-// delete could execute against a count the director was shown earlier.
+// HOST ONLY — same pattern as deleteRecord.js and duplicateWeek.js. The
+// surviving reason is the second one: a join-mode device's delete could execute
+// against a count the director was shown earlier.
+//
+// _Prior: the first reason given was that "a Client cannot express a multi-op
+// atomic transaction over submit_op". `submit_op` and the WS transport it
+// belonged to were deleted at the Stage 6 cutover, so that premise is void —
+// every device runs the same local write path and can hold a transaction. Whether
+// the HOST-ONLY gate still belongs on the remaining reason alone is a product
+// judgement, not a comment fix; same shape as T311's finding 4 about
+// ingestCommit's gate._
 //
 // Cascade order per spec §4.1 — load-bearing, do not reorder:
 //   0. fixed_events.schedule_week_id (real FK → schedule_weeks; NULL the
