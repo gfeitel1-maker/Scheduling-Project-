@@ -55,9 +55,43 @@ for DAY in "$@"; do
   # silently. mkdir is atomic on POSIX, so exactly one claimant proceeds. (Red Hat, 44b49c6.)
   LOCK="$OUT/.mining-$DAY.lock"
   if ! mkdir "$LOCK" 2>/dev/null; then
-    print -u2 -- "SKIP $DAY — another recovery for this day is already running ($LOCK)"
-    continue
+    # A `kill -9` on a prior run bypasses the `trap` below and leaves $LOCK on disk forever,
+    # which would otherwise SKIP this day permanently. Consult the pure staleness predicate
+    # before assuming the lock is live — it now checks the recorded holder's PID, not just
+    # age, so a `claude -p` mine that legitimately outruns the age bound is never treated
+    # as abandoned out from under it. (T169; Red Hat round 2.)
+    "$SCRIPTS/lockIsStale.sh" "$LOCK"
+    staleRc=$?
+    if [[ $staleRc -eq 0 ]]; then
+      # Same probe order as lockIsStale.sh: GNU `stat -f %m` SUCCEEDS on Linux (prints the
+      # mount point), so an `||` fallback would never run and the arithmetic would throw.
+      mtime="$(stat -c %Y "$LOCK" 2>/dev/null)"
+      [[ "$mtime" =~ ^[0-9]+$ ]] || mtime="$(stat -f %m "$LOCK" 2>/dev/null)"
+      [[ "$mtime" =~ ^[0-9]+$ ]] || mtime=$(date +%s)
+      age=$(( $(date +%s) - mtime ))
+      print -u2 -- "STALE LOCK $DAY — $LOCK is ${age}s old; a prior run likely died without cleaning up. Removing and retaking."
+      rm -rf "$LOCK"
+      if ! mkdir "$LOCK" 2>/dev/null; then
+        # Distinguishable from FAIL/SKIP-no-packet in $LOG: this SKIP means a second
+        # invocation legitimately lost the mkdir race to take over a truly stale lock,
+        # not that it never ran at all.
+        print -u2 -- "SKIP $DAY — another recovery won the race for this day ($LOCK)"
+        { print -- "recover $DAY: SKIPPED (lost mkdir race after removing a stale lock)"; } >> "$LOG"
+        continue
+      fi
+    elif [[ $staleRc -eq 2 ]]; then
+      print -u2 -- "SKIP $DAY — lock state at $LOCK could not be determined; refusing to remove it ($LOCK)"
+      continue
+    else
+      print -u2 -- "SKIP $DAY — another recovery for this day is already running ($LOCK)"
+      continue
+    fi
   fi
+  # Record the holder so a later lockIsStale.sh call can tell "still running" from
+  # "died without cleaning up" instead of guessing from age alone. $LOCK already exists at
+  # this point on every path that reaches here, so this is just a file inside it — removed
+  # along with everything else by the `rm -rf "$LOCK"` in the trap below.
+  print -- "$$" > "$LOCK/holder.pid"
   TMP="$OUT/.mining-$DAY.$$"
   trap 'rm -rf "$LOCK"; rm -f "$TMP"' EXIT INT TERM
   "$CLAUDE" -p "$PROMPT" \

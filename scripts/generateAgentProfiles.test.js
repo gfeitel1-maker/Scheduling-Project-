@@ -62,17 +62,26 @@ describe('agents:check', () => {
   })
 
   describe('manifest verification', () => {
-    const original = readFileSync(MANIFEST_PATH, 'utf8')
+    // T221: this used to corrupt the COMMITTED manifest.json in place and rely
+    // on afterEach to restore it — a crashed or interrupted run left a real
+    // repo artifact corrupted in the working tree. The corrupted copy now
+    // lives in a scratch temp dir, pointed at via SHORESH_AGENT_MANIFEST, so
+    // there is nothing to restore and nothing for an interrupted run to leak.
+    let tmpDir
+
     afterEach(() => {
-      writeFileSync(MANIFEST_PATH, original)
+      if (tmpDir) rmSync(tmpDir, { recursive: true, force: true })
+      tmpDir = undefined
     })
 
-    it('fails when the committed manifest has been corrupted', () => {
-      const corrupted = JSON.parse(original)
+    it('fails when the manifest has been corrupted', () => {
+      tmpDir = mkdtempSync(path.join(tmpdir(), 'shoresh-manifest-'))
+      const corruptedPath = path.join(tmpDir, 'manifest.json')
+      const corrupted = JSON.parse(readFileSync(MANIFEST_PATH, 'utf8'))
       corrupted.roles.maker.generated_hash = 'deadbeefdeadbeef'
-      writeFileSync(MANIFEST_PATH, JSON.stringify(corrupted, null, 2) + '\n')
+      writeFileSync(corruptedPath, JSON.stringify(corrupted, null, 2) + '\n')
 
-      const { code, output } = runCheck()
+      const { code, output } = runCheck({ SHORESH_AGENT_MANIFEST: corruptedPath })
 
       expect(code).toBe(1)
       expect(output).toMatch(/DIFFERS.*manifest\.json/)

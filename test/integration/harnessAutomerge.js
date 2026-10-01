@@ -140,6 +140,19 @@ export function configureDualWrite(dir) {
   setUserDataDirGetter(() => dir)
 }
 
+// Wire the per-device local-write broadcaster exactly as main.js does once a
+// device's node has started. Without this an appendOp-path write
+// (deleteRecord, ingest, restore) updates this device's document but never
+// PUSHES it, so it reaches a peer only if some other exchange happens to run
+// — which made scenario 30 pass alone and fail after other scenarios.
+// Production wires this; a device that only ever JOINED (never start()'d or
+// restart()'d) is left with no broadcaster at all until this is called on
+// every path a device can come alive through — start(), restart(), and join()
+// alike.
+function wireLocalWriteBroadcaster(device) {
+  setLocalWriteBroadcaster(device.db, device.node.broadcastLocalDoc)
+}
+
 export class AmHost {
   /**
    * `startSyncNode` lets a caller substitute what builds this device's libp2p
@@ -219,14 +232,7 @@ export class AmHost {
         else (this._pairingQueue ??= []).push({ deviceId, deviceName })
       },
     })
-    // Wire the per-device local-write broadcaster exactly as main.js does once
-    // its node has started. Without this an appendOp-path write (deleteRecord,
-    // ingest, restore) updates this device's document but never PUSHES it, so
-    // it reaches a peer only if some other exchange happens to run — which made
-    // scenario 30 pass alone and fail after other scenarios. Production wires
-    // this; the harness did not, which is the same class of gap as the
-    // dual-write one.
-    setLocalWriteBroadcaster(this.db, this.node.broadcastLocalDoc)
+    wireLocalWriteBroadcaster(this)
     this._pairingQueue = []
     this._pairingWaiters = []
 
@@ -379,14 +385,7 @@ export class AmClient {
 
   async start() {
     this.node = await this._startSyncNode({ deviceId: this.deviceId, db: this.db, doc: createEmptyDoc() })
-    // Wire the per-device local-write broadcaster exactly as main.js does once
-    // its node has started. Without this an appendOp-path write (deleteRecord,
-    // ingest, restore) updates this device's document but never PUSHES it, so
-    // it reaches a peer only if some other exchange happens to run — which made
-    // scenario 30 pass alone and fail after other scenarios. Production wires
-    // this; the harness did not, which is the same class of gap as the
-    // dual-write one.
-    setLocalWriteBroadcaster(this.db, this.node.broadcastLocalDoc)
+    wireLocalWriteBroadcaster(this)
   }
 
   /**
@@ -401,14 +400,7 @@ export class AmClient {
     try { await this.node.stop() } catch { /* ignore */ }
     const doc = loadDoc(docDir, campId) ?? createEmptyDoc()
     this.node = await this._startSyncNode({ deviceId: this.deviceId, db: this.db, doc })
-    // Wire the per-device local-write broadcaster exactly as main.js does once
-    // its node has started. Without this an appendOp-path write (deleteRecord,
-    // ingest, restore) updates this device's document but never PUSHES it, so
-    // it reaches a peer only if some other exchange happens to run — which made
-    // scenario 30 pass alone and fail after other scenarios. Production wires
-    // this; the harness did not, which is the same class of gap as the
-    // dual-write one.
-    setLocalWriteBroadcaster(this.db, this.node.broadcastLocalDoc)
+    wireLocalWriteBroadcaster(this)
   }
 
   /** Dial the Host and wait until the transport admits the peer. */
@@ -450,6 +442,7 @@ export class AmClient {
     const session = started.session
     this.joinSession = session
     this.node = session.node
+    wireLocalWriteBroadcaster(this)
     this.hostPeerId = host.node.peerId
 
     if (!(await session.findHost())) throw new Error('join: no host answered the code')

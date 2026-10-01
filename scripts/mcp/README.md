@@ -54,10 +54,18 @@ whatever `.shoresh` path was chosen. Point `--db` at the exact file you want to 
 | `ingest_commit` | **yes** (`--allow-write`) | Commit an import into the camp's setup. |
 | `preference_sheet_preview` | no | Dry-run a camper elective **preference sheet** (Excel/CSV) — the campers on it, the distinct elective choices they named, their ranked preferences, plus which columns were read as what, and why a commit would be refused. |
 | `preference_sheet_commit` | **yes** (`--allow-write`) | Commit a preference sheet as one draft run. Refuses the whole sheet when two rows name the same camper with no camper id, or a camper holds a rank twice. |
+| `list_unattributed_subjects` | no | List imported sheets whose camper isn't identified yet — the same "Needs your attention" list the director sees, with each entry's `subject_id` for `attribute_camper_subject`. |
+| `attribute_camper_subject` | **yes** (`--allow-write`) | Name the camper behind an unattributed sheet, so its choices land on that camper's real identity and a later import of the same name converges onto it instead of forking a duplicate. |
+| `camper_preferences` | no | One camper's elective choices, or every camper's — each row carries `edited_by_hand`, whether a person corrected it by hand rather than the imported sheet. |
+| `set_camper_preference` | **yes** (`--allow-write`) | State or correct one camper's preference for one period without re-importing a file. Re-solve the run afterwards for the change to reach placements. |
+| `remove_camper_preference` | **yes** (`--allow-write`) | Withdraw one preference a camper no longer wants, recorded as a person's decision so re-importing the same sheet won't put it back. |
 | `list_entities` | no | Rows of one setup entity (Age Divisions, Programs, Groups, Locations, Activities, Days, Time Blocks, Weeks). |
 | `setup_summary` | no | Row counts across every setup entity — a quick health check. |
 | `schedule_state` | no | Read **and validate** one candidate schedule (Manual/Generated) for one week: template, placed slots, and **engine-computed findings/conflicts** (re-runs the pure engine over the stored placement, moving nothing). |
 | `export_schedule` | no | One candidate schedule as a stable, versioned JSON document (`format_version` 1) — the portable "move it anywhere" format: camp/week/route, the group/day/time-block axes, and one record per occupied cell. |
+| `check_projection_health` | no | List this device's unresolved projection failures — an op-log write that logged durably but whose effect never materialized into a local table. Support/debugging use. |
+| `repair_projection_entity` | **yes** (`--allow-write`) | Re-derive one entity's row from its full op-log history, clearing an unresolved projection failure once the blocking condition is gone. Support/debugging use. |
+| `rebuild_projection_from_document` | **yes** (`--allow-write`) | Delete this device's SQLite projection and rebuild it from the synced Automerge document — the recovery procedure for a corrupted or suspect local database. Takes a pre-rebuild backup first. |
 | `get_elective_assignment_run` | no | One elective assignment run by `run_id` — its identity, the placements (camper, occurrence, activity, rank, lock state), the run's occurrences, choices and stored preferences, and the run's findings: stale-generation count and over-capacity occurrences. |
 | `export_elective_assignments` | no | That same run as a stable, versioned JSON document — child schedules, activity rosters, exceptions and summary. Built from the one shared assembly the app's own export uses, so the machine surface and the screen cannot disagree (T198). |
 
@@ -68,8 +76,10 @@ whatever `.shoresh` path was chosen. Point `--db` at the exact file you want to 
 gap, not an oversight — see the Known limits section of
 [`docs/work/tickets/T198-machine-access-adapters.md`](../../docs/work/tickets/T198-machine-access-adapters.md).
 Campers and elective entities are also deliberately absent from `list_entities` — the
-participant domain is reachable only through purpose-built tools like these, never as a
-generic entity dump (guarded by `scripts/mcp/entityMapExclusion.test.js`).
+participant domain is reachable only through purpose-built tools (`camper_preferences`,
+`set_camper_preference`, `remove_camper_preference`, `list_unattributed_subjects`,
+`attribute_camper_subject`, `get_elective_assignment_run`, `export_elective_assignments`),
+never as a generic entity dump (guarded by `scripts/mcp/entityMapExclusion.test.js`).
 
 ### Validating a schedule
 
