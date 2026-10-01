@@ -390,9 +390,9 @@ export function buildPlan(source, existing = null, resolutions = []) {
   // be available to be pulled out in the third") — that marker is what the
   // free-choice exclusion reads (src/engine/freeChoiceActivities.js). The row is
   // still CREATED — that is deliberate and load-bearing for a SEPARATE reason
-  // too: an anchor resolves its activity BY `activity_id`
+  // too: a fixed event resolves its activity BY `activity_id`
   // (src/engine/fixedEventActivityLink.js), so deleting the row would dangle that
-  // link and silently disable the anchor-duplicate suppression, placing the
+  // link and silently disable the fixed-event-duplicate suppression, placing the
   // event twice with no error. A MARKER, NOT A HOLE.
   //
   // tier:'low' is KEPT alongside the marker. It is now orthogonal — whichever way

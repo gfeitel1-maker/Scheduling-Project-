@@ -152,7 +152,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   // "survives staging" reasoning as fileGroupUnitsRef: normalized(activity
   // name) -> the one place name it was captured next to.
   const fileActivityLocationsRef = useRef({})
-  // T117 slice 2 — the grid's actual (group, day, block) -> activity/anchor
+  // T117 slice 2 — the grid's actual (group, day, block) -> activity/fixed event
   // placements (capturePlacements.js), computed once at parse time next to
   // proposal (same "survives staging" reasoning as the two refs above), so
   // buildCommitInputs can ship them to ingestCommit for materializeImportedVersion.
@@ -286,10 +286,10 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   // it pre-confirm instead (Red Hat, T61 round 3).
   const [slotCount, setSlotCount] = useState(0)
   // Recurring Events (fixed_events) — director-authored content with its own
-  // nav screen, deleted by replaceScope step 6 because anchors reference
+  // nav screen, deleted by replaceScope step 6 because fixed events reference
   // days_of_operation, which step 8 also deletes. Recoverable from Trash,
   // same as slots (T68).
-  const [anchorCount, setAnchorCount] = useState(0)
+  const [fixedEventCount, setFixedEventCount] = useState(0)
   // T36 — sheets that had content but the detector could not turn into a page
   // (workbookToPages' `.residual`), alongside proposal.residual.cells (content
   // inside a recognised page that never became an entity). Read-only
@@ -540,7 +540,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       setExistingRecordsAll(existingAll)
       setSnapshotCount((await localClient.list('schedule_snapshots').catch(() => [])).length)
       setSlotCount((await localClient.list('template_slots').catch(() => [])).length)
-      setAnchorCount((await localClient.list('fixed_events').catch(() => [])).length)
+      setFixedEventCount((await localClient.list('fixed_events').catch(() => [])).length)
       setImportMode('add')
       // ADR 2026-08-17-onescreen-reconciliation-merge.md §2 — no more local
       // create/skip/lowConfidence computation (buildPreview deleted): every
@@ -613,7 +613,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
         proposal.entities.activities ?? [], existingAll.locations ?? [])
       setPlaceCandidates(candidates)
       setPlaceChoices({})
-      // Kept so a commit-time re-parse can re-derive the anchors on the SAME
+      // Kept so a commit-time re-parse can re-derive the fixed events on the SAME
       // terms this parse did — see fixedEventNamesForCommit in buildCommitInputs.
       knownTimeBlockNamesRef.current = knownTimeBlockNames
       // T147 — the camp's live places, kept so buildCommitInputs can re-derive
@@ -627,7 +627,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       // T114 — age divisions and per-activity co-scheduling, inferred from the
       // grid the file already gave us.
       //
-      // Only TRUE ANCHORS are excluded — kind 'fixed', meaning ALL groups,
+      // Only TRUE FIXED EVENTS are excluded — kind 'fixed', meaning ALL groups,
       // every day, same time (owner, 2026-09-13). Those put every group in one
       // slot, which would make every activity look maximally co-schedulable and
       // every group look like it shares a division with every other.
@@ -657,7 +657,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       // reassigned to the merged map too.
       statedUnitsRef.current = statedUnits
       // Kept so buildCommitInputs can re-derive the division PROVENANCE against
-      // the same anchor exclusions the preview used — a different exclusion set
+      // the same fixed-event exclusions the preview used — a different exclusion set
       // would explain a different division than the one being committed.
       fixedEventNamesRef.current = fixedEventNames
       divisionsRef.current = inferredDivisions
@@ -1215,11 +1215,11 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
     // A group whose unit the FILE STATED outright is excluded: that is not an
     // inference and must not be dressed as one.
     const statedUnitNames = new Set(Object.keys(statedUnitsRef.current))
-    // Red Hat (T114 review): the anchors must come from the SAME parse as the
+    // Red Hat (T114 review): the fixed events must come from the SAME parse as the
     // placements they are excluded from. Pairing freshly re-parsed placements
-    // with parse-time anchor names is an internally inconsistent combination
+    // with parse-time fixed-event names is an internally inconsistent combination
     // that was never exercised when the director-facing divisions were computed
-    // — a name-variant merge can re-key an anchor ("Lunch + Leave" -> "Lunch"),
+    // — a name-variant merge can re-key a fixed event ("Lunch + Leave" -> "Lunch"),
     // and a stale name simply fails to exclude, letting an all-camp activity
     // vouch for a division it says nothing about.
     const fixedEventNamesForCommit = reparsed
@@ -2142,7 +2142,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
               every inferred event is shown and ships to ReconciliationScreen,
               which is where a low-confidence one gets reconciled (or held
               back if left unresolved). An imported recurring event is an ordinary
-              anchor, so its full editor already exists on the Recurring Events
+              fixed event, so its full editor already exists on the Recurring Events
               screen (spec §4.2). */}
           {fixedEvents.length > 0 && (
             <div style={{ marginBottom: 20 }}>
@@ -2531,9 +2531,9 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
                   { key: 'slots', count: slotCount, render: () => (
                       <>Both your <strong>Manual Build</strong> and <strong>Generated Schedule</strong> will
                       be cleared ({slotCount} {slotCount === 1 ? 'slot' : 'slots'}).</>) },
-                  { key: 'anchors', count: anchorCount, render: () => (
-                      <>Your <strong>{anchorCount}</strong> Recurring {anchorCount === 1 ? 'Event' : 'Events'} will
-                      be cleared. {anchorCount === 1 ? 'It is' : 'They are'} recoverable from Trash.</>) },
+                  { key: 'anchors', count: fixedEventCount, render: () => (
+                      <>Your <strong>{fixedEventCount}</strong> Recurring {fixedEventCount === 1 ? 'Event' : 'Events'} will
+                      be cleared. {fixedEventCount === 1 ? 'It is' : 'They are'} recoverable from Trash.</>) },
                 ].filter((w) => w.count > 0)
 
                 const irreversibleWarnings = [

@@ -584,7 +584,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
       // and is wrong: this screen's own CSV importer dedupes against
       // `existingNames`, and its weather-alternative resolution uses `actMap`,
       // both derived from this state. Hiding the pinned-event rows from THOSE
-      // would let the importer create a SECOND row with a name an anchor already
+      // would let the importer create a SECOND row with a name a fixed event already
       // resolves by — two rows for one real thing, which is the exact corruption
       // this ticket exists to avoid, reached through a different door. The
       // exclusion is applied at the two readers that are genuinely free-choice

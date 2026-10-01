@@ -134,7 +134,7 @@ export function readWorkbookRows(data, { type, byteLength, limits = IMPORT_LIMIT
 // tab but the first got one of two outcomes, both measured on a workbook in the app's own export
 // order (Programs, Age Divisions, Groups, Days, Time Blocks, Activities):
 //
-//   * Days and Anchors read the `Programs` tab, found none of their fields, and imported NOTHING;
+//   * Days and Fixed Events read the `Programs` tab, found none of their fields, and imported NOTHING;
 //   * Groups and Activities read `name` off the `Programs` tab and would have imported the camp's
 //     PROGRAM as a group and as an activity — a plausible-looking row that nobody created. Silence
 //     with wrong data in it, which is the worse half.

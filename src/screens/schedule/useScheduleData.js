@@ -336,7 +336,7 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
         }
         nextStats[r] = recalcStats(saved)
         // FIXED_EVENT_DUPLICATE is meaningful only on the generated route — a
-        // manual anchor/regular clash already surfaces as OVERLAP at render,
+        // manual fixed-event/regular clash already surfaces as OVERLAP at render,
         // and "regenerate to clear it" is meaningless where there is no
         // regenerate. Pass fixedEvents/weekId/exclusions only for that route;
         // computeFindings' safe default (absent fixedEvents → no finding) keeps

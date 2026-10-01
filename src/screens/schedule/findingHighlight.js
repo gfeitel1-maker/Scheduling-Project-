@@ -7,7 +7,7 @@
 // activity) pair, and the live findingsRows do NOT carry slot ids for them —
 // this is the one new derivation the feature needs, kept pure and tested here
 // because it is easy to get subtly wrong (picking up the wrong group's slots,
-// or an anchor, or an empty cell that only looks placed).
+// or an fixed event, or an empty cell that only looks placed).
 //
 // An aggregate finding can legitimately match ZERO placed slots — UNDERSERVED
 // is by definition about something not placed often enough — and that empty
@@ -18,7 +18,7 @@
  * The ids of the placed activity slots a finding attaches to.
  *
  * A finding is `{ groupId, activityId, kind, ... }`. A cell counts only if it
- * is a real placement of that activity for that group — anchors and empty
+ * is a real placement of that activity for that group — fixed events and empty
  * cells never match, because a concern about an activity cannot be "about" a
  * slot that holds no activity.
  *

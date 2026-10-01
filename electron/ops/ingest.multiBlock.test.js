@@ -139,7 +139,7 @@ describe('Slice B — one-off multi-block candidate', () => {
   })
 
   // Red Hat HIGH #1 — the recurring path already dedups across re-imports
-  // via anchorSlots (T72 recognize-then-skip); the one-off path did not.
+  // via fixedEventSlots (T72 recognize-then-skip); the one-off path did not.
   // Confirm the SAME payload twice (two separate commitIngest calls, as a
   // director re-confirming the same candidate on a re-import would) and
   // assert exactly ONE events row, not two.

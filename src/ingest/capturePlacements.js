@@ -7,7 +7,7 @@
 // proposal shape (reuse, not reinvention), and reads cells through the SAME
 // canonical spellings (proposal.canonicalMap) AND the same confirmed compound-
 // cell decisions (proposal.compoundCellDecisions, T118 slice 3) so a placement's activityName
-// matches the catalog activity/anchor it will resolve to at commit — the
+// matches the catalog activity/fixed event it will resolve to at commit — the
 // name-identity invariant, extended to placements. Nothing here writes; commit
 // resolves these names → ids and materializes the snapshot.
 //

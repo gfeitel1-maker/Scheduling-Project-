@@ -67,7 +67,7 @@ function collectSpanTails(slots, timeBlocks, target, headRow) {
 // ADR 2026-08-21 §3 — ordered stop-condition checks against a freshly-read
 // row that would become a NEWLY-covered tail of an extend. Returns true if
 // this row STOPS the extend (must not be absorbed): day-end/deleted block
-// (row undefined), an anchor, a WEEK_CLOSED block, or a cell holding a
+// (row undefined), an fixed event, a WEEK_CLOSED block, or a cell holding a
 // DIFFERENT activity that is locked or carries an active override. A block
 // with no activity (empty) or already holding the SAME activity is never a
 // stop condition — it is absorbed (displacing whatever it held, if anything).

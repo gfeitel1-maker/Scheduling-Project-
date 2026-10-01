@@ -1587,7 +1587,7 @@ export const mockShoresh = {
         }
         const maps = {
           activityIdByName: nameMap('activities'),
-          anchorIdByName: nameMap('fixed_events'),
+          fixedEventIdByName: nameMap('fixed_events'),
           groupIdByName: nameMap('groups'),
           dayIdByName: nameMap('days_of_operation'),
           blockIdByName: nameMap('time_blocks'),

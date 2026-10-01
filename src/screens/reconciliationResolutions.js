@@ -69,7 +69,7 @@ export function isDecisionResolved(decision, answer) {
 }
 
 // Sub-slice 4 (A1) — a recurring event's identity for hold-back matching is
-// (name, time_block, days), NOT name alone: two anchors sharing a name on
+// (name, time_block, days), NOT name alone: two fixed events sharing a name on
 // different days/time-blocks are held/written independently. Mirrors
 // ImportScreen.jsx's (now-removed) fixedEventKey and reconciliationReport.js's
 // fixedEventDecisionId discriminator.

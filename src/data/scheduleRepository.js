@@ -4,7 +4,7 @@
 //
 // It owns: token acquisition, the list/write/bulkReplace/deleteEntity calls,
 // the writeFields-style per-field write, the SINGLE engine-slot -> DB-row
-// mapper (replacing the three drifting copies in generate/placeAnchors/
+// mapper (replacing the three drifting copies in generate/placeFixedEvents/
 // restoreSnapshot), normalizeSlots on read, and the snapshot->row mappings.
 //
 // It does NOT own: React state, error-banner copy, describeWriteFailure/admin
@@ -22,7 +22,7 @@ import { normalizeSlots } from '../utils/normalizeSlots'
 // slot; both are made explicit so each call site's persisted row is
 // byte-for-byte what it hand-wrote before.
 //
-// is_span_head is LOAD-BEARING: generate()/placeAnchors() emit it (`!== false`
+// is_span_head is LOAD-BEARING: generate()/placeFixedEvents() emit it (`!== false`
 // -> '1'/'0'); restoreSnapshot() omits it entirely so the template_slots column
 // keeps its default (the column is added by ALTER TABLE with no DEFAULT, i.e.
 // NULL — electron/db/localDb.js). Emitting it on the restore path would change
@@ -292,7 +292,7 @@ export function createScheduleRepository({
     },
 
     // --- bulk replace ------------------------------------------------------
-    // generate() and placeAnchors() both replace slots from engine slots.
+    // generate() and placeFixedEvents() both replace slots from engine slots.
     // Identical operation, one method.
     async replaceWeek(templateId, engineSlots) {
       const token = getToken()

@@ -39,7 +39,7 @@ export function useRouteState(weekId, route) {
   const [slotsByRoute, setSlotsByRoute] = useState(() => EMPTY_BY_ROUTE(() => []))
   const [statsByRoute, setStatsByRoute] = useState(() => EMPTY_BY_ROUTE(() => null))
   // Aggregate UNDERSERVED/DISTRIBUTION findings from the last buildSchedule()
-  // call — never persisted, recomputed fresh on every generate()/placeAnchors()
+  // call — never persisted, recomputed fresh on every generate()/placeFixedEvents()
   // (docs/adr/2026-07-28-schedule-flag-findings-reshape.md §"findings never persisted").
   const [findingsByRoute, setFindingsByRoute] = useState(() => EMPTY_BY_ROUTE(() => []))
   const [dismissedByRoute, setDismissedByRoute] = useState(() => EMPTY_BY_ROUTE(() => new Set()))
@@ -115,7 +115,7 @@ export function useRouteState(weekId, route) {
   return {
     route,
     // The by-route atoms + their raw setters: loadAll's bulk sets and
-    // generate()/placeAnchors()' route-explicit setters write through these.
+    // generate()/placeFixedEvents()' route-explicit setters write through these.
     existingTemplates, setExistingTemplates,
     templateIdByRoute, setTemplateIdByRoute,
     slotsByRoute, setSlotsByRoute,

@@ -260,7 +260,7 @@ describe('WS5 Daily-first — default view, toggle order, and no redundant capti
 
 // Round 2 Fix 1: bulk_replace rows carry `flags` JSON.stringify'd (the op-log
 // only accepts string/null row values — see validateBulkReplaceRows in
-// electron/ops/operations.js). generate()/placeAnchors()/restoreSnapshot()
+// electron/ops/operations.js). generate()/placeFixedEvents()/restoreSnapshot()
 // all re-fetch via localClient.list('template_slots') after the bulkReplace
 // call, and ScheduleScreen must parse that string back to an object at the
 // read boundary — otherwise every flags?.FOO check in the UI (e.g. the
@@ -1377,7 +1377,7 @@ describe('ScheduleScreen — a rejected schedule_templates write is reported, no
     expect(localClient.bulkReplace).not.toHaveBeenCalled()
   })
 
-  it('placeAnchors(): surfaces an error and stops generating instead of spinning forever', async () => {
+  it('placeFixedEvents(): surfaces an error and stops generating instead of spinning forever', async () => {
     mockList({ schedule_templates: [], template_slots: [] })
     localClient.write.mockResolvedValue({ status: 'rejected' })
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} initialRoute="manual" />)

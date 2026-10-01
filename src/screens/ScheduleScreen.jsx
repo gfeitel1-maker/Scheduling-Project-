@@ -392,7 +392,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // engine. Route-scoped state comes from routeState (the route-explicit setters
   // are built from its by-route setters inside the hook); the
   // abort-on-failed-auto-snapshot behaviour lives in the hook.
-  const { generate: rawGenerate, regenFromScratch: rawRegenFromScratch, placeAnchors: rawPlaceAnchors } = useGeneration({
+  const { generate: rawGenerate, regenFromScratch: rawRegenFromScratch, placeFixedEvents: rawPlaceFixedEvents } = useGeneration({
     routeState, repo, campId, setActionError, setGenerating,
     resetUndoRedo, saveSnapshot, ensureTemplateRow,
     setConfirmRegen, setSelectedGroup, statsFor: recalcStatsPure,
@@ -406,7 +406,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // every call site (route-start map, regenerate confirm).
   const generate = (...a) => { bumpFlagAckResync(); return rawGenerate(...a) }
   const regenFromScratch = (...a) => { bumpFlagAckResync(); return rawRegenFromScratch(...a) }
-  const placeAnchors = (...a) => { bumpFlagAckResync(); return rawPlaceAnchors(...a) }
+  const placeFixedEvents = (...a) => { bumpFlagAckResync(); return rawPlaceFixedEvents(...a) }
 
   // The two routes are separate candidates, but they are ONE mounted component
   // (App.jsx maps both sidebar destinations to this screen), so anything held
@@ -558,7 +558,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // magnitude-bearing kinds it folds in the material payload, so a dismissal
   // covers exactly the finding dismissed and a materially-worse one at the same
   // coordinates is not masked. Reset wholesale on every full rebuild
-  // (generate/placeAnchors/restore/load); the slot-edit recalcFindings path
+  // (generate/placeFixedEvents/restore/load); the slot-edit recalcFindings path
   // does NOT reset, which is why the key must carry the payload.
   function dismissFinding(dismissKey) {
     setDismissedFindingKeys(prev => {
@@ -885,7 +885,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     return `${filled} of ${open} placed`
   }
 
-  const startRoute = { manual: placeAnchors, generated: generate }
+  const startRoute = { manual: placeFixedEvents, generated: generate }
 
   function exportRoute(r, format = 'excel') {
     const bundle = { slots: slotsByRoute[r], activities, fixedEvents, groups, days, timeBlocks, electiveSets: electiveSetsAll, electiveSetActivities, events: eventsAll }

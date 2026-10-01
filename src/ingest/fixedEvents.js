@@ -205,7 +205,7 @@ export function inferFixedEvents(parsed, proposal, options = {}) {
   // therefore TWO arms, and a tuple survives if it clears EITHER
   // (docs/work/tickets/T141-fixed-event-eligibility-ignores-group-coverage.md):
   //
-  //   Arm 1 (daily anchor)     — within one group, the block is held on a
+  //   Arm 1 (daily fixed event) — within one group, the block is held on a
   //                              strict majority of that group's operating
   //                              days. Catches Mifkad, Carpool, Lunch n.
   //   Arm 2 (weekly recurring) — across groups, the SAME activity holds the

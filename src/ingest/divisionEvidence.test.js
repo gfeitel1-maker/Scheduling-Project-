@@ -91,7 +91,7 @@ describe('divisionSupportByGroup', () => {
       p('Kittah 2', 'Mon', '9:00', 'Sports'),
     ]
     const s = divisionSupportByGroup(['Kittah 1', 'Kittah 2'], placements, ['Lunch'])
-    expect(s['Kittah 1'].anchors_excluded).toEqual(['Lunch'])
+    expect(s['Kittah 1'].fixed_events_excluded).toEqual(['Lunch'])
     // Sports still vouches for them, so the names stand.
     expect(s['Kittah 1'].basis).toBe('name_stem')
   })

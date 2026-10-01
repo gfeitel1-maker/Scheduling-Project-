@@ -5,7 +5,7 @@ import { appendOp } from './operations.js'
 //
 // A slot is a grid cell. Some of its columns say WHERE the cell is (group,
 // day, time block — deleting one of those destroys the cell's position, so the
-// row itself goes), and some say WHAT is in it (activity, anchor, elective
+// row itself goes), and some say WHAT is in it (activity, fixed event, elective
 // set, event — deleting one of those empties the cell but the cell stays).
 // Before this registry existed, each of those decisions was made once per
 // delete path, in a different file, in hand-copied code; adding a fourth
@@ -72,7 +72,7 @@ export const SLOT_OCCUPANT_CASCADES = Object.freeze({
     deletedEntity: 'fixed_events',
     implementedIn: null,
     reason:
-      'Two delete paths, neither of which can leave a live dangling fixed_event_id. U2 undo refuses the delete outright while a template_slots row still points at the anchor (undoReferences.js registers template_slots.fixed_event_id). deleteRecord.js’s day branch deletes a day’s anchors and that same day’s template_slots rows in one transaction, so the pointing rows go with them.',
+      'Two delete paths, neither of which can leave a live dangling fixed_event_id. U2 undo refuses the delete outright while a template_slots row still points at the fixed event (undoReferences.js registers template_slots.fixed_event_id). deleteRecord.js’s day branch deletes a day’s fixed events and that same day’s template_slots rows in one transaction, so the pointing rows go with them.',
   }),
   elective_set_id: Object.freeze({
     policy: 'dangle',

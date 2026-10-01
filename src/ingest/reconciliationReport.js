@@ -229,7 +229,7 @@ function fixedEventDecisionId(kind, reason, name, timeBlock, days) {
   // are `?? ''`-guarded so a missing segment collapses to empty rather than
   // interpolating 'undefined'. The timeBlock/days discriminator (A1, Red Hat
   // 2026-08-17) mirrors ImportScreen.jsx's fixedEventKey — without it, two
-  // same-named anchors on different days/time-blocks collapse into one
+  // same-named fixed events on different days/time-blocks collapse into one
   // decision and the second's identity is silently discarded.
   const daysKey = Array.isArray(days) ? days.join(',') : (days ?? '')
   return `fixed_events:null:${kind}:${reason ?? ''}:${name ?? ''}:${timeBlock ?? ''}:${daysKey}`
@@ -518,7 +518,7 @@ export function buildReconciliationReport(input) {
   }
 
   // C3: a group-scope drift is a confirmed CHANGED fact on an existing
-  // anchor slot, same category as a move — CHANGED bucket, confirm_change
+  // fixed-event slot, same category as a move — CHANGED bucket, confirm_change
   // decision, 'changed' confidence, read-only (never auto-applied, never
   // proposes a value). electron/ops/ingest.js:1256 pushes { name, reason }
   // onto fixedScopeChanged; :1347 attaches it as fixedEvents.scopeChanged.

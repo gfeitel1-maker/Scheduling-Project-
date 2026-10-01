@@ -9,7 +9,7 @@
 // Extracted from src/screens/ImportScreen.jsx (where it was two inline lines) so
 // that the acceptance test can exercise the REAL derivation rather than
 // hand-rolling its own copy of it. That is not a convenience. T62 was closed
-// against an `anchor.activity_id` the row does not carry, and its unit test —
+// against a fixed event's `activity_id` the row does not carry, and its unit test —
 // which hand-built the field — stayed green for a month while the production Set
 // was empty. A test that reconstructs the input it is meant to be checking
 // proves only that the test and the code agree, which is the one thing that was

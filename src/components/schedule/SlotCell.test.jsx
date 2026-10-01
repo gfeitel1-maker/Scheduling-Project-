@@ -299,7 +299,7 @@ describe('shared cell components render placed gridcells (T56)', () => {
     const anchorSlot = { id: 's2', groupId: 'g1', dayId: 'd1', blockId: 'b1', type: 'fixed_event' }
     render(
       <DndContext>
-        <SlotCell slot={anchorSlot} anchor={{ name: 'Flag' }} />
+        <SlotCell slot={anchorSlot} fixedEvent={{ name: 'Flag' }} />
       </DndContext>
     )
     fireEvent.click(screen.getByRole('gridcell'))
@@ -469,7 +469,7 @@ describe('shared cell components render placed gridcells (T56)', () => {
     const anchorSlot = { id: 's2', groupId: 'g1', dayId: 'd1', blockId: 'b1', type: 'fixed_event' }
     render(
       <DndContext>
-        <SlotCell slot={anchorSlot} anchor={{ name: 'Flag' }} />
+        <SlotCell slot={anchorSlot} fixedEvent={{ name: 'Flag' }} />
       </DndContext>
     )
     const cell = screen.getByRole('gridcell')

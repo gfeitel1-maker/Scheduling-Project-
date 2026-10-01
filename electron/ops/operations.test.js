@@ -240,7 +240,7 @@ describe('appendOp value coercion', () => {
 
   it('stores flags and boolean columns in the SAME shape bulk_replace does', () => {
     // bulk_replace rows must be string-or-null (validateBulkReplaceRows), so
-    // placeAnchors/generate build '1'/'0' strings and JSON.stringify'd flags.
+    // placeFixedEvents/generate build '1'/'0' strings and JSON.stringify'd flags.
     // The INTEGER column affinity on is_fixed_event/is_span_head/is_released means
     // those strings land as integers — identical to coercing booleans to 1/0.
     appendBulkReplaceOp(db, {

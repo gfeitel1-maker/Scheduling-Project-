@@ -61,7 +61,7 @@ export async function buildExistingSnapshot(list, cohortId, mode = 'add') {
 // inspector.md §(a)/(e), R1) — a second, separate live-read fetch. Returns rows
 // keyed EXACTLY by the table names CHILD_OF/DOMAIN_OF (domainRollup.js) use,
 // unlike ReconciliationScreen's fetchReadiness, which aliases three of these
-// keys (days/timeBlocks/anchors) for getReadiness/COLLECTION_FOR's unrelated
+// keys (days/timeBlocks/recurringevents) for getReadiness/COLLECTION_FOR's unrelated
 // purpose. Deliberately does not touch or alias fetchReadiness's shape —
 // buildRootMapModel's roster construction is a literal
 // `Object.keys(snapshot).forEach(...)` over CHILD_OF's own keys, so the two

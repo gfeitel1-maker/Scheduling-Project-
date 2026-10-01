@@ -50,11 +50,11 @@ function resolveTemplateSlot(row, { activityById, fixedEventById, eventById }) {
     return { kind: 'event', refId: row.event_id, activityId: null, activityName: event?.name ?? null }
   }
   if (row.is_fixed_event) {
-    const anchor = fixedEventById.get(row.fixed_event_id) ?? null
+    const fixedEvent = fixedEventById.get(row.fixed_event_id) ?? null
     // fixed_events carries a real activity_id as of v77 (T267 PR1), and PR2
-    // cuts resolution over to it — the id-based link, not the anchor's own
+    // cuts resolution over to it — the id-based link, not the fixedEvent's own
     // free-text `name`, is now the identity source for activityId.
-    return { kind: 'fixed_event', refId: row.fixed_event_id, activityId: anchor?.activity_id ?? null, activityName: anchor?.name ?? null }
+    return { kind: 'fixed_event', refId: row.fixed_event_id, activityId: fixedEvent?.activity_id ?? null, activityName: fixedEvent?.name ?? null }
   }
   if (row.activity_id != null) {
     const activity = activityById.get(row.activity_id) ?? null

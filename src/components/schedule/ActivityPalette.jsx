@@ -84,7 +84,7 @@ export default function ActivityPalette({
   collapsed = false,
   onToggleCollapse,
 }) {
-  const nonAnchorSlots = (slots || []).filter(s => !s.is_fixed_event)
+  const nonFixedEventSlots = (slots || []).filter(s => !s.is_fixed_event)
   const [filter, setFilter] = useState('')
 
   if (collapsed) {
@@ -214,7 +214,7 @@ export default function ActivityPalette({
           <PaletteLedger
             activities={activities}
             filter={filter}
-            nonAnchorSlots={nonAnchorSlots}
+            nonFixedEventSlots={nonFixedEventSlots}
             draggable={draggable}
             showTargets={showTargets}
           />
@@ -224,7 +224,7 @@ export default function ActivityPalette({
   )
 }
 
-function PaletteLedger({ activities, filter, nonAnchorSlots, draggable, showTargets }) {
+function PaletteLedger({ activities, filter, nonFixedEventSlots, draggable, showTargets }) {
   const needle = filter.trim().toLowerCase()
   const matched = needle
     ? activities.filter(a => a.name.toLowerCase().includes(needle))
@@ -245,7 +245,7 @@ function PaletteLedger({ activities, filter, nonAnchorSlots, draggable, showTarg
   }
 
   const withCounts = matched.map(activity => {
-    const scheduledCount = nonAnchorSlots.filter(s => s.activity_id === activity.id).length
+    const scheduledCount = nonFixedEventSlots.filter(s => s.activity_id === activity.id).length
     const target = activity.min_per_week ?? 0
     return {
       activity,

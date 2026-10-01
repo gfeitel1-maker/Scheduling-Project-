@@ -52,39 +52,39 @@ export function resolveWeekCatalog({
   const keptFixedEvents = []
   const suppressedFixedEvents = []
 
-  // An anchor links to its activity via `fixed_events.activity_id` — see
+  // A fixed event links to its activity via `fixed_events.activity_id` — see
   // fixedEventActivityLink.js. T267 PR2 cuts this over from the earlier
   // name-matching fallback to a direct id lookup.
-  for (const anchor of fixedEvents) {
-    const fixedEventActivityIds = resolveFixedEventActivityIds(anchor)
+  for (const fixedEvent of fixedEvents) {
+    const fixedEventActivityIds = resolveFixedEventActivityIds(fixedEvent)
     if (fixedEventActivityIds.some((id) => excludedActivityIds.has(id))) {
-      suppressedFixedEvents.push({ anchor, reason: 'activity-excluded' })
+      suppressedFixedEvents.push({ fixedEvent, reason: 'activity-excluded' })
       continue
     }
     if (fixedEventActivityIds.some((id) => locationExcludedActivityIds.has(id))) {
-      suppressedFixedEvents.push({ anchor, reason: 'location-excluded' })
+      suppressedFixedEvents.push({ fixedEvent, reason: 'location-excluded' })
       continue
     }
 
     // Contract: group_ids is an array of ids. Callers normalize — this engine
     // does not deserialize; see src/screens/schedule/useScheduleData.js.
-    // Only suppress if EVERY group in the anchor's group list is excluded.
-    if (!anchor.is_all_groups) {
+    // Only suppress if EVERY group in the fixedEvent's group list is excluded.
+    if (!fixedEvent.is_all_groups) {
       // T180: resolve through the SHARED scope resolver, not group_ids
       // directly — a division-scoped (unit_ids) event carries an empty
       // group_ids, and reading that raw made it impossible to suppress.
-      const fixedEventGroupIds = resolveFixedEventGroupIds(anchor, groups)
+      const fixedEventGroupIds = resolveFixedEventGroupIds(fixedEvent, groups)
 
       if (
         fixedEventGroupIds.length > 0 &&
         fixedEventGroupIds.every((gid) => excludedGroupIds.has(gid))
       ) {
-        suppressedFixedEvents.push({ anchor, reason: 'all-groups-excluded' })
+        suppressedFixedEvents.push({ fixedEvent, reason: 'all-groups-excluded' })
         continue
       }
     }
 
-    keptFixedEvents.push(anchor)
+    keptFixedEvents.push(fixedEvent)
   }
 
   return {

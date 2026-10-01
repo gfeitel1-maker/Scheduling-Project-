@@ -1,7 +1,7 @@
 // Single source of "what is in this schedule cell", shared by every export
 // format so they cannot drift (M2, docs/work/plans/2026-09-01-machine-access.md).
 //
-// A slot's content is one of: an anchor, an event overlay, an elective set, an
+// A slot's content is one of: an fixed event, an event overlay, an elective set, an
 // ordinary activity, or empty. resolveSlotCell turns a raw template_slots row
 // into a structured cell record; formatCellLabel renders that record to the
 // exact human label the Excel export has always produced; buildScheduleExport

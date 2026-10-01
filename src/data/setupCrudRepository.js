@@ -73,7 +73,7 @@ export const UNIQUE_FIELD_EXTRA_SCOPE_COLUMNS = {
 // auto-reorders its field to the front rather than throwing on misorder), this
 // is enforced automatically, silently, for every caller — a Red Hat review
 // found the FIRST version of this ADR's work had gotten the ordering right in
-// two writers (electron/ops/ingest.js, AnchorModal.save) and wrong in a third
+// two writers (electron/ops/ingest.js, FixedEventModal.save) and wrong in a third
 // (FixedEventsScreen's XLSX import), proving per-call-site discipline is not
 // enough. Registering the field here means a future writer can't reintroduce
 // the bug by forgetting. The one behavioral difference from UNIQUE_FIRST_FIELD:

@@ -138,7 +138,7 @@ function fixedEventKindCounts(rows) {
 
 // v43 Slice 3a: elective_sets.day_id carries a real DB-level FK (schema.sql:
 // day_id TEXT REFERENCES days_of_operation(id)), same shape as
-// fixed_events.day_id above — but unlike an anchor, an elective set is
+// fixed_events.day_id above — but unlike a fixed event, an elective set is
 // a reusable, director-named entity (is_reusable), not a per-day occurrence.
 // Deleting the day therefore NULLs the binding rather than deleting the set,
 // mirroring deleteWeek.js's schedule_week_id treatment for the same table.
@@ -432,8 +432,8 @@ function deleteOrMergeLocation(db, { entity_id, expected_ref_count, reassign_to,
     for (const activity of activities) {
       push('activities', activity.id, 'location_id', reassign_to ?? null)
     }
-    for (const anchor of fixedEvents) {
-      push('fixed_events', anchor.id, 'location_id', reassign_to ?? null)
+    for (const fixedEvent of fixedEvents) {
+      push('fixed_events', fixedEvent.id, 'location_id', reassign_to ?? null)
     }
     for (const event of events) {
       push('events', event.id, 'location_id', reassign_to ?? null)

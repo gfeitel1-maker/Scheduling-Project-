@@ -16,7 +16,7 @@
 // (group, day) cell, 14 times for a 14-group camp. Left unaggregated, that is
 // 14 director-facing chips for what is obviously one recurring Friday block,
 // and 14 separate fixed_events rows at commit instead of one
-// is_all_groups row — exactly the "14 anchors instead of one" defect this
+// is_all_groups row — exactly the "14 fixed events instead of one" defect this
 // aggregation exists to prevent.
 //
 // TWO-PASS, not a single union (Red Hat HIGH #2, round 2): a naive single
@@ -164,7 +164,7 @@ export function inferMultiBlockCandidates(parsed, proposal = {}) {
   // (4) was added after measuring (1)-(3) against that same file, which is the
   // only reason it is here: a purely structural rule is far too loose. It
   // welded THREE pairs that are nothing of the kind — "Group Time + Mifkad"
-  // (two separate daily anchors that simply always run in that order, on every
+  // (two separate daily fixed events that simply always run in that order, on every
   // group, every day), "CIT Block 1 + CIT Block 2" (a numbered chain), and
   // "Ruach + Shabbat" (two distinct all-camp Friday events). Rigid sequence is
   // not the same relation as "second half of one session", and nothing in the

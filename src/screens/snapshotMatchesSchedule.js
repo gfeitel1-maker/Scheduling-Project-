@@ -13,7 +13,7 @@
 // only if its recorded payload describes the same week as the slots being
 // displayed. It is entirely normal for NO version to match.
 //
-// Deliberately compared: which activity (or anchor) sits in each group/day/block.
+// Deliberately compared: which activity (or fixed event) sits in each group/day/block.
 // Deliberately NOT compared: `flags`, which are audit annotations recomputed on
 // every run and whose key order varies by write path — including them would
 // produce false negatives on an identical week. A false negative merely omits a

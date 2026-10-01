@@ -426,19 +426,19 @@ describe('U2d — anchor inclusion', () => {
     )
     expect(res.held).toBe(false)
     expect(res.fixedEvents.created).toBe(1)
-    const anchorId = res.fixedEvents.createdEntries[0].anchorId
-    expect(anchorId).toBeTruthy()
+    const fixedEventId = res.fixedEvents.createdEntries[0].fixedEventId
+    expect(fixedEventId).toBeTruthy()
 
     // A director places this anchor on a schedule slot.
-    db.prepare('INSERT INTO template_slots (id, template_id, fixed_event_id) VALUES (?, ?, ?)').run(randomUUID(), randomUUID(), anchorId)
+    db.prepare('INSERT INTO template_slots (id, template_id, fixed_event_id) VALUES (?, ?, ?)').run(randomUUID(), randomUUID(), fixedEventId)
 
     const undoResult = ingestUndo(db, {
       invertibleOps: res.invertibleOps, createdEntityIds: res.createdEntityIds,
       author_user_id: 'u1', device_id: deviceId, client_write_id: randomUUID(),
     })
 
-    expect(undoResult.kept).toContainEqual({ entity: 'fixed_events', entity_id: anchorId, name: 'Lunch', reason: 'still_referenced', referencedByCount: 1 })
-    expect(db.prepare('SELECT id FROM fixed_events WHERE id = ?').get(anchorId)).toBeTruthy()
+    expect(undoResult.kept).toContainEqual({ entity: 'fixed_events', entity_id: fixedEventId, name: 'Lunch', reason: 'still_referenced', referencedByCount: 1 })
+    expect(db.prepare('SELECT id FROM fixed_events WHERE id = ?').get(fixedEventId)).toBeTruthy()
     // No FOREIGN KEY constraint failed under PRAGMA foreign_keys=ON — the
     // deletion attempt on the day/time_block that ARE deletable must not
     // throw even though the (kept) anchor still points at them.
@@ -465,7 +465,7 @@ describe('U2d — anchor inclusion', () => {
       }),
       { author_user_id: 'u1', device_id: deviceId, captureInverse: true }
     )
-    const anchorId = res.fixedEvents.createdEntries[0].anchorId
+    const fixedEventId = res.fixedEvents.createdEntries[0].fixedEventId
 
     // Undo ONLY the anchor here (not the day/time_block it sits on) — this
     // isolates rejectedSlotKeys' recognition, which is keyed by the LIVE
@@ -478,8 +478,8 @@ describe('U2d — anchor inclusion', () => {
       invertibleOps: res.invertibleOps, createdEntityIds: anchorOnly,
       author_user_id: 'u1', device_id: deviceId, client_write_id: randomUUID(),
     })
-    expect(undoResult.deleted).toContainEqual({ entity: 'fixed_events', entity_id: anchorId })
-    expect(db.prepare('SELECT id FROM fixed_events WHERE id = ?').get(anchorId)).toBeFalsy()
+    expect(undoResult.deleted).toContainEqual({ entity: 'fixed_events', entity_id: fixedEventId })
+    expect(db.prepare('SELECT id FROM fixed_events WHERE id = ?').get(fixedEventId)).toBeFalsy()
 
     // Reimport of the SAME fixed event, same day/time block (still live —
     // recognize-then-skip would normally no-op, but the tombstone here must

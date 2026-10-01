@@ -11,9 +11,9 @@ export function getSlot(slots, groupId, dayId, blockId) {
   return slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId)
 }
 
-// Returns true if this slot is a tail block of a multi-block anchor
+// Returns true if this slot is a tail block of a multi-block fixed event
 // (i.e., the previous block for this group+day has the same fixed_event_id)
-export function isAnchorTail(slots, timeBlocks, groupId, dayId, blockId) {
+export function isFixedEventTail(slots, timeBlocks, groupId, dayId, blockId) {
   const slot = getSlot(slots, groupId, dayId, blockId)
   if (!slot?.is_fixed_event || !slot?.fixed_event_id) return false
   const blockIdx = timeBlocks.findIndex(b => b.id === blockId)
@@ -23,7 +23,7 @@ export function isAnchorTail(slots, timeBlocks, groupId, dayId, blockId) {
 }
 
 // Returns how many consecutive blocks share the same fixed_event_id starting at blockId
-export function getAnchorRowSpan(slots, timeBlocks, groupId, dayId, blockId) {
+export function getFixedEventRowSpan(slots, timeBlocks, groupId, dayId, blockId) {
   const slot = getSlot(slots, groupId, dayId, blockId)
   if (!slot?.is_fixed_event || !slot?.fixed_event_id) return 1
   const startIdx = timeBlocks.findIndex(b => b.id === blockId)
@@ -69,8 +69,8 @@ export function getActivityRowSpan(slots, timeBlocks, groupId, dayId, blockId) {
 export function makeGridGeometry({ slots, timeBlocks }) {
   return {
     getSlot: (groupId, dayId, blockId) => getSlot(slots, groupId, dayId, blockId),
-    isAnchorTail: (groupId, dayId, blockId) => isAnchorTail(slots, timeBlocks, groupId, dayId, blockId),
-    getAnchorRowSpan: (groupId, dayId, blockId) => getAnchorRowSpan(slots, timeBlocks, groupId, dayId, blockId),
+    isFixedEventTail: (groupId, dayId, blockId) => isFixedEventTail(slots, timeBlocks, groupId, dayId, blockId),
+    getFixedEventRowSpan: (groupId, dayId, blockId) => getFixedEventRowSpan(slots, timeBlocks, groupId, dayId, blockId),
     isActivityTail: (groupId, dayId, blockId) => isActivityTail(slots, groupId, dayId, blockId),
     getActivityRowSpan: (groupId, dayId, blockId) => getActivityRowSpan(slots, timeBlocks, groupId, dayId, blockId),
   }
@@ -83,16 +83,16 @@ export function makeGridGeometry({ slots, timeBlocks }) {
 // differs. Returns one of:
 //   { kind: 'skip' }                          — tail covered by a head's rowSpan
 //   { kind: 'empty' }                         — droppable empty cell
-//   { kind: 'slot', slot, rowSpan, cellType } — a SlotCell (anchor vs cellType
+//   { kind: 'slot', slot, rowSpan, cellType } — a SlotCell (fixed event vs cellType
 //                                               resolved by the view via slot.is_fixed_event)
 export function decideCell(geometry, groupId, dayId, blockId) {
   const slot = geometry.getSlot(groupId, dayId, blockId)
   if (!slot) return { kind: 'empty' }
-  if (slot.is_fixed_event && geometry.isAnchorTail(groupId, dayId, blockId)) return { kind: 'skip' }
+  if (slot.is_fixed_event && geometry.isFixedEventTail(groupId, dayId, blockId)) return { kind: 'skip' }
   if (!slot.is_fixed_event && geometry.isActivityTail(groupId, dayId, blockId)) return { kind: 'skip' }
 
   const rowSpan = slot.is_fixed_event
-    ? geometry.getAnchorRowSpan(groupId, dayId, blockId)
+    ? geometry.getFixedEventRowSpan(groupId, dayId, blockId)
     : geometry.getActivityRowSpan(groupId, dayId, blockId)
 
   const isUnfillable = Boolean(slot.flags?.UNFILLABLE) && !slot.flags?.UNFILLABLE_dismissed

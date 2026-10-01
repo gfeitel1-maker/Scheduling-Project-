@@ -131,18 +131,18 @@ describe('useGeneration', () => {
     expect(props.setGenerating).toHaveBeenLastCalledWith(false)
   })
 
-  it('placeAnchors() builds fixedEvents-only for the manual route and defaults the selected group', async () => {
+  it('placeFixedEvents() builds fixedEvents-only for the manual route and defaults the selected group', async () => {
     const { result, props } = setup()
-    await act(async () => { await result.current.placeAnchors() })
+    await act(async () => { await result.current.placeFixedEvents() })
     expect(buildSchedule).toHaveBeenCalledWith(expect.objectContaining({ fixedEventsOnly: true }))
     expect(props.ensureTemplateRow).toHaveBeenCalledWith('manual')
     expect(props.repo.replaceWeek).toHaveBeenCalledWith('tid-manual', [{ id: 'ns-1' }])
     expect(props.setSelectedGroup).toHaveBeenCalledTimes(1)
   })
 
-  it('placeAnchors() runs the week-exclusion pre-pass: an anchor for a closed activity is suppressed', async () => {
+  it('placeFixedEvents() runs the week-exclusion pre-pass: an anchor for a closed activity is suppressed', async () => {
     // resolveWeekCatalog is NOT mocked here (only buildSchedule is), so this
-    // pins the real seam: placeAnchors filters the catalog for the week before
+    // pins the real seam: placeFixedEvents filters the catalog for the week before
     // laying down fixedEvents, exactly as generate() does. Without the pre-pass a
     // closed activity's anchor would still be placed — and computeWeekClosures
     // skips fixedEvents, so nothing downstream would catch it.
@@ -153,7 +153,7 @@ describe('useGeneration', () => {
       activityExclusions: [{ week_id: 'wk1', activity_id: 'a2' }],
       groupExclusions: [],
     })
-    await act(async () => { await result.current.placeAnchors() })
+    await act(async () => { await result.current.placeFixedEvents() })
 
     const arg = buildSchedule.mock.calls[0][0]
     expect(arg.fixedEventsOnly).toBe(true)
@@ -162,9 +162,9 @@ describe('useGeneration', () => {
     expect(arg.activities.map(a => a.id)).toContain('a1')
   })
 
-  it('placeAnchors() runs the week-exclusion pre-pass for LOCATION closures too (guards the second resolveWeekCatalog call site)', async () => {
+  it('placeFixedEvents() runs the week-exclusion pre-pass for LOCATION closures too (guards the second resolveWeekCatalog call site)', async () => {
     // Mirrors the activity-exclusion test above, but closes the PLACE the anchor's
-    // activity sits on. This pins the locationExclusions argument on placeAnchors()'s
+    // activity sits on. This pins the locationExclusions argument on placeFixedEvents()'s
     // OWN resolveWeekCatalog call — the exact line an auto-merge once silently dropped.
     // Without it, a2's location closure would not reach the fixedEvents-only rebuild and
     // the anchor would still be placed (and computeWeekClosures skips fixedEvents, so
@@ -178,7 +178,7 @@ describe('useGeneration', () => {
       groupExclusions: [],
       locationExclusions: [{ week_id: 'wk1', location_id: 'loc-pool' }],
     })
-    await act(async () => { await result.current.placeAnchors() })
+    await act(async () => { await result.current.placeFixedEvents() })
 
     const arg = buildSchedule.mock.calls[0][0]
     expect(arg.fixedEvents).toEqual([]) // the anchor whose activity's PLACE is closed is gone
@@ -186,7 +186,7 @@ describe('useGeneration', () => {
     expect(arg.activities.map(a => a.id)).toContain('a1')
   })
 
-  it('placeAnchors() leaves the catalog intact when the week has no exclusions', async () => {
+  it('placeFixedEvents() leaves the catalog intact when the week has no exclusions', async () => {
     const { result } = setup({
       weekId: 'wk1',
       activities: [{ id: 'a1', name: 'Swim' }],
@@ -194,20 +194,20 @@ describe('useGeneration', () => {
       activityExclusions: [],
       groupExclusions: [],
     })
-    await act(async () => { await result.current.placeAnchors() })
+    await act(async () => { await result.current.placeFixedEvents() })
 
     const arg = buildSchedule.mock.calls[0][0]
     expect(arg.fixedEvents).toEqual([{ id: 'an1', activity_id: 'a1', is_all_groups: true, group_ids: [] }])
     expect(arg.activities.map(a => a.id)).toContain('a1')
   })
 
-  it('placeAnchors() aborts the replace when the manual auto-snapshot fails', async () => {
+  it('placeFixedEvents() aborts the replace when the manual auto-snapshot fails', async () => {
     const saveSnapshot = vi.fn(async () => { throw new Error('snap failed') })
     const { result, props } = setup({
       slotsByRoute: { generated: [], manual: [{ id: 'y' }] },
       saveSnapshot,
     })
-    await act(async () => { await result.current.placeAnchors() })
+    await act(async () => { await result.current.placeFixedEvents() })
     expect(props.repo.replaceWeek).not.toHaveBeenCalled()
     expect(props.setActionError).toHaveBeenCalledWith('Could not save undo point — regeneration cancelled')
   })
@@ -238,43 +238,43 @@ describe('useGeneration', () => {
       expect(props.repo.replaceWeek).toHaveBeenCalledWith('tid-generated', [{ id: 'ns-1' }])
     })
 
-    it('placeAnchors() does NOT write the schedule when buildSchedule reports an error-severity finding', async () => {
+    it('placeFixedEvents() does NOT write the schedule when buildSchedule reports an error-severity finding', async () => {
       buildSchedule.mockReturnValueOnce({
         slots: [{ id: 'ns-1' }],
         findings: [{ kind: 'FIXED_EVENT_IDENTITY_GAP', severity: 'error', reason: 'dangling' }],
       })
       const { result, props } = setup()
-      await act(async () => { await result.current.placeAnchors() })
+      await act(async () => { await result.current.placeFixedEvents() })
 
       expect(props.repo.replaceWeek).not.toHaveBeenCalled()
       expect(props.setActionError).toHaveBeenCalledWith(expect.stringContaining('not linked to a valid activity'))
       expect(props.setGenerating).toHaveBeenLastCalledWith(false)
     })
 
-    it('placeAnchors() DOES write the schedule when findings contain no error severity (non-vacuity)', async () => {
+    it('placeFixedEvents() DOES write the schedule when findings contain no error severity (non-vacuity)', async () => {
       buildSchedule.mockReturnValueOnce({
         slots: [{ id: 'ns-1' }],
         findings: [],
       })
       const { result, props } = setup()
-      await act(async () => { await result.current.placeAnchors() })
+      await act(async () => { await result.current.placeFixedEvents() })
 
       expect(props.repo.replaceWeek).toHaveBeenCalledWith('tid-manual', [{ id: 'ns-1' }])
     })
   })
 
   // Red Hat HIGH (round 2): the FIXED_EVENT_DUPLICATE gate is hand-duplicated at
-  // three call sites of computeFindings, this hook's placeAnchors() being one.
+  // three call sites of computeFindings, this hook's placeFixedEvents() being one.
   // The site has no ternary — it is hardcoded to never pass fixedEvents, since
-  // placeAnchors is the MANUAL-route bootstrap and FIXED_EVENT_DUPLICATE is
+  // placeFixedEvents is the MANUAL-route bootstrap and FIXED_EVENT_DUPLICATE is
   // generated-only (see the comment at useGeneration.js:242-245 and
   // useScheduleData.js:338-343: computeFindings' safe default, absent fixedEvents
   // -> no finding, is what keeps manual clean). A future edit that starts
   // passing fixedEvents here would regress that silently — nothing else exercises
   // this call's arguments.
-  it('placeAnchors() calls computeFindings with no fixedEvents key at all (manual route never surfaces FIXED_EVENT_DUPLICATE)', async () => {
+  it('placeFixedEvents() calls computeFindings with no fixedEvents key at all (manual route never surfaces FIXED_EVENT_DUPLICATE)', async () => {
     const { result } = setup()
-    await act(async () => { await result.current.placeAnchors() })
+    await act(async () => { await result.current.placeFixedEvents() })
 
     expect(computeFindings).toHaveBeenCalledTimes(1)
     const arg = computeFindings.mock.calls[0][0]

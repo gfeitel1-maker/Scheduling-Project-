@@ -15,26 +15,26 @@ import { assertIdListShape } from './assertIdListShape.js'
  * Contract: group_ids/unit_ids are arrays of ids. Callers normalize; this
  * engine does not deserialize — see src/screens/schedule/useScheduleData.js.
  */
-export function resolveFixedEventGroupIds(anchor, groups) {
-  const unitIds = Array.isArray(anchor.unit_ids) ? anchor.unit_ids.filter(Boolean) : []
+export function resolveFixedEventGroupIds(fixedEvent, groups) {
+  const unitIds = Array.isArray(fixedEvent.unit_ids) ? fixedEvent.unit_ids.filter(Boolean) : []
   if (unitIds.length) {
     const wanted = new Set(unitIds)
     return groups.filter((g) => wanted.has(g.tier_id)).map((g) => g.id)
   }
-  if (anchor.unit_id != null && anchor.unit_id !== '') {
-    return groups.filter((g) => g.tier_id === anchor.unit_id).map((g) => g.id)
+  if (fixedEvent.unit_id != null && fixedEvent.unit_id !== '') {
+    return groups.filter((g) => g.tier_id === fixedEvent.unit_id).map((g) => g.id)
   }
-  if (anchor.is_all_groups) return groups.map((g) => g.id)
-  if (import.meta.env?.DEV) assertIdListShape(anchor.group_ids, 'group_ids', anchor.id)
-  return anchor.group_ids || []
+  if (fixedEvent.is_all_groups) return groups.map((g) => g.id)
+  if (import.meta.env?.DEV) assertIdListShape(fixedEvent.group_ids, 'group_ids', fixedEvent.id)
+  return fixedEvent.group_ids || []
 }
 
 /**
  * The days a fixed/recurring event covers, resolved against the live day list.
  *
  * A null/empty `day_id` means EVERY day — never "no days". That rule existed in
- * two places the moment the anchored-activity exclusion became day-keyed (Q5):
- * Pass 1's `anchorLookup` in buildSchedule.js, and the exclusion Map itself.
+ * two places the moment the fixed-event-activity exclusion became day-keyed (Q5):
+ * Pass 1's `fixedEventLookup` in buildSchedule.js, and the exclusion Map itself.
  * Extracted here rather than left duplicated, on the same reasoning that
  * produced resolveFixedEventGroupIds one day earlier — two copies of a scope rule
  * is precisely how weekCatalog came to read `group_ids` raw while the engine
@@ -47,15 +47,15 @@ export function resolveFixedEventGroupIds(anchor, groups) {
  * resolveFixedEventGroupIds takes live groups: a snapshot silently reintroduces the
  * staleness T180 removed, and nothing would fail.
  */
-export function resolveFixedEventDayIds(anchor, days) {
-  const dayId = anchor?.day_id
+export function resolveFixedEventDayIds(fixedEvent, days) {
+  const dayId = fixedEvent?.day_id
   if (dayId != null && dayId !== '') return [dayId]
   return (days || []).map((d) => d.id)
 }
 
 /**
  * The DIVISION projection of the same scope precedence, for display (the
- * Anchors screen coverage label). Returns a descriptor, not group ids:
+ * Fixed events screen coverage label). Returns a descriptor, not group ids:
  *
  *   { mode: 'all' | 'divisions' | 'none', unitIds: string[], inferred: boolean }
  *
@@ -76,14 +76,14 @@ export function resolveFixedEventDayIds(anchor, days) {
  * must already be arrays, and `groups` must be the live list with tier_id on
  * every element.
  */
-export function resolveFixedEventUnitIds(anchor, groups) {
-  const unitIds = Array.isArray(anchor.unit_ids) ? anchor.unit_ids.filter(Boolean) : []
+export function resolveFixedEventUnitIds(fixedEvent, groups) {
+  const unitIds = Array.isArray(fixedEvent.unit_ids) ? fixedEvent.unit_ids.filter(Boolean) : []
   if (unitIds.length) return { mode: 'divisions', unitIds, inferred: false }
-  if (anchor.unit_id != null && anchor.unit_id !== '') {
-    return { mode: 'divisions', unitIds: [anchor.unit_id], inferred: false }
+  if (fixedEvent.unit_id != null && fixedEvent.unit_id !== '') {
+    return { mode: 'divisions', unitIds: [fixedEvent.unit_id], inferred: false }
   }
-  if (anchor.is_all_groups) return { mode: 'all', unitIds: [], inferred: false }
-  const groupIds = Array.isArray(anchor.group_ids) ? anchor.group_ids.filter(Boolean) : []
+  if (fixedEvent.is_all_groups) return { mode: 'all', unitIds: [], inferred: false }
+  const groupIds = Array.isArray(fixedEvent.group_ids) ? fixedEvent.group_ids.filter(Boolean) : []
   if (groupIds.length) {
     const wanted = new Set(groupIds)
     const derived = [...new Set(

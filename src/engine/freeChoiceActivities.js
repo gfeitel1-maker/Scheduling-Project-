@@ -11,7 +11,7 @@
 // exclusion (isFreeChoiceActivity, below) reads ONLY `catalog_role` — that is
 // what keeps the row out of every free-choice menu. Independently,
 // `fixed_events.activity_id` links to this row (resolved in
-// src/engine/fixedEventActivityLink.js) and feeds the SEPARATE anchor-duplicate
+// src/engine/fixedEventActivityLink.js) and feeds the SEPARATE fixed-event-duplicate
 // exclusion in buildSchedule.js (fixedEventActivityIdsByGroupDay). Delete the
 // row and BOTH suppressions break: catalog_role stops existing to be read,
 // and the activity_id link dangles — the event is placed twice, with no
@@ -57,7 +57,7 @@ export function filterFreeChoiceActivities(activities) {
 }
 
 // The inverse, for the places that want to SHOW pinned events as pinned events
-// (an anchors/events screen), rather than hide them.
+// (a fixed-events/events screen), rather than hide them.
 export function isPinnedEventActivity(activity) {
   return activity?.catalog_role === PINNED_EVENT_ROLE
 }

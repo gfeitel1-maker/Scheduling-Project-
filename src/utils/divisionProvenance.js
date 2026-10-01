@@ -48,12 +48,12 @@ export function describeDivisionEvidence(support, groupName) {
     parts.push('The bracketed part of the name was set aside when comparing.')
   }
 
-  const anchors = support.anchors_excluded ?? []
-  if (anchors.length > 0) {
+  const fixedEvents = support.fixed_events_excluded ?? []
+  if (fixedEvents.length > 0) {
     // Also load-bearing: an all-camp activity puts every group in one slot, so
     // leaving it in would make every group look like it belongs with every
     // other and nothing could ever be separated.
-    parts.push(`${list(anchors)} ${anchors.length === 1 ? 'was' : 'were'} ignored — all-camp activities put every group together, so they say nothing about who belongs with whom.`)
+    parts.push(`${list(fixedEvents)} ${fixedEvents.length === 1 ? 'was' : 'were'} ignored — all-camp activities put every group together, so they say nothing about who belongs with whom.`)
   }
 
   return parts.join(' ')

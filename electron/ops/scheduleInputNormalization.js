@@ -13,12 +13,12 @@
 // MIRROR of (1) — "keep this in sync if that logic changes" — with nothing
 // structural enforcing it. It did not stay in sync. By the time the mirror
 // covered eight fields it had silently lost a rule: the renderer parses BOTH
-// JSON-stringified id-list columns on an anchor (`group_ids` AND, since v65/
+// JSON-stringified id-list columns on an fixed event (`group_ids` AND, since v65/
 // T180, `unit_ids`), while the headless copy parsed only `group_ids`.
 // src/engine/fixedEventScope.js's resolveFixedEventGroupIds tests
-// `Array.isArray(anchor.unit_ids)`, so a raw JSON STRING is not a scope
+// `Array.isArray(fixedEvent.unit_ids)`, so a raw JSON STRING is not a scope
 // claim: it falls through to unit_id > is_all_groups > group_ids. A
-// division-scoped anchor therefore covered the wrong groups — usually none —
+// division-scoped fixed event therefore covered the wrong groups — usually none —
 // for every headless caller, with no error, no lint failure and no test
 // failure. That is the exact failure mode a comment cannot prevent and a
 // second copy invites.
@@ -100,7 +100,7 @@ export function normalizeScheduleInputs(rowsByEntity, campId) {
 
   // Both id-list columns are JSON-stringified in SQLite and MUST become real
   // arrays here, at the read boundary, so the pure engine never deserializes.
-  // `unit_ids` (v65, T180) is the anchor's DIVISION scope and is resolved
+  // `unit_ids` (v65, T180) is the fixed event's DIVISION scope and is resolved
   // live by src/engine/fixedEventScope.js — omitting it does not throw, it
   // silently drops the scope. See this file's header. See T63 for group_ids.
   const fixedEvents = raw('fixed_events').map((x) => ({

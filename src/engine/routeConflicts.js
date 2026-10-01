@@ -62,9 +62,9 @@ export function findRouteConflicts({ slots, activities, fixedEvents, electiveSet
         register(act.location_id, slot.dayId, slot.blockId, slot.groupId, slot.cohort_id, act.name || slot.activityId, 'activity', slot.activityId)
       }
     } else if (slot.type === 'fixed_event' && slot.fixedEventId != null) {
-      const anchor = fixedEventById.get(slot.fixedEventId)
-      if (anchor?.location_id != null) {
-        register(anchor.location_id, slot.dayId, slot.blockId, slot.groupId, slot.cohort_id, anchor.name || 'a fixed event', 'fixed_event', slot.fixedEventId)
+      const fixedEvent = fixedEventById.get(slot.fixedEventId)
+      if (fixedEvent?.location_id != null) {
+        register(fixedEvent.location_id, slot.dayId, slot.blockId, slot.groupId, slot.cohort_id, fixedEvent.name || 'a fixed event', 'fixed_event', slot.fixedEventId)
       }
     } else if (slot.type === 'event' && slot.eventId != null) {
       const ev = eventById.get(slot.eventId)

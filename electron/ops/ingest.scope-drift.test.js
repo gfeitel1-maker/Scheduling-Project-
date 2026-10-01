@@ -4,7 +4,7 @@
 // A director who changes a live fixed-event anchor's GROUP SCOPE (is_all_groups
 // / group_ids) via FixedEventsScreen and then re-imports the ORIGINAL source file
 // (still showing the old scope) today gets silent unchanged classification —
-// the anchor slot key deliberately excludes scope (ingest.js anchorSlotKey),
+// the fixed-event slot key deliberately excludes scope (ingest.js fixedEventSlotKey),
 // so scope drift is invisible to the recognize-then-skip branch.
 //
 // C1a adds a read-only comparison, alongside the live-anchor slot scan, that
@@ -270,7 +270,7 @@ describe('C1a — anchor group-scope drift signal', () => {
     // fields; switching a recurring event's scope leaves a replay window where
     // is_all_groups=1 has landed but unit_ids=[] has not. The shared resolver's
     // precedence is unit_ids > unit_id > is_all_groups > group_ids, so during
-    // that window the engine still resolves the DIVISION. liveAnchorScope must
+    // that window the engine still resolves the DIVISION. liveFixedEventScope must
     // honor the SAME precedence (division before all-groups), or it reports a
     // spurious "scope changed from all groups to <bunks>" on re-import — the
     // very drift class T183 exists to remove. kind='recurring' keeps the v65

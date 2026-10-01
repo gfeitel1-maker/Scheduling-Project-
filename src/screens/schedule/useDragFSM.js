@@ -42,7 +42,7 @@ export function resolveHit(point) {
     edge: closestEdge(el.getBoundingClientRect(), { y: point.y }),
     el,
     // Preserves exactly what `useDroppable({ disabled })` used to reject: locked
-    // cells and anchors. A resolved-but-rejected target makes the FSM tear down
+    // cells and fixed events. A resolved-but-rejected target makes the FSM tear down
     // instead of commit — see isValidHit in dragFSM.js.
     valid: el.dataset.dropDisabled === undefined,
   }
