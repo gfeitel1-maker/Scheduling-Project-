@@ -203,6 +203,68 @@ describe('projector — tombstone admission gate (T233)', () => {
     expect(db.prepare('SELECT * FROM elective_run_findings WHERE id = ?').get(findingId)).toBeUndefined()
   })
 
+  // Board item (T320 part 2 follow-up) — elective_run_outer_snapshots carries a real camper_id
+  // (NOT NULL, finalizeElectiveRun.js) and is missing from the denylist today, so an erased
+  // camper's whole finalized schedule survives, by id, in every export of this run on every
+  // device. Order (a): the snapshot rows are already in the doc when the tombstone arrives.
+  it('an elective_run_outer_snapshots row for a tombstoned camper is suppressed and deleted (snapshot before tombstone)', () => {
+    installHostKey(db)
+    const camperId = 'camper-8'
+    const runId = 'run-2'
+    const snapshotId = 'snap-1'
+    let doc = createEmptyDoc()
+    doc = putCamper(doc, camperId)
+    doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: runId, field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: runId, field: 'name', value: 'Run 2' })
+    doc = applyWrite(doc, { entity: 'elective_run_outer_snapshots', entity_id: snapshotId, field: 'run_id', value: runId })
+    doc = applyWrite(doc, { entity: 'elective_run_outer_snapshots', entity_id: snapshotId, field: 'camper_id', value: camperId })
+    doc = applyWrite(doc, { entity: 'elective_run_outer_snapshots', entity_id: snapshotId, field: 'day_id', value: 'day-1' })
+    doc = applyWrite(doc, { entity: 'elective_run_outer_snapshots', entity_id: snapshotId, field: 'time_block_id', value: 'block-1' })
+
+    // Green before the tombstone: the row genuinely projects, so its later absence is the sweep
+    // working rather than a row that never existed.
+    projectAll(db, doc)
+    expect(db.prepare('SELECT camper_id FROM elective_run_outer_snapshots WHERE id = ?').get(snapshotId).camper_id).toBe(camperId)
+
+    doc = tombstoneDoc(doc, db, { id: camperId, entity: 'campers', version: 1 })
+    projectAll(db, doc)
+
+    expect(db.prepare('SELECT * FROM campers WHERE id = ?').get(camperId)).toBeUndefined()
+    expect(db.prepare('SELECT * FROM elective_run_outer_snapshots WHERE id = ?').get(snapshotId)).toBeUndefined()
+  })
+
+  // Order (b): the tombstone has already been applied, and a late peer then writes snapshot ops
+  // for the erased camper — including the partial-field window the T233 round 2 finding 3 case
+  // above exercises: SQLite already has the row with its real camper_id (a genuine prior local
+  // write via the per-field applyProjection hot path), but the doc only knows run_id so far.
+  it('elective_run_outer_snapshots: tombstone first, then a late peer writes partial snapshot fields for the erased camper — still deleted', () => {
+    installHostKey(db)
+    const camperId = 'camper-9'
+    const snapshotId = 'snap-partial'
+
+    // Pass 1: only the tombstone exists — the snapshot row isn't in the doc or SQLite yet, so
+    // this pass just establishes the tombstoned-camper fact for later passes.
+    let doc = createEmptyDoc()
+    doc = putCamper(doc, camperId)
+    doc = tombstoneDoc(doc, db, { id: camperId, entity: 'campers', version: 1 })
+    projectAll(db, doc)
+    expect(db.prepare('SELECT * FROM tombstones WHERE id = ?').get(camperId)).toBeTruthy()
+
+    // Now the late peer's write arrives: SQLite already holds the FULL row with its real
+    // camper_id (a genuine prior local write via the per-field applyProjection hot path, which
+    // does not consult the denylist), but the doc only knows run_id so far — fields arrive one
+    // at a time on the wire. Crucially the doc DOES know this id (so ordinary reconciliation,
+    // which deletes SQLite rows the doc has never heard of, is not what removes it below — only
+    // the denylist's post-loop SQLite-column sweep is).
+    db.prepare(
+      'INSERT INTO elective_run_outer_snapshots (id, run_id, camper_id, day_id, time_block_id) VALUES (?, ?, ?, ?, ?)'
+    ).run(snapshotId, 'run-x', camperId, 'day-x', 'block-x')
+    doc = applyWrite(doc, { entity: 'elective_run_outer_snapshots', entity_id: snapshotId, field: 'run_id', value: 'run-x' })
+    projectAll(db, doc)
+
+    expect(db.prepare('SELECT * FROM elective_run_outer_snapshots WHERE id = ?').get(snapshotId)).toBeUndefined()
+  })
+
   it('T233 round 2 finding 4: no entity is ever both tombstone-denylisted and bulk-replace-modeled', () => {
     // upsertEntity (projector.js) returns after the BULK_REPLACE_MODELED_ENTITIES branch, BEFORE
     // the tombstone denylist gate runs — a future bulk-replace entity added to

@@ -177,6 +177,44 @@ describe('purgeCamperRecord', () => {
     expect(touchesPrefId).toBe(false)
   })
 
+  // Board item — elective_run_findings (T320 part 2, SHEET_CAMPER_WITHOUT_PREFERENCE roster kind)
+  // carries a real camper_id but was missing from this transaction's local delete set, unlike its
+  // three siblings above. Mirrors the "purges the camper, its dependent rows" test's shape but
+  // isolated to this one table, since buildCampWithCamper doesn't build a findings row.
+  it('purges an elective_run_findings row for the purged camper, and counts it in removed', () => {
+    const { db, dbPath } = newDb('findings')
+    const campId = randomUUID()
+    const deviceId = 'device-1'
+    const camperId = randomUUID()
+    const runId = randomUUID()
+    const findingId = randomUUID()
+    buildCampWithCamper(db, {
+      campId, deviceId, camperId, groupId: randomUUID(),
+      prefId: randomUUID(), runId: randomUUID(), choiceId: randomUUID(),
+    })
+    appendOp(db, { entity: 'elective_assignment_runs', entity_id: runId, field: 'camp_id', value: campId, device_id: deviceId, author_user_id: 'u1' })
+    appendOp(db, { entity: 'elective_assignment_runs', entity_id: runId, field: 'name', value: 'Run 1', device_id: deviceId, author_user_id: 'u1' })
+    appendOp(db, { entity: 'elective_run_findings', entity_id: findingId, field: 'run_id', value: runId, device_id: deviceId, author_user_id: 'u1' })
+    appendOp(db, { entity: 'elective_run_findings', entity_id: findingId, field: 'solver_generation', value: 'gen-1', device_id: deviceId, author_user_id: 'u1' })
+    appendOp(db, { entity: 'elective_run_findings', entity_id: findingId, field: 'kind', value: 'SHEET_CAMPER_WITHOUT_PREFERENCE', device_id: deviceId, author_user_id: 'u1' })
+    appendOp(db, { entity: 'elective_run_findings', entity_id: findingId, field: 'message', value: 'no ranked choice', device_id: deviceId, author_user_id: 'u1' })
+    appendOp(db, { entity: 'elective_run_findings', entity_id: findingId, field: 'camper_id', value: camperId, device_id: deviceId, author_user_id: 'u1' })
+    expect(db.prepare('SELECT camper_id FROM elective_run_findings WHERE id = ?').get(findingId).camper_id).toBe(camperId)
+    installHostKey(db, campId)
+
+    const doc = seedAllFromSqlite(db)
+    const userDataDir = newUserDataDir('findings')
+    saveDoc(userDataDir, campId, doc)
+    db.close()
+
+    const result = purgeCamperRecord({ dbPath, userDataDir, entityId: camperId })
+
+    expect(result.removed.elective_run_findings).toBe(1)
+    const verifyDb = openLocalDb(dbPath)
+    expect(verifyDb.prepare('SELECT * FROM elective_run_findings WHERE id = ?').get(findingId)).toBeUndefined()
+    verifyDb.close()
+  })
+
   it('non-vacuity: purges an operations row that was never materialized into a projection table', () => {
     const { db, dbPath } = newDb('opsonly')
     const campId = randomUUID()

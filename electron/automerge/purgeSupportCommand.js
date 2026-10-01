@@ -9,8 +9,11 @@
 //      history for it. This purge is a WHOLE-DEVICE rebuild with real collateral cost (see point 5
 //      below) — running it for an id that names nothing purges nothing and still destroys camp-wide
 //      state and this device's signing key for free.
-//   3. Delete the target camper and its dependent rows (elective_preferences, elective_assignments
-//      by camper_id) from THIS device's live projection, regenerate a FRESH document via
+//   3. Delete the target camper and its dependent rows — every camper_id-bearing table in the
+//      schema: elective_preferences, elective_assignments, elective_run_outer_snapshots and
+//      elective_run_findings, all by camper_id — from THIS device's live projection, and keep
+//      this list in step with TOMBSTONE_DENYLISTED_ENTITIES (projector.js), which is the fleet-
+//      wide half of the same guarantee. Then regenerate a FRESH document via
 //      seedAllFromSqlite(oldDb, createEmptyDoc()), and confirm it still shares this camp's genesis
 //      — ALL THREE inside one oldDb.transaction() (round 2, FIX1). Before this fix the three
 //      DELETEs auto-committed individually, so a throw from seedAllFromSqlite/the genesis check
@@ -310,6 +313,9 @@ function purgeCamperRecordLocked({ dbPath, userDataDir, cipher = null, key = nul
         // purged camper's denormalized schedule (activity_name/location_name)
         // survives the purge as an orphan row.
         elective_run_outer_snapshots: oldDb.prepare('DELETE FROM elective_run_outer_snapshots WHERE camper_id = ?').run(entityId).changes,
+        // T320 part 2 added elective_run_findings to TOMBSTONE_DENYLISTED_ENTITIES (projector.js)
+        // but nobody added the matching local delete here — same treatment as its siblings above.
+        elective_run_findings: oldDb.prepare('DELETE FROM elective_run_findings WHERE camper_id = ?').run(entityId).changes,
         campers: oldDb.prepare('DELETE FROM campers WHERE id = ?').run(entityId).changes,
       }
 

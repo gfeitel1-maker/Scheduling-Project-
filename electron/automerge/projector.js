@@ -379,6 +379,14 @@ export const TOMBSTONE_DENYLISTED_ENTITIES = {
   // purged camper's id would survive in a table the erasure sweep does not
   // touch.
   elective_run_findings: { idField: 'camper_id', tombstoneEntity: 'campers' },
+  // A finalized run's per-camper, per-cell export snapshot (finalizeElectiveRun.js). `camper_id`
+  // is NOT NULL, and it is baked into the row's own id
+  // (deriveElectiveRunOuterSnapshotId(run_id, camper_id, day_id, time_block_id)), so without this
+  // entry an erased camper's whole finalized schedule — and the camper id itself — would survive
+  // in every exported run on every device. This denylist now covers every camper_id-bearing
+  // table in the schema (campers, elective_preferences, elective_assignments,
+  // elective_run_outer_snapshots, elective_run_findings).
+  elective_run_outer_snapshots: { idField: 'camper_id', tombstoneEntity: 'campers' },
 }
 
 // T233 round 2, finding 4: upsertEntity (below) returns early for a BULK_REPLACE_MODELED_ENTITIES
