@@ -262,7 +262,7 @@ function writeRouteSnapshot(db, { template_id, name, author_user_id, device_id }
   const id = randomUUID()
   const slots = db
     .prepare(
-      `SELECT group_id, day_id, time_block_id, activity_id, anchor_id, is_anchor, flags
+      `SELECT group_id, day_id, time_block_id, activity_id, fixed_event_id, is_fixed_event, flags
          FROM template_slots WHERE template_id = ?`
     )
     .all(template_id)
@@ -271,8 +271,8 @@ function writeRouteSnapshot(db, { template_id, name, author_user_id, device_id }
       day_id: s.day_id,
       time_block_id: s.time_block_id,
       activity_id: s.activity_id,
-      anchor_id: s.anchor_id,
-      is_anchor: s.is_anchor,
+      fixed_event_id: s.fixed_event_id,
+      is_fixed_event: s.is_fixed_event,
       flags: s.flags ? JSON.parse(s.flags) : {},
     }))
 

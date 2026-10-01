@@ -14,7 +14,7 @@ import { whitespaceInsensitiveName } from '../../src/ingest/preview.js'
 // key would fork the repo-wide recognition rule silently), and its corpus is
 // the documented label-shape corpus for this key.
 //
-// Precedent and form: src/engine/anchorActivityLink.keyParity.test.js.
+// Precedent and form: src/engine/fixedEventActivityLink.keyParity.test.js.
 describe('electiveChoiceLabelKey stays in step with the ingest recognition key', () => {
   const LABELS = [
     'Swim', 'swim', 'SWIM', '  Swim  ', 'Swim Advanced', 'SwimAdvanced',

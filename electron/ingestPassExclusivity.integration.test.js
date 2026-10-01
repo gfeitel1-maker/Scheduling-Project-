@@ -40,7 +40,7 @@ import { inferFixedEvents } from '../src/ingest/fixedEvents.js'
 import { derivePinOnlyActivityNames } from '../src/ingest/pinOnlyActivityNames.js'
 import { inferActivityRules } from '../src/ingest/activityRules.js'
 import { filterFreeChoiceActivities, isFreeChoiceActivity } from '../src/engine/freeChoiceActivities.js'
-import { resolveAnchorActivityIds } from '../src/engine/anchorActivityLink.js'
+import { resolveFixedEventActivityIds } from '../src/engine/fixedEventActivityLink.js'
 import buildSchedule from '../src/engine/buildSchedule.js'
 
 const SAMPLE = path.join(process.cwd(), 'docs/work/specs/samples/campB-by-day.txt')
@@ -231,7 +231,7 @@ describe('T266 — the real ingest path', () => {
     expect(anchors.length).toBeGreaterThan(0)
 
     for (const anchor of anchors) {
-      const ids = resolveAnchorActivityIds(anchor)
+      const ids = resolveFixedEventActivityIds(anchor)
       // Zero and two-or-more are BOTH failures. Zero is the silent one: it is
       // what a missing write-path fix produces, and it switches the
       // don't-schedule-twice suppression off with no error anywhere.
@@ -249,7 +249,7 @@ describe('T266 — the real ingest path', () => {
     const markedIds = new Set(marked.map((r) => r.id))
     const anchors = anchorRows().filter((a) => a.name === PINNED)
     for (const anchor of anchors) {
-      expect(resolveAnchorActivityIds(anchor)).toHaveLength(1)
+      expect(resolveFixedEventActivityIds(anchor)).toHaveLength(1)
       expect(markedIds.has(anchor.activity_id)).toBe(true)
     }
   })
@@ -391,10 +391,10 @@ describe('T266 clause 2 — the generated grid', () => {
 
   it('NON-VACUITY (the defect the description does NOT point at): a HOLE instead of a marker is a generation-blocking gap, not a silent no-op', () => {
     // Under T267 PR2's id-based resolution, deleting the pinned activity row
-    // no longer makes resolveAnchorActivityIds silently return [] — the
+    // no longer makes resolveFixedEventActivityIds silently return [] — the
     // anchor still carries the (now dangling) activity_id, so resolution
     // still returns exactly one id. The failure mode moved from "silent
-    // resolution miss" to "buildSchedule's ANCHOR_IDENTITY_GAP finding",
+    // resolution miss" to "buildSchedule's FIXED_EVENT_IDENTITY_GAP finding",
     // which is the whole point of the invariant in step 5 of the ADR: this
     // proves it actually fires for the case a delete-the-row fix produces.
     runRealIngest()
@@ -407,10 +407,10 @@ describe('T266 clause 2 — the generated grid', () => {
 
     // Clause 1 still looks perfect — the name is gone from the catalogue.
     expect(byName(holed, PINNED)).toEqual([])
-    // resolveAnchorActivityIds still returns the (dangling) id — it does not
+    // resolveFixedEventActivityIds still returns the (dangling) id — it does not
     // consult the activities table at all.
     for (const anchor of anchors) {
-      expect(resolveAnchorActivityIds(anchor)).toEqual([anchor.activity_id])
+      expect(resolveFixedEventActivityIds(anchor)).toEqual([anchor.activity_id])
     }
   })
 

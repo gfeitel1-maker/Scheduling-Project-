@@ -12,7 +12,7 @@
   --warning: #B44E48; /* legacy alias of --danger — existing errorBanner/btnDanger reference this; do not give it a new meaning */
   --danger: #B44E48;
   --anchor: #5C6B7A;
-  --purple: #5C6B7A; /* deprecated: alias of --anchor. Kept because src/screens/AnchorsScreen.jsx still references var(--purple); do not use in new code */
+  --purple: #5C6B7A; /* deprecated: alias of --anchor. Kept because src/screens/FixedEventsScreen.jsx still references var(--purple); do not use in new code */
   /* --yellow-green removed: zero references in src; absorbed into the activity palette (design-system.md §3) */
   --text: #1E2A34;
   --text-secondary: #5C6670;

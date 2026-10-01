@@ -34,7 +34,7 @@ describe('confirmCompoundCellPattern — single-writer transactional write', () 
       camp_id: campId,
       pattern: 'Lunch + Leave',
       interpretation: 'wrapper',
-      anchor_name: 'Lunch',
+      base_name: 'Lunch',
       wrapper_name: 'Leave',
       confirmed_by: 'user1',
     })
@@ -44,7 +44,7 @@ describe('confirmCompoundCellPattern — single-writer transactional write', () 
     expect(row.camp_id).toBe(campId)
     expect(row.pattern).toBe('Lunch + Leave')
     expect(row.interpretation).toBe('wrapper')
-    expect(row.anchor_name).toBe('Lunch')
+    expect(row.base_name).toBe('Lunch')
     expect(row.wrapper_name).toBe('Leave')
     expect(row.confirmed_by).toBe('user1')
     expect(row.confirmed_at).toBeTruthy()
@@ -52,7 +52,7 @@ describe('confirmCompoundCellPattern — single-writer transactional write', () 
     const map = listCompoundCellDecisions(db, campId)
     expect(map.get('Lunch + Leave')).toEqual({
       interpretation: 'wrapper',
-      anchor_name: 'Lunch',
+      base_name: 'Lunch',
       wrapper_name: 'Leave',
     })
   })
@@ -63,14 +63,14 @@ describe('confirmCompoundCellPattern — single-writer transactional write', () 
     })
     const second = confirmCompoundCellPattern(db, {
       camp_id: campId, pattern: 'Change/Snack', interpretation: 'wrapper',
-      anchor_name: 'Snack', wrapper_name: 'Change',
+      base_name: 'Snack', wrapper_name: 'Change',
     })
 
     const rows = db.prepare('SELECT * FROM compound_cell_decisions WHERE camp_id = ? AND pattern = ?').all(campId, 'Change/Snack')
     expect(rows).toHaveLength(1)
     expect(rows[0].id).toBe(second.id)
     expect(rows[0].interpretation).toBe('wrapper')
-    expect(rows[0].anchor_name).toBe('Snack')
+    expect(rows[0].base_name).toBe('Snack')
   })
 
   it('two different camps can independently confirm the identical pattern string, no cross-camp bleed', () => {
@@ -101,13 +101,13 @@ describe('confirmCompoundCellPattern — single-writer transactional write', () 
     expect(() => confirmCompoundCellPattern(db, { camp_id: campId, interpretation: 'as_written' })).toThrow(ConfirmCompoundCellPatternError)
   })
 
-  it('throws on a "wrapper" interpretation missing anchor_name or wrapper_name, and writes nothing', () => {
+  it('throws on a "wrapper" interpretation missing base_name or wrapper_name, and writes nothing', () => {
     expect(() =>
       confirmCompoundCellPattern(db, { camp_id: campId, pattern: 'Lunch + Leave', interpretation: 'wrapper' })
     ).toThrow(ConfirmCompoundCellPatternError)
     expect(() =>
       confirmCompoundCellPattern(db, {
-        camp_id: campId, pattern: 'Lunch + Leave', interpretation: 'wrapper', anchor_name: 'Lunch',
+        camp_id: campId, pattern: 'Lunch + Leave', interpretation: 'wrapper', base_name: 'Lunch',
       })
     ).toThrow(ConfirmCompoundCellPatternError)
     expect(() =>

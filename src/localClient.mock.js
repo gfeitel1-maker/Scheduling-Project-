@@ -233,8 +233,8 @@ function seedDemoCamp() {
           time_block_id: b.id,
           activity_id: isElective || isUnfillable ? null : `act-${(gi + di + bi) % activityNames.length}`,
           elective_set_id: isElective ? ELECTIVE_SET_ID : null,
-          anchor_id: null,
-          is_anchor: 0,
+          fixed_event_id: null,
+          is_fixed_event: 0,
           is_span_head: 1,
           is_released: 0,
           flags: isUnfillable
@@ -449,7 +449,7 @@ export const MOCK_SCOPE_KEYS = {
 // Scoped to the columns the renderer reads as booleans rather than applied to
 // every numeric-looking string: a camp named "2024" must stay a string.
 const INTEGER_AFFINITY_FIELDS = {
-  template_slots: ['is_anchor', 'is_span_head', 'is_released'],
+  template_slots: ['is_fixed_event', 'is_span_head', 'is_released'],
 }
 
 function coerceIntegerAffinity(entity, field, value) {
@@ -473,7 +473,7 @@ export const MOCK_WRITE_ALLOWLIST = {
     'session_week_start',
     'session_week_end',
     'capacity_source',
-    'anchor_model',
+    'fixed_event_model',
     'sort_order',
   ],
   groups: ['camp_id', 'name', 'tier_id', 'availability'],
@@ -568,8 +568,8 @@ export const MOCK_WRITE_ALLOWLIST = {
     'activity_id',
     'day_id',
     'time_block_id',
-    'anchor_id',
-    'is_anchor',
+    'fixed_event_id',
+    'is_fixed_event',
     'is_span_head',
     'is_released',
     'flags',
@@ -1618,7 +1618,7 @@ export const mockShoresh = {
         const row = {
           pattern: decision.pattern,
           interpretation: decision.interpretation,
-          anchor_name: decision.anchor_name ?? null,
+          base_name: decision.base_name ?? null,
           wrapper_name: decision.wrapper_name ?? null,
         }
         if (existingIdx >= 0) state.__compoundCellDecisions[existingIdx] = row
@@ -1803,7 +1803,7 @@ export const mockShoresh = {
   async listCompoundCellDecisions() {
     const state = loadState()
     const rows = Array.isArray(state.__compoundCellDecisions) ? state.__compoundCellDecisions : []
-    return rows.map((d) => [d.pattern, { interpretation: d.interpretation, anchor_name: d.anchor_name, wrapper_name: d.wrapper_name }])
+    return rows.map((d) => [d.pattern, { interpretation: d.interpretation, base_name: d.base_name, wrapper_name: d.wrapper_name }])
   },
   // S4b §4 — the dev mock has no op log/seq clock, so the export stamps 0 and
   // the staleness gate is inert at :5200 (the real clock lives under electron:dev).
@@ -2282,7 +2282,7 @@ export const mockShoresh = {
         groupId: s.group_id, cohort_id: null, dayId: s.day_id, blockId: s.time_block_id,
         ...(s.elective_set_id != null ? { type: 'elective', electiveSetId: s.elective_set_id }
           : s.event_id != null ? { type: 'event', eventId: s.event_id }
-          : s.is_anchor ? { type: 'anchor', anchorId: s.anchor_id }
+          : s.is_fixed_event ? { type: 'anchor', anchorId: s.fixed_event_id }
           : s.activity_id != null ? { type: 'activity', activityId: s.activity_id }
           : { type: null }),
       }))

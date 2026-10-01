@@ -58,8 +58,8 @@ function preV40Db(tag = 'v40-migrated') {
     flags TEXT,
     is_released INTEGER,
     is_span_head INTEGER,
-    anchor_id TEXT,
-    is_anchor INTEGER,
+    fixed_event_id TEXT,
+    is_fixed_event INTEGER,
     elective_set_id TEXT
   )`)
   db.exec(`INSERT INTO template_slots (${keep.join(', ')})
@@ -131,7 +131,7 @@ describe('migration v40: fresh vs migrated equivalence', () => {
     const cols = db.pragma('table_info(template_slots)').map((c) => c.name)
     expect(cols).toEqual([
       'id', 'template_id', 'group_id', 'activity_id', 'day_id', 'time_block_id',
-      'flags', 'is_released', 'is_span_head', 'anchor_id', 'is_anchor', 'elective_set_id', 'event_id',
+      'flags', 'is_released', 'is_span_head', 'fixed_event_id', 'is_fixed_event', 'elective_set_id', 'event_id',
     ])
     db.close()
   })

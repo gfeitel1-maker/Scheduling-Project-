@@ -42,19 +42,19 @@ import { electiveGenerationVisibleFragment } from './electiveGenerationPredicate
 
 // Resolves one template_slots row to its (kind, ref_id, activity_id, activity_name) identity.
 // Mirrors finalizeElectiveRun.js's mapTemplateSlot classification (same mutually-exclusive column
-// group: elective_set_id / event_id / is_anchor+anchor_id / activity_id), reused for the same
+// group: elective_set_id / event_id / is_fixed_event+fixed_event_id / activity_id), reused for the same
 // purpose rather than re-invented, per the ADR.
 function resolveTemplateSlot(row, { activityById, anchorById, eventById }) {
   if (row.event_id != null) {
     const event = eventById.get(row.event_id) ?? null
     return { kind: 'event', refId: row.event_id, activityId: null, activityName: event?.name ?? null }
   }
-  if (row.is_anchor) {
-    const anchor = anchorById.get(row.anchor_id) ?? null
+  if (row.is_fixed_event) {
+    const anchor = anchorById.get(row.fixed_event_id) ?? null
     // fixed_events carries a real activity_id as of v77 (T267 PR1), and PR2
     // cuts resolution over to it — the id-based link, not the anchor's own
     // free-text `name`, is now the identity source for activityId.
-    return { kind: 'anchor', refId: row.anchor_id, activityId: anchor?.activity_id ?? null, activityName: anchor?.name ?? null }
+    return { kind: 'anchor', refId: row.fixed_event_id, activityId: anchor?.activity_id ?? null, activityName: anchor?.name ?? null }
   }
   if (row.activity_id != null) {
     const activity = activityById.get(row.activity_id) ?? null
@@ -235,7 +235,7 @@ export function deriveElectiveRunOuterRows(db, run) {
         if (span.resolved.kind == null) {
           // F9 (round 2): the elective side already records a `skipped` entry for a malformed row
           // (missing day_id/time_block_id, above) — this inherited-side skip silently dropped its
-          // equivalent (a template_slots row with none of event_id/is_anchor/activity_id set).
+          // equivalent (a template_slots row with none of event_id/is_fixed_event/activity_id set).
           // Same treatment: record it, don't just vanish it.
           skipped.push({ groupId: span.groupId, dayId: span.dayId, timeBlockId: span.timeBlockId, reason: 'template_slots row unresolved to any kind' })
           continue

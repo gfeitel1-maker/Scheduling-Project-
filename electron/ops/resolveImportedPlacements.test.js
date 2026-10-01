@@ -28,8 +28,8 @@ describe('resolveImportedPlacements', () => {
     const { slots, unresolved } = resolveImportedPlacements(placements, m)
     expect(unresolved).toEqual([])
     expect(slots).toEqual([
-      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'a1', anchor_id: null, is_anchor: false, flags: {} },
-      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, anchor_id: 'anc1', is_anchor: true, flags: {} },
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'a1', fixed_event_id: null, is_fixed_event: false, flags: {} },
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, fixed_event_id: 'anc1', is_fixed_event: true, flags: {} },
     ])
   })
 
@@ -44,7 +44,7 @@ describe('resolveImportedPlacements', () => {
     const placements = [{ groupName: 'Bunk 1', dayName: 'Monday', blockLabel: '09:00', activityName: 'Lunch' }]
     const { slots } = resolveImportedPlacements(placements, m)
     expect(slots).toEqual([
-      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, anchor_id: 'anc-lunch', is_anchor: true, flags: {} },
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, fixed_event_id: 'anc-lunch', is_fixed_event: true, flags: {} },
     ])
   })
 

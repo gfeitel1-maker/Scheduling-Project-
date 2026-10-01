@@ -3,7 +3,7 @@
 // Red Hat HIGH (post-WS2 review): the v51 CHECK constraint
 // (docs/adr/2026-08-28-fixed-vs-recurring-events.md §3) is evaluated after
 // EVERY single-field UPDATE, since writeFields (src/data/setupCrudRepository.js)
-// fires one op-log write per field. AnchorsScreen.jsx's XLSX import builds its
+// fires one op-log write per field. FixedEventsScreen.jsx's XLSX import builds its
 // row objects with `kind` AFTER `is_all_groups`/`group_ids` — so a Recurring
 // (non-all-tiers) imported row narrows a fresh stub row
 // (ensureExists: kind='fixed' DEFAULT, is_all_groups=1) by writing
@@ -63,8 +63,8 @@ function realSqliteClient(db, deviceId) {
   }
 }
 
-describe('AnchorsScreen import path: kind write ordering against a REAL SQLite CHECK constraint', () => {
-  it('a scoped (Recurring) row written with the BAD field order (kind after is_all_groups/group_ids, as AnchorsScreen import previously built it) still commits successfully with kind=recurring', async () => {
+describe('FixedEventsScreen import path: kind write ordering against a REAL SQLite CHECK constraint', () => {
+  it('a scoped (Recurring) row written with the BAD field order (kind after is_all_groups/group_ids, as FixedEventsScreen import previously built it) still commits successfully with kind=recurring', async () => {
     const db = freshDb()
     const deviceId = randomUUID()
     db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(deviceId, 'Test Device')
@@ -75,7 +75,7 @@ describe('AnchorsScreen import path: kind write ordering against a REAL SQLite C
     const anchorId = randomUUID()
 
     // This EXACT key order — is_all_groups/group_ids BEFORE kind — is what
-    // AnchorsScreen.jsx's XLSX import produced before the fix. The
+    // FixedEventsScreen.jsx's XLSX import produced before the fix. The
     // structural guard in writeFields must reorder it regardless.
     await repo.writeFields('fixed_events', anchorId, {
       name: 'Lunch A',

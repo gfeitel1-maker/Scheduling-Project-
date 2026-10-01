@@ -2,7 +2,7 @@
 //
 // Migration v77 (T267, docs/adr/2026-09-26-fixed-recurring-event-identity-model.md). Renames anchor_activities to
 // fixed_events and gives it a real activity_id, replacing the by-name link
-// src/engine/anchorActivityLink.js resolved through (the T62 scar its header describes).
+// src/engine/fixedEventActivityLink.js resolved through (the T62 scar its header describes).
 //
 // PR 1 scope only: schema + document-key rename + projection registration + backfill. This file
 // pins the backfill's three outcomes (zero candidates, two candidates, exactly one candidate),

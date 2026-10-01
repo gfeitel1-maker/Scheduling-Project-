@@ -106,7 +106,7 @@ describe('deriveElectiveRunOuterRows — v76 inheritance and camper universe', (
     db.prepare('INSERT INTO fixed_events (id, camp_id, name, kind, activity_id) VALUES (?, ?, ?, ?, ?)')
       .run(anchorId, fx.campId, 'Lunch', 'fixed', activityId)
     db.prepare(
-      'INSERT INTO template_slots (id, template_id, group_id, is_anchor, anchor_id, day_id, time_block_id) VALUES (?, ?, ?, 1, ?, ?, ?)'
+      'INSERT INTO template_slots (id, template_id, group_id, is_fixed_event, fixed_event_id, day_id, time_block_id) VALUES (?, ?, ?, 1, ?, ?, ?)'
     ).run(randomUUID(), fx.templateId, fx.groupId, anchorId, fx.dayId, fx.tb[0])
 
     const { rows } = deriveElectiveRunOuterRows(db, fx.run)
@@ -120,15 +120,15 @@ describe('deriveElectiveRunOuterRows — v76 inheritance and camper universe', (
   })
 
   // Board finding, 2026-09-29 — Red Hat's export pin: resolveTemplateSlot
-  // resolves an anchor cell by the template slot's own anchor_id, looked up
+  // resolves an anchor cell by the template slot's own fixed_event_id, looked up
   // directly in fixed_events — it can never itself pick the wrong anchor. The
   // real defect (a week-scoped override anchor losing to an all-weeks anchor
   // for the same cell, fixed in src/engine/buildSchedule.js) lives upstream,
-  // in which anchor_id the engine writes onto the slot. This test pins the
-  // export's half of the contract: given a slot whose anchor_id already names
+  // in which fixed_event_id the engine writes onto the slot. This test pins the
+  // export's half of the contract: given a slot whose fixed_event_id already names
   // the week-scoped row, the export must carry THAT row's activity, not the
   // all-weeks row that happens to share the cell.
-  it('resolves the week-scoped anchor named by anchor_id, not an unrelated all-weeks anchor at the same cell', () => {
+  it('resolves the week-scoped anchor named by fixed_event_id, not an unrelated all-weeks anchor at the same cell', () => {
     const db = freshDb()
     const fx = baseFixture(db)
     const weekId = 'week-A'
@@ -156,7 +156,7 @@ describe('deriveElectiveRunOuterRows — v76 inheritance and camper universe', (
     // The template slot names the week-scoped anchor — this is what the
     // engine fix guarantees for the week the override targets.
     db.prepare(
-      'INSERT INTO template_slots (id, template_id, group_id, is_anchor, anchor_id, day_id, time_block_id) VALUES (?, ?, ?, 1, ?, ?, ?)'
+      'INSERT INTO template_slots (id, template_id, group_id, is_fixed_event, fixed_event_id, day_id, time_block_id) VALUES (?, ?, ?, 1, ?, ?, ?)'
     ).run(randomUUID(), fx.templateId, fx.groupId, weekScopedAnchorId, fx.dayId, fx.tb[0])
 
     const { rows } = deriveElectiveRunOuterRows(db, fx.run)
@@ -399,7 +399,7 @@ describe('deriveElectiveRunOuterRows — F9: malformed inherited slot is recorde
     db.prepare('INSERT INTO campers (id, camp_id, display_name, group_id, is_active) VALUES (?, ?, ?, ?, 1)')
       .run(camperId, fx.campId, 'Camper A', fx.groupId)
     addPreference(db, fx.run.id, camperId)
-    // A template_slots row with none of event_id/is_anchor/activity_id set — resolveTemplateSlot
+    // A template_slots row with none of event_id/is_fixed_event/activity_id set — resolveTemplateSlot
     // returns { kind: null }, the malformed case.
     db.prepare(
       'INSERT INTO template_slots (id, template_id, group_id, day_id, time_block_id) VALUES (?, ?, ?, ?, ?)'

@@ -39,7 +39,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // campers.division_label/is_unattributed and elective_preferences.rank_kind/
 // coordinate_day_label/coordinate_period_label) all land in this file; 79 is the
 // current version.
-export const CURRENT_SCHEMA_VERSION = 83
+export const CURRENT_SCHEMA_VERSION = 84
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -688,7 +688,7 @@ export function initSchema(db) {
 
   // Sub-plan D Task 0: anchor_activities was created with a minimal/
   // inference-only column set in Sub-plan A. This adds the real columns
-  // confirmed by directly re-reading AnchorsScreen.jsx's actual
+  // confirmed by directly re-reading FixedEventsScreen.jsx's actual
   // insert/update payloads — see schema.sql's comments on the table for
   // the full confirmation note.
   //
@@ -727,15 +727,27 @@ export function initSchema(db) {
   // restoreSnapshot() rows carry both and bulk_replace inserts directly into
   // this table's real columns, so a missing column fails loudly instead of
   // being silently dropped like an unregistered field-level write would be.
+  // (v84 later renames these two columns to fixed_event_id/is_fixed_event —
+  // this block must keep adding them under their ORIGINAL names, since it
+  // runs before v84 in the replay for both a fresh install and an old db.
+  // Guarded against EITHER name already being present, not just the old one:
+  // a test harness that fakes a version rewind — DELETE FROM schema_migrations
+  // WHERE version >= N, then re-runs initSchema without undoing the actual
+  // table shape — can run this block against a template_slots table that is
+  // already at the v84 shape (fixed_event_id/is_fixed_event, no anchor_id/
+  // is_anchor at all); adding anchor_id there would leave the table with BOTH
+  // columns, and v84's rename would then fail with "duplicate column name".)
   if (getSchemaVersion(db) < 17) {
     db.transaction(() => {
-      const addColumnIfMissing = (table, name, type) => {
-        const has = db.pragma(`table_info(${table})`).some((col) => col.name === name)
-        if (!has) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`)
+      const addColumnIfMissingEither = (table, oldName, newName, type) => {
+        const cols = db.pragma(`table_info(${table})`).map((col) => col.name)
+        if (!cols.includes(oldName) && !cols.includes(newName)) {
+          db.exec(`ALTER TABLE ${table} ADD COLUMN ${oldName} ${type}`)
+        }
       }
 
-      addColumnIfMissing('template_slots', 'anchor_id', 'TEXT')
-      addColumnIfMissing('template_slots', 'is_anchor', 'INTEGER')
+      addColumnIfMissingEither('template_slots', 'anchor_id', 'fixed_event_id', 'TEXT')
+      addColumnIfMissingEither('template_slots', 'is_anchor', 'is_fixed_event', 'INTEGER')
     })()
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (17, ?)').run(
@@ -1233,8 +1245,19 @@ export function initSchema(db) {
           day_id: s.day_id,
           time_block_id: s.time_block_id,
           activity_id: s.activity_id,
-          anchor_id: s.anchor_id,
-          is_anchor: s.is_anchor === null || s.is_anchor === undefined ? s.is_anchor : s.is_anchor === 1,
+          // The source row is read from a live SELECT * at schema version < 26 (this block runs
+          // before v84 in the replay, for both a fresh install and an old db), so on a genuine
+          // forward migration it still carries the ORIGINAL column names — anchor_id/is_anchor —
+          // even though the destination snapshot JSON key is the NEW one (this app build's
+          // restoreSnapshot reads fixed_event_id/is_fixed_event). Read whichever name is actually
+          // present on the row rather than hardcoding the old one: a test harness that fakes a
+          // version rewind (DELETE FROM schema_migrations WHERE version >= N, then re-runs
+          // initSchema without undoing the table shape) can exercise this block against a
+          // template_slots table that is ALREADY renamed.
+          fixed_event_id: 'anchor_id' in s ? s.anchor_id : s.fixed_event_id,
+          is_fixed_event: 'is_anchor' in s
+            ? (s.is_anchor === null || s.is_anchor === undefined ? s.is_anchor : s.is_anchor === 1)
+            : (s.is_fixed_event === null || s.is_fixed_event === undefined ? s.is_fixed_event : s.is_fixed_event === 1),
           flags: parseSlotFlags(s.flags),
         }))
         const snapOverlays = overlays.map((o) => ({
@@ -3271,22 +3294,6 @@ const DEVICE_HEALTH_EVENTS_DDL = `
           ALTER TABLE groups_v73 RENAME TO groups;
           CREATE INDEX IF NOT EXISTS idx_groups_camp_name ON groups(camp_id, name);
 
-          CREATE TABLE cohorts_v73 (
-            id TEXT PRIMARY KEY,
-            camp_id TEXT NOT NULL REFERENCES camps(id),
-            name TEXT NOT NULL,
-            session_week_start TEXT,
-            session_week_end TEXT,
-            capacity_source TEXT,
-            anchor_model TEXT,
-            sort_order INTEGER
-          );
-          INSERT INTO cohorts_v73 (id, camp_id, name, session_week_start, session_week_end, capacity_source, anchor_model, sort_order)
-            SELECT id, camp_id, name, session_week_start, session_week_end, capacity_source, anchor_model, sort_order FROM cohorts;
-          DROP TABLE cohorts;
-          ALTER TABLE cohorts_v73 RENAME TO cohorts;
-          CREATE INDEX IF NOT EXISTS idx_cohorts_camp_name ON cohorts(camp_id, name);
-
           CREATE TABLE tiers_v73 (
             id TEXT PRIMARY KEY,
             camp_id TEXT NOT NULL REFERENCES camps(id),
@@ -3331,6 +3338,39 @@ const DEVICE_HEALTH_EVENTS_DDL = `
 
           DROP INDEX IF EXISTS idx_schedule_weeks_camp_name;
           CREATE INDEX idx_schedule_weeks_camp_name ON schedule_weeks(camp_id, name);
+        `)
+
+        // cohorts rebuild, same UNIQUE-relax reason as every other table above, pulled out of the
+        // big exec() string because it needs a runtime decision the others don't: which name its
+        // one non-structural column currently has. v84 (T293, docs/adr/2026-10-01-anchors-become-
+        // fixed-and-recurring-events.md) renames this column anchor_model -> fixed_event_model,
+        // but ONLY at v84, strictly after this block. On a genuine forward migration from a real
+        // pre-v73 database the live column is still `anchor_model` here. On a test harness that
+        // fakes a version rewind (DELETE FROM schema_migrations WHERE version >= N then re-runs
+        // initSchema) without undoing the actual table shape, this block can run against a
+        // database that is ALREADY at the v84 shape — the live column is `fixed_event_model`.
+        // Hardcoding either name breaks one of those two cases with "no such column"; reading the
+        // live name first is the same `hasOld`-style defense the v77 table-rename block above
+        // uses, applied here per-column.
+        const cohortsAnchorCol = db.pragma('table_info(cohorts)').some((c) => c.name === 'anchor_model')
+          ? 'anchor_model'
+          : 'fixed_event_model'
+        db.exec(`
+          CREATE TABLE cohorts_v73 (
+            id TEXT PRIMARY KEY,
+            camp_id TEXT NOT NULL REFERENCES camps(id),
+            name TEXT NOT NULL,
+            session_week_start TEXT,
+            session_week_end TEXT,
+            capacity_source TEXT,
+            ${cohortsAnchorCol} TEXT,
+            sort_order INTEGER
+          );
+          INSERT INTO cohorts_v73 (id, camp_id, name, session_week_start, session_week_end, capacity_source, ${cohortsAnchorCol}, sort_order)
+            SELECT id, camp_id, name, session_week_start, session_week_end, capacity_source, ${cohortsAnchorCol}, sort_order FROM cohorts;
+          DROP TABLE cohorts;
+          ALTER TABLE cohorts_v73 RENAME TO cohorts;
+          CREATE INDEX IF NOT EXISTS idx_cohorts_camp_name ON cohorts(camp_id, name);
         `)
 
         // conflicts: additive columns for the hard-set typed conflict (Decision 1 of the ADR,
@@ -3454,7 +3494,7 @@ const DEVICE_HEALTH_EVENTS_DDL = `
   // Renames `anchor_activities` to `fixed_events` (vocabulary collision with the separate `events`
   // table — see the ADR's "two families" ruling; `kind` already distinguishes fixed from recurring
   // within this one table) and adds `activity_id`, replacing the by-NAME link
-  // src/engine/anchorActivityLink.js resolved through (the T62 scar its header describes). This PR
+  // src/engine/fixedEventActivityLink.js resolved through (the T62 scar its header describes). This PR
   // does NOT cut the engine/ingest/UI over to `activity_id` — they still resolve by name, which
   // still works because `name` survives the rename untouched. That cutover is PR 2.
   //
@@ -3467,7 +3507,7 @@ const DEVICE_HEALTH_EVENTS_DDL = `
   // block), the one precedent in this file for renaming a table to a name schema.sql also declares.
   //
   // Backfill re-spells anchorNameKey/indexActivitiesByName's semantics (src/engine/
-  // anchorActivityLink.js) rather than importing them — this file ships inside electron/, which
+  // fixedEventActivityLink.js) rather than importing them — this file ships inside electron/, which
   // electron-builder packages; src/ is not (same reasoning as electron/ops/electiveDerivedIds.js).
   // A row resolving to zero or more-than-one candidate is NOT guessed: activity_id is left NULL and
   // a fixed_event_identity_gaps row records candidate_count, for a human to resolve post-migration
@@ -3506,7 +3546,7 @@ const DEVICE_HEALTH_EVENTS_DDL = `
 
         // Backfill every row still missing activity_id — real historical rows from the rename, or
         // (belt) any other row that reached this point without one. Re-spells anchorNameKey
-        // (src/engine/anchorActivityLink.js) — lowercase, whitespace stripped. If that key ever
+        // (src/engine/fixedEventActivityLink.js) — lowercase, whitespace stripped. If that key ever
         // changes, these two must change together.
         const nameKey = (name) => String(name ?? '').toLowerCase().replace(/\s+/g, '')
 
@@ -3975,6 +4015,53 @@ const DEVICE_HEALTH_EVENTS_DDL = `
     )
   }
 
+  // v84 (T293, docs/adr/2026-10-01-anchors-become-fixed-and-recurring-events.md)
+  // — pure vocabulary rename, no new shape. Four column renames across two
+  // unrelated tables:
+  //   template_slots.anchor_id -> fixed_event_id, template_slots.is_anchor ->
+  //     is_fixed_event (ALTER-added at v17, never in schema.sql — see that
+  //     block's comment).
+  //   cohorts.anchor_model -> fixed_event_model (declared in schema.sql, and
+  //     ALSO read/written by name in the v10 and v73 blocks above — both of
+  //     which deliberately keep the ORIGINAL column name in their own SQL
+  //     text, since they run BEFORE this block for any database replaying
+  //     history from scratch and must agree with whatever the live table
+  //     actually has at that point in the sequence).
+  //   compound_cell_decisions.anchor_name -> base_name — a different sense of
+  //   "anchor" (the base term in a compound cell label like "Lunch" in "Lunch
+  //   + Leave", docs/adr/2026-09-03-compound-cell-interpretation.md), renamed
+  //   here only for mechanical convenience (same migration, same schema
+  //   version) — not because it shares any meaning with the other three.
+  //   schema.sql and COMPOUND_CELL_DECISIONS_DDL already declare `base_name`
+  //   directly (safe: no later migration block reads this column by its old
+  //   name), so this rename is a guarded no-op there for any database that
+  //   created the table fresh and a real rename for one carrying the old
+  //   column from before this release.
+  //
+  // Guarded by column presence (`renameColumnIfPresent`), not just the
+  // version check: a genuinely fresh install already has fixed_event_model/
+  // base_name from schema.sql's own CREATE TABLE text by the time this block
+  // runs, so the ALTER would error on a column that no longer exists if it
+  // ran unconditionally — the same "hasOld" discipline the v77 table-rename
+  // block above uses, applied here per-column instead of per-table.
+  if (getSchemaVersion(db) >= 83 && getSchemaVersion(db) < 84) {
+    db.transaction(() => {
+      const renameColumnIfPresent = (table, oldName, newName) => {
+        const has = db.pragma(`table_info(${table})`).some((col) => col.name === oldName)
+        if (has) db.exec(`ALTER TABLE ${table} RENAME COLUMN ${oldName} TO ${newName}`)
+      }
+
+      renameColumnIfPresent('template_slots', 'anchor_id', 'fixed_event_id')
+      renameColumnIfPresent('template_slots', 'is_anchor', 'is_fixed_event')
+      renameColumnIfPresent('cohorts', 'anchor_model', 'fixed_event_model')
+      renameColumnIfPresent('compound_cell_decisions', 'anchor_name', 'base_name')
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (84, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
 }
 
 // v60 backfill helper (Q1 fix). On the HOST only (a device with a host_signing_key
@@ -4383,7 +4470,7 @@ export const COMPOUND_CELL_DECISIONS_DDL = `CREATE TABLE IF NOT EXISTS compound_
   camp_id TEXT NOT NULL REFERENCES camps(id),
   pattern TEXT NOT NULL,          -- the literal cell text as it appeared, e.g. "Lunch + Leave" — the lookup key
   interpretation TEXT NOT NULL,   -- 'as_written' | 'wrapper' | 'alternatives'
-  anchor_name TEXT,               -- set when interpretation = 'wrapper'
+  base_name TEXT,               -- set when interpretation = 'wrapper'
   wrapper_name TEXT,              -- set when interpretation = 'wrapper'
   confirmed_by TEXT,              -- plain TEXT user id, provenance only
   confirmed_at TEXT NOT NULL,

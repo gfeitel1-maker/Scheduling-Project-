@@ -9,14 +9,14 @@
 // Maps a raw template_slots row into the shape findRouteConflicts/buildSchedule
 // expect (src/engine/routeConflicts.js), keyed off the same mutually-exclusive
 // column group projections.js already enforces (elective_set_id / event_id /
-// is_anchor+anchor_id / activity_id).
+// is_fixed_event+fixed_event_id / activity_id).
 import { findRouteConflicts } from '../../src/engine/routeConflicts.js'
 
 function mapTemplateSlot(row) {
   const base = { groupId: row.group_id, cohort_id: null, dayId: row.day_id, blockId: row.time_block_id }
   if (row.elective_set_id != null) return { ...base, type: 'elective', electiveSetId: row.elective_set_id }
   if (row.event_id != null) return { ...base, type: 'event', eventId: row.event_id }
-  if (row.is_anchor) return { ...base, type: 'anchor', anchorId: row.anchor_id }
+  if (row.is_fixed_event) return { ...base, type: 'anchor', anchorId: row.fixed_event_id }
   if (row.activity_id != null) return { ...base, type: 'activity', activityId: row.activity_id }
   return { ...base, type: null }
 }

@@ -250,7 +250,7 @@ export const PROJECTIONS = {
       'session_week_start',
       'session_week_end',
       'capacity_source',
-      'anchor_model',
+      'fixed_event_model',
       'sort_order',
     ],
     ensureExists: (db, id) => {
@@ -435,11 +435,11 @@ export const PROJECTIONS = {
       'span_blocks',
       // v51 (docs/adr/2026-08-28-fixed-vs-recurring-events.md §6) — Fixed
       // vs Recurring classification. A director never toggles this directly;
-      // it is implied by which screen/form wrote the row (AnchorsScreen)
+      // it is implied by which screen/form wrote the row (FixedEventsScreen)
       // and set here as an ordinary field-level op, same as is_all_groups.
       'kind',
       // v65 (T180) — the age DIVISIONS a recurring event is scoped to, as a
-      // JSON array of tier ids, written by AnchorsScreen exactly like
+      // JSON array of tier ids, written by FixedEventsScreen exactly like
       // group_ids. This is what makes division scope LIVE: the engine
       // resolves it at build time, so a group added to one of those divisions
       // later is covered without re-saving the event. The legacy singular
@@ -968,7 +968,7 @@ export const PROJECTIONS = {
   //
   // Field list is every non-key column of template_slots (schema.sql plus
   // the flags/is_released/is_span_head columns added in localDb.js's
-  // version-10 migration and anchor_id/is_anchor added in version 17),
+  // version-10 migration and fixed_event_id/is_fixed_event added in version 17),
   // matching BULK_REPLACE_ENTITIES.template_slots' column set minus `id`.
   // Completeness matters more here than for most entities: appendOp
   // enforces this allowlist with a THROW ('field not allowed for entity')
@@ -983,8 +983,8 @@ export const PROJECTIONS = {
       'activity_id',
       'day_id',
       'time_block_id',
-      'anchor_id',
-      'is_anchor',
+      'fixed_event_id',
+      'is_fixed_event',
       'is_span_head',
       'is_released',
       'flags',

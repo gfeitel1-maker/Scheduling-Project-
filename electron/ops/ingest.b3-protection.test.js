@@ -193,7 +193,7 @@ describe('B3 · fixed events — a director hand-edit to a live anchor survives 
     expect(anchorGroupIds(anchorId).is_all_groups).toBe(1)
 
     // Director hand-edits the anchor in-app: narrow "all groups" to just Bunk 1.
-    // `kind` is written FIRST (mirrors AnchorsScreen.jsx's field order,
+    // `kind` is written FIRST (mirrors FixedEventsScreen.jsx's field order,
     // docs/adr/2026-08-28-fixed-vs-recurring-events.md §3/§9): each field is
     // its own op-log UPDATE, and writing kind='recurring' before
     // is_all_groups/group_ids satisfies the v51 CHECK constraint's first

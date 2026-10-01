@@ -48,7 +48,7 @@ function assertModeled(entity) {
 // string-or-null with String() — validateBulkReplaceRows (reused by applyBulkReplace) requires
 // exactly that shape, matching the wire contract every real bulk_replace write already produces
 // (operations.js's coerceOpValue/ScheduleScreen's writeFields), but a raw better-sqlite3 row read
-// back from an INTEGER-affinity column (is_anchor/is_span_head) comes back as a JS number, not the
+// back from an INTEGER-affinity column (is_fixed_event/is_span_head) comes back as a JS number, not the
 // '1'/'0' string a real write would have sent — String() closes that gap.
 function seedBulkReplaceEntityFromSqlite(db, doc, entity) {
   const config = BULK_REPLACE_ENTITIES[entity]

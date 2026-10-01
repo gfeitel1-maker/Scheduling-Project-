@@ -2663,7 +2663,7 @@ describe('ingestCommit: compound-cell decisions (T118 slice 4)', () => {
       // is what THAT rewrite produces: "Lunch", never "Lunch + Leave".
       approved: { activities: ['Lunch'] },
       compoundCellDecisions: [
-        { pattern: 'Lunch + Leave', interpretation: 'wrapper', anchor_name: 'Lunch', wrapper_name: 'Leave' },
+        { pattern: 'Lunch + Leave', interpretation: 'wrapper', base_name: 'Lunch', wrapper_name: 'Leave' },
       ],
     })
 
@@ -2671,7 +2671,7 @@ describe('ingestCommit: compound-cell decisions (T118 slice 4)', () => {
     const row = db.prepare('SELECT * FROM compound_cell_decisions WHERE camp_id = ? AND pattern = ?').get(campIdHere, 'Lunch + Leave')
     expect(row).toBeTruthy()
     expect(row.interpretation).toBe('wrapper')
-    expect(row.anchor_name).toBe('Lunch')
+    expect(row.base_name).toBe('Lunch')
 
     const activities = db.prepare('SELECT name FROM activities WHERE camp_id = ?').all(campIdHere).map((r) => r.name)
     expect(activities).toContain('Lunch')
@@ -2691,7 +2691,7 @@ describe('ingestCommit: compound-cell decisions (T118 slice 4)', () => {
         // 'wrapper' with a missing wrapper_name is refused by confirmCompoundCellPattern
         // (ConfirmCompoundCellPatternError('wrapper_requires_names')) — the write must be
         // caught per-item, not thrown, since the catalog import already succeeded.
-        { pattern: 'Bad Pattern', interpretation: 'wrapper', anchor_name: 'Lunch', wrapper_name: null },
+        { pattern: 'Bad Pattern', interpretation: 'wrapper', base_name: 'Lunch', wrapper_name: null },
       ],
     })
 

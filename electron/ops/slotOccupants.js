@@ -67,12 +67,12 @@ export const SLOT_OCCUPANT_CASCADES = Object.freeze({
     reason:
       'Time blocks have no deleteRecord branch at all (CLEARABLE_ENTITIES in deleteRecord.js covers groups/activities/days/locations only). No delete path exists to cascade from; if one is ever added this entry must be revisited.',
   }),
-  anchor_id: Object.freeze({
+  fixed_event_id: Object.freeze({
     policy: 'dangle',
     deletedEntity: 'fixed_events',
     implementedIn: null,
     reason:
-      'Two delete paths, neither of which can leave a live dangling anchor_id. U2 undo refuses the delete outright while a template_slots row still points at the anchor (undoReferences.js registers template_slots.anchor_id). deleteRecord.js’s day branch deletes a day’s anchors and that same day’s template_slots rows in one transaction, so the pointing rows go with them.',
+      'Two delete paths, neither of which can leave a live dangling fixed_event_id. U2 undo refuses the delete outright while a template_slots row still points at the anchor (undoReferences.js registers template_slots.fixed_event_id). deleteRecord.js’s day branch deletes a day’s anchors and that same day’s template_slots rows in one transaction, so the pointing rows go with them.',
   }),
   elective_set_id: Object.freeze({
     policy: 'dangle',
