@@ -576,6 +576,77 @@ describe('BUNDLE_TIER_NOT_COVERED persists (board item 9b round 3, item 3)', () 
     db.close()
   })
 
+  // F4 (round 2 review) — KNOWN DEFECT, documented not fixed this round. Two
+  // ASSIGNMENT-ONLY mismatches (a solver fallback placement for a camper who
+  // never ranked the label — see the "an assignment-only mismatch ... stays
+  // null" test above) for ONE camper, on TWO different bundle labels, both
+  // have `choice_id: null` (labelsNeedingFlatChoice is built from
+  // `parsed.preferences` only, so no flat choice is ever minted for either
+  // label). deriveElectiveRunFindingId(runId, gen, 'BUNDLE_TIER_NOT_COVERED',
+  // camperId, choiceId, null) is then IDENTICAL for both — same camperId, same
+  // null choiceId — so the second write silently collapses into the first and
+  // one mismatch is lost from the persisted table.
+  //
+  // NOT FIXED: the obvious fix (pre-scan assignments in
+  // `labelsNeedingFlatChoice` so a flat choice is always minted) is not a
+  // small change — a minted choice would then also flow into the assignment
+  // loop's `choice_id: resolved.choiceId` write (commitElectiveRun.js
+  // ~line 803), changing assignment-write behaviour an earlier round
+  // deliberately set to null to fix a real outage (see that loop's "ROUND 2
+  // CORRECTION" comment), and it would move the acceptance-fixture numbers.
+  // That is a design decision for the owner, not a bugfix for this round.
+  //
+  // This test PINS the current (wrong) behaviour — ONE row where TWO are
+  // expected — as a tripwire: if a future change to `deriveElectiveRunFindingId`
+  // or `labelsNeedingFlatChoice` fixes this, the assertion below goes red and
+  // must be updated to `toHaveLength(2)` rather than silently drifting.
+  it('F4 — two ASSIGNMENT-ONLY mismatches for ONE camper on two different labels collide to ONE persisted row (known defect, pinned)', () => {
+    const { db, campId } = freshDb()
+    seedTwoTierCamp(db, campId, { scopeMode: 'only', bundleTiers: ['tier-jr'] })
+    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run('act-gaga', campId, 'Gaga')
+    db.prepare('INSERT INTO elective_bundles (id, elective_set_id, activity_id, name, scope_mode) VALUES (?, ?, ?, ?, ?)')
+      .run('bundle-2', 'set-1', 'act-gaga', 'Gaga', 'only')
+    db.prepare('INSERT INTO elective_bundle_periods (id, bundle_id, day_id, time_block_id) VALUES (?, ?, ?, ?)')
+      .run('bp-3', 'bundle-2', 'day-1', 'tb-1')
+    db.prepare('INSERT INTO elective_bundle_periods (id, bundle_id, day_id, time_block_id) VALUES (?, ?, ?, ?)')
+      .run('bp-4', 'bundle-2', 'day-1', 'tb-2')
+    db.prepare('INSERT INTO elective_bundle_tiers (id, bundle_id, tier_id) VALUES (?, ?, ?)').run(randomUUID(), 'bundle-2', 'tier-jr')
+
+    const runId = randomUUID()
+    const occurrences = twoTierOccurrences(runId)
+    const srOccurrence = occurrences.find((o) => o.tier_id === 'tier-sr' && o.time_block_id === 'tb-1')
+    const out = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1', runId, occurrences,
+      parsed: {
+        campers: [{ id: 'cam-sr', display_name: 'Noa Katz', external_id: null, group_id: null, division_label: 'Seniors' }],
+        choices: [{ label: 'Archery', labelKey: ARCHERY_KEY }, { label: 'Gaga', labelKey: 'gaga' }],
+        // No preferences at all — both mismatches are ASSIGNMENT-ONLY.
+        preferences: [],
+        sameNameCampers: [],
+        skippedRows: [],
+      },
+      assignments: [
+        { camper_id: 'cam-sr', occurrence_id: srOccurrence.id, labelKey: ARCHERY_KEY, activity_id: 'act-archery', preference_rank: null, flags: [] },
+        { camper_id: 'cam-sr', occurrence_id: srOccurrence.id, labelKey: 'gaga', activity_id: 'act-gaga', preference_rank: null, flags: [] },
+      ],
+    })
+    expect(out.ok).toBe(true)
+
+    // The session response still has two (noteMismatch dedupes on
+    // `${camperId}::${labelKey}`, and the two labels differ) — this defect is
+    // specifically in the PERSISTED id, not the in-session array.
+    expect(out.findings.filter((f) => f.kind === 'BUNDLE_TIER_NOT_COVERED')).toHaveLength(2)
+
+    const persisted = db.prepare(
+      "SELECT * FROM elective_run_findings WHERE run_id = ? AND kind = 'BUNDLE_TIER_NOT_COVERED'"
+    ).all(runId)
+    // CORRECT VALUE, when this is fixed: 2 (one row per label). Today: 1 —
+    // the second write collapses into the first because both share the same
+    // derived id (null choice_id, same camper_id).
+    expect(persisted).toHaveLength(1)
+    db.close()
+  })
+
   // Round 2 F1 — the SESSION response (`out.findings`, what DraftRunView.jsx
   // receives as the `danglingFindings` prop the moment this commit returns)
   // used to carry `label` + `tier_id` but NO `choice_id`, while the
