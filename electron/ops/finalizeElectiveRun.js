@@ -140,7 +140,7 @@ export function finalizeElectiveRun(db, { runId, authorUserId = null, deviceId }
         // Per-camper map (board follow-up, erasure-aware completeness) — lets a later read
         // exclude a since-erased camper's entry instead of comparing one whole-set hash that an
         // erasure can never match again.
-        snapshot_digest: computeExpectedSnapshotDigestByCamper(snapshots),
+        snapshot_digest: computeExpectedSnapshotDigestByCamper(snapshots, runId),
       })
     })
   } catch (e) {

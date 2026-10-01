@@ -112,7 +112,37 @@ export function computeHeldSnapshotDigest(db, runId) {
 // comparison by dropping their entry, rather than comparing against one whole-set hash that an
 // erasure can never match again. Built from the SAME in-memory `rows` finalizeElectiveRun.js
 // already derived — never a second read of elective_run_outer_snapshots.
-export function computeExpectedSnapshotDigestByCamper(rows) {
+//
+// Amendment (2026-10-01, docs/adr/2026-09-30-elective-run-durability.md): the map's KEYS used to
+// be the raw camper_id. `snapshot_digest` is a replicated TEXT field on `elective_assignment_runs`
+// — a row this codebase correctly never tombstone-gates (it is the run, not camper data) — so a
+// purged camper's raw id survived in cleartext, fleet-wide, forever. Each key is now
+// sha256(run_id + ':' + camper_id), hex: run-scoped so the same camper's hash cannot be
+// correlated across two different runs, and unkeyed (no HMAC/secret).
+//
+// WHAT THIS DOES NOT BUY, stated plainly so nobody mistakes it for more. Every device has to
+// recompute this key from a camper_id it already holds — that is the whole point, since the read
+// side looks up held rows and subtracts tombstoned campers by key — so any derivation a device can
+// perform, a camp peer can perform too. An HMAC would not change that: its key would have to be
+// replicated to be recomputable, which makes it equally readable (and no fleet secret survives a
+// genesis rebuild here anyway). So a CONFIRMATION ORACLE is inherent to the shape, not a weakness
+// of sha256: someone holding a candidate camper_id can hash it and test for membership.
+//
+// That matters more than it first looks, because camper ids are NOT uniformly high-entropy. On the
+// elective-sheet import path `deriveCamperId` (electiveDerivedIds.js) returns a length-prefixed
+// concatenation — its own comment says "NOT a hash" — whose `name` mode embeds the canonicalized
+// DISPLAY NAME, and commitElectiveRun.js writes that string as `campers.id`. A peer who guesses a
+// purged camper's name can therefore rederive the id, hash it, and confirm that camper was in this
+// run. Do not "fix" that by reaching for an HMAC; the oracle is structural. What this change buys
+// is real but bounded: a purged camper's id (and, on the import path, their NAME) no longer sits in
+// cleartext in a replicated field readable by anyone — recovery now requires already guessing the
+// name. Note also that the erased camper's KEY is never scrubbed from a stored map (there is no
+// re-finalize path), so the oracle persists for the life of the run row.
+function digestMapKey(runId, camperId) {
+  return createHash('sha256').update(`${runId}:${camperId}`).digest('hex')
+}
+
+export function computeExpectedSnapshotDigestByCamper(rows, runId) {
   const byCamper = new Map()
   for (const r of rows) {
     if (!byCamper.has(r.camper_id)) byCamper.set(r.camper_id, [])
@@ -120,7 +150,7 @@ export function computeExpectedSnapshotDigestByCamper(rows) {
   }
   const map = {}
   for (const [camperId, camperRows] of byCamper) {
-    map[camperId] = { rows: camperRows.length, digest: digestOf(camperRows) }
+    map[digestMapKey(runId, camperId)] = { rows: camperRows.length, digest: digestOf(camperRows) }
   }
   return JSON.stringify(map)
 }
@@ -219,29 +249,67 @@ export function computeSnapshotCompleteness(db, run) {
     return { expectedSnapshotRows: expected, heldSnapshotRows: held, snapshotIncomplete: true }
   }
 
+  // Amendment (2026-10-01) discriminator — a parsed per-camper map comes in two shapes that must
+  // NOT be compared the same way:
+  //   - keys NOT all 64-lowercase-hex: the raw-camper-id shape this module wrote in the dev-only
+  //     window between PR #684 and this fix (no live users ever saw it). Treated EXACTLY like
+  //     legacy plain-hex below: whole-set comparison, never erasure-aware. No migration path
+  //     exists or is needed for it.
+  //   - keys ALL 64-lowercase-hex: the current sha256(run_id:camper_id) shape — erasure-aware.
+  // This is checked on KEYS inside the parsed object, deliberately NOT merged with LEGACY_DIGEST_RE
+  // above (which tests the entire `snapshot_digest` STRING) — they test different things.
+  // An EMPTY map ({}) satisfies "every key is hex" vacuously and falls into the hash-keyed branch
+  // below. Deliberate, not an oversight: with zero entries the two branches behave identically
+  // (nothing to compare), and an unexpectedly-held camper is still caught by the "held camper the
+  // expectation never named" check below.
+  const isHashKeyed = Object.keys(perCamperExpected).every((k) => /^[0-9a-f]{64}$/.test(k))
+  if (!isHashKeyed) {
+    // Whole-set comparison keyed by the raw camper_id (exactly as held rows are grouped) — no
+    // tombstone lookup, no skipping: a missing row for ANY camper, erased or not, is incomplete.
+    const heldRows = selectHeldRows(db, run.id)
+    const heldByCamper = new Map()
+    for (const r of heldRows) {
+      if (!heldByCamper.has(r.camper_id)) heldByCamper.set(r.camper_id, [])
+      heldByCamper.get(r.camper_id).push(r)
+    }
+    let complete = true
+    for (const [camperId, entry] of Object.entries(perCamperExpected)) {
+      const camperRows = heldByCamper.get(camperId) ?? []
+      if (camperRows.length !== entry.rows || digestOf(camperRows) !== entry.digest) complete = false
+    }
+    for (const camperId of heldByCamper.keys()) {
+      if (!(camperId in perCamperExpected)) complete = false
+    }
+    return { expectedSnapshotRows: expected, heldSnapshotRows: heldRows.length, snapshotIncomplete: !complete }
+  }
+
   // Erasure-aware path: drop every tombstoned camper's entry from the expectation before
   // comparing, so the finalized run's export can be complete again without ever re-including
-  // rows the fleet has agreed to erase.
+  // rows the fleet has agreed to erase. Both sides of the comparison hash camper ids the same way
+  // (sha256(run_id:camper_id)) before lookup/subtraction — the expectation's keys are already in
+  // that shape; held rows and tombstoned ids are hashed here to match.
   const erased = tombstonedCamperIds(db)
   const heldRows = selectHeldRows(db, run.id)
-  const heldByCamper = new Map()
+  const heldByCamperKey = new Map()
   for (const r of heldRows) {
-    if (!heldByCamper.has(r.camper_id)) heldByCamper.set(r.camper_id, [])
-    heldByCamper.get(r.camper_id).push(r)
+    const key = digestMapKey(run.id, r.camper_id)
+    if (!heldByCamperKey.has(key)) heldByCamperKey.set(key, [])
+    heldByCamperKey.get(key).push(r)
   }
+  const erasedKeys = new Set([...erased].map((camperId) => digestMapKey(run.id, camperId)))
 
   let expectedRows = 0
   let complete = true
-  for (const [camperId, entry] of Object.entries(perCamperExpected)) {
-    if (erased.has(camperId)) continue
+  for (const [camperKey, entry] of Object.entries(perCamperExpected)) {
+    if (erasedKeys.has(camperKey)) continue
     expectedRows += entry.rows
-    const camperRows = heldByCamper.get(camperId) ?? []
+    const camperRows = heldByCamperKey.get(camperKey) ?? []
     if (camperRows.length !== entry.rows || digestOf(camperRows) !== entry.digest) complete = false
   }
   // A held camper this run's own expectation never named, and who is not erased, is itself a
   // mismatch — same "never silently green" posture as the corrupt-digest fallback above.
-  for (const camperId of heldByCamper.keys()) {
-    if (!erased.has(camperId) && !(camperId in perCamperExpected)) complete = false
+  for (const camperKey of heldByCamperKey.keys()) {
+    if (!erasedKeys.has(camperKey) && !(camperKey in perCamperExpected)) complete = false
   }
 
   return { expectedSnapshotRows: expectedRows, heldSnapshotRows: heldRows.length, snapshotIncomplete: !complete }

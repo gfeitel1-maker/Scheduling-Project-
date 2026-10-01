@@ -3,6 +3,7 @@
 // is a digest over already-held rows plus a comparison, and the stub-seed
 // partial-row case is exactly what a fixture table can demonstrate directly.
 import { describe, it, expect } from 'vitest'
+import { createHash } from 'node:crypto'
 import Database from 'better-sqlite3'
 import {
   computeExpectedSnapshotDigest,
@@ -132,7 +133,7 @@ describe('erasure-aware completeness: a tombstoned camper is excluded from the c
   it('reports complete after a camper is erased, with expected/held both reduced to the surviving campers', () => {
     const db = fixtureDb()
     const expectedRows = [row({ id: 'snap-1', camper_id: 'c1' }), row({ id: 'snap-2', camper_id: 'c2' })]
-    const expectedDigest = computeExpectedSnapshotDigestByCamper(expectedRows)
+    const expectedDigest = computeExpectedSnapshotDigestByCamper(expectedRows, 'run-1')
     const insert = db.prepare(
       `INSERT INTO elective_run_outer_snapshots
         (id, run_id, camper_id, day_id, time_block_id, activity_id, activity_name, location_id,
@@ -167,7 +168,7 @@ describe('erasure-aware completeness: a tombstoned camper is excluded from the c
   it('still reports incomplete when a NON-erased camper is missing a row, even with an unrelated camper tombstoned', () => {
     const db = fixtureDb()
     const expectedRows = [row({ id: 'snap-1', camper_id: 'c1' }), row({ id: 'snap-2', camper_id: 'c2' })]
-    const expectedDigest = computeExpectedSnapshotDigestByCamper(expectedRows)
+    const expectedDigest = computeExpectedSnapshotDigestByCamper(expectedRows, 'run-1')
     const insert = db.prepare(
       `INSERT INTO elective_run_outer_snapshots
         (id, run_id, camper_id, day_id, time_block_id, activity_id, activity_name, location_id,
@@ -235,6 +236,101 @@ describe('erasure-aware completeness: a tombstoned camper is excluded from the c
   })
 })
 
+// Board follow-up (digest-keys-privacy) — a per-camper map whose keys are NOT all 64-lowercase-hex
+// is the raw-camper-id shape written in the dev-only window between PR #684 and this fix (no live
+// users ever saw it). It is read EXACTLY like legacy plain-hex: whole-set comparison, never
+// erasure-aware. There is no migration path for it and none is needed.
+describe('branch 2: a raw-id-keyed per-camper map (pre-fix shape) reads like legacy, not erasure-aware', () => {
+  function rawIdKeyedDigest(rows) {
+    // The shape this module wrote before the fix: keys are the raw camper_id, not a hash.
+    const byCamper = new Map()
+    for (const r of rows) {
+      if (!byCamper.has(r.camper_id)) byCamper.set(r.camper_id, [])
+      byCamper.get(r.camper_id).push(r)
+    }
+    const map = {}
+    for (const [camperId, camperRows] of byCamper) {
+      map[camperId] = { rows: camperRows.length, digest: computeExpectedSnapshotDigest(camperRows) }
+    }
+    return JSON.stringify(map)
+  }
+
+  it('is treated as whole-set (legacy-like): reports complete when every row is held', () => {
+    const db = fixtureDb()
+    const expectedRows = [row({ id: 'snap-1', camper_id: 'c1' }), row({ id: 'snap-2', camper_id: 'c2' })]
+    const digest = rawIdKeyedDigest(expectedRows)
+    expect(Object.keys(JSON.parse(digest))).toEqual(['c1', 'c2']) // confirms this is NOT hash-keyed
+    const insert = db.prepare(
+      `INSERT INTO elective_run_outer_snapshots
+        (id, run_id, camper_id, day_id, time_block_id, activity_id, activity_name, location_id,
+         location_name, span_blocks, solver_generation, cell_kind, choice_id, is_linked_choice, choice_label)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    )
+    for (const r of expectedRows) {
+      insert.run(r.id, r.run_id, r.camper_id, r.day_id, r.time_block_id, r.activity_id, r.activity_name,
+        r.location_id, r.location_name, r.span_blocks, null, r.cell_kind, r.choice_id, r.is_linked_choice, r.choice_label)
+    }
+    const run = { id: 'run-1', status: 'final', snapshot_expected_rows: 2, snapshot_digest: digest }
+    expect(computeSnapshotCompleteness(db, run).snapshotIncomplete).toBe(false)
+  })
+
+  // Plant: a raw-id-keyed map must NOT get erasure-awareness for free — dropping a tombstoned
+  // camper's row must still leave the run reporting incomplete, exactly like legacy plain-hex.
+  it('plant: is NOT read as complete when a tombstoned camper is missing — proves branch 2 is not erasure-aware', () => {
+    const db = fixtureDb()
+    const expectedRows = [row({ id: 'snap-1', camper_id: 'c1' }), row({ id: 'snap-2', camper_id: 'c2' })]
+    const digest = rawIdKeyedDigest(expectedRows)
+    const insert = db.prepare(
+      `INSERT INTO elective_run_outer_snapshots
+        (id, run_id, camper_id, day_id, time_block_id, activity_id, activity_name, location_id,
+         location_name, span_blocks, solver_generation, cell_kind, choice_id, is_linked_choice, choice_label)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    )
+    for (const r of expectedRows) {
+      insert.run(r.id, r.run_id, r.camper_id, r.day_id, r.time_block_id, r.activity_id, r.activity_name,
+        r.location_id, r.location_name, r.span_blocks, null, r.cell_kind, r.choice_id, r.is_linked_choice, r.choice_label)
+    }
+    const run = { id: 'run-1', status: 'final', snapshot_expected_rows: 2, snapshot_digest: digest }
+
+    db.prepare('DELETE FROM elective_run_outer_snapshots WHERE camper_id = ?').run('c1')
+    tombstone(db, { id: 'c1' })
+
+    expect(computeSnapshotCompleteness(db, run).snapshotIncomplete).toBe(true)
+  })
+})
+
+// Discriminator edge case (brief): an EMPTY per-camper map ({}) satisfies "all keys are 64-hex"
+// vacuously and therefore falls into branch 3 (erasure-aware), not branch 2. Deliberate: at zero
+// entries the two branches behave identically (nothing to compare), and an unexpectedly-held
+// camper is still caught by the existing "held camper the expectation never named" check.
+describe('discriminator edge case: an empty per-camper map ({}) is vacuously branch 3', () => {
+  it('a held camper against an empty expectation is still a mismatch (caught, not silently green)', () => {
+    const db = fixtureDb()
+    db.prepare(
+      `INSERT INTO elective_run_outer_snapshots
+        (id, run_id, camper_id, day_id, time_block_id, activity_id, activity_name, location_id,
+         location_name, span_blocks, solver_generation, cell_kind, choice_id, is_linked_choice, choice_label)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).run('snap-1', 'run-1', 'c1', 'd1', 'tb1', 'a1', 'Pottery', 'l1', 'Art Room', 1, null, 'elective', null, 0, null)
+
+    const run = { id: 'run-1', status: 'final', snapshot_expected_rows: 0, snapshot_digest: '{}' }
+    const result = computeSnapshotCompleteness(db, run)
+
+    expect(result.snapshotIncomplete).toBe(true)
+    expect(result.expectedSnapshotRows).toBe(0)
+  })
+
+  it('an empty expectation with nothing held is complete', () => {
+    const db = fixtureDb()
+    const run = { id: 'run-1', status: 'final', snapshot_expected_rows: 0, snapshot_digest: '{}' }
+    const result = computeSnapshotCompleteness(db, run)
+
+    expect(result.snapshotIncomplete).toBe(false)
+    expect(result.expectedSnapshotRows).toBe(0)
+    expect(result.heldSnapshotRows).toBe(0)
+  })
+})
+
 // Red Hat HIGH (board 2b follow-up) — elective_assignment_runs fields arrive ONE PER FIELD over
 // Automerge in no guaranteed order, so a device can hold status='final' and a fully-synced
 // snapshot_digest while snapshot_expected_rows has not landed yet. The pre-existing `expected ==
@@ -244,7 +340,7 @@ describe('partial field arrival: snapshot_expected_rows and snapshot_digest can 
   it('reports INCOMPLETE when snapshot_digest has arrived but snapshot_expected_rows has not yet (not the legacy "both absent" case)', () => {
     const db = fixtureDb()
     const expectedRows = [row({ id: 'snap-1', camper_id: 'c1' })]
-    const digest = computeExpectedSnapshotDigestByCamper(expectedRows)
+    const digest = computeExpectedSnapshotDigestByCamper(expectedRows, 'run-1')
     // Only ONE row held, same as expectedRows — digest/held agree with each other, but
     // snapshot_expected_rows itself has not synced to this device yet.
     db.prepare(
@@ -287,7 +383,7 @@ describe('partial field arrival: snapshot_expected_rows and snapshot_digest can 
 
   it('a non-final run is unaffected by partial field arrival', () => {
     const db = fixtureDb()
-    const run = { id: 'run-1', status: 'draft', snapshot_expected_rows: null, snapshot_digest: computeExpectedSnapshotDigestByCamper([row()]) }
+    const run = { id: 'run-1', status: 'draft', snapshot_expected_rows: null, snapshot_digest: computeExpectedSnapshotDigestByCamper([row()], 'run-1') }
     expect(computeSnapshotCompleteness(db, run)).toEqual({
       expectedSnapshotRows: null, heldSnapshotRows: null, snapshotIncomplete: false,
     })
@@ -295,12 +391,23 @@ describe('partial field arrival: snapshot_expected_rows and snapshot_digest can 
 })
 
 describe('computeExpectedSnapshotDigestByCamper (write side)', () => {
-  it('groups rows by camper_id into a per-camper {rows, digest} map', () => {
+  it('groups rows by camper_id into a per-camper {rows, digest} map, keyed by sha256(run_id:camper_id), never the raw camper_id', () => {
     const rows = [row({ id: 'snap-1', camper_id: 'c1' }), row({ id: 'snap-2', camper_id: 'c2' })]
-    const map = JSON.parse(computeExpectedSnapshotDigestByCamper(rows))
-    expect(Object.keys(map).sort()).toEqual(['c1', 'c2'])
-    expect(map.c1).toEqual({ rows: 1, digest: computeExpectedSnapshotDigest([rows[0]]) })
-    expect(map.c2).toEqual({ rows: 1, digest: computeExpectedSnapshotDigest([rows[1]]) })
+    const map = JSON.parse(computeExpectedSnapshotDigestByCamper(rows, 'run-1'))
+    const keys = Object.keys(map)
+    expect(keys).not.toEqual(expect.arrayContaining(['c1', 'c2']))
+    for (const key of keys) expect(key).toMatch(/^[0-9a-f]{64}$/)
+    const byCamper1 = map[createHash('sha256').update('run-1:c1').digest('hex')]
+    const byCamper2 = map[createHash('sha256').update('run-1:c2').digest('hex')]
+    expect(byCamper1).toEqual({ rows: 1, digest: computeExpectedSnapshotDigest([rows[0]]) })
+    expect(byCamper2).toEqual({ rows: 1, digest: computeExpectedSnapshotDigest([rows[1]]) })
+  })
+
+  it('is run-scoped: the same camper_id under two different run ids produces two different keys', () => {
+    const rows = [row({ id: 'snap-1', camper_id: 'c1' })]
+    const mapA = JSON.parse(computeExpectedSnapshotDigestByCamper(rows, 'run-A'))
+    const mapB = JSON.parse(computeExpectedSnapshotDigestByCamper(rows, 'run-B'))
+    expect(Object.keys(mapA)).not.toEqual(Object.keys(mapB))
   })
 })
 

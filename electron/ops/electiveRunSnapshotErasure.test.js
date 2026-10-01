@@ -311,8 +311,28 @@ describe('erasure-aware snapshot completeness across devices (board follow-up)',
 
     expect(runRow.snapshot_digest).not.toMatch(/^[0-9a-f]{64}$/) // not the legacy whole-set shape
     const parsed = JSON.parse(runRow.snapshot_digest)
-    const expected = JSON.parse(computeExpectedSnapshotDigestByCamper(insertedRows))
+    const expected = JSON.parse(computeExpectedSnapshotDigestByCamper(insertedRows, runId))
     expect(parsed).toEqual(expected)
     expect(Object.values(parsed).reduce((sum, e) => sum + e.rows, 0)).toBe(runRow.snapshot_expected_rows)
+  })
+
+  // THE LOAD-BEARING ASSERTION (board digest-keys-privacy). A purged camper's raw id must never
+  // survive, in cleartext, inside the stored snapshot_digest TEXT — that field is replicated
+  // fleet-wide and carries no erasure gate of its own (elective_assignment_runs is correctly
+  // absent from TOMBSTONE_DENYLISTED_ENTITIES; it is the run row, not camper data). Before the
+  // fix, computeExpectedSnapshotDigestByCamper keyed its map on the raw camper_id, so the id
+  // itself — not just a hash of it — was right there in the JSON. This asserts against the REAL
+  // stored column after a REAL finalize, not a recomputed value, so it fails against today's code.
+  it('the stored snapshot_digest never contains any camper id as a substring', () => {
+    const db = freshDb('a-load-bearing')
+    const { runId, camper1, camper2 } = buildFinalizableRun(db)
+    expect(finalizeElectiveRun(db, { runId, deviceId: 'device-1' }).ok).toBe(true)
+
+    const runRow = db.prepare('SELECT * FROM elective_assignment_runs WHERE id = ?').get(runId)
+    const storedDigest = runRow.snapshot_digest
+
+    for (const camperId of [camper1, camper2]) {
+      expect(storedDigest.includes(camperId)).toBe(false)
+    }
   })
 })

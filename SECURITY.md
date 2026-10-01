@@ -495,6 +495,21 @@ projection again — no re-pairing, no genesis change. `purgeSupportCommand.test
 gap" test is inverted: it now merges an untouched peer's pre-purge document and asserts the camper is
 **refused**, not reintroduced.
 
+A finalized elective run's row (`elective_assignment_runs`) is deliberately outside this denylist —
+it is the run, not camper data — but its replicated `snapshot_digest` field carries only run-scoped
+`sha256(run_id:camper_id)` hashes of the campers in that run, never a camper id in cleartext, so the
+run row surviving a purge carries no readable identity. **This is guess-resistance, not erasure, and
+the difference is worth stating.** Every device has to recompute that key from a `camper_id` it
+holds in order to subtract an erased camper, so any derivation a device can do, a camp peer can do:
+someone holding a candidate id can hash it and confirm membership. An HMAC would not close that (its
+key would have to be replicated to stay recomputable, and no fleet secret survives a genesis
+rebuild). It matters because camper ids are not uniformly random — on the elective-sheet import path
+`deriveCamperId` embeds the canonicalized display name, so a peer who guesses a purged camper's name
+can rederive the id and confirm they were in that run, and because no re-finalize path exists the
+key is never scrubbed from a stored map. What the hashing buys is real and bounded: the id and name
+are no longer simply readable in a replicated field. See
+`docs/adr/2026-09-30-elective-run-durability.md`, "Amendment (2026-10-01): digest map keys".
+
 **What this is, precisely: logical erasure ("invisible forever"), not physical byte-erasure.** The
 tombstone gates *projection*, so the record can never be seen or re-created on any device again — that
 is the guarantee the product owner set (2026-09-19). But the purged field values still physically

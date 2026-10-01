@@ -383,11 +383,22 @@ export const TOMBSTONE_DENYLISTED_ENTITIES = {
   // is NOT NULL, and it is baked into the row's own id
   // (deriveElectiveRunOuterSnapshotId(run_id, camper_id, day_id, time_block_id)), so without this
   // entry an erased camper's whole finalized schedule — and the camper id itself — would survive
-  // in every exported run on every device. This denylist now covers every camper_id-bearing
-  // table in the schema (campers, elective_preferences, elective_assignments,
-  // elective_run_outer_snapshots, elective_run_findings).
+  // in every exported run on every device.
   elective_run_outer_snapshots: { idField: 'camper_id', tombstoneEntity: 'campers' },
 }
+// `elective_assignment_runs` (the run row itself) is deliberately ABSENT from this denylist — it
+// is not camper data, so it is not supposed to vanish when a camper is purged. Its
+// `snapshot_digest` field carries run-scoped sha256 hashes of camper ids
+// (electiveRunSnapshotCompleteness.js's computeExpectedSnapshotDigestByCamper), never the ids
+// themselves, so the run row surviving a purge carries no readable identity. That is
+// guess-resistance, not erasure — see SECURITY.md's camper-record-purge section and the digest-map-
+// keys amendment in docs/adr/2026-09-30-elective-run-durability.md before relying on it for more.
+//
+// Measured, not assumed, 2026-10-01: `camper_id` appears as a column on exactly four tables in
+// electron/db/schema.sql (elective_preferences, elective_assignments, elective_run_outer_snapshots,
+// elective_run_findings), and all four are entries above, alongside `campers` itself. Re-run that
+// grep rather than trusting this sentence if you add a table — the previous version of this comment
+// claimed the same completeness and went stale the moment `snapshot_digest` started carrying ids.
 
 // T233 round 2, finding 4: upsertEntity (below) returns early for a BULK_REPLACE_MODELED_ENTITIES
 // entity, BEFORE the denylist gate below ever runs — a future bulk-replace entity added to

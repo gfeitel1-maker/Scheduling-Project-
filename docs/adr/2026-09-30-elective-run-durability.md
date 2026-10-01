@@ -1417,3 +1417,71 @@ case, final-run-only-inherited (→ false), draft (→ false), zero snapshot row
 elective row with NULL generation against a non-null run generation (→ true, documenting the
 deliberate non-filter). Plant check: dropping the `cell_kind = 'elective'` clause reproduces the live
 defect's RED.
+
+## Amendment (2026-10-01): digest map keys
+
+**Defect.** `computeExpectedSnapshotDigestByCamper` keyed its per-camper map on raw
+`camper_id`. That map is serialized into `elective_assignment_runs.snapshot_digest`, a
+replicated TEXT field written once at finalize time. `elective_assignment_runs` is correctly
+absent from both `TOMBSTONE_DENYLISTED_ENTITIES` and `purgeCamperRecord`'s delete set — it is
+the run row, not camper data — and `seedAllFromSqlite` carries the field forward into a
+freshly-regenerated post-purge document. A purged camper's id therefore survived in cleartext,
+fleet-wide, indefinitely. The hash *values* were never the problem; the map *keys* were.
+
+**Fix.** Each key is now `sha256(run_id + ':' + camper_id)`, hex. Scoping by `run_id` is
+deliberate, not decorative: hashing `camper_id` alone would let the same hash recur in every
+run that camper touches, making the hash itself a correlation handle across runs even without
+recovering the underlying id. The hash is unkeyed — no HMAC, no secret, for the reason the next
+paragraph gives. `computeExpectedSnapshotDigestByCamper` gained a
+second parameter, `runId`, since the rows it is built from do not themselves carry `run_id`;
+`finalizeElectiveRun.js` passes its already-in-scope `runId` at the call site.
+
+**What this buys, and what it does not — the part an earlier draft of this amendment got wrong.**
+That draft justified the unkeyed hash by asserting `camper_id` is a `randomUUID()` with 122 bits of
+entropy. That premise is false, and the review round that caught it is the reason this paragraph
+exists. On the elective-sheet import path, `deriveCamperId` (`electron/ops/electiveDerivedIds.js`)
+returns a length-prefixed concatenation — its own comment says "NOT a hash" — whose `name` mode
+embeds the canonicalized display name, and `commitElectiveRun.js` writes that string as
+`campers.id`. Camper ids on that path are name-derived and low-entropy.
+
+The unkeyed hash is nonetheless the right shape, because the weakness an HMAC would address is not
+present and the one that is cannot be addressed at all here. Every device must recompute this key
+from a `camper_id` it holds — that is what lets the read side look up held rows and subtract
+tombstoned campers — so any derivation a device can perform, a camp peer can perform too. An HMAC's
+key would have to be replicated to stay recomputable, which makes it equally readable; and no fleet
+secret survives a genesis rebuild in this architecture regardless. A **confirmation oracle** is
+therefore structural, not a property of sha256: a peer who guesses a purged camper's display name
+can rederive the id, hash it, and confirm that camper was in this run. Because there is no
+re-finalize path, the erased camper's key is never scrubbed from a stored map, so that oracle
+persists for the life of the run row.
+
+State the guarantee accordingly: this change removes a purged camper's id — and, on the import
+path, their **name** — from cleartext in a replicated field that any peer could simply read, and
+recovery now requires already knowing or guessing the name. It is not the unconditional "invisible
+forever" that the tombstone gives the record itself. Closing the oracle would require making every
+camper-creation path mint a high-entropy id, which is a camper-id format change well outside this
+amendment, and is recorded here as a known limit rather than silently implied away.
+
+**Read side — three branches, not two.** `computeSnapshotCompleteness` now distinguishes three
+digest shapes rather than two:
+1. Legacy plain-hex (`LEGACY_DIGEST_RE`) — unchanged, whole-set comparison.
+2. A per-camper map whose keys are **not** all 64-lowercase-hex (`/^[0-9a-f]{64}$/`) — this is
+   the raw-camper-id shape written in the dev-only window between PR #684 and this fix (no live
+   users ever saw it). It is treated **exactly like legacy plain-hex**: whole-set comparison,
+   never erasure-aware. There is no migration path for it and none is needed.
+3. A per-camper map whose keys **are** all 64-lowercase-hex — the current, hashed-key shape.
+   Erasure-aware comparison: each held row's `camper_id` and each tombstoned camper's id are
+   hashed the same way (`run_id + ':' + camper_id`) before being looked up or subtracted.
+
+The discriminator is checked once all map values already parse successfully
+(`parsePerCamperDigestMap`); it only chooses between branches 2 and 3. An empty map (`{}`, a run
+with zero snapshot rows) satisfies "all keys match" vacuously and falls into branch 3 — this is
+deliberate, not an oversight of the regex: with zero entries, branches 2 and 3 behave
+identically (nothing to compare, and any unexpectedly-held camper is still caught by the
+existing "held camper not in expectation" check), so there is nothing to special-case.
+
+**No migration, no schema change.** `snapshot_digest` is already TEXT and was already JSON; only
+the key-derivation function and the read-side discriminator changed, both inside
+`electiveRunSnapshotCompleteness.js`.
+
+**What a future reader will most likely get wrong:** assuming `computeExpectedSnapshotDigestByCamper(rows)` is still a single-argument function, or that any 64-hex-char map key is interchangeable with the whole-digest `LEGACY_DIGEST_RE` check above it — they test different things (one tests the *entire* `snapshot_digest` string; the other tests *each key inside* a parsed JSON object) and must not be merged into one regex check.
