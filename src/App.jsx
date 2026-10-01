@@ -15,7 +15,7 @@ import GroupsScreen from './screens/GroupsScreen'
 import TimeBlocksScreen from './screens/TimeBlocksScreen'
 import ActivitiesScreen from './screens/ActivitiesScreen'
 import LocationsScreen from './screens/LocationsScreen'
-import AnchorsScreen from './screens/AnchorsScreen'
+import FixedEventsScreen from './screens/FixedEventsScreen'
 import ElectivesScreen from './screens/ElectivesScreen'
 import SpecialEventsScreen from './screens/SpecialEventsScreen'
 import DaysScreen from './screens/DaysScreen'
@@ -70,12 +70,12 @@ const SCREENS = {
   timeblocks:   TimeBlocksScreen,
   activities:   ActivitiesScreen,
   locations:    LocationsScreen,
-  anchors:      AnchorsScreen,
+  recurringevents:      FixedEventsScreen,
   // Fixed vs Recurring un-conflation (docs/adr/2026-08-28-fixed-vs-recurring-
-  // events.md §7) — both nav keys point at the same AnchorsScreen, filtered
+  // events.md §7) — both nav keys point at the same FixedEventsScreen, filtered
   // by the fixed `kind` prop below (same pattern as SCHEDULE_ROUTE_BY_SCREEN's
   // fixed `route` prop), not two screens.
-  fixedevents:  AnchorsScreen,
+  fixedevents:  FixedEventsScreen,
   electives:    ElectivesScreen,
   // Special Events unification (docs/adr/2026-08-29-unify-special-events-
   // screen.md) — one create/manage hub replacing the separate Events and
@@ -116,11 +116,11 @@ const SCHEDULE_ROUTE_BY_SCREEN = {
 }
 
 // Fixed vs Recurring events (docs/adr/2026-08-28-fixed-vs-recurring-events.md
-// §7) — one AnchorsScreen, filtered by a fixed `kind` prop per nav key, same
+// §7) — one FixedEventsScreen, filtered by a fixed `kind` prop per nav key, same
 // pattern as SCHEDULE_ROUTE_BY_SCREEN above.
-const ANCHOR_KIND_BY_SCREEN = {
+const EVENT_KIND_BY_SCREEN = {
   fixedevents: 'fixed',
-  anchors: 'recurring',
+  recurringevents: 'recurring',
 }
 
 // T200 round 2 — the two bootstrap-failure sentences used to repeat their
@@ -445,7 +445,7 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
         ...(resolvedScreen === 'schedule:electives' ? { initialElectiveSetId: electiveFocusSetId } : {}),
         ...(resolvedScreen === 'specialevents' ? { initialFocus: specialEventsFocus } : {}),
         ...(resolvedScreen === 'schedule:special' ? { initialSelection: specialScheduleFocus } : {}),
-        ...(ANCHOR_KIND_BY_SCREEN[resolvedScreen] ? { kind: ANCHOR_KIND_BY_SCREEN[resolvedScreen] } : {}),
+        ...(EVENT_KIND_BY_SCREEN[resolvedScreen] ? { kind: EVENT_KIND_BY_SCREEN[resolvedScreen] } : {}),
         ...(resolvedScreen === 'reconciliation' ? { entry: 'openDecisions' } : {}),
       }
 

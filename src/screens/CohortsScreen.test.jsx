@@ -22,7 +22,7 @@ function cohort(overrides = {}) {
     name: 'Main',
     session_week_start: 1,
     session_week_end: 4,
-    anchor_model: 'fixed',
+    fixed_event_model: 'fixed',
     capacity_source: 'groups_per_slot',
     sort_order: 1,
     ...overrides,

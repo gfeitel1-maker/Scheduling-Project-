@@ -19,14 +19,14 @@ export const CHILD_SCREEN = {
   Groups: 'groups',
   'Age Divisions': 'tiers',
   Activities: 'activities',
-  'Recurring Events': 'anchors',
+  'Recurring Events': 'recurringevents',
   Days: 'days',
   'Time Blocks': 'timeblocks',
   Locations: 'locations',
   // Regroup slice (owner decision 2026-08-24): Events/Special Days/Electives
   // moved from the dropped 'Context' domain to ordinary Scheduling children.
   // Each points at its own setup-entity edit screen (App.jsx's SCREENS map),
-  // same pattern as Activities->'activities'/Recurring Events->'anchors' —
+  // same pattern as Activities->'activities'/Recurring Events->'recurringevents' —
   // not the Schedule-side build pickers ('schedule:special',
   // 'schedule:electives'), which are a separate destination for building the
   // actual grid, not editing the entity list.
@@ -44,7 +44,7 @@ export const SCREEN_LABEL = {
   locations: 'Locations',
   cohorts: 'Program',
   tiers: 'Age Divisions',
-  anchors: 'Recurring Events',
+  recurringevents: 'Recurring Events',
   days: 'Days',
   'schedule:manual': 'Schedule',
   'schedule:generated': 'Schedule',

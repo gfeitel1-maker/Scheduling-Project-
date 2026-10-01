@@ -12,7 +12,7 @@ import { DOMAIN_SCREEN, CHILD_SCREEN, SCREEN_LABEL, screenForNode } from './root
 const REAL_SCREEN_KEYS = new Set([
   'readiness', 'camp', 'import', 'roots', 'conflicts', 'trash',
   'cohorts', 'tiers', 'groups', 'days', 'timeblocks', 'activities',
-  'locations', 'anchors', 'schedule',
+  'locations', 'recurringevents', 'schedule',
   'schedule:manual', 'schedule:generated', 'schedule:special',
   'specialevents', 'electives',
 ])

@@ -55,8 +55,8 @@ export const NAV_SECTIONS = [
     items: [
       { key: 'activities',   label: 'Activities',    area: 'activities' },
       // Fixed vs Recurring un-conflation (docs/adr/2026-08-28-fixed-vs-
-      // recurring-events.md, WS2) — one AnchorsScreen, two nav keys, each
-      // fixed to a `kind` prop by ANCHOR_KIND_BY_SCREEN in App.jsx (same
+      // recurring-events.md, WS2) — one FixedEventsScreen, two nav keys, each
+      // fixed to a `kind` prop by EVENT_KIND_BY_SCREEN in App.jsx (same
       // pattern as SCHEDULE_ROUTE_BY_SCREEN's fixed `route` prop) — not two
       // separate screens (§7's routing question, resolved this way per WS1's
       // nav entry + WS2's data model landing together). AREA_TABLE below
@@ -70,7 +70,7 @@ export const NAV_SECTIONS = [
       // show a "needs a look" affordance instead of either "optional" or the
       // blocking "needed" — it still does not block building a draft.
       { key: 'fixedevents',  label: 'Fixed Events',    area: 'fixedevents', expected: true },
-      { key: 'anchors',      label: 'Recurring Events', area: 'anchors', expected: true },
+      { key: 'recurringevents',      label: 'Recurring Events', area: 'recurringevents', expected: true },
       // Electives Slice 1 (docs/adr/2026-08-22-nested-schedules-electives-
       // and-events.md §2): the "schedule within a schedule" — a director
       // builds elective sets/offerings here, off the campwide grid, which
@@ -170,7 +170,7 @@ export const AREA_TABLE = {
   // and the counts did not follow, so the sidebar showed "Fixed Events 112"
   // beside "Recurring Events 112" — the same 112 rows, reported twice (T124).
   fixedevents: { table: 'fixed_events', kind: 'fixed' },
-  anchors: { table: 'fixed_events', kind: 'recurring' },
+  recurringevents: { table: 'fixed_events', kind: 'recurring' },
   electives: 'elective_sets',
   // No entry for 'specialevents': the merged row spans two tables
   // (special_days + events) and AREA_TABLE only supports a single table per

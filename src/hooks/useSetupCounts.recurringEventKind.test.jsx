@@ -34,7 +34,7 @@ describe('useSetupCounts — Fixed vs Recurring', () => {
     const { result } = renderHook(() => useSetupCounts('c1'))
     await waitFor(() => expect(result.current.counts).not.toBeNull())
     expect(result.current.counts.fixedevents).toBe(2)
-    expect(result.current.counts.anchors).toBe(3)
+    expect(result.current.counts.recurringevents).toBe(3)
   })
 
   it('still scopes to this camp', async () => {
