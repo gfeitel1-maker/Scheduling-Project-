@@ -18,6 +18,7 @@ import {
 import { buildElectiveAssignments } from '../../src/engine/buildElectiveAssignments.js'
 import { deriveChoices } from '../../src/screens/elective/assignment/deriveChoices.js'
 import { buildPreferenceLookup, rankLabel, UNORDERED_RANK_LABEL } from '../../src/screens/elective/run/camperElectiveWeek.js'
+import { getElectiveRun } from './getElectiveRun.js'
 
 const dirs = []
 function freshDb() {
@@ -456,6 +457,179 @@ describe('T301 invariant — a re-solve from the stored rows places identically'
       .sort()
     expect(shape(second.assignments)).toEqual(shape(first.assignments))
     expect(shape(first.assignments).length).toBeGreaterThan(0)
+    db.close()
+  })
+})
+
+// board item 9b round 3 (item 3) — BUNDLE_TIER_NOT_COVERED persists through
+// the T320 elective_run_findings path, mirroring SHEET_CAMPER_WITHOUT_PREFERENCE.
+// Today it is response-only (commitElectiveRun.js's return `findings` array),
+// so a cold-reopened draft shows no grouped bundle-mismatch row at all.
+describe('BUNDLE_TIER_NOT_COVERED persists (board item 9b round 3, item 3)', () => {
+  it('commit -> elective_run_findings carries NO camper name and NO tier_id column; cold getElectiveRun carries the finding, its label recovered via elective_choices', () => {
+    const { db, campId } = freshDb()
+    seedTwoTierCamp(db, campId, { scopeMode: 'only', bundleTiers: ['tier-jr'] })
+    const runId = randomUUID()
+    const occurrences = twoTierOccurrences(runId)
+    const srOccurrence = occurrences.find((o) => o.tier_id === 'tier-sr' && o.time_block_id === 'tb-1')
+    const out = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1', runId, occurrences, assignments: [],
+      parsed: {
+        campers: [{ id: 'cam-sr', display_name: 'Noa Katz', external_id: null, group_id: null, division_label: 'Seniors' }],
+        choices: [{ label: 'Archery', labelKey: ARCHERY_KEY }],
+        preferences: [{ camper_id: 'cam-sr', occurrence_id: srOccurrence.id, label: 'Archery', labelKey: ARCHERY_KEY, rank: 2 }],
+        sameNameCampers: [],
+        skippedRows: [],
+      },
+    })
+    expect(out.ok).toBe(true)
+
+    const row = db.prepare(
+      "SELECT * FROM elective_run_findings WHERE run_id = ? AND kind = 'BUNDLE_TIER_NOT_COVERED'"
+    ).get(runId)
+    expect(row).toBeTruthy()
+    expect(row.camper_id).toBe('cam-sr')
+    expect(row.choice_id).not.toBeNull()
+    expect(row.occurrence_id).toBeNull()
+    // NO new column, and no real name in a replicated table — the response
+    // message (out.findings) embeds the display name; the persisted row must
+    // not (T249/ADR 2026-09-23 Q4).
+    expect('tier_id' in row).toBe(false)
+    expect(row.message).not.toContain('Noa Katz')
+
+    const state = getElectiveRun(db, { runId })
+    const found = state.eligibilityFindings.find((f) => f.kind === 'BUNDLE_TIER_NOT_COVERED')
+    expect(found).toBeTruthy()
+    expect(found.camper_id).toBe('cam-sr')
+    // Recovered via the LEFT JOIN to elective_choices, normalized to the
+    // choice's own stored spelling ("Archery") — see the casing-normalization
+    // test below for why that is an incidental improvement, not a regression.
+    expect(found.label).toBe('Archery')
+    db.close()
+  })
+
+  it('a regenerate is GENERATION-FILTERED on read: the prior generation’s row still exists, but only the current generation’s is live', () => {
+    const { db, campId } = freshDb()
+    seedTwoTierCamp(db, campId, { scopeMode: 'only', bundleTiers: ['tier-jr'] })
+    const runId = randomUUID()
+    const occurrences = twoTierOccurrences(runId)
+    const srOccurrence = occurrences.find((o) => o.tier_id === 'tier-sr' && o.time_block_id === 'tb-1')
+    const parsed = {
+      campers: [{ id: 'cam-sr', display_name: 'Noa Katz', external_id: null, group_id: null, division_label: 'Seniors' }],
+      choices: [{ label: 'Archery', labelKey: ARCHERY_KEY }],
+      preferences: [{ camper_id: 'cam-sr', occurrence_id: srOccurrence.id, label: 'Archery', labelKey: ARCHERY_KEY, rank: 1 }],
+      sameNameCampers: [],
+      skippedRows: [],
+    }
+    const first = commitElectiveRun(db, { campId, deviceId: 'dev-1', name: 'Week 1', runId, parsed, assignments: [], occurrences })
+    expect(first.ok).toBe(true)
+    const second = commitElectiveRun(db, { campId, deviceId: 'dev-1', name: 'Week 1', runId, parsed, assignments: [], occurrences })
+    expect(second.ok).toBe(true)
+    expect(second.runId).toBe(first.runId)
+
+    const allRows = db.prepare(
+      "SELECT solver_generation FROM elective_run_findings WHERE run_id = ? AND kind = 'BUNDLE_TIER_NOT_COVERED'"
+    ).all(runId)
+    // NOT pruned — both generations' rows physically exist, same as the
+    // eligibility kinds and SHEET_CAMPER_WITHOUT_PREFERENCE.
+    expect(allRows.length).toBeGreaterThanOrEqual(2)
+
+    const state = getElectiveRun(db, { runId })
+    const live = state.eligibilityFindings.filter((f) => f.kind === 'BUNDLE_TIER_NOT_COVERED')
+    expect(live).toHaveLength(1)
+    db.close()
+  })
+
+  it('two distinct bundle-label mismatches for ONE camper write two DISTINCT rows (distinct choice_ids, no collision)', () => {
+    const { db, campId } = freshDb()
+    seedTwoTierCamp(db, campId, { scopeMode: 'only', bundleTiers: ['tier-jr'] })
+    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run('act-gaga', campId, 'Gaga')
+    db.prepare('INSERT INTO elective_bundles (id, elective_set_id, activity_id, name, scope_mode) VALUES (?, ?, ?, ?, ?)')
+      .run('bundle-2', 'set-1', 'act-gaga', 'Gaga', 'only')
+    db.prepare('INSERT INTO elective_bundle_periods (id, bundle_id, day_id, time_block_id) VALUES (?, ?, ?, ?)')
+      .run('bp-3', 'bundle-2', 'day-1', 'tb-1')
+    db.prepare('INSERT INTO elective_bundle_periods (id, bundle_id, day_id, time_block_id) VALUES (?, ?, ?, ?)')
+      .run('bp-4', 'bundle-2', 'day-1', 'tb-2')
+    db.prepare('INSERT INTO elective_bundle_tiers (id, bundle_id, tier_id) VALUES (?, ?, ?)').run(randomUUID(), 'bundle-2', 'tier-jr')
+
+    const runId = randomUUID()
+    const occurrences = twoTierOccurrences(runId)
+    const srOccurrence = occurrences.find((o) => o.tier_id === 'tier-sr' && o.time_block_id === 'tb-1')
+    const parsed = {
+      campers: [{ id: 'cam-sr', display_name: 'Noa Katz', external_id: null, group_id: null, division_label: 'Seniors' }],
+      choices: [{ label: 'Archery', labelKey: ARCHERY_KEY }, { label: 'Gaga', labelKey: 'gaga' }],
+      preferences: [
+        { camper_id: 'cam-sr', occurrence_id: srOccurrence.id, label: 'Archery', labelKey: ARCHERY_KEY, rank: 1 },
+        { camper_id: 'cam-sr', occurrence_id: srOccurrence.id, label: 'Gaga', labelKey: 'gaga', rank: 2 },
+      ],
+      sameNameCampers: [],
+      skippedRows: [],
+    }
+    const out = commitElectiveRun(db, { campId, deviceId: 'dev-1', name: 'Week 1', runId, parsed, assignments: [], occurrences })
+    expect(out.ok).toBe(true)
+
+    const rows = db.prepare(
+      "SELECT choice_id FROM elective_run_findings WHERE run_id = ? AND kind = 'BUNDLE_TIER_NOT_COVERED'"
+    ).all(runId)
+    expect(rows).toHaveLength(2)
+    expect(new Set(rows.map((r) => r.choice_id)).size).toBe(2)
+    db.close()
+  })
+
+  // BOARD ITEM 9b round 3 — today the response-only message's per-entry
+  // `label` field is "Archery" (the sheet's own spelling) for a camper whose
+  // PREFERENCE hit the mismatch, but only the lowercase canonical labelKey
+  // ("archery") for a DIFFERENT camper whose mismatch came from their
+  // ASSIGNMENT alone (noteMismatch's `label` param: `p.label` vs
+  // `a.labelKey`, commitElectiveRun.js's two call sites) — so a director
+  // reading both in one run sees inconsistent casing. Persisting choice_id
+  // and recovering `label` by joining elective_choices on the READ side
+  // (getElectiveRun.js) normalizes BOTH to the choice's one stored spelling,
+  // regardless of which loop first noted the mismatch. Two DIFFERENT campers
+  // hitting the SAME label is required to exercise this: one camper's
+  // preference mints and mismatches first (sets labelsNeedingFlatChoice and
+  // choiceIdByKey for "archery" before either write loop runs), so the
+  // second camper's assignment-only mismatch resolves to that SAME
+  // already-minted flat choice rather than null.
+  it('two DIFFERENT campers hitting the same label — one via preference, one via assignment-only — both read back the choice’s stored spelling', () => {
+    const { db, campId } = freshDb()
+    seedTwoTierCamp(db, campId, { scopeMode: 'only', bundleTiers: ['tier-jr'] })
+    const runId = randomUUID()
+    const occurrences = twoTierOccurrences(runId)
+    const srOccurrence = occurrences.find((o) => o.tier_id === 'tier-sr' && o.time_block_id === 'tb-1')
+    const out = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1', runId, occurrences,
+      parsed: {
+        campers: [
+          { id: 'cam-sr1', display_name: 'Noa Katz', external_id: null, group_id: null, division_label: 'Seniors' },
+          { id: 'cam-sr2', display_name: 'Omer Levi', external_id: null, group_id: null, division_label: 'Seniors' },
+        ],
+        choices: [{ label: 'Archery', labelKey: ARCHERY_KEY }],
+        preferences: [
+          { camper_id: 'cam-sr1', occurrence_id: srOccurrence.id, label: 'Archery', labelKey: ARCHERY_KEY, rank: 1 },
+        ],
+        sameNameCampers: [],
+        skippedRows: [],
+      },
+      assignments: [{
+        camper_id: 'cam-sr2', occurrence_id: srOccurrence.id, labelKey: ARCHERY_KEY,
+        activity_id: 'act-archery', preference_rank: null, flags: [],
+      }],
+    })
+    expect(out.ok).toBe(true)
+
+    // Confirms the premise: the OLD response-only shape really did carry two
+    // different spellings for the two campers.
+    const responseLabels = out.findings
+      .filter((f) => f.kind === 'BUNDLE_TIER_NOT_COVERED')
+      .map((f) => f.label)
+      .sort()
+    expect(responseLabels).toEqual(['Archery', 'archery'])
+
+    const state = getElectiveRun(db, { runId })
+    const found = state.eligibilityFindings.filter((f) => f.kind === 'BUNDLE_TIER_NOT_COVERED')
+    expect(found).toHaveLength(2)
+    for (const f of found) expect(f.label).toBe('Archery')
     db.close()
   })
 })

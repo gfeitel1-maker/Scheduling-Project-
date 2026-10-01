@@ -271,10 +271,17 @@ export function getElectiveRun(db, { runId }) {
   // eligibility bucket (and through it exportRunExceptions.js) keeps exactly
   // the meaning item 4 gave it. The roster kind is surfaced as
   // sheetOnlyCampers above instead.
+  // board item 9b round 3 (item 3) — the LEFT JOIN recovers `label` for a
+  // persisted BUNDLE_TIER_NOT_COVERED finding, which stores choice_id but not
+  // label (no new column; see commitElectiveRun.js's own comment on that
+  // persistence loop). LEFT, not INNER: every OTHER finding kind here has
+  // choice_id NULL today and must keep reading with label null, not vanish
+  // from the result.
   const eligibilityFindings = db
     .prepare(
-      "SELECT kind, camper_id, choice_id, occurrence_id, message FROM elective_run_findings " +
-      "WHERE run_id = ? AND solver_generation = ? AND kind != 'SHEET_CAMPER_WITHOUT_PREFERENCE'"
+      'SELECT f.kind, f.camper_id, f.choice_id, f.occurrence_id, f.message, ec.label AS label ' +
+      'FROM elective_run_findings f LEFT JOIN elective_choices ec ON ec.id = f.choice_id ' +
+      "WHERE f.run_id = ? AND f.solver_generation = ? AND f.kind != 'SHEET_CAMPER_WITHOUT_PREFERENCE'"
     )
     .all(runId, gen)
 

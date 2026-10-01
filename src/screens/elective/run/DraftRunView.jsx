@@ -568,9 +568,30 @@ export default function DraftRunView({
   // and DANGLING_MANUAL_ASSIGNMENT keep their current per-camper rows (T232/D6
   // require naming the child there).
   const commitNotices = danglingFindings.filter((f) => f.kind !== 'DANGLING_MANUAL_ASSIGNMENT' && f.kind !== 'BUNDLE_TIER_NOT_COVERED')
+  // board item 9b round 3 (item 3) — BUNDLE_TIER_NOT_COVERED now also
+  // PERSISTS (durable, elective_run_findings, read back as
+  // state.eligibilityFindings), so a cold reopen must see it too — the
+  // `danglingFindings` PROP alone (commitElectiveRun's session-scoped
+  // response) is empty on reopen, same `loaded`-survives-a-reopen reasoning
+  // as durableDanglingRows above. Merged and DEDUPED by camper_id, not
+  // concatenated: within ONE session where both exist (this device just
+  // committed AND the durable read has already landed), the SESSION finding
+  // wins — it carries the commit-time tier_id (see commitElectiveRun.js's own
+  // tradeoff comment on the persisted loop, which has none), while the
+  // persisted finding is what a cold-reopened screen has at all.
+  const bundleMismatchFindings = useMemo(() => {
+    const byCamper = new Map()
+    for (const f of state.eligibilityFindings ?? []) {
+      if (f.kind === 'BUNDLE_TIER_NOT_COVERED') byCamper.set(f.camper_id, f)
+    }
+    for (const f of danglingFindings) {
+      if (f.kind === 'BUNDLE_TIER_NOT_COVERED') byCamper.set(f.camper_id, f)
+    }
+    return [...byCamper.values()]
+  }, [state.eligibilityFindings, danglingFindings])
   const bundleMismatchGroups = useMemo(
-    () => groupBundleTierNotCoveredFindings({ findings: danglingFindings, campers: state.campers, groups, tiers }),
-    [danglingFindings, state.campers, groups, tiers]
+    () => groupBundleTierNotCoveredFindings({ findings: bundleMismatchFindings, campers: state.campers, groups, tiers }),
+    [bundleMismatchFindings, state.campers, groups, tiers]
   )
   // (C)(4) — SHEET_CAMPER_WITHOUT_PREFERENCE (sheetOnlyCampers,
   // electron/ops/getElectiveRun.js — deliberately excluded from

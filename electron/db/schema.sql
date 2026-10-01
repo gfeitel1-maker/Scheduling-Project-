@@ -1812,11 +1812,16 @@ CREATE TABLE IF NOT EXISTS elective_run_outer_snapshots (
 
 -- elective_run_findings (v83, T320, docs/adr/2026-09-30-elective-run-durability.md item 4).
 -- A commit-time finding persisted so a later export can read it, rather than the empty
--- `not_computed` placeholder the exceptions export shipped before this. Eligibility-class
--- only this slice ('UNSUPPORTED_LINKED_CHOICE') — see electron/ops/deriveElectiveRunFindingId.js's
--- ELIGIBILITY_FINDING_KINDS. NOT pruned on regeneration, unlike elective_occurrences: a finding row
--- has no "still locked" exemption to preserve, so an ordinary generation-scoped read filter is
--- sufficient (see the ADR's item 4 "deliberate asymmetry" note).
+-- `not_computed` placeholder the exceptions export shipped before this. This slice's
+-- ENGINE-sourced eligibility class was only 'UNSUPPORTED_LINKED_CHOICE' — see
+-- electron/ops/deriveElectiveRunFindingId.js's ELIGIBILITY_FINDING_KINDS. Board item 9b
+-- round 3 added a SECOND kind, 'BUNDLE_TIER_NOT_COVERED', written by its own parallel loop
+-- in commitElectiveRun.js (NOT via ELIGIBILITY_FINDING_KINDS — that array gates the engine's
+-- solverFindings only; this kind comes from commitElectiveRun's own D6 resolution). Both
+-- kinds share this one table and the same read-side generation filter. NOT pruned on
+-- regeneration, unlike elective_occurrences: a finding row has no "still locked" exemption
+-- to preserve, so an ordinary generation-scoped read filter is sufficient (see the ADR's
+-- item 4 "deliberate asymmetry" note).
 -- Derived id: deriveElectiveRunFindingId(run_id, solver_generation, kind, camper_id, choice_id, occurrence_id).
 CREATE TABLE IF NOT EXISTS elective_run_findings (
   id TEXT PRIMARY KEY,

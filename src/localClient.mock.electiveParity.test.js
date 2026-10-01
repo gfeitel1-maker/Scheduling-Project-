@@ -226,6 +226,39 @@ describe('localClient.mock commitElectiveRun — BUNDLE_TIER_NOT_COVERED parity'
     // rosterCampers never reached the resolver.
     expect(mismatch.tier_id).toBe('tier-younger')
   })
+
+  // board item 9b round 3 (item 3) — the COLD-REOPEN parity case: before this,
+  // BUNDLE_TIER_NOT_COVERED existed only in the commit's own response
+  // (out.findings), so a fresh getElectiveRun() call (no commit in the same
+  // session) saw nothing. Mirrors production's persisted-and-read-back shape.
+  it('persists through getElectiveRun — a COLD read (no commit response in play) still carries the finding, label recovered via elective_choices', async () => {
+    const state = JSON.parse(localStorage.getItem('shoresh-mock-state')) ?? {}
+    state.tiers = [{ id: 'tier-older', name: 'Older' }, { id: 'tier-younger', name: 'Younger' }]
+    state.groups = []
+    state.elective_bundles = [{ id: 'bundle-1', elective_set_id: 'set-1', activity_id: 'act-ropes', name: 'Ropes', scope_mode: 'only' }]
+    state.elective_bundle_tiers = [{ id: 'ebt-1', bundle_id: 'bundle-1', tier_id: 'tier-older' }]
+    localStorage.setItem('shoresh-mock-state', JSON.stringify(state))
+
+    const parsed = {
+      campers: [{ id: 'cam-y1', display_name: 'Noa Katz', external_id: null, group_id: null, division_label: 'Younger' }],
+      choices: [{ label: 'Ropes', labelKey: 'ropes' }],
+      preferences: [{ camper_id: 'cam-y1', label: 'Ropes', labelKey: 'ropes', rank: 1 }],
+      sameNameCampers: [], skippedRows: [],
+    }
+    const out = await mockShoresh.commitElectiveRun({ name: 'Week 1', parsed, assignments: [] })
+    expect(out.ok).toBe(true)
+
+    // A fresh call, exactly as a cold reopen (RunList -> open) would make it —
+    // not re-using `out`'s own response.
+    const read = await mockShoresh.getElectiveRun({ runId: out.runId })
+    const found = read.eligibilityFindings.find((f) => f.kind === 'BUNDLE_TIER_NOT_COVERED')
+    expect(found).toBeTruthy()
+    expect(found.camper_id).toBe('cam-y1')
+    expect(found.label).toBe('Ropes')
+    // No real name in the persisted/read message — the same privacy posture
+    // as SHEET_CAMPER_WITHOUT_PREFERENCE's persisted message.
+    expect(found.message).not.toContain('Noa Katz')
+  })
 })
 
 describe('localClient.mock finalizeElectiveRun — OUTER_RESOURCE_CONFLICT parity, continued', () => {

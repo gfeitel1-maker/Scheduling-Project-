@@ -814,6 +814,23 @@ consumer that came to depend on the refusal never happening silently).
 
 _Implementation state, 2026-09-30: part 1 — snapshot completeness, occurrence pruning, re-place picker, persisted eligibility findings — merged (PR #668, schema v83). Part 2 — the tombstone-aware stub seed (extended to `elective_sets`), the refused commit onto a final run, the sheet-named camper in the run's universe, and the folded-in false `FINALIZED_AGAINST_STALE_GENERATION` — merged in one PR with no schema change; the schema stays at v83. The three Part 2 open questions below were not decided and remain open._
 
+**Dated note, 2026-10-01 (board item 9b round 3), under item 4.** `BUNDLE_TIER_NOT_COVERED`
+(a `commitElectiveRun.js`-own finding, not an engine `solverFindings` entry) now also persists into
+`elective_run_findings`, alongside `UNSUPPORTED_LINKED_CHOICE`. It does **not** go through
+`ELIGIBILITY_FINDING_KINDS` — that allowlist gates the engine's `solverFindings` array specifically
+(open question 2 above, still otherwise unresolved); `BUNDLE_TIER_NOT_COVERED` comes from
+`commitElectiveRun`'s own D6 bundle-scope resolution (`resolveWriteChoiceId`/`noteMismatch`) and is
+written by its own parallel loop, same table, same generation-filtered read, same derived-id scheme.
+No schema change — the existing five columns are sufficient. `tier_id` is deliberately **not**
+persisted: there is no column for it, and `groupBundleTierNotCoveredFindings`
+(`src/screens/elective/run/runStateCopy.js`) already had the fallback this relies on for a finding
+missing it — re-derive via `makeCamperIdentityResolver` against the CURRENT roster. That is a real
+tradeoff, not a free lunch: the live, same-session finding carries the commit-time tier; the
+persisted, cold-reopened one re-derives against whatever the roster looks like at read time, so a
+roster edit between commit and reopen can name a different division than the one the mismatch was
+actually generated against. This note records the decision; it does not reopen or change the ADR's
+status or Decision section above.
+
 ---
 
 ## Part 2 (2026-09-30) — the tombstone-aware stub seed, a refused commit onto a final run, and a true camper universe

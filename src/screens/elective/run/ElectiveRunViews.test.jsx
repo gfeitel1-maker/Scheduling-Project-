@@ -595,6 +595,27 @@ describe('T250 B1 — a mixed findings array renders each kind with its own sent
     }
   })
 
+  // board item 9b round 3 (item 3) — BUNDLE_TIER_NOT_COVERED now PERSISTS
+  // (elective_run_findings, read back as state.eligibilityFindings), so a
+  // COLD reopen — no commit-response `danglingFindings` prop at all — must
+  // still show the grouped row. Before this, DraftRunView's
+  // bundleMismatchGroups read ONLY the response prop and a cold reopen showed
+  // nothing.
+  it('renders the grouped bundle-mismatch row on a COLD REOPEN, from state.eligibilityFindings alone — no commit-response prop in play', async () => {
+    localClient.getElectiveRun.mockResolvedValue({
+      ...CLEAN_RUN_STATE,
+      danglingFindings: [],
+      eligibilityFindings: [
+        { kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'camper-2', choice_id: 'choice-sports', occurrence_id: null, label: 'Sports Bundle', message: 'generic, name-free' },
+      ],
+    })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+
+    const bundleRow = await screen.findByTestId('run-state-bundle-mismatch-Sports Bundle-tier-1')
+    expect(bundleRow.textContent).toMatch(/"Sports Bundle" does not cover Juniors — 1 camper kept their request as an ordinary choice\./)
+    expect(within(bundleRow).getAllByText('Testcamper Bravo').length).toBeGreaterThan(0)
+  })
+
   // Owner/organizer ruling, 2026-09-30 — Finalize sits ABOVE the findings list
   // (contradicting the spec's original fixed layout order, amended with a
   // dated note). Pins the DOM order so a future edit cannot silently revert it.
