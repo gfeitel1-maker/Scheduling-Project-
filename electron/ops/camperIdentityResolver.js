@@ -32,6 +32,8 @@ import {
   deriveElectivePreferenceId,
   deriveElectiveAssignmentId,
 } from './electiveDerivedIds.js'
+import { deriveElectiveRunOuterSnapshotId } from './deriveElectiveRunOuterSnapshotId.js'
+import { deriveElectiveRunFindingId } from './deriveElectiveRunFindingId.js'
 
 // Mirrors deriveCamperId's own mode precedence (sub > ext > name) exactly —
 // this function exists only to also capture the human-readable `key_value`
@@ -68,7 +70,7 @@ function writeOp(db, { deviceId, authorUserId }) {
  * by resolveParsedCamperId (which reuses a lookup id a pure parser already
  * computed, rather than re-deriving it).
  *
- * @returns {{camperId: string, lookupId: string, minted: boolean, rekeyed: {camperId: string, moved: {preferences: number, assignments: number}}[]}}
+ * @returns {{camperId: string, lookupId: string, minted: boolean, rekeyed: {camperId: string, moved: {preferences: number, assignments: number, outerSnapshots: number, runFindings: number}}[]}}
  */
 function resolveOrMintByKey(db, { campId, deviceId, authorUserId, lookupId, keyMode, keyValue }) {
   const write = writeOp(db, { deviceId, authorUserId })
@@ -110,7 +112,7 @@ function resolveOrMintByKey(db, { campId, deviceId, authorUserId, lookupId, keyM
  * one caller with both `db` and the parsed rows) uses resolveParsedCamperId
  * below instead, reusing that already-computed id rather than re-deriving it.
  *
- * @returns {{camperId: string, lookupId: string, minted: boolean, rekeyed: {camperId: string, moved: {preferences: number, assignments: number}}[]}}
+ * @returns {{camperId: string, lookupId: string, minted: boolean, rekeyed: {camperId: string, moved: {preferences: number, assignments: number, outerSnapshots: number, runFindings: number}}[]}}
  */
 export function resolveOrMintCamperId(db, {
   campId, deviceId, authorUserId = null,
@@ -133,7 +135,7 @@ export function resolveOrMintCamperId(db, {
  * already and not kept as a separate column).
  *
  * @param {{id: string, display_name: string, external_id: string|null, is_unattributed?: 1|null}} camper
- * @returns {{camperId: string, lookupId: string, minted: boolean, rekeyed: {camperId: string, moved: {preferences: number, assignments: number}}[]}}
+ * @returns {{camperId: string, lookupId: string, minted: boolean, rekeyed: {camperId: string, moved: {preferences: number, assignments: number, outerSnapshots: number, runFindings: number}}[]}}
  */
 export function resolveParsedCamperId(db, { campId, deviceId, authorUserId = null, camper }) {
   const lookupId = camper.id
@@ -217,6 +219,25 @@ function rekeyOrphans(db, { campId, deviceId, authorUserId, camperId, keyMode, k
            FROM elective_assignments WHERE camper_id = ?`
       )
       .all(orphan.id)
+    // Red Hat finding: the other two camper_id-bearing tables
+    // projector.js's TOMBSTONE_DENYLISTED_ENTITIES already enumerates
+    // alongside these — purgeSupportCommand.js treats all four as camper-
+    // scoped dependents of a campers row, and the rekey path must too, or a
+    // purge of the winning id would never reach a row still pointing at the
+    // orphan.
+    const outerSnapshots = db
+      .prepare(
+        `SELECT id, run_id, day_id, time_block_id, activity_id, activity_name, location_id, location_name,
+                span_blocks, solver_generation, cell_kind, choice_id, is_linked_choice, choice_label
+           FROM elective_run_outer_snapshots WHERE camper_id = ?`
+      )
+      .all(orphan.id)
+    const runFindings = db
+      .prepare(
+        `SELECT id, run_id, solver_generation, kind, choice_id, occurrence_id, message
+           FROM elective_run_findings WHERE camper_id = ?`
+      )
+      .all(orphan.id)
 
     runAtomic(db, () => {
       for (const p of preferences) {
@@ -257,11 +278,66 @@ function rekeyOrphans(db, { campId, deviceId, authorUserId, camperId, keyMode, k
         remove('elective_assignments', a.id)
       }
 
+      for (const s of outerSnapshots) {
+        write(
+          'elective_run_outer_snapshots',
+          deriveElectiveRunOuterSnapshotId(s.run_id, camperId, s.day_id, s.time_block_id),
+          {
+            run_id: s.run_id,
+            camper_id: camperId,
+            day_id: s.day_id,
+            time_block_id: s.time_block_id,
+            activity_id: s.activity_id,
+            activity_name: s.activity_name,
+            location_id: s.location_id,
+            location_name: s.location_name,
+            span_blocks: s.span_blocks,
+            solver_generation: s.solver_generation,
+            cell_kind: s.cell_kind,
+            choice_id: s.choice_id,
+            is_linked_choice: s.is_linked_choice,
+            choice_label: s.choice_label,
+          }
+        )
+        remove('elective_run_outer_snapshots', s.id)
+      }
+
+      for (const f of runFindings) {
+        write(
+          'elective_run_findings',
+          deriveElectiveRunFindingId(f.run_id, f.solver_generation, f.kind, camperId, f.choice_id ?? null, f.occurrence_id ?? null),
+          {
+            // ensureExists (projections.js) only INSERTs once run_id,
+            // solver_generation, kind AND message are all known, and its
+            // INSERT statement sets only those four columns — camper_id/
+            // choice_id/occurrence_id must come AFTER so their write lands
+            // as an UPDATE on the now-existing row, not a no-op UPDATE
+            // before the row exists.
+            run_id: f.run_id,
+            solver_generation: f.solver_generation,
+            kind: f.kind,
+            message: f.message,
+            camper_id: camperId,
+            choice_id: f.choice_id,
+            occurrence_id: f.occurrence_id,
+          }
+        )
+        remove('elective_run_findings', f.id)
+      }
+
       // The orphan's own campers row goes LAST, once nothing points at it.
       remove('campers', orphan.id)
     })
 
-    results.push({ camperId: orphan.id, moved: { preferences: preferences.length, assignments: assignments.length } })
+    results.push({
+      camperId: orphan.id,
+      moved: {
+        preferences: preferences.length,
+        assignments: assignments.length,
+        outerSnapshots: outerSnapshots.length,
+        runFindings: runFindings.length,
+      },
+    })
   }
   return results
 }

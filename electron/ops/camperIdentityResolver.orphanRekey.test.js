@@ -91,4 +91,63 @@ describe('resolveOrMintCamperId — cross-device orphan rekey (acceptance criter
     // Exactly one preference total — not duplicated across both ids.
     expect(db.prepare('SELECT COUNT(*) c FROM elective_preferences').get().c).toBe(1)
   })
+
+  // Red Hat finding: projector.js's own TOMBSTONE_DENYLISTED_ENTITIES comment
+  // enumerates FIVE camper_id-bearing tables as needing "vanish along with the
+  // camper" treatment, but rekeyOrphans only moved two of them
+  // (elective_preferences/elective_assignments) — elective_run_outer_snapshots
+  // and elective_run_findings were left behind under the losing camper id,
+  // silently orphaned once that camper row is deleted. purgeSupportCommand.js
+  // already treats all four as camper-scoped dependents of a `campers` row; the
+  // rekey path must too, or a purge of the surviving (winning) camper id would
+  // never reach these two tables' rows, because they still point at an id that
+  // no longer resolves to anyone.
+  it('also rekeys the losing camper elective_run_outer_snapshots and elective_run_findings rows', () => {
+    const { db, campId } = freshDb()
+
+    const losing = resolveOrMintCamperId(db, { campId, deviceId: 'dev-1', displayName: 'Ari Green' })
+    db.prepare("INSERT INTO campers (id, camp_id, display_name) VALUES (?, ?, 'Ari Green')").run(losing.camperId, campId)
+    db.prepare("INSERT INTO elective_assignment_runs (id, camp_id, name) VALUES ('run-1', ?, 'Week 1')").run(campId)
+
+    // A finalized run's export snapshot for this camper, written under the
+    // losing id, through the real write path.
+    appendOp(db, { entity: 'elective_run_outer_snapshots', entity_id: 'snap-1', field: 'run_id', value: 'run-1', device_id: 'dev-1' })
+    appendOp(db, { entity: 'elective_run_outer_snapshots', entity_id: 'snap-1', field: 'camper_id', value: losing.camperId, device_id: 'dev-1' })
+    appendOp(db, { entity: 'elective_run_outer_snapshots', entity_id: 'snap-1', field: 'day_id', value: 'day-mon', device_id: 'dev-1' })
+    appendOp(db, { entity: 'elective_run_outer_snapshots', entity_id: 'snap-1', field: 'time_block_id', value: 'block-1', device_id: 'dev-1' })
+    appendOp(db, { entity: 'elective_run_outer_snapshots', entity_id: 'snap-1', field: 'activity_name', value: 'Swim', device_id: 'dev-1' })
+
+    // A commit-time finding naming this camper, same posture.
+    // run_id/solver_generation/kind/message first — ensureExists
+    // (projections.js) only INSERTs once all four are known, and camper_id
+    // written before that point would UPDATE a row that does not exist yet.
+    appendOp(db, { entity: 'elective_run_findings', entity_id: 'find-1', field: 'run_id', value: 'run-1', device_id: 'dev-1' })
+    appendOp(db, { entity: 'elective_run_findings', entity_id: 'find-1', field: 'solver_generation', value: 'gen-1', device_id: 'dev-1' })
+    appendOp(db, { entity: 'elective_run_findings', entity_id: 'find-1', field: 'kind', value: 'UNSUPPORTED_LINKED_CHOICE', device_id: 'dev-1' })
+    appendOp(db, { entity: 'elective_run_findings', entity_id: 'find-1', field: 'message', value: 'linked choice unsupported', device_id: 'dev-1' })
+    appendOp(db, { entity: 'elective_run_findings', entity_id: 'find-1', field: 'camper_id', value: losing.camperId, device_id: 'dev-1' })
+
+    const winningCamperId = 'camper2:winner-from-device-a'
+    db.prepare("INSERT INTO campers (id, camp_id, display_name) VALUES (?, ?, 'Ari Green')").run(winningCamperId, campId)
+    db.prepare('UPDATE camper_identity_keys SET camper_id = ? WHERE id = ?').run(winningCamperId, losing.lookupId)
+
+    const result = resolveOrMintCamperId(db, { campId, deviceId: 'dev-1', displayName: 'Ari Green' })
+    expect(result.minted).toBe(false)
+    expect(result.camperId).toBe(winningCamperId)
+
+    const movedSnapshot = db.prepare('SELECT camper_id, activity_name FROM elective_run_outer_snapshots WHERE run_id = ?').get('run-1')
+    expect(movedSnapshot).toBeTruthy()
+    expect(movedSnapshot.camper_id).toBe(winningCamperId)
+    expect(movedSnapshot.activity_name).toBe('Swim')
+
+    const movedFinding = db.prepare('SELECT camper_id, message FROM elective_run_findings WHERE run_id = ?').get('run-1')
+    expect(movedFinding).toBeTruthy()
+    expect(movedFinding.camper_id).toBe(winningCamperId)
+    expect(movedFinding.message).toBe('linked choice unsupported')
+
+    expect(db.prepare('SELECT COUNT(*) c FROM elective_run_outer_snapshots WHERE camper_id = ?').get(losing.camperId).c).toBe(0)
+    expect(db.prepare('SELECT COUNT(*) c FROM elective_run_findings WHERE camper_id = ?').get(losing.camperId).c).toBe(0)
+    expect(db.prepare('SELECT COUNT(*) c FROM elective_run_outer_snapshots').get().c).toBe(1)
+    expect(db.prepare('SELECT COUNT(*) c FROM elective_run_findings').get().c).toBe(1)
+  })
 })
