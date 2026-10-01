@@ -34,6 +34,12 @@ import { hasContradictoryRanks } from './ingest/preferenceSheet.js'
 // of the src/-may-import-src exception this file already relies on
 // throughout (buildPlan, resolveImportedPlacements, etc.).
 import { findRouteConflicts } from './engine/routeConflicts.js'
+// F8 (board item 9b round 3) — the ONE camper-tier resolution rule
+// (division_label beats the roster group's tier), reused rather than
+// re-derived, so the mock's BUNDLE_TIER_NOT_COVERED finding cannot disagree
+// with the real one.
+import { makeCamperIdentityResolver } from '../electron/ops/camperElectiveIdentity.js'
+import { electiveChoiceLabelKey } from '../electron/ops/electiveDerivedIds.js'
 import { coordinateOf, sameDayLabel, samePeriodLabel } from './ingest/preferenceCoordinateKeys.js'
 
 import { parseDayOfWeek } from '../electron/ops/dayId.js'
@@ -1986,6 +1992,40 @@ export const mockShoresh = {
           }
         }),
     ]
+    // F8 (board item 9b round 3) — BUNDLE_TIER_NOT_COVERED parity. The mock
+    // had NO concept of elective_bundles at all, so this finding (and
+    // DraftRunView's whole C1 grouped-mismatch row) could never be reached
+    // through browser-dev. Mirrors the ONE resolution rule
+    // (camperElectiveIdentity.js's makeCamperIdentityResolver — division
+    // beats the roster group's tier), deliberately scoped to scope_mode
+    // 'only' (the common case this mock needs to demonstrate); 'except'
+    // mode is not modeled here — a real gap worth closing if browser-dev
+    // ever needs to demonstrate that scope too, not silently guessed at.
+    const bundleTierMismatches = []
+    const bundles = state.elective_bundles || []
+    if (bundles.length > 0) {
+      const identity = makeCamperIdentityResolver({
+        sheetCampers: parsed.campers ?? [], groups: state.groups || [], tiers: state.tiers || [],
+      })
+      const bundleTiersByBundleId = new Map()
+      for (const bt of (state.elective_bundle_tiers || [])) {
+        if (!bundleTiersByBundleId.has(bt.bundle_id)) bundleTiersByBundleId.set(bt.bundle_id, new Set())
+        bundleTiersByBundleId.get(bt.bundle_id).add(bt.tier_id)
+      }
+      const bundleByLabelKey = new Map(
+        bundles.filter((b) => b.scope_mode === 'only').map((b) => [electiveChoiceLabelKey(b.name), b])
+      )
+      for (const pr of (parsed.preferences ?? [])) {
+        const bundle = bundleByLabelKey.get(pr.labelKey)
+        if (!bundle) continue
+        const coveredTiers = bundleTiersByBundleId.get(bundle.id) ?? new Set()
+        const camperTierId = identity.tierIdOf(pr.camper_id)
+        if (camperTierId != null && coveredTiers.has(camperTierId)) continue
+        bundleTierMismatches.push({
+          kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: pr.camper_id, label: pr.label ?? pr.labelKey, tier_id: camperTierId ?? null,
+        })
+      }
+    }
     // T320 part 2 item 3 parity — the run's camper universe. One finding row per
     // sheet camper this commit has neither a preference nor an assignment for,
     // so browser-dev's getElectiveRun widens exactly as production's does. The
@@ -2026,7 +2066,10 @@ export const mockShoresh = {
       // elective_occurrences, which THIS commit's full-replace of
       // elective_occurrences already produces correct input for — so the
       // mock's DraftRunView still shows the row, just not from this field.
-      findings: [],
+      // F8 — BUNDLE_TIER_NOT_COVERED mismatches computed above are the one
+      // kind this mock DOES compute at commit time (unlike
+      // DANGLING_MANUAL_ASSIGNMENT, degraded to [] per the comment above).
+      findings: bundleTierMismatches,
       counts: {
         campers: parsed.campers?.length ?? 0,
         choices: parsed.choices?.length ?? 0,

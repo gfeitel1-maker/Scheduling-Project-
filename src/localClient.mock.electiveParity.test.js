@@ -140,6 +140,58 @@ describe('localClient.mock finalizeElectiveRun — OUTER_RESOURCE_CONFLICT parit
     expect(runs.find((r) => r.id === out.runId).status).toBe('draft')
   })
 
+})
+
+// F8 (board item 9b round 3) — the mock's commitElectiveRun had NO concept of
+// elective_bundles at all, so a BUNDLE_TIER_NOT_COVERED finding (and
+// therefore DraftRunView's whole grouped-mismatch row, C1) could never be
+// reached through browser-dev. Mirrors the ONE resolution rule
+// (electron/ops/camperElectiveIdentity.js's makeCamperIdentityResolver,
+// division beats roster group) rather than re-deriving a second one.
+describe('localClient.mock commitElectiveRun — BUNDLE_TIER_NOT_COVERED parity', () => {
+  it("emits a BUNDLE_TIER_NOT_COVERED finding carrying tier_id when a camper's own tier is not in the bundle's scope", async () => {
+    const state = JSON.parse(localStorage.getItem('shoresh-mock-state')) ?? {}
+    state.tiers = [{ id: 'tier-older', name: 'Older' }, { id: 'tier-younger', name: 'Younger' }]
+    state.groups = []
+    state.elective_bundles = [{ id: 'bundle-1', elective_set_id: 'set-1', activity_id: 'act-ropes', name: 'Ropes', scope_mode: 'only' }]
+    state.elective_bundle_tiers = [{ id: 'ebt-1', bundle_id: 'bundle-1', tier_id: 'tier-older' }]
+    localStorage.setItem('shoresh-mock-state', JSON.stringify(state))
+
+    const parsed = {
+      campers: [{ id: 'cam-y1', display_name: 'Noa Katz', external_id: null, group_id: null, division_label: 'Younger' }],
+      choices: [{ label: 'Ropes', labelKey: 'ropes' }],
+      preferences: [{ camper_id: 'cam-y1', label: 'Ropes', labelKey: 'ropes', rank: 1 }],
+      sameNameCampers: [], skippedRows: [],
+    }
+    const out = await mockShoresh.commitElectiveRun({ name: 'Week 1', parsed, assignments: [] })
+    expect(out.ok).toBe(true)
+    const mismatch = out.findings.find((f) => f.kind === 'BUNDLE_TIER_NOT_COVERED')
+    expect(mismatch).toBeTruthy()
+    expect(mismatch.camper_id).toBe('cam-y1')
+    expect(mismatch.tier_id).toBe('tier-younger')
+  })
+
+  it('emits NO finding when the camper IS covered by the bundle', async () => {
+    const state = JSON.parse(localStorage.getItem('shoresh-mock-state')) ?? {}
+    state.tiers = [{ id: 'tier-older', name: 'Older' }]
+    state.groups = []
+    state.elective_bundles = [{ id: 'bundle-1', elective_set_id: 'set-1', activity_id: 'act-ropes', name: 'Ropes', scope_mode: 'only' }]
+    state.elective_bundle_tiers = [{ id: 'ebt-1', bundle_id: 'bundle-1', tier_id: 'tier-older' }]
+    localStorage.setItem('shoresh-mock-state', JSON.stringify(state))
+
+    const parsed = {
+      campers: [{ id: 'cam-o1', display_name: 'Ari Green', external_id: null, group_id: null, division_label: 'Older' }],
+      choices: [{ label: 'Ropes', labelKey: 'ropes' }],
+      preferences: [{ camper_id: 'cam-o1', label: 'Ropes', labelKey: 'ropes', rank: 1 }],
+      sameNameCampers: [], skippedRows: [],
+    }
+    const out = await mockShoresh.commitElectiveRun({ name: 'Week 1', parsed, assignments: [] })
+    expect(out.ok).toBe(true)
+    expect(out.findings.filter((f) => f.kind === 'BUNDLE_TIER_NOT_COVERED')).toEqual([])
+  })
+})
+
+describe('localClient.mock finalizeElectiveRun — OUTER_RESOURCE_CONFLICT parity, continued', () => {
   it('finalizes normally when no conflict exists (no regression to the happy path)', async () => {
     const parsed = { ...PARSED, preferences: [{ camper_id: 'cam-1', label: 'Archery', labelKey: 'archery', rank: 1 }] }
     const out = await mockShoresh.commitElectiveRun({ name: 'Week 1', parsed, assignments: [] })
