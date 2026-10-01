@@ -1,7 +1,7 @@
 ---
 title: "Per-peer erasure state surfaced to the director (T233 S3)"
 document_type: ticket
-status: open
+status: completed
 created: 2026-10-01
 archive_when: a director can see, per peer, whether a purge-tombstone has been applied (UNKNOWN until the peer reports, LOGICALLY_ERASED only when its reported applied-version >= the tombstone's), read-only on DeviceManagerScreen, with the four never-claims met and Verifier PASS recorded
 task_class: security-auth
@@ -107,3 +107,44 @@ against (tombstone `version` is per-camper-id, not a global sequence). Flag voca
 - `electron/sync/automerge/**` + the `devices` schema column (S3a) — sync + security +
   migration seam.
 - `src/screens/DeviceManagerScreen.jsx` (S3b) — reads the column; no write path.
+
+## Final status (2026-10-01) — S3b shipped, ticket closed
+
+S3a (#711, `536d3fa8`) landed the backing signal; S3b landed the director UI and closes
+this ticket. Both halves of the success predicate are now observable end to end.
+
+- **Backing read (new):** `electron/ops/peerErasureState.js` — a pure
+  `computePeerErasureStates({ tombstones, reports, peerDeviceIds })` plus a db-backed
+  `listPeerErasureStateFromDb(db, { localDeviceId })`. Per-id, never scalar-vs-max: a peer
+  is `LOGICALLY_ERASED` only when, for **every** real purge-tombstone (`version >= 1` — the
+  `version 0`/empty-sig projection placeholder from `projections.js` `ensureExists` is
+  excluded), it has a `peer_tombstone_reports` row with `version >= tombstone.version`;
+  otherwise `UNKNOWN`. No tombstones → empty map (`hasErasure: false`), so the column is
+  absent until a purge happens.
+- **Read-only IPC (new):** `shoresh:list-peer-erasure-state` → `listPeerErasureState`
+  handler in `electron/main.js`, same `devices.read` gate as `listDevices`, excludes the
+  local device (it never self-reports and is not a propagation target). Wired through
+  `preload.js`, `src/localClient.js`, and `src/localClient.mock.js`. No write path;
+  `revokeDevice` untouched.
+- **UI:** `src/screens/DeviceManagerScreen.jsx` renders a read-only flag column ("Record
+  purge") on the All Devices table, only when `hasErasure`. Peer rows show `Hidden`
+  (`LOGICALLY_ERASED`) or `Not confirmed` (`UNKNOWN`); the local device shows "This
+  device". Chips, not banners.
+
+**The four never-claims (acceptance criteria) — all met, pinned by tests:**
+1. Never "deleted"/"gone"/"wiped" — the `Hidden` title says *"suppressed, not deleted"*;
+   tests assert the copy and assert the absence of "wiped"/"gone".
+2. Never cryptographic/physical — the title says *"guess-resistant logical erasure, not
+   cryptographic"*; asserted.
+3. Never certainty about an unreachable peer — a peer with no row, or behind on any
+   tombstone, reads `UNKNOWN` ("unknown, never silently treated as erased"); asserted at
+   both the pure-logic and UI layers.
+4. Never a count it cannot back — only per-peer states the self-report supports are
+   rendered; the local device and phantom `pairing_status='unknown'` rows are excluded, not
+   fabricated; asserted against a real db.
+
+**Evidence:** `electron/ops/peerErasureState.test.js` 11/11 (red-before-green: the module
+was absent, suite failed to import, then green); `src/screens/DeviceManagerScreen.test.jsx`
+11/11 (5 new erasure-badge tests); `electron/ipcSurfaceParity.test.js` 17/17 (caught and
+fixed a missing `localClient.mock.js` implementation); `npm run lint` 0 errors;
+`npm run check:governance` clean. CI is the gate of record.

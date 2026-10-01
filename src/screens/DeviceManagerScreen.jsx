@@ -17,6 +17,29 @@ function pairingStatusLabel(status) {
   return PAIRING_STATUS_LABEL[status] ?? 'Not set up yet'
 }
 
+// T322 S3b — the per-peer purge badge copy. The four never-claims from the
+// scoping note (docs/work/specs/2026-10-01-t233-s3-per-peer-erasure-state-ui-
+// design.md §4) are load-bearing here, not decoration:
+//   1. never "deleted"/"gone"/"wiped" — the record is *suppressed*, not destroyed;
+//   2. never cryptographic/physical — this is guess-resistant logical erasure;
+//   3. never certainty about a peer it cannot hear from — UNKNOWN means unknown;
+//   4. never a count it cannot back — only states the self-report supports.
+const ERASURE_COPY = {
+  LOGICALLY_ERASED: {
+    label: 'Hidden',
+    title:
+      'This device has applied the purge: the camper is hidden from view here. ' +
+      'The record is suppressed, not deleted — its raw data may remain in sync ' +
+      'history. This is guess-resistant logical erasure, not cryptographic.',
+  },
+  UNKNOWN: {
+    label: 'Not confirmed',
+    title:
+      'This device has not confirmed it applied the purge. It may be offline or ' +
+      'not yet caught up — its state is unknown, never silently treated as erased.',
+  },
+}
+
 export default function DeviceManagerScreen({ campId, role, deviceMode }) {
   // T86 — approveDevice/denyDevice/revokeDevice write straight to this
   // device's local, never-synced `devices` table; on a Client that write can
@@ -27,6 +50,11 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
   const canManage = deviceMode !== 'client'
   const [pending, setPending] = useState([])
   const [allDevices, setAllDevices] = useState([])
+  // T322 S3b — per-peer erasure state for the purge-tombstone badge. Read-only,
+  // shape { hasErasure, states: { [deviceId]: 'LOGICALLY_ERASED' | 'UNKNOWN' },
+  // localDeviceId }. The column appears only once a purge has actually happened
+  // (hasErasure), so the common no-purge camp sees no new noise.
+  const [erasure, setErasure] = useState({ hasErasure: false, states: {}, localDeviceId: null })
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState({})
   // Add a device (docs/adr/2026-09-08-libp2p-join-flow.md §4). Only meaningful
@@ -64,12 +92,14 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
 
   async function load() {
     try {
-      const [p, d] = await Promise.all([
+      const [p, d, e] = await Promise.all([
         localClient.listPendingPairingRequests(),
         localClient.listDevices(),
+        localClient.listPeerErasureState(),
       ])
       setPending(p || [])
       setAllDevices(d || [])
+      setErasure(e || { hasErasure: false, states: {}, localDeviceId: null })
     } catch (err) {
       setError(err?.message || "Couldn't load your devices — check your connection and refresh.")
     }
@@ -118,6 +148,26 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
     } catch {
       return iso
     }
+  }
+
+  // T322 S3b — the read-only per-peer purge badge for one device row. The local
+  // device is not a propagation target and never self-reports, so it shows a
+  // plain "This device" rather than a fabricated state (never-claim #4). A peer
+  // with no verdict yet falls back to UNKNOWN, never silently erased.
+  function renderErasureCell(deviceRowId) {
+    if (deviceRowId === erasure.localDeviceId) {
+      return <span style={styles.erasureLocal}>This device</span>
+    }
+    const state = erasure.states[deviceRowId] ?? 'UNKNOWN'
+    const copy = ERASURE_COPY[state] ?? ERASURE_COPY.UNKNOWN
+    return (
+      <span
+        style={state === 'LOGICALLY_ERASED' ? styles.badgeErased : styles.badgeErasureUnknown}
+        title={copy.title}
+      >
+        {copy.label}
+      </span>
+    )
   }
 
   const enterStyle = useEnterTransition('liftFade')
@@ -224,6 +274,7 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
                 <th style={S.th}>Device Name</th>
                 <th style={S.th}>ID</th>
                 <th style={S.th}>Status</th>
+                {erasure.hasErasure && <th style={S.th}>Record purge</th>}
                 <th style={S.th}>Authorized At</th>
                 <th style={S.th}>Actions</th>
               </tr>
@@ -241,6 +292,9 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
                         {pairingStatusLabel(device.pairing_status)}
                       </span>
                     </td>
+                    {erasure.hasErasure && (
+                      <td style={S.td}>{renderErasureCell(device.id)}</td>
+                    )}
                     <td style={S.td}>{fmt(device.authorized_at)}</td>
                     <td style={S.td}>
                       {isAuthorized && role === 'admin' && canManage && (
@@ -365,6 +419,29 @@ const styles = {
     fontWeight: 600,
   },
   revokedLabel: {
+    fontSize: 12,
+    color: 'var(--text-secondary)',
+  },
+  // T322 S3b. Deliberately muted, NOT a success-green chip: "Hidden" states a
+  // confirmed-applied suppression, not that anything is safe, complete, or
+  // deleted. A neutral chip keeps it a quiet flag, never a reassurance.
+  badgeErased: {
+    display: 'inline-block',
+    padding: '2px 8px',
+    borderRadius: 99,
+    background: 'var(--border)',
+    color: 'var(--text-secondary)',
+    fontSize: 11,
+    fontWeight: 600,
+    cursor: 'default',
+  },
+  // Warning-tinted, because "Not confirmed" is the state a director should not
+  // read past — an unreached peer has not applied the purge.
+  badgeErasureUnknown: {
+    display: 'inline-block',
+    ...S.chip('var(--warning)', true, { padding: '2px 8px', borderRadius: 99, fontSize: 11, border: 'none', cursor: 'default' }),
+  },
+  erasureLocal: {
     fontSize: 12,
     color: 'var(--text-secondary)',
   },
