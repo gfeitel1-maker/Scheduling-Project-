@@ -276,18 +276,39 @@ export const localClient = {
   //
   // The token is supplied here rather than by the caller, matching every other
   // wrapper in this file: a screen should not be handling session tokens.
+  // board-freeze-residuals item 7 — bounded the same as write/deleteEntity/
+  // bulkReplace above, reusing WRITE_TIMEOUT_MS rather than a new constant:
+  // commitElectiveRun goes through the same write()-style op-log append /
+  // Automerge-persist path underneath (electron/ops/commitElectiveRun.js), so
+  // the same p95/p99 headroom reasoning T203 measured applies here too.
+  //
+  // A late-landing original write after the renderer has already told the
+  // director "timed out" is safe: a re-commit with the same runId + parsed is
+  // a REGENERATION (see the comment on commit() in AssignmentPanel.jsx) — a
+  // deterministic re-solve against the same input — so a retry converges on
+  // the same end state rather than duplicating anything.
   commitElectiveRun: ({
     name, sourceFilename = null, sourceSha256 = null, parsed, assignments = [],
     occurrences = [], scheduleWeekId = null, scheduleTemplateId = null, runId = null,
     findings = [],
   }) =>
-    shoresh.commitElectiveRun({
-      token: currentToken(), name, sourceFilename, sourceSha256, parsed, assignments,
-      occurrences, scheduleWeekId, scheduleTemplateId, runId, findings,
-    }),
+    withWriteTimeout(
+      shoresh.commitElectiveRun({
+        token: currentToken(), name, sourceFilename, sourceSha256, parsed, assignments,
+        occurrences, scheduleWeekId, scheduleTemplateId, runId, findings,
+      }),
+      'commitElectiveRun'
+    ),
   listElectiveRuns: () => shoresh.listElectiveRuns(currentToken()),
   getElectiveRun: ({ runId }) => shoresh.getElectiveRun({ token: currentToken(), runId }),
-  finalizeElectiveRun: ({ runId }) => shoresh.finalizeElectiveRun({ token: currentToken(), runId }),
+  // board-freeze-residuals item 7 — same bound and same reasoning as
+  // commitElectiveRun above (finalizeElectiveRun.js goes through the same
+  // write()-style path). A late-landing original finalize after a timed-out
+  // retry is also safe: finalizing an already-final run returns the existing
+  // RUN_IS_FINAL refusal code (already handled in AssignmentPanel.jsx /
+  // DraftRunView.jsx via FINALIZE_MESSAGES.RUN_IS_FINAL), not corruption.
+  finalizeElectiveRun: ({ runId }) =>
+    withWriteTimeout(shoresh.finalizeElectiveRun({ token: currentToken(), runId }), 'finalizeElectiveRun'),
   // T245 — draft move/lock.
   setElectiveAssignment: ({ runId, camperId, occurrenceId, activityId, locked = false }) =>
     shoresh.setElectiveAssignment({ token: currentToken(), runId, camperId, occurrenceId, activityId, locked }),
