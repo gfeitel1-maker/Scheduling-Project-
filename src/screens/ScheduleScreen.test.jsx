@@ -1021,8 +1021,8 @@ describe('separate manual and generated routes', () => {
   })
 })
 
-// Red Hat HIGH (round 2): the FIXED_EVENT_DUPLICATE gate (anchors passed only on
-// the generated route; computeFindings' safe default — absent anchors, no
+// Red Hat HIGH (round 2): the FIXED_EVENT_DUPLICATE gate (fixedEvents passed only on
+// the generated route; computeFindings' safe default — absent fixedEvents, no
 // finding — keeps manual clean) is hand-duplicated at THREE call sites.
 // useScheduleData's load loop is already pinned by useScheduleData.test.js.
 // This covers the ScheduleScreen.jsx `recalcFindings` closure (~line 506-512),

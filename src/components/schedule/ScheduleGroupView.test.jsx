@@ -57,7 +57,7 @@ function renderView(extra = {}) {
         onSelectGroup={noop}
         weatherMode={false}
         actMap={actMap}
-        anchorMap={new Map()}
+        fixedEventMap={new Map()}
         releaseCell={noop}
         geometry={geometry}
         eligibleActivitiesFor={() => []}
@@ -228,7 +228,7 @@ describe('ScheduleGroupView — CSS Grid conversion (T54)', () => {
           onSelectGroup={() => {}}
           weatherMode={false}
           actMap={actMap}
-          anchorMap={new Map()}
+          fixedEventMap={new Map()}
           releaseCell={() => {}}
           geometry={makeGridGeometry({ slots, timeBlocks, groups })}
           eligibleActivitiesFor={() => []}
@@ -260,7 +260,7 @@ describe('ScheduleGroupView — CSS Grid conversion (T54)', () => {
           onSelectGroup={() => {}}
           weatherMode={false}
           actMap={actMap}
-          anchorMap={new Map()}
+          fixedEventMap={new Map()}
           releaseCell={() => {}}
           geometry={makeGridGeometry({ slots: filledSlots, timeBlocks, groups })}
           eligibleActivitiesFor={() => []}

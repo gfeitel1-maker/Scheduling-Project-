@@ -103,7 +103,7 @@ export function normalizeScheduleInputs(rowsByEntity, campId) {
   // `unit_ids` (v65, T180) is the anchor's DIVISION scope and is resolved
   // live by src/engine/fixedEventScope.js — omitting it does not throw, it
   // silently drops the scope. See this file's header. See T63 for group_ids.
-  const anchors = raw('fixed_events').map((x) => ({
+  const fixedEvents = raw('fixed_events').map((x) => ({
     ...x,
     group_ids: parseIdList(x.group_ids),
     unit_ids: parseIdList(x.unit_ids),
@@ -125,7 +125,7 @@ export function normalizeScheduleInputs(rowsByEntity, campId) {
     days,
     timeBlocks,
     activities,
-    anchors,
+    fixedEvents,
     locations: raw('locations'),
     cohorts: raw('cohorts'),
     electiveSets: raw('elective_sets'),

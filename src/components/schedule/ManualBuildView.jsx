@@ -61,7 +61,7 @@ function firstMergeableCellKey({ selectedGroup, days, timeBlocks, geometry }) {
 export default function ManualBuildView({
   groups, days, timeBlocks,
   selectedGroup, onSelectGroup,
-  actMap, anchorMap,
+  actMap, fixedEventMap,
   geometry,
   eligibleActivitiesFor, onPlace, onCreateNew,
   onExpandSlot, onSplitSlot,
@@ -179,12 +179,12 @@ export default function ManualBuildView({
 
                       if (slot?.is_fixed_event) {
                         const rowSpan = geometry.getAnchorRowSpan(selectedGroup, day.id, block.id)
-                        const anchor = slot.fixed_event_id ? anchorMap.get(slot.fixed_event_id) : null
+                        const anchor = slot.fixed_event_id ? fixedEventMap.get(slot.fixed_event_id) : null
                         return (
                           <SlotCell
                             key={day.id}
                             rowSpan={rowSpan}
-                            slot={{ ...slot, type: 'anchor', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id }}
+                            slot={{ ...slot, type: 'fixed_event', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id }}
                             anchor={anchor}
                             weatherMode={false}
                             isDndEnabled={false}

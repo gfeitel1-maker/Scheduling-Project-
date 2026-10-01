@@ -39,7 +39,7 @@ const actMap = new Map([
   ['a1', { id: 'a1', name: LONG_NAME }],
   ['a2', { id: 'a2', name: 'Soccer' }],
 ])
-const anchorMap = new Map([['an1', { id: 'an1', name: 'Lunch' }]])
+const fixedEventMap = new Map([['an1', { id: 'an1', name: 'Lunch' }]])
 
 function renderView(extra = {}) {
   const geometry = makeGridGeometry({ slots, timeBlocks, groups })
@@ -53,7 +53,7 @@ function renderView(extra = {}) {
         selectedGroup="g1"
         onSelectGroup={noop}
         actMap={actMap}
-        anchorMap={anchorMap}
+        fixedEventMap={fixedEventMap}
         geometry={geometry}
         eligibleActivitiesFor={() => []}
         onPlace={noop}

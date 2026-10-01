@@ -30,9 +30,9 @@ const arts = { id: 'arts', name: 'Arts', priority: 'low', max_per_week: 5, min_p
 
 // Resolves by activity_id (real row shape) — triggers FIXED_EVENT_DUPLICATE-adjacent exclusion
 // (the T62 anchored-activity exclusion) inside buildSchedule itself.
-const anchorLunch = { id: 'anc-lunch', activity_id: 'lunch', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
+const fixedEventLunch = { id: 'anc-lunch', activity_id: 'lunch', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
 // Unresolved activity_id (no live activity with this id) — triggers FIXED_EVENT_IDENTITY_GAP.
-const anchorGap = { id: 'anc-gap', activity_id: 'does-not-exist', name: 'Mifkad', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b2', span_blocks: 1 }
+const fixedEventGap = { id: 'anc-gap', activity_id: 'does-not-exist', name: 'Mifkad', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b2', span_blocks: 1 }
 
 function buildInput() {
   return {
@@ -41,7 +41,7 @@ function buildInput() {
     days: [baseDay, day2],
     timeBlocks: [baseBlock, block2, block3],
     activities: [lunch, swim, arts],
-    anchors: [anchorLunch, anchorGap],
+    fixedEvents: [fixedEventLunch, fixedEventGap],
     locations: [{ id: 'pool', name: 'Pool', capacity: 1 }],
     campId: 'det-pin-camp',
   }
@@ -53,14 +53,39 @@ function serialize(result) {
   return { slots: sortedSlots, findings: sortedFindings }
 }
 
-// Captured from the post-rename implementation; see the file header for how it was verified
-// against the pre-rename one.
-const EXPECTED = {"slots":[{"groupId":"g1","dayId":"d1","blockId":"b1","cohort_id":null,"type":"anchor","activityId":null,"anchorId":"anc-lunch","is_span_head":true,"flags":{}},{"groupId":"g1","dayId":"d1","blockId":"b2","cohort_id":null,"type":"anchor","activityId":null,"anchorId":"anc-gap","is_span_head":true,"flags":{}},{"groupId":"g1","dayId":"d1","blockId":"b3","cohort_id":null,"type":"activity","activityId":"swim","anchorId":null,"is_span_head":true,"flags":{}},{"groupId":"g1","dayId":"d2","blockId":"b1","cohort_id":null,"type":"anchor","activityId":null,"anchorId":"anc-lunch","is_span_head":true,"flags":{}},{"groupId":"g1","dayId":"d2","blockId":"b2","cohort_id":null,"type":"anchor","activityId":null,"anchorId":"anc-gap","is_span_head":true,"flags":{}},{"groupId":"g1","dayId":"d2","blockId":"b3","cohort_id":null,"type":"activity","activityId":"swim","anchorId":null,"is_span_head":true,"flags":{}},{"groupId":"g2","dayId":"d1","blockId":"b1","cohort_id":null,"type":"anchor","activityId":null,"anchorId":"anc-lunch","is_span_head":true,"flags":{}},{"groupId":"g2","dayId":"d1","blockId":"b2","cohort_id":null,"type":"anchor","activityId":null,"anchorId":"anc-gap","is_span_head":true,"flags":{}},{"groupId":"g2","dayId":"d1","blockId":"b3","cohort_id":null,"type":"activity","activityId":"arts","anchorId":null,"is_span_head":true,"flags":{}},{"groupId":"g2","dayId":"d2","blockId":"b1","cohort_id":null,"type":"anchor","activityId":null,"anchorId":"anc-lunch","is_span_head":true,"flags":{}},{"groupId":"g2","dayId":"d2","blockId":"b2","cohort_id":null,"type":"anchor","activityId":null,"anchorId":"anc-gap","is_span_head":true,"flags":{}},{"groupId":"g2","dayId":"d2","blockId":"b3","cohort_id":null,"type":"activity","activityId":"arts","anchorId":null,"is_span_head":true,"flags":{}}],"findings":[{"kind":"FIXED_EVENT_IDENTITY_GAP","groupId":null,"activityId":"does-not-exist","severity":"error","reason":"\"Mifkad\" is not linked to a live activity — regeneration is blocked until this is fixed","anchorId":"anc-gap"},{"kind":"UNDERSERVED","groupId":"g1","activityId":"arts","severity":"caution","reason":"Goal: 1×/wk — scheduled 0× (group: Aleph, activity: Arts)","got":0,"needed":1},{"kind":"UNDERSERVED","groupId":"g1","activityId":"lunch","severity":"caution","reason":"Goal: 2×/wk — scheduled 0× (group: Aleph, activity: Lunch)","got":0,"needed":2},{"kind":"UNDERSERVED","groupId":"g2","activityId":"lunch","severity":"caution","reason":"Goal: 2×/wk — scheduled 0× (group: Bet, activity: Lunch)","got":0,"needed":2},{"kind":"UNDERSERVED","groupId":"g2","activityId":"swim","severity":"caution","reason":"Goal: 2×/wk — scheduled 0× (group: Bet, activity: Swim)","got":0,"needed":2}]}
+// The PRE-RENAME expectation, captured from the implementation before the engine's
+// public contract was renamed. It is deliberately left verbatim: the test below applies
+// ONLY the two declared renames to it and compares. Any other drift — a reordered slot, a
+// changed PRNG draw, a lost finding — still fails, which is the whole point of the pin.
+const EXPECTED_PRE_RENAME = {"slots":[{"groupId":"g1","dayId":"d1","blockId":"b1","cohort_id":null,"type":"anchor","activityId":null,"anchorId":"anc-lunch","is_span_head":true,"flags":{}},{"groupId":"g1","dayId":"d1","blockId":"b2","cohort_id":null,"type":"anchor","activityId":null,"anchorId":"anc-gap","is_span_head":true,"flags":{}},{"groupId":"g1","dayId":"d1","blockId":"b3","cohort_id":null,"type":"activity","activityId":"swim","anchorId":null,"is_span_head":true,"flags":{}},{"groupId":"g1","dayId":"d2","blockId":"b1","cohort_id":null,"type":"anchor","activityId":null,"anchorId":"anc-lunch","is_span_head":true,"flags":{}},{"groupId":"g1","dayId":"d2","blockId":"b2","cohort_id":null,"type":"anchor","activityId":null,"anchorId":"anc-gap","is_span_head":true,"flags":{}},{"groupId":"g1","dayId":"d2","blockId":"b3","cohort_id":null,"type":"activity","activityId":"swim","anchorId":null,"is_span_head":true,"flags":{}},{"groupId":"g2","dayId":"d1","blockId":"b1","cohort_id":null,"type":"anchor","activityId":null,"anchorId":"anc-lunch","is_span_head":true,"flags":{}},{"groupId":"g2","dayId":"d1","blockId":"b2","cohort_id":null,"type":"anchor","activityId":null,"anchorId":"anc-gap","is_span_head":true,"flags":{}},{"groupId":"g2","dayId":"d1","blockId":"b3","cohort_id":null,"type":"activity","activityId":"arts","anchorId":null,"is_span_head":true,"flags":{}},{"groupId":"g2","dayId":"d2","blockId":"b1","cohort_id":null,"type":"anchor","activityId":null,"anchorId":"anc-lunch","is_span_head":true,"flags":{}},{"groupId":"g2","dayId":"d2","blockId":"b2","cohort_id":null,"type":"anchor","activityId":null,"anchorId":"anc-gap","is_span_head":true,"flags":{}},{"groupId":"g2","dayId":"d2","blockId":"b3","cohort_id":null,"type":"activity","activityId":"arts","anchorId":null,"is_span_head":true,"flags":{}}],"findings":[{"kind":"FIXED_EVENT_IDENTITY_GAP","groupId":null,"activityId":"does-not-exist","severity":"error","reason":"\"Mifkad\" is not linked to a live activity — regeneration is blocked until this is fixed","anchorId":"anc-gap"},{"kind":"UNDERSERVED","groupId":"g1","activityId":"arts","severity":"caution","reason":"Goal: 1×/wk — scheduled 0× (group: Aleph, activity: Arts)","got":0,"needed":1},{"kind":"UNDERSERVED","groupId":"g1","activityId":"lunch","severity":"caution","reason":"Goal: 2×/wk — scheduled 0× (group: Aleph, activity: Lunch)","got":0,"needed":2},{"kind":"UNDERSERVED","groupId":"g2","activityId":"lunch","severity":"caution","reason":"Goal: 2×/wk — scheduled 0× (group: Bet, activity: Lunch)","got":0,"needed":2},{"kind":"UNDERSERVED","groupId":"g2","activityId":"swim","severity":"caution","reason":"Goal: 2×/wk — scheduled 0× (group: Bet, activity: Swim)","got":0,"needed":2}]}
+
+// The ONLY changes the T293 rename is permitted to make to buildSchedule's output:
+// the slot type discriminator's value, and the slot/finding field name carrying the id.
+function applyDeclaredRename(value) {
+  if (Array.isArray(value)) return value.map(applyDeclaredRename)
+  if (value === null || typeof value !== 'object') return value
+  const out = {}
+  for (const [k, v] of Object.entries(value)) {
+    if (k === 'type' && v === 'anchor') { out.type = 'fixed_event'; continue }
+    out[k === 'anchorId' ? 'fixedEventId' : k] = applyDeclaredRename(v)
+  }
+  return out
+}
 
 describe('buildSchedule determinism pin (anchor -> fixed/recurring-event rename, T293)', () => {
-  it('produces byte-identical slots and the expected findings after the rename', () => {
+  it('output is the pre-rename output with ONLY the two declared renames applied', () => {
     const result = serialize(buildSchedule(buildInput()))
-    expect(result).toEqual(EXPECTED)
+    expect(result).toEqual(applyDeclaredRename(EXPECTED_PRE_RENAME))
+  })
+
+  it('the pin is non-vacuous: the pre-rename expectation really did carry the old names', () => {
+    const raw = JSON.stringify(EXPECTED_PRE_RENAME)
+    expect(raw).toContain('"type":"anchor"')
+    expect(raw).toContain('"anchorId"')
+    const renamed = JSON.stringify(applyDeclaredRename(EXPECTED_PRE_RENAME))
+    expect(renamed).not.toContain('"type":"anchor"')
+    expect(renamed).not.toContain('"anchorId"')
+    expect(renamed).toContain('"fixedEventId"')
   })
 
   it('findings carry no stray ANCHOR_* kind string — only FIXED_EVENT_* and unrelated kinds', () => {

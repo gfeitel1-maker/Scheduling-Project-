@@ -16,7 +16,7 @@ function mapTemplateSlot(row) {
   const base = { groupId: row.group_id, cohort_id: null, dayId: row.day_id, blockId: row.time_block_id }
   if (row.elective_set_id != null) return { ...base, type: 'elective', electiveSetId: row.elective_set_id }
   if (row.event_id != null) return { ...base, type: 'event', eventId: row.event_id }
-  if (row.is_fixed_event) return { ...base, type: 'anchor', anchorId: row.fixed_event_id }
+  if (row.is_fixed_event) return { ...base, type: 'fixed_event', fixedEventId: row.fixed_event_id }
   if (row.activity_id != null) return { ...base, type: 'activity', activityId: row.activity_id }
   return { ...base, type: null }
 }

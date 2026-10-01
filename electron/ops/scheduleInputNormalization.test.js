@@ -22,7 +22,7 @@ const OTHER = 'camp-2'
 
 describe('normalizeScheduleInputs', () => {
   it('parses BOTH anchor id-list columns, so division scope survives', () => {
-    const { anchors, groups } = normalizeScheduleInputs(
+    const { fixedEvents, groups } = normalizeScheduleInputs(
       {
         tiers: [{ id: 'unit-a', camp_id: CAMP, sort_order: 0 }],
         groups: [
@@ -36,11 +36,11 @@ describe('normalizeScheduleInputs', () => {
       CAMP
     )
 
-    expect(anchors[0].group_ids).toEqual(['g9'])
-    expect(anchors[0].unit_ids).toEqual(['unit-a'])
+    expect(fixedEvents[0].group_ids).toEqual(['g9'])
+    expect(fixedEvents[0].unit_ids).toEqual(['unit-a'])
     // Non-vacuity: the engine must actually READ it as a division claim. With
     // the raw string this returned ['g9'] — the fallback — not ['g1'].
-    expect(resolveFixedEventGroupIds(anchors[0], groups)).toEqual(['g1'])
+    expect(resolveFixedEventGroupIds(fixedEvents[0], groups)).toEqual(['g1'])
   })
 
   it('sorts days by sort_order BEFORE de-duping by day_of_week', () => {

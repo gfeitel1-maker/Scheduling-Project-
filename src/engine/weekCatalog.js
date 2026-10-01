@@ -10,7 +10,7 @@ import { resolveFixedEventGroupIds } from './fixedEventScope.js'
 export function resolveWeekCatalog({
   groups,
   activities,
-  anchors,
+  fixedEvents,
   weekId,
   activityExclusions,
   groupExclusions,
@@ -33,7 +33,7 @@ export function resolveWeekCatalog({
   )
 
   if (excludedActivityIds.size === 0 && excludedGroupIds.size === 0 && excludedLocationIds.size === 0) {
-    return { groups, activities, anchors, suppressedAnchors: [] }
+    return { groups, activities, fixedEvents, suppressedFixedEvents: [] }
   }
 
   // The location→activity hop: an activity bound to a closed place is
@@ -49,20 +49,20 @@ export function resolveWeekCatalog({
   )
   const filteredGroups = groups.filter((g) => !excludedGroupIds.has(g.id))
 
-  const keptAnchors = []
-  const suppressedAnchors = []
+  const keptFixedEvents = []
+  const suppressedFixedEvents = []
 
   // An anchor links to its activity via `fixed_events.activity_id` — see
   // fixedEventActivityLink.js. T267 PR2 cuts this over from the earlier
   // name-matching fallback to a direct id lookup.
-  for (const anchor of anchors) {
-    const anchorActivityIds = resolveFixedEventActivityIds(anchor)
-    if (anchorActivityIds.some((id) => excludedActivityIds.has(id))) {
-      suppressedAnchors.push({ anchor, reason: 'activity-excluded' })
+  for (const anchor of fixedEvents) {
+    const fixedEventActivityIds = resolveFixedEventActivityIds(anchor)
+    if (fixedEventActivityIds.some((id) => excludedActivityIds.has(id))) {
+      suppressedFixedEvents.push({ anchor, reason: 'activity-excluded' })
       continue
     }
-    if (anchorActivityIds.some((id) => locationExcludedActivityIds.has(id))) {
-      suppressedAnchors.push({ anchor, reason: 'location-excluded' })
+    if (fixedEventActivityIds.some((id) => locationExcludedActivityIds.has(id))) {
+      suppressedFixedEvents.push({ anchor, reason: 'location-excluded' })
       continue
     }
 
@@ -73,24 +73,24 @@ export function resolveWeekCatalog({
       // T180: resolve through the SHARED scope resolver, not group_ids
       // directly — a division-scoped (unit_ids) event carries an empty
       // group_ids, and reading that raw made it impossible to suppress.
-      const anchorGroupIds = resolveFixedEventGroupIds(anchor, groups)
+      const fixedEventGroupIds = resolveFixedEventGroupIds(anchor, groups)
 
       if (
-        anchorGroupIds.length > 0 &&
-        anchorGroupIds.every((gid) => excludedGroupIds.has(gid))
+        fixedEventGroupIds.length > 0 &&
+        fixedEventGroupIds.every((gid) => excludedGroupIds.has(gid))
       ) {
-        suppressedAnchors.push({ anchor, reason: 'all-groups-excluded' })
+        suppressedFixedEvents.push({ anchor, reason: 'all-groups-excluded' })
         continue
       }
     }
 
-    keptAnchors.push(anchor)
+    keptFixedEvents.push(anchor)
   }
 
   return {
     groups: filteredGroups,
     activities: filteredActivities,
-    anchors: keptAnchors,
-    suppressedAnchors,
+    fixedEvents: keptFixedEvents,
+    suppressedFixedEvents,
   }
 }

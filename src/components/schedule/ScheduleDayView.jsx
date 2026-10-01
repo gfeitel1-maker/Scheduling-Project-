@@ -20,7 +20,7 @@ const NO_COLLAPSE = new Set()
 // there is deliberately no second placement helper.
 export default function ScheduleDayView({
   groups, days, timeBlocks, selectedDay, onSelectDay,
-  weatherMode, actMap, anchorMap,
+  weatherMode, actMap, fixedEventMap,
   releaseCell,
   geometry,
   eligibleActivitiesFor, onPlace, onCreateNew,
@@ -146,7 +146,7 @@ export default function ScheduleDayView({
 
                       const { slot, rowSpan, cellType } = decision
                       const act = slot.activity_id ? actMap.get(slot.activity_id) : null
-                      const anchor = slot.fixed_event_id ? anchorMap.get(slot.fixed_event_id) : null
+                      const anchor = slot.fixed_event_id ? fixedEventMap.get(slot.fixed_event_id) : null
                       const actIsLocked = slot.activity_id && act?.is_locked
                       const isLocked = Boolean(actIsLocked && !slot.is_released)
 
@@ -166,7 +166,7 @@ export default function ScheduleDayView({
                           key={group.id}
                           rowSpan={rowSpan}
                           slot={slot.is_fixed_event
-                            ? { ...slot, type: 'anchor', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id }
+                            ? { ...slot, type: 'fixed_event', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id }
                             : { ...slot, type: cellType, groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id, flags: slot.flags || {} }}
                           activity={act}
                           anchor={anchor}

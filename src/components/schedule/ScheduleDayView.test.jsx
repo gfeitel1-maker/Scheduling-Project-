@@ -59,7 +59,7 @@ function renderView(extra = {}) {
         onSelectDay={noop}
         weatherMode={false}
         actMap={actMap}
-        anchorMap={new Map()}
+        fixedEventMap={new Map()}
         releaseCell={noop}
         geometry={geometry}
         eligibleActivitiesFor={() => []}

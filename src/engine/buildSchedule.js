@@ -16,7 +16,7 @@ import { resolveWeekCatalog } from './weekCatalog.js'
 //   where cohorts = [{ cohort, timeBlocks, tiers, groups, preplacedSlots, activityTargets }]
 //
 //   LEGACY (single-cohort, backward compat):
-//   buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, campId, preplacedSlots })
+//   buildSchedule({ groups, tiers, days, timeBlocks, activities, fixedEvents, campId, preplacedSlots })
 //
 // Output: { slots, conflicts, findings }
 //   slots     — array of scheduled slot objects (cohort_id and is_span_head added).
@@ -77,7 +77,7 @@ function normalizeInput(input) {
       groups: input.groups || [],
       preplacedSlots: input.preplacedSlots || [],
       activityTargets: null,
-      _legacyAnchors: input.anchors || [],
+      _legacyFixedEvents: input.fixedEvents || [],
     }],
     days: input.days || [],
     activities: input.activities || [],
@@ -103,7 +103,7 @@ function normalizeInput(input) {
 // Extracted from Pass 1 (docs/adr/2026-09-16-anchor-duplicate-finding.md) so
 // Pass 1 and computeFindings() decide "anchored for this group" through the
 // SAME computation — the ADR's anti-drift point. Callers pass UNFILTERED,
-// camp-wide anchors; this function does the schedule_week_id filter itself.
+// camp-wide fixedEvents; this function does the schedule_week_id filter itself.
 // `days` WAS documented-but-unused, on the reasoning that day scoping is
 // placement mechanics that stays Pass-1-local. That changed when the owner
 // answered §10 Q5 of docs/adr/2026-09-12-activities-as-one-entity-with-
@@ -134,7 +134,7 @@ function normalizeInput(input) {
 //
 // SCOPE OF THIS SEAM — read before the T180 rebase: this covers the finding's
 // coverage step only. TWO other scope readers exist and are NOT this function:
-//   1. Pass 1's placement loop (anchorLookup, ~40 lines below) keeps its own
+//   1. Pass 1's placement loop (fixedEventLookup, ~40 lines below) keeps its own
 //      copy — that is gracious-thompson's placement seam to swap, with a
 //      load-bearing DO-NOT-INLINE one-liner at its call site; do not touch it.
 //   2. resolveWeekCatalog (src/engine/weekCatalog.js), which computeFindings now
@@ -151,12 +151,12 @@ function normalizeInput(input) {
 // does this anchor cover" one named home, and an alias is a far smaller target
 // for a merge conflict to mangle than a call-site edit.
 // See docs/work/tickets/T182-stale-anchor-duplicate-finding.md.
-function anchorCoveredGroupIds(anchor, liveGroups) {
+function fixedEventCoveredGroupIds(anchor, liveGroups) {
   return resolveFixedEventGroupIds(anchor, liveGroups)
 }
 
-export function fixedEventActivityIdsByGroupDay(anchors, activities, groups, { days = [], weekId = null } = {}) {
-  const filtered = (anchors || []).filter(
+export function fixedEventActivityIdsByGroupDay(fixedEvents, activities, groups, { days = [], weekId = null } = {}) {
+  const filtered = (fixedEvents || []).filter(
     (a) => a.schedule_week_id == null || a.schedule_week_id === weekId
   )
   // An empty `days` makes every null-day_id anchor mark NOTHING — a guard that
@@ -166,14 +166,14 @@ export function fixedEventActivityIdsByGroupDay(anchors, activities, groups, { d
   // from screen state: if slots have loaded and days has not, FIXED_EVENT_DUPLICATE
   // silently under-reports. Loud in DEV, no production behaviour change — the
   // same convention assertIdListShape uses in buildSchedule.js. (Q5 review.)
-  if (import.meta.env?.DEV && (days || []).length === 0 && (anchors || []).some((a) => a.day_id == null || a.day_id === '')) {
-    console.warn('fixedEventActivityIdsByGroupDay: empty `days` with all-day anchors — exclusion will be empty')
+  if (import.meta.env?.DEV && (days || []).length === 0 && (fixedEvents || []).some((a) => a.day_id == null || a.day_id === '')) {
+    console.warn('fixedEventActivityIdsByGroupDay: empty `days` with all-day fixedEvents — exclusion will be empty')
   }
   const byGroupDay = new Map() // "groupId|dayId" → Set<activityId>
   for (const anchor of filtered) {
-    // Group scope goes through the single seam (anchorCoveredGroupIds) — never
+    // Group scope goes through the single seam (fixedEventCoveredGroupIds) — never
     // a direct anchor.group_ids read here. `groups` is the live list.
-    const groupList = anchorCoveredGroupIds(anchor, groups)
+    const groupList = fixedEventCoveredGroupIds(anchor, groups)
 
     const anchoredIds = resolveFixedEventActivityIds(anchor)
     if (anchoredIds.length === 0) continue
@@ -193,7 +193,7 @@ export function fixedEventActivityIdsByGroupDay(anchors, activities, groups, { d
 }
 
 function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, locationNameById, electiveSetActivities, events, fixedEventsOnly = false, weekId = null }) {
-  const { cohort, timeBlocks, tiers: _tiers, groups, preplacedSlots, activityTargets, _legacyAnchors } = cohortEntry
+  const { cohort, timeBlocks, tiers: _tiers, groups, preplacedSlots, activityTargets, _legacyFixedEvents } = cohortEntry
   const cohortId = cohort?.id ?? null
 
   // Sort time blocks by sort_order so span_blocks consecutive logic is stable
@@ -234,15 +234,15 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
   }
 
   // ── Pass 1: map the grid ──────────────────────────────────────────────────
-  // Build anchor lookup from legacy anchors (flat signature) or preplacedSlots
-  const anchorLookup = new Map() // "groupId|dayId|blockId" → anchor
+  // Build anchor lookup from legacy fixedEvents (flat signature) or preplacedSlots
+  const fixedEventLookup = new Map() // "groupId|dayId|blockId" → anchor
   // Slice 2 (schedule_week_id, docs/work/specs/2026-08-23-unified-schedule-
   // overlay-slices.md): schedule_week_id NULL means "every week" (today's
   // implicit behavior, unchanged). A non-null schedule_week_id that doesn't
   // match the week being built is dropped here, BEFORE anchoredActivityIds is
   // built below — a week-bound anchor must not occupy a cell on another week,
   // and must not exclude its activity from regular placement there either.
-  const anchors = (_legacyAnchors || []).filter(
+  const fixedEvents = (_legacyFixedEvents || []).filter(
     (a) => a.schedule_week_id == null || a.schedule_week_id === weekId
   )
   // T62, corrected. An anchor links its activity by `activity_id` (see
@@ -253,27 +253,27 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
   // one group's recurring Swim delete Swim from every other group's catalog.
   // Day-agnostic within a group, deliberately: an anchor IS that group's
   // scheduling of that activity for the week, which is T62's premise.
-  const anchoredActivityIdsByGroupDayMap = fixedEventActivityIdsByGroupDay(anchors, activities, groups, { days, weekId })
+  const anchoredActivityIdsByGroupDayMap = fixedEventActivityIdsByGroupDay(fixedEvents, activities, groups, { days, weekId })
 
-  // Board finding, 2026-09-29: two anchors can target the same cell — an
+  // Board finding, 2026-09-29: two fixedEvents can target the same cell — an
   // all-weeks fixed event (schedule_week_id == null) and a week-scoped
   // override for the week being built. A week-scoped anchor is an override:
   // it beats an all-weeks one at the same cell regardless of which one this
-  // loop visits last. (Two anchors of the SAME scope colliding is unrelated
+  // loop visits last. (Two fixedEvents of the SAME scope colliding is unrelated
   // and stays last-write-wins, as before.)
   function setFixedEventLookup(key, anchor) {
-    const existing = anchorLookup.get(key)
+    const existing = fixedEventLookup.get(key)
     if (existing && existing.schedule_week_id == null && anchor.schedule_week_id != null) {
-      anchorLookup.set(key, anchor)
+      fixedEventLookup.set(key, anchor)
       return
     }
     if (existing && existing.schedule_week_id != null && anchor.schedule_week_id == null) {
       return
     }
-    anchorLookup.set(key, anchor)
+    fixedEventLookup.set(key, anchor)
   }
 
-  for (const anchor of anchors) {
+  for (const anchor of fixedEvents) {
     // Scope resolution order (unit_ids > unit_id > is_all_groups > group_ids)
     // lives in one place, shared with weekCatalog.js — the two disagreeing is
     // how a division-scoped event became unsuppressable. See fixedEventScope.js.
@@ -316,7 +316,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
   // T41 slice 1 (group-level electives,
   // docs/work/specs/2026-08-20-group-electives-design.md): a template_slots
   // cell carrying elective_set_id is authored content, never engine output —
-  // the same pre-placed/do-not-fill treatment anchors get via anchorLookup
+  // the same pre-placed/do-not-fill treatment fixedEvents get via fixedEventLookup
   // above (T62 closed anchor double-scheduling the same way). Threaded
   // through preplacedSlots entries carrying an electiveSetId (rather than an
   // activityId) so callers don't need a third top-level array.
@@ -357,7 +357,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
   const placeUsage = new Map()    // "locationId|dayId|blockId" → [{ groupId, tierId, sourceLabel }]
 
   // Shared by occupyPlace (regular activities, Pass 2) and the overlay
-  // registration below (anchors/electives/events, Pass 1) — one physical
+  // registration below (fixedEvents/electives/events, Pass 1) — one physical
   // capacity ledger, one write path, per the design doc's explicit rejection
   // of a parallel mechanism. sourceLabel (the anchor/elective offering/event
   // name) is optional and used only to enrich UNFILLABLE_reason in Pass 3.
@@ -376,18 +376,18 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
     for (const day of days) {
       for (const block of timeBlocksSorted) {
         const key = `${group.id}|${day.id}|${block.id}`
-        const anchor = anchorLookup.get(key)
+        const anchor = fixedEventLookup.get(key)
 
         // Deliberate precedence: anchor is checked before elective, so a
         // slot carrying BOTH is_fixed_event and elective_set_id resolves as an
         // anchor — the elective is silently dropped for that cell. Slice 1
         // has no writer that can produce both on the same slot, but if one
-        // ever does, this is the intended tie-break (anchors are the older,
+        // ever does, this is the intended tie-break (fixedEvents are the older,
         // more constrained mechanism).
         if (anchor) {
-          slots.push({ groupId: group.id, dayId: day.id, blockId: block.id, cohort_id: cohortId, type: 'anchor', activityId: null, anchorId: anchor.id, is_span_head: anchor._isSpanHead !== false, flags: {} })
+          slots.push({ groupId: group.id, dayId: day.id, blockId: block.id, cohort_id: cohortId, type: 'fixed_event', activityId: null, fixedEventId: anchor.id, is_span_head: anchor._isSpanHead !== false, flags: {} })
           if (anchor.location_id != null) {
-            registerOverlayOccupancy(anchor.location_id, group.id, day.id, block.id, group.tier_id ?? null, anchor.name || 'an anchor')
+            registerOverlayOccupancy(anchor.location_id, group.id, day.id, block.id, group.tier_id ?? null, anchor.name || 'a fixed event')
           }
           continue
         }
@@ -397,7 +397,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
         // (MUTUALLY_EXCLUSIVE_FIELDS), this order is the documented tie-break.
         const eventId = eventLookup.get(key)
         if (eventId != null) {
-          slots.push({ groupId: group.id, dayId: day.id, blockId: block.id, cohort_id: cohortId, type: 'event', activityId: null, anchorId: null, eventId, is_span_head: true, flags: {} })
+          slots.push({ groupId: group.id, dayId: day.id, blockId: block.id, cohort_id: cohortId, type: 'event', activityId: null, fixedEventId: null, eventId, is_span_head: true, flags: {} })
           const eventRow = eventById.get(eventId)
           if (eventRow?.location_id != null) {
             registerOverlayOccupancy(eventRow.location_id, group.id, day.id, block.id, group.tier_id ?? null, eventRow.name || 'an event')
@@ -410,7 +410,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
           // Excluded from openSlots entirely: the engine never fills this
           // cell and never counts it as unfilled (no UNFILLABLE flag), the
           // same way an anchor slot above is excluded.
-          slots.push({ groupId: group.id, dayId: day.id, blockId: block.id, cohort_id: cohortId, type: 'elective', activityId: null, anchorId: null, electiveSetId, is_span_head: true, flags: {} })
+          slots.push({ groupId: group.id, dayId: day.id, blockId: block.id, cohort_id: cohortId, type: 'elective', activityId: null, fixedEventId: null, electiveSetId, is_span_head: true, flags: {} })
           // Owner-resolved model (§1): the set doesn't have one location —
           // each DISTINCT offering location contends, simultaneously. But an
           // occupant is a GROUP AT A LOCATION, not an offering — two
@@ -430,7 +430,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
         const avail = group.availability
         const pod = block.part_of_day
         if (avail !== 'all' && avail !== pod) {
-          slots.push({ groupId: group.id, dayId: day.id, blockId: block.id, cohort_id: cohortId, type: 'unavailable', activityId: null, anchorId: null, is_span_head: true, flags: {} })
+          slots.push({ groupId: group.id, dayId: day.id, blockId: block.id, cohort_id: cohortId, type: 'unavailable', activityId: null, fixedEventId: null, is_span_head: true, flags: {} })
           continue
         }
 
@@ -521,7 +521,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
         // phantom bookkeeping (assigned/usageCount/placeUsage/activityUsage)
         // at the elective coordinate, corrupting session credit and capacity
         // even though the visible schedule still renders the elective.
-        if (assigned.has(nextKey) || anchorLookup.has(nextKey) || electiveLookup.has(nextKey) || eventLookup.has(nextKey)) return false
+        if (assigned.has(nextKey) || fixedEventLookup.has(nextKey) || electiveLookup.has(nextKey) || eventLookup.has(nextKey)) return false
         // Tail block must also be within the group's available part of day
         if (avail !== 'all' && avail !== nextBlock.part_of_day) return false
         // Tail block occupies the place too — same capacity + same_tier_only
@@ -574,7 +574,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
     occupyPlace(act, safeGroup, groupId, dayId, blockId)
   }
 
-  // Pre-place locked slots (anchors from new signature + any explicit preplacedSlots)
+  // Pre-place locked slots (fixedEvents from new signature + any explicit preplacedSlots)
   // Note: place() calls incCount() which registers daily usage, so canPlace() will
   // correctly block duplicate same-day placements even for pre-placed activities.
   for (const pre of (preplacedSlots || [])) {
@@ -583,7 +583,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
     // that is both a locked activity AND an elective cell at the same
     // coordinate, but a future write path or a sync race shouldn't be able
     // to silently corrupt bookkeeping if it ever does — mirrors the same
-    // guard anchorLookup effectively gets via the openSlots exclusion above.
+    // guard fixedEventLookup effectively gets via the openSlots exclusion above.
     if (!assigned.has(key) && !electiveLookup.has(key) && !eventLookup.has(key)) {
       const act = activities.find(a => a.id === pre.activityId)
       if (act) place(act, pre.groupId, pre.dayId, pre.blockId)
@@ -673,7 +673,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
       }
     }
 
-    resultSlots.push({ groupId: os.groupId, dayId: os.dayId, blockId: os.blockId, cohort_id: cohortId, type: 'activity', activityId: actId, anchorId: null, is_span_head: isSpanHead, flags })
+    resultSlots.push({ groupId: os.groupId, dayId: os.dayId, blockId: os.blockId, cohort_id: cohortId, type: 'activity', activityId: actId, fixedEventId: null, is_span_head: isSpanHead, flags })
   }
 
   // Resolve activityTargets: caller may supply scaled min/max for override weeks
@@ -741,7 +741,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
 // findings must reflect what's on screen, not just what the last generate()
 // happened to compute. Mirrors the aggregate-findings logic in scheduleCohort's
 // Pass 3, but reads counts off `slots` instead of the live placement maps.
-export function computeFindings({ slots, groups, activities, days, anchors, weekId = null, activityExclusions, groupExclusions, locationExclusions }) {
+export function computeFindings({ slots, groups, activities, days, fixedEvents, weekId = null, activityExclusions, groupExclusions, locationExclusions }) {
   const findings = []
   if (!slots || !groups || !activities || !days) return findings
 
@@ -822,22 +822,22 @@ export function computeFindings({ slots, groups, activities, days, anchors, week
   // exclude the activity for that group but the persisted regular slot is
   // never re-checked. Flag it using the SAME shared per-group exclusion the
   // engine uses in Pass 1 — anti-drift is the point (docs/adr/2026-09-16-
-  // anchor-duplicate-finding.md). Absent/empty anchors → no findings (safe
-  // default for callers that don't yet thread anchors/weekId through).
-  if (anchors && anchors.length > 0) {
+  // anchor-duplicate-finding.md). Absent/empty fixedEvents → no findings (safe
+  // default for callers that don't yet thread fixedEvents/weekId through).
+  if (fixedEvents && fixedEvents.length > 0) {
     // Suppress a week-closed activity from the exclusion set: an activity
     // closed via activityExclusions/groupExclusions/locationExclusions for
     // this week would not be excluded by a fresh build even though its
     // all-weeks anchor is still live — flagging it here would be a false
     // positive. Effective sets are used ONLY for this loop; UNDERSERVED/
     // DISTRIBUTION above keep reading the raw activities/groups unchanged.
-    const { groups: effGroups, activities: effActivities, anchors: effAnchors } = resolveWeekCatalog({
-      groups, activities, anchors, weekId,
+    const { groups: effGroups, activities: effActivities, fixedEvents: effFixedEvents } = resolveWeekCatalog({
+      groups, activities, fixedEvents, weekId,
       activityExclusions: activityExclusions || [],
       groupExclusions: groupExclusions || [],
       locationExclusions: locationExclusions || [],
     })
-    const anchoredByGroupDay = fixedEventActivityIdsByGroupDay(effAnchors, effActivities, effGroups, { days, weekId })
+    const anchoredByGroupDay = fixedEventActivityIdsByGroupDay(effFixedEvents, effActivities, effGroups, { days, weekId })
     const activityById = new Map(activities.map(a => [a.id, a]))
     // Dedup stays WEEK-scoped ("groupId|activityId") even though the exclusion
     // above is now day-scoped, and that asymmetry is deliberate — do not
@@ -894,7 +894,7 @@ function buildSchedule(input) {
   // Findings that are properties of an activity, not of any one cohort/group,
   // so computed once here rather than per cohort. Gated by fixedEventsOnly like
   // the rest of the findings work (Pass 3), since fixedEventsOnly is an
-  // anchors-grid-only audit.
+  // fixedEvents-grid-only audit.
   const danglingFindings = []
   if (!fixedEventsOnly) {
     for (const act of activities) {
@@ -917,7 +917,7 @@ function buildSchedule(input) {
   // combined allSlots, below.
   const allSlots = []
   const allFindings = [...danglingFindings]
-  const allAnchors = []
+  const allFixedEvents = []
 
   for (let idx = 0; idx < cohorts.length; idx++) {
     const cohortEntry = cohorts[idx]
@@ -926,7 +926,7 @@ function buildSchedule(input) {
     const { slots, findings } = scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, locationNameById, electiveSetActivities, events, fixedEventsOnly, weekId })
     allSlots.push(...slots)
     allFindings.push(...findings)
-    allAnchors.push(...(cohortEntry._legacyAnchors || []))
+    allFixedEvents.push(...(cohortEntry._legacyFixedEvents || []))
   }
 
   // T267 PR2 (ADR step 5): the identity invariant, checked against the REAL
@@ -939,10 +939,10 @@ function buildSchedule(input) {
   // honestly rather than assume its own invariant).
   const liveActivityIds = new Set(activities.map(a => a.id))
   const identityGapFindings = []
-  const seenGapAnchors = new Set()
-  for (const anchor of allAnchors) {
-    if (seenGapAnchors.has(anchor.id)) continue
-    seenGapAnchors.add(anchor.id)
+  const seenGapFixedEvents = new Set()
+  for (const anchor of allFixedEvents) {
+    if (seenGapFixedEvents.has(anchor.id)) continue
+    seenGapFixedEvents.add(anchor.id)
     const ids = resolveFixedEventActivityIds(anchor).filter((id) => liveActivityIds.has(id))
     if (ids.length === 1) continue
     identityGapFindings.push({
@@ -953,14 +953,14 @@ function buildSchedule(input) {
       reason: ids.length === 0
         ? `"${anchor.name || anchor.id}" is not linked to a live activity — regeneration is blocked until this is fixed`
         : `"${anchor.name || anchor.id}" resolves to more than one activity — regeneration is blocked until this is fixed`,
-      anchorId: anchor.id,
+      fixedEventId: anchor.id,
     })
   }
 
   const conflicts = findRouteConflicts({
     slots: allSlots,
     activities,
-    anchors: allAnchors,
+    fixedEvents: allFixedEvents,
     electiveSetActivities,
     events,
     locations,

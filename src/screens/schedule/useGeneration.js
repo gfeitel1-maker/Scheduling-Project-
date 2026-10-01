@@ -4,7 +4,7 @@ import { routeSetter } from './useRouteState'
 import { resolveWeekCatalog } from '../../engine/weekCatalog'
 import { resolvePriorityForGeneration } from '../../ingest/resolvePriorityForGeneration'
 
-// generate / regenerate / place-anchors, over the T28 repository + the pure
+// generate / regenerate / place-fixedEvents, over the T28 repository + the pure
 // engine. This hook orchestrates: it calls buildSchedule (pure) and the repo,
 // but owns no route state — the route-scoped by-route setters and data come from
 // the injected `routeState` (T31's useRouteState); ensureTemplateRow,
@@ -34,7 +34,7 @@ export function useGeneration({
   days,
   timeBlocks,
   activities,
-  anchors,
+  fixedEvents,
   locations,
   electiveSetActivities,
   events,
@@ -66,8 +66,8 @@ export function useGeneration({
     const setGenDismissed = routeSetter(setDismissedByRoute, 'generated')
     const setGenStats = routeSetter(setStatsByRoute, 'generated')
 
-    const { groups: effGroups, activities: effActivities, anchors: effAnchors } = resolveWeekCatalog({
-      groups, activities, anchors,
+    const { groups: effGroups, activities: effActivities, fixedEvents: effFixedEvents } = resolveWeekCatalog({
+      groups, activities, fixedEvents,
       weekId,
       activityExclusions: activityExclusions || [],
       groupExclusions: groupExclusions || [],
@@ -95,7 +95,7 @@ export function useGeneration({
       .map(s => ({ groupId: s.group_id, dayId: s.day_id, blockId: s.time_block_id, eventId: s.event_id }))
     const preplacedSlots = [...lockedPreplaced, ...electivePreplaced, ...eventPreplaced]
 
-    const result = buildSchedule({ groups: effGroups, tiers, days, timeBlocks, activities: resolvePriorityForGeneration(effActivities), anchors: effAnchors, campId, preplacedSlots, locations, electiveSetActivities, events, weekId })
+    const result = buildSchedule({ groups: effGroups, tiers, days, timeBlocks, activities: resolvePriorityForGeneration(effActivities), fixedEvents: effFixedEvents, campId, preplacedSlots, locations, electiveSetActivities, events, weekId })
     setGenFindings(result.findings || [])
     setGenDismissed(new Set())
 
@@ -173,25 +173,25 @@ export function useGeneration({
     const setManualStats = routeSetter(setStatsByRoute, 'manual')
 
     // Same week-exclusion pre-pass generate() runs (above): the manual blank
-    // week must not lay down anchors for an activity or a fully-excluded group
+    // week must not lay down fixedEvents for an activity or a fully-excluded group
     // that is marked not to run this week. Without this, a fixed event closed
     // for the week (or a meal for a closed group) would still be placed and,
-    // because computeWeekClosures deliberately skips anchors, would never be
+    // because computeWeekClosures deliberately skips fixedEvents, would never be
     // flagged either.
-    const { groups: effGroups, activities: effActivities, anchors: effAnchors } = resolveWeekCatalog({
-      groups, activities, anchors,
+    const { groups: effGroups, activities: effActivities, fixedEvents: effFixedEvents } = resolveWeekCatalog({
+      groups, activities, fixedEvents,
       weekId,
       activityExclusions: activityExclusions || [],
       groupExclusions: groupExclusions || [],
       locationExclusions: locationExclusions || [],
     })
 
-    const result = buildSchedule({ groups: effGroups, tiers, days, timeBlocks, activities: resolvePriorityForGeneration(effActivities), anchors: effAnchors, campId, locations, electiveSetActivities, events, fixedEventsOnly: true, weekId })
+    const result = buildSchedule({ groups: effGroups, tiers, days, timeBlocks, activities: resolvePriorityForGeneration(effActivities), fixedEvents: effFixedEvents, campId, locations, electiveSetActivities, events, fixedEventsOnly: true, weekId })
     setManualFindings(result.findings || [])
     setManualDismissed(new Set())
 
     // T267 PR2 (ADR step 5) — same refuse gate as generate(): do not place
-    // anchors from a fixed_events row with an unresolvable activity_id.
+    // fixedEvents from a fixed_events row with an unresolvable activity_id.
     if ((result.findings || []).some(f => f.severity === 'error')) {
       setActionError('This schedule could not be generated: a fixed or recurring event is not linked to a valid activity. Fix it on the Fixed/Recurring Events screen and try again.')
       setGenerating(false)
@@ -225,8 +225,8 @@ export function useGeneration({
     } catch (err) {
       setActionError(
         err?.message?.includes('admin role required')
-          ? 'Only an admin can place anchors'
-          : describeWriteFailure(err, 'That anchors could not be placed.')
+          ? 'Only an admin can place fixedEvents'
+          : describeWriteFailure(err, 'That fixedEvents could not be placed.')
       )
       setGenerating(false)
       return
@@ -239,7 +239,7 @@ export function useGeneration({
     // under its weekly target, as an honest list of what the week owes you.
     // Computed against the week-effective catalog (effGroups/effActivities) so a
     // closed group or activity does not show up owing time it will never run.
-    // No anchors/weekId here — this is the MANUAL route (placeAnchors is the
+    // No fixedEvents/weekId here — this is the MANUAL route (placeAnchors is the
     // manual blank-week bootstrap), and FIXED_EVENT_DUPLICATE is generated-route
     // only (a manual anchor/regular clash already surfaces as OVERLAP).
     setManualFindings(computeFindings({ slots: freshSlots, groups: effGroups, activities: effActivities, days }))

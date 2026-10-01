@@ -22,7 +22,7 @@ export function useSnapshots({
   activities,
   days,
   timeBlocks,
-  anchors,
+  fixedEvents,
   weekId,
   activityExclusions,
   groupExclusions,
@@ -143,7 +143,7 @@ export function useSnapshots({
     const dayIds = new Set(days.map(d => d.id))
     const timeBlockIds = new Set((timeBlocks || []).map(b => b.id))
     const activityIds = new Set(activities.map(a => a.id))
-    const anchorIds = new Set((anchors || []).map(a => a.id))
+    const anchorIds = new Set((fixedEvents || []).map(a => a.id))
     let droppedCount = 0
     const survivingSlots = fullSnap.slots.filter(s => {
       const dead =
@@ -175,7 +175,7 @@ export function useSnapshots({
     // FIXED_EVENT_DUPLICATE is generated-route only — see useScheduleData's route
     // loop for the same gate and reasoning.
     setFindings(computeFindings(route === 'generated'
-      ? { slots: freshSlots, groups, activities, days, anchors, weekId, activityExclusions, groupExclusions, locationExclusions }
+      ? { slots: freshSlots, groups, activities, days, fixedEvents, weekId, activityExclusions, groupExclusions, locationExclusions }
       : { slots: freshSlots, groups, activities, days }))
     setDismissedFindingKeys(new Set())
 

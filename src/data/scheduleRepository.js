@@ -40,14 +40,14 @@ function mapSlotToRow(slot, templateId, { spanHead }) {
     day_id: has('day_id') ? slot.day_id : slot.dayId,
     time_block_id: has('time_block_id') ? slot.time_block_id : slot.blockId,
     activity_id: has('activity_id') ? slot.activity_id : slot.activityId,
-    fixed_event_id: has('fixed_event_id') ? slot.fixed_event_id : slot.anchorId,
+    fixed_event_id: has('fixed_event_id') ? slot.fixed_event_id : slot.fixedEventId,
     // is_fixed_event is derived per-shape, NOT as a disjunction. Engine slots (the
-    // spanHead path) carry `type` ('anchor') and no `is_fixed_event`; snapshot slots
+    // spanHead path) carry `type` ('fixed_event') and no `is_fixed_event`; snapshot slots
     // carry a boolean `is_fixed_event` and no `type`. Keying off the same
     // discriminator that gates is_span_head keeps each path byte-identical to
     // its original call site and avoids a latent trap if a slot ever carried
     // both fields (T28 review — Red Hat + Code Reviewer converged on this).
-    is_fixed_event: (spanHead ? slot.type === 'anchor' : slot.is_fixed_event) ? '1' : '0',
+    is_fixed_event: (spanHead ? slot.type === 'fixed_event' : slot.is_fixed_event) ? '1' : '0',
   }
   if (spanHead) row.is_span_head = slot.is_span_head !== false ? '1' : '0'
   row.flags = JSON.stringify(slot.flags || {})

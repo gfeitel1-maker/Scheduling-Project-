@@ -90,7 +90,7 @@ export const REQUIRED_AREAS = [
 // TiersScreen on click — exactly the failure guardScreensExist below exists
 // to catch.
 export const OPTIONAL_AREAS = [
-  { key: 'anchors', label: 'Recurring Events', screen: 'anchors', expected: true },
+  { key: 'recurringevents', label: 'Recurring Events', screen: 'recurringevents', expected: true },
   // M3 — promoted out of FORWARD_AREAS now that a real Locations screen and
   // collection exist (docs/adr/2026-08-15-camp-locations-entity.md M3 row).
   // Fixes the dead Review button (gap 14): `screen` used to be 'camp', a
@@ -171,7 +171,7 @@ export const ALL_CATEGORIES = [
 // Which supplied collection tells an optional area it has rows. Required areas
 // go through getSetupGaps (COLLECTION_FOR) and are never re-inspected here.
 const OPTIONAL_COLLECTION = {
-  anchors: 'anchors',
+  recurringevents: 'recurringevents',
   location: 'locations',
 }
 

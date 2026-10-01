@@ -2282,7 +2282,7 @@ export const mockShoresh = {
         groupId: s.group_id, cohort_id: null, dayId: s.day_id, blockId: s.time_block_id,
         ...(s.elective_set_id != null ? { type: 'elective', electiveSetId: s.elective_set_id }
           : s.event_id != null ? { type: 'event', eventId: s.event_id }
-          : s.is_fixed_event ? { type: 'anchor', anchorId: s.fixed_event_id }
+          : s.is_fixed_event ? { type: 'fixed_event', fixedEventId: s.fixed_event_id }
           : s.activity_id != null ? { type: 'activity', activityId: s.activity_id }
           : { type: null }),
       }))

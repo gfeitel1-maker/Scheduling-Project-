@@ -296,7 +296,7 @@ describe('shared cell components render placed gridcells (T56)', () => {
   })
 
   it('does not activate inline write on an anchor cell', () => {
-    const anchorSlot = { id: 's2', groupId: 'g1', dayId: 'd1', blockId: 'b1', type: 'anchor' }
+    const anchorSlot = { id: 's2', groupId: 'g1', dayId: 'd1', blockId: 'b1', type: 'fixed_event' }
     render(
       <DndContext>
         <SlotCell slot={anchorSlot} anchor={{ name: 'Flag' }} />
@@ -466,7 +466,7 @@ describe('shared cell components render placed gridcells (T56)', () => {
   })
 
   it('Enter on an anchor cell does nothing (anchors are not writable)', () => {
-    const anchorSlot = { id: 's2', groupId: 'g1', dayId: 'd1', blockId: 'b1', type: 'anchor' }
+    const anchorSlot = { id: 's2', groupId: 'g1', dayId: 'd1', blockId: 'b1', type: 'fixed_event' }
     render(
       <DndContext>
         <SlotCell slot={anchorSlot} anchor={{ name: 'Flag' }} />

@@ -36,7 +36,7 @@ describe('resolveSlotCell — structured cell records', () => {
 
   it('anchor cell resolves anchor ref + name', () => {
     const c = resolveSlotCell({ is_fixed_event: 1, fixed_event_id: 'anc-1' }, lookups)
-    expect(c).toEqual({ kind: 'anchor', ref_id: 'anc-1', name: 'Lunch' })
+    expect(c).toEqual({ kind: 'fixed_event', ref_id: 'anc-1', name: 'Lunch' })
   })
 
   it('event cell resolves ref + name, missing:false', () => {
@@ -61,7 +61,7 @@ describe('resolveSlotCell — structured cell records', () => {
 
   it('precedence: anchor beats event/elective/activity on the same row', () => {
     const c = resolveSlotCell({ is_fixed_event: 1, fixed_event_id: 'anc-1', event_id: 'ev-1', activity_id: 'act-1' }, lookups)
-    expect(c.kind).toBe('anchor')
+    expect(c.kind).toBe('fixed_event')
   })
 })
 
@@ -73,12 +73,12 @@ describe('formatCellLabel — matches the Excel labels exactly', () => {
     expect(formatCellLabel({ kind: 'activity', name: null })).toBe('')
   })
   it('anchor per-day → name, falling back to literal "Anchor"', () => {
-    expect(formatCellLabel({ kind: 'anchor', name: 'Lunch' })).toBe('Lunch')
-    expect(formatCellLabel({ kind: 'anchor', name: null })).toBe('Anchor')
+    expect(formatCellLabel({ kind: 'fixed_event', name: 'Lunch' })).toBe('Lunch')
+    expect(formatCellLabel({ kind: 'fixed_event', name: null })).toBe('Anchor')
   })
   it('anchor master sheet → "[Anchor] name"', () => {
-    expect(formatCellLabel({ kind: 'anchor', name: 'Lunch' }, { anchorBracket: true })).toBe('[Anchor] Lunch')
-    expect(formatCellLabel({ kind: 'anchor', name: null }, { anchorBracket: true })).toBe('[Anchor] ')
+    expect(formatCellLabel({ kind: 'fixed_event', name: 'Lunch' }, { anchorBracket: true })).toBe('[Anchor] Lunch')
+    expect(formatCellLabel({ kind: 'fixed_event', name: null }, { anchorBracket: true })).toBe('[Anchor] ')
   })
   it('event → name; dangling → "Event (removed)"', () => {
     expect(formatCellLabel({ kind: 'event', name: 'Color War', missing: false })).toBe('Color War')

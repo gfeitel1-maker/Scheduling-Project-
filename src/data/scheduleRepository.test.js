@@ -152,11 +152,11 @@ describe('the single slot->row mapper — one mapper, three call-site shapes', (
   // Engine-slot shape used by BOTH generate() and placeAnchors() (identical).
   const engineOpenSlot = {
     groupId: 'g1', dayId: 'd1', blockId: 'b1', cohort_id: 'coh',
-    type: 'open', activityId: 'act-1', anchorId: null, is_span_head: true, flags: { UNFILLABLE: true },
+    type: 'open', activityId: 'act-1', fixedEventId: null, is_span_head: true, flags: { UNFILLABLE: true },
   }
   const engineAnchorSlot = {
     groupId: 'g1', dayId: 'd2', blockId: 'b2', cohort_id: 'coh',
-    type: 'anchor', activityId: null, anchorId: 'anc-1', is_span_head: false, flags: {},
+    type: 'fixed_event', activityId: null, fixedEventId: 'anc-1', is_span_head: false, flags: {},
   }
 
   it('replaceWeek: bulkReplaces slots mapped from engine slots (is_span_head emitted)', async () => {
@@ -193,7 +193,7 @@ describe('the single slot->row mapper — one mapper, three call-site shapes', (
     const repo = createScheduleRepository({ localClient: client, getToken })
     const unavailableSlot = {
       groupId: 'g1', dayId: 'd3', blockId: 'b3', cohort_id: 'coh',
-      type: 'unavailable', activityId: null, anchorId: null, is_span_head: true, flags: {},
+      type: 'unavailable', activityId: null, fixedEventId: null, is_span_head: true, flags: {},
     }
     await repo.replaceWeek('tid', [engineOpenSlot, unavailableSlot, engineAnchorSlot])
 
@@ -206,7 +206,7 @@ describe('the single slot->row mapper — one mapper, three call-site shapes', (
   it('replaceWeek maps a slot missing is_span_head as span-head "1" (undefined !== false)', async () => {
     const client = makeFakeClient()
     const repo = createScheduleRepository({ localClient: client, getToken })
-    const noSpanHead = { groupId: 'g1', dayId: 'd1', blockId: 'b1', type: 'open', activityId: 'a', anchorId: null, flags: {} }
+    const noSpanHead = { groupId: 'g1', dayId: 'd1', blockId: 'b1', type: 'open', activityId: 'a', fixedEventId: null, flags: {} }
     await repo.replaceWeek('tid', [noSpanHead])
     expect(client.calls.bulkReplace[0][3][0].is_span_head).toBe('1')
   })
@@ -428,7 +428,7 @@ describe('is_fixed_event derivation is shape-specific, not a disjunction', () =>
     const repo = createScheduleRepository({ localClient: client, getToken })
     // type says NOT an anchor, but a stray is_fixed_event:true is present.
     await repo.replaceWeek('tid', [
-      { groupId: 'g1', dayId: 'd1', blockId: 'b1', type: 'activity', is_fixed_event: true, activityId: 'a', anchorId: null, flags: {} },
+      { groupId: 'g1', dayId: 'd1', blockId: 'b1', type: 'activity', is_fixed_event: true, activityId: 'a', fixedEventId: null, flags: {} },
     ])
     expect(client.calls.bulkReplace[0][3][0].is_fixed_event).toBe('0')
   })
@@ -436,9 +436,9 @@ describe('is_fixed_event derivation is shape-specific, not a disjunction', () =>
   it('snapshot path (restoreSnapshotRows): is_fixed_event comes from `is_fixed_event`, ignoring a stray type', async () => {
     const client = makeFakeClient()
     const repo = createScheduleRepository({ localClient: client, getToken })
-    // is_fixed_event says NOT an anchor, but a stray type:'anchor' is present.
+    // is_fixed_event says NOT an anchor, but a stray type:'fixed_event' is present.
     await repo.restoreSnapshotRows('tid', [
-      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', type: 'anchor', is_fixed_event: false, activity_id: 'a', fixed_event_id: null, flags: {} },
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', type: 'fixed_event', is_fixed_event: false, activity_id: 'a', fixed_event_id: null, flags: {} },
     ])
     expect(client.calls.bulkReplace[0][3][0].is_fixed_event).toBe('0')
   })

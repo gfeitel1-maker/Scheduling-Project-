@@ -57,7 +57,7 @@ function setup(overrides = {}) {
     activities: [{ id: 'act-1', name: 'Swim' }],
     days: [{ id: 'd1' }],
     timeBlocks: [{ id: 'b1' }, { id: 'b2' }],
-    anchors: [{ id: 'anc-1' }],
+    fixedEvents: [{ id: 'anc-1' }],
     weekId: 'week-1',
     ...rest,
   }
@@ -319,7 +319,7 @@ describe('useSnapshots', () => {
       const { result, props } = setup({
         repo,
         activities: [{ id: 'lunch', name: 'Lunch' }],
-        anchors: [anchor],
+        fixedEvents: [anchor],
       })
       await act(async () => { await result.current.restoreSnapshot({ id: 'snap-1' }) })
 
@@ -337,7 +337,7 @@ describe('useSnapshots', () => {
         route: 'manual',
         templateId: 'tid-manual',
         activities: [{ id: 'lunch', name: 'Lunch' }],
-        anchors: [anchor],
+        fixedEvents: [anchor],
       })
       await act(async () => { await result.current.restoreSnapshot({ id: 'snap-1' }) })
 

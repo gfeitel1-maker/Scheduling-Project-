@@ -118,7 +118,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     campId, weekId: preferredWeekId, repo, routes: ROUTES,
     hasInFlightClaim: (groupId, dayId) => hasInFlightClaimRef.current(groupId, dayId),
   })
-  const { groups, days, timeBlocks, activities, anchors, tiers, cohorts, locations, electiveSetsAll, electiveSetActivities, durableElectiveSets, eventsAll } = setupLists
+  const { groups, days, timeBlocks, activities, fixedEvents, tiers, cohorts, locations, electiveSetsAll, electiveSetActivities, durableElectiveSets, eventsAll } = setupLists
   // T105 §4/§6 render/export lookup — one member-id array per elective set,
   // built once per electiveSetActivities change.
   const electiveMembersBySet = useMemo(() => {
@@ -379,7 +379,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const { saveSnapshot, deleteSnapshot, restoreSnapshot, renameSnapshot } = useSnapshots({
     routeState, repo, setActionError,
     recalcStats, resetUndoRedo,
-    groups, activities, days, timeBlocks, anchors, weekId,
+    groups, activities, days, timeBlocks, fixedEvents, weekId,
     activityExclusions, groupExclusions, locationExclusions,
   })
 
@@ -388,7 +388,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     weeks, setWeeks, repo, localClient, campId, weekId, setPreferredWeekId, setActionError,
   })
 
-  // Generation: generate / regenerate / place-anchors, over the repo + the pure
+  // Generation: generate / regenerate / place-fixedEvents, over the repo + the pure
   // engine. Route-scoped state comes from routeState (the route-explicit setters
   // are built from its by-route setters inside the hook); the
   // abort-on-failed-auto-snapshot behaviour lives in the hook.
@@ -396,7 +396,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     routeState, repo, campId, setActionError, setGenerating,
     resetUndoRedo, saveSnapshot, ensureTemplateRow,
     setConfirmRegen, setSelectedGroup, statsFor: recalcStatsPure,
-    groups, tiers, days, timeBlocks, activities, anchors, locations,
+    groups, tiers, days, timeBlocks, activities, fixedEvents, locations,
     electiveSetActivities, events: eventsAll,
     weekId, activityExclusions, groupExclusions, locationExclusions,
   })
@@ -528,7 +528,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     // FIXED_EVENT_DUPLICATE is generated-route only — see useScheduleData's route
     // loop for the same gate and reasoning.
     setFindings(recalcFindingsPure(slotList, route === 'generated'
-      ? { groups, activities, days, anchors, weekId, activityExclusions, groupExclusions, locationExclusions }
+      ? { groups, activities, days, fixedEvents, weekId, activityExclusions, groupExclusions, locationExclusions }
       : { groups, activities, days }))
   }
 
@@ -650,10 +650,10 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     ...activeFindings.map(f => ({
       // groupId/activityId are both null for EVERY FIXED_EVENT_IDENTITY_GAP finding
       // (buildSchedule.js) — the plain coordinate key would collapse two
-      // distinct anchors' gaps onto one React row. anchorId (the fixed_events
+      // distinct fixedEvents' gaps onto one React row. fixedEventId (the fixed_events
       // row id) is that kind's real discriminator; every other kind keeps its
       // prior coordinate-only React key unchanged.
-      key: f.kind === 'FIXED_EVENT_IDENTITY_GAP' ? `${f.groupId}|${f.activityId}|${f.kind}|${f.anchorId}` : `${f.groupId}|${f.activityId}|${f.kind}`,
+      key: f.kind === 'FIXED_EVENT_IDENTITY_GAP' ? `${f.groupId}|${f.activityId}|${f.kind}|${f.fixedEventId}` : `${f.groupId}|${f.activityId}|${f.kind}`,
       // The dismiss handler must reproduce the SAME payload-addressed key the
       // activeFindings filter reads, so it is computed here from the raw finding
       // (which still carries the magnitude) rather than re-spelled at dismiss time.
@@ -748,7 +748,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // were removed from the grid, palette and activity view (owner, 2026-09-12).
   // Kept out of the row rather than left as dead freight.
   const actMap = new Map(activities.map(a => [a.id, { ...a }]))
-  const anchorMap = new Map(anchors.map(a => [a.id, a]))
+  const fixedEventMap = new Map(fixedEvents.map(a => [a.id, a]))
 
   // Group-view and day-view DnD share identical palette-drop/replace branches —
   // every grid-to-grid or palette-onto-occupied drop always replaces
@@ -888,7 +888,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const startRoute = { manual: placeAnchors, generated: generate }
 
   function exportRoute(r, format = 'excel') {
-    const bundle = { slots: slotsByRoute[r], activities, anchors, groups, days, timeBlocks, electiveSets: electiveSetsAll, electiveSetActivities, events: eventsAll }
+    const bundle = { slots: slotsByRoute[r], activities, fixedEvents, groups, days, timeBlocks, electiveSets: electiveSetsAll, electiveSetActivities, events: eventsAll }
     if (format === 'json') {
       // The portable machine-readable format (M2, Premise §14). Same non-canonical
       // rule as Excel: this exports the ONE route the director just chose, and the
@@ -1273,7 +1273,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 selectedGroup={selectedGroup}
                 onSelectGroup={handleSelectGroup}
                 actMap={actMap}
-                anchorMap={anchorMap}
+                fixedEventMap={fixedEventMap}
                 geometry={geometry}
                 eligibleActivitiesFor={eligibleActivitiesFor}
                 onPlace={handleCellPlace}
@@ -1307,7 +1307,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 onSelectGroup={handleSelectGroup}
                 weatherMode={weatherMode}
                 actMap={actMap}
-                anchorMap={anchorMap}
+                fixedEventMap={fixedEventMap}
                 releaseCell={releaseCell}
                 geometry={geometry}
                 eligibleActivitiesFor={eligibleActivitiesFor}
@@ -1345,7 +1345,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 onSelectDay={setSelectedDay}
                 weatherMode={weatherMode}
                 actMap={actMap}
-                anchorMap={anchorMap}
+                fixedEventMap={fixedEventMap}
                 lockActivity={lockActivity}
                 releaseCell={releaseCell}
                 geometry={geometry}

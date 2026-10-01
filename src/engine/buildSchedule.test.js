@@ -12,7 +12,7 @@ function minimal(overrides = {}) {
     days: [baseDay],
     timeBlocks: [baseBlock],
     activities: [],
-    anchors: [],
+    fixedEvents: [],
     campId: 'test',
     ...overrides,
   }
@@ -29,12 +29,12 @@ describe('anchored activities excluded from regular placement', () => {
     const block2 = { id: 'b2', name: 'Late Morning', start_time: '10:30', end_time: '11:45', sort_order: 1, part_of_day: 'morning' }
     const lunch = { id: 'lunch', name: 'Lunch', priority: 'high', max_per_week: 10, min_per_week: 2, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
     const anchor = { id: 'anc1', activity_id: 'lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
-    const { slots } = buildSchedule(minimal({ days: [baseDay, day2], timeBlocks: [baseBlock, block2], activities: [lunch], anchors: [anchor] }))
+    const { slots } = buildSchedule(minimal({ days: [baseDay, day2], timeBlocks: [baseBlock, block2], activities: [lunch], fixedEvents: [anchor] }))
 
     const regularLunchSlots = slots.filter(s => s.type === 'activity' && s.activityId === 'lunch')
     expect(regularLunchSlots).toHaveLength(0)
 
-    const anchorSlots = slots.filter(s => s.type === 'anchor' && s.anchorId === 'anc1')
+    const anchorSlots = slots.filter(s => s.type === 'fixed_event' && s.fixedEventId === 'anc1')
     expect(anchorSlots.length).toBeGreaterThan(0)
   })
 
@@ -51,7 +51,7 @@ describe('anchored activities excluded from regular placement', () => {
     const lunch = { id: 'lunch', name: 'Lunch', priority: 'high', max_per_week: 10, min_per_week: 2, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
     // Carries activity_id — the row shape electron/ops/ingest.js writes post-PR2.
     const anchor = { id: 'anc1', activity_id: 'lunch', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
-    const { slots } = buildSchedule(minimal({ days: [baseDay, day2], timeBlocks: [baseBlock, block2], activities: [lunch], anchors: [anchor] }))
+    const { slots } = buildSchedule(minimal({ days: [baseDay, day2], timeBlocks: [baseBlock, block2], activities: [lunch], fixedEvents: [anchor] }))
 
     const regularLunchSlots = slots.filter(s => s.type === 'activity' && s.activityId === 'lunch')
     expect(regularLunchSlots).toHaveLength(0)
@@ -67,7 +67,7 @@ describe('anchored activities excluded from regular placement', () => {
     const swim = { id: 'swim', name: 'Swim', priority: 'high', max_per_week: 10, min_per_week: 2, is_outdoor: false, location: null, max_groups_per_slot: 5, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
     // A Recurring event: scoped to g1 only, no activity_id — the real row shape.
     const anchor = { id: 'anc-rec', activity_id: 'swim', name: 'Swim', unit_id: null, is_all_groups: false, group_ids: ['g1'], day_id: null, time_block_id: 'b1', span_blocks: 1 }
-    const { slots } = buildSchedule(minimal({ groups: [baseGroup, g2], timeBlocks: [baseBlock, block2], activities: [swim], anchors: [anchor] }))
+    const { slots } = buildSchedule(minimal({ groups: [baseGroup, g2], timeBlocks: [baseBlock, block2], activities: [swim], fixedEvents: [anchor] }))
 
     const regular = slots.filter(s => s.type === 'activity' && s.activityId === 'swim')
     expect(regular.filter(s => s.groupId === 'g1')).toHaveLength(0)
@@ -80,7 +80,7 @@ describe('anchored activities excluded from regular placement', () => {
     const archery = { id: 'archery', name: 'Archery', priority: 'low', max_per_week: 5, min_per_week: 1, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
     const block2 = { id: 'b2', name: 'Late Morning', start_time: '10:30', end_time: '11:45', sort_order: 1, part_of_day: 'morning' }
     const anchor = { id: 'anc-mifkad', name: 'Mifkad', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
-    const { slots } = buildSchedule(minimal({ timeBlocks: [baseBlock, block2], activities: [archery], anchors: [anchor] }))
+    const { slots } = buildSchedule(minimal({ timeBlocks: [baseBlock, block2], activities: [archery], fixedEvents: [anchor] }))
     expect(slots.filter(s => s.type === 'activity' && s.activityId === 'archery').length).toBeGreaterThan(0)
   })
 
@@ -93,7 +93,7 @@ describe('anchored activities excluded from regular placement', () => {
     const swim = { id: 'swim', name: 'Swim', priority: 'high', max_per_week: 10, min_per_week: 2, is_outdoor: false, location: null, max_groups_per_slot: 5, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
     // Pinned Monday only, for g1's division — the post-T180 shape.
     const anchor = { id: 'anc-mon', activity_id: 'swim', name: 'Swim', unit_id: null, unit_ids: ['t1'], is_all_groups: false, group_ids: [], day_id: 'd1', time_block_id: 'b1', span_blocks: 1 }
-    const { slots } = buildSchedule(minimal({ days: [baseDay, day2], timeBlocks: [baseBlock, block2], activities: [swim], anchors: [anchor] }))
+    const { slots } = buildSchedule(minimal({ days: [baseDay, day2], timeBlocks: [baseBlock, block2], activities: [swim], fixedEvents: [anchor] }))
 
     const regular = slots.filter(s => s.type === 'activity' && s.activityId === 'swim')
     // Monday: the anchor IS that day's swim — no regular swim for g1.
@@ -106,7 +106,7 @@ describe('anchored activities excluded from regular placement', () => {
     const block2 = { id: 'b2', name: 'Late Morning', start_time: '10:30', end_time: '11:45', sort_order: 1, part_of_day: 'morning' }
     const lunch = { id: 'lunch', name: 'Lunch', priority: 'high', max_per_week: 10, min_per_week: 2, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
     const anchor = { id: 'anc1', activity_id: 'lunch', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: 'd1', time_block_id: 'b1', span_blocks: 1 }
-    const { slots } = buildSchedule(minimal({ timeBlocks: [baseBlock, block2], activities: [lunch], anchors: [anchor] }))
+    const { slots } = buildSchedule(minimal({ timeBlocks: [baseBlock, block2], activities: [lunch], fixedEvents: [anchor] }))
     // Day scoping must NOT become block scoping: same group, same day, Lunch
     // again two hours later is exactly what T62 was about.
     expect(slots.filter(s => s.type === 'activity' && s.activityId === 'lunch')).toHaveLength(0)
@@ -114,7 +114,7 @@ describe('anchored activities excluded from regular placement', () => {
 
   it('still places an activity not referenced by any anchor', () => {
     const archery = { id: 'archery', name: 'Archery', priority: 'low', max_per_week: 5, min_per_week: 0, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
-    const { slots } = buildSchedule(minimal({ activities: [archery], anchors: [] }))
+    const { slots } = buildSchedule(minimal({ activities: [archery], fixedEvents: [] }))
     const placed = slots.filter(s => s.type === 'activity' && s.activityId === 'archery')
     expect(placed.length).toBeGreaterThan(0)
   })
@@ -127,19 +127,19 @@ describe('anchored activities excluded from regular placement', () => {
 // AND never marks its activity "anchored") when the week being built doesn't
 // match, so it can't leak into — or silently block regular placement in — a
 // week it isn't bound to.
-describe('week-bound anchors (schedule_week_id, Slice 2)', () => {
+describe('week-bound fixedEvents (schedule_week_id, Slice 2)', () => {
   const lunch = { id: 'lunch', name: 'Lunch', priority: 'high', max_per_week: 10, min_per_week: 0, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
   const weekBoundAnchor = { id: 'anc-wk', activity_id: 'lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1, schedule_week_id: 'week-A' }
 
   it('places a week-bound anchor when building the week it is bound to', () => {
-    const { slots } = buildSchedule(minimal({ activities: [lunch], anchors: [weekBoundAnchor], weekId: 'week-A' }))
-    const anchorSlots = slots.filter(s => s.type === 'anchor' && s.anchorId === 'anc-wk')
+    const { slots } = buildSchedule(minimal({ activities: [lunch], fixedEvents: [weekBoundAnchor], weekId: 'week-A' }))
+    const anchorSlots = slots.filter(s => s.type === 'fixed_event' && s.fixedEventId === 'anc-wk')
     expect(anchorSlots.length).toBeGreaterThan(0)
   })
 
   it('omits a week-bound anchor entirely when building a different week, and does not block regular placement there', () => {
-    const { slots } = buildSchedule(minimal({ activities: [lunch], anchors: [weekBoundAnchor], weekId: 'week-B' }))
-    const anchorSlots = slots.filter(s => s.type === 'anchor' && s.anchorId === 'anc-wk')
+    const { slots } = buildSchedule(minimal({ activities: [lunch], fixedEvents: [weekBoundAnchor], weekId: 'week-B' }))
+    const anchorSlots = slots.filter(s => s.type === 'fixed_event' && s.fixedEventId === 'anc-wk')
     expect(anchorSlots).toHaveLength(0)
 
     // Not just absent as an anchor — its activity must be free to place as a
@@ -151,21 +151,21 @@ describe('week-bound anchors (schedule_week_id, Slice 2)', () => {
 
   it('a NULL schedule_week_id anchor appears on every week (unchanged today behavior)', () => {
     const allWeeksAnchor = { ...weekBoundAnchor, id: 'anc-all', schedule_week_id: null }
-    const { slots: slotsA } = buildSchedule(minimal({ activities: [lunch], anchors: [allWeeksAnchor], weekId: 'week-A' }))
-    const { slots: slotsB } = buildSchedule(minimal({ activities: [lunch], anchors: [allWeeksAnchor], weekId: 'week-B' }))
-    expect(slotsA.filter(s => s.type === 'anchor' && s.anchorId === 'anc-all').length).toBeGreaterThan(0)
-    expect(slotsB.filter(s => s.type === 'anchor' && s.anchorId === 'anc-all').length).toBeGreaterThan(0)
+    const { slots: slotsA } = buildSchedule(minimal({ activities: [lunch], fixedEvents: [allWeeksAnchor], weekId: 'week-A' }))
+    const { slots: slotsB } = buildSchedule(minimal({ activities: [lunch], fixedEvents: [allWeeksAnchor], weekId: 'week-B' }))
+    expect(slotsA.filter(s => s.type === 'fixed_event' && s.fixedEventId === 'anc-all').length).toBeGreaterThan(0)
+    expect(slotsB.filter(s => s.type === 'fixed_event' && s.fixedEventId === 'anc-all').length).toBeGreaterThan(0)
   })
 
   it('omits a week-bound anchor when no weekId is passed at all (backward compat, e.g. fixedEventsOnly grids without a resolved week)', () => {
-    const { slots } = buildSchedule(minimal({ activities: [lunch], anchors: [weekBoundAnchor] }))
-    expect(slots.filter(s => s.type === 'anchor' && s.anchorId === 'anc-wk')).toHaveLength(0)
+    const { slots } = buildSchedule(minimal({ activities: [lunch], fixedEvents: [weekBoundAnchor] }))
+    expect(slots.filter(s => s.type === 'fixed_event' && s.fixedEventId === 'anc-wk')).toHaveLength(0)
   })
 
   // Board finding, 2026-09-29: a week-scoped override anchor and an all-weeks
   // anchor both claiming the same group/day/block landed on the grid (and
   // therefore in the export) by array order — last one written to
-  // anchorLookup won, not "the one that actually applies to this week". The
+  // fixedEventLookup won, not "the one that actually applies to this week". The
   // week-scoped anchor is an override and must win regardless of input order.
   // Load-bearing against last-write-wins (fail on main / a naive revert):
   // "...BEFORE the all-weeks anchor..." and the head+tail span test below.
@@ -178,24 +178,24 @@ describe('week-bound anchors (schedule_week_id, Slice 2)', () => {
     const override = { id: 'anc-wk', activity_id: 'shabbat-lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1, schedule_week_id: 'week-A' }
 
     it('override wins when it comes AFTER the all-weeks anchor in the input array', () => {
-      const { slots } = buildSchedule(minimal({ activities: [lunch, shabbatLunch], anchors: [allWeeks, override], weekId: 'week-A' }))
-      const b1 = slots.filter(s => s.type === 'anchor' && s.blockId === 'b1')
-      expect(b1.map(s => s.anchorId)).toEqual(['anc-wk'])
+      const { slots } = buildSchedule(minimal({ activities: [lunch, shabbatLunch], fixedEvents: [allWeeks, override], weekId: 'week-A' }))
+      const b1 = slots.filter(s => s.type === 'fixed_event' && s.blockId === 'b1')
+      expect(b1.map(s => s.fixedEventId)).toEqual(['anc-wk'])
     })
 
     it('override wins when it comes BEFORE the all-weeks anchor in the input array', () => {
-      const { slots } = buildSchedule(minimal({ activities: [lunch, shabbatLunch], anchors: [override, allWeeks], weekId: 'week-A' }))
-      const b1 = slots.filter(s => s.type === 'anchor' && s.blockId === 'b1')
-      expect(b1.map(s => s.anchorId)).toEqual(['anc-wk'])
+      const { slots } = buildSchedule(minimal({ activities: [lunch, shabbatLunch], fixedEvents: [override, allWeeks], weekId: 'week-A' }))
+      const b1 = slots.filter(s => s.type === 'fixed_event' && s.blockId === 'b1')
+      expect(b1.map(s => s.fixedEventId)).toEqual(['anc-wk'])
     })
 
     it('the all-weeks anchor still applies on a week the override does not target', () => {
-      const { slots } = buildSchedule(minimal({ activities: [lunch, shabbatLunch], anchors: [allWeeks, override], weekId: 'week-B' }))
-      const b1 = slots.filter(s => s.type === 'anchor' && s.blockId === 'b1')
-      expect(b1.map(s => s.anchorId)).toEqual(['anc-all'])
+      const { slots } = buildSchedule(minimal({ activities: [lunch, shabbatLunch], fixedEvents: [allWeeks, override], weekId: 'week-B' }))
+      const b1 = slots.filter(s => s.type === 'fixed_event' && s.blockId === 'b1')
+      expect(b1.map(s => s.fixedEventId)).toEqual(['anc-all'])
     })
 
-    it('a multi-block override beats all-weeks anchors at both its head and tail blocks', () => {
+    it('a multi-block override beats all-weeks fixedEvents at both its head and tail blocks', () => {
       const block2 = { id: 'b2', name: 'Late Morning', start_time: '10:30', end_time: '11:45', sort_order: 1, part_of_day: 'morning' }
       const allWeeksHead = { ...allWeeks, id: 'anc-all-head', time_block_id: 'b1' }
       const allWeeksTail = { ...allWeeks, id: 'anc-all-tail', time_block_id: 'b2' }
@@ -203,13 +203,13 @@ describe('week-bound anchors (schedule_week_id, Slice 2)', () => {
       const { slots } = buildSchedule(minimal({
         timeBlocks: [baseBlock, block2],
         activities: [lunch, shabbatLunch],
-        anchors: [spanningOverride, allWeeksHead, allWeeksTail],
+        fixedEvents: [spanningOverride, allWeeksHead, allWeeksTail],
         weekId: 'week-A',
       }))
-      const b1 = slots.filter(s => s.type === 'anchor' && s.blockId === 'b1')
-      const b2 = slots.filter(s => s.type === 'anchor' && s.blockId === 'b2')
-      expect(b1.map(s => s.anchorId)).toEqual(['anc-wk-span'])
-      expect(b2.map(s => s.anchorId)).toEqual(['anc-wk-span'])
+      const b1 = slots.filter(s => s.type === 'fixed_event' && s.blockId === 'b1')
+      const b2 = slots.filter(s => s.type === 'fixed_event' && s.blockId === 'b2')
+      expect(b1.map(s => s.fixedEventId)).toEqual(['anc-wk-span'])
+      expect(b2.map(s => s.fixedEventId)).toEqual(['anc-wk-span'])
     })
   })
 })
@@ -253,7 +253,7 @@ describe('elective cells excluded from regular placement (engine-skip)', () => {
   })
 
   // Red Hat HIGH: the span-tail collision check in canPlace only consulted
-  // anchorLookup, not electiveLookup, so a multi-block activity whose TAIL
+  // fixedEventLookup, not electiveLookup, so a multi-block activity whose TAIL
   // block coincided with an elective cell passed canPlace and place() wrote
   // phantom bookkeeping (assigned/usageCount/placeUsage/activityUsage) at the
   // elective coordinate — corrupting session credit and capacity even though
@@ -324,7 +324,7 @@ describe("'unavailable' slot type", () => {
     const { slots } = buildSchedule(minimal({ groups: [restrictedGroup], activities: [] }))
     const unavailable = slots.filter(s => s.type === 'unavailable')
     expect(unavailable.length).toBe(1)
-    expect(unavailable[0]).toMatchObject({ groupId: 'g1', activityId: null, anchorId: null })
+    expect(unavailable[0]).toMatchObject({ groupId: 'g1', activityId: null, fixedEventId: null })
   })
 })
 
@@ -499,7 +499,7 @@ describe('computeFindings FIXED_EVENT_DUPLICATE (T182 stale anchor/regular dupli
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'anchor-slot', is_fixed_event: true, flags: {} },
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'lunch', is_fixed_event: false, flags: {} },
     ]
-    const findings = computeFindings({ slots, groups, activities: [lunch], days, anchors: [anchor], weekId: null })
+    const findings = computeFindings({ slots, groups, activities: [lunch], days, fixedEvents: [anchor], weekId: null })
     const dup = findings.filter(f => f.kind === 'FIXED_EVENT_DUPLICATE')
     expect(dup).toHaveLength(1)
     expect(dup[0]).toMatchObject({ kind: 'FIXED_EVENT_DUPLICATE', groupId: 'g1', activityId: 'lunch', severity: 'caution' })
@@ -522,7 +522,7 @@ describe('computeFindings FIXED_EVENT_DUPLICATE (T182 stale anchor/regular dupli
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'anchor-slot', is_fixed_event: true, flags: {} },
       { group_id: 'g1', day_id: 'd2', time_block_id: 'b1', activity_id: 'swim', is_fixed_event: false, flags: {} },
     ]
-    const findings = computeFindings({ slots, groups, activities: [swim], days: [baseDay, day2], anchors: [anchor], weekId: null })
+    const findings = computeFindings({ slots, groups, activities: [swim], days: [baseDay, day2], fixedEvents: [anchor], weekId: null })
     expect(findings.filter(f => f.kind === 'FIXED_EVENT_DUPLICATE')).toHaveLength(0)
   })
 
@@ -534,7 +534,7 @@ describe('computeFindings FIXED_EVENT_DUPLICATE (T182 stale anchor/regular dupli
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'anchor-slot', is_fixed_event: true, flags: {} },
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'swim', is_fixed_event: false, flags: {} },
     ]
-    const findings = computeFindings({ slots, groups, activities: [swim], days: [baseDay, day2], anchors: [anchor], weekId: null })
+    const findings = computeFindings({ slots, groups, activities: [swim], days: [baseDay, day2], fixedEvents: [anchor], weekId: null })
     expect(findings.filter(f => f.kind === 'FIXED_EVENT_DUPLICATE')).toHaveLength(1)
   })
 
@@ -543,7 +543,7 @@ describe('computeFindings FIXED_EVENT_DUPLICATE (T182 stale anchor/regular dupli
     const slots = [
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, is_fixed_event: true, flags: {} },
     ]
-    const findings = computeFindings({ slots, groups, activities: [lunch], days, anchors: [anchor], weekId: null })
+    const findings = computeFindings({ slots, groups, activities: [lunch], days, fixedEvents: [anchor], weekId: null })
     expect(findings.filter(f => f.kind === 'FIXED_EVENT_DUPLICATE')).toHaveLength(0)
   })
 
@@ -564,15 +564,15 @@ describe('computeFindings FIXED_EVENT_DUPLICATE (T182 stale anchor/regular dupli
     // At build time the anchor has no activity_id (an identity gap), so Pass
     // 1's resolution excludes nothing and Lunch places normally.
     const staleAnchor = { id: 'anc1', activity_id: null, name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
-    const { slots } = buildSchedule(minimal({ groups, days, timeBlocks: [baseBlock, block2], activities: [{ ...lunch, min_per_week: 1, priority: 'high', max_per_week: 10, eligible_tier_ids: [], eligible_group_ids: [] }], anchors: [staleAnchor] }))
+    const { slots } = buildSchedule(minimal({ groups, days, timeBlocks: [baseBlock, block2], activities: [{ ...lunch, min_per_week: 1, priority: 'high', max_per_week: 10, eligible_tier_ids: [], eligible_group_ids: [] }], fixedEvents: [staleAnchor] }))
     const regularLunch = slots.filter(s => s.type === 'activity' && s.activityId === 'lunch')
     expect(regularLunch.length).toBeGreaterThan(0)
 
     // Director (or ingest) links the anchor to Lunch after generation — the
     // schedule on screen is unchanged (still holds the regular Lunch slot).
     const linkedAnchor = { ...staleAnchor, activity_id: 'lunch' }
-    const dbSlots = slots.map(s => ({ group_id: s.groupId, day_id: s.dayId, time_block_id: s.blockId, activity_id: s.activityId, is_fixed_event: s.type === 'anchor', is_span_head: s.is_span_head, flags: {} }))
-    const findings = computeFindings({ slots: dbSlots, groups, activities: [lunch], days, anchors: [linkedAnchor], weekId: null })
+    const dbSlots = slots.map(s => ({ group_id: s.groupId, day_id: s.dayId, time_block_id: s.blockId, activity_id: s.activityId, is_fixed_event: s.type === 'fixed_event', is_span_head: s.is_span_head, flags: {} }))
+    const findings = computeFindings({ slots: dbSlots, groups, activities: [lunch], days, fixedEvents: [linkedAnchor], weekId: null })
     const dup = findings.filter(f => f.kind === 'FIXED_EVENT_DUPLICATE')
     expect(dup).toHaveLength(1)
     expect(dup[0]).toMatchObject({ groupId: 'g1', activityId: 'lunch' })
@@ -582,12 +582,12 @@ describe('computeFindings FIXED_EVENT_DUPLICATE (T182 stale anchor/regular dupli
     // Anchor name matches Lunch at build time, so Pass 1 excludes Lunch from
     // regular placement — the same-named anchor covers it instead.
     const inSyncAnchor = { id: 'anc1', activity_id: 'lunch', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
-    const { slots } = buildSchedule(minimal({ groups, days, timeBlocks: [baseBlock], activities: [{ ...lunch, min_per_week: 1, priority: 'high', max_per_week: 10, eligible_tier_ids: [], eligible_group_ids: [] }], anchors: [inSyncAnchor] }))
+    const { slots } = buildSchedule(minimal({ groups, days, timeBlocks: [baseBlock], activities: [{ ...lunch, min_per_week: 1, priority: 'high', max_per_week: 10, eligible_tier_ids: [], eligible_group_ids: [] }], fixedEvents: [inSyncAnchor] }))
     const regularLunch = slots.filter(s => s.type === 'activity' && s.activityId === 'lunch')
     expect(regularLunch).toHaveLength(0)
 
-    const dbSlots = slots.map(s => ({ group_id: s.groupId, day_id: s.dayId, time_block_id: s.blockId, activity_id: s.activityId, is_fixed_event: s.type === 'anchor', is_span_head: s.is_span_head, flags: {} }))
-    const findings = computeFindings({ slots: dbSlots, groups, activities: [lunch], days, anchors: [inSyncAnchor], weekId: null })
+    const dbSlots = slots.map(s => ({ group_id: s.groupId, day_id: s.dayId, time_block_id: s.blockId, activity_id: s.activityId, is_fixed_event: s.type === 'fixed_event', is_span_head: s.is_span_head, flags: {} }))
+    const findings = computeFindings({ slots: dbSlots, groups, activities: [lunch], days, fixedEvents: [inSyncAnchor], weekId: null })
     expect(findings.filter(f => f.kind === 'FIXED_EVENT_DUPLICATE')).toHaveLength(0)
   })
 
@@ -598,11 +598,11 @@ describe('computeFindings FIXED_EVENT_DUPLICATE (T182 stale anchor/regular dupli
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'anchor-slot', is_fixed_event: true, flags: {} },
       { group_id: 'g2', day_id: 'd1', time_block_id: 'b2', activity_id: 'lunch', is_fixed_event: false, flags: {} },
     ]
-    const findings = computeFindings({ slots, groups: [baseGroup, g2], activities: [lunch], days, anchors: [anchor], weekId: null })
+    const findings = computeFindings({ slots, groups: [baseGroup, g2], activities: [lunch], days, fixedEvents: [anchor], weekId: null })
     expect(findings.filter(f => f.kind === 'FIXED_EVENT_DUPLICATE')).toHaveLength(0)
   })
 
-  it('emits no FIXED_EVENT_DUPLICATE when anchors/weekId are omitted (safe default)', () => {
+  it('emits no FIXED_EVENT_DUPLICATE when fixedEvents/weekId are omitted (safe default)', () => {
     const slots = [
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'lunch', is_fixed_event: false, flags: {} },
     ]
@@ -624,7 +624,7 @@ describe('computeFindings FIXED_EVENT_DUPLICATE (T182 stale anchor/regular dupli
     ]
     const activityExclusions = [{ week_id: 'week-1', activity_id: 'swim' }]
     const findings = computeFindings({
-      slots, groups, activities: [swim], days, anchors: [anchor], weekId: 'week-1',
+      slots, groups, activities: [swim], days, fixedEvents: [anchor], weekId: 'week-1',
       activityExclusions, groupExclusions: [], locationExclusions: [],
     })
     expect(findings.filter(f => f.kind === 'FIXED_EVENT_DUPLICATE')).toHaveLength(0)
@@ -637,7 +637,7 @@ describe('computeFindings FIXED_EVENT_DUPLICATE (T182 stale anchor/regular dupli
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'swim', is_fixed_event: false, flags: {} },
     ]
     const findings = computeFindings({
-      slots, groups, activities: [swim], days, anchors: [anchor], weekId: 'week-1',
+      slots, groups, activities: [swim], days, fixedEvents: [anchor], weekId: 'week-1',
       activityExclusions: [], groupExclusions: [], locationExclusions: [],
     })
     expect(findings.filter(f => f.kind === 'FIXED_EVENT_DUPLICATE')).toHaveLength(1)
@@ -672,7 +672,7 @@ describe('fixedEventActivityIdsByGroupDay (shared helper, T182; keyed by day sin
     expect(map.get('g1|d1')).toBeUndefined()
   })
 
-  it('returns an empty Map when anchors is empty', () => {
+  it('returns an empty Map when fixedEvents is empty', () => {
     const map = fixedEventActivityIdsByGroupDay([], [lunch], groups, { days })
     expect(map.size).toBe(0)
   })
@@ -739,7 +739,7 @@ describe('preplacedSlots (locking)', () => {
       days: [baseDay],
       timeBlocks: [baseBlock],
       activities: [pool],
-      anchors: [],
+      fixedEvents: [],
       campId: 'test',
       preplacedSlots: preplaced,
     })
@@ -768,7 +768,7 @@ describe('place capacity keyed by location_id (M2)', () => {
   function run({ activities, locations = [], groups, tiers = [{ id: 't1', name: 'Junior' }] }) {
     return buildSchedule({
       groups, tiers, days: [mDay], timeBlocks: [mBlock],
-      activities, anchors: [], campId: 'test', locations,
+      activities, fixedEvents: [], campId: 'test', locations,
     })
   }
 
@@ -884,7 +884,7 @@ describe('capacity-lookup robustness (M3a round-2)', () => {
   function run({ activities, locations = [], groups, tiers = [{ id: 't1', name: 'Junior' }] }) {
     return buildSchedule({
       groups, tiers, days: [mDay], timeBlocks: [mBlock],
-      activities, anchors: [], campId: 'test', locations,
+      activities, fixedEvents: [], campId: 'test', locations,
     })
   }
 
@@ -962,7 +962,7 @@ describe('span-tail place capacity (M2 round-2)', () => {
   function run({ activities, locations = [], groups, tiers = [{ id: 't1', name: 'Junior' }], preplacedSlots = [] }) {
     return buildSchedule({
       groups, tiers, days: [d1], timeBlocks: [b1, b2],
-      activities, anchors: [], campId: 'test', locations, preplacedSlots,
+      activities, fixedEvents: [], campId: 'test', locations, preplacedSlots,
     })
   }
 
@@ -1051,7 +1051,7 @@ describe('overlay location contention (Slice 4)', () => {
     return buildSchedule({
       groups: over.groups, tiers: over.tiers || [{ id: 't1', name: 'Junior' }],
       days: over.days || [oDay], timeBlocks: over.timeBlocks || [oBlock],
-      activities: over.activities || [], anchors: over.anchors || [],
+      activities: over.activities || [], fixedEvents: over.fixedEvents || [],
       campId: 'test', locations: over.locations || [],
       preplacedSlots: over.preplacedSlots || [],
       electiveSetActivities: over.electiveSetActivities || [],
@@ -1068,7 +1068,7 @@ describe('overlay location contention (Slice 4)', () => {
     const anchor = { id: 'anc1', activity_id: null, unit_id: null, is_all_groups: false, group_ids: ['g1'], day_id: null, time_block_id: 'b1', span_blocks: 1, name: 'Lunch', location_id: 'L' }
     const activity = oAct({ id: 'a1', location_id: 'L', eligible_group_ids: ['g2'] })
 
-    const { slots } = run({ groups, locations, anchors: [anchor], activities: [activity] })
+    const { slots } = run({ groups, locations, fixedEvents: [anchor], activities: [activity] })
     const g2Slot = slots.find(s => s.groupId === 'g2' && s.dayId === 'd1' && s.blockId === 'b1')
     expect(g2Slot.flags.UNFILLABLE).toBe(true)
     expect(g2Slot.flags.UNFILLABLE_reason).toContain('Lunch')
@@ -1189,7 +1189,7 @@ describe('overlay location contention (Slice 4)', () => {
     const anchor = { id: 'anc1', activity_id: null, unit_id: null, is_all_groups: false, group_ids: ['g1'], day_id: null, time_block_id: 'b1', span_blocks: 1, name: 'Lunch', location_id: null }
     const activity = oAct({ id: 'a1', location_id: 'L', eligible_group_ids: ['g2'] })
 
-    const { slots } = run({ groups, locations, anchors: [anchor], activities: [activity] })
+    const { slots } = run({ groups, locations, fixedEvents: [anchor], activities: [activity] })
     const g2Slot = slots.find(s => s.groupId === 'g2' && s.dayId === 'd1' && s.blockId === 'b1')
     expect(g2Slot.flags.UNFILLABLE).toBeUndefined()
     expect(g2Slot.activityId).toBe('a1')
@@ -1201,7 +1201,7 @@ describe('overlay location contention (Slice 4)', () => {
     const anchor = { id: 'anc1', activity_id: null, unit_id: null, is_all_groups: false, group_ids: ['g1'], day_id: null, time_block_id: 'b1', span_blocks: 1, name: 'Lunch', location_id: 'L' }
     const activity = oAct({ id: 'a1', location_id: 'L', eligible_group_ids: ['g2', 'g3'], max_groups_per_slot: 5 })
 
-    const { slots } = run({ groups, locations, anchors: [anchor], activities: [activity] })
+    const { slots } = run({ groups, locations, fixedEvents: [anchor], activities: [activity] })
     const placed = slots.filter(s => s.type === 'activity' && s.activityId === 'a1')
     expect(placed).toHaveLength(1)
     const unfillable = slots.filter(s => s.flags?.UNFILLABLE)
@@ -1215,7 +1215,7 @@ describe('overlay location contention (Slice 4)', () => {
     const anchor = { id: 'anc1', activity_id: null, unit_id: null, is_all_groups: false, group_ids: ['g1'], day_id: null, time_block_id: 'b1', span_blocks: 1, name: 'Lunch', location_id: 'L' }
     const activity = oAct({ id: 'a1', location_id: 'L', same_tier_only: true, eligible_group_ids: ['g2'] })
 
-    const { slots } = run({ groups, tiers, locations, anchors: [anchor], activities: [activity] })
+    const { slots } = run({ groups, tiers, locations, fixedEvents: [anchor], activities: [activity] })
     const g2Slot = slots.find(s => s.groupId === 'g2' && s.blockId === 'b1')
     expect(g2Slot.flags.UNFILLABLE).toBe(true)
   })
@@ -1226,8 +1226,8 @@ describe('overlay location contention (Slice 4)', () => {
     const anchor = { id: 'anc1', activity_id: null, unit_id: null, is_all_groups: false, group_ids: ['g1'], day_id: null, time_block_id: 'b1', span_blocks: 1, name: 'Lunch', location_id: 'L' }
     const activity = oAct({ id: 'a1', location_id: 'L', eligible_group_ids: ['g2', 'g3'], max_groups_per_slot: 5 })
 
-    const r1 = run({ groups, locations, anchors: [anchor], activities: [activity] })
-    const r2 = run({ groups, locations, anchors: [anchor], activities: [activity] })
+    const r1 = run({ groups, locations, fixedEvents: [anchor], activities: [activity] })
+    const r2 = run({ groups, locations, fixedEvents: [anchor], activities: [activity] })
     expect(JSON.stringify(r1.slots)).toBe(JSON.stringify(r2.slots))
   })
 
@@ -1237,21 +1237,21 @@ describe('overlay location contention (Slice 4)', () => {
     const anchor = { id: 'anc1', activity_id: null, unit_id: null, is_all_groups: false, group_ids: ['g1'], day_id: null, time_block_id: 'b1', span_blocks: 2, name: 'Lunch', location_id: 'L' }
     const activity = oAct({ id: 'a1', location_id: 'L', eligible_group_ids: ['g2'] })
 
-    const { slots } = run({ groups, locations, anchors: [anchor], activities: [activity], timeBlocks: [oBlock, oBlock2] })
+    const { slots } = run({ groups, locations, fixedEvents: [anchor], activities: [activity], timeBlocks: [oBlock, oBlock2] })
     const g2AtTail = slots.find(s => s.groupId === 'g2' && s.blockId === 'b2')
     expect(g2AtTail.flags.UNFILLABLE).toBe(true)
   })
 
   it('before/after: an activity previously placeable via silent double-booking is now UNFILLABLE, naming the blocker', () => {
     // Before Slice 4, this activity would have silently double-booked L
-    // alongside the anchor (no capacity feed for anchors); now it must be
+    // alongside the anchor (no capacity feed for fixedEvents); now it must be
     // blocked and the reason must name the anchor.
     const locations = [{ id: 'L', camp_id: 'test', name: 'Dining Hall', capacity: 1 }]
     const groups = [grp('g1'), grp('g2')]
     const anchor = { id: 'anc1', activity_id: null, unit_id: null, is_all_groups: false, group_ids: ['g1'], day_id: null, time_block_id: 'b1', span_blocks: 1, name: 'Lunch', location_id: 'L' }
     const activity = oAct({ id: 'a1', location_id: 'L', eligible_group_ids: ['g2'] })
 
-    const { slots } = run({ groups, locations, anchors: [anchor], activities: [activity] })
+    const { slots } = run({ groups, locations, fixedEvents: [anchor], activities: [activity] })
     const g2Slot = slots.find(s => s.groupId === 'g2' && s.blockId === 'b1')
     expect(g2Slot.activityId).toBeNull()
     expect(g2Slot.flags.UNFILLABLE).toBe(true)
@@ -1302,7 +1302,7 @@ describe('cohorts array signature', () => {
       days: [{ id: 'd1', label: 'Monday', day_of_week: 1, sort_order: 0 }],
       timeBlocks: [blockA],
       activities: [{ ...baseAct }],
-      anchors: [],
+      fixedEvents: [],
       campId: 'test',
       preplacedSlots: [],
     })
@@ -1452,10 +1452,10 @@ describe('anchor unit_id scope', () => {
       days: [baseDay],
       timeBlocks: [blockA],
       activities: [],
-      anchors: [anchor],
+      fixedEvents: [anchor],
       campId: 'test',
     })
-    const anchorSlots = result.slots.filter(s => s.type === 'anchor')
+    const anchorSlots = result.slots.filter(s => s.type === 'fixed_event')
     expect(anchorSlots.map(s => s.groupId).sort()).toEqual(['g1', 'g2'].sort())
     expect(anchorSlots.some(s => s.groupId === 'g3')).toBe(false)
   })
@@ -1468,10 +1468,10 @@ describe('anchor unit_id scope', () => {
       days: [baseDay],
       timeBlocks: [blockA],
       activities: [],
-      anchors: [anchor],
+      fixedEvents: [anchor],
       campId: 'test',
     })
-    const anchorSlots = result.slots.filter(s => s.type === 'anchor')
+    const anchorSlots = result.slots.filter(s => s.type === 'fixed_event')
     expect(anchorSlots.map(s => s.groupId).sort()).toEqual(['g1', 'g2'].sort())
   })
 })
@@ -1491,39 +1491,39 @@ describe('anchor unit_ids scope', () => {
   function run(anchor, groups) {
     return buildSchedule({
       groups, tiers, days: [baseDay], timeBlocks: [blockA],
-      activities: [], anchors: [anchor], campId: 'test',
+      activities: [], fixedEvents: [anchor], campId: 'test',
     })
   }
 
   it('covers a group added to the division AFTER the event was saved', () => {
     // Saved when the division held only g1; g2 joins later. No re-save.
     const anchor = { id: 'anc1', name: 'Swim', unit_ids: ['unit1'], unit_id: null, is_all_groups: false, group_ids: [], day_id: 'd1', time_block_id: 'bA', span_blocks: 1 }
-    const anchorSlots = run(anchor, [g1, g2, g3]).slots.filter(s => s.type === 'anchor')
+    const anchorSlots = run(anchor, [g1, g2, g3]).slots.filter(s => s.type === 'fixed_event')
     expect(anchorSlots.map(s => s.groupId).sort()).toEqual(['g1', 'g2'])
     expect(anchorSlots.some(s => s.groupId === 'g3')).toBe(false)
   })
 
   it('resolves MORE THAN ONE division — the picker is multi-select', () => {
     const anchor = { id: 'anc1', name: 'Swim', unit_ids: ['unit1', 'unit2'], unit_id: null, is_all_groups: false, group_ids: [], day_id: 'd1', time_block_id: 'bA', span_blocks: 1 }
-    const anchorSlots = run(anchor, [g1, g2, g3]).slots.filter(s => s.type === 'anchor')
+    const anchorSlots = run(anchor, [g1, g2, g3]).slots.filter(s => s.type === 'fixed_event')
     expect(anchorSlots.map(s => s.groupId).sort()).toEqual(['g1', 'g2', 'g3'])
   })
 
   it('takes precedence over is_all_groups and over a stale group_ids snapshot', () => {
     const anchor = { id: 'anc1', name: 'Swim', unit_ids: ['unit1'], unit_id: null, is_all_groups: true, group_ids: ['g3'], day_id: 'd1', time_block_id: 'bA', span_blocks: 1 }
-    const anchorSlots = run(anchor, [g1, g2, g3]).slots.filter(s => s.type === 'anchor')
+    const anchorSlots = run(anchor, [g1, g2, g3]).slots.filter(s => s.type === 'fixed_event')
     expect(anchorSlots.map(s => s.groupId).sort()).toEqual(['g1', 'g2'])
   })
 
   it('an empty unit_ids array is not a scope claim — falls through to group_ids', () => {
     const anchor = { id: 'anc1', name: 'Swim', unit_ids: [], unit_id: null, is_all_groups: false, group_ids: ['g3'], day_id: 'd1', time_block_id: 'bA', span_blocks: 1 }
-    const anchorSlots = run(anchor, [g1, g2, g3]).slots.filter(s => s.type === 'anchor')
+    const anchorSlots = run(anchor, [g1, g2, g3]).slots.filter(s => s.type === 'fixed_event')
     expect(anchorSlots.map(s => s.groupId)).toEqual(['g3'])
   })
 
   it('legacy single unit_id still resolves when unit_ids is absent', () => {
     const anchor = { id: 'anc1', name: 'Swim', unit_id: 'unit2', is_all_groups: false, group_ids: [], day_id: 'd1', time_block_id: 'bA', span_blocks: 1 }
-    const anchorSlots = run(anchor, [g1, g2, g3]).slots.filter(s => s.type === 'anchor')
+    const anchorSlots = run(anchor, [g1, g2, g3]).slots.filter(s => s.type === 'fixed_event')
     expect(anchorSlots.map(s => s.groupId)).toEqual(['g3'])
   })
 })
@@ -1541,10 +1541,10 @@ describe('anchor group_ids scope', () => {
       days: [baseDay],
       timeBlocks: [blockA],
       activities: [],
-      anchors: [anchor],
+      fixedEvents: [anchor],
       campId: 'test',
     })
-    const anchorSlots = result.slots.filter(s => s.type === 'anchor')
+    const anchorSlots = result.slots.filter(s => s.type === 'fixed_event')
     expect(anchorSlots.map(s => s.groupId).sort()).toEqual(['g1', 'g3'])
     expect(anchorSlots.some(s => s.groupId === 'g2')).toBe(false)
   })
@@ -1563,10 +1563,10 @@ describe('anchor span_blocks', () => {
       days: [baseDay],
       timeBlocks: [blockA, blockB],
       activities: [],
-      anchors: [anchor],
+      fixedEvents: [anchor],
       campId: 'test',
     })
-    const anchorSlots = result.slots.filter(s => s.type === 'anchor')
+    const anchorSlots = result.slots.filter(s => s.type === 'fixed_event')
     expect(anchorSlots).toHaveLength(2)
     expect(anchorSlots.map(s => s.blockId).sort()).toEqual(['bA', 'bB'].sort())
   })
@@ -1579,10 +1579,10 @@ describe('anchor span_blocks', () => {
       days: [baseDay],
       timeBlocks: [blockA, blockB],
       activities: [],
-      anchors: [anchor],
+      fixedEvents: [anchor],
       campId: 'test',
     })
-    const anchorSlots = result.slots.filter(s => s.type === 'anchor')
+    const anchorSlots = result.slots.filter(s => s.type === 'fixed_event')
     const head = anchorSlots.find(s => s.blockId === 'bA')
     const tail = anchorSlots.find(s => s.blockId === 'bB')
     expect(head?.is_span_head).toBe(true)
@@ -1597,10 +1597,10 @@ describe('anchor span_blocks', () => {
       days: [baseDay],
       timeBlocks: [blockA, blockB, blockC],
       activities: [],
-      anchors: [anchor],
+      fixedEvents: [anchor],
       campId: 'test',
     })
-    const anchorSlots = result.slots.filter(s => s.type === 'anchor')
+    const anchorSlots = result.slots.filter(s => s.type === 'fixed_event')
     expect(anchorSlots).toHaveLength(3)
   })
 
@@ -1612,10 +1612,10 @@ describe('anchor span_blocks', () => {
       days: [baseDay],
       timeBlocks: [blockA, blockB],
       activities: [],
-      anchors: [anchor],
+      fixedEvents: [anchor],
       campId: 'test',
     })
-    const anchorSlots = result.slots.filter(s => s.type === 'anchor')
+    const anchorSlots = result.slots.filter(s => s.type === 'fixed_event')
     expect(anchorSlots).toHaveLength(2)  // span=3, only 2 blocks available → 2 slots
     expect(anchorSlots.find(s => s.blockId === 'bA')?.is_span_head).toBe(true)
     expect(anchorSlots.find(s => s.blockId === 'bB')?.is_span_head).toBe(false)
@@ -1630,7 +1630,7 @@ describe('anchor span_blocks', () => {
       days: [baseDay],
       timeBlocks: [blockA, blockB, blockC],
       activities: [act],
-      anchors: [anchor],
+      fixedEvents: [anchor],
       campId: 'test',
     })
     const dramaSlots = result.slots.filter(s => s.activityId === 'a1')
@@ -1647,14 +1647,14 @@ describe('anchor scope edge cases', () => {
       days: [baseDay],
       timeBlocks: [blockA],
       activities: [],
-      anchors: [anchor],
+      fixedEvents: [anchor],
       campId: 'test',
     })
-    const anchorSlots = result.slots.filter(s => s.type === 'anchor')
+    const anchorSlots = result.slots.filter(s => s.type === 'fixed_event')
     expect(anchorSlots).toHaveLength(0)
   })
 
-  it('unit_id combined with span_blocks=2 anchors all groups in unit across 2 blocks', () => {
+  it('unit_id combined with span_blocks=2 fixedEvents all groups in unit across 2 blocks', () => {
     const g1 = { id: 'g1', name: 'Aleph', tier_id: 'unit1', availability: 'all' }
     const g2 = { id: 'g2', name: 'Bet', tier_id: 'unit1', availability: 'all' }
     const g3 = { id: 'g3', name: 'Gimel', tier_id: 'unit2', availability: 'all' }
@@ -1665,10 +1665,10 @@ describe('anchor scope edge cases', () => {
       days: [baseDay],
       timeBlocks: [blockA, blockB],
       activities: [],
-      anchors: [anchor],
+      fixedEvents: [anchor],
       campId: 'test',
     })
-    const anchorSlots = result.slots.filter(s => s.type === 'anchor')
+    const anchorSlots = result.slots.filter(s => s.type === 'fixed_event')
     // g1 and g2 each get 2 anchor slots (bA + bB), g3 gets none
     expect(anchorSlots).toHaveLength(4)
     expect(anchorSlots.some(s => s.groupId === 'g3')).toBe(false)
@@ -1705,7 +1705,7 @@ describe('session counting (span = one session)', () => {
       days: [dayMon, dayTue],
       timeBlocks: [blockA, blockB],
       activities: [spanAct],
-      anchors: [],
+      fixedEvents: [],
       campId: 'test',
     })
   }
@@ -1766,7 +1766,7 @@ describe('activity eligible_group_ids as a raw array (T69)', () => {
       days: [baseDay],
       timeBlocks: [blockA, blockB],
       activities: activities.map(a => ({ ...a, max_groups_per_slot: null })),
-      anchors: [],
+      fixedEvents: [],
       campId: 'test',
     })
   }
@@ -1946,14 +1946,14 @@ describe('kind is classification-only — engine placement parity (v51)', () => 
     groups: [baseGroup, g2],
     timeBlocks: [baseBlock, block2],
     activities: [flagpole, lunch, archery],
-    anchors: [fixedAnchor, recurringAnchor],
+    fixedEvents: [fixedAnchor, recurringAnchor],
   })
 
-  it('adding kind to both anchors produces byte-identical slots/conflicts/findings to the same fixture without kind', () => {
+  it('adding kind to both fixedEvents produces byte-identical slots/conflicts/findings to the same fixture without kind', () => {
     const without = buildSchedule(fixture())
     const withKind = buildSchedule({
       ...fixture(),
-      anchors: [
+      fixedEvents: [
         { ...fixedAnchor, kind: 'fixed' },
         { ...recurringAnchor, kind: 'recurring' },
       ],
@@ -1965,7 +1965,7 @@ describe('kind is classification-only — engine placement parity (v51)', () => 
     const without = buildSchedule(fixture())
     const withWrongKind = buildSchedule({
       ...fixture(),
-      anchors: [
+      fixedEvents: [
         // Deliberately backwards/garbage values: if any engine code path ever
         // branched on `kind`, this fixture would diverge from `without`.
         { ...fixedAnchor, kind: 'recurring' },
@@ -1975,16 +1975,16 @@ describe('kind is classification-only — engine placement parity (v51)', () => 
     expect(withWrongKind).toEqual(without)
   })
 
-  it('both anchors are placed as identical hard pre-placements regardless of kind', () => {
+  it('both fixedEvents are placed as identical hard pre-placements regardless of kind', () => {
     const { slots } = buildSchedule({
       ...fixture(),
-      anchors: [
+      fixedEvents: [
         { ...fixedAnchor, kind: 'fixed' },
         { ...recurringAnchor, kind: 'recurring' },
       ],
     })
-    const fixedSlots = slots.filter(s => s.type === 'anchor' && s.anchorId === 'anc-fixed')
-    const recurringSlots = slots.filter(s => s.type === 'anchor' && s.anchorId === 'anc-recurring')
+    const fixedSlots = slots.filter(s => s.type === 'fixed_event' && s.fixedEventId === 'anc-fixed')
+    const recurringSlots = slots.filter(s => s.type === 'fixed_event' && s.fixedEventId === 'anc-recurring')
     expect(fixedSlots.length).toBeGreaterThan(0)
     expect(recurringSlots.length).toBeGreaterThan(0)
     // Fixed (all-groups) occupies every group's cell; Recurring (g1-scoped)
@@ -2013,7 +2013,7 @@ describe('cross-cohort route conflicts', () => {
           groups: [{ id: 'g1', name: 'Aleph', tier_id: 't1', availability: 'all' }],
           preplacedSlots: [],
           activityTargets: null,
-          _legacyAnchors: [],
+          _legacyFixedEvents: [],
           ...cohort1,
         },
         {
@@ -2023,7 +2023,7 @@ describe('cross-cohort route conflicts', () => {
           groups: [{ id: 'g2', name: 'Bet', tier_id: 't1', availability: 'all' }],
           preplacedSlots: [],
           activityTargets: null,
-          _legacyAnchors: [],
+          _legacyFixedEvents: [],
           ...cohort2,
         },
       ],
@@ -2056,7 +2056,7 @@ describe('cross-cohort route conflicts', () => {
     const offering = { ...baseAct, id: 'offering1', name: 'Waterfront Swim', location_id: 'loc1' }
     const anchor = { id: 'anc1', name: 'Lunch', day_id: 'd1', time_block_id: 'bA', is_all_groups: false, group_ids: ['g1'], location_id: 'loc1' }
     const result = buildSchedule(twoCohortInput({
-      cohort1: { _legacyAnchors: [anchor] },
+      cohort1: { _legacyFixedEvents: [anchor] },
       cohort2: { preplacedSlots: [{ groupId: 'g2', dayId: 'd1', blockId: 'bA', electiveSetId: 'es1' }] },
       activities: [offering],
       electiveSetActivities: [{ elective_set_id: 'es1', activity_id: 'offering1' }],
@@ -2100,15 +2100,15 @@ describe('cross-cohort route conflicts', () => {
 // findingKey.js) derived the SAME key for every such finding after a T267
 // PR2 migration leaves multiple fixed_events rows with null activity_id —
 // dismissing one silently hid the rest. Each finding must carry a
-// per-anchor discriminator (anchorId) distinct findings can key off.
+// per-anchor discriminator (fixedEventId) distinct findings can key off.
 describe('FIXED_EVENT_IDENTITY_GAP findings carry a per-anchor discriminator', () => {
-  it('two anchors with null activity_id each produce their own finding with a distinct anchorId', () => {
+  it('two fixedEvents with null activity_id each produce their own finding with a distinct fixedEventId', () => {
     const anchor1 = { id: 'anc-gap-1', name: 'Mifkad', activity_id: null, unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
     const anchor2 = { id: 'anc-gap-2', name: 'Lunch', activity_id: null, unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
-    const result = buildSchedule(minimal({ anchors: [anchor1, anchor2] }))
+    const result = buildSchedule(minimal({ fixedEvents: [anchor1, anchor2] }))
 
     const gapFindings = result.findings.filter(f => f.kind === 'FIXED_EVENT_IDENTITY_GAP')
     expect(gapFindings).toHaveLength(2)
-    expect(gapFindings.map(f => f.anchorId).sort()).toEqual(['anc-gap-1', 'anc-gap-2'])
+    expect(gapFindings.map(f => f.fixedEventId).sort()).toEqual(['anc-gap-1', 'anc-gap-2'])
   })
 })

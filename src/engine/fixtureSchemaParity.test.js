@@ -112,7 +112,7 @@ const SLOT_KEY_TO_COLUMN = {
   dayId: 'day_id',
   blockId: 'time_block_id',
   activityId: 'activity_id',
-  anchorId: 'fixed_event_id',
+  fixedEventId: 'fixed_event_id',
   electiveSetId: 'elective_set_id',
   eventId: 'event_id',
   templateId: 'template_id',
@@ -417,22 +417,22 @@ function scanSource(file, src, consumers) {
   const out = { anchors: [], slots: [], opaqueSites: [], computedKeys: 0 }
   const ast = parse(src)
   const decls = buildDeclarationMap(ast)
-  const sites = [] // { node, kind: 'anchor' | 'slot', pattern }
+  const sites = [] // { node, kind: 'fixed_event' | 'slot', pattern }
 
   walk(ast, (n) => {
     // Pattern: `anchors: [...]` / `preplacedSlots: [...]` object properties.
     if (n.type === 'Property' && !n.computed && n.key?.type === 'Identifier') {
-      if (ANCHOR_PROP_NAMES.has(n.key.name)) sites.push({ node: n.value, kind: 'anchor', pattern: 'property' })
+      if (ANCHOR_PROP_NAMES.has(n.key.name)) sites.push({ node: n.value, kind: 'fixed_event', pattern: 'property' })
       else if (SLOT_PROP_NAMES.has(n.key.name)) sites.push({ node: n.value, kind: 'slot', pattern: 'property' })
     }
     // Pattern: `const anchor = {...}` / `const preplaced = [...]`.
     if (n.type === 'VariableDeclarator' && n.id?.type === 'Identifier' && n.init) {
-      if (ANCHOR_VAR_RE.test(n.id.name)) sites.push({ node: n.init, kind: 'anchor', pattern: 'variable' })
+      if (ANCHOR_VAR_RE.test(n.id.name)) sites.push({ node: n.init, kind: 'fixed_event', pattern: 'variable' })
       else if (SLOT_VAR_RE.test(n.id.name)) sites.push({ node: n.init, kind: 'slot', pattern: 'variable' })
     }
     // Pattern: first argument of an anchor-consuming engine function.
     if (n.type === 'CallExpression' && n.callee?.type === 'Identifier' && consumers.has(n.callee.name)) {
-      if (n.arguments[0]) sites.push({ node: n.arguments[0], kind: 'anchor', pattern: 'call-arg' })
+      if (n.arguments[0]) sites.push({ node: n.arguments[0], kind: 'fixed_event', pattern: 'call-arg' })
     }
   })
 
@@ -446,7 +446,7 @@ function scanSource(file, src, consumers) {
       out.computedKeys += computed
       const hasSpread = o.node.properties.some((p) => p.type === 'SpreadElement')
       const pattern = o.helper ? 'helper' : hasSpread ? 'spread' : site.pattern
-      const bucket = site.kind === 'anchor' ? out.anchors : out.slots
+      const bucket = site.kind === 'fixed_event' ? out.anchors : out.slots
       bucket.push({ file, line: o.node.loc.start.line, keys: [...keys], pattern })
     }
   }
@@ -743,7 +743,7 @@ describe('engine fixtures stay in parity with the real schema (T187)', () => {
       // but holds engine OUTPUT, not an input fixture. Treating it as a blind
       // spot would make the opaque-site floor a nuisance red — the kind a
       // future engineer "fixes" by deleting it.
-      const s = scanSynthetic(`const anchorSlots = slots.filter((x) => x.type === 'anchor')`)
+      const s = scanSynthetic(`const anchorSlots = slots.filter((x) => x.type === 'fixed_event')`)
       expect(s.opaqueSites).toEqual([])
     })
 

@@ -104,8 +104,8 @@ describe('useScheduleData', () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false))
 
-    expect(result.current.setupLists.anchors).toHaveLength(1)
-    expect(result.current.setupLists.anchors[0].group_ids).toEqual(['g1', 'g2'])
+    expect(result.current.setupLists.fixedEvents).toHaveLength(1)
+    expect(result.current.setupLists.fixedEvents[0].group_ids).toEqual(['g1', 'g2'])
   })
 
   // Scenario 2: repo.loadTemplateData throwing sets templateError while
@@ -386,7 +386,7 @@ describe('useScheduleData', () => {
 
 // T182 leftover (docs/work/tickets/T182-stale-anchor-duplicate-finding.md):
 // FIXED_EVENT_DUPLICATE is gated by CONVENTION at the useScheduleData.js call site
-// (the `r === 'generated' ? recalcFindings(saved, {..., anchors: anc, ...}) :
+// (the `r === 'generated' ? recalcFindings(saved, {..., fixedEvents: anc, ...}) :
 // recalcFindings(saved, {groups, activities, days})` branch), not by any type
 // distinction in computeFindings itself. A manual-route slot list identical
 // to a generated one must never surface the finding, because
