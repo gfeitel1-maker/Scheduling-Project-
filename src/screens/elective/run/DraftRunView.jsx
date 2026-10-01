@@ -709,7 +709,16 @@ export default function DraftRunView({
           testId={`run-state-notice-${noticeKey}`}
           first={index === 0}
           last={index === stateRowCount - 1}
-          message={f.message ?? f.kind ?? JSON.stringify(f)}
+          // F6 (Code Reviewer round 3) — routed through the SAME copy table
+          // FinalizeFindingsList uses: `f.message ?? f.kind ?? JSON.stringify(f)`
+          // printed a raw finding kind code to a director in this
+          // ALWAYS-VISIBLE run-state area the moment a future kind without a
+          // `.message` reached it — the same defect class this screen's own
+          // Finalize-refusal fix (C2) already closed on the adjacent surface.
+          // Every kind reaching commitNotices today (PREFERENCE_EDIT_HELD)
+          // always carries `.message`, so this changes nothing for them; it
+          // only changes what an unrecognised future kind degrades to.
+          message={finalizeFindingMessage(f, { days, timeBlocks })}
         />
       )
     }),

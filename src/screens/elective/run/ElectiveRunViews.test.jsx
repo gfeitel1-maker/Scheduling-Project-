@@ -612,13 +612,23 @@ describe('T250 B1 — a mixed findings array renders each kind with its own sent
   // `.message` (any future OTHER kind BUNDLE_TIER_NOT_COVERED-shaped kind
   // commitElectiveRun ever adds) renders a BLANK row instead of something a
   // director can read. Same fallback shape FinalizeFindingsList already uses.
-  it('falls back to kind, then JSON, for a commit notice with no .message — never a blank row', async () => {
+  // F6 (Code Reviewer round 3) — commitNotices now routes through the SAME
+  // copy table (runStateCopy.js's finalizeFindingMessage) the Finalize
+  // refusal surface uses (C2). A raw kind code reaching this ALWAYS-VISIBLE
+  // run-state area is the same board-item-9b defect class as the refusal
+  // row's own fix; this test used to PIN the raw-code fallback as correct
+  // and now pins its replacement — a plain-language sentence, never the kind
+  // or JSON. "Never a blank row" (the half this guard still protects) still
+  // holds: the row has visible text either way.
+  it('degrades to a plain-language sentence for a commit notice with no .message — never a raw kind code, never JSON, never a blank row', async () => {
     render(<DraftRunView run={DRAFT_RUN} danglingFindings={[
       { kind: 'SOME_FUTURE_KIND', camper_id: 'camper-9' },
     ]} {...catalogs()} />)
 
     const row = await screen.findByTestId('run-state-notice-camper-9-SOME_FUTURE_KIND')
-    expect(row.textContent).toBe('SOME_FUTURE_KIND')
+    expect(row.textContent).not.toBe('')
+    expect(row.textContent).not.toContain('SOME_FUTURE_KIND')
+    expect(row.textContent).not.toMatch(/^\{/)
   })
 })
 

@@ -22,8 +22,27 @@
 // generic fallback to interpolate `finding.kind` (`` `Finding: ${finding.kind}` ``
 // instead of the plain-words sentence). Both tests below went RED, naming the
 // leaked kind string in the failure diff; reverting restored GREEN.
+//
+// F6 (Code Reviewer round 3) — a SECOND surface in the SAME file,
+// DraftRunView.jsx's `commitNotices` row (the always-visible run-state area,
+// not the Finalize-refusal alert), had its OWN independent raw-code fallback
+// (`f.message ?? f.kind ?? JSON.stringify(f)`) — the identical defect class
+// on an adjacent render path this guard's unit tests above do not reach,
+// since they call `finalizeFindingMessage` directly rather than driving
+// DraftRunView's render. commitNotices now routes through the SAME
+// `finalizeFindingMessage` this file guards, so the invariant above already
+// covers its OUTPUT — but the source-scan below additionally proves the
+// WIRING: that no second, independent raw-fallback expression has crept back
+// into either file (the exact way F6 was found: a text pattern, not a value,
+// since a passing unit test on the shared function says nothing about
+// whether some OTHER call site still bypasses it).
 import { describe, it, expect } from 'vitest'
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { finalizeFindingMessage } from './runStateCopy.js'
+
+const HERE = path.dirname(fileURLToPath(import.meta.url))
 
 describe('finalizeFindingMessage — no raw finding kind code ever reaches the rendered string', () => {
   it('a real (no-.message) OUTER_RESOURCE_CONFLICT finding never contains its own kind code', () => {
@@ -54,5 +73,33 @@ describe('finalizeFindingMessage — no raw finding kind code ever reaches the r
 
   it('a finding carrying its own .message is rendered verbatim — the generic/conflict fallbacks never override a real message', () => {
     expect(finalizeFindingMessage({ kind: 'ANYTHING', message: 'Custom text' }, {})).toBe('Custom text')
+  })
+})
+
+// F6 — the WIRING guard. Both known director-facing finding renders in this
+// screen (FinalizeFindingsList's refusal rows, commitNotices' always-visible
+// rows) must call finalizeFindingMessage rather than carry their own
+// independent `?? f.kind` / `JSON.stringify(f)` fallback — a text-level
+// pattern a passing unit test on the shared function cannot see.
+describe('source-scan: no independent raw-kind fallback survives in either file', () => {
+  const draftRunViewSrc = fs.readFileSync(path.join(HERE, 'DraftRunView.jsx'), 'utf8')
+
+  it('DraftRunView.jsx contains no `?? f.kind` / `?? .kind` message fallback outside the component this guard covers', () => {
+    // The ONLY acceptable way either render site may read a finding's kind
+    // at all is by calling finalizeFindingMessage(f, ...) — never by
+    // interpolating `f.kind` (or any destructured `.kind`) into a message
+    // string directly.
+    const rawKindFallback = /message=\{[^}]*\?\?\s*f\.kind/
+    const rawJsonFallback = /message=\{[^}]*JSON\.stringify\(f\)/
+    expect(draftRunViewSrc).not.toMatch(rawKindFallback)
+    expect(draftRunViewSrc).not.toMatch(rawJsonFallback)
+  })
+
+  it('both finding-message render sites call finalizeFindingMessage — confirms this guard is actually wired to what renders, not just to the pure function', () => {
+    const callSites = draftRunViewSrc.match(/finalizeFindingMessage\(/g) ?? []
+    // One call inside FinalizeFindingsList (the refusal rows) and one inside
+    // the commitNotices map (F6) — two, not one, or the fix only reached
+    // half the surfaces this round named.
+    expect(callSites.length).toBeGreaterThanOrEqual(2)
   })
 })
