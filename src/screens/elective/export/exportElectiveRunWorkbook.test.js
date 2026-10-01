@@ -102,7 +102,12 @@ describe('buildElectiveRunWorkbook', () => {
   // OWN day. Pins the actual rendered SHEET CELLS (not the intermediate JS
   // object), via sheet_to_json row access, so a reconciliation break between
   // the builder and the AOA writer would be caught here too.
-  it('Activity Roster: Count is populated on the anchor row only, and each bundle member shows their OWN day/time block', () => {
+  // Round 3 correction (F1, Verifier BLOCKING) — a clustered member contributes
+  // ONE ROSTER ROW PER OCCURRENCE, each carrying that occurrence's own day/time
+  // block; a joined cell ("Monday, Wednesday") broke the JSON<->XLSX parity
+  // invariant (§6(11)'s acceptance test), since both artifacts are built from
+  // this one export.
+  it('Activity Roster: Count is populated on the FIRST physical row of the group only, and each bundle OCCURRENCE is its own row with its OWN day/time block', () => {
     const fx = fixture()
     fx.campers = [
       { id: 'c1', display_name: 'Camper A', group_id: 'g1' },
@@ -127,15 +132,23 @@ describe('buildElectiveRunWorkbook', () => {
     const camperIdx = header.indexOf('Camper')
     const countIdx = header.indexOf('Count')
     const body = rows.slice(1)
-    const c1Row = body.find((r) => r[camperIdx] === 'Camper A')
-    const c2Row = body.find((r) => r[camperIdx] === 'Camper B')
+    const c1Rows = body.filter((r) => r[camperIdx] === 'Camper A')
+    const c2Rows = body.filter((r) => r[camperIdx] === 'Camper B')
 
-    // Count: ANCHOR (first member row) only — assignment grain (3), not member count (2).
-    expect(c1Row[countIdx]).toBe(3)
-    expect(c2Row[countIdx]).toBe('')
+    // Camper A gets TWO rows (one per occurrence); Camper B gets one.
+    expect(c1Rows).toHaveLength(2)
+    expect(c2Rows).toHaveLength(1)
 
-    // Each member's OWN day, not the anchor's.
-    expect(c1Row[dayIdx]).toBe('Monday, Wednesday')
-    expect(c2Row[dayIdx]).toBe('Monday')
+    // Count: the FIRST physical row of the whole group only — assignment
+    // grain (3), not member/row count (3 rows, which happens to coincide
+    // here, but the field is never printed on the other two rows).
+    expect(c1Rows[0][countIdx]).toBe(3)
+    expect(c1Rows[1][countIdx]).toBe('')
+    expect(c2Rows[0][countIdx]).toBe('')
+
+    // Each row carries ITS OWN day — never joined.
+    expect(c1Rows[0][dayIdx]).toBe('Monday')
+    expect(c1Rows[1][dayIdx]).toBe('Wednesday')
+    expect(c2Rows[0][dayIdx]).toBe('Monday')
   })
 })

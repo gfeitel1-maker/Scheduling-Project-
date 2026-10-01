@@ -46,7 +46,7 @@ describe('buildActivityRosterExport', () => {
     expect(result).toHaveLength(0)
   })
 
-  it('a linked choice groups its members under the choice label as one roster row, not per-member-occurrence rows', () => {
+  it('a linked choice groups into ONE roster GROUP, but a member contributes one ROW PER OCCURRENCE', () => {
     const result = buildActivityRosterExport({
       run: { id: 'run-1' },
       campers: [{ id: 'c1', display_name: 'Camper A', group_id: 'group-1' }],
@@ -60,18 +60,20 @@ describe('buildActivityRosterExport', () => {
       capacityRows: [],
     })
 
+    // ONE GROUP (the bundle clusters under one label/row-group), but TWO
+    // member rows — round 3 correction: a joined cell broke JSON<->XLSX
+    // parity (§6(11)'s acceptance test), so each occurrence is its own row.
     expect(result).toHaveLength(1)
     // F5 (round 2): count is the ASSIGNMENT grain (2 member occurrences), not the presentation
-    // grain (members.length: 1 camper) — see exportElectiveRunProjection.test.js's exit-clause test.
+    // grain — see exportElectiveRunProjection.test.js's exit-clause test.
     expect(result[0]).toMatchObject({ activity_name: 'Bundle', count: 2 })
-    // ORGANIZER RULING — the member's OWN day/time_block, joined across their own
-    // memberRows in order, so the bundle's OTHER day (previously invisible) shows.
     expect(result[0].members).toEqual([
-      { camper_id: 'c1', camper_name: 'Camper A', group_name: 'Bunk Alpha', day: 'Monday, Monday', time_block: 'Period 1, Period 3', count: 2 },
+      { camper_id: 'c1', camper_name: 'Camper A', group_name: 'Bunk Alpha', day: 'Monday', time_block: 'Period 1', count: 2 },
+      { camper_id: 'c1', camper_name: 'Camper A', group_name: 'Bunk Alpha', day: 'Monday', time_block: 'Period 3' },
     ])
   })
 
-  it("resolves each linked-choice member's OWN day/time_block from their OWN memberRows — a partial member never inherits another member's full span", () => {
+  it("each linked-choice OCCURRENCE is its own row with its OWN day/time_block — a partial member never inherits another member's full span", () => {
     const result = buildActivityRosterExport({
       run: { id: 'run-1' },
       campers: [
@@ -91,7 +93,8 @@ describe('buildActivityRosterExport', () => {
 
     expect(result).toHaveLength(1)
     expect(result[0].members).toEqual([
-      { camper_id: 'c1', camper_name: 'Camper A', group_name: 'Bunk Alpha', day: 'Monday, Wednesday', time_block: 'Period 1, Period 1', count: 3 },
+      { camper_id: 'c1', camper_name: 'Camper A', group_name: 'Bunk Alpha', day: 'Monday', time_block: 'Period 1', count: 3 },
+      { camper_id: 'c1', camper_name: 'Camper A', group_name: 'Bunk Alpha', day: 'Wednesday', time_block: 'Period 1' },
       { camper_id: 'c2', camper_name: 'Camper B', group_name: 'Bunk Alpha', day: 'Monday', time_block: 'Period 1' },
     ])
   })

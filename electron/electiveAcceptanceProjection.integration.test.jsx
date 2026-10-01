@@ -288,17 +288,30 @@ describe('§6 (7) — every assignment appears exactly once in the matching rost
       .get(run.id, ...bundleChoiceIds).c
     expect(tagged).toBe(expectedTagged)
 
-    // And so exactly one export entry clusters — its count (assignment grain)
-    // and members.length (camper grain) are now genuinely different numbers,
-    // which is exactly what exportActivityRoster.js's F5 note says must hold
-    // for a linked choice.
-    const clustered = rosterOf().filter((e) => e.count !== e.members.length)
+    // And so exactly one export GROUP clusters under the bundle's label.
+    // Round 3 correction (F1, Verifier BLOCKING) — a clustered member now
+    // contributes ONE ROSTER ROW PER OCCURRENCE (never a joined cell, which
+    // broke the JSON<->XLSX parity invariant), so `members.length` is now the
+    // full OCCURRENCE grain and coincides with `count` — the camper grain
+    // (`winners`, fewer than the occurrence grain whenever a bundle spans
+    // more than one day) is what the DISTINCT camper_id count below proves,
+    // which is exactly what "clusters" still means here.
+    // Filtering on activity_name alone is not enough: "Ropes" also names an
+    // ORDINARY (non-bundle) Younger-tier offering with the SAME activity_name
+    // — a separate, non-linked roster group that must not be mistaken for the
+    // bundle's own. A truly clustered group is the one where distinct campers
+    // (winners) are FEWER than the occurrence-grain member rows.
+    const clustered = rosterOf().filter((e) => (
+      e.activity_name === M.bundle.name
+      && new Set(e.members.map((m) => m.camper_id)).size < e.members.length
+    ))
     expect(clustered).toHaveLength(1)
     expect(clustered[0]).toMatchObject({
       activity_name: M.bundle.name,
       count: expectedTagged,
     })
-    expect(clustered[0].members).toHaveLength(winners)
+    expect(clustered[0].members).toHaveLength(expectedTagged)
+    expect(new Set(clustered[0].members.map((m) => m.camper_id)).size).toBe(winners)
 
     expect(outer.rows.filter((r) => r.isLinkedChoice)).toHaveLength(expectedTagged)
   })
@@ -325,11 +338,12 @@ describe('§6 (7) — every assignment appears exactly once in the matching rost
   // the roster or from clusterLinkedElectiveRows — so this still catches a
   // real join/grouping mistake rather than restating the export's own logic.
   //
-  // Set equality, not multiset: (camper, day, block, activity) is unique per
-  // NON-linked assignment row by construction (deriveElectiveAssignmentId keys
-  // on run + camper + occurrence); a linked camper's N rows collapse to the
-  // one key below. The no-duplicate-within-an-entry assertion below covers the
-  // roster side.
+  // Round 3 correction (F1, Verifier BLOCKING) — this test's ORIGINAL
+  // premise ("a linked camper's N rows collapse to the one key below") is
+  // exactly the joined-cell shape that broke the JSON<->XLSX parity
+  // invariant and that round 3 removed: a clustered member now contributes
+  // ONE ROSTER ROW PER OCCURRENCE, so every raw assignment row maps 1:1 to a
+  // roster member row — no SQL-side collapsing is needed or correct anymore.
   it('every roster member sits at the coordinate the assignment row gives them', () => {
     const key = (camperId, day, block, activity) => `${camperId}|${day}|${block}|${activity}`
     const raw = camp.db.prepare(`
@@ -345,33 +359,34 @@ describe('§6 (7) — every assignment appears exactly once in the matching rost
       ORDER BY a.camper_id, o.day_id, o.time_block_id
     `).all(run.id)
     expect(raw.length).toBeGreaterThan(0)
+    // NON-VACUITY: at least one row really is linked, so the linked branch
+    // below is exercised rather than silently degenerating to the plain one.
+    expect(raw.some((r) => r.is_linked)).toBe(true)
 
-    const seenLinkedAnchor = new Set()
-    const fromSql = []
-    for (const r of raw) {
-      if (r.is_linked) {
-        const clusterKey = `${r.camper_id}|${r.choice_id}`
-        if (seenLinkedAnchor.has(clusterKey)) continue
-        seenLinkedAnchor.add(clusterKey)
-        fromSql.push(key(r.camper_id, r.day, r.time_block, r.choice_label))
-      } else {
-        fromSql.push(key(r.camper_id, r.day, r.time_block, r.activity_name))
-      }
-    }
-    // NON-VACUITY: at least one row really did collapse, so the branch above
-    // is exercised and this is not silently back to the old per-row form.
-    expect(fromSql.length).toBeLessThan(raw.length)
+    const fromSql = raw.map((r) => (
+      r.is_linked
+        ? key(r.camper_id, r.day, r.time_block, r.choice_label)
+        : key(r.camper_id, r.day, r.time_block, r.activity_name)
+    ))
 
+    // `m.day`/`m.time_block` — each member row's OWN occurrence, never the
+    // group's anchor-only `e.day`/`e.time_block` (which round 3 exists
+    // precisely because that pair stopped matching every member row).
     const fromRoster = rosterOf().flatMap(
-      (e) => e.members.map((m) => key(m.camper_id, e.day, e.time_block, e.activity_name))
+      (e) => e.members.map((m) => key(m.camper_id, m.day, m.time_block, e.activity_name))
     )
     expect([...new Set(fromRoster)].sort()).toEqual([...new Set(fromSql)].sort())
   })
 
-  it('no camper appears twice in one roster entry', () => {
+  // Round 3 correction (F1, Verifier BLOCKING) — a camper legitimately
+  // appears MORE THAN ONCE in one group now (one row per occurrence of a
+  // multi-day bundle), so bare camper_id uniqueness is the wrong invariant to
+  // check — (camper_id, day, time_block) is the real one: no camper is ever
+  // listed TWICE for the SAME occurrence, which is what this guards against.
+  it('no camper appears twice for the SAME occurrence within one roster entry', () => {
     for (const entry of rosterOf()) {
-      const ids = entry.members.map((m) => m.camper_id)
-      expect(new Set(ids).size).toBe(ids.length)
+      const keys = entry.members.map((m) => `${m.camper_id}|${m.day}|${m.time_block}`)
+      expect(new Set(keys).size).toBe(keys.length)
     }
   })
 
