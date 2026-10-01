@@ -477,7 +477,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // That second route covers SMALL merges only, and the shortfall is real, not
   // theoretical. dispatchRemoteOps sends one shoresh:op-applied per changed
   // field only while the batch is at or below REMOTE_OPS_COALESCE_THRESHOLD
-  // (20); above it it sends a SINGLE shoresh:full-sync-applied and returns.
+  // (20); above it, it sends a SINGLE shoresh:full-sync-applied and returns.
   // This screen subscribes to onOpApplied and to nothing else —
   // onFullSyncApplied exists (src/localClient.js, electron/preload.js) and this
   // screen never calls it — so a catch-up merge from a device that was offline,
