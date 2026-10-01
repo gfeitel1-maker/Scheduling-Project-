@@ -33,7 +33,7 @@ import { A } from '../assignment/assignmentStyles.js'
 import {
   DANGLING_MOVE_PLACEHOLDER, FINALIZE_MESSAGES, REMOVE_PLACEMENT_LABEL, danglingMessage, occurrenceLabel, overCapacityMessage,
   resolveCamperDisambiguators, satisfactionSummary, stalenessOfferMessage,
-  groupBundleTierNotCoveredFindings, bundleTierNotCoveredGroupMessage,
+  groupBundleTierNotCoveredFindings, bundleTierNotCoveredGroupMessage, finalizeFindingMessage,
 } from './runStateCopy.js'
 
 const styles = {
@@ -91,7 +91,7 @@ const DANGLING_ROW_COLLAPSE_MS = 340
 // verbatim copy the ticket specifies, `findings` rendered as a plain list
 // (up to 3) with the remainder collapsed behind a native <details>/<summary>,
 // the same idiom ParseSummary already uses for its own collapsible sections.
-function FinalizeFindingsList({ findings }) {
+function FinalizeFindingsList({ findings, days = [], timeBlocks = [] }) {
   if (!findings || findings.length === 0) return null
   const shown = findings.slice(0, 3)
   const rest = findings.length - shown.length
@@ -99,7 +99,7 @@ function FinalizeFindingsList({ findings }) {
     <>
       <ul style={styles.findingsList}>
         {shown.map((f, i) => (
-          <li key={i}>{f.message ?? f.kind ?? JSON.stringify(f)}</li>
+          <li key={i}>{finalizeFindingMessage(f, { days, timeBlocks })}</li>
         ))}
       </ul>
       {rest > 0 ? (
@@ -107,7 +107,7 @@ function FinalizeFindingsList({ findings }) {
           <summary style={A.disclosureSummary}>+{rest} more</summary>
           <ul style={styles.findingsList}>
             {findings.slice(3).map((f, i) => (
-              <li key={i}>{f.message ?? f.kind ?? JSON.stringify(f)}</li>
+              <li key={i}>{finalizeFindingMessage(f, { days, timeBlocks })}</li>
             ))}
           </ul>
         </details>
@@ -133,7 +133,7 @@ function BundleMismatchGroupNames({ names }) {
   )
 }
 
-function FinalizeRefusalRow({ refusal, onRegenerate, lockedAssignments }) {
+function FinalizeRefusalRow({ refusal, onRegenerate, lockedAssignments, days, timeBlocks }) {
   const { error, findings } = refusal
   const known = FINALIZE_MESSAGES[error]
   const message = known ?? `Finalizing failed: ${error}. Nothing was changed — try again, or contact support if this keeps happening.`
@@ -141,7 +141,7 @@ function FinalizeRefusalRow({ refusal, onRegenerate, lockedAssignments }) {
   if (error === 'STALE_OUTER_SCHEDULE') {
     return (
       <div data-testid="run-state-finalize-refusal" style={styles.pairing}>
-        <RunStateRow testId="run-state-finalize-stale" message={<>{message}<FinalizeFindingsList findings={findings} /></>} first alert />
+        <RunStateRow testId="run-state-finalize-stale" message={<>{message}<FinalizeFindingsList findings={findings} days={days} timeBlocks={timeBlocks} /></>} first alert />
         {onRegenerate ? (
           <div style={styles.pairingAction}>
             <button className="press-97" style={S.btnSecondary} onClick={() => onRegenerate({ lockedAssignments })}>
@@ -157,7 +157,7 @@ function FinalizeRefusalRow({ refusal, onRegenerate, lockedAssignments }) {
     <RunStateRow
       testId="run-state-finalize-refusal"
       first last alert
-      message={<>{message}<FinalizeFindingsList findings={findings} /></>}
+      message={<>{message}<FinalizeFindingsList findings={findings} days={days} timeBlocks={timeBlocks} /></>}
     />
   )
 }
@@ -704,6 +704,8 @@ export default function DraftRunView({
         refusal={finalizeRefusal}
         onRegenerate={regenerate}
         lockedAssignments={lockedAssignments}
+        days={days}
+        timeBlocks={timeBlocks}
       />
     ) : null,
   ]

@@ -210,6 +210,43 @@ export function bundleTierNotCoveredGroupMessage({ label, tierName, names = [] }
   return `${subject} — ${count} ${camperWord} kept their request as an ordinary choice.`
 }
 
+// C2 (board item 9b) — OUTER_RESOURCE_CONFLICT findings (findRouteConflicts,
+// src/engine/routeConflicts.js) carry no `.message`, only locationName/
+// dayId/blockId/capacity/occupants[].label. FinalizeFindingsList used to fall
+// through to the raw `.kind`, so a finalize refusal with three conflicts
+// printed "OUTER_RESOURCE_CONFLICT" three times. This names the location, the
+// day/period (resolved via the SAME both-ways `label ?? name` read
+// occurrenceLabel above already uses), and the colliding activities.
+//
+// Degrades by DROPPING DETAIL, never by printing a raw id — the day/period
+// clause is omitted entirely when it cannot be resolved, same posture as
+// occurrenceLabel/camperDisambiguator. Returns null for any other kind: this
+// function does not guess at a shape it does not own.
+export function conflictFindingMessage(finding, { days = [], timeBlocks = [] } = {}) {
+  if (finding?.kind !== 'OUTER_RESOURCE_CONFLICT') return null
+  const { locationName, dayId, blockId, capacity, occupants = [] } = finding
+  const day = days.find((d) => d.id === dayId)
+  const dayName = day?.label ?? day?.name ?? null
+  const blockName = timeBlocks.find((t) => t.id === blockId)?.name ?? null
+  const when = dayName && blockName ? `${dayName}, ${blockName}` : dayName || blockName || null
+  const names = occupants.map((o) => o.label).filter(Boolean)
+  const activities = names.length > 0 ? names.join(' and ') : `${occupants.length} activities`
+  const where = when ? `${locationName} on ${when}` : locationName
+  return `${where} is double-booked over its capacity of ${capacity}: ${activities} are scheduled there at once.`
+}
+
+// The director-facing message for ONE Finalize-refusal finding, whatever kind
+// it is. `.message` wins when the producer already supplied one; a known
+// shape (OUTER_RESOURCE_CONFLICT today) gets its own sentence; anything else
+// degrades to plain words — NEVER the raw kind code and never JSON.stringify
+// (which would print the kind field right back out), the same posture every
+// other degrade in this file takes.
+export function finalizeFindingMessage(finding, catalogs = {}) {
+  if (finding?.message) return finding.message
+  return conflictFindingMessage(finding, catalogs)
+    ?? 'A conflict was found, but its details could not be shown.'
+}
+
 const RANK_WORDS = ['a first choice', 'a second choice', 'a third choice']
 
 // Derived from the run's own assignment rows and nothing else. Deliberately

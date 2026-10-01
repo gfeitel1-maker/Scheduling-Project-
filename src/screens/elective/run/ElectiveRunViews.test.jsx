@@ -214,6 +214,31 @@ describe('T250 A1 — Finalize run', () => {
     expect(within(row.closest('[role="alert"]')).queryByRole('button')).toBeNull()
   })
 
+  // C2 — findRouteConflicts (src/engine/routeConflicts.js) findings carry NO
+  // `.message`, only locationName/dayId/blockId/capacity/occupants. The
+  // findings LIST used to fall through to the raw `.kind`, printing
+  // "OUTER_RESOURCE_CONFLICT" verbatim for every conflict. It must now name
+  // the location, the day/period, and the colliding activities instead.
+  it('a REAL (no-.message) OUTER_RESOURCE_CONFLICT finding names the location, day/period, and colliding activities — never the raw kind code', async () => {
+    localClient.finalizeElectiveRun.mockResolvedValue({
+      ok: false, error: 'OUTER_RESOURCE_CONFLICT',
+      findings: [{
+        kind: 'OUTER_RESOURCE_CONFLICT', locationId: 'loc-1', locationName: 'Boathouse',
+        dayId: 'day-1', blockId: 'tb-1', capacity: 1,
+        occupants: [{ groupId: 'g1', cohortId: null, label: 'Canoeing', sourceKind: 'activity', sourceId: 'act-1' },
+                    { groupId: 'g2', cohortId: null, label: 'Kayaking', sourceKind: 'activity', sourceId: 'act-2' }],
+      }],
+    })
+    render(<DraftRunView run={DRAFT_RUN} onFinalized={vi.fn()} {...catalogs()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Finalize run' }))
+    const row = await screen.findByTestId('run-state-finalize-refusal')
+    expect(row.textContent).toContain('Boathouse')
+    expect(row.textContent).toContain('Monday')
+    expect(row.textContent).toContain('Canoeing')
+    expect(row.textContent).toContain('Kayaking')
+    expect(row.textContent).not.toContain('OUTER_RESOURCE_CONFLICT')
+  })
+
   it('ALREADY_FINAL reloads and transitions to the finalized run', async () => {
     localClient.finalizeElectiveRun.mockResolvedValue({ ok: false, error: 'ALREADY_FINAL' })
     const onFinalized = vi.fn()

@@ -12,6 +12,7 @@ import { describe, it, expect } from 'vitest'
 import {
   occurrenceLabel, satisfactionSummary, camperDisambiguator, resolveCamperDisambiguators,
   groupBundleTierNotCoveredFindings, bundleTierNotCoveredGroupMessage,
+  conflictFindingMessage, finalizeFindingMessage,
 } from './runStateCopy.js'
 
 describe('occurrenceLabel', () => {
@@ -246,5 +247,60 @@ describe('bundleTierNotCoveredGroupMessage', () => {
   it('degrades truthfully when no tier resolved, naming no tier at all', () => {
     const message = bundleTierNotCoveredGroupMessage({ label: 'Ropes', tierName: null, names: ['Ari Green'] })
     expect(message).toBe('"Ropes" does not cover these campers’ division — 1 camper kept their request as an ordinary choice.')
+  })
+})
+
+// C2 (board item 9b) — findRouteConflicts (src/engine/routeConflicts.js)
+// OUTER_RESOURCE_CONFLICT findings carry NO `.message`, only
+// locationName/dayId/blockId/capacity/occupants[].label. FinalizeFindingsList
+// used to fall through to the raw `.kind`, printing "OUTER_RESOURCE_CONFLICT"
+// verbatim for every conflict.
+describe('conflictFindingMessage', () => {
+  const days = [{ id: 'day-1', label: 'Monday' }]
+  const timeBlocks = [{ id: 'tb-1', name: 'First Period' }]
+
+  it('names the location, the day/period, and the colliding activities', () => {
+    const finding = {
+      kind: 'OUTER_RESOURCE_CONFLICT', locationName: 'Boathouse', dayId: 'day-1', blockId: 'tb-1', capacity: 1,
+      occupants: [{ label: 'Canoeing' }, { label: 'Kayaking' }],
+    }
+    const message = conflictFindingMessage(finding, { days, timeBlocks })
+    expect(message).toContain('Boathouse')
+    expect(message).toContain('Monday')
+    expect(message).toContain('First Period')
+    expect(message).toContain('Canoeing')
+    expect(message).toContain('Kayaking')
+    expect(message).not.toContain('OUTER_RESOURCE_CONFLICT')
+  })
+
+  it('returns null for any other kind, never guessing at a shape it does not own', () => {
+    expect(conflictFindingMessage({ kind: 'SOMETHING_ELSE' }, { days, timeBlocks })).toBeNull()
+  })
+
+  it('degrades by dropping the day/period detail when the occurrence catalogs do not resolve it, never printing a raw id', () => {
+    const finding = { kind: 'OUTER_RESOURCE_CONFLICT', locationName: 'Boathouse', dayId: 'ghost-day', blockId: 'ghost-tb', capacity: 1, occupants: [{ label: 'Canoeing' }] }
+    const message = conflictFindingMessage(finding, { days: [], timeBlocks: [] })
+    expect(message).toContain('Boathouse')
+    expect(message).not.toContain('ghost-day')
+    expect(message).not.toContain('ghost-tb')
+  })
+})
+
+describe('finalizeFindingMessage', () => {
+  it('renders a finding carrying its own .message verbatim, untouched', () => {
+    expect(finalizeFindingMessage({ kind: 'ANYTHING', message: 'Custom text' }, {})).toBe('Custom text')
+  })
+
+  it('resolves a real OUTER_RESOURCE_CONFLICT finding via conflictFindingMessage', () => {
+    const finding = { kind: 'OUTER_RESOURCE_CONFLICT', locationName: 'Boathouse', dayId: 'day-1', blockId: 'tb-1', capacity: 1, occupants: [{ label: 'Canoeing' }] }
+    const message = finalizeFindingMessage(finding, { days: [{ id: 'day-1', label: 'Monday' }], timeBlocks: [{ id: 'tb-1', name: 'First Period' }] })
+    expect(message).toContain('Boathouse')
+    expect(message).not.toContain('OUTER_RESOURCE_CONFLICT')
+  })
+
+  it('degrades an unrecognised kind with no .message to a plain-words sentence — never the raw kind code, never JSON', () => {
+    const message = finalizeFindingMessage({ kind: 'SOME_FUTURE_KIND_XYZ', somethingWeird: 1 }, {})
+    expect(message).not.toContain('SOME_FUTURE_KIND_XYZ')
+    expect(message).not.toMatch(/^\{/)
   })
 })
