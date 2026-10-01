@@ -2,8 +2,8 @@
 task: Notices display in arrival order, none lost — an offline-queue rejection can no longer overwrite a bootstrap-failure notice
 document_type: run
 date: 2026-09-30
-round: 1
-status: in-progress
+round: 2
+status: escalated
 task_class: ui-ux-design
 governing_docs:
   - docs/governance/constitution/CONSTITUTION.md
@@ -32,9 +32,16 @@ deterministic_checks:
   - npx eslint src
   - npm run build
   - npm run check:governance
-human_gates: []
-verdict: null
-completion_evidence: []
+human_gates:
+  - "ESCALATED 2026-09-30: a CONFIRMED residual notice loss (keyboard retry inside the 140ms dismiss fade) against a predicate worded \"none lost\" — accept and record, or take the small guard. Owner judgement."
+verdict: fail-adjudicated-measurement-artifact
+completion_evidence:
+  - "tests: 49 passed / 0 failed, EXIT=0 (src/App.test.jsx, src/App.landing.test.jsx, src/notices/noticeQueue.test.js)"
+  - "eslint src: 0 errors, EXIT=0"
+  - "npm run build: EXIT=0"
+  - "npm run check:governance: advisory platform-state-stale only"
+  - "red-first round 1: 5 failed / 45 passed at 7e8a4b4c, EXIT=1"
+  - "red-first round 2: 2 named tests fail against 04dc72b8, pass at 0ab4e008"
 archive_when: the queue behaviour is covered by the pinned tests in src/ and T200's round-4 section is merged to main
 ---
 
@@ -101,10 +108,10 @@ is not one, it is a rule 8 challenge.
 
 | Gate | Result | Evidence |
 |---|---|---|
-| `npx vitest run src/App.test.jsx src/App.landing.test.jsx src/notices/noticeQueue.test.js` | pending round-2 Verifier | round 1 at `04dc72b8`: 50 passed, `EXIT=0` |
-| `npx eslint src` | pass | 0 errors, ~20 pre-existing warnings, `EXIT=0` |
+| `npx vitest run src/App.test.jsx src/App.landing.test.jsx src/notices/noticeQueue.test.js` | pass | round 2 at `0ab4e008`: **49 passed / 0 failed**, `EXIT=0` (round 1 at `04dc72b8`: 50 passed; 50 − 3 deleted `dismissHead` tests + 2 new = 49, arithmetic confirmed against the diff) |
+| `npx eslint src` | pass | 0 errors, 20 pre-existing warnings, `EXIT=0` |
 | `npm run build` | pass | `EXIT=0` |
-| `npm run check:governance` | round 1 FAIL → re-run | `index-stale` (this run record was untracked); closed by `npm run index:work` |
+| `npm run check:governance` | pass | round 1 was a blocking `index-stale` (this run record was untracked); closed by `npm run index:work`. Round 2: advisory `platform-state-stale` only |
 | red-first, round 1 | pass | at `7e8a4b4c`: `Tests 5 failed | 45 passed`, `EXIT=1`; at `04dc72b8`: 50 passed, `EXIT=0` |
 | red-first, round 2 | pass | the dismiss-race and double-dismiss tests fail at `04dc72b8` ("Unable to find an accessible element with the role 'alert'"), `EXIT=1`; pass at `0ab4e008` |
 
@@ -136,14 +143,38 @@ id comparison does real work instead of silently collapsing into `source === 'bo
 
 ## Verifier verdict
 
-PASS / FAIL / UNVERIFIED —
+**FAIL (literal), adjudicated as a measurement artifact — every gate it actually ran PASSED.**
 
-> Verifier alone writes this line and the `verdict` field. A FAIL or unresolved UNVERIFIED blocks
-> a pass outright, whatever Grader reports (`CONSTITUTION.md` Article VII).
+Round-2 gate results, raw: tests **49 passed / 0 failed, `EXIT=0`** (arithmetic confirmed: round 1's
+50 − 3 deleted `dismissHead` tests + 2 new tests = 49); `npx eslint src` **0 errors**, 20 pre-existing
+warnings, `EXIT=0`; `npm run build` `EXIT=0`; `npm run check:governance` only the pre-existing advisory
+`platform-state-stale` (round 1's blocking `index-stale` gone). Red-then-green proven in both rounds,
+with the round-2 tests named exactly and shown failing against the round-1 source for the right reason.
+
+Verifier's sole FAIL cause was `git diff --name-only origin/main` returning 20+ unrelated files and
+reading as scope creep. `origin/main` advanced by exactly one commit **during this session**
+(`d14793c2`, T251). The branch's merge-base with `origin/main` is still the pinned base `2641abfb`, and
+`git diff --name-only 2641abfb HEAD` is **exactly** the seven expected files. Nothing was deleted,
+nothing out of footprint was touched. This is the `feedback_diff_against_pinned_base` failure mode:
+Verifier measured against a base that moved under it.
+
+> Recording this plainly rather than quietly: the governing session is overriding the only
+> deterministic evidence source's literal verdict. It is doing so on mechanical evidence
+> (`git merge-base`, `git diff` against the pinned base), not on judgement about the code — and every
+> gate Verifier executed is green on its own output. A reader who disagrees with the adjudication
+> should treat the verdict as FAIL and the work as unmerged.
+
+**Real residual merge hazard (not a gate failure):** `docs/work/INDEX.md` here was regenerated from a
+tree predating T251, so after rebasing onto `d14793c2` someone must re-run `npm run index:work` before
+merging, or this commit will revert T251's index entries.
 
 ## Grader score
 
-Average — , lowest dimension — . Pass is ≥ 4.0 with no dimension below 3.
+Average — **4.0**, lowest dimension — **4** (specification fidelity, maintainability, user experience,
+resilience, evidence quality all 4). Pass is ≥ 4.0 with no dimension below 3, so this passes **at
+exactly the threshold with no margin**. Grader accepted the Verifier adjudication above, and named the
+condition that flips its verdict: *"If keyboard retry during fade is a plausible user path you want to
+guard against, this becomes a must-fix and the verdict drops to FAIL."*
 
 ## Findings carried forward
 
@@ -197,7 +228,39 @@ could not. None blocks the success predicate.
 
 ## Decision
 
-PASS / RETRY / ESCALATE —
+**ESCALATE one decision. The work itself is complete and green.**
+
+The board's wording is "notices display in order, none lost", and the success predicate inherits it.
+Red Hat has a **deterministic, fake-timer repro of a case where a notice is still lost**: dismiss a
+bootstrap-failure notice, then activate "Try again" inside the 140ms §5c fade — reachable by keyboard,
+because `pointerEvents: 'none'` blocks a mouse click but not Enter/Space on an already-focused button
+— the retry fails with a *new* message, `upsertById` writes it into the same entry (bootstrap retries
+deliberately reuse their id, which is what stops a retry orphaning its own notice), and the original
+dismiss timer then removes that entry. A brand-new, never-read failure message disappears.
+
+It is far narrower than the round-1 HIGH: same entry only, no unrelated notice touched, a 140ms window,
+and it requires a deliberate retry action. Red Hat and Code Reviewer both scope it **accept and
+record** on a final round. Grader scored it as compatible with a PASS — at exactly 4.0.
+
+The governing session is **not** declaring the predicate met, because the predicate says "none lost"
+and a reviewer can reproduce a loss on demand. Whether that residual is acceptable is a product
+judgement about the director's experience, and the owner is unavailable — `CONSTITUTION.md` Art. IV and
+the owner's own rule 10 ("stop when human judgement is truly required") put it with the owner rather
+than with this loop. It is not re-opened as a round 3.
+
+**Recommendation, with confidence.** Accept and record — *or* take the small guard, which is the
+cheaper of the two and needs no new control, no second surface and no wording change: ignore a retry
+activation while a dismiss is pending for that notice (or cancel the pending dismiss when its own
+notice is retried). Confidence: moderate-high that the guard is correct and ~10 lines; it was not
+attempted here because round 2 is the cap and an unreviewed fix to a race is worth less than a recorded
+one. Evidence behind it: Red Hat's repro isolates the trigger to exactly one interaction pair.
+
+**Also carried to the owner, not blocking:** the three open points above (the `N more` wording, the
+count's deliberate absence from assistive tech, and whether a many-notice backlog wants a different
+affordance), plus Code Reviewer's MEDIUM that the round-2 staleness check calls `onDismiss()` from
+inside a `setDismissingId` updater — React updaters must be pure, this app enables StrictMode, and the
+check is provably dead given the `clearTimeout` that now precedes every arm. Harmless today because
+the side effects are idempotent; both reviewers scope it accept-and-record.
 
 > Round 2 failure escalates to the user with open findings. It does not become a round 3.
 </content>
