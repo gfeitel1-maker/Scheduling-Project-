@@ -22,8 +22,14 @@
 //     main.js's own startup condition and getSyncStatus are written to treat as healthy rather than
 //     broken.
 // The write itself still succeeds: the row lands in local SQLite and the op log exactly as before,
-// and NOTHING replicates — no error, no warning, no degraded-mode notice anywhere. A device started
-// with SHORESH_SYNC_ENGINE=oplog is a silent single-device island until the variable is unset and
+// and NOTHING replicates. On a HOST device this is silent — getSyncStatus's host branch explicitly
+// treats isAutomergeEngine()===false as healthy (`mode: 'host', connected: true`), so there is no
+// error, warning, or degraded-mode notice there. On a JOINED (client) device there is no equivalent
+// check: syncStarter.js never starts a node, so getSyncStatus's client branch sees no peers and
+// reports state 'client-disconnected' — a real, visible badge in the sidebar, but one that reads as
+// an ordinary connectivity failure rather than "this device chose the op-log engine on purpose". A
+// device started with SHORESH_SYNC_ENGINE=oplog is a silent single-device island on the host side,
+// and a permanently-disconnected-looking one on the client side, until the variable is unset and
 // the app restarted, because the value is read once at import. The one legitimate remaining use is
 // as a measurement arm that isolates the dual-write cost (scripts/electiveFreezePerf.mjs imports
 // SYNC_ENGINE for exactly that, and main.js reports the resolved engine to the renderer). Removing
