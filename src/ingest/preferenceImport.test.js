@@ -50,3 +50,23 @@ describe('buildPreferenceCatalog — bundle names are part of the catalogue', ()
     expect(buildPreferenceCatalog({ activities: [{ name: 'Swim' }] }).activities).toEqual(['Swim'])
   })
 })
+
+// Board item i-declared-camper-dropped-when-all-choices-outside-catalog — the
+// roster joins the catalogue so a preference sheet's row can be matched by
+// NAME against a camper who already exists, not just by external id.
+describe('buildPreferenceCatalog — the roster is part of the catalogue', () => {
+  it('maps campers to {id, display_name}, dropping anything missing either field', () => {
+    const catalog = buildPreferenceCatalog({
+      campers: [
+        { id: 'cam-1', display_name: 'Ari Green', external_id: null },
+        { id: 'cam-2' },
+        { display_name: 'No Id' },
+      ],
+    })
+    expect(catalog.campers).toEqual([{ id: 'cam-1', display_name: 'Ari Green' }])
+  })
+
+  it('defaults to an empty roster, the pre-existing behaviour for every caller that does not pass one', () => {
+    expect(buildPreferenceCatalog({ activities: ['Swim'] }).campers).toEqual([])
+  })
+})

@@ -413,7 +413,7 @@ export default function AssignmentPanel({
       // — the hazard the note at confirmMapping's own call names ("a second call
       // shape is a second T224, because the arguments are where the behaviour
       // lives").
-      const catalog = buildPreferenceCatalog({ activities, groups, tiers, bundles: catalogBundleNames })
+      const catalog = buildPreferenceCatalog({ activities, groups, tiers, bundles: catalogBundleNames, campers })
       const selection = selectPreferenceSheet({ sheets: fileSheets, catalog })
       // Nothing readable on any tab still LANDS as a read that found nothing rather than a
       // refusal (ADR §14.1) — `confirmMapping` reports what could not be resolved. Falling
@@ -617,7 +617,7 @@ export default function AssignmentPanel({
     // product. ADR section 3.2: a second call shape is a second T224, because the
     // arguments are where the behaviour lives.
     const catalog = buildPreferenceCatalog({
-      activities: [...activities, ...extraActivities], groups, tiers, bundles: catalogBundleNames,
+      activities: [...activities, ...extraActivities], groups, tiers, bundles: catalogBundleNames, campers,
     })
     let result
     try {
@@ -1298,6 +1298,19 @@ export default function AssignmentPanel({
         ) : candidateTemplateIds.length > 1 && !templateId ? (
           <div>
             <div style={S.label}>This set is placed on more than one schedule — choose which to assign against:</div>
+            {/* Board item i-declared-camper-dropped-when-all-choices-outside-catalog —
+                this route lets a director solve without ever opening ParseSummary, so
+                the finding has to be repeated here, additive to the route list below. */}
+            {(() => {
+              const noChoiceNames = (parsed.residue ?? [])
+                .filter((r) => r.kind === 'NO_RECOGNISABLE_CHOICE')
+                .map((r) => r.head)
+              return noChoiceNames.length > 0 ? (
+                <div style={S.findingsRailRow('var(--border)')}>
+                  {noChoiceNames.length} camper(s) had no recognisable choice: {noChoiceNames.join(', ')}
+                </div>
+              ) : null
+            })()}
             {candidateTemplateIds.map((id) => {
               const t = scheduleTemplates?.find((st) => st.id === id)
               const week = scheduleWeeks?.find((w) => w.id === t?.week_id)

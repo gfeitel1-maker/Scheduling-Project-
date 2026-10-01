@@ -113,7 +113,7 @@ export function submissionKeyFromRows(rows = []) {
  * bundle named after its own activity (the acceptance fixture's 'Ropes'), and the
  * catalogue is evidence about how many distinct labels a camp has.
  */
-export function buildPreferenceCatalog({ activities = [], groups = [], tiers = [], bundles = [] } = {}) {
+export function buildPreferenceCatalog({ activities = [], groups = [], tiers = [], bundles = [], campers = [] } = {}) {
   const name = (x) => (typeof x === 'string' ? x : x?.name)
   return {
     activities: [
@@ -121,6 +121,7 @@ export function buildPreferenceCatalog({ activities = [], groups = [], tiers = [
     ],
     groups: groups.filter((g) => g?.id && g?.name).map((g) => ({ id: g.id, name: g.name })),
     tiers: tiers.filter((t) => t?.id && t?.name).map((t) => ({ id: t.id, name: t.name })),
+    campers: campers.filter((c) => c?.id && c?.display_name).map((c) => ({ id: c.id, display_name: c.display_name })),
   }
 }
 

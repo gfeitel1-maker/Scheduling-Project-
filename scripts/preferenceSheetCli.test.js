@@ -15,6 +15,7 @@ import { randomUUID } from 'node:crypto'
 
 import { openLocalDb } from '../electron/db/localDb.js'
 import { runPreferenceSheetCli } from './preferenceSheetCli.js'
+import { deriveCamperId } from '../electron/ops/electiveDerivedIds.js'
 
 const SAMPLES = path.join(process.cwd(), 'docs/work/specs/samples')
 const SHEET = path.join(SAMPLES, 'fabricated-camper-preferences-100.csv')
@@ -439,6 +440,61 @@ describe('runPreferenceSheetCli', () => {
     expect(runPreferenceSheetCli({ file: SHEET, dbPath: noDevice.dbPath, action: 'preview' }).ok).toBe(true)
     expect(runPreferenceSheetCli({ file: SHEET, dbPath: noDevice.dbPath, action: 'commit' }).error)
       .toMatch(/no device/)
+  })
+
+  // Board item i-declared-camper-dropped-when-all-choices-outside-catalog. The
+  // CLI reads its own camp's roster into the catalog (same change as
+  // AssignmentPanel's own door), so a sheet row naming an EXISTING camper whose
+  // choices are all outside a PARTIAL catalog is DECLARED and imported with no
+  // preferences, named in residue — not silently dropped as junk.
+  //
+  // The roster match decides keep-vs-skip ONLY; the row's camper id is derived
+  // from the row itself (name-mode, since the sheet carries no id), NEVER
+  // substituted from the roster camper's stored id. Here the roster camper was
+  // itself created name-mode (the ordinary re-import case), so the row's own
+  // derivation CONVERGES onto it by id-equality — no second row, no clobber —
+  // which is how convergence is supposed to work, rather than by reaching into
+  // the roster for an id (which would re-key a different same-named child onto
+  // this camper, and null its external id on commit).
+  it('imports a roster camper with no preferences, and names them in residue, when their sheet choices are all outside a partial catalog', () => {
+    const dir = makeTmpDir()
+    dirs.push(dir)
+    const { dbPath, campId } = bootstrapDb(dir)
+    const seed = openLocalDb(dbPath)
+    // Partial catalog — the camp has Archery, not Robotics/Soccer.
+    seed.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run(randomUUID(), campId, 'Archery')
+    const camperId = deriveCamperId(campId, { displayName: 'Ari Green' })
+    seed.prepare('INSERT INTO campers (id, camp_id, display_name) VALUES (?, ?, ?)')
+      .run(camperId, campId, 'Ari Green')
+    seed.close()
+    const before = counts(dbPath)
+
+    const file = path.join(dir, 'prefs.csv')
+    fs.writeFileSync(file, 'Camper Name,Division,#1,#2\nAri Green,Arad,Robotics,Soccer\n')
+
+    const preview = runPreferenceSheetCli({ file, dbPath, action: 'preview' })
+    expect(preview.ok).toBe(true)
+    expect(preview.blocked).toBeNull()
+    expect(preview.counts.campers).toBe(1)
+    expect(preview.counts.preferences).toBe(0)
+    const finding = preview.residue.filter((r) => r.kind === 'NO_RECOGNISABLE_CHOICE')
+    expect(finding).toHaveLength(1)
+    expect(finding[0].head).toContain('Ari Green')
+
+    const commit = runPreferenceSheetCli({ file, dbPath, action: 'commit' })
+    expect(commit.ok).toBe(true)
+    const after = counts(dbPath)
+    // The EXISTING roster camper — no second row minted.
+    expect(after.campers).toBe(before.campers)
+    expect(after.preferences).toBe(before.preferences)
+
+    const db = openLocalDb(dbPath)
+    try {
+      const camper = db.prepare('SELECT id FROM campers WHERE display_name = ?').get('Ari Green')
+      expect(camper.id).toBe(camperId)
+    } finally {
+      db.close()
+    }
   })
 })
 
