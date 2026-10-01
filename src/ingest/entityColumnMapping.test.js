@@ -17,6 +17,12 @@ import { exportWorkbook, SHEET_LAYOUT, LOCATIONS_SHEET } from '../utils/exportWo
 // vocabulary up by one name.
 const S4A_ENTITIES = new Set(SHEET_LAYOUT.map((l) => l.entity))
 
+describe('ENTITY_FIELD_CATALOGS — fixed_events sheet name (SLICE B2 naming constraint)', () => {
+  it('names its sheet "Fixed Events", not "Anchors" — the catalogue never introduces anchor vocabulary', () => {
+    expect(ENTITY_FIELD_CATALOGS.fixed_events.sheet).toBe('Fixed Events')
+  })
+})
+
 describe('ENTITY_FIELD_CATALOGS — per-entity synonym disjointness (authoring gate, ADR §4.2)', () => {
   for (const [entity, catalog] of Object.entries(ENTITY_FIELD_CATALOGS)) {
     it(`${entity}: no two fields share a folded synonym`, () => {
@@ -227,6 +233,33 @@ describe('module-level round trip (ADR §5, at the binder level)', () => {
     expect(mapping.unmapped).toEqual([])
     const out = applyEntityMapping(rows, mapping, catalog)
     expect(out[0].part_of_day).toBe('morning')
+  })
+
+  // SLICE B2 (board q-export-columns-do-not-round-trip): fixed_events gets its own "Fixed
+  // Events" export sheet (src/utils/exportWorkbook.js SHEET_LAYOUT, `screenImportOnly: true` —
+  // re-imported through AnchorsScreen's own door, never the whole-workbook S4b path). At the
+  // binder level this is the same contract every other entity gets: the sheet binds every
+  // required field with unmapped === [].
+  it('fixed_events: exportWorkbook\'s "Fixed Events" sheet binds every required field by NATURAL KEY (day/time block names, not ids)', () => {
+    const wb = exportWorkbook({
+      days_of_operation: [{ id: 'd1', label: 'Monday', day_of_week: 1 }],
+      time_blocks: [{ id: 'tb1', name: 'First Period', start_time: '09:00', end_time: '10:00' }],
+      tiers: [{ id: 't1', name: 'Juniors' }],
+      fixed_events: [{ id: 'fe1', name: 'Mifkad', day_id: 'd1', time_block_id: 'tb1', is_all_groups: 0, unit_ids: JSON.stringify(['t1']) }],
+      camp_id: 'camp1',
+    })
+    const bytes = XLSX.write(wb, { type: 'array', bookType: 'xlsx' })
+    const { sheet, rows } = readEntitySheet(bytes, { type: 'array', sheetName: 'Fixed Events', requiredColumns: [] })
+    expect(sheet).toBe('Fixed Events')
+    const header = Object.keys(rows[0])
+    const catalog = ENTITY_FIELD_CATALOGS.fixed_events
+    const mapping = inferEntityMapping(header, catalog)
+    expect(mapping.unmapped).toEqual([])
+    const out = applyEntityMapping(rows, mapping, catalog)
+    expect(out[0].name).toBe('Mifkad')
+    expect(out[0].day_label).toBe('Monday')
+    expect(out[0].time_block_name).toBe('First Period')
+    expect(out[0].tier_names).toBe('Juniors')
   })
 
   it('groups: exportWorkbook -> bytes -> readEntitySheet -> inferEntityMapping -> applyEntityMapping carries the FK-resolved name by NATURAL KEY', () => {

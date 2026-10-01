@@ -89,7 +89,7 @@ export const ENTITY_FIELD_CATALOGS = {
     ],
   },
   fixed_events: {
-    sheet: 'Anchors',
+    sheet: 'Fixed Events',
     fields: [
       { key: 'name', required: true, synonyms: ['name'] },
       { key: 'day_label', required: true, synonyms: ['day_label', 'day'] },

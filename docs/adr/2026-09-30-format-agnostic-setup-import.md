@@ -542,3 +542,64 @@ so B2 does not need a further amendment to proceed.
 semantics (baseline diffing, staleness gate, hidden metadata sheet), `buildCampDataWorkbook.js`, or
 any entity `exportWorkbook.js` did not already cover. This amendment widens what `exportWorkbook.js`
 exports; it does not change how S4b consumes it.
+
+## Amendment (2026-10-01) — slice B2: a "Fixed Events" sheet, decoupled from the S4b path
+
+Board item `q-export-columns-do-not-round-trip`, slice B2 — the item slice B1 deferred above
+("a new Anchors sheet for `fixed_events`"). §11/§12's freeze of `exportWorkbook.js` remains lifted
+(per the B1 amendment above); this slice does not need a further lift.
+
+**OWNER NAMING CONSTRAINT (hard):** the sheet is named **"Fixed Events"**, never "Anchors", and
+every director-facing header/copy/finding on this seam uses event vocabulary. No new surface
+introduces the word "anchor". Internal identifiers (the `fixed_events` table/columns, the
+`AnchorsScreen.jsx` filename) are unchanged so the eventual T293 rename sweep still finds one
+vocabulary to fix, not two. `src/ingest/entityColumnMapping.js`'s `fixed_events` catalogue entry,
+which slice A spelled `sheet: 'Anchors'`, is renamed to `sheet: 'Fixed Events'` by this slice —
+matching `buildCampDataWorkbook.js`'s own read-only "Fixed Events" sheet, which already used event
+vocabulary and was the precedent for this name.
+
+**Why this needed its own decision, not just "add the sheet": the S4b boundary.**
+`workbookToSource.js` (S4b, the whole-workbook enrichment re-import) iterates `SHEET_LAYOUT` and
+feeds every entity it finds to `commitPlan`/`commitIngest` (`electron/ops/ingest.js`). Those
+committers have **no `fixed_events` committer** — adding a populated "Fixed Events" sheet to
+`SHEET_LAYOUT` without a guard would mean the S4b path either silently drops the rows (if nothing
+reads `approved.fixed_events`) or, worse, a future `commitPlan` change notices the key and someone
+adds a committer for it without realizing `fixed_events`' CHECK constraint (`kind = 'fixed'` XOR
+`kind = 'recurring'` with specific column shapes, `electron/db/schema.sql`) and day-fan-out
+semantics (one row per selected day, see `AnchorsScreen.jsx`'s `saveAnchor`) were never designed for
+a generic per-row `createRecord` commit loop the way the other six entities are.
+
+**The fix:** a new `screenImportOnly: true` flag on the `fixed_events` `SHEET_LAYOUT` entry.
+`workbookToSource.js` skips any entry carrying it before building `approved[entity]`, so
+`approved.fixed_events` is **never emitted**, regardless of what the uploaded workbook's "Fixed
+Events" sheet contains. The entity is re-imported exclusively through `AnchorsScreen.jsx`'s own
+existing `onFileChange`/`confirmImport` door (the same door `readEntitySheet`'s sheet-name/
+required-columns fallback already served pre-B2), which has always applied the kind-derivation
+and per-day fan-out logic the S4b committers do not have.
+
+**What changed:**
+
+- `src/utils/exportWorkbook.js` — `SHEET_LAYOUT` gains a `fixed_events` entry, sheet `'Fixed
+  Events'`, `screenImportOnly: true`, columns `name`, `day_label` (FK name from `day_id`),
+  `time_block_name` (FK name from `time_block_id`), `is_all_tiers` (boolean `is_all_groups`
+  rendered `'TRUE'`/`'FALSE'`, matching `AnchorsScreen.jsx`'s own `.toUpperCase() === 'TRUE'`
+  parse), `tier_names` (id-list `unit_ids` resolved to division names), `notes`. `exportWorkbook`'s
+  signature and `downloadWorksheet.js`'s caller both thread `fixed_events` through alongside the
+  six `INGESTIBLE_ENTITIES`. `PLAN_VERSION` bumped 2 → 3 (metadata only, per the file's own stated
+  contract; nothing on re-import reads it).
+- `src/ingest/workbookToSource.js` — skips any `screenImportOnly` `SHEET_LAYOUT` entry; the
+  whole-workbook S4b re-import path is otherwise byte-for-byte unchanged (same 6 entities as
+  before this slice, same security allowlist, same baseline diff).
+- `src/ingest/entityColumnMapping.js` — `fixed_events.sheet` renamed `'Anchors'` → `'Fixed
+  Events'` (field synonyms are unchanged; none carried the word "anchor").
+- `src/screens/AnchorsScreen.jsx` — `downloadTemplate` writes the sheet as `'Fixed Events'`;
+  `onFileChange` reads it by `sheetName: 'Fixed Events'`. A legacy file whose tab is still named
+  `'Anchors'` is unaffected: `readEntitySheet`'s existing required-columns fallback
+  (`['name', 'day_label']`) finds it exactly as it would any other third-party sheet name — no
+  second accepted name needed, since "we read their data, we don't choose the format" already
+  covers this case structurally.
+
+**Out of scope, unchanged:** `commitPlan`/`commitIngest` gain no `fixed_events` committer — a
+whole-workbook `fixed_events` re-import (bypassing `AnchorsScreen.jsx` entirely) remains a future
+decision, not this slice's. `buildCampDataWorkbook.js` is untouched (it already named this sheet
+"Fixed Events" and was the naming precedent this slice matched, not changed).

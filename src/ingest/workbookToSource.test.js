@@ -122,7 +122,9 @@ describe('workbookToSource — security allowlist (Security F1)', () => {
     const evil = XLSX.utils.aoa_to_sheet([[ID_COLUMN, 'name'], ['x', 'DROP TABLE']])
     XLSX.utils.book_append_sheet(wb, evil, 'activities); DROP TABLE')
     const src = workbookToSource(reread(wb), { camp_id: 'camp-1' })
-    // Only the known entity keys exist; the crafted sheet reached no entity.
+    // Only the known entity keys exist; the crafted sheet reached no entity. fixed_events is
+    // `screenImportOnly` (SLICE B2) and is never emitted here even though its "Fixed Events"
+    // sheet IS in the workbook — see the decoupling describe block below.
     expect(Object.keys(src.approved).sort()).toEqual(
       ['activities', 'cohorts', 'days_of_operation', 'groups', 'tiers', 'time_blocks'].sort()
     )
@@ -150,6 +152,21 @@ describe('workbookToSource — security allowlist (Security F1)', () => {
     const swim = src.approved.activities.find((r) => r.id === 'act-1')
     expect('Status' in swim.fields).toBe(false)
     expect('shoresh_id' in swim.fields).toBe(false)
+  })
+})
+
+describe('workbookToSource — fixed_events (Fixed Events) is decoupled from the S4b path (SLICE B2)', () => {
+  it('a workbook WITH a populated Fixed Events sheet never produces approved.fixed_events', () => {
+    const wb = exportWorkbook(fixture({
+      days_of_operation: [{ id: 'd1', label: 'Monday', day_of_week: 1 }],
+      time_blocks: [{ id: 'tb1', name: 'First Period', start_time: '09:00', end_time: '10:00' }],
+      fixed_events: [{ id: 'fe-1', name: 'Mifkad', day_id: 'd1', time_block_id: 'tb1', is_all_groups: 1, unit_ids: '[]' }],
+    }))
+    // The sheet really is there, populated — this is a decoupling guarantee, not an empty-input no-op.
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets['Fixed Events'], { defval: '' })
+    expect(rows.length).toBe(1)
+    const src = workbookToSource(reread(wb), { camp_id: 'camp-1' })
+    expect(src.approved.fixed_events).toBeUndefined()
   })
 })
 
