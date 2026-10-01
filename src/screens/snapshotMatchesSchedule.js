@@ -25,8 +25,8 @@ import { parseSnapshotPayload } from './snapshotRestore'
 function slotKey(s) {
   return [
     s.group_id, s.day_id, s.time_block_id,
-    s.activity_id ?? '', s.anchor_id ?? '',
-    s.is_anchor ? '1' : '0',
+    s.activity_id ?? '', s.fixed_event_id ?? '',
+    s.is_fixed_event ? '1' : '0',
   ].join('|')
 }
 

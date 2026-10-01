@@ -398,7 +398,7 @@ export function scheduleStateTool(args, { dbPath, dbKey }) {
     // come back falsely clean (docs/work/tickets/T193-overlay-reconstruction-
     // and-route-validator.md).
     const activityPreplaced = slots
-      .filter((s) => s.activity_id && !s.is_anchor)
+      .filter((s) => s.activity_id && !s.is_fixed_event)
       .map((s) => ({ groupId: s.group_id, dayId: s.day_id, blockId: s.time_block_id, activityId: s.activity_id }))
     const electivePreplaced = slots
       .filter((s) => s.elective_set_id)
@@ -456,7 +456,7 @@ export function exportScheduleTool(args, { dbPath, dbKey }) {
     const out = buildScheduleExport({
       slots,
       activities: listEntities(db, 'activities'),
-      anchors: listEntities(db, 'fixed_events'),
+      fixedEvents: listEntities(db, 'fixed_events'),
       groups: listEntities(db, 'groups'),
       days: listEntities(db, 'days_of_operation'),
       timeBlocks: listEntities(db, 'time_blocks'),

@@ -145,7 +145,7 @@ export function dayNameFromTitle(title) {
 export function activityNamesFromCell(cell, canonicalMap, compoundCellDecisions) {
   const decision = compoundCellDecisions?.get(String(cell ?? '').trim())
   if (decision?.interpretation === 'wrapper') {
-    return [canonicalizeActivityName(decision.anchor_name, canonicalMap)]
+    return [canonicalizeActivityName(decision.base_name, canonicalMap)]
   }
   const names = []
   for (const part of cleanCellValue(cell).split(/\s+[-–—]\s+/)) {

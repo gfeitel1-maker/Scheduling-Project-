@@ -52,7 +52,7 @@ describe('PROJECTIONS registry', () => {
       'session_week_start',
       'session_week_end',
       'capacity_source',
-      'anchor_model',
+      'fixed_event_model',
       'sort_order',
     ])
     expect(typeof PROJECTIONS.cohorts.ensureExists).toBe('function')

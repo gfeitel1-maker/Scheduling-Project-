@@ -573,7 +573,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
             camp_id: camp.id,
             pattern: decision.pattern,
             interpretation: decision.interpretation,
-            anchor_name: decision.anchor_name ?? null,
+            base_name: decision.base_name ?? null,
             wrapper_name: decision.wrapper_name ?? null,
             confirmed_by: session.userId,
           })
@@ -796,7 +796,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // T118 slice 4 — read-only, same 'groups.import' gate as ingestCommit (this
   // is only ever read from the ImportScreen at parse time, by the same
   // director who is about to run an import). IPC can't carry a Map, so this
-  // returns plain [pattern, { interpretation, anchor_name, wrapper_name }]
+  // returns plain [pattern, { interpretation, base_name, wrapper_name }]
   // entries; localClient.js re-wraps them into a Map for extractEntities.
   function listCompoundCellDecisionsHandler({ token } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')

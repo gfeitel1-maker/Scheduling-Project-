@@ -12,26 +12,26 @@ export function getSlot(slots, groupId, dayId, blockId) {
 }
 
 // Returns true if this slot is a tail block of a multi-block anchor
-// (i.e., the previous block for this group+day has the same anchor_id)
+// (i.e., the previous block for this group+day has the same fixed_event_id)
 export function isAnchorTail(slots, timeBlocks, groupId, dayId, blockId) {
   const slot = getSlot(slots, groupId, dayId, blockId)
-  if (!slot?.is_anchor || !slot?.anchor_id) return false
+  if (!slot?.is_fixed_event || !slot?.fixed_event_id) return false
   const blockIdx = timeBlocks.findIndex(b => b.id === blockId)
   if (blockIdx <= 0) return false
   const prevSlot = getSlot(slots, groupId, dayId, timeBlocks[blockIdx - 1].id)
-  return Boolean(prevSlot?.is_anchor && prevSlot?.anchor_id === slot.anchor_id)
+  return Boolean(prevSlot?.is_fixed_event && prevSlot?.fixed_event_id === slot.fixed_event_id)
 }
 
-// Returns how many consecutive blocks share the same anchor_id starting at blockId
+// Returns how many consecutive blocks share the same fixed_event_id starting at blockId
 export function getAnchorRowSpan(slots, timeBlocks, groupId, dayId, blockId) {
   const slot = getSlot(slots, groupId, dayId, blockId)
-  if (!slot?.is_anchor || !slot?.anchor_id) return 1
+  if (!slot?.is_fixed_event || !slot?.fixed_event_id) return 1
   const startIdx = timeBlocks.findIndex(b => b.id === blockId)
   if (startIdx === -1) return 1
   let span = 1
   for (let i = startIdx + 1; i < timeBlocks.length; i++) {
     const nextSlot = getSlot(slots, groupId, dayId, timeBlocks[i].id)
-    if (nextSlot?.is_anchor && nextSlot?.anchor_id === slot.anchor_id) {
+    if (nextSlot?.is_fixed_event && nextSlot?.fixed_event_id === slot.fixed_event_id) {
       span++
     } else {
       break
@@ -42,13 +42,13 @@ export function getAnchorRowSpan(slots, timeBlocks, groupId, dayId, blockId) {
 
 export function isActivityTail(slots, groupId, dayId, blockId) {
   const slot = getSlot(slots, groupId, dayId, blockId)
-  if (slot?.is_anchor || !slot?.activity_id) return false
+  if (slot?.is_fixed_event || !slot?.activity_id) return false
   return slot.is_span_head === false
 }
 
 export function getActivityRowSpan(slots, timeBlocks, groupId, dayId, blockId) {
   const slot = getSlot(slots, groupId, dayId, blockId)
-  if (!slot?.activity_id || slot.is_anchor) return 1
+  if (!slot?.activity_id || slot.is_fixed_event) return 1
   const startIdx = timeBlocks.findIndex(b => b.id === blockId)
   if (startIdx === -1) return 1
   let span = 1
@@ -84,14 +84,14 @@ export function makeGridGeometry({ slots, timeBlocks }) {
 //   { kind: 'skip' }                          — tail covered by a head's rowSpan
 //   { kind: 'empty' }                         — droppable empty cell
 //   { kind: 'slot', slot, rowSpan, cellType } — a SlotCell (anchor vs cellType
-//                                               resolved by the view via slot.is_anchor)
+//                                               resolved by the view via slot.is_fixed_event)
 export function decideCell(geometry, groupId, dayId, blockId) {
   const slot = geometry.getSlot(groupId, dayId, blockId)
   if (!slot) return { kind: 'empty' }
-  if (slot.is_anchor && geometry.isAnchorTail(groupId, dayId, blockId)) return { kind: 'skip' }
-  if (!slot.is_anchor && geometry.isActivityTail(groupId, dayId, blockId)) return { kind: 'skip' }
+  if (slot.is_fixed_event && geometry.isAnchorTail(groupId, dayId, blockId)) return { kind: 'skip' }
+  if (!slot.is_fixed_event && geometry.isActivityTail(groupId, dayId, blockId)) return { kind: 'skip' }
 
-  const rowSpan = slot.is_anchor
+  const rowSpan = slot.is_fixed_event
     ? geometry.getAnchorRowSpan(groupId, dayId, blockId)
     : geometry.getActivityRowSpan(groupId, dayId, blockId)
 
@@ -102,7 +102,7 @@ export function decideCell(geometry, groupId, dayId, blockId) {
   // overlay placement Slice 1 (docs/adr/2026-08-22-events-overlay-
   // placement.md §3) extends this with event_id, same posture.
   const hasContent = Boolean(slot.activity_id) || Boolean(slot.elective_set_id) || Boolean(slot.event_id)
-  if (!hasContent && !slot.is_anchor && !isUnfillable) return { kind: 'empty' }
+  if (!hasContent && !slot.is_fixed_event && !isUnfillable) return { kind: 'empty' }
 
   const cellType = !hasContent && !isUnfillable ? 'unavailable' : 'activity'
   return { kind: 'slot', slot, rowSpan, cellType }
@@ -136,7 +136,7 @@ export function computeSpanCellProps({ geometry, selectedGroup, day, block, bloc
   // span to arbitrary N, not just once.
   const nextBlock = timeBlocks[blockIndex + rowSpan]
   const nextSlot = nextBlock ? geometry.getSlot(selectedGroup, day.id, nextBlock.id) : null
-  const hasMergeDown = Boolean(nextBlock) && !nextSlot?.is_anchor && nextSlot?.is_span_head !== false
+  const hasMergeDown = Boolean(nextBlock) && !nextSlot?.is_fixed_event && nextSlot?.is_span_head !== false
 
   const spanTailBlockIds = getSpanTailBlockIds(timeBlocks, blockIndex, rowSpan)
 

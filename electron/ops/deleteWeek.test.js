@@ -45,7 +45,7 @@ function seedTemplate(db, weekId, kind, campId) {
 function seedSlot(db, templateId, n) {
   const id = `slot-${templateId}-${n}`
   db.prepare(
-    'INSERT INTO template_slots (id, template_id, group_id, day_id, time_block_id, activity_id, is_anchor, flags) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO template_slots (id, template_id, group_id, day_id, time_block_id, activity_id, is_fixed_event, flags) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(id, templateId, `grp-${n}`, `day-${n}`, `blk-${n}`, `act-${n}`, '0', '{}')
   return id
 }

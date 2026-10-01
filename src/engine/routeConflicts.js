@@ -2,7 +2,7 @@
 // placeUsage ledger (buildSchedule.js) is per-cohort, so two cohorts can
 // independently place groups in the same real location at the same
 // day+block, each within its own capacity, while the COMBINED occupancy
-// exceeds it. Worse: registerOverlayOccupancy (anchors, events, elective
+// exceeds it. Worse: registerOverlayOccupancy (fixedEvents, events, elective
 // offerings) runs unconditionally, but placeBlocked/canPlace is only
 // consulted from regular-activity placement — so two overlays can be
 // authored into the same location/day/block over capacity within a SINGLE
@@ -35,9 +35,9 @@
 // UUID instead of being silently unconstrained like real placement is.
 import { resolveElectiveOfferingLocations } from './electiveOccupancy.js'
 
-export function findRouteConflicts({ slots, activities, anchors, electiveSetActivities, events, locations }) {
+export function findRouteConflicts({ slots, activities, fixedEvents, electiveSetActivities, events, locations }) {
   const activityById = new Map((activities || []).map((a) => [a.id, a]))
-  const anchorById = new Map((anchors || []).map((a) => [a.id, a]))
+  const fixedEventById = new Map((fixedEvents || []).map((a) => [a.id, a]))
   const eventById = new Map((events || []).map((e) => [e.id, e]))
   const locationById = new Map((locations || []).map((l) => [l.id, l]))
   const electiveOfferingsBySetId = new Map()
@@ -61,10 +61,10 @@ export function findRouteConflicts({ slots, activities, anchors, electiveSetActi
       if (act?.location_id != null) {
         register(act.location_id, slot.dayId, slot.blockId, slot.groupId, slot.cohort_id, act.name || slot.activityId, 'activity', slot.activityId)
       }
-    } else if (slot.type === 'anchor' && slot.anchorId != null) {
-      const anchor = anchorById.get(slot.anchorId)
+    } else if (slot.type === 'fixed_event' && slot.fixedEventId != null) {
+      const anchor = fixedEventById.get(slot.fixedEventId)
       if (anchor?.location_id != null) {
-        register(anchor.location_id, slot.dayId, slot.blockId, slot.groupId, slot.cohort_id, anchor.name || 'an anchor', 'anchor', slot.anchorId)
+        register(anchor.location_id, slot.dayId, slot.blockId, slot.groupId, slot.cohort_id, anchor.name || 'a fixed event', 'fixed_event', slot.fixedEventId)
       }
     } else if (slot.type === 'event' && slot.eventId != null) {
       const ev = eventById.get(slot.eventId)

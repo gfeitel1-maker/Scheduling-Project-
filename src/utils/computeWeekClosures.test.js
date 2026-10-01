@@ -18,7 +18,7 @@ function slot(over = {}) {
     day_id: over.day_id || 'd1',
     time_block_id: over.time_block_id || 'b1',
     activity_id: 'activity_id' in over ? over.activity_id : 'a-swim',
-    is_anchor: over.is_anchor || false,
+    is_fixed_event: over.is_fixed_event || false,
   }
 }
 
@@ -105,7 +105,7 @@ describe('computeWeekClosures', () => {
 
   it('skips anchor slots', () => {
     const m = computeWeekClosures({
-      slots: [slot({ id: 's1', activity_id: 'a-swim', is_anchor: true })],
+      slots: [slot({ id: 's1', activity_id: 'a-swim', is_fixed_event: true })],
       activities,
       groups,
       activityExclusions: [{ week_id: WK, activity_id: 'a-swim' }],

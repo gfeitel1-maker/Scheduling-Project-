@@ -346,7 +346,7 @@ describe('fixed events land as fixed_events (T34)', () => {
     expect(new Set(rows.map((r) => r.day_id)).size).toBe(2)  // one per day
   })
 
-  it('resolves a group-scoped event to the real group ids, serialized as AnchorsScreen does', () => {
+  it('resolves a group-scoped event to the real group ids, serialized as FixedEventsScreen does', () => {
     commitIngest(db, {
       approved: { groups: ['A', 'B', 'C'], days_of_operation: ['Monday'], time_blocks: ['12:00-12:30'] },
       fixedEvents: [{

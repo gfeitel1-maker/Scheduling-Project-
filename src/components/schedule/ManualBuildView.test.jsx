@@ -26,20 +26,20 @@ const LONG_NAME = 'Extremely Long Waterfront Activity Name That Would Clip'
 
 const slots = [
   // A two-block ANCHOR on Monday — manual build's only spanning source.
-  { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', is_anchor: true, anchor_id: 'an1' },
-  { id: 's2', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', is_anchor: true, anchor_id: 'an1' },
+  { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', is_fixed_event: true, fixed_event_id: 'an1' },
+  { id: 's2', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', is_fixed_event: true, fixed_event_id: 'an1' },
   // The cell to the anchor head's right.
-  { id: 's3', group_id: 'g1', day_id: 'd2', time_block_id: 'b1', activity_id: 'a1', is_anchor: false },
+  { id: 's3', group_id: 'g1', day_id: 'd2', time_block_id: 'b1', activity_id: 'a1', is_fixed_event: false },
   // Block 3 is the NON-MERGED collapse case: different activities per column.
-  { id: 's4', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: 'a1', is_anchor: false },
-  { id: 's5', group_id: 'g1', day_id: 'd2', time_block_id: 'b3', activity_id: 'a2', is_anchor: false },
+  { id: 's4', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: 'a1', is_fixed_event: false },
+  { id: 's5', group_id: 'g1', day_id: 'd2', time_block_id: 'b3', activity_id: 'a2', is_fixed_event: false },
 ]
 
 const actMap = new Map([
   ['a1', { id: 'a1', name: LONG_NAME }],
   ['a2', { id: 'a2', name: 'Soccer' }],
 ])
-const anchorMap = new Map([['an1', { id: 'an1', name: 'Lunch' }]])
+const fixedEventMap = new Map([['an1', { id: 'an1', name: 'Lunch' }]])
 
 function renderView(extra = {}) {
   const geometry = makeGridGeometry({ slots, timeBlocks, groups })
@@ -53,7 +53,7 @@ function renderView(extra = {}) {
         selectedGroup="g1"
         onSelectGroup={noop}
         actMap={actMap}
-        anchorMap={anchorMap}
+        fixedEventMap={fixedEventMap}
         geometry={geometry}
         eligibleActivitiesFor={() => []}
         onPlace={noop}
@@ -229,8 +229,8 @@ describe('ManualBuildView — collapse (T56 extends T55)', () => {
   it('renders a merged activity span head once, spanning N rows, and skips its tail (T99)', () => {
     const merged = [
       ...slots.filter(s => s.id !== 's3'),
-      { id: 's3', group_id: 'g1', day_id: 'd2', time_block_id: 'b1', activity_id: 'a1', is_anchor: false, is_span_head: true, flags: { expanded: true } },
-      { id: 's3b', group_id: 'g1', day_id: 'd2', time_block_id: 'b2', activity_id: 'a1', is_anchor: false, is_span_head: false },
+      { id: 's3', group_id: 'g1', day_id: 'd2', time_block_id: 'b1', activity_id: 'a1', is_fixed_event: false, is_span_head: true, flags: { expanded: true } },
+      { id: 's3b', group_id: 'g1', day_id: 'd2', time_block_id: 'b2', activity_id: 'a1', is_fixed_event: false, is_span_head: false },
     ]
     const geometry = makeGridGeometry({ slots: merged, timeBlocks, groups })
     const container = renderView({ geometry })
@@ -248,7 +248,7 @@ describe('ManualBuildView — collapse (T56 extends T55)', () => {
   it('derives one row-level flag dot, mounted in every row', () => {
     const flagged = [
       ...slots.filter(s => s.id !== 's5'),
-      { id: 's5', group_id: 'g1', day_id: 'd2', time_block_id: 'b3', activity_id: 'a2', is_anchor: false, flags: { OVERLAP: true } },
+      { id: 's5', group_id: 'g1', day_id: 'd2', time_block_id: 'b3', activity_id: 'a2', is_fixed_event: false, flags: { OVERLAP: true } },
     ]
     const geometry = makeGridGeometry({ slots: flagged, timeBlocks, groups })
     const shut = renderView({ geometry, collapsedBlockIds: new Set(['b3']) })

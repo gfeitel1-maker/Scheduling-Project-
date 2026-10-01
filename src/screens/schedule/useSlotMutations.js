@@ -73,7 +73,7 @@ function collectSpanTails(slots, timeBlocks, target, headRow) {
 // stop condition — it is absorbed (displacing whatever it held, if anything).
 function spanStopsAt(row, headActivityId, activities) {
   if (!row) return true
-  if (row.is_anchor) return true
+  if (row.is_fixed_event) return true
   if (row.flags?.WEEK_CLOSED) return true
   if (row.activity_id && row.activity_id !== headActivityId) {
     const act = activities.find(a => a.id === row.activity_id)
@@ -532,7 +532,7 @@ export function useSlotMutations({
     // payload can never overwrite a newer local edit to the target cell.
     if (!existingTemplates[route]) return
     const targetRow = slots.find(s => s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
-    if (!targetRow || targetRow.is_anchor) return
+    if (!targetRow || targetRow.is_fixed_event) return
 
     // replaceSlot is the drag-drop / card-move entry point (dragHandlers.js
     // routes every drop here), the PRIMARY placement gesture.
@@ -810,7 +810,7 @@ export function useSlotMutations({
   async function placeActivityManual(activityId, groupId, dayId, blockId, activityOverride, gestureId) {
     if (!existingTemplates[route]) return
     const slot = getSlot(slots, groupId, dayId, blockId)
-    if (!slot || slot.is_anchor) return
+    if (!slot || slot.is_fixed_event) return
 
     const activity = activityOverride ?? activities.find(a => a.id === activityId)
     if (!activity) return
@@ -1284,7 +1284,7 @@ export function useSlotMutations({
     if (!trimmedSet) return
 
     const targetRow = slots.find(s => s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
-    if (!targetRow || targetRow.is_anchor) return
+    if (!targetRow || targetRow.is_fixed_event) return
 
 
     setActionError(null)

@@ -22,7 +22,7 @@ export function useSnapshots({
   activities,
   days,
   timeBlocks,
-  anchors,
+  fixedEvents,
   weekId,
   activityExclusions,
   groupExclusions,
@@ -53,8 +53,8 @@ export function useSnapshots({
       day_id: s.day_id,
       time_block_id: s.time_block_id,
       activity_id: s.activity_id,
-      anchor_id: s.anchor_id,
-      is_anchor: s.is_anchor,
+      fixed_event_id: s.fixed_event_id,
+      is_fixed_event: s.is_fixed_event,
       flags: s.flags || {},
     }))
     const id = crypto.randomUUID()
@@ -143,15 +143,15 @@ export function useSnapshots({
     const dayIds = new Set(days.map(d => d.id))
     const timeBlockIds = new Set((timeBlocks || []).map(b => b.id))
     const activityIds = new Set(activities.map(a => a.id))
-    const anchorIds = new Set((anchors || []).map(a => a.id))
+    const anchorIds = new Set((fixedEvents || []).map(a => a.id))
     let droppedCount = 0
     const survivingSlots = fullSnap.slots.filter(s => {
       const dead =
         !groupIds.has(s.group_id) ||
         !dayIds.has(s.day_id) ||
         !timeBlockIds.has(s.time_block_id) ||
-        (s.is_anchor && s.anchor_id && !anchorIds.has(s.anchor_id)) ||
-        (!s.is_anchor && s.activity_id && !activityIds.has(s.activity_id))
+        (s.is_fixed_event && s.fixed_event_id && !anchorIds.has(s.fixed_event_id)) ||
+        (!s.is_fixed_event && s.activity_id && !activityIds.has(s.activity_id))
       if (dead) droppedCount += 1
       return !dead
     })
@@ -172,10 +172,10 @@ export function useSnapshots({
     setSlots(freshSlots)
 
     recalcStats(freshSlots)
-    // ANCHOR_DUPLICATE is generated-route only — see useScheduleData's route
+    // FIXED_EVENT_DUPLICATE is generated-route only — see useScheduleData's route
     // loop for the same gate and reasoning.
     setFindings(computeFindings(route === 'generated'
-      ? { slots: freshSlots, groups, activities, days, anchors, weekId, activityExclusions, groupExclusions, locationExclusions }
+      ? { slots: freshSlots, groups, activities, days, fixedEvents, weekId, activityExclusions, groupExclusions, locationExclusions }
       : { slots: freshSlots, groups, activities, days }))
     setDismissedFindingKeys(new Set())
 

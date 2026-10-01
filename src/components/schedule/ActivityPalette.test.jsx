@@ -16,10 +16,10 @@ const activities = [
 // a3 Free Play: no target -> always Placed/available
 // a4 Arts and Crafts: 0 slots -> below target (0 < 1) -> Still needed
 const slots = [
-  { activity_id: 'a1', is_anchor: false },
-  { activity_id: 'a1', is_anchor: false },
-  { activity_id: 'a1', is_anchor: false },
-  { activity_id: 'a2', is_anchor: false },
+  { activity_id: 'a1', is_fixed_event: false },
+  { activity_id: 'a1', is_fixed_event: false },
+  { activity_id: 'a1', is_fixed_event: false },
+  { activity_id: 'a2', is_fixed_event: false },
 ]
 
 function renderPalette(extraProps = {}) {

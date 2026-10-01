@@ -45,8 +45,8 @@ function resolveTemplateId(templates, weekId, kind) {
 // deliberately unfiltered, and those rows carry no `type` to filter on).
 export function recalcStats(slotList) {
   return {
-    open: slotList.filter(s => s.is_anchor === false && s.type !== 'unavailable').length,
-    filled: slotList.filter(s => s.is_anchor === false && s.type !== 'unavailable' && s.activity_id).length,
+    open: slotList.filter(s => s.is_fixed_event === false && s.type !== 'unavailable').length,
+    filled: slotList.filter(s => s.is_fixed_event === false && s.type !== 'unavailable' && s.activity_id).length,
   }
 }
 
@@ -55,13 +55,13 @@ export function recalcStats(slotList) {
 export function recalcFindings(slotList, ctx) {
   return computeFindings({
     slots: slotList, groups: ctx.groups, activities: ctx.activities, days: ctx.days,
-    anchors: ctx.anchors, weekId: ctx.weekId,
+    fixedEvents: ctx.fixedEvents, weekId: ctx.weekId,
     activityExclusions: ctx.activityExclusions, groupExclusions: ctx.groupExclusions, locationExclusions: ctx.locationExclusions,
   })
 }
 
 const EMPTY_SETUP_LISTS = {
-  groups: [], days: [], timeBlocks: [], activities: [], anchors: [], tiers: [], cohorts: [], locations: [],
+  groups: [], days: [], timeBlocks: [], activities: [], fixedEvents: [], tiers: [], cohorts: [], locations: [],
   // T105 §2 — two distinct elective lists, never conflated: electiveSetsAll
   // is the unfiltered render surface, durableElectiveSets is the is_reusable=1
   // reuse surface.
@@ -164,7 +164,7 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
       // shared with the headless path (electron/ops/scheduleEngineInputs.js,
       // which feeds the MCP schedule_state tool). This used to be a
       // hand-written copy on each side kept aligned by a comment; it drifted
-      // — the headless copy silently lost anchors' `unit_ids` parse, which
+      // — the headless copy silently lost fixedEvents' `unit_ids` parse, which
       // does not throw, it just drops division scope. See
       // electron/ops/scheduleInputNormalization.js's header.
       //
@@ -176,12 +176,12 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
       g = normalized.groups
       b = normalized.timeBlocks
       a = normalized.activities
-      anc = normalized.anchors
+      anc = normalized.fixedEvents
       d = normalized.days
       if (gen !== generationRef.current) return
       setSetupLists({
         groups: normalized.groups, days: normalized.days, timeBlocks: normalized.timeBlocks,
-        activities: normalized.activities, anchors: normalized.anchors, tiers: normalized.tiers,
+        activities: normalized.activities, fixedEvents: normalized.fixedEvents, tiers: normalized.tiers,
         cohorts: normalized.cohorts, locations: normalized.locations,
         electiveSetsAll: normalized.electiveSets,
         electiveSetActivities: normalized.electiveSetActivities,
@@ -249,7 +249,7 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
     if (!liveWeekId) { if (gen === generationRef.current) setLoading(false); return }
     // Hoisted to function scope: the generated-route findings pass below needs
     // this week's exclusions to suppress a week-closed activity from
-    // ANCHOR_DUPLICATE (T182). Kept in a local because setExclusions is async
+    // FIXED_EVENT_DUPLICATE (T182). Kept in a local because setExclusions is async
     // state and cannot be read back synchronously within this same load.
     let weekExclusions = EMPTY_EXCLUSIONS
     try {
@@ -335,15 +335,15 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
           // read failing, not this additive repair pass).
         }
         nextStats[r] = recalcStats(saved)
-        // ANCHOR_DUPLICATE is meaningful only on the generated route — a
+        // FIXED_EVENT_DUPLICATE is meaningful only on the generated route — a
         // manual anchor/regular clash already surfaces as OVERLAP at render,
         // and "regenerate to clear it" is meaningless where there is no
-        // regenerate. Pass anchors/weekId/exclusions only for that route;
-        // computeFindings' safe default (absent anchors → no finding) keeps
+        // regenerate. Pass fixedEvents/weekId/exclusions only for that route;
+        // computeFindings' safe default (absent fixedEvents → no finding) keeps
         // manual clean.
         nextFindings[r] = r === 'generated'
           ? recalcFindings(saved, {
-              groups: g, activities: a, days: d, anchors: anc, weekId: liveWeekId,
+              groups: g, activities: a, days: d, fixedEvents: anc, weekId: liveWeekId,
               activityExclusions: weekExclusions.activityExclusions,
               groupExclusions: weekExclusions.groupExclusions,
               locationExclusions: weekExclusions.locationExclusions,

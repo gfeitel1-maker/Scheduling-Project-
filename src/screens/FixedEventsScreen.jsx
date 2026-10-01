@@ -14,7 +14,7 @@ import SetupScreenShell from '../components/setup/SetupScreenShell'
 import { LocationPicker } from '../components/LocationPicker'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { parseIdList, makeSerializeFieldValue } from './setup/setupHelpers'
-import { resolveAnchorUnitIds } from '../engine/anchorScope.js'
+import { resolveFixedEventUnitIds } from '../engine/fixedEventScope.js'
 import { whitespaceInsensitiveName } from '../ingest/preview.js'
 import { createLocationRecord, updateLocationCapacityRecord } from '../lib/locationDedup'
 
@@ -254,7 +254,7 @@ function Field({ label, children }) {
   )
 }
 
-export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurring' }) {
+export default function FixedEventsScreen({ campId, role, onNavigate, kind = 'recurring' }) {
   // Threaded through this screen's copy (delete dialogs, error messages,
   // empty state) so "fixed" vs "recurring" reads consistently everywhere —
   // no stray hardcoded "recurring event" left over when kind='fixed'
@@ -757,20 +757,20 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
   const tierById = Object.fromEntries(tiers.map(t => [t.id, t.name]))
 
   // T183: the division projection of anchor scope comes from the SHARED
-  // resolver (src/engine/anchorScope.js), the same precedence the engine uses
+  // resolver (src/engine/fixedEventScope.js), the same precedence the engine uses
   // for group ids — so this label can no longer drift from the schedule. The
   // resolver flags a pre-v65 group_ids-only derivation as `inferred`; that
   // stays honest on the tooltip (anchorTierTitle) rather than in the visible
   // text, which keeps reading the division it covers instead of "—".
   function anchorTierLabel(a) {
-    const { mode, unitIds } = resolveAnchorUnitIds(a, groups)
+    const { mode, unitIds } = resolveFixedEventUnitIds(a, groups)
     if (mode === 'all') return 'All age divisions'
     const names = unitIds.map(tid => tierById[tid]).filter(Boolean)
     return names.length ? names.join(', ') : '—'
   }
 
   function anchorTierTitle(a) {
-    return resolveAnchorUnitIds(a, groups).inferred
+    return resolveFixedEventUnitIds(a, groups).inferred
       ? 'Shown from the groups this event covers — not a saved division choice. Re-save it to store the divisions.'
       : undefined
   }

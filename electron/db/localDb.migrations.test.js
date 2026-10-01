@@ -585,7 +585,7 @@ describe('Round 2 Red Hat fix, HIGH finding 1: UNIQUE(camp_id, name) on cohorts 
         session_week_start TEXT,
         session_week_end TEXT,
         capacity_source TEXT,
-        anchor_model TEXT,
+        fixed_event_model TEXT,
         sort_order INTEGER
       )
     `)
@@ -619,7 +619,7 @@ describe('Round 2 Red Hat fix, HIGH finding 1: UNIQUE(camp_id, name) on cohorts 
         session_week_start TEXT,
         session_week_end TEXT,
         capacity_source TEXT,
-        anchor_model TEXT,
+        fixed_event_model TEXT,
         sort_order INTEGER
       )
     `)

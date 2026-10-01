@@ -59,7 +59,7 @@ function seedOrphanedCamp(db, campId, realId, { slots = 3 } = {}) {
   for (let i = 0; i < slots; i++) {
     db.prepare(
       `INSERT INTO template_slots
-         (id, template_id, group_id, activity_id, day_id, time_block_id, flags, is_span_head, anchor_id, is_anchor)
+         (id, template_id, group_id, activity_id, day_id, time_block_id, flags, is_span_head, fixed_event_id, is_fixed_event)
        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
     ).run(
       `${campId}-orphan-slot-${i}`, orphanId, `grp-${campId}`, `act-${campId}`,
@@ -153,8 +153,8 @@ describe('migration v26: retiring orphaned schedule slots', () => {
       day_id: s.day_id,
       time_block_id: s.time_block_id,
       activity_id: s.activity_id,
-      anchor_id: s.anchor_id,
-      is_anchor: s.is_anchor ? 1 : 0,
+      fixed_event_id: s.fixed_event_id,
+      is_fixed_event: s.is_fixed_event ? 1 : 0,
       flags: JSON.stringify(s.flags || {}),
     }))
     const expected = before.map((r) => ({
@@ -162,15 +162,15 @@ describe('migration v26: retiring orphaned schedule slots', () => {
       day_id: r.day_id,
       time_block_id: r.time_block_id,
       activity_id: r.activity_id,
-      anchor_id: r.anchor_id,
-      is_anchor: r.is_anchor ? 1 : 0,
+      fixed_event_id: r.fixed_event_id,
+      is_fixed_event: r.is_fixed_event ? 1 : 0,
       flags: r.flags,
     }))
     expect(restored).toEqual(expected)
 
-    // is_anchor must survive as a BOOLEAN in the payload, matching what
+    // is_fixed_event must survive as a BOOLEAN in the payload, matching what
     // saveSnapshot writes from normalizeSlots output.
-    expect(parsed.slots.map((s) => s.is_anchor)).toEqual([false, true, false])
+    expect(parsed.slots.map((s) => s.is_fixed_event)).toEqual([false, true, false])
     expect(parsed.slots[0].flags).toEqual({ UNFILLABLE: true, UNFILLABLE_reason: 'no room' })
     db.close()
   })

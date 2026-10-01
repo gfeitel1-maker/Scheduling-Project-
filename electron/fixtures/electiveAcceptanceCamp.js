@@ -399,8 +399,8 @@ export async function buildAcceptanceCamp(db, { handlers, token, campId, deviceI
       day_id: s.day_id,
       time_block_id: s.time_block_id,
       activity_id: s.activity_id,
-      anchor_id: s.anchor_id,
-      is_anchor: s.is_anchor ? '1' : '0',
+      fixed_event_id: s.fixed_event_id,
+      is_fixed_event: s.is_fixed_event ? '1' : '0',
       flags: JSON.stringify(s.flags || {}),
     })),
   })
@@ -425,8 +425,8 @@ export async function buildAcceptanceCamp(db, { handlers, token, campId, deviceI
     day_id: s.day_id,
     time_block_id: s.time_block_id,
     activity_id: s.activity_id,
-    anchor_id: s.anchor_id,
-    is_anchor: s.is_anchor ? '1' : '0',
+    fixed_event_id: s.fixed_event_id,
+    is_fixed_event: s.is_fixed_event ? '1' : '0',
     flags: JSON.stringify(s.flags || {}),
   }))
   await handlers.bulkReplace({ token, entity: 'template_slots', scope_id: generatedTemplateId, rows: generatedRows })

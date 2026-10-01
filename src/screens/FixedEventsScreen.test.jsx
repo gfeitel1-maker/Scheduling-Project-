@@ -33,7 +33,7 @@ vi.mock('../components/CohortPicker', () => ({
   default: () => null,
 }))
 
-import AnchorsScreen from './AnchorsScreen'
+import FixedEventsScreen from './FixedEventsScreen'
 import { localClient } from '../localClient'
 import * as XLSX from 'xlsx'
 
@@ -63,7 +63,7 @@ beforeEach(() => {
   localClient.deleteEntity.mockReset().mockResolvedValue({ status: 'applied' })
 })
 
-describe('AnchorsScreen fan-out-per-day creation', () => {
+describe('FixedEventsScreen fan-out-per-day creation', () => {
   it('creating one anchor across 3 selected days produces 3 rows with distinct ids and day_ids, same name', async () => {
     const days = [
       day({ id: 'd1', label: 'Monday', day_of_week: 1, sort_order: 1 }),
@@ -79,7 +79,7 @@ describe('AnchorsScreen fan-out-per-day creation', () => {
       return Promise.resolve([])
     })
 
-    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
+    render(<FixedEventsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
     await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
 
     fireEvent.click(screen.getByText('+ Add Fixed Event'))
@@ -127,7 +127,7 @@ describe('AnchorsScreen fan-out-per-day creation', () => {
       return Promise.resolve([])
     })
 
-    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
+    render(<FixedEventsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
     await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
 
     fireEvent.click(screen.getByText('+ Add Fixed Event'))
@@ -142,7 +142,7 @@ describe('AnchorsScreen fan-out-per-day creation', () => {
   })
 })
 
-describe('AnchorsScreen — T267 PR2 activity_id link on save', () => {
+describe('FixedEventsScreen — T267 PR2 activity_id link on save', () => {
   it('creating an anchor with a name matching NO catalog activity creates one and links activity_id', async () => {
     const days = [day({ id: 'd1', label: 'Monday', day_of_week: 1, sort_order: 1 })]
     localClient.list.mockImplementation((entity) => {
@@ -153,7 +153,7 @@ describe('AnchorsScreen — T267 PR2 activity_id link on save', () => {
       return Promise.resolve([])
     })
 
-    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
+    render(<FixedEventsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
     await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
 
     fireEvent.click(screen.getByText('+ Add Fixed Event'))
@@ -184,7 +184,7 @@ describe('AnchorsScreen — T267 PR2 activity_id link on save', () => {
       return Promise.resolve([])
     })
 
-    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
+    render(<FixedEventsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
     await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
 
     fireEvent.click(screen.getByText('+ Add Fixed Event'))
@@ -206,7 +206,7 @@ describe('AnchorsScreen — T267 PR2 activity_id link on save', () => {
 // per-anchor "which weeks" control writing schedule_week_id. Default "All
 // weeks" (NULL, today's implicit meaning) — picking a specific week writes
 // that week's id.
-describe('AnchorsScreen — which weeks control (schedule_week_id)', () => {
+describe('FixedEventsScreen — which weeks control (schedule_week_id)', () => {
   const weeks = [
     { id: 'week-1', camp_id: CAMP_ID, name: 'Week 1', sort_order: 1 },
     { id: 'week-2', camp_id: CAMP_ID, name: 'Week 2', sort_order: 2 },
@@ -231,14 +231,14 @@ describe('AnchorsScreen — which weeks control (schedule_week_id)', () => {
 
   it('defaults an anchor with schedule_week_id NULL to "All weeks"', async () => {
     mockList()
-    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
+    render(<FixedEventsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
     await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
     expect(screen.getByDisplayValue('All weeks')).not.toBeNull()
   })
 
   it('picking a specific week writes schedule_week_id for that anchor', async () => {
     mockList()
-    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
+    render(<FixedEventsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
     await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
 
     fireEvent.change(screen.getByDisplayValue('All weeks'), { target: { value: 'week-2' } })
@@ -250,14 +250,14 @@ describe('AnchorsScreen — which weeks control (schedule_week_id)', () => {
 
   it('an anchor already bound to a week shows that week selected, not "All weeks"', async () => {
     mockList([{ ...anchorRow, schedule_week_id: 'week-1' }])
-    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
+    render(<FixedEventsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
     await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
     expect(screen.getByDisplayValue('Week 1')).not.toBeNull()
   })
 
   it('picking "All weeks" on a week-bound anchor writes schedule_week_id back to null', async () => {
     mockList([{ ...anchorRow, schedule_week_id: 'week-1' }])
-    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
+    render(<FixedEventsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
     await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
 
     fireEvent.change(screen.getByDisplayValue('Week 1'), { target: { value: '' } })
@@ -269,14 +269,14 @@ describe('AnchorsScreen — which weeks control (schedule_week_id)', () => {
 
   it('has no visible Edit button', async () => {
     mockList()
-    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
+    render(<FixedEventsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
     await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
     expect(screen.queryByText('Edit')).toBeNull()
   })
 
   it('Enter on a focused row opens the edit modal', async () => {
     mockList()
-    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
+    render(<FixedEventsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
     await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
 
     const row = screen.getByRole('button', { name: 'Edit Mifkad' })
@@ -287,7 +287,7 @@ describe('AnchorsScreen — which weeks control (schedule_week_id)', () => {
 
   it('changing the week select does not open the edit modal', async () => {
     mockList()
-    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
+    render(<FixedEventsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
     await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
 
     fireEvent.change(screen.getByDisplayValue('All weeks'), { target: { value: 'week-2' } })
@@ -297,7 +297,7 @@ describe('AnchorsScreen — which weeks control (schedule_week_id)', () => {
 
   it('clicking Delete does not open the edit modal', async () => {
     mockList()
-    render(<AnchorsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} kind="fixed" />)
+    render(<FixedEventsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} kind="fixed" />)
     await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete'))
@@ -309,7 +309,7 @@ describe('AnchorsScreen — which weeks control (schedule_week_id)', () => {
 
 // W7b (docs/work/specs/camp-setup-ingestion-program.md): location_id picker
 // on the recurring-event modal, mirroring ActivitiesScreen's LocationPicker.
-describe('AnchorsScreen — location picker (location_id)', () => {
+describe('FixedEventsScreen — location picker (location_id)', () => {
   const locations = [
     { id: 'loc-1', camp_id: CAMP_ID, name: 'Pool Deck', capacity: 2, notes: null },
   ]
@@ -334,7 +334,7 @@ describe('AnchorsScreen — location picker (location_id)', () => {
 
   it('selecting a location in the Edit modal writes location_id', async () => {
     mockList([anchorRow])
-    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
+    render(<FixedEventsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
     await waitFor(() => expect(screen.queryByText('Swim')).not.toBeNull())
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit Swim' }))
@@ -352,7 +352,7 @@ describe('AnchorsScreen — location picker (location_id)', () => {
 
   it('a location_id pointing at a deleted location is nulled out on save (C5 dangling guard)', async () => {
     mockList([{ ...anchorRow, location_id: 'stale-loc' }], locations)
-    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
+    render(<FixedEventsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
     await waitFor(() => expect(screen.queryByText('Swim')).not.toBeNull())
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit Swim' }))
@@ -366,7 +366,7 @@ describe('AnchorsScreen — location picker (location_id)', () => {
   })
 })
 
-describe('AnchorsScreen cleanup-failure surfacing', () => {
+describe('FixedEventsScreen cleanup-failure surfacing', () => {
   it('shows a distinct honest error when a mid-fan-out write fails and rollback is refused (non-admin)', async () => {
     const days = [
       day({ id: 'd1', label: 'Monday', day_of_week: 1, sort_order: 1 }),
@@ -393,7 +393,7 @@ describe('AnchorsScreen cleanup-failure surfacing', () => {
     })
     localClient.deleteEntity.mockRejectedValue(new Error('admin role required'))
 
-    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
+    render(<FixedEventsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
     await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
 
     fireEvent.click(screen.getByText('+ Add Fixed Event'))
@@ -419,7 +419,7 @@ describe('AnchorsScreen cleanup-failure surfacing', () => {
 // unedited, against both the pre- and post-migration screen. See
 // docs/adr/2026-08-12-setup-crud-shared-persistence-seam.md (Anchors/Cohorts
 // follow-up).
-describe('AnchorsScreen write serialization (characterization)', () => {
+describe('FixedEventsScreen write serialization (characterization)', () => {
   it('serializes is_all_groups to a number and group_ids to a JSON string on write', async () => {
     const days = [day({ id: 'd1', label: 'Monday', day_of_week: 1, sort_order: 1 })]
     localClient.list.mockImplementation((entity) => {
@@ -431,7 +431,7 @@ describe('AnchorsScreen write serialization (characterization)', () => {
       return Promise.resolve([])
     })
 
-    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
+    render(<FixedEventsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
     await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
 
     fireEvent.click(screen.getByText('+ Add Fixed Event'))
@@ -453,7 +453,7 @@ describe('AnchorsScreen write serialization (characterization)', () => {
   })
 })
 
-describe('AnchorsScreen deleteAll (characterization)', () => {
+describe('FixedEventsScreen deleteAll (characterization)', () => {
   function existing(overrides = {}) {
     return {
       id: 'anchor-1', camp_id: CAMP_ID, cohort_id: COHORT_ID, name: 'Mifkad',
@@ -466,7 +466,7 @@ describe('AnchorsScreen deleteAll (characterization)', () => {
     localClient.list.mockImplementation((entity) =>
       Promise.resolve(entity === 'fixed_events' ? [existing()] : [])
     )
-    render(<AnchorsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} kind="fixed" />)
+    render(<FixedEventsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} kind="fixed" />)
     await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete All'))
@@ -484,7 +484,7 @@ describe('AnchorsScreen deleteAll (characterization)', () => {
     localClient.list.mockImplementation((entity) =>
       Promise.resolve(entity === 'fixed_events' ? [existing()] : [])
     )
-    render(<AnchorsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} kind="fixed" />)
+    render(<FixedEventsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} kind="fixed" />)
     await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete All'))
@@ -500,7 +500,7 @@ describe('AnchorsScreen deleteAll (characterization)', () => {
     localClient.list.mockImplementation((entity) =>
       Promise.resolve(entity === 'fixed_events' ? [existing()] : [])
     )
-    render(<AnchorsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} kind="fixed" />)
+    render(<FixedEventsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} kind="fixed" />)
     await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
 
     // Another device synced in anchor-2 between load and the click.
@@ -527,7 +527,7 @@ describe('AnchorsScreen deleteAll (characterization)', () => {
       if (id === 'a1') return Promise.resolve({ status: 'applied' })
       return Promise.reject(new Error('boom'))
     })
-    render(<AnchorsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} kind="fixed" />)
+    render(<FixedEventsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} kind="fixed" />)
     await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete All'))
@@ -546,7 +546,7 @@ describe('AnchorsScreen deleteAll (characterization)', () => {
         : [])
     )
     localClient.deleteEntity.mockRejectedValue(new Error('admin role required'))
-    render(<AnchorsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} kind="fixed" />)
+    render(<FixedEventsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} kind="fixed" />)
     await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete All'))
@@ -559,7 +559,7 @@ describe('AnchorsScreen deleteAll (characterization)', () => {
   })
 })
 
-describe('AnchorsScreen delete confirmation', () => {
+describe('FixedEventsScreen delete confirmation', () => {
   function existingAnchor(overrides = {}) {
     return {
       id: 'anchor-1', camp_id: CAMP_ID, cohort_id: COHORT_ID, name: 'Mifkad',
@@ -581,7 +581,7 @@ describe('AnchorsScreen delete confirmation', () => {
 
   it('shows a styled confirm modal (not window.confirm) with the specified copy before deleting', async () => {
     setupList()
-    render(<AnchorsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} kind="fixed" />)
+    render(<FixedEventsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} kind="fixed" />)
     await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete'))
@@ -597,7 +597,7 @@ describe('AnchorsScreen delete confirmation', () => {
 
   it('cancels without deleting', async () => {
     setupList()
-    render(<AnchorsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} kind="fixed" />)
+    render(<FixedEventsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} kind="fixed" />)
     await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete'))
@@ -609,13 +609,13 @@ describe('AnchorsScreen delete confirmation', () => {
   })
 })
 
-describe('AnchorsScreen — caution and error banners use shared primitives', () => {
+describe('FixedEventsScreen — caution and error banners use shared primitives', () => {
   it('shows the no-time-blocks caution through the shared bronze --accent primitive, not hardcoded amber', async () => {
     localClient.list.mockImplementation((entity) => {
       if (entity === 'days_of_operation') return Promise.resolve([day()])
       return Promise.resolve([])
     })
-    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
+    render(<FixedEventsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
 
     const banner = await waitFor(() => screen.getByText(/No time blocks found\./))
     expect(banner.style.background).toMatch(/var\(--accent\)/)
@@ -630,7 +630,7 @@ describe('AnchorsScreen — caution and error banners use shared primitives', ()
       return Promise.resolve([])
     })
     localClient.write.mockRejectedValue(new Error('disk failure'))
-    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
+    render(<FixedEventsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
     await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
 
     fireEvent.click(screen.getByText('+ Add Fixed Event'))
@@ -647,7 +647,7 @@ describe('AnchorsScreen — caution and error banners use shared primitives', ()
 
 // ── T180: division scope is stored, not snapshotted ───────────────────────────
 
-describe('AnchorsScreen — recurring event division scope (T180)', () => {
+describe('FixedEventsScreen — recurring event division scope (T180)', () => {
   const days = [day({ id: 'd1', label: 'Monday', day_of_week: 1, sort_order: 1 })]
   const tiers = [
     { id: 't1', camp_id: CAMP_ID, cohort_id: COHORT_ID, name: 'Juniors', sort_order: 0 },
@@ -667,7 +667,7 @@ describe('AnchorsScreen — recurring event division scope (T180)', () => {
       if (entity === 'groups') return Promise.resolve(groups)
       return Promise.resolve([])
     })
-    return render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="recurring" />)
+    return render(<FixedEventsScreen campId={CAMP_ID} onNavigate={() => {}} kind="recurring" />)
   }
 
   it('writes the chosen divisions as unit_ids, so scope resolves live', async () => {
@@ -748,7 +748,7 @@ describe('AnchorsScreen — recurring event division scope (T180)', () => {
 // imported row silently bound to whichever same-named row happened to come
 // last in the array, with no warning — a wrong bind, not a genuinely
 // unmatched name.
-describe('AnchorsScreen — import refuses an ambiguous same-named match', () => {
+describe('FixedEventsScreen — import refuses an ambiguous same-named match', () => {
   it('refuses to bind an imported row to an arbitrary time block when two blocks share a name', async () => {
     localClient.list.mockImplementation((entity) => {
       if (entity === 'days_of_operation') return Promise.resolve([day({ id: 'd1', label: 'Monday', day_of_week: 1 })])
@@ -758,7 +758,7 @@ describe('AnchorsScreen — import refuses an ambiguous same-named match', () =>
       ])
       return Promise.resolve([])
     })
-    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
+    render(<FixedEventsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
     await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
 
     const file = new File(['dummy'], 'anchors.xlsx')
@@ -784,7 +784,7 @@ describe('AnchorsScreen — import refuses an ambiguous same-named match', () =>
       ])
       return Promise.resolve([])
     })
-    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
+    render(<FixedEventsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
     await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
 
     const file = new File(['dummy'], 'anchors.xlsx')
@@ -805,7 +805,7 @@ describe('AnchorsScreen — import refuses an ambiguous same-named match', () =>
 // `activities` React state on every row of a single confirmImport loop, so a
 // multi-day recurring import of one name (e.g. "Mifkad" Mon-Fri) created a
 // new catalog activity PER ROW instead of one shared link.
-describe('AnchorsScreen — import of one recurring name creates only one catalog activity', () => {
+describe('FixedEventsScreen — import of one recurring name creates only one catalog activity', () => {
   it('a 5-day recurring import of the same name creates ONE activity and links all 5 rows to it', async () => {
     const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].map((label, i) =>
       day({ id: `d${i + 1}`, label, day_of_week: i + 1, sort_order: i + 1 })
@@ -817,7 +817,7 @@ describe('AnchorsScreen — import of one recurring name creates only one catalo
       if (entity === 'activities') return Promise.resolve([])
       return Promise.resolve([])
     })
-    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
+    render(<FixedEventsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
     await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
 
     const file = new File(['dummy'], 'anchors.xlsx')
@@ -847,7 +847,7 @@ describe('AnchorsScreen — import of one recurring name creates only one catalo
 // Fix #3 — resolveActivityLink's ambiguity throw path (2+ matches) was
 // untested. Pins the "2+ = visible failure" half of DoD item 1 on the UI
 // side: no fixed_events row may be written with a bare/null activity_id.
-describe('AnchorsScreen — saving with an ambiguous catalog name is refused', () => {
+describe('FixedEventsScreen — saving with an ambiguous catalog name is refused', () => {
   it('refuses to save a fixed event when the typed name matches two catalog activities', async () => {
     const days = [day({ id: 'd1', label: 'Monday', day_of_week: 1, sort_order: 1 })]
     localClient.list.mockImplementation((entity) => {
@@ -861,7 +861,7 @@ describe('AnchorsScreen — saving with an ambiguous catalog name is refused', (
       return Promise.resolve([])
     })
 
-    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
+    render(<FixedEventsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
     await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
 
     fireEvent.click(screen.getByText('+ Add Fixed Event'))

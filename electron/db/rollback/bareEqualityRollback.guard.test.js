@@ -101,7 +101,10 @@ describe('rollback bare-equality schema_migrations guard', () => {
     // `tombstones` table it names is created unconditionally by schema.sql on
     // every open, not by this migration, so there was never anything for the
     // rollback to undo beyond the marker itself.
-    expect(files.length).toBe(44)
+    //
+    // 45 is v84_down.js (T293, anchors-become-fixed-and-recurring-events), added after this
+    // count was last pinned.
+    expect(files.length).toBe(45)
   })
 
   it('every rollback file uses `>= N`, never bare `= N`, to delete its schema_migrations row', () => {

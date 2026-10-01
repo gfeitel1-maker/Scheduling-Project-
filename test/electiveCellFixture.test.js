@@ -4,7 +4,7 @@
 // (test/fixtures/elective/t251-per-cell-preferences.json). This lives under
 // test/, not src/engine/, because src/engine/fixtureSchemaParity.test.js scans
 // ENGINE_DIR by name-matching variables like `slots`/`anchor` against
-// `template_slots`/`anchor_activities` columns only — it has no classification
+// `template_slots`/`fixed_events` columns only — it has no classification
 // for elective fixtures, so a fixture site here would be an ACCIDENTAL
 // COLLISION risk, not a covered case. See that file's header note and
 // docs/adr/2026-09-26-per-cell-elective-preferences.md.

@@ -19,7 +19,7 @@ import { normalizeName } from '../../src/ingest/preview.js'
  *   anchorIdByName: Map<string,string>,
  * }} maps  keys are normalizeName(name)
  * @returns {{
- *   slots: Array<{group_id, day_id, time_block_id, activity_id, anchor_id, is_anchor, flags}>,
+ *   slots: Array<{group_id, day_id, time_block_id, activity_id, fixed_event_id, is_fixed_event, flags}>,
  *   unresolved: Array<{groupName, dayName, blockLabel, activityName, reason}>,
  * }}
  */
@@ -51,7 +51,7 @@ export function resolveImportedPlacements(placements, maps) {
     if (anchorId) {
       slots.push({
         group_id: groupId, day_id: dayId, time_block_id: blockId,
-        activity_id: null, anchor_id: anchorId, is_anchor: true, flags: {},
+        activity_id: null, fixed_event_id: anchorId, is_fixed_event: true, flags: {},
       })
       continue
     }
@@ -59,7 +59,7 @@ export function resolveImportedPlacements(placements, maps) {
     if (activityId) {
       slots.push({
         group_id: groupId, day_id: dayId, time_block_id: blockId,
-        activity_id: activityId, anchor_id: null, is_anchor: false, flags: {},
+        activity_id: activityId, fixed_event_id: null, is_fixed_event: false, flags: {},
       })
       continue
     }

@@ -145,7 +145,7 @@ export default function SlotCell({
 
   if (!slot) return <div {...shellProps} aria-label={nameFor('Empty')} />
 
-  if (slot.type === 'anchor') {
+  if (slot.type === 'fixed_event') {
     return (
       <div {...shellProps} aria-label={nameFor(anchor?.name || 'Anchor')} ref={setRef} onClick={() => triggerPress()}>
         <div
@@ -291,7 +291,7 @@ export default function SlotCell({
   }
 
   const tooltipText = activity?.name || (isUnfillable ? 'Unfillable' : 'Unassigned')
-  const isPasteTarget = pasteMode && !slot?.is_anchor
+  const isPasteTarget = pasteMode && !slot?.is_fixed_event
 
   return (
     <div

@@ -163,7 +163,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   const allCampOverridesRef = useRef([])
   const coScheduleRef = useRef(new Map())
   const groupTierByNameRef = useRef({})
-  const anchorNamesRef = useRef([])
+  const fixedEventNamesRef = useRef([])
   const knownTimeBlockNamesRef = useRef([])
   const statedUnitsRef = useRef({})
   const liveLocationsRef = useRef([])
@@ -363,7 +363,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
     pagesRef.current = []
     placementsRef.current = []
     divisionsRef.current = []
-    anchorNamesRef.current = []
+    fixedEventNamesRef.current = []
     knownTimeBlockNamesRef.current = []
     statedUnitsRef.current = {}
     groupTierByNameRef.current = {}
@@ -614,7 +614,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       setPlaceCandidates(candidates)
       setPlaceChoices({})
       // Kept so a commit-time re-parse can re-derive the anchors on the SAME
-      // terms this parse did — see anchorNamesForCommit in buildCommitInputs.
+      // terms this parse did — see fixedEventNamesForCommit in buildCommitInputs.
       knownTimeBlockNamesRef.current = knownTimeBlockNames
       // T147 — the camp's live places, kept so buildCommitInputs can re-derive
       // the bindings against a re-parsed proposal (see bindingsForCommit).
@@ -637,7 +637,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       // days is a normal activity whose co-scheduling is exactly what we want to
       // learn — three groups at Lunch 1 means Lunch 1 takes three. Excluding it
       // would throw away the signal instead of cleaning it.
-      const anchorNames = (inferred ?? []).filter((e) => e.kind === 'fixed').map((e) => e.name)
+      const fixedEventNames = (inferred ?? []).filter((e) => e.kind === 'fixed').map((e) => e.name)
 
       // Divisions: names cluster the groups, then the grid splits any cluster
       // it contradicts. `proposal.groupUnits` wins wherever the FILE states a
@@ -645,7 +645,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       const inferredDivisions = inferDivisionEntities(
         proposal.entities.groups ?? [],
         placementsRef.current,
-        anchorNames,
+        fixedEventNames,
       )
       const statedUnits = proposal.groupUnits ?? {}
       // Captured BEFORE line ~536 overwrites proposal.groupUnits with the
@@ -659,7 +659,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       // Kept so buildCommitInputs can re-derive the division PROVENANCE against
       // the same anchor exclusions the preview used — a different exclusion set
       // would explain a different division than the one being committed.
-      anchorNamesRef.current = anchorNames
+      fixedEventNamesRef.current = fixedEventNames
       divisionsRef.current = inferredDivisions
         .map((d) => ({
           ...d,
@@ -1134,7 +1134,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       const choice = compoundCellDecisions[candidate.pattern]
       if (!choice) continue
       // v1: no free-text override — a "wrapper" verdict uses the classifier's
-      // own guess (anchorGuess/wrapperGuess). The card only ever offers the
+      // own guess (baseGuess/wrapperGuess). The card only ever offers the
       // "wrapper" pill when both are non-null (an ambiguous, both-standalone
       // candidate withholds that specific pill — see the card render below,
       // 2026-09-03 pressure-testing finding: a raw-split-order fallback
@@ -1145,7 +1145,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
         choice === 'wrapper'
           ? {
               interpretation: 'wrapper',
-              anchor_name: candidate.anchorGuess ?? candidate.parts[0],
+              base_name: candidate.baseGuess ?? candidate.parts[0],
               wrapper_name: candidate.wrapperGuess ?? candidate.parts[1],
             }
           : { interpretation: choice }
@@ -1222,13 +1222,13 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
     // — a name-variant merge can re-key an anchor ("Lunch + Leave" -> "Lunch"),
     // and a stale name simply fails to exclude, letting an all-camp activity
     // vouch for a division it says nothing about.
-    const anchorNamesForCommit = reparsed
+    const fixedEventNamesForCommit = reparsed
       ? inferFixedEvents(
           { pages: pagesRef.current },
           effectiveProposal,
           { knownTimeBlockNames: knownTimeBlockNamesRef.current },
         ).fixedEvents.filter((e) => e.kind === 'fixed').map((e) => e.name)
-      : anchorNamesRef.current
+      : fixedEventNamesRef.current
     // T147 — Red Hat: this is the THIRD feature in this session to need it, and
     // the sibling derivations above spell out why. `locationBindings` is
     // computed once at parse time and keyed on the activity name as it was
@@ -1246,7 +1246,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
     const allDivisionSupport = divisionSupportByGroup(
       effectiveProposal?.entities?.groups ?? [],
       placementsForCommit,
-      anchorNamesForCommit,
+      fixedEventNamesForCommit,
     )
     const divisionSupport = {}
     for (const [groupName, support] of Object.entries(allDivisionSupport)) {
@@ -2411,8 +2411,8 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
                   // itself is honestly uncertain — as-written/alternatives/
                   // not-sure all stay available; only the guess-dependent
                   // pill is withheld.
-                  const isAmbiguous = c.anchorGuess == null
-                  const anchor = c.anchorGuess
+                  const isAmbiguous = c.baseGuess == null
+                  const anchor = c.baseGuess
                   const wrapper = c.wrapperGuess
                   const choose = (choice) => setCompoundCellDecisions((d) => ({ ...d, [c.pattern]: choice }))
                   const pill = {

@@ -505,7 +505,7 @@ describe('LocationsScreen', () => {
     expect(onNavigate).toHaveBeenCalledWith('activities')
 
     fireEvent.click(screen.getByText('Next: Recurring Events →'))
-    expect(onNavigate).toHaveBeenCalledWith('anchors')
+    expect(onNavigate).toHaveBeenCalledWith('recurringevents')
   })
 
   it('shows a load-failure banner when localClient.list rejects', async () => {

@@ -33,10 +33,10 @@ const LONG_NAME = 'Extremely Long Waterfront Activity Name That Would Clip'
 
 const slots = [
   // Spanning head: b1 -> b2 on Monday.
-  { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'a1', is_anchor: false },
-  { id: 's2', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'a1', is_anchor: false, is_span_head: false },
+  { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'a1', is_fixed_event: false },
+  { id: 's2', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'a1', is_fixed_event: false, is_span_head: false },
   // The cell immediately to the head's right.
-  { id: 's3', group_id: 'g1', day_id: 'd2', time_block_id: 'b1', activity_id: 'a2', is_anchor: false },
+  { id: 's3', group_id: 'g1', day_id: 'd2', time_block_id: 'b1', activity_id: 'a2', is_fixed_event: false },
 ]
 
 const actMap = new Map([
@@ -57,7 +57,7 @@ function renderView(extra = {}) {
         onSelectGroup={noop}
         weatherMode={false}
         actMap={actMap}
-        anchorMap={new Map()}
+        fixedEventMap={new Map()}
         releaseCell={noop}
         geometry={geometry}
         eligibleActivitiesFor={() => []}
@@ -228,7 +228,7 @@ describe('ScheduleGroupView — CSS Grid conversion (T54)', () => {
           onSelectGroup={() => {}}
           weatherMode={false}
           actMap={actMap}
-          anchorMap={new Map()}
+          fixedEventMap={new Map()}
           releaseCell={() => {}}
           geometry={makeGridGeometry({ slots, timeBlocks, groups })}
           eligibleActivitiesFor={() => []}
@@ -249,7 +249,7 @@ describe('ScheduleGroupView — CSS Grid conversion (T54)', () => {
     // A drop lands on that same cell: the geometry now reports a filled slot,
     // so the view stops rendering EmptyCell for this key and renders SlotCell
     // instead — the stale editor unmounts for free.
-    const filledSlots = [...slots, { id: 's9', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: 'a2', is_anchor: false }]
+    const filledSlots = [...slots, { id: 's9', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: 'a2', is_fixed_event: false }]
     rerender(
       <DndContext>
         <ScheduleGroupView
@@ -260,7 +260,7 @@ describe('ScheduleGroupView — CSS Grid conversion (T54)', () => {
           onSelectGroup={() => {}}
           weatherMode={false}
           actMap={actMap}
-          anchorMap={new Map()}
+          fixedEventMap={new Map()}
           releaseCell={() => {}}
           geometry={makeGridGeometry({ slots: filledSlots, timeBlocks, groups })}
           eligibleActivitiesFor={() => []}
@@ -389,7 +389,7 @@ describe('ScheduleGroupView — collapse (T55)', () => {
   it('derives one row-level flag dot, in the right token colour, and only when collapsed', () => {
     const flagged = [
       ...slots,
-      { id: 's4', group_id: 'g1', day_id: 'd2', time_block_id: 'b2', activity_id: 'a2', is_anchor: false, flags: { OVERLAP: true } },
+      { id: 's4', group_id: 'g1', day_id: 'd2', time_block_id: 'b2', activity_id: 'a2', is_fixed_event: false, flags: { OVERLAP: true } },
     ]
     const geometry = makeGridGeometry({ slots: flagged, timeBlocks, groups })
 
@@ -402,7 +402,7 @@ describe('ScheduleGroupView — collapse (T55)', () => {
     // UNFILLABLE outranks OVERLAP: one dot, danger.
     const unfillable = [
       ...slots,
-      { id: 's4', group_id: 'g1', day_id: 'd2', time_block_id: 'b2', is_anchor: false, flags: { UNFILLABLE: true } },
+      { id: 's4', group_id: 'g1', day_id: 'd2', time_block_id: 'b2', is_fixed_event: false, flags: { UNFILLABLE: true } },
     ]
     const shut2 = renderView({
       geometry: makeGridGeometry({ slots: unfillable, timeBlocks, groups }),

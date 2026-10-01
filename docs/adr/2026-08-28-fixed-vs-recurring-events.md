@@ -23,7 +23,7 @@ affects:
   - electron/ops/ingest.js
   - src/ingest/fixedEvents.js
   - src/localClient.mock.js
-  - src/screens/AnchorsScreen.jsx
+  - src/screens/FixedEventsScreen.jsx
   - src/components/layout/navSections.js
 ---
 

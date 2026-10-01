@@ -118,7 +118,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     campId, weekId: preferredWeekId, repo, routes: ROUTES,
     hasInFlightClaim: (groupId, dayId) => hasInFlightClaimRef.current(groupId, dayId),
   })
-  const { groups, days, timeBlocks, activities, anchors, tiers, cohorts, locations, electiveSetsAll, electiveSetActivities, durableElectiveSets, eventsAll } = setupLists
+  const { groups, days, timeBlocks, activities, fixedEvents, tiers, cohorts, locations, electiveSetsAll, electiveSetActivities, durableElectiveSets, eventsAll } = setupLists
   // T105 §4/§6 render/export lookup — one member-id array per elective set,
   // built once per electiveSetActivities change.
   const electiveMembersBySet = useMemo(() => {
@@ -379,7 +379,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const { saveSnapshot, deleteSnapshot, restoreSnapshot, renameSnapshot } = useSnapshots({
     routeState, repo, setActionError,
     recalcStats, resetUndoRedo,
-    groups, activities, days, timeBlocks, anchors, weekId,
+    groups, activities, days, timeBlocks, fixedEvents, weekId,
     activityExclusions, groupExclusions, locationExclusions,
   })
 
@@ -388,7 +388,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     weeks, setWeeks, repo, localClient, campId, weekId, setPreferredWeekId, setActionError,
   })
 
-  // Generation: generate / regenerate / place-anchors, over the repo + the pure
+  // Generation: generate / regenerate / place-fixedEvents, over the repo + the pure
   // engine. Route-scoped state comes from routeState (the route-explicit setters
   // are built from its by-route setters inside the hook); the
   // abort-on-failed-auto-snapshot behaviour lives in the hook.
@@ -396,7 +396,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     routeState, repo, campId, setActionError, setGenerating,
     resetUndoRedo, saveSnapshot, ensureTemplateRow,
     setConfirmRegen, setSelectedGroup, statsFor: recalcStatsPure,
-    groups, tiers, days, timeBlocks, activities, anchors, locations,
+    groups, tiers, days, timeBlocks, activities, fixedEvents, locations,
     electiveSetActivities, events: eventsAll,
     weekId, activityExclusions, groupExclusions, locationExclusions,
   })
@@ -525,10 +525,10 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   }
 
   function recalcFindings(slotList) {
-    // ANCHOR_DUPLICATE is generated-route only — see useScheduleData's route
+    // FIXED_EVENT_DUPLICATE is generated-route only — see useScheduleData's route
     // loop for the same gate and reasoning.
     setFindings(recalcFindingsPure(slotList, route === 'generated'
-      ? { groups, activities, days, anchors, weekId, activityExclusions, groupExclusions, locationExclusions }
+      ? { groups, activities, days, fixedEvents, weekId, activityExclusions, groupExclusions, locationExclusions }
       : { groups, activities, days }))
   }
 
@@ -648,12 +648,12 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       groupId: s.group_id,
     })),
     ...activeFindings.map(f => ({
-      // groupId/activityId are both null for EVERY ANCHOR_IDENTITY_GAP finding
+      // groupId/activityId are both null for EVERY FIXED_EVENT_IDENTITY_GAP finding
       // (buildSchedule.js) — the plain coordinate key would collapse two
-      // distinct anchors' gaps onto one React row. anchorId (the fixed_events
+      // distinct fixedEvents' gaps onto one React row. fixedEventId (the fixed_events
       // row id) is that kind's real discriminator; every other kind keeps its
       // prior coordinate-only React key unchanged.
-      key: f.kind === 'ANCHOR_IDENTITY_GAP' ? `${f.groupId}|${f.activityId}|${f.kind}|${f.anchorId}` : `${f.groupId}|${f.activityId}|${f.kind}`,
+      key: f.kind === 'FIXED_EVENT_IDENTITY_GAP' ? `${f.groupId}|${f.activityId}|${f.kind}|${f.fixedEventId}` : `${f.groupId}|${f.activityId}|${f.kind}`,
       // The dismiss handler must reproduce the SAME payload-addressed key the
       // activeFindings filter reads, so it is computed here from the raw finding
       // (which still carries the magnitude) rather than re-spelled at dismiss time.
@@ -673,7 +673,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // highlights (its one flag, OVERLAP, is derived per-cell already).
   const findingsRailOpen = railView !== null
   const highlightedKind = !isManual && railView && railView !== 'ALL' ? railView : null
-  const KIND_COLOR = { UNFILLABLE: 'var(--danger)', UNDERSERVED: 'var(--accent)', DISTRIBUTION: 'var(--secondary)', ANCHOR_DUPLICATE: 'var(--accent)' }
+  const KIND_COLOR = { UNFILLABLE: 'var(--danger)', UNDERSERVED: 'var(--accent)', DISTRIBUTION: 'var(--secondary)', FIXED_EVENT_DUPLICATE: 'var(--accent)' }
   const highlightColor = KIND_COLOR[highlightedKind] || 'var(--danger)'
   const highlightMap = highlightMapForKind(highlightedKind, findingsRows, slots)
   const railRows = railView && railView !== 'ALL'
@@ -748,7 +748,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // were removed from the grid, palette and activity view (owner, 2026-09-12).
   // Kept out of the row rather than left as dead freight.
   const actMap = new Map(activities.map(a => [a.id, { ...a }]))
-  const anchorMap = new Map(anchors.map(a => [a.id, a]))
+  const fixedEventMap = new Map(fixedEvents.map(a => [a.id, a]))
 
   // Group-view and day-view DnD share identical palette-drop/replace branches —
   // every grid-to-grid or palette-onto-occupied drop always replaces
@@ -848,7 +848,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     },
   }
 
-  // The neutral 'schedule' entry (AnchorsScreen "Next: Schedule")
+  // The neutral 'schedule' entry (FixedEventsScreen "Next: Schedule")
   // supplies no route. With both candidates started, falling through to the
   // 'generated' fallback would be the APP picking a week for the director,
   // which the no-canonical-schedule rule forbids
@@ -880,15 +880,15 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   function routeSummary(r) {
     const rows = slotsByRoute[r]
     if (rows.length === 0) return 'not started'
-    const open = rows.filter(x => x.is_anchor === false).length
-    const filled = rows.filter(x => x.is_anchor === false && x.activity_id).length
+    const open = rows.filter(x => x.is_fixed_event === false).length
+    const filled = rows.filter(x => x.is_fixed_event === false && x.activity_id).length
     return `${filled} of ${open} placed`
   }
 
   const startRoute = { manual: placeAnchors, generated: generate }
 
   function exportRoute(r, format = 'excel') {
-    const bundle = { slots: slotsByRoute[r], activities, anchors, groups, days, timeBlocks, electiveSets: electiveSetsAll, electiveSetActivities, events: eventsAll }
+    const bundle = { slots: slotsByRoute[r], activities, fixedEvents, groups, days, timeBlocks, electiveSets: electiveSetsAll, electiveSetActivities, events: eventsAll }
     if (format === 'json') {
       // The portable machine-readable format (M2, Premise §14). Same non-canonical
       // rule as Excel: this exports the ONE route the director just chose, and the
@@ -1214,8 +1214,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       {(() => {
         // Slots scoped for the palette count display
         const paletteSlots = view === 'activity'
-          ? slots.filter(s => !s.is_anchor)
-          : slots.filter(s => s.group_id === selectedGroup && !s.is_anchor)
+          ? slots.filter(s => !s.is_fixed_event)
+          : slots.filter(s => s.group_id === selectedGroup && !s.is_fixed_event)
 
         // T266 (site 2 of 7) — the drag palette shows free choices only. NOTE: the
         // palette deliberately does NOT filter by group eligibility and this does
@@ -1273,7 +1273,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 selectedGroup={selectedGroup}
                 onSelectGroup={handleSelectGroup}
                 actMap={actMap}
-                anchorMap={anchorMap}
+                fixedEventMap={fixedEventMap}
                 geometry={geometry}
                 eligibleActivitiesFor={eligibleActivitiesFor}
                 onPlace={handleCellPlace}
@@ -1307,7 +1307,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 onSelectGroup={handleSelectGroup}
                 weatherMode={weatherMode}
                 actMap={actMap}
-                anchorMap={anchorMap}
+                fixedEventMap={fixedEventMap}
                 releaseCell={releaseCell}
                 geometry={geometry}
                 eligibleActivitiesFor={eligibleActivitiesFor}
@@ -1345,7 +1345,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 onSelectDay={setSelectedDay}
                 weatherMode={weatherMode}
                 actMap={actMap}
-                anchorMap={anchorMap}
+                fixedEventMap={fixedEventMap}
                 lockActivity={lockActivity}
                 releaseCell={releaseCell}
                 geometry={geometry}
@@ -1431,8 +1431,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
           options={ROUTES.map(r => ({
             key: r,
             title: ROUTE_COPY[r].caption,
-            filled: slotsByRoute[r].filter(x => x.is_anchor === false && x.activity_id).length,
-            total: slotsByRoute[r].filter(x => x.is_anchor === false).length,
+            filled: slotsByRoute[r].filter(x => x.is_fixed_event === false && x.activity_id).length,
+            total: slotsByRoute[r].filter(x => x.is_fixed_event === false).length,
           }))}
           formatLabel={exportFormat === 'json' ? 'a data file (JSON)' : 'Excel'}
           onChoose={r => { setExportChoosing(false); exportRoute(r, exportFormat) }}

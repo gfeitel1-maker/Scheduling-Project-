@@ -1,5 +1,5 @@
 // Sunday-first weekday names. Previously duplicated in DaysScreen, ActivitiesScreen,
-// and AnchorsScreen — day_of_week is an engine-facing 0..6 index (see buildSchedule.js).
+// and FixedEventsScreen — day_of_week is an engine-facing 0..6 index (see buildSchedule.js).
 export const DOW = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
 // Defense-in-depth: malformed JSON in an id-list column (e.g. a corrupted/tampered

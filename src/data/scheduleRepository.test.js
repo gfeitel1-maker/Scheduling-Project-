@@ -152,11 +152,11 @@ describe('the single slot->row mapper — one mapper, three call-site shapes', (
   // Engine-slot shape used by BOTH generate() and placeAnchors() (identical).
   const engineOpenSlot = {
     groupId: 'g1', dayId: 'd1', blockId: 'b1', cohort_id: 'coh',
-    type: 'open', activityId: 'act-1', anchorId: null, is_span_head: true, flags: { UNFILLABLE: true },
+    type: 'open', activityId: 'act-1', fixedEventId: null, is_span_head: true, flags: { UNFILLABLE: true },
   }
   const engineAnchorSlot = {
     groupId: 'g1', dayId: 'd2', blockId: 'b2', cohort_id: 'coh',
-    type: 'anchor', activityId: null, anchorId: 'anc-1', is_span_head: false, flags: {},
+    type: 'fixed_event', activityId: null, fixedEventId: 'anc-1', is_span_head: false, flags: {},
   }
 
   it('replaceWeek: bulkReplaces slots mapped from engine slots (is_span_head emitted)', async () => {
@@ -173,17 +173,17 @@ describe('the single slot->row mapper — one mapper, three call-site shapes', (
     expect(rows[0]).toEqual({
       id: 'uuid-1', template_id: 'tid',
       group_id: 'g1', day_id: 'd1', time_block_id: 'b1',
-      activity_id: 'act-1', anchor_id: null,
-      is_anchor: '0', is_span_head: '1',
+      activity_id: 'act-1', fixed_event_id: null,
+      is_fixed_event: '0', is_span_head: '1',
       flags: JSON.stringify({ UNFILLABLE: true }),
     })
-    // Pins the exact mapped row for an engine ANCHOR slot (is_anchor from type,
+    // Pins the exact mapped row for an engine ANCHOR slot (is_fixed_event from type,
     // is_span_head:false -> '0').
     expect(rows[1]).toEqual({
       id: 'uuid-2', template_id: 'tid',
       group_id: 'g1', day_id: 'd2', time_block_id: 'b2',
-      activity_id: null, anchor_id: 'anc-1',
-      is_anchor: '1', is_span_head: '0',
+      activity_id: null, fixed_event_id: 'anc-1',
+      is_fixed_event: '1', is_span_head: '0',
       flags: JSON.stringify({}),
     })
   })
@@ -193,7 +193,7 @@ describe('the single slot->row mapper — one mapper, three call-site shapes', (
     const repo = createScheduleRepository({ localClient: client, getToken })
     const unavailableSlot = {
       groupId: 'g1', dayId: 'd3', blockId: 'b3', cohort_id: 'coh',
-      type: 'unavailable', activityId: null, anchorId: null, is_span_head: true, flags: {},
+      type: 'unavailable', activityId: null, fixedEventId: null, is_span_head: true, flags: {},
     }
     await repo.replaceWeek('tid', [engineOpenSlot, unavailableSlot, engineAnchorSlot])
 
@@ -206,7 +206,7 @@ describe('the single slot->row mapper — one mapper, three call-site shapes', (
   it('replaceWeek maps a slot missing is_span_head as span-head "1" (undefined !== false)', async () => {
     const client = makeFakeClient()
     const repo = createScheduleRepository({ localClient: client, getToken })
-    const noSpanHead = { groupId: 'g1', dayId: 'd1', blockId: 'b1', type: 'open', activityId: 'a', anchorId: null, flags: {} }
+    const noSpanHead = { groupId: 'g1', dayId: 'd1', blockId: 'b1', type: 'open', activityId: 'a', fixedEventId: null, flags: {} }
     await repo.replaceWeek('tid', [noSpanHead])
     expect(client.calls.bulkReplace[0][3][0].is_span_head).toBe('1')
   })
@@ -214,8 +214,8 @@ describe('the single slot->row mapper — one mapper, three call-site shapes', (
   it('restoreSnapshotRows: maps snapshot slots WITHOUT is_span_head (column default preserved)', async () => {
     const client = makeFakeClient()
     const repo = createScheduleRepository({ localClient: client, getToken })
-    const snapSlot = { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-r', anchor_id: null, is_anchor: false, flags: {} }
-    const snapAnchor = { group_id: 'g1', day_id: 'd2', time_block_id: 'b2', activity_id: null, anchor_id: 'anc-1', is_anchor: true, flags: {} }
+    const snapSlot = { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-r', fixed_event_id: null, is_fixed_event: false, flags: {} }
+    const snapAnchor = { group_id: 'g1', day_id: 'd2', time_block_id: 'b2', activity_id: null, fixed_event_id: 'anc-1', is_fixed_event: true, flags: {} }
 
     await repo.restoreSnapshotRows('tid', [snapSlot, snapAnchor])
 
@@ -228,11 +228,11 @@ describe('the single slot->row mapper — one mapper, three call-site shapes', (
     expect(slotRows[0]).toEqual({
       id: 'uuid-1', template_id: 'tid',
       group_id: 'g1', day_id: 'd1', time_block_id: 'b1',
-      activity_id: 'act-r', anchor_id: null,
-      is_anchor: '0', flags: JSON.stringify({}),
+      activity_id: 'act-r', fixed_event_id: null,
+      is_fixed_event: '0', flags: JSON.stringify({}),
     })
-    // is_anchor derived from the truthy snapshot value.
-    expect(slotRows[1].is_anchor).toBe('1')
+    // is_fixed_event derived from the truthy snapshot value.
+    expect(slotRows[1].is_fixed_event).toBe('1')
     expect(slotRows[1]).not.toHaveProperty('is_span_head')
   })
 })
@@ -254,13 +254,13 @@ describe('reads — fetch + normalize', () => {
     const client = makeFakeClient()
     client.setListStore({
       schedule_templates: [{ id: 'tid', camp_id: 'camp-1' }],
-      template_slots: [{ id: 's1', template_id: 'tid', is_anchor: 0, is_span_head: 1, flags: '{"UNFILLABLE":true}' }],
+      template_slots: [{ id: 's1', template_id: 'tid', is_fixed_event: 0, is_span_head: 1, flags: '{"UNFILLABLE":true}' }],
       schedule_snapshots: [{ id: 'snap1', template_id: 'tid' }],
     })
     const repo = createScheduleRepository({ localClient: client, getToken })
     const data = await repo.loadTemplateData()
     expect(data.templates).toEqual([{ id: 'tid', camp_id: 'camp-1' }])
-    expect(data.slots[0].is_anchor).toBe(false)
+    expect(data.slots[0].is_fixed_event).toBe(false)
     expect(data.slots[0].is_span_head).toBe(true)
     expect(data.slots[0].flags).toEqual({ UNFILLABLE: true })
     expect(data.snapshots).toEqual([{ id: 'snap1', template_id: 'tid' }])
@@ -417,30 +417,30 @@ describe('reads — fetch + normalize', () => {
   })
 })
 
-// Guards the T28-review finding: is_anchor is derived PER SHAPE, not as a
-// disjunction of `type` and `is_anchor`. These contrived slots carry BOTH
+// Guards the T28-review finding: is_fixed_event is derived PER SHAPE, not as a
+// disjunction of `type` and `is_fixed_event`. These contrived slots carry BOTH
 // fields (which real engine/snapshot slots never do) to prove each path reads
 // only its own field — so the union can never resolve wrongly if a future slot
 // ever carries both. (Red Hat + Code Reviewer converged on this.)
-describe('is_anchor derivation is shape-specific, not a disjunction', () => {
-  it('engine path (replaceWeek): is_anchor comes from `type`, ignoring a stray is_anchor', async () => {
+describe('is_fixed_event derivation is shape-specific, not a disjunction', () => {
+  it('engine path (replaceWeek): is_fixed_event comes from `type`, ignoring a stray is_fixed_event', async () => {
     const client = makeFakeClient()
     const repo = createScheduleRepository({ localClient: client, getToken })
-    // type says NOT an anchor, but a stray is_anchor:true is present.
+    // type says NOT an anchor, but a stray is_fixed_event:true is present.
     await repo.replaceWeek('tid', [
-      { groupId: 'g1', dayId: 'd1', blockId: 'b1', type: 'activity', is_anchor: true, activityId: 'a', anchorId: null, flags: {} },
+      { groupId: 'g1', dayId: 'd1', blockId: 'b1', type: 'activity', is_fixed_event: true, activityId: 'a', fixedEventId: null, flags: {} },
     ])
-    expect(client.calls.bulkReplace[0][3][0].is_anchor).toBe('0')
+    expect(client.calls.bulkReplace[0][3][0].is_fixed_event).toBe('0')
   })
 
-  it('snapshot path (restoreSnapshotRows): is_anchor comes from `is_anchor`, ignoring a stray type', async () => {
+  it('snapshot path (restoreSnapshotRows): is_fixed_event comes from `is_fixed_event`, ignoring a stray type', async () => {
     const client = makeFakeClient()
     const repo = createScheduleRepository({ localClient: client, getToken })
-    // is_anchor says NOT an anchor, but a stray type:'anchor' is present.
+    // is_fixed_event says NOT an anchor, but a stray type:'fixed_event' is present.
     await repo.restoreSnapshotRows('tid', [
-      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', type: 'anchor', is_anchor: false, activity_id: 'a', anchor_id: null, flags: {} },
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', type: 'fixed_event', is_fixed_event: false, activity_id: 'a', fixed_event_id: null, flags: {} },
     ])
-    expect(client.calls.bulkReplace[0][3][0].is_anchor).toBe('0')
+    expect(client.calls.bulkReplace[0][3][0].is_fixed_event).toBe('0')
   })
 })
 

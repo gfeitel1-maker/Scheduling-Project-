@@ -180,7 +180,7 @@ CREATE TABLE IF NOT EXISTS compound_cell_decisions (
   camp_id TEXT NOT NULL REFERENCES camps(id),
   pattern TEXT NOT NULL,          -- the literal cell text as it appeared, e.g. "Lunch + Leave" — the lookup key
   interpretation TEXT NOT NULL,   -- 'as_written' | 'wrapper' | 'alternatives'
-  anchor_name TEXT,               -- set when interpretation = 'wrapper'
+  base_name TEXT,                 -- set when interpretation = 'wrapper'; renamed from anchor_name at v84 (T293, docs/adr/2026-10-01-anchors-become-fixed-and-recurring-events.md) — a different sense of "anchor" than fixed/recurring events
   wrapper_name TEXT,              -- set when interpretation = 'wrapper'
   confirmed_by TEXT,              -- plain TEXT user id, provenance only
   confirmed_at TEXT NOT NULL,
@@ -554,7 +554,7 @@ CREATE TABLE IF NOT EXISTS activities (
   -- free-choice exclusion reads (src/engine/freeChoiceActivities.js,
   -- isFreeChoiceActivity) to keep the row out of every menu; (2) the
   -- `fixed_events` row links to it via `activity_id`
-  -- (src/engine/anchorActivityLink.js), the key the SEPARATE anchor-duplicate
+  -- (src/engine/fixedEventActivityLink.js), the key the SEPARATE anchor-duplicate
   -- exclusion uses (src/engine/buildSchedule.js, anchoredActivityIdsByGroupDay).
   -- Deleting the row breaks both: catalog_role stops existing to be read, and
   -- the activity_id link dangles — the event is placed twice. A MARKER, NOT A
@@ -577,6 +577,9 @@ CREATE INDEX IF NOT EXISTS idx_activities_camp_name ON activities(camp_id, name)
 -- Migration-added columns (see localDb.js):
 --   v10: flags TEXT, is_released INTEGER, is_span_head INTEGER
 --   v17: anchor_id TEXT, is_anchor INTEGER
+--   v84: anchor_id, is_anchor renamed to fixed_event_id, is_fixed_event (T293,
+--     docs/adr/2026-10-01-anchors-become-fixed-and-recurring-events.md) —
+--     still ALTER-only, never declared in the CREATE TABLE above
 --   v35: elective_set_id TEXT (T41 slice 1, group-level electives,
 --     docs/work/specs/2026-08-20-group-electives-design.md) — a slot with
 --     elective_set_id set is an elective cell (activity_id ignored); the two
@@ -672,6 +675,16 @@ CREATE TABLE IF NOT EXISTS pending_restores (
 -- UNIQUE(camp_id, name) relaxed to a plain index in schema v73 (T241) — see the comment above
 -- `locations`. idx_cohorts_camp_name (originally added by localDb.js's version-11 migration) is
 -- now plain, both here and there.
+--
+-- anchor_model is DELIBERATELY NOT renamed to fixed_event_model here, even though v84 (T293,
+-- docs/adr/2026-10-01-anchors-become-fixed-and-recurring-events.md) renames it everywhere code
+-- reads/writes it. localDb.js's v73 migration block recreates this table and reads the column by
+-- its then-current name — for a fresh install replaying every historical block in sequence, that
+-- name must match what THIS CREATE TABLE just declared, or the v73 recreate's SELECT fails with
+-- "no such column". Renaming only here (and leaving v10/v73 pointing at a column that no longer
+-- exists) breaks fresh installs while leaving migrated databases untouched — the asymmetry a
+-- "just fix the name" edit would silently introduce. The v84 ALTER TABLE RENAME COLUMN is what
+-- actually performs the rename, uniformly, for both a fresh install and a migrated database.
 CREATE TABLE IF NOT EXISTS cohorts (
   id TEXT PRIMARY KEY,
   camp_id TEXT NOT NULL REFERENCES camps(id),
@@ -738,7 +751,7 @@ CREATE TABLE IF NOT EXISTS time_blocks (
 -- there is no FK to repoint when deduping, unlike groups.id/template_slots.group_id.
 
 -- Sub-plan D Task 0 (2026-07-23): confirmed exact field set by re-reading
--- AnchorsScreen.jsx's actual insert/update payloads directly (not the design
+-- FixedEventsScreen.jsx's actual insert/update payloads directly (not the design
 -- doc's inference-only sketch, which listed unit_id/span_blocks — neither is
 -- actually read or written by the screen). Real fields used: name, day_id,
 -- time_block_id, is_all_groups, group_ids, notes. unit_id/span_blocks are
@@ -781,7 +794,7 @@ CREATE TABLE IF NOT EXISTS time_blocks (
 -- the same note): a soft reference (no SQL FOREIGN KEY, matching this table's existing
 -- FK-by-convention columns like location_id, and elective_set_activities.
 -- activity_id's precedent) to activities.id, replacing the by-NAME link
--- src/engine/anchorActivityLink.js resolved through (the T62 scar its header
+-- src/engine/fixedEventActivityLink.js resolved through (the T62 scar its header
 -- describes). Appended LAST — ALTER-added on a migrated db, so declaring it
 -- last here keeps a fresh install's column order byte-identical to a
 -- migrated one (column-order trap, same discipline as every other column on

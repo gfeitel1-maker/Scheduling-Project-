@@ -5,7 +5,7 @@ const groups = [{ id: 'g1', name: 'Bunk 1' }, { id: 'g2', name: 'Bunk 2' }]
 const days = [{ id: 'd1', label: 'Monday', day_of_week: 1 }]
 const timeBlocks = [{ id: 'b1', name: 'Period 1', start_time: '09:00:00', end_time: '10:00:00' }]
 const activities = [{ id: 'act-1', name: 'Swimming' }, { id: 'act-2', name: 'Kayaking' }]
-const anchors = [{ id: 'anc-1', name: 'Lunch' }]
+const fixedEvents = [{ id: 'anc-1', name: 'Lunch' }]
 const electiveSets = [{ id: 'set-1', name: 'Afternoon Chugim' }]
 const electiveSetActivities = [
   { elective_set_id: 'set-1', activity_id: 'act-1' },
@@ -16,7 +16,7 @@ const camp = { id: 'camp-1', name: 'Camp Shoresh' }
 const week = { id: 'w1', name: 'Week 1' }
 
 function base(slots) {
-  return { slots, activities, anchors, groups, days, timeBlocks, electiveSets, electiveSetActivities, events, camp, week, route: 'generated' }
+  return { slots, activities, fixedEvents, groups, days, timeBlocks, electiveSets, electiveSetActivities, events, camp, week, route: 'generated' }
 }
 
 describe('buildScheduleExport — versioned JSON schedule export', () => {
@@ -48,11 +48,11 @@ describe('buildScheduleExport — versioned JSON schedule export', () => {
 
   it('represents each cell kind: anchor / event / elective (with members)', () => {
     const slots = [
-      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', is_anchor: 1, anchor_id: 'anc-1' },
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', is_fixed_event: 1, fixed_event_id: 'anc-1' },
       { group_id: 'g2', day_id: 'd1', time_block_id: 'b1', event_id: 'ev-1' },
     ]
     const out = buildScheduleExport(base(slots))
-    expect(out.cells).toContainEqual({ group_id: 'g1', day_id: 'd1', time_block_id: 'b1', kind: 'anchor', ref_id: 'anc-1', name: 'Lunch' })
+    expect(out.cells).toContainEqual({ group_id: 'g1', day_id: 'd1', time_block_id: 'b1', kind: 'fixed_event', ref_id: 'anc-1', name: 'Lunch' })
     expect(out.cells).toContainEqual({ group_id: 'g2', day_id: 'd1', time_block_id: 'b1', kind: 'event', ref_id: 'ev-1', name: 'Color War' })
 
     const elOut = buildScheduleExport(base([{ group_id: 'g1', day_id: 'd1', time_block_id: 'b1', elective_set_id: 'set-1' }]))

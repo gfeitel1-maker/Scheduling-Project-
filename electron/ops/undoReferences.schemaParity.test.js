@@ -233,12 +233,12 @@ const ACCEPTED_NON_REFERENCES = [
   { table: 'open_reconciliation_decisions', column: 'import_run_id', reason: 'groups rows from one commitIngest call, not an entity pointer — mirrors import_evidence.import_run_id' },
 
   // -- documented dead column --
-  // Corrected in T180/v65: this column is NOT dead. src/engine/anchorScope.js reads it as the
+  // Corrected in T180/v65: this column is NOT dead. src/engine/fixedEventScope.js reads it as the
   // pre-v65 fallback for rows migrated before `unit_ids` existed. It stays accepted rather than
   // registered because nothing WRITES it (v65 backfills OUT of it, never into it) and no new row
   // can acquire one, so it cannot produce a fresh dangling reference — but the old reason
   // ("never read or written") was false and would have laundered forward as fact.
-  { table: 'fixed_events', column: 'unit_id', reason: 'legacy single-division column, read-only: resolved by src/engine/anchorScope.js as the pre-v65 fallback, never written by any code path (v65 backfills out of it into unit_ids)' },
+  { table: 'fixed_events', column: 'unit_id', reason: 'legacy single-division column, read-only: resolved by src/engine/fixedEventScope.js as the pre-v65 fallback, never written by any code path (v65 backfills out of it into unit_ids)' },
 
   // -- recomputed-on-every-device local journal: regenerated wholesale, not
   //    a live reference the undo/schedule layer reads --
@@ -296,13 +296,13 @@ describe('fixed_events has no incoming references', () => {
   it('no schema-parsed edge and no registered entry targets fixed_events', () => {
     const schemaEdgesIntoAnchors = parseSchemaReferences(schemaSql).filter((e) => e.toEntity === 'fixed_events')
     expect(schemaEdgesIntoAnchors).toEqual([])
-    // The one real convention edge into fixed_events (template_slots.anchor_id)
+    // The one real convention edge into fixed_events (template_slots.fixed_event_id)
     // IS registered below — this asserts there are no OTHER, undiscovered ones by
     // requiring every UNDO_REFERENCE_CHECKS entry targeting fixed_events to be
     // exactly that one known edge.
     const registeredIntoAnchors = UNDO_REFERENCE_CHECKS.filter((c) => c.toEntity === 'fixed_events')
     expect(registeredIntoAnchors).toEqual([
-      { fromTable: 'template_slots', fromColumn: 'anchor_id', toEntity: 'fixed_events', kind: 'scalar', enforced: false },
+      { fromTable: 'template_slots', fromColumn: 'fixed_event_id', toEntity: 'fixed_events', kind: 'scalar', enforced: false },
     ])
   })
 })
@@ -342,7 +342,7 @@ describe('the naming-convention scanner', () => {
     // to pass.
     const db = migratedDb()
     const plantedRegistry = UNDO_REFERENCE_CHECKS.filter(
-      (c) => !(c.fromTable === 'template_slots' && c.fromColumn === 'anchor_id')
+      (c) => !(c.fromTable === 'template_slots' && c.fromColumn === 'fixed_event_id')
     )
     expect(plantedRegistry.length).toBe(UNDO_REFERENCE_CHECKS.length - 1) // sanity: the strip actually removed one
 
@@ -358,6 +358,6 @@ describe('the naming-convention scanner', () => {
         if (!registered && !accepted) unaccounted.push(`${table}.${column}`)
       }
     }
-    expect(unaccounted).toEqual(['template_slots.anchor_id'])
+    expect(unaccounted).toEqual(['template_slots.fixed_event_id'])
   })
 })

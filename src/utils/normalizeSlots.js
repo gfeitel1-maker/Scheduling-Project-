@@ -10,7 +10,7 @@
 //   every consumer treat `flags` as a plain object regardless of which write
 //   path last touched the row.
 //
-//   is_anchor / is_span_head / is_released — nullable INTEGER columns (added
+//   is_fixed_event / is_span_head / is_released — nullable INTEGER columns (added
 //   by ALTER TABLE in electron/db/localDb.js with no NOT NULL and no DEFAULT),
 //   so the renderer only ever sees 0/1, never false/true. Readers in
 //   ScheduleScreen (recalcStats, isActivityTail, getActivityRowSpan,
@@ -72,7 +72,7 @@ function stripStaleFlags(flags) {
 export function normalizeSlots(rows) {
   return (rows || []).map(row => {
     const booleans = {
-      is_anchor: toSlotBool(row.is_anchor),
+      is_fixed_event: toSlotBool(row.is_fixed_event),
       is_span_head: toSlotBool(row.is_span_head),
       is_released: toSlotBool(row.is_released),
     }

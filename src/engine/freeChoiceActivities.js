@@ -11,8 +11,8 @@
 // exclusion (isFreeChoiceActivity, below) reads ONLY `catalog_role` — that is
 // what keeps the row out of every free-choice menu. Independently,
 // `fixed_events.activity_id` links to this row (resolved in
-// src/engine/anchorActivityLink.js) and feeds the SEPARATE anchor-duplicate
-// exclusion in buildSchedule.js (anchoredActivityIdsByGroupDay). Delete the
+// src/engine/fixedEventActivityLink.js) and feeds the SEPARATE anchor-duplicate
+// exclusion in buildSchedule.js (fixedEventActivityIdsByGroupDay). Delete the
 // row and BOTH suppressions break: catalog_role stops existing to be read,
 // and the activity_id link dangles — the event is placed twice, with no
 // error and no finding. So pass 1/2 leaves a MARKER, NOT A HOLE: present

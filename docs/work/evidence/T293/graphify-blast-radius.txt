@@ -1,0 +1,120 @@
+# T293 graphify blast radius
+graph.json mtime: Sep 18 06:02:22 2026 — STALE (predates T266/T267 which renamed anchor_activities->fixed_events)
+
+## resolveAnchorActivityIds()
+Affected nodes for resolveAnchorActivityIds()
+Relations: calls, indirect_call, references, imports, imports_from, dynamic_import, re_exports, inherits, extends, implements, uses, mixes_in, embeds, requires
+Depth: 2
+- anchoredActivityIdsByGroupDay() [calls] src/engine/buildSchedule.js:L177
+- resolveWeekCatalog() [calls] src/engine/weekCatalog.js:L65
+- anchorActivityLink.test.js [imports] src/engine/anchorActivityLink.test.js:L2
+- buildSchedule.js [imports] src/engine/buildSchedule.js:L2
+- weekCatalog.js [imports] src/engine/weekCatalog.js:L1
+- computeFindings() [calls] src/engine/buildSchedule.js:L787
+- scheduleCohort() [calls] src/engine/buildSchedule.js:L236
+- buildSchedule.test.js [imports] src/engine/buildSchedule.test.js:L2
+- generate() [calls] src/screens/schedule/useGeneration.js:L69
+- placeAnchors() [calls] src/screens/schedule/useGeneration.js:L170
+- weekCatalog.test.js [imports] src/engine/weekCatalog.test.js:L2
+- useGeneration.js [imports] src/screens/schedule/useGeneration.js:L4
+- auditSlice4.mjs [imports_from] scripts/auditSlice4.mjs:L15
+- tools.js [imports_from] scripts/mcp/tools.js:L19
+- tools.test.js [imports_from] scripts/mcp/tools.test.js:L41
+- resolvePriorityForGeneration.test.js [imports_from] src/ingest/resolvePriorityForGeneration.test.js:L3
+- useGeneration.test.js [imports_from] src/screens/schedule/useGeneration.test.js:L12
+- useScheduleData.js [imports_from] src/screens/schedule/useScheduleData.js:L2
+- useSnapshots.js [imports_from] src/screens/schedule/useSnapshots.js:L2
+
+## resolveAnchorGroupIds()
+Affected nodes for resolveAnchorGroupIds()
+Relations: calls, indirect_call, references, imports, imports_from, dynamic_import, re_exports, inherits, extends, implements, uses, mixes_in, embeds, requires
+Depth: 2
+- commitPlan() [calls] electron/ops/ingest.js:L1757
+- anchorCoveredGroupIds() [calls] src/engine/buildSchedule.js:L153
+- scheduleCohort() [calls] src/engine/buildSchedule.js:L249
+- resolveWeekCatalog() [calls] src/engine/weekCatalog.js:L82
+- ops/ingest.js [imports] electron/ops/ingest.js:L25
+- scheduleInputNormalization.test.js [imports] electron/ops/scheduleInputNormalization.test.js:L13
+- anchorScope.test.js [imports] src/engine/anchorScope.test.js:L2
+- buildSchedule.js [imports] src/engine/buildSchedule.js:L3
+- weekCatalog.js [imports] src/engine/weekCatalog.js:L2
+- commitIngest() [calls] electron/ops/ingest.js:L718
+- ingest.s2b.test.js [imports] electron/ops/ingest.s2b.test.js:L18
+- ingest.s2c.test.js [imports] electron/ops/ingest.s2c.test.js:L24
+- ops/ingest.test.js [imports] electron/ops/ingest.test.js:L5
+- ingest.unit-provenance.test.js [imports] electron/ops/ingest.unit-provenance.test.js:L18
+- ingestRecognition.test.js [imports] electron/ops/ingestRecognition.test.js:L5
+- ingestUndo.test.js [imports] electron/ops/ingestUndo.test.js:L20
+- anchoredActivityIdsByGroupDay() [calls] src/engine/buildSchedule.js:L175
+- buildSchedule() [calls] src/engine/buildSchedule.js:L873
+- computeFindings() [calls] src/engine/buildSchedule.js:L781
+- generate() [calls] src/screens/schedule/useGeneration.js:L69
+- placeAnchors() [calls] src/screens/schedule/useGeneration.js:L170
+- weekCatalog.test.js [imports] src/engine/weekCatalog.test.js:L2
+- useGeneration.js [imports] src/screens/schedule/useGeneration.js:L4
+- rebuildFromDocument.test.js [imports_from] electron/automerge/rebuildFromDocument.test.js:L32
+- rebuildSupportCommand.test.js [imports_from] electron/automerge/rebuildSupportCommand.test.js:L14
+- main.js [imports_from] electron/main.js:L27
+- confirmAlias.js [imports_from] electron/ops/confirmAlias.js:L12
+
+## resolveAnchorDayIds()
+Affected nodes for resolveAnchorDayIds()
+Relations: calls, indirect_call, references, imports, imports_from, dynamic_import, re_exports, inherits, extends, implements, uses, mixes_in, embeds, requires
+Depth: 2
+- anchoredActivityIdsByGroupDay() [calls] src/engine/buildSchedule.js:L181
+- scheduleCohort() [calls] src/engine/buildSchedule.js:L253
+- anchorScope.test.js [imports] src/engine/anchorScope.test.js:L2
+- buildSchedule.js [imports] src/engine/buildSchedule.js:L3
+- computeFindings() [calls] src/engine/buildSchedule.js:L787
+- buildSchedule.test.js [imports] src/engine/buildSchedule.test.js:L2
+- buildSchedule() [calls] src/engine/buildSchedule.js:L873
+- auditSlice4.mjs [imports_from] scripts/auditSlice4.mjs:L15
+- tools.js [imports_from] scripts/mcp/tools.js:L19
+- tools.test.js [imports_from] scripts/mcp/tools.test.js:L41
+- resolvePriorityForGeneration.test.js [imports_from] src/ingest/resolvePriorityForGeneration.test.js:L3
+- useGeneration.js [imports_from] src/screens/schedule/useGeneration.js:L1
+- useGeneration.test.js [imports_from] src/screens/schedule/useGeneration.test.js:L12
+- useScheduleData.js [imports_from] src/screens/schedule/useScheduleData.js:L2
+- useSnapshots.js [imports_from] src/screens/schedule/useSnapshots.js:L2
+
+## resolveAnchorUnitIds()
+Affected nodes for resolveAnchorUnitIds()
+Relations: calls, indirect_call, references, imports, imports_from, dynamic_import, re_exports, inherits, extends, implements, uses, mixes_in, embeds, requires
+Depth: 2
+- anchorTierLabel() [calls] src/screens/AnchorsScreen.jsx:L675
+- anchorTierTitle() [calls] src/screens/AnchorsScreen.jsx:L682
+- anchorScope.test.js [imports] src/engine/anchorScope.test.js:L2
+- AnchorsScreen.jsx [imports] src/screens/AnchorsScreen.jsx:L15
+- App.jsx [imports_from] src/App.jsx:L18
+- AnchorsScreen.test.jsx [imports_from] src/screens/AnchorsScreen.test.jsx:L25
+
+## buildSchedule()
+No unique node match for buildSchedule()
+
+## placeAnchors()
+Affected nodes for placeAnchors()
+Relations: calls, indirect_call, references, imports, imports_from, dynamic_import, re_exports, inherits, extends, implements, uses, mixes_in, embeds, requires
+Depth: 2
+- useGeneration() [indirect_call] src/screens/schedule/useGeneration.js:L232
+- setup() [calls] src/screens/schedule/useGeneration.test.js:L62
+- ScheduleScreen() [calls] src/screens/ScheduleScreen.jsx:L390
+- useGeneration.test.js [imports] src/screens/schedule/useGeneration.test.js:L13
+- ScheduleScreen.jsx [imports] src/screens/ScheduleScreen.jsx:L36
+
+## anchoredActivityIdsByGroupDay()
+Affected nodes for anchoredActivityIdsByGroupDay()
+Relations: calls, indirect_call, references, imports, imports_from, dynamic_import, re_exports, inherits, extends, implements, uses, mixes_in, embeds, requires
+Depth: 2
+- computeFindings() [calls] src/engine/buildSchedule.js:L787
+- scheduleCohort() [calls] src/engine/buildSchedule.js:L236
+- buildSchedule.test.js [imports] src/engine/buildSchedule.test.js:L2
+- placeAnchors() [calls] src/screens/schedule/useGeneration.js:L226
+- recalcFindings() [calls] src/screens/schedule/useScheduleData.js:L56
+- restoreSnapshot() [calls] src/screens/schedule/useSnapshots.js:L177
+- useGeneration.js [imports] src/screens/schedule/useGeneration.js:L1
+- useScheduleData.js [imports] src/screens/schedule/useScheduleData.js:L2
+- useSnapshots.js [imports] src/screens/schedule/useSnapshots.js:L2
+- buildSchedule() [calls] src/engine/buildSchedule.js:L873
+
+## setAnchorLookup()
+No unique node match for setAnchorLookup()

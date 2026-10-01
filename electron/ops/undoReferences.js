@@ -35,7 +35,7 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   // as fixed_events.group_ids -> groups below: a JSON id-list with no DB-level FK, so
   // enforced:false. Division-scoped events are deliberately NOT given stronger integrity
   // than group-scoped ones — the consequence of deleting a tier is identical in kind to
-  // deleting a group, and resolveAnchorGroupIds (src/engine/anchorScope.js) resolves against
+  // deleting a group, and resolveFixedEventGroupIds (src/engine/fixedEventScope.js) resolves against
   // the LIVE group list, so a deleted division simply stops matching groups rather than
   // leaving a dangling pointer to chase.
   { fromTable: 'fixed_events', fromColumn: 'unit_ids', toEntity: 'tiers', kind: 'json_array', enforced: false },
@@ -64,7 +64,7 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   { fromTable: 'elective_choice_offerings', fromColumn: 'activity_id', toEntity: 'activities', kind: 'scalar', enforced: false },
   { fromTable: 'elective_assignments', fromColumn: 'activity_id', toEntity: 'activities', kind: 'scalar', enforced: false },
   // v75 (T267, docs/adr/2026-09-26-fixed-recurring-event-identity-model.md) — the new soft link
-  // replacing the by-name resolution src/engine/anchorActivityLink.js used. No DB REFERENCES
+  // replacing the by-name resolution src/engine/fixedEventActivityLink.js used. No DB REFERENCES
   // clause (schema.sql), matching elective_set_activities.activity_id's precedent below.
   { fromTable: 'fixed_events', fromColumn: 'activity_id', toEntity: 'activities', kind: 'scalar', enforced: false },
   // -- into days_of_operation --
@@ -93,7 +93,7 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   { fromTable: 'fixed_events', fromColumn: 'location_id', toEntity: 'locations', kind: 'scalar', enforced: false },
   { fromTable: 'events', fromColumn: 'location_id', toEntity: 'locations', kind: 'scalar', enforced: false },
   // -- into fixed_events --
-  { fromTable: 'template_slots', fromColumn: 'anchor_id', toEntity: 'fixed_events', kind: 'scalar', enforced: false }, // 3rd Red Hat pass finding: v17 ALTER-added column, missed by the original hand-search
+  { fromTable: 'template_slots', fromColumn: 'fixed_event_id', toEntity: 'fixed_events', kind: 'scalar', enforced: false }, // 3rd Red Hat pass finding: v17 ALTER-added column, missed by the original hand-search
   // T40 slice 1 (docs/work/specs/2026-08-20-special-days-data-shape-design.md):
   // special_day_slots.group_id/activity_id/location_id point at U2-deletable
   // entities (groups/activities/locations) the same soft way template_slots

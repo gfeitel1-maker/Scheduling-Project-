@@ -46,10 +46,10 @@ function firstMergeableCellKey({ selectedGroup, days, timeBlocks, geometry }) {
     if (!nextBlock) continue
     for (const day of days) {
       const slot = geometry.getSlot(selectedGroup, day.id, block.id)
-      if (!slot?.activity_id || slot.is_anchor) continue
+      if (!slot?.activity_id || slot.is_fixed_event) continue
       if (slot.flags?.expanded) continue
       const nextSlot = geometry.getSlot(selectedGroup, day.id, nextBlock.id)
-      if (nextSlot?.is_anchor || nextSlot?.is_span_head === false) continue
+      if (nextSlot?.is_fixed_event || nextSlot?.is_span_head === false) continue
       return `${selectedGroup}|${day.id}|${block.id}`
     }
   }
@@ -61,7 +61,7 @@ function firstMergeableCellKey({ selectedGroup, days, timeBlocks, geometry }) {
 export default function ManualBuildView({
   groups, days, timeBlocks,
   selectedGroup, onSelectGroup,
-  actMap, anchorMap,
+  actMap, fixedEventMap,
   geometry,
   eligibleActivitiesFor, onPlace, onCreateNew,
   onExpandSlot, onSplitSlot,
@@ -172,19 +172,19 @@ export default function ManualBuildView({
                       const cellKey = `${selectedGroup}|${day.id}|${block.id}`
 
                       // The tail of an anchor span — covered by the head's grid-row span.
-                      if (slot?.is_anchor && geometry.isAnchorTail(selectedGroup, day.id, block.id)) return null
+                      if (slot?.is_fixed_event && geometry.isAnchorTail(selectedGroup, day.id, block.id)) return null
 
                       // The tail of a merged activity span — covered by the head's grid-row span.
-                      if (slot?.activity_id && !slot.is_anchor && geometry.isActivityTail(selectedGroup, day.id, block.id)) return null
+                      if (slot?.activity_id && !slot.is_fixed_event && geometry.isActivityTail(selectedGroup, day.id, block.id)) return null
 
-                      if (slot?.is_anchor) {
+                      if (slot?.is_fixed_event) {
                         const rowSpan = geometry.getAnchorRowSpan(selectedGroup, day.id, block.id)
-                        const anchor = slot.anchor_id ? anchorMap.get(slot.anchor_id) : null
+                        const anchor = slot.fixed_event_id ? fixedEventMap.get(slot.fixed_event_id) : null
                         return (
                           <SlotCell
                             key={day.id}
                             rowSpan={rowSpan}
-                            slot={{ ...slot, type: 'anchor', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id }}
+                            slot={{ ...slot, type: 'fixed_event', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id }}
                             anchor={anchor}
                             weatherMode={false}
                             isDndEnabled={false}

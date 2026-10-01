@@ -57,13 +57,13 @@ function day(overrides = {}) { return { id: 'd1', camp_id: CAMP_ID, day_of_week:
 function timeBlock(overrides = {}) { return { id: 'b1', camp_id: CAMP_ID, name: 'Morning', sort_order: 1, start_time: '09:00:00', end_time: '10:00:00', ...overrides } }
 function activity(overrides = {}) { return { id: 'act-1', camp_id: CAMP_ID, name: 'Swim', ...overrides } }
 function tier(overrides = {}) { return { id: 't1', camp_id: CAMP_ID, name: 'Tier 1', sort_order: 1, ...overrides } }
-// DB shape, deliberately: is_anchor/is_span_head/is_released are INTEGER
+// DB shape, deliberately: is_fixed_event/is_span_head/is_released are INTEGER
 // columns (electron/db/localDb.js) and localClient.list() returns raw
 // `SELECT *` rows with no coercion (electron/main.js), so the renderer only
 // ever receives 0/1 here — never false/true. Fixturing JS booleans hid every
 // `=== false` comparison bug in the component.
 function slotRow(overrides = {}) {
-  return { id: 'slot-1', template_id: 'schedule-template:camp-1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', anchor_id: null, is_anchor: 0, is_span_head: 1, is_released: 0, flags: {}, ...overrides }
+  return { id: 'slot-1', template_id: 'schedule-template:camp-1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', fixed_event_id: null, is_fixed_event: 0, is_span_head: 1, is_released: 0, flags: {}, ...overrides }
 }
 
 function mockList(overridesByEntity = {}) {
@@ -306,7 +306,7 @@ describe('flags round-trips through bulk_replace as a parsed object (Round 2 Fix
 // resulting op-applied event fires loadAll(), and the reloaded rows come back as
 // integers. Without coercion isActivityTail()/getActivityRowSpan() stop
 // recognising the tail and the head activity renders twice in two unmerged
-// cells; recalcStats' `is_anchor === false` filters likewise match nothing.
+// cells; recalcStats' `is_fixed_event === false` filters likewise match nothing.
 describe('DB-shaped slots (integers, as list() actually returns) drive the span/stat readers correctly', () => {
   it('isActivityTail/getActivityRowSpan: a merged pair renders the head activity ONCE, in a rowSpan=2 cell — not twice in two unmerged cells', async () => {
     mockList({
@@ -330,7 +330,7 @@ describe('DB-shaped slots (integers, as list() actually returns) drive the span/
     expect(cell.style.gridRow).toMatch(/\/ span 2$/)
   })
 
-  it('recalcStats: `is_anchor === false` counts DB-loaded non-anchor slots instead of reporting 0/0 after every reload', async () => {
+  it('recalcStats: `is_fixed_event === false` counts DB-loaded non-anchor slots instead of reporting 0/0 after every reload', async () => {
     mockList()
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
 
@@ -470,7 +470,7 @@ describe('snapshot CRUD ported to localClient', () => {
     expect(localClient.write).toHaveBeenCalledWith('token-abc', 'schedule_snapshots', 'new-id-1', 'is_auto', false)
     expect(localClient.write).toHaveBeenCalledWith(
       'token-abc', 'schedule_snapshots', 'new-id-1', 'slots',
-      JSON.stringify([{ group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', anchor_id: null, is_anchor: false, flags: { UNFILLABLE: true } }])
+      JSON.stringify([{ group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', fixed_event_id: null, is_fixed_event: false, flags: { UNFILLABLE: true } }])
     )
 
     // Optimistic local state update — new snapshot appears in the dropdown.
@@ -503,7 +503,7 @@ describe('snapshot CRUD ported to localClient', () => {
 
   it('restoreSnapshot: parses stored slots JSON string back into an array and applies it to the live schedule', async () => {
     const storedSlots = JSON.stringify([
-      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-restored', anchor_id: null, is_anchor: false, flags: {} },
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-restored', fixed_event_id: null, is_fixed_event: false, flags: {} },
     ])
     mockList({
       schedule_snapshots: [
@@ -888,7 +888,7 @@ describe('separate manual and generated routes', () => {
     await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
   })
 
-  // Round 2. The neutral 'schedule' screen key (CampSetup / AnchorsScreen
+  // Round 2. The neutral 'schedule' screen key (CampSetup / FixedEventsScreen
   // "Next: Schedule") supplies no route. Falling through to a default would be
   // the app choosing a director's week for them.
   it('asks which week to open when the neutral entry is used and both exist', async () => {
@@ -1021,8 +1021,8 @@ describe('separate manual and generated routes', () => {
   })
 })
 
-// Red Hat HIGH (round 2): the ANCHOR_DUPLICATE gate (anchors passed only on
-// the generated route; computeFindings' safe default — absent anchors, no
+// Red Hat HIGH (round 2): the FIXED_EVENT_DUPLICATE gate (fixedEvents passed only on
+// the generated route; computeFindings' safe default — absent fixedEvents, no
 // finding — keeps manual clean) is hand-duplicated at THREE call sites.
 // useScheduleData's load loop is already pinned by useScheduleData.test.js.
 // This covers the ScheduleScreen.jsx `recalcFindings` closure (~line 506-512),
@@ -1030,18 +1030,18 @@ describe('separate manual and generated routes', () => {
 // (this file mocks nothing of it), so an anchor/duplicate-regular-slot
 // fixture that is present at LOAD time on both routes, followed by a paste
 // (which runs the closure, not the load loop), is what actually exercises it.
-describe('ScheduleScreen recalcFindings closure — ANCHOR_DUPLICATE stays generated-only after a slot edit, not just at load', () => {
+describe('ScheduleScreen recalcFindings closure — FIXED_EVENT_DUPLICATE stays generated-only after a slot edit, not just at load', () => {
   const GEN = 'schedule-template:camp-1'
   const MAN = 'schedule-template:camp-1:manual'
 
   // Anchor over "Swim" (b1), plus a stale duplicate regular Swim slot at b2
-  // (the T182 ANCHOR_DUPLICATE case, same fixture shape as
-  // buildSchedule.test.js's "computeFindings ANCHOR_DUPLICATE" describe
+  // (the T182 FIXED_EVENT_DUPLICATE case, same fixture shape as
+  // buildSchedule.test.js's "computeFindings FIXED_EVENT_DUPLICATE" describe
   // block), plus a Soccer slot at b3 to paste Swim onto (recomputes findings
   // via the slot-edit path without changing the anchor/duplicate condition).
   function anchorDuplicateSlots(templateId) {
     return [
-      slotRow({ id: `${templateId}-anchor`, template_id: templateId, time_block_id: 'b1', activity_id: 'anchor-slot', is_anchor: 1 }),
+      slotRow({ id: `${templateId}-anchor`, template_id: templateId, time_block_id: 'b1', activity_id: 'anchor-slot', is_fixed_event: 1 }),
       slotRow({ id: `${templateId}-dup`, template_id: templateId, time_block_id: 'b2', activity_id: 'act-1' }),
       slotRow({ id: `${templateId}-soccer`, template_id: templateId, time_block_id: 'b3', activity_id: 'act-2' }),
     ]
@@ -1100,7 +1100,7 @@ describe('ScheduleScreen recalcFindings closure — ANCHOR_DUPLICATE stays gener
     await waitFor(() => expect(flagsWriteFor(soccerSlotId)).toBeDefined())
   }
 
-  it('generated: ANCHOR_DUPLICATE is in the findings list after the slot-edit recompute', async () => {
+  it('generated: FIXED_EVENT_DUPLICATE is in the findings list after the slot-edit recompute', async () => {
     setupRoutes()
     render(routeScreen('generated'))
     await pasteSwimOntoSoccer(`${GEN}-soccer`)
@@ -1109,7 +1109,7 @@ describe('ScheduleScreen recalcFindings closure — ANCHOR_DUPLICATE stays gener
     await waitFor(() => expect(screen.getByText(/is also a fixed event this week/)).toBeTruthy())
   })
 
-  it('manual: ANCHOR_DUPLICATE never appears after the same slot-edit recompute, even with identical anchor/duplicate data', async () => {
+  it('manual: FIXED_EVENT_DUPLICATE never appears after the same slot-edit recompute, even with identical anchor/duplicate data', async () => {
     setupRoutes()
     render(routeScreen('manual'))
     await pasteSwimOntoSoccer(`${MAN}-soccer`)
@@ -1279,7 +1279,7 @@ describe('ScheduleScreen — generate() is route-explicit', () => {
     localClient.bulkReplace.mockImplementation((_t, entity, templateId, rows) => {
       store[entity] = [
         ...(store[entity] ?? []).filter(r => r.template_id !== templateId),
-        ...rows.map((r, i) => ({ ...r, id: `${templateId}-${i}`, is_anchor: r.is_anchor === '1' ? 1 : 0, is_span_head: r.is_span_head === '1' ? 1 : 0, is_released: 0, flags: {} })),
+        ...rows.map((r, i) => ({ ...r, id: `${templateId}-${i}`, is_fixed_event: r.is_fixed_event === '1' ? 1 : 0, is_span_head: r.is_span_head === '1' ? 1 : 0, is_released: 0, flags: {} })),
       ]
       return Promise.resolve({ status: 'applied' })
     })

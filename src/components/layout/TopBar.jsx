@@ -20,7 +20,7 @@ const TITLES = {
   activities:   'Activities',
   locations:    'Locations',
   fixedevents:  'Fixed Events',
-  anchors:      'Recurring Events',
+  recurringevents: 'Recurring Events',
   electives:    'Electives',
   specialevents: 'Special Events',
   schedule:              'Schedule',

@@ -155,8 +155,21 @@ describe('migration v73: fresh vs migrated equivalence (load-bearing per the ADR
     const schemaOnly = schemaSqlOnlyDb('v73-schema-only-cols')
     const migrated = migratedDb('v73-migrated-chain-cols')
 
+    // T293/v84: cohorts.anchor_model -> fixed_event_model is a SECOND, deliberate, pre-existing
+    // asymmetry between schema.sql's raw text and the full chain, same shape as the `locations`
+    // exclusion above. schema.sql's CREATE TABLE text keeps the OLD name on purpose
+    // (electron/db/schema.sql's own comment on the cohorts table explains why: the v84 migration's
+    // ALTER TABLE RENAME COLUMN must find a column named anchor_model on a genuine forward
+    // migration, and schemaSqlOnlyDb() here execs schema.sql with NO migrations applied, so it
+    // never experiences that rename). The full chain (migratedDb) DOES experience it, correctly.
+    // Normalized here rather than excluding `cohorts` wholesale, so every OTHER column on the
+    // table still catches a real divergence.
+    const normalizeCohortsRename = (info, table) =>
+      table === 'cohorts' ? info.map((c) => (c.name === 'anchor_model' ? { ...c, name: 'fixed_event_model' } : c)) : info
+
     for (const table of [...TABLES, 'conflicts'].filter((t) => t !== 'locations')) {
-      expect(tableInfo(migrated, table), `table_info mismatch for ${table}`).toEqual(tableInfo(schemaOnly, table))
+      expect(tableInfo(migrated, table), `table_info mismatch for ${table}`)
+        .toEqual(normalizeCohortsRename(tableInfo(schemaOnly, table), table))
     }
 
     schemaOnly.close()

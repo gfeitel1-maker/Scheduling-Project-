@@ -35,9 +35,9 @@ const FULL = {
   activities: [{ id: 'a1' }],
   // Recurring Events are expected, not merely optional (see the dedicated
   // describe block below) — a "fully set up" fixture includes at least one,
-  // so tests unrelated to anchors aren't tripped by its Needs-attention
+  // so tests unrelated to recurringevents aren't tripped by its Needs-attention
   // resting state.
-  anchors: [{ id: 'e1' }],
+  recurringevents: [{ id: 'e1' }],
 }
 
 const stateOf = (readiness, key) => readiness.find((r) => r.key === key)?.state
@@ -49,7 +49,7 @@ describe('getReadiness: the six-state layer', () => {
     // Recurring Events is expected, not a plain optional: an empty camp reads
     // Needs-attention here, not Optional — see the dedicated describe block
     // below. location/staffing carry no such expectation.
-    expect(stateOf(r, 'anchors')).toBe('needs-attention')
+    expect(stateOf(r, 'recurringevents')).toBe('needs-attention')
     expect(stateOf(r, 'location')).toBe('optional')
     expect(stateOf(r, 'staffing')).toBe('optional')
   })
@@ -60,8 +60,8 @@ describe('getReadiness: the six-state layer', () => {
   })
 
   it('marks an optional area Ready when it has rows', () => {
-    const r = getReadiness({ ...FULL, anchors: [{ id: 'e1' }] })
-    expect(stateOf(r, 'anchors')).toBe('ready')
+    const r = getReadiness({ ...FULL, recurringevents: [{ id: 'e1' }] })
+    expect(stateOf(r, 'recurringevents')).toBe('ready')
   })
 
   // The load-bearing identity: red is exactly the set getSetupGaps blocks on.
@@ -87,10 +87,10 @@ describe('getReadiness: the six-state layer', () => {
       // even with no data and an attention signal, non-required areas never go red
       const r = getReadiness({}, { attention: { [key]: 5 } })
       expect(stateOf(r, key)).not.toBe('missing')
-      // anchors is expected (see the dedicated describe block): it already
+      // recurringevents is expected (see the dedicated describe block): it already
       // reads Needs-attention on empty data alone, so the extra attention
       // signal changes nothing observable here.
-      expect(stateOf(r, key)).toBe(key === 'anchors' ? 'needs-attention' : 'optional')
+      expect(stateOf(r, key)).toBe(key === 'recurringevents' ? 'needs-attention' : 'optional')
     }
     // REQUIRED_AREAS never grows to include an optional/forward key.
     const requiredKeys = new Set(REQUIRED_AREAS.map((a) => a.key))
@@ -120,7 +120,7 @@ describe('getReadiness: the six-state layer', () => {
   })
 })
 
-// Recurring Events (anchors) are camp-wide anchors — carpool, flagpole, lunch,
+// Recurring Events (recurringevents) are camp-wide recurringevents — carpool, flagpole, lunch,
 // all-camp — not a nice-to-have. buildSchedule.js places them first, before
 // anything else can be scheduled over them (Pass 1, ~L108-293), and locks
 // those cells so nothing else can land there (~L372). The setup side mirrors
@@ -131,29 +131,29 @@ describe('getReadiness: the six-state layer', () => {
 // moves from Optional to Needs-attention.
 describe('getReadiness: Recurring Events are expected, not merely optional', () => {
   it('reads Needs-attention, not Optional, when a camp has zero recurring events', () => {
-    const r = getReadiness({ ...FULL, anchors: [] })
-    expect(stateOf(r, 'anchors')).toBe('needs-attention')
+    const r = getReadiness({ ...FULL, recurringevents: [] })
+    expect(stateOf(r, 'recurringevents')).toBe('needs-attention')
   })
 
   it('reads Ready once the camp has at least one recurring event', () => {
     const r = getReadiness(FULL)
-    expect(stateOf(r, 'anchors')).toBe('ready')
+    expect(stateOf(r, 'recurringevents')).toBe('ready')
   })
 
   it('never reaches Missing, and never blocks getSetupGaps, however empty the camp', () => {
-    expect(stateOf(getReadiness({}), 'anchors')).not.toBe('missing')
-    expect(getSetupGaps({}).map((g) => g.key)).not.toContain('anchors')
-    expect(getSetupGaps({ ...FULL, anchors: [] }).map((g) => g.key)).not.toContain('anchors')
+    expect(stateOf(getReadiness({}), 'recurringevents')).not.toBe('missing')
+    expect(getSetupGaps({}).map((g) => g.key)).not.toContain('recurringevents')
+    expect(getSetupGaps({ ...FULL, recurringevents: [] }).map((g) => g.key)).not.toContain('recurringevents')
   })
 
   it('stays kind "optional" in the category spine — the middle state is a resting-state change, not a new kind', () => {
-    const anchorsCat = ALL_CATEGORIES.find((c) => c.key === 'anchors')
+    const anchorsCat = ALL_CATEGORIES.find((c) => c.key === 'recurringevents')
     expect(anchorsCat.kind).toBe('optional')
   })
 
   it('an explicit Not-applicable signal still overrides Needs-attention', () => {
-    const r = getReadiness(FULL, { notApplicable: { anchors: true } })
-    expect(stateOf(r, 'anchors')).toBe('not-applicable')
+    const r = getReadiness(FULL, { notApplicable: { recurringevents: true } })
+    expect(stateOf(r, 'recurringevents')).toBe('not-applicable')
   })
 })
 
@@ -220,7 +220,7 @@ describe('ALL_CATEGORIES: the stable spine', () => {
   it('lists required (setup order), then optional, then forward', () => {
     expect(ALL_CATEGORIES.map((c) => c.key)).toEqual([
       'tiers', 'groups', 'days', 'timeblocks', 'activities',
-      'anchors',
+      'recurringevents',
       'location', 'staffing',
     ])
   })

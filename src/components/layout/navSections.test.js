@@ -45,13 +45,13 @@ describe('NAV_SECTIONS sprouts items', () => {
     const keys = items.map(i => i.key)
     expect(keys).toContain('activities')
     expect(keys).toContain('fixedevents')
-    expect(keys).toContain('anchors')
+    expect(keys).toContain('recurringevents')
     expect(items.find(i => i.key === 'fixedevents').label).toBe('Fixed Events')
-    expect(items.find(i => i.key === 'anchors').label).toBe('Recurring Events')
+    expect(items.find(i => i.key === 'recurringevents').label).toBe('Recurring Events')
   })
 
   it('does not mark Fixed Events/Recurring Events optional — both are strongly-expected, not nice-to-haves', () => {
-    for (const key of ['fixedevents', 'anchors']) {
+    for (const key of ['fixedevents', 'recurringevents']) {
       const item = items.find(i => i.key === key)
       expect(item.optional).toBeUndefined()
       expect(item.expected).toBe(true)

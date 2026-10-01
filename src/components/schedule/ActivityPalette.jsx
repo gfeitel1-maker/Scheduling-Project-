@@ -84,7 +84,7 @@ export default function ActivityPalette({
   collapsed = false,
   onToggleCollapse,
 }) {
-  const nonAnchorSlots = (slots || []).filter(s => !s.is_anchor)
+  const nonAnchorSlots = (slots || []).filter(s => !s.is_fixed_event)
   const [filter, setFilter] = useState('')
 
   if (collapsed) {

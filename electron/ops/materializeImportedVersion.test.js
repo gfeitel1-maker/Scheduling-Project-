@@ -158,7 +158,7 @@ describe('materializeImportedVersion', () => {
     const snap = db.prepare('SELECT * FROM schedule_snapshots WHERE id = ?').get(result.snapshotId)
     expect(snap.name).toBe('Imported schedule')
     expect(JSON.parse(snap.slots)).toEqual([
-      { group_id: groupId, day_id: dayId, time_block_id: blockId, activity_id: activityId, anchor_id: null, is_anchor: false, flags: {} },
+      { group_id: groupId, day_id: dayId, time_block_id: blockId, activity_id: activityId, fixed_event_id: null, is_fixed_event: false, flags: {} },
     ])
   })
 

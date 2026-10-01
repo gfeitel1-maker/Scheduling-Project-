@@ -305,7 +305,12 @@ const ACKNOWLEDGED_UNKNOWNS = new Map([
   [
     'v73 activities.catalog_role',
     {
-      blockHash: '94023759a3ed',
+      // Hash moved (T293, v84) when the v73 block's cohorts sub-rebuild was pulled out of the
+      // big multi-table exec() string into its own dynamically-column-named exec call (so a test
+      // harness that fakes a version rewind without undoing the actual table shape can't hit the
+      // column twice) — the activities rebuild this acknowledgement is actually about is
+      // byte-identical; only the surrounding source text inside the same block window moved.
+      blockHash: 'e7f26e8f720a',
       why:
         'v75 (T266) ALTER-adds activities.catalog_role. v73 REBUILDS activities from a ' +
         'hardcoded column list written before that column existed, so on a run that ' +

@@ -12,7 +12,7 @@ import Sidebar from './Sidebar'
 
 const DEFAULT_COUNTS = {
   cohorts: 1, tiers: 4, groups: 14, days: 5, timeblocks: 6, activities: 8,
-  anchors: 0, dayoverrides: 0, locations: 0,
+  recurringevents: 0, dayoverrides: 0, locations: 0,
 }
 
 let storage
@@ -117,7 +117,7 @@ describe('Sidebar: Roots — fixed, chevron-less top row (ADR Decision 3)', () =
     // neither was necessarily true of a camp that legitimately has none of
     // these, and neither was actionable. An empty row now says nothing, which
     // reads as what it is. "needed" survives only for the irreducible setup.
-    renderSidebar({ counts: { ...DEFAULT_COUNTS, anchors: 0, locations: 0 } })
+    renderSidebar({ counts: { ...DEFAULT_COUNTS, recurringevents: 0, locations: 0 } })
     expect(screen.queryByText('optional')).toBeNull()
     expect(screen.queryByText('attention')).toBeNull()
     for (const label of ['Locations', 'Special Events', 'Electives', 'Fixed Events', 'Recurring Events']) {
@@ -132,7 +132,7 @@ describe('Sidebar: Fixed Events and Recurring Events are two separate, expected 
   it('says nothing beside Recurring Events when a camp has zero of them', () => {
     // Previously "attention". A camp with no recurring events is a normal
     // camp, not one that needs a look — the word claimed otherwise.
-    renderSidebar({ counts: { ...DEFAULT_COUNTS, anchors: 0 } })
+    renderSidebar({ counts: { ...DEFAULT_COUNTS, recurringevents: 0 } })
     const anchorsRow = screen.getByText('Recurring Events').closest('button')
     expect(within(anchorsRow).queryByText('attention')).toBeNull()
     expect(within(anchorsRow).queryByText('optional')).toBeNull()
@@ -141,7 +141,7 @@ describe('Sidebar: Fixed Events and Recurring Events are two separate, expected 
   })
 
   it('says nothing but a tick once it has recurring events — no count', () => {
-    renderSidebar({ counts: { ...DEFAULT_COUNTS, anchors: 3 } })
+    renderSidebar({ counts: { ...DEFAULT_COUNTS, recurringevents: 3 } })
     const anchorsRow = screen.getByText('Recurring Events').closest('button')
     expect(within(anchorsRow).getByText('✓')).toBeTruthy()
     expect(within(anchorsRow).queryByText('attention')).toBeNull()

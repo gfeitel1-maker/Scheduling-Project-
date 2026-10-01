@@ -21,13 +21,13 @@ describe('detectCompoundCellPatterns', () => {
     expect(byPattern['Lunch + Leave']).toMatchObject({
       occurrences: 2,
       parts: ['Lunch', 'Leave'],
-      anchorGuess: 'Lunch',
+      baseGuess: 'Lunch',
       wrapperGuess: 'Leave',
     })
     expect(byPattern['Swim & Return']).toMatchObject({
       occurrences: 1,
       parts: ['Swim', 'Return'],
-      anchorGuess: 'Swim',
+      baseGuess: 'Swim',
       wrapperGuess: 'Return',
     })
     // Both "Lunch" and "Swim" also appear standalone in this fixture — neither
@@ -36,7 +36,7 @@ describe('detectCompoundCellPatterns', () => {
     expect(byPattern['Lunch & Swim']).toMatchObject({
       occurrences: 1,
       parts: ['Lunch', 'Swim'],
-      anchorGuess: null,
+      baseGuess: null,
       wrapperGuess: null,
     })
   })
@@ -85,7 +85,7 @@ describe('detectCompoundCellPatterns', () => {
       'Sports w/G3',
     ])
     for (const candidate of result) {
-      expect(candidate.anchorGuess).toBeNull()
+      expect(candidate.baseGuess).toBeNull()
       expect(candidate.wrapperGuess).toBeNull()
     }
   })

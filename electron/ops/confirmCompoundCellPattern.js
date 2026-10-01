@@ -34,7 +34,7 @@ export class ConfirmCompoundCellPatternError extends Error {
  */
 export function confirmCompoundCellPattern(
   db,
-  { camp_id, pattern, interpretation, anchor_name = null, wrapper_name = null, confirmed_by = null }
+  { camp_id, pattern, interpretation, base_name = null, wrapper_name = null, confirmed_by = null }
 ) {
   if (!camp_id) throw new ConfirmCompoundCellPatternError('camp_id_required')
   const patternText = String(pattern ?? '').trim()
@@ -43,11 +43,11 @@ export function confirmCompoundCellPattern(
     throw new ConfirmCompoundCellPatternError('invalid_interpretation', { interpretation })
   }
   // Red Hat (T118 slice 2 review) — 'wrapper' without both names is a row
-  // slice 3's extractEntities integration cannot resolve (anchor_name is what
+  // slice 3's extractEntities integration cannot resolve (base_name is what
   // it folds the wrapper cell onto); catching it here, at the one writer,
   // beats catching it downstream at read time with no trace back to this call.
-  if (interpretation === 'wrapper' && (!String(anchor_name ?? '').trim() || !String(wrapper_name ?? '').trim())) {
-    throw new ConfirmCompoundCellPatternError('wrapper_requires_names', { anchor_name, wrapper_name })
+  if (interpretation === 'wrapper' && (!String(base_name ?? '').trim() || !String(wrapper_name ?? '').trim())) {
+    throw new ConfirmCompoundCellPatternError('wrapper_requires_names', { base_name, wrapper_name })
   }
 
   const run = db.transaction(() => {
@@ -60,18 +60,18 @@ export function confirmCompoundCellPattern(
     if (existing) {
       db.prepare(
         `UPDATE compound_cell_decisions
-           SET interpretation = ?, anchor_name = ?, wrapper_name = ?, confirmed_by = ?, confirmed_at = ?
+           SET interpretation = ?, base_name = ?, wrapper_name = ?, confirmed_by = ?, confirmed_at = ?
            WHERE id = ?`
-      ).run(interpretation, anchor_name, wrapper_name, confirmed_by ?? null, now, existing.id)
+      ).run(interpretation, base_name, wrapper_name, confirmed_by ?? null, now, existing.id)
       return { id: existing.id }
     }
 
     const id = randomUUID()
     db.prepare(
       `INSERT INTO compound_cell_decisions
-         (id, camp_id, pattern, interpretation, anchor_name, wrapper_name, confirmed_by, confirmed_at)
+         (id, camp_id, pattern, interpretation, base_name, wrapper_name, confirmed_by, confirmed_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(id, camp_id, patternText, interpretation, anchor_name, wrapper_name, confirmed_by ?? null, now)
+    ).run(id, camp_id, patternText, interpretation, base_name, wrapper_name, confirmed_by ?? null, now)
     return { id }
   })
 

@@ -52,7 +52,7 @@ describe('mockShoresh.ingestCommit — compound-cell decisions (T118 slice 4)', 
       approved: {},
       cohort_id: null,
       compoundCellDecisions: [
-        { pattern: 'Lunch + Leave', interpretation: 'wrapper', anchor_name: 'Lunch', wrapper_name: 'Leave' },
+        { pattern: 'Lunch + Leave', interpretation: 'wrapper', base_name: 'Lunch', wrapper_name: 'Leave' },
       ],
     })
 
@@ -60,7 +60,7 @@ describe('mockShoresh.ingestCommit — compound-cell decisions (T118 slice 4)', 
 
     const state = JSON.parse(globalThis.localStorage.getItem(STORE_KEY))
     expect(state.__compoundCellDecisions).toEqual([
-      { pattern: 'Lunch + Leave', interpretation: 'wrapper', anchor_name: 'Lunch', wrapper_name: 'Leave' },
+      { pattern: 'Lunch + Leave', interpretation: 'wrapper', base_name: 'Lunch', wrapper_name: 'Leave' },
     ])
   })
 
@@ -70,7 +70,7 @@ describe('mockShoresh.ingestCommit — compound-cell decisions (T118 slice 4)', 
       approved: {},
       cohort_id: null,
       compoundCellDecisions: [
-        { pattern: 'Lunch + Leave', interpretation: 'wrapper', anchor_name: 'Lunch', wrapper_name: 'Leave' },
+        { pattern: 'Lunch + Leave', interpretation: 'wrapper', base_name: 'Lunch', wrapper_name: 'Leave' },
       ],
     })
     await mockShoresh.ingestCommit({
@@ -96,13 +96,13 @@ describe('mockShoresh.ingestCommit — compound-cell decisions (T118 slice 4)', 
       approved: {},
       cohort_id: null,
       compoundCellDecisions: [
-        { pattern: 'Lunch + Leave', interpretation: 'wrapper', anchor_name: 'Lunch', wrapper_name: 'Leave' },
+        { pattern: 'Lunch + Leave', interpretation: 'wrapper', base_name: 'Lunch', wrapper_name: 'Leave' },
       ],
     })
 
     const entries = await mockShoresh.listCompoundCellDecisions()
     expect(entries).toEqual([
-      ['Lunch + Leave', { interpretation: 'wrapper', anchor_name: 'Lunch', wrapper_name: 'Leave' }],
+      ['Lunch + Leave', { interpretation: 'wrapper', base_name: 'Lunch', wrapper_name: 'Leave' }],
     ])
   })
 

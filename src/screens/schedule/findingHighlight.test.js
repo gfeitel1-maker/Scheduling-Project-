@@ -10,7 +10,7 @@ const slot = (over) => ({
   id: over.id,
   group_id: 'g1',
   activity_id: 'a1',
-  is_anchor: false,
+  is_fixed_event: false,
   ...over,
 })
 
@@ -33,7 +33,7 @@ describe('slotIdsForFinding', () => {
   })
 
   it('never matches an anchor, even if group and activity line up', () => {
-    const slots = [slot({ id: 's1', is_anchor: true })]
+    const slots = [slot({ id: 's1', is_fixed_event: true })]
     expect(slotIdsForFinding(finding, slots)).toEqual([])
   })
 

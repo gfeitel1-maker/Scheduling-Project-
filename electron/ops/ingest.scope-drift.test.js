@@ -2,7 +2,7 @@
 // docs/adr/2026-08-10-ingestion-reconciliation-semantics.md (Phase C, C1a)
 //
 // A director who changes a live fixed-event anchor's GROUP SCOPE (is_all_groups
-// / group_ids) via AnchorsScreen and then re-imports the ORIGINAL source file
+// / group_ids) via FixedEventsScreen and then re-imports the ORIGINAL source file
 // (still showing the old scope) today gets silent unchanged classification —
 // the anchor slot key deliberately excludes scope (ingest.js anchorSlotKey),
 // so scope drift is invisible to the recognize-then-skip branch.
@@ -240,14 +240,14 @@ describe('C1a — anchor group-scope drift signal', () => {
     // bunks. Reading the live group_ids raw ([]) against the incoming resolved
     // bunks produced a spurious "scope changed from (nothing) to Bunk 1, Bunk 2"
     // on every re-import. Routing the live scope through the shared resolver
-    // (resolveAnchorGroupIds) makes it compare by the division's CURRENT groups.
+    // (resolveFixedEventGroupIds) makes it compare by the division's CURRENT groups.
     commit({ ...BASE, fixedEvents: [{
       name: 'Mifkad', time_block: '09:00-09:40', days: ['Monday'],
       scope: { is_all_groups: false, groups: ['Bunk 1', 'Bunk 2'] },
     }] })
 
     // Put both bunks in one division, and re-scope the live anchor to that
-    // division exactly as AnchorsScreen does (unit_ids set, group_ids '[]').
+    // division exactly as FixedEventsScreen does (unit_ids set, group_ids '[]').
     const tierId = randomUUID()
     db.prepare('INSERT INTO tiers (id, camp_id, name) VALUES (?, ?, ?)').run(tierId, campId, 'Juniors')
     db.prepare('UPDATE groups SET tier_id = ? WHERE camp_id = ?').run(tierId, campId)
@@ -266,7 +266,7 @@ describe('C1a — anchor group-scope drift signal', () => {
   })
 
   it('T183/red-hat: a transient is_all_groups=1 + stale unit_ids row (sync-replay window) resolves by division precedence, no spurious drift', () => {
-    // AnchorsScreen writes is_all_groups and unit_ids as SEPARATE op-log
+    // FixedEventsScreen writes is_all_groups and unit_ids as SEPARATE op-log
     // fields; switching a recurring event's scope leaves a replay window where
     // is_all_groups=1 has landed but unit_ids=[] has not. The shared resolver's
     // precedence is unit_ids > unit_id > is_all_groups > group_ids, so during

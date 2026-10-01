@@ -27,10 +27,10 @@ const timeBlocks = [
 // neighbour at the span's first row; Monday b2 is its left neighbour at the
 // span's second row — that is the pair the "enter from the side" rule needs.
 const slots = [
-  { id: 's1', group_id: 'g1', day_id: 'd2', time_block_id: 'b1', activity_id: 'a1', is_anchor: false },
-  { id: 's2', group_id: 'g1', day_id: 'd2', time_block_id: 'b2', activity_id: 'a1', is_anchor: false, is_span_head: false },
-  { id: 's3', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'a2', is_anchor: false },
-  { id: 's4', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'a2', is_anchor: false },
+  { id: 's1', group_id: 'g1', day_id: 'd2', time_block_id: 'b1', activity_id: 'a1', is_fixed_event: false },
+  { id: 's2', group_id: 'g1', day_id: 'd2', time_block_id: 'b2', activity_id: 'a1', is_fixed_event: false, is_span_head: false },
+  { id: 's3', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'a2', is_fixed_event: false },
+  { id: 's4', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'a2', is_fixed_event: false },
 ]
 
 const actMap = new Map([

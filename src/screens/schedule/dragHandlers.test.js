@@ -27,7 +27,7 @@ function baseDeps(overrides = {}) {
   }
 }
 
-const filledTarget = { activity_id: 'act-2', is_anchor: false }
+const filledTarget = { activity_id: 'act-2', is_fixed_event: false }
 
 describe('makeDragHandlers.commit', () => {
   it('group view: drop onto a filled cell calls replaceSlot', () => {
@@ -55,7 +55,7 @@ describe('makeDragHandlers.commit', () => {
   })
 
   it('drop onto an EMPTY cell also calls replaceSlot (grid-to-grid move, not a no-op)', () => {
-    const deps = baseDeps({ getSlot: vi.fn(() => ({ activity_id: null, is_anchor: false })) })
+    const deps = baseDeps({ getSlot: vi.fn(() => ({ activity_id: null, is_fixed_event: false })) })
     const { commit } = makeDragHandlers(deps)
     const active = { data: { current: { slot: { groupId: 'g1', dayId: 'd1', blockId: 'b1', activity_id: 'act-1' } } } }
     commit(active, hit('g1', 'd1', 'b2'))
@@ -75,7 +75,7 @@ describe('makeDragHandlers.commit', () => {
   })
 
   it('drop onto an anchor cell does not call replaceSlot', () => {
-    const deps = baseDeps({ getSlot: vi.fn(() => ({ is_anchor: true })) })
+    const deps = baseDeps({ getSlot: vi.fn(() => ({ is_fixed_event: true })) })
     const { commit } = makeDragHandlers(deps)
     const active = { data: { current: { slot: { groupId: 'g1', dayId: 'd1', blockId: 'b1', activity_id: 'act-1' } } } }
     commit(active, hit('g1', 'd1', 'b2'))
@@ -122,7 +122,7 @@ describe('makeDragHandlers.commit', () => {
   describe('palette-drop behaves identically for both views', () => {
     for (const view of ['group', 'day']) {
       it(`${view}: palette-drop onto an EMPTY cell calls placeActivityManual`, () => {
-        const deps = baseDeps({ getSlot: vi.fn(() => ({ is_anchor: false, activity_id: null })) })
+        const deps = baseDeps({ getSlot: vi.fn(() => ({ is_fixed_event: false, activity_id: null })) })
         const { commit } = makeDragHandlers(deps)
         const active = { data: { current: { paletteActivity: { id: 'act-1' } } } }
         commit(active, hit('g1', 'd1', 'b1'))
@@ -131,7 +131,7 @@ describe('makeDragHandlers.commit', () => {
       })
 
       it(`${view}: palette-drop onto an EMPTY cell forwards the drag gestureId as placeActivityManual's claim id (2026-08-12 ADR, FIX 1)`, () => {
-        const deps = baseDeps({ getSlot: vi.fn(() => ({ is_anchor: false, activity_id: null })) })
+        const deps = baseDeps({ getSlot: vi.fn(() => ({ is_fixed_event: false, activity_id: null })) })
         const { commit } = makeDragHandlers(deps)
         const active = { data: { current: { paletteActivity: { id: 'act-1' } } } }
         commit(active, hit('g1', 'd1', 'b1'), 'gesture-xyz')
@@ -139,7 +139,7 @@ describe('makeDragHandlers.commit', () => {
       })
 
       it(`${view}: palette-drop onto an occupied cell calls replaceSlot, not placeActivityManual`, () => {
-        const deps = baseDeps({ getSlot: vi.fn(() => ({ is_anchor: false, activity_id: 'act-2' })) })
+        const deps = baseDeps({ getSlot: vi.fn(() => ({ is_fixed_event: false, activity_id: 'act-2' })) })
         const { commit } = makeDragHandlers(deps)
         const active = { data: { current: { paletteActivity: { id: 'act-1' } } } }
         commit(active, hit('g1', 'd1', 'b1'))
@@ -152,7 +152,7 @@ describe('makeDragHandlers.commit', () => {
       })
 
       it(`${view}: palette-drop onto an anchor is refused`, () => {
-        const deps = baseDeps({ getSlot: vi.fn(() => ({ is_anchor: true })) })
+        const deps = baseDeps({ getSlot: vi.fn(() => ({ is_fixed_event: true })) })
         const { commit } = makeDragHandlers(deps)
         const active = { data: { current: { paletteActivity: { id: 'act-1' } } } }
         commit(active, hit('g1', 'd1', 'b1'))

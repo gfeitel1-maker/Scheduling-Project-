@@ -95,9 +95,9 @@ describe('validateBulkReplaceRows', () => {
   })
 
   // Sub-plan E Task 3: template_slots' column list was expanded to cover
-  // anchor_id/is_anchor/is_span_head/flags, which ScheduleScreen.jsx's
+  // fixed_event_id/is_fixed_event/is_span_head/flags, which ScheduleScreen.jsx's
   // generate()/placeAnchors()/restoreSnapshot() rows all carry.
-  it('accepts a template_slots row using every newly-added column (anchor_id/is_anchor/is_span_head/flags)', () => {
+  it('accepts a template_slots row using every newly-added column (fixed_event_id/is_fixed_event/is_span_head/flags)', () => {
     const result = validateBulkReplaceRows('template_slots', [
       {
         id: 's1',
@@ -106,8 +106,8 @@ describe('validateBulkReplaceRows', () => {
         activity_id: null,
         day_id: 'd1',
         time_block_id: 'b1',
-        anchor_id: 'anchor-1',
-        is_anchor: '1',
+        fixed_event_id: 'anchor-1',
+        is_fixed_event: '1',
         is_span_head: '0',
         flags: JSON.stringify({ conflict: true }),
       },

@@ -1,5 +1,5 @@
 // Headless assembly of buildSchedule()'s legacy-signature inputs
-// ({ groups, tiers, days, timeBlocks, activities, anchors, campId,
+// ({ groups, tiers, days, timeBlocks, activities, fixedEvents, campId,
 // locations, electiveSetActivities, events }) from DB rows, for callers that
 // have no renderer/React tree to load through. `electiveSetActivities`/
 // `events` (T193) are what let buildSchedule resolve an elective offering's
@@ -18,7 +18,7 @@
 // This module used to declare itself a MANUAL MIRROR of the renderer's
 // src/screens/schedule/useScheduleData.js `load()` — a hand-copied second
 // implementation of the same filter/sort/de-dupe/parse rules, kept aligned
-// by a comment. It did not stay aligned (it lost anchors' `unit_ids` parse
+// by a comment. It did not stay aligned (it lost fixedEvents' `unit_ids` parse
 // for the whole life of v65). Both sides now call the ONE implementation in
 // ./scheduleInputNormalization.js; the only thing left here is the fetch and
 // the choice of which normalized lists this legacy signature carries.
@@ -38,7 +38,7 @@ export function assembleScheduleEngineInputs(db, campId) {
   }
 
   const {
-    groups, tiers, days, timeBlocks, activities, anchors, locations,
+    groups, tiers, days, timeBlocks, activities, fixedEvents, locations,
     // `cohorts` and `electiveSets` are normalized but DELIBERATELY not
     // returned. buildSchedule's normalizeInput branches on `input.cohorts`
     // being present — handing it cohorts would switch every headless caller
@@ -49,5 +49,5 @@ export function assembleScheduleEngineInputs(db, campId) {
     electiveSetActivities, events,
   } = normalizeScheduleInputs(rowsByEntity, campId)
 
-  return { groups, tiers, days, timeBlocks, activities, anchors, locations, electiveSetActivities, events }
+  return { groups, tiers, days, timeBlocks, activities, fixedEvents, locations, electiveSetActivities, events }
 }

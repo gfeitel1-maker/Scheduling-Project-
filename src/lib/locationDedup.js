@@ -1,7 +1,7 @@
 import { lowestIdOf } from './nameIdTiebreak.js'
 
 // Shared body of the LocationPicker "create new" flow, used by both
-// ActivitiesScreen, AnchorsScreen and SpecialEventsScreen. See
+// ActivitiesScreen, FixedEventsScreen and SpecialEventsScreen. See
 // ActivitiesScreen.jsx's createLocation comment for the full
 // case-insensitive-dedupe rationale
 // (docs/adr/2026-08-15-locations-concurrent-create-collision.md option (d)).

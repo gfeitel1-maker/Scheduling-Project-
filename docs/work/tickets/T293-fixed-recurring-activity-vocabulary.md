@@ -1,7 +1,7 @@
 ---
 title: "Scope and pin down the fixed / recurring / activity vocabulary across the product"
 document_type: ticket
-status: open
+status: completed
 task_class: copy-terminology
 date: 2026-09-28
 created: 2026-09-28
@@ -41,12 +41,30 @@ Relevant existing surfaces to read and verify against code, not assume:
 3. Both captured in a Governor-produced vocabulary/scoping spec — promoted to an **ADR if it would
    change any behavior** — ready for owner review.
 
-## Non-goals
+## Non-goals (as originally written — superseded, see note below)
 
 - **Do not redesign the scheduling model in this ticket.** Scope and define first; any behavioral
   change is a separate, owner-gated follow-up.
 - No engine, schema, or UI code changes land under this ticket — it produces a spec and findings,
   not an implementation.
+
+## Closing note (2026-10-01)
+
+This ticket was written spec-only, with the Non-goals above stating no code lands under it. The
+owner's 2026-10-01 ruling — *"anchors should no longer be the terminology at any level"* and *"it
+should have already landed"* — superseded that scope: the mechanical rename itself (not a redesign,
+a vocabulary closeout of work T267 had already decided) landed as a follow-up PR under this ticket
+rather than as a new one, per
+`docs/adr/2026-10-01-anchors-become-fixed-and-recurring-events.md`. Schema v84 renamed
+`template_slots.anchor_id`/`is_anchor` → `fixed_event_id`/`is_fixed_event`,
+`cohorts.anchor_model` → `fixed_event_model`, and (a different, unrelated sense of "anchor")
+`compound_cell_decisions.anchor_name` → `base_name`; `src/screens/AnchorsScreen.jsx` →
+`FixedEventsScreen.jsx`, `src/engine/anchorScope.js` → `fixedEventScope.js`,
+`src/engine/anchorActivityLink.js` → `fixedEventActivityLink.js`, the `anchors` nav key →
+`recurringevents`, and the engine's `ANCHOR_DUPLICATE`/`ANCHOR_IDENTITY_GAP` finding kinds →
+`FIXED_EVENT_DUPLICATE`/`FIXED_EVENT_IDENTITY_GAP`. The engine's `buildSchedule()` determinism was
+pinned before and after (`src/engine/buildScheduleDeterminism.pin.test.js`): byte-identical `slots`,
+`findings` differing only in the two renamed kind strings.
 
 ## Notes
 

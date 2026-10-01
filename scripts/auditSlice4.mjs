@@ -71,7 +71,10 @@ function anchorFixture() {
     is_outdoor: false, location: null, location_id: 'L', max_groups_per_slot: 5, same_tier_only: false,
     eligible_tier_ids: [], eligible_group_ids: ['g2'], prefer_before_day: null, prefer_before_day_min: null,
   }]
-  return { groups, tiers: [{ id: 't1', name: 'Junior' }], days, timeBlocks, activities, anchors, campId: 'audit', locations }
+  // T293: buildScheduleBefore (the frozen pre-rename engine) reads `anchors`; buildScheduleAfter
+  // (the live engine, src/engine/buildSchedule.js) reads `fixedEvents` since the rename. Both keys
+  // carry the SAME array so neither side of the A/B comparison silently drops the fixture.
+  return { groups, tiers: [{ id: 't1', name: 'Junior' }], days, timeBlocks, activities, anchors, fixedEvents: anchors, campId: 'audit', locations }
 }
 
 // ── Fixture 2: event-driven contention ──────────────────────────────────────
@@ -90,7 +93,7 @@ function eventFixture() {
     is_outdoor: true, location: null, location_id: 'F', max_groups_per_slot: 5, same_tier_only: false,
     eligible_tier_ids: [], eligible_group_ids: ['g2'], prefer_before_day: null, prefer_before_day_min: null,
   }]
-  return { groups, tiers: [{ id: 't1', name: 'Junior' }], days, timeBlocks, activities, anchors: [], campId: 'audit', locations, events, preplacedSlots }
+  return { groups, tiers: [{ id: 't1', name: 'Junior' }], days, timeBlocks, activities, anchors: [], fixedEvents: [], campId: 'audit', locations, events, preplacedSlots }
 }
 
 // ── Fixture 3: elective-driven contention — mixed-location 3-offering set ──
@@ -125,7 +128,7 @@ function electiveFixture() {
     { id: 'free-art', name: 'Free Art', priority: 'high', max_per_week: 5, min_per_week: 1, span_blocks: 1, is_outdoor: false, location: null, location_id: 'ART', max_groups_per_slot: 5, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: ['g3'], prefer_before_day: null, prefer_before_day_min: null },
     { id: 'free-range', name: 'Free Archery', priority: 'high', max_per_week: 5, min_per_week: 1, span_blocks: 1, is_outdoor: false, location: null, location_id: 'RANGE', max_groups_per_slot: 5, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: ['g4'], prefer_before_day: null, prefer_before_day_min: null },
   ]
-  return { groups, tiers: [{ id: 't1', name: 'Junior' }], days, timeBlocks, activities, anchors: [], campId: 'audit', locations, electiveSetActivities, preplacedSlots }
+  return { groups, tiers: [{ id: 't1', name: 'Junior' }], days, timeBlocks, activities, anchors: [], fixedEvents: [], campId: 'audit', locations, electiveSetActivities, preplacedSlots }
 }
 
 // ── Fixture 4: realistic camp-shape — small shared high-traffic locations ──
@@ -165,7 +168,7 @@ function campShapeFixture() {
     { id: 'lunch-overflow', name: 'Second Lunch', priority: 'high', max_per_week: 5, min_per_week: 3, span_blocks: 1, is_outdoor: false, location: null, location_id: 'DINING', max_groups_per_slot: 5, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: ['g2', 'g3'], prefer_before_day: null, prefer_before_day_min: null },
     { id: 'field-sports', name: 'Field Sports', priority: 'low', max_per_week: 5, min_per_week: 2, span_blocks: 1, is_outdoor: true, location: null, location_id: 'FIELD', max_groups_per_slot: 5, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null },
   ]
-  return { groups, tiers: [{ id: 't1', name: 'Junior' }], days, timeBlocks, activities, anchors, campId: 'audit', locations, electiveSetActivities, preplacedSlots }
+  return { groups, tiers: [{ id: 't1', name: 'Junior' }], days, timeBlocks, activities, anchors, fixedEvents: anchors, campId: 'audit', locations, electiveSetActivities, preplacedSlots }
 }
 
 const fixtures = [
@@ -245,7 +248,7 @@ console.log(`- Total newly-UNFILLABLE cells: ${grandTotalNewlyUnfillable}`)
 console.log(`- Total newly-UNDERSERVED findings: ${grandTotalNewlyUnderserved}`)
 console.log(`- Determinism preserved across all fixtures: ${allDeterministic ? 'YES' : 'NO'}`)
 console.log()
-console.log('Note: anchor_activities.location_id and events.location_id have no writer yet in the')
+console.log('Note: fixed_events.location_id and events.location_id have no writer yet in the')
 console.log('shipped app (no location picker UI), so on real/production data today this slice\'s')
 console.log('real-world contention comes from ELECTIVES only, until the Recurring Events/Events')
 console.log('screens grow a location picker. The anchor/event fixtures above set fixture-only')

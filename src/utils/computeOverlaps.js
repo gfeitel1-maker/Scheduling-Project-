@@ -128,7 +128,7 @@ export function computeOverlaps({ slots, activities, locations, electiveSetActiv
     // placeBlocked and useSlotMutations' locationFull, closing the blind
     // spot where the three place-capacity consumers disagreed on this case.
     if (!loc) continue
-    const nonAnchorRows = rows.filter(r => !r.is_anchor)
+    const nonAnchorRows = rows.filter(r => !r.is_fixed_event)
     // All-anchor bucket (Flagpole: every group, same place, every day) is
     // correct by construction — never flag it, regardless of count vs
     // capacity. Only a bucket with at least one non-anchor row can be an
@@ -153,7 +153,7 @@ export function computeOverlaps({ slots, activities, locations, electiveSetActiv
   for (const { actId, rows } of actBuckets.values()) {
     const cap = actMap.get(actId)?.max_groups_per_slot
     if (!(cap > 0)) continue // null/0 = no per-activity cap
-    const nonAnchorRows = rows.filter(r => !r.is_anchor)
+    const nonAnchorRows = rows.filter(r => !r.is_fixed_event)
     if (nonAnchorRows.length === 0) continue // all-anchor bucket, never flag
     const groupCount = new Set(rows.map(r => r.group_id)).size
     if (groupCount <= cap) continue

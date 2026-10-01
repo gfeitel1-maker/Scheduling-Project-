@@ -595,7 +595,7 @@ describe('compound-cell decisions (T118 slice 3)', () => {
   it('a confirmed "wrapper" decision folds the wrapper cell onto the anchor alone', () => {
     const parsed = gridWithCell(LUNCH_LEAVE)
     const decisions = new Map([
-      [LUNCH_LEAVE, { interpretation: 'wrapper', anchor_name: 'Lunch', wrapper_name: 'Leave' }],
+      [LUNCH_LEAVE, { interpretation: 'wrapper', base_name: 'Lunch', wrapper_name: 'Leave' }],
     ])
     const { entities, seenCounts } = extractEntities(parsed, decisions)
     expect(entities.activities).toEqual(['Lunch'])
@@ -607,7 +607,7 @@ describe('compound-cell decisions (T118 slice 3)', () => {
   it('a confirmed "as_written" decision is identical to having no decision for that pattern', () => {
     const parsed = gridWithCell(LUNCH_LEAVE)
     const decisions = new Map([
-      [LUNCH_LEAVE, { interpretation: 'as_written', anchor_name: null, wrapper_name: null }],
+      [LUNCH_LEAVE, { interpretation: 'as_written', base_name: null, wrapper_name: null }],
     ])
     const withDecision = extractEntities(parsed, decisions)
     const withoutDecision = extractEntities(parsed)
@@ -619,7 +619,7 @@ describe('compound-cell decisions (T118 slice 3)', () => {
   it('a confirmed "alternatives" decision does not throw and keeps the cell literal, same as as_written for now', () => {
     const parsed = gridWithCell(LUNCH_LEAVE)
     const decisions = new Map([
-      [LUNCH_LEAVE, { interpretation: 'alternatives', anchor_name: null, wrapper_name: null }],
+      [LUNCH_LEAVE, { interpretation: 'alternatives', base_name: null, wrapper_name: null }],
     ])
     expect(() => extractEntities(parsed, decisions)).not.toThrow()
     const { entities, seenCounts } = extractEntities(parsed, decisions)
@@ -633,7 +633,7 @@ describe('compound-cell decisions (T118 slice 3)', () => {
   it('a pattern in the Map that never appears in this file is a no-op', () => {
     const parsed = gridWithCell('Swim')
     const decisions = new Map([
-      [LUNCH_LEAVE, { interpretation: 'wrapper', anchor_name: 'Lunch', wrapper_name: 'Leave' }],
+      [LUNCH_LEAVE, { interpretation: 'wrapper', base_name: 'Lunch', wrapper_name: 'Leave' }],
     ])
     expect(() => extractEntities(parsed, decisions)).not.toThrow()
     const { entities } = extractEntities(parsed, decisions)
@@ -649,7 +649,7 @@ describe('compound-cell decisions (T118 slice 3)', () => {
   // already slipped past once in this diff.
   describe('reaches every activityNamesFromCell caller (see capturePlacements.test.js for the 4th)', () => {
     const decisions = new Map([
-      [LUNCH_LEAVE, { interpretation: 'wrapper', anchor_name: 'Lunch', wrapper_name: 'Leave' }],
+      [LUNCH_LEAVE, { interpretation: 'wrapper', base_name: 'Lunch', wrapper_name: 'Leave' }],
     ])
 
     it('inferFixedEvents sees the resolved anchor name, not the wrapper text', () => {

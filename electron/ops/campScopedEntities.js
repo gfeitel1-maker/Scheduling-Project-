@@ -336,7 +336,7 @@ export const BULK_REPLACE_ENTITIES = {
   // Column list expanded (Sub-plan E Task 3): the original list only
   // anticipated id/template_id/group_id/activity_id/day_id/time_block_id.
   // ScheduleScreen.jsx's generate()/placeAnchors()/restoreSnapshot() rows
-  // also carry anchor_id, is_anchor, is_span_head, and flags — any row key
+  // also carry fixed_event_id, is_fixed_event, is_span_head, and flags — any row key
   // not listed here is rejected by validateBulkReplaceRows.
   template_slots: {
     table: 'template_slots',
@@ -348,8 +348,8 @@ export const BULK_REPLACE_ENTITIES = {
       'activity_id',
       'day_id',
       'time_block_id',
-      'anchor_id',
-      'is_anchor',
+      'fixed_event_id',
+      'is_fixed_event',
       'is_span_head',
       'flags',
       // v35 (T41 slice 1, docs/work/specs/2026-08-20-group-electives-design.md)

@@ -14,13 +14,13 @@ export const EVENT_REMOVED_LABEL = 'Event (removed)'
 
 export function buildScheduleLookups({
   activities = [],
-  anchors = [],
+  fixedEvents = [],
   electiveSets = [],
   electiveSetActivities = [],
   events = [],
 } = {}) {
   const actLookup = new Map(activities.map((a) => [a.id, a.name]))
-  const anchorLookup = new Map(anchors.map((a) => [a.id, a.name]))
+  const fixedEventLookup = new Map(fixedEvents.map((a) => [a.id, a.name]))
   const electiveSetLookup = new Map(electiveSets.map((s) => [s.id, s]))
   const eventLookup = new Map(events.map((e) => [e.id, e]))
   const electiveMembersBySet = new Map()
@@ -28,7 +28,7 @@ export function buildScheduleLookups({
     if (!electiveMembersBySet.has(m.elective_set_id)) electiveMembersBySet.set(m.elective_set_id, [])
     electiveMembersBySet.get(m.elective_set_id).push(m.activity_id)
   }
-  return { actLookup, anchorLookup, electiveSetLookup, eventLookup, electiveMembersBySet }
+  return { actLookup, fixedEventLookup, electiveSetLookup, eventLookup, electiveMembersBySet }
 }
 
 // Pure. Given a slot (or a falsy value for an unoccupied cell) and the lookups
@@ -36,8 +36,8 @@ export function buildScheduleLookups({
 // reference (the event/elective it points at was deleted).
 export function resolveSlotCell(slot, lookups) {
   if (!slot) return { kind: 'empty', ref_id: null, name: null }
-  if (slot.is_anchor) {
-    return { kind: 'anchor', ref_id: slot.anchor_id ?? null, name: lookups.anchorLookup.get(slot.anchor_id) ?? null }
+  if (slot.is_fixed_event) {
+    return { kind: 'fixed_event', ref_id: slot.fixed_event_id ?? null, name: lookups.fixedEventLookup.get(slot.fixed_event_id) ?? null }
   }
   if (slot.event_id) {
     const ev = lookups.eventLookup.get(slot.event_id)
@@ -61,7 +61,7 @@ export function resolveSlotCell(slot, lookups) {
 // from the per-day sheets (`X`, falling back to the literal `Anchor`).
 export function formatCellLabel(cell, { anchorBracket = false } = {}) {
   switch (cell.kind) {
-    case 'anchor':
+    case 'fixed_event':
       return anchorBracket ? `[Anchor] ${cell.name ?? ''}` : cell.name || 'Anchor'
     case 'event':
       return cell.missing ? EVENT_REMOVED_LABEL : cell.name

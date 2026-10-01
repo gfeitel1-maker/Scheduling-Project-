@@ -61,11 +61,11 @@ describe('findingDismissKey', () => {
   })
 
   it('binary kinds use coordinate-only keys, ignoring absent magnitude fields', () => {
-    // ANCHOR_DUPLICATE (T182) and DANGLING_LOCATION carry no got/needed — their
+    // FIXED_EVENT_DUPLICATE (T182) and DANGLING_LOCATION carry no got/needed — their
     // lifecycle is presence-only, cleared by the regenerate reset, so a stable
     // coordinate key is correct.
-    const anchorDup = { kind: 'ANCHOR_DUPLICATE', groupId: 'g1', activityId: 'lunch' }
-    expect(findingDismissKey(anchorDup)).toBe('g1|lunch|ANCHOR_DUPLICATE')
+    const anchorDup = { kind: 'FIXED_EVENT_DUPLICATE', groupId: 'g1', activityId: 'lunch' }
+    expect(findingDismissKey(anchorDup)).toBe('g1|lunch|FIXED_EVENT_DUPLICATE')
 
     const dangling = { kind: 'DANGLING_LOCATION', groupId: null, activityId: 'swim' }
     expect(findingDismissKey(dangling)).toBe('null|swim|DANGLING_LOCATION')
@@ -75,18 +75,18 @@ describe('findingDismissKey', () => {
     expect(findingDismissKey(unknown)).toBe('g1|swim|SOMETHING_NEW')
   })
 
-  // Review finding #2 — every ANCHOR_IDENTITY_GAP finding carries
+  // Review finding #2 — every FIXED_EVENT_IDENTITY_GAP finding carries
   // groupId:null, activityId:null (buildSchedule.js), so the coordinate-only
   // base key collapsed every such finding onto ONE key: dismissing one
   // fixed_events row's gap silently hid every other row's gap too. Each
-  // finding carries its own fixed_events row id as `anchorId` — the key must
+  // finding carries its own fixed_events row id as `fixedEventId` — the key must
   // fold that in so distinct anchors never collide.
-  it('ANCHOR_IDENTITY_GAP keys on anchorId, not just the (null, null) coordinates', () => {
-    const gap1 = { kind: 'ANCHOR_IDENTITY_GAP', groupId: null, activityId: null, anchorId: 'anc-1' }
-    const gap2 = { kind: 'ANCHOR_IDENTITY_GAP', groupId: null, activityId: null, anchorId: 'anc-2' }
+  it('FIXED_EVENT_IDENTITY_GAP keys on fixedEventId, not just the (null, null) coordinates', () => {
+    const gap1 = { kind: 'FIXED_EVENT_IDENTITY_GAP', groupId: null, activityId: null, fixedEventId: 'anc-1' }
+    const gap2 = { kind: 'FIXED_EVENT_IDENTITY_GAP', groupId: null, activityId: null, fixedEventId: 'anc-2' }
     expect(findingDismissKey(gap1)).not.toBe(findingDismissKey(gap2))
 
-    const gap1Again = { kind: 'ANCHOR_IDENTITY_GAP', groupId: null, activityId: null, anchorId: 'anc-1' }
+    const gap1Again = { kind: 'FIXED_EVENT_IDENTITY_GAP', groupId: null, activityId: null, fixedEventId: 'anc-1' }
     expect(findingDismissKey(gap1)).toBe(findingDismissKey(gap1Again))
   })
 })

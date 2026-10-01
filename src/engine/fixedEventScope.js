@@ -15,7 +15,7 @@ import { assertIdListShape } from './assertIdListShape.js'
  * Contract: group_ids/unit_ids are arrays of ids. Callers normalize; this
  * engine does not deserialize — see src/screens/schedule/useScheduleData.js.
  */
-export function resolveAnchorGroupIds(anchor, groups) {
+export function resolveFixedEventGroupIds(anchor, groups) {
   const unitIds = Array.isArray(anchor.unit_ids) ? anchor.unit_ids.filter(Boolean) : []
   if (unitIds.length) {
     const wanted = new Set(unitIds)
@@ -36,7 +36,7 @@ export function resolveAnchorGroupIds(anchor, groups) {
  * two places the moment the anchored-activity exclusion became day-keyed (Q5):
  * Pass 1's `anchorLookup` in buildSchedule.js, and the exclusion Map itself.
  * Extracted here rather than left duplicated, on the same reasoning that
- * produced resolveAnchorGroupIds one day earlier — two copies of a scope rule
+ * produced resolveFixedEventGroupIds one day earlier — two copies of a scope rule
  * is precisely how weekCatalog came to read `group_ids` raw while the engine
  * resolved divisions, and how several sibling defects arose on 2026-09-16.
  *
@@ -44,10 +44,10 @@ export function resolveAnchorGroupIds(anchor, groups) {
  * question, there is nothing to infer here and no confidence to carry.
  *
  * `days` must be the LIVE day list at evaluation time, for the same reason
- * resolveAnchorGroupIds takes live groups: a snapshot silently reintroduces the
+ * resolveFixedEventGroupIds takes live groups: a snapshot silently reintroduces the
  * staleness T180 removed, and nothing would fail.
  */
-export function resolveAnchorDayIds(anchor, days) {
+export function resolveFixedEventDayIds(anchor, days) {
   const dayId = anchor?.day_id
   if (dayId != null && dayId !== '') return [dayId]
   return (days || []).map((d) => d.id)
@@ -59,7 +59,7 @@ export function resolveAnchorDayIds(anchor, days) {
  *
  *   { mode: 'all' | 'divisions' | 'none', unitIds: string[], inferred: boolean }
  *
- * It shares ONE precedence with resolveAnchorGroupIds — unit_ids > unit_id >
+ * It shares ONE precedence with resolveFixedEventGroupIds — unit_ids > unit_id >
  * is_all_groups > group_ids — so the two projections can never disagree about
  * WHICH rule fired. `is_all_groups` returns mode 'all' (the word "all", not an
  * enumeration of every division), so the caller never re-encodes "which rule
@@ -72,11 +72,11 @@ export function resolveAnchorDayIds(anchor, days) {
  * inference and never rendered as stored division scope. The group projection
  * has no such hazard (it returns literal ids) and carries no flag.
  *
- * Same no-deserialize contract as resolveAnchorGroupIds: unit_ids/group_ids
+ * Same no-deserialize contract as resolveFixedEventGroupIds: unit_ids/group_ids
  * must already be arrays, and `groups` must be the live list with tier_id on
  * every element.
  */
-export function resolveAnchorUnitIds(anchor, groups) {
+export function resolveFixedEventUnitIds(anchor, groups) {
   const unitIds = Array.isArray(anchor.unit_ids) ? anchor.unit_ids.filter(Boolean) : []
   if (unitIds.length) return { mode: 'divisions', unitIds, inferred: false }
   if (anchor.unit_id != null && anchor.unit_id !== '') {

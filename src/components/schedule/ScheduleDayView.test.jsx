@@ -33,12 +33,12 @@ const LONG_NAME = 'Extremely Long Waterfront Activity Name That Would Clip'
 
 const slots = [
   // Spanning head in the SECOND group column: b1 -> b2 on Monday.
-  { id: 's1', group_id: 'g2', day_id: 'd1', time_block_id: 'b1', activity_id: 'a1', is_anchor: false },
-  { id: 's2', group_id: 'g2', day_id: 'd1', time_block_id: 'b2', activity_id: 'a1', is_anchor: false, is_span_head: false },
+  { id: 's1', group_id: 'g2', day_id: 'd1', time_block_id: 'b1', activity_id: 'a1', is_fixed_event: false },
+  { id: 's2', group_id: 'g2', day_id: 'd1', time_block_id: 'b2', activity_id: 'a1', is_fixed_event: false, is_span_head: false },
   // Non-merged neighbours: different activities in the two columns of block 3.
-  { id: 's3', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'a2', is_anchor: false },
-  { id: 's4', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: 'a2', is_anchor: false },
-  { id: 's5', group_id: 'g2', day_id: 'd1', time_block_id: 'b3', activity_id: 'a1', is_anchor: false },
+  { id: 's3', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'a2', is_fixed_event: false },
+  { id: 's4', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: 'a2', is_fixed_event: false },
+  { id: 's5', group_id: 'g2', day_id: 'd1', time_block_id: 'b3', activity_id: 'a1', is_fixed_event: false },
 ]
 
 const actMap = new Map([
@@ -59,7 +59,7 @@ function renderView(extra = {}) {
         onSelectDay={noop}
         weatherMode={false}
         actMap={actMap}
-        anchorMap={new Map()}
+        fixedEventMap={new Map()}
         releaseCell={noop}
         geometry={geometry}
         eligibleActivitiesFor={() => []}
@@ -199,8 +199,8 @@ describe('ScheduleDayView — merge/split/extend parity with Group view (WS5 Dai
 
   it('calls onSplitSlot(groupId, dayId, blockId) when splitting an already-merged span', () => {
     const merged = [
-      { id: 's1', group_id: 'g2', day_id: 'd1', time_block_id: 'b1', activity_id: 'a1', is_anchor: false },
-      { id: 's2', group_id: 'g2', day_id: 'd1', time_block_id: 'b2', activity_id: 'a1', is_anchor: false, is_span_head: false },
+      { id: 's1', group_id: 'g2', day_id: 'd1', time_block_id: 'b1', activity_id: 'a1', is_fixed_event: false },
+      { id: 's2', group_id: 'g2', day_id: 'd1', time_block_id: 'b2', activity_id: 'a1', is_fixed_event: false, is_span_head: false },
     ]
     const geometry = makeGridGeometry({ slots: merged, timeBlocks, groups })
     const calls = []
@@ -279,7 +279,7 @@ describe('ScheduleDayView — collapse (T56 extends T55)', () => {
   it('derives one row-level flag dot per row, scanned across GROUPS', () => {
     const flagged = [
       ...slots.filter(s => s.id !== 's4'),
-      { id: 's4', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: 'a2', is_anchor: false, flags: { UNFILLABLE: true } },
+      { id: 's4', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: 'a2', is_fixed_event: false, flags: { UNFILLABLE: true } },
     ]
     const geometry = makeGridGeometry({ slots: flagged, timeBlocks, groups })
     const shut = renderView({ geometry, collapsedBlockIds: new Set(['b3']) })

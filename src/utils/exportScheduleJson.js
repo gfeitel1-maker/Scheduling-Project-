@@ -11,7 +11,7 @@ import { buildScheduleLookups, resolveSlotCell } from './scheduleCells.js'
 export function buildScheduleExport({
   slots = [],
   activities = [],
-  anchors = [],
+  fixedEvents = [],
   groups = [],
   days = [],
   timeBlocks = [],
@@ -22,7 +22,7 @@ export function buildScheduleExport({
   week = null,
   route = null,
 } = {}) {
-  const lookups = buildScheduleLookups({ activities, anchors, electiveSets, electiveSetActivities, events })
+  const lookups = buildScheduleLookups({ activities, fixedEvents, electiveSets, electiveSetActivities, events })
   const cells = []
   for (const slot of slots) {
     const cell = resolveSlotCell(slot, lookups)

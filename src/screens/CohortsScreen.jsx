@@ -16,7 +16,7 @@ import { duplicateSiblingsByIdFor } from './duplicateSiblings.js'
 // docs/adr/2026-08-12-setup-crud-shared-persistence-seam.md.
 const repository = createSetupCrudRepository({ localClient })
 
-const ANCHOR_MODELS = [
+const FIXED_EVENT_MODELS = [
   { value: 'none',     label: 'None — no recurring events' },
   { value: 'fixed',    label: 'Fixed — recurring events happen at the same time every day' },
   { value: 'floating', label: 'Floating — recurring events can move within the day (coming soon)' },
@@ -32,7 +32,7 @@ function CohortRow({ cohort, onSave, onDelete, duplicateSiblings }) {
   const [name, setName] = useState(cohort.name)
   const [weekStart, setWeekStart] = useState(cohort.session_week_start)
   const [weekEnd, setWeekEnd] = useState(cohort.session_week_end)
-  const [anchorModel, setAnchorModel] = useState(cohort.anchor_model)
+  const [fixedEventModel, setFixedEventModel] = useState(cohort.fixed_event_model)
   const [capacitySource, setCapacitySource] = useState(cohort.capacity_source)
   const [sortOrder, setSortOrder] = useState(cohort.sort_order)
   const [saving, setSaving] = useState(false)
@@ -45,7 +45,7 @@ function CohortRow({ cohort, onSave, onDelete, duplicateSiblings }) {
         name: name.trim(),
         session_week_start: Number(weekStart),
         session_week_end: Number(weekEnd),
-        anchor_model: anchorModel,
+        fixed_event_model: fixedEventModel,
         capacity_source: capacitySource,
         sort_order: Number(sortOrder),
       })
@@ -63,7 +63,7 @@ function CohortRow({ cohort, onSave, onDelete, duplicateSiblings }) {
     setName(cohort.name)
     setWeekStart(cohort.session_week_start)
     setWeekEnd(cohort.session_week_end)
-    setAnchorModel(cohort.anchor_model)
+    setFixedEventModel(cohort.fixed_event_model)
     setCapacitySource(cohort.capacity_source)
     setSortOrder(cohort.sort_order)
     setEditing(false)
@@ -88,8 +88,8 @@ function CohortRow({ cohort, onSave, onDelete, duplicateSiblings }) {
           </div>
         </td>
         <td style={S.td}>
-          <select value={anchorModel} onChange={e => setAnchorModel(e.target.value)} style={S.input}>
-            {ANCHOR_MODELS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          <select value={fixedEventModel} onChange={e => setFixedEventModel(e.target.value)} style={S.input}>
+            {FIXED_EVENT_MODELS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </td>
         <td style={S.td}>
@@ -121,7 +121,7 @@ function CohortRow({ cohort, onSave, onDelete, duplicateSiblings }) {
         {cohort.session_week_start}–{cohort.session_week_end}
       </td>
       <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>
-        {ANCHOR_MODELS.find(o => o.value === cohort.anchor_model)?.label ?? '—'}
+        {FIXED_EVENT_MODELS.find(o => o.value === cohort.fixed_event_model)?.label ?? '—'}
       </td>
       <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>
         {CAPACITY_SOURCES.find(o => o.value === cohort.capacity_source)?.label ?? '—'}
@@ -198,7 +198,7 @@ export default function CohortsScreen({ campId }) {
         camp_id: campId,
         session_week_start: 1,
         session_week_end: 1,
-        anchor_model: 'fixed',
+        fixed_event_model: 'fixed',
         capacity_source: 'groups_per_slot',
         sort_order: sortVal,
       })

@@ -22,7 +22,7 @@ import { isHumanOwned, isHumanDeleted } from './fieldProvenance.js'
 import { PARENT_SCOPED_ENTITIES } from './campScopedEntities.js'
 import { normalizeName, recognitionKey } from '../../src/ingest/preview.js'
 import { buildPlan, CLEAR } from '../../src/ingest/buildPlan.js'
-import { resolveAnchorGroupIds } from '../../src/engine/anchorScope.js'
+import { resolveFixedEventGroupIds } from '../../src/engine/fixedEventScope.js'
 import { foldApprovedToRecords, enrichSnapshotRow, resolveFieldWrite, dbFieldFor } from '../../src/ingest/fieldUpdate.js'
 import { activityTruthStatus } from '../../src/ingest/truthStatus.js'
 import { resolveLocationCreateId } from './locationCreate.js'
@@ -302,7 +302,7 @@ function listAliasMap(db, camp_id, cohort_id) {
  * T118 slice 2: host-local read of confirmed compound-cell-pattern
  * decisions, sibling to listAliasMap above. Returns a `Map` keyed by the
  * literal `pattern` string (the exact cell text as it appeared), value =
- * `{ interpretation, anchor_name, wrapper_name }` — the minimal shape
+ * `{ interpretation, base_name, wrapper_name }` — the minimal shape
  * slice 3's extractEntities integration needs.
  * docs/adr/2026-09-03-compound-cell-interpretation.md.
  */
@@ -310,14 +310,14 @@ export function listCompoundCellDecisions(db, camp_id) {
   const map = new Map()
   const rows = db
     .prepare(
-      `SELECT pattern, interpretation, anchor_name, wrapper_name
+      `SELECT pattern, interpretation, base_name, wrapper_name
          FROM compound_cell_decisions WHERE camp_id = ?`
     )
     .all(camp_id)
   for (const row of rows) {
     map.set(row.pattern, {
       interpretation: row.interpretation,
-      anchor_name: row.anchor_name,
+      base_name: row.base_name,
       wrapper_name: row.wrapper_name,
     })
   }
@@ -1271,7 +1271,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
 
   // C1b: the drift-pairing group is (cohort_id, normalizeName(name)) — the
   // dimension a director's move CAN'T change (saveAnchor mutates day_id/
-  // time_block_id, never cohort_id or name; AnchorsScreen.jsx:315 vs :326).
+  // time_block_id, never cohort_id or name; FixedEventsScreen.jsx:315 vs :326).
   // day_id/time_block_id are the two coordinates that CAN drift, hence the
   // pairing key below one level under anchorSlotKey.
   const anchorGroupKey = (cohortId, name) => `${cohortId ?? ''}|${normalizeName(name)}`
@@ -1822,7 +1822,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     const anchorSlots = new Set()
     // C1a: slotKey -> live group scope, built in the same scan (ADR Phase C,
     // C1a). anchorSlotKey deliberately excludes scope, so a director's scope
-    // edit (AnchorsScreen) is invisible to the recognize-then-skip branch
+    // edit (FixedEventsScreen) is invisible to the recognize-then-skip branch
     // above unless compared separately here. Read-only per ADR §4 — this map
     // is consulted below to REPORT a drift, never to write one.
     const liveAnchorScope = new Map()
@@ -1839,7 +1839,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       anchorSlots.add(slotKey)
       // Malformed group_ids/unit_ids (partial sync / hand-edited SQLite / old
       // migration) must not crash an unrelated import — mirror
-      // AnchorsScreen.jsx's parseIdList defensive posture: a parse failure
+      // FixedEventsScreen.jsx's parseIdList defensive posture: a parse failure
       // makes this slot's scope "uncomparable" (null sentinel), so the
       // compare block below skips the drift check for it rather than
       // throwing a raw SyntaxError past the transaction.
@@ -1863,11 +1863,11 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       // resolver's terminal branches return exactly what was read before, and
       // an unparseable group_ids on a non-division row still yields the `null`
       // uncomparable sentinel (unit_ids empty → resolver never consulted).
-      // Branch order MUST match resolveAnchorGroupIds's precedence
+      // Branch order MUST match resolveFixedEventGroupIds's precedence
       // (unit_ids > unit_id > is_all_groups > group_ids): division scope is
       // checked FIRST. A kind='recurring' row can transiently carry
       // is_all_groups=1 alongside a stale non-empty unit_ids during op-log
-      // replay (AnchorsScreen writes those as separate field ops), and the v65
+      // replay (FixedEventsScreen writes those as separate field ops), and the v65
       // CHECK permits it. Checking is_all_groups first would resolve such a row
       // as all-groups while the engine/label resolve it as the division —
       // reintroducing this ticket's own spurious-drift class for that row.
@@ -1880,7 +1880,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         // coverage and is_all_groups=0, which is what the engine/label see —
         // never the transient flag, which would leak into the compare below.
         liveIsAllGroups = 0
-        liveGroupIds = resolveAnchorGroupIds(
+        liveGroupIds = resolveFixedEventGroupIds(
           { is_all_groups: 0, group_ids: [], unit_ids: unitIds ?? [], unit_id: row.unit_id },
           liveGroupsWithTier,
         )
@@ -2221,8 +2221,8 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
 
     // C1b: read-only slot-drift MOVED signal (docs/work/tickets/
     // C1b-anchor-slot-drift-moved-signal.md). A director who moves a live
-    // anchor via AnchorsScreen (day_id/time_block_id, never cohort_id or
-    // name — saveAnchor, AnchorsScreen.jsx:315) leaves T72's exact-slot
+    // anchor via FixedEventsScreen (day_id/time_block_id, never cohort_id or
+    // name — saveAnchor, FixedEventsScreen.jsx:315) leaves T72's exact-slot
     // recognize-then-skip blind to the drift: re-importing the ORIGINAL file
     // would silently mint a duplicate at the old slot. A naive "match by name
     // at a different slot" is unsafe (names aren't unique, per-day fan-out
@@ -2375,7 +2375,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       const clampedSpanBlocks = Math.min(fe.span_blocks ?? 1, Math.max(blocksRemaining, 1))
 
       // Per-day fan-out — one row per resolved day, each its own uuid. Matches
-      // AnchorsScreen: is_all_groups 1|0, group_ids a JSON string.
+      // FixedEventsScreen: is_all_groups 1|0, group_ids a JSON string.
       for (const dayId of dayIds) {
         // T72: recognize-then-skip. If this slot is already live (or was just
         // created by an earlier day-row this same import), emit no ops and mint
@@ -2498,7 +2498,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         // in this file uses. A fixed event whose name matches no catalog
         // activity at all (a real event like "Mifkad", not a pinned
         // activity) legitimately resolves to null here — buildSchedule.js's
-        // ANCHOR_IDENTITY_GAP finding is scoped to rows the app expects to
+        // FIXED_EVENT_IDENTITY_GAP finding is scoped to rows the app expects to
         // carry a link, not to every fixed_events row unconditionally.
         const linkedActivityId = activityIdByName.get(normalizeName(fe.name)) ?? null
         const fields = {
@@ -2508,7 +2508,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
           time_block_id: tbId,
           // The name stays load-bearing for DISPLAY and for resolving
           // linkedActivityId above, but scheduling now reads activity_id
-          // (src/engine/anchorActivityLink.js) — set together, below, in the
+          // (src/engine/fixedEventActivityLink.js) — set together, below, in the
           // same commit that creates/matches the activity itself.
           name: String(fe.name ?? '').trim(),
           ...(linkedActivityId ? { activity_id: linkedActivityId } : {}),
@@ -2532,7 +2532,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
           // own test suite, not merely theoretical).
           // T183 PR-2: a preserved division scope forces kind='recurring',
           // is_all_groups=0, empty group_ids and the carried unit_ids — the
-          // exact shape AnchorsScreen writes, so the two scope columns never
+          // exact shape FixedEventsScreen writes, so the two scope columns never
           // disagree (the state T180 exists to end). kind stays FIRST so the
           // v65 CHECK's recurring branch is satisfied before is_all_groups/
           // group_ids/unit_ids land. Absent a preserved scope, grid scope is

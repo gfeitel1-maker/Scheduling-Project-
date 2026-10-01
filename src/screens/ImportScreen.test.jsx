@@ -766,13 +766,13 @@ describe('ImportScreen — compound-cell interpretation (T118 slice 4)', () => {
     const call = localClient.ingestCommit.mock.calls[0][0]
     expect(call.approved.activities).not.toContain('Lunch + Leave')
     expect(call.compoundCellDecisions).toEqual([
-      { pattern: 'Lunch + Leave', interpretation: 'wrapper', anchor_name: 'Lunch', wrapper_name: 'Leave' },
+      { pattern: 'Lunch + Leave', interpretation: 'wrapper', base_name: 'Lunch', wrapper_name: 'Leave' },
     ])
   })
 
   it('a pattern already confirmed at this camp never shows a card again on re-import', async () => {
     localClient.listCompoundCellDecisions.mockResolvedValueOnce(
-      new Map([['Lunch + Leave', { interpretation: 'wrapper', anchor_name: 'Lunch', wrapper_name: 'Leave' }]])
+      new Map([['Lunch + Leave', { interpretation: 'wrapper', base_name: 'Lunch', wrapper_name: 'Leave' }]])
     )
     parseTextGrid.mockReturnValueOnce({ pages: compoundPages })
     extractEntities.mockReturnValueOnce(proposalWithCompoundCells)
@@ -789,7 +789,7 @@ describe('ImportScreen — compound-cell interpretation (T118 slice 4)', () => {
   // 2026-09-03 pressure-testing finding, against a real Camp B file:
   // "Change/Snack" is a genuine wrapper pattern (Change is a transition
   // word), but neither "Change" nor "Snack" ever appears as its own
-  // standalone cell in that file, so anchorGuess/wrapperGuess come back
+  // standalone cell in that file, so baseGuess/wrapperGuess come back
   // null. The v1 UI used to fall back to raw split order ("Change" first in
   // the text) as the guessed anchor — which was BACKWARDS on the real file
   // and would have fabricated a weekly-frequency rule for "Change" itself,

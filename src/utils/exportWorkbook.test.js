@@ -57,7 +57,7 @@ function fixture() {
       },
     ],
     // SLICE B2 (board q-export-columns-do-not-round-trip) — fixed_events gets its own "Fixed
-    // Events" sheet, re-imported via AnchorsScreen's own door, not the whole-workbook S4b path
+    // Events" sheet, re-imported via FixedEventsScreen's own door, not the whole-workbook S4b path
     // (see `screenImportOnly` on this entity's SHEET_LAYOUT entry).
     fixed_events: [
       {
@@ -179,7 +179,7 @@ describe('exportWorkbook — Fixed Events sheet (SLICE B2, board q-export-column
     expect(rows[1].time_block_name).toBe('Second Period')
   })
 
-  it('renders is_all_groups as TRUE/FALSE text, matching AnchorsScreen\'s own parser', () => {
+  it('renders is_all_groups as TRUE/FALSE text, matching FixedEventsScreen\'s own parser', () => {
     const wb = exportWorkbook(fixture())
     const rows = sheetRows(wb, 'Fixed Events')
     expect(rows[0].is_all_tiers).toBe('TRUE')

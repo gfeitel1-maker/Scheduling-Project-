@@ -43,7 +43,7 @@ const DOORS = [
   { screen: 'DaysScreen', sheetName: 'Days', requiredColumns: ['label'], field: 'label', expect: 'Monday' },
   { screen: 'GroupsScreen', sheetName: 'Groups', requiredColumns: ['name', 'tier_name'], field: 'name', expect: 'Bunk 1' },
   { screen: 'ActivitiesScreen', sheetName: 'Activities', requiredColumns: ['name'], field: 'name', expect: 'Archery' },
-  { screen: 'AnchorsScreen', sheetName: 'Fixed Events', requiredColumns: ['name', 'day_label'], field: 'name', expect: 'Lunch' },
+  { screen: 'FixedEventsScreen', sheetName: 'Fixed Events', requiredColumns: ['name', 'day_label'], field: 'name', expect: 'Lunch' },
   // The two doors an earlier count of this defect missed. Both key on `name`, so both had the WORSE
   // failure rather than the mild one: the camp's `Programs` tab arriving as an age division and as a
   // time block. Six doors, not four — recorded here because a short count is how the fifth and sixth

@@ -61,12 +61,12 @@ function preV35Db(tag = 'v35-migrated') {
     flags TEXT,
     is_released INTEGER,
     is_span_head INTEGER,
-    anchor_id TEXT,
-    is_anchor INTEGER
+    fixed_event_id TEXT,
+    is_fixed_event INTEGER
   )`)
   db.exec(`INSERT INTO template_slots
-    (id, template_id, group_id, activity_id, day_id, time_block_id, flags, is_released, is_span_head, anchor_id, is_anchor)
-    SELECT id, template_id, group_id, activity_id, day_id, time_block_id, flags, is_released, is_span_head, anchor_id, is_anchor
+    (id, template_id, group_id, activity_id, day_id, time_block_id, flags, is_released, is_span_head, fixed_event_id, is_fixed_event)
+    SELECT id, template_id, group_id, activity_id, day_id, time_block_id, flags, is_released, is_span_head, fixed_event_id, is_fixed_event
     FROM template_slots_tmp`)
   db.exec('DROP TABLE template_slots_tmp')
   db.pragma('foreign_keys = ON')
@@ -167,7 +167,7 @@ describe('migration v35: fresh vs migrated equivalence', () => {
     // up), so it must expect that trailing column too.
     expect(cols).toEqual([
       'id', 'template_id', 'group_id', 'activity_id', 'day_id', 'time_block_id',
-      'flags', 'is_released', 'is_span_head', 'anchor_id', 'is_anchor', 'elective_set_id', 'event_id',
+      'flags', 'is_released', 'is_span_head', 'fixed_event_id', 'is_fixed_event', 'elective_set_id', 'event_id',
     ])
     db.close()
   })

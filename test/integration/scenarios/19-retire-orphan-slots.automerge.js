@@ -64,7 +64,7 @@ export async function run() {
     for (let i = 0; i < 4; i++) {
       host.db.prepare(
         `INSERT INTO template_slots
-           (id, template_id, group_id, activity_id, day_id, time_block_id, flags, is_span_head, is_anchor)
+           (id, template_id, group_id, activity_id, day_id, time_block_id, flags, is_span_head, is_fixed_event)
          VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0)`
       ).run(`orphan-slot-${i}`, orphanId, GROUP_ID, ACTIVITY_ID, null, null, '{}')
     }

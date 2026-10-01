@@ -10,7 +10,7 @@ const ROUTES = ['generated', 'manual']
 function slotRow(overrides = {}) {
   return {
     id: 's1', template_id: 'tid-1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1',
-    activity_id: null, anchor_id: null, is_anchor: false, flags: {},
+    activity_id: null, fixed_event_id: null, is_fixed_event: false, flags: {},
     ...overrides,
   }
 }
@@ -104,8 +104,8 @@ describe('useScheduleData', () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false))
 
-    expect(result.current.setupLists.anchors).toHaveLength(1)
-    expect(result.current.setupLists.anchors[0].group_ids).toEqual(['g1', 'g2'])
+    expect(result.current.setupLists.fixedEvents).toHaveLength(1)
+    expect(result.current.setupLists.fixedEvents[0].group_ids).toEqual(['g1', 'g2'])
   })
 
   // Scenario 2: repo.loadTemplateData throwing sets templateError while
@@ -385,30 +385,30 @@ describe('useScheduleData', () => {
 })
 
 // T182 leftover (docs/work/tickets/T182-stale-anchor-duplicate-finding.md):
-// ANCHOR_DUPLICATE is gated by CONVENTION at the useScheduleData.js call site
-// (the `r === 'generated' ? recalcFindings(saved, {..., anchors: anc, ...}) :
+// FIXED_EVENT_DUPLICATE is gated by CONVENTION at the useScheduleData.js call site
+// (the `r === 'generated' ? recalcFindings(saved, {..., fixedEvents: anc, ...}) :
 // recalcFindings(saved, {groups, activities, days})` branch), not by any type
 // distinction in computeFindings itself. A manual-route slot list identical
 // to a generated one must never surface the finding, because
 // "regenerate to clear it" is meaningless on a route with no regenerate.
-describe('ANCHOR_DUPLICATE route gating (T182)', () => {
+describe('FIXED_EVENT_DUPLICATE route gating (T182)', () => {
   const GENERATED_TID = deriveScheduleTemplateId('week-1', 'generated')
   const MANUAL_TID = deriveScheduleTemplateId('week-1', 'manual')
 
   function makeAnchorDuplicateRepo() {
     // Fixture derived from the emission site (src/engine/buildSchedule.js
-    // computeFindings, ANCHOR_DUPLICATE push at line ~867): a finding fires
+    // computeFindings, FIXED_EVENT_DUPLICATE push at line ~867): a finding fires
     // when a regular (non-anchor) slot's activity_id is also anchored for
-    // that same group+day via anchoredActivityIdsByGroupDay — i.e. an anchor
+    // that same group+day via fixedEventActivityIdsByGroupDay — i.e. an anchor
     // (fixed_events row) whose resolved group scope covers the slot's group,
     // whose resolved day scope covers the slot's day, and whose
     // resolved activity id equals the slot's activity_id.
     const anchor = {
       id: 'anc-1', camp_id: CAMP_ID,
-      activity_id: 'act-1',      // resolveAnchorActivityIds: activity_id field
-      group_ids: ['g1'],          // resolveAnchorGroupIds: falls through to group_ids
-      day_id: 'd1',                // resolveAnchorDayIds: single day_id
-      schedule_week_id: null,      // null matches any weekId (anchoredActivityIdsByGroupDay filter)
+      activity_id: 'act-1',      // resolveFixedEventActivityIds: activity_id field
+      group_ids: ['g1'],          // resolveFixedEventGroupIds: falls through to group_ids
+      day_id: 'd1',                // resolveFixedEventDayIds: single day_id
+      schedule_week_id: null,      // null matches any weekId (fixedEventActivityIdsByGroupDay filter)
     }
     // One regular, non-anchor, activity-carrying slot row PER ROUTE, same
     // group/day/activity as the anchor — this is the "matching anchor/regular
@@ -442,7 +442,7 @@ describe('ANCHOR_DUPLICATE route gating (T182)', () => {
     })
   }
 
-  it('POSITIVE CONTROL: surfaces ANCHOR_DUPLICATE on the generated route for a matching anchor/regular pair', async () => {
+  it('POSITIVE CONTROL: surfaces FIXED_EVENT_DUPLICATE on the generated route for a matching anchor/regular pair', async () => {
     const repo = makeAnchorDuplicateRepo()
     const { result } = renderHook(() =>
       useScheduleData({ campId: CAMP_ID, weekId: 'week-1', repo, routes: ROUTES })
@@ -450,10 +450,10 @@ describe('ANCHOR_DUPLICATE route gating (T182)', () => {
     await waitFor(() => expect(result.current.loading).toBe(false))
 
     const generatedFindings = result.current.templateData.findingsByRoute.generated
-    expect(generatedFindings.some(f => f.kind === 'ANCHOR_DUPLICATE')).toBe(true)
+    expect(generatedFindings.some(f => f.kind === 'FIXED_EVENT_DUPLICATE')).toBe(true)
   })
 
-  it('never surfaces ANCHOR_DUPLICATE on the manual route, even with the same matching anchor/regular pair', async () => {
+  it('never surfaces FIXED_EVENT_DUPLICATE on the manual route, even with the same matching anchor/regular pair', async () => {
     const repo = makeAnchorDuplicateRepo()
     const { result } = renderHook(() =>
       useScheduleData({ campId: CAMP_ID, weekId: 'week-1', repo, routes: ['manual'] })
@@ -461,16 +461,16 @@ describe('ANCHOR_DUPLICATE route gating (T182)', () => {
     await waitFor(() => expect(result.current.loading).toBe(false))
 
     const manualFindings = result.current.templateData.findingsByRoute.manual
-    expect(manualFindings.some(f => f.kind === 'ANCHOR_DUPLICATE')).toBe(false)
+    expect(manualFindings.some(f => f.kind === 'FIXED_EVENT_DUPLICATE')).toBe(false)
   })
 })
 
 describe('recalcStats (pure)', () => {
   it('counts open (non-anchor) and filled (non-anchor with an activity) slots', () => {
     const slots = [
-      slotRow({ is_anchor: false, activity_id: 'act-1' }),
-      slotRow({ is_anchor: false, activity_id: null }),
-      slotRow({ is_anchor: true, activity_id: 'act-2' }),
+      slotRow({ is_fixed_event: false, activity_id: 'act-1' }),
+      slotRow({ is_fixed_event: false, activity_id: null }),
+      slotRow({ is_fixed_event: true, activity_id: 'act-2' }),
     ]
     expect(recalcStats(slots)).toEqual({ open: 2, filled: 1 })
   })
@@ -481,8 +481,8 @@ describe('recalcStats (pure)', () => {
 
   it('excludes unavailable-typed slots from open (they are permanently unplaceable time, not open time)', () => {
     const slots = [
-      slotRow({ is_anchor: false, activity_id: 'act-1' }),
-      slotRow({ is_anchor: false, activity_id: null, type: 'unavailable' }),
+      slotRow({ is_fixed_event: false, activity_id: 'act-1' }),
+      slotRow({ is_fixed_event: false, activity_id: null, type: 'unavailable' }),
     ]
     expect(recalcStats(slots)).toEqual({ open: 1, filled: 1 })
   })

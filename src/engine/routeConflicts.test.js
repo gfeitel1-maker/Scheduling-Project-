@@ -6,16 +6,16 @@ const loc1 = { id: 'loc1', name: 'Waterfront', capacity: 1 }
 const loc2Cap2 = { id: 'loc2', name: 'Field', capacity: 2 }
 
 function activitySlot({ groupId, cohort_id, activityId, dayId = 'd1', blockId = 'b1' }) {
-  return { groupId, dayId, blockId, cohort_id, type: 'activity', activityId, anchorId: null }
+  return { groupId, dayId, blockId, cohort_id, type: 'activity', activityId, fixedEventId: null }
 }
-function anchorSlot({ groupId, cohort_id, anchorId, dayId = 'd1', blockId = 'b1' }) {
-  return { groupId, dayId, blockId, cohort_id, type: 'anchor', activityId: null, anchorId }
+function anchorSlot({ groupId, cohort_id, fixedEventId, dayId = 'd1', blockId = 'b1' }) {
+  return { groupId, dayId, blockId, cohort_id, type: 'fixed_event', activityId: null, fixedEventId }
 }
 function eventSlot({ groupId, cohort_id, eventId, dayId = 'd1', blockId = 'b1' }) {
-  return { groupId, dayId, blockId, cohort_id, type: 'event', activityId: null, anchorId: null, eventId }
+  return { groupId, dayId, blockId, cohort_id, type: 'event', activityId: null, fixedEventId: null, eventId }
 }
 function electiveSlot({ groupId, cohort_id, electiveSetId, dayId = 'd1', blockId = 'b1' }) {
-  return { groupId, dayId, blockId, cohort_id, type: 'elective', activityId: null, anchorId: null, electiveSetId }
+  return { groupId, dayId, blockId, cohort_id, type: 'elective', activityId: null, fixedEventId: null, electiveSetId }
 }
 
 describe('findRouteConflicts', () => {
@@ -29,7 +29,7 @@ describe('findRouteConflicts', () => {
       activitySlot({ groupId: 'g2', cohort_id: 'c2', activityId: 'act2' }),
     ]
 
-    const conflicts = findRouteConflicts({ slots, activities, anchors: [], electiveSetActivities: [], events: [], locations: [loc1] })
+    const conflicts = findRouteConflicts({ slots, activities, fixedEvents: [], electiveSetActivities: [], events: [], locations: [loc1] })
 
     expect(conflicts).toHaveLength(1)
     expect(conflicts[0].kind).toBe('OUTER_RESOURCE_CONFLICT')
@@ -45,15 +45,15 @@ describe('findRouteConflicts', () => {
   })
 
   it('flags an anchor in one cohort colliding with an elective offering in another cohort', () => {
-    const anchors = [{ id: 'anc1', name: 'Lunch', location_id: 'loc1' }]
+    const fixedEvents = [{ id: 'anc1', name: 'Lunch', location_id: 'loc1' }]
     const activities = [{ id: 'offering1', name: 'Waterfront Swim', location_id: 'loc1' }]
     const electiveSetActivities = [{ elective_set_id: 'es1', activity_id: 'offering1' }]
     const slots = [
-      anchorSlot({ groupId: 'g1', cohort_id: 'c1', anchorId: 'anc1' }),
+      anchorSlot({ groupId: 'g1', cohort_id: 'c1', fixedEventId: 'anc1' }),
       electiveSlot({ groupId: 'g2', cohort_id: 'c2', electiveSetId: 'es1' }),
     ]
 
-    const conflicts = findRouteConflicts({ slots, activities, anchors, electiveSetActivities, events: [], locations: [loc1] })
+    const conflicts = findRouteConflicts({ slots, activities, fixedEvents, electiveSetActivities, events: [], locations: [loc1] })
 
     expect(conflicts).toHaveLength(1)
     expect(conflicts[0].occupants.map((o) => o.groupId).sort()).toEqual(['g1', 'g2'])
@@ -61,8 +61,37 @@ describe('findRouteConflicts', () => {
     expect(conflicts[0].occupants.some((o) => /lunch/i.test(o.label))).toBe(true)
     expect(conflicts[0].occupants.some((o) => /waterfront swim/i.test(o.label))).toBe(true)
     const bySource = Object.fromEntries(conflicts[0].occupants.map((o) => [o.sourceKind, o.sourceId]))
-    expect(bySource.anchor).toBe('anc1')
+    expect(bySource.fixed_event).toBe('anc1')
     expect(bySource.elective).toBe('es1')
+  })
+
+  // T293 regression: findRouteConflicts' first-argument property was renamed anchors -> fixedEvents.
+  // Two call sites (src/localClient.mock.js, electron/ops/electiveRunResourceConflicts.js) kept
+  // building the object with the OLD `anchors:` key — silently handing this function `undefined`,
+  // so fixedEventById stayed an empty Map and no fixed-event location conflict was ever detected.
+  // It compiles clean; nothing but a real fixed-event collision in a live call surfaces it. This
+  // test exercises findRouteConflicts the same way a correct call site must, with a fixed event and
+  // a regular activity booked into the SAME location/day/block over capacity.
+  it('flags a fixed event colliding with a regular activity in the same location/day/block (guards the anchors->fixedEvents key rename)', () => {
+    const fixedEvents = [{ id: 'fe1', name: 'Lunch', location_id: 'loc1' }]
+    const activities = [{ id: 'act1', name: 'Archery', location_id: 'loc1' }]
+    const slots = [
+      anchorSlot({ groupId: 'g1', cohort_id: 'c1', fixedEventId: 'fe1' }),
+      activitySlot({ groupId: 'g2', cohort_id: 'c2', activityId: 'act1' }),
+    ]
+
+    const conflicts = findRouteConflicts({ slots, activities, fixedEvents, electiveSetActivities: [], events: [], locations: [loc1] })
+
+    expect(conflicts).toHaveLength(1)
+    expect(conflicts[0].locationId).toBe('loc1')
+    const bySource = Object.fromEntries(conflicts[0].occupants.map((o) => [o.sourceKind, o.sourceId]))
+    expect(bySource.fixed_event).toBe('fe1')
+    expect(bySource.activity).toBe('act1')
+    // If a caller passed the old `anchors:` key instead, fixedEvents here would be undefined,
+    // fixedEventById would be an empty Map, and the fixed-event occupant would register with no
+    // location_id — this assertion is what catches that, not just conflicts.length.
+    const fixedOccupant = conflicts[0].occupants.find((o) => o.sourceKind === 'fixed_event')
+    expect(fixedOccupant.label).toBe('Lunch')
   })
 
   it('flags an event in one cohort colliding with a regular activity in another', () => {
@@ -73,7 +102,7 @@ describe('findRouteConflicts', () => {
       activitySlot({ groupId: 'g2', cohort_id: 'c2', activityId: 'act1' }),
     ]
 
-    const conflicts = findRouteConflicts({ slots, activities, anchors: [], electiveSetActivities: [], events, locations: [loc1] })
+    const conflicts = findRouteConflicts({ slots, activities, fixedEvents: [], electiveSetActivities: [], events, locations: [loc1] })
 
     expect(conflicts).toHaveLength(1)
     expect(conflicts[0].occupants.map((o) => o.groupId).sort()).toEqual(['g1', 'g2'])
@@ -87,7 +116,7 @@ describe('findRouteConflicts', () => {
       activitySlot({ groupId: 'g3', cohort_id: 'c3', activityId: 'act1' }),
     ]
 
-    const conflicts = findRouteConflicts({ slots, activities, anchors: [], electiveSetActivities: [], events: [], locations: [loc2Cap2] })
+    const conflicts = findRouteConflicts({ slots, activities, fixedEvents: [], electiveSetActivities: [], events: [], locations: [loc2Cap2] })
 
     expect(conflicts).toHaveLength(1)
     expect(conflicts[0].occupants).toHaveLength(3)
@@ -100,7 +129,7 @@ describe('findRouteConflicts', () => {
       activitySlot({ groupId: 'g2', cohort_id: 'c2', activityId: 'act1' }),
     ]
 
-    const conflicts = findRouteConflicts({ slots, activities, anchors: [], electiveSetActivities: [], events: [], locations: [loc2Cap2] })
+    const conflicts = findRouteConflicts({ slots, activities, fixedEvents: [], electiveSetActivities: [], events: [], locations: [loc2Cap2] })
 
     expect(conflicts).toHaveLength(0)
   })
@@ -120,7 +149,7 @@ describe('findRouteConflicts', () => {
       electiveSlot({ groupId: 'g1', cohort_id: 'c1', electiveSetId: 'es1' }),
     ]
 
-    const conflicts = findRouteConflicts({ slots, activities, anchors: [], electiveSetActivities, events: [], locations: [loc1] })
+    const conflicts = findRouteConflicts({ slots, activities, fixedEvents: [], electiveSetActivities, events: [], locations: [loc1] })
 
     expect(conflicts).toHaveLength(0)
   })
@@ -138,13 +167,13 @@ describe('findRouteConflicts', () => {
       activitySlot({ groupId: 'g2', cohort_id: 'c1', activityId: 'act1' }),
     ]
 
-    const conflicts = findRouteConflicts({ slots, activities, anchors: [], electiveSetActivities: [], events: [], locations: [loc1] })
+    const conflicts = findRouteConflicts({ slots, activities, fixedEvents: [], electiveSetActivities: [], events: [], locations: [loc1] })
 
     expect(conflicts).toHaveLength(1)
     expect(conflicts[0].occupants.map((o) => o.groupId).sort()).toEqual(['g1', 'g2'])
   })
 
-  // The blind spot this ticket closes: registerOverlayOccupancy (anchors,
+  // The blind spot this ticket closes: registerOverlayOccupancy (fixedEvents,
   // events, elective offerings) runs unconditionally, but placeBlocked is
   // only consulted for regular-activity placement — so two overlays can be
   // authored into the same location/day/block over capacity, in ONE cohort,
@@ -158,7 +187,7 @@ describe('findRouteConflicts', () => {
       electiveSlot({ groupId: 'g2', cohort_id: 'c1', electiveSetId: 'es1' }),
     ]
 
-    const conflicts = findRouteConflicts({ slots, activities, anchors: [], electiveSetActivities, events, locations: [loc1] })
+    const conflicts = findRouteConflicts({ slots, activities, fixedEvents: [], electiveSetActivities, events, locations: [loc1] })
 
     expect(conflicts).toHaveLength(1)
     expect(conflicts[0].occupants.map((o) => o.groupId).sort()).toEqual(['g1', 'g2'])
@@ -177,7 +206,7 @@ describe('findRouteConflicts', () => {
       activitySlot({ groupId: 'g2', cohort_id: 'c2', activityId: 'act2' }),
     ]
 
-    const conflicts = findRouteConflicts({ slots, activities, anchors: [], electiveSetActivities: [], events: [], locations: [] })
+    const conflicts = findRouteConflicts({ slots, activities, fixedEvents: [], electiveSetActivities: [], events: [], locations: [] })
 
     expect(conflicts).toHaveLength(0)
   })
@@ -191,7 +220,7 @@ describe('findRouteConflicts', () => {
       activitySlot({ groupId: 'g2', cohort_id: 'c2', activityId: 'act2' }),
       activitySlot({ groupId: 'g1', cohort_id: 'c1', activityId: 'act1' }),
     ]
-    const args = { slots, activities, anchors: [], electiveSetActivities: [], events: [], locations: [loc1] }
+    const args = { slots, activities, fixedEvents: [], electiveSetActivities: [], events: [], locations: [loc1] }
 
     expect(findRouteConflicts(args)).toEqual(findRouteConflicts(args))
   })

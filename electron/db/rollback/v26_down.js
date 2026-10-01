@@ -34,7 +34,7 @@
 const COLUMNS = {
   template_slots: [
     'id', 'template_id', 'group_id', 'activity_id', 'day_id', 'time_block_id',
-    'flags', 'is_released', 'is_span_head', 'anchor_id', 'is_anchor',
+    'flags', 'is_released', 'is_span_head', 'fixed_event_id', 'is_fixed_event',
   ],
   template_overlays: [
     'id', 'template_id', 'unit_id', 'day_id', 'from_block_order', 'to_block_order', 'label',

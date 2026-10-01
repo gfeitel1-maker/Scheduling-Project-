@@ -50,7 +50,7 @@ describe('the span query the startup guard asks', () => {
   it('reports only migrations inside (from, to]', () => {
     expect(domainStateMigrationsIn(11, 12)).toEqual([12])
     expect(domainStateMigrationsIn(12, 12)).toEqual([])
-    expect(domainStateMigrationsIn(32, CURRENT_SCHEMA_VERSION)).toEqual([70, 77])
+    expect(domainStateMigrationsIn(32, CURRENT_SCHEMA_VERSION)).toEqual([70, 77, 84])
   })
 
   it('a fresh database (from 0) reports every one of them — and has no document by definition', () => {
@@ -73,7 +73,10 @@ describe('the span query the startup guard asks', () => {
     // (repointing/tombstoning); v77 only SETS a field on rows that still exist, and — like v70 before
     // it went live — is unreachable today (no live camp predates v57's document era yet). The
     // per-launch migrationSpanFor guard (main.js) still covers it for the one launch that runs it.
-    expect(aboveDocumentEra).toEqual([70, 77])
+    // v84 (T293) is the third, same shape as v77: it rewrites schedule_snapshots.slots element
+    // keys by direct SQL — a SET on rows that still exist, not a delete needing document-routed
+    // reconciliation — so it too relies on the per-launch guard rather than the durable marker.
+    expect(aboveDocumentEra).toEqual([70, 77, 84])
   })
 
   it('isDomainStateMigration agrees with the map', () => {
