@@ -57,7 +57,7 @@ describe('getSetupGaps: what actually blocks building a week', () => {
   it('does not treat Fixed Events as a gap', () => {
     // A camp with no fixed events is finished, not unfinished. Marking it
     // otherwise trains directors to ignore the warning that matters.
-    expect(getSetupGaps({ ...FULL, anchors: [] })).toEqual([])
+    expect(getSetupGaps({ ...FULL, recurringevents: [] })).toEqual([])
   })
 
   it('reports every missing area at once, in setup order', () => {
@@ -82,7 +82,7 @@ describe('getSetupGaps: what actually blocks building a week', () => {
 
   it('exposes exactly five required areas and two optional ones', () => {
     expect(REQUIRED_AREAS).toHaveLength(5)
-    // M3: anchors and location — promoted out of FORWARD_AREAS
+    // M3: recurringevents and location — promoted out of FORWARD_AREAS
     // (docs/adr/2026-08-15-camp-locations-entity.md). T108 Phase 2 review
     // round 2 (MED/HIGH #4) — dayoverrides removed (see readiness.js).
     expect(OPTIONAL_AREAS).toHaveLength(2)
