@@ -190,7 +190,8 @@ depend on remembering it at the right moment:
 - **Sweep the predicate, not the conflict list** — `grep` every assertion, and extend structural
   sweeps to `test/` and `scripts/`, not only `src/` and `electron/`.
 - **Prove a paired test non-vacuous**: plant the bad pattern, watch the guard go red, remove it,
-  watch it go green.
+  watch it go green. The plant is the Verifier's, performed on a scratch copy outside the working
+  tree — never a reviewer's, and never on the tree under review (`CONSTITUTION.md` Art. VII).
 - When `security` reddens, triage it as *"which advisory, published when"* before hunting the diff.
   Do **not** try to "fix" the live-advisory property — learning about new advisories is the gate's
   job.

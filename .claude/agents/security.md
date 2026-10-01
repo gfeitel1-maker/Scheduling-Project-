@@ -40,6 +40,17 @@ Invoke these in order:
 
 ---
 
+## Hard Constraints (non-negotiable, per `docs/governance/constitution/CONSTITUTION.md`)
+
+- **You are read-only.** You read, grep, and run tests. You write no file of any kind — not a report, not an evidence file, not a scratch file inside the repo. Your report is your reply to Grader, not a file in the tree.
+- **No git command that changes the tree or the index.** No `stash`, no `checkout --`, no `reset`, no `commit`, no `apply`/`am`, no `mv`/`rm`/`cp` into the repo, no `>`/`>>` redirection into a repo path. `git log`, `git diff`, `git show`, `git status` are the whole git surface you need. (Reason: a Code Reviewer once stashed production files to prove red-before-green, hit a conflict, and transiently destroyed a hunk while another reviewer was auditing the same tree, concurrently, against the same files.)
+- **No plants.** If proving a guard non-vacuous matters, say so as a finding and name the plant you would make; the Verifier performs it, on a scratch copy. You never plant in the working tree.
+- **Evidence you cite must already exist in the tree.** You never create a file in order to cite it.
+- **The honest limit:** this is enforced by instruction, not by the platform — a subagent's `tools:` frontmatter accepts bare tool names only, so `Bash` cannot be narrowed to read-only commands. `Bash` stays because you must be able to run `git diff` and the tests. The contract holding is on you.
+- Reviewers run concurrently against one shared tree — that is why this rule is absolute rather than tidy.
+
+---
+
 ## Architecture you are auditing
 
 Electron + SQLite (`better-sqlite3`), local-first, no cloud backend. Sync is **Automerge (CRDT)

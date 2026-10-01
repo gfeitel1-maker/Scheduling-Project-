@@ -1,9 +1,10 @@
 ---
 title: "docs/work/INDEX.md stops being a committed file — generated on demand, never a merge target"
 document_type: adr
-status: proposed
+status: accepted
+approved: 'OWNER 2026-10-01: "accept" — shipped in #682'
 authority: normative
-implementation_state: in-progress
+implementation_state: implemented
 date: 2026-10-01
 task_class: documentation-governance
 governing_docs:
@@ -32,6 +33,8 @@ affects:
 ---
 
 # ADR: docs/work/INDEX.md stops being a committed file — generated on demand, never a merge target
+
+**Status:** accepted — OWNER 2026-10-01: "accept" (shipped in #682)
 
 ## Context
 
@@ -248,8 +251,10 @@ optional polish, not part of this ADR's required scope.
 
 - **Deleting a tracked file** (`docs/work/INDEX.md` from version control) — explicit gate, listed
   in the brief's footprint note. Flag to Governor/owner before Maker runs `git rm --cached`.
-- **This ADR itself**, once written, needs the human `accepted` flip — not performed here per the
-  task's instruction (`status: proposed`, do not write `accepted`).
+- ~~**This ADR itself**, once written, needs the human `accepted` flip — not performed here per the
+  task's instruction (`status: proposed`, do not write `accepted`).~~
+  _Prior: true when this ADR was drafted. Resolved 2026-10-01 — OWNER ruling "accept"; this ADR is
+  now `status: accepted` / `implementation_state: implemented` (shipped in #682)._
 - Not triggered: no change to `.github/workflows/*` (Option A touches none), no change to a
   security tradeoff, no standard is being substantively revised (only the mechanical sentences
   describing a mechanism that no longer exists — if Maker or Governor judges any edit to

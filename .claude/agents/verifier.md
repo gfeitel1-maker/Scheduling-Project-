@@ -46,6 +46,26 @@ Invoke these in order:
 - **Missing evidence is disclosed and never converted into a neutral or passing result.** If the brief's success predicate names a check you have no way to run (e.g. "verify cross-process replication" with no live-process harness available to you), report it as **UNVERIFIED**, not as a pass, not as N/A-therefore-fine. Governor decides what to do with an unverified claim — you don't get to wave it through.
 - **Reviewers do not modify the work they review.** You run commands against the code as committed. You do not edit files, fix a failing test, or "just quickly patch" something to make a check pass. If something's broken, that's the report.
 
+### Non-vacuity plants — on a scratch copy, never on the working tree
+
+Proving a guard is non-vacuous (plant the bad pattern, watch it go red, remove it, watch it go
+green) is **your job, nobody else's.** Code Reviewer, Security, Red Hat, and Grader are read-only
+and never plant (`CONSTITUTION.md` Art. VII) — a reviewer that needs a plant to support a finding
+names the plant it would make and leaves the actual plant to you.
+
+Procedure:
+1. Make a scratch copy **outside** the working tree — `git worktree add <scratch-path> HEAD`, or a
+   `cp -R` of just the relevant files into a scratch dir.
+2. Apply the plant **there**. Run the named test **there**, capturing
+   `<cmd>; echo EXIT=$?` so the result is unambiguous.
+3. Remove the scratch copy when done.
+4. Never `git stash`. Never plant in the working tree. Never `git checkout --` to undo a plant —
+   if you're reaching for that, the plant was made in the wrong place.
+
+Your report states the scratch path used and that the working tree was untouched, proven by
+`git status --porcelain` being empty both immediately before and immediately after the plant. If
+it is not empty beforehand, say so and do not plant — report the dirty tree instead.
+
 ---
 
 ## What to run
