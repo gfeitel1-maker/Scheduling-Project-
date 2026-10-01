@@ -947,6 +947,16 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog, grid
     // block both need it). The id is derived from the ROW, never substituted from
     // a roster name match — see makeRosterNameMatcher for why a match decides
     // keep-vs-skip only, not identity.
+    //
+    // T321 (docs/adr/2026-10-01-camper-id-high-entropy-format.md): this is no
+    // longer the camper's final `campers.id` — this parser is also used for a
+    // PURE PREVIEW (no db, must not write), so it cannot resolve through
+    // camper_identity_keys itself. It is a LOOKUP KEY (deriveCamperId's
+    // unchanged derivation); electron/ops/commitElectiveRun.js (the caller
+    // that has both `db` and these parsed rows) resolves every camper in this
+    // format to a real, opaque camper id via
+    // electron/ops/camperIdentityResolver.js's resolveParsedCamperId before
+    // persisting, minting a fresh random one only on a genuine cache miss.
     const id = deriveCamperId(campId, { externalId: externalId || null, displayName: displayName || null })
 
     const dayName = cell(row, mapping?.dayIndex) || null
@@ -1337,6 +1347,9 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog, grid
       //
       // So a caller that looked the camper UP passes `camperId` and this derives
       // nothing. One rule, and it is the row itself.
+      //
+      // T321: same caveat as the ranked-row id above — this is a LOOKUP key,
+      // resolved to a real camper id by commitElectiveRun.js before persisting.
       const subjectId = subject?.camperId
         ? subject.camperId
         : deriveCamperId(campId, subject?.attributed === true

@@ -219,7 +219,17 @@ describe('T299 — identical submissions are not one camper', () => {
       displayName: 'Ari Green',
     })
     expect(out.ok, String(out.error ?? '')).toBe(true)
-    expect(out.camperId).toBe(deriveCamperId(campId, { displayName: 'Ari Green' }))
+    // T321 (docs/adr/2026-10-01-camper-id-high-entropy-format.md): the named
+    // camper's id is now a random, opaque token (resolveOrMintCamperId), not
+    // deriveCamperId's output directly — deriveCamperId now only computes the
+    // camper_identity_keys LOOKUP row's id. Re-attributing the SAME subject to
+    // the SAME name must still converge on the SAME camper id, so the
+    // discriminator is idempotence, not a literal match against deriveCamperId.
+    expect(out.camperId).toMatch(/^camper2:/)
+    const lookupId = deriveCamperId(campId, { displayName: 'Ari Green' })
+    expect(db.prepare('SELECT camper_id FROM camper_identity_keys WHERE id = ?').get(lookupId)?.camper_id).toBe(
+      out.camperId
+    )
     expect(subjects(db, campId)).toHaveLength(0)
   })
 

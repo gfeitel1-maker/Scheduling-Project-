@@ -62,6 +62,36 @@ function writeOp(db, { deviceId, authorUserId }) {
 }
 
 /**
+ * The core resolve-or-mint, given an ALREADY-COMPUTED lookup id (deriveCamperId's
+ * output) and its human-readable (keyMode, keyValue) — used both by
+ * resolveOrMintCamperId below (which derives the lookup id from raw inputs) and
+ * by resolveParsedCamperId (which reuses a lookup id a pure parser already
+ * computed, rather than re-deriving it).
+ *
+ * @returns {{camperId: string, lookupId: string, minted: boolean, rekeyed: {camperId: string, moved: {preferences: number, assignments: number}}[]}}
+ */
+function resolveOrMintByKey(db, { campId, deviceId, authorUserId, lookupId, keyMode, keyValue }) {
+  const write = writeOp(db, { deviceId, authorUserId })
+
+  const existing = db.prepare('SELECT camper_id FROM camper_identity_keys WHERE id = ?').get(lookupId)
+  if (existing) {
+    const rekeyed = rekeyOrphans(db, {
+      campId, deviceId, authorUserId,
+      camperId: existing.camper_id, keyMode, keyValue,
+    })
+    return { camperId: existing.camper_id, lookupId, minted: false, rekeyed }
+  }
+
+  const camperId = mintCamperId()
+  runAtomic(db, () => {
+    write('camper_identity_keys', lookupId, {
+      camp_id: campId, key_mode: keyMode, key_value: keyValue, camper_id: camperId,
+    })
+  })
+  return { camperId, lookupId, minted: true, rekeyed: [] }
+}
+
+/**
  * Resolve a sheet-import lookup key (sub/ext/name) to a camper id, minting a
  * fresh one only on a genuine cache miss. On a cache HIT, also detects and
  * repairs the cross-device orphan case (ADR decision 3): a local `campers`
@@ -71,6 +101,15 @@ function writeOp(db, { deviceId, authorUserId }) {
  * orphan row is deleted, following attributeElectiveSubject.js's existing
  * rekey discipline.
  *
+ * Used by every real camper-id-minting call site that has the RAW inputs
+ * (submission/arrival, external id, display name) on hand:
+ * attributeElectiveSubject.js and src/localClient.mock.js's attributeSubject
+ * mock. src/ingest/preferenceSheet.js's parser has no `db` (it also runs for
+ * a pure preview, which must not write) and already computes the identical
+ * lookup id via the same unchanged deriveCamperId — commitElectiveRun.js (the
+ * one caller with both `db` and the parsed rows) uses resolveParsedCamperId
+ * below instead, reusing that already-computed id rather than re-deriving it.
+ *
  * @returns {{camperId: string, lookupId: string, minted: boolean, rekeyed: {camperId: string, moved: {preferences: number, assignments: number}}[]}}
  */
 export function resolveOrMintCamperId(db, {
@@ -78,26 +117,35 @@ export function resolveOrMintCamperId(db, {
   submissionKey = null, arrivalId = null, externalId = null, displayName = null,
 }) {
   const lookupId = deriveCamperId(campId, { submissionKey, arrivalId, externalId, displayName })
-  const write = writeOp(db, { deviceId, authorUserId })
-
-  const existing = db.prepare('SELECT camper_id FROM camper_identity_keys WHERE id = ?').get(lookupId)
-  if (existing) {
-    const { keyMode, keyValue } = keyModeAndValue({ submissionKey, externalId, displayName })
-    const rekeyed = rekeyOrphans(db, {
-      campId, deviceId, authorUserId,
-      camperId: existing.camper_id, keyMode, keyValue,
-    })
-    return { camperId: existing.camper_id, lookupId, minted: false, rekeyed }
-  }
-
-  const camperId = mintCamperId()
   const { keyMode, keyValue } = keyModeAndValue({ submissionKey, externalId, displayName })
-  runAtomic(db, () => {
-    write('camper_identity_keys', lookupId, {
-      camp_id: campId, key_mode: keyMode, key_value: keyValue, camper_id: camperId,
-    })
-  })
-  return { camperId, lookupId, minted: true, rekeyed: [] }
+  return resolveOrMintByKey(db, { campId, deviceId, authorUserId, lookupId, keyMode, keyValue })
+}
+
+/**
+ * Resolve a camper record already produced by
+ * src/ingest/preferenceSheet.js's parser (`parsed.campers[]`) to a real
+ * camper id, for commitElectiveRun.js to use when it persists that row.
+ *
+ * `camper.id` is ALREADY deriveCamperId's output (the parser computes it with
+ * the identical derivation, unchanged) — so it IS the lookup id, and does not
+ * need re-deriving from raw inputs (which, for the `sub` mode, are not even
+ * fully recoverable from the parsed record: `arrivalId` is folded into the id
+ * already and not kept as a separate column).
+ *
+ * @param {{id: string, display_name: string, external_id: string|null, is_unattributed?: 1|null}} camper
+ * @returns {{camperId: string, lookupId: string, minted: boolean, rekeyed: {camperId: string, moved: {preferences: number, assignments: number}}[]}}
+ */
+export function resolveParsedCamperId(db, { campId, deviceId, authorUserId = null, camper }) {
+  const lookupId = camper.id
+  const external = String(camper.external_id ?? '').trim()
+  // A provisional (`sub`-mode) record's `external_id` column actually holds
+  // the SUBMISSION KEY (see parsePreferenceSheet's own comment on that
+  // field) — never a real roster id — so it must be classified `sub`, not
+  // `ext`, or the orphan-rekey matcher above would misread it.
+  const keyMode = camper.is_unattributed === 1 ? 'sub' : external.length > 0 ? 'ext' : 'name'
+  const keyValue =
+    keyMode === 'name' ? electiveChoiceLabelKey(String(camper.display_name ?? '')) : external
+  return resolveOrMintByKey(db, { campId, deviceId, authorUserId, lookupId, keyMode, keyValue })
 }
 
 // The orphan-rekey half of ADR decision 3 ("silent background rekey on next

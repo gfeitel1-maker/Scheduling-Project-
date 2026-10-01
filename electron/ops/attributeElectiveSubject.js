@@ -35,7 +35,8 @@
 import { randomUUID } from 'node:crypto'
 import { appendOp, runAtomic, DELETE_FIELD } from './operations.js'
 import { isHumanOwned } from './fieldProvenance.js'
-import { deriveCamperId, deriveElectivePreferenceId, deriveElectiveAssignmentId } from './electiveDerivedIds.js'
+import { deriveElectivePreferenceId, deriveElectiveAssignmentId } from './electiveDerivedIds.js'
+import { resolveOrMintCamperId } from './camperIdentityResolver.js'
 
 /**
  * @returns {{ok: true, camperId, moved: {preferences, assignments}, rekeyed: boolean}
@@ -71,7 +72,17 @@ export function attributeElectiveSubject(db, {
     }
   }
 
-  const camperId = deriveCamperId(campId, { externalId: externalId || null, displayName: name })
+  // T321 (docs/adr/2026-10-01-camper-id-high-entropy-format.md): naming a
+  // provisional subject is itself a camper-id-minting event (the `name`/`ext`
+  // arm), so it goes through the shared resolver — same convergence mechanism
+  // as a sheet import. On a cache hit (this name/external id already resolves
+  // to a camper somewhere, e.g. the same subject is attributed twice, or two
+  // devices named the same provisional subject differently before syncing)
+  // the resolver also repairs any local orphan under the stale id.
+  const { camperId } = resolveOrMintCamperId(db, {
+    campId, deviceId, authorUserId,
+    externalId: externalId || null, displayName: name,
+  })
 
   const write = (entity, entity_id, fields, { source = null } = {}) => {
     for (const [field, value] of Object.entries(fields)) {

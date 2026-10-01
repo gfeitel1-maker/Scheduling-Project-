@@ -19,7 +19,7 @@ import { foldApprovedToRecords, enrichSnapshotRow, resolveFieldWrite, dbFieldFor
 import { deriveLocationId } from '../electron/ops/locationId.js'
 // T306 — the SAME id derivation the real attribution op uses, so the mock's rekey
 // lands a named camper on the same id the product would.
-import { deriveCamperId } from '../electron/ops/electiveDerivedIds.js'
+import { deriveCamperId, mintCamperId } from '../electron/ops/electiveDerivedIds.js'
 // T320 part 2 item 3 — the SAME derived id the real commitElectiveRun uses for
 // a roster finding, so browser-dev and electron:dev agree on the row.
 import { deriveElectiveRunFindingId } from '../electron/ops/deriveElectiveRunFindingId.js'
@@ -2455,7 +2455,32 @@ export const mockShoresh = {
     }
 
     const campId = state.camp?.id ?? subject.camp_id
-    const camperId = deriveCamperId(campId, { externalId: externalId || null, displayName: name })
+    // T321 (docs/adr/2026-10-01-camper-id-high-entropy-format.md): deriveCamperId
+    // now computes only the camper_identity_keys LOOKUP id, never the real camper
+    // id directly. Mirrors electron/ops/camperIdentityResolver.js's
+    // resolveOrMintCamperId: a cache hit on `state.camper_identity_keys` reuses the
+    // already-known camper id (so re-attributing the same name twice converges,
+    // same as the real path); a miss mints a fresh opaque one. NO ORPHAN-REKEY
+    // here — this mock is a single-process, single-device dev convenience with no
+    // multi-device sync, so the cross-device orphan case this ADR names cannot
+    // arise against it (same "honestly thinner" posture this function already
+    // states for provenance above).
+    const lookupId = deriveCamperId(campId, { externalId: externalId || null, displayName: name })
+    const identityKeys = state.camper_identity_keys || (state.camper_identity_keys = [])
+    const mapping = identityKeys.find((k) => k.id === lookupId)
+    const camperId = mapping
+      ? mapping.camper_id
+      : (() => {
+          const minted = mintCamperId()
+          identityKeys.push({
+            id: lookupId,
+            camp_id: campId,
+            key_mode: externalId ? 'ext' : 'name',
+            key_value: externalId ? String(externalId).trim() : electiveChoiceLabelKey(name),
+            camper_id: minted,
+          })
+          return minted
+        })()
 
     if (camperId === subjectId) {
       // Already canonical — stop calling them provisional without deleting the row
