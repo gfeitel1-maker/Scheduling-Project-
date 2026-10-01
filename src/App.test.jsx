@@ -510,6 +510,137 @@ describe('AppShell: offline op-rejected notice (item 7, owner decision)', () => 
   })
 })
 
+// Board note (q-small-sweeps-batch, owner ruling 2026-09-29 "yes to t200"):
+// "The offline-queue rejection notice could overwrite a bootstrap-failure
+// notice, losing it ... Notices display in order, none lost." These replace
+// the single-scalar opRejectedNotice/noticeRetry state with a FIFO queue
+// (src/notices/noticeQueue.js).
+describe('AppShell: notice FIFO queue (T200 board follow-up)', () => {
+  // The board's own scenario, verbatim.
+  it('an offline-queue rejection does not overwrite a bootstrap failure notice — both display in order, none lost', async () => {
+    seedDays.mockRejectedValue(new Error('write failed for field "label"'))
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await act(async () => {})
+
+    let alert = screen.getByRole('alert')
+    expect(alert.textContent).toMatch(/default weekdays could not be set up/i)
+    expect(screen.getByRole('button', { name: /try again/i })).toBeTruthy()
+
+    // An offline-queue rejection arrives while the bootstrap notice is head.
+    act(() => {
+      opRejectedCallback({
+        type: 'op_rejected',
+        reason: 'unique_field',
+        existing: { id: 'loc-a', name: 'Pool' },
+      })
+    })
+
+    // (1) the bootstrap notice is still on screen, with its retry.
+    alert = screen.getByRole('alert')
+    expect(alert.textContent).toMatch(/default weekdays could not be set up/i)
+    expect(screen.getByRole('button', { name: /try again/i })).toBeTruthy()
+
+    // (2) after Dismiss, the offline-queue notice shows.
+    fireEvent.click(screen.getByLabelText('Dismiss'))
+    await settleDismissFade()
+
+    alert = screen.getByRole('alert')
+    expect(alert.textContent).toContain('Pool')
+    expect(alert.textContent).toContain('already exists')
+    // (3) nothing was lost, and the offline notice carries no retry control.
+    expect(screen.queryByRole('button', { name: /try again/i })).toBeNull()
+  })
+
+  it('two identical offline rejections in a row produce two separate notices', async () => {
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await flushBootstrap()
+
+    act(() => { opRejectedCallback({ status: 'rejected', reason: 'unique_field' }) })
+    act(() => { opRejectedCallback({ status: 'rejected', reason: 'unique_field' }) })
+
+    expect(screen.getByText('1 more')).toBeTruthy()
+
+    fireEvent.click(screen.getByLabelText('Dismiss'))
+    await settleDismissFade()
+
+    expect(screen.getByRole('alert')).toBeTruthy()
+    expect(screen.queryByText(/more$/)).toBeNull()
+  })
+
+  it('a bootstrap recompose does not duplicate its notice when days fails then cohort fails', async () => {
+    let rejectDays, rejectCohort
+    seedDays.mockReturnValue(new Promise((_, reject) => { rejectDays = reject }))
+    ensureCohort.mockReturnValue(new Promise((_, reject) => { rejectCohort = reject }))
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+
+    await act(async () => { rejectDays(new Error('write failed for field "label"')) })
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+
+    await act(async () => { rejectCohort(new Error('write failed for field "name"')) })
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+
+    const alert = screen.getByRole('alert')
+    expect(alert.textContent).toMatch(/default weekdays/i)
+    expect(alert.textContent).toMatch(/default cohort/i)
+  })
+
+  it('a bootstrap that resolves clean removes only its own entry, leaving another queued notice intact', async () => {
+    seedDays.mockRejectedValueOnce(new Error('write failed for field "label"'))
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await act(async () => {})
+
+    act(() => {
+      opRejectedCallback({ status: 'rejected', reason: 'unique_field' })
+    })
+    expect(screen.getByText('1 more')).toBeTruthy()
+
+    const retryBtn = screen.getByRole('button', { name: /try again/i })
+    seedDays.mockResolvedValueOnce(undefined)
+    await act(async () => { fireEvent.click(retryBtn) })
+
+    const alert = screen.getByRole('alert')
+    expect(alert.textContent).toMatch(/could not be saved/i)
+    expect(screen.queryByRole('button', { name: /try again/i })).toBeNull()
+    expect(screen.queryByText(/more$/)).toBeNull()
+  })
+
+  it('dismissing an offline notice does not mark the bootstrap invocation dismissed', async () => {
+    let rejectDays
+    seedDays.mockReturnValueOnce(new Promise((_, reject) => { rejectDays = reject }))
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+
+    act(() => { opRejectedCallback({ status: 'rejected', reason: 'unique_field' }) })
+    expect(screen.getByRole('alert').textContent).toMatch(/could not be saved/i)
+
+    fireEvent.click(screen.getByLabelText('Dismiss'))
+    await settleDismissFade()
+    expect(screen.queryByRole('alert')).toBeNull()
+
+    await act(async () => { rejectDays(new Error('write failed for field "label"')) })
+
+    const alert = screen.getByRole('alert')
+    expect(alert.textContent).toMatch(/default weekdays could not be set up/i)
+  })
+
+  it('shows no "more" count when only one notice is queued', async () => {
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await flushBootstrap()
+    act(() => { opRejectedCallback({ status: 'rejected', reason: 'unique_field' }) })
+    expect(screen.queryByText(/more$/)).toBeNull()
+  })
+
+  it('shows "N more" marked aria-hidden when notices are queued behind the head', async () => {
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await flushBootstrap()
+    act(() => { opRejectedCallback({ status: 'rejected', reason: 'unique_field' }) })
+    act(() => { opRejectedCallback({ status: 'rejected', reason: 'unique_field' }) })
+    act(() => { opRejectedCallback({ status: 'rejected', reason: 'unique_field' }) })
+
+    const count = screen.getByText('2 more')
+    expect(count.getAttribute('aria-hidden')).toBe('true')
+  })
+})
+
 // Roots-as-dashboard plan, Task 3: Roots (not the retired Setup Readiness
 // hub) is the in-session landing screen, and any stale 'readiness' deep-link
 // or nav target redirects to it rather than rendering nothing.
