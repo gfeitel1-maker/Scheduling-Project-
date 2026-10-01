@@ -50,7 +50,7 @@ describe('the span query the startup guard asks', () => {
   it('reports only migrations inside (from, to]', () => {
     expect(domainStateMigrationsIn(11, 12)).toEqual([12])
     expect(domainStateMigrationsIn(12, 12)).toEqual([])
-    expect(domainStateMigrationsIn(32, CURRENT_SCHEMA_VERSION)).toEqual([70, 77, 84])
+    expect(domainStateMigrationsIn(32, CURRENT_SCHEMA_VERSION)).toEqual([70, 77, 84, 85])
   })
 
   it('a fresh database (from 0) reports every one of them — and has no document by definition', () => {
@@ -76,7 +76,10 @@ describe('the span query the startup guard asks', () => {
     // v84 (T293) is the third, same shape as v77: it rewrites schedule_snapshots.slots element
     // keys by direct SQL — a SET on rows that still exist, not a delete needing document-routed
     // reconciliation — so it too relies on the per-launch guard rather than the durable marker.
-    expect(aboveDocumentEra).toEqual([70, 77, 84])
+    // v85 (T321) is the fourth, same shape again: it INSERTs camper_identity_keys rows by direct
+    // SQL — new rows, not a delete needing document-routed reconciliation — so it too relies on
+    // the per-launch guard rather than the durable marker.
+    expect(aboveDocumentEra).toEqual([70, 77, 84, 85])
   })
 
   it('isDomainStateMigration agrees with the map', () => {

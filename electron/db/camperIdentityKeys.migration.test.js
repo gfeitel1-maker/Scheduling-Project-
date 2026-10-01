@@ -112,6 +112,9 @@ describe('migration v85: back-fill (acceptance criterion 6)', () => {
     const row = db.prepare('SELECT * FROM camper_identity_keys WHERE id = ?').get(lookupId)
     expect(row).toBeTruthy()
     expect(row.key_mode).toBe('name')
+    // ADR decision 5: key_value is the CANONICAL key (lowercased, whitespace
+    // stripped), not the raw display name.
+    expect(row.key_value).toBe('arigreen')
     expect(row.camper_id).toBe(nameId)
     db.close()
   })

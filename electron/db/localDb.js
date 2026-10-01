@@ -12,7 +12,7 @@ import { isPlaintextSqliteFile, rawKeyPragma, migratePlaintextToEncrypted } from
 // the right tool; it never loads the fork unless encryption is actually on.
 const _lazyRequire = createRequire(import.meta.url)
 import { deriveScheduleTemplateId } from '../ops/scheduleTemplateId.js'
-import { deriveCamperId } from '../ops/electiveDerivedIds.js'
+import { deriveCamperId, electiveChoiceLabelKey } from '../ops/electiveDerivedIds.js'
 import { deriveLocationId } from '../ops/locationId.js'
 import { deriveDayId } from '../ops/dayId.js'
 import { applyProjection } from '../ops/projections.js'
@@ -4148,7 +4148,12 @@ const DEVICE_HEALTH_EVENTS_DDL = `
       for (const camper of existing) {
         const external = String(camper.external_id ?? '').trim()
         const keyMode = external.length > 0 ? 'ext' : 'name'
-        const keyValue = external.length > 0 ? external : String(camper.display_name ?? '').trim()
+        // ADR decision 5: `key_value` for name mode is the CANONICAL key
+        // (electiveChoiceLabelKey's output — lowercased, whitespace-stripped),
+        // not the raw display name, matching what the resolver writes for a
+        // freshly-minted row.
+        const keyValue =
+          external.length > 0 ? external : electiveChoiceLabelKey(String(camper.display_name ?? ''))
         if (keyValue.length === 0) continue
         const lookupId = deriveCamperId(camper.camp_id, {
           externalId: external.length > 0 ? external : null,

@@ -77,6 +77,14 @@ export const DOMAIN_STATE_MIGRATIONS = new Map([
   // silently discard it. Unreachable today for the same reason v70/v77 were "first reachable
   // instance" rather than already-happened — classified honestly rather than assumed safe.
   [84, 'rewrites schedule_snapshots.slots element keys (anchor_id/is_anchor -> fixed_event_id/is_fixed_event) by direct SQL (T293)'],
+  // v85 (T321, docs/adr/2026-10-01-camper-id-high-entropy-format.md). Creating the table is table
+  // shape, but the back-fill INSERTs rows directly into camper_identity_keys — a newly MODELED
+  // table (PROJECTIONS.camper_identity_keys) — by raw SQL, outside the document, same hazard shape
+  // as v77/v84 above. On a document-bearing camp those back-filled rows would never reach the
+  // document and the next projectAll/merge could silently discard them. Unreachable today for the
+  // same reason v70/v77/v84 were "first reachable instance" rather than already-happened —
+  // classified honestly rather than assumed safe.
+  [85, 'back-fills camper_identity_keys rows from existing ext/name-mode campers by direct SQL INSERT (T321)'],
 ])
 
 // DELIBERATELY NOT IN THE SET ABOVE, though they do run UPDATE against a table
