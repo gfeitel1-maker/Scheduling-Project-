@@ -328,35 +328,37 @@ An implementation satisfies this ADR when:
    replacing it with the new, narrower caveat about `camper_identity_keys` (a purged camper's
    mapping row is deleted and tombstoned exactly like the camper row itself).
 
-## Open questions for the owner
+## Decisions taken (organizer, 2026-10-01 — recommended defaults adopted)
 
-1. **Migration version number and timing.** This ADR does not pick a schema version — recommend:
-   allocate at build time via this project's standing worktree-scan discovery, same as any other
-   migration. No default needed; this is purely mechanical.
-2. **Does `ext` mode get the same treatment as `name` mode, or is it lower priority?** Recommended
-   default: yes, same mechanism, same migration, for the uniformity reason given above (one entity,
-   three modes) — the marginal cost of including it is near zero once `camper_identity_keys` exists
-   for `name` mode.
-3. **Who resolves the cross-device orphan case, and when?** Recommended default: the existing
-   `attributeElectiveSubject.js`-style rekey, triggered automatically the next time either device's
-   sheet-import or `commitElectiveRun` path notices its locally-cached `camper_id` for a key no
-   longer matches what `camper_identity_keys` resolves to (i.e., on the next commit touching that
-   camper, not immediately on sync) — this needs Maker-level design, not an owner decision, but the
-   owner should confirm "silent background rekey on next touch" (versus "surface a finding to the
-   director, like `PREFERENCE_EDIT_HELD`") is the right user-facing posture. Recommended default:
-   silent rekey, because unlike a preference edit this is purely an internal plumbing fact with no
-   camper-visible consequence — surfacing it would be noise. Confidence: medium; this is the one
-   genuinely new mechanism this ADR introduces and deserves Red Hat / Architect follow-up at
-   implementation time, not just this ADR's say-so.
-4. **Confirm the pre-production legacy-tombstone posture (above) is acceptable**, i.e. that no
-   reconciliation pass is owed for a developer's local dev database's existing purge tombstones or
-   digest maps. Recommended default: yes, accept as stated — this repo's own stated posture (no live
-   camp data anywhere) already covers this, and T233/#686's own precedent (accepting dev-database
-   staleness across derivation-version bumps) is the same call made before.
-5. **Should `camper_identity_keys.key_value` for `name` mode store the canonical name key
-   (cleartext, lowercased/whitespace-stripped) or something else?** Recommended default: the
-   canonical name key, in cleartext, exactly as proposed above — storing anything else (e.g., a
-   hash of the name) would break the lookup's whole purpose (resolving a freshly-read sheet name to
-   an existing camper), and the privacy payoff of this ADR was never "no cleartext name anywhere
-   ever" — it was "cleartext name lives in exactly one purgeable place, not smeared across every
-   FK, tombstone, and digest key forever."
+These five were drafted as open questions; each carried a sensible recommended default with no
+product-direction stake, so the organizer ruled them on those defaults (the "organizer rules on
+defaults" standing rule). They are recorded here as settled so the only thing the owner owes on this
+ADR is **acceptance of the decision as a whole** (Art. IV); the id scheme, migration shape, and
+privacy posture above are what he is accepting or redirecting.
+
+1. **Migration version number and timing.** Allocated at build time via this project's standing
+   worktree-scan discovery, never hand-picked — purely mechanical.
+2. **`ext` mode treatment.** Same mechanism, same migration as `name` mode (one
+   `camper_identity_keys` entity, three key modes); the marginal cost once the entity exists for
+   `name` mode is near zero, and excluding it would leave an un-minted identifier in `campers.id`
+   indefinitely.
+3. **Cross-device orphan resolution.** Silent background rekey on next touch (the existing
+   `attributeElectiveSubject.js`-style rekey, triggered the next time a sheet-import/`commitElectiveRun`
+   path notices its locally-cached `camper_id` no longer matches what `camper_identity_keys`
+   resolves to), not a director-facing finding — this is internal plumbing with no camper-visible
+   consequence. This is the one genuinely new mechanism in this ADR, so it gets a Red Hat / Architect
+   pass at **build** time (not re-opened here).
+4. **Pre-production legacy-tombstone posture.** No reconciliation pass is owed for a developer's
+   local dev database's existing purge tombstones or digest maps — the repo's standing "no live camp
+   data anywhere" posture and the T233/#686 precedent (accepting dev-database staleness across
+   derivation-version bumps) already cover it. The first real camp's data is created entirely under
+   the new scheme.
+5. **`camper_identity_keys.key_value` for `name` mode.** Stores the canonical name key in cleartext
+   (lowercased/whitespace-stripped) in that one purgeable table — storing a hash instead would break
+   the lookup's whole purpose. The privacy payoff of this ADR was never "no cleartext name anywhere";
+   it is "cleartext name lives in exactly one purgeable place, not smeared across every FK, tombstone
+   and digest key forever."
+
+**The one word owed:** the owner accepts this ADR (status flips to `accepted`, a ticket number is
+allocated, and the build proceeds under the normal loop) or names what to change. Nothing here is
+built until then.
