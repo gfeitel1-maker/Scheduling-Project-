@@ -164,6 +164,59 @@ describe('parsePreferenceSheet', () => {
     expect(new Set(out.campers.map((c) => c.id)).size).toBe(2)
   })
 
+  // Board item i-same-name-sheet-solves-silently-dropping-a-camper, seen live
+  // 2026-09-30 on docs/work/specs/samples/fabricated-camper-preferences-same-name.csv.
+  // With a CATALOGUED camp, a row whose cells name no known activity is skipped
+  // as junk (P13). When that row shares a name with a KEPT camper, the collision
+  // used to vanish: the sheet was NOT refused, the solver ran, and the second
+  // child was placed nowhere with nothing saying who was dropped. Here the
+  // catalog holds Archery/Ceramics but NOT the second Ari's Robotics/Soccer, so
+  // row 3 is skipped — and must still be surfaced as a same-name collision.
+  it('flags a same-name camper whose choices are outside the catalog instead of silently dropping them', () => {
+    const catalog = buildPreferenceCatalog({ activities: ['Archery', 'Ceramics'] })
+    const rows = [
+      HEADER,
+      ['Ari Green', 'Arad', 'N', 'Archery', 'Ceramics', '', ''],
+      ['Ari Green', 'Bogrim', 'N', 'Robotics', 'Soccer', '', ''],
+    ]
+    const out = parsePreferenceSheet(rows, { campId: 'camp-1', mapping, catalog })
+    expect(out.sameNameCampers).toEqual([
+      { display_name: 'Ari Green', rowNumbers: [2, 3], divisionLabels: ['Arad', 'Bogrim'] },
+    ])
+    // The dropped row is still recorded as skipped (it is not a camper record),
+    // but the collision is no longer invisible.
+    expect(out.skippedRows.map((s) => s.rowNumber)).toContain(3)
+  })
+
+  // The other direction: the skip must still drop a genuine junk footer, and a
+  // unique one that matches no camper must NOT become a false same-name refusal.
+  it('still skips a junk footer row that shares no name with a camper', () => {
+    const catalog = buildPreferenceCatalog({ activities: ['Archery', 'Ceramics'] })
+    const rows = [
+      HEADER,
+      ['Ari Green', 'Arad', 'N', 'Archery', 'Ceramics', '', ''],
+      ['Total Campers', '', '', '8', '', '', ''],
+    ]
+    const out = parsePreferenceSheet(rows, { campId: 'camp-1', mapping, catalog })
+    expect(out.sameNameCampers).toEqual([])
+    expect(out.campers.map((c) => c.display_name)).toEqual(['Ari Green'])
+    expect(out.skippedRows.map((s) => s.rowNumber)).toContain(3)
+  })
+
+  // And two junk rows that happen to share a name (and match no camper) must not
+  // block an import — they collapse onto one id but neither is a kept camper.
+  it('does not refuse on two junk rows that share a name but match no camper', () => {
+    const catalog = buildPreferenceCatalog({ activities: ['Archery'] })
+    const rows = [
+      HEADER,
+      ['Archery', 'Ceramics', 'N', 'Archery', '', '', ''], // one real camper
+      ['Subtotal', '', '', '8', '', '', ''],
+      ['Subtotal', '', '', '9', '', '', ''],
+    ]
+    const out = parsePreferenceSheet(rows, { campId: 'camp-1', mapping, catalog })
+    expect(out.sameNameCampers).toEqual([])
+  })
+
   it('skips blank rank cells without shifting the ranks below them', () => {
     const out = parsePreferenceSheet(
       [HEADER, ['Ari Green', 'Arad', 'N', 'Archery', '', 'Sailing', '']],

@@ -20,6 +20,18 @@ describe('ParseSummary', () => {
     expect(screen.queryByText('Solve Assignments')).toBeNull()
   })
 
+  // Board item i-same-name-sheet-solves-silently-dropping-a-camper: the refusal
+  // must name each row's DIVISION so a director can see the two children are
+  // different (ADR 2026-09-27 §12.2a), matching the CLI's own refusal message.
+  it('names each row’s division in the same-name refusal when the sheet carried divisions', () => {
+    const parsed = {
+      ...CLEAN,
+      sameNameCampers: [{ display_name: 'Ari Feldman', rowNumbers: [2, 4], divisionLabels: ['Alonim', 'Nitzanim'] }],
+    }
+    render(<ParseSummary parsed={parsed} onSolve={vi.fn()} onChooseDifferentFile={vi.fn()} />)
+    expect(screen.getByText(/Ari Feldman — rows 2, 4 \(Alonim, Nitzanim\)/)).not.toBeNull()
+  })
+
   it('renders the contradictory-ranks refusal with NO Solve button', () => {
     render(<ParseSummary parsed={CLEAN} contradictoryRanks onSolve={vi.fn()} onChooseDifferentFile={vi.fn()} />)
     expect(screen.getByText("This sheet can't be assigned yet")).not.toBeNull()

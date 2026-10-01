@@ -219,7 +219,17 @@ export default function ParseSummary({
             </div>
             <ul style={{ margin: '0 0 10px', paddingLeft: 20, fontSize: 13 }}>
               {sameName.map((c) => (
-                <li key={c.display_name}>{c.display_name} — rows {c.rowNumbers.join(', ')}</li>
+                // The DIVISIONS are the disambiguation evidence — "those are two
+                // different kids" (ADR 2026-09-27 §12.2a). The CLI's refusal already
+                // names them; show them here too when the sheet carried a division
+                // column, so the director can act without re-opening the file. Only
+                // when present: a sheet with no division column leaves them null.
+                <li key={c.display_name}>
+                  {c.display_name} — rows {c.rowNumbers.join(', ')}
+                  {(c.divisionLabels ?? []).some(Boolean)
+                    ? ` (${c.divisionLabels.map((d) => d || '—').join(', ')})`
+                    : ''}
+                </li>
               ))}
             </ul>
             <div style={{ fontSize: 13, marginBottom: 12 }}>
