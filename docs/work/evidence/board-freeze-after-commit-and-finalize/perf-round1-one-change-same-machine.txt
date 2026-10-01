@@ -1,0 +1,77 @@
+
+RAW CELLS (cpu µs; user+sys; wall ms; ops appended)
+engine     n    phase      user        sys       cpu       wall     ops   cpu/op
+oplog       160  commit       177907     28804    206711     224.7    3218     64.2
+oplog       160  derive        19565       924     20489      23.5       0        -
+oplog       160  digest         4748       363      5111       3.9       0        -
+oplog       160  finalize     166859     27510    194369     225.0    2245     86.6
+oplog       160  smallCommit      7066      2332      9398      13.5      58    162.0
+automerge   160  commit     23226242    660653  23886895   33021.8    3218   7422.9
+automerge   160  derive        21317      1860     23177      27.6       0        -
+automerge   160  digest         5001       388      5389       4.0       0        -
+automerge   160  finalize   11131031    249563  11380594   13802.3    2245   5069.3
+automerge   160  smallCommit     64532      5192     69724      88.9      58   1202.1
+oplog       312  commit       302314     81763    384077     429.5    6258     61.4
+oplog       312  derive        52961      1355     54316      33.5       0        -
+oplog       312  digest        14382       632     15014       9.0       0        -
+oplog       312  finalize     309502     19273    328775     351.2    4373     75.2
+oplog       312  smallCommit      6326     13658     19984      33.3      58    344.6
+automerge   312  commit     77316706   1648849  78965555   96908.9    6258  12618.3
+automerge   312  derive        24516      3038     27554      45.2       0        -
+automerge   312  digest         9663       755     10418       7.4       0        -
+automerge   312  finalize   38618042    762372  39380414   49036.2    4373   9005.4
+automerge   312  smallCommit    107306     19083    126389     153.3      58   2179.1
+automerge   160  commit     22682724    546291  23229015   27581.3    3218   7218.5
+automerge   160  derive        19794      1042     20836      24.9       0        -
+automerge   160  digest         4549       213      4762       3.8       0        -
+automerge   160  finalize   11289166    235658  11524824   13852.7    2245   5133.6
+automerge   160  smallCommit     66005      5391     71396      98.6      58   1231.0
+oplog       160  commit       182039     27373    209412     215.5    3218     65.1
+oplog       160  derive        18353       862     19215      22.2       0        -
+oplog       160  digest         4375       312      4687       3.5       0        -
+oplog       160  finalize     164806     43338    208144     234.9    2245     92.7
+oplog       160  smallCommit      6717      1804      8521       6.4      58    146.9
+automerge   312  commit     77138967   1755829  78894796  105010.9    6258  12607.0
+automerge   312  derive        22092      2167     24259      27.0       0        -
+automerge   312  digest         9446       892     10338       9.9       0        -
+automerge   312  finalize   38406249    720043  39126292   48162.6    4373   8947.2
+automerge   312  smallCommit    115866     18455    134321     238.2      58   2315.9
+oplog       312  commit       305381     79111    384492     436.3    6258     61.4
+oplog       312  derive        24742      1622     26364      26.6       0        -
+oplog       312  digest         9142       551      9693       8.1       0        -
+oplog       312  finalize     293981     18151    312132     326.0    4373     71.4
+oplog       312  smallCommit      8591     12512     21103      29.9      58    363.8
+
+MEDIANS BY SIZE (cpu µs = user+sys), each with its own min..max
+phase                        n     cpu      ops    cpu/op   spread
+derive rows (pure)           160    20663      160     129.1   19215..23177 n=4
+digest (pure)                160     4937      160      30.9   4687..5389 n=4
+finalize: oplog+projection   160   201257     2245      89.6   194369..208144 n=2
+finalize: TOTAL automerge    160 11452709     2245    5101.4   11380594..11524824 n=2
+finalize: DOC FLUSH (diff)   160 11251453     2245    5011.8   am 11380594..11524824 n=2 | ol 194369..208144 n=2
+commit: oplog+projection     160   208062     3218      64.7   206711..209412 n=2
+commit: TOTAL automerge      160 23557955     3218    7320.7   23229015..23886895 n=2
+commit: DOC FLUSH (diff)     160 23349894     3218    7256.0   am 23229015..23886895 n=2 | ol 206711..209412 n=2
+small commit: DOC FLUSH      160    61601       58    1062.1   am 69724..71396 n=2 | ol 8521..9398 n=2
+
+derive rows (pure)           312    26959      312      86.4   24259..54316 n=4
+digest (pure)                312    10378      312      33.3   9693..15014 n=4
+finalize: oplog+projection   312   320454     4373      73.3   312132..328775 n=2
+finalize: TOTAL automerge    312 39253353     4373    8976.3   39126292..39380414 n=2
+finalize: DOC FLUSH (diff)   312 38932900     4373    8903.0   am 39126292..39380414 n=2 | ol 312132..328775 n=2
+commit: oplog+projection     312   384285     6258      61.4   384077..384492 n=2
+commit: TOTAL automerge      312 78930176     6258   12612.7   78894796..78965555 n=2
+commit: DOC FLUSH (diff)     312 78545891     6258   12551.3   am 78894796..78965555 n=2 | ol 384077..384492 n=2
+small commit: DOC FLUSH      312   109812       58    1893.3   am 126389..134321 n=2 | ol 19984..21103 n=2
+
+SUPERLINEARITY — finalize document flush, cpu per op by size
+  n= 160  ops=  2245  flushCpu=  11251453µs  cpu/op=  5011.8µs   [am 11380594..11524824 n=2 | ol 194369..208144 n=2]
+  n= 312  ops=  4373  flushCpu=  38932900µs  cpu/op=  8903.0µs   (x1.78 vs previous size)   [am 39126292..39380414 n=2 | ol 312132..328775 n=2]
+
+SUPERLINEARITY — commit document flush, cpu per op by size
+  n= 160  ops=  3218  flushCpu=  23349894µs  cpu/op=  7256.0µs   [am 23229015..23886895 n=2 | ol 206711..209412 n=2]
+  n= 312  ops=  6258  flushCpu=  78545891µs  cpu/op= 12551.3µs   (x1.73 vs previous size)   [am 78894796..78965555 n=2 | ol 384077..384492 n=2]
+
+A RISING cpu/op IS THE QUADRATIC. A FLAT ONE IS A SLOW CONSTANT.
+READ THE SPREADS BEFORE READING A RATIO: with few repeats, a growth factor is
+only distinguishable from its neighbours when the arms do not overlap.

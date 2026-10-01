@@ -53,7 +53,7 @@ import { docPath, loadDoc, saveDoc } from './docStore.js'
 import { recordDocumentWriteFailure, documentWriteFailureRecorded } from '../../ops/documentWriteFailures.js'
 import { DOCUMENT_OUTCOME } from '../../ops/documentOutcome.js'
 import { recordDeviceHealthEvent, DEVICE_HEALTH } from '../../ops/deviceHealthEvents.js'
-import { applyWrite, applyWrites, applyBulkReplace, MODELED_ENTITIES, BULK_REPLACE_MODELED_ENTITIES } from '../../automerge/campDocument.js'
+import { applyWrites, applyBulkReplace, MODELED_ENTITIES, BULK_REPLACE_MODELED_ENTITIES } from '../../automerge/campDocument.js'
 import { seedAllFromSqlite } from '../../automerge/seed.js'
 
 // null until wired: production startup wiring is Stage 5e (main.js calls
@@ -364,15 +364,56 @@ export function flushPendingWrites() {
   }
 }
 
-// Mirror one op-log write into the held Automerge doc, if `entity` is modeled. Unmodeled entities
-// (parent-scoped entities, template_slots, host-only tables) are a deliberate scope
-// fence (see campDocument.js's MODELED_ENTITIES) — they stay op-log-only, silently, not an error.
+// HOW MANY WRITES GO INTO ONE A.change, AND WHY IT IS NOT "ALL OF THEM".
+//
+// Round 1 replaced a per-write A.change with exactly one change per run, which
+// removed one quadratic and walked into another. Measured on this machine
+// (@automerge/automerge 3.4.1, writes into a document pre-populated with 6000
+// field keys, interleaved arms, process.cpuUsage, min of 2 — raw output in
+// docs/work/evidence/board-freeze-after-commit-and-finalize/):
+//
+//            n=500   n=1000  n=2000  n=4000     µs per write
+//   1 change   649      773    1418    2862     doubles with n — STILL O(n²)
+//   chunk 50   991     1044    1020    1138     flat, but pays per-change cost 80×
+//   chunk 250  642      596     620     664     FLAT
+//   chunk 500  583      598     655     657     flat
+//
+// A cpu profile of the real commit path (n=312, 92s) put 80.9% of self time in
+// automerge_wasm's `TransactionInner::exid_to_obj`: every property access on a
+// collection proxy inside an OPEN transaction re-resolves that collection
+// against the transaction's own pending ops, so the cost of write k is linear in
+// the number already pending. One change of n writes is therefore O(n²) in
+// exactly the way a per-write change was O(n²) in document size — a smaller
+// constant, the same shape, which is why commit (a bigger run on a smaller
+// document) got ~1.6× SLOWER in round 1 while finalize got faster.
+//
+// Chunking bounds the pending-op scan at the chunk size while still amortising
+// the per-change materialisation over many writes, and both costs are flat from
+// 250 up. 250 rather than 500 because 500 is no better at scale and loses the
+// small-run case (n=1000: 596µs vs 598µs; n=500 the per-change cost has fewer
+// writes to spread over). 50 is too small: the per-change document cost
+// dominates and it is the worst arm at every size.
+export const DOC_CHANGE_CHUNK = 250
+
+// Mirror a RUN of op-log writes into the held Automerge doc — one implementation
+// for one write and for n of them, because the seeding/registry-undo invariant
+// below is the kind that must not exist twice. `applyLocalWriteNow` is this
+// function with a one-element run.
+//
+// Unmodeled entities (parent-scoped entities, host-only tables) are a deliberate
+// scope fence (see campDocument.js's MODELED_ENTITIES) — they are FILTERED here,
+// silently, never an error.
 //
 // This is ALSO the local half of Stage 5f's unification: the doc this reads and writes
 // (getDoc/docRegistry) is the exact same one syncNode.js's remote-merge path reads and writes, so a
 // local edit always builds on top of whatever the last remote merge left behind, never a stale copy.
-function applyLocalWriteNow(db, { entity, entity_id, field, value, source, author_user_id, op_id = null }) {
-  if (!MODELED_ENTITIES.has(entity)) return
+//
+// `scheduleSave` is called ONCE PER OP ID. Collapsing it to one call per run
+// would drop n-1 ids from the ledger flushPendingWrites uses to attribute an
+// fsync failure; the call is a Map/Set write and is not where the cost was.
+function applyLocalWritesNow(db, args) {
+  const writes = args.filter((a) => MODELED_ENTITIES.has(a.entity))
+  if (writes.length === 0) return
 
   // Not wired yet (pre-Stage-5e): stay gracefully inert — warn ONCE, never
   // throw per write. SQLite still has the write either way; what is lost is
@@ -404,85 +445,47 @@ function applyLocalWriteNow(db, { entity, entity_id, field, value, source, autho
   // partial document, which the next launch would load rather than re-seed, and
   // then replicate its empty values over the correct ones on other devices.
   //
-  // So: seed in memory, apply the write, and persist the two together below.
+  // So: seed in memory, apply the writes, and persist the two together below.
   const seeding = getCurrentDoc(db) === null || getCurrentDoc(db) === undefined
-  const doc = getDoc(db, userDataDir, campId, { persistSeed: false })
-  const nextDoc = applyWrite(doc, { entity, entity_id, field, value, source, author_user_id })
-  docRegistry.set(db, nextDoc)
-  if (seeding) {
-    // One synchronous save, once per camp per process — the same one-time cost
-    // the seed already paid, just moved to after the write instead of before.
-    //
-    // ON FAILURE, UNDO THE REGISTRY. Without this, `withRetry`'s second attempt
-    // finds the doc already cached, takes the `seeding = false` path, skips the
-    // save entirely, and returns SUCCESS — reporting a genuinely failed write as
-    // "succeeded on attempt 2 after a transient failure". Measured, not
-    // theorised: it is what this function did before this line existed.
-    // Retrying is only honest if each attempt starts from the same state.
-    try {
-      saveDoc(userDataDir, campId, nextDoc, docCipher)
-    } catch (err) {
-      docRegistry.delete(db)
-      throw err
+  let doc = getDoc(db, userDataDir, campId, { persistSeed: false })
+  try {
+    // THE REGISTRY IS UPDATED PER CHUNK, NOT ONCE AT THE END, and that is not
+    // tidiness. `A.change` consumes the document it is given; a later chunk
+    // throwing therefore leaves the document this function was handed already
+    // consumed. The per-item fallback in commitDeferredDocWrites re-reads the
+    // registry, so if the registry still named that consumed document every
+    // write in the run would fail with "outdated document" — one bad value
+    // losing a whole import. Publishing each chunk means the fallback always
+    // finds a live document, and re-applying an already-applied field write is
+    // idempotent (same key, same value), so the overlap is harmless.
+    for (let i = 0; i < writes.length; i += DOC_CHANGE_CHUNK) {
+      doc = applyWrites(doc, writes.slice(i, i + DOC_CHANGE_CHUNK))
+      docRegistry.set(db, doc)
     }
-  }
-  scheduleSave(db, userDataDir, campId, { local: true, opId: op_id })
-}
-
-// The batched counterpart of applyLocalWriteNow: a whole RUN of queued field
-// writes through ONE A.change. Same gating and same plumbing, once per run
-// instead of once per item — which is the entire fix, because each A.change
-// re-materialises the patched collections and a per-item replay of n writes is
-// therefore O(n²) (see the 2026-10-01 amendment to
-// docs/adr/2026-09-29-per-op-savepoint-inside-an-atomic-boundary.md).
-//
-// MODELED_ENTITIES is a FILTER here, not a throw: an unmodeled entity is a
-// deliberate scope fence and must stay a silent skip, exactly as it is in
-// applyLocalWriteNow.
-//
-// `scheduleSave` is still called ONCE PER OP ID. Collapsing it to one call per
-// run would drop n-1 ids from the ledger flushPendingWrites uses to attribute
-// an fsync failure; the call is a Map/Set write and is not where the cost was.
-function applyLocalWritesNow(db, items) {
-  const writes = items.map((i) => i.args).filter((a) => MODELED_ENTITIES.has(a.entity))
-  if (writes.length === 0) return
-
-  if (!userDataDirGetter) {
-    if (!warnedUnconfigured) {
-      console.warn(
-        'liveDoc: userDataDir not configured — Automerge dual-write is inert until Stage 5e wires it at startup'
-      )
-      warnedUnconfigured = true
+    if (seeding) {
+      // One synchronous save, once per camp per process — the same one-time cost
+      // the seed already paid, just moved to after the writes instead of before.
+      saveDoc(userDataDir, campId, doc, docCipher)
     }
-    return
-  }
-
-  const campId = getCampId(db)
-  if (!campId) return
-
-  const userDataDir = userDataDirGetter()
-  if (!userDataDir) return
-
-  // Same seed-in-memory-then-persist-with-the-write reasoning as
-  // applyLocalWriteNow, including the registry undo on save failure — without
-  // it withRetry's second attempt would find the doc cached, skip the save, and
-  // report a failed write as succeeded.
-  const seeding = getCurrentDoc(db) === null || getCurrentDoc(db) === undefined
-  const doc = getDoc(db, userDataDir, campId, { persistSeed: false })
-  const nextDoc = applyWrites(doc, writes)
-  docRegistry.set(db, nextDoc)
-  if (seeding) {
-    try {
-      saveDoc(userDataDir, campId, nextDoc, docCipher)
-    } catch (err) {
-      docRegistry.delete(db)
-      throw err
-    }
+  } catch (err) {
+    // ON FAILURE WHILE SEEDING, UNDO THE REGISTRY. Without this, `withRetry`'s
+    // second attempt finds the doc already cached, takes the `seeding = false`
+    // path, skips the save entirely, and returns SUCCESS — reporting a genuinely
+    // failed write as "succeeded on attempt 2 after a transient failure".
+    // Measured, not theorised: it is what this function did before this line
+    // existed. Retrying is only honest if each attempt starts from the same
+    // state. Deleting the entry (rather than restoring the pre-batch document)
+    // is also what keeps a consumed seed from being handed out again: getDoc
+    // re-seeds from SQLite, which nothing has rolled back.
+    if (seeding) docRegistry.delete(db)
+    throw err
   }
   for (const write of writes) {
     scheduleSave(db, userDataDir, campId, { local: true, opId: write.op_id ?? null })
   }
 }
+
+const applyLocalWriteNow = (db, args) => applyLocalWritesNow(db, [args])
 
 // Mirror one appendBulkReplaceOp write into the held Automerge doc — the bulk-replace counterpart
 // of recordLocalWrite above. Same gating (unmodeled entity / unconfigured / no camp -> inert), same
@@ -550,12 +553,22 @@ export function commitDeferredDocWrites(db) {
   if (state.depth > 0) return
   const queued = state.queue
   state.queue = []
-  // Partition into maximal CONTIGUOUS runs of the same kind. The queue mixes
-  // 'write' and 'bulk', and contiguity is what preserves order across the mix:
-  // a bulk sitting between two writes to the same scope must still land between
-  // them. 'bulk' runs stay per-item — applyBulkReplace is a different change
-  // against a different collection and THROWS for an unregistered entity, so
-  // folding it in would let one bad bulk abort unrelated field writes.
+  // Partition into maximal CONTIGUOUS runs of the same kind. 'bulk' runs stay
+  // per-item — applyBulkReplace is a different change against a different
+  // collection and THROWS for an unregistered entity, so folding it in would let
+  // one bad bulk abort unrelated field writes.
+  //
+  // CONTIGUITY IS THE SAFE DEFAULT, NOT A GUARD ON SOMETHING OBSERVABLE, and
+  // round 1's comment here claimed otherwise. Nothing today can observe a write
+  // and a bulk being reordered relative to each other: a bulk-replace writes
+  // `doc[`${entity}_scopes`][scope_id]` while a field write writes
+  // `doc[entity][id\x1ffield]`, so the two primitives cannot touch one key
+  // (campDocument.js's bulkReplaceCollectionName says so in as many words), and
+  // relative write-to-write order survives any partition that keeps each kind's
+  // own sequence. So batching every write regardless of position would produce
+  // the identical document, and no fixture can be written that proves otherwise
+  // — which is why the test for this pins the DISJOINTNESS instead, the thing
+  // that would have to break first for ordering to start mattering.
   for (let i = 0; i < queued.length; ) {
     const kind = queued[i].kind
     let end = i + 1
@@ -563,7 +576,7 @@ export function commitDeferredDocWrites(db) {
     const run = queued.slice(i, end)
     i = end
     if (kind === 'write' && run.length > 1) {
-      const batched = withRetry(() => applyLocalWritesNow(db, run))
+      const batched = withRetry(() => applyLocalWritesNow(db, run.map((item) => item.args)))
       if (batched.ok) {
         for (const item of run) {
           if (item.op) item.op[DOCUMENT_OUTCOME] = 'applied'
@@ -572,12 +585,19 @@ export function commitDeferredDocWrites(db) {
       }
       // FALL BACK PER ITEM over this run only. A throw inside an A.change
       // callback rolls the change back and rethrows without consuming the
-      // original document (@automerge/automerge 3.4.1,
-      // dist/mjs/implementation.js), so re-running per item applies each write
-      // exactly once — and applyLocalWriteNow re-reads the doc from the
-      // registry, never a handle captured before the failed batch. No path
-      // stamps a batch-wide 'failed'; the per-op verdict is always restored by
-      // actually retrying each op.
+      // document that change was given (@automerge/automerge 3.4.1,
+      // dist/mjs/implementation.js), and applyLocalWriteNow re-reads the doc
+      // from the registry, never a handle captured before the failed batch.
+      //
+      // EXACTLY ONCE IN EFFECT, not exactly once in the change log. Two cases
+      // re-apply a write that already landed: a chunk earlier in the run than
+      // the failing one (applyLocalWritesNow publishes each chunk, so those
+      // writes are in the document before the fallback starts), and a throw from
+      // the scheduleSave loop after docRegistry.set. A field write is idempotent
+      // by key, so the materialised state is identical either way — what differs
+      // is A.getAllChanges length, which nothing in this repo reasons about for
+      // local writes. No path stamps a batch-wide 'failed'; the per-op verdict
+      // is always restored by actually retrying each op.
       console.warn(`batched document write failed after ${batched.attempts} attempts — retrying ${run.length} writes individually`)
     }
     flushDeferredItems(run)

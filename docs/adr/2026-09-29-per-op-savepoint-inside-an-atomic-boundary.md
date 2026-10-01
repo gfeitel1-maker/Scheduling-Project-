@@ -168,22 +168,29 @@ blocks the main thread; it is now blocked for less time." This amendment names w
 remaining block actually was, removes one layer of it at the same choke point, and — because
 the measurement refused to agree with the design — records plainly which layer is left.
 
-**Measured.** The harness at `electron/electiveFreeze.perf.mjs` drives the
+**Measured.** The harness at `scripts/electiveFreezePerf.mjs` drives the
 real `commitElectiveRun`/`finalizeElectiveRun` through the real `makeHandlers`, in interleaved
 arms, measuring `process.cpuUsage()` deltas; the difference between the op-log arm and the
 automerge arm isolates the document flush. Finalize, document-flush CPU (user+sys µs):
 
-| n   | ops  | flush CPU before | cpu/op before | flush CPU after | cpu/op after |
-|-----|------|------------------|---------------|-----------------|--------------|
-| 40  | 565  | 1,675,538        | 2,966         | 599,208         | 1,061        |
-| 80  | 1125 | 5,453,835        | 4,848         | 2,203,253       | 1,958        |
-| 160 | 2245 | 21,426,318       | 9,544         | 8,396,349       | 3,740        |
-| 312 | 4373 | 81,320,640       | 18,595        | 31,881,242      | 7,291        |
+document-flush cpu-per-op (µs), the two director-facing phases, three arms differing only in
+`DOC_CHANGE_CHUNK` (`1` = `origin/main`'s per-write change, `MAX_SAFE_INTEGER` = one change per
+run, `250` = this branch). Raw interleaved cell logs, the cpu profile and the chunk-size sweep are
+committed in `docs/work/evidence/board-freeze-after-commit-and-finalize/` (`PERF-RAW.md` indexes
+them):
 
-cpu-per-op doubled when n doubled before (×1.63, ×1.97, ×1.95), so the total was **O(n²)**. The
-SQLite + op-log + `applyProjection` half — the half this ADR's original decision addressed — is
-**flat** at 87.9 → 55.6 µs/op and totals 0.24 s at n=312. The document flush was **99.7%** of
-finalize. The director saw the app frozen for minutes after Finalize and over a minute after
+| phase    | n   | ops  | per-write | one change | chunk 250 |
+|----------|-----|------|-----------|------------|-----------|
+| finalize | 80  | 1125 | 6,351     | —          | 1,053     |
+| finalize | 160 | 2245 | 13,061    | 5,012      | 1,227     |
+| finalize | 312 | 4373 | —         | 8,903      | 1,483     |
+| commit   | 80  | 1618 | 3,292     | —          | 1,625     |
+| commit   | 160 | 3218 | 4,851     | 7,256      | 1,490     |
+| commit   | 312 | 6258 | —         | 12,551     | 1,415     |
+
+The SQLite + op-log + `applyProjection` half — the half this ADR's original decision addressed —
+is **flat** at 133.9 → 74.7 µs/op and totals 0.47 s at n=312. The document flush was **over 99%**
+of both phases. The director saw the app frozen for minutes after Finalize and over a minute after
 Commit.
 
 **Mechanism.** A `runAtomic` body appends many ops; each `appendOp` defers its document write
@@ -194,42 +201,85 @@ provenance key and an author key — so 15 fields on one row is 45 keys across t
 collections. Finalize is the loudest caller, not the only one: every `runAtomic` body pays this,
 including imports, `duplicateWeek`, delete cascades and `commitElectiveRun`.
 
-**Decision.** Batch the replay at the choke point. `commitDeferredDocWrites` partitions its queue
-into maximal **contiguous runs by kind** and applies each `write` run through one `A.change`
+**Decision.** Batch the replay at the choke point, in bounded chunks. `commitDeferredDocWrites`
+partitions its queue into maximal **contiguous runs by kind** and applies each `write` run through
+`applyLocalWritesNow`, which splits it into `DOC_CHANGE_CHUNK` (250) writes per `A.change`
 (`applyWrites` in `campDocument.js`, which reuses `applyWrite`'s per-field body verbatim rather
-than forking it — `applyWrite` becomes `applyWrites(doc, [write])`). `bulk` items stay per-item,
-because `applyBulkReplace` is a different change against a different collection and throws rather
-than returning for an unregistered entity. Contiguity is what preserves order across the mix.
+than forking it — `applyWrite` becomes `applyWrites(doc, [write])`, and `applyLocalWriteNow`
+likewise becomes `applyLocalWritesNow(db, [args])` so the seeding/registry-undo invariant has one
+implementation). `bulk` items stay per-item, because `applyBulkReplace` is a different change
+against a different collection and throws rather than returning for an unregistered entity.
 
-### What the measurement actually said — the acceptance condition was NOT met
+Contiguity is kept as the structurally safe default, and round 1's claim that it is what
+*preserves order* across the mix is **withdrawn as an overclaim**: a bulk-replace writes
+``doc[`${entity}_scopes`][scope_id]`` while a field write writes ``doc[entity][id\x1ffield]``, so
+the two primitives cannot address one key, and relative write-to-write order survives any
+partition that keeps each kind's own sequence. Batching every write regardless of position
+produces the identical document — confirmed by mutation: the whole focused suite stays green under
+it. What is pinned instead is the **disjointness** that makes reordering harmless, which is the
+thing that would have to break first for ordering to start mattering.
 
-The acceptance condition set for this change was **flatness** of cpu-per-op across the four
-sizes. It is not met. After the fix the growth factors are ×1.85, ×1.91, ×1.95 — still a
-doubling per doubling, still **O(n²)**. What the change bought is a constant factor:
-**2.55× less CPU at n=312** (81.3 s → 31.9 s of flush CPU), 2.8× at n=40. That is real, it is
-the per-change ceremony this ADR named, and it is worth keeping. It is not the fix the design
-predicted.
+### Round 1 batched to one change per run, and that made COMMIT worse
 
-**Where the remaining quadratic lives, measured rather than guessed.** A `--cpu-prof` run of the
-n=160 automerge cell attributes **~22 s of 31.8 s** to one frame:
-`automerge::transaction::inner::TransactionInner::exid_to_obj` inside `automerge_wasm`. That is
-the object-id resolution every property access through a change proxy pays, and its cost grows
-with the document. Batching reduces the number of **changes**; it does not reduce the number of
-**proxy accesses**, which is one per key written and therefore still O(n) accesses each costing
-O(document). Three independent synthetic benchmarks (growing collection, growing document,
-growing change history, repeated overwrites) were all flat at ~0.2–0.8 ms per write, so the
-superlinearity is specific to the real seeded camp document and is not reproduced by any
-simplified fixture — which is the honest reason it is not closed here.
+Recorded because it is the whole reason this amendment has a second half, and because "net win"
+was asserted before it was measured on the more frequent action.
+
+One `A.change` per run improved finalize 2.6× and made **commit 1.50× SLOWER than
+`origin/main`** (n=160: 4,851 → 7,256 µs/op, same machine, spreads under 3% in both arms;
+independently measured at ×1.25/×1.53/×1.62 for n=80/160/312 before being measured again here).
+The regression was monotonic in n, so it was not load noise.
+
+**Why, measured rather than guessed.** A `--cpu-prof` of one n=312 commit under the round-1 code
+puts **80.9% of 168.8 s** of self time in one frame:
+`automerge::transaction::inner::TransactionInner::exid_to_obj` inside `automerge_wasm`. Every
+property access on a collection proxy inside an **open** transaction re-resolves that collection
+against the transaction's own pending ops, so the cost of write *k* is linear in how many are
+already pending. One change of n writes is therefore O(n²) in the same shape a per-write change
+was O(n²) in document size — a smaller constant, the same curve. Commit is a **bigger run on a
+smaller document** than finalize, which is exactly why one arm improved and the other did not.
+
+Neither "all of them" nor "one at a time" is the right batch size, and the measurement says so
+directly. Against a document pre-populated with 6000 keys, cpu per write:
+
+| arm | n=500 | n=1000 | n=2000 | n=4000 |
+|-----|-------|--------|--------|--------|
+| 1 change | 649 | 773 | 1,418 | 2,862 |
+| chunk 50 | 991 | 1,044 | 1,020 | 1,138 |
+| chunk 250 | 642 | 596 | 620 | 664 |
+| chunk 500 | 583 | 598 | 655 | 657 |
+
+Chunking bounds the pending-op scan at the chunk size while still amortising the per-change
+materialisation over many writes. **250** rather than 500 because 500 is no better at scale and
+loses the small-run case, and rather than 50 because the per-change document cost then dominates
+(worst arm at every size). The number is from this table, not from taste.
+
+### What the measurement says now, and what it still does not support
+
+With chunking, commit's cpu-per-op **declines** with n (2,018 → 1,625 → 1,490 → 1,415) and
+finalize's grows ×1.04, ×1.17, ×1.21 per doubling against ×2.06 for `origin/main` and ×1.78 for
+round 1. At n=312 the flush is 8.9× cheaper than round 1 for commit and 6.0× for finalize; at
+n=160, where all three arms were measured, it is **3.3× cheaper than `origin/main` for commit and
+10.6× for finalize**. The change is net-positive for both phases, which round 1 was not.
+
+**What these numbers do not support.** The round-2 run was taken on a loaded machine (n=312
+automerge finalize spread 4.99 s..7.62 s) while the baseline and round-1 runs were quiet, so
+round 2's figures are if anything inflated and the improvement understated — but the three
+round-2 growth factors are **not distinguishable from each other** at three repeats. "Flatter
+than round 1, which was flatter than per-write" is supported; any finer reading of ×1.04/×1.17/
+×1.21 is not. The same caution applies to round 1's own ×1.85/×1.91/×1.95: those were not
+distinguishable from each other or from 2.0 either, so "still O(n²)" was supported and nothing
+finer was.
+
+Flatness was the acceptance condition, and it is still **not formally met** for finalize. Whether
+×1.2 per doubling is close enough for a real camp, or whether to change the document shape or move
+the flush off the IPC reply path, is a decision outside this change's fence.
 
 Hoisting the three collection proxies (`d[entity]`, `d[field_provenance]`, `d[field_author]`) out
 of the per-field body, so each is resolved once per change instead of once per write, was
-implemented and measured: **31.86 s vs 31.88 s at n=312 — no effect.** The cost is in the
-mutating accesses, which are irreducible at one per key. It was reverted rather than kept as
-complexity that buys nothing.
-
-So the next step, if finalize is still too slow for a real camp, is not another batching layer.
-It is either a document shape that writes fewer keys per row, or moving the flush off the IPC
-reply path, and both are their own decisions.
+implemented and measured under round 1: **31.86 s vs 31.88 s at n=312 — no effect.** The cost is
+in the mutating accesses, which are irreducible at one per key. It was reverted rather than kept as
+complexity that buys nothing. Chunking is the thing that addresses it, because it shrinks what each
+of those accesses has to scan.
 
 **What stays identical, and why each one is not a shrug.**
 
@@ -256,23 +306,31 @@ reply path, and both are their own decisions.
 - *Per-item failure containment.* Read against the installed version, `@automerge/automerge`
   **3.4.1** (`package-lock.json`, not the `^3.4.1` range): a throw inside the `A.change` callback
   runs `state.handle.rollback()` and rethrows **without** reaching `progressDocument`
-  (`dist/mjs/implementation.js`). So there is no partial-batch state, and the original document is
-  neither consumed nor marked outdated. A failed batch therefore falls back to the existing
-  per-item loop, re-read from the registry, applying each write exactly once — contained and
-  attributed to its own `op_id` exactly as before. Pinned by a test that injects a real fault
-  (a symbol value, which Automerge refuses) mid-batch and requires every other write in the run to
-  land **exactly once** — asserted on the change count, not just the value.
-- *`DOCUMENT_OUTCOME`.* A run that commits stamps `'applied'` on every op in it, which is true
-  because the change is atomic. A run that fails is retried per item, so the per-op verdict is
-  restored. **No path stamps a batch-wide `'failed'`** — that invariant is the thing to protect.
+  (`dist/mjs/implementation.js`), so the document that change was given is neither consumed nor
+  marked outdated. With chunking that covers the **failing** chunk only: a chunk before it has
+  already consumed its input, including the document the registry named on entry. So
+  `applyLocalWritesNow` publishes each chunk's result to the registry as it goes, and the per-item
+  fallback — which re-reads the registry — always finds a live document. Re-applying a write an
+  earlier chunk already applied is idempotent (same key, same value), so the overlap is harmless;
+  what is **not** preserved across a chunk boundary is "exactly once" in the change log, only
+  exactly-once in effect. Pinned by two tests that inject a real fault (a symbol value, which
+  Automerge refuses): one mid-batch within a single chunk, asserting the change count, and one in a
+  **later** chunk of a `DOC_CHANGE_CHUNK + 5` run, asserting every other write lands and every op
+  carries its own verdict.
+- *`DOCUMENT_OUTCOME`.* A run that commits stamps `'applied'` on every op in it. A run that fails
+  is retried per item, so the per-op verdict is restored. **No path stamps a batch-wide
+  `'failed'`** — that invariant is the thing to protect. The SUCCESS stamping is load-bearing and
+  round 1 left it unpinned: `migrationDomainState.js` fails closed on anything that is not
+  `'applied'`, so a run left saying `'deferred'` leaves `resolved_at` NULL and keeps sync refused,
+  and deleting the stamping loop kept all 1,901 tests green. Now pinned, mutation-checked.
 - *`scheduleSave`'s `opIds`.* Still called once per op id. Collapsing it to one call per batch
   would drop n−1 ids from the ledger `flushPendingWrites` uses to attribute an fsync failure, and
   a disk failure would then name one op out of four thousand. The call is a `Map`/`Set` write; it
   is not where the cost was. Pinned by a test that fails the save after a batched flush and
   requires every op id in the window to be recorded.
-- *Crash window.* Two windows exist: SQLite-committed→document-correct-in-memory (was the 81 s
-  replay, now 32 s) and in-memory→on-disk (`SAVE_DEBOUNCE_MS`, unchanged). The first narrows by
-  2.55×. Nothing widens.
+- *Crash window.* Two windows exist: SQLite-committed→document-correct-in-memory (at n=312, was
+  81 s of replay, 32 s under round 1, 6.5 s now) and in-memory→on-disk (`SAVE_DEBOUNCE_MS`,
+  unchanged). The first narrows. Nothing widens.
 - *Schema.* None. No table, column, migration or `PROJECTIONS` change.
 
 **Scope.** The fix lands only at `commitDeferredDocWrites`, which fixes every caller. Moving

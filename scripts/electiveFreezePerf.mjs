@@ -4,7 +4,7 @@
 //
 // RUN:
 //   node --import ./scripts/fixtures/registerElectronStub.mjs \
-//        electron/electiveFreeze.perf.mjs --sizes 40,120,312 --repeats 2
+//        scripts/electiveFreezePerf.mjs --sizes 40,80,160,312 --repeats 3
 //
 // Deliberately NOT a vitest file and NOT wired into `npm run verify`: it is an
 // instrument quoted in a report, not a gate.
@@ -40,17 +40,17 @@ const REPO = path.resolve(HERE, '..')
 // ─── child: one (engine, size) cell ──────────────────────────────────────────
 
 async function runCell({ size, engine }) {
-  const { getOrCreateDeviceId } = await import('./db/localDb.js')
-  const { openTemplatedDb } = await import('./db/testDbTemplate.js')
-  const { createUser, ensureHostSigningKey } = await import('./auth/localAuth.js')
-  const { appendOp } = await import('./ops/operations.js')
-  const { makeHandlers } = await import('./main.js')
-  const { deriveElectiveOccurrenceId } = await import('./ops/electiveDerivedIds.js')
-  const { deriveElectiveRunOuterRows } = await import('./ops/electiveRunOuterSchedule.js')
-  const { computeExpectedSnapshotDigestByCamper } = await import('./ops/electiveRunSnapshotCompleteness.js')
-  const { deriveElectiveRunOuterSnapshotId } = await import('./ops/deriveElectiveRunOuterSnapshotId.js')
-  const liveDoc = await import('./sync/automerge/liveDoc.js')
-  const { SYNC_ENGINE } = await import('./sync/automerge/syncEngineFlag.js')
+  const { getOrCreateDeviceId } = await import('../electron/db/localDb.js')
+  const { openTemplatedDb } = await import('../electron/db/testDbTemplate.js')
+  const { createUser, ensureHostSigningKey } = await import('../electron/auth/localAuth.js')
+  const { appendOp } = await import('../electron/ops/operations.js')
+  const { makeHandlers } = await import('../electron/main.js')
+  const { deriveElectiveOccurrenceId } = await import('../electron/ops/electiveDerivedIds.js')
+  const { deriveElectiveRunOuterRows } = await import('../electron/ops/electiveRunOuterSchedule.js')
+  const { computeExpectedSnapshotDigestByCamper } = await import('../electron/ops/electiveRunSnapshotCompleteness.js')
+  const { deriveElectiveRunOuterSnapshotId } = await import('../electron/ops/deriveElectiveRunOuterSnapshotId.js')
+  const liveDoc = await import('../electron/sync/automerge/liveDoc.js')
+  const { SYNC_ENGINE } = await import('../electron/sync/automerge/syncEngineFlag.js')
 
   if (SYNC_ENGINE !== engine) throw new Error(`engine flag is ${SYNC_ENGINE}, wanted ${engine}`)
 
@@ -68,6 +68,12 @@ async function runCell({ size, engine }) {
   ).run(new Date().toISOString(), randomBytes(32).toString('hex'), deviceId)
 
   const hostKey = ensureHostSigningKey(db)
+  // INTERPOLATED, AND IT HAS TO BE: a trigger BODY cannot be parameterized in
+  // SQLite (a bound parameter in a stored statement has no value at fire time),
+  // so there is no `?` form of this. The value is locally generated hex from
+  // ensureHostSigningKey, never anything a caller supplies — this is not a
+  // counterexample to the repo's bound-parameter rule, it is the one shape the
+  // rule cannot cover.
   db.exec(`
     CREATE TEMP TRIGGER IF NOT EXISTS trg_perf_set_signing_public_key
     AFTER INSERT ON camps WHEN NEW.signing_public_key IS NULL
@@ -230,7 +236,7 @@ if (args.cell) {
   for (const cell of cells) {
     const child = spawnSync(
       process.execPath,
-      ['--import', './scripts/fixtures/registerElectronStub.mjs', 'electron/electiveFreeze.perf.mjs', '--cell', `${cell.size}:${cell.engine}`],
+      ['--import', './scripts/fixtures/registerElectronStub.mjs', 'scripts/electiveFreezePerf.mjs', '--cell', `${cell.size}:${cell.engine}`],
       { cwd: REPO, env: { ...process.env, SHORESH_SYNC_ENGINE: cell.engine }, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }
     )
     const line = (child.stdout || '').split('\n').find((l) => l.startsWith('__CELL__'))
@@ -250,6 +256,15 @@ if (args.cell) {
 function median(xs) {
   const s = [...xs].sort((a, b) => a - b)
   return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2
+}
+
+// WITH --repeats 2 THE "MEDIAN" IS THE MEAN OF TWO SAMPLES and rejects no
+// outlier, so every median printed below carries its own min/max. A reader who
+// cannot see the dispersion cannot tell a real difference from this machine's
+// mood, and that is exactly the mistake this harness exists to avoid.
+function spread(xs) {
+  if (xs.length < 2) return `n=1`
+  return `${Math.round(Math.min(...xs))}..${Math.round(Math.max(...xs))} n=${xs.length}`
 }
 
 function report(results) {
@@ -275,46 +290,66 @@ function report(results) {
   }
 
   lines.push('')
-  lines.push('MEDIANS BY SIZE (cpu µs = user+sys)')
-  lines.push('phase                        n     cpu      ops    cpu/op')
+  lines.push('MEDIANS BY SIZE (cpu µs = user+sys), each with its own min..max')
+  lines.push('phase                        n     cpu      ops    cpu/op   spread')
   for (const size of sizes) {
     const am = pick(size, 'automerge')
     const ol = pick(size, 'oplog')
-    const row = (label, cpu, ops) =>
-      lines.push(`${label.padEnd(27)} ${String(size).padStart(4)} ${String(cpu).padStart(8)} ${String(ops).padStart(8)} ${(ops ? (cpu / ops).toFixed(1) : '-').padStart(9)}`)
+    // Per-SAMPLE cpu, so the spread describes the thing being reported rather
+    // than one of its two components.
+    const cpus = (rows, phase) => rows.map((r) => r[phase].user + r[phase].system)
+    const row = (label, cpu, ops, note) =>
+      lines.push(
+        `${label.padEnd(27)} ${String(size).padStart(4)} ${String(Math.round(cpu)).padStart(8)} ${String(ops).padStart(8)} ` +
+        `${(ops ? (cpu / ops).toFixed(1) : '-').padStart(9)}   ${note}`
+      )
 
     const dRows = [...am, ...ol]
-    row('derive rows (pure)', med(dRows, 'derive', 'user') + med(dRows, 'derive', 'system'), size)
-    row('digest (pure)', med(dRows, 'digest', 'user') + med(dRows, 'digest', 'system'), size)
+    row('derive rows (pure)', median(cpus(dRows, 'derive')), size, spread(cpus(dRows, 'derive')))
+    row('digest (pure)', median(cpus(dRows, 'digest')), size, spread(cpus(dRows, 'digest')))
 
-    const olFin = med(ol, 'finalize', 'user') + med(ol, 'finalize', 'system')
-    const amFin = med(am, 'finalize', 'user') + med(am, 'finalize', 'system')
+    const olFin = median(cpus(ol, 'finalize'))
+    const amFin = median(cpus(am, 'finalize'))
     const fops = med(am, 'finalize', 'ops')
-    row('finalize: oplog+projection', olFin, fops)
-    row('finalize: TOTAL automerge', amFin, fops)
-    row('finalize: DOC FLUSH (diff)', amFin - olFin, fops)
+    row('finalize: oplog+projection', olFin, fops, spread(cpus(ol, 'finalize')))
+    row('finalize: TOTAL automerge', amFin, fops, spread(cpus(am, 'finalize')))
+    // A DIFFERENCE OF MEDIANS HAS NO SPREAD OF ITS OWN. Both arms' spreads are
+    // printed instead, which is what tells a reader whether the difference
+    // clears the noise.
+    row('finalize: DOC FLUSH (diff)', amFin - olFin, fops, `am ${spread(cpus(am, 'finalize'))} | ol ${spread(cpus(ol, 'finalize'))}`)
 
-    const olCom = med(ol, 'commit', 'user') + med(ol, 'commit', 'system')
-    const amCom = med(am, 'commit', 'user') + med(am, 'commit', 'system')
+    const olCom = median(cpus(ol, 'commit'))
+    const amCom = median(cpus(am, 'commit'))
     const cops = med(am, 'commit', 'ops')
-    row('commit: oplog+projection', olCom, cops)
-    row('commit: TOTAL automerge', amCom, cops)
-    row('commit: DOC FLUSH (diff)', amCom - olCom, cops)
+    row('commit: oplog+projection', olCom, cops, spread(cpus(ol, 'commit')))
+    row('commit: TOTAL automerge', amCom, cops, spread(cpus(am, 'commit')))
+    row('commit: DOC FLUSH (diff)', amCom - olCom, cops, `am ${spread(cpus(am, 'commit'))} | ol ${spread(cpus(ol, 'commit'))}`)
+
+    const olSm = median(cpus(ol, 'smallCommit'))
+    const amSm = median(cpus(am, 'smallCommit'))
+    const sops = med(am, 'smallCommit', 'ops')
+    row('small commit: DOC FLUSH', amSm - olSm, sops, `am ${spread(cpus(am, 'smallCommit'))} | ol ${spread(cpus(ol, 'smallCommit'))}`)
     lines.push('')
   }
 
-  lines.push('SUPERLINEARITY — finalize document flush, cpu per op by size')
-  let prev = null
-  for (const size of sizes) {
-    const am = pick(size, 'automerge'), ol = pick(size, 'oplog')
-    const diff = (med(am, 'finalize', 'user') + med(am, 'finalize', 'system')) - (med(ol, 'finalize', 'user') + med(ol, 'finalize', 'system'))
-    const ops = med(am, 'finalize', 'ops')
-    const perOp = diff / ops
-    lines.push(`  n=${String(size).padStart(4)}  ops=${String(ops).padStart(6)}  flushCpu=${String(diff).padStart(10)}µs  cpu/op=${perOp.toFixed(1).padStart(8)}µs` +
-      (prev ? `   (x${(perOp / prev).toFixed(2)} vs previous size)` : ''))
-    prev = perOp
+  for (const phase of ['finalize', 'commit']) {
+    lines.push(`SUPERLINEARITY — ${phase} document flush, cpu per op by size`)
+    let prev = null
+    for (const size of sizes) {
+      const am = pick(size, 'automerge'), ol = pick(size, 'oplog')
+      const cpus = (rows) => rows.map((r) => r[phase].user + r[phase].system)
+      const diff = median(cpus(am)) - median(cpus(ol))
+      const ops = med(am, phase, 'ops')
+      const perOp = diff / ops
+      lines.push(`  n=${String(size).padStart(4)}  ops=${String(ops).padStart(6)}  flushCpu=${String(Math.round(diff)).padStart(10)}µs  cpu/op=${perOp.toFixed(1).padStart(8)}µs` +
+        (prev ? `   (x${(perOp / prev).toFixed(2)} vs previous size)` : '') +
+        `   [am ${spread(cpus(am))} | ol ${spread(cpus(ol))}]`)
+      prev = perOp
+    }
+    lines.push('')
   }
-  lines.push('')
   lines.push('A RISING cpu/op IS THE QUADRATIC. A FLAT ONE IS A SLOW CONSTANT.')
+  lines.push('READ THE SPREADS BEFORE READING A RATIO: with few repeats, a growth factor is')
+  lines.push('only distinguishable from its neighbours when the arms do not overlap.')
   process.stdout.write(lines.join('\n') + '\n')
 }

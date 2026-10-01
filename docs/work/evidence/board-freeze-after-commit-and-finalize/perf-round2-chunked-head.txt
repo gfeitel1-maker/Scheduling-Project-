@@ -1,0 +1,181 @@
+
+RAW CELLS (cpu µs; user+sys; wall ms; ops appended)
+engine     n    phase      user        sys       cpu       wall     ops   cpu/op
+oplog        40  commit        61199      7306     68505      67.0     818     83.7
+oplog        40  derive        18099       764     18863      21.9       0        -
+oplog        40  digest         2146       171      2317       1.8       0        -
+oplog        40  finalize      67490      8148     75638      96.5     565    133.9
+oplog        40  smallCommit      8950      2415     11365      11.0      58    195.9
+automerge    40  commit      1538703     79926   1618629    1109.4     818   1978.8
+automerge    40  derive        18080       595     18675      22.1       0        -
+automerge    40  digest         1979       152      2131       1.7       0        -
+automerge    40  finalize     566396     16351    582747     565.2     565   1031.4
+automerge    40  smallCommit     48308      1564     49872      46.1      58    859.9
+oplog        80  commit        99771     12878    112649     115.8    1618     69.6
+oplog        80  derive        18250       802     19052      20.6       0        -
+oplog        80  digest         3051       350      3401       3.0       0        -
+oplog        80  finalize     100980     12473    113453     121.3    1125    100.8
+oplog        80  smallCommit      6490      2456      8946       8.1      58    154.2
+automerge    80  commit      2420847    108981   2529828    2101.0    1618   1563.6
+automerge    80  derive        19530       670     20200      21.9       0        -
+automerge    80  digest         3194       314      3508       5.0       0        -
+automerge    80  finalize    1103935     27471   1131406    1203.9    1125   1005.7
+automerge    80  smallCommit     57859      4655     62514      71.0      58   1077.8
+oplog       160  commit       198095     31387    229482     316.1    3218     71.3
+oplog       160  derive        20010      1126     21136      24.5       0        -
+oplog       160  digest         4051       252      4303       3.6       0        -
+oplog       160  finalize     175223     31848    207071     298.9    2245     92.2
+oplog       160  smallCommit     33967      2504     36471      22.7      58    628.8
+automerge   160  commit      3875283    180346   4055629    3757.1    3218   1260.3
+automerge   160  derive        21174      1152     22326      27.7       0        -
+automerge   160  digest         4659       277      4936       4.0       0        -
+automerge   160  finalize    2144515     68516   2213031    2580.8    2245    985.8
+automerge   160  smallCommit     66438      4781     71219      76.4      58   1227.9
+oplog       312  commit       371201     65736    436937     628.7    6258     69.8
+oplog       312  derive        57205      2453     59658      38.5       0        -
+oplog       312  digest        16213       557     16770       8.5       0        -
+oplog       312  finalize     319742     19715    339457     371.6    4373     77.6
+oplog       312  smallCommit      6192     15890     22082      51.5      58    380.7
+automerge   312  commit      7086554    292597   7379151    8207.1    6258   1179.2
+automerge   312  derive        24001      1260     25261      31.3       0        -
+automerge   312  digest        10565       978     11543      11.4       0        -
+automerge   312  finalize    4810076    182441   4992517    6272.5    4373   1141.7
+automerge   312  smallCommit    105501     23279    128780     181.0      58   2220.3
+automerge    40  commit      1627832     91120   1718952    1216.1     818   2101.4
+automerge    40  derive        17605       679     18284      20.0       0        -
+automerge    40  digest         1888       168      2056       1.9       0        -
+automerge    40  finalize     627405     21083    648488     652.6     565   1147.8
+automerge    40  smallCommit     57137      2071     59208      56.4      58   1020.8
+oplog        40  commit        61163      6927     68090      66.7     818     83.2
+oplog        40  derive        17661       893     18554      25.9       0        -
+oplog        40  digest         2523       232      2755       4.7       0        -
+oplog        40  finalize      68194      8872     77066      93.3     565    136.4
+oplog        40  smallCommit      7678      2312      9990       8.1      58    172.2
+automerge    80  commit      2644147    131851   2775998    2478.5    1618   1715.7
+automerge    80  derive        22568       991     23559      28.0       0        -
+automerge    80  digest         3360       257      3617       2.8       0        -
+automerge    80  finalize    1438637     51257   1489894    1883.6    1125   1324.4
+automerge    80  smallCommit     66492      4936     71428      96.6      58   1231.5
+oplog        80  commit       133555     12747    146302     441.7    1618     90.4
+oplog        80  derive        23045      1495     24540      78.5       0        -
+oplog        80  digest         4687       739      5426      10.5       0        -
+oplog        80  finalize     148291     15980    164271     404.8    1125    146.0
+oplog        80  smallCommit      8316      1949     10265      10.7      58    177.0
+automerge   160  commit      5339193    279414   5618607   15631.9    3218   1746.0
+automerge   160  derive        26708      2048     28756     400.3       0        -
+automerge   160  digest         7989      1512      9501      16.0       0        -
+automerge   160  finalize    3323647    150494   3474141    8619.1    2245   1547.5
+automerge   160  smallCommit     72264      5496     77760      97.6      58   1340.7
+oplog       160  commit       222834     34905    257739     316.1    3218     80.1
+oplog       160  derive        22252      1127     23379      26.6       0        -
+oplog       160  digest         5431       472      5903       6.4       0        -
+oplog       160  finalize     213338     33955    247293     345.4    2245    110.2
+oplog       160  smallCommit      9351      2682     12033      19.9      58    207.5
+automerge   312  commit      8948652    376824   9325476   11330.7    6258   1490.2
+automerge   312  derive        30123      1998     32121      87.1       0        -
+automerge   312  digest        14448       889     15337      20.5       0        -
+automerge   312  finalize    7276493    339446   7615939   14269.3    4373   1741.6
+automerge   312  smallCommit     90614     25852    116466     166.8      58   2008.0
+oplog       312  commit       403294     64440    467734     628.1    6258     74.7
+oplog       312  derive        28873      1690     30563      37.7       0        -
+oplog       312  digest        45367      1084     46451      26.2       0        -
+oplog       312  finalize     458089     32456    490545     648.2    4373    112.2
+oplog       312  smallCommit      8821     18600     27421      98.1      58    472.8
+oplog        40  commit        64283      7497     71780      69.8     818     87.8
+oplog        40  derive        20650       788     21438      23.2       0        -
+oplog        40  digest         1948        88      2036       1.7       0        -
+oplog        40  finalize      66817      7603     74420      82.9     565    131.7
+oplog        40  smallCommit      9037      2703     11740      12.3      58    202.4
+automerge    40  commit      1739581     86767   1826348    1269.8     818   2232.7
+automerge    40  derive        24184       945     25129      29.6       0        -
+automerge    40  digest         2184        85      2269       2.0       0        -
+automerge    40  finalize     716279     27646    743925     878.1     565   1316.7
+automerge    40  smallCommit     68191      2162     70353      69.6      58   1213.0
+oplog        80  commit       129415     17248    146663     236.1    1618     90.6
+oplog        80  derive        21404      1352     22756      27.8       0        -
+oplog        80  digest         3324       335      3659       2.7       0        -
+oplog        80  finalize     125215     13384    138599     158.5    1125    123.2
+oplog        80  smallCommit      7103      1619      8722       8.4      58    150.4
+automerge    80  commit      2737721    137346   2875067    2612.9    1618   1776.9
+automerge    80  derive        23138       739     23877      25.8       0        -
+automerge    80  digest         3839       355      4194       4.6       0        -
+automerge    80  finalize    1286392     37005   1323397    1451.8    1125   1176.4
+automerge    80  smallCommit     58584      4337     62921      71.4      58   1084.8
+oplog       160  commit       219358     31819    251177     274.9    3218     78.1
+oplog       160  derive        23511      1418     24929      31.0       0        -
+oplog       160  digest         5587       393      5980       6.4       0        -
+oplog       160  finalize     243929     27149    271078     282.9    2245    120.7
+oplog       160  smallCommit      5500      1786      7286       8.0      58    125.6
+automerge   160  commit      4831912    213181   5045093    6296.3    3218   1567.8
+automerge   160  derive        21864      1162     23026      25.7       0        -
+automerge   160  digest         4379       375      4754       3.9       0        -
+automerge   160  finalize    2880125    121728   3001853    4649.7    2245   1337.1
+automerge   160  smallCommit     88403      7238     95641     165.0      58   1649.0
+oplog       312  commit       423467     71425    494892     751.1    6258     79.1
+oplog       312  derive        27505      2193     29698      38.1       0        -
+oplog       312  digest        45507      1418     46925      17.2       0        -
+oplog       312  finalize     436608     29878    466486     640.6    4373    106.7
+oplog       312  smallCommit      7938     15681     23619      45.0      58    407.2
+automerge   312  commit     10458366    476255  10934621   20415.4    6258   1747.3
+automerge   312  derive        31138      1629     32767      76.4       0        -
+automerge   312  digest        14435       962     15397      14.5       0        -
+automerge   312  finalize    6580244    370375   6950619   34513.0    4373   1589.4
+automerge   312  smallCommit    121232     29599    150831     926.5      58   2600.5
+
+MEDIANS BY SIZE (cpu µs = user+sys), each with its own min..max
+phase                        n     cpu      ops    cpu/op   spread
+derive rows (pure)            40    18769       40     469.2   18284..25129 n=6
+digest (pure)                 40     2200       40      55.0   2036..2755 n=6
+finalize: oplog+projection    40    75638      565     133.9   74420..77066 n=3
+finalize: TOTAL automerge     40   648488      565    1147.8   582747..743925 n=3
+finalize: DOC FLUSH (diff)    40   572850      565    1013.9   am 582747..743925 n=3 | ol 74420..77066 n=3
+commit: oplog+projection      40    68505      818      83.7   68090..71780 n=3
+commit: TOTAL automerge       40  1718952      818    2101.4   1618629..1826348 n=3
+commit: DOC FLUSH (diff)      40  1650447      818    2017.7   am 1618629..1826348 n=3 | ol 68090..71780 n=3
+small commit: DOC FLUSH       40    47843       58     824.9   am 49872..70353 n=3 | ol 9990..11740 n=3
+
+derive rows (pure)            80    23158       80     289.5   19052..24540 n=6
+digest (pure)                 80     3638       80      45.5   3401..5426 n=6
+finalize: oplog+projection    80   138599     1125     123.2   113453..164271 n=3
+finalize: TOTAL automerge     80  1323397     1125    1176.4   1131406..1489894 n=3
+finalize: DOC FLUSH (diff)    80  1184798     1125    1053.2   am 1131406..1489894 n=3 | ol 113453..164271 n=3
+commit: oplog+projection      80   146302     1618      90.4   112649..146663 n=3
+commit: TOTAL automerge       80  2775998     1618    1715.7   2529828..2875067 n=3
+commit: DOC FLUSH (diff)      80  2629696     1618    1625.3   am 2529828..2875067 n=3 | ol 112649..146663 n=3
+small commit: DOC FLUSH       80    53975       58     930.6   am 62514..71428 n=3 | ol 8722..10265 n=3
+
+derive rows (pure)           160    23203      160     145.0   21136..28756 n=6
+digest (pure)                160     5420      160      33.9   4303..9501 n=6
+finalize: oplog+projection   160   247293     2245     110.2   207071..271078 n=3
+finalize: TOTAL automerge    160  3001853     2245    1337.1   2213031..3474141 n=3
+finalize: DOC FLUSH (diff)   160  2754560     2245    1227.0   am 2213031..3474141 n=3 | ol 207071..271078 n=3
+commit: oplog+projection     160   251177     3218      78.1   229482..257739 n=3
+commit: TOTAL automerge      160  5045093     3218    1567.8   4055629..5618607 n=3
+commit: DOC FLUSH (diff)     160  4793916     3218    1489.7   am 4055629..5618607 n=3 | ol 229482..257739 n=3
+small commit: DOC FLUSH      160    65727       58    1133.2   am 71219..95641 n=3 | ol 7286..36471 n=3
+
+derive rows (pure)           312    31342      312     100.5   25261..59658 n=6
+digest (pure)                312    16084      312      51.5   11543..46925 n=6
+finalize: oplog+projection   312   466486     4373     106.7   339457..490545 n=3
+finalize: TOTAL automerge    312  6950619     4373    1589.4   4992517..7615939 n=3
+finalize: DOC FLUSH (diff)   312  6484133     4373    1482.8   am 4992517..7615939 n=3 | ol 339457..490545 n=3
+commit: oplog+projection     312   467734     6258      74.7   436937..494892 n=3
+commit: TOTAL automerge      312  9325476     6258    1490.2   7379151..10934621 n=3
+commit: DOC FLUSH (diff)     312  8857742     6258    1415.4   am 7379151..10934621 n=3 | ol 436937..494892 n=3
+small commit: DOC FLUSH      312   105161       58    1813.1   am 116466..150831 n=3 | ol 22082..27421 n=3
+
+SUPERLINEARITY — finalize document flush, cpu per op by size
+  n=  40  ops=   565  flushCpu=    572850µs  cpu/op=  1013.9µs   [am 582747..743925 n=3 | ol 74420..77066 n=3]
+  n=  80  ops=  1125  flushCpu=   1184798µs  cpu/op=  1053.2µs   (x1.04 vs previous size)   [am 1131406..1489894 n=3 | ol 113453..164271 n=3]
+  n= 160  ops=  2245  flushCpu=   2754560µs  cpu/op=  1227.0µs   (x1.17 vs previous size)   [am 2213031..3474141 n=3 | ol 207071..271078 n=3]
+  n= 312  ops=  4373  flushCpu=   6484133µs  cpu/op=  1482.8µs   (x1.21 vs previous size)   [am 4992517..7615939 n=3 | ol 339457..490545 n=3]
+
+SUPERLINEARITY — commit document flush, cpu per op by size
+  n=  40  ops=   818  flushCpu=   1650447µs  cpu/op=  2017.7µs   [am 1618629..1826348 n=3 | ol 68090..71780 n=3]
+  n=  80  ops=  1618  flushCpu=   2629696µs  cpu/op=  1625.3µs   (x0.81 vs previous size)   [am 2529828..2875067 n=3 | ol 112649..146663 n=3]
+  n= 160  ops=  3218  flushCpu=   4793916µs  cpu/op=  1489.7µs   (x0.92 vs previous size)   [am 4055629..5618607 n=3 | ol 229482..257739 n=3]
+  n= 312  ops=  6258  flushCpu=   8857742µs  cpu/op=  1415.4µs   (x0.95 vs previous size)   [am 7379151..10934621 n=3 | ol 436937..494892 n=3]
+
+A RISING cpu/op IS THE QUADRATIC. A FLAT ONE IS A SLOW CONSTANT.
+READ THE SPREADS BEFORE READING A RATIO: with few repeats, a growth factor is
+only distinguishable from its neighbours when the arms do not overlap.

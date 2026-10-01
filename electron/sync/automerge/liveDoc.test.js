@@ -8,7 +8,13 @@ import { openLocalDb } from '../../db/localDb.js'
 import { openTemplatedDb, cleanupTemplatedDbs } from '../../db/testDbTemplate.js'
 import { appendOp } from '../../ops/operations.js'
 import { docPath, loadDoc, saveDoc } from './docStore.js'
-import { createEmptyDoc, applyWrite } from '../../automerge/campDocument.js'
+import {
+  createEmptyDoc,
+  applyWrite,
+  MODELED_ENTITIES,
+  BULK_REPLACE_MODELED_ENTITIES,
+  bulkReplaceCollectionName,
+} from '../../automerge/campDocument.js'
 import * as A from '@automerge/automerge'
 import { DOCUMENT_OUTCOME } from '../../ops/documentOutcome.js'
 import {
@@ -22,6 +28,7 @@ import {
   ensureSeeded,
   getDocIfLoaded,
   flushPendingWrites,
+  DOC_CHANGE_CHUNK,
 } from './liveDoc.js'
 import { listDocumentWriteFailures } from '../../ops/documentWriteFailures.js'
 
@@ -494,5 +501,92 @@ describe('commitDeferredDocWrites — batched replay', () => {
 
     expect(listDocumentWriteFailures(db).map((f) => f.op_id).sort()).toEqual(ops.map((o) => o.id).sort())
     fs.rmSync(blocker, { force: true })
+  })
+})
+
+// --- What the batched replay must keep true -------------------------------
+//
+// Three things the round-1 suite left unpinned, each found by deleting the line
+// that implements it and watching 1901 tests stay green.
+describe('commitDeferredDocWrites — the invariants behind the batch', () => {
+  it('a SUCCESSFUL batch stamps every op applied, not just a failing one', () => {
+    ensureSeeded(db)
+    const ops = ['b1', 'b2', 'b3'].map((id) =>
+      appendOp(db, { entity: 'groups', entity_id: id, field: 'name', value: id, device_id: 'device-1' })
+    )
+    // appendOp above already dual-wrote these outside any boundary, so reset the
+    // field to the value the deferred path sets before it queues anything.
+    for (const op of ops) op[DOCUMENT_OUTCOME] = 'deferred'
+
+    beginDeferredDocWrites(db)
+    for (const op of ops) {
+      recordLocalWrite(db, { entity: 'groups', entity_id: op.entity_id, field: 'name', value: 'batched', op_id: op.id }, op)
+      expect(op[DOCUMENT_OUTCOME]).toBe('deferred')
+    }
+    commitDeferredDocWrites(db)
+
+    // THE LOAD-BEARING ASSERTION. migrationDomainState.js's resolve pass fails
+    // closed on anything that is not 'applied' (`allApplied = false`), so a run
+    // left saying 'deferred' leaves resolved_at NULL and keeps sync refused —
+    // and localWriteClient.js hands the same string to the renderer. Deleting
+    // the stamping loop in the batch-success branch is otherwise invisible.
+    for (const op of ops) expect(op[DOCUMENT_OUTCOME]).toBe('applied')
+    expect(listDocumentWriteFailures(db)).toEqual([])
+  })
+
+  it('a write and a bulk-replace can never address the same document key', () => {
+    // WHY THIS AND NOT A CONTENDING FIXTURE. commitDeferredDocWrites partitions
+    // the queue into CONTIGUOUS runs, and round 1's comment claimed that
+    // contiguity is what keeps a bulk sitting between two writes in its place.
+    // It is not: the two primitives write DIFFERENT top-level collections
+    // (`template_slots` vs `template_slots_scopes`), so no ordering between a
+    // write and a bulk is observable in the document at all, and no fixture can
+    // make one contend. Contiguity is kept as the structurally safe default,
+    // and THIS is the invariant that makes reordering harmless — so this is
+    // what gets guarded. It goes red the day a bulk-replace entity's scope
+    // collection collides with a modeled entity's own collection, which is
+    // exactly when ordering would start to matter.
+    for (const entity of BULK_REPLACE_MODELED_ENTITIES) {
+      const scopes = bulkReplaceCollectionName(entity)
+      expect(scopes).not.toBe(entity)
+      expect(MODELED_ENTITIES.has(scopes)).toBe(false)
+    }
+  })
+
+  it('a fault in a LATER chunk still lands every other write exactly once', () => {
+    // The batch is split into DOC_CHANGE_CHUNK-sized A.change calls (the fix for
+    // the commit regression), so a fault can now land in a chunk after one that
+    // already succeeded — and the document that chunk consumed is the one the
+    // per-item fallback would otherwise re-read. A chunked batch that did not
+    // publish each chunk to the registry would hand the fallback an outdated
+    // document and lose the whole run.
+    ensureSeeded(db)
+    const n = DOC_CHANGE_CHUNK + 5
+    const ops = Array.from({ length: n }, (_, i) =>
+      appendOp(db, { entity: 'groups', entity_id: `chunk-ph-${i}`, field: 'name', value: 'ph', device_id: 'device-1' })
+    )
+
+    beginDeferredDocWrites(db)
+    ops.forEach((op, i) => {
+      const bad = i === DOC_CHANGE_CHUNK + 2
+      recordLocalWrite(
+        db,
+        { entity: 'groups', entity_id: `ck-${i}`, field: 'name', value: bad ? Symbol('nope') : `v-${i}`, op_id: op.id },
+        op
+      )
+    })
+    expect(() => commitDeferredDocWrites(db)).not.toThrow()
+
+    const doc = getDocIfLoaded(db)
+    for (let i = 0; i < n; i += 1) {
+      if (i === DOC_CHANGE_CHUNK + 2) {
+        expect(readRecord(doc, 'groups', `ck-${i}`)).toBeNull()
+        expect(ops[i][DOCUMENT_OUTCOME]).toBe('failed')
+      } else {
+        expect(readRecord(doc, 'groups', `ck-${i}`).name).toBe(`v-${i}`)
+        expect(ops[i][DOCUMENT_OUTCOME]).toBe('applied')
+      }
+    }
+    expect(listDocumentWriteFailures(db).map((f) => f.op_id)).toEqual([ops[DOC_CHANGE_CHUNK + 2].id])
   })
 })

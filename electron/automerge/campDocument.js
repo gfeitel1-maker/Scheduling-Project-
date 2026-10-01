@@ -103,7 +103,7 @@ export const BULK_REPLACE_MODELED_ENTITIES = new Set(Object.keys(BULK_REPLACE_EN
 // `template_slots_scopes` for `template_slots`. A distinct top-level collection from the entity's
 // own flat collection (`template_slots`), never the same key, so the two primitives can never
 // collide on a single document field.
-function bulkReplaceCollectionName(entity) {
+export function bulkReplaceCollectionName(entity) {
   return `${entity}_scopes`
 }
 
@@ -732,8 +732,10 @@ export function applyWrite(doc, write) {
  * the 2026-10-01 amendment to
  * docs/adr/2026-09-29-per-op-savepoint-inside-an-atomic-boundary.md.
  *
- * `assertModeled` and the PROJECTIONS lookup run as a PRE-PASS, outside the
- * change, so a bad entity is rejected before any op is pending. */
+ * `assertModeled` runs as a PRE-PASS, outside the change, so an unmodeled or
+ * deferred entity is rejected before any op is pending. The PROJECTIONS lookup
+ * is NOT hoisted — applyOneWriteInto reads `PROJECTIONS[entity].fields` inside
+ * the change, per write. */
 export function applyWrites(doc, writes) {
   for (const w of writes) {
     assertModeled(w.entity)
