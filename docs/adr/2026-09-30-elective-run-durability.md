@@ -1358,3 +1358,44 @@ run_id = ?` is 0. **Plant: remove the cascade line** and it must go RED.
    `TOMBSTONE_DENYLISTED_ENTITIES`** — a pre-existing PII-erasure gap this design noticed while
    adding `elective_run_findings`, not one it introduces. Out of scope here; flagged for its own
    ticket rather than folded in.
+
+### Part 2, folded in: the false FINALIZED_AGAINST_STALE_GENERATION since v76
+
+Board item `i-final-run-always-reads-out-of-date-since-v76`. Observed live 2026-09-30: a camp with
+234 `elective_run_outer_snapshots` rows carrying `solver_generation = NULL` and 78 rows matching the
+run's current generation — `getElectiveRunHandler` reported `finalizedAgainstStaleGeneration: true`
+for that run immediately, on the same device that had just finalized it, with no concurrent write
+from anywhere.
+
+**Cause.** `computeFinalizedAgainstStaleGeneration` (`electron/ops/
+finalizedAgainstStaleGeneration.js`) predates v76 (T197, `docs/adr/2026-09-26-elective-run-outer-
+inheritance-and-linked-choice-export.md`): it reads every distinct `solver_generation` in a run's
+snapshot rows and flags staleness if any value differs from the run's current one. v76 added
+`cell_kind: 'inherited'` rows (a camper's group's non-elective `template_slots`, which have no
+solver generation of their own) and deliberately wrote them with `solver_generation: NULL`
+(`electiveRunOuterSchedule.js`'s inherited branch). A final run with any inherited cell therefore
+always has a `NULL` sitting next to its real generation in the snapshot set, which the pre-v76
+comparison reads as a mismatch, unconditionally.
+
+**Fix.** Restrict the comparison to `cell_kind = 'elective'` rows: `AND cell_kind = 'elective'` on
+the `SELECT DISTINCT`. An inherited row carries no generation by design and is not evidence of
+anything.
+
+**Why not also filter `solver_generation IS NOT NULL`.** No *elective* row is ever produced with a
+NULL generation — one found here is a real mismatch, and silently excluding NULLs would discard that
+signal rather than narrow the fix. Excluding exactly the by-design-NULL class (`cell_kind =
+'inherited'`) is the narrowest change that removes the false positive without blinding the check to
+a genuine one.
+
+**Boundary against `SNAPSHOT_INCOMPLETE`.** `electron/ops/electiveRunSnapshotCompleteness.js`
+already excludes `solver_generation` from its own completeness digest, for the mirror-image reason:
+a generation mismatch is this module's finding, and folding it into the completeness digest would
+make an ordinary already-detected staleness also register as "incomplete." The two findings keep two
+different remedies — revise the run vs. wait for sync — and this fix does not change that boundary.
+
+Test-first in `electron/ops/finalizedAgainstStaleGeneration.test.js` (new file): the live defect
+(inherited NULLs + matching electives → false), a genuinely stale elective row (→ true), a mixed
+case, final-run-only-inherited (→ false), draft (→ false), zero snapshot rows (→ false), and an
+elective row with NULL generation against a non-null run generation (→ true, documenting the
+deliberate non-filter). Plant check: dropping the `cell_kind = 'elective'` clause reproduces the live
+defect's RED.
