@@ -3,7 +3,7 @@ task: Retired WebSocket Host/sync vocabulary — sweep the remainder T311 left b
 document_type: run
 date: 2026-10-01
 round: 1
-status: in-progress
+status: escalated
 task_class: documentation-governance
 governing_docs:
   - docs/governance/constitution/CONSTITUTION.md
@@ -36,8 +36,14 @@ deterministic_checks:
   - "npx vitest run electron/db/rollback/bareEqualityRollback.guard.test.js electron/db/rollback/rollbackIdentity.guard.test.js no-literal-nul.test.js test/governance.test.js + every *.test.js the sweep touched"
   - "independent re-run of the before/after framing audit"
 human_gates: []
-verdict: null
-completion_evidence: []
+verdict: ESCALATE (Verifier PASS on the deterministic layer; Grader FAIL on comment truth)
+completion_evidence:
+  - "espree token-stream comparison, base 4096f670 vs HEAD 307fda09: files=30 nonIdentical=0 parseErrors=0"
+  - "npx eslint electron src scripts test: 0 errors, 26 pre-existing warnings"
+  - "npm run build: exit 0"
+  - "npm run check:governance: 0 blocking, 1 advisory (platform-state-stale, pre-existing)"
+  - "guard tests 55/55; all 10 touched test files 282/282"
+  - "framing audit re-run matched the AFTER table exactly; plant A caught as UNFRAMED"
 archive_when: the remainder sweep has merged and no further retired-vocabulary board item is open
 ---
 
@@ -280,28 +286,137 @@ should not be carried into the next brief.
 
 ## Gates
 
+All diffs pinned to the branch base **`4096f670`**, not `origin/main` — origin/main gained
+`55d7ebb3` (#689) mid-run and would have shown ten unrelated files as spurious diffs.
+
 | Gate | Result | Evidence |
 |---|---|---|
-| no-executable-change diff proof | | |
-| `npx eslint electron src scripts test` | | |
-| `npm run build` | | |
-| `npm run check:governance` | | |
-| named guard tests + touched test files | | |
-| audit re-run (independent) | | |
+| no-executable-change diff proof | PASS | 30 `.js/.jsx/.mjs/.sql` files, 0 non-comment changed lines. Prefix filter **plus** an independent parser-level close of its blind spot: `espree` 10.4.0 token-stream comparison of base vs HEAD, `files=30 nonIdentical=0 parseErrors=0`, with a sentinel injection confirming the comparison can fail. No `{/*` or `*/}` delimiter line changed. `electron/db/schema.sql` absent from the diff, 1882 lines |
+| `npx eslint electron src scripts test` | PASS | exit 0 — 0 errors, 26 pre-existing `react-hooks/exhaustive-deps` warnings on untouched screens |
+| `npm run build` | PASS | exit 0 |
+| `npm run check:governance` | PASS | 0 blocking, 1 advisory (`platform-state-stale`, pre-existing and not caused by this sweep) |
+| named guard tests + touched test files | PASS | `bareEqualityRollback.guard` + `rollbackIdentity.guard` + `no-literal-nul` (repo root) + `test/governance`: 55/55. All 10 touched test files, derived from the diff rather than from the Maker: 282/282 |
+| audit re-run (independent) | PASS, bounded | Matched the AFTER table on all six numbers (64 / 238 / 52 / 179 / 7 / 0); the 7 residual UNFRAMED are all non-comment string literals. **Non-vacuity:** plant A (unframed retired mention, on a scratch copy) was correctly caught UNFRAMED, so the audit can fail; plant B (retired mention in a block holding a framing marker present for an unrelated reason) was classified **FRAMED** — measured confirmation of the false-FRAMED weakness, not a refutation of it |
+
+**No `npm run gate` stamp exists for this run** — the brief forbade `npm run verify`, so the PASS
+above is an assembly of nine individual exit codes rather than one commit-bound artifact. That is
+the pattern memory `feedback_never_assemble_a_gate_verdict` warns about. It did not change the
+verdict here, and CI remains the gate of record.
 
 ## Verifier verdict
 
-PASS / FAIL / UNVERIFIED —
+**PASS** — on the deterministic layer only. Every machine-checkable claim in the success predicate
+traces to a check that was run and read. Four disclosures stated rather than absorbed: (1) the
+literal predicate says "zero UNFRAMED" while the measured value is 7, all non-editable string
+literals — referred to Grader as a wording question and read by Grader as satisfied on its own
+terms; (2) the worktree `node_modules` is empty and all gates resolved up to the main checkout's,
+mitigated by confirming this branch's `package.json`/`package-lock.json` are byte-identical to
+main's and untouched by the sweep; (3) plant B shows the audit's green means "no UNFRAMED editable
+comment remains *as this detector defines framing*", which is strictly weaker than "every retired
+mention is correctly framed"; (4) the full suite and `test:integration` were not run (excluded by
+brief), with the zero-token-change proof offered as the reason no runtime behaviour can differ.
 
 > Verifier alone writes this line and the `verdict` field. A FAIL or unresolved UNVERIFIED blocks
 > a pass outright, whatever Grader reports (`CONSTITUTION.md` Article VII).
 
 ## Grader score
 
-Average — , lowest dimension — . Pass is ≥ 4.0 with no dimension below 3.
+**Average 2.0, lowest dimension 2. FAIL.** (Verifier's PASS is not a score and is not averaged.)
+Code Reviewer 2, Red Hat 2; Security and Tester N/A as pre-dispatch omissions.
+
+Grader confirmed every load-bearing reviewer finding **in the tree** and applied the brief's own
+"NOT done" disqualifier — *a rewritten comment that is false* — as written. Its justification, which
+is the substance of the escalation:
+
+> The mechanical half of this sweep is the best-executed part of it — zero executable bytes changed,
+> proven twice over at the diff and the parser level with a validated sentinel, no forbidden file
+> touched, every plan constraint confirmed, and `rateLimit.js` is a genuinely exemplary rewrite. But
+> the only product of a comment-only sweep is comment truth, and this one shipped four comments that
+> are false about live code as it stands today. [...] The first and third were *added* by this sweep,
+> not inherited — the previous text made no such claim — so the work replaced stale comments with
+> confidently wrong ones, which is strictly worse for the next reader than the staleness it set out
+> to fix.
+
+**No `GateReport` was persisted.** `scripts/gateReportCli.js` exited 1: opinion-report provenance is
+unsatisfiable for a Grader dispatched at spawn depth 2 in this harness version, because
+`scripts/observeRun.js`'s two accepted resolution shapes (a `type:"user"` record with
+`toolUseResult.agentId` + `status`, or a `type:"attachment"` with `attachment.type === "task_status"`)
+are both absent from the dispatching transcript — 1 `toolUseResult` record and 0 `task_status`
+attachments across the whole file, with the launch acks appearing only as prose. Grader declined to
+call `reduceGateReport` directly to route around the guard. **The gate stack therefore cannot
+currently produce its own typed record of a nested round** — an owner-visible item independent of
+this feature.
 
 > A Grader FAIL ends the loop and escalates to the user. It never becomes another round
 > (`CONSTITUTION.md` Article VII, owner ruling 2026-10-01).
+
+## Blocking findings (confirmed in the tree by Grader)
+
+Each was independently opened against the code, not accepted from a report.
+
+1. **`src/screens/ScheduleScreen.jsx:471-475` — FALSE, and *added* by this sweep.** The new text
+   says the remote-write path reaches the renderer because `startupGuard.js` "sends
+   `shoresh:op-applied` per field" and "the event already fires naturally on both paths".
+   `electron/sync/automerge/startupGuard.js:33-36` sends it per field **only** while
+   `events.length <= REMOTE_OPS_COALESCE_THRESHOLD` (20); above that it sends a single
+   `shoresh:full-sync-applied` and returns. `ScheduleScreen.jsx:501-508` subscribes to
+   `onOpApplied` and nothing else — `onFullSyncApplied` exists (`src/localClient.js:318`,
+   `electron/preload.js:36-39`) and ScheduleScreen never uses it. So the catch-up merge the
+   threshold exists for produces no event and no reload. The `_Prior:` block at `:477-481` shows
+   the superseded comment made no remote-path claim at all. The chain also omits the hop that owns
+   the threshold, `electron/sync/automerge/syncStarter.js:323-340`.
+   *Underlying product gap (not a comment fix): no renderer subscribes to `shoresh:full-sync-applied`.*
+2. **`electron/ops/deleteWeek.js:7-9` — FALSE, and *added* by this sweep.** It asserts a `HOST ONLY`
+   access gate and names a "surviving reason" for it. No mode gate exists:
+   `deleteWeekHandler` (`electron/main.js:1906`) enforces only the admin **role**
+   `schedule_weeks.delete`, and a negative search for `isHost|HOST_ONLY|hostOnly|host_mode` over
+   `electron/ src/` returns only `Sidebar.jsx`'s `isHostNotSyncing` UI label. The sibling file the
+   comment cites as precedent, `electron/ops/deleteRecord.js:29-34`, carries T311's **opposite**
+   resolution verbatim: "the delete executes on whichever device the director is using." Cost: a
+   reader concludes a joined device cannot destroy a week; any device with an admin PIN can, on the
+   app's largest irreversible, non-restorable action.
+3. **`electron/ops/projections.test.js:688-692` — FALSE.** "the throw leaves the op recorded while
+   the exclusion silently never materializes" describes the retired mechanism's outcome. Today
+   `electron/ops/operations.js:294-319` runs the `INSERT INTO operations` and `applyProjection` in
+   one `db.transaction(body)()`, so the throw rolls the op row back; and on the remote path
+   `operations.js:516-517` states there is no op-log insert at all. The sweep deleted the mechanism
+   and kept the consequence — precisely the failure T311's own ticket warns about.
+4. **`src/hooks/useDeviceMode.js:179-180` — wrong sender (HIGH; Grader kept it below BLOCKING).**
+   It names `main.js` as sending `shoresh:auth-rejected` for the Host-rejection path.
+   `electron/sync/automerge/syncStarter.js:399` does that send itself; `electron/main.js:179` is a
+   separate, unrelated sender for locally-invalid sessions (T228). The `authRejectedSender.js`
+   mapping half of the claim is correct. Grader notes that if the owner reads the disqualifier as
+   *any* false sentence, this is a fourth blocker rather than a different outcome.
+
+Two further sites the sweep left half-finished in headers it otherwise rewrote:
+`electron/ops/deleteWeek.js:4-5` still reads "every delete routed through the op-log **so it
+replicates**" — the exact premise `CLAUDE.md`'s op-log rule forbids, and the premise this same run
+corrected 20 lines of prose about in `materializeImportedVersion.js` — and `:39` says the caller
+will "broadcast" ops, which nothing does (`main.js:1917` only counts them).
+`electron/ops/projectionRepair.test.js:25` still points at "applyRemoteOp's **own existing** catch
+comment", 15 lines under a new line stating `applyRemoteOp` was deleted.
+
+## The audit's construction flaw (Red Hat, confirmed)
+
+The census pattern is an **identifier** regex, so prose-only descriptions of the retired
+architecture — "the WS layer", "the WS transport", "the WS path" — were never in the 73-file corpus
+at all. "Zero UNFRAMED" is literally true and understates the remaining surface. Three such claims
+survive unframed and in the present tense, **two of them in files this diff edited**:
+`electron/sync/automerge/joinSession.js:268`, `src/hooks/useDeviceMode.js:94`, and
+`electron/sync/automerge/syncStarter.js:345` (the drifted half of a sentence
+`electron/sync/automerge/syncNode.js:497-501` already frames as `_Prior:` — memory
+`feedback_dedup_the_half_that_drifted`). Neither T311's 35 files nor this sweep's 30 include
+`syncEngineFlag.js` or `syncStarter.js`; nothing flagged them.
+
+**The most operationally dangerous sentence that blind spot still holds** —
+`electron/sync/automerge/syncEngineFlag.js:10-13`, pre-existing and **outside this diff** — says
+"the WS layer and op-log are both still present to fall back onto. Nothing is deleted until 6c/6d."
+6c happened. With `SHORESH_SYNC_ENGINE=oplog`, `appendOp` early-returns at
+`electron/ops/operations.js:327-331` stamping `engine-off` and never mirrors into the document, and
+`syncStarter.js:124` (`if (!isAutomergeEngine()) return`) never starts a sync node. A device flipped
+to `oplog` on the strength of that comment becomes a silent single-device island: writes land in
+local SQLite, nothing replicates, no error is raised. This needs its own item; it must not be
+smuggled into this round.
 
 ## Findings carried forward
 
@@ -368,9 +483,31 @@ must not make. Recorded per the owner's standing scope-discipline rule (board
 - Whether the three identical `full_sync` `it()` titles should be renamed in one
   follow-up together with `syncNodeRemoteOps.test.js:103` (finding 1), or left —
   they are developer-facing text with no reader outside the test runner.
+- **The gate stack cannot write its own record from a nested round.**
+  `scripts/gateReportCli.js` refused to emit a `GateReport` because
+  `scripts/observeRun.js` accepts only two resolution record shapes and the
+  dispatching transcript contains neither (1 `toolUseResult`, 0 `task_status`
+  attachments). Failing closed is the right direction, but it means no typed
+  `GateReport` exists for any Governor-dispatched round at spawn depth 2. Wants
+  its own item.
+- Whether "a rewritten comment that is false" disqualifies on **any** false
+  sentence (making `useDeviceMode.js:179-180` a fourth blocker) or only on a
+  materially misleading one (leaving it HIGH). Grader flagged this as the one
+  reading it would not substitute its own judgement for.
+- Whether the comment-only constraint should be relaxed for a corrective round.
+  Three of the four blockers are one sentence from correct and fixable as
+  comments; the ScheduleScreen one also exposes a real product gap (no renderer
+  subscribes to `shoresh:full-sync-applied`) that a comment cannot fix.
 
 ## Decision
 
-PASS / RETRY / ESCALATE —
+**ESCALATE** — round 1, no round 2. Verifier returned PASS on the deterministic layer and Grader
+returned **FAIL** (2.0 average, lowest dimension 2). Under `CONSTITUTION.md` Article VII as amended
+2026-10-01 (#688) a Grader FAIL ends the loop and escalates to the user; it never becomes another
+round, "regardless of how the blocker looks" — and here each blocker is one sentence from correct,
+which is exactly the case the amendment names. The branch `claude/retired-vocab-sweep` is left as
+eight commits at `307fda09`, unpushed, with no PR. The owner decides whether to correct the four
+comments in a fresh round, revert the three files carrying them, or take the sweep as-is and queue
+the corrections.
 
 > Round 2 failure escalates to the user with open findings. It does not become a round 3.
