@@ -1015,11 +1015,14 @@ export default function DraftRunView({
             <div style={styles.actionSlot}>
               <button
                 className="press-97"
-                style={S.btnPrimary}
                 /* THE IRREVERSIBLE ACTION IS NOT THE UNGUARDED ONE. While a
                    regenerate is in flight this was clickable at full primary
                    weight beside a greyed-out Regenerate, and clicking it
-                   finalized the run with the re-solve still outstanding. */
+                   finalized the run with the re-solve still outstanding. The
+                   weight has to move with the attribute: disabled at full
+                   primary weight is a louder invitation than Regenerate, and
+                   the click silently does nothing. */
+                style={finalizing || regenerating ? { ...S.btnPrimary, ...S.buttonDisabled } : S.btnPrimary}
                 disabled={finalizing || regenerating}
                 onClick={finalizeRun}
               >
@@ -1228,7 +1231,9 @@ export default function DraftRunView({
               from the actions band above. The loud part is the confirmation. */}
           <button
             className="press-97"
-            style={{ ...S.btnUtility, marginTop: 20 }}
+            style={regenerating
+              ? { ...S.btnUtility, marginTop: 20, ...S.buttonDisabled }
+              : { ...S.btnUtility, marginTop: 20 }}
             /* Same reason as Finalize: the confirmation is a second step, but
                its confirm button would still delete a run with a re-solve in
                flight, which would then commit against a run that is gone. */

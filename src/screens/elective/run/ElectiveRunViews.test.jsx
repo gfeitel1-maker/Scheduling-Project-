@@ -1879,6 +1879,34 @@ describe('round 2 — the actions band', () => {
     resolveList([DRAFT_RUN])
   })
 
+  it('THE DISABLED GUARD IS VISIBLE: Finalize and Delete carry disabled WEIGHT, not just the attribute', async () => {
+    // Round 2 half-landed: both buttons became `disabled` but kept full
+    // weight, so during Regenerating… the real renderer measured
+    // finalize {disabled:true, opacity:'1', cursor:'pointer'} against
+    // regen {disabled:true, opacity:'0.45', cursor:'not-allowed'}. A director
+    // clicks the loudest button on the screen and nothing happens, with no
+    // greyout and no cursor change. Asserting the attribute alone is exactly
+    // what let that through, so this asserts the STYLE.
+    let resolveList
+    localClient.listElectiveRuns.mockReturnValue(new Promise((r) => { resolveList = r }))
+    render(cold())
+    const finalize = await screen.findByRole('button', { name: 'Finalize run' })
+    const del = screen.getByRole('button', { name: 'Delete run' })
+    expect(finalize.style.opacity).toBe('')
+    expect(del.style.opacity).toBe('')
+
+    fireEvent.click(screen.getByTestId('run-regenerate'))
+    await waitFor(() => expect(screen.getByTestId('run-regenerate').disabled).toBe(true))
+    const regen = screen.getByTestId('run-regenerate')
+    for (const b of [finalize, del]) {
+      expect(b.disabled).toBe(true)
+      expect(b.style.opacity).toBe(regen.style.opacity)
+      expect(b.style.cursor).toBe(regen.style.cursor)
+      expect(b.style.cursor).toBe('not-allowed')
+    }
+    resolveList([DRAFT_RUN])
+  })
+
   it('each control carries its OWN explanation, in its own slot', async () => {
     // The band used to read "[Finalize run] [Regenerate] Locks this run…" in one
     // row, so the sentence sat adjacent to the control whose effect is its

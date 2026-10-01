@@ -1156,9 +1156,18 @@ export default function AssignmentPanel({
           choices: out.choices ?? [], sameNameCampers: [], residue: [],
         })
         setHydratedRunId(viewRun.id)
-      } catch (err) {
+      } catch {
+        // No binding: the sentence below is the same whatever the read threw,
+        // so there is nothing left to inspect it for.
         if (cancelled) return
-        const message = describeWriteFailure(err, COLD_HYDRATION_FAILED_NOTE)
+        // NOT describeWriteFailure. It CONCATENATES — every branch returns
+        // `${whatFailed} <reason clause>` — so every other call site passes a
+        // short phrase with no remedy. This note already ends in its own
+        // remedy, and the generic branch appended a second, contradicting one
+        // plus a log a camp director cannot open. The remedy is the same
+        // whatever the read failed on (reopen the run from Runs), so the
+        // definite sentence stands alone.
+        const message = COLD_HYDRATION_FAILED_NOTE
         setHydrationFailure({ runId, message })
         onError?.(message)
       } finally {

@@ -1138,10 +1138,16 @@ describe('AssignmentPanel — regeneratePending while a cold-opened run hydrates
     // no trace of the failure anywhere.
     await waitFor(() => {
       const note = screen.getByTestId('run-regenerate-unavailable').textContent
-      expect(note).toContain('could not be prepared for regenerating')
-      // STILL ACTIONABLE, and it says what to do next rather than only that
-      // something is wrong.
-      expect(note).toContain('go back to Runs and open it again')
+      // ONE SENTENCE, ONE REMEDY. Round 2 half-landed: the note was passed
+      // through describeWriteFailure, which CONCATENATES a reason clause onto
+      // whatever it is given, so a note that already ended in its own remedy
+      // became "…go back to Runs and open it again. The reason was not
+      // something the app recognised — try again, and if it keeps happening the
+      // details are in the log." Two contradictory remedies, and a log a camp
+      // director cannot open.
+      expect(note).toBe('This run could not be prepared for regenerating — go back to Runs and open it again.')
+      expect(note).not.toMatch(/log/i)
+      expect(note).not.toMatch(/try again/i)
       // The SAME string the error banner gets — one sentence, not two drifting
       // paraphrases of one failure.
       expect(onError).toHaveBeenCalledWith(note)
