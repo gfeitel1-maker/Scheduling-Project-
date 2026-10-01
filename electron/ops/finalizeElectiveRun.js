@@ -16,9 +16,10 @@ import { deriveOccurrences } from '../../src/screens/elective/assignment/deriveO
 // LIVE resource-conflict read. Extracted, not forked — same call this file
 // already made.
 import { computeElectiveRunResourceConflicts } from './electiveRunResourceConflicts.js'
-// T320 item 1 — the same digest this run's snapshot expectation is compared
-// against on every subsequent read.
-import { computeExpectedSnapshotDigest } from './electiveRunSnapshotCompleteness.js'
+// T320 item 1 / board follow-up (erasure-aware completeness) — the per-camper
+// digest map this run's snapshot expectation is compared against on every
+// subsequent read, built from this same in-memory `snapshots` array.
+import { computeExpectedSnapshotDigestByCamper } from './electiveRunSnapshotCompleteness.js'
 
 /**
  * @returns {{ok:true, finalizedAt:string, snapshotRows:number}
@@ -136,7 +137,10 @@ export function finalizeElectiveRun(db, { runId, authorUserId = null, deviceId }
         // built, no new derivation. computeSnapshotCompleteness (called by every
         // reader) compares COUNT(*) and this digest against a later SELECT.
         snapshot_expected_rows: snapshots.length,
-        snapshot_digest: computeExpectedSnapshotDigest(snapshots),
+        // Per-camper map (board follow-up, erasure-aware completeness) — lets a later read
+        // exclude a since-erased camper's entry instead of comparing one whole-set hash that an
+        // erasure can never match again.
+        snapshot_digest: computeExpectedSnapshotDigestByCamper(snapshots),
       })
     })
   } catch (e) {
