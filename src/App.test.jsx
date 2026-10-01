@@ -8,6 +8,7 @@
 // for its own component.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, act } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 let opRejectedCallback
 
@@ -507,6 +508,272 @@ describe('AppShell: offline op-rejected notice (item 7, owner decision)', () => 
     expect(alert).toBeTruthy()
     expect(alert.textContent).toMatch(/could not be saved/i)
     expect(alert.style.opacity).not.toBe('0')
+  })
+})
+
+// Board note (q-small-sweeps-batch, owner ruling 2026-09-29 "yes to t200"):
+// "The offline-queue rejection notice could overwrite a bootstrap-failure
+// notice, losing it ... Notices display in order, none lost." These replace
+// the single-scalar opRejectedNotice/noticeRetry state with a FIFO queue
+// (src/notices/noticeQueue.js).
+describe('AppShell: notice FIFO queue (T200 board follow-up)', () => {
+  // The board's own scenario, verbatim.
+  it('an offline-queue rejection does not overwrite a bootstrap failure notice — both display in order, none lost', async () => {
+    seedDays.mockRejectedValue(new Error('write failed for field "label"'))
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await act(async () => {})
+
+    let alert = screen.getByRole('alert')
+    expect(alert.textContent).toMatch(/default weekdays could not be set up/i)
+    expect(screen.getByRole('button', { name: /try again/i })).toBeTruthy()
+
+    // An offline-queue rejection arrives while the bootstrap notice is head.
+    act(() => {
+      opRejectedCallback({
+        type: 'op_rejected',
+        reason: 'unique_field',
+        existing: { id: 'loc-a', name: 'Pool' },
+      })
+    })
+
+    // (1) the bootstrap notice is still on screen, with its retry.
+    alert = screen.getByRole('alert')
+    expect(alert.textContent).toMatch(/default weekdays could not be set up/i)
+    expect(screen.getByRole('button', { name: /try again/i })).toBeTruthy()
+
+    // (2) after Dismiss, the offline-queue notice shows.
+    fireEvent.click(screen.getByLabelText('Dismiss'))
+    await settleDismissFade()
+
+    alert = screen.getByRole('alert')
+    expect(alert.textContent).toContain('Pool')
+    expect(alert.textContent).toContain('already exists')
+    // (3) nothing was lost, and the offline notice carries no retry control.
+    expect(screen.queryByRole('button', { name: /try again/i })).toBeNull()
+  })
+
+  it('two identical offline rejections in a row produce two separate notices', async () => {
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await flushBootstrap()
+
+    act(() => { opRejectedCallback({ status: 'rejected', reason: 'unique_field' }) })
+    act(() => { opRejectedCallback({ status: 'rejected', reason: 'unique_field' }) })
+
+    expect(screen.getByText('1 more')).toBeTruthy()
+
+    fireEvent.click(screen.getByLabelText('Dismiss'))
+    await settleDismissFade()
+
+    expect(screen.getByRole('alert')).toBeTruthy()
+    expect(screen.queryByText(/more$/)).toBeNull()
+  })
+
+  it('a bootstrap recompose does not duplicate its notice when days fails then cohort fails', async () => {
+    let rejectDays, rejectCohort
+    seedDays.mockReturnValue(new Promise((_, reject) => { rejectDays = reject }))
+    ensureCohort.mockReturnValue(new Promise((_, reject) => { rejectCohort = reject }))
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+
+    await act(async () => { rejectDays(new Error('write failed for field "label"')) })
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+
+    await act(async () => { rejectCohort(new Error('write failed for field "name"')) })
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+
+    const alert = screen.getByRole('alert')
+    expect(alert.textContent).toMatch(/default weekdays/i)
+    expect(alert.textContent).toMatch(/default cohort/i)
+  })
+
+  it('a bootstrap that resolves clean removes only its own entry, leaving another queued notice intact', async () => {
+    seedDays.mockRejectedValueOnce(new Error('write failed for field "label"'))
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await act(async () => {})
+
+    act(() => {
+      opRejectedCallback({ status: 'rejected', reason: 'unique_field' })
+    })
+    expect(screen.getByText('1 more')).toBeTruthy()
+
+    const retryBtn = screen.getByRole('button', { name: /try again/i })
+    seedDays.mockResolvedValueOnce(undefined)
+    await act(async () => { fireEvent.click(retryBtn) })
+
+    const alert = screen.getByRole('alert')
+    expect(alert.textContent).toMatch(/could not be saved/i)
+    expect(screen.queryByRole('button', { name: /try again/i })).toBeNull()
+    expect(screen.queryByText(/more$/)).toBeNull()
+  })
+
+  it('dismissing an offline notice does not mark the bootstrap invocation dismissed', async () => {
+    let rejectDays
+    seedDays.mockReturnValueOnce(new Promise((_, reject) => { rejectDays = reject }))
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+
+    act(() => { opRejectedCallback({ status: 'rejected', reason: 'unique_field' }) })
+    expect(screen.getByRole('alert').textContent).toMatch(/could not be saved/i)
+
+    fireEvent.click(screen.getByLabelText('Dismiss'))
+    await settleDismissFade()
+    expect(screen.queryByRole('alert')).toBeNull()
+
+    await act(async () => { rejectDays(new Error('write failed for field "label"')) })
+
+    const alert = screen.getByRole('alert')
+    expect(alert.textContent).toMatch(/default weekdays could not be set up/i)
+  })
+
+  it('shows no "more" count when only one notice is queued', async () => {
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await flushBootstrap()
+    act(() => { opRejectedCallback({ status: 'rejected', reason: 'unique_field' }) })
+    expect(screen.queryByText(/more$/)).toBeNull()
+  })
+
+  it('shows "N more" marked aria-hidden when notices are queued behind the head', async () => {
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await flushBootstrap()
+    act(() => { opRejectedCallback({ status: 'rejected', reason: 'unique_field' }) })
+    act(() => { opRejectedCallback({ status: 'rejected', reason: 'unique_field' }) })
+    act(() => { opRejectedCallback({ status: 'rejected', reason: 'unique_field' }) })
+
+    const count = screen.getByText('2 more')
+    expect(count.getAttribute('aria-hidden')).toBe('true')
+  })
+
+  // Round 2, Red Hat HIGH, CONFIRMED: the dismiss path (unlike every other
+  // mutator) removed by POSITION, not by id. The 140ms fade timer is armed
+  // at click time but the removal it performs when it fires reads whatever
+  // is at index 0 THEN — not what was actually dismissed. If the dismissed
+  // entry is independently removed (by id) before that timer fires, the
+  // stale positional removal destroys whatever has since become head,
+  // which the director never asked to dismiss and may never have read.
+  it('Finding 1: a dismiss timer that fires after its own entry was already removed by id must not destroy a different, unrelated queued notice', async () => {
+    seedDays.mockRejectedValueOnce(new Error('write failed for field "label"'))
+    ensureCohort.mockRejectedValueOnce(new Error('write failed for field "name"'))
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await act(async () => {})
+
+    let alert = screen.getByRole('alert')
+    expect(alert.textContent).toMatch(/default weekdays/i)
+
+    // An unrelated notice is queued behind the bootstrap notice.
+    act(() => {
+      opRejectedCallback({ status: 'rejected', reason: 'unique_field' })
+    })
+    expect(screen.getByText('1 more')).toBeTruthy()
+
+    // Director dismisses the bootstrap notice (the head). This arms the
+    // 140ms fade timer closed over the bootstrap notice's id — it has not
+    // fired yet.
+    fireEvent.click(screen.getByLabelText('Dismiss'))
+
+    // Before that timer fires, the bootstrap notice's own retry resolves
+    // cleanly: recompose() removes THAT entry by id (removeById), which
+    // correctly leaves the offline notice as the new head.
+    seedDays.mockResolvedValueOnce(undefined)
+    ensureCohort.mockResolvedValueOnce(undefined)
+    const retryBtn = screen.getByRole('button', { name: /try again/i })
+    await act(async () => { fireEvent.click(retryBtn) })
+
+    alert = screen.getByRole('alert')
+    expect(alert.textContent).toMatch(/could not be saved/i)
+
+    // The stale dismiss timer now fires.
+    await settleDismissFade()
+
+    // The offline notice was never dismissed — it must still be on screen.
+    expect(screen.getByRole('alert')).toBeTruthy()
+    expect(screen.getByRole('alert').textContent).toMatch(/could not be saved/i)
+  })
+
+  // Round 2, two reviewers, MEDIUM: handleDismiss arms a new setTimeout into
+  // dismissTimeoutRef without clearing one already pending there, and the
+  // pre-change stale-timer guard was deleted without an equivalent
+  // replacement. Two dismiss activations on the same head (e.g. a focused
+  // Dismiss button activated twice via Enter/Space, which jsdom does not
+  // block the way pointer-events:none blocks a mouse click) must remove
+  // exactly one notice, not two.
+  it('Finding 2: two rapid dismiss activations on one head remove exactly one notice, not two', async () => {
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await flushBootstrap()
+
+    act(() => { opRejectedCallback({ status: 'rejected', reason: 'unique_field' }) })
+    act(() => { opRejectedCallback({ status: 'rejected', reason: 'unique_field' }) })
+    expect(screen.getByText('1 more')).toBeTruthy()
+
+    const dismissBtn = screen.getByLabelText('Dismiss')
+    act(() => {
+      fireEvent.click(dismissBtn)
+      fireEvent.click(dismissBtn)
+    })
+
+    await settleDismissFade()
+
+    // Exactly one notice was removed: the second is now on screen, head,
+    // with nothing queued behind it.
+    expect(screen.getByRole('alert')).toBeTruthy()
+    expect(screen.getByRole('alert').textContent).toMatch(/could not be saved/i)
+    expect(screen.queryByText(/more$/)).toBeNull()
+  })
+
+  // Round 4 board ruling on Red Hat's residual-loss repro (CONFIRMED): a
+  // keyboard retry activated inside the 140ms dismiss fade must cancel that
+  // notice's own pending dismiss timer before the retry's upsert lands —
+  // otherwise the stale timer later removes the fresh failure message the
+  // director has never read.
+  //
+  // Reached via `userEvent.keyboard('{Enter}')` on the already-focused Try
+  // again button, NOT `userEvent.click`/`fireEvent.click`. That distinction
+  // is the point: `userEvent.click` performs a real pointer interaction and
+  // asserts the target's computed `pointer-events` is not `none` first — it
+  // would throw here, because `opRejectedNoticeStyles.dismissing` sets
+  // `pointerEvents: 'none'` on the wrap while fading, which is exactly what
+  // blocks a second *mouse* click in production. `userEvent.keyboard` never
+  // performs that pointer-events check (it lives only in the pointer
+  // module) — pressing Enter on a focused button fires a synthetic click via
+  // the keyboard module's own default-action registry, which is how a real
+  // browser honours keyboard activation regardless of pointer-events. That
+  // is the reachable path this test exercises.
+  it('Round 4 Item 1: a keyboard retry inside the dismiss fade cancels that notice\'s own pending dismiss, so the new failure message is not later removed', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      seedDays.mockRejectedValueOnce(new Error('write failed for field "label"'))
+      render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+      await act(async () => {})
+
+      let alert = screen.getByRole('alert')
+      expect(alert.textContent).toMatch(/default weekdays/i)
+
+      const retryBtn = screen.getByRole('button', { name: /try again/i })
+      await act(async () => { retryBtn.focus() })
+
+      // Director dismisses the notice. This arms the 140ms fade timer for
+      // THIS notice's id — nothing has been removed yet.
+      await act(async () => { fireEvent.click(screen.getByLabelText('Dismiss')) })
+
+      // Within the fade window, the director retries via keyboard. The
+      // retry fails again with a brand-new message; bootstrap retries
+      // deliberately reuse their entry id, so this upsert writes the new
+      // message into the SAME id the stale dismiss timer is about to act on.
+      seedDays.mockRejectedValueOnce(new Error('UNIQUE constraint failed'))
+      await act(async () => { await vi.advanceTimersByTimeAsync(50) })
+      await act(async () => {
+        await user.keyboard('{Enter}')
+      })
+
+      // The original dismiss timer's remaining ~90ms elapses.
+      await act(async () => { await vi.advanceTimersByTimeAsync(100) })
+
+      // The fresh failure must still be on screen — the retry's own notice
+      // was never destroyed by a dismiss issued against the message it
+      // replaced.
+      alert = screen.getByRole('alert')
+      expect(alert.textContent).toMatch(/already has that name/i)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

@@ -97,3 +97,47 @@ fresh `seededForCamp` ref, so the mount-time bootstrap genuinely retries — see
 `seededForCamp`'s declaration in `src/App.jsx`). A real fix — a client-side IPC timeout, or a
 `UNIQUE` constraint on `days_of_operation` so a duplicate seed after a hang is harmless instead of
 dangerous — is a schema/IPC change out of scope for this ticket.
+
+## Round 4 (owner ruling 2026-09-29: yes to t200)
+
+**The limit accepted in round 2 is now closed.** Round 2 recorded that an unrelated `onOpRejected`
+notice could still replace a live bootstrap-failure notice — retry affordance and all — because both
+sources wrote into one single-scalar slot under last-writer-wins, and that building real isolation
+between them meant the notice queue this ticket's "What this ticket is NOT" section had ruled out of
+scope. That section also said a real queue would be an escalation to the owner. The owner ruled on
+2026-09-29, verbatim: "yes to t200". Board item `q-t200-notice-queue`, note verbatim: "The
+offline-queue rejection notice could overwrite a bootstrap-failure notice, losing it. Previously
+ruled out three times; owner now says yes. Notices display in order, none lost."
+
+**How it was closed.** The single scalar (and the separate `noticeRetry` slot) became one ordered FIFO
+queue of `{ id, message, retry, source }` entries in `AppShell` state, with the pure operations in
+`src/notices/noticeQueue.js` so the reducer is pinned without React. The banner renders the **head
+only** — one notice on screen at a time, the same §5c visual and motion — and Dismiss advances to the
+next. A bootstrap `recompose()` upserts its own entry by id (so days-then-cohort composition still
+yields one bootstrap notice, in its arrival position) and removes only that entry when the bootstrap
+resolves clean; an offline-queue rejection appends. The retry now lives **on the notice object**, so
+nothing arriving ahead of or behind a bootstrap notice can strip its "Try again". When notices are
+waiting behind the head, the banner shows a plain `N more` text token in its existing actions row —
+one token, no new control, no second surface, no explainer.
+
+**The queue is id-keyed throughout, deliberately.** Round 1 of this work implemented dismissal
+positionally (`queue.slice(1)`) while every other mutator was id-keyed, and the dismiss path is also
+the only one deferred — by the §5c 140ms fade. Red Hat confirmed the resulting loss: dismiss a
+bootstrap notice that has another notice queued behind it, let the still-pending bootstrap write
+resolve cleanly inside the fade window (which removes the bootstrap entry by id), and the deferred
+dismiss then removes whatever has *since* become head — an unread offline-queue rejection, gone. That
+is the exact failure this ticket exists to prevent, so `dismissHead` was deleted and dismissal now
+removes the captured notice **by id**, making a dismiss of an already-removed entry a harmless no-op.
+Both the race and a rapid double-dismiss are pinned by tests proven to fail against the round-1
+implementation.
+
+**What remains accepted, not fixed.** The round-3 limit is unchanged: an unbounded IPC hang still
+cannot be retried away from within the app. New to this round: because "none lost" is the owner's
+stated requirement, the queue is **uncapped and does not de-duplicate** — an offline queue flushing
+many rejections at reconnect enqueues one notice per rejection, each needing its own dismiss. A cap or
+a de-duplicating fold would violate the ruling, so the consequence is recorded rather than mitigated.
+Whether `N more` is the clearest wording for the waiting count, and whether a many-notice backlog
+wants a different affordance, are product questions left for the owner; see the run record's open
+points.
+
+Run record: `docs/work/runs/2026-09-30-t200-notice-queue.md`.
