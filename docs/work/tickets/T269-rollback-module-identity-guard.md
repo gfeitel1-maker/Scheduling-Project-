@@ -102,6 +102,10 @@ mismatch. `v67_down.js` is corrected.
 - No new rollback modules for versions that lack one. **`v72` has no `v72_down.js`.** The guard
   checks *consistency of what exists*, never *completeness of the set*. Completeness is handed up
   as a finding, not decided here.
+  - _2026-09-30: `electron/db/rollback/v72_down.js` now exists (sweeps PR E). It is marker-only —
+    it deletes the `schema_migrations` rows `>= 72` and drops nothing, because the forward block
+    it inverts only stamped a version row. This ticket's status is unchanged; completeness for
+    the remaining holes is still an open finding._
 - No change to `v77_down.js` semantics (T267, in flight).
 - No conversion of `v62_down.js` / `v64_down.js`.
 

@@ -93,7 +93,15 @@ describe('rollback bare-equality schema_migrations guard', () => {
     // large, heavily-registered, replicated table — its entity REPLICATES, so the
     // drop removes only this device's projection of the findings, not the peer
     // copies.
-    expect(files.length).toBe(43)
+    //
+    // 44 is v72_down.js (T269, sweeps PR E). Deletes with `WHERE version >= 72`, so
+    // it satisfies the guard below on its own merits. It is the first module in
+    // this directory that drops NOTHING, because the forward migration it inverts
+    // (v72, T233) only ever stamped a `schema_migrations` version row — the
+    // `tombstones` table it names is created unconditionally by schema.sql on
+    // every open, not by this migration, so there was never anything for the
+    // rollback to undo beyond the marker itself.
+    expect(files.length).toBe(44)
   })
 
   it('every rollback file uses `>= N`, never bare `= N`, to delete its schema_migrations row', () => {
