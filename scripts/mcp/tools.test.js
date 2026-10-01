@@ -705,10 +705,10 @@ describe('scripts/mcp/tools.js', () => {
       ).run(randomUUID(), groupId, deviceId, new Date().toISOString())
       db.prepare('INSERT INTO groups (id, camp_id, name) VALUES (?, ?, ?)').run(groupId, campId, 'Bears')
       const doc = seedAllFromSqlite(db)
-      saveDoc(path.dirname(dbPath), campId, doc) // user_data_dir defaults to path.dirname(dbPath)
+      saveDoc(dir, campId, doc) // written into the cleaned per-test dir, not os.tmpdir() itself
       db.close()
 
-      const result = rebuildProjectionFromDocumentTool({}, { dbPath, allowWrite: true })
+      const result = rebuildProjectionFromDocumentTool({ user_data_dir: dir }, { dbPath, allowWrite: true })
 
       expect(result.ok).toBe(true)
       expect(result.campId).toBe(campId)
