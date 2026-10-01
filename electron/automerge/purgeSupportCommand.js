@@ -88,6 +88,7 @@ import { seedAllFromSqlite } from './seed.js'
 import { signTombstone } from './tombstoneSignature.js'
 import { projectAll } from './projector.js'
 import { reconcileAndRecordConflicts } from './reconcileForProjection.js'
+import { electiveChoiceLabelKey } from '../ops/electiveDerivedIds.js'
 import {
   validateRebuildSource,
   rebuildProjectionFromDocumentAtPathCore,
@@ -294,6 +295,60 @@ function purgeCamperRecordLocked({ dbPath, userDataDir, cipher = null, key = nul
           'device. This purge is a whole-device rebuild with real collateral cost (see this ' +
           "module's header) — refusing to run it for an id that has nothing to purge."
       )
+    }
+
+    // Red Hat finding, T321 follow-up (docs/adr/2026-10-01-camper-id-high-entropy-format.md):
+    // refuse a purge that would destroy the LOSING side of an unresolved camper_identity_keys
+    // contest (ADR decision 3's named orphan case). A director purging what looks like a
+    // duplicate camper has no way to tell "a genuine duplicate" from "one half of an identity
+    // contest camper_identity_keys has already resolved in someone else's favor" — and the
+    // latter still holds real, human-entered preference data that a REKEY (the same mechanism
+    // camperIdentityResolver.js's rekeyOrphans already runs on next touch) would move onto the
+    // winner rather than destroy.
+    //
+    // CHOSEN FIX: REFUSE, not auto-rekey. purgeCamperRecord is a Host-only command whose whole
+    // contract is "erase this record and mint a signed tombstone" — silently turning a purge
+    // request into a rekey-and-merge would hand the caller neither the erasure they asked for
+    // nor any tombstone, with no signal that anything but an ordinary purge happened. A refusal
+    // is the smaller change to the existing contract: it adds one more named reason purgeCamperRecord
+    // declines to run (alongside the host-key-missing and FIX4 "nothing to purge" refusals above),
+    // and tells the caller the correct next step — let the camper resolve first (an ordinary
+    // import re-touch, or attributeElectiveSubject, both already run the real rekey), then purge
+    // the row that remains.
+    //
+    // Detection reverse-derives (key_mode, key_value) from the camper's OWN external_id/
+    // display_name — the exact inverse the v85 migration back-fill already uses (localDb.js) —
+    // and checks whether camper_identity_keys resolves that SAME key to a DIFFERENT, currently
+    // real camper_id. A provisional subject (is_unattributed = 1) has no name to derive a key
+    // from yet, same as the migration back-fill, so it is never caught by this guard.
+    if (camperExists) {
+      const camperRow = oldDb
+        .prepare('SELECT external_id, display_name, is_unattributed FROM campers WHERE id = ?')
+        .get(entityId)
+      if (camperRow && camperRow.is_unattributed !== 1) {
+        const external = String(camperRow.external_id ?? '').trim()
+        const keyMode = external.length > 0 ? 'ext' : 'name'
+        const keyValue =
+          external.length > 0 ? external : electiveChoiceLabelKey(String(camperRow.display_name ?? ''))
+        if (keyValue.length > 0) {
+          const contest = oldDb
+            .prepare(
+              'SELECT camper_id FROM camper_identity_keys WHERE camp_id = ? AND key_mode = ? AND key_value = ? AND camper_id != ?'
+            )
+            .get(campId, keyMode, keyValue, entityId)
+          const winnerStillReal =
+            contest && oldDb.prepare('SELECT 1 FROM campers WHERE id = ?').get(contest.camper_id)
+          if (winnerStillReal) {
+            throw new RebuildRefusalError(
+              `Refusing: ${entityId} is the LOSING side of an unresolved camper_identity_keys ` +
+                `contest — camper_identity_keys already resolves this identity to ${contest.camper_id} ` +
+                'instead. Purging now would destroy this row\'s preference/assignment data rather ' +
+                'than preserving it. Let it rekey first (re-touch the import, or attribute it ' +
+                'through attributeElectiveSubject), then purge whichever row remains.'
+            )
+          }
+        }
+      }
     }
 
     // 5b: capture this device's signing/identity keys BEFORE the rebuild destroys them. Read-only,

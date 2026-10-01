@@ -14,6 +14,7 @@ import { randomUUID, generateKeyPairSync } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
 import { writePreMigrationBackup } from '../db/projectManager.js'
 import { appendOp } from '../ops/operations.js'
+import { deriveCamperId, electiveChoiceLabelKey } from '../ops/electiveDerivedIds.js'
 import * as seedModule from './seed.js'
 import { seedAllFromSqlite } from './seed.js'
 import { saveDoc, loadDoc } from '../sync/automerge/docStore.js'
@@ -784,5 +785,93 @@ describe('purgeCamperRecord', () => {
     // Once released, an ordinary purge proceeds normally.
     const result = purgeCamperRecord({ dbPath, userDataDir, entityId: camperId })
     expect(result.campId).toBe(campId)
+  })
+
+  // Red Hat finding, T321 follow-up: a purge racing an UNRESOLVED orphan can destroy real data.
+  // SCENARIO: this device holds a `campers` row this device itself minted before it ever saw the
+  // now-converged camper_identity_keys mapping (ADR decision 3's named cost of Option B) — the
+  // LOSING side of an identity contest camper_identity_keys has already resolved in someone else's
+  // favor. A director, seeing what looks like a duplicate, purges the losing row. Nothing today
+  // distinguishes that from purging a genuine duplicate, so the purge deletes the losing camper's
+  // real, human-entered preference and mints a tombstone — destroying data a rekey (the SAME
+  // mechanism camperIdentityResolver.js's rekeyOrphans already uses on next touch) would instead
+  // have preserved by moving it onto the winner.
+  describe('refuses to purge the LOSING side of an unresolved camper_identity_keys contest', () => {
+    function buildOrphanContest(tag) {
+      const { db, dbPath } = newDb(tag)
+      const campId = randomUUID()
+      const deviceId = 'device-1'
+      const winnerCamperId = randomUUID()
+      const losingCamperId = randomUUID()
+      const prefId = randomUUID()
+      const runId = randomUUID()
+      const choiceId = randomUUID()
+      const groupId = randomUUID()
+
+      // The winner: camper_identity_keys already resolves 'Ari Green' to winnerCamperId — the
+      // converged, cross-device-agreed identity.
+      buildCampWithCamper(db, {
+        campId, deviceId, camperId: winnerCamperId, groupId,
+        prefId: randomUUID(), runId, choiceId,
+      })
+      const lookupId = deriveCamperId(campId, { externalId: null, displayName: 'Ari Green' })
+      appendOp(db, { entity: 'camper_identity_keys', entity_id: lookupId, field: 'camp_id', value: campId, device_id: deviceId, author_user_id: 'u1' })
+      appendOp(db, { entity: 'camper_identity_keys', entity_id: lookupId, field: 'key_mode', value: 'name', device_id: deviceId, author_user_id: 'u1' })
+      appendOp(db, { entity: 'camper_identity_keys', entity_id: lookupId, field: 'key_value', value: electiveChoiceLabelKey('Ari Green'), device_id: deviceId, author_user_id: 'u1' })
+      appendOp(db, { entity: 'camper_identity_keys', entity_id: lookupId, field: 'camper_id', value: winnerCamperId, device_id: deviceId, author_user_id: 'u1' })
+
+      // The orphan: THIS device's own local campers row for the SAME name, minted before this
+      // device ever saw the converged mapping above — a real duplicate-looking row that still
+      // holds real, human-entered preference data.
+      appendOp(db, { entity: 'campers', entity_id: losingCamperId, field: 'camp_id', value: campId, device_id: deviceId, author_user_id: 'u1' })
+      appendOp(db, { entity: 'campers', entity_id: losingCamperId, field: 'display_name', value: 'Ari Green', device_id: deviceId, author_user_id: 'u1' })
+      appendOp(db, { entity: 'elective_preferences', entity_id: prefId, field: 'run_id', value: runId, device_id: deviceId, author_user_id: 'u1' })
+      appendOp(db, { entity: 'elective_preferences', entity_id: prefId, field: 'camper_id', value: losingCamperId, device_id: deviceId, author_user_id: 'u1' })
+      appendOp(db, { entity: 'elective_preferences', entity_id: prefId, field: 'choice_id', value: choiceId, device_id: deviceId, author_user_id: 'u1' })
+      appendOp(db, { entity: 'elective_preferences', entity_id: prefId, field: 'rank', value: 1, device_id: deviceId, author_user_id: 'u1' })
+
+      installHostKey(db, campId)
+      const doc = seedAllFromSqlite(db)
+      const userDataDir = newUserDataDir(tag)
+      saveDoc(userDataDir, campId, doc)
+      db.close()
+
+      return { dbPath, userDataDir, campId, winnerCamperId, losingCamperId, prefId }
+    }
+
+    it('refuses the purge and leaves the losing camper and its preference untouched', () => {
+      const { dbPath, userDataDir, losingCamperId, prefId } = buildOrphanContest('orphanguard')
+
+      expect(() => purgeCamperRecord({ dbPath, userDataDir, entityId: losingCamperId })).toThrow(RebuildRefusalError)
+      expect(() => purgeCamperRecord({ dbPath, userDataDir, entityId: losingCamperId })).toThrow(
+        /unresolved camper_identity_keys|let it rekey/
+      )
+
+      // No mutation at all: no backup, no tombstone, the orphan and its preference fully intact.
+      expect(preMigrationBackups(dbPath).length).toBe(0)
+      const verifyDb = openLocalDb(dbPath)
+      expect(verifyDb.prepare('SELECT * FROM campers WHERE id = ?').get(losingCamperId)).toBeTruthy()
+      expect(verifyDb.prepare('SELECT * FROM elective_preferences WHERE id = ?').get(prefId)).toBeTruthy()
+      expect(verifyDb.prepare('SELECT * FROM tombstones WHERE id = ?').get(losingCamperId)).toBeUndefined()
+      verifyDb.close()
+    })
+
+    it('still purges an ordinary camper with no contesting camper_identity_keys row (positive control)', () => {
+      const { db, dbPath } = newDb('ordinarypurge')
+      const campId = randomUUID()
+      const camperId = randomUUID()
+      buildCampWithCamper(db, {
+        campId, deviceId: 'device-1', camperId, groupId: randomUUID(),
+        prefId: randomUUID(), runId: randomUUID(), choiceId: randomUUID(),
+      })
+      installHostKey(db, campId)
+      const doc = seedAllFromSqlite(db)
+      const userDataDir = newUserDataDir('ordinarypurge')
+      saveDoc(userDataDir, campId, doc)
+      db.close()
+
+      const result = purgeCamperRecord({ dbPath, userDataDir, entityId: camperId })
+      expect(result.campId).toBe(campId)
+    })
   })
 })
