@@ -299,6 +299,50 @@ stated posture says is worth zero. The first **real** camp's data is created ent
 id scheme, so no tombstone or digest in production ever references an old-format id. Open question
 4 below asks the owner to confirm this reading is correct for pre-production rather than assuming it.
 
+## Migration back-fill does not replicate (accepted limitation, Red Hat T321 follow-up)
+
+The v85 migration's back-fill (previous section, step 2) writes its `camper_identity_keys` rows
+with raw `db.prepare(...).run(...)`, never `appendOp` — so these rows are **device-local only**:
+they never reach the Automerge document and never replicate to a device that joins the camp after
+the migration has already run elsewhere. This is a real gap in acceptance criterion 6's literal "a
+re-imported sheet... resolves to the SAME `campers.id`" claim as stated, narrowed here rather than
+silently left implicit, and it is **not** covered by the "Tombstones & digest keys already written"
+exception above — that exception is about stale dev-only tombstones/digests under the
+no-live-data posture; this is about a real post-migration camper on a camp a NEW device correctly
+joins.
+
+**Why this is not fixed by making the migration replicate.** No migration in `electron/db/localDb.js`
+writes through `appendOp` anywhere — every migration that needs a device-local-only effect says so
+explicitly (e.g. the v24 orphan-week-snapshot block, v55/`projection_failures`). `openLocalDb` runs
+every migration against the raw SQLite file with no `userDataDir` or document-path argument — the
+Automerge document for the camp is not reachable from inside a migration at all in this codebase's
+current structure. Forcing migration-time replication here would be introducing an unprecedented
+capability under the narrowest possible justification (one back-fill, in a repo with no live camp
+data yet), not merely re-using an existing one. That tradeoff is rejected.
+
+**Why this is bounded and self-healing instead.** A device joining fresh after the migration gets
+the pre-existing `campers` rows (those always replicated via their own ordinary ops) but zero
+`camper_identity_keys` rows for them. Re-importing an existing camper's sheet on that new device is
+a genuine cache miss against `camper_identity_keys` — it mints a temporary duplicate camper id and
+writes its own mapping row through the live, `appendOp`-backed resolver path (`camperIdentityResolver.js`),
+which **does** replicate normally, same as any other write. Once that new mapping row reaches the
+ORIGINAL (pre-migration) device and that device's next `resolveOrMintCamperId`/
+`attributeElectiveSubject` touch for the same name runs, `rekeyOrphans` finds the pre-existing
+camper row as the orphan — it is excluded from `camper_identity_keys` only because it predates the
+migration, which `findOrphans`' matching logic does not need to know about — and moves its
+preferences/assignments onto the new device's id, exactly the mechanism acceptance criterion 4
+already names for two devices racing to mint the same logical camper before ever syncing.
+`electron/ops/camperIdentityResolver.migrationBackfillConvergence.test.js` exercises this sequence
+directly: a pre-existing camper with no identity-key row, a simulated second-device mapping arriving
+via sync, and the original device's next touch moving the first device's preference data onto the
+synced-in id rather than losing it.
+
+**The accepted cost**: a temporary duplicate camper exists on the fleet between the new device's
+import and the old device's next touch for that name — visible in the UI as two rows for one child
+until that next touch runs. Given this repo's no-live-data posture (same posture the tombstone
+section above relies on) and that the resolution is automatic rather than requiring a director to
+notice and manually merge, this is accepted rather than engineered away at migration time.
+
 ## Acceptance criteria
 
 An implementation satisfies this ADR when:

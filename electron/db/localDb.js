@@ -4106,6 +4106,36 @@ const DEVICE_HEALTH_EVENTS_DDL = `
   // two-places discipline as v82/camp_seedlings) PLUS the back-fill: one row
   // per EXISTING ext/name-mode camper (acceptance criterion 6).
   //
+  // ACCEPTED LIMITATION (Red Hat, T321 follow-up — see the ADR's "Migration
+  // back-fill does not replicate" section): the INSERTs below are raw SQLite,
+  // never appendOp, so these back-filled rows never reach the Automerge
+  // document and never replicate to a device that joins the camp AFTER this
+  // migration has run elsewhere. No migration in this file writes through
+  // appendOp (grep confirms it — every migration that needs a device-local-
+  // only effect says so explicitly, e.g. v55/projection_failures and the v24
+  // orphan-week snapshot above), and openLocalDb runs migrations against the
+  // raw SQLite file with no userDataDir/doc-path argument at all — the
+  // Automerge document for a camp is not even reachable from here. Forcing
+  // migration-time replication would be unprecedented in this codebase, not
+  // merely inconvenient. This is NOT forced.
+  //
+  // Consequence, stated plainly: a fresh device joining this camp after the
+  // migration gets the pre-existing `campers` rows (those always replicated)
+  // but zero camper_identity_keys rows for them. Re-importing an existing
+  // camper's sheet on that new device is a genuine cache miss, mints a
+  // temporary duplicate camper id, and writes its OWN camper_identity_keys
+  // row through the live (appendOp) resolver path — which DOES replicate.
+  // This self-heals: once that new row reaches the ORIGINAL device and that
+  // device's next resolveOrMintCamperId/attributeElectiveSubject touch for
+  // the same name runs, camperIdentityResolver.js's rekeyOrphans finds the
+  // pre-existing camper as the orphan (it is excluded from the lookup only
+  // because it predates this migration, not because of anything else) and
+  // moves its preferences/assignments onto the new device's id — the SAME
+  // mechanism acceptance criterion 4 already covers for two devices racing
+  // before either has ever seen this camper. See
+  // camperIdentityResolver.migrationBackfillConvergence.test.js for a test
+  // exercising exactly this sequence.
+  //
   // Guard `>= 84 && < 85`, never a bare `< 85` (this repo's standing gotcha).
   if (getSchemaVersion(db) >= 84 && getSchemaVersion(db) < 85) {
     db.transaction(() => {
