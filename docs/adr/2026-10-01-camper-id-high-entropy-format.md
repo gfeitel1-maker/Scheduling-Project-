@@ -1,9 +1,9 @@
 ---
 title: "Camper ids stop embedding the display name — a high-entropy id plus a replicated, purgeable name->id lookup for sheet import"
 document_type: adr
-status: proposed
+status: accepted
 authority: normative
-implementation_state: proposed
+implementation_state: implemented
 date: 2026-10-01
 task_class: database-sync
 governing_docs:
@@ -406,3 +406,9 @@ privacy posture above are what he is accepting or redirecting.
 **The one word owed:** the owner accepts this ADR (status flips to `accepted`, a ticket number is
 allocated, and the build proceeds under the normal loop) or names what to change. Nothing here is
 built until then.
+
+**Accepted (ticket T321).** Per the organizer's recorded acceptance above ("Decisions taken
+(organizer, 2026-10-01 — recommended defaults adopted)") and board item
+`q-camper-id-embeds-display-name`, this ADR was handed to the normal Maker/Verifier/Red Hat/
+Security/Code Reviewer loop under ticket T321. `status` and `implementation_state` above reflect
+that the build is implemented and reviewed as of this PR.
