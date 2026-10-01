@@ -189,6 +189,43 @@ describe('localClient.mock commitElectiveRun — BUNDLE_TIER_NOT_COVERED parity'
     expect(out.ok).toBe(true)
     expect(out.findings.filter((f) => f.kind === 'BUNDLE_TIER_NOT_COVERED')).toEqual([])
   })
+
+  // M2 (Red Hat round 4) — makeCamperIdentityResolver's enrichment step falls
+  // back to the ROSTER's division_label when THIS commit's sheet cell is
+  // empty for that camper (electron/ops/commitElectiveRun.js passes
+  // rosterCampers for exactly this reason). The mock's own call omitted
+  // rosterCampers, so a sheet with a blank Division column for a camper who
+  // already has a division on the roster resolved differently here than in
+  // Electron — a false-confidence gap in the ONE surface a Tester is meant
+  // to trust. Existing tests above all supply division_label directly on the
+  // sheet, so this gap was unexercised until now.
+  it("falls back to the ROSTER's division when THIS sheet's Division cell is empty for that camper — matching the real resolver", async () => {
+    const state = JSON.parse(localStorage.getItem('shoresh-mock-state')) ?? {}
+    state.tiers = [{ id: 'tier-older', name: 'Older' }, { id: 'tier-younger', name: 'Younger' }]
+    state.groups = []
+    // The PRE-EXISTING roster: this camper already has a division from an
+    // earlier import.
+    state.campers = [{ id: 'cam-y1', display_name: 'Noa Katz', group_id: null, division_label: 'Younger' }]
+    state.elective_bundles = [{ id: 'bundle-1', elective_set_id: 'set-1', activity_id: 'act-ropes', name: 'Ropes', scope_mode: 'only' }]
+    state.elective_bundle_tiers = [{ id: 'ebt-1', bundle_id: 'bundle-1', tier_id: 'tier-older' }]
+    localStorage.setItem('shoresh-mock-state', JSON.stringify(state))
+
+    const parsed = {
+      // THIS commit's sheet names NO division for this camper (the Division
+      // cell is empty) — only the roster still knows 'Younger'.
+      campers: [{ id: 'cam-y1', display_name: 'Noa Katz', external_id: null, group_id: null, division_label: null }],
+      choices: [{ label: 'Ropes', labelKey: 'ropes' }],
+      preferences: [{ camper_id: 'cam-y1', label: 'Ropes', labelKey: 'ropes', rank: 1 }],
+      sameNameCampers: [], skippedRows: [],
+    }
+    const out = await mockShoresh.commitElectiveRun({ name: 'Week 1', parsed, assignments: [] })
+    expect(out.ok).toBe(true)
+    const mismatch = out.findings.find((f) => f.kind === 'BUNDLE_TIER_NOT_COVERED')
+    expect(mismatch).toBeTruthy()
+    // Must resolve via the ROSTER's 'Younger' — null/unresolved would mean
+    // rosterCampers never reached the resolver.
+    expect(mismatch.tier_id).toBe('tier-younger')
+  })
 })
 
 describe('localClient.mock finalizeElectiveRun — OUTER_RESOURCE_CONFLICT parity, continued', () => {

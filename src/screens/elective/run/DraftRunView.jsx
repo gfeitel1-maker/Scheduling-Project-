@@ -580,7 +580,11 @@ export default function DraftRunView({
   // 2 item 3) — no new IPC.
   const sheetOnlyCamperNames = useMemo(() => {
     const camperById = new Map((state.campers ?? []).map((c) => [c.id, c]))
-    return (state.sheetOnlyCampers ?? []).map((id) => camperById.get(id)?.display_name ?? id)
+    // M1 (Red Hat round 4) — NEVER a raw camper_id (camperDisambiguator's own
+    // rule, also applied in runStateCopy.js's groupBundleTierNotCoveredFindings
+    // for the same reason): a sheet-only camper whose row is gone (hard-deleted
+    // after an earlier generation) degrades to a truthful sentence fragment.
+    return (state.sheetOnlyCampers ?? []).map((id) => camperById.get(id)?.display_name ?? 'a camper who is no longer on the roster')
   }, [state.campers, state.sheetOnlyCampers])
   const stateRowCount = overCapacityRows.length + danglingRows.length + collapsingOnlyRows.length + commitNotices.length
     + bundleMismatchGroups.length + (sheetOnlyCamperNames.length > 0 ? 1 : 0)

@@ -1921,6 +1921,14 @@ export const mockShoresh = {
       }
     }
     const state = loadState()
+    // M2 (Red Hat round 4) — captured BEFORE `state.campers = parsed.campers
+    // ?? []` below overwrites it, so the bundle-mismatch resolution further
+    // down (which runs AFTER that overwrite) can still pass the PRE-commit
+    // roster to makeCamperIdentityResolver as `rosterCampers` — the same
+    // argument electron/ops/commitElectiveRun.js passes. Without this, a
+    // sheet with a blank Division cell for a camper who already has one on
+    // the roster resolves differently here than in Electron.
+    const rosterCampersForIdentity = state.campers || []
     const existing = (state.elective_assignment_runs || []).find((r) => r.id === providedRunId)
     // T320 part 2 item 2 parity — without this, browser-dev lets a regenerate
     // through that electron:dev refuses, which is the exact divergence the
@@ -2005,7 +2013,8 @@ export const mockShoresh = {
     const bundles = state.elective_bundles || []
     if (bundles.length > 0) {
       const identity = makeCamperIdentityResolver({
-        sheetCampers: parsed.campers ?? [], groups: state.groups || [], tiers: state.tiers || [],
+        sheetCampers: parsed.campers ?? [], rosterCampers: rosterCampersForIdentity,
+        groups: state.groups || [], tiers: state.tiers || [],
       })
       const bundleTiersByBundleId = new Map()
       for (const bt of (state.elective_bundle_tiers || [])) {

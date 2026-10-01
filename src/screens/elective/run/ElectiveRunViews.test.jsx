@@ -674,6 +674,23 @@ describe('(C)(4) sheetOnlyCampers — named, not just counted', () => {
     await screen.findByTestId('run-satisfaction-summary')
     expect(screen.queryByTestId('run-state-sheet-only-campers')).toBeNull()
   })
+
+  // M1 (Red Hat round 4) — camperById.get(id)?.display_name ?? id printed a
+  // raw camper UUID for a camper deleted after an earlier generation (the
+  // sheet named them, but their campers row is gone). Same truthful-degrade
+  // rule groupBundleTierNotCoveredFindings already applies (C1/F5).
+  it('degrades truthfully — never a raw camper UUID — when a sheet-only camper\'s row no longer exists', async () => {
+    localClient.getElectiveRun.mockResolvedValue({
+      ...CLEAN_RUN_STATE,
+      sheetOnlyCampers: ['camper-1', 'deleted-camper-id-ghost'],
+    })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+
+    const row = await screen.findByTestId('run-state-sheet-only-campers')
+    expect(row.textContent).toContain('Testcamper Alpha')
+    expect(row.textContent).not.toContain('deleted-camper-id-ghost')
+    expect(row.textContent).toContain('a camper who is no longer on the roster')
+  })
 })
 
 // ---------------------------------------------------------------------------
