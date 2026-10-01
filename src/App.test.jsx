@@ -639,6 +639,82 @@ describe('AppShell: notice FIFO queue (T200 board follow-up)', () => {
     const count = screen.getByText('2 more')
     expect(count.getAttribute('aria-hidden')).toBe('true')
   })
+
+  // Round 2, Red Hat HIGH, CONFIRMED: the dismiss path (unlike every other
+  // mutator) removed by POSITION, not by id. The 140ms fade timer is armed
+  // at click time but the removal it performs when it fires reads whatever
+  // is at index 0 THEN — not what was actually dismissed. If the dismissed
+  // entry is independently removed (by id) before that timer fires, the
+  // stale positional removal destroys whatever has since become head,
+  // which the director never asked to dismiss and may never have read.
+  it('Finding 1: a dismiss timer that fires after its own entry was already removed by id must not destroy a different, unrelated queued notice', async () => {
+    seedDays.mockRejectedValueOnce(new Error('write failed for field "label"'))
+    ensureCohort.mockRejectedValueOnce(new Error('write failed for field "name"'))
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await act(async () => {})
+
+    let alert = screen.getByRole('alert')
+    expect(alert.textContent).toMatch(/default weekdays/i)
+
+    // An unrelated notice is queued behind the bootstrap notice.
+    act(() => {
+      opRejectedCallback({ status: 'rejected', reason: 'unique_field' })
+    })
+    expect(screen.getByText('1 more')).toBeTruthy()
+
+    // Director dismisses the bootstrap notice (the head). This arms the
+    // 140ms fade timer closed over the bootstrap notice's id — it has not
+    // fired yet.
+    fireEvent.click(screen.getByLabelText('Dismiss'))
+
+    // Before that timer fires, the bootstrap notice's own retry resolves
+    // cleanly: recompose() removes THAT entry by id (removeById), which
+    // correctly leaves the offline notice as the new head.
+    seedDays.mockResolvedValueOnce(undefined)
+    ensureCohort.mockResolvedValueOnce(undefined)
+    const retryBtn = screen.getByRole('button', { name: /try again/i })
+    await act(async () => { fireEvent.click(retryBtn) })
+
+    alert = screen.getByRole('alert')
+    expect(alert.textContent).toMatch(/could not be saved/i)
+
+    // The stale dismiss timer now fires.
+    await settleDismissFade()
+
+    // The offline notice was never dismissed — it must still be on screen.
+    expect(screen.getByRole('alert')).toBeTruthy()
+    expect(screen.getByRole('alert').textContent).toMatch(/could not be saved/i)
+  })
+
+  // Round 2, two reviewers, MEDIUM: handleDismiss arms a new setTimeout into
+  // dismissTimeoutRef without clearing one already pending there, and the
+  // pre-change stale-timer guard was deleted without an equivalent
+  // replacement. Two dismiss activations on the same head (e.g. a focused
+  // Dismiss button activated twice via Enter/Space, which jsdom does not
+  // block the way pointer-events:none blocks a mouse click) must remove
+  // exactly one notice, not two.
+  it('Finding 2: two rapid dismiss activations on one head remove exactly one notice, not two', async () => {
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await flushBootstrap()
+
+    act(() => { opRejectedCallback({ status: 'rejected', reason: 'unique_field' }) })
+    act(() => { opRejectedCallback({ status: 'rejected', reason: 'unique_field' }) })
+    expect(screen.getByText('1 more')).toBeTruthy()
+
+    const dismissBtn = screen.getByLabelText('Dismiss')
+    act(() => {
+      fireEvent.click(dismissBtn)
+      fireEvent.click(dismissBtn)
+    })
+
+    await settleDismissFade()
+
+    // Exactly one notice was removed: the second is now on screen, head,
+    // with nothing queued behind it.
+    expect(screen.getByRole('alert')).toBeTruthy()
+    expect(screen.getByRole('alert').textContent).toMatch(/could not be saved/i)
+    expect(screen.queryByText(/more$/)).toBeNull()
+  })
 })
 
 // Roots-as-dashboard plan, Task 3: Roots (not the retired Setup Readiness
