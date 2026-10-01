@@ -52,6 +52,13 @@ describe('retiredSqlColumn', () => {
     expect(check(src)).toEqual([])
   })
 
+  it('ignores a retired column name that appears only inside a SQL comment', () => {
+    const src = `
+      db.exec('CREATE TABLE template_slots (id TEXT) -- was is_anchor before v84')
+    `
+    expect(check(src)).toEqual([])
+  })
+
   it('exposes the exact T293/v84 denylist', () => {
     expect([...RETIRED_COLUMNS].sort()).toEqual(
       ['anchor_id', 'anchor_model', 'anchor_name', 'is_anchor'].sort(),

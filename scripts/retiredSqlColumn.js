@@ -18,7 +18,12 @@
 // outside electron/db/ on the clean tree: zero hits.
 //
 // Keyword gate is deliberately NARROW — insert into / create table / alter
-// table only, not UPDATE...SET. Cannot-see, stated rather than hidden:
+// table only, not UPDATE...SET. SQL line comments (`-- ... <eol>`) and block
+// comments (`/* ... */`) are stripped from the literal's text before either
+// the keyword or the column-name check runs, so a retired name that appears
+// only inside a SQL comment (documenting the OLD name, say) does not fire.
+//
+// Cannot-see, stated rather than hidden:
 //   - a future rename not yet in RETIRED_COLUMNS
 //   - a column name split across string concatenation or interpolation
 //     (`'anchor_' + 'id'`) — only a single literal's own text is scanned
@@ -26,6 +31,10 @@
 //   - a non-SQL-shaped string that merely contains the column name as a
 //     substring (e.g. a sentence describing the rename) — the keyword gate
 //     exists precisely to let that case pass
+//   - a DIFFERENT table reusing one of these names for its own, unrelated
+//     column (cross-table name collision) — RETIRED_COLUMNS is a flat name
+//     denylist, not table-scoped. Accepted limitation; no such column exists
+//     in this schema today.
 
 import { execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
@@ -43,6 +52,11 @@ function literalText(node) {
   if (node.type === 'Literal' && typeof node.value === 'string') return node.value
   if (node.type === 'TemplateLiteral') return node.quasis.map((q) => q.value.cooked ?? '').join('')
   return null
+}
+
+/** Strip SQL line (`-- ...`) and block (`/* ... *\/`) comments before matching. */
+function stripSqlComments(text) {
+  return text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--.*$/gm, '')
 }
 
 function findRetiredColumn(text) {
@@ -63,8 +77,9 @@ export function scanRetiredSqlColumnInText(path, text) {
 
   const findings = []
   walk(ast, (node) => {
-    const value = literalText(node)
-    if (value === null) return
+    const raw = literalText(node)
+    if (raw === null) return
+    const value = stripSqlComments(raw)
     if (!SQL_SHAPE_RE.test(value)) return
     const col = findRetiredColumn(value)
     if (!col) return

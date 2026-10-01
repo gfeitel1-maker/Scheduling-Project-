@@ -115,9 +115,12 @@ const finding = (code, message) => ({ code, message })
 //
 // `vacuous-filter-assertion` added here per the BLOCKING-DECISION PROTOCOL in
 // vacuousFilterAssertion.js's header: a corpus run on the clean tree (2026-10-01)
-// found 57 genuinely vacuous tests (the only assertion is that a filtered/derived
-// collection is empty, with no companion assertion proving the positive path ran)
-// rather than detector false positives. Fixing 57 pre-existing tests is out of
+// found 57 TRUE matches of the detector's narrow pattern (the only assertion is
+// that a filtered/derived collection is empty, with no companion assertion
+// proving the positive path ran) — not detector false positives, but also not
+// a homogeneous dangerously-vacuous class: see vacuousFilterAssertion.js's
+// header for the match-finder-vs-mismatch-guard distinction this detector does
+// not draw. Fixing 57 pre-existing tests is out of
 // scope for the rename-silent-lookup-gate ticket that added this detector; each
 // file:line is carried forward in that ticket's run record rather than fixed here.
 export const ADVISORY_CODES = new Set(['platform-state-stale', 'vacuous-filter-assertion'])
@@ -1042,7 +1045,7 @@ export function checkAll(root, execFn = (cmd) => execSync(cmd, { encoding: 'utf8
   // value derived from source, so it is BLOCKING: a marked fact is an exact claim.
   findings.push(...checkDocFacts(root))
 
-  // T<rename-silent-lookup-gate> — catches the "wide rename, lookup silently
+  // Board item q-rename-silent-lookup-gate — catches the "wide rename, lookup silently
   // returns nothing" class (#696 shipped five instances). See each module's
   // header for scope and cannot-see limits.
   findings.push(...checkStaleSettingsKey(root, { execFn }))

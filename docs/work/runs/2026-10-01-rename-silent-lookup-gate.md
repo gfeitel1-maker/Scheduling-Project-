@@ -52,6 +52,10 @@ archive_when: merged to main and the board item q-rename-silent-lookup-gate is c
 - (B) A vacuous-assertion detector for test files: `expect(...)` over a statically empty/undefined selection (shape 3: ingest.t267 identity guard). Target the detectable subset; report the uncovered cases.
 - (C) A renamed/dropped column name as a string in test/scenario/script SQL literals, checked against the LIVE schema (shape 5: `is_anchor` in 19-retire-orphan-slots.automerge.js). Parse CREATE TABLE columns from electron/db/schema.sql; denylist of known-migrated columns acceptable as the sound core.
 
+Shape 4 from #696 (`fixtureSchemaParity` recognition-set shrinkage — a fixture-vs-schema parity
+check whose own recognized-field set silently shrinks under a rename, rather than a call site or a
+SQL literal) is **not attempted here** and remains ungated by this ticket's three detectors.
+
 ## Task class and what it pulls in
 
 `test-infrastructure` — governance/test tooling under `scripts/`.
@@ -82,7 +86,7 @@ archive_when: merged to main and the board item q-rename-silent-lookup-gate is c
 | Gate | Result | Evidence |
 |---|---|---|
 | planted red/green (A,B,C) | PASS | each `*.test.js` below asserts a RED fixture (finding fires) and a GREEN/safe fixture (no finding) in the same file, watched to fail before implementation per TDD |
-| FP sweep on clean tree | PASS (A, C zero; B see below) | A: `checkStaleSettingsKey(root)` → 0. C: `checkRetiredSqlColumn(root)` → 0. B: `checkVacuousFilterAssertion(root)` → 57, all confirmed genuinely vacuous latent tests (spot-checked `src/engine/buildSchedule.test.js:48`, `test/governance.test.js:79`, `electron/ipcSurfaceParity.test.js:183`), not detector false positives — per the BLOCKING-DECISION PROTOCOL, `vacuous-filter-assertion` is ADVISORY (`ADVISORY_CODES` in `scripts/check-governance.js`), carried forward below |
+| FP sweep on clean tree | PASS (A, C zero; B see below) | A: `checkStaleSettingsKey(root)` → 0 (re-confirmed after the round-1 name-shadowing fix — see Architecture (A) below). C: `checkRetiredSqlColumn(root)` → 0. B: `checkVacuousFilterAssertion(root)` → 57 TRUE matches of the detector's narrow pattern (a test whose sole `expect()` is an absence-shaped `.filter()...toHaveLength(0)`/`.toEqual([])`/`.toStrictEqual([])`); a subset was spot-checked (`src/engine/buildSchedule.test.js:48`, `test/governance.test.js:79`, `electron/ipcSurfaceParity.test.js:183`) and confirmed to match the pattern. This is **not** a homogeneous dangerously-vacuous class — see "Findings carried forward" below for the match/mismatch distinction detector B does not draw. Per the BLOCKING-DECISION PROTOCOL, `vacuous-filter-assertion` is ADVISORY (`ADVISORY_CODES` in `scripts/check-governance.js`), carried forward below |
 | new unit tests | PASS | `npx vitest run --no-file-parallelism scripts/staleSettingsKey.test.js scripts/vacuousFilterAssertion.test.js scripts/retiredSqlColumn.test.js` → 3 files, 18 tests, exit 0 |
 | check:governance exit 0 | PASS | `npm run check:governance` on the clean tree → exit 0; 58 advisory findings (1 pre-existing `platform-state-stale` + 57 new `vacuous-filter-assertion`), 0 blocking |
 | eslint scripts | PASS | `npx eslint scripts` → exit 0 (6 pre-existing unrelated warnings in `security-gate.js`/`verify.js`, 0 errors) |
@@ -103,10 +107,28 @@ silently skipped.
   `buildSchedule` → union of both `normalizeInput` branches, `src/engine/buildSchedule.js:58-88`).
   For each `CallExpression` to a curated callee with an `ObjectExpression` arg: flag any literal key
   ∉ the callee's key-set; **abstain on the whole call site** for any spread/computed key. Zero FP
-  verified against current call sites. Cannot see: non-curated callees; spreads; computed keys;
-  variable/identifier args; indirect/method-access call targets; a stale registry (hand-maintained
-  fact, same discipline as a doc-fact marker). Plant: `routeConflicts.test.js` call site key
-  `fixedEvents`→`anchors`.
+  verified against current call sites. **Round-1 review fix:** the initial version flagged any
+  bare call to `buildSchedule`/`findRouteConflicts` by NAME ALONE, with no check that the name
+  actually resolved to the engine function — a locally-declared function of the same name
+  (`function buildSchedule(opts){...}`) produced a false positive on this BLOCKING gate. Closed by
+  requiring the callee name be bound by the file's own `ImportDeclaration`s to a module whose
+  `source.value` contains the registry's `moduleHint` (`'routeConflicts'` /
+  `'buildSchedule'` — matched against the real specifiers: `import { findRouteConflicts } from
+  './routeConflicts.js'` in `src/engine/routeConflicts.test.js`, and the default import
+  `import buildSchedule, { computeFindings } from '../../engine/buildSchedule'` in
+  `src/screens/schedule/useGeneration.js` and `src/engine/buildSchedule.test.js`); a locally-declared
+  name or an import from an unrelated module now abstains. Re-verified zero findings on the clean
+  tree after the fix, and confirmed the genuine call sites above are still import-bound and analyzed
+  (not accidentally abstained). Cannot see: non-curated callees; spreads; computed keys;
+  variable/identifier args; indirect/method-access call targets; a renamed import binding
+  (`import { findRouteConflicts as frc } from ...` — the call site then reads `frc(...)`, which
+  does not match the registry key at all); a stale registry (hand-maintained fact, same discipline
+  as a doc-fact marker); **the real shape-2 example this registry was built against** —
+  `buildSchedule({ ...inputs, campId: camp.id, preplacedSlots, weekId })` at
+  `scripts/mcp/tools.js:412`, fed by `electron/ops/scheduleInputNormalization.js` — uses a SPREAD
+  and is therefore abstained-on by the spread rule; a rename inside
+  `scheduleInputNormalization.js` that drops a key before it ever reaches `buildSchedule` remains
+  UNGATED by this detector. Plant: `routeConflicts.test.js` call site key `fixedEvents`→`anchors`.
 - **(B) `scripts/vacuousFilterAssertion.js` — BLOCKING if the corpus yields zero clean-tree
   findings; ADVISORY fallback only with the reason stated** (`vacuous-filter-assertion`). Flags an
   `it`/`test` body whose SOLE `expect()` (not descending into nested fns) is absence-shaped:
@@ -114,10 +136,16 @@ silently skipped.
   `.toEqual([])` / `.toStrictEqual([])`. Matches the pre-fix `ingest.t267.test.js` DoD-3b shape.
   Maker MUST run it against the full corpus and report the finding count; Governor decides
   blocking/advisory at synthesis (default blocking at zero findings). A genuinely-vacuous latent
-  test it surfaces is REPORTED, not fixed here (scope). Cannot see: non-`.filter()` empties; tests
-  with a padding companion expect; assertions in a called helper; `throw`-based emptiness checks
-  (which is why detector B does NOT apply to the shape-5 `throw`-style scenario file — detector C
-  covers that). Plant: a new `it(...)` whose only assertion is an absence-shaped filter check.
+  test it surfaces is REPORTED, not fixed here (scope). **Round-1 review correction:** the detector
+  does NOT distinguish a MATCH-finder filter (`filter(f => f.kind === 'X')` — dangerously vacuous,
+  empty both when correct and when the mechanism never ran) from a MISMATCH/parity-guard filter
+  (`filter(x => !otherSet.has(x))` — tends to fail loud under a rename, far less dangerous) even
+  though both share the identical AST shape; this is why it ships advisory rather than blocking, and
+  why a finding here is a true pattern match, not a verified "dangerously vacuous" claim. Cannot see:
+  non-`.filter()` empties; tests with a padding companion expect; assertions in a called helper;
+  `throw`-based emptiness checks (which is why detector B does NOT apply to the shape-5 `throw`-style
+  scenario file — detector C covers that). Plant: a new `it(...)` whose only assertion is an
+  absence-shaped filter check.
 - **(C) `scripts/retiredSqlColumn.js` — BLOCKING** (`retired-column-in-sql-literal`). Denylist of
   the T293 v84-retired identifiers (`anchor_id`, `is_anchor`, `anchor_model`, `anchor_name`) —
   confirmed via `electron/db/localDb.js:4017-4049`. Scans tracked `*.js` **excluding
@@ -126,10 +154,14 @@ silently skipped.
   flag a denylisted name as a whole word inside one. Keyword gate kept narrow (no `UPDATE...SET`).
   Zero FP verified: every live occurrence of these names is under `electron/db/**`. A live-column
   diff from `schema.sql` was REJECTED — ALTER-added columns (`is_fixed_event`, `flags`, …) aren't in
-  the CREATE TABLE text, so that approach false-flags correct names. Cannot see: future renames not
-  in the denylist; names split across concatenation/interpolation; non-gated statements
-  (`UPDATE...SET`); substring-only non-SQL occurrences. Plant: `19-retire-orphan-slots.automerge.js`
-  INSERT column `is_fixed_event`→`is_anchor`.
+  the CREATE TABLE text, so that approach false-flags correct names. **Round-1 review fix:** SQL line
+  (`-- ...`) and block (`/* ... */`) comments are now stripped from a literal's text before either the
+  keyword or column check runs, so a retired name appearing only inside a SQL comment no longer fires
+  (a soundness gap — flagging documentation prose as a live reference). Cannot see: future renames
+  not in the denylist; names split across concatenation/interpolation; non-gated statements
+  (`UPDATE...SET`); substring-only non-SQL occurrences; a DIFFERENT table reusing one of these names
+  for its own unrelated column (cross-table collision — accepted, none exists today). Plant:
+  `19-retire-orphan-slots.automerge.js` INSERT column `is_fixed_event`→`is_anchor`.
 
 Governor rulings on Architect's three open questions: (1) B targets blocking at zero clean-tree
 findings, advisory only as a stated fallback; (2) C keeps the narrow 3-keyword gate; (3) A keeps
@@ -149,9 +181,17 @@ Average — , lowest dimension — . Pass is ≥ 4.0 with no dimension below 3.
 ## Findings carried forward
 
 `vacuous-filter-assertion` fired on 57 pre-existing tests on the clean tree (2026-10-01) — each is a
-test whose only `expect()` asserts a filtered/derived collection is empty, with no companion
-assertion proving the positive path ran. Confirmed genuinely vacuous (not detector false positives)
-by spot-checking several against their surrounding source. Added to `ADVISORY_CODES` rather than
+TRUE match of the detector's narrow pattern: a test whose only `expect()` asserts a filtered/derived
+collection is empty, with no companion assertion proving the positive path ran. This is **not** a
+homogeneous "all genuinely dangerously-vacuous" class, and only a subset was spot-checked (e.g.
+`src/engine/buildSchedule.test.js:48`, `test/governance.test.js:79`,
+`electron/ipcSurfaceParity.test.js:183`). The detector cannot distinguish two different-risk shapes
+that share this AST pattern: a MATCH-finder filter (`filter(f => f.kind === 'X')`, the historical
+ingest.t267 shape) is dangerously vacuous — empty both when the system is correct AND when the
+mechanism never ran — while a MISMATCH/parity-guard filter (`filter(x => !otherSet.has(x))`, common
+in this corpus's entity-parity tests) tends to FAIL LOUD under exactly the rename this ticket targets,
+so it is considerably less dangerous despite matching the identical shape. See
+`vacuousFilterAssertion.js`'s header for the full statement. Added to `ADVISORY_CODES` rather than
 fixed, per the ticket's BLOCKING-DECISION PROTOCOL (fixing 57 pre-existing tests is out of scope for
 this gate-adding ticket). Full list (`npm run check:governance` reproduces it):
 

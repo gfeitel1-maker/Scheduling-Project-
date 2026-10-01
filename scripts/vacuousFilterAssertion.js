@@ -10,6 +10,23 @@
 // `.each`/`.skip`/`.only`/`.todo` are MemberExpression callees and are
 // excluded by construction, not by name-matching them.
 //
+// STATED LIMITATION (round-1 review): the detector does NOT distinguish two
+// different risk shapes that both match "sole assertion is an empty
+// .filter() result", and this is why it ships ADVISORY rather than BLOCKING:
+//   - a MATCH-finder filter (`filter(f => f.kind === 'X')`, the historical
+//     ingest.t267 shape) is dangerously vacuous: it is empty BOTH when the
+//     system is correct AND when the mechanism under test never ran at all
+//     (e.g. a renamed field silently breaks the predicate, same empty result).
+//   - a MISMATCH/parity-guard filter (`filter(x => !otherSet.has(x))`,
+//     common in this corpus's entity-parity tests) tends to FAIL LOUD under
+//     exactly the rename this ticket is about — a renamed/missing entity
+//     shows up as a non-empty `missing`/`extra` array, not a silently-passing
+//     empty one — so it is considerably less dangerous than the match-finder
+//     shape, even though it has the identical AST shape this detector scans for.
+// A finding here is a TRUE match of the narrow pattern, not a verified claim
+// that the test is dangerously vacuous; a human (or a future, smarter
+// detector) still has to tell the two shapes apart per finding.
+//
 // Cannot-see, stated rather than hidden:
 //   - an empty check on something OTHER than a direct/traced `.filter()` call
 //     (e.g. `.map()`, a manually-built array) — narrow on purpose
