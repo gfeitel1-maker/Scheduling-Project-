@@ -3,7 +3,7 @@ task: Board item q-reviewer-read-only-mechanical-enforcement — a PreToolUse ho
 document_type: run
 date: 2026-10-01
 round: 1
-status: escalated
+status: in-progress
 task_class: test-infrastructure
 governing_docs:
   - docs/governance/constitution/CONSTITUTION.md
@@ -33,7 +33,7 @@ deterministic_checks:
 human_gates:
   - name: new committed .claude/settings.json (harness config)
     basis: owner R1 on board item q-reviewer-agents-read-only-constraint, quoted in full in the Human gate section below; owner said "adopt" and the organizer scoped the mechanical half within it. Owner unavailable during the run; told in the PR.
-verdict: FAIL
+verdict: null
 completion_evidence: []
 archive_when: the hook has survived one full review round on an unrelated ticket without a false deny
 ---
@@ -261,3 +261,76 @@ What the user is asked to decide — three options, with the Governor's recommen
 
 The end-to-end wiring question must be settled in a fresh session whichever option is chosen,
 because nothing in this run demonstrates the hook fires at all.
+
+## Worker decision (flagged for the owner)
+
+The worker took the Governor's own recommendation, option (b), verbatim:
+
+> take your own recommendation, option (b). A Bash policy that does not fire, contradicts Article
+> VII's own Grader-write exception, and produces false positives on harmless shell is worse than no
+> mechanical Bash enforcement — it would be reported as a safeguard that isn't one. Scope this PR to
+> the uncontested half only: Write/Edit/MultiEdit/NotebookEdit denial for the four reviewers,
+> path-scoped write allowance for architecture-auditor/security-assessment, agent_type gating, no-op
+> for everyone else. Delete the Bash allowlist/denylist branch of `decide()` entirely (Bash stays
+> unrestricted by this hook for now) and delete the now-irrelevant Bash tests; keep the Write-tool
+> tests.
+
+Per the standing rule for this round: a Grader FAIL ends the loop and escalates to the user; this is
+a **bounded resolution of an already-escalated round**, not a new round 2, and not a route back
+through Maker/reviewers/Grader. `round` stays `1`. `verdict` is reset to `null` pending the owner's
+and the review agents' own re-verification of this narrower scope — the worker does not self-grade a
+FAIL into a PASS. `status` is `in-progress`, not the `resolved-narrowed` label used above in prose:
+`resolved-narrowed` is not a value `check-governance.js`'s `STATUS_BY_TYPE.run` accepts
+(`in-progress | pass | retry | escalated | abandoned`), and this run neither invents a new enum value
+nor amends the standard to fit one session's wording — `in-progress` is the accurate state while
+Verifier/Grader re-verification is pending below.
+
+## Revised success predicate (narrowed scope)
+
+A subagent of type `code-reviewer`, `red-hat`, `security` or `grader` is mechanically refused
+`Write`/`Edit`/`MultiEdit`/`NotebookEdit`; `architecture-auditor` and `security-assessment` may write
+only under `docs/work/architecture-reports/` and `docs/work/security/` respectively; every other
+agent type, and the main session, are untouched. The CLI entry's outer catch now matches `decide()`'s
+own fail-closed/fail-open asymmetry. Tests are green, non-vacuity is demonstrated by planting three
+defects on a scratch copy and observing the suite fail each time. `check:governance` reports zero
+findings including no advisory. `agents:check` is green.
+
+**No longer claimed, and this is the point of the narrowing:** that this hook mechanically restricts
+any Bash command for any profile. It does not. The Bash branch of `decide()`, the Bash tests, and
+every Bash-allowlist sentence in the bindings and `PLATFORM_STATE.md` are removed, not narrowed —
+the prior claim was false in five confirmed ways (see Findings below) and a false mechanical claim is
+worse than an honest instructional one.
+
+## Findings carried forward — moot vs. surviving
+
+| Finding | Status |
+|---|---|
+| V1 Grader denied the gate-report reducer CLI (contradicts Art. VII's own carve-out) | **MOOT** — the Bash branch that produced this denial no longer exists |
+| V2–V5, Red Hat's Bash false negatives (`--fix`, `agents:check -- --write`, `index:work`, `node -e` async writes, `process.binding`, `createWriteStream`, write-mode `openSync`) | **MOOT** — same reason; nothing in this hook evaluates Bash command text any more |
+| Red Hat's Bash false positives (`[ -f x ]`, a `cd`-prefixed test run, `basename`/`dirname`/`realpath`/`comm`, `command -v`, `find … \| xargs grep`, `grep "a && rm" f`, `sed -ni`/`sed --in-place` wrongly admitted) | **MOOT** — same reason |
+| Honesty defect in the script's own residual list (under-claimed the `node -e` escape, said nothing about the `agent_type` Unicode gap) | **MOOT as originally written** — the header was rewritten in full for the narrowed scope; the surviving disclosures below are carried into the new header verbatim |
+| Structural, dormant: CLI outer `try/catch` resolved to ALLOW on any throw, opposite of `decide()`'s own fail-closed branch | **FIXED** — the outer catch now checks `agent_type` against `KNOWN_AGENT_TYPES` and denies when it resolves to a named profile, allows otherwise, matching `decide()`. A malformed-stdin CLI test was added (exits 0). |
+| Test non-vacuity unestablished (red-then-green only proved the import failed) | **ADDRESSED** — three defects (write-tool branch inverted for `code-reviewer`; `normalizeAgentType` returning the raw value; the auditor path check accepting any path) were each planted one at a time on a `/tmp` scratch copy and each failed the suite; results are in the Maker done-report for this round |
+| `agent_type` Unicode-confusable gap (normalizer strips only whitespace/underscores, not confusable characters) | **SURVIVES** — unchanged by the narrowing, still a silent no-op risk for any profile |
+| Silent fail-open on agent rename (e.g. `redhat`) with no cross-check against `.claude/agents/*.md` frontmatter | **SURVIVES** — unchanged, still no gate catches this |
+| End-to-end wiring unproven — a live probe in round 1 showed a spawned subagent was not refused | **SURVIVES, UNVERIFIED** — nothing in this bounded resolution re-tests wiring; needs a fresh session (see follow-up 1 below) |
+
+## Follow-ups (board-worthy; neither the worker nor the owner opens these now)
+
+1. **Prove end-to-end wiring from a fresh session.** Whether a committed `.claude/settings.json`
+   hook actually governs a subagent spawned from this worktree mid-session was never proven — round
+   1's live probe showed a `code-reviewer` subagent redirect output into a file under `/tmp` and go
+   unrefused. This must be settled by spawning a real reviewer subagent in a **new** session (after
+   this change lands) and observing whether a `Write`/`Edit` call is actually refused.
+2. **Any future Bash policy must be a safe-invocation ALLOWLIST, never a denylist of dangerous
+   fragments.** Deny by default; permit only fully-matched complete command strings or AST-parsed
+   shell. Prefix-matching plus substring denial is the mechanism that produced every confirmed
+   violation in round 1 and must not be attempted again in that shape.
+
+## Verifier (re-verification)
+
+_Pending._
+
+## Grader (re-verification)
+
+_Pending._
