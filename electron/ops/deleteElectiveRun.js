@@ -14,15 +14,16 @@ import { appendOp, DELETE_FIELD, runAtomic } from './operations.js'
 // control at all.
 //
 // Cascade order — load-bearing, do not reorder:
-//   1. elective_run_outer_snapshots  (run_id)
-//   2. elective_assignments          (run_id)
-//   3. elective_preferences          (run_id)
-//   4. elective_choice_offerings     (choice_id, resolved via elective_choices
+//   1. elective_run_findings         (run_id)
+//   2. elective_run_outer_snapshots  (run_id)
+//   3. elective_assignments          (run_id)
+//   4. elective_preferences          (run_id)
+//   5. elective_choice_offerings     (choice_id, resolved via elective_choices
 //                                      this run holds — it has no run_id of
 //                                      its own)
-//   5. elective_choices              (run_id)
-//   6. elective_occurrences          (run_id)
-//   7. elective_assignment_runs      (the parent row itself, last)
+//   6. elective_choices              (run_id)
+//   7. elective_occurrences          (run_id)
+//   8. elective_assignment_runs      (the parent row itself, last)
 //
 // A final run is deletable — D10 (ADR 2026-09-23) rules on editing an
 // immutable run's CONTENT, not on removing the run itself.
@@ -31,29 +32,37 @@ import { appendOp, DELETE_FIELD, runAtomic } from './operations.js'
 // report ops_written from, or { error: 'not-found' } for a missing/malformed
 // runId (retrying after a successful delete is therefore safe).
 //
-// KNOWN GAP (Round 2 FIX 2, Red Hat, HIGH) — A DELETED RUN CAN BE RESURRECTED
-// BY A CONCURRENT PEER WRITE. Every elective child projection's ensureExists
-// stub-seeds its parent with `INSERT OR IGNORE ... VALUES (?, ?, '')`
-// (ensureRunStub, electron/ops/projections.js) with no awareness of a
-// tombstone. If a peer commits or writes an assignment/preference/choice onto
-// THIS runId concurrently with (or shortly after) this cascade, that write's
-// ensureExists re-creates `elective_assignment_runs` with a BLANK name once
-// it syncs here — the director sees a run they deleted reappear, unnamed.
+// RESURRECTION AFTER A DELETE — what is now true (T320 part 2 item 1,
+// docs/adr/2026-09-30-elective-run-durability.md). The Round 2 FIX 2 note this
+// block replaces named the wrong path: it said a CONCURRENT PEER WRITE
+// resurrects a deleted run. It does not. `projectAll`
+// (electron/automerge/projector.js) is two-phase — every entity's upserts in
+// forward MODELED_ORDER, then every entity's delete-reconcile in REVERSE — and
+// elective_assignment_runs precedes all of its children in
+// DOMAIN_SNAPSHOT_ORDER, so the parent is reconciled LAST and any stub ghost a
+// child's ensureExists seeded during the upsert phase is deleted again in the
+// same pass. Every merge projects through it (syncNode.js). Confirmed by
+// execution, not by reading: after merging a peer's racing child write the
+// runs table is empty and the orphan child survives, which is correct
+// convergence for a document that holds the child and not the parent.
 //
-// THIS IS NOT NEW TO T250: elective_set_activities' and elective_bundles'
-// own ensureExists stub-seed `elective_sets` the identical way, and
-// deleteElectiveSet.js has shipped since schema v35 (T41) — so the same
-// hazard already applies there and to every other stub-seeding entity in
-// projections.js. It is a property of the shared stub-seed pattern, not
-// something this cascade introduced.
+// The path that really did resurrect is the SAME-DEVICE appendOp path, which
+// calls applyProjection directly and runs no projectAll. That is now guarded:
+// ensureParentStub (electron/ops/projections.js) refuses to seed a parent whose
+// LAST recorded op-log act was its own deletion, and elective_assignment_runs
+// is in TOMBSTONE_GUARDED_STUB_PARENTS. elective_sets — the same hazard
+// deleteElectiveSet.js has carried since schema v35 — is guarded by the same
+// function.
 //
-// NOT FIXED HERE, deliberately. A real fix belongs at the projection choke
-// point — a stub-seed that checks a tombstone before re-creating a row — and
-// that is shared machinery across many entities: an architecture change that
-// needs its own ADR and the human gate, out of bounds for a per-entity
-// cascade. DeleteRunDialog's cost copy (src/screens/elective/run/
-// DeleteRunDialog.jsx, DELETE_RUN_COST_COPY) names this possibility rather
-// than promising a completeness the code cannot back.
+// THE RESIDUAL, named rather than absorbed: a peer with no `devices` row for
+// the sender skips the whole received-op batch (appendReceivedOps,
+// electron/automerge/historyLedger.js, which states why inventing a row would
+// be worse), so no `__deleted__` op row exists there and a later LOCAL child
+// write can still seed a ghost. Bounded by the two-phase self-healing above:
+// the next merge-triggered projectAll removes it. DeleteRunDialog's cost copy
+// (src/screens/elective/run/DeleteRunDialog.jsx, DELETE_RUN_COST_COPY) still
+// names the possibility rather than promising a completeness the code cannot
+// back.
 export function deleteElectiveRun(db, { runId }, { author_user_id, device_id } = {}) {
   if (typeof runId !== 'string' || !runId) return { error: 'not-found' }
 
@@ -66,6 +75,11 @@ export function deleteElectiveRun(db, { runId }, { author_user_id, device_id } =
 
   const outcome = runAtomic(db, () => {
     const ops = []
+
+    // T320 part 2 item 3 — these rows now carry a real `camper_id`, so an
+    // orphan is orphaned PII, not just a stray diagnostic.
+    const runFindings = db.prepare('SELECT id FROM elective_run_findings WHERE run_id = ?').all(runId)
+    for (const f of runFindings) ops.push(del('elective_run_findings', f.id))
 
     const snapshots = db.prepare('SELECT id FROM elective_run_outer_snapshots WHERE run_id = ?').all(runId)
     for (const s of snapshots) ops.push(del('elective_run_outer_snapshots', s.id))

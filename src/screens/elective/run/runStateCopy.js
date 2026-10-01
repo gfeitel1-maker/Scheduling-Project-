@@ -26,6 +26,29 @@ export const START_REVISION_LABEL = 'Start a new version'
 // Release lock alone is the wrong remedy"). Replaced by a picker that moves
 // the camper to a live occurrence, or — when the run has none — a genuinely
 // resolvable "Remove placement" action.
+// The code -> director-facing copy map for this run's lifecycle refusals.
+// Exported (T320 part 2 item 2) so AssignmentPanel maps commitElectiveRun's
+// RUN_IS_FINAL through THIS string rather than a second copy of it — the two
+// must not drift.
+export const FINALIZE_MESSAGES = {
+  STALE_OUTER_SCHEDULE:
+    "This run's schedule changed on another device since you last regenerated. Finalizing now would lock in an outdated version.",
+  OUTER_RESOURCE_CONFLICT:
+    'A location or activity this run depends on is now double-booked on the main schedule. Fix the conflict there, then finalize again.',
+  ALREADY_FINAL: 'This run was already finalized — on this device or another. Reloading it now.',
+  // Round 2 FIX 4 (Red Hat, MEDIUM) — a cold-opened run's status is never
+  // re-synced (viewRun is a snapshot from when the screen opened), so a
+  // regenerate re-checks status itself before re-entering the solve/commit
+  // flow. Reuses FinalizeRefusalRow's generic branch, which renders with no
+  // action button — the Re-derive control is withheld by construction.
+  FINALIZED_ELSEWHERE: "This run was finalized on another device while you had it open. It can't be changed — reload it to see the final version.",
+  // T320 part 2 item 2 — commitElectiveRun's own refusal, which is what now
+  // GUARANTEES an immutable run is not written over. Sibling of ALREADY_FINAL
+  // (finalizeElectiveRun's), reached from the commit path rather than the
+  // finalize path.
+  RUN_IS_FINAL: "This run was finalized, so it can't be regenerated. Reload it to see the final version.",
+}
+
 export const DANGLING_MOVE_PLACEHOLDER = 'Move to…'
 export const REMOVE_PLACEMENT_LABEL = 'Remove placement'
 

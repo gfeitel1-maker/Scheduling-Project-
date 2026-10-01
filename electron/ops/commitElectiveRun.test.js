@@ -316,7 +316,17 @@ describe('commitElectiveRun', () => {
   // regeneration op (from another device that never saw the finalize) merges
   // in, via ordinary per-field LWW. status is only ever asserted on first
   // creation.
-  it('does not touch status on a regeneration of an existing run — a final run stays final through it', () => {
+  //
+  // T320 part 2 item 2 CHANGED THIS TEST'S FIXTURE, not the invariant it pins.
+  // A commit onto a locally-final run is now REFUSED outright
+  // ('RUN_IS_FINAL'), so the old fixture — finalize locally, then commit — can
+  // no longer reach the write path at all. The field-level guard is still the
+  // thing that protects a MERGED late-arriving regeneration (where the
+  // committing device's SQLite does not yet say 'final', so the refusal cannot
+  // fire), and that is what the second half below pins: a regeneration writes
+  // no second `status` op, so there is no status='draft' write to lose an LWW
+  // race with.
+  it('does not touch status on a regeneration of an existing run — and a locally-final run refuses the commit outright', () => {
     const { db, campId } = freshDb()
     const runId = randomUUID()
     const first = commitElectiveRun(db, {
@@ -324,16 +334,25 @@ describe('commitElectiveRun', () => {
       parsed: PARSED, assignments: ASSIGNMENTS, occurrences: OCCURRENCE_FIXTURE,
     })
     expect(first.ok).toBe(true)
-    db.prepare("UPDATE elective_assignment_runs SET status = 'final' WHERE id = ?").run(runId)
 
+    // A regeneration of a still-DRAFT run: exactly one `status` op exists for
+    // this run, the one its first commit wrote.
     const second = commitElectiveRun(db, {
       campId, deviceId: 'dev-1', name: 'Week 1', runId,
       parsed: PARSED, assignments: ASSIGNMENTS, occurrences: OCCURRENCE_FIXTURE,
     })
     expect(second.ok).toBe(true)
+    expect(db.prepare(
+      "SELECT COUNT(*) c FROM operations WHERE entity = 'elective_assignment_runs' AND entity_id = ? AND field = 'status'"
+    ).get(runId).c).toBe(1)
 
-    const run = db.prepare('SELECT status FROM elective_assignment_runs WHERE id = ?').get(runId)
-    expect(run.status).toBe('final')
+    db.prepare("UPDATE elective_assignment_runs SET status = 'final' WHERE id = ?").run(runId)
+    const third = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1', runId,
+      parsed: PARSED, assignments: ASSIGNMENTS, occurrences: OCCURRENCE_FIXTURE,
+    })
+    expect(third).toEqual({ ok: false, error: 'RUN_IS_FINAL' })
+    expect(db.prepare('SELECT status FROM elective_assignment_runs WHERE id = ?').get(runId).status).toBe('final')
   })
 
   it('a genuinely NEW run (no existing row) still gets status=draft on its first commit', () => {

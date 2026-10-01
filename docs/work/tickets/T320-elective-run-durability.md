@@ -1,7 +1,7 @@
 ---
 title: "The elective run durability pass — a partial snapshot refuses to export, a dangling placement survives a cold reopen and can be moved, and the export's eligibility and resource buckets are real"
 document_type: ticket
-status: in-progress
+status: completed
 created: 2026-09-30
 task_class: database-sync
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md, docs/governance/standards/DESIGN_STANDARD.md, SECURITY.md]
@@ -61,8 +61,34 @@ Exactly the four items above. The ADR is the design of record; the picker's inte
 
 ## Not in scope
 
-- The tombstone-aware stub-seed at the projection choke point (a deleted or pruned row can be
-  resurrected by a concurrent peer write). Named in `electron/ops/deleteElectiveRun.js`'s own
-  header as a property of the shared stub-seed pattern; it needs its own ADR and the human gate.
+- ~~The tombstone-aware stub-seed at the projection choke point (a deleted or pruned row can be
+  resurrected by a concurrent peer write).~~ _Prior: excluded as needing its own ADR and the human
+  gate. The owner ruled otherwise on 2026-09-30 ("go for it"), folding it into this ticket's ADR as
+  Part 2 rather than a new one; it shipped here, extended to the `elective_sets` stub as well._
 - Broadening the persisted eligibility allowlist beyond `UNSUPPORTED_LINKED_CHOICE` — a
-  product-judgement question recorded for the owner rather than guessed.
+  product-judgement question recorded for the owner rather than guessed. Still out of scope.
+
+## How it closed
+
+Part 1 (PR #668, schema v83) shipped the four items above. Part 2 — designed in the same ADR after
+the owner's 2026-09-30 ruling, no schema change — shipped four more in one PR:
+
+1. **The tombstone-aware stub seed.** A peer's op on a child row no longer re-creates a parent
+   whose most recent recorded act was its own deletion, for both `elective_assignment_runs` and
+   `elective_sets`. The predicate is recency, not bare existence, so a legitimate re-create of the
+   same id is not stranded.
+2. **`RUN_IS_FINAL`.** `commitElectiveRun` refuses a commit onto a final run, surfaced at every
+   door the director can reach it from.
+3. **A true camper universe.** A camper the preference sheet named is in the run's universe even
+   with nothing ranked, visible to a cold regenerate.
+4. **The false `FINALIZED_AGAINST_STALE_GENERATION`.** Since v76 an inherited outer-snapshot row
+   carries a NULL `solver_generation` by design, so every finalized run holding one read as
+   finalized against a stale generation — on the device that finalized it, immediately. The
+   comparison now reads elective rows only.
+
+Three questions the ADR's Part 2 recorded for the owner remain open and were deliberately not
+decided here: whether `SHEET_CAMPER_WITHOUT_PREFERENCE` should also list campers by name in
+`DraftRunView`, whether the run's export needs the same widened universe, and the pre-existing
+PII-erasure gap where `elective_run_outer_snapshots` carries `camper_id` but is absent from
+`TOMBSTONE_DENYLISTED_ENTITIES` (confirmed real and unresolved by this work, which did not
+introduce it).

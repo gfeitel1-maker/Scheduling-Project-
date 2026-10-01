@@ -20,6 +20,9 @@ import { deriveLocationId } from '../electron/ops/locationId.js'
 // T306 — the SAME id derivation the real attribution op uses, so the mock's rekey
 // lands a named camper on the same id the product would.
 import { deriveCamperId } from '../electron/ops/electiveDerivedIds.js'
+// T320 part 2 item 3 — the SAME derived id the real commitElectiveRun uses for
+// a roster finding, so browser-dev and electron:dev agree on the row.
+import { deriveElectiveRunFindingId } from '../electron/ops/deriveElectiveRunFindingId.js'
 // T117 slice 2 — same src/-may-import-electron/ops/*.js pure-module exception,
 // this time so :5200 can prove a version got created without a second resolver.
 import { resolveImportedPlacements } from '../electron/ops/resolveImportedPlacements.js'
@@ -1907,6 +1910,10 @@ export const mockShoresh = {
     }
     const state = loadState()
     const existing = (state.elective_assignment_runs || []).find((r) => r.id === providedRunId)
+    // T320 part 2 item 2 parity — without this, browser-dev lets a regenerate
+    // through that electron:dev refuses, which is the exact divergence the
+    // T229 parity note above exists to prevent.
+    if (existing?.status === 'final') return { ok: false, error: 'RUN_IS_FINAL' }
     const runId = providedRunId ?? `run-${(state.elective_assignment_runs || []).length + 1}`
     const distinctTierIds = new Set(occurrences.map((o) => o.tier_id).filter((t) => t != null))
     const tierId = distinctTierIds.size === 1 ? [...distinctTierIds][0] : null
@@ -1972,6 +1979,35 @@ export const mockShoresh = {
             coordinate_period_label: pr.coordinate?.periodLabel ?? null,
           }
         }),
+    ]
+    // T320 part 2 item 3 parity — the run's camper universe. One finding row per
+    // sheet camper this commit has neither a preference nor an assignment for,
+    // so browser-dev's getElectiveRun widens exactly as production's does. The
+    // mock has no solver_generation machinery, so the generation component is a
+    // fixed literal — the roster read filters on kind, never on generation.
+    const mockGeneration = 'mock'
+    const placedOrRanked = new Set([
+      ...(state.elective_preferences || []).filter((pr) => pr.run_id === runId).map((pr) => pr.camper_id),
+      ...(state.elective_assignments || []).filter((a) => a.run_id === runId).map((a) => a.camper_id),
+    ])
+    state.elective_run_findings = [
+      ...(state.elective_run_findings || []).filter(
+        (f) => !(f.run_id === runId && f.kind === 'SHEET_CAMPER_WITHOUT_PREFERENCE')
+      ),
+      ...(parsed.campers ?? [])
+        .filter((c) => !placedOrRanked.has(c.id))
+        .map((c) => ({
+          id: deriveElectiveRunFindingId(runId, mockGeneration, 'SHEET_CAMPER_WITHOUT_PREFERENCE', c.id, null, null),
+          run_id: runId,
+          solver_generation: mockGeneration,
+          kind: 'SHEET_CAMPER_WITHOUT_PREFERENCE',
+          message:
+            'This camper was on the sheet but has no ranked choice and no placement on this run. ' +
+            'They are still counted when it is regenerated.',
+          camper_id: c.id,
+          choice_id: null,
+          occurrence_id: null,
+        })),
     ]
     saveState(state)
     return {
@@ -2044,9 +2080,18 @@ export const mockShoresh = {
     // T250 A0.2 — faithfully mirrored: every camper with a preference or an
     // assignment on this run, group name resolved.
     const groupById = new Map((state.groups || []).map((g) => [g.id, g.name]))
+    // T320 part 2 item 3 — the third arm, mirrored: the universe is the SHEET's
+    // own, not one derived from what the run happened to produce. NOT filtered
+    // by solver_generation (a roster is cumulative), same as production.
+    const sheetOnlyCampers = [...new Set(
+      (state.elective_run_findings || [])
+        .filter((f) => f.run_id === runId && f.kind === 'SHEET_CAMPER_WITHOUT_PREFERENCE' && f.camper_id != null)
+        .map((f) => f.camper_id)
+    )]
     const camperIdsWithPrefOrAssignment = new Set([
       ...(state.elective_preferences || []).filter((p) => p.run_id === runId).map((p) => p.camper_id),
       ...(state.elective_assignments || []).filter((a) => a.run_id === runId).map((a) => a.camper_id),
+      ...sheetOnlyCampers,
     ])
     const campers = (state.campers || [])
       .filter((c) => camperIdsWithPrefOrAssignment.has(c.id))
@@ -2073,7 +2118,10 @@ export const mockShoresh = {
     // (same additive-degradation posture as staleCount/overCapacityOccurrences
     // above); returns every persisted finding for this run rather than
     // filtering by solver_generation.
-    const eligibilityFindings = (state.elective_run_findings || []).filter((f) => f.run_id === runId)
+    // The roster kind is excluded so the eligibility bucket keeps its meaning,
+    // exactly as production's read does; it is surfaced as sheetOnlyCampers.
+    const eligibilityFindings = (state.elective_run_findings || [])
+      .filter((f) => f.run_id === runId && f.kind !== 'SHEET_CAMPER_WITHOUT_PREFERENCE')
     // T320 round 2, F1 — snapshotIncomplete: false is an HONEST value here,
     // not a degraded stand-in for the real computeSnapshotCompleteness digest
     // check: this mock's finalizeElectiveRun (below) always writes the
@@ -2084,7 +2132,8 @@ export const mockShoresh = {
     // production digest mismatched on its own is_linked_choice boolean/
     // integer type, which this mock's plain-object rows never encounter.)
     return {
-      rows, occurrences, preferences, choices, campers, staleCount: 0, finalizedAgainstStaleGeneration: false,
+      rows, occurrences, preferences, choices, campers, sheetOnlyCampers,
+      staleCount: 0, finalizedAgainstStaleGeneration: false,
       overCapacityOccurrences: [], danglingFindings, eligibilityFindings, resourceConflicts: [],
       snapshotIncomplete: false, expectedSnapshotRows: null, heldSnapshotRows: null,
     }

@@ -214,6 +214,20 @@ export function commitElectiveRun(db, {
     ? db.prepare('SELECT status FROM elective_assignment_runs WHERE id = ?').get(runId)
     : null
 
+  // T320 part 2 — a finalized run is immutable (ADR 2026-09-23 decision (a):
+  // "no reopen IPC exists"). T244 round 2 stopped this function REASSERTING
+  // status/name/source_filename onto an existing row; it never refused the
+  // commit. DraftRunView's guardedRegenerate carries a best-effort
+  // listElectiveRuns status re-read precisely because this refusal did not
+  // exist. The re-read stays (it is the courtesy: it stops the solve before the
+  // director waits for it); THIS is the guarantee.
+  //
+  // LOCAL and best-effort, and saying so is part of the design: a device whose
+  // SQLite has not yet merged another device's finalize will not fire this.
+  // What stops `final` being reverted campwide is T244 round 2's field-level
+  // guard above, not this.
+  if (existingRun?.status === 'final') return { ok: false, error: 'RUN_IS_FINAL' }
+
   const camperIds = new Set((parsed?.campers ?? []).map((c) => c.id))
   const occurrenceIds = new Set(occurrences.map((o) => o.id))
   const choiceIdByKey = new Map()
@@ -409,6 +423,10 @@ export function commitElectiveRun(db, {
   //   EXPLICIT source==='human' delete suppresses a re-create — an import
   //   teardown's null-source delete is excluded by the `===`.
   const preferencesHeld = []
+  // T320 part 2 item 3 — the camper ids this commit has a preference ROW for,
+  // whether newly written or HELD (a held row is still a row this run has for
+  // that camper, so it counts). Feeds the roster findings below.
+  const preferencesWritten = new Set()
   // D6 (review round 2) — a camper whose tier a claiming bundle's scope does
   // not cover, collected here rather than left silent: `preferencesHeld`'s own
   // words apply just as well one function up — a camper simply absent from
@@ -665,8 +683,10 @@ export function commitElectiveRun(db, {
         const held = heldPreference(preferenceId)
         if (held) {
           preferencesHeld.push({ preferenceId, camperId: p.camper_id, reason: held })
+          preferencesWritten.add(p.camper_id)
           continue
         }
+        preferencesWritten.add(p.camper_id)
         write(
           'elective_preferences',
           preferenceId,
@@ -806,6 +826,41 @@ export function commitElectiveRun(db, {
             occurrence_id: occurrenceId,
           })
         }
+      }
+
+      // T320 part 2 item 3 — THE RUN'S CAMPER UNIVERSE, MADE TRUE.
+      // getElectiveRun derived it as (preferences ∪ assignments), so a camper
+      // who was on the sheet and ranked nothing was invisible to a cold
+      // regenerate. This is the durable record of "in scope for this run",
+      // written where the fact is known — and it is a genuine finding in its
+      // own right, not a roster table wearing a disguise: a child appeared on
+      // the director's sheet and this run has nothing for them, which is
+      // exactly the kind of thing Art. V says we surface rather than absorb.
+      // NOT filtered by solver_generation at read time (unlike the eligibility
+      // kinds above) — a roster is cumulative across generations by definition.
+      const placedOrRanked = new Set([
+        ...preferencesWritten,
+        ...assignments.map((a) => a.camper_id),
+      ])
+      for (const c of parsed.campers ?? []) {
+        if (placedOrRanked.has(c.id)) continue
+        const findingId = deriveElectiveRunFindingId(
+          runId, solverGeneration, 'SHEET_CAMPER_WITHOUT_PREFERENCE', c.id, null, null
+        )
+        // Same field-ORDER trap as the loop above: run_id/solver_generation/
+        // kind/message are the four columns ensureExists waits on before it
+        // stub-inserts the row.
+        write('elective_run_findings', findingId, {
+          run_id: runId,
+          solver_generation: solverGeneration,
+          kind: 'SHEET_CAMPER_WITHOUT_PREFERENCE',
+          message:
+            'This camper was on the sheet but has no ranked choice and no placement on this run. ' +
+            'They are still counted when it is regenerated.',
+          camper_id: c.id,
+          choice_id: null,
+          occurrence_id: null,
+        })
       }
     })
   } catch (e) {
