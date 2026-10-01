@@ -75,10 +75,24 @@ export function buildActivityRosterExport({
     const entry = groupsByKey.get(key)
     const camperId = isLinked ? unit.camperId : anchor.camperId
     const camper = camperById.get(camperId) ?? null
+    // ORGANIZER RULING — a bundle's other days must appear on the roster. The
+    // GROUP's day/time_block (above) stay the ANCHOR's (one row per occurrence
+    // group still needs a single label), but each MEMBER carries their OWN
+    // day/time_block, resolved from their own memberRows — several occurrences
+    // join in memberRows order ("Monday, Wednesday"). A non-linked unit's
+    // member coincides with the group's, since the unit IS the single row.
+    const memberDay = isLinked
+      ? unit.memberRows.map((r) => dayById.get(r.dayId)?.name ?? r.dayId).join(', ')
+      : entry.day
+    const memberTimeBlock = isLinked
+      ? unit.memberRows.map((r) => timeBlockById.get(r.timeBlockId)?.name ?? r.timeBlockId).join(', ')
+      : entry.time_block
     entry.members.push({
       camper_id: camperId,
       camper_name: camper?.display_name ?? null,
       group_name: groupById.get(camper?.group_id)?.name ?? null,
+      day: memberDay,
+      time_block: memberTimeBlock,
     })
     // F5 (round 2): `count` is the ASSIGNMENT grain (one per elective_assignments row / member
     // occurrence), not the presentation grain (`members.length`, one per camper) — a linked
