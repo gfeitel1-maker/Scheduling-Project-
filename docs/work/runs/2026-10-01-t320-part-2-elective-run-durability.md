@@ -102,7 +102,8 @@ Four items, one PR, no schema change (the schema stays at v83):
 ## Evidence
 
 - Focused gates and non-vacuity plants: see `completion_evidence` above.
-- Full gate: `npm run verify` — verdict line pending; recorded here verbatim once the run returns.
+- Full gate, local, 2026-10-01, verbatim: `✅ VERIFY PASSED — agents:check + check:governance + licenses:check + build + security + test:integration + lint + test all green` (637 test files, 8539 passed / 10 skipped, 1100s).
+- CI, the gate of record: `verify` passed on PR #680.
 
 ## Agents
 
