@@ -76,11 +76,17 @@ afterEach(() => {
   if (tmpFile && fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile)
 })
 
-// Test-only write function matching syncClient's write() signature:
+// Test-only write function matching the local write client's write() signature:
 // ({ entity, entity_id, field, value }) => Promise<{ status, op? }>
-// appendOp is only ever called directly from inside syncClient.js in real code;
-// here we stand in for a local-mode syncClient so createUser's op-log routing
-// can be exercised without spinning up a real syncClient instance.
+// In real code appendOp is reached through createLocalWriteClient's write()
+// (electron/sync/localWriteClient.js) and the typed committers; here we stand in
+// for that client so createUser's op-log routing can be exercised without
+// building a real one.
+//
+// _Prior: this named the collaborator "syncClient" and said appendOp "is only
+// ever called directly from inside syncClient.js". syncClient.js was deleted at
+// the Stage 6 cutover, and appendOp's caller census is wider than one module —
+// see the canonical note in electron/ops/operations.js._
 function testWrite() {
   return async ({ entity, entity_id, field, value }) => {
     const op = appendOp(db, {

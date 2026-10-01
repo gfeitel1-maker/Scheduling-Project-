@@ -657,7 +657,8 @@ export async function seedAcceptanceCamp(db, { makeHandlers, name = 'Director', 
   const handlers = makeHandlers(db, deviceId, {})
   const { token } = await handlers.login({ name, pin })
   // write()/bulkReplace() refuse until a mode is chosen — that is where
-  // syncClient is created (electron/main.js:986).
+  // main.js's `syncClient` (a createLocalWriteClient instance, NOT the deleted
+  // syncClient.js module) is assigned, in chooseMode's two branches.
   await handlers.chooseMode({ mode: 'host', token })
   const fixture = await buildAcceptanceCamp(db, {
     handlers, token, campId, deviceId, cohortId, authorUserId: user.id,
