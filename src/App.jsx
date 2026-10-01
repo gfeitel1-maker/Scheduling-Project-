@@ -554,24 +554,33 @@ function OpRejectedNoticeBanner({ headNotice, queueCount, busy, onDismiss }) {
     setDismissingId(dismissingThisId)
     dismissTimeoutRef.current = setTimeout(() => {
       dismissTimeoutRef.current = null
-      // Guard: only fire onDismiss if this timer's id is still the one
-      // armed — a no-op if something else already resolved it. With the
-      // clearTimeout above this can't currently be reached by a stale
-      // timer, but it's a cheap belt-and-braces against the exact class of
-      // bug (an uncleared deferred callback acting on stale state) this
-      // round is hardening.
-      setDismissingId((current) => {
-        if (current !== dismissingThisId) return current
-        // T200 board follow-up: onDismiss removes THIS notice by id
-        // (removeById, keyed to the id captured at dismiss time — see
-        // AppShell's onDismiss, Round 2 Finding 1) — a notice that arrived
-        // mid-fade is a separate queue entry and is never touched by this
-        // removal, so it can't be swallowed the way a single-scalar
-        // overwrite could.
-        onDismiss()
-        return null
-      })
+      // Round 4 board ruling on Red Hat's residual-loss repro (CONFIRMED):
+      // the staleness re-check this used to do here (comparing `current` to
+      // `dismissingThisId` inside the setDismissingId updater) was provably
+      // dead — the clearTimeout above already guarantees this callback only
+      // ever runs for the one timer currently armed — and it was also
+      // unsound, since it called the onDismiss side effect from inside a
+      // setState updater, which React (StrictMode double-invokes updaters
+      // precisely to catch this) requires to be pure. Dropped, per Code
+      // Reviewer's finding; cancelDismiss below is what actually prevents a
+      // stale fire now.
+      setDismissingId(null)
+      onDismiss()
     }, 140)
+  }
+
+  // Round 4 board ruling, Item 1 (Red Hat CONFIRMED): a retry activated
+  // inside the 140ms dismiss fade — reachable by keyboard even though
+  // `opRejectedNoticeStyles.dismissing` sets pointerEvents:'none' to block a
+  // second mouse click — must cancel THIS notice's own pending dismiss
+  // before the retry's upsert can land. Bootstrap retries reuse their entry
+  // id, so without this the stale timer above later removes the fresh,
+  // never-read retry failure by that same id. Called synchronously, before
+  // `notice.retry()`, so the cancel can never race the upsert.
+  const cancelPendingDismiss = () => {
+    clearTimeout(dismissTimeoutRef.current)
+    dismissTimeoutRef.current = null
+    setDismissingId(null)
   }
 
   return (
@@ -588,6 +597,7 @@ function OpRejectedNoticeBanner({ headNotice, queueCount, busy, onDismiss }) {
         queueCount={queueCount}
         busy={busy}
         onDismiss={handleDismiss}
+        onRetry={cancelPendingDismiss}
       />
     </div>
   )
@@ -596,7 +606,7 @@ function OpRejectedNoticeBanner({ headNotice, queueCount, busy, onDismiss }) {
 // Split out so `key={headNotice.id}` on the parent forces a fresh mount —
 // and therefore a fresh useEnterTransition run — each time the FIFO
 // advances to a new head, without re-mounting the fixed outer frame.
-function OpRejectedNoticeContent({ notice, queueCount, busy, onDismiss }) {
+function OpRejectedNoticeContent({ notice, queueCount, busy, onDismiss, onRetry }) {
   const enter = useEnterTransition('slideFade')
   return (
     <div style={{ ...opRejectedNoticeStyles.content, ...enter }}>
@@ -617,7 +627,7 @@ function OpRejectedNoticeContent({ notice, queueCount, busy, onDismiss }) {
             type="button"
             disabled={busy}
             aria-disabled={busy}
-            onClick={() => notice.retry()}
+            onClick={() => { onRetry(); notice.retry() }}
             style={opRejectedNoticeStyles.retryBtn}
           >{busy ? 'Retrying…' : 'Try again'}</button>
         )}
