@@ -242,6 +242,7 @@ export const localClient = {
   joinCancel: () => shoresh.joinCancel(),
   denyDevice: (deviceId) => shoresh.denyDevice({ token: currentToken(), deviceId }),
   listDevices: () => shoresh.listDevices(currentToken()),
+  listPeerErasureState: () => shoresh.listPeerErasureState(currentToken()),
   revokeDevice: (deviceId, reason) => shoresh.revokeDevice({ token: currentToken(), deviceId, reason }),
   duplicateWeek: (sourceWeekId, campId) => shoresh.duplicateWeek({ sourceWeekId, campId }),
   // deleteWeekHandler (electron/main.js) destructures { token, weekId } and goes

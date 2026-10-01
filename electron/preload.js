@@ -78,6 +78,7 @@ contextBridge.exposeInMainWorld('shoresh', {
   joinCancel: () => ipcRenderer.invoke('shoresh:join-cancel'),
   denyDevice: (args) => ipcRenderer.invoke('shoresh:deny-device', args),
   listDevices: (token) => ipcRenderer.invoke('shoresh:list-devices', { token }),
+  listPeerErasureState: (token) => ipcRenderer.invoke('shoresh:list-peer-erasure-state', { token }),
   revokeDevice: (args) => ipcRenderer.invoke('shoresh:revoke-device', args),
   onPairingRequest: (callback) => ipcRenderer.on('shoresh:pairing-request', (_event, data) => callback(data)),
   // T87 (docs/adr/2026-08-16-client-reauth-on-restart.md, Part 3) — forwards a

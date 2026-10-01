@@ -2657,6 +2657,12 @@ export const mockShoresh = {
     return (loadState().devices || []).map(({ id, name, pairing_status, authorized_at, revoked_at, last_synced_at }) =>
       ({ id, name, pairing_status, authorized_at, revoked_at, last_synced_at }))
   },
+  // T322 S3b — per-peer erasure state. The browser mock has no purge-tombstones
+  // and no peers reporting, so there is nothing to show: hasErasure=false keeps
+  // the Device Manager column absent, which is the correct no-purge appearance.
+  async listPeerErasureState() {
+    return { hasErasure: false, states: {}, localDeviceId: null }
+  },
   // Join flow (docs/adr/2026-09-08-libp2p-join-flow.md). The browser mock has
   // no libp2p and no second device, so these model the SHAPE the screens code
   // against — a plausible Host with a stable code, and a join that reaches

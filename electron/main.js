@@ -18,6 +18,7 @@ import { deriveWriteAction, deriveBulkReplaceAction } from './auth/deriveWriteAc
 import { recordAuditEvent } from './audit/auditLog.js'
 import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES, resolveParentJoinChain } from './ops/campScopedEntities.js'
 import { listEntities } from './ops/read.js'
+import { listPeerErasureStateFromDb } from './ops/peerErasureState.js'
 import { IPC_PIN_FIELDS } from './ops/pinFields.js'
 import { listDeleted, getEntityHistory } from './ops/trash.js'
 import { RESTORABLE_ENTITIES, restoreEntity, lastKnownFieldSources } from './ops/restore.js'
@@ -1200,6 +1201,19 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     // rows on every multi-device camp. Excluded here, not at the schema
     // level, so this stays scoped to the management-list read.
     return db.prepare("SELECT id, name, pairing_status, authorized_at, revoked_at, last_synced_at FROM devices WHERE pairing_status IS NOT 'unknown'").all()
+  }
+
+  // T322 S3b — read-only per-peer erasure state for the Device Manager badge.
+  // Returns, per peer device, LOGICALLY_ERASED vs UNKNOWN for the camp's purge-
+  // tombstones (docs/work/tickets/T322-per-peer-erasure-state-ui.md). Same
+  // `devices.read` gate as listDevices; it reads the receiver-side self-report
+  // table written only by S3a's authenticated handshake and takes no action —
+  // never a per-peer write, never revocation. The local device is excluded (it
+  // never self-reports and is not a propagation target).
+  function listPeerErasureState({ token } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    requireAuthorized(db, { token, action: 'devices.read' })
+    return listPeerErasureStateFromDb(db, { localDeviceId: deviceId })
   }
 
   function approveDevice({ token, deviceId: targetDeviceId } = {}) {
@@ -2676,6 +2690,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     getDevicePairingStatus,
     listPendingPairingRequests,
     listDevices,
+    listPeerErasureState,
     approveDevice,
     denyDevice,
     revokeDevice,
@@ -2868,6 +2883,7 @@ if (isElectronEntryPoint()) {
     'shoresh:get-device-pairing-status',
     'shoresh:list-pending-pairing-requests',
     'shoresh:list-devices',
+    'shoresh:list-peer-erasure-state',
     'shoresh:approve-device',
     'shoresh:get-sync-engine',
     'shoresh:get-join-code',
@@ -2958,6 +2974,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:get-device-pairing-status', () => handlers.getDevicePairingStatus())
     ipcMain.handle('shoresh:list-pending-pairing-requests', (_event, args) => handlers.listPendingPairingRequests(args))
     ipcMain.handle('shoresh:list-devices', (_event, args) => handlers.listDevices(args))
+    ipcMain.handle('shoresh:list-peer-erasure-state', (_event, args) => handlers.listPeerErasureState(args))
     ipcMain.handle('shoresh:approve-device', (_event, args) => handlers.approveDevice(args))
     ipcMain.handle('shoresh:get-sync-engine', () => handlers.getSyncEngine())
     ipcMain.handle('shoresh:get-join-code', (_event, args) => handlers.getJoinCode(args))
