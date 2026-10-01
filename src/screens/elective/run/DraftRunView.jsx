@@ -1,8 +1,15 @@
 // T250 — the Draft state of a persisted elective run.
 //
-// Layout order is fixed by docs/work/specs/2026-09-25-t250-run-state-surface.md:
-// identity line, satisfaction summary, run-state area (over-capacity rows, then
-// dangling-manual-assignment rows), then the move/lock table.
+// Layout order was originally fixed by
+// docs/work/specs/2026-09-25-t250-run-state-surface.md: identity line,
+// satisfaction summary, run-state area (over-capacity rows, then
+// dangling-manual-assignment rows), then the Finalize actions band, then the
+// move/lock table. Owner/organizer ruling 2026-09-30 moved the actions band
+// ABOVE the run-state area (so Finalize is never pushed below a long findings
+// list) — current order: identity line, satisfaction summary, actions band,
+// run-state area, move/lock table. See that spec's "Layout" section for the
+// dated amendment note recording the divergence (Constitution Art. I: current
+// human instruction outranks an approved spec).
 //
 // Mounted inside AssignmentPanel, which sits under ElectiveSetDetail. The
 // admin gate is INHERITED from there (the participant entities are absent from
@@ -26,6 +33,8 @@ import { A } from '../assignment/assignmentStyles.js'
 import {
   DANGLING_MOVE_PLACEHOLDER, FINALIZE_MESSAGES, REMOVE_PLACEMENT_LABEL, danglingMessage, occurrenceLabel, overCapacityMessage,
   resolveCamperDisambiguators, satisfactionSummary, stalenessOfferMessage,
+  groupBundleTierNotCoveredFindings, bundleTierNotCoveredGroupMessage, finalizeFindingMessage,
+  sheetOnlyCampersMessage,
 } from './runStateCopy.js'
 
 const styles = {
@@ -83,7 +92,7 @@ const DANGLING_ROW_COLLAPSE_MS = 340
 // verbatim copy the ticket specifies, `findings` rendered as a plain list
 // (up to 3) with the remainder collapsed behind a native <details>/<summary>,
 // the same idiom ParseSummary already uses for its own collapsible sections.
-function FinalizeFindingsList({ findings }) {
+function FinalizeFindingsList({ findings, days = [], timeBlocks = [] }) {
   if (!findings || findings.length === 0) return null
   const shown = findings.slice(0, 3)
   const rest = findings.length - shown.length
@@ -91,7 +100,7 @@ function FinalizeFindingsList({ findings }) {
     <>
       <ul style={styles.findingsList}>
         {shown.map((f, i) => (
-          <li key={i}>{f.message ?? f.kind ?? JSON.stringify(f)}</li>
+          <li key={i}>{finalizeFindingMessage(f, { days, timeBlocks })}</li>
         ))}
       </ul>
       {rest > 0 ? (
@@ -99,7 +108,7 @@ function FinalizeFindingsList({ findings }) {
           <summary style={A.disclosureSummary}>+{rest} more</summary>
           <ul style={styles.findingsList}>
             {findings.slice(3).map((f, i) => (
-              <li key={i}>{f.message ?? f.kind ?? JSON.stringify(f)}</li>
+              <li key={i}>{finalizeFindingMessage(f, { days, timeBlocks })}</li>
             ))}
           </ul>
         </details>
@@ -108,7 +117,24 @@ function FinalizeFindingsList({ findings }) {
   )
 }
 
-function FinalizeRefusalRow({ refusal, onRegenerate, lockedAssignments }) {
+// C1 (board item 9b) — one grouped BUNDLE_TIER_NOT_COVERED row for a
+// (label, tier) pair, instead of the raw per-camper findings commitElectiveRun
+// emits. The sentence states the LABEL, the TIER (or a truthful division-only
+// phrasing when no tier resolved), and the COUNT; every named camper stays
+// reachable behind the SAME disclosure idiom FinalizeFindingsList uses — never
+// dropped, only collapsed.
+function BundleMismatchGroupNames({ names }) {
+  return (
+    <details style={A.disclosure}>
+      <summary style={A.disclosureSummary}>{names.length === 1 ? names[0] : `${names.length} campers`}</summary>
+      <ul style={styles.findingsList}>
+        {names.map((name, i) => <li key={i}>{name}</li>)}
+      </ul>
+    </details>
+  )
+}
+
+function FinalizeRefusalRow({ refusal, onRegenerate, lockedAssignments, days, timeBlocks }) {
   const { error, findings } = refusal
   const known = FINALIZE_MESSAGES[error]
   const message = known ?? `Finalizing failed: ${error}. Nothing was changed — try again, or contact support if this keeps happening.`
@@ -116,7 +142,7 @@ function FinalizeRefusalRow({ refusal, onRegenerate, lockedAssignments }) {
   if (error === 'STALE_OUTER_SCHEDULE') {
     return (
       <div data-testid="run-state-finalize-refusal" style={styles.pairing}>
-        <RunStateRow testId="run-state-finalize-stale" message={<>{message}<FinalizeFindingsList findings={findings} /></>} first alert />
+        <RunStateRow testId="run-state-finalize-stale" message={<>{message}<FinalizeFindingsList findings={findings} days={days} timeBlocks={timeBlocks} /></>} first alert />
         {onRegenerate ? (
           <div style={styles.pairingAction}>
             <button className="press-97" style={S.btnSecondary} onClick={() => onRegenerate({ lockedAssignments })}>
@@ -132,7 +158,7 @@ function FinalizeRefusalRow({ refusal, onRegenerate, lockedAssignments }) {
     <RunStateRow
       testId="run-state-finalize-refusal"
       first last alert
-      message={<>{message}<FinalizeFindingsList findings={findings} /></>}
+      message={<>{message}<FinalizeFindingsList findings={findings} days={days} timeBlocks={timeBlocks} /></>}
     />
   )
 }
@@ -165,7 +191,7 @@ function DanglingRowCollapseTimer({ assignmentId, setMovedAway, setCollapsingRow
 export default function DraftRunView({
   run, danglingFindings = [], onRegenerate, onFinalized, onBack,
   activities = [], days = [], timeBlocks = [], templateOccurrences = [],
-  scheduleTemplates = [], scheduleWeeks = [], tiers = [],
+  scheduleTemplates = [], scheduleWeeks = [], tiers = [], groups = [],
   // T250 A3 — true when `onRegenerate` is available because this session
   // HYDRATED a cold-opened run's state, never because it solved the run
   // itself. Drives the disclosure note beside the offer's button.
@@ -215,6 +241,27 @@ export default function DraftRunView({
   const [finalizing, setFinalizing] = useState(false)
   // { error, findings } for the refusal row, or null when nothing to say.
   const [finalizeRefusal, setFinalizeRefusal] = useState(null)
+  // F4 (Red Hat round 3) — a monotonic id, bumped every time a NEW refusal is
+  // reported, used as FinalizeRefusalRow's `key` below. Without it, two
+  // refusals that render through the SAME branch (every error except
+  // STALE_OUTER_SCHEDULE, which alone gets a different wrapping shape) keep
+  // the identical React element position/type across the state change, so
+  // the row's own RunStateRow instance is never unmounted — and its
+  // `useEffect(..., [alert])` focus/announce effect, keyed only on the
+  // boolean `alert` (which stays `true` the whole time), never re-fires. A
+  // real repro: guardedRegenerate's cold-status check calls
+  // `setFinalizeRefusal({ error: 'FINALIZED_ELSEWHERE', ... })` directly (no
+  // intervening null, unlike finalizeRun()'s own reset), so a director who
+  // sees an OUTER_RESOURCE_CONFLICT refusal and then separately clicks the
+  // staleness offer's regenerate button got a silently-updated row with no
+  // re-announcement and no refocus. Forcing a `key` change on every report
+  // guarantees a genuine remount — and therefore a genuine mount-effect
+  // re-run — regardless of whether the two refusals happen to share a shape.
+  const [finalizeRefusalSeq, setFinalizeRefusalSeq] = useState(0)
+  function reportFinalizeRefusal(refusal) {
+    setFinalizeRefusalSeq((s) => s + 1)
+    setFinalizeRefusal(refusal)
+  }
   // T250 A4 — the Delete run confirmation, shown on demand.
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   // T297 — set by a preference edit, and the ONLY thing that offers the re-solve
@@ -417,14 +464,14 @@ export default function DraftRunView({
         return
       }
       if (out?.error === 'ALREADY_FINAL') {
-        setFinalizeRefusal({ error: out.error, findings: [] })
+        reportFinalizeRefusal({ error: out.error, findings: [] })
         await reload()
         onFinalized?.({ ...run, status: 'final' })
         return
       }
-      setFinalizeRefusal({ error: out?.error ?? 'unknown error', findings: out?.findings ?? [] })
+      reportFinalizeRefusal({ error: out?.error ?? 'unknown error', findings: out?.findings ?? [] })
     } catch (err) {
-      setFinalizeRefusal({ error: describeWriteFailure(err, 'That could not be finalized.'), findings: [] })
+      reportFinalizeRefusal({ error: describeWriteFailure(err, 'That could not be finalized.'), findings: [] })
     } finally {
       setFinalizing(false)
       finalizingRef.current = false
@@ -455,7 +502,7 @@ export default function DraftRunView({
       try {
         const current = (await localClient.listElectiveRuns())?.find((r) => r.id === run.id)
         if (current?.status === 'final') {
-          setFinalizeRefusal({ error: 'FINALIZED_ELSEWHERE', findings: [] })
+          reportFinalizeRefusal({ error: 'FINALIZED_ELSEWHERE', findings: [] })
           onFinalized?.({ ...run, status: 'final' })
           return
         }
@@ -516,8 +563,31 @@ export default function DraftRunView({
     (f) => !movedAway.includes(f.assignment_id) && !durableDanglingRows.some((r) => r.assignment_id === f.assignment_id)
   )
   const danglingRows = durableDanglingRows
-  const commitNotices = danglingFindings.filter((f) => f.kind !== 'DANGLING_MANUAL_ASSIGNMENT')
+  // C1 — BUNDLE_TIER_NOT_COVERED is GROUPED (see BundleMismatchGroupNames and
+  // runStateCopy.js's groupBundleTierNotCoveredFindings); PREFERENCE_EDIT_HELD
+  // and DANGLING_MANUAL_ASSIGNMENT keep their current per-camper rows (T232/D6
+  // require naming the child there).
+  const commitNotices = danglingFindings.filter((f) => f.kind !== 'DANGLING_MANUAL_ASSIGNMENT' && f.kind !== 'BUNDLE_TIER_NOT_COVERED')
+  const bundleMismatchGroups = useMemo(
+    () => groupBundleTierNotCoveredFindings({ findings: danglingFindings, campers: state.campers, groups, tiers }),
+    [danglingFindings, state.campers, groups, tiers]
+  )
+  // (C)(4) — SHEET_CAMPER_WITHOUT_PREFERENCE (sheetOnlyCampers,
+  // electron/ops/getElectiveRun.js — deliberately excluded from
+  // eligibilityFindings, T320 part 2 item 3) must be NAMED, not just counted.
+  // Resolved through `state.campers`, which this screen already holds (the
+  // run's own camper universe includes every sheet-only camper per T320 part
+  // 2 item 3) — no new IPC.
+  const sheetOnlyCamperNames = useMemo(() => {
+    const camperById = new Map((state.campers ?? []).map((c) => [c.id, c]))
+    // M1 (Red Hat round 4) — NEVER a raw camper_id (camperDisambiguator's own
+    // rule, also applied in runStateCopy.js's groupBundleTierNotCoveredFindings
+    // for the same reason): a sheet-only camper whose row is gone (hard-deleted
+    // after an earlier generation) degrades to a truthful sentence fragment.
+    return (state.sheetOnlyCampers ?? []).map((id) => camperById.get(id)?.display_name ?? 'a camper who is no longer on the roster')
+  }, [state.campers, state.sheetOnlyCampers])
   const stateRowCount = overCapacityRows.length + danglingRows.length + collapsingOnlyRows.length + commitNotices.length
+    + bundleMismatchGroups.length + (sheetOnlyCamperNames.length > 0 ? 1 : 0)
 
   const stateRows = [
     ...overCapacityRows.map((o, i) => (
@@ -643,19 +713,62 @@ export default function DraftRunView({
           testId={`run-state-notice-${noticeKey}`}
           first={index === 0}
           last={index === stateRowCount - 1}
-          message={f.message ?? f.kind ?? JSON.stringify(f)}
+          // F6 (Code Reviewer round 3) — routed through the SAME copy table
+          // FinalizeFindingsList uses: `f.message ?? f.kind ?? JSON.stringify(f)`
+          // printed a raw finding kind code to a director in this
+          // ALWAYS-VISIBLE run-state area the moment a future kind without a
+          // `.message` reached it — the same defect class this screen's own
+          // Finalize-refusal fix (C2) already closed on the adjacent surface.
+          // Every kind reaching commitNotices today (PREFERENCE_EDIT_HELD)
+          // always carries `.message`, so this changes nothing for them; it
+          // only changes what an unrecognised future kind degrades to.
+          message={finalizeFindingMessage(f, { days, timeBlocks })}
         />
       )
     }),
+    // C1 — one row per (label, tier) group, each camper named reachable
+    // behind BundleMismatchGroupNames' disclosure rather than dropped.
+    ...bundleMismatchGroups.map((g, i) => {
+      const index = overCapacityRows.length + danglingRows.length + collapsingOnlyRows.length + commitNotices.length + i
+      const testId = `run-state-bundle-mismatch-${g.label}-${g.tierId ?? 'unresolved'}`
+      return (
+        <RunStateRow
+          key={`bundle-mismatch-${g.label}-${g.tierId ?? 'unresolved'}`}
+          testId={testId}
+          first={index === 0}
+          last={index === stateRowCount - 1}
+          message={<>{bundleTierNotCoveredGroupMessage(g)} <BundleMismatchGroupNames names={g.names} /></>}
+        />
+      )
+    }),
+    // (C)(4) — one row, the count, names behind the same disclosure idiom.
+    // No banner for the clean case: nothing renders when the list is empty.
+    sheetOnlyCamperNames.length > 0 ? (() => {
+      const index = overCapacityRows.length + danglingRows.length + collapsingOnlyRows.length + commitNotices.length + bundleMismatchGroups.length
+      return (
+        <RunStateRow
+          key="sheet-only-campers"
+          testId="run-state-sheet-only-campers"
+          first={index === 0}
+          last={index === stateRowCount - 1}
+          message={<>{sheetOnlyCampersMessage(sheetOnlyCamperNames.length)} <BundleMismatchGroupNames names={sheetOnlyCamperNames} /></>}
+        />
+      )
+    })() : null,
     // T250 A2 — appended AFTER the over-capacity and dangling rows: whatever
     // refusal the last Finalize attempt produced, inline in the run's own
     // run-state area rather than a separate block.
     finalizeRefusal ? (
       <FinalizeRefusalRow
-        key="finalize-refusal"
+        // F4 — keyed on the report sequence, not a static string, so EVERY
+        // reported refusal is a genuine remount (see finalizeRefusalSeq's
+        // own comment above).
+        key={`finalize-refusal-${finalizeRefusalSeq}`}
         refusal={finalizeRefusal}
         onRegenerate={regenerate}
         lockedAssignments={lockedAssignments}
+        days={days}
+        timeBlocks={timeBlocks}
       />
     ) : null,
   ]
@@ -671,11 +784,12 @@ export default function DraftRunView({
             {satisfactionSummary({ rows, preferences: state.preferences, occurrences: state.occurrences, days, timeBlocks })}
           </div>
 
-          <RunStateArea>{stateRows}</RunStateArea>
-
-          {/* T250 A1 — the actions band. Positioned directly below the
-              run-state area and above the staleness/preference offers and the
-              move/lock table, per the spec's layout order. */}
+          {/* Owner/organizer ruling, 2026-09-30 — the actions band is
+              positioned ABOVE the run-state area, so Finalize is never pushed
+              below a long findings list. This CONTRADICTS the layout order
+              docs/work/specs/2026-09-25-t250-run-state-surface.md originally
+              fixed ("Layout"); that spec has a dated amendment note recording
+              the change — see its "Layout" section. */}
           <div style={styles.actionsBand}>
             <button
               className="press-97"
@@ -689,6 +803,8 @@ export default function DraftRunView({
               Locks this run. You&apos;ll see it as Final, and can always start a new version later.
             </span>
           </div>
+
+          <RunStateArea>{stateRows}</RunStateArea>
 
           {/* An offer, never a block: the table below stays fully usable.
               The FACT is stated whenever there is one, and the control appears

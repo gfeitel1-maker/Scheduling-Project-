@@ -9,7 +9,11 @@
 // numbered choice (T318 (c) — "an ordinal is shown only on positive evidence of
 // ordering").
 import { describe, it, expect } from 'vitest'
-import { occurrenceLabel, satisfactionSummary, camperDisambiguator, resolveCamperDisambiguators } from './runStateCopy.js'
+import {
+  occurrenceLabel, satisfactionSummary, camperDisambiguator, resolveCamperDisambiguators,
+  groupBundleTierNotCoveredFindings, bundleTierNotCoveredGroupMessage,
+  conflictFindingMessage, finalizeFindingMessage, sheetOnlyCampersMessage,
+} from './runStateCopy.js'
 
 describe('occurrenceLabel', () => {
   it('resolves the day name from `label`, the actual days_of_operation column', () => {
@@ -174,5 +178,214 @@ describe('T250 round 2 FIX 3 — resolveCamperDisambiguators is collision-aware 
     ])
     expect(result.get('c1')).toBeNull()
     expect(result.get('c2')).toBeNull()
+  })
+})
+
+// C1 — commitElectiveRun emits one BUNDLE_TIER_NOT_COVERED finding per camper
+// per bundle label, so a real camp shows 30+ near-identical rows, the same
+// camper repeated. groupBundleTierNotCoveredFindings compresses that
+// REPETITION (one row per (label, tier) pair), never the INFORMATION
+// (Art. V) — every camper named in the finding set must still be reachable.
+describe('groupBundleTierNotCoveredFindings', () => {
+  const groups = [{ id: 'grp-older', tier_id: 'tier-older' }, { id: 'grp-younger', tier_id: 'tier-younger' }]
+  const tiers = [{ id: 'tier-older', name: 'Older' }, { id: 'tier-younger', name: 'Younger' }]
+  const campers = [
+    { id: 'cam-1', display_name: 'Ari Green', group_id: 'grp-older', division_label: null },
+    { id: 'cam-2', display_name: 'Noa Katz', group_id: 'grp-older', division_label: null },
+    { id: 'cam-3', display_name: 'Bo Levi', group_id: 'grp-younger', division_label: null },
+  ]
+
+  it('groups findings for the same (label, tier) pair into one entry, naming every camper', () => {
+    const findings = [
+      { kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'cam-1', label: 'Ropes' },
+      { kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'cam-2', label: 'Ropes' },
+      { kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'cam-3', label: 'Ropes' },
+    ]
+    const result = groupBundleTierNotCoveredFindings({ findings, campers, groups, tiers })
+    expect(result).toHaveLength(2)
+    const older = result.find((g) => g.tierName === 'Older')
+    const younger = result.find((g) => g.tierName === 'Younger')
+    expect(older.label).toBe('Ropes')
+    expect(older.names.sort()).toEqual(['Ari Green', 'Noa Katz'])
+    expect(younger.names).toEqual(['Bo Levi'])
+  })
+
+  it('ignores findings of other kinds', () => {
+    const findings = [
+      { kind: 'PREFERENCE_EDIT_HELD', camper_id: 'cam-1', preference_id: 'p1' },
+    ]
+    expect(groupBundleTierNotCoveredFindings({ findings, campers, groups, tiers })).toEqual([])
+  })
+
+  it("groups a camper whose tier cannot be resolved at all under a null tierName — never a fabricated tier", () => {
+    const findings = [{ kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'cam-ghost', label: 'Ropes' }]
+    const result = groupBundleTierNotCoveredFindings({ findings, campers: [], groups, tiers })
+    expect(result).toHaveLength(1)
+    expect(result[0].tierName).toBeNull()
+    // F5 (Red Hat round 3) — never a raw camper_id, even for a camper whose
+    // row is entirely absent.
+    expect(result[0].names).toEqual(['a camper who is no longer on the roster'])
+  })
+
+  // F5 (Red Hat round 3) — camperDisambiguator's own rule, applied here too.
+  it('NEVER prints a raw camper_id when the camper row is gone — degrades truthfully instead', () => {
+    const findings = [{ kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'deleted-camper-id', label: 'Ropes', tier_id: 'tier-older' }]
+    const result = groupBundleTierNotCoveredFindings({ findings, campers: [], groups, tiers })
+    expect(result[0].names).toEqual(['a camper who is no longer on the roster'])
+    expect(JSON.stringify(result)).not.toContain('deleted-camper-id')
+  })
+
+  // Round 3 (Red Hat F3) — a finding carrying its own `tier_id` is grouped on
+  // THAT value directly, never re-derived — even when campers/groups would
+  // resolve to a DIFFERENT tier, proving the field, not the fallback, wins.
+  it("groups on the finding's OWN tier_id, never re-deriving when the field is present — even when re-derivation would disagree", () => {
+    const findings = [{ kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'cam-1', label: 'Ropes', tier_id: 'tier-older' }]
+    // This camper's campers/groups shape would re-derive to tier-younger if
+    // asked — which must NOT happen, since tier_id is present.
+    const misleadingCampers = [{ id: 'cam-1', display_name: 'Ari Green', group_id: 'grp-younger', division_label: null }]
+    const misleadingGroups = [{ id: 'grp-younger', tier_id: 'tier-younger' }]
+    const result = groupBundleTierNotCoveredFindings({ findings, campers: misleadingCampers, groups: misleadingGroups, tiers })
+    expect(result[0].tierId).toBe('tier-older')
+    expect(result[0].tierName).toBe('Older')
+  })
+
+  it('resolves the tier from division_label when it matches a tier name, even with no group_id', () => {
+    const divisionCampers = [{ id: 'cam-9', display_name: 'Shir Cohen', group_id: null, division_label: 'Older' }]
+    const findings = [{ kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'cam-9', label: 'Ropes' }]
+    const result = groupBundleTierNotCoveredFindings({ findings, campers: divisionCampers, groups, tiers })
+    expect(result[0].tierName).toBe('Older')
+  })
+})
+
+describe('bundleTierNotCoveredGroupMessage', () => {
+  it('names the label, the tier, and the count when the tier resolved', () => {
+    const message = bundleTierNotCoveredGroupMessage({ label: 'Ropes', tierName: 'Older', names: ['Ari Green', 'Noa Katz'] })
+    expect(message).toBe('"Ropes" does not cover Older — 2 campers kept their request as an ordinary choice.')
+  })
+
+  it('uses singular "camper" for a group of one', () => {
+    const message = bundleTierNotCoveredGroupMessage({ label: 'Ropes', tierName: 'Older', names: ['Ari Green'] })
+    expect(message).toBe('"Ropes" does not cover Older — 1 camper kept their request as an ordinary choice.')
+  })
+
+  it('degrades truthfully when no tier resolved, naming no tier at all', () => {
+    const message = bundleTierNotCoveredGroupMessage({ label: 'Ropes', tierName: null, names: ['Ari Green'] })
+    expect(message).toBe('"Ropes" does not cover these campers’ division — 1 camper kept their request as an ordinary choice.')
+  })
+})
+
+// C2 (board item 9b) — findRouteConflicts (src/engine/routeConflicts.js)
+// OUTER_RESOURCE_CONFLICT findings carry NO `.message`, only
+// locationName/dayId/blockId/capacity/occupants[].label. FinalizeFindingsList
+// used to fall through to the raw `.kind`, printing "OUTER_RESOURCE_CONFLICT"
+// verbatim for every conflict.
+describe('conflictFindingMessage', () => {
+  const days = [{ id: 'day-1', label: 'Monday' }]
+  const timeBlocks = [{ id: 'tb-1', name: 'First Period' }]
+
+  it('names the location, the day/period, and the colliding activities', () => {
+    const finding = {
+      kind: 'OUTER_RESOURCE_CONFLICT', locationName: 'Boathouse', dayId: 'day-1', blockId: 'tb-1', capacity: 1,
+      occupants: [{ label: 'Canoeing' }, { label: 'Kayaking' }],
+    }
+    const message = conflictFindingMessage(finding, { days, timeBlocks })
+    expect(message).toContain('Boathouse')
+    expect(message).toContain('Monday')
+    expect(message).toContain('First Period')
+    expect(message).toContain('Canoeing')
+    expect(message).toContain('Kayaking')
+    expect(message).not.toContain('OUTER_RESOURCE_CONFLICT')
+  })
+
+  it('returns null for any other kind, never guessing at a shape it does not own', () => {
+    expect(conflictFindingMessage({ kind: 'SOMETHING_ELSE' }, { days, timeBlocks })).toBeNull()
+  })
+
+  it('degrades by dropping the day/period detail when the occurrence catalogs do not resolve it, never printing a raw id', () => {
+    const finding = { kind: 'OUTER_RESOURCE_CONFLICT', locationName: 'Boathouse', dayId: 'ghost-day', blockId: 'ghost-tb', capacity: 1, occupants: [{ label: 'Canoeing' }] }
+    const message = conflictFindingMessage(finding, { days: [], timeBlocks: [] })
+    expect(message).toContain('Boathouse')
+    expect(message).not.toContain('ghost-day')
+    expect(message).not.toContain('ghost-tb')
+  })
+
+  // Round 5 (Red Hat/Governor, found live via the scene2 screenshot) —
+  // findRouteConflicts registers ONE occupant entry PER OCCUPYING SLOT, so
+  // the same activity scheduled for three different groups in the same
+  // location/period appears three times in `occupants`. The real captured
+  // sentence read "Canoeing and Canoeing and Canoeing and Kayaking are
+  // scheduled there at once" — a director needs to know WHICH activities
+  // collide, not how many groups each one came from. Dedupe by label.
+  it('deduplicates a repeated occupant label — the SAME trap findRouteConflicts produces for three groups sharing one activity', () => {
+    const finding = {
+      kind: 'OUTER_RESOURCE_CONFLICT', locationName: 'Boathouse', dayId: 'day-1', blockId: 'tb-1', capacity: 1,
+      occupants: [{ label: 'Canoeing' }, { label: 'Canoeing' }, { label: 'Canoeing' }, { label: 'Kayaking' }],
+    }
+    const message = conflictFindingMessage(finding, { days, timeBlocks })
+    expect(message.match(/Canoeing/g)).toHaveLength(1)
+    expect(message.match(/Kayaking/g)).toHaveLength(1)
+    expect(message).toContain('Canoeing and Kayaking')
+  })
+
+  // Round 5 — ordinary English list punctuation, not "and" between every
+  // element: one item bare, two items "A and B", three or more
+  // "A, B and C".
+  it('joins exactly two distinct activities with "and", no comma', () => {
+    const finding = {
+      kind: 'OUTER_RESOURCE_CONFLICT', locationName: 'Boathouse', dayId: 'day-1', blockId: 'tb-1', capacity: 1,
+      occupants: [{ label: 'Canoeing' }, { label: 'Kayaking' }],
+    }
+    const message = conflictFindingMessage(finding, { days, timeBlocks })
+    expect(message).toContain('Canoeing and Kayaking')
+    expect(message).not.toContain('Canoeing, Kayaking')
+  })
+
+  it('joins three or more distinct activities with commas and a final "and"', () => {
+    const finding = {
+      kind: 'OUTER_RESOURCE_CONFLICT', locationName: 'Boathouse', dayId: 'day-1', blockId: 'tb-1', capacity: 1,
+      occupants: [{ label: 'Canoeing' }, { label: 'Kayaking' }, { label: 'Sailing' }],
+    }
+    const message = conflictFindingMessage(finding, { days, timeBlocks })
+    expect(message).toContain('Canoeing, Kayaking and Sailing')
+  })
+
+  it('names a single colliding activity bare, with no "and" or comma', () => {
+    const finding = {
+      kind: 'OUTER_RESOURCE_CONFLICT', locationName: 'Boathouse', dayId: 'day-1', blockId: 'tb-1', capacity: 1,
+      occupants: [{ label: 'Canoeing' }, { label: 'Canoeing' }],
+    }
+    const message = conflictFindingMessage(finding, { days, timeBlocks })
+    expect(message.match(/Canoeing/g)).toHaveLength(1)
+    expect(message).not.toMatch(/Canoeing\s+and\s+Canoeing/)
+  })
+})
+
+describe('finalizeFindingMessage', () => {
+  it('renders a finding carrying its own .message verbatim, untouched', () => {
+    expect(finalizeFindingMessage({ kind: 'ANYTHING', message: 'Custom text' }, {})).toBe('Custom text')
+  })
+
+  it('resolves a real OUTER_RESOURCE_CONFLICT finding via conflictFindingMessage', () => {
+    const finding = { kind: 'OUTER_RESOURCE_CONFLICT', locationName: 'Boathouse', dayId: 'day-1', blockId: 'tb-1', capacity: 1, occupants: [{ label: 'Canoeing' }] }
+    const message = finalizeFindingMessage(finding, { days: [{ id: 'day-1', label: 'Monday' }], timeBlocks: [{ id: 'tb-1', name: 'First Period' }] })
+    expect(message).toContain('Boathouse')
+    expect(message).not.toContain('OUTER_RESOURCE_CONFLICT')
+  })
+
+  it('degrades an unrecognised kind with no .message to a plain-words sentence — never the raw kind code, never JSON', () => {
+    const message = finalizeFindingMessage({ kind: 'SOME_FUTURE_KIND_XYZ', somethingWeird: 1 }, {})
+    expect(message).not.toContain('SOME_FUTURE_KIND_XYZ')
+    expect(message).not.toMatch(/^\{/)
+  })
+})
+
+// (C)(4), board item 9b — sheetOnlyCampers must be named, not just counted.
+describe('sheetOnlyCampersMessage', () => {
+  it('states the plural count and verb', () => {
+    expect(sheetOnlyCampersMessage(2)).toBe("2 campers on this run's sheet have no ranked choice and no placement.")
+  })
+
+  it('states the singular count and verb for exactly one', () => {
+    expect(sheetOnlyCampersMessage(1)).toBe("1 camper on this run's sheet has no ranked choice and no placement.")
   })
 })

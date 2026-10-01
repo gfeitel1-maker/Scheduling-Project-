@@ -11,6 +11,14 @@ import { buildPreferenceLookup } from './camperElectiveWeek.js'
 // third accepted kind, every OTHER copy gains it automatically while this one
 // would have kept silently excluding it.
 import { hasOrderingEvidence } from '../../../engine/rankKind.js'
+// Board item 9b / C1 — the SAME tier-resolution precedence commitElectiveRun.js
+// uses to decide whether a bundle covers a camper (division_label beats the
+// roster group's tier — see that module's own header for why). The finding
+// this screen groups carries camper_id/label but not the tier, so re-deriving
+// it with a SECOND rule would risk disagreeing with the rule that produced the
+// finding in the first place. Precedented: AssignmentPanel.jsx already imports
+// this pure module from electron/ops the same way.
+import { makeCamperIdentityResolver } from '../../../../electron/ops/camperElectiveIdentity.js'
 
 // Q5 (director-facing terminology) was ruled by the owner 2026-09-29: "start a
 // new version". "Revision" implies editing the same run, which contradicts
@@ -157,6 +165,141 @@ function applyDistinguishingTier(group, key, result) {
     const value = entry[key]
     if (value && counts.get(value) === 1) result.set(entry.id, value)
   }
+}
+
+// C1 (board item 9b) — commitElectiveRun emits one BUNDLE_TIER_NOT_COVERED
+// finding per camper per bundle label, so a real camp's run showed 30+
+// near-identical rows, the same camper repeated across periods, ABOVE the
+// Finalize control. This groups them by (label, tier) into ONE row per pair —
+// compressing REPETITION, never INFORMATION (Art. V): every camper named in
+// the finding set is still present in the returned group's `names`.
+//
+// Round 3 (Red Hat F3) — the finding now carries `tier_id`, the tier
+// commitElectiveRun's own resolution ACTUALLY used (electron/ops/
+// commitElectiveRun.js's noteMismatch/resolveWriteChoiceId), and that value is
+// read directly here WHENEVER the finding has it (`!== undefined`, since a
+// legitimately-unresolved tier is `null`, a real value, not an absent field).
+// Re-deriving via makeCamperIdentityResolver is now only a FALLBACK, for a
+// finding that genuinely lacks the field (an older caller, or a test fixture
+// that does not set it) — never the default path.
+//
+// WHY RE-DERIVING AT RENDER TIME WAS A REAL BUG, not a hypothetical one: this
+// commit's own campers-write loop (further down the SAME transaction) can
+// clear a camper's `division_label` to null in the exact commit that produced
+// this finding (T279 §12.2a — an empty cell in a division column IS a fact
+// worth recording, so an import with nothing new to say still overwrites a
+// stale value). Tier resolution read the camper's PRE-write roster division,
+// which can differ from BOTH the sheet's own (absent) value and the camper's
+// GROUP tier. Re-deriving against the POST-write campers row at render time
+// falls through to the group's tier instead — naming a division the mismatch
+// was never generated against. Carrying the resolved tier on the finding
+// itself removes the second read entirely for the common case.
+export function groupBundleTierNotCoveredFindings({ findings = [], campers = [], groups = [], tiers = [] } = {}) {
+  const relevant = findings.filter((f) => f.kind === 'BUNDLE_TIER_NOT_COVERED')
+  if (relevant.length === 0) return []
+  // Constructed lazily — only a finding missing `tier_id` ever needs it, and
+  // a legacy/fallback path paying for a resolver no finding here asks for
+  // would be work this function need not do.
+  let identity = null
+  const tierById = new Map(tiers.map((t) => [t.id, t]))
+  const camperById = new Map(campers.map((c) => [c.id, c]))
+  const byKey = new Map()
+  for (const f of relevant) {
+    const tierId = f.tier_id !== undefined
+      ? f.tier_id
+      : (identity ??= makeCamperIdentityResolver({ sheetCampers: campers, groups, tiers })).tierIdOf(f.camper_id)
+    const tierName = tierId != null ? tierById.get(tierId)?.name ?? null : null
+    // F7 (Code Reviewer) — a delimiter-safe key: JSON.stringify, not an
+    // undelimited template-string join that a label containing the
+    // delimiter could collide on.
+    const key = JSON.stringify([f.label, tierId])
+    if (!byKey.has(key)) byKey.set(key, { label: f.label, tierId, tierName, names: [] })
+    // F5 (Red Hat) — NEVER a raw camper_id in director-facing copy (the same
+    // rule camperDisambiguator's own comment states): a camper row that is
+    // gone (hard-deleted after an earlier generation) degrades to a truthful
+    // sentence fragment instead.
+    const name = camperById.get(f.camper_id)?.display_name ?? 'a camper who is no longer on the roster'
+    byKey.get(key).names.push(name)
+  }
+  return [...byKey.values()]
+}
+
+// The sentence for one grouped row. `tierName` null means the tier genuinely
+// could not be resolved — the phrasing names "these campers' division"
+// instead of inventing a tier word, per groupBundleTierNotCoveredFindings'
+// own posture.
+export function bundleTierNotCoveredGroupMessage({ label, tierName, names = [] }) {
+  const count = names.length
+  const camperWord = count === 1 ? 'camper' : 'campers'
+  const subject = tierName ? `"${label}" does not cover ${tierName}` : `"${label}" does not cover these campers’ division`
+  return `${subject} — ${count} ${camperWord} kept their request as an ordinary choice.`
+}
+
+// (C)(4), board item 9b — SHEET_CAMPER_WITHOUT_PREFERENCE (sheetOnlyCampers,
+// electron/ops/getElectiveRun.js) must be NAMED, same treatment as the
+// grouped BUNDLE_TIER_NOT_COVERED row: one row, the count, and names behind
+// the same disclosure idiom — never a bare count beside the regenerate
+// control. `count` is the number of sheet-only campers; the singular/plural
+// verb agreement is this function's whole job.
+export function sheetOnlyCampersMessage(count) {
+  const camperWord = count === 1 ? 'camper' : 'campers'
+  const verb = count === 1 ? 'has' : 'have'
+  return `${count} ${camperWord} on this run's sheet ${verb} no ranked choice and no placement.`
+}
+
+// C2 (board item 9b) — OUTER_RESOURCE_CONFLICT findings (findRouteConflicts,
+// src/engine/routeConflicts.js) carry no `.message`, only locationName/
+// dayId/blockId/capacity/occupants[].label. FinalizeFindingsList used to fall
+// through to the raw `.kind`, so a finalize refusal with three conflicts
+// printed "OUTER_RESOURCE_CONFLICT" three times. This names the location, the
+// day/period (resolved via the SAME both-ways `label ?? name` read
+// occurrenceLabel above already uses), and the colliding activities.
+//
+// Degrades by DROPPING DETAIL, never by printing a raw id — the day/period
+// clause is omitted entirely when it cannot be resolved, same posture as
+// occurrenceLabel/camperDisambiguator. Returns null for any other kind: this
+// function does not guess at a shape it does not own.
+//
+// Round 5 (found live via the scene2 screenshot, every unit test having
+// fixtures with distinct, single occupants) — findRouteConflicts registers
+// ONE occupant entry PER OCCUPYING SLOT, so the same activity scheduled for
+// three different groups in the same location/period appears three times in
+// `occupants`. Un-deduplicated this read "Canoeing and Canoeing and Canoeing
+// and Kayaking are scheduled there at once" — true, but not what a director
+// needs: WHICH activities collide, not how many groups each contributed.
+// `joinEnglishList` below is this module's own helper (no existing
+// list-joining utility found in the project) for ordinary English list
+// punctuation, which the un-deduplicated version also got wrong (joining
+// every pair with "and" instead of commas-then-"and" for 3+ items).
+function joinEnglishList(items) {
+  if (items.length <= 1) return items[0] ?? ''
+  if (items.length === 2) return `${items[0]} and ${items[1]}`
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
+}
+
+export function conflictFindingMessage(finding, { days = [], timeBlocks = [] } = {}) {
+  if (finding?.kind !== 'OUTER_RESOURCE_CONFLICT') return null
+  const { locationName, dayId, blockId, capacity, occupants = [] } = finding
+  const day = days.find((d) => d.id === dayId)
+  const dayName = day?.label ?? day?.name ?? null
+  const blockName = timeBlocks.find((t) => t.id === blockId)?.name ?? null
+  const when = dayName && blockName ? `${dayName}, ${blockName}` : dayName || blockName || null
+  const names = [...new Set(occupants.map((o) => o.label).filter(Boolean))]
+  const activities = names.length > 0 ? joinEnglishList(names) : `${occupants.length} activities`
+  const where = when ? `${locationName} on ${when}` : locationName
+  return `${where} is double-booked over its capacity of ${capacity}: ${activities} are scheduled there at once.`
+}
+
+// The director-facing message for ONE Finalize-refusal finding, whatever kind
+// it is. `.message` wins when the producer already supplied one; a known
+// shape (OUTER_RESOURCE_CONFLICT today) gets its own sentence; anything else
+// degrades to plain words — NEVER the raw kind code and never JSON.stringify
+// (which would print the kind field right back out), the same posture every
+// other degrade in this file takes.
+export function finalizeFindingMessage(finding, catalogs = {}) {
+  if (finding?.message) return finding.message
+  return conflictFindingMessage(finding, catalogs)
+    ?? 'A conflict was found, but its details could not be shown.'
 }
 
 const RANK_WORDS = ['a first choice', 'a second choice', 'a third choice']

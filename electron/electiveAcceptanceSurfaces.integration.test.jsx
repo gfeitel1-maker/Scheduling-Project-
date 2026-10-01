@@ -144,8 +144,16 @@ describe('§6 (11) — JSON and XLSX are built from one document and cannot disa
     // file a camp opens in Excel; T251's mutation (11) changes one of these.
     expect(header).toEqual(['Day', 'Time Block', 'Activity', 'Camper', 'Group', 'Count', 'Capacity'])
 
+    // Round 3 correction (F1, Verifier BLOCKING) — a clustered member now
+    // contributes ONE ROW PER OCCURRENCE, each carrying THAT occurrence's own
+    // day/time_block (round 3's fix to exportActivityRoster.js); a joined
+    // cell was the original defect this exact invariant caught. Reading
+    // `r.day`/`r.time_block` (the GROUP's own anchor-only fields) here would
+    // silently pass the OLD, now-incorrect shape — this must read each
+    // member row's OWN `m.day`/`m.time_block`, the field the fix added,
+    // never the group's.
     const fromJson = projection.activity_rosters
-      .flatMap((r) => r.members.map((m) => [r.day, r.time_block, r.activity_name, m.camper_name, m.group_name]))
+      .flatMap((r) => r.members.map((m) => [m.day, m.time_block, r.activity_name, m.camper_name, m.group_name]))
     expect(body.map((r) => r.slice(0, 5))).toEqual(fromJson)
     expect(body.length).toBeGreaterThan(0)
   })

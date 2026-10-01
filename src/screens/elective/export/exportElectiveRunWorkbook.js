@@ -30,12 +30,21 @@ function childSchedulesRows(childSchedules) {
   return [header, ...body]
 }
 
+// ORGANIZER RULING — count ONCE on the anchor row, each member row shows its
+// OWN day. `row.count` is the assignment grain for the whole group
+// (exportActivityRoster.js's F5 comment); printing it on every member row
+// double-presented it, and `row.day`/`row.time_block` were the group's ANCHOR
+// day — for a linked (bundle) cluster that is only the FIRST occurrence, so a
+// bundle's other days never appeared on the roster at all. Each member now
+// carries its own resolved day/time_block (buildActivityRosterExport joins a
+// linked member's own memberRows), and only the first member row of a group
+// prints the count.
 function activityRosterRows(activityRosters) {
   const header = ['Day', 'Time Block', 'Activity', 'Camper', 'Group', 'Count', 'Capacity']
   const body = []
   for (const row of activityRosters) {
     for (const member of row.members) {
-      body.push([row.day, row.time_block, row.activity_name, member.camper_name, member.group_name, row.count, row.capacity])
+      body.push([member.day, member.time_block, row.activity_name, member.camper_name, member.group_name, member.count ?? '', row.capacity])
     }
   }
   return [header, ...body]

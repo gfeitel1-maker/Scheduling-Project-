@@ -27,8 +27,8 @@ describe('buildActivityRosterExport', () => {
     expect(result).toHaveLength(1)
     expect(result[0]).toMatchObject({ day: 'Monday', time_block: 'Period 1', activity_name: 'Archery', count: 2, capacity: 5 })
     expect(result[0].members).toEqual([
-      { camper_id: 'c1', camper_name: 'Camper A', group_name: 'Bunk Alpha' },
-      { camper_id: 'c2', camper_name: 'Camper B', group_name: 'Bunk Alpha' },
+      { camper_id: 'c1', camper_name: 'Camper A', group_name: 'Bunk Alpha', day: 'Monday', time_block: 'Period 1', count: 2 },
+      { camper_id: 'c2', camper_name: 'Camper B', group_name: 'Bunk Alpha', day: 'Monday', time_block: 'Period 1' },
     ])
   })
 
@@ -46,7 +46,7 @@ describe('buildActivityRosterExport', () => {
     expect(result).toHaveLength(0)
   })
 
-  it('a linked choice groups its members under the choice label as one roster row, not per-member-occurrence rows', () => {
+  it('a linked choice groups into ONE roster GROUP, but a member contributes one ROW PER OCCURRENCE', () => {
     const result = buildActivityRosterExport({
       run: { id: 'run-1' },
       campers: [{ id: 'c1', display_name: 'Camper A', group_id: 'group-1' }],
@@ -60,11 +60,43 @@ describe('buildActivityRosterExport', () => {
       capacityRows: [],
     })
 
+    // ONE GROUP (the bundle clusters under one label/row-group), but TWO
+    // member rows — round 3 correction: a joined cell broke JSON<->XLSX
+    // parity (§6(11)'s acceptance test), so each occurrence is its own row.
     expect(result).toHaveLength(1)
     // F5 (round 2): count is the ASSIGNMENT grain (2 member occurrences), not the presentation
-    // grain (members.length: 1 camper) — see exportElectiveRunProjection.test.js's exit-clause test.
+    // grain — see exportElectiveRunProjection.test.js's exit-clause test.
     expect(result[0]).toMatchObject({ activity_name: 'Bundle', count: 2 })
-    expect(result[0].members).toEqual([{ camper_id: 'c1', camper_name: 'Camper A', group_name: 'Bunk Alpha' }])
+    expect(result[0].members).toEqual([
+      { camper_id: 'c1', camper_name: 'Camper A', group_name: 'Bunk Alpha', day: 'Monday', time_block: 'Period 1', count: 2 },
+      { camper_id: 'c1', camper_name: 'Camper A', group_name: 'Bunk Alpha', day: 'Monday', time_block: 'Period 3' },
+    ])
+  })
+
+  it("each linked-choice OCCURRENCE is its own row with its OWN day/time_block — a partial member never inherits another member's full span", () => {
+    const result = buildActivityRosterExport({
+      run: { id: 'run-1' },
+      campers: [
+        { id: 'c1', display_name: 'Camper A', group_id: 'group-1' },
+        { id: 'c2', display_name: 'Camper B', group_id: 'group-1' },
+      ],
+      groups: [{ id: 'group-1', name: 'Bunk Alpha' }],
+      days: [{ id: 'day-1', name: 'Monday' }, { id: 'day-2', name: 'Wednesday' }],
+      timeBlocks: [{ id: 'tb-1', name: 'Period 1' }],
+      outerRows: [
+        { camperId: 'c1', cellKind: 'elective', dayId: 'day-1', timeBlockId: 'tb-1', activityId: 'act-1', activityName: 'Archery', isLinkedChoice: true, choiceId: 'ch-1', choiceLabel: 'Bundle' },
+        { camperId: 'c1', cellKind: 'elective', dayId: 'day-2', timeBlockId: 'tb-1', activityId: 'act-1', activityName: 'Archery', isLinkedChoice: true, choiceId: 'ch-1', choiceLabel: 'Bundle' },
+        { camperId: 'c2', cellKind: 'elective', dayId: 'day-1', timeBlockId: 'tb-1', activityId: 'act-1', activityName: 'Archery', isLinkedChoice: true, choiceId: 'ch-1', choiceLabel: 'Bundle' },
+      ],
+      capacityRows: [],
+    })
+
+    expect(result).toHaveLength(1)
+    expect(result[0].members).toEqual([
+      { camper_id: 'c1', camper_name: 'Camper A', group_name: 'Bunk Alpha', day: 'Monday', time_block: 'Period 1', count: 3 },
+      { camper_id: 'c1', camper_name: 'Camper A', group_name: 'Bunk Alpha', day: 'Wednesday', time_block: 'Period 1' },
+      { camper_id: 'c2', camper_name: 'Camper B', group_name: 'Bunk Alpha', day: 'Monday', time_block: 'Period 1' },
+    ])
   })
 
   it('every assignment appears exactly once across the roster (count sums to total elective rows minus linked-choice collapsing)', () => {
@@ -96,7 +128,7 @@ describe('buildActivityRosterExport', () => {
       capacityRows: [],
     })
 
-    expect(result[0].members).toEqual([{ camper_id: 'ghost', camper_name: null, group_name: null }])
+    expect(result[0].members).toEqual([{ camper_id: 'ghost', camper_name: null, group_name: null, day: 'Monday', time_block: 'Period 1', count: 1 }])
   })
 })
 

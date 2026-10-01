@@ -97,4 +97,58 @@ describe('buildElectiveRunWorkbook', () => {
     expect(values).not.toContain(payload)
     expect(values).toContain(`'${payload}`)
   })
+
+  // ORGANIZER RULING — count ONCE on the anchor row, each member row shows its
+  // OWN day. Pins the actual rendered SHEET CELLS (not the intermediate JS
+  // object), via sheet_to_json row access, so a reconciliation break between
+  // the builder and the AOA writer would be caught here too.
+  // Round 3 correction (F1, Verifier BLOCKING) — a clustered member contributes
+  // ONE ROSTER ROW PER OCCURRENCE, each carrying that occurrence's own day/time
+  // block; a joined cell ("Monday, Wednesday") broke the JSON<->XLSX parity
+  // invariant (§6(11)'s acceptance test), since both artifacts are built from
+  // this one export.
+  it('Activity Roster: Count is populated on the FIRST physical row of the group only, and each bundle OCCURRENCE is its own row with its OWN day/time block', () => {
+    const fx = fixture()
+    fx.campers = [
+      { id: 'c1', display_name: 'Camper A', group_id: 'g1' },
+      { id: 'c2', display_name: 'Camper B', group_id: 'g1' },
+    ]
+    fx.days = [{ id: 'd1', name: 'Monday' }, { id: 'd2', name: 'Wednesday' }]
+    fx.timeBlocks = [{ id: 't1', name: 'Period 1' }]
+    // c1 attends BOTH bundle days; c2 attends only the first — a linked choice
+    // cluster whose two members genuinely show different days.
+    fx.outerRows = [
+      { camperId: 'c1', dayId: 'd1', timeBlockId: 't1', cellKind: 'elective', activityId: 'a1', activityName: 'Ropes', isLinkedChoice: true, choiceId: 'ch-bundle', choiceLabel: 'Ropes' },
+      { camperId: 'c1', dayId: 'd2', timeBlockId: 't1', cellKind: 'elective', activityId: 'a1', activityName: 'Ropes', isLinkedChoice: true, choiceId: 'ch-bundle', choiceLabel: 'Ropes' },
+      { camperId: 'c2', dayId: 'd1', timeBlockId: 't1', cellKind: 'elective', activityId: 'a1', activityName: 'Ropes', isLinkedChoice: true, choiceId: 'ch-bundle', choiceLabel: 'Ropes' },
+    ]
+    const workbook = buildElectiveRunWorkbook(fx)
+    const sheet = workbook.Sheets['Activity Roster']
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true })
+    const header = rows[0]
+    expect(header).toEqual(['Day', 'Time Block', 'Activity', 'Camper', 'Group', 'Count', 'Capacity'])
+
+    const dayIdx = header.indexOf('Day')
+    const camperIdx = header.indexOf('Camper')
+    const countIdx = header.indexOf('Count')
+    const body = rows.slice(1)
+    const c1Rows = body.filter((r) => r[camperIdx] === 'Camper A')
+    const c2Rows = body.filter((r) => r[camperIdx] === 'Camper B')
+
+    // Camper A gets TWO rows (one per occurrence); Camper B gets one.
+    expect(c1Rows).toHaveLength(2)
+    expect(c2Rows).toHaveLength(1)
+
+    // Count: the FIRST physical row of the whole group only — assignment
+    // grain (3), not member/row count (3 rows, which happens to coincide
+    // here, but the field is never printed on the other two rows).
+    expect(c1Rows[0][countIdx]).toBe(3)
+    expect(c1Rows[1][countIdx]).toBe('')
+    expect(c2Rows[0][countIdx]).toBe('')
+
+    // Each row carries ITS OWN day — never joined.
+    expect(c1Rows[0][dayIdx]).toBe('Monday')
+    expect(c1Rows[1][dayIdx]).toBe('Wednesday')
+    expect(c2Rows[0][dayIdx]).toBe('Monday')
+  })
 })

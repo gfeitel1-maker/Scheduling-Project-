@@ -87,7 +87,7 @@ const DRAFT_RUN = {
 }
 const FINAL_RUN = {
   ...DRAFT_RUN, id: 'run-2', name: 'Elective assignment — 2026-09-20', status: 'final',
-  finalized_at: '2026-09-24T14:05:00.000Z', finalized_by: 'user-director',
+  finalized_at: '2026-09-24T14:05:00.000Z', finalized_by: 'user-director', finalized_by_name: 'Testdirector Dana',
 }
 
 function rows(overrides = []) {
@@ -104,7 +104,7 @@ const CLEAN_RUN_STATE = {
   // a run is opened cold from the run list (unlike templateOccurrences, which
   // is AssignmentPanel React state and empty on that path).
   rows: rows(), staleCount: 0, finalizedAgainstStaleGeneration: false, overCapacityOccurrences: [],
-  occurrences: OCCURRENCES,
+  occurrences: OCCURRENCES, campers: CAMPERS,
 }
 
 function catalogs() {
@@ -214,6 +214,31 @@ describe('T250 A1 — Finalize run', () => {
     expect(within(row.closest('[role="alert"]')).queryByRole('button')).toBeNull()
   })
 
+  // C2 — findRouteConflicts (src/engine/routeConflicts.js) findings carry NO
+  // `.message`, only locationName/dayId/blockId/capacity/occupants. The
+  // findings LIST used to fall through to the raw `.kind`, printing
+  // "OUTER_RESOURCE_CONFLICT" verbatim for every conflict. It must now name
+  // the location, the day/period, and the colliding activities instead.
+  it('a REAL (no-.message) OUTER_RESOURCE_CONFLICT finding names the location, day/period, and colliding activities — never the raw kind code', async () => {
+    localClient.finalizeElectiveRun.mockResolvedValue({
+      ok: false, error: 'OUTER_RESOURCE_CONFLICT',
+      findings: [{
+        kind: 'OUTER_RESOURCE_CONFLICT', locationId: 'loc-1', locationName: 'Boathouse',
+        dayId: 'day-1', blockId: 'tb-1', capacity: 1,
+        occupants: [{ groupId: 'g1', cohortId: null, label: 'Canoeing', sourceKind: 'activity', sourceId: 'act-1' },
+                    { groupId: 'g2', cohortId: null, label: 'Kayaking', sourceKind: 'activity', sourceId: 'act-2' }],
+      }],
+    })
+    render(<DraftRunView run={DRAFT_RUN} onFinalized={vi.fn()} {...catalogs()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Finalize run' }))
+    const row = await screen.findByTestId('run-state-finalize-refusal')
+    expect(row.textContent).toContain('Boathouse')
+    expect(row.textContent).toContain('Monday')
+    expect(row.textContent).toContain('Canoeing')
+    expect(row.textContent).toContain('Kayaking')
+    expect(row.textContent).not.toContain('OUTER_RESOURCE_CONFLICT')
+  })
+
   it('ALREADY_FINAL reloads and transitions to the finalized run', async () => {
     localClient.finalizeElectiveRun.mockResolvedValue({ ok: false, error: 'ALREADY_FINAL' })
     const onFinalized = vi.fn()
@@ -255,6 +280,83 @@ describe('T250 A1 — Finalize run', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Finalize run' }))
     const row = await screen.findByRole('alert')
     await waitFor(() => expect(document.activeElement).toBe(row))
+  })
+
+  // F4 (Red Hat round 3) — via the Finalize button alone, a SECOND, DIFFERENT
+  // refusal already re-focuses correctly: finalizeRun() calls
+  // setFinalizeRefusal(null) before every attempt, which unmounts/remounts
+  // FinalizeRefusalRow and re-runs its mount effect regardless of the
+  // `[alert]` dependency array. Pinned here as a baseline, not the bug.
+  it('a SECOND, DIFFERENT refusal from a second Finalize click re-focuses', async () => {
+    localClient.finalizeElectiveRun.mockResolvedValueOnce({ ok: false, error: 'STALE_OUTER_SCHEDULE', findings: [] })
+    render(<DraftRunView run={DRAFT_RUN} onFinalized={vi.fn()} onRegenerate={vi.fn()} {...catalogs()} />)
+    const button = await screen.findByRole('button', { name: 'Finalize run' })
+    fireEvent.click(button)
+    const firstRow = await screen.findByRole('alert')
+    expect(firstRow.textContent).toMatch(/This run's schedule changed on another device/)
+    await waitFor(() => expect(document.activeElement).toBe(firstRow))
+
+    button.focus()
+    localClient.finalizeElectiveRun.mockResolvedValueOnce({ ok: false, error: 'OUTER_RESOURCE_CONFLICT', findings: [] })
+    fireEvent.click(button)
+    await waitFor(() => {
+      const row = screen.getByRole('alert')
+      expect(row.textContent).toMatch(/A location or activity this run depends on is now double-booked/)
+      expect(document.activeElement).toBe(row)
+    })
+  })
+
+  // F4 (Red Hat round 3) — THE REAL BUG, found by tracing which refusals
+  // share the SAME rendered shape. STALE_OUTER_SCHEDULE renders through a
+  // DIFFERENT branch (a wrapping <div> + its own paired action) than every
+  // other refusal (a bare <RunStateRow testId="run-state-finalize-refusal"
+  // first last alert />) — so a transition INTO or OUT OF STALE_OUTER_SCHEDULE
+  // changes the returned element's TYPE at that position, which React
+  // reconciles as an unmount+remount regardless of the `[alert]` dependency
+  // array (a mount always runs its effect). That accidentally masks the bug
+  // for that one transition.
+  //
+  // THE GENUINELY BROKEN PATH: guardedRegenerate's cold-status check
+  // (DraftRunView.jsx) calls `setFinalizeRefusal({ error:
+  // 'FINALIZED_ELSEWHERE', ... })` DIRECTLY, with no reset — and
+  // FINALIZED_ELSEWHERE renders through the SAME generic branch as e.g.
+  // OUTER_RESOURCE_CONFLICT. A director who sees an OUTER_RESOURCE_CONFLICT
+  // refusal and separately clicks the STALENESS OFFER's own "Re-derive and
+  // regenerate" button (a different control, reachable independent of the
+  // refusal row) can trigger guardedRegenerate's cold-check, which overwrites
+  // the SAME RunStateRow instance in place — same key, same `alert={true}`,
+  // never unmounted — so the mount effect never re-fires and neither
+  // announcement nor focus move happens.
+  it('OUTER_RESOURCE_CONFLICT -> FINALIZED_ELSEWHERE via the staleness offer\'s regenerate (same row instance, no reset) re-focuses too', async () => {
+    localClient.getElectiveRun.mockResolvedValue({ ...CLEAN_RUN_STATE, staleCount: 1 })
+    localClient.finalizeElectiveRun.mockResolvedValueOnce({ ok: false, error: 'OUTER_RESOURCE_CONFLICT', findings: [] })
+    localClient.listElectiveRuns.mockResolvedValue([{ ...DRAFT_RUN, status: 'final' }])
+    const onFinalized = vi.fn()
+    render(<DraftRunView run={DRAFT_RUN} onFinalized={onFinalized} onRegenerate={vi.fn()} coldRegenerate {...catalogs()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Finalize run' }))
+    const firstRow = await screen.findByRole('alert')
+    expect(firstRow.textContent).toMatch(/A location or activity this run depends on is now double-booked/)
+    await waitFor(() => expect(document.activeElement).toBe(firstRow))
+
+    // Move focus AWAY and CONFIRM it moved — fireEvent.click does not
+    // simulate a real browser's focus-follows-click, so without this
+    // explicit step and assertion, a later "focus is back on the row" check
+    // could pass vacuously because focus never actually left it.
+    firstRow.blur()
+    expect(document.activeElement).not.toBe(firstRow)
+
+    // THE STALENESS OFFER's OWN regenerate button — a separate control from
+    // the (button-less) OUTER_RESOURCE_CONFLICT refusal row — triggers the
+    // SAME guardedRegenerate cold-check.
+    const offer = await screen.findByTestId('run-staleness-offer')
+    fireEvent.click(within(offer).getByRole('button', { name: /Re-derive and regenerate/i }))
+
+    await waitFor(() => {
+      const row = screen.getByRole('alert')
+      expect(row.textContent).toMatch(/finalized on another device while you had it open/i)
+      expect(document.activeElement).toBe(row)
+    })
   })
 })
 
@@ -439,7 +541,7 @@ describe('T250 B1 — a mixed findings array renders each kind with its own sent
     },
   ]
 
-  it('renders the dangling sentence for DANGLING_MANUAL_ASSIGNMENT, and each OTHER finding under its own verbatim message, one row per finding, no action button', async () => {
+  it('renders the dangling sentence for DANGLING_MANUAL_ASSIGNMENT, each OTHER non-bundle finding under its own verbatim message, and the bundle finding GROUPED, one row per finding/group, no action button', async () => {
     localClient.getElectiveRun.mockResolvedValue({
       ...CLEAN_RUN_STATE,
       danglingFindings: [mixed[0]],
@@ -455,13 +557,54 @@ describe('T250 B1 — a mixed findings array renders each kind with its own sent
     expect(prefRow.textContent).toBe('This file still lists a preference you removed by hand, so it was not added back.')
     expect(within(prefRow).queryByRole('button')).toBeNull()
 
-    const bundleRow = screen.getByTestId('run-state-notice-camper-2-Sports Bundle')
-    expect(bundleRow.textContent).toBe('Testcamper Bravo ranked “Sports Bundle”, which a bundle claims for specific divisions only.')
+    // C1 — BUNDLE_TIER_NOT_COVERED is now GROUPED by (label, tier), rendered
+    // with this screen's own sentence (not the finding's raw .message), and
+    // the camper's name is reachable behind the disclosure.
+    const bundleRow = screen.getByTestId('run-state-bundle-mismatch-Sports Bundle-tier-1')
+    expect(bundleRow.textContent).toMatch(/"Sports Bundle" does not cover Juniors — 1 camper kept their request as an ordinary choice\./)
     expect(within(bundleRow).queryByRole('button')).toBeNull()
+    // The named camper is reachable (in the DOM, behind the disclosure) even
+    // though the finding's own raw .message is no longer printed verbatim.
+    expect(within(bundleRow).getAllByText('Testcamper Bravo').length).toBeGreaterThan(0)
 
-    // Exactly one row per finding — no collision, no dropped row.
+    // Exactly one row per finding/group — no collision, no dropped row.
     const area = screen.getByTestId('run-state-area')
     expect(area.querySelectorAll('[data-testid^="run-state-"][role]')).toHaveLength(3)
+  })
+
+  // The grouping's whole point: many near-identical findings for the SAME
+  // (label, tier) pair collapse to ONE row, and the count printed in the
+  // sentence matches the number of names actually reachable in the DOM —
+  // grouping may compress repetition but must never drop a name (Art. V).
+  it('collapses many findings for the same (label, tier) into ONE row, and the sentence count equals the names rendered', async () => {
+    const many = [
+      { kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'camper-1', label: 'Ropes' },
+      { kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'camper-2', label: 'Ropes' },
+      { kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'camper-3', label: 'Ropes' },
+    ]
+    localClient.getElectiveRun.mockResolvedValue({ ...CLEAN_RUN_STATE, danglingFindings: [] })
+    render(<DraftRunView run={DRAFT_RUN} danglingFindings={many} {...catalogs()} />)
+
+    const area = await screen.findByTestId('run-state-area')
+    const bundleRows = [...area.querySelectorAll('[data-testid^="run-state-bundle-mismatch-"]')]
+    expect(bundleRows).toHaveLength(1)
+    const row = bundleRows[0]
+    expect(row.textContent).toMatch(/3 campers kept their request as an ordinary choice/)
+    for (const name of ['Testcamper Alpha', 'Testcamper Bravo', 'Testcamper Charlie']) {
+      expect(within(row).getByText(name)).toBeTruthy()
+    }
+  })
+
+  // Owner/organizer ruling, 2026-09-30 — Finalize sits ABOVE the findings list
+  // (contradicting the spec's original fixed layout order, amended with a
+  // dated note). Pins the DOM order so a future edit cannot silently revert it.
+  it('places the Finalize actions band ABOVE the run-state area', async () => {
+    localClient.getElectiveRun.mockResolvedValue({ ...CLEAN_RUN_STATE, danglingFindings: [mixed[0]] })
+    render(<DraftRunView run={DRAFT_RUN} danglingFindings={mixed} {...catalogs()} />)
+    const button = await screen.findByRole('button', { name: 'Finalize run' })
+    const area = await screen.findByTestId('run-state-area')
+    // DOCUMENT_POSITION_FOLLOWING means `area` comes AFTER `button` in the DOM.
+    expect(button.compareDocumentPosition(area) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   // Round 2 FIX 5(a) (Code Reviewer, LOW) — a commitNotices row rendered
@@ -469,13 +612,84 @@ describe('T250 B1 — a mixed findings array renders each kind with its own sent
   // `.message` (any future OTHER kind BUNDLE_TIER_NOT_COVERED-shaped kind
   // commitElectiveRun ever adds) renders a BLANK row instead of something a
   // director can read. Same fallback shape FinalizeFindingsList already uses.
-  it('falls back to kind, then JSON, for a commit notice with no .message — never a blank row', async () => {
+  // F6 (Code Reviewer round 3) — commitNotices now routes through the SAME
+  // copy table (runStateCopy.js's finalizeFindingMessage) the Finalize
+  // refusal surface uses (C2). A raw kind code reaching this ALWAYS-VISIBLE
+  // run-state area is the same board-item-9b defect class as the refusal
+  // row's own fix; this test used to PIN the raw-code fallback as correct
+  // and now pins its replacement — a plain-language sentence, never the kind
+  // or JSON. "Never a blank row" (the half this guard still protects) still
+  // holds: the row has visible text either way.
+  it('degrades to a plain-language sentence for a commit notice with no .message — never a raw kind code, never JSON, never a blank row', async () => {
     render(<DraftRunView run={DRAFT_RUN} danglingFindings={[
       { kind: 'SOME_FUTURE_KIND', camper_id: 'camper-9' },
     ]} {...catalogs()} />)
 
     const row = await screen.findByTestId('run-state-notice-camper-9-SOME_FUTURE_KIND')
-    expect(row.textContent).toBe('SOME_FUTURE_KIND')
+    expect(row.textContent).not.toBe('')
+    expect(row.textContent).not.toContain('SOME_FUTURE_KIND')
+    expect(row.textContent).not.toMatch(/^\{/)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// (C)(4) — owner/organizer scope addition, "defaults are fine": a camper on
+// this run's sheet with no ranked choice and no placement (sheetOnlyCampers,
+// electron/ops/getElectiveRun.js — deliberately excluded from
+// eligibilityFindings per T320 part 2 item 3, surfaced here instead) must be
+// NAMED, same treatment as the grouped BUNDLE_TIER_NOT_COVERED row: one row,
+// the count, names behind the same disclosure idiom. Names resolve through
+// `state.campers`, which the run view already holds — no new IPC.
+// ---------------------------------------------------------------------------
+describe('(C)(4) sheetOnlyCampers — named, not just counted', () => {
+  it('names every sheet-only camper behind a disclosure, with the sentence count equal to the names rendered', async () => {
+    localClient.getElectiveRun.mockResolvedValue({
+      ...CLEAN_RUN_STATE,
+      sheetOnlyCampers: ['camper-1', 'camper-2'],
+    })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+
+    const row = await screen.findByTestId('run-state-sheet-only-campers')
+    expect(row.textContent).toMatch(/2 campers on this run's sheet have no ranked choice and no placement/)
+    for (const name of ['Testcamper Alpha', 'Testcamper Bravo']) {
+      expect(within(row).getByText(name)).toBeTruthy()
+    }
+  })
+
+  it('uses singular wording for exactly one sheet-only camper, and shows their name directly', async () => {
+    localClient.getElectiveRun.mockResolvedValue({
+      ...CLEAN_RUN_STATE,
+      sheetOnlyCampers: ['camper-3'],
+    })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+
+    const row = await screen.findByTestId('run-state-sheet-only-campers')
+    expect(row.textContent).toMatch(/1 camper on this run's sheet has no ranked choice and no placement/)
+    expect(within(row).getAllByText('Testcamper Charlie').length).toBeGreaterThan(0)
+  })
+
+  it('renders no row at all when there are no sheet-only campers — no banner for the clean case', async () => {
+    localClient.getElectiveRun.mockResolvedValue({ ...CLEAN_RUN_STATE, sheetOnlyCampers: [] })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+    await screen.findByTestId('run-satisfaction-summary')
+    expect(screen.queryByTestId('run-state-sheet-only-campers')).toBeNull()
+  })
+
+  // M1 (Red Hat round 4) — camperById.get(id)?.display_name ?? id printed a
+  // raw camper UUID for a camper deleted after an earlier generation (the
+  // sheet named them, but their campers row is gone). Same truthful-degrade
+  // rule groupBundleTierNotCoveredFindings already applies (C1/F5).
+  it('degrades truthfully — never a raw camper UUID — when a sheet-only camper\'s row no longer exists', async () => {
+    localClient.getElectiveRun.mockResolvedValue({
+      ...CLEAN_RUN_STATE,
+      sheetOnlyCampers: ['camper-1', 'deleted-camper-id-ghost'],
+    })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+
+    const row = await screen.findByTestId('run-state-sheet-only-campers')
+    expect(row.textContent).toContain('Testcamper Alpha')
+    expect(row.textContent).not.toContain('deleted-camper-id-ghost')
+    expect(row.textContent).toContain('a camper who is no longer on the roster')
   })
 })
 
@@ -690,10 +904,23 @@ describe('T250 archive_when — Final: read-only run identity', () => {
     expect(identity.textContent).toMatch(/Week 2/)
     expect(identity.textContent).toMatch(/Juniors/)
     expect(identity.textContent).toMatch(/2026-09-24/)
-    expect(identity.textContent).toMatch(/user-director/)
+    // C3 — the finalizing user's DISPLAY NAME, never the raw user id.
+    expect(identity.textContent).toMatch(/Testdirector Dana/)
+    expect(identity.textContent).not.toMatch(/user-director/)
     expect(identity.textContent).toMatch(/Final/)
     // Immutable: no move/lock table on a Final run.
     expect(screen.queryByTestId('placement-row-a1')).toBeNull()
+  })
+
+  // C3 (board item 9b) — finalized_by_name is absent (the users row is gone,
+  // or this is a legacy pre-C3 read) but finalized_by is still set: a
+  // director fact still happened, so the clause stays, truthfully degraded
+  // to "a director" rather than a raw id or a dropped clause.
+  it('falls back to "a director" when finalized_by is set but finalized_by_name did not resolve', async () => {
+    render(<FinalRunView run={{ ...FINAL_RUN, finalized_by_name: undefined }} campers={CAMPERS} {...catalogs()} />)
+    const identity = await screen.findByTestId('run-identity')
+    expect(identity.textContent).toMatch(/by a director/)
+    expect(identity.textContent).not.toMatch(/user-director/)
   })
 
   // Round 2 FIX 5(d) (Code Reviewer, LOW) — DraftRunView's own success

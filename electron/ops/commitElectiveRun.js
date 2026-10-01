@@ -446,11 +446,20 @@ export function commitElectiveRun(db, {
   // assignment loop has only the canonical key ("archery"), so keying on
   // whichever the caller happened to pass would let one camper's single problem
   // be reported twice.
-  const noteMismatch = (camperId, labelKey, label) => {
+  // Round 3 (Red Hat F3) — `tierId` carries the SAME value
+  // `resolveWriteChoiceId` just resolved for this exact camper+label, so the
+  // finding's grouping never has to re-derive it later against a possibly-
+  // different snapshot of the camper's roster row (an empty-division-cell
+  // camper's commit-time division_label write happens in the SAME
+  // transaction, after this resolution — re-deriving at render time against
+  // the now-written-null value silently falls through to the camper's GROUP
+  // tier instead, which can name a different division than the one this
+  // mismatch was actually generated against).
+  const noteMismatch = (camperId, labelKey, label, tierId) => {
     const dedupeKey = `${camperId}::${labelKey}`
     if (bundleTierMismatchKeys.has(dedupeKey)) return
     bundleTierMismatchKeys.add(dedupeKey)
-    bundleTierMismatches.push({ camperId, label })
+    bundleTierMismatches.push({ camperId, label, tierId: tierId ?? null })
   }
   // The rows that already exist, read ONCE. The inline per-row existence check
   // this replaces compiled a statement per parsed preference inside the
@@ -486,7 +495,12 @@ export function commitElectiveRun(db, {
     if (!bundleByTier) return { choiceId: choiceIdByKey.get(labelKey) ?? null }
     const camperTierId = identity.tierIdOf(camperId)
     const choiceId = camperTierId != null ? bundleByTier.get(camperTierId) : undefined
-    return choiceId ? { choiceId } : { choiceId: choiceIdByKey.get(labelKey) ?? null, mismatch: true }
+    // Round 3 (Red Hat F3) — `tierId` is the tier THIS RESOLUTION actually
+    // used (identity.tierIdOf, called ONCE, right here), carried onto the
+    // mismatch so a caller never has to re-derive it later against a
+    // different snapshot of the same camper's roster row. See noteMismatch's
+    // own comment for why re-deriving at render time was a real bug.
+    return choiceId ? { choiceId } : { choiceId: choiceIdByKey.get(labelKey) ?? null, mismatch: true, tierId: camperTierId }
   }
 
   // WHICH BUNDLE-CLAIMED LABELS STILL NEED A PLAIN CHOICE ROW, decided before
@@ -656,7 +670,7 @@ export function commitElectiveRun(db, {
         // a fact about the bundle, not a reason to forget what they asked for.
         // Both halves, always: the row AND the finding.
         const resolved = resolveWriteChoiceId(p.labelKey, p.camper_id)
-        if (resolved.mismatch) noteMismatch(p.camper_id, p.labelKey, p.label ?? p.labelKey)
+        if (resolved.mismatch) noteMismatch(p.camper_id, p.labelKey, p.label ?? p.labelKey, resolved.tierId)
         const choiceId = resolved.choiceId
         if (!choiceId) throw new Error(`preference names a choice the sheet did not list: ${p.labelKey}`)
         // Backstop for describeElectiveRunRefusal's "malformed" check above:
@@ -766,21 +780,34 @@ export function commitElectiveRun(db, {
         // tier cannot resolve. The acceptance fixture's own "Younger"-division
         // camper hit exactly this and a hard throw failed the whole commit —
         // turning an ordinary roster gap into a director-facing outage. So
-        // this mirrors the PREFERENCE loop's posture instead: skip the
-        // choice_id (null, exactly the pre-fix value for this one case,
-        // never for the now-correctly-resolved majority), keep the placement
-        // (it is real — the camper WAS put there), and say so via the same
-        // BUNDLE_TIER_NOT_COVERED finding the preference loop already emits,
-        // deduped so a camper hitting this on both a preference and an
-        // assignment for the same label is told once.
+        // this mirrors the PREFERENCE loop's posture instead: keep the
+        // placement (it is real — the camper WAS put there), and say so via
+        // the same BUNDLE_TIER_NOT_COVERED finding the preference loop
+        // already emits, deduped so a camper hitting this on both a
+        // preference and an assignment for the same label is told once.
+        //
+        // BOARD ITEM 9b round 2 — `choice_id` now binds to `resolved.choiceId`
+        // UNCONDITIONALLY, the same value the preference loop above wrote for
+        // this camper+label, rather than being nulled out on a mismatch. That
+        // id IS the on-demand flat choice `resolveWriteChoiceId` mints for a
+        // bundle-claimed label a camper's tier doesn't reach (see
+        // `labelsNeedingFlatChoice` above) — binding to it, not discarding it,
+        // is what lets the assignment↔preference join (buildPreferenceLookup,
+        // src/screens/elective/run/camperElectiveWeek.js) find the camper's
+        // own rank instead of rendering the unordered bucket for a rank-1
+        // request. `resolved.choiceId` is still genuinely null for an
+        // assignment-only mismatch (a solver fallback placement for a camper
+        // who never ranked this label at all): `labelsNeedingFlatChoice` is
+        // computed from preferences only, so no flat choice was ever minted
+        // to bind to, and null is the correct, not a leftover, answer there.
         const resolved = resolveWriteChoiceId(a.labelKey, a.camper_id)
-        if (resolved.mismatch) noteMismatch(a.camper_id, a.labelKey, a.labelKey)
+        if (resolved.mismatch) noteMismatch(a.camper_id, a.labelKey, a.labelKey, resolved.tierId)
         write('elective_assignments', assignmentId, {
           run_id: runId,
           occurrence_id: a.occurrence_id,
           camper_id: a.camper_id,
           activity_id: a.activity_id,
-          choice_id: resolved.mismatch ? null : resolved.choiceId,
+          choice_id: resolved.choiceId,
           preference_rank: a.preference_rank ?? null,
           source: 'solver',
           solver_generation: solverGeneration,
@@ -911,6 +938,11 @@ export function commitElectiveRun(db, {
         kind: 'BUNDLE_TIER_NOT_COVERED',
         camper_id: m.camperId,
         label: m.label,
+        // Round 3 (Red Hat F3) — the tier THIS COMMIT actually resolved for
+        // this camper, carried on the finding so a grouping screen never has
+        // to re-derive it later (see noteMismatch's own comment for why
+        // re-deriving is a real bug, not a hypothetical one).
+        tier_id: m.tierId ?? null,
         message:
           // BOARD ITEM 9b — the tail ("could not be resolved to the bundle's
           // choice") became FALSE the moment the ranking was kept. A message

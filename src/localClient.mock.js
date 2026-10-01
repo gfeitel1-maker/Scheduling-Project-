@@ -28,6 +28,18 @@ import { deriveElectiveRunFindingId } from '../electron/ops/deriveElectiveRunFin
 import { resolveImportedPlacements } from '../electron/ops/resolveImportedPlacements.js'
 import { deriveScheduleTemplateId } from '../electron/ops/scheduleTemplateId.js'
 import { hasContradictoryRanks } from './ingest/preferenceSheet.js'
+// F8 (board item 9b round 3) — the SAME pure validator
+// electron/ops/electiveRunResourceConflicts.js calls, so the mock's
+// OUTER_RESOURCE_CONFLICT refusal cannot drift from the real one. Both sides
+// of the src/-may-import-src exception this file already relies on
+// throughout (buildPlan, resolveImportedPlacements, etc.).
+import { findRouteConflicts } from './engine/routeConflicts.js'
+// F8 (board item 9b round 3) — the ONE camper-tier resolution rule
+// (division_label beats the roster group's tier), reused rather than
+// re-derived, so the mock's BUNDLE_TIER_NOT_COVERED finding cannot disagree
+// with the real one.
+import { makeCamperIdentityResolver } from '../electron/ops/camperElectiveIdentity.js'
+import { electiveChoiceLabelKey } from '../electron/ops/electiveDerivedIds.js'
 import { coordinateOf, sameDayLabel, samePeriodLabel } from './ingest/preferenceCoordinateKeys.js'
 
 import { parseDayOfWeek } from '../electron/ops/dayId.js'
@@ -1909,6 +1921,14 @@ export const mockShoresh = {
       }
     }
     const state = loadState()
+    // M2 (Red Hat round 4) — captured BEFORE `state.campers = parsed.campers
+    // ?? []` below overwrites it, so the bundle-mismatch resolution further
+    // down (which runs AFTER that overwrite) can still pass the PRE-commit
+    // roster to makeCamperIdentityResolver as `rosterCampers` — the same
+    // argument electron/ops/commitElectiveRun.js passes. Without this, a
+    // sheet with a blank Division cell for a camper who already has one on
+    // the roster resolves differently here than in Electron.
+    const rosterCampersForIdentity = state.campers || []
     const existing = (state.elective_assignment_runs || []).find((r) => r.id === providedRunId)
     // T320 part 2 item 2 parity — without this, browser-dev lets a regenerate
     // through that electron:dev refuses, which is the exact divergence the
@@ -1980,6 +2000,41 @@ export const mockShoresh = {
           }
         }),
     ]
+    // F8 (board item 9b round 3) — BUNDLE_TIER_NOT_COVERED parity. The mock
+    // had NO concept of elective_bundles at all, so this finding (and
+    // DraftRunView's whole C1 grouped-mismatch row) could never be reached
+    // through browser-dev. Mirrors the ONE resolution rule
+    // (camperElectiveIdentity.js's makeCamperIdentityResolver — division
+    // beats the roster group's tier), deliberately scoped to scope_mode
+    // 'only' (the common case this mock needs to demonstrate); 'except'
+    // mode is not modeled here — a real gap worth closing if browser-dev
+    // ever needs to demonstrate that scope too, not silently guessed at.
+    const bundleTierMismatches = []
+    const bundles = state.elective_bundles || []
+    if (bundles.length > 0) {
+      const identity = makeCamperIdentityResolver({
+        sheetCampers: parsed.campers ?? [], rosterCampers: rosterCampersForIdentity,
+        groups: state.groups || [], tiers: state.tiers || [],
+      })
+      const bundleTiersByBundleId = new Map()
+      for (const bt of (state.elective_bundle_tiers || [])) {
+        if (!bundleTiersByBundleId.has(bt.bundle_id)) bundleTiersByBundleId.set(bt.bundle_id, new Set())
+        bundleTiersByBundleId.get(bt.bundle_id).add(bt.tier_id)
+      }
+      const bundleByLabelKey = new Map(
+        bundles.filter((b) => b.scope_mode === 'only').map((b) => [electiveChoiceLabelKey(b.name), b])
+      )
+      for (const pr of (parsed.preferences ?? [])) {
+        const bundle = bundleByLabelKey.get(pr.labelKey)
+        if (!bundle) continue
+        const coveredTiers = bundleTiersByBundleId.get(bundle.id) ?? new Set()
+        const camperTierId = identity.tierIdOf(pr.camper_id)
+        if (camperTierId != null && coveredTiers.has(camperTierId)) continue
+        bundleTierMismatches.push({
+          kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: pr.camper_id, label: pr.label ?? pr.labelKey, tier_id: camperTierId ?? null,
+        })
+      }
+    }
     // T320 part 2 item 3 parity — the run's camper universe. One finding row per
     // sheet camper this commit has neither a preference nor an assignment for,
     // so browser-dev's getElectiveRun widens exactly as production's does. The
@@ -2020,7 +2075,10 @@ export const mockShoresh = {
       // elective_occurrences, which THIS commit's full-replace of
       // elective_occurrences already produces correct input for — so the
       // mock's DraftRunView still shows the row, just not from this field.
-      findings: [],
+      // F8 — BUNDLE_TIER_NOT_COVERED mismatches computed above are the one
+      // kind this mock DOES compute at commit time (unlike
+      // DANGLING_MANUAL_ASSIGNMENT, degraded to [] per the comment above).
+      findings: bundleTierMismatches,
       counts: {
         campers: parsed.campers?.length ?? 0,
         choices: parsed.choices?.length ?? 0,
@@ -2029,8 +2087,19 @@ export const mockShoresh = {
       },
     }
   },
+  // C3 (board item 9b) — mirrors electron/main.js's listElectiveRunsHandler
+  // read-side LEFT JOIN: `finalized_by_name` off `state.users`, so browser-dev
+  // (what Tester drives) matches electron:dev rather than the raw id reaching
+  // RunIdentity. `?? null`, never left undefined — a run naming no users row
+  // (the row is gone, or this is a legacy run) resolves to null, same as the
+  // real SQL LEFT JOIN's no-match NULL.
   async listElectiveRuns() {
-    return loadState().elective_assignment_runs || []
+    const state = loadState()
+    const nameByUserId = new Map((state.users || []).map((u) => [u.id, u.name]))
+    return (state.elective_assignment_runs || []).map((r) => ({
+      ...r,
+      finalized_by_name: r.finalized_by ? nameByUserId.get(r.finalized_by) ?? null : null,
+    }))
   },
   // T244 — the shape changed from a bare array to an object
   // ({rows, staleCount, finalizedAgainstStaleGeneration, overCapacityOccurrences},
@@ -2154,6 +2223,40 @@ export const mockShoresh = {
     const run = (state.elective_assignment_runs || []).find((r) => r.id === runId)
     if (!run) return { ok: false, error: 'run not found' }
     if (run.status === 'final') return { ok: false, error: 'ALREADY_FINAL' }
+    // F8 (board item 9b round 3) — mirrors electron/ops/
+    // electiveRunResourceConflicts.js's mapTemplateSlot + findRouteConflicts
+    // call: scope this run's own template_slots to its own occurrences'
+    // (day, block) cells, map to the shape findRouteConflicts expects, and
+    // refuse BEFORE writing 'final' when combined occupancy at any
+    // location/day/block exceeds that location's capacity. Mock/seed
+    // behavior only — no production (electron) code touched.
+    const cellKeys = new Set(
+      (state.elective_occurrences || [])
+        .filter((o) => o.run_id === runId)
+        .map((o) => `${o.day_id}|${o.time_block_id}`)
+    )
+    const scopedSlots = (run.schedule_template_id != null
+      ? (state.template_slots || []).filter((s) => s.template_id === run.schedule_template_id)
+      : []
+    )
+      .filter((s) => cellKeys.has(`${s.day_id}|${s.time_block_id}`))
+      .map((s) => ({
+        groupId: s.group_id, cohort_id: null, dayId: s.day_id, blockId: s.time_block_id,
+        ...(s.elective_set_id != null ? { type: 'elective', electiveSetId: s.elective_set_id }
+          : s.event_id != null ? { type: 'event', eventId: s.event_id }
+          : s.is_anchor ? { type: 'anchor', anchorId: s.anchor_id }
+          : s.activity_id != null ? { type: 'activity', activityId: s.activity_id }
+          : { type: null }),
+      }))
+    const conflicts = findRouteConflicts({
+      slots: scopedSlots,
+      activities: state.activities || [],
+      anchors: state.fixed_events || [],
+      electiveSetActivities: state.elective_set_activities || [],
+      events: state.events || [],
+      locations: state.locations || [],
+    })
+    if (conflicts.length > 0) return { ok: false, error: 'OUTER_RESOURCE_CONFLICT', findings: conflicts }
     const finalizedAt = new Date().toISOString()
     const { rows } = deriveMockOuterRows(state, run)
     state.elective_assignment_runs = (state.elective_assignment_runs || []).map((r) =>
