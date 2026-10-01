@@ -118,6 +118,16 @@ on it proceeds under the standards.
 
 Escalation is never a failure state. Rule 8 exists to be used.
 
+**Delegated ADR acceptance.** The owner, 2026-10-01, on an ADR drafted for an item he had already
+ruled on (verbatim): "this is again something that shouldn't necessarily need to wait on me." This
+is explicit current human instruction and, per Article I, outranks this article's default: when an
+ADR is drafted for a Build Board item the owner has already ruled on, and the ADR's decisions are
+defaults consistent with that ruling rather than a new product-direction choice, the organizer may
+accept the ADR on the owner's behalf, quoting this delegation on the Build Board item. The owner is
+told afterwards, in one line, and can reverse the acceptance at any time. This delegation does not
+extend to: product direction the owner has not already ruled on, a security or privacy posture
+change, spending, or reversing a prior owner ruling — those remain his alone, undelegated.
+
 ---
 
 ## Article V — What this product is
