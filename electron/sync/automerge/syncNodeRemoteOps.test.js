@@ -1,8 +1,9 @@
 // @vitest-environment node
 //
 // Stage 5c (docs/work/plans/2026-09-06-stage5-live-wiring-design.md § 3, § 6): two in-process
-// syncNodes converge (same pattern as syncNode.test.js), and the synthesized `op_applied`-shaped
-// events the RECEIVING node's onRemoteOps callback gets are asserted structurally parseable by the
+// syncNodes converge (same pattern as syncNode.test.js), and the synthesized
+// `shoresh:op-applied`-shaped events (the live IPC event's shape, per
+// docDiffEvents.js) the RECEIVING node's onRemoteOps callback gets are asserted structurally parseable by the
 // same consumers' expectations as a hand-built op-log fixture would be, and are sanitized through
 // main.js's REAL sanitizeOpForIpc (reused verbatim, not reimplemented) before anything resembling
 // an IPC send would happen.

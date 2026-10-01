@@ -34,8 +34,9 @@ import { CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
 // director it did not arrive.
 //
 // This bound exists because of the failure mode the ADR calls out as the one
-// most likely to be got wrong: under the op-log, identity arrived in a single
-// `full_sync` message, so "logged in" and "has a camp" were the same instant.
+// most likely to be got wrong: under the retired WS transport, identity arrived
+// in a single `full_sync` message, so "logged in" and "has a camp" were the same
+// instant.
 // Under a CRDT they are two, and the gap between them is a real state a device
 // can get stuck in — approved, authenticated, and receiving nothing. A spinner
 // that hides that is worse than an error that names it (Constitution Article V:
@@ -363,8 +364,9 @@ export async function startJoinSession({
       // `camps.signing_public_key`, which arrives IN the document we are
       // waiting for. So the joining device admits the Host on the strength of
       // the login it just completed against that Host's real user table —
-      // the same human trust anchor (typed code, director approval, PIN) the
-      // op-log's full_sync already relied on. See transport.js's admitPeer for
+      // the same human trust anchor (typed code, director approval, PIN) that the
+      // retired op-log transport's `full_sync` relied on before the Stage 6
+      // cutover. See transport.js's admitPeer for
       // the full argument and its misuse boundary.
       //
       // T271 round 3: admitPeer bypasses onAuthenticate entirely (this device never processes an

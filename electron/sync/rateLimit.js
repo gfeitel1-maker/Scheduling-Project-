@@ -1,5 +1,13 @@
-// The two rate limits guarding the unauthenticated WebSocket surface, and the
-// one question they both reduce to.
+// The two rate limits guarding the unauthenticated side of the peer handshake,
+// and the one question they both reduce to. Both constants are live: their
+// consumer is the auth-over-libp2p gate (electron/sync/automerge/authGate.js,
+// which applies LOGIN_MIN_INTERVAL_MS to 'login' and PAIRING_RATE_MS to
+// 'pairing_request', keyed per peer, per device_id and per source).
+//
+// _Prior: "the unauthenticated WebSocket surface". The WS transport was deleted
+// at the Stage 6 cutover; the limits outlived it because the exposure they
+// address is a property of accepting pre-authentication messages from a peer, not
+// of any one transport._
 //
 // T26: this used to live inline in handleLogin as `Date.now() - last < 300`,
 // which made the behaviour untestable — the burst test had to race a real
@@ -12,11 +20,16 @@
 // Minimum spacing between 'login' messages accepted from a single connection.
 // This is a per-connection throttle, distinct from and in addition to the
 // per-name lockout inside attemptLogin. It exists because 'login' is reachable
-// with zero prior authentication (unlike acquire_lock/submit_op, which require
-// an already-authenticated ws.deviceId): a single connection hammering 'login'
-// in a tight loop drives synchronous better-sqlite3 calls on Node's
-// single-threaded event loop, starving every other connected device's
-// acquire_lock/submit_op responses and op_applied broadcasts. 300ms bounds
+// with zero prior authentication (unlike the document-sync protocol, which an
+// admitted peer only reaches after the handshake has bound it to a trusted
+// device): a single connection hammering 'login' in a tight loop drives
+// synchronous better-sqlite3 calls on Node's single-threaded event loop,
+// starving every other connected device's sync traffic. _Prior: that cost was
+// stated as starving "acquire_lock/submit_op responses and op_applied
+// broadcasts", and the authenticated comparison was "an already-authenticated
+// ws.deviceId" — all three names went with the WS transport at the Stage 6
+// cutover. The starvation argument is unchanged, because it is about the shared
+// event loop, not about which messages are queued behind it._ 300ms bounds
 // that risk while comfortably allowing a real user's retry-after-wrong-pin
 // flow (type PIN, get it wrong, retry).
 export const LOGIN_MIN_INTERVAL_MS = 300
