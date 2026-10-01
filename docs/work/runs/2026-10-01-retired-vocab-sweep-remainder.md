@@ -350,9 +350,89 @@ this feature.
 > A Grader FAIL ends the loop and escalates to the user. It never becomes another round
 > (`CONSTITUTION.md` Article VII, owner ruling 2026-10-01).
 
-## Blocking findings (confirmed in the tree by Grader)
+## Directed resolution (owner ruling)
+
+The owner read the escalation above and issued a directed resolution rather than
+authorising a round 2. Verbatim, board item `q-retired-vocab-sweep-remainder`,
+2026-10-01:
+
+> you tell them what to do with reference to the sweep of old vocab. i want this done.
+
+The organizer's directed option, which the owner accepted, was option **(a)**: fix
+the four false comments **plus** `electron/sync/automerge/syncEngineFlag.js`. "Done"
+means **zero comments that describe the retired layer as live**. The seven remaining
+string-literal occurrences **stay** — they are executable code, and changing them is
+outside a comment-only sweep.
+
+**This is not a round 2.** `round` stays **1**. A Grader FAIL ended the loop; what
+follows is the execution of a human instruction, and the Gates table, Verifier
+verdict, Grader score and Decision above are left exactly as the reviewers wrote
+them.
+
+**Base for this correction: `4fccca2e`.** The branch was rebased onto `origin/main`
+before the work; the nine prior commits replayed cleanly. The framing audit was
+re-run after the rebase to check whether the new main commits had changed the corpus:
+they had not. Pre-rebase and post-rebase runs are **identical** — 64 files, 238 raw
+matches, LIVE 52 / FRAMED 179 / UNFRAMED 7, work list **0**, and the per-(file,
+bucket) multiset compares equal. The AFTER table above therefore still stands
+unchanged, which is expected: all five corrected sites were already counted FRAMED
+(a `_Prior:` block frames the line regardless of whether the surrounding sentence is
+*true*), so correcting a false sentence cannot move a framing number. That is the
+clearest statement of the audit's limit — **it measures framing, never truth** — and
+is why these five were found by reading code, not by the script.
+
+### The five edits
+
+Each was verified by opening the code it describes, after the rebase, before a word
+was written. Where the truth is "nothing enforces this", the comment now says that.
+
+| # | site | what it now says | the code fact |
+|---|---|---|---|
+| 1 | `src/screens/ScheduleScreen.jsx` | The remote route covers **small merges only**: `dispatchRemoteOps` sends one `shoresh:op-applied` per field only at or below `REMOTE_OPS_COALESCE_THRESHOLD` (20); above it, a single `shoresh:full-sync-applied`. This screen subscribes to `onOpApplied` and nothing else, so a catch-up merge from an offline device delivers no event here and no reload — named as a **real gap**, with the `syncStarter.js` hop that owns the threshold added to the chain | `startupGuard.js`'s `dispatchRemoteOps` returns after the single `full-sync-applied` send above threshold; `onFullSyncApplied` exists in `src/localClient.js` and `electron/preload.js` and is never called by this screen; the dispatch call site is `syncStarter.js`'s `onRemoteOps` handler |
+| 2 | `electron/ops/deleteWeek.js` | `HOST ONLY` is marked **VOID**: nothing enforces it. The handler gates on the admin **role** alone and the delete **executes on whichever device the director is using**. Also: the op log does not replicate (appendOp's document mirror does), and nothing **broadcasts** the returned ops | `deleteWeekHandler` calls `requireAuthorized(..., 'schedule_weeks.delete')` and nothing else; no device-role gate is enforced anywhere under `electron/` or `src/`; `deleteRecord.js` records the same resolution; the handler returns only `ops_written: ops.length` |
+| 3 | `electron/ops/projections.test.js` | The old consequence is **false on both live paths**, so each is named: locally the `operations` insert and `applyProjection` share one transaction, so the FK throw **rolls the op row back** — nothing is recorded; on document replay there is **no op-log insert at all** | `appendOp` runs `body()` under `db.transaction` (or the enclosing `runAtomic` boundary when nested); `operations.js` states the no-insert precondition for the projector path explicitly |
+| 4 | `src/hooks/useDeviceMode.js` | `syncStarter.js`'s `onAuthRejected` handler performs the `shoresh:auth-rejected` send **itself**; `main.js` is named, in one clause, as a **separate** sender on the same channel with a different trigger (T228 locally-invalid sessions) | both sends exist and differ: `syncStarter.js`'s is inside the peer `onAuthRejected` handler, `main.js`'s is inside the `SESSION_INVALID_REASONS` branch of `requireAuthorized`. The `codeForAuthRejectedReason` mapping half of the old claim was correct and is kept |
+| 5 | `electron/sync/automerge/syncEngineFlag.js` | Marked **VOID**: there is no WS layer and no second engine to fall back onto. Selecting `oplog` today means writes land in local SQLite and the op log and **nothing replicates, with no error raised** — a silent single-device island until the variable is unset and the app restarted | `appendOp` and `appendBulkReplaceOp` early-return on `isOpLogEngine()` stamping `DOCUMENT_OUTCOME='engine-off'`; `syncStarter.js` returns on `!isAutomergeEngine()` and never starts a sync node; the value is read once at import |
+
+Edit 5 is the **owner-named addition**, not one of the four false comments, and is
+committed separately for that reason. It is also the clearest case of the audit's
+blind spot: `syncEngineFlag.js` **never appeared in the audit at all**, because its
+retired vocabulary is the phrase "the WS layer", which is not one of the detector's
+narrow identifier markers. A header can promise a deleted subsystem as a recovery
+route and score clean.
+
+No reasoning was deleted in any of the five (`WORK_RECORD_STANDARD.md` §2). Each
+prior reason is carried and corrected, and the two genuinely void claims (edits 2 and
+5) use T311's `⚠️ _Prior, and VOID` marker rather than the plain `_Prior:` form.
+
+### Gates for this correction
+
+Run in the foreground; raw output read, not assembled into a verdict.
+
+| Check | Result |
+|---|---|
+| espree token-stream comparison vs `4fccca2e` | `files=31 nonIdentical=0 parseErrors=0` |
+| comment-prefix proof over every changed `.js/.jsx/.mjs/.sql` | no output. The matcher carries a self-test that **rejects** a planted non-comment line and accepts all five comment forms, so a silent run is evidence rather than a possibly-broken filter — the first attempt at this script was silently inverted by a zsh pattern bug and flagged every comment line, which is how the self-test came to exist |
+| `npx eslint electron src scripts test` | exit **0** — 0 errors, 26 pre-existing warnings on untouched screens |
+| `npx vitest run --no-file-parallelism electron/ops/projections.test.js src/screens/ScheduleScreen.test.jsx` | exit **0** — 2 files, **126/126** passed |
+| `npm run check:governance` | exit 0 — **no blocking findings**; 1 pre-existing advisory (`platform-state-stale`) |
+| `git status --short` | clean |
+
+`npm run verify` and the full `npm run test` were excluded by the brief; CI remains
+the gate of record.
+
+## Blocking findings (confirmed in the tree by Grader) — ALL ADDRESSED 2026-10-01
 
 Each was independently opened against the code, not accepted from a report.
+
+**Status: findings 1-4 and both half-finished headers below were corrected under the
+owner's directed resolution above. They are kept in full, not deleted, because the
+finding is the reasoning for the correction (`WORK_RECORD_STANDARD.md` §2) — read each
+one as the diagnosis, and the "five edits" table above as what was done about it. One
+item listed here was NOT in the directed scope and remains open: `projectionRepair.test.js`
+still points at "applyRemoteOp's own existing catch comment" fifteen lines under a line
+stating `applyRemoteOp` was deleted. The owner's option (a) named four comments plus
+`syncEngineFlag.js`; this was not among them and was deliberately not swept in.**
 
 1. **`src/screens/ScheduleScreen.jsx:471-475` — FALSE, and *added* by this sweep.** The new text
    says the remote-write path reaches the renderer because `startupGuard.js` "sends
