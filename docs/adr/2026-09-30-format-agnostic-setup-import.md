@@ -636,3 +636,17 @@ import with an injected failure on row N leaves the database byte-identical to b
 import"). Part 2 final swaps all seven doors from the hard-stop-and-report loop onto that
 primitive once it lands. Until then, §4.9's "atomic" language describes the TARGET state this
 amendment is honest about not yet being true.
+
+### §4.9 primitive status (2026-10-01): `importSetupRows` has landed
+
+The `electron/ops/importSetupRows` primitive now exists and is proven: it writes a confirmed
+create/update row set inside a single `runAtomic` frame, so an unexpected mid-set throw rolls the
+whole import back (§4.9's acceptance criterion — "a fixture import with an injected failure on row N
+leaves the database byte-identical to before the import" — is exercised by
+`electron/ops/importSetupRows.test.js`, red-before-green against a non-atomic contrast). It validates
+each row's `action` (`create`/`update`) inside the frame and refuses anything else, naming the row, so
+a typo'd action cannot silently route a UNIQUE-entity create through the update path. It opens exactly
+one `runAtomic` frame and never nests one (the latent inner-discard leak, board item
+`i-nested-discard-leaks-queued-doc-writes`). **Still deferred:** Part 2 final — swapping the seven
+setup doors from their hard-stop-and-report loop onto this primitive — remains the follow-on, after
+T322 S3b.
