@@ -85,7 +85,7 @@ async function runCell({ size, engine }) {
   // set, one offering, one template_slots cell, and `size` campers in it — so
   // snapshot rows == campers, the axis being scaled.
   const campId = randomUUID()
-  db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Camp Perf', 'a'.repeat(64))
+  db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Camp Fixture', 'a'.repeat(64))
   await createUser(
     db,
     { camp_id: campId, name: 'Director', pin: '123400', role: 'admin' },

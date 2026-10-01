@@ -1,5 +1,5 @@
 import process from 'node:process'
-import { createEmptyDoc, applyWrite, applyWrites } from '/Users/gregfeitel/dev/shoresh/.claude/worktrees/elegant-hugle-bd9d3d/electron/automerge/campDocument.js'
+import { createEmptyDoc, applyWrite, applyWrites } from '../../../../electron/automerge/campDocument.js'
 import { randomUUID } from 'node:crypto'
 
 const mk = (n) => Array.from({ length: n }, (_, i) => ({

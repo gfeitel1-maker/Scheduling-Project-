@@ -1,5 +1,5 @@
 import process from 'node:process'
-import { createEmptyDoc, applyWrites } from '/Users/gregfeitel/dev/shoresh/.claude/worktrees/elegant-hugle-bd9d3d/electron/automerge/campDocument.js'
+import { createEmptyDoc, applyWrites } from '../../../../electron/automerge/campDocument.js'
 
 const mk = (n, prefix) => Array.from({ length: n }, (_, i) => ({
   entity: 'campers', entity_id: `${prefix}-${i}`, field: 'display_name', value: `Camper ${i}`,
