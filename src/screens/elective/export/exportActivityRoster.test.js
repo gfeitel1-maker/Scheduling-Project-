@@ -27,7 +27,7 @@ describe('buildActivityRosterExport', () => {
     expect(result).toHaveLength(1)
     expect(result[0]).toMatchObject({ day: 'Monday', time_block: 'Period 1', activity_name: 'Archery', count: 2, capacity: 5 })
     expect(result[0].members).toEqual([
-      { camper_id: 'c1', camper_name: 'Camper A', group_name: 'Bunk Alpha', day: 'Monday', time_block: 'Period 1' },
+      { camper_id: 'c1', camper_name: 'Camper A', group_name: 'Bunk Alpha', day: 'Monday', time_block: 'Period 1', count: 2 },
       { camper_id: 'c2', camper_name: 'Camper B', group_name: 'Bunk Alpha', day: 'Monday', time_block: 'Period 1' },
     ])
   })
@@ -67,7 +67,7 @@ describe('buildActivityRosterExport', () => {
     // ORGANIZER RULING — the member's OWN day/time_block, joined across their own
     // memberRows in order, so the bundle's OTHER day (previously invisible) shows.
     expect(result[0].members).toEqual([
-      { camper_id: 'c1', camper_name: 'Camper A', group_name: 'Bunk Alpha', day: 'Monday, Monday', time_block: 'Period 1, Period 3' },
+      { camper_id: 'c1', camper_name: 'Camper A', group_name: 'Bunk Alpha', day: 'Monday, Monday', time_block: 'Period 1, Period 3', count: 2 },
     ])
   })
 
@@ -91,7 +91,7 @@ describe('buildActivityRosterExport', () => {
 
     expect(result).toHaveLength(1)
     expect(result[0].members).toEqual([
-      { camper_id: 'c1', camper_name: 'Camper A', group_name: 'Bunk Alpha', day: 'Monday, Wednesday', time_block: 'Period 1, Period 1' },
+      { camper_id: 'c1', camper_name: 'Camper A', group_name: 'Bunk Alpha', day: 'Monday, Wednesday', time_block: 'Period 1, Period 1', count: 3 },
       { camper_id: 'c2', camper_name: 'Camper B', group_name: 'Bunk Alpha', day: 'Monday', time_block: 'Period 1' },
     ])
   })
@@ -125,7 +125,7 @@ describe('buildActivityRosterExport', () => {
       capacityRows: [],
     })
 
-    expect(result[0].members).toEqual([{ camper_id: 'ghost', camper_name: null, group_name: null, day: 'Monday', time_block: 'Period 1' }])
+    expect(result[0].members).toEqual([{ camper_id: 'ghost', camper_name: null, group_name: null, day: 'Monday', time_block: 'Period 1', count: 1 }])
   })
 })
 

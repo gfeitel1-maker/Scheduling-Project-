@@ -102,5 +102,13 @@ export function buildActivityRosterExport({
     entry.rowCount = (entry.rowCount ?? 0) + (isLinked ? unit.memberRows.length : 1)
   }
 
-  return [...groupsByKey.values()].map(({ rowCount, ...entry }) => ({ ...entry, count: rowCount }))
+  // ORGANIZER RULING — the count belongs to the GROUP, not to a position in
+  // the member list: carried on `members[0]` explicitly (data-driven) rather
+  // than inferred by the consumer from array index, so a future re-sort of
+  // `members` cannot silently move the printed count to the wrong row.
+  return [...groupsByKey.values()].map(({ rowCount, members, ...entry }) => ({
+    ...entry,
+    count: rowCount,
+    members: members.map((m, i) => (i === 0 ? { ...m, count: rowCount } : m)),
+  }))
 }

@@ -43,9 +43,9 @@ function activityRosterRows(activityRosters) {
   const header = ['Day', 'Time Block', 'Activity', 'Camper', 'Group', 'Count', 'Capacity']
   const body = []
   for (const row of activityRosters) {
-    row.members.forEach((member, i) => {
-      body.push([member.day, member.time_block, row.activity_name, member.camper_name, member.group_name, i === 0 ? row.count : '', row.capacity])
-    })
+    for (const member of row.members) {
+      body.push([member.day, member.time_block, row.activity_name, member.camper_name, member.group_name, member.count ?? '', row.capacity])
+    }
   }
   return [header, ...body]
 }
