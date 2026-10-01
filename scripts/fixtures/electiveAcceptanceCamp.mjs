@@ -26,6 +26,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { openLocalDb } from '../../electron/db/localDb.js'
 import {
@@ -80,6 +81,19 @@ async function loadHandlersFactory() {
   }
 }
 
+// A failure after the camp row is already written leaves a FRESH db file
+// holding a half-built camp — worse than the "already holds N camp(s)" guard
+// above, because a retry now sees a real camp row and refuses without
+// --force, hiding that the camp is incomplete. Deletes the db file and its
+// WAL/SHM sidecars, but only when THIS run created the file: a failure
+// against a db the caller already owned is not this script's to delete.
+export function deleteHalfBuiltDb(dbPath, { dbAlreadyExisted, campRowWritten }) {
+  if (dbAlreadyExisted || !campRowWritten) return
+  for (const suffix of ['', '-wal', '-shm']) {
+    try { fs.unlinkSync(dbPath + suffix) } catch { /* best effort */ }
+  }
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2))
   const dbPath = args.db ?? defaultDevDbPath()
@@ -90,7 +104,9 @@ async function main() {
   }
   fs.mkdirSync(path.dirname(dbPath), { recursive: true })
 
+  const dbAlreadyExisted = fs.existsSync(dbPath)
   const db = openLocalDb(dbPath)
+  let campRowWritten = false
   try {
     const existing = db.prepare('SELECT COUNT(*) c FROM camps').get().c
     if (existing > 0 && !args.force) {
@@ -110,6 +126,7 @@ async function main() {
     const { campId, handlers, token, userId, fixture } = await seedAcceptanceCamp(db, {
       makeHandlers: await loadHandlersFactory(), name: args.name, pin: args.pin,
     })
+    campRowWritten = true
     const imported = await importResolvedSheet(db, {
       dbPath, handlers, token, authorUserId: userId,
       campId, groupIdByName: fixture.groupIdByName,
@@ -123,12 +140,20 @@ async function main() {
       '  NOTE: no run is SOLVED — the solve lives inside AssignmentPanel, so the\n' +
       '        director does it by hand, which is the point of the manual pass.\n'
     )
-  } finally {
+  } catch (err) {
     db.close()
+    deleteHalfBuiltDb(dbPath, { dbAlreadyExisted, campRowWritten })
+    throw err
   }
+  db.close()
 }
 
-main().catch((err) => {
-  process.stderr.write(`${err.message}\n`)
-  process.exitCode = 1
-})
+// Guarded so electiveAcceptanceCamp.cleanup.test.mjs can import
+// deleteHalfBuiltDb below without running the whole script as an import
+// side effect.
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch((err) => {
+    process.stderr.write(`${err.message}\n`)
+    process.exitCode = 1
+  })
+}

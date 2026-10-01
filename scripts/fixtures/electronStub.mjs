@@ -23,13 +23,15 @@ export const app = {
   exit: noop,
   quit: noop,
   isReady: () => true,
+  setName: noop,
+  setAboutPanelOptions: noop,
   setPath: noop,
   getName: () => 'shoresh-dev',
   getVersion: () => '0.0.0-fixture',
   requestSingleInstanceLock: () => true,
 }
 export const BrowserWindow = function BrowserWindow() {}
-export const ipcMain = { handle: noop, on: noop }
+export const ipcMain = { handle: noop, on: noop, removeHandler: noop }
 export const contextBridge = { exposeInMainWorld: noop }
 export const ipcRenderer = { invoke: () => Promise.resolve(), on: noop }
 export const dialog = { showOpenDialog: () => Promise.resolve({ canceled: true }), showSaveDialog: () => Promise.resolve({ canceled: true }) }

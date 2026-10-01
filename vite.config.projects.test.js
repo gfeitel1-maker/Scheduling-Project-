@@ -61,7 +61,7 @@ function allTestFiles(dir = ROOT, out = []) {
       allTestFiles(full, out)
       continue
     }
-    if (/\.test\.jsx?$/.test(e.name)) out.push(path.relative(ROOT, full))
+    if (/\.test\.m?jsx?$/.test(e.name)) out.push(path.relative(ROOT, full))
   }
   return out
 }
