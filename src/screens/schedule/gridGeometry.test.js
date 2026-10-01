@@ -9,7 +9,7 @@ import {
   decideCell,
 } from './gridGeometry'
 
-// Fixtures use the shape normalizeSlots() produces: is_anchor / is_span_head /
+// Fixtures use the shape normalizeSlots() produces: is_fixed_event / is_span_head /
 // is_released are booleans (never 0/1), flags is a plain object.
 function slot(overrides = {}) {
   return {
@@ -18,8 +18,8 @@ function slot(overrides = {}) {
     day_id: 'd1',
     time_block_id: 'b1',
     activity_id: 'act-1',
-    anchor_id: null,
-    is_anchor: false,
+    fixed_event_id: null,
+    is_fixed_event: false,
     is_span_head: true,
     is_released: false,
     flags: {},
@@ -71,8 +71,8 @@ describe('a merged-span activity pair', () => {
 
 describe('an anchor spanning two blocks', () => {
   const slots = [
-    slot({ id: 'a1', time_block_id: 'b1', is_anchor: true, anchor_id: 'anc-1', activity_id: null }),
-    slot({ id: 'a2', time_block_id: 'b2', is_anchor: true, anchor_id: 'anc-1', activity_id: null }),
+    slot({ id: 'a1', time_block_id: 'b1', is_fixed_event: true, fixed_event_id: 'anc-1', activity_id: null }),
+    slot({ id: 'a2', time_block_id: 'b2', is_fixed_event: true, fixed_event_id: 'anc-1', activity_id: null }),
   ]
   it('head is not an anchor tail and spans 2 rows', () => {
     expect(isAnchorTail(slots, timeBlocks, 'g1', 'd1', 'b1')).toBe(false)
@@ -82,7 +82,7 @@ describe('an anchor spanning two blocks', () => {
     expect(isAnchorTail(slots, timeBlocks, 'g1', 'd1', 'b2')).toBe(true)
   })
   it('a lone anchor spans 1 and is not a tail', () => {
-    const lone = [slot({ id: 'a1', time_block_id: 'b1', is_anchor: true, anchor_id: 'anc-9', activity_id: null })]
+    const lone = [slot({ id: 'a1', time_block_id: 'b1', is_fixed_event: true, fixed_event_id: 'anc-9', activity_id: null })]
     expect(getAnchorRowSpan(lone, timeBlocks, 'g1', 'd1', 'b1')).toBe(1)
     expect(isAnchorTail(lone, timeBlocks, 'g1', 'd1', 'b1')).toBe(false)
   })

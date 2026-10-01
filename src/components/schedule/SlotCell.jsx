@@ -291,7 +291,7 @@ export default function SlotCell({
   }
 
   const tooltipText = activity?.name || (isUnfillable ? 'Unfillable' : 'Unassigned')
-  const isPasteTarget = pasteMode && !slot?.is_anchor
+  const isPasteTarget = pasteMode && !slot?.is_fixed_event
 
   return (
     <div

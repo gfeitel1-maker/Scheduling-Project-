@@ -168,7 +168,7 @@ export default function ScheduleGroupView({
 
                         const { slot, rowSpan, cellType } = decision
                         const act = slot.activity_id ? actMap.get(slot.activity_id) : null
-                        const anchor = slot.anchor_id ? anchorMap.get(slot.anchor_id) : null
+                        const anchor = slot.fixed_event_id ? anchorMap.get(slot.fixed_event_id) : null
 
                         const actIsLocked = slot.activity_id && act?.is_locked
                         const isLocked = Boolean(actIsLocked && !slot.is_released)
@@ -190,7 +190,7 @@ export default function ScheduleGroupView({
                           <SlotCell
                             key={day.id}
                             rowSpan={rowSpan}
-                            slot={slot.is_anchor ? { ...slot, type: 'anchor', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id } : { ...slot, type: cellType, groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id, flags: slot.flags || {} }}
+                            slot={slot.is_fixed_event ? { ...slot, type: 'anchor', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id } : { ...slot, type: cellType, groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id, flags: slot.flags || {} }}
                             activity={act}
                             anchor={anchor}
                             weatherMode={weatherMode}
@@ -208,8 +208,8 @@ export default function ScheduleGroupView({
                             onDismissContentRace={() => onDismissContentRace?.(`${selectedGroup}|${day.id}|${block.id}`)}
                             onRelease={s => releaseCell(s.id)}
                             isLocked={isLocked}
-                            onSelect={!slot.is_anchor ? onCellSelect : undefined}
-                            isDndEnabled={!slot.is_anchor && !isLocked}
+                            onSelect={!slot.is_fixed_event ? onCellSelect : undefined}
+                            isDndEnabled={!slot.is_fixed_event && !isLocked}
                             isSelected={isSelected}
                             isMultiSelected={isMultiSelected}
                             pasteMode={pasteMode}

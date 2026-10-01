@@ -87,7 +87,7 @@ describe('ensureCohort concurrent race', () => {
     expect(Number(rows[0].session_week_start)).toBe(1)
     expect(Number(rows[0].session_week_end)).toBe(1)
     expect(rows[0].capacity_source).toBe('groups_per_slot')
-    expect(rows[0].anchor_model).toBe('fixed')
+    expect(rows[0].fixed_event_model).toBe('fixed')
   })
 
   it('neither concurrent call throws to its caller', async () => {
@@ -99,7 +99,7 @@ describe('ensureCohort concurrent race', () => {
     // minted by crypto.randomUUID() before deterministic ids existed, and
     // nothing may re-key or duplicate it now.
     db.prepare(
-      `INSERT INTO cohorts (id, camp_id, name, session_week_start, session_week_end, capacity_source, anchor_model)
+      `INSERT INTO cohorts (id, camp_id, name, session_week_start, session_week_end, capacity_source, fixed_event_model)
        VALUES (?, ?, 'Main', 1, 1, 'groups_per_slot', 'fixed')`
     ).run('legacy-random-uuid-id', 'camp-1')
 

@@ -51,7 +51,7 @@ describe('fieldLabel', () => {
     // A history line about a cell read "changed is span head" before T18.
     expect(fieldLabel('is_span_head')).toBe('Runs across two periods')
     expect(fieldLabel('is_locked')).toBe('Held in place')
-    expect(fieldLabel('is_anchor')).toBe('Recurring event')
+    expect(fieldLabel('is_fixed_event')).toBe('Recurring event')
     expect(fieldLabel('group_id')).toBe('Group')
   })
 

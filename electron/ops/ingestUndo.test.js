@@ -430,7 +430,7 @@ describe('U2d — anchor inclusion', () => {
     expect(anchorId).toBeTruthy()
 
     // A director places this anchor on a schedule slot.
-    db.prepare('INSERT INTO template_slots (id, template_id, anchor_id) VALUES (?, ?, ?)').run(randomUUID(), randomUUID(), anchorId)
+    db.prepare('INSERT INTO template_slots (id, template_id, fixed_event_id) VALUES (?, ?, ?)').run(randomUUID(), randomUUID(), anchorId)
 
     const undoResult = ingestUndo(db, {
       invertibleOps: res.invertibleOps, createdEntityIds: res.createdEntityIds,

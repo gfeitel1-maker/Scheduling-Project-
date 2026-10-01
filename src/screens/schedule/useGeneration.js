@@ -76,7 +76,7 @@ export function useGeneration({
 
     const lockedActIds = new Set(effActivities.filter(a => a.is_locked).map(a => a.id))
     const lockedPreplaced = slotsByRoute.generated
-      .filter(s => s.activity_id && lockedActIds.has(s.activity_id) && !s.is_released && !s.is_anchor)
+      .filter(s => s.activity_id && lockedActIds.has(s.activity_id) && !s.is_released && !s.is_fixed_event)
       .map(s => ({ groupId: s.group_id, dayId: s.day_id, blockId: s.time_block_id, activityId: s.activity_id }))
     // T41 slice 1 (docs/work/specs/2026-08-20-group-electives-design.md): an
     // authored elective cell is pre-placed/do-not-fill, exactly like a locked
@@ -186,7 +186,7 @@ export function useGeneration({
       locationExclusions: locationExclusions || [],
     })
 
-    const result = buildSchedule({ groups: effGroups, tiers, days, timeBlocks, activities: resolvePriorityForGeneration(effActivities), anchors: effAnchors, campId, locations, electiveSetActivities, events, anchorsOnly: true, weekId })
+    const result = buildSchedule({ groups: effGroups, tiers, days, timeBlocks, activities: resolvePriorityForGeneration(effActivities), anchors: effAnchors, campId, locations, electiveSetActivities, events, fixedEventsOnly: true, weekId })
     setManualFindings(result.findings || [])
     setManualDismissed(new Set())
 
@@ -240,7 +240,7 @@ export function useGeneration({
     // Computed against the week-effective catalog (effGroups/effActivities) so a
     // closed group or activity does not show up owing time it will never run.
     // No anchors/weekId here — this is the MANUAL route (placeAnchors is the
-    // manual blank-week bootstrap), and ANCHOR_DUPLICATE is generated-route
+    // manual blank-week bootstrap), and FIXED_EVENT_DUPLICATE is generated-route
     // only (a manual anchor/regular clash already surfaces as OVERLAP).
     setManualFindings(computeFindings({ slots: freshSlots, groups: effGroups, activities: effActivities, days }))
     setManualDismissed(new Set())

@@ -525,7 +525,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   }
 
   function recalcFindings(slotList) {
-    // ANCHOR_DUPLICATE is generated-route only — see useScheduleData's route
+    // FIXED_EVENT_DUPLICATE is generated-route only — see useScheduleData's route
     // loop for the same gate and reasoning.
     setFindings(recalcFindingsPure(slotList, route === 'generated'
       ? { groups, activities, days, anchors, weekId, activityExclusions, groupExclusions, locationExclusions }
@@ -648,12 +648,12 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       groupId: s.group_id,
     })),
     ...activeFindings.map(f => ({
-      // groupId/activityId are both null for EVERY ANCHOR_IDENTITY_GAP finding
+      // groupId/activityId are both null for EVERY FIXED_EVENT_IDENTITY_GAP finding
       // (buildSchedule.js) — the plain coordinate key would collapse two
       // distinct anchors' gaps onto one React row. anchorId (the fixed_events
       // row id) is that kind's real discriminator; every other kind keeps its
       // prior coordinate-only React key unchanged.
-      key: f.kind === 'ANCHOR_IDENTITY_GAP' ? `${f.groupId}|${f.activityId}|${f.kind}|${f.anchorId}` : `${f.groupId}|${f.activityId}|${f.kind}`,
+      key: f.kind === 'FIXED_EVENT_IDENTITY_GAP' ? `${f.groupId}|${f.activityId}|${f.kind}|${f.anchorId}` : `${f.groupId}|${f.activityId}|${f.kind}`,
       // The dismiss handler must reproduce the SAME payload-addressed key the
       // activeFindings filter reads, so it is computed here from the raw finding
       // (which still carries the magnitude) rather than re-spelled at dismiss time.
@@ -673,7 +673,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // highlights (its one flag, OVERLAP, is derived per-cell already).
   const findingsRailOpen = railView !== null
   const highlightedKind = !isManual && railView && railView !== 'ALL' ? railView : null
-  const KIND_COLOR = { UNFILLABLE: 'var(--danger)', UNDERSERVED: 'var(--accent)', DISTRIBUTION: 'var(--secondary)', ANCHOR_DUPLICATE: 'var(--accent)' }
+  const KIND_COLOR = { UNFILLABLE: 'var(--danger)', UNDERSERVED: 'var(--accent)', DISTRIBUTION: 'var(--secondary)', FIXED_EVENT_DUPLICATE: 'var(--accent)' }
   const highlightColor = KIND_COLOR[highlightedKind] || 'var(--danger)'
   const highlightMap = highlightMapForKind(highlightedKind, findingsRows, slots)
   const railRows = railView && railView !== 'ALL'
@@ -848,7 +848,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     },
   }
 
-  // The neutral 'schedule' entry (AnchorsScreen "Next: Schedule")
+  // The neutral 'schedule' entry (FixedEventsScreen "Next: Schedule")
   // supplies no route. With both candidates started, falling through to the
   // 'generated' fallback would be the APP picking a week for the director,
   // which the no-canonical-schedule rule forbids
@@ -880,8 +880,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   function routeSummary(r) {
     const rows = slotsByRoute[r]
     if (rows.length === 0) return 'not started'
-    const open = rows.filter(x => x.is_anchor === false).length
-    const filled = rows.filter(x => x.is_anchor === false && x.activity_id).length
+    const open = rows.filter(x => x.is_fixed_event === false).length
+    const filled = rows.filter(x => x.is_fixed_event === false && x.activity_id).length
     return `${filled} of ${open} placed`
   }
 
@@ -1214,8 +1214,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       {(() => {
         // Slots scoped for the palette count display
         const paletteSlots = view === 'activity'
-          ? slots.filter(s => !s.is_anchor)
-          : slots.filter(s => s.group_id === selectedGroup && !s.is_anchor)
+          ? slots.filter(s => !s.is_fixed_event)
+          : slots.filter(s => s.group_id === selectedGroup && !s.is_fixed_event)
 
         // T266 (site 2 of 7) — the drag palette shows free choices only. NOTE: the
         // palette deliberately does NOT filter by group eligibility and this does
@@ -1431,8 +1431,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
           options={ROUTES.map(r => ({
             key: r,
             title: ROUTE_COPY[r].caption,
-            filled: slotsByRoute[r].filter(x => x.is_anchor === false && x.activity_id).length,
-            total: slotsByRoute[r].filter(x => x.is_anchor === false).length,
+            filled: slotsByRoute[r].filter(x => x.is_fixed_event === false && x.activity_id).length,
+            total: slotsByRoute[r].filter(x => x.is_fixed_event === false).length,
           }))}
           formatLabel={exportFormat === 'json' ? 'a data file (JSON)' : 'Excel'}
           onChoose={r => { setExportChoosing(false); exportRoute(r, exportFormat) }}

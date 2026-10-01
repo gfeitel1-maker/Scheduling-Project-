@@ -62,7 +62,7 @@ describe('mockShoresh.ingestCommit — placements materialize a version (T117 sl
     expect(state.schedule_snapshots[0].id).toBe(outcome.version.snapshotId)
     const slots = JSON.parse(state.schedule_snapshots[0].slots)
     expect(slots).toEqual([
-      { group_id: 'g1', day_id: 'd1', time_block_id: 'tb1', activity_id: 'a1', anchor_id: null, is_anchor: false, flags: {} },
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'tb1', activity_id: 'a1', fixed_event_id: null, is_fixed_event: false, flags: {} },
     ])
     expect(state.schedule_templates.find((t) => t.week_id === 'w1' && t.kind === 'manual')).toBeTruthy()
   })

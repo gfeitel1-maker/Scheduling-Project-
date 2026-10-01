@@ -72,7 +72,7 @@ export const DELETE_FIELD = '__deleted__'
 //
 // Callers legitimately hold richer JS values: ScheduleScreen writes
 // template_slots.flags as a plain object, and is_released/is_span_head/
-// is_anchor as booleans. Because appendOp binds `value` into the operations
+// is_fixed_event as booleans. Because appendOp binds `value` into the operations
 // INSERT *before* applyProjection runs, an uncoerced value threw before the
 // row was ever touched — the op-log write, the projection, the renderer's
 // optimistic state update and its undo-point push were all skipped, surfacing
@@ -93,7 +93,7 @@ export const DELETE_FIELD = '__deleted__'
 //     JSON.stringify(flags) there; template_slots.flags is TEXT either way.
 //     normalizeSlots() in src/utils/normalizeSlots.js is the matching read
 //     side for template_slots, but it covers only the columns it explicitly
-//     names (flags, is_anchor, is_span_head, is_released) — it is not a
+//     names (flags, is_fixed_event, is_span_head, is_released) — it is not a
 //     general decoder, and no other entity has a read-side counterpart at
 //     all. Any FUTURE object- or boolean-valued column coerced here needs its
 //     own case added there, or the renderer silently reads back the raw
@@ -101,7 +101,7 @@ export const DELETE_FIELD = '__deleted__'
 //     unparsed JSON string).
 //   - booleans -> the STRINGS '1'/'0', deliberately not the numbers 1/0.
 //     ScheduleScreen's bulk_replace rows already carry '1'/'0' strings (again
-//     because of the string-or-null rule). is_anchor/is_span_head/is_released
+//     because of the string-or-null rule). is_fixed_event/is_span_head/is_released
 //     are INTEGER-affinity columns, so SQLite normalizes '1'/'0' to the
 //     integers 1/0 on write — the projected row is byte-identical either way
 //     (verified by the bulk_replace-parity test in operations.test.js). The

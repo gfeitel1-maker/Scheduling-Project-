@@ -31,7 +31,7 @@ export function slotIdsForFinding(finding, slots) {
     .filter(
       (s) =>
         s &&
-        !s.is_anchor &&
+        !s.is_fixed_event &&
         s.activity_id &&
         s.group_id === finding.groupId &&
         s.activity_id === finding.activityId,

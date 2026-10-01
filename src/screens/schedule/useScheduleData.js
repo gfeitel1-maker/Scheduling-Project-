@@ -45,8 +45,8 @@ function resolveTemplateId(templates, weekId, kind) {
 // deliberately unfiltered, and those rows carry no `type` to filter on).
 export function recalcStats(slotList) {
   return {
-    open: slotList.filter(s => s.is_anchor === false && s.type !== 'unavailable').length,
-    filled: slotList.filter(s => s.is_anchor === false && s.type !== 'unavailable' && s.activity_id).length,
+    open: slotList.filter(s => s.is_fixed_event === false && s.type !== 'unavailable').length,
+    filled: slotList.filter(s => s.is_fixed_event === false && s.type !== 'unavailable' && s.activity_id).length,
   }
 }
 
@@ -249,7 +249,7 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
     if (!liveWeekId) { if (gen === generationRef.current) setLoading(false); return }
     // Hoisted to function scope: the generated-route findings pass below needs
     // this week's exclusions to suppress a week-closed activity from
-    // ANCHOR_DUPLICATE (T182). Kept in a local because setExclusions is async
+    // FIXED_EVENT_DUPLICATE (T182). Kept in a local because setExclusions is async
     // state and cannot be read back synchronously within this same load.
     let weekExclusions = EMPTY_EXCLUSIONS
     try {
@@ -335,7 +335,7 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
           // read failing, not this additive repair pass).
         }
         nextStats[r] = recalcStats(saved)
-        // ANCHOR_DUPLICATE is meaningful only on the generated route — a
+        // FIXED_EVENT_DUPLICATE is meaningful only on the generated route — a
         // manual anchor/regular clash already surfaces as OVERLAP at render,
         // and "regenerate to clear it" is meaningless where there is no
         // regenerate. Pass anchors/weekId/exclusions only for that route;

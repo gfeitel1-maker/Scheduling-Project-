@@ -32,7 +32,7 @@ describe('ensureCohort', () => {
         session_week_start: 1,
         session_week_end: 1,
         capacity_source: 'groups_per_slot',
-        anchor_model: 'fixed',
+        fixed_event_model: 'fixed',
       },
     ])
     await ensureCohort('camp-1')
@@ -62,7 +62,7 @@ describe('ensureCohort', () => {
       session_week_start: 1,
       session_week_end: 1,
       capacity_source: 'groups_per_slot',
-      anchor_model: 'fixed',
+      fixed_event_model: 'fixed',
     })
   })
 
@@ -74,7 +74,7 @@ describe('ensureCohort', () => {
 
   it('repairs an incomplete cohort (torn write) by filling only the missing fields on the same id, instead of creating a new one', async () => {
     localClient.list.mockResolvedValue([
-      { id: 'existing-id', camp_id: 'camp-1', name: '', session_week_start: null, session_week_end: null, capacity_source: null, anchor_model: null },
+      { id: 'existing-id', camp_id: 'camp-1', name: '', session_week_start: null, session_week_end: null, capacity_source: null, fixed_event_model: null },
     ])
     await ensureCohort('camp-1')
     const calls = localClient.write.mock.calls
@@ -87,7 +87,7 @@ describe('ensureCohort', () => {
       session_week_start: 1,
       session_week_end: 1,
       capacity_source: 'groups_per_slot',
-      anchor_model: 'fixed',
+      fixed_event_model: 'fixed',
     })
   })
 
@@ -100,7 +100,7 @@ describe('ensureCohort', () => {
         session_week_start: 1,
         session_week_end: null,
         capacity_source: null,
-        anchor_model: 'fixed',
+        fixed_event_model: 'fixed',
       },
     ])
     await ensureCohort('camp-1')

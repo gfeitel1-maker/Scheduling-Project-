@@ -66,7 +66,7 @@ function makeBase({ withArcheryExclusion = false, anchorGroupIds = null, exclude
       ? [{
           // SYNTHETIC, not the app's row shape: `fixed_events` has no
           // activity_id column and the app never writes one (a real anchor
-          // names its activity — see src/engine/anchorActivityLink.js). Kept
+          // names its activity — see src/engine/fixedEventActivityLink.js). Kept
           // here on purpose to exercise the explicit-link path, which the
           // resolver still honors ahead of the name match. The name-linked
           // path is covered in weekCatalog.test.js and buildSchedule.test.js.
@@ -203,7 +203,7 @@ describe('manual route surfaces week exclusions as a soft WEEK_CLOSED marker', (
     ]
     // One filled, non-anchor Archery slot the director hand-placed.
     base.template_slots = [
-      { id: 'slot-arch', template_id: MANUAL_TEMPLATE_ID, group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: ARCHERY_ID, is_anchor: 0 },
+      { id: 'slot-arch', template_id: MANUAL_TEMPLATE_ID, group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: ARCHERY_ID, is_fixed_event: 0 },
     ]
     return base
   }
@@ -262,7 +262,7 @@ describe('generated route also surfaces week exclusions as a WEEK_CLOSED marker'
     // A generated schedule that already holds an Archery placement (as if placed
     // before the exclusion, or dragged in after generation).
     base.template_slots = [
-      { id: 'gslot-arch', template_id: TEMPLATE_ID, group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: ARCHERY_ID, is_anchor: 0 },
+      { id: 'gslot-arch', template_id: TEMPLATE_ID, group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: ARCHERY_ID, is_fixed_event: 0 },
     ]
     const { container } = mount(base)
 
@@ -280,7 +280,7 @@ describe('generated route also surfaces week exclusions as a WEEK_CLOSED marker'
   it('leaves the generated grid legend-free when nothing is closed (control)', async () => {
     const base = makeBase({ withArcheryExclusion: false })
     base.template_slots = [
-      { id: 'gslot-arch', template_id: TEMPLATE_ID, group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: ARCHERY_ID, is_anchor: 0 },
+      { id: 'gslot-arch', template_id: TEMPLATE_ID, group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: ARCHERY_ID, is_fixed_event: 0 },
     ]
     const { container } = mount(base)
 
@@ -389,7 +389,7 @@ describe('T69: anchor group_ids crosses the IPC → engine boundary as an array'
     fireEvent.click(screen.getByText('Generate a schedule'))
     await waitFor(() => expect(getSlotsBulkReplaceArgs()).toBeDefined())
     const rows = getSlotsBulkReplaceArgs()[3]
-    return rows.filter(r => r.anchor_id === ANCHOR_ID)
+    return rows.filter(r => r.fixed_event_id === ANCHOR_ID)
   }
 
   // A fully-suppressed-anchor case used to live here. It is not observable
@@ -403,7 +403,7 @@ describe('T69: anchor group_ids crosses the IPC → engine boundary as an array'
     mount(makeBase({ anchorGroupIds: ['g1', 'g2'], excludedGroupIds: ['g1'] }))
     const anchorSlots = await generatedAnchorSlots()
     expect(anchorSlots.map(r => r.group_id)).toEqual(['g2'])
-    expect(anchorSlots[0].is_anchor).toBe('1')
+    expect(anchorSlots[0].is_fixed_event).toBe('1')
     expect(anchorSlots[0].time_block_id).toBe('b1')
   })
 })

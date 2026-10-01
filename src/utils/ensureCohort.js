@@ -5,14 +5,14 @@ import { deriveMainCohortId } from './mainCohortId'
 // these (e.g. left behind by an app crash mid-loop, or any other
 // partial-write cause) is treated as incomplete and repaired in place
 // rather than triggering a duplicate.
-const REQUIRED_FIELDS = ['name', 'session_week_start', 'session_week_end', 'capacity_source', 'anchor_model']
+const REQUIRED_FIELDS = ['name', 'session_week_start', 'session_week_end', 'capacity_source', 'fixed_event_model']
 
 const DEFAULTS = {
   name: 'Main',
   session_week_start: 1,
   session_week_end: 1,
   capacity_source: 'groups_per_slot',
-  anchor_model: 'fixed',
+  fixed_event_model: 'fixed',
 }
 
 function isComplete(cohort) {

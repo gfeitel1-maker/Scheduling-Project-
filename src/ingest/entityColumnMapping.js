@@ -93,8 +93,8 @@ export const ENTITY_FIELD_CATALOGS = {
     fields: [
       { key: 'name', required: true, synonyms: ['name'] },
       { key: 'day_label', required: true, synonyms: ['day_label', 'day'] },
-      // Required for the same reason as time_blocks' end_time: AnchorsScreen.confirmImport
-      // skips any warned row (AnchorsScreen.jsx:724), and a blank time_block_name resolves
+      // Required for the same reason as time_blocks' end_time: FixedEventsScreen.confirmImport
+      // skips any warned row (FixedEventsScreen.jsx:724), and a blank time_block_name resolves
       // to no time_block_id and warns 'Time block "" not found' (:645-646), so a file
       // missing this column imports zero anchors.
       { key: 'time_block_name', required: true, synonyms: ['time_block_name', 'time block'] },

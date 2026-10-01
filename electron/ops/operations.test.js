@@ -241,7 +241,7 @@ describe('appendOp value coercion', () => {
   it('stores flags and boolean columns in the SAME shape bulk_replace does', () => {
     // bulk_replace rows must be string-or-null (validateBulkReplaceRows), so
     // placeAnchors/generate build '1'/'0' strings and JSON.stringify'd flags.
-    // The INTEGER column affinity on is_anchor/is_span_head/is_released means
+    // The INTEGER column affinity on is_fixed_event/is_span_head/is_released means
     // those strings land as integers — identical to coercing booleans to 1/0.
     appendBulkReplaceOp(db, {
       entity: 'template_slots',
@@ -252,7 +252,7 @@ describe('appendOp value coercion', () => {
           template_id: 'tmpl-1',
           day_id: 'day-1',
           time_block_id: 'block-1',
-          is_anchor: '0',
+          is_fixed_event: '0',
           is_span_head: '1',
           flags: JSON.stringify({ UNFILLABLE: true }),
         },
@@ -266,14 +266,14 @@ describe('appendOp value coercion', () => {
     db.prepare(
       'INSERT INTO template_slots (id, template_id, day_id, time_block_id) VALUES (?, ?, ?, ?)'
     ).run('slot-coerce', 'tmpl-1', 'day-1', 'block-1')
-    writeSlot('is_anchor', false)
+    writeSlot('is_fixed_event', false)
     writeSlot('is_span_head', true)
     writeSlot('flags', { UNFILLABLE: true })
 
     const types = (id) =>
       db
         .prepare(
-          'SELECT typeof(is_anchor) AS is_anchor, typeof(is_span_head) AS is_span_head, typeof(flags) AS flags FROM template_slots WHERE id = ?'
+          'SELECT typeof(is_fixed_event) AS is_fixed_event, typeof(is_span_head) AS is_span_head, typeof(flags) AS flags FROM template_slots WHERE id = ?'
         )
         .get(id)
 
@@ -281,7 +281,7 @@ describe('appendOp value coercion', () => {
     const opRow = readSlot()
 
     expect(types('slot-coerce')).toEqual(types('slot-bulk'))
-    expect(opRow.is_anchor).toBe(bulkRow.is_anchor)
+    expect(opRow.is_fixed_event).toBe(bulkRow.is_fixed_event)
     expect(opRow.is_span_head).toBe(bulkRow.is_span_head)
     expect(opRow.flags).toBe(bulkRow.flags)
   })

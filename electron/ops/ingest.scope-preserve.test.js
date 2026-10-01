@@ -62,7 +62,7 @@ const SWIM = {
 }
 
 // Build a camp whose live Swim anchor is DIVISION-scoped (unit_ids), the shape
-// AnchorsScreen writes — the importer only makes group-scoped anchors, so the
+// FixedEventsScreen writes — the importer only makes group-scoped anchors, so the
 // director's division scoping is simulated with a direct UPDATE.
 function seedDivisionScopedAnchor() {
   commit({ approved: APPROVED, links: LINKS, fixedEvents: [SWIM], mode: 'add' })

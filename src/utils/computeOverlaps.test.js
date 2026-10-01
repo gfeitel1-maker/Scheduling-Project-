@@ -8,7 +8,7 @@ const swim = { id: 'swim', name: 'Swimming', location_id: 'poolL' }
 const freeSwim = { id: 'freeSwim', name: 'Free Swim', location_id: 'poolL' }
 
 function slot(id, groupId, extra = {}) {
-  return { id, group_id: groupId, day_id: 'd1', time_block_id: 'b1', activity_id: 'swim', is_anchor: false, ...extra }
+  return { id, group_id: groupId, day_id: 'd1', time_block_id: 'b1', activity_id: 'swim', is_fixed_event: false, ...extra }
 }
 
 describe('OVERLAP', () => {
@@ -72,7 +72,7 @@ describe('OVERLAP', () => {
 
   it('ignores anchors and empty cells', () => {
     const slots = [
-      slot('s1', 'g1', { is_anchor: true }),
+      slot('s1', 'g1', { is_fixed_event: true }),
       slot('s2', 'g2', { activity_id: null }),
       slot('s3', 'g3'),
     ]
@@ -171,7 +171,7 @@ describe('OVERLAP', () => {
   // blind to it because elective slots carry elective_set_id with
   // activity_id: null and got skipped entirely.
   function electiveSlot(id, groupId, electiveSetId, extra = {}) {
-    return { id, group_id: groupId, day_id: 'd1', time_block_id: 'b1', activity_id: null, elective_set_id: electiveSetId, is_anchor: false, ...extra }
+    return { id, group_id: groupId, day_id: 'd1', time_block_id: 'b1', activity_id: null, elective_set_id: electiveSetId, is_fixed_event: false, ...extra }
   }
 
   it('flags an elective occupying a location where a regular group slot also sits', () => {
@@ -237,9 +237,9 @@ describe('OVERLAP', () => {
       // Every group's Flagpole anchor, all at the same capacity-1 location —
       // this is correct by construction and must stay silent.
       const slots = [
-        slot('s1', 'g1', { activity_id: 'flag', is_anchor: true }),
-        slot('s2', 'g2', { activity_id: 'flag', is_anchor: true }),
-        slot('s3', 'g3', { activity_id: 'flag', is_anchor: true }),
+        slot('s1', 'g1', { activity_id: 'flag', is_fixed_event: true }),
+        slot('s2', 'g2', { activity_id: 'flag', is_fixed_event: true }),
+        slot('s3', 'g3', { activity_id: 'flag', is_fixed_event: true }),
       ]
       expect(computeOverlaps({ slots, activities: [flagpole], locations: [flagpoleL] }).size).toBe(0)
     })
@@ -250,7 +250,7 @@ describe('OVERLAP', () => {
       // over capacity, and only g2's row should be flagged.
       const otherAtFlagL = { id: 'otherAct', name: 'Assembly', location_id: 'flagL' }
       const slots = [
-        slot('s1', 'g1', { activity_id: 'flag', is_anchor: true }),
+        slot('s1', 'g1', { activity_id: 'flag', is_fixed_event: true }),
         slot('s2', 'g2', { activity_id: 'otherAct' }),
       ]
       const result = computeOverlaps({ slots, activities: [flagpole, otherAtFlagL], locations: [flagpoleL] })
@@ -263,7 +263,7 @@ describe('OVERLAP', () => {
       const anchorAct = { id: 'flag2', name: 'Flagpole', location_id: 'roomyL' }
       const otherAct = { id: 'otherAct', name: 'Drill', location_id: 'roomyL' }
       const slots = [
-        slot('s1', 'g1', { activity_id: 'flag2', is_anchor: true }),
+        slot('s1', 'g1', { activity_id: 'flag2', is_fixed_event: true }),
         slot('s2', 'g2', { activity_id: 'otherAct' }),
       ]
       expect(computeOverlaps({ slots, activities: [anchorAct, otherAct], locations: [roomyL] }).size).toBe(0)
@@ -271,8 +271,8 @@ describe('OVERLAP', () => {
 
     it('never treats anchor-vs-anchor as a conflict, even past capacity', () => {
       const slots = [
-        slot('s1', 'g1', { activity_id: 'flag', is_anchor: true }),
-        slot('s2', 'g2', { activity_id: 'flag', is_anchor: true }),
+        slot('s1', 'g1', { activity_id: 'flag', is_fixed_event: true }),
+        slot('s2', 'g2', { activity_id: 'flag', is_fixed_event: true }),
       ]
       expect(computeOverlaps({ slots, activities: [flagpole], locations: [flagpoleL] }).size).toBe(0)
     })
@@ -280,7 +280,7 @@ describe('OVERLAP', () => {
     it('anchor plus elective: flags only the elective row when the anchor already fills the place', () => {
       const electiveOffering = { id: 'craft', name: 'Crafts', location_id: 'flagL' }
       const slots = [
-        slot('s1', 'g1', { activity_id: 'flag', is_anchor: true }),
+        slot('s1', 'g1', { activity_id: 'flag', is_fixed_event: true }),
         electiveSlot('s2', 'g2', 'set-1'),
       ]
       const electiveSetActivities = [{ elective_set_id: 'set-1', activity_id: 'craft' }]

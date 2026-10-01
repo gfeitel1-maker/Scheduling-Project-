@@ -113,7 +113,7 @@ export const CAMP_DATA_SHEETS = Object.freeze([
         dateOnly(r.session_week_start),
         dateOnly(r.session_week_end),
         titleCase(r.capacity_source),
-        titleCase(r.anchor_model),
+        titleCase(r.fixed_event_model),
       ])
       return { header, dataRows }
     },

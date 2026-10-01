@@ -23,7 +23,7 @@
 // Anchors (meals, tefillah, recurring events) and empty cells are skipped — an
 // empty cell has nothing placed to be closed, and an anchor is structural
 // chrome the exclusion UIs govern differently. This differs from
-// computeOverlaps, which no longer blanket-skips `s.is_anchor`: an anchor row
+// computeOverlaps, which no longer blanket-skips `s.is_fixed_event`: an anchor row
 // still occupies its place there (to correctly flag a non-anchor placement
 // sharing a full anchor location) even though it is itself never flagged.
 //
@@ -78,7 +78,7 @@ export function computeWeekClosures({
   const locName = new Map((locations || []).map(l => [l.id, l.name]))
 
   for (const s of slots) {
-    if (s.is_anchor || !s.activity_id) continue
+    if (s.is_fixed_event || !s.activity_id) continue
     const reasons = []
     if (excludedActivityIds.has(s.activity_id)) {
       reasons.push(`${actName.get(s.activity_id) || 'This activity'} is marked closed this week`)

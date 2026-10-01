@@ -79,7 +79,7 @@ describe('T267 PR2 — ingest writes fixed_events.activity_id', () => {
     }
   })
 
-  it('DoD 3a: a since-deleted activity leaves the fixed_events row pointing at a dead id — ANCHOR_IDENTITY_GAP fires and generation is refused-worthy', () => {
+  it('DoD 3a: a since-deleted activity leaves the fixed_events row pointing at a dead id — FIXED_EVENT_IDENTITY_GAP fires and generation is refused-worthy', () => {
     const { db, file, campId } = setup()
     try {
       commit(db, campId)
@@ -101,7 +101,7 @@ describe('T267 PR2 — ingest writes fixed_events.activity_id', () => {
         anchors: [lunchAnchor],
         campId,
       })
-      const gap = result.findings.filter(f => f.kind === 'ANCHOR_IDENTITY_GAP')
+      const gap = result.findings.filter(f => f.kind === 'FIXED_EVENT_IDENTITY_GAP')
       expect(gap.length).toBeGreaterThan(0)
       expect(gap[0].severity).toBe('error')
     } finally {
@@ -123,7 +123,7 @@ describe('T267 PR2 — ingest writes fixed_events.activity_id', () => {
       const result = buildSchedule({
         groups, tiers: [], days, timeBlocks, activities: allActivities, anchors: [lunchAnchor], campId,
       })
-      expect(result.findings.filter(f => f.kind === 'ANCHOR_IDENTITY_GAP')).toHaveLength(0)
+      expect(result.findings.filter(f => f.kind === 'FIXED_EVENT_IDENTITY_GAP')).toHaveLength(0)
     } finally {
       db.close()
       if (fs.existsSync(file)) fs.unlinkSync(file)

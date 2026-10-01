@@ -398,7 +398,7 @@ export function scheduleStateTool(args, { dbPath, dbKey }) {
     // come back falsely clean (docs/work/tickets/T193-overlay-reconstruction-
     // and-route-validator.md).
     const activityPreplaced = slots
-      .filter((s) => s.activity_id && !s.is_anchor)
+      .filter((s) => s.activity_id && !s.is_fixed_event)
       .map((s) => ({ groupId: s.group_id, dayId: s.day_id, blockId: s.time_block_id, activityId: s.activity_id }))
     const electivePreplaced = slots
       .filter((s) => s.elective_set_id)

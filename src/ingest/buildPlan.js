@@ -391,7 +391,7 @@ export function buildPlan(source, existing = null, resolutions = []) {
   // free-choice exclusion reads (src/engine/freeChoiceActivities.js). The row is
   // still CREATED — that is deliberate and load-bearing for a SEPARATE reason
   // too: an anchor resolves its activity BY `activity_id`
-  // (src/engine/anchorActivityLink.js), so deleting the row would dangle that
+  // (src/engine/fixedEventActivityLink.js), so deleting the row would dangle that
   // link and silently disable the anchor-duplicate suppression, placing the
   // event twice with no error. A MARKER, NOT A HOLE.
   //

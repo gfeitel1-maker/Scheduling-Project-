@@ -142,7 +142,7 @@ describe('useSlotMutations — replaceSlot', () => {
 
   it('refuses to write onto an anchor target', async () => {
     const slots = [
-      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', is_anchor: true, activity_id: null, flags: {} },
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', is_fixed_event: true, activity_id: null, flags: {} },
     ]
     const { hook, props } = setup({ slots, activities: [{ id: 'act-1', name: 'Swim' }] })
     await act(async () => {
@@ -868,7 +868,7 @@ describe('useSlotMutations — spanStopsAt (ADR §3 ordered stop conditions)', (
     expect(spanStopsAt(undefined, 'act-1', activities)).toBe(true)
   })
   it('an anchor stops', () => {
-    expect(spanStopsAt({ is_anchor: true }, 'act-1', activities)).toBe(true)
+    expect(spanStopsAt({ is_fixed_event: true }, 'act-1', activities)).toBe(true)
   })
   it('a WEEK_CLOSED block stops', () => {
     expect(spanStopsAt({ flags: { WEEK_CLOSED: true } }, 'act-1', activities)).toBe(true)
@@ -902,7 +902,7 @@ describe('useSlotMutations — expandSlot boundary-crossing stop conditions (ADR
     const slots = [
       headSlot,
       { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null, is_span_head: true, flags: {} },
-      { id: 'anchor1', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', is_anchor: true },
+      { id: 'anchor1', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', is_fixed_event: true },
     ]
     const { hook, props } = setup({ slots, activities, timeBlocks: spanTimeBlocks })
     await act(async () => { await hook.result.current.expandSlot('g1', 'd1', 'b1', 'b3') })
@@ -995,7 +995,7 @@ describe('useSlotMutations — computeSpanExtendPreview (T107 item 1, pure funct
 
   it('truncates at the head itself (no covered blocks) when the very first block after the head stops the drag', () => {
     const slots = [
-      { id: 'anchor1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', is_anchor: true },
+      { id: 'anchor1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', is_fixed_event: true },
     ]
     const result = computeSpanExtendPreview(slots, spanTimeBlocks, activities, {
       groupId: 'g1', dayId: 'd1', headBlockId: 'b1', headActivityId, pointerBlockId: 'b2',
@@ -1683,7 +1683,7 @@ describe('useSlotMutations — T82 characterization: undo -> redo -> undo round 
 describe('useSlotMutations — createActivityFromCell', () => {
   it('creates a camp-scoped activity with usage-derived rule (min_per_week=1, max=null, all-groups eligible), adds it to the palette list, and places it', async () => {
     const slots = [
-      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {}, is_anchor: false },
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {}, is_fixed_event: false },
     ]
     const { hook, props } = setup({ slots, activities: [], campId: 'camp-1', groups: [{ id: 'g1', tier_id: 't1' }] })
     await act(async () => {
@@ -1701,7 +1701,7 @@ describe('useSlotMutations — createActivityFromCell', () => {
 
   it('a name that collapses (case/space-insensitive) to an existing activity places the existing one instead of creating a duplicate', async () => {
     const slots = [
-      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {}, is_anchor: false },
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {}, is_fixed_event: false },
     ]
     const { hook, props } = setup({
       slots, campId: 'camp-1', groups: [{ id: 'g1', tier_id: 't1' }],
@@ -1716,7 +1716,7 @@ describe('useSlotMutations — createActivityFromCell', () => {
 
   it('does not place when the activity write fails', async () => {
     const slots = [
-      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {}, is_anchor: false },
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {}, is_fixed_event: false },
     ]
     const repo = makeRepo({ writeActivityFields: vi.fn(async () => { throw new Error('boom') }) })
     const { hook, props } = setup({ slots, campId: 'camp-1', groups: [{ id: 'g1', tier_id: 't1' }], activities: [], repo })
@@ -1734,7 +1734,7 @@ describe('useSlotMutations — createActivityFromCell', () => {
 describe('useSlotMutations — createActivityFromCell characterization (T106 extraction)', () => {
   it('(a) dupe-path call-counts: NO writeActivityFields, NO setActivities append', async () => {
     const slots = [
-      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {}, is_anchor: false },
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {}, is_fixed_event: false },
     ]
     const { hook, props } = setup({
       slots, campId: 'camp-1', groups: [{ id: 'g1', tier_id: 't1' }],
@@ -1749,7 +1749,7 @@ describe('useSlotMutations — createActivityFromCell characterization (T106 ext
 
   it('(b) new-path ordering: setActivities optimistic append happens before the placement write reaches repo.writeSlotFields', async () => {
     const slots = [
-      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {}, is_anchor: false },
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {}, is_fixed_event: false },
     ]
     const order = []
     const setActivities = vi.fn(() => { order.push('setActivities') })
@@ -1764,7 +1764,7 @@ describe('useSlotMutations — createActivityFromCell characterization (T106 ext
 
   it('(c) placeActivityManual\'s 5th arg (activityOverride) is the full minted row, not just the id', async () => {
     const slots = [
-      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {}, is_anchor: false },
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {}, is_fixed_event: false },
     ]
     // location_id/max_groups_per_slot on the override are read by placeActivityManual's
     // capacity checks before the activity is in the `activities` prop array at all —
@@ -1781,7 +1781,7 @@ describe('useSlotMutations — createActivityFromCell characterization (T106 ext
 
   it('(d) field-default snapshot parity: min_per_week:1, max_per_week:null, same_tier_only:false, eligible_group_ids:[]', async () => {
     const slots = [
-      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {}, is_anchor: false },
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {}, is_fixed_event: false },
     ]
     const { hook, props } = setup({ slots, campId: 'camp-1', groups: [{ id: 'g1', tier_id: 't1' }], activities: [] })
     await act(async () => {
@@ -1797,7 +1797,7 @@ describe('useSlotMutations — createActivityFromCell characterization (T106 ext
   })
 
   it('(e) createElectiveFromCell member-creation loop still gets identical defaults post-extraction', async () => {
-    const targetRow = { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {}, is_anchor: false }
+    const targetRow = { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {}, is_fixed_event: false }
     const { hook, props } = setup({ slots: [targetRow], campId: 'camp-1', activities: [] })
     await act(async () => {
       await hook.result.current.createElectiveFromCell('Afternoon Chugim', ['Kayaking'], { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
@@ -2534,7 +2534,7 @@ describe('useSlotMutations — override-authoring mode (overrideMode: true)', ()
 
   it('replaceSlot on a different day than the active override-mode day writes normally, not to day_overrides', async () => {
     const slots = [
-      { id: 's1', group_id: 'g1', day_id: 'd2', time_block_id: 'b1', activity_id: null, is_anchor: false, flags: {} },
+      { id: 's1', group_id: 'g1', day_id: 'd2', time_block_id: 'b1', activity_id: null, is_fixed_event: false, flags: {} },
     ]
     const { hook, props } = setup({
       slots, activities: [{ id: 'act-1', name: 'Swim' }],

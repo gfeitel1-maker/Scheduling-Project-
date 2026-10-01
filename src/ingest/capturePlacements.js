@@ -15,7 +15,7 @@
 // Multi-block spans flatten to per-block cells (the same activity in each block
 // it covered) — visually faithful, structurally not a span; events/elective-set
 // cells are not part of the main schedule import's grid. Both are accepted v1
-// limitations of the snapshot slot shape (activity_id/anchor_id only).
+// limitations of the snapshot slot shape (activity_id/fixed_event_id only).
 
 import { isDayName } from './textGrid.js'
 import { activityNamesFromCell, canonicalDay, dayNameFromTitle, cleanTitle } from './extractEntities.js'

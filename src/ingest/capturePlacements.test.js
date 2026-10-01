@@ -75,7 +75,7 @@ describe('capturePlacements', () => {
       rows: [{ label: '11:25-12:05', cells: ['Lunch + Leave', 'Lunch + Leave'] }],
     }]
     const decisions = new Map([
-      ['Lunch + Leave', { interpretation: 'wrapper', anchor_name: 'Lunch', wrapper_name: 'Leave' }],
+      ['Lunch + Leave', { interpretation: 'wrapper', base_name: 'Lunch', wrapper_name: 'Leave' }],
     ])
     const proposal = extractEntities({ pages }, decisions)
     expect(proposal.compoundCellDecisions).toBe(decisions)

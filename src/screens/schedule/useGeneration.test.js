@@ -15,7 +15,7 @@ import { useGeneration } from './useGeneration'
 function makeRepo(overrides = {}) {
   return {
     replaceWeek: vi.fn(async () => ({ status: 'applied' })),
-    reloadSlots: vi.fn(async () => [{ id: 'fresh-1', is_anchor: false, activity_id: 'a1' }]),
+    reloadSlots: vi.fn(async () => [{ id: 'fresh-1', is_fixed_event: false, activity_id: 'a1' }]),
     ...overrides,
   }
 }
@@ -134,7 +134,7 @@ describe('useGeneration', () => {
   it('placeAnchors() builds anchors-only for the manual route and defaults the selected group', async () => {
     const { result, props } = setup()
     await act(async () => { await result.current.placeAnchors() })
-    expect(buildSchedule).toHaveBeenCalledWith(expect.objectContaining({ anchorsOnly: true }))
+    expect(buildSchedule).toHaveBeenCalledWith(expect.objectContaining({ fixedEventsOnly: true }))
     expect(props.ensureTemplateRow).toHaveBeenCalledWith('manual')
     expect(props.repo.replaceWeek).toHaveBeenCalledWith('tid-manual', [{ id: 'ns-1' }])
     expect(props.setSelectedGroup).toHaveBeenCalledTimes(1)
@@ -156,7 +156,7 @@ describe('useGeneration', () => {
     await act(async () => { await result.current.placeAnchors() })
 
     const arg = buildSchedule.mock.calls[0][0]
-    expect(arg.anchorsOnly).toBe(true)
+    expect(arg.fixedEventsOnly).toBe(true)
     expect(arg.anchors).toEqual([]) // the excluded activity's anchor is gone
     expect(arg.activities.map(a => a.id)).not.toContain('a2')
     expect(arg.activities.map(a => a.id)).toContain('a1')
@@ -213,11 +213,11 @@ describe('useGeneration', () => {
   })
 
   // T267 PR2 (ADR step 5) — refuse-to-generate gate.
-  describe('ANCHOR_IDENTITY_GAP refuse gate', () => {
+  describe('FIXED_EVENT_IDENTITY_GAP refuse gate', () => {
     it('generate() does NOT write the schedule when buildSchedule reports an error-severity finding', async () => {
       buildSchedule.mockReturnValueOnce({
         slots: [{ id: 'ns-1' }],
-        findings: [{ kind: 'ANCHOR_IDENTITY_GAP', severity: 'error', reason: 'dangling' }],
+        findings: [{ kind: 'FIXED_EVENT_IDENTITY_GAP', severity: 'error', reason: 'dangling' }],
       })
       const { result, props } = setup()
       await act(async () => { await result.current.generate() })
@@ -241,7 +241,7 @@ describe('useGeneration', () => {
     it('placeAnchors() does NOT write the schedule when buildSchedule reports an error-severity finding', async () => {
       buildSchedule.mockReturnValueOnce({
         slots: [{ id: 'ns-1' }],
-        findings: [{ kind: 'ANCHOR_IDENTITY_GAP', severity: 'error', reason: 'dangling' }],
+        findings: [{ kind: 'FIXED_EVENT_IDENTITY_GAP', severity: 'error', reason: 'dangling' }],
       })
       const { result, props } = setup()
       await act(async () => { await result.current.placeAnchors() })
@@ -263,16 +263,16 @@ describe('useGeneration', () => {
     })
   })
 
-  // Red Hat HIGH (round 2): the ANCHOR_DUPLICATE gate is hand-duplicated at
+  // Red Hat HIGH (round 2): the FIXED_EVENT_DUPLICATE gate is hand-duplicated at
   // three call sites of computeFindings, this hook's placeAnchors() being one.
   // The site has no ternary — it is hardcoded to never pass anchors, since
-  // placeAnchors is the MANUAL-route bootstrap and ANCHOR_DUPLICATE is
+  // placeAnchors is the MANUAL-route bootstrap and FIXED_EVENT_DUPLICATE is
   // generated-only (see the comment at useGeneration.js:242-245 and
   // useScheduleData.js:338-343: computeFindings' safe default, absent anchors
   // -> no finding, is what keeps manual clean). A future edit that starts
   // passing anchors here would regress that silently — nothing else exercises
   // this call's arguments.
-  it('placeAnchors() calls computeFindings with no anchors key at all (manual route never surfaces ANCHOR_DUPLICATE)', async () => {
+  it('placeAnchors() calls computeFindings with no anchors key at all (manual route never surfaces FIXED_EVENT_DUPLICATE)', async () => {
     const { result } = setup()
     await act(async () => { await result.current.placeAnchors() })
 

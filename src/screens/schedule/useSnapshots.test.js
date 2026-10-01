@@ -33,7 +33,7 @@ function setup(overrides = {}) {
     templateIdFor: (r) => `tid-${r}`,
     templateId: 'tid-generated',
     slotsByRoute: {
-      generated: [{ group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', anchor_id: null, is_anchor: false, flags: {} }],
+      generated: [{ group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', fixed_event_id: null, is_fixed_event: false, flags: {} }],
       manual: [],
     },
     setSnapshotsByRoute: vi.fn(),
@@ -90,7 +90,7 @@ describe('useSnapshots', () => {
     const { result, props } = setup({
       slotsByRoute: {
         generated: [],
-        manual: [{ group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-9', anchor_id: null, is_anchor: false, flags: {} }],
+        manual: [{ group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-9', fixed_event_id: null, is_fixed_event: false, flags: {} }],
       },
     })
     await act(async () => { await result.current.saveSnapshot(null, true, 'manual') })
@@ -134,9 +134,9 @@ describe('useSnapshots', () => {
   it('restoreSnapshot clears undo/redo, restores rows, and reloads slots/stats/findings', async () => {
     const payload = {
       template_id: 'tid-generated',
-      slots: JSON.stringify([{ group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', is_anchor: false, flags: {} }]),
+      slots: JSON.stringify([{ group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', is_fixed_event: false, flags: {} }]),
     }
-    const freshSlots = [{ id: 's1', is_anchor: false, activity_id: 'act-1' }]
+    const freshSlots = [{ id: 's1', is_fixed_event: false, activity_id: 'act-1' }]
     const repo = makeRepo({
       getSnapshot: vi.fn(async () => payload),
       reloadSlots: vi.fn(async () => freshSlots),
@@ -160,15 +160,15 @@ describe('useSnapshots', () => {
     const payload = {
       template_id: 'tid-generated',
       slots: JSON.stringify([
-        { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', anchor_id: null, is_anchor: false, flags: {} },
-        { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null, anchor_id: 'anc-1', is_anchor: true, flags: {} },
+        { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', fixed_event_id: null, is_fixed_event: false, flags: {} },
+        { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null, fixed_event_id: 'anc-1', is_fixed_event: true, flags: {} },
       ]),
       name: 'Imported schedule',
       is_auto: false,
     }
     const freshSlots = [
-      { id: 's1', is_anchor: false, activity_id: 'act-1' },
-      { id: 's2', is_anchor: true, anchor_id: 'anc-1' },
+      { id: 's1', is_fixed_event: false, activity_id: 'act-1' },
+      { id: 's2', is_fixed_event: true, fixed_event_id: 'anc-1' },
     ]
     const repo = makeRepo({
       getSnapshot: vi.fn(async () => payload),
@@ -180,8 +180,8 @@ describe('useSnapshots', () => {
     expect(repo.restoreSnapshotRows).toHaveBeenCalledWith('tid-generated', expect.any(Array))
     const restoredSlots = repo.restoreSnapshotRows.mock.calls[0][1]
     expect(restoredSlots).toHaveLength(2)
-    expect(restoredSlots.find((s) => s.is_anchor)).toMatchObject({ anchor_id: 'anc-1', activity_id: null })
-    expect(restoredSlots.find((s) => !s.is_anchor)).toMatchObject({ activity_id: 'act-1', anchor_id: null })
+    expect(restoredSlots.find((s) => s.is_fixed_event)).toMatchObject({ fixed_event_id: 'anc-1', activity_id: null })
+    expect(restoredSlots.find((s) => !s.is_fixed_event)).toMatchObject({ activity_id: 'act-1', fixed_event_id: null })
     expect(props.setSlots).toHaveBeenCalledWith(freshSlots)
   })
 
@@ -216,7 +216,7 @@ describe('useSnapshots', () => {
       const payload = {
         template_id: 'tid-generated',
         slots: JSON.stringify([
-          { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', anchor_id: null, is_anchor: false, flags: {} },
+          { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', fixed_event_id: null, is_fixed_event: false, flags: {} },
         ]),
       }
       const repo = makeRepo({ getSnapshot: vi.fn(async () => payload) })
@@ -232,9 +232,9 @@ describe('useSnapshots', () => {
       const payload = {
         template_id: 'tid-generated',
         slots: JSON.stringify([
-          { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', anchor_id: null, is_anchor: false, flags: {} },
-          { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'dead-activity', anchor_id: null, is_anchor: false, flags: {} },
-          { group_id: 'dead-group', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', anchor_id: null, is_anchor: false, flags: {} },
+          { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', fixed_event_id: null, is_fixed_event: false, flags: {} },
+          { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'dead-activity', fixed_event_id: null, is_fixed_event: false, flags: {} },
+          { group_id: 'dead-group', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', fixed_event_id: null, is_fixed_event: false, flags: {} },
         ]),
       }
       const repo = makeRepo({ getSnapshot: vi.fn(async () => payload) })
@@ -243,18 +243,18 @@ describe('useSnapshots', () => {
 
       const restoredSlots = repo.restoreSnapshotRows.mock.calls[0][1]
       expect(restoredSlots).toEqual([
-        { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', anchor_id: null, is_anchor: false, flags: {} },
+        { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', fixed_event_id: null, is_fixed_event: false, flags: {} },
       ])
       expect(props.setActionError).toHaveBeenCalledWith(
         'Restored. 2 cell(s) referenced items that no longer exist (likely from a re-import) and were skipped.'
       )
     })
 
-    it('drops an is_anchor slot with a dead anchor_id', async () => {
+    it('drops an is_fixed_event slot with a dead fixed_event_id', async () => {
       const payload = {
         template_id: 'tid-generated',
         slots: JSON.stringify([
-          { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, anchor_id: 'dead-anchor', is_anchor: true, flags: {} },
+          { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, fixed_event_id: 'dead-anchor', is_fixed_event: true, flags: {} },
         ]),
       }
       const repo = makeRepo({ getSnapshot: vi.fn(async () => payload) })
@@ -272,7 +272,7 @@ describe('useSnapshots', () => {
       const payload = {
         template_id: 'tid-generated',
         slots: JSON.stringify([
-          { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, anchor_id: null, is_anchor: false, flags: {} },
+          { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, fixed_event_id: null, is_fixed_event: false, flags: {} },
         ]),
       }
       const repo = makeRepo({ getSnapshot: vi.fn(async () => payload) })
@@ -285,13 +285,13 @@ describe('useSnapshots', () => {
     })
   })
 
-  // Red Hat HIGH (round 2): the ANCHOR_DUPLICATE gate is hand-duplicated at
+  // Red Hat HIGH (round 2): the FIXED_EVENT_DUPLICATE gate is hand-duplicated at
   // three computeFindings call sites; restoreSnapshot (here, line ~175-178) is
   // one of them and was uncovered — this file mocks nothing of computeFindings,
   // so the real engine (src/engine/buildSchedule.js) runs, and the fixture
   // below is the same anchor/duplicate-regular-slot shape pinned in
-  // buildSchedule.test.js's "computeFindings ANCHOR_DUPLICATE" describe block.
-  describe('restoreSnapshot route-gates ANCHOR_DUPLICATE (real computeFindings, not mocked)', () => {
+  // buildSchedule.test.js's "computeFindings FIXED_EVENT_DUPLICATE" describe block.
+  describe('restoreSnapshot route-gates FIXED_EVENT_DUPLICATE (real computeFindings, not mocked)', () => {
     const anchor = { id: 'anc1', activity_id: 'lunch', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
     // Fresh object per test: restoreSnapshot mutates the `fullSnap` it is
     // handed (`fullSnap.slots = parsed.slots`), so a payload object SHARED
@@ -301,17 +301,17 @@ describe('useSnapshots', () => {
       return {
         template_id: templateId,
         slots: JSON.stringify([
-          { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, anchor_id: null, is_anchor: true, flags: {} },
-          { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'lunch', anchor_id: null, is_anchor: false, flags: {} },
+          { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, fixed_event_id: null, is_fixed_event: true, flags: {} },
+          { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'lunch', fixed_event_id: null, is_fixed_event: false, flags: {} },
         ]),
       }
     }
     const freshSlots = [
-      { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'anchor-slot', is_anchor: true, flags: {} },
-      { id: 's2', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'lunch', is_anchor: false, flags: {} },
+      { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'anchor-slot', is_fixed_event: true, flags: {} },
+      { id: 's2', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'lunch', is_fixed_event: false, flags: {} },
     ]
 
-    it('generated route: an ANCHOR_DUPLICATE finding reaches setFindings after restore', async () => {
+    it('generated route: an FIXED_EVENT_DUPLICATE finding reaches setFindings after restore', async () => {
       const repo = makeRepo({
         getSnapshot: vi.fn(async () => makePayload('tid-generated')),
         reloadSlots: vi.fn(async () => freshSlots),
@@ -324,10 +324,10 @@ describe('useSnapshots', () => {
       await act(async () => { await result.current.restoreSnapshot({ id: 'snap-1' }) })
 
       const findings = props.setFindings.mock.calls[0][0]
-      expect(findings.some(f => f.kind === 'ANCHOR_DUPLICATE')).toBe(true)
+      expect(findings.some(f => f.kind === 'FIXED_EVENT_DUPLICATE')).toBe(true)
     })
 
-    it('manual route: the same anchor/duplicate data never surfaces ANCHOR_DUPLICATE after restore', async () => {
+    it('manual route: the same anchor/duplicate data never surfaces FIXED_EVENT_DUPLICATE after restore', async () => {
       const repo = makeRepo({
         getSnapshot: vi.fn(async () => makePayload('tid-manual')),
         reloadSlots: vi.fn(async () => freshSlots),
@@ -342,7 +342,7 @@ describe('useSnapshots', () => {
       await act(async () => { await result.current.restoreSnapshot({ id: 'snap-1' }) })
 
       const findings = props.setFindings.mock.calls[0][0]
-      expect(findings.some(f => f.kind === 'ANCHOR_DUPLICATE')).toBe(false)
+      expect(findings.some(f => f.kind === 'FIXED_EVENT_DUPLICATE')).toBe(false)
     })
   })
 

@@ -146,7 +146,7 @@ export default function ScheduleDayView({
 
                       const { slot, rowSpan, cellType } = decision
                       const act = slot.activity_id ? actMap.get(slot.activity_id) : null
-                      const anchor = slot.anchor_id ? anchorMap.get(slot.anchor_id) : null
+                      const anchor = slot.fixed_event_id ? anchorMap.get(slot.fixed_event_id) : null
                       const actIsLocked = slot.activity_id && act?.is_locked
                       const isLocked = Boolean(actIsLocked && !slot.is_released)
 
@@ -165,7 +165,7 @@ export default function ScheduleDayView({
                         <SlotCell
                           key={group.id}
                           rowSpan={rowSpan}
-                          slot={slot.is_anchor
+                          slot={slot.is_fixed_event
                             ? { ...slot, type: 'anchor', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id }
                             : { ...slot, type: cellType, groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id, flags: slot.flags || {} }}
                           activity={act}

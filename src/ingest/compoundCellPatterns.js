@@ -22,7 +22,7 @@ function splitParts(value) {
  *   pattern: string,
  *   occurrences: number,
  *   parts: [string, string],
- *   anchorGuess: string|null,
+ *   baseGuess: string|null,
  *   wrapperGuess: string|null,
  * }>}
  */
@@ -59,15 +59,15 @@ export function detectCompoundCellPatterns(cellValues) {
     const hasDiverseSide = partners.get(a).size >= 2 || partners.get(b).size >= 2
     if (!hasDiverseSide) continue // both parts have exactly one fixed partner
 
-    let anchorGuess = null
+    let baseGuess = null
     let wrapperGuess = null
     const aStandalone = standalone.has(a)
     const bStandalone = standalone.has(b)
     if (aStandalone && !bStandalone) {
-      anchorGuess = a
+      baseGuess = a
       wrapperGuess = b
     } else if (bStandalone && !aStandalone) {
-      anchorGuess = b
+      baseGuess = b
       wrapperGuess = a
     }
 
@@ -75,7 +75,7 @@ export function detectCompoundCellPatterns(cellValues) {
       pattern,
       occurrences: occurrences.get(pattern),
       parts,
-      anchorGuess,
+      baseGuess,
       wrapperGuess,
     })
   }

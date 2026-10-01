@@ -103,7 +103,7 @@ function seedRealisticCamp() {
   })
 
   // Move the live Mifkad anchor to a different time block (human edit,
-  // mirrors AnchorsScreen.saveAnchor) so a re-import of the ORIGINAL slot
+  // mirrors FixedEventsScreen.saveAnchor) so a re-import of the ORIGINAL slot
   // reports MOVED instead of a duplicate create.
   const anchor = db.prepare('SELECT id, day_id, time_block_id FROM fixed_events WHERE camp_id = ?').get(campId)
   const block2 = db.prepare("SELECT id FROM time_blocks WHERE camp_id = ? AND name = ?").get(campId, '10:00-10:40').id

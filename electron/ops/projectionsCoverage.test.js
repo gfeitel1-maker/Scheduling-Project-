@@ -202,7 +202,7 @@ const UNRESOLVED_SPREAD_SOURCES = [
     ],
   },
   {
-    file: 'src/screens/AnchorsScreen.jsx',
+    file: 'src/screens/FixedEventsScreen.jsx',
     entity: 'fixed_events',
     // Human-verified: `base` (saveAnchor(), `fields` from AnchorModal.save()
     // minus `selectedDays`) and `record` (import path, `row` minus
@@ -254,8 +254,8 @@ const BULK_REPLACE_ROW_SOURCES = [
     entity: 'template_slots',
     // Human-verified: mapSlotToRow() (scheduleRepository.js ~lines 30-55),
     // called from replaceWeek() and restoreSnapshotRows(). Always emits id,
-    // template_id, group_id, day_id, time_block_id, activity_id, anchor_id,
-    // is_anchor, flags; is_span_head is emitted only on the replaceWeek()
+    // template_id, group_id, day_id, time_block_id, activity_id, fixed_event_id,
+    // is_fixed_event, flags; is_span_head is emitted only on the replaceWeek()
     // (spanHead: true) path and omitted on restoreSnapshotRows() — still a
     // real key the row builder can produce, so it belongs in this list.
     rowBuilder: 'mapSlotToRow',
@@ -266,8 +266,8 @@ const BULK_REPLACE_ROW_SOURCES = [
       'day_id',
       'time_block_id',
       'activity_id',
-      'anchor_id',
-      'is_anchor',
+      'fixed_event_id',
+      'is_fixed_event',
       'is_span_head',
       'flags',
     ],
@@ -420,7 +420,7 @@ beforeAll(() => {
         // localClient.write(token, 'entity', ...) OR a delegation to the shared
         // setup-CRUD repository, <recv>.writeFields('entity', ...) /
         // <recv>.createRecord('entity', ...) (the setupCrudRepository migration,
-        // PR #53, moved ActivitiesScreen/AnchorsScreen/CohortsScreen's local
+        // PR #53, moved ActivitiesScreen/FixedEventsScreen/CohortsScreen's local
         // writeFields wrapper onto that path). Scan only the wrapper's own body
         // so a later unrelated call site can't be mistaken for its entity.
         const braceIdx = text.indexOf('{', defMatch.index)

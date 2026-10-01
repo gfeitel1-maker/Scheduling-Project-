@@ -8,7 +8,7 @@ import { useClipboardSelection } from './useClipboardSelection'
 function slot(overrides = {}) {
   return {
     id: 'slot-1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1',
-    activity_id: 'act-1', anchor_id: null, is_anchor: false, is_span_head: true, flags: {},
+    activity_id: 'act-1', fixed_event_id: null, is_fixed_event: false, is_span_head: true, flags: {},
     ...overrides,
   }
 }
@@ -16,7 +16,7 @@ function slot(overrides = {}) {
 const slots = [
   slot({ id: 's-a', time_block_id: 'b1', activity_id: 'act-1' }),
   slot({ id: 's-b', time_block_id: 'b2', activity_id: 'act-2' }),
-  slot({ id: 's-anchor', time_block_id: 'b3', activity_id: null, is_anchor: true }),
+  slot({ id: 's-anchor', time_block_id: 'b3', activity_id: null, is_fixed_event: true }),
 ]
 const activities = [
   { id: 'act-1', name: 'Swim' },
@@ -78,7 +78,7 @@ describe('useClipboardSelection', () => {
     act(() => result.current.handleCellSelect({ groupId: 'g1', dayId: 'd1', blockId: 'b2' }, { ctrlKey: true }))
     act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true })))
 
-    await act(async () => result.current.handleCellSelect({ groupId: 'g1', dayId: 'd1', blockId: 'b1', is_anchor: false, is_span_head: true }, {}))
+    await act(async () => result.current.handleCellSelect({ groupId: 'g1', dayId: 'd1', blockId: 'b1', is_fixed_event: false, is_span_head: true }, {}))
     // A paste has no drag gestureId — it synthesizes its own one-off claim id
     // (2026-08-12 ADR, FIX 1) so it still participates in the per-cell write
     // queue rather than bypassing it.
@@ -86,7 +86,7 @@ describe('useClipboardSelection', () => {
     expect(result.current.pasteModeIndex).toBe(1)
     expect(result.current.pasteMode).toBe(true)
 
-    await act(async () => result.current.handleCellSelect({ groupId: 'g1', dayId: 'd1', blockId: 'b2', is_anchor: false, is_span_head: true }, {}))
+    await act(async () => result.current.handleCellSelect({ groupId: 'g1', dayId: 'd1', blockId: 'b2', is_fixed_event: false, is_span_head: true }, {}))
     expect(placeActivityManual).toHaveBeenCalledWith('act-2', 'g1', 'd1', 'b2', undefined, expect.any(String))
     // Last item placed → paste mode exits and clears.
     expect(result.current.pasteMode).toBe(false)
@@ -99,7 +99,7 @@ describe('useClipboardSelection', () => {
     act(() => result.current.handleCellSelect({ groupId: 'g1', dayId: 'd1', blockId: 'b1' }, { ctrlKey: true }))
     act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true })))
 
-    await act(async () => result.current.handleCellSelect({ groupId: 'g1', dayId: 'd1', blockId: 'b3', is_anchor: true }, {}))
+    await act(async () => result.current.handleCellSelect({ groupId: 'g1', dayId: 'd1', blockId: 'b3', is_fixed_event: true }, {}))
     expect(placeActivityManual).not.toHaveBeenCalled()
     expect(result.current.pasteError).toContain('recurring event')
     expect(result.current.pasteMode).toBe(true)

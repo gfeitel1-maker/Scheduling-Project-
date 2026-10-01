@@ -38,7 +38,7 @@ const seedState = () => ({
 // Every slot therefore read as is_span_head:false, i.e. the continuation of a
 // merged block. Continuations render nothing. The schedule grid came up with
 // no cells AND NO GRID LINES, while the stats bar simultaneously reported
-// "45 of 45 Placed" — because recalcStats filters on is_anchor/activity_id and
+// "45 of 45 Placed" — because recalcStats filters on is_fixed_event/activity_id and
 // never consults is_span_head. Two readers of the same rows, one broken field,
 // and the disagreement was the only visible symptom.
 //
@@ -64,11 +64,11 @@ describe('mock emulates SQLite INTEGER affinity (T102)', () => {
     await mockShoresh.bulkReplace({
       entity: 'template_slots',
       scope_id: 'tpl-1',
-      rows: [{ id: 'slot-2', template_id: 'tpl-1', is_span_head: '1', is_anchor: '0' }],
+      rows: [{ id: 'slot-2', template_id: 'tpl-1', is_span_head: '1', is_fixed_event: '0' }],
     })
     const [row] = (await mockShoresh.list(null, 'template_slots')).filter(r => r.id === 'slot-2')
     expect(row.is_span_head).toBe(1)
-    expect(row.is_anchor).toBe(0)
+    expect(row.is_fixed_event).toBe(0)
   })
 
   it('survives the real read boundary: normalizeSlots yields TRUE, not false', async () => {
@@ -78,12 +78,12 @@ describe('mock emulates SQLite INTEGER affinity (T102)', () => {
     await mockShoresh.bulkReplace({
       entity: 'template_slots',
       scope_id: 'tpl-2',
-      rows: [{ id: 'slot-3', template_id: 'tpl-2', is_span_head: '1', is_anchor: '0' }],
+      rows: [{ id: 'slot-3', template_id: 'tpl-2', is_span_head: '1', is_fixed_event: '0' }],
     })
     const raw = (await mockShoresh.list(null, 'template_slots')).filter(r => r.id === 'slot-3')
     const [slot] = normalizeSlots(raw)
     expect(slot.is_span_head).toBe(true)
-    expect(slot.is_anchor).toBe(false)
+    expect(slot.is_fixed_event).toBe(false)
   })
 
   it('leaves a genuinely non-numeric value alone', async () => {

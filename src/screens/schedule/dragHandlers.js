@@ -34,7 +34,7 @@ export function makeDragHandlers({
     if (data.paletteActivity) {
       if (!groupId || !dayId || !blockId) return
       const targetSlot = getSlot(slots, groupId, dayId, blockId)
-      if (targetSlot?.is_anchor) return
+      if (targetSlot?.is_fixed_event) return
       if (targetSlot?.activity_id) {
         replaceSlot({ activityId: data.paletteActivity.id }, { groupId, dayId, blockId }, gestureId)
       } else {
@@ -53,7 +53,7 @@ export function makeDragHandlers({
     if (slotA.groupId === groupId && slotA.dayId === dayId && slotA.blockId === blockId) return
 
     const slotB = getSlot(slots, groupId, dayId, blockId)
-    if (!slotB || slotB.is_anchor) return
+    if (!slotB || slotB.is_fixed_event) return
 
     replaceSlot(
       { groupId: slotA.groupId, dayId: slotA.dayId, blockId: slotA.blockId, activityId: slotA.activity_id },

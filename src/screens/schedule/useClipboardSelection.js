@@ -53,7 +53,7 @@ export function useClipboardSelection({ slots, activities, selectedGroup, placeA
         e.preventDefault()
         const newKeys = new Set()
         for (const s of slots) {
-          if (s.is_anchor || !s.activity_id || s.is_span_head === false) continue
+          if (s.is_fixed_event || !s.activity_id || s.is_span_head === false) continue
           if (selectedGroup && s.group_id !== selectedGroup) continue
           newKeys.add(`${s.group_id}|${s.day_id}|${s.time_block_id}`)
         }
@@ -65,7 +65,7 @@ export function useClipboardSelection({ slots, activities, selectedGroup, placeA
   }, [pasteMode, selectedSlotKeys, slots, activities, selectedGroup])
 
   async function handlePasteClick(slot) {
-    if (slot.is_anchor || slot.is_span_head === false) {
+    if (slot.is_fixed_event || slot.is_span_head === false) {
       setPasteError('You cannot paste onto a recurring event, or onto the second half of an activity that runs across two periods.')
       startPasteErrorReset(() => setPasteError(null), 2000)
       return

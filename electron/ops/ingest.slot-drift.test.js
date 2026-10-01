@@ -2,7 +2,7 @@
 // docs/work/tickets/C1b-anchor-slot-drift-moved-signal.md
 // docs/adr/2026-08-10-ingestion-reconciliation-semantics.md (Phase C, C1b)
 //
-// A director who moves a live anchor to a new day/time-block via AnchorsScreen
+// A director who moves a live anchor to a new day/time-block via FixedEventsScreen
 // (saveAnchor mutates day_id/time_block_id on the same entity_id) and then
 // re-imports the ORIGINAL source file (still showing the old slot) used to get
 // a silent duplicate anchor at the old slot (T72's recognize-then-skip only
@@ -52,7 +52,7 @@ const anchorCount = () => db.prepare('SELECT COUNT(*) c FROM fixed_events WHERE 
 const anchorRows = () => db.prepare('SELECT * FROM fixed_events WHERE camp_id = ?').all(campId)
 const commit = (extra) => commitIngest(db, { camp_id: campId, cohort_id: null, author_user_id: 'u1', device_id: deviceId, mode: 'add', ...extra })
 
-// Human-authored move — mirrors AnchorsScreen.jsx's saveAnchor, which mutates
+// Human-authored move — mirrors FixedEventsScreen.jsx's saveAnchor, which mutates
 // day_id/time_block_id on the SAME entity_id (cohort_id never changes).
 const moveAnchor = (anchorId, { day_id, time_block_id }) => {
   for (const [field, value] of Object.entries({ day_id, time_block_id })) {

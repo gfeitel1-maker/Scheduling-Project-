@@ -5,12 +5,12 @@
 // The `unit_ids` case below is a REGRESSION test, not a hypothetical: while
 // these rules were two hand-copied implementations, the headless copy parsed
 // only `group_ids` and never `unit_ids`, for the whole life of the v65
-// column. Nothing threw — src/engine/anchorScope.js's resolveAnchorGroupIds
+// column. Nothing threw — src/engine/fixedEventScope.js's resolveFixedEventGroupIds
 // tests `Array.isArray(anchor.unit_ids)`, so a raw JSON string is simply not
 // a scope claim and falls through to the unit_id > is_all_groups > group_ids
 // fallback. Every MCP/headless caller silently lost division scope.
 import { describe, it, expect } from 'vitest'
-import { resolveAnchorGroupIds } from '../../src/engine/anchorScope.js'
+import { resolveFixedEventGroupIds } from '../../src/engine/fixedEventScope.js'
 import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES } from './campScopedEntities.js'
 import {
   SCHEDULE_INPUT_ENTITIES,
@@ -40,7 +40,7 @@ describe('normalizeScheduleInputs', () => {
     expect(anchors[0].unit_ids).toEqual(['unit-a'])
     // Non-vacuity: the engine must actually READ it as a division claim. With
     // the raw string this returned ['g9'] — the fallback — not ['g1'].
-    expect(resolveAnchorGroupIds(anchors[0], groups)).toEqual(['g1'])
+    expect(resolveFixedEventGroupIds(anchors[0], groups)).toEqual(['g1'])
   })
 
   it('sorts days by sort_order BEFORE de-duping by day_of_week', () => {
