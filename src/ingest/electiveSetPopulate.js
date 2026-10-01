@@ -54,6 +54,9 @@ export async function populateElectiveSet(parsed, { electiveSetId, campId, repo,
 
   const activities = [...(existingActivities ?? [])]
   const offeringByActivityId = new Map((existingOfferings ?? []).map((o) => [o.activity_id, o]))
+  // The activity ids this sheet actually names, resolved below. Used after the
+  // loop to find offerings that fell off the sheet (T195).
+  const sheetActivityIds = new Set()
 
   for (const name of distinctNames) {
     const { activityId, activity, isNew } = await createActivity(
@@ -61,6 +64,7 @@ export async function populateElectiveSet(parsed, { electiveSetId, campId, repo,
       { writeActivityFields: repo.writeActivityFields }
     )
     if (isNew) activities.push(activity)
+    sheetActivityIds.add(activityId)
 
     if (offeringByActivityId.get(activityId)?.status === 'confirmed') continue
 
@@ -82,12 +86,32 @@ export async function populateElectiveSet(parsed, { electiveSetId, campId, repo,
     await markElectivePermissionTier(repo, activityId, activity.recurrence_truth_status)
   }
 
+  // T195 — the "no longer on the sheet" marker. An offering THIS importer
+  // previously wrote (a 'potential', import-id-keyed row) whose activity is
+  // absent from the sheet just imported is REPORTED to the caller, never
+  // silently left in place. Deliberately narrow, by design and owner posture:
+  //   - import-id-keyed only (`id === deriveElectiveImportId(...)`) — a
+  //     director-created offering is not a leftover of any sheet, so it is not
+  //     "missed"; reporting it would be noise.
+  //   - status 'potential' only — a 'confirmed' offering is a director decision
+  //     (and is already skipped above), not a silent leftover.
+  // It is REPORT-ONLY: nothing here deletes or demotes the row. Auto-removal on
+  // re-import is a separate owner ruling that has not been made.
+  const nameByActivityId = new Map(activities.map((a) => [a.id, a.name]))
+  const vanishedOfferings = (existingOfferings ?? [])
+    .filter((o) =>
+      o.status === 'potential' &&
+      !sheetActivityIds.has(o.activity_id) &&
+      o.id === deriveElectiveImportId(electiveSetId, o.activity_id)
+    )
+    .map((o) => ({ activity_id: o.activity_id, name: nameByActivityId.get(o.activity_id) ?? null, status: o.status }))
+
   // `activities` (the resolved+newly-created list) is returned so a caller
   // importing several sets in one pass (populateElectiveGrid) can thread it
   // through successive calls — a name minted while importing one set must
   // be visible to the next set's dedup, or the same activity name appearing
   // in two grid cells mints two catalog rows.
-  return { ok: true, activities }
+  return { ok: true, activities, vanishedOfferings }
 }
 
 // --- Grid consumer (T195): a day x period grid of offering MENU cells -----
@@ -212,6 +236,10 @@ export async function populateElectiveGrid(parsed, {
     // happen here (cellsByKey only holds keys with at least one cell).
     if (!result.ok) unmapped.push({ sourceExcerpt: key, reason: result.reason })
     else activities = result.activities
+    // T195 note: populateElectiveSet also returns per-set vanishedOfferings, but
+    // the grid importer has no UI consumer today, so surfacing a vanished marker
+    // here would be untested, speculative dead state. When a grid-import screen
+    // is built, thread result.vanishedOfferings up here with its own test.
   }
 
   return { ok: true, unmapped }
