@@ -5,7 +5,7 @@ authority: constitutional
 status: active
 applies_to: [product, architecture, security, design, testing, workflow, agents]
 supersedes: []
-last_reviewed: 2026-07-28
+last_reviewed: 2026-10-01
 review_trigger: any change to the agent roster, the precedence order, or the human-approval gates
 ---
 
@@ -113,6 +113,7 @@ on it proceeds under the standards.
 - Code found to contradict a standard (Article I).
 - A product-judgement question, including terminology, flag semantics, and what "done" means to a director.
 - Verifier returning FAIL or UNVERIFIED at round 2.
+- A Grader FAIL, at any round.
 - Any destructive or irreversible operation on stored data or history.
 
 Escalation is never a failure state. Rule 8 exists to be used.
@@ -191,8 +192,21 @@ is what makes it inspectable afterwards.
   a pass outright, whatever Grader reports. A reviewer score is never proof when a required gate fails.
 - Grader scores the opinion reports against its rubric. Pass is an average ≥ 4.0 with no dimension
   below 3.
-- Maximum two rounds. Round 2 failure escalates to the user with open findings; it does not become a
-  third round.
+- **A Grader FAIL ends the loop and escalates to the user.** It never becomes another round, whatever
+  the blocker looks like — including one that looks small, already understood, or one line from
+  fixed. A Verifier FAIL or unresolved UNVERIFIED reaches Grader as a FAIL and stops the loop the
+  same way. (owner ruling, 2026-10-01: "No carve-out ... regardless of how the blocker looks.")
+- Maximum two rounds. Because a Verifier FAIL and any blocking finding both surface as a Grader
+  FAIL, round 2 is reachable only when round 1 produced no Grader verdict at all — an interrupted
+  Maker, or a brief Governor must itself correct. It does not become a third round.
+- **Review agents are read-only.** Code Reviewer, Security, Red Hat and Grader read, grep and run
+  tests; they never write, plant, stash or move the tree. Non-vacuity plants are the Verifier's,
+  performed on a scratch copy, never on the working tree. A reviewer may cite only evidence that
+  already exists in the tree; it never creates the evidence it cites. This applies rule 6 (reviewers
+  do not modify the work they review) to the tree itself, not only the diff (owner ruling,
+  2026-10-01). One named carve-out: the Grader invokes `scripts/gateReportCli.js`, and that CLI
+  writes the typed `GateReport` under `docs/work/runs/gate-reports/` — the reducer writing its own
+  output, not a reviewer authoring evidence about itself.
 
 ---
 
