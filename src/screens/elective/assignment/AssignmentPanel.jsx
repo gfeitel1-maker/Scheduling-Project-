@@ -50,7 +50,12 @@ import RunList from '../run/RunList.jsx'
 import DraftRunView from '../run/DraftRunView.jsx'
 // T320 part 2 item 2 — the ONE copy string for RUN_IS_FINAL, shared with
 // DraftRunView rather than duplicated here.
-import { FINALIZE_MESSAGES } from '../run/runStateCopy.js'
+import { FINALIZE_MESSAGES, COLD_HYDRATION_FAILED_NOTE, COLD_HYDRATION_SLOW_NOTE } from '../run/runStateCopy.js'
+
+// Long enough that an ordinary cold-open read never trips it (the measured read
+// is tens of milliseconds), short enough that a director is not left watching an
+// indefinite sentence.
+const COLD_HYDRATION_SLOW_MS = 8000
 import FinalRunView from '../run/FinalRunView.jsx'
 
 const emptyStyles = {
@@ -329,6 +334,13 @@ export default function AssignmentPanel({
   // a run opened cold from the run list. Absent or mismatched, onRegenerate
   // stays undefined — a control that cannot work must not render.
   const [hydratedRunId, setHydratedRunId] = useState(null)
+  // How a cold-open hydration ENDED badly, for the one run it ended badly on:
+  // `{ runId, message }`. `regenerate` is unavailable either way — but the reason
+  // differs, and DraftRunView says which rather than leaving a director to guess
+  // why a control is missing. Holding the MESSAGE, not just the id, is what
+  // carries the failure to the screen: round 1 reported it through `onError`
+  // alone and a full-body text search of the rendered page found no trace of it.
+  const [hydrationFailure, setHydrationFailure] = useState(null)
   const [danglingFindings, setDanglingFindings] = useState([])
   // What this director settled on THIS parse \u2014 a list of
   // `{ label, action, activityName }` \u2014 and the label currently being acted on.
@@ -1020,9 +1032,10 @@ export default function AssignmentPanel({
   // T250 — a regenerate offered on the Draft screen when some of the run's
   // placements came from an earlier version of the schedule. Re-solves in
   // place, carrying the director's locked seats through, and lands back on the
-  // preview so they commit the new solve deliberately. Only offered when this
-  // session still holds the parsed sheet (a run opened cold from the list has
-  // no sheet in memory to re-solve from).
+  // preview so they commit the new solve deliberately. Offered when this
+  // session holds the parsed sheet — which, since T250 A3, includes a run
+  // opened cold from the list once the hydration effect below has
+  // reconstructed that sheet from the run's own persisted rows.
   // T297 — `preferences`/`choices` are the RUN's own stored rows, passed up by
   // DraftRunView after a preference edit. See solve()'s `choices` note for why
   // both halves have to travel together.
@@ -1077,6 +1090,18 @@ export default function AssignmentPanel({
   // against a run opened cold from the run list. Deliberately does NOT write
   // a parallel solve/commit pipeline — that would duplicate
   // commitElectiveRun's refusal/generation/lock logic in a second place.
+  // DERIVED, not a second piece of state: "hydration is in flight" is exactly
+  // "the effect below would run and has not finished", and the one outcome
+  // that condition cannot see is a failure — which is what
+  // `hydrationFailedRunId` records. A `setHydratingRunId(...)` in the effect
+  // body would be a cascading render for a fact already available here.
+  const coldHydrationPending = Boolean(
+    viewRun && viewRun.status === 'draft' &&
+    viewRun.id !== committedInfo?.runId &&
+    hydratedRunId !== viewRun.id &&
+    hydrationFailure?.runId !== viewRun.id
+  )
+
   useEffect(() => {
     if (!viewRun || viewRun.status !== 'draft') return
     // Already solved THIS session (chooseTemplateAndSolve/regenerate already
@@ -1084,6 +1109,14 @@ export default function AssignmentPanel({
     // already hydrated — nothing to do.
     if (viewRun.id === committedInfo?.runId || hydratedRunId === viewRun.id) return
     let cancelled = false
+    const runId = viewRun.id
+    // THE READ HAS NO TIMEOUT OF ITS OWN, and an indefinite "Preparing…" that
+    // has REPLACED a definite, actionable sentence is worse than the sentence it
+    // replaced — especially since an unresponsive main process is exactly the
+    // condition this branch exists for. After this long, say so.
+    const slowTimer = setTimeout(() => {
+      if (!cancelled) setHydrationFailure({ runId, message: COLD_HYDRATION_SLOW_NOTE })
+    }, COLD_HYDRATION_SLOW_MS)
     ;(async () => {
       try {
         const out = await localClient.getElectiveRun({ runId: viewRun.id })
@@ -1123,14 +1156,34 @@ export default function AssignmentPanel({
           choices: out.choices ?? [], sameNameCampers: [], residue: [],
         })
         setHydratedRunId(viewRun.id)
-      } catch (err) {
+      } catch {
+        // No binding: the sentence below is the same whatever the read threw,
+        // so there is nothing left to inspect it for.
         if (cancelled) return
-        onError?.(describeWriteFailure(err, 'This run could not be prepared for regenerating.'))
+        // NOT describeWriteFailure. It CONCATENATES — every branch returns
+        // `${whatFailed} <reason clause>` — so every other call site passes a
+        // short phrase with no remedy. This note already ends in its own
+        // remedy, and the generic branch appended a second, contradicting one
+        // plus a log a camp director cannot open. The remedy is the same
+        // whatever the read failed on (reopen the run from Runs), so the
+        // definite sentence stands alone.
+        const message = COLD_HYDRATION_FAILED_NOTE
+        setHydrationFailure({ runId, message })
+        onError?.(message)
+      } finally {
+        clearTimeout(slowTimer)
       }
     })()
-    return () => { cancelled = true }
+    return () => { cancelled = true; clearTimeout(slowTimer) }
+    // DEPS ARE THE RUN ID AND THE COMMITTED RUN ID, NOT THE OBJECTS. `viewRun`
+    // and `committedInfo` are fresh identities on most renders, so this effect
+    // re-ran and its cleanup set `cancelled` on the previous attempt — which
+    // means the catch below returned before reporting anything, every time. That
+    // is the mechanism by which the hydration failure reached neither the screen
+    // nor `onError`, and by which a failing read left "Preparing…" on screen
+    // forever instead of resolving to a failure.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewRun, committedInfo, hydratedRunId])
+  }, [viewRun?.id, viewRun?.status, viewRun?.schedule_template_id, committedInfo?.runId, hydratedRunId])
 
   // Q1/Q2: a finalized run is immutable and there is no reopen. With today's
   // IPC the honest minimal behaviour is to put the director back at the import
@@ -1233,6 +1286,8 @@ export default function AssignmentPanel({
             // former.
             onRegenerate={parsed && (viewRun.id === committedInfo?.runId || hydratedRunId === viewRun.id) ? regenerate : undefined}
             coldRegenerate={viewRun.id !== committedInfo?.runId && hydratedRunId === viewRun.id}
+            regeneratePending={coldHydrationPending}
+            regenerateFailure={hydrationFailure?.runId === viewRun.id ? hydrationFailure.message : null}
             onBack={closeRunView}
             {...runViewCatalogs}
           />

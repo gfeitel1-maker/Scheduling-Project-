@@ -4,7 +4,7 @@
 // re-entrancy), M1 (a real route off the "not on a schedule yet" dead end),
 // M3 (row-count guard on the .txt import branch).
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react'
 
 vi.mock('../../../localClient', () => ({
   localClient: {
@@ -1041,5 +1041,145 @@ describe('AssignmentPanel — route chooser surfaces a declared camper with no r
 
     await waitFor(() => expect(screen.getByText(/choose which to assign against/)).toBeTruthy())
     expect(screen.getByText(/1 camper\(s\) had no recognisable choice: Ben Stone/)).toBeTruthy()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// FOLD-IN 1 plumbing — `regeneratePending`.
+//
+// "Regenerate is not available YET" and "regenerate is not available" are
+// different facts, and the Draft screen says which. The flag is DERIVED from
+// the hydration condition rather than stored, so these pin the derivation.
+// ---------------------------------------------------------------------------
+describe('AssignmentPanel — regeneratePending while a cold-opened run hydrates', () => {
+  const COLD_RUN = {
+    id: 'pending-run-1', name: 'Pending Run', status: 'draft', source_filename: 'sheet.csv',
+    schedule_template_id: 'tpl-1', schedule_week_id: null, tier_id: 'tier-juniors',
+  }
+  const STATE = {
+    rows: [], occurrences: [], preferences: [], choices: [],
+    campers: [], staleCount: 0, finalizedAgainstStaleGeneration: false, overCapacityOccurrences: [],
+  }
+
+  // BOTH reads go through the same `getElectiveRun` mock: DraftRunView's own
+  // useRunState read (child effect, fires FIRST) and the panel's hydration read
+  // (parent effect, fires second). The fixtures below key off that order,
+  // because the panel's read is the only one `regeneratePending` describes.
+  it('says PREPARING while the hydration read is in flight, and stops once it settles', async () => {
+    let resolveHydration
+    localClient.listElectiveRuns.mockResolvedValue([COLD_RUN])
+    let call = 0
+    localClient.getElectiveRun.mockImplementation(() => {
+      call += 1
+      if (call === 1) return Promise.resolve(STATE)
+      return new Promise((r) => { resolveHydration = r })
+    })
+    render(<AssignmentPanel {...baseProps()} />)
+    fireEvent.click(await screen.findByTestId('run-list-row-pending-run-1'))
+
+    const note = await screen.findByTestId('run-regenerate-unavailable')
+    expect(note.textContent).toBe('Preparing this run so it can be regenerated…')
+    expect(screen.queryByTestId('run-regenerate')).toBeNull()
+
+    resolveHydration(STATE)
+    await waitFor(() => expect(screen.getByTestId('run-regenerate')).toBeTruthy())
+    expect(screen.queryByTestId('run-regenerate-unavailable')).toBeNull()
+  })
+
+  it('stops saying PREPARING when the read never settles, rather than waiting forever', async () => {
+    // Red Hat L2 — the read has no timeout of its own, so an unresponsive main
+    // process (exactly the condition this branch exists for) left the note at
+    // "Preparing this run so it can be regenerated…" indefinitely, having
+    // REPLACED a definite, actionable sentence with an indefinite one.
+    localClient.listElectiveRuns.mockResolvedValue([COLD_RUN])
+    let call = 0
+    localClient.getElectiveRun.mockImplementation(() => {
+      call += 1
+      if (call === 1) return Promise.resolve(STATE)
+      return new Promise(() => {})
+    })
+    // Fake timers BEFORE render: the timer is scheduled inside the hydration
+    // effect, so installing them afterwards would leave a real pending timer
+    // that no amount of advancing reaches.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      render(<AssignmentPanel {...baseProps()} />)
+      fireEvent.click(await screen.findByTestId('run-list-row-pending-run-1'))
+      const note = await screen.findByTestId('run-regenerate-unavailable')
+      expect(note.textContent).toBe('Preparing this run so it can be regenerated…')
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(8000) })
+      const text = screen.getByTestId('run-regenerate-unavailable').textContent
+      expect(text).toContain('taking longer than expected')
+      expect(text).toContain('go back to Runs and open it again')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('stops saying PREPARING when the hydration read FAILS, and reports it once', async () => {
+    const onError = vi.fn()
+    localClient.listElectiveRuns.mockResolvedValue([COLD_RUN])
+    let call = 0
+    localClient.getElectiveRun.mockImplementation(() => {
+      call += 1
+      if (call === 2) return Promise.reject(new Error('read failed'))
+      return Promise.resolve(STATE)
+    })
+    render(<AssignmentPanel {...baseProps({ onError })} />)
+    fireEvent.click(await screen.findByTestId('run-list-row-pending-run-1'))
+
+    await waitFor(() => expect(onError).toHaveBeenCalledTimes(1))
+    // ROUND 2 — the sentence is the FAILURE, not the generic one. Round 1 sent
+    // the described failure to `onError` and showed the director the same
+    // "can't be regenerated right now" they would have seen had nothing gone
+    // wrong, so a retry produced the identical sentence with no indication
+    // whether it would help. A full-body text search of the rendered page found
+    // no trace of the failure anywhere.
+    await waitFor(() => {
+      const note = screen.getByTestId('run-regenerate-unavailable').textContent
+      // ONE SENTENCE, ONE REMEDY. Round 2 half-landed: the note was passed
+      // through describeWriteFailure, which CONCATENATES a reason clause onto
+      // whatever it is given, so a note that already ended in its own remedy
+      // became "…go back to Runs and open it again. The reason was not
+      // something the app recognised — try again, and if it keeps happening the
+      // details are in the log." Two contradictory remedies, and a log a camp
+      // director cannot open.
+      expect(note).toBe('This run could not be prepared for regenerating — go back to Runs and open it again.')
+      expect(note).not.toMatch(/log/i)
+      expect(note).not.toMatch(/try again/i)
+      // The SAME string the error banner gets — one sentence, not two drifting
+      // paraphrases of one failure.
+      expect(onError).toHaveBeenCalledWith(note)
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// DEFECT B — "the commit that never leaves Committing…".
+//
+// The observed symptom was a renderer stuck on "Committing…" that appeared to
+// resolve only after navigating away and back. This pins the renderer's own
+// contract: resolution of the awaited IPC ALONE drives the transition, with no
+// navigation, no remount, and no second render trigger. If this passes, the
+// renderer has no navigation-gated transition and the stall is a consequence of
+// how long the awaited call itself took.
+// ---------------------------------------------------------------------------
+describe('AssignmentPanel — a commit leaves Committing… on its own', () => {
+  it('reaches the committed state with no navigation or remount', async () => {
+    let resolveCommit
+    localClient.commitElectiveRun.mockImplementation(() => new Promise((r) => { resolveCommit = r }))
+    localClient.getElectiveRun.mockResolvedValue({
+      rows: [], occurrences: [], preferences: [], choices: [], campers: [],
+      staleCount: 0, finalizedAgainstStaleGeneration: false, overCapacityOccurrences: [],
+    })
+    await driveToPreview()
+    fireEvent.click(screen.getByText(/Commit Assignments/))
+    await waitFor(() => expect(screen.getByText(/Committing…/)).toBeTruthy())
+
+    resolveCommit({ ok: true, runId: 'run-b', counts: { campers: 1, choices: 1, preferences: 1, assignments: 1 }, findings: [] })
+
+    await waitFor(() => expect(screen.queryByText(/Committing…/)).toBeNull())
+    await waitFor(() => expect(screen.getByText('Assignments committed')).toBeTruthy())
   })
 })

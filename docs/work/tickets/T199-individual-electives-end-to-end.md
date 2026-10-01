@@ -1,7 +1,7 @@
 ---
 title: T199-individual-electives-end-to-end
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-17
 archive_when: the acceptance fixture passes and the behaviour is folded into PLATFORM_STATE
 governing_docs: [docs/governance/standards/TESTING_STANDARD.md, docs/governance/standards/DESIGN_STANDARD.md, SECURITY.md]
@@ -91,3 +91,19 @@ section for each defect's detail and evidence frames, and
 for the full narrative. Spec §6 condition 4 (no camper violates eligibility) remains an asserted
 gap, untouched by this walk; reduced motion remains unverified (DevTools emulation could not be
 driven in this pass).
+
+## Close-out — 2026-10-01
+
+The exit condition is met: every row of the director flow table above is reachable in the real app,
+and all four director-facing defects the 2026-09-30 walk found at this seam are fixed and landed —
+#683 (the bundle-tier wall and raw codes, with #685 for the residual copy), #680 (the false
+"out of date" row on every Final run), #687 (the same-name sheet silently dropping a camper), and
+this PR (the Commit/Finalize freeze). The walk itself is
+[docs/work/runs/2026-09-30-t251-electron-dev-walk-director-flow.md](../runs/2026-09-30-t251-electron-dev-walk-director-flow.md).
+
+Two conditions close as asserted gaps rather than as verified, stated here so the status flip does
+not imply they were met: spec §6 condition 4 ("no camper violates eligibility"), which no pass has
+tested either way, and reduced motion, which DevTools emulation could not drive in the 2026-09-30
+pass and for which no frame exists. See
+[docs/work/tickets/T251-t199-acceptance-fixture.md](T251-t199-acceptance-fixture.md)'s own
+close-out for the detail.

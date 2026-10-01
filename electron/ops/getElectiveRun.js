@@ -237,8 +237,9 @@ export function getElectiveRun(db, { runId }) {
     .all({ runId })
 
   // Returned rather than rendered: which campers the sheet named and this run
-  // has nothing for, so a screen can say so without re-reading. Whether to
-  // NAME them to a director is a product call the owner has not made.
+  // has nothing for, so a screen can say so without re-reading. Naming them to
+  // a director WAS an open product call; it has since been made — DraftRunView
+  // names them, behind the same disclosure idiom the grouped findings use.
   const sheetOnlyCampers = db
     .prepare(
       `SELECT DISTINCT camper_id FROM elective_run_findings

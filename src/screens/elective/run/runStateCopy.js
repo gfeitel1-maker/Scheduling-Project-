@@ -233,13 +233,26 @@ export function groupBundleTierNotCoveredFindings({ findings = [], campers = [],
     // was given. Splitting these further would need a label this run never
     // persisted (see F4's root cause).
     const key = JSON.stringify([f.label, tierId])
-    if (!byKey.has(key)) byKey.set(key, { label: f.label, tierId, tierName, names: [] })
+    if (!byKey.has(key)) byKey.set(key, { label: f.label, tierId, tierName, campers: [] })
     // F5 (Red Hat) — NEVER a raw camper_id in director-facing copy (the same
     // rule camperDisambiguator's own comment states): a camper row that is
     // gone (hard-deleted after an earlier generation) degrades to a truthful
     // sentence fragment instead.
-    const name = camperById.get(f.camper_id)?.display_name ?? UNKNOWN_CAMPER_LABEL
-    byKey.get(key).names.push(name)
+    const resolved = camperById.get(f.camper_id)?.display_name ?? null
+    // `campers` REPLACED a parallel `names: [string]`, rather than being added
+    // beside it. Round 1 kept both and left `names` with no production reader at
+    // all (both former call sites pass `campers`), asserted only by a test whose
+    // comment said every existing caller still held — there were none. The
+    // disclosure needs the camper id to look up a disambiguator (two campers can
+    // share a name) and `names` loses it, which is the whole reason for the
+    // change.
+    //
+    // `name: null` IS the unresolvable signal, and an unresolvable camper
+    // carries NO id — the id exists only to resolve a disambiguator, which a
+    // camper with no row cannot have, and the F5 rule (never a raw camper id in
+    // anything this screen hands to the director) applies to the structure as
+    // much as to the sentence.
+    byKey.get(key).campers.push({ id: resolved ? f.camper_id : null, name: resolved })
   }
   return [...byKey.values()]
 }
@@ -256,8 +269,11 @@ export function groupBundleTierNotCoveredFindings({ findings = [], campers = [],
 // choice_id null, and getElectiveRun.js's LEFT JOIN on choice_id then recovers
 // no label on a cold reopen. Same posture as the tierName-null branch above —
 // degrade honestly, never invent a label and never interpolate the raw null.
-export function bundleTierNotCoveredGroupMessage({ label, tierName, names = [] }) {
-  const count = names.length
+// Counts `campers`, the one list the group carries since the parallel `names`
+// array was dropped — this read is why dropping it had to be done here and not
+// only at the producer.
+export function bundleTierNotCoveredGroupMessage({ label, tierName, campers = [] }) {
+  const count = campers.length
   const camperWord = count === 1 ? 'camper' : 'campers'
   const who = tierName ? `cover ${tierName}` : 'cover these campers’ division'
   const subject = label ? `"${label}" does not ${who}` : `A linked bundle does not ${who}`
@@ -275,6 +291,78 @@ export function sheetOnlyCampersMessage(count) {
   const verb = count === 1 ? 'has' : 'have'
   return `${count} ${camperWord} on this run's sheet ${verb} no ranked choice and no placement.`
 }
+
+// board item — a disclosure that printed UNKNOWN_CAMPER_LABEL once per
+// unresolvable camper read as six identical bullets. Naming them is impossible
+// by construction: their campers row is gone, so the only distinguishing fact
+// left is the raw id, which this screen never shows. So they are COUNTED into
+// one line instead, beside whatever campers did resolve.
+export function unresolvableCampersLabel(count) {
+  if (count <= 0) return null
+  return count === 1 ? UNKNOWN_CAMPER_LABEL : `${count} campers who are no longer on the roster`
+}
+
+// When NOTHING resolves there is nothing to disclose — a <details> whose only
+// content is its own summary restated. The fact goes inline instead.
+export function allCampersUnresolvableMessage(count) {
+  return count === 1
+    ? 'This camper is no longer on the roster.'
+    : 'These campers are no longer on the roster.'
+}
+
+// The plain regenerate control on a cold-opened draft run. Bare "Regenerate",
+// NOT "Re-derive and regenerate": "re-derive" names the extra thing the
+// staleness offer does (re-deriving against a changed schedule), and borrowing
+// its label here would promise work this control does not do.
+export const REGENERATE_LABEL = 'Regenerate'
+export const REGENERATE_BUSY_LABEL = 'Regenerating…'
+
+// A control that cannot act is never rendered as a dead control — but its
+// absence always carries a sentence, so the director is not left guessing why
+// the button they saw on another run is missing on this one.
+//
+// THREE STATES, NOT TWO. Round 1 had "preparing" and "not available", and the
+// third — the hydration read actually FAILED — reached nothing on screen:
+// AssignmentPanel called `onError` with a described failure and a full-body text
+// search of the rendered page found no "could not be prepared" anywhere, so the
+// director got the generic sentence and retrying produced the same sentence with
+// no indication whether it would help. The standing rule is that every write
+// failure is surfaced; a read the director is waiting on is no different.
+//
+// `failure` is the described failure itself, rendered verbatim, because a
+// paraphrase here would be a second place for the same sentence to drift.
+export function regenerateUnavailableNote(preparing, failure = null) {
+  if (failure) return failure
+  return preparing
+    ? 'Preparing this run so it can be regenerated…'
+    : "This run can't be regenerated right now — go back to Runs and open it again."
+}
+
+// The fallback when the cold-open read throws without a message of its own.
+export const COLD_HYDRATION_FAILED_NOTE =
+  'This run could not be prepared for regenerating — go back to Runs and open it again.'
+
+// A STUCK "Preparing…" IS NOT AN ANSWER. The read has no timeout of its own, so
+// if the main process is unresponsive — exactly the condition this branch exists
+// for — the note sat at "Preparing…" indefinitely, having REPLACED the
+// previously definite, actionable sentence with an indefinite one.
+export const COLD_HYDRATION_SLOW_NOTE =
+  'Preparing this run is taking longer than expected — go back to Runs and open it again.'
+
+// Each of the two controls in the actions band says what IT does, next to
+// itself. Round 1 put the Finalize sentence after the Regenerate button, where a
+// director reading left to right met "Locks this run" immediately after the
+// control whose effect is the opposite, with nothing anywhere saying what
+// Regenerate does.
+export const FINALIZE_HINT =
+  "Locks this run. You'll see it as Final, and can always start a new version later."
+export const REGENERATE_HINT = 'Solves this run again from the current schedule, keeping the seats you locked.'
+
+// T320 part 2 item 3 — authored here rather than inline in DraftRunView, which
+// is where every other director-facing string on that screen lives.
+export const COLD_REGENERATE_NOTE =
+  "Regenerating a reopened run reconsiders every camper this run's sheet named — including anyone " +
+  'with no ranked choice and no placement.'
 
 // C2 (board item 9b) — OUTER_RESOURCE_CONFLICT findings (findRouteConflicts,
 // src/engine/routeConflicts.js) carry no `.message`, only locationName/

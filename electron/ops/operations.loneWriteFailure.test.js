@@ -20,17 +20,31 @@ afterAll(() => {
 // it is a MEASUREMENT, not a fix: it asserts what actually happens today so the
 // cost is on the record before anyone decides what it is worth.
 //
-// Injection happens at `applyWrite`, the layer that actually runs — spying on
+// Injection happens at `applyWrites`, the layer that actually runs — spying on
 // `recordLocalWrite` replaces the queueing function and exercises none of this
 // (learned the hard way in #367).
+//
+// IT WAS `applyWrite` UNTIL THE BATCHED FLUSH LANDED. liveDoc's
+// applyLocalWritesNow now calls `applyWrites` (a run per A.change), and
+// applyLocalWriteNow is a one-line alias for it — so the old mock named a
+// function nothing on this path calls any more, and the injection went inert
+// while the tests kept asserting. The anti-vacuity `fired()` guards below are
+// what caught it. WHEN THIS LAYER MOVES AGAIN, the guards go red first: follow
+// them to whatever liveDoc imports from campDocument.js and re-point the mock
+// there, rather than relaxing a count.
+//
+// Mocked at `applyWrites` only, NOT also at `applyWrite`: the module's own
+// applyWrite -> applyWrites call is module-local and unmocked, so seeding
+// (electron/automerge/seed.js, which still calls applyWrite) stays real. That
+// keeps one injected failure to one attempt, which is what the counts mean.
 vi.mock('../automerge/campDocument.js', async (importOriginal) => {
   const actual = await importOriginal()
-  return { ...actual, applyWrite: vi.fn(actual.applyWrite) }
+  return { ...actual, applyWrites: vi.fn(actual.applyWrites) }
 })
 
 import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { appendOp, runAtomic } from './operations.js'
-import { applyWrite, readRecord } from '../automerge/campDocument.js'
+import { applyWrites, readRecord } from '../automerge/campDocument.js'
 import { projectAll } from '../automerge/projector.js'
 import { listDocumentWriteFailures } from './documentWriteFailures.js'
 import { repairProjectionForEntity, checkProjectionHealth } from './projectionRepair.js'
@@ -51,7 +65,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  vi.mocked(applyWrite).mockRestore?.()
+  vi.mocked(applyWrites).mockRestore?.()
   resetForTests()
   db.close()
   if (tmpFile && fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile)
@@ -64,19 +78,24 @@ const write = (id, field, value) =>
     author_user_id: null, device_id: 'device-1', parent_op_id: null, client_write_id: null,
   })
 
-// Fail applyWrite for this value the first `times` attempts.
+// Fail applyWrites for this value the first `times` attempts.
 //   times = 1        -> TRANSIENT: the retry inside recordLocalWrite recovers it.
 //   times = Infinity -> PERSISTENT: every attempt fails, and we fall through to
 //                       the recorded-failure path.
+//
+// `applyWrites` takes a RUN, so the match is over the array: the call fails when
+// ANY write in the run carries `value`. One call is one attempt — the whole
+// A.change is rolled back and rethrown — so `fired` keeps counting attempts, not
+// writes, which is what the 1-vs-3 assertions mean.
 function failWriteOf(value, times = Infinity) {
-  const real = vi.mocked(applyWrite).getMockImplementation()
+  const real = vi.mocked(applyWrites).getMockImplementation()
   let fired = 0
-  vi.mocked(applyWrite).mockImplementation((doc, args) => {
-    if (args?.value === value && fired < times) {
+  vi.mocked(applyWrites).mockImplementation((doc, writes) => {
+    if (writes?.some((w) => w?.value === value) && fired < times) {
       fired += 1
       throw new Error('document write failed')
     }
-    return real(doc, args)
+    return real(doc, writes)
   })
   return () => fired
 }

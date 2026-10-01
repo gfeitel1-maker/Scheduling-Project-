@@ -35,7 +35,13 @@ import {
   resolveCamperDisambiguators, satisfactionSummary, stalenessOfferMessage,
   groupBundleTierNotCoveredFindings, bundleTierNotCoveredGroupMessage, finalizeFindingMessage,
   sheetOnlyCampersMessage, UNKNOWN_CAMPER_LABEL,
+  unresolvableCampersLabel, allCampersUnresolvableMessage,
+  REGENERATE_LABEL, REGENERATE_BUSY_LABEL, regenerateUnavailableNote, COLD_REGENERATE_NOTE,
+  FINALIZE_HINT, REGENERATE_HINT,
 } from './runStateCopy.js'
+
+// See styles.namesListScroll for why this is 20 and not 10.
+const NAMES_CLAMP_AFTER = 20
 
 const styles = {
   summary: { fontSize: 13, marginBottom: 14 },
@@ -44,7 +50,14 @@ const styles = {
   td: { padding: '6px 8px', borderBottom: '1px solid var(--border)' },
   offer: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, fontSize: 13, marginBottom: 14 },
   camperDisambiguator: { fontSize: 11, color: 'var(--text-secondary)' },
-  actionsBand: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 },
+  // ONE SLOT PER CONTROL, each holding its own explanation. Round 1 had a single
+  // flex row of [button][button][sentence], which put the Finalize sentence
+  // adjacent to Regenerate — a control whose effect is its opposite — and left
+  // Regenerate with nothing saying what it does. `flexWrap` plus a non-shrinking
+  // slot is also what stops "Finalize run" being squeezed onto two lines beside
+  // a one-line "Regenerate" at 760px: the slots wrap, the labels do not.
+  actionsBand: { display: 'flex', alignItems: 'flex-start', gap: 20, marginBottom: 14, flexWrap: 'wrap' },
+  actionSlot: { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4, flexShrink: 0, maxWidth: 320 },
   actionsHint: { fontSize: 12, color: 'var(--text-secondary)' },
   // T320 (docs/adr/2026-09-30-elective-run-durability.md item 3;
   // docs/work/specs/2026-09-30-t320-dangling-replace-picker.md).
@@ -60,6 +73,31 @@ const styles = {
     cursor: 'pointer',
   },
   findingsList: { margin: '8px 0 0', paddingLeft: 20, fontSize: 12 },
+  // The disclosure's list had no cap: a run where most of the roster is named
+  // filled the screen. Bounded, never truncated — every camper stays reachable
+  // by scrolling. NOT a "+N more" and NOT a nested collapse: this list is
+  // already inside a <details> the director opened on purpose.
+  // RAISED FROM 220px/10 ENTRIES, which clamped where it was not earning its
+  // keep: measured at 14 entries, 220px showed 12 and hid 1.78 rows with no
+  // fade, no shadow, and macOS overlay scrollbars invisible until the pointer
+  // moves — so "14 campers" expanded to a list a director counted twelve of.
+  // 360px holds 20 rows at the 18px row height measured in the real renderer,
+  // and the clamp now engages only past that.
+  //
+  // THE MASK IS THE CUE, and it is not decoration: it is the only thing on this
+  // platform that says the list continues. A pseudo-element or a shadow would
+  // need a stylesheet (the one exception in this repo is scoped to
+  // src/components/schedule/), and a "+N more" line is what this list already
+  // decided against. No new token: a mask's stops are alpha, not colour.
+  namesListScroll: {
+    maxHeight: 360,
+    overflowY: 'auto',
+    // Percentage stops, not `calc(100% - 28px)`: the calc form is valid CSS but
+    // jsdom's cssstyle drops the whole declaration for it, so the cue could not
+    // be pinned by a test. 92% is ~28px of fade at this clamp height.
+    maskImage: 'linear-gradient(to bottom, #000 92%, transparent)',
+    WebkitMaskImage: 'linear-gradient(to bottom, #000 92%, transparent)',
+  },
   // The pairing: the state, then its remedy, with nothing between them — same
   // shape as FinalRunView's own stale-generation pairing.
   pairing: { marginBottom: 16 },
@@ -123,18 +161,64 @@ function FinalizeFindingsList({ findings, days = [], timeBlocks = [] }) {
 // phrasing when no tier resolved), and the COUNT; every named camper stays
 // reachable behind the SAME disclosure idiom FinalizeFindingsList uses — never
 // dropped, only collapsed.
-function BundleMismatchGroupNames({ names }) {
+//
+// Renamed from BundleMismatchGroupNames — it was never bundle-specific, and
+// fixing the identical-bullets defect at this ONE choke point fixes both call
+// sites rather than either instance.
+//
+// `campers` is [{ id, name }]; `name: null` means the camper's row is gone.
+// Those are COUNTED into a single line rather than enumerated, because they
+// have no distinguishing fact by construction (see unresolvableCampersLabel).
+// When nothing resolves there is no disclosure at all — a <details> whose body
+// restates its own summary is the idiom the board complained about.
+function CamperNameDisclosure({ campers = [], disambiguators }) {
+  if (campers.length === 0) return null
+  const named = campers.filter((c) => c.name)
+  const unresolvableCount = campers.length - named.length
+  if (named.length === 0) return <>{allCampersUnresolvableMessage(campers.length)}</>
+  const itemCount = named.length + (unresolvableCount > 0 ? 1 : 0)
+  // ONE camper is not a disclosure. The summary already states the only fact the
+  // body holds, so expanding it showed nothing new — the same "restates its own
+  // summary" defect as the all-unresolvable case above, one camper over. The
+  // disambiguator is the single thing the body DID add, so it comes inline too
+  // rather than being dropped with the control.
+  if (itemCount === 1) {
+    const only = named[0]
+    const disambiguator = only.id != null ? disambiguators?.get(only.id) ?? null : null
+    return (
+      <>
+        {only.name}
+        {disambiguator ? <span style={styles.camperDisambiguator}>{` \u00b7 ${disambiguator}`}</span> : null}
+      </>
+    )
+  }
   return (
     <details style={A.disclosure}>
-      <summary style={A.disclosureSummary}>{names.length === 1 ? names[0] : `${names.length} campers`}</summary>
-      <ul style={styles.findingsList}>
-        {names.map((name, i) => <li key={i}>{name}</li>)}
+      <summary style={A.disclosureSummary}>{`${campers.length} campers`}</summary>
+      <ul style={itemCount > NAMES_CLAMP_AFTER ? { ...styles.findingsList, ...styles.namesListScroll } : styles.findingsList}>
+        {named.map((c, i) => {
+          // The SAME treatment the placement table gives a same-named camper —
+          // two campers both called "Ari Feldspar" otherwise produce two
+          // identical bullets here, the same defect one layer over.
+          const disambiguator = c.id != null ? disambiguators?.get(c.id) ?? null : null
+          return (
+            <li key={c.id ?? `named-${i}`}>
+              {c.name}
+              {disambiguator ? <div style={styles.camperDisambiguator}>{disambiguator}</div> : null}
+            </li>
+          )
+        })}
+        {unresolvableCount > 0 ? <li key="unresolvable">{unresolvableCampersLabel(unresolvableCount)}</li> : null}
       </ul>
     </details>
   )
 }
 
-function FinalizeRefusalRow({ refusal, onRegenerate, lockedAssignments, days, timeBlocks }) {
+// `onRegenerate` here is DraftRunView's own guarded handler, taking no
+// arguments — not the raw prop. Round 1 passed the prop, so this offer alone had
+// neither the double-tap guard nor the busy label, while the commit message said
+// the busy state closed the gap for "the three existing offers".
+function FinalizeRefusalRow({ refusal, onRegenerate, regenerating, days, timeBlocks }) {
   const { error, findings } = refusal
   const known = FINALIZE_MESSAGES[error]
   const message = known ?? `Finalizing failed: ${error}. Nothing was changed — try again, or contact support if this keeps happening.`
@@ -145,8 +229,14 @@ function FinalizeRefusalRow({ refusal, onRegenerate, lockedAssignments, days, ti
         <RunStateRow testId="run-state-finalize-stale" message={<>{message}<FinalizeFindingsList findings={findings} days={days} timeBlocks={timeBlocks} /></>} first alert />
         {onRegenerate ? (
           <div style={styles.pairingAction}>
-            <button className="press-97" style={S.btnSecondary} onClick={() => onRegenerate({ lockedAssignments })}>
-              Re-derive and regenerate
+            <button
+              className="press-97"
+              style={regenerating ? { ...S.btnSecondary, ...S.buttonDisabled } : S.btnSecondary}
+              disabled={regenerating}
+              aria-busy={regenerating || undefined}
+              onClick={onRegenerate}
+            >
+              {regenerating ? REGENERATE_BUSY_LABEL : 'Re-derive and regenerate'}
             </button>
           </div>
         ) : null}
@@ -196,6 +286,16 @@ export default function DraftRunView({
   // HYDRATED a cold-opened run's state, never because it solved the run
   // itself. Drives the disclosure note beside the offer's button.
   coldRegenerate = false,
+  // True while AssignmentPanel is still hydrating this cold-opened run's state
+  // — `onRegenerate` is not available YET, which is a different fact from not
+  // being available at all, and the note says which.
+  regeneratePending = false,
+  // The described failure when that hydration read actually FAILED, or when it
+  // has been pending long enough to stop calling itself "preparing". Round 1
+  // reported this through `onError` only, and nothing carrying it reached this
+  // screen — so the director saw the generic sentence and retrying produced the
+  // same sentence with no indication whether it would help.
+  regenerateFailure = null,
 }) {
   const { state, setState, loaded, loadError, reload } = useRunState(run.id)
   const [error, setError] = useState(null)
@@ -239,6 +339,13 @@ export default function DraftRunView({
   // RunStateRow's own alert-row ref.focus() precedent.
   const summaryRef = useRef(null)
   const [finalizing, setFinalizing] = useState(false)
+  // The awaited window inside guardedRegenerate (the cold-path status
+  // re-check) was unindicated: the director clicked and nothing moved until
+  // the panel unmounted this view. `regeneratingRef` is the same synchronous
+  // double-tap guard `finalizingRef` carries — React state is not settled by
+  // the time a second click lands.
+  const [regenerating, setRegenerating] = useState(false)
+  const regeneratingRef = useRef(false)
   // { error, findings } for the refusal row, or null when nothing to say.
   const [finalizeRefusal, setFinalizeRefusal] = useState(null)
   // F4 (Red Hat round 3) — a monotonic id, bumped every time a NEW refusal is
@@ -498,6 +605,18 @@ export default function DraftRunView({
   // contract — that IPC already returns every run's current `status` for
   // this camp, so this is a read this app already had, not a new seam.
   async function guardedRegenerate(args) {
+    if (regeneratingRef.current) return
+    regeneratingRef.current = true
+    setRegenerating(true)
+    try {
+      await runRegenerate(args)
+    } finally {
+      regeneratingRef.current = false
+      setRegenerating(false)
+    }
+  }
+
+  async function runRegenerate(args) {
     if (coldRegenerate) {
       try {
         const current = (await localClient.listElectiveRuns())?.find((r) => r.id === run.id)
@@ -523,6 +642,43 @@ export default function DraftRunView({
   const lockedAssignments = rows
     .filter((r) => r.is_locked === 1 || r.is_locked === true)
     .map((r) => ({ camperId: r.camper_id, occurrenceId: r.occurrence_id, activityId: r.activity_id }))
+
+  // ONE INPUT SET, AND ONE HANDLER, FOR EVERY REGENERATE CONTROL ON THIS SCREEN.
+  //
+  // Round 1's comment claimed "exactly one regenerate control is ever on
+  // screen". That is true only of the PLAIN control: `offerRegenerateShown`
+  // below suppresses that one, while the three specific offers (staleness,
+  // preference edit, STALE_OUTER_SCHEDULE refusal) are each gated on
+  // `onRegenerate` alone and nothing makes them mutually exclusive. With
+  // `staleCount > 0` AND a preference edited, two render at once.
+  //
+  // The claim is withdrawn rather than enforced by a precedence order, because
+  // both FACTS are true and this screen states a fact whenever it is true —
+  // hiding one to leave a single button would be the worse trade. What is fixed
+  // is the thing that made two buttons dangerous: they carried DIFFERENT
+  // payloads, so the staleness offer threw away the very edit the other offer
+  // existed to apply, silently. Now every control re-solves from the same input
+  // set, and which one the director picks cannot change the outcome.
+  //
+  // The edited preferences are included whenever there IS an edit, which is
+  // exactly when solving from the run's own stored rows rather than the parsed
+  // sheet is the correct thing to do (see the preference offer's own note).
+  const regenerateArgs = preferencesEdited
+    ? { preferences: state.preferences, choices: state.choices, lockedAssignments }
+    : { lockedAssignments }
+  const regenerateNow = () => {
+    // Clearing the notice belongs with the action, not with one button: the
+    // re-solve is about to consume the edit either way.
+    if (preferencesEdited) setPreferencesEdited(false)
+    regenerate(regenerateArgs)
+  }
+
+  // `onRegenerate` (the prop), not `regenerate` (the wrapper): the two are
+  // truthy together, and reading the wrapper as a VALUE during render is a
+  // ref-access lint error now that it carries the double-tap guard.
+  const offerRegenerateShown = Boolean(onRegenerate) && (
+    state.staleCount > 0 || preferencesEdited || finalizeRefusal?.error === 'STALE_OUTER_SCHEDULE'
+  )
 
   // T250 B1 — commitElectiveRun's `findings` mixes THREE kinds
   // (DANGLING_MANUAL_ASSIGNMENT, PREFERENCE_EDIT_HELD, BUNDLE_TIER_NOT_COVERED),
@@ -563,7 +719,7 @@ export default function DraftRunView({
     (f) => !movedAway.includes(f.assignment_id) && !durableDanglingRows.some((r) => r.assignment_id === f.assignment_id)
   )
   const danglingRows = durableDanglingRows
-  // C1 — BUNDLE_TIER_NOT_COVERED is GROUPED (see BundleMismatchGroupNames and
+  // C1 — BUNDLE_TIER_NOT_COVERED is GROUPED (see CamperNameDisclosure and
   // runStateCopy.js's groupBundleTierNotCoveredFindings); PREFERENCE_EDIT_HELD
   // and DANGLING_MANUAL_ASSIGNMENT keep their current per-camper rows (T232/D6
   // require naming the child there).
@@ -634,16 +790,21 @@ export default function DraftRunView({
   // Resolved through `state.campers`, which this screen already holds (the
   // run's own camper universe includes every sheet-only camper per T320 part
   // 2 item 3) — no new IPC.
-  const sheetOnlyCamperNames = useMemo(() => {
+  const sheetOnlyCamperEntries = useMemo(() => {
     const camperById = new Map((state.campers ?? []).map((c) => [c.id, c]))
     // M1 (Red Hat round 4) — NEVER a raw camper_id (camperDisambiguator's own
     // rule, also applied in runStateCopy.js's groupBundleTierNotCoveredFindings
     // for the same reason): a sheet-only camper whose row is gone (hard-deleted
-    // after an earlier generation) degrades to a truthful sentence fragment.
-    return (state.sheetOnlyCampers ?? []).map((id) => camperById.get(id)?.display_name ?? UNKNOWN_CAMPER_LABEL)
+    // after an earlier generation) degrades to a truthful sentence fragment,
+    // and carries no id either — `name: null` is the whole signal the
+    // disclosure needs.
+    return (state.sheetOnlyCampers ?? []).map((id) => {
+      const name = camperById.get(id)?.display_name ?? null
+      return { id: name ? id : null, name }
+    })
   }, [state.campers, state.sheetOnlyCampers])
   const stateRowCount = overCapacityRows.length + danglingRows.length + collapsingOnlyRows.length + commitNotices.length
-    + bundleMismatchGroups.length + (sheetOnlyCamperNames.length > 0 ? 1 : 0)
+    + bundleMismatchGroups.length + (sheetOnlyCamperEntries.length > 0 ? 1 : 0)
 
   const stateRows = [
     ...overCapacityRows.map((o, i) => (
@@ -783,7 +944,7 @@ export default function DraftRunView({
       )
     }),
     // C1 — one row per (label, tier) group, each camper named reachable
-    // behind BundleMismatchGroupNames' disclosure rather than dropped.
+    // behind CamperNameDisclosure’s disclosure rather than dropped.
     ...bundleMismatchGroups.map((g, i) => {
       const index = overCapacityRows.length + danglingRows.length + collapsingOnlyRows.length + commitNotices.length + i
       const testId = `run-state-bundle-mismatch-${g.label}-${g.tierId ?? 'unresolved'}`
@@ -793,13 +954,13 @@ export default function DraftRunView({
           testId={testId}
           first={index === 0}
           last={index === stateRowCount - 1}
-          message={<>{bundleTierNotCoveredGroupMessage(g)} <BundleMismatchGroupNames names={g.names} /></>}
+          message={<>{bundleTierNotCoveredGroupMessage(g)} <CamperNameDisclosure campers={g.campers} disambiguators={camperDisambiguators} /></>}
         />
       )
     }),
     // (C)(4) — one row, the count, names behind the same disclosure idiom.
     // No banner for the clean case: nothing renders when the list is empty.
-    sheetOnlyCamperNames.length > 0 ? (() => {
+    sheetOnlyCamperEntries.length > 0 ? (() => {
       const index = overCapacityRows.length + danglingRows.length + collapsingOnlyRows.length + commitNotices.length + bundleMismatchGroups.length
       return (
         <RunStateRow
@@ -807,7 +968,7 @@ export default function DraftRunView({
           testId="run-state-sheet-only-campers"
           first={index === 0}
           last={index === stateRowCount - 1}
-          message={<>{sheetOnlyCampersMessage(sheetOnlyCamperNames.length)} <BundleMismatchGroupNames names={sheetOnlyCamperNames} /></>}
+          message={<>{sheetOnlyCampersMessage(sheetOnlyCamperEntries.length)} <CamperNameDisclosure campers={sheetOnlyCamperEntries} disambiguators={camperDisambiguators} /></>}
         />
       )
     })() : null,
@@ -821,8 +982,8 @@ export default function DraftRunView({
         // own comment above).
         key={`finalize-refusal-${finalizeRefusalSeq}`}
         refusal={finalizeRefusal}
-        onRegenerate={regenerate}
-        lockedAssignments={lockedAssignments}
+        onRegenerate={onRegenerate ? regenerateNow : undefined}
+        regenerating={regenerating}
         days={days}
         timeBlocks={timeBlocks}
       />
@@ -846,39 +1007,95 @@ export default function DraftRunView({
               docs/work/specs/2026-09-25-t250-run-state-surface.md originally
               fixed ("Layout"); that spec has a dated amendment note recording
               the change — see its "Layout" section. */}
-          <div style={styles.actionsBand}>
-            <button
-              className="press-97"
-              style={S.btnPrimary}
-              disabled={finalizing}
-              onClick={finalizeRun}
-            >
-              {finalizing ? 'Finalizing…' : 'Finalize run'}
-            </button>
-            <span style={styles.actionsHint}>
-              Locks this run. You&apos;ll see it as Final, and can always start a new version later.
-            </span>
+          <div data-testid="run-actions-band" style={styles.actionsBand}>
+            {/* ONE SLOT, ONE CONTROL, ONE EXPLANATION OF THAT CONTROL. The
+                Finalize sentence used to sit after the Regenerate button in a
+                single row, where a director reading left to right met "Locks
+                this run" immediately after the control that does the opposite. */}
+            <div style={styles.actionSlot}>
+              <button
+                className="press-97"
+                /* THE IRREVERSIBLE ACTION IS NOT THE UNGUARDED ONE. While a
+                   regenerate is in flight this was clickable at full primary
+                   weight beside a greyed-out Regenerate, and clicking it
+                   finalized the run with the re-solve still outstanding. The
+                   weight has to move with the attribute: disabled at full
+                   primary weight is a louder invitation than Regenerate, and
+                   the click silently does nothing. */
+                style={finalizing || regenerating ? { ...S.btnPrimary, ...S.buttonDisabled } : S.btnPrimary}
+                disabled={finalizing || regenerating}
+                onClick={finalizeRun}
+              >
+                {finalizing ? 'Finalizing…' : 'Finalize run'}
+              </button>
+              <span style={styles.actionsHint}>{FINALIZE_HINT}</span>
+            </div>
+            <div style={styles.actionSlot}>
+              {/* The staleness offer, the preference-edit offer and a
+                  STALE_OUTER_SCHEDULE refusal each carry their own, more
+                  specific control; this is the plain one for the case none of
+                  them applies — precisely a cold-opened draft run with nothing
+                  to re-derive against. Secondary weight, the same weight those
+                  offers use: primary stays uniquely Finalize, utility stays
+                  uniquely Delete. */}
+              {!offerRegenerateShown && onRegenerate ? (
+                <>
+                  <button
+                    className="press-97"
+                    data-testid="run-regenerate"
+                    style={regenerating ? { ...S.btnSecondary, ...S.buttonDisabled } : S.btnSecondary}
+                    disabled={regenerating}
+                    aria-busy={regenerating || undefined}
+                    onClick={regenerateNow}
+                  >
+                    {regenerating ? REGENERATE_BUSY_LABEL : REGENERATE_LABEL}
+                  </button>
+                  <span style={styles.actionsHint}>{REGENERATE_HINT}</span>
+                </>
+              ) : null}
+              {/* The sentence stands where the control would have been, in the
+                  regenerate slot — not beside the Finalize hint, where the two
+                  rendered as one grey paragraph about a control that was not on
+                  screen and was never named. */}
+              {!offerRegenerateShown && !onRegenerate ? (
+                <div data-testid="run-regenerate-unavailable" style={styles.actionsHint}>
+                  {regenerateUnavailableNote(regeneratePending, regenerateFailure)}
+                </div>
+              ) : null}
+              {/* T320 part 2 item 3 — a standing fact about what regenerating
+                  THIS run reconsiders, so it belongs in the regenerate slot
+                  whichever control is offering the regenerate. Round 1 left it
+                  below the findings block, visually attached to the placement
+                  table and to no control at all. */}
+              {coldRegenerate ? (
+                <div data-testid="run-cold-regenerate-note" style={styles.actionsHint}>{COLD_REGENERATE_NOTE}</div>
+              ) : null}
+            </div>
           </div>
 
           <RunStateArea>{stateRows}</RunStateArea>
 
           {/* An offer, never a block: the table below stays fully usable.
               The FACT is stated whenever there is one, and the control appears
-              only when this session can act on it — AssignmentPanel withholds
-              onRegenerate for a run opened cold from the run list, which has no
-              parsed sheet to re-derive against. Round 1 gated the whole block
-              on the control, so the only in-UI remedy and the staleness itself
-              vanished together, silently. */}
+              only when this session can act on it — T250 A3 means a run opened
+              cold from the run list DOES get onRegenerate, but only once
+              AssignmentPanel has hydrated its state from the run's own
+              persisted rows; until then (and if that read fails) there is
+              nothing to re-derive against and the control stays withheld.
+              Round 1 gated the whole block on the control, so the only in-UI
+              remedy and the staleness itself vanished together, silently. */}
           {state.staleCount > 0 ? (
             <div data-testid="run-staleness-offer" style={styles.offer}>
               <span>{stalenessOfferMessage({ staleCount: state.staleCount })}</span>
-              {regenerate ? (
+              {onRegenerate ? (
                 <button
                   className="press-97"
-                  style={S.btnSecondary}
-                  onClick={() => regenerate({ lockedAssignments })}
+                  style={regenerating ? { ...S.btnSecondary, ...S.buttonDisabled } : S.btnSecondary}
+                  disabled={regenerating}
+                  aria-busy={regenerating || undefined}
+                  onClick={regenerateNow}
                 >
-                  Re-derive and regenerate
+                  {regenerating ? REGENERATE_BUSY_LABEL : 'Re-derive and regenerate'}
                 </button>
               ) : null}
             </div>
@@ -891,12 +1108,7 @@ export default function DraftRunView({
               said "not the original sheet's full roster", which was honest of
               the old (preferences ∪ assignments) derivation and is no longer
               true. */}
-          {regenerate && coldRegenerate ? (
-            <div data-testid="run-cold-regenerate-note" style={styles.actionsHint}>
-              Regenerating a reopened run reconsiders every camper this run's sheet named — including anyone
-              with no ranked choice and no placement.
-            </div>
-          ) : null}
+
 
           {/* T297 — the other half of the ticket's loop. An edit changes what a
               camper asked for; the placements still reflect the previous answer
@@ -904,8 +1116,8 @@ export default function DraftRunView({
               mean something. Same "offer, never a block" shape as the staleness
               offer above: the fact is stated whenever it is true, and the control
               appears only when this session can act on it (AssignmentPanel
-              withholds onRegenerate for a run opened cold from the run list,
-              which has no template occurrences to re-derive against).
+              grants onRegenerate for a run opened cold from the run list once
+              it has hydrated that run's state, and withholds it until then).
 
               The re-solve carries `preferences` — the run's OWN rows, including
               the edit — so it solves from the database and not from the parsed
@@ -916,17 +1128,16 @@ export default function DraftRunView({
               <span>
                 A preference changed. The placements below still come from the previous solve.
               </span>
-              {regenerate ? (
+              {onRegenerate ? (
                 <button
                   className="press-97"
                   data-testid="run-preference-resolve"
-                  style={S.btnSecondary}
-                  onClick={() => {
-                    setPreferencesEdited(false)
-                    regenerate({ preferences: state.preferences, choices: state.choices, lockedAssignments })
-                  }}
+                  style={regenerating ? { ...S.btnSecondary, ...S.buttonDisabled } : S.btnSecondary}
+                  disabled={regenerating}
+                  aria-busy={regenerating || undefined}
+                  onClick={regenerateNow}
                 >
-                  Solve again
+                  {regenerating ? REGENERATE_BUSY_LABEL : 'Solve again'}
                 </button>
               ) : null}
             </div>
@@ -1020,7 +1231,13 @@ export default function DraftRunView({
               from the actions band above. The loud part is the confirmation. */}
           <button
             className="press-97"
-            style={{ ...S.btnUtility, marginTop: 20 }}
+            style={regenerating
+              ? { ...S.btnUtility, marginTop: 20, ...S.buttonDisabled }
+              : { ...S.btnUtility, marginTop: 20 }}
+            /* Same reason as Finalize: the confirmation is a second step, but
+               its confirm button would still delete a run with a re-solve in
+               flight, which would then commit against a run that is gone. */
+            disabled={regenerating}
             onClick={() => setConfirmingDelete(true)}
           >
             Delete run
