@@ -15,6 +15,17 @@ import ImportPreviewSubtitle from '../components/setup/ImportPreviewSubtitle.jsx
 import SetupScreenShell from '../components/setup/SetupScreenShell'
 import InlineAddRow from '../components/setup/InlineAddRow'
 import { minutesFromMidnight } from './setup/setupHelpers'
+import { ENTITY_FIELD_CATALOGS, inferEntityMapping, applyEntityMapping, describeMappingIssue } from '../ingest/entityColumnMapping.js'
+import { resolveRowAction } from '../ingest/resolveRowAction.js'
+import { resolveRowCohort, describeCohortNote } from '../ingest/resolveRowCohort.js'
+import { formatImportStopMessage } from '../ingest/importStopMessage.js'
+
+const TIME_BLOCKS_CATALOG = ENTITY_FIELD_CATALOGS.time_blocks
+// part_of_day is excluded from the mapping gate: this app does NOT derive it from a time
+// value (owner ruling, no guessed morning/afternoon/evening cutoff) — a file with no
+// part_of_day column still imports, with every row needing a director's eye instead of
+// the whole import being blocked (board q-export-columns-do-not-round-trip, B2b).
+const blockingUnmapped = (mapping) => mapping.unmapped.filter((f) => f !== 'part_of_day')
 
 // TimeBlocks' load is cohort-scoped (camp_id AND cohort_id) and guards
 // against a stale response overwriting the UI when the user switches
@@ -124,6 +135,8 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
   const [adding, setAdding] = useState(false)
   const [importStep, setImportStep] = useState(null)
   const [importRows, setImportRows] = useState([])
+  const [importMapping, setImportMapping] = useState(null)
+  const [importCohortNote, setImportCohortNote] = useState(null)
   // T315 — which tab these rows came from, when there was more than one to choose
   // between. Null on a single-sheet file: no choice, so nothing to report.
   const [importSheetNote, setImportSheetNote] = useState(null)
@@ -324,7 +337,11 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
         type: 'array', byteLength: file.size, sheetName: 'Time Blocks',
         requiredColumns: ['name', 'start_time'],
       })
-      const parsed = rows.map(r => {
+      const header = Object.keys(rows[0] ?? {})
+      const mapping = inferEntityMapping(header, TIME_BLOCKS_CATALOG)
+      const mappedRows = applyEntityMapping(rows, mapping, TIME_BLOCKS_CATALOG)
+      setImportMapping(mapping)
+      const parsed = mappedRows.map((r, i) => {
         const name = String(r.name || '').trim()
         const start_time = String(r.start_time || '').trim()
         const end_time = String(r.end_time || '').trim()
@@ -333,12 +350,21 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
         let warning = null
         if (!name) warning = 'Missing name'
         else if (typeof start_time !== 'string' || !start_time || typeof end_time !== 'string' || !end_time) warning = 'Missing time'
-        else if (!['morning', 'afternoon', 'evening'].includes(pod)) warning = 'part_of_day must be morning/afternoon/evening'
+        else if (!pod) {
+          // Never derived from the time — owner ruling, no guessed cutoff (board
+          // q-export-columns-do-not-round-trip, B2b).
+          warning = `Row ${i + 1} ('${name}', ${start_time}): part_of_day not specified — pick one`
+        } else if (!['morning', 'afternoon', 'evening'].includes(pod)) warning = 'part_of_day must be morning/afternoon/evening'
         else if (sort_order !== null && !(Number.isInteger(sort_order) && sort_order >= 0)) warning = 'sort_order must be a whole number 0 or greater'
-        return { name, start_time, end_time, part_of_day: pod, sort_order, warning }
+        return { name, start_time, end_time, part_of_day: pod, sort_order, cohortName: r.cohort_name, warning }
       })
       setImportRows(parsed)
       setImportSheetNote(otherSheets.length > 0 ? { sheet: importedSheet, others: otherSheets } : null)
+      // One disclosure line, not a per-row warning: a resolved mismatch and an unmatched
+      // cohort name are two different problems with distinct wording (Red Hat MEDIUM-HIGH,
+      // describeCohortNote) — the import proceeds either way, never blocked on this.
+      const firstNote = parsed.map(r => describeCohortNote(resolveRowCohort(r.cohortName, cohorts, activeCohort), activeCohort)).find(Boolean)
+      setImportCohortNote(firstNote ?? null)
       setImportStep('preview')
       } catch (err) {
         setError(describeWriteFailure(err, 'That import file could not be read.'))
@@ -355,33 +381,55 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
       // reach this point (import parsing and load() both normalize name
       // to a string), but a stray malformed row here must not throw and
       // wedge the modal on "Importing…" forever — coerce rather than crash.
-      const existingNames = new Set(blocks.map(b => String(b.name ?? '').toLowerCase()))
-      let added = 0, skipped = 0
-      for (const row of importRows) {
+      const existingByKey = new Map(blocks.map(b => [String(b.name ?? '').toLowerCase(), b]))
+      // Code Reviewer HIGH+MEDIUM: only diff fields the sheet actually named.
+      const ROLE_TO_DB_KEY = { cohort_name: 'cohort_id' }
+      const providedKeys = new Set(Object.keys(importMapping?.roles ?? {}).map(k => ROLE_TO_DB_KEY[k] ?? k))
+      let added = 0, updated = 0, unchanged = 0, skipped = 0
+      let stoppedAt = null
+      const totalCount = importRows.length
+      for (const [index, row] of importRows.entries()) {
         if (!row.name || row.warning) { skipped++; continue }
-        const lower = String(row.name).toLowerCase()
-        if (existingNames.has(lower)) { skipped++; continue }
         const sortVal = row.sort_order !== null ? row.sort_order : (blocks.length + added + 1)
+        const { cohortId } = resolveRowCohort(row.cohortName, cohorts, activeCohort)
+        const candidateFields = {
+          start_time: row.start_time, end_time: row.end_time, part_of_day: row.part_of_day,
+          sort_order: sortVal, cohort_id: cohortId,
+        }
+        const key = String(row.name).toLowerCase()
+        const resolution = resolveRowAction(row.name, candidateFields, existingByKey, providedKeys)
         try {
+          if (resolution.action === 'unchanged') { unchanged++; continue }
+          if (resolution.action === 'update') {
+            await repository.writeFields('time_blocks', resolution.existing.id, resolution.changedFields)
+            updated++
+            // Red Hat HIGH: refresh the baseline with the applied value for a later same-key row.
+            existingByKey.set(key, { ...resolution.existing, ...resolution.changedFields })
+            continue
+          }
           const id = crypto.randomUUID()
           // `name` first — same collision-fails-atomically reasoning as addBlock.
           await repository.createRecord('time_blocks', id, {
             name: row.name,
             camp_id: campId,
-            cohort_id: activeCohort.id,
+            cohort_id: cohortId,
             start_time: row.start_time,
             end_time: row.end_time,
             part_of_day: row.part_of_day,
             sort_order: sortVal,
           })
           added++
-          existingNames.add(lower)
+          existingByKey.set(String(row.name).toLowerCase(), { id, name: row.name, ...candidateFields })
         } catch (err) {
           console.error(`Failed to import time block "${row.name}"`, err)
-          skipped++
+          stoppedAt = formatImportStopMessage({
+            importedCount: added + updated, totalCount, rowNumber: index + 1,
+            rowName: row.name, reason: err?.message || 'an unexpected error',
+          })
+          break
         }
       }
-      setImportResult({ added, skipped }); setImportStep('done')
+      setImportResult({ added, updated, unchanged, skipped, stoppedAt }); setImportStep('done')
     } catch (err) {
       console.error('Import failed', err)
       setError(describeWriteFailure(err, 'That import could not be completed.'))
@@ -465,11 +513,21 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
         rows={importRows}
         readyCount={readyRows.length}
         warnCount={warnRows.length}
-        previewSubtitle={<ImportPreviewSubtitle ready={readyRows.length} warn={warnRows.length} sheetNote={importSheetNote} />}
+        previewSubtitle={<>
+          <ImportPreviewSubtitle ready={readyRows.length} warn={warnRows.length} sheetNote={importSheetNote} mappingIssue={importMapping && describeMappingIssue(importMapping, blockingUnmapped(importMapping))} />
+          {importCohortNote && <div style={{ color: 'var(--text-secondary)', marginTop: 4 }}>{importCohortNote}</div>}
+        </>}
+        confirmDisabled={!!importMapping && (blockingUnmapped(importMapping).length > 0 || importMapping.collision.length > 0)}
         result={importResult}
+        doneExtra={(importResult?.stoppedAt || importCohortNote) && (
+          <div style={{ marginTop: 8 }}>
+            {importCohortNote && <div style={{ color: 'var(--text-secondary)' }}>{importCohortNote}</div>}
+            {importResult?.stoppedAt && <div style={S.importWarnText}>{importResult.stoppedAt}</div>}
+          </div>
+        )}
         importing={importing}
         onConfirm={confirmImport}
-        onCancel={() => { setImportStep(null); setImportRows([]) }}
+        onCancel={() => { setImportStep(null); setImportRows([]); setImportMapping(null); setImportCohortNote(null) }}
         renderCell={(r, c) => {
           if (c.key === 'name') return r.name || '—'
           if (c.key === 'start_time') return r.start_time || '—'

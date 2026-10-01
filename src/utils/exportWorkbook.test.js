@@ -162,11 +162,11 @@ describe('exportWorkbook — Fixed Events sheet (SLICE B2, board q-export-column
     expect(layout.screenImportOnly).toBe(true)
   })
 
-  it('header carries shoresh_id, the six editable columns, and Status', () => {
+  it('header carries shoresh_id, the editable columns including cohort_name, and Status', () => {
     const wb = exportWorkbook(fixture())
     const header = XLSX.utils.sheet_to_json(wb.Sheets['Fixed Events'], { header: 1 })[0]
     expect(header).toEqual([
-      ID_COLUMN, 'name', 'day_label', 'time_block_name', 'is_all_tiers', 'tier_names', 'notes', STATUS_COLUMN,
+      ID_COLUMN, 'name', 'day_label', 'time_block_name', 'is_all_tiers', 'tier_names', 'notes', 'cohort_name', STATUS_COLUMN,
     ])
   })
 

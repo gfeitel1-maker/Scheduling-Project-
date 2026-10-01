@@ -14,9 +14,12 @@
 // looking at a preview of rows they did not expect can see WHICH tab produced them instead
 // of guessing. Said only when the workbook had more than one tab, because on a single-sheet
 // file there was no choice to report.
-export default function ImportPreviewSubtitle({ ready = 0, warn = 0, sheetNote = null }) {
+export default function ImportPreviewSubtitle({ ready = 0, warn = 0, sheetNote = null, mappingIssue = null }) {
   return (
     <>
+      {mappingIssue && (
+        <div style={{ color: 'var(--danger)', marginBottom: 4 }}>{mappingIssue}</div>
+      )}
       {ready} ready{warn > 0 && `, ${warn} with warnings (skipped)`}
       {sheetNote && (
         <>

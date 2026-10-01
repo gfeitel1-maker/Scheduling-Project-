@@ -264,7 +264,7 @@ describe('ActivitiesScreen — delete all', () => {
 })
 
 describe('ActivitiesScreen — import', () => {
-  it('imports rows from Excel, resolving age division names and skipping duplicates and rows with a warning', async () => {
+  it('imports rows from Excel, resolving age division names, updating a changed field on a duplicate name, and skipping rows with a warning', async () => {
     // Only the "Water Play" activity itself needs a randomUUID — the "Pool"
     // location it creates now mints a deterministic id via deriveLocationId
     // (T81), not crypto.randomUUID().
@@ -291,12 +291,17 @@ describe('ActivitiesScreen — import', () => {
     await waitFor(() => expect(screen.queryByText(/1 with warnings/)).not.toBeNull())
     fireEvent.click(screen.getByText(/Import 2/))
 
-    await waitFor(() => expect(screen.queryByText(/1 added/)).not.toBeNull())
-    expect(screen.queryByText(/2 skipped/)).not.toBeNull()
+    await waitFor(() => expect(screen.queryByText(/1 new/)).not.toBeNull())
+    // the re-imported "archery" duplicate now carries eligible_tiers='Yeladim', which the
+    // existing row ([]) didn't have — an UPDATE, not a silent skip.
+    expect(screen.queryByText(/1 updated/)).not.toBeNull()
+    expect(screen.queryByText(/1 skipped/)).not.toBeNull()
     const activityNamesWritten = localClient.write.mock.calls.filter(c => c[1] === 'activities' && c[3] === 'name').map(c => c[4])
     expect(activityNamesWritten).toEqual(['Water Play'])
     const priorityWritten = localClient.write.mock.calls.filter(c => c[3] === 'priority').map(c => c[4])
     expect(priorityWritten).toEqual(['high'])
+    const eligTierWrites = localClient.write.mock.calls.filter(c => c[1] === 'activities' && c[2] === 'a1' && c[3] === 'eligible_tier_ids')
+    expect(eligTierWrites).toHaveLength(1)
 
     // The sheet's free-text "Pool" resolved to a new locations row, created
     // before the activity that references it.
@@ -308,6 +313,49 @@ describe('ActivitiesScreen — import', () => {
 
     // D5 UI freeze: the import path never writes the free-text column either.
     expect(localClient.write.mock.calls.some(c => c[1] === 'activities' && c[3] === 'location')).toBe(false)
+  })
+
+  // Code Reviewer HIGH+MEDIUM (board q-export-columns-do-not-round-trip, B3) — an UPDATE
+  // must only write fields the sheet actually named. A column the file never carried must
+  // never be diffed: its candidate value is the parser's CREATE-time default, not something
+  // the file said, and treating it as a real value would silently overwrite the director's
+  // own data with that default.
+  it('a sheet with no eligible_group_ids column never wipes an existing custom eligible_group_ids override', async () => {
+    vi.stubGlobal('crypto', { randomUUID: vi.fn() })
+    localClient.list.mockImplementation(entity => {
+      // eligible_group_ids has no catalog column at all — this is a director's hand-picked
+      // override, never touched by the template importer before this fix existed.
+      if (entity === 'activities') return Promise.resolve([activity({ id: 'a1', name: 'Archery', eligible_group_ids: '["g1","g2"]', priority: 'low' })])
+      return Promise.resolve([])
+    })
+    render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
+
+    const file = new File(['dummy'], 'activities.xlsx')
+    const fileInput = document.querySelector('input[type="file"]')
+    // Matches the app's own export shape: no eligible_group_ids column exists anywhere in
+    // the catalog, and this sheet also omits max_groups_per_slot/min_per_week/etc — only
+    // name and priority are named.
+    XLSX.utils.sheet_to_json.mockReturnValue([
+      { name: 'archery', priority: 'high' },
+    ])
+    await userEvent.upload(fileInput, file)
+    await waitFor(() => expect(screen.queryByText(/Import 1/)).not.toBeNull())
+    fireEvent.click(screen.getByText(/Import 1/))
+
+    await waitFor(() => expect(screen.queryByText(/1 updated/)).not.toBeNull())
+    // priority WAS named by the sheet and changed — it updates.
+    const priorityWrites = localClient.write.mock.calls.filter(c => c[2] === 'a1' && c[3] === 'priority')
+    expect(priorityWrites).toHaveLength(1)
+    expect(priorityWrites[0][4]).toBe('high')
+    // eligible_group_ids has NO column anywhere in the catalog — never written, override survives.
+    expect(localClient.write.mock.calls.some(c => c[2] === 'a1' && c[3] === 'eligible_group_ids')).toBe(false)
+    // max_groups_per_slot/min_per_week/max_per_week/same_tier_only/location_id/etc are all
+    // absent from this sheet — none of their parser defaults are written either.
+    const unprovidedKeys = ['max_groups_per_slot', 'min_per_week', 'max_per_week', 'same_tier_only', 'location_id', 'notes']
+    for (const key of unprovidedKeys) {
+      expect(localClient.write.mock.calls.some(c => c[2] === 'a1' && c[3] === key)).toBe(false)
+    }
   })
 
   it('flags an import row whose age division name does not match any existing age division', async () => {
@@ -423,7 +471,7 @@ describe('ActivitiesScreen — import location resolve is deterministic and case
     await userEvent.upload(fileInput, file)
     await waitFor(() => expect(screen.queryByText(/Import 1/)).not.toBeNull())
     fireEvent.click(screen.getByText(/Import 1/))
-    await waitFor(() => expect(screen.queryByText(/1 added/)).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText(/1 new/)).not.toBeNull())
 
     // A distinct "pool" row is minted, case-sensitive, deterministic id.
     const derivedPoolId = deriveLocationId(CAMP_ID, 'pool')
@@ -451,7 +499,7 @@ describe('ActivitiesScreen — import location resolve is deterministic and case
     await userEvent.upload(fileInput, file)
     await waitFor(() => expect(screen.queryByText(/Import 1/)).not.toBeNull())
     fireEvent.click(screen.getByText(/Import 1/))
-    await waitFor(() => expect(screen.queryByText(/1 added/)).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText(/1 new/)).not.toBeNull())
 
     // No new location row: exact-name "Pool" reuses the existing row.
     expect(localClient.write.mock.calls.some(c => c[1] === 'locations' && c[3] === 'name')).toBe(false)
@@ -478,7 +526,7 @@ describe('ActivitiesScreen — import location resolve is deterministic and case
     await userEvent.upload(fileInput, file)
     await waitFor(() => expect(screen.queryByText(/Import 2/)).not.toBeNull())
     fireEvent.click(screen.getByText(/Import 2/))
-    await waitFor(() => expect(screen.queryByText(/2 added/)).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText(/2 new/)).not.toBeNull())
 
     // Two distinct location rows, one per case variant.
     const locationNamesWritten = localClient.write.mock.calls.filter(c => c[1] === 'locations' && c[3] === 'name').map(c => c[4])
@@ -509,7 +557,7 @@ describe('ActivitiesScreen — import location resolve is deterministic and case
     await userEvent.upload(fileInput, file)
     await waitFor(() => expect(screen.queryByText(/Import 1/)).not.toBeNull())
     fireEvent.click(screen.getByText(/Import 1/))
-    await waitFor(() => expect(screen.queryByText(/1 added/)).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText(/1 new/)).not.toBeNull())
 
     // A distinct disambiguated row is minted for "Pool" — never the renamed row's id.
     const disambiguatedId = `${renamedRowId}:2`
@@ -540,7 +588,7 @@ describe('ActivitiesScreen — import location resolve is deterministic and case
       await userEvent.upload(fileInput, file)
       await waitFor(() => expect(screen.queryByText(/Import 1/)).not.toBeNull())
       fireEvent.click(screen.getByText(/Import 1/))
-      await waitFor(() => expect(screen.queryByText(/1 added/)).not.toBeNull())
+      await waitFor(() => expect(screen.queryByText(/1 new/)).not.toBeNull())
       const locWrite = localClient.write.mock.calls.find(c => c[1] === 'locations' && c[3] === 'name')
       unmount()
       return locWrite[2] // entity_id minted for the location

@@ -399,7 +399,7 @@ describe('TiersScreen — deleteAll', () => {
 })
 
 describe('TiersScreen — import', () => {
-  it('imports rows from Excel, skipping duplicates (case-insensitive) and rows with a validation warning', async () => {
+  it('imports rows from Excel, leaving an unchanged duplicate alone (case-insensitive) and skipping rows with a validation warning', async () => {
     render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Yeladim')).not.toBeNull())
 
@@ -419,10 +419,38 @@ describe('TiersScreen — import', () => {
     await waitFor(() => expect(screen.queryByText(/1 with warnings/)).not.toBeNull())
     fireEvent.click(screen.getByText(/Import 2 age divisions/))
 
-    await waitFor(() => expect(screen.queryByText(/1 added/)).not.toBeNull())
-    expect(screen.queryByText(/2 skipped/)).not.toBeNull()
+    await waitFor(() => expect(screen.queryByText(/1 new/)).not.toBeNull())
+    expect(screen.queryByText(/1 unchanged/)).not.toBeNull()
+    expect(screen.queryByText(/1 skipped/)).not.toBeNull()
     const namesWritten = localClient.write.mock.calls.filter(c => c[3] === 'name').map(c => c[4])
     expect(namesWritten).toEqual(['Bogrim'])
+  })
+
+  // board q-export-columns-do-not-round-trip, B3 cohort fix (b) — a row naming a
+  // different program than the one currently active imports under the NAMED
+  // program (never silently the active one), and the director is told, once.
+  it('resolves a row\'s cohort by name and discloses a mismatch without blocking the import', async () => {
+    localClient.list.mockReset().mockImplementation(entity => {
+      if (entity === 'cohorts') return Promise.resolve([cohort(), cohort({ id: 'cohort-2', name: 'Winter', sort_order: 2 })])
+      if (entity === 'tiers') return Promise.resolve([tier()])
+      if (entity === 'groups') return Promise.resolve([])
+      return Promise.resolve([])
+    })
+    render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Yeladim')).not.toBeNull())
+
+    const file = new File(['dummy'], 'age_divisions.xlsx')
+    const fileInput = document.querySelector('input[type="file"]')
+    XLSX.utils.sheet_to_json.mockReturnValue([{ name: 'Chalutzim', sort_order: 1, cohort_name: 'Winter' }])
+    XLSX.read.mockReturnValue({ SheetNames: ['Age Divisions'], Sheets: { 'Age Divisions': {} } })
+
+    await userEvent.upload(fileInput, file)
+    await waitFor(() => expect(screen.queryByText(/came from Cohort Winter/)).not.toBeNull())
+    fireEvent.click(screen.getByText(/Import 1 age division/))
+
+    await waitFor(() => expect(screen.queryByText(/1 new/)).not.toBeNull())
+    const cohortWrites = localClient.write.mock.calls.filter(c => c[3] === 'cohort_id')
+    expect(cohortWrites[0][4]).toBe('cohort-2')
   })
 })
 

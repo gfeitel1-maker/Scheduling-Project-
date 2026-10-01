@@ -36,12 +36,30 @@ describe('ImportModal', () => {
     expect(dialog.contains(document.activeElement)).toBe(true)
   })
 
-  it('renders the done panel with added/skipped', () => {
+  it('renders the done panel with new/skipped', () => {
     render(<ImportModal step="done" title="Import Complete" columns={cols} rows={[]}
       readyCount={0} warnCount={0} result={{ added: 3, skipped: 1 }} importing={false}
       onConfirm={() => {}} onCancel={() => {}} renderCell={() => null} />)
-    expect(screen.queryByText(/3 added/)).not.toBeNull()
+    expect(screen.queryByText(/3 new/)).not.toBeNull()
     expect(screen.queryByText(/1 skipped/)).not.toBeNull()
+  })
+
+  // board q-export-columns-do-not-round-trip, B3 — create-or-update replaces the
+  // simple added/skipped counters with new/updated/unchanged/skipped.
+  it('renders updated and unchanged counts when present', () => {
+    render(<ImportModal step="done" title="Import Complete" columns={cols} rows={[]}
+      readyCount={0} warnCount={0} result={{ added: 1, updated: 2, unchanged: 3, skipped: 0 }} importing={false}
+      onConfirm={() => {}} onCancel={() => {}} renderCell={() => null} />)
+    expect(screen.queryByText(/1 new/)).not.toBeNull()
+    expect(screen.queryByText(/2 updated/)).not.toBeNull()
+    expect(screen.queryByText(/3 unchanged/)).not.toBeNull()
+  })
+
+  it('disables confirm when confirmDisabled is true even with ready rows', () => {
+    render(<ImportModal step="preview" title="Import Preview" columns={cols} rows={[{ warning: null }]}
+      readyCount={1} warnCount={0} confirmDisabled importing={false}
+      onConfirm={() => {}} onCancel={() => {}} renderCell={() => null} />)
+    expect(screen.getByRole('button', { name: /import 1/i }).disabled).toBe(true)
   })
 
   it('renders nothing when step is null', () => {

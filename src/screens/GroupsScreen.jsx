@@ -20,6 +20,11 @@ import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialo
 import { createScheduleRepository } from '../data/scheduleRepository'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { duplicateSiblingsByIdFor } from './duplicateSiblings.js'
+import { ENTITY_FIELD_CATALOGS, inferEntityMapping, applyEntityMapping, describeMappingIssue } from '../ingest/entityColumnMapping.js'
+import { resolveRowAction } from '../ingest/resolveRowAction.js'
+import { formatImportStopMessage } from '../ingest/importStopMessage.js'
+
+const GROUPS_CATALOG = ENTITY_FIELD_CATALOGS.groups
 
 const repo = createScheduleRepository({ localClient })
 // Repository-only migration (not the full useCrudScreen hook): load() fetches
@@ -152,6 +157,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
   const [adding, setAdding] = useState(false)
   const [importStep, setImportStep] = useState(null)
   const [importRows, setImportRows] = useState([])
+  const [importMapping, setImportMapping] = useState(null)
   // T315 — which tab this workbook's rows came from, when there was more than one to
   // choose between. Null on a single-sheet file: there was no choice, so there is
   // nothing to report.
@@ -416,6 +422,10 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
       const { sheet: importedSheet, rows, otherSheets } = readEntitySheet(ev.target.result, {
         type: 'array', byteLength: file.size, sheetName: 'Groups', requiredColumns: ['name', 'tier_name'],
       })
+      const header = Object.keys(rows[0] ?? {})
+      const mapping = inferEntityMapping(header, GROUPS_CATALOG)
+      const mappedRows = applyEntityMapping(rows, mapping, GROUPS_CATALOG)
+      setImportMapping(mapping)
       // T255 Slice B — schema v73 lets two age divisions share a name; a plain
       // last-write-wins Object.fromEntries would silently bind an imported
       // group to whichever same-named division came last. mapWithCollisions
@@ -428,7 +438,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
       // the preview it shares code with still resolves. Noted so the next reader
       // knows it is a known divergence, not an oversight.
       const { map: tierMap, ambiguous: ambiguousTierNames } = mapWithCollisions(tiers, t => t.name.toLowerCase(), t => t.id)
-      const parsed = rows.map(r => {
+      const parsed = mappedRows.map(r => {
         const name = String(r.name || '').trim()
         const tierName = String(r.tier_name || '').trim()
         const avail = String(r.availability || 'all').trim().toLowerCase()
@@ -458,12 +468,30 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
 
   async function confirmImport() {
     setImporting(true)
-    const existingNames = new Set(groups.map(g => g.name.toLowerCase()))
-    let added = 0, skipped = 0
-    for (const row of importRows) {
+    const existingByKey = new Map(groups.map(g => [g.name.toLowerCase(), g]))
+    // Code Reviewer HIGH+MEDIUM: only diff fields the sheet actually named — tier_name's
+    // column maps to tier_id, availability's to availability; a field whose column was
+    // absent must never be diffed (its candidate is a parser default, not the file's word).
+    const ROLE_TO_DB_KEY = { tier_name: 'tier_id', availability: 'availability' }
+    const providedKeys = new Set(Object.keys(importMapping?.roles ?? {}).map(k => ROLE_TO_DB_KEY[k] ?? k))
+    let added = 0, updated = 0, unchanged = 0, skipped = 0
+    let stoppedAt = null
+    const totalCount = importRows.length
+    for (const [index, row] of importRows.entries()) {
       if (!row.name || row.warning) { skipped++; continue }
-      if (existingNames.has(row.name.toLowerCase())) { skipped++; continue }
+      const candidateFields = { tier_id: row.tierId, availability: row.availability }
+      const key = row.name.toLowerCase()
+      const resolution = resolveRowAction(row.name, candidateFields, existingByKey, providedKeys)
       try {
+        if (resolution.action === 'unchanged') { unchanged++; continue }
+        if (resolution.action === 'update') {
+          await repository.writeFields('groups', resolution.existing.id, resolution.changedFields)
+          updated++
+          // Red Hat HIGH: refresh the in-memory baseline with the applied value so a later
+          // row sharing this key diffs against it, not the stale pre-import value.
+          existingByKey.set(key, { ...resolution.existing, ...resolution.changedFields })
+          continue
+        }
         const id = crypto.randomUUID()
         // `name` first — same collision-fails-atomically reasoning as
         // addGroup. createRecord does the write-then-cleanup-on-failure dance.
@@ -474,12 +502,17 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
           availability: row.availability,
         })
         added++
+        existingByKey.set(row.name.toLowerCase(), { id, name: row.name, tier_id: row.tierId, availability: row.availability })
       } catch (err) {
         console.error(`Failed to import group "${row.name}"`, err)
-        skipped++
+        stoppedAt = formatImportStopMessage({
+          importedCount: added + updated, totalCount, rowNumber: index + 1,
+          rowName: row.name, reason: err?.message || 'an unexpected error',
+        })
+        break
       }
     }
-    setImportResult({ added, skipped }); setImportStep('done')
+    setImportResult({ added, updated, unchanged, skipped, stoppedAt }); setImportStep('done')
     setImporting(false); await load()
   }
 
@@ -615,10 +648,14 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
         readyCount={readyRows.length}
         warnCount={warnRows.length}
         result={importResult}
+        confirmDisabled={!!importMapping && (importMapping.unmapped.length > 0 || importMapping.collision.length > 0)}
+        doneExtra={importResult?.stoppedAt && (
+          <div style={{ ...S.importWarnText, marginTop: 8 }}>{importResult.stoppedAt}</div>
+        )}
         importing={importing}
         onConfirm={confirmImport}
-        onCancel={() => { setImportStep(null); setImportRows([]) }}
-        previewSubtitle={<ImportPreviewSubtitle ready={readyRows.length} warn={warnRows.length} sheetNote={importSheetNote} />}
+        onCancel={() => { setImportStep(null); setImportRows([]); setImportMapping(null) }}
+        previewSubtitle={<ImportPreviewSubtitle ready={readyRows.length} warn={warnRows.length} sheetNote={importSheetNote} mappingIssue={describeMappingIssue(importMapping)} />}
         renderCell={(r, c) => {
           if (c.key === 'name') return r.name || <span style={{ color: 'var(--warning)' }}>—</span>
           if (c.key === 'tier') return r.tierName || '—'

@@ -24,7 +24,10 @@ import { aoaToSanitizedSheet } from './exportSanitize.js'
 // v3 (SLICE B2, same board item/ADR): adds the "Fixed Events" sheet for
 // `fixed_events`, flagged `screenImportOnly` — re-imported via FixedEventsScreen's
 // own door, never the whole-workbook S4b path (workbookToSource skips it).
-export const PLAN_VERSION = 3
+// v4 (SLICE B2b/B3, same board item): Age Divisions/Time Blocks/Fixed Events gain a
+// `cohort_name` column (the row's PROGRAM by name) so a re-import resolves the right
+// cohort instead of always defaulting to whichever one is active.
+export const PLAN_VERSION = 4
 
 // The hidden metadata sheet's name. S4b reads camp_id/cohort_id/base_generation
 // + the per-row baseline out of it; a re-import whose metadata is missing or
@@ -54,7 +57,11 @@ export const LOCATIONS_SHEET = 'Locations'
 // stored form is transformed for the sheet.
 export const SHEET_LAYOUT = Object.freeze([
   { entity: 'cohorts', sheet: 'Programs', nameKey: 'name', columns: [{ key: 'name' }] },
-  { entity: 'tiers', sheet: 'Age Divisions', nameKey: 'name', ordered: true, columns: [{ key: 'name' }] },
+  // cohort_name (B3 cohort fix b): the row's PROGRAM by name, never id — a director's own
+  // re-import resolves it by name among the camp's cohorts (src/ingest/resolveRowCohort.js),
+  // falling back to the screen's active cohort when blank or unresolvable, exactly like
+  // the FK-by-name columns above (`unit`/`location`/`day_label`/`time_block_name`).
+  { entity: 'tiers', sheet: 'Age Divisions', nameKey: 'name', ordered: true, columns: [{ key: 'name' }, { key: 'cohort_name', label: true }] },
   {
     entity: 'groups', sheet: 'Groups', nameKey: 'name',
     columns: [{ key: 'name' }, { key: 'unit', label: true }, { key: 'availability' }],
@@ -66,7 +73,7 @@ export const SHEET_LAYOUT = Object.freeze([
   // part_of_day, so without this column a re-imported file imports zero rows.
   {
     entity: 'time_blocks', sheet: 'Time Blocks', nameKey: 'name', ordered: true,
-    columns: [{ key: 'name' }, { key: 'start_time', time: true }, { key: 'end_time', time: true }, { key: 'part_of_day' }],
+    columns: [{ key: 'name' }, { key: 'start_time', time: true }, { key: 'end_time', time: true }, { key: 'part_of_day' }, { key: 'cohort_name', label: true }],
   },
   {
     entity: 'activities', sheet: 'Activities', nameKey: 'name',
@@ -94,6 +101,7 @@ export const SHEET_LAYOUT = Object.freeze([
       { key: 'is_all_tiers', bool: true },
       { key: 'tier_names', labelList: true },
       { key: 'notes' },
+      { key: 'cohort_name', label: true },
     ],
   },
 ])
@@ -164,6 +172,9 @@ function cellValueFor(col, row, maps) {
   if (col.labelList && col.key === 'tier_names') {
     return idListLabels(row.unit_ids, maps.tierNameById)
   }
+  if (col.label && col.key === 'cohort_name') {
+    return row.cohort_id != null ? (maps.cohortNameById.get(row.cohort_id) ?? '') : ''
+  }
   if (col.time) return canonicalTime(row[col.key])
   const v = row[col.key]
   return v == null ? '' : v
@@ -199,6 +210,7 @@ export function exportWorkbook({
     locationNameById: new Map(locations.map((l) => [l.id, l.name])),
     dayNameById: new Map(days_of_operation.map((d) => [d.id, d.label])),
     timeBlockNameById: new Map(time_blocks.map((b) => [b.id, b.name])),
+    cohortNameById: new Map(cohorts.map((c) => [c.id, c.name])),
   }
 
   const wb = XLSX.utils.book_new()

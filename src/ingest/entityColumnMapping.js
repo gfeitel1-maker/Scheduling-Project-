@@ -53,6 +53,10 @@ export const ENTITY_FIELD_CATALOGS = {
       // screen's own template fails to re-import and a sort_order column lands in
       // residue instead (Code Reviewer, slice-A review).
       { key: 'sort_order', required: false, synonyms: ['sort_order', 'order'] },
+      // B3 cohort fix (b): optional — a file with no cohort/program column falls back
+      // to the screen's active cohort exactly as before this field existed. Named
+      // "program" too, matching CohortPicker's own director-facing label.
+      { key: 'cohort_name', required: false, synonyms: ['cohort_name', 'cohort', 'program'] },
     ],
   },
   time_blocks: {
@@ -68,6 +72,7 @@ export const ENTITY_FIELD_CATALOGS = {
       { key: 'end_time', required: true, synonyms: ['end_time', 'end time'] },
       { key: 'part_of_day', required: true, synonyms: ['part_of_day', 'part of day'] },
       { key: 'sort_order', required: false, synonyms: ['sort_order', 'order'] },
+      { key: 'cohort_name', required: false, synonyms: ['cohort_name', 'cohort', 'program'] },
     ],
   },
   activities: {
@@ -101,6 +106,7 @@ export const ENTITY_FIELD_CATALOGS = {
       { key: 'is_all_tiers', required: false, synonyms: ['is_all_tiers', 'all groups'] },
       { key: 'tier_names', required: false, synonyms: ['tier_names', 'age divisions'] },
       { key: 'notes', required: false, synonyms: ['notes'] },
+      { key: 'cohort_name', required: false, synonyms: ['cohort_name', 'cohort', 'program'] },
     ],
   },
   locations: {
@@ -179,6 +185,19 @@ export function inferEntityMapping(header = [], catalog) {
  * existing `r.sort_order !== ''` style checks behave the same whether the
  * column was blank or simply absent.
  */
+/**
+ * A one-line description of why confirmImport is gated, or null when it isn't.
+ * `blockingUnmapped` lets a caller exclude fields it derives per-row instead of
+ * gating on (e.g. DaysScreen's day_of_week) from the required-column half.
+ */
+export function describeMappingIssue(mapping, blockingUnmapped = mapping?.unmapped ?? []) {
+  if (!mapping) return null
+  const parts = []
+  if (blockingUnmapped.length > 0) parts.push(`missing required column(s): ${blockingUnmapped.join(', ')}`)
+  if (mapping.collision.length > 0) parts.push(`column(s) matched more than one field: ${mapping.collision.map((c) => c.field).join(', ')}`)
+  return parts.length === 0 ? null : `Can't import yet — ${parts.join('; ')}.`
+}
+
 export function applyEntityMapping(rows, mapping, catalog) {
   const header = mapping?.header ?? []
   return rows.map((row) => {

@@ -12,7 +12,16 @@ import SetupScreenShell from '../components/setup/SetupScreenShell'
 import ImportModal from '../components/setup/ImportModal'
 import ImportPreviewSubtitle from '../components/setup/ImportPreviewSubtitle.jsx'
 import InlineAddRow from '../components/setup/InlineAddRow'
-import { DOW } from './setup/setupHelpers'
+import { DOW, weekdayFromLabel } from './setup/setupHelpers'
+import { ENTITY_FIELD_CATALOGS, inferEntityMapping, applyEntityMapping, describeMappingIssue } from '../ingest/entityColumnMapping.js'
+import { resolveRowAction } from '../ingest/resolveRowAction.js'
+import { formatImportStopMessage } from '../ingest/importStopMessage.js'
+
+const DAYS_CATALOG = ENTITY_FIELD_CATALOGS.days_of_operation
+// day_of_week is excluded from the mapping gate: a file with no day_of_week column
+// still imports, deriving it per-row from a weekday-name label (board
+// q-export-columns-do-not-round-trip, B2b derive-or-name).
+const blockingUnmapped = (mapping) => mapping.unmapped.filter((f) => f !== 'day_of_week')
 
 const repository = createSetupCrudRepository({ localClient })
 const scopeFilter = (row, campId) => row.camp_id === campId
@@ -112,6 +121,7 @@ export default function DaysScreen({ campId, role, onNavigate }) {
   const [deletingAll, setDeletingAll] = useState(false)
   const [importStep, setImportStep] = useState(null)
   const [importRows, setImportRows] = useState([])
+  const [importMapping, setImportMapping] = useState(null)
   // T315 — which tab this workbook's rows came from, when there was more than one to
   // choose between. Null on a single-sheet file: there was no choice, so there is
   // nothing to report.
@@ -188,16 +198,31 @@ export default function DaysScreen({ campId, role, onNavigate }) {
       const { sheet: importedSheet, rows, otherSheets } = readEntitySheet(ev.target.result, {
         type: 'array', byteLength: file.size, sheetName: 'Days', requiredColumns: ['label'],
       })
-      const parsed = rows.map(r => {
+      const header = Object.keys(rows[0] ?? {})
+      const mapping = inferEntityMapping(header, DAYS_CATALOG)
+      const mappedRows = applyEntityMapping(rows, mapping, DAYS_CATALOG)
+      setImportMapping(mapping)
+      const parsed = mappedRows.map((r, i) => {
         const label = String(r.label || '').trim()
         const dowRaw = r.day_of_week
-        const day_of_week = dowRaw !== '' && dowRaw !== null && dowRaw !== undefined ? Number(dowRaw) : null
+        let day_of_week = dowRaw !== '' && dowRaw !== null && dowRaw !== undefined ? Number(dowRaw) : null
         const sort_order = r.sort_order !== '' ? Number(r.sort_order) : null
         let warning = null
+        let needsEye = false
         if (!label) warning = 'Missing label'
-        else if (day_of_week === null || !Number.isInteger(day_of_week) || day_of_week < 0 || day_of_week > 6) warning = 'day_of_week must be a whole number 0–6'
-        else if (sort_order !== null && !(Number.isInteger(sort_order) && sort_order >= 0)) warning = 'sort_order must be a whole number 0 or greater'
-        return { label, day_of_week, sort_order, warning }
+        else if (day_of_week === null || !Number.isInteger(day_of_week) || day_of_week < 0 || day_of_week > 6) {
+          // derive-or-name: no bound/valid day_of_week — try the label as a weekday name
+          // before giving up (board q-export-columns-do-not-round-trip, B2b).
+          const derived = weekdayFromLabel(label)
+          if (derived !== null) {
+            day_of_week = derived
+          } else {
+            needsEye = true
+            warning = `Row ${i + 1} ('${label}'): cannot determine day_of_week — pick one`
+          }
+        }
+        if (!warning && sort_order !== null && !(Number.isInteger(sort_order) && sort_order >= 0)) warning = 'sort_order must be a whole number 0 or greater'
+        return { label, day_of_week, sort_order, warning, needsEye }
       })
       setImportRows(parsed)
       // Said only when the workbook HAD more than one tab: on a single-sheet file there was no
@@ -214,14 +239,34 @@ export default function DaysScreen({ campId, role, onNavigate }) {
   async function confirmImport() {
     setImporting(true)
     try {
-      const existingLabels = new Set(days.map(d => String(d.label ?? '').toLowerCase()))
-      let added = 0, skipped = 0
-      for (const row of importRows) {
+      const existingByKey = new Map(days.map(d => [String(d.label ?? '').toLowerCase(), d]))
+      // Code Reviewer HIGH+MEDIUM: only diff fields the sheet actually named — day_of_week
+      // counts as named whether bound to a column OR derived from a weekday-name label (both
+      // are a real value the row carries), sort_order only when its column was present.
+      const providedKeys = new Set([...Object.keys(importMapping?.roles ?? {}), 'day_of_week'])
+      let added = 0, updated = 0, unchanged = 0, skipped = 0
+      let stoppedAt = null
+      const totalCount = importRows.length
+      for (const [index, row] of importRows.entries()) {
         if (!row.label || row.warning) { skipped++; continue }
-        const lower = String(row.label).toLowerCase()
-        if (existingLabels.has(lower)) { skipped++; continue }
         const sortVal = row.sort_order !== null ? row.sort_order : row.day_of_week
+        const candidateFields = { day_of_week: row.day_of_week, sort_order: sortVal }
+        const key = String(row.label).toLowerCase()
+        const resolution = resolveRowAction(row.label, candidateFields, existingByKey, providedKeys)
         try {
+          if (resolution.action === 'unchanged') {
+            unchanged++
+            continue
+          }
+          if (resolution.action === 'update') {
+            await repository.writeFields('days_of_operation', resolution.existing.id, resolution.changedFields)
+            updated++
+            // Red Hat HIGH: refresh the in-memory baseline with what was actually
+            // written, so a LATER row sharing this key diffs against the applied
+            // value, not the stale pre-import one (last-row-wins is honest).
+            existingByKey.set(key, { ...resolution.existing, ...resolution.changedFields })
+            continue
+          }
           const id = crypto.randomUUID()
           // day_of_week first — createRecord's write-then-cleanup-on-failure
           // dance requires the collision-guarded field first (T205 / ADR 2026-08-15).
@@ -232,13 +277,21 @@ export default function DaysScreen({ campId, role, onNavigate }) {
             sort_order: sortVal,
           })
           added++
-          existingLabels.add(lower)
+          existingByKey.set(String(row.label).toLowerCase(), { id, label: row.label, day_of_week: row.day_of_week, sort_order: sortVal })
         } catch (err) {
+          // Hard stop, not a rollback: an UNEXPECTED failure stops the loop immediately so the
+          // director is told exactly which row and how many already landed, rather than a
+          // silent partial import masquerading as complete (board
+          // q-export-columns-do-not-round-trip, honest-atomicity-half).
           console.error(`Failed to import day "${row.label}"`, err)
-          skipped++
+          stoppedAt = formatImportStopMessage({
+            importedCount: added + updated, totalCount, rowNumber: index + 1,
+            rowName: row.label, reason: err?.message || 'an unexpected error',
+          })
+          break
         }
       }
-      setImportResult({ added, skipped }); setImportStep('done')
+      setImportResult({ added, updated, unchanged, skipped, stoppedAt }); setImportStep('done')
     } catch (err) {
       console.error('Import failed', err)
       setError(describeWriteFailure(err, 'That import could not be completed.'))
@@ -316,11 +369,15 @@ export default function DaysScreen({ campId, role, onNavigate }) {
         rows={importRows}
         readyCount={readyRows.length}
         warnCount={warnRows.length}
-        previewSubtitle={<ImportPreviewSubtitle ready={readyRows.length} warn={warnRows.length} sheetNote={importSheetNote} />}
+        previewSubtitle={<ImportPreviewSubtitle ready={readyRows.length} warn={warnRows.length} sheetNote={importSheetNote} mappingIssue={importMapping && describeMappingIssue(importMapping, blockingUnmapped(importMapping))} />}
+        confirmDisabled={!!importMapping && (blockingUnmapped(importMapping).length > 0 || importMapping.collision.length > 0)}
         result={importResult}
+        doneExtra={importResult?.stoppedAt && (
+          <div style={{ ...S.importWarnText, marginTop: 8 }}>{importResult.stoppedAt}</div>
+        )}
         importing={importing}
         onConfirm={confirmImport}
-        onCancel={() => { setImportStep(null); setImportRows([]) }}
+        onCancel={() => { setImportStep(null); setImportRows([]); setImportMapping(null) }}
         renderCell={(r, c) => {
           if (c.key === 'label') return r.label || '—'
           if (c.key === 'day_of_week') return (r.day_of_week !== null && r.day_of_week >= 0 && r.day_of_week <= 6) ? DOW[r.day_of_week] : '—'

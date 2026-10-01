@@ -210,7 +210,10 @@ const UNRESOLVED_SPREAD_SOURCES = [
     // saveAnchor()/confirmImport() now resolve the typed/imported name to a
     // catalogue activity and write its id (electron write path,
     // PROJECTIONS.fixed_events.fields registers it).
-    fields: ['name', 'is_all_groups', 'group_ids', 'time_block_id', 'notes', 'day_id', 'camp_id', 'cohort_id', 'schedule_week_id', 'activity_id'],
+    // Item 7 B3 (create-or-update): the update path's writeFields now writes
+    // `kind` as a resolvable literal (`{ kind: record.kind, day_id, ...candidateFields, camp_id }`),
+    // so the scanner resolves it directly; added here to keep this list a superset.
+    fields: ['name', 'is_all_groups', 'group_ids', 'time_block_id', 'notes', 'day_id', 'camp_id', 'cohort_id', 'schedule_week_id', 'activity_id', 'kind'],
   },
   {
     file: 'src/screens/schedule/useSlotMutations.js',

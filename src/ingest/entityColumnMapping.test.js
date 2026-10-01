@@ -178,7 +178,7 @@ describe('inferEntityMapping — a foreign header missing a required synonym', (
     expect(mapping.roles.sort_order).toBe(1)
     expect(mapping.unrecognisedColumns).toEqual([])
     const out = applyEntityMapping([{ name: 'Juniors', sort_order: 0 }], mapping, ENTITY_FIELD_CATALOGS.tiers)
-    expect(out).toEqual([{ name: 'Juniors', sort_order: 0 }])
+    expect(out).toEqual([{ name: 'Juniors', sort_order: 0, cohort_name: '' }])
   })
 })
 
