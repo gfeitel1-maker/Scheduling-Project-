@@ -40,6 +40,13 @@
 // then offer an ADD where the director meant a correction — writing a second row
 // beside the one they were fixing.
 import { resolvePreferenceCoordinates } from '../assignment/resolvePreferenceCoordinates.js'
+// board item 9b round 3 (item 2) — the ONE wording for "this camper's row is
+// gone", also used by runStateCopy.js's groupBundleTierNotCoveredFindings and
+// DraftRunView.jsx's sibling sites. A live ESM circular import
+// (runStateCopy.js already imports buildPreferenceLookup from THIS module);
+// safe because this binding is only read inside a function body, never at
+// module-evaluation time.
+import { UNKNOWN_CAMPER_LABEL } from './runStateCopy.js'
 // T318 round 2 — `hasOrderingEvidence` moved to src/engine/rankKind.js, a
 // dependency-free module also imported by the engine
 // (buildElectiveAssignments.js) and the ETL (preferenceSheet.js), so the
@@ -95,6 +102,39 @@ function orderIndex(catalog) {
   return (id) => index.get(id) ?? LAST
 }
 
+// board item 9b round 3, round 2 F3 — one tier per camper, derived from their
+// OWN assignment rows. SOLVER-SOURCED rows are preferred over any other row,
+// first-row-wins among those; a camper with no solver row at all falls back
+// to first-row-wins across everything. This used to be bare first-row-wins
+// across ALL of a camper's rows, on the premise that "a camper is only ever
+// placed in their own tier's occurrences" (buildAttendance scopes them) —
+// that premise is false for a MANUAL placement: electron/ops/setElectiveAssignment.js
+// (~line 107-109) states in its own words that "Division/tier attendance is
+// NOT checked. Do not read this as a complete eligibility check." A
+// director's manual placement can put a camper at a foreign-tier occurrence,
+// and if that row happened to sort first, the camper's WHOLE week's tier
+// derivation was poisoned by it — every other coordinate-only preference of
+// theirs then missed the join, which (via buildPreferenceLookup →
+// resolvePreferenceCoordinates) makes the edit affordance offer ADD instead
+// of CORRECT for a row the solver actually placed correctly. The solver's own
+// placement is the evidence buildAttendance's tier-scoping actually applies
+// to, so it is preferred. Returns null (not {}) when nothing could be
+// derived, so an empty/absent `rows` reproduces the exact tier-blind resolver
+// call every caller made before this parameter existed.
+function deriveTierIdByCamperId(rows, occurrences) {
+  if (!rows || rows.length === 0) return null
+  const occurrenceById = new Map(occurrences.map((o) => [o.id, o]))
+  const tierIdByCamperId = {}
+  const bind = (row) => {
+    if (row.camper_id == null || row.camper_id in tierIdByCamperId) return
+    const tierId = occurrenceById.get(row.occurrence_id)?.tier_id ?? null
+    if (tierId != null) tierIdByCamperId[row.camper_id] = tierId
+  }
+  for (const row of rows) if (row.source === 'solver') bind(row)
+  for (const row of rows) bind(row)
+  return Object.keys(tierIdByCamperId).length > 0 ? tierIdByCamperId : null
+}
+
 /**
  * A lookup from one placement (a row with camper_id/choice_id/occurrence_id) to
  * `{ id, rankKind }` for the preference row behind it, or null.
@@ -113,12 +153,25 @@ function orderIndex(catalog) {
  * Null is a real answer: a placement the camper ranked nothing for (the bronze
  * "not requested" row) genuinely has no statement to correct, so the edit there
  * is an ADD.
+ *
+ * board item 9b round 3 — `rows` (optional) is the run's own assignment rows.
+ * A coordinate-only preference at a cell more than one TIER shares resolves
+ * to an occurrence only when the resolver knows which tier it is for
+ * (resolvePreferenceCoordinates' `tierIdByCamperId`); without it the resolver
+ * falls back to whichever occurrence is first at that cell, which is wrong for
+ * every camper outside that one tier and makes this join miss. Every caller
+ * already holds its run's assignment rows, and a camper is only ever placed in
+ * an occurrence of their own tier (buildAttendance scopes them), so the tier
+ * the solver actually used is recoverable from `row.occurrence_id ->
+ * occurrence.tier_id` — no roster re-derivation, no new catalog read. Omitted,
+ * this behaves exactly as before (tier-blind), so no existing caller changes.
  */
-export function buildPreferenceLookup({ preferences, occurrences, days, timeBlocks }) {
+export function buildPreferenceLookup({ preferences, occurrences, days, timeBlocks, rows = NONE }) {
+  const tierIdByCamperId = deriveTierIdByCamperId(rows, occurrences)
   // Bound ONCE for the whole week, against this run's occurrences. After that
   // there are two tiers, which is exactly what the engine's `rankAt` has: a row
   // scoped to the occurrence, else a whole-run fallback.
-  const bound = resolvePreferenceCoordinates({ preferences, occurrences, days, timeBlocks }).preferences
+  const bound = resolvePreferenceCoordinates({ preferences, occurrences, days, timeBlocks, tierIdByCamperId }).preferences
   const keyOf = (camperId, choiceId, occurrenceId) => (
     `${camperId}\u0000${choiceId}\u0000${occurrenceId ?? ''}`
   )
@@ -166,7 +219,7 @@ export function buildCamperElectiveWeek({
 
   const mine = rows.filter((r) => r.camper_id === camperId)
   const occurrenceOf = (row) => occurrenceById.get(row.occurrence_id)
-  const preferenceFor = buildPreferenceLookup({ preferences, occurrences, days, timeBlocks })
+  const preferenceFor = buildPreferenceLookup({ preferences, occurrences, days, timeBlocks, rows })
 
   const entries = mine
     .slice()
@@ -199,6 +252,19 @@ export function buildCamperElectiveWeek({
       }
     })
 
+  // board item 9b round 3 (item 2) — NOT the same defect class as
+  // listRunCampers' fallback above, deliberately left as `null` rather than
+  // UNKNOWN_CAMPER_LABEL. This is `null` both when `mine` is empty (a
+  // camperId with no placement rows at all — pinned pre-existing behaviour,
+  // camperElectiveWeek.test.js "returns an empty week for a camper with no
+  // placements") and when the one placement row's own `camper_name` is null.
+  // Either way CamperWeekPanel.jsx's `{week.camperName}` renders NOTHING for
+  // null — never the raw camper id — so there is no UUID to leak here; the
+  // heading is merely blank, a cosmetic gap rather than the information
+  // disclosure the fallback above exists to prevent. Left alone rather than
+  // widened into for that reason, matching the sweep test's two FinalRunView
+  // assertions (the picker list row and the opened week heading), both of
+  // which pass today without this branch changing.
   return {
     camperId,
     camperName: mine[0]?.camper_name ?? null,
@@ -215,7 +281,9 @@ export function listRunCampers(rows = NONE) {
     if (!byCamper.has(row.camper_id)) {
       byCamper.set(row.camper_id, {
         camperId: row.camper_id,
-        camperName: row.camper_name ?? row.camper_id,
+        // board item 9b round 3 (item 2) — never a raw camper UUID in
+        // director-facing copy; see UNKNOWN_CAMPER_LABEL's own header.
+        camperName: row.camper_name ?? UNKNOWN_CAMPER_LABEL,
         placementCount: 0,
         fallbackCount: 0,
       })

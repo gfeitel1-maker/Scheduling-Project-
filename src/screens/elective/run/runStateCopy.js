@@ -27,6 +27,16 @@ import { makeCamperIdentityResolver } from '../../../../electron/ops/camperElect
 // as START_REVISION_LABEL so every caller stays untouched by this change.
 export const START_REVISION_LABEL = 'Start a new version'
 
+// board item 9b round 3 (item 2) — the ONE place this wording is authored.
+// M1 (Red Hat round 4) established the rule (never a raw camper UUID in
+// director-facing copy) and this exact literal at two sites
+// (groupBundleTierNotCoveredFindings below, and DraftRunView.jsx's
+// sheetOnlyCamperNames). Exporting it stops a THIRD site from inventing a
+// third wording, and lets every sibling site (the placement table, the
+// dangling-placement rows, listRunCampers' picker list) share the same
+// owner-reviewed sentence rather than falling back to the raw id.
+export const UNKNOWN_CAMPER_LABEL = 'a camper who is no longer on the roster'
+
 // T320 (docs/adr/2026-09-30-elective-run-durability.md item 3; Governor
 // ruling R7) — RELEASE_LOCK_LABEL/'Release lock' is REMOVED: it was the
 // dangling row's only offered remedy and could not resolve the condition
@@ -212,13 +222,23 @@ export function groupBundleTierNotCoveredFindings({ findings = [], campers = [],
     // F7 (Code Reviewer) — a delimiter-safe key: JSON.stringify, not an
     // undelimited template-string join that a label containing the
     // delimiter could collide on.
+    //
+    // F2 (round 2 review) — a null `label` (an assignment-only mismatch, see
+    // bundleTierNotCoveredGroupMessage's own comment) groups EVERY null-label
+    // mismatch for a tier into one row, regardless of which bundle each
+    // camper actually hit. Accepted deliberately: the degraded sentence this
+    // produces ("A linked bundle does not cover <tier>") never claims a
+    // single bundle either, so grouping by tier alone does not make the row
+    // say anything false — it just can't be more specific than the data it
+    // was given. Splitting these further would need a label this run never
+    // persisted (see F4's root cause).
     const key = JSON.stringify([f.label, tierId])
     if (!byKey.has(key)) byKey.set(key, { label: f.label, tierId, tierName, names: [] })
     // F5 (Red Hat) — NEVER a raw camper_id in director-facing copy (the same
     // rule camperDisambiguator's own comment states): a camper row that is
     // gone (hard-deleted after an earlier generation) degrades to a truthful
     // sentence fragment instead.
-    const name = camperById.get(f.camper_id)?.display_name ?? 'a camper who is no longer on the roster'
+    const name = camperById.get(f.camper_id)?.display_name ?? UNKNOWN_CAMPER_LABEL
     byKey.get(key).names.push(name)
   }
   return [...byKey.values()]
@@ -228,10 +248,19 @@ export function groupBundleTierNotCoveredFindings({ findings = [], campers = [],
 // could not be resolved — the phrasing names "these campers' division"
 // instead of inventing a tier word, per groupBundleTierNotCoveredFindings'
 // own posture.
+//
+// F2 (round 2 review) — `label` is also null for an assignment-only mismatch:
+// commitElectiveRun.js's `labelsNeedingFlatChoice` only mints a flat choice
+// for a label that appears in `parsed.preferences`, so a solver fallback
+// placement (a camper never ranked the label at all) persists with
+// choice_id null, and getElectiveRun.js's LEFT JOIN on choice_id then recovers
+// no label on a cold reopen. Same posture as the tierName-null branch above —
+// degrade honestly, never invent a label and never interpolate the raw null.
 export function bundleTierNotCoveredGroupMessage({ label, tierName, names = [] }) {
   const count = names.length
   const camperWord = count === 1 ? 'camper' : 'campers'
-  const subject = tierName ? `"${label}" does not cover ${tierName}` : `"${label}" does not cover these campers’ division`
+  const who = tierName ? `cover ${tierName}` : 'cover these campers’ division'
+  const subject = label ? `"${label}" does not ${who}` : `A linked bundle does not ${who}`
   return `${subject} — ${count} ${camperWord} kept their request as an ordinary choice.`
 }
 
@@ -332,7 +361,7 @@ export function satisfactionSummary({ rows = [], preferences = [], occurrences =
   const camperCount = new Set(rows.map((r) => r.camper_id).filter((id) => id != null)).size
   const placementCount = rows.length
   const occurrenceCount = new Set(rows.map((r) => r.occurrence_id)).size
-  const preferenceFor = buildPreferenceLookup({ preferences, occurrences, days, timeBlocks })
+  const preferenceFor = buildPreferenceLookup({ preferences, occurrences, days, timeBlocks, rows })
   const buckets = [0, 0, 0, 0] // first, second, third, lower
   let outside = 0
   let unordered = 0

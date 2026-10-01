@@ -72,6 +72,24 @@ describe('buildRunExceptionsExport', () => {
     expect(result.not_computed).toEqual([])
   })
 
+  // board item 9b round 3 (item 3) — BUNDLE_TIER_NOT_COVERED now persists
+  // through the SAME elective_run_findings table UNSUPPORTED_LINKED_CHOICE
+  // already does, and this builder has NO per-kind allowlist — every row the
+  // caller's eligibilityFindings carries flows through verbatim. Pinned so a
+  // future reviewer sees this as a decision, not a gap: the kind appearing in
+  // the exceptions export is correct, not a surprise.
+  it('a persisted BUNDLE_TIER_NOT_COVERED finding flows through to the eligibility bucket with no allowlist filtering it out', () => {
+    const result = buildRunExceptionsExport({
+      campers: [], preferences: [], assignments: [], occurrences: [], staleCount: 0, capacityRows: [],
+      eligibilityFindings: [
+        { kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'cam-1', choice_id: 'choice-1', occurrence_id: null, message: 'generic, name-free' },
+      ],
+    })
+    expect(result.eligibility).toEqual([
+      { kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'cam-1', choice_id: 'choice-1', occurrence_id: null, message: 'generic, name-free' },
+    ])
+  })
+
   it('does NOT mark unassigned/unranked/unresolved/capacity as not_computed — those ARE discharged from real data', () => {
     const result = buildRunExceptionsExport({ campers: [], preferences: [], assignments: [], occurrences: [], staleCount: 0, capacityRows: [] })
     expect(result.not_computed).not.toContain('unassigned')

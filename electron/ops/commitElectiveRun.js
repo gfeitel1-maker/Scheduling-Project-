@@ -455,11 +455,15 @@ export function commitElectiveRun(db, {
   // the now-written-null value silently falls through to the camper's GROUP
   // tier instead, which can name a different division than the one this
   // mismatch was actually generated against).
-  const noteMismatch = (camperId, labelKey, label, tierId) => {
+  // board item 9b round 3 (item 3) — `choiceId` added so the persistence
+  // write loop (below the SHEET_CAMPER_WITHOUT_PREFERENCE loop) can store the
+  // SAME flat choice `resolveWriteChoiceId` already resolved for this
+  // mismatch, rather than re-resolving it a second time.
+  const noteMismatch = (camperId, labelKey, label, tierId, choiceId) => {
     const dedupeKey = `${camperId}::${labelKey}`
     if (bundleTierMismatchKeys.has(dedupeKey)) return
     bundleTierMismatchKeys.add(dedupeKey)
-    bundleTierMismatches.push({ camperId, label, tierId: tierId ?? null })
+    bundleTierMismatches.push({ camperId, label, tierId: tierId ?? null, choiceId: choiceId ?? null })
   }
   // The rows that already exist, read ONCE. The inline per-row existence check
   // this replaces compiled a statement per parsed preference inside the
@@ -670,7 +674,7 @@ export function commitElectiveRun(db, {
         // a fact about the bundle, not a reason to forget what they asked for.
         // Both halves, always: the row AND the finding.
         const resolved = resolveWriteChoiceId(p.labelKey, p.camper_id)
-        if (resolved.mismatch) noteMismatch(p.camper_id, p.labelKey, p.label ?? p.labelKey, resolved.tierId)
+        if (resolved.mismatch) noteMismatch(p.camper_id, p.labelKey, p.label ?? p.labelKey, resolved.tierId, resolved.choiceId)
         const choiceId = resolved.choiceId
         if (!choiceId) throw new Error(`preference names a choice the sheet did not list: ${p.labelKey}`)
         // Backstop for describeElectiveRunRefusal's "malformed" check above:
@@ -801,7 +805,7 @@ export function commitElectiveRun(db, {
         // computed from preferences only, so no flat choice was ever minted
         // to bind to, and null is the correct, not a leftover, answer there.
         const resolved = resolveWriteChoiceId(a.labelKey, a.camper_id)
-        if (resolved.mismatch) noteMismatch(a.camper_id, a.labelKey, a.labelKey, resolved.tierId)
+        if (resolved.mismatch) noteMismatch(a.camper_id, a.labelKey, a.labelKey, resolved.tierId, resolved.choiceId)
         write('elective_assignments', assignmentId, {
           run_id: runId,
           occurrence_id: a.occurrence_id,
@@ -889,6 +893,86 @@ export function commitElectiveRun(db, {
           occurrence_id: null,
         })
       }
+
+      // board item 9b round 3 (item 3) — BUNDLE_TIER_NOT_COVERED, persisted
+      // through the SAME T320 durability path, mirroring the
+      // SHEET_CAMPER_WITHOUT_PREFERENCE loop immediately above: a PARALLEL
+      // loop, deliberately NOT folded into the ELIGIBILITY_FINDING_KINDS loop
+      // earlier in this transaction — that loop gates the ENGINE's
+      // solverFindings array; `bundleTierMismatches` is a different array,
+      // built by commitElectiveRun's own D6 resolution (resolveWriteChoiceId/
+      // noteMismatch above), not the engine. Without this, a cold-reopened
+      // draft shows no grouped bundle-mismatch row at all — DraftRunView.jsx's
+      // bundleMismatchGroups previously read only the commit-RESPONSE
+      // `findings` array below, which is empty the moment this function
+      // returns.
+      //
+      // NO NEW COLUMN. `tier_id` is NOT persisted — elective_run_findings has
+      // no such column, and groupBundleTierNotCoveredFindings
+      // (src/screens/elective/run/runStateCopy.js) already has the fallback
+      // for exactly a finding missing it: re-derive via
+      // makeCamperIdentityResolver against the CURRENT roster. TRADEOFF,
+      // stated for Red Hat to challenge rather than to reassure: the live
+      // (session, commit-response) finding below carries the commit-time
+      // tier; this persisted, cold-reopened row re-derives against whatever
+      // the roster looks like at READ time, so a roster edit between commit
+      // and reopen can name a different division than the one this mismatch
+      // was actually generated against.
+      //
+      // `message` is NAME-FREE, unlike the response-only message built below
+      // (which embeds camperById.get(...).display_name) — the same privacy
+      // posture SHEET_CAMPER_WITHOUT_PREFERENCE's persisted message already
+      // takes (no real name into a replicated table, T249/ADR 2026-09-23
+      // Q4). The director-facing name is resolved on the READ side instead,
+      // exactly as groupBundleTierNotCoveredFindings already does for the
+      // response-only shape.
+      //
+      // `label` is NOT stored either — recovered on read via a LEFT JOIN to
+      // elective_choices on choice_id (getElectiveRun.js). Incidental
+      // consequence: the preference loop's response label (p.label, the
+      // sheet's own spelling) and the assignment loop's (a.labelKey, the
+      // lowercase canonical key) disagree in casing today; reading the label
+      // back through elective_choices.label normalizes BOTH to the choice's
+      // one stored spelling.
+      //
+      // Derived id includes `choiceId`: noteMismatch dedupes on
+      // `${camperId}::${labelKey}` and each labelKey resolves to one flat
+      // choiceId, so two distinct mismatches for one camper (two different
+      // bundle labels) carry two distinct choice_ids and so two distinct
+      // rows — pinned by this file's own "two DISTINCT rows" test.
+      //
+      // KNOWN RESIDUAL (round 2 review F4, NOT fixed this round) — that only
+      // holds when a flat choice was actually minted. An ASSIGNMENT-ONLY
+      // mismatch (a solver fallback placement for a camper who never ranked
+      // the label) has `choiceId: null` — `labelsNeedingFlatChoice` above is
+      // built from `parsed.preferences` only, so no flat choice is ever
+      // minted to bind to for a label no one ranked. Two such mismatches for
+      // ONE camper on two DIFFERENT labels both derive the SAME id (same
+      // camperId, same null choiceId), so the second write collapses into
+      // the first and one mismatch is lost from this table — pinned as a
+      // known defect, not fixed, by this file's own "F4" test. The obvious
+      // fix (pre-scan assignments too) is not small: it would also change
+      // what the assignment loop above writes into `choice_id` for an
+      // assignment-only mismatch, which an earlier round deliberately set to
+      // null to fix a real outage — a design decision for the owner.
+      for (const m of bundleTierMismatches) {
+        const findingId = deriveElectiveRunFindingId(
+          runId, solverGeneration, 'BUNDLE_TIER_NOT_COVERED', m.camperId, m.choiceId, null
+        )
+        write('elective_run_findings', findingId, {
+          run_id: runId,
+          solver_generation: solverGeneration,
+          kind: 'BUNDLE_TIER_NOT_COVERED',
+          message:
+            'This camper is linked to a choice that a bundle claims for specific divisions only, and ' +
+            'their own division is not one of them — so it was kept as an ordinary choice for them ' +
+            'instead of as part of the bundle. Their ranking still counts; nothing else on the sheet ' +
+            'was affected.',
+          camper_id: m.camperId,
+          choice_id: m.choiceId,
+          occurrence_id: null,
+        })
+      }
     })
   } catch (e) {
     // The transaction rolled back; nothing was written.
@@ -943,6 +1027,13 @@ export function commitElectiveRun(db, {
         // to re-derive it later (see noteMismatch's own comment for why
         // re-deriving is a real bug, not a hypothetical one).
         tier_id: m.tierId ?? null,
+        // Round 2 F1 — same `choiceId` resolveWriteChoiceId already resolved
+        // for this mismatch (noteMismatch's own param), so the SESSION
+        // response and the PERSISTED finding (getElectiveRun.js's LEFT JOIN)
+        // agree on the same identity. Without this, DraftRunView.jsx's merge
+        // Map could not key two distinct mismatches for one camper apart —
+        // see that file's `bundleMismatchFindings` comment.
+        choice_id: m.choiceId ?? null,
         message:
           // BOARD ITEM 9b — the tail ("could not be resolved to the bundle's
           // choice") became FALSE the moment the ranking was kept. A message

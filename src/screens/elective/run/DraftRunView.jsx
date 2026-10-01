@@ -34,7 +34,7 @@ import {
   DANGLING_MOVE_PLACEHOLDER, FINALIZE_MESSAGES, REMOVE_PLACEMENT_LABEL, danglingMessage, occurrenceLabel, overCapacityMessage,
   resolveCamperDisambiguators, satisfactionSummary, stalenessOfferMessage,
   groupBundleTierNotCoveredFindings, bundleTierNotCoveredGroupMessage, finalizeFindingMessage,
-  sheetOnlyCampersMessage,
+  sheetOnlyCampersMessage, UNKNOWN_CAMPER_LABEL,
 } from './runStateCopy.js'
 
 const styles = {
@@ -568,9 +568,65 @@ export default function DraftRunView({
   // and DANGLING_MANUAL_ASSIGNMENT keep their current per-camper rows (T232/D6
   // require naming the child there).
   const commitNotices = danglingFindings.filter((f) => f.kind !== 'DANGLING_MANUAL_ASSIGNMENT' && f.kind !== 'BUNDLE_TIER_NOT_COVERED')
+  // board item 9b round 3 (item 3) — BUNDLE_TIER_NOT_COVERED now also
+  // PERSISTS (durable, elective_run_findings, read back as
+  // state.eligibilityFindings), so a cold reopen must see it too — the
+  // `danglingFindings` PROP alone (commitElectiveRun's session-scoped
+  // response) is empty on reopen, same `loaded`-survives-a-reopen reasoning
+  // as durableDanglingRows above. Merged and DEDUPED by MISMATCH IDENTITY
+  // (camper_id + choice_id, falling back to label when choice_id is null),
+  // not concatenated: within ONE session where both exist (this device just
+  // committed AND the durable read has already landed), the SESSION finding
+  // wins — it carries the commit-time tier_id (see commitElectiveRun.js's own
+  // tradeoff comment on the persisted loop, which has none), while the
+  // persisted finding is what a cold-reopened screen has at all.
+  //
+  // Round 2 F1 — keying on `f.camper_id` ALONE used to collapse a camper with
+  // TWO distinct mismatches (two different bundle labels) to whichever was
+  // iterated last, dropping a real finding: already pinned on the write side
+  // (commitElectiveRun.bundleChoices.test.js's "two distinct bundle-label
+  // mismatches ... write two DISTINCT rows"). `choice_id` is now carried on
+  // BOTH the session finding (commitElectiveRun.js's response `findings`
+  // array) and the persisted one (getElectiveRun.js's LEFT JOIN), so the two
+  // sides agree on the same key for the same mismatch.
+  //
+  // RESIDUAL (see F4 in the round-2 review, root-caused in
+  // commitElectiveRun.js at the `labelsNeedingFlatChoice` comment): for an
+  // ASSIGNMENT-ONLY mismatch (a solver fallback placement for a camper who
+  // never ranked the label), `choice_id` is genuinely null on BOTH sides —
+  // no flat choice was ever minted to bind to. The key is `camper_id::choice_id`
+  // ONLY, deliberately with NO fallback to `label`: a label fallback looks
+  // like it would disambiguate two such mismatches, but it does the opposite
+  // in the window this dedupe exists for. The SESSION finding's label is the
+  // raw labelKey (never null, written directly from `a.labelKey`) while the
+  // PERSISTED finding's label is null (recovered only via a JOIN on
+  // choice_id, which an assignment-only mismatch has none of). So within ONE
+  // session where both exist for the SAME single mismatch, a label fallback
+  // keys them DIFFERENTLY (`cam::archery` vs `cam::`) and renders the one
+  // real problem as two rows in two different wordings — worse than the
+  // collapse, because it is a fabricated duplicate, not a dropped finding.
+  // Dropping the label leg means an assignment-only mismatch always keys on
+  // `camper_id::` (choice_id null), so the session copy correctly wins over
+  // the persisted one for the SAME mismatch (one row), while TWO DIFFERENT
+  // assignment-only mismatches for one camper still collapse into that same
+  // key — the same identity gap F4 documents at the write site, showing
+  // through here symmetrically on both sides rather than newly. Not fixed
+  // here: doing so would require minting a flat choice for an assignment
+  // nobody ranked, which F4 defers as a design decision, not a bugfix.
+  const bundleMismatchFindings = useMemo(() => {
+    const byMismatch = new Map()
+    const mismatchKey = (f) => `${f.camper_id}::${f.choice_id ?? ''}`
+    for (const f of state.eligibilityFindings ?? []) {
+      if (f.kind === 'BUNDLE_TIER_NOT_COVERED') byMismatch.set(mismatchKey(f), f)
+    }
+    for (const f of danglingFindings) {
+      if (f.kind === 'BUNDLE_TIER_NOT_COVERED') byMismatch.set(mismatchKey(f), f)
+    }
+    return [...byMismatch.values()]
+  }, [state.eligibilityFindings, danglingFindings])
   const bundleMismatchGroups = useMemo(
-    () => groupBundleTierNotCoveredFindings({ findings: danglingFindings, campers: state.campers, groups, tiers }),
-    [danglingFindings, state.campers, groups, tiers]
+    () => groupBundleTierNotCoveredFindings({ findings: bundleMismatchFindings, campers: state.campers, groups, tiers }),
+    [bundleMismatchFindings, state.campers, groups, tiers]
   )
   // (C)(4) — SHEET_CAMPER_WITHOUT_PREFERENCE (sheetOnlyCampers,
   // electron/ops/getElectiveRun.js — deliberately excluded from
@@ -584,7 +640,7 @@ export default function DraftRunView({
     // rule, also applied in runStateCopy.js's groupBundleTierNotCoveredFindings
     // for the same reason): a sheet-only camper whose row is gone (hard-deleted
     // after an earlier generation) degrades to a truthful sentence fragment.
-    return (state.sheetOnlyCampers ?? []).map((id) => camperById.get(id)?.display_name ?? 'a camper who is no longer on the roster')
+    return (state.sheetOnlyCampers ?? []).map((id) => camperById.get(id)?.display_name ?? UNKNOWN_CAMPER_LABEL)
   }, [state.campers, state.sheetOnlyCampers])
   const stateRowCount = overCapacityRows.length + danglingRows.length + collapsingOnlyRows.length + commitNotices.length
     + bundleMismatchGroups.length + (sheetOnlyCamperNames.length > 0 ? 1 : 0)
@@ -601,7 +657,7 @@ export default function DraftRunView({
     )),
     ...danglingRows.map((f, i) => {
       const index = overCapacityRows.length + i
-      const camperName = rows.find((r) => r.camper_id === f.camper_id)?.camper_name ?? f.camper_id
+      const camperName = rows.find((r) => r.camper_id === f.camper_id)?.camper_name ?? UNKNOWN_CAMPER_LABEL
       // T320 round 2, F5 — a collapsing row is still mid-write's aftermath
       // visually, so its control stays disabled through the animation too.
       const isCollapsing = collapsingRows.some((r) => r.assignment_id === f.assignment_id)
@@ -678,7 +734,7 @@ export default function DraftRunView({
     // can no longer usefully interact with.
     ...collapsingOnlyRows.map((f, i) => {
       const index = overCapacityRows.length + danglingRows.length + i
-      const camperName = rows.find((r) => r.camper_id === f.camper_id)?.camper_name ?? f.camper_id
+      const camperName = rows.find((r) => r.camper_id === f.camper_id)?.camper_name ?? UNKNOWN_CAMPER_LABEL
       return (
         <div
           key={`dm-wrap-${f.assignment_id}`}
@@ -895,7 +951,7 @@ export default function DraftRunView({
                 return (
                 <tr key={r.id} data-testid={`placement-row-${r.id}`}>
                   <td style={styles.td}>
-                    {r.camper_name ?? r.camper_id}
+                    {r.camper_name ?? UNKNOWN_CAMPER_LABEL}
                     {disambiguator ? (
                       <div style={styles.camperDisambiguator}>{disambiguator}</div>
                     ) : null}
@@ -903,7 +959,7 @@ export default function DraftRunView({
                   <td style={styles.td}>
                     <select
                       data-testid={`placement-occurrence-${r.id}`}
-                      aria-label={`Placement for ${r.camper_name ?? r.camper_id}`}
+                      aria-label={`Placement for ${r.camper_name ?? UNKNOWN_CAMPER_LABEL}`}
                       value={r.occurrence_id}
                       onChange={async (e) => {
                         const occurrenceId = e.target.value
@@ -923,7 +979,7 @@ export default function DraftRunView({
                     <input
                       type="checkbox"
                       data-testid={`placement-lock-${r.id}`}
-                      aria-label={`Lock ${r.camper_name ?? r.camper_id}'s placement`}
+                      aria-label={`Lock ${r.camper_name ?? UNKNOWN_CAMPER_LABEL}'s placement`}
                       checked={r.is_locked === 1 || r.is_locked === true}
                       onChange={async (e) => {
                         const locked = e.target.checked

@@ -469,91 +469,57 @@ describe('§6 (7) — every assignment appears exactly once in the matching rost
     // unordered-set placement this camp could produce is absent from this
     // fixture by construction. Therefore `unordered_count` SHOULD be 0 here.
     //
-    // It is 4 (was 15, then 14, then 12, now 4 — see the derivation below),
-    // and the remaining cause is a SEPARATE defect this ticket does not fix.
+    // Derivation, trimmed to one line per round per the "do not let this
+    // comment grow without bound" discipline: 15 -> 14 (an earlier board item
+    // removed one wrongly-seated assignment) -> 12 (board item 9b's
+    // tier-aware coordinate fix in the SOLVER) -> 4 (board item 9b round 2 —
+    // commitElectiveRun.js's assignment-write loop bound `choice_id: null` on
+    // a mismatch instead of the same flat fallback choice the preference loop
+    // used, so 8 of the 12 could never be joined at all) -> 1 (board item 9b
+    // round 3, THIS round).
     //
-    // 15 -> 14 -> 12 -> 4. The 15->14 and 14->12 steps are unchanged from the
-    // prior notes: an earlier board item closing the (then-)GAP test removed
-    // one wrongly-seated Older 2 assignment at the Older/Monday occurrence
-    // (15->14), and board item 9b's tier-aware coordinate fix moved it to 12
-    // (see git history for that derivation — the full account was trimmed
-    // here to make room for this round's, per the same "do not let this
-    // comment grow without bound" discipline the prior trims followed).
+    // THIS ROUND: the cause of the last 4 was diagnosed as TWO separate
+    // defects wearing one number, not one. 3 of the 4 (not all 4) were
+    // `buildPreferenceLookup` itself being tier-blind — it called
+    // `resolvePreferenceCoordinates` WITHOUT `tierIdByCamperId`, so at a cell
+    // two tiers share, a coordinate-only preference bound to whichever
+    // occurrence was first in array order rather than the camper's own tier.
+    // Fixed by giving `buildPreferenceLookup` an optional `rows` parameter
+    // (the run's own assignment rows, which every caller already holds) to
+    // derive the tier internally — see that function's own header in
+    // src/screens/elective/run/camperElectiveWeek.js. MEASURED: reverted that
+    // fix alone with this test file unchanged — PASSED at 4, confirming the
+    // pre-fix baseline; restored the fix — FAILS here at 1.
     //
-    // 12 -> 4 is THIS round (board item 9b round 2 / Maker's (A) fix,
-    // electron/ops/commitElectiveRun.js's assignment-write loop). MEASURED,
-    // not assumed: reverted to origin/main's commitElectiveRun.js (the
-    // version before this fix) with this exact test file unchanged, re-ran
-    // this one test — it PASSED at 12, confirming the pre-fix baseline really
-    // was 12 and not already drifted; restored this session's
-    // commitElectiveRun.js — it FAILS here at 4, i.e. `summary.unordered_count`
-    // is now genuinely 4, not 12.
-    //
-    // WHY: of the prior 12, 8 had a persisted preference row naming the right
-    // label at the right rank, but the ASSIGNMENT loop's `choice_id: resolved.
-    // mismatch ? null : resolved.choiceId` nulled the mismatch case instead of
-    // binding the SAME flat fallback choice the preference loop already used
-    // — so `buildPreferenceLookup` (src/screens/elective/run/
-    // camperElectiveWeek.js), which refuses to look up a row when
-    // `row.choice_id == null`, could never find it. (A) changes that line to
-    // `choice_id: resolved.choiceId` unconditionally, closing exactly this
-    // asymmetry — which is why the number moved by exactly 8 (12 -> 4), not
-    // to 0.
-    //
-    // The remaining 4 are NOT this defect: they DO have a preference row
-    // sharing the assignment's own choice_id, but `resolvePreferenceCoordinates`
-    // binds that (camper, label) pair to a DIFFERENT one of several duplicate
-    // same-label preference rows than the occurrence the solver actually
-    // placed them in (this fixture has more than one preference row per
-    // camper per choice at different coordinates, and only one of them can
-    // bind), so the occurrence-aware join still misses. (A) does not touch
-    // `resolvePreferenceCoordinates` and could not have closed this half —
-    // closing it needs that function to bind duplicate same-label rows to the
-    // occurrence the solver actually used, which is NOT this ticket's scope.
-    // When that lands, this must go to 0 — and this assertion is EXPECTED to
-    // fail then. Update it to 0 at that point, with a comment saying which fix
+    // The remaining 1 is NOT this defect and is NOT fixed here: it is a
+    // linked-bundle choice (SYN-2005) whose preference row's coordinate is
+    // Tuesday (where the label appears on the sheet) while the bundle's
+    // assignment is anchored at Monday's occurrence of the same bundle.
+    // Closing it needs a new read of `elective_choice_offerings` threaded
+    // through three call sites — explicitly out of scope for this round. When
+    // it lands, this must go to 0, and this assertion is EXPECTED to fail
+    // then. Update it to 0 at that point, with a comment saying which fix
     // closed it; do not delete it or loosen it back to a tautology.
-    //
-    // So a director reading this run today still sees "One of their choices"
-    // for these 4 children's actual rank-1 requests — the rank on the
-    // assignment is real and ordered, but nothing here can join it back to
-    // that evidence, for this one remaining reason.
     //
     // This assertion exists so that number cannot silently drift or be
     // absorbed by a self-consistent computation (the "independent second
     // fact" below computes its expectation through the SAME join, so on its
     // own it would stay green even if either gap got WORSE).
-    expect(summary.unordered_count).toBe(4)
+    expect(summary.unordered_count).toBe(1)
 
     // AND THE IDENTITY, not only the cardinality — Red Hat's challenge to the
-    // line above: a count can survive for the wrong reason. A later change that
-    // adds one genuinely unordered-set camper while a NEW defect mis-buckets one
-    // more ordered row nets to 4 and this file would have shrugged. So pin WHY
-    // each of the 4 is here: every one must be a ranked assignment for which
-    // buildPreferenceLookup — the SAME join buildRunSummaryExport and the Draft
-    // screen actually use — finds no preference row. A genuinely unordered-set
-    // camper's join DOES resolve (to a row carrying rank_kind 'unordered-set'),
-    // so it would fail this and force a reader to look.
-    //
-    // MEASURED (board item 9b round 2): before (A), 12 rows failed this check —
-    // 8 with NO preference row findable at all (the choice_id-null asymmetry
-    // (A) fixes) and 4 whose preference row names the same choice but at a
-    // DIFFERENT occurrence than the one the solver actually placed the camper
-    // in (this fixture has more than one preference row per camper per choice
-    // at different coordinates, and only one of them can bind in
-    // `resolvePreferenceCoordinates`) — the occurrence-aware join still misses
-    // for those 4. (A) closes the first 8; the remaining 4 are exactly that
-    // second, untouched defect. `buildPreferenceLookup` is occurrence-aware and
-    // is the one true answer to "does this assignment have a preference behind
-    // it"; asking anything weaker here (e.g. a bare `(camper_id, choice_id)`
-    // set, ignoring the occurrence) would test a question production code
-    // never asks, and would have called those 4 "present" — exactly the kind
-    // of survive-for-the-wrong-reason gap this check exists to close.
-    const preferenceFor = buildPreferenceLookup({ preferences, occurrences, days, timeBlocks })
+    // line above: a count can survive for the wrong reason. So pin WHY the
+    // one remaining row is here: it must be a ranked assignment for which
+    // buildPreferenceLookup — the SAME join buildRunSummaryExport and the
+    // Draft screen actually use, called with `rows` exactly as production
+    // calls it — finds no preference row. A genuinely unordered-set camper's
+    // join DOES resolve (to a row carrying rank_kind 'unordered-set'), so it
+    // would fail this and force a reader to look.
+    const preferenceFor = buildPreferenceLookup({ preferences, occurrences, days, timeBlocks, rows: assignments })
     const rankedWithNoPreferenceRow = assignments.filter((a) => (
       a.preference_rank != null && preferenceFor(a) == null
     ))
-    expect(rankedWithNoPreferenceRow).toHaveLength(4)
+    expect(rankedWithNoPreferenceRow).toHaveLength(1)
 
     // The independent second fact: the SAME bucketing, computed with the
     // production join (`preferenceFor`, already built above), against a plain

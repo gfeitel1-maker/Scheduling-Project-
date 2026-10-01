@@ -197,7 +197,7 @@ export function computeSnapshotCompleteness(db, run) {
     return { expectedSnapshotRows: null, heldSnapshotRows: held, snapshotIncomplete: true }
   }
 
-  // FALLBACK 1: legacy plain-hex digest (what v83 wrote before erasure-aware comparison existed).
+  // LEGACY DIGEST: plain-hex digest (what v83 wrote before erasure-aware comparison existed).
   // Deliberately NOT retroactive — no re-finalize path exists to upgrade an old run's stored
   // digest to the new per-camper shape — so this keeps comparing the OLD way, including staying
   // incomplete forever after an erasure.
@@ -211,7 +211,7 @@ export function computeSnapshotCompleteness(db, run) {
   }
 
   const perCamperExpected = parsePerCamperDigestMap(digestField)
-  // FALLBACK 3: corrupt/unparseable digest — never complete, never silently legacy.
+  // CORRUPT DIGEST: unparseable — never complete, never silently legacy.
   if (!perCamperExpected) {
     const held = db
       .prepare('SELECT COUNT(*) c FROM elective_run_outer_snapshots WHERE run_id = ?')

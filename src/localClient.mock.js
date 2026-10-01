@@ -2032,6 +2032,11 @@ export const mockShoresh = {
         if (camperTierId != null && coveredTiers.has(camperTierId)) continue
         bundleTierMismatches.push({
           kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: pr.camper_id, label: pr.label ?? pr.labelKey, tier_id: camperTierId ?? null,
+          // board item 9b round 3 (item 3) parity — the SAME choice_id the
+          // preference row above was bound to (choiceIdByKey.get(pr.labelKey)),
+          // so the persisted finding below can carry it, mirroring
+          // production's resolveWriteChoiceId/noteMismatch.
+          choice_id: choiceIdByKey.get(pr.labelKey) ?? null,
         })
       }
     }
@@ -2045,9 +2050,21 @@ export const mockShoresh = {
       ...(state.elective_preferences || []).filter((pr) => pr.run_id === runId).map((pr) => pr.camper_id),
       ...(state.elective_assignments || []).filter((a) => a.run_id === runId).map((a) => a.camper_id),
     ])
+    // board item 9b round 3 (item 3) parity — BUNDLE_TIER_NOT_COVERED now
+    // persists too, same full-replace-on-recommit treatment as
+    // SHEET_CAMPER_WITHOUT_PREFERENCE below: this mock has no real per-commit
+    // generation counter (a fixed 'mock' literal), so replacing every row of
+    // both kinds for this runId on each commit and rewriting only the
+    // CURRENT commit's set is equivalent in effect to production's
+    // generation-filtered read — a regenerate shows only the current
+    // mismatches, never an accumulation of stale ones. NO tier_id (no such
+    // column, mirrored from production — groupBundleTierNotCoveredFindings
+    // already re-derives it) and NO camper name in `message` (same privacy
+    // posture as the roster kind's persisted message; the name is resolved
+    // on the read side).
     state.elective_run_findings = [
       ...(state.elective_run_findings || []).filter(
-        (f) => !(f.run_id === runId && f.kind === 'SHEET_CAMPER_WITHOUT_PREFERENCE')
+        (f) => !(f.run_id === runId && (f.kind === 'SHEET_CAMPER_WITHOUT_PREFERENCE' || f.kind === 'BUNDLE_TIER_NOT_COVERED'))
       ),
       ...(parsed.campers ?? [])
         .filter((c) => !placedOrRanked.has(c.id))
@@ -2063,6 +2080,20 @@ export const mockShoresh = {
           choice_id: null,
           occurrence_id: null,
         })),
+      ...bundleTierMismatches.map((m) => ({
+        id: deriveElectiveRunFindingId(runId, mockGeneration, 'BUNDLE_TIER_NOT_COVERED', m.camper_id, m.choice_id ?? null, null),
+        run_id: runId,
+        solver_generation: mockGeneration,
+        kind: 'BUNDLE_TIER_NOT_COVERED',
+        message:
+          'This camper is linked to a choice that a bundle claims for specific divisions only, and ' +
+          'their own division is not one of them — so it was kept as an ordinary choice for them ' +
+          'instead of as part of the bundle. Their ranking still counts; nothing else on the sheet ' +
+          'was affected.',
+        camper_id: m.camper_id,
+        choice_id: m.choice_id ?? null,
+        occurrence_id: null,
+      })),
     ]
     saveState(state)
     return {
@@ -2189,8 +2220,15 @@ export const mockShoresh = {
     // filtering by solver_generation.
     // The roster kind is excluded so the eligibility bucket keeps its meaning,
     // exactly as production's read does; it is surfaced as sheetOnlyCampers.
+    //
+    // board item 9b round 3 (item 3) parity — `label` recovered via a join on
+    // `choice_id` against `state.elective_choices`, mirroring getElectiveRun.js's
+    // LEFT JOIN (no column stores the label; a persisted BUNDLE_TIER_NOT_COVERED
+    // finding has none otherwise).
+    const choiceLabelById = new Map((state.elective_choices || []).map((c) => [c.id, c.label]))
     const eligibilityFindings = (state.elective_run_findings || [])
       .filter((f) => f.run_id === runId && f.kind !== 'SHEET_CAMPER_WITHOUT_PREFERENCE')
+      .map((f) => ({ ...f, label: f.choice_id != null ? choiceLabelById.get(f.choice_id) ?? null : null }))
     // T320 round 2, F1 — snapshotIncomplete: false is an HONEST value here,
     // not a degraded stand-in for the real computeSnapshotCompleteness digest
     // check: this mock's finalizeElectiveRun (below) always writes the
