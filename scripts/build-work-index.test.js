@@ -166,9 +166,25 @@ describe('renderIndex', () => {
 // committed entry point a reader lands on instead. It must name every directory this builder
 // actually reads from, or it silently drifts from the generator's real inputs.
 describe('docs/work/README.md names every SOURCE_DIRS entry', () => {
-  it('mentions each source directory the index is built from', () => {
+  // A one-directional "mentions" check only catches an addition to SOURCE_DIRS that the
+  // README forgot to list — it stays green when a directory is REMOVED from SOURCE_DIRS while
+  // the README goes on claiming it's still a board input (proven: dropping
+  // 'docs/work/handoffs' from SOURCE_DIRS left this guard green). The fenced block in the
+  // README is parsed and compared by set equality instead, so drift in either direction fails,
+  // each side's extra/missing entries named separately.
+  function readmeSourceDirs() {
     const readme = readFileSync(join(ROOT, 'docs', 'work', 'README.md'), 'utf8')
-    const missing = SOURCE_DIRS.filter((dir) => !readme.includes(dir))
-    expect(missing).toEqual([])
+    const start = readme.indexOf('<!-- source-dirs -->')
+    const end = readme.indexOf('<!-- /source-dirs -->')
+    if (start === -1 || end === -1) throw new Error('docs/work/README.md is missing the <!-- source-dirs --> fence')
+    const block = readme.slice(start, end)
+    return [...block.matchAll(/`(docs\/[a-z0-9/-]+)`/g)].map((m) => m[1])
+  }
+
+  it('matches SOURCE_DIRS exactly — no directory missing, none extra', () => {
+    const readmeDirs = readmeSourceDirs()
+    const missing = SOURCE_DIRS.filter((dir) => !readmeDirs.includes(dir))
+    const extra = readmeDirs.filter((dir) => !SOURCE_DIRS.includes(dir))
+    expect({ missing, extra }).toEqual({ missing: [], extra: [] })
   })
 })

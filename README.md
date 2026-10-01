@@ -122,7 +122,7 @@ The integration harness spawns real child processes to cover cross-process behav
 
 ## Status
 
-Active development, pre-production. Being built for Shoresh camp; not yet running with live camp data.
+Active development, pre-production. Being built for Shoresh camp; not yet running with live camp data. Open work is tracked as tickets and run records under [`docs/work`](docs/work/README.md), governed by the rules indexed at [`docs/governance/GOVERNANCE_INDEX.md`](docs/governance/GOVERNANCE_INDEX.md).
 
 Self-hosting guide and contributing guidelines coming with the first stable release.
 

@@ -20,12 +20,22 @@ import { readDocs } from '../scripts/build-work-index.js'
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const p = (...s) => join(ROOT, ...s)
 
+// docs/work/INDEX.md is generated output (npm run index:work), not a governed document: it
+// has no author, it is not committed, and its contents are a pure function of the documents
+// already in this corpus. It must stay out of every set this file audits — otherwise the
+// audited corpus differs by machine (present only where someone has run the generator) and a
+// stale or hand-mangled copy reads as a governance defect in a file nobody meant to edit, with
+// its findings duplicating the real document's (a bad `](target)` substring in a ticket's
+// title: gets reported once for the ticket and once for the generated index entry pointing at
+// it).
+const GENERATED_DOCS = new Set([p('docs', 'work', 'INDEX.md')])
+
 function walk(dir, out = []) {
   if (!existsSync(dir)) return out
   for (const e of readdirSync(dir)) {
     const full = join(dir, e)
     if (statSync(full).isDirectory()) walk(full, out)
-    else if (e.endsWith('.md')) out.push(full)
+    else if (e.endsWith('.md') && !GENERATED_DOCS.has(full)) out.push(full)
   }
   return out
 }

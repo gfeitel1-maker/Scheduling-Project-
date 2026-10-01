@@ -14,6 +14,7 @@ from, and the other directories here that are not board inputs.
 
 These five directories are scanned by `scripts/build-work-index.js` to build the board:
 
+<!-- source-dirs -->
 - **`docs/adr`** — Architecture Decision Records: accepted or proposed structural decisions.
 - **`docs/work/tickets`** — scoped, ticket-numbered (`T<n>`) units of work, open or closed.
 - **`docs/work/specs`** — design specs for a feature or subsystem, ahead of or alongside
@@ -21,6 +22,11 @@ These five directories are scanned by `scripts/build-work-index.js` to build the
 - **`docs/work/runs`** — per-task run records: brief, agents dispatched, gates, verdict.
 - **`docs/work/handoffs`** — what a new session needs that the repository cannot tell it on its
   own, written when context would otherwise be lost between sessions.
+<!-- /source-dirs -->
+
+The fenced list above is machine-checked against `SOURCE_DIRS` in `scripts/build-work-index.js`:
+it must name exactly those directories, no more and no fewer, or
+`scripts/build-work-index.test.js` fails naming what's missing or extra.
 
 ## Other directories here (not board inputs)
 
