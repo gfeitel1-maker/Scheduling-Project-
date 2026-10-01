@@ -187,4 +187,33 @@ describe('buildPreferenceLookup — tier-aware join at a cell two tiers share', 
     })
     expect(lookup(assignmentRow)?.id).toBe('pref-sr')
   })
+
+  // F3 (round 2 review) — deriveTierIdByCamperId used to be bare FIRST-ROW-WINS
+  // across ALL of a camper's rows, on the premise that "a camper is only ever
+  // placed in their own tier's occurrences" (buildAttendance scopes them).
+  // setElectiveAssignment.js (~line 107-109) states the opposite in its own
+  // words: "Division/tier attendance is NOT checked. Do not read this as a
+  // complete eligibility check." — a director's manual placement CAN put a
+  // camper at a foreign-tier occurrence. If that row sorts first in `rows`,
+  // the camper's WHOLE week's tier derivation was poisoned by it, so every
+  // OTHER coordinate-only preference of theirs missed the join too.
+  //
+  // This camper (cam-sr, a Seniors camper) has a foreign-tier MANUAL row
+  // FIRST in `rows` (occ-jr, source 'manual' — the director placed them there
+  // by hand) and their real, SOLVER-placed Seniors row second (occ-sr). The
+  // join must still resolve the Seniors coordinate preference to the Seniors
+  // occurrence — i.e. tier derivation must prefer the solver-sourced evidence
+  // over array order.
+  it('a foreign-tier MANUAL row first in `rows` does not poison tier derivation for the camper’s other, solver-sourced placements', () => {
+    const foreignManualRow = {
+      id: 'asg-manual', camper_id: 'cam-sr', occurrence_id: 'occ-jr', activity_id: 'act-other',
+      choice_id: 'choice-other', preference_rank: null, camper_name: 'Noa Katz', source: 'manual', is_locked: 1,
+    }
+    const solverRow = { ...assignmentRow, source: 'solver' }
+    const lookup = buildPreferenceLookup({
+      preferences: [coordinatePreference], occurrences: TWO_TIER_OCCURRENCES, days: DAYS, timeBlocks: TIME_BLOCKS,
+      rows: [foreignManualRow, solverRow],
+    })
+    expect(lookup(solverRow)?.id).toBe('pref-sr')
+  })
 })

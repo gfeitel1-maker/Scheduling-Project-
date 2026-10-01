@@ -616,6 +616,70 @@ describe('T250 B1 — a mixed findings array renders each kind with its own sent
     expect(within(bundleRow).getAllByText('Testcamper Bravo').length).toBeGreaterThan(0)
   })
 
+  // F1 (round 2 review) — bundleMismatchFindings (DraftRunView.jsx) used to key its
+  // merge Map on `f.camper_id` ALONE, so one camper with TWO distinct
+  // BUNDLE_TIER_NOT_COVERED findings (two different bundle labels) collapsed to
+  // whichever was iterated last — one grouped row vanished, and a real dual
+  // mismatch is already pinned on the write side
+  // (electron/ops/commitElectiveRun.bundleChoices.test.js's "two distinct rows"
+  // case). Reproduces on a pure cold reopen — both findings read from
+  // state.eligibilityFindings alone, no session/commit-response prop in play —
+  // because the collapse is in the merge Map, not in the session-vs-persisted
+  // precedence.
+  it('F1 — a camper with TWO distinct BUNDLE_TIER_NOT_COVERED findings (two different bundle labels) gets a grouped row for EACH, not one collapsed row', async () => {
+    localClient.getElectiveRun.mockResolvedValue({
+      ...CLEAN_RUN_STATE,
+      danglingFindings: [],
+      eligibilityFindings: [
+        { kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'camper-2', choice_id: 'choice-sports', occurrence_id: null, label: 'Sports Bundle', message: 'generic, name-free' },
+        { kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'camper-2', choice_id: 'choice-arts', occurrence_id: null, label: 'Arts Bundle', message: 'generic, name-free' },
+      ],
+    })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+
+    const sportsRow = await screen.findByTestId('run-state-bundle-mismatch-Sports Bundle-tier-1')
+    const artsRow = await screen.findByTestId('run-state-bundle-mismatch-Arts Bundle-tier-1')
+    expect(within(sportsRow).getAllByText('Testcamper Bravo').length).toBeGreaterThan(0)
+    expect(within(artsRow).getAllByText('Testcamper Bravo').length).toBeGreaterThan(0)
+  })
+
+  // F1 correction (round 2, found reviewing the uncommitted diff) — the
+  // `mismatchKey` fallback to `f.label` was wrong: for an ASSIGNMENT-ONLY
+  // mismatch the SESSION finding's label is the raw labelKey (never null)
+  // while the PERSISTED finding's label is null (recovered only via a JOIN on
+  // choice_id, which does not exist for an assignment-only mismatch — see
+  // commitElectiveRun.js's `labelsNeedingFlatChoice` comment). In the exact
+  // window the dedupe exists for — this device just committed AND the
+  // durable read has landed — the SAME single mismatch produced two
+  // different keys (`cam::archery` vs `cam::`) and rendered as TWO rows: one
+  // naming the bundle, one degraded. Must render as exactly ONE row, naming
+  // the bundle (the session copy, which has the real label).
+  it('F1 correction — ONE assignment-only mismatch present on BOTH sides in one session renders as exactly ONE row, naming the bundle', async () => {
+    localClient.getElectiveRun.mockResolvedValue({
+      ...CLEAN_RUN_STATE,
+      // PERSISTED side: choice_id null, label null (assignment-only, no flat
+      // choice was ever minted — see getElectiveRun.js's LEFT JOIN).
+      eligibilityFindings: [
+        { kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'camper-2', choice_id: null, occurrence_id: null, label: null, message: 'generic, name-free' },
+      ],
+    })
+    render(<DraftRunView
+      run={DRAFT_RUN}
+      // SESSION side: choice_id null too, but label is the raw labelKey —
+      // never null — exactly as commitElectiveRun.js's assignment loop writes it.
+      danglingFindings={[
+        { kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'camper-2', choice_id: null, label: 'archery', tier_id: 'tier-1', message: 'Testcamper Bravo is linked to "archery" ...' },
+      ]}
+      {...catalogs()}
+    />)
+
+    const area = await screen.findByTestId('run-state-area')
+    const bundleRows = [...area.querySelectorAll('[data-testid^="run-state-bundle-mismatch-"]')]
+    expect(bundleRows).toHaveLength(1)
+    expect(bundleRows[0].getAttribute('data-testid')).toBe('run-state-bundle-mismatch-archery-tier-1')
+    expect(bundleRows[0].textContent).toMatch(/"archery" does not cover Juniors/)
+  })
+
   // Owner/organizer ruling, 2026-09-30 — Finalize sits ABOVE the findings list
   // (contradicting the spec's original fixed layout order, amended with a
   // dated note). Pins the DOM order so a future edit cannot silently revert it.
@@ -738,13 +802,24 @@ describe('(C)(4) sheetOnlyCampers — named, not just counted', () => {
 // reads.
 // ---------------------------------------------------------------------------
 describe('no raw camper UUID anywhere on the run screens (board item 9b round 3)', () => {
+  // F5 (round 2 review) — this regex probes for a BARE canonical UUID shape
+  // (8-4-4-4-12 hex), which is what GHOST_ID below literally is. A real
+  // sheet-ingested camper id is NOT this shape — it is a composite derived
+  // string from deriveCamperId (electron/ops/electiveDerivedIds.js), e.g.
+  // `camperV1:camp_id=<uuid>|ext|external_id=<...>`. The regex still fires
+  // against a real id only because a camp_id UUID happens to be embedded as a
+  // substring — a property nobody designed and a format change could defeat
+  // silently. The `toContain(GHOST_ID)` check below is independent of that:
+  // it asserts directly on the fixture's actual id value, not on a shape.
   const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
   const GHOST_ID = '11111111-2222-4333-8444-555555555555'
 
   function assertNoRawUuid(container) {
     expect(container.textContent).not.toMatch(UUID_RE)
+    expect(container.textContent).not.toContain(GHOST_ID)
     for (const el of container.querySelectorAll('[aria-label]')) {
       expect(el.getAttribute('aria-label')).not.toMatch(UUID_RE)
+      expect(el.getAttribute('aria-label')).not.toContain(GHOST_ID)
     }
   }
 

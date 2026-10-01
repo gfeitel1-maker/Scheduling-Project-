@@ -576,6 +576,48 @@ describe('BUNDLE_TIER_NOT_COVERED persists (board item 9b round 3, item 3)', () 
     db.close()
   })
 
+  // Round 2 F1 — the SESSION response (`out.findings`, what DraftRunView.jsx
+  // receives as the `danglingFindings` prop the moment this commit returns)
+  // used to carry `label` + `tier_id` but NO `choice_id`, while the
+  // PERSISTED finding (read back via getElectiveRun's LEFT JOIN) carries
+  // `choice_id`. DraftRunView's merge Map needs both sides to key on the same
+  // identity (camper_id + choice_id) for a camper with two distinct mismatches
+  // not to collapse to one — see that file's `bundleMismatchFindings` comment.
+  it('the session response findings array carries choice_id for a BUNDLE_TIER_NOT_COVERED entry, distinct per label', () => {
+    const { db, campId } = freshDb()
+    seedTwoTierCamp(db, campId, { scopeMode: 'only', bundleTiers: ['tier-jr'] })
+    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run('act-gaga', campId, 'Gaga')
+    db.prepare('INSERT INTO elective_bundles (id, elective_set_id, activity_id, name, scope_mode) VALUES (?, ?, ?, ?, ?)')
+      .run('bundle-2', 'set-1', 'act-gaga', 'Gaga', 'only')
+    db.prepare('INSERT INTO elective_bundle_periods (id, bundle_id, day_id, time_block_id) VALUES (?, ?, ?, ?)')
+      .run('bp-3', 'bundle-2', 'day-1', 'tb-1')
+    db.prepare('INSERT INTO elective_bundle_periods (id, bundle_id, day_id, time_block_id) VALUES (?, ?, ?, ?)')
+      .run('bp-4', 'bundle-2', 'day-1', 'tb-2')
+    db.prepare('INSERT INTO elective_bundle_tiers (id, bundle_id, tier_id) VALUES (?, ?, ?)').run(randomUUID(), 'bundle-2', 'tier-jr')
+
+    const runId = randomUUID()
+    const occurrences = twoTierOccurrences(runId)
+    const srOccurrence = occurrences.find((o) => o.tier_id === 'tier-sr' && o.time_block_id === 'tb-1')
+    const parsed = {
+      campers: [{ id: 'cam-sr', display_name: 'Noa Katz', external_id: null, group_id: null, division_label: 'Seniors' }],
+      choices: [{ label: 'Archery', labelKey: ARCHERY_KEY }, { label: 'Gaga', labelKey: 'gaga' }],
+      preferences: [
+        { camper_id: 'cam-sr', occurrence_id: srOccurrence.id, label: 'Archery', labelKey: ARCHERY_KEY, rank: 1 },
+        { camper_id: 'cam-sr', occurrence_id: srOccurrence.id, label: 'Gaga', labelKey: 'gaga', rank: 2 },
+      ],
+      sameNameCampers: [],
+      skippedRows: [],
+    }
+    const out = commitElectiveRun(db, { campId, deviceId: 'dev-1', name: 'Week 1', runId, parsed, assignments: [], occurrences })
+    expect(out.ok).toBe(true)
+
+    const mismatches = out.findings.filter((f) => f.kind === 'BUNDLE_TIER_NOT_COVERED')
+    expect(mismatches).toHaveLength(2)
+    for (const m of mismatches) expect(m.choice_id).not.toBeNull()
+    expect(new Set(mismatches.map((m) => m.choice_id)).size).toBe(2)
+    db.close()
+  })
+
   // BOARD ITEM 9b round 3 — today the response-only message's per-entry
   // `label` field is "Archery" (the sheet's own spelling) for a camper whose
   // PREFERENCE hit the mismatch, but only the lowercase canonical labelKey

@@ -573,21 +573,56 @@ export default function DraftRunView({
   // state.eligibilityFindings), so a cold reopen must see it too — the
   // `danglingFindings` PROP alone (commitElectiveRun's session-scoped
   // response) is empty on reopen, same `loaded`-survives-a-reopen reasoning
-  // as durableDanglingRows above. Merged and DEDUPED by camper_id, not
-  // concatenated: within ONE session where both exist (this device just
+  // as durableDanglingRows above. Merged and DEDUPED by MISMATCH IDENTITY
+  // (camper_id + choice_id, falling back to label when choice_id is null),
+  // not concatenated: within ONE session where both exist (this device just
   // committed AND the durable read has already landed), the SESSION finding
   // wins — it carries the commit-time tier_id (see commitElectiveRun.js's own
   // tradeoff comment on the persisted loop, which has none), while the
   // persisted finding is what a cold-reopened screen has at all.
+  //
+  // Round 2 F1 — keying on `f.camper_id` ALONE used to collapse a camper with
+  // TWO distinct mismatches (two different bundle labels) to whichever was
+  // iterated last, dropping a real finding: already pinned on the write side
+  // (commitElectiveRun.bundleChoices.test.js's "two distinct bundle-label
+  // mismatches ... write two DISTINCT rows"). `choice_id` is now carried on
+  // BOTH the session finding (commitElectiveRun.js's response `findings`
+  // array) and the persisted one (getElectiveRun.js's LEFT JOIN), so the two
+  // sides agree on the same key for the same mismatch.
+  //
+  // RESIDUAL (see F4 in the round-2 review, root-caused in
+  // commitElectiveRun.js at the `labelsNeedingFlatChoice` comment): for an
+  // ASSIGNMENT-ONLY mismatch (a solver fallback placement for a camper who
+  // never ranked the label), `choice_id` is genuinely null on BOTH sides —
+  // no flat choice was ever minted to bind to. The key is `camper_id::choice_id`
+  // ONLY, deliberately with NO fallback to `label`: a label fallback looks
+  // like it would disambiguate two such mismatches, but it does the opposite
+  // in the window this dedupe exists for. The SESSION finding's label is the
+  // raw labelKey (never null, written directly from `a.labelKey`) while the
+  // PERSISTED finding's label is null (recovered only via a JOIN on
+  // choice_id, which an assignment-only mismatch has none of). So within ONE
+  // session where both exist for the SAME single mismatch, a label fallback
+  // keys them DIFFERENTLY (`cam::archery` vs `cam::`) and renders the one
+  // real problem as two rows in two different wordings — worse than the
+  // collapse, because it is a fabricated duplicate, not a dropped finding.
+  // Dropping the label leg means an assignment-only mismatch always keys on
+  // `camper_id::` (choice_id null), so the session copy correctly wins over
+  // the persisted one for the SAME mismatch (one row), while TWO DIFFERENT
+  // assignment-only mismatches for one camper still collapse into that same
+  // key — the same identity gap F4 documents at the write site, showing
+  // through here symmetrically on both sides rather than newly. Not fixed
+  // here: doing so would require minting a flat choice for an assignment
+  // nobody ranked, which F4 defers as a design decision, not a bugfix.
   const bundleMismatchFindings = useMemo(() => {
-    const byCamper = new Map()
+    const byMismatch = new Map()
+    const mismatchKey = (f) => `${f.camper_id}::${f.choice_id ?? ''}`
     for (const f of state.eligibilityFindings ?? []) {
-      if (f.kind === 'BUNDLE_TIER_NOT_COVERED') byCamper.set(f.camper_id, f)
+      if (f.kind === 'BUNDLE_TIER_NOT_COVERED') byMismatch.set(mismatchKey(f), f)
     }
     for (const f of danglingFindings) {
-      if (f.kind === 'BUNDLE_TIER_NOT_COVERED') byCamper.set(f.camper_id, f)
+      if (f.kind === 'BUNDLE_TIER_NOT_COVERED') byMismatch.set(mismatchKey(f), f)
     }
-    return [...byCamper.values()]
+    return [...byMismatch.values()]
   }, [state.eligibilityFindings, danglingFindings])
   const bundleMismatchGroups = useMemo(
     () => groupBundleTierNotCoveredFindings({ findings: bundleMismatchFindings, campers: state.campers, groups, tiers }),

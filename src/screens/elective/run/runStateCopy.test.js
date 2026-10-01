@@ -272,6 +272,20 @@ describe('bundleTierNotCoveredGroupMessage', () => {
     const message = bundleTierNotCoveredGroupMessage({ label: 'Ropes', tierName: null, names: ['Ari Green'] })
     expect(message).toBe('"Ropes" does not cover these campers’ division — 1 camper kept their request as an ordinary choice.')
   })
+
+  // F2 (round 2 review) — an assignment-only mismatch persists with
+  // choice_id null (commitElectiveRun.js's `labelsNeedingFlatChoice` is built
+  // from preferences only, so no flat choice is ever minted for a solver
+  // fallback placement), so getElectiveRun.js's LEFT JOIN on choice_id
+  // recovers `label: null` for the cold-reopened row. Interpolating it
+  // unconditionally printed the literal string "null" to a director. Must
+  // degrade the same honest way the sibling tierName === null branch already
+  // does — never invent a label, never print "null" or an empty quoted string.
+  it('degrades truthfully when label is null, never printing the literal "null" or an empty quoted string', () => {
+    const message = bundleTierNotCoveredGroupMessage({ label: null, tierName: 'Older', names: ['Ari Green'] })
+    expect(message).not.toMatch(/\bnull\b/)
+    expect(message).not.toMatch(/""/)
+  })
 })
 
 // C2 (board item 9b) — findRouteConflicts (src/engine/routeConflicts.js)

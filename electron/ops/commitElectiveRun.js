@@ -940,6 +940,21 @@ export function commitElectiveRun(db, {
       // choiceId, so two distinct mismatches for one camper (two different
       // bundle labels) carry two distinct choice_ids and so two distinct
       // rows — pinned by this file's own "two DISTINCT rows" test.
+      //
+      // KNOWN RESIDUAL (round 2 review F4, NOT fixed this round) — that only
+      // holds when a flat choice was actually minted. An ASSIGNMENT-ONLY
+      // mismatch (a solver fallback placement for a camper who never ranked
+      // the label) has `choiceId: null` — `labelsNeedingFlatChoice` above is
+      // built from `parsed.preferences` only, so no flat choice is ever
+      // minted to bind to for a label no one ranked. Two such mismatches for
+      // ONE camper on two DIFFERENT labels both derive the SAME id (same
+      // camperId, same null choiceId), so the second write collapses into
+      // the first and one mismatch is lost from this table — pinned as a
+      // known defect, not fixed, by this file's own "F4" test. The obvious
+      // fix (pre-scan assignments too) is not small: it would also change
+      // what the assignment loop above writes into `choice_id` for an
+      // assignment-only mismatch, which an earlier round deliberately set to
+      // null to fix a real outage — a design decision for the owner.
       for (const m of bundleTierMismatches) {
         const findingId = deriveElectiveRunFindingId(
           runId, solverGeneration, 'BUNDLE_TIER_NOT_COVERED', m.camperId, m.choiceId, null
@@ -1012,6 +1027,13 @@ export function commitElectiveRun(db, {
         // to re-derive it later (see noteMismatch's own comment for why
         // re-deriving is a real bug, not a hypothetical one).
         tier_id: m.tierId ?? null,
+        // Round 2 F1 — same `choiceId` resolveWriteChoiceId already resolved
+        // for this mismatch (noteMismatch's own param), so the SESSION
+        // response and the PERSISTED finding (getElectiveRun.js's LEFT JOIN)
+        // agree on the same identity. Without this, DraftRunView.jsx's merge
+        // Map could not key two distinct mismatches for one camper apart —
+        // see that file's `bundleMismatchFindings` comment.
+        choice_id: m.choiceId ?? null,
         message:
           // BOARD ITEM 9b — the tail ("could not be resolved to the bundle's
           // choice") became FALSE the moment the ranking was kept. A message

@@ -102,23 +102,36 @@ function orderIndex(catalog) {
   return (id) => index.get(id) ?? LAST
 }
 
-// board item 9b round 3 — one tier per camper, derived from their OWN
-// assignment rows. FIRST ROW WINS when a camper's rows somehow span two
-// DIFFERENT tiers' occurrences (should not occur — buildAttendance scopes a
-// camper to one tier's occurrences — but array order is a deterministic,
-// documented answer rather than leaving it to Map insertion order by
-// accident). Returns null (not {}) when nothing could be derived, so an
-// empty/absent `rows` reproduces the exact tier-blind resolver call every
-// caller made before this parameter existed.
+// board item 9b round 3, round 2 F3 — one tier per camper, derived from their
+// OWN assignment rows. SOLVER-SOURCED rows are preferred over any other row,
+// first-row-wins among those; a camper with no solver row at all falls back
+// to first-row-wins across everything. This used to be bare first-row-wins
+// across ALL of a camper's rows, on the premise that "a camper is only ever
+// placed in their own tier's occurrences" (buildAttendance scopes them) —
+// that premise is false for a MANUAL placement: electron/ops/setElectiveAssignment.js
+// (~line 107-109) states in its own words that "Division/tier attendance is
+// NOT checked. Do not read this as a complete eligibility check." A
+// director's manual placement can put a camper at a foreign-tier occurrence,
+// and if that row happened to sort first, the camper's WHOLE week's tier
+// derivation was poisoned by it — every other coordinate-only preference of
+// theirs then missed the join, which (via buildPreferenceLookup →
+// resolvePreferenceCoordinates) makes the edit affordance offer ADD instead
+// of CORRECT for a row the solver actually placed correctly. The solver's own
+// placement is the evidence buildAttendance's tier-scoping actually applies
+// to, so it is preferred. Returns null (not {}) when nothing could be
+// derived, so an empty/absent `rows` reproduces the exact tier-blind resolver
+// call every caller made before this parameter existed.
 function deriveTierIdByCamperId(rows, occurrences) {
   if (!rows || rows.length === 0) return null
   const occurrenceById = new Map(occurrences.map((o) => [o.id, o]))
   const tierIdByCamperId = {}
-  for (const row of rows) {
-    if (row.camper_id == null || row.camper_id in tierIdByCamperId) continue
+  const bind = (row) => {
+    if (row.camper_id == null || row.camper_id in tierIdByCamperId) return
     const tierId = occurrenceById.get(row.occurrence_id)?.tier_id ?? null
     if (tierId != null) tierIdByCamperId[row.camper_id] = tierId
   }
+  for (const row of rows) if (row.source === 'solver') bind(row)
+  for (const row of rows) bind(row)
   return Object.keys(tierIdByCamperId).length > 0 ? tierIdByCamperId : null
 }
 
