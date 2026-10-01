@@ -4,6 +4,7 @@
 // tier.
 import { describe, it, expect } from 'vitest'
 import { makeCamperIdentityResolver } from './camperElectiveIdentity.js'
+import { deriveCamperId } from './electiveDerivedIds.js'
 
 const TIERS = [{ id: 'tier-older', name: 'Older' }, { id: 'tier-younger', name: 'Younger' }]
 const GROUPS = [
@@ -41,6 +42,53 @@ describe('makeCamperIdentityResolver — enrichment precedence', () => {
   it('preserves the sheet order and length', () => {
     const r = resolverWith([{ id: 'c2' }, { id: 'c1' }], [{ id: 'c1', group_id: 'g-older-1' }])
     expect(r.enriched.map((c) => c.id)).toEqual(['c2', 'c1'])
+  })
+})
+
+// T321 (docs/adr/2026-10-01-camper-id-high-entropy-format.md). The parser
+// (src/ingest/preferenceSheet.js) still computes `parsed.campers[].id` as
+// `deriveCamperId`'s LOOKUP key (its own comment says so explicitly: it
+// cannot resolve through camper_identity_keys itself, being a pure,
+// db-less preview). `campers.id` in the real roster is now a random
+// `camper2:...` token with no relationship to that lookup key.
+// `commitElectiveRun.js` bridges the two by resolving every parsed camper's
+// `id` to the real id BEFORE calling this resolver (resolveParsedCamperId,
+// electron/ops/camperIdentityResolver.js). AssignmentPanel.jsx's solve()
+// path has no `db` and cannot do that — it calls this resolver directly on
+// the UNRESOLVED sheet rows. Before T321 this worked by accident, because
+// `campers.id` WAS `deriveCamperId`'s output; post-T321 `rosterById.get(c.id)`
+// never matches, `group_id` never enriches, and every camper silently falls
+// back to tier-wide attendance (every group in the tier, not just their own)
+// for every real solve — not a test-only gap.
+describe('makeCamperIdentityResolver — sheet lookup id vs. real roster id (T321)', () => {
+  it('matches a sheet row keyed by deriveCamperId to its roster camper by recomputing the same key', () => {
+    const campId = 'camp-1'
+    const lookupId = deriveCamperId(campId, { externalId: 'SYN-9001' })
+    const r = makeCamperIdentityResolver({
+      campId,
+      sheetCampers: [{ id: lookupId, group_id: null, division_label: 'Older' }],
+      rosterCampers: [
+        { id: 'camper2:real-random-id', group_id: 'g-older-1', division_label: 'Older', external_id: 'SYN-9001', display_name: 'Whoever' },
+      ],
+      groups: GROUPS,
+      tiers: TIERS,
+    })
+    expect(r.groupIdOf(lookupId)).toBe('g-older-1')
+  })
+
+  it('matches by display_name when the roster camper has no external_id', () => {
+    const campId = 'camp-1'
+    const lookupId = deriveCamperId(campId, { displayName: 'Oren Halitebrook' })
+    const r = makeCamperIdentityResolver({
+      campId,
+      sheetCampers: [{ id: lookupId, group_id: null, division_label: 'Older' }],
+      rosterCampers: [
+        { id: 'camper2:real-random-id-2', group_id: 'g-older-1', division_label: 'Older', external_id: null, display_name: 'Oren Halitebrook' },
+      ],
+      groups: GROUPS,
+      tiers: TIERS,
+    })
+    expect(r.groupIdOf(lookupId)).toBe('g-older-1')
   })
 })
 

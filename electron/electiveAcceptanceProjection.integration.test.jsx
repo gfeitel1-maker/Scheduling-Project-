@@ -491,35 +491,47 @@ describe('§6 (7) — every assignment appears exactly once in the matching rost
     // fix alone with this test file unchanged — PASSED at 4, confirming the
     // pre-fix baseline; restored the fix — FAILS here at 1.
     //
-    // The remaining 1 is NOT this defect and is NOT fixed here: it is a
-    // linked-bundle choice (SYN-2005) whose preference row's coordinate is
-    // Tuesday (where the label appears on the sheet) while the bundle's
-    // assignment is anchored at Monday's occurrence of the same bundle.
-    // Closing it needs a new read of `elective_choice_offerings` threaded
-    // through three call sites — explicitly out of scope for this round. When
-    // it lands, this must go to 0, and this assertion is EXPECTED to fail
-    // then. Update it to 0 at that point, with a comment saying which fix
-    // closed it; do not delete it or loosen it back to a tautology.
-    //
-    // This assertion exists so that number cannot silently drift or be
-    // absorbed by a self-consistent computation (the "independent second
-    // fact" below computes its expectation through the SAME join, so on its
-    // own it would stay green even if either gap got WORSE).
-    expect(summary.unordered_count).toBe(1)
+    // CLOSED TO 0 (T321, docs/adr/2026-10-01-camper-id-high-entropy-format.md).
+    // The remaining 1 this comment used to describe (a linked-bundle choice,
+    // SYN-2005, whose preference row's coordinate looked bound to the wrong
+    // occurrence) was never the `elective_choice_offerings` gap the prior
+    // round guessed — it was this same ticket's identity-resolution defect
+    // wearing a different face. `AssignmentPanel.jsx`'s solve() has no `db`
+    // and cannot resolve a sheet row's `deriveCamperId` LOOKUP key to the
+    // camper's real (now random `camper2:...`) roster id the way
+    // `commitElectiveRun.js` does at commit (`resolveParsedCamperId`), so
+    // `makeCamperIdentityResolver`'s `rosterById.get(c.id)` never matched —
+    // EVERY camper's roster `group_id` silently failed to enrich during a live
+    // solve, not only the ones this fixture happened to name. Confirmed by
+    // execution: reverting `electron/ops/camperElectiveIdentity.js`'s
+    // lookup-key roster index (and the `campId` AssignmentPanel.jsx now passes
+    // it) restores BOTH this test's `1` and the sibling "overwritten generated
+    // cell" failure in the SAME run, together — one cause, two symptoms. With
+    // group_id enrichment working again, every camper's attendance is
+    // genuinely tier-AND-group-scoped during the solve itself (not only after
+    // commit), the wrong-occurrence binding this comment described does not
+    // occur, and the roster's own `ordered-fallback` rows resolve cleanly —
+    // measured stable across repeated runs despite `campers.id` now being
+    // random per run, because the solve's own tie-break ordering has only
+    // ever operated on the sheet's deterministic lookup ids, never on the
+    // post-commit random id.
+    expect(summary.unordered_count).toBe(0)
 
     // AND THE IDENTITY, not only the cardinality — Red Hat's challenge to the
-    // line above: a count can survive for the wrong reason. So pin WHY the
-    // one remaining row is here: it must be a ranked assignment for which
+    // line above: a count can survive for the wrong reason. So pin WHY there
+    // is no remaining row: every ranked assignment must be a row for which
     // buildPreferenceLookup — the SAME join buildRunSummaryExport and the
     // Draft screen actually use, called with `rows` exactly as production
-    // calls it — finds no preference row. A genuinely unordered-set camper's
-    // join DOES resolve (to a row carrying rank_kind 'unordered-set'), so it
-    // would fail this and force a reader to look.
+    // calls it — DOES find its preference row, now that T321's identity-
+    // resolution fix (see the comment above) closed the one case that used
+    // not to. A genuinely unordered-set camper's join DOES resolve (to a row
+    // carrying rank_kind 'unordered-set'), so a regression here would still
+    // fail this and force a reader to look.
     const preferenceFor = buildPreferenceLookup({ preferences, occurrences, days, timeBlocks, rows: assignments })
     const rankedWithNoPreferenceRow = assignments.filter((a) => (
       a.preference_rank != null && preferenceFor(a) == null
     ))
-    expect(rankedWithNoPreferenceRow).toHaveLength(1)
+    expect(rankedWithNoPreferenceRow).toHaveLength(0)
 
     // The independent second fact: the SAME bucketing, computed with the
     // production join (`preferenceFor`, already built above), against a plain

@@ -30,13 +30,17 @@
 //
 // PURE. No db, no IPC: each caller reads its own rows (the panel from
 // `localClient`, the commit path from SQLite) and passes plain arrays.
-import { electiveChoiceLabelKey } from './electiveDerivedIds.js'
+import { deriveCamperId, electiveChoiceLabelKey } from './electiveDerivedIds.js'
 import { mapWithCollisions } from '../../src/ingest/mapWithCollisions.js'
 
 /**
  * @param {object}   args
+ * @param {string}   [args.campId]       needed to recompute a roster camper's OWN lookup
+ *   key (see below) — omit only when every `sheetCampers[].id` is already a real roster id
+ *   (hand-built test data), in which case the direct-id match still works unchanged.
  * @param {Array}    args.sheetCampers   `parsed.campers` — `{id, group_id, division_label}`.
- * @param {Array}    args.rosterCampers  the camp's own `campers` rows, same three fields.
+ * @param {Array}    args.rosterCampers  the camp's own `campers` rows, same three fields
+ *   plus `external_id`/`display_name` (used only for the lookup-key match below).
  *   Fills NULL gaps only; it never overrides a value the sheet resolved (#670's rule:
  *   "A preference sheet may SET a group it resolved; it may never clear one it simply
  *   failed to resolve" — commitElectiveRun.js's own comment, inverted for this direction).
@@ -52,14 +56,40 @@ import { mapWithCollisions } from '../../src/ingest/mapWithCollisions.js'
  *   module's declared surface rather than an inferred need.
  */
 export function makeCamperIdentityResolver({
+  campId = null,
   sheetCampers = [],
   rosterCampers = [],
   groups = [],
   tiers = [],
 } = {}) {
   const rosterById = new Map(rosterCampers.map((c) => [c.id, c]))
+
+  // T321 (docs/adr/2026-10-01-camper-id-high-entropy-format.md). `sheetCampers[].id`
+  // is `deriveCamperId`'s output — src/ingest/preferenceSheet.js's own comment calls
+  // it a LOOKUP KEY, never the final `campers.id` (that parser has no `db` and cannot
+  // resolve through `camper_identity_keys`). `campers.id` for a real roster row is now
+  // an unrelated random `camper2:...` token, so `rosterById.get(c.id)` above matches
+  // nothing for an ordinary identified camper — group_id silently never enriches, and
+  // every camper falls back to tier-wide attendance. Fixed the same way
+  // commitElectiveRun.js's `resolveParsedCamperId` resolves it (electron/ops/
+  // camperIdentityResolver.js), but without `db`: recompute each ROSTER camper's OWN
+  // lookup key from its `external_id`/`display_name` (the identical derivation), and
+  // index by that too. `ext` then `name`, mirroring `deriveCamperId`'s own precedence
+  // (`sub`-mode subjects are not recoverable from roster columns and are left to the
+  // direct-id match below, unchanged).
+  const rosterByLookupId = new Map()
+  if (campId != null) {
+    for (const roster of rosterCampers) {
+      const external = String(roster.external_id ?? '').trim()
+      const displayName = String(roster.display_name ?? '').trim()
+      if (external.length === 0 && displayName.length === 0) continue
+      const lookupId = deriveCamperId(campId, { externalId: external || null, displayName: displayName || null })
+      rosterByLookupId.set(lookupId, roster)
+    }
+  }
+
   const enriched = sheetCampers.map((c) => {
-    const roster = rosterById.get(c.id)
+    const roster = rosterById.get(c.id) ?? rosterByLookupId.get(c.id)
     if (!roster) return c
     const group_id = c.group_id ?? roster.group_id ?? null
     const division_label = c.division_label ?? roster.division_label ?? null
