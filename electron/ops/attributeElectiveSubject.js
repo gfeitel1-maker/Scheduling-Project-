@@ -36,10 +36,12 @@ import { randomUUID } from 'node:crypto'
 import { appendOp, runAtomic, DELETE_FIELD } from './operations.js'
 import { isHumanOwned } from './fieldProvenance.js'
 import { deriveElectivePreferenceId, deriveElectiveAssignmentId } from './electiveDerivedIds.js'
+import { deriveElectiveRunOuterSnapshotId } from './deriveElectiveRunOuterSnapshotId.js'
+import { deriveElectiveRunFindingId } from './deriveElectiveRunFindingId.js'
 import { resolveOrMintCamperId } from './camperIdentityResolver.js'
 
 /**
- * @returns {{ok: true, camperId, moved: {preferences, assignments}, rekeyed: boolean}
+ * @returns {{ok: true, camperId, moved: {preferences, assignments, outerSnapshots, runFindings}, rekeyed: boolean}
  *          | {ok: false, error: string}}
  */
 export function attributeElectiveSubject(db, {
@@ -133,6 +135,25 @@ export function attributeElectiveSubject(db, {
          FROM elective_assignments WHERE camper_id = ?`
     )
     .all(subjectId)
+  // The other two camper_id-bearing tables (Red Hat finding): projector.js's
+  // TOMBSTONE_DENYLISTED_ENTITIES comment and purgeSupportCommand.js both
+  // treat all four as camper-scoped dependents of a campers row — naming a
+  // provisional subject must move these too, or a finalized-run snapshot/
+  // finding for that child is silently orphaned once the provisional row is
+  // deleted below.
+  const outerSnapshots = db
+    .prepare(
+      `SELECT id, run_id, day_id, time_block_id, activity_id, activity_name, location_id, location_name,
+              span_blocks, solver_generation, cell_kind, choice_id, is_linked_choice, choice_label
+         FROM elective_run_outer_snapshots WHERE camper_id = ?`
+    )
+    .all(subjectId)
+  const runFindings = db
+    .prepare(
+      `SELECT id, run_id, solver_generation, kind, choice_id, occurrence_id, message
+         FROM elective_run_findings WHERE camper_id = ?`
+    )
+    .all(subjectId)
 
   // Already canonical: nothing to move, just stop calling them provisional — a no-op
   // must not delete the row it is rekeying onto.
@@ -152,7 +173,12 @@ export function attributeElectiveSubject(db, {
     } catch (e) {
       return { ok: false, error: e.message }
     }
-    return { ok: true, camperId, moved: { preferences: 0, assignments: 0 }, rekeyed: false }
+    return {
+      ok: true,
+      camperId,
+      moved: { preferences: 0, assignments: 0, outerSnapshots: 0, runFindings: 0 },
+      rekeyed: false,
+    }
   }
 
   try {
@@ -215,6 +241,53 @@ export function attributeElectiveSubject(db, {
         remove('elective_assignments', a.id)
       }
 
+      for (const s of outerSnapshots) {
+        write(
+          'elective_run_outer_snapshots',
+          deriveElectiveRunOuterSnapshotId(s.run_id, camperId, s.day_id, s.time_block_id),
+          {
+            run_id: s.run_id,
+            camper_id: camperId,
+            day_id: s.day_id,
+            time_block_id: s.time_block_id,
+            activity_id: s.activity_id,
+            activity_name: s.activity_name,
+            location_id: s.location_id,
+            location_name: s.location_name,
+            span_blocks: s.span_blocks,
+            solver_generation: s.solver_generation,
+            cell_kind: s.cell_kind,
+            choice_id: s.choice_id,
+            is_linked_choice: s.is_linked_choice,
+            choice_label: s.choice_label,
+          }
+        )
+        remove('elective_run_outer_snapshots', s.id)
+      }
+
+      for (const f of runFindings) {
+        write(
+          'elective_run_findings',
+          deriveElectiveRunFindingId(f.run_id, f.solver_generation, f.kind, camperId, f.choice_id ?? null, f.occurrence_id ?? null),
+          {
+            // ensureExists (projections.js) only INSERTs once run_id/
+            // solver_generation/kind/message are all known, and its INSERT
+            // sets only those four columns — camper_id/choice_id/
+            // occurrence_id must come after so their write lands as an
+            // UPDATE on the now-existing row, not a no-op on one that isn't
+            // there yet.
+            run_id: f.run_id,
+            solver_generation: f.solver_generation,
+            kind: f.kind,
+            message: f.message,
+            camper_id: camperId,
+            choice_id: f.choice_id,
+            occurrence_id: f.occurrence_id,
+          }
+        )
+        remove('elective_run_findings', f.id)
+      }
+
       // The provisional row goes LAST, once nothing points at it.
       remove('campers', subjectId)
     })
@@ -226,7 +299,12 @@ export function attributeElectiveSubject(db, {
   return {
     ok: true,
     camperId,
-    moved: { preferences: preferences.length, assignments: assignments.length },
+    moved: {
+      preferences: preferences.length,
+      assignments: assignments.length,
+      outerSnapshots: outerSnapshots.length,
+      runFindings: runFindings.length,
+    },
     rekeyed: true,
   }
 }
