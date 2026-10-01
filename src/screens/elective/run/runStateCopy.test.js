@@ -222,7 +222,31 @@ describe('groupBundleTierNotCoveredFindings', () => {
     const result = groupBundleTierNotCoveredFindings({ findings, campers: [], groups, tiers })
     expect(result).toHaveLength(1)
     expect(result[0].tierName).toBeNull()
-    expect(result[0].names).toEqual(['cam-ghost'])
+    // F5 (Red Hat round 3) — never a raw camper_id, even for a camper whose
+    // row is entirely absent.
+    expect(result[0].names).toEqual(['a camper who is no longer on the roster'])
+  })
+
+  // F5 (Red Hat round 3) — camperDisambiguator's own rule, applied here too.
+  it('NEVER prints a raw camper_id when the camper row is gone — degrades truthfully instead', () => {
+    const findings = [{ kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'deleted-camper-id', label: 'Ropes', tier_id: 'tier-older' }]
+    const result = groupBundleTierNotCoveredFindings({ findings, campers: [], groups, tiers })
+    expect(result[0].names).toEqual(['a camper who is no longer on the roster'])
+    expect(JSON.stringify(result)).not.toContain('deleted-camper-id')
+  })
+
+  // Round 3 (Red Hat F3) — a finding carrying its own `tier_id` is grouped on
+  // THAT value directly, never re-derived — even when campers/groups would
+  // resolve to a DIFFERENT tier, proving the field, not the fallback, wins.
+  it("groups on the finding's OWN tier_id, never re-deriving when the field is present — even when re-derivation would disagree", () => {
+    const findings = [{ kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'cam-1', label: 'Ropes', tier_id: 'tier-older' }]
+    // This camper's campers/groups shape would re-derive to tier-younger if
+    // asked — which must NOT happen, since tier_id is present.
+    const misleadingCampers = [{ id: 'cam-1', display_name: 'Ari Green', group_id: 'grp-younger', division_label: null }]
+    const misleadingGroups = [{ id: 'grp-younger', tier_id: 'tier-younger' }]
+    const result = groupBundleTierNotCoveredFindings({ findings, campers: misleadingCampers, groups: misleadingGroups, tiers })
+    expect(result[0].tierId).toBe('tier-older')
+    expect(result[0].tierName).toBe('Older')
   })
 
   it('resolves the tier from division_label when it matches a tier name, even with no group_id', () => {

@@ -174,26 +174,51 @@ function applyDistinguishingTier(group, key, result) {
 // compressing REPETITION, never INFORMATION (Art. V): every camper named in
 // the finding set is still present in the returned group's `names`.
 //
-// The finding carries camper_id and label but not the tier, so it is resolved
-// here via makeCamperIdentityResolver — the same precedence commitElectiveRun
-// itself used to decide the mismatch (division_label beats the roster group's
-// tier). A camper whose tier cannot be resolved at all (no campers row, or
-// neither division nor group resolves) gets `tierName: null` rather than a
-// fabricated or placeholder tier — the caller's copy must degrade truthfully,
-// never invent.
+// Round 3 (Red Hat F3) — the finding now carries `tier_id`, the tier
+// commitElectiveRun's own resolution ACTUALLY used (electron/ops/
+// commitElectiveRun.js's noteMismatch/resolveWriteChoiceId), and that value is
+// read directly here WHENEVER the finding has it (`!== undefined`, since a
+// legitimately-unresolved tier is `null`, a real value, not an absent field).
+// Re-deriving via makeCamperIdentityResolver is now only a FALLBACK, for a
+// finding that genuinely lacks the field (an older caller, or a test fixture
+// that does not set it) — never the default path.
+//
+// WHY RE-DERIVING AT RENDER TIME WAS A REAL BUG, not a hypothetical one: this
+// commit's own campers-write loop (further down the SAME transaction) can
+// clear a camper's `division_label` to null in the exact commit that produced
+// this finding (T279 §12.2a — an empty cell in a division column IS a fact
+// worth recording, so an import with nothing new to say still overwrites a
+// stale value). Tier resolution read the camper's PRE-write roster division,
+// which can differ from BOTH the sheet's own (absent) value and the camper's
+// GROUP tier. Re-deriving against the POST-write campers row at render time
+// falls through to the group's tier instead — naming a division the mismatch
+// was never generated against. Carrying the resolved tier on the finding
+// itself removes the second read entirely for the common case.
 export function groupBundleTierNotCoveredFindings({ findings = [], campers = [], groups = [], tiers = [] } = {}) {
   const relevant = findings.filter((f) => f.kind === 'BUNDLE_TIER_NOT_COVERED')
   if (relevant.length === 0) return []
-  const identity = makeCamperIdentityResolver({ sheetCampers: campers, groups, tiers })
+  // Constructed lazily — only a finding missing `tier_id` ever needs it, and
+  // a legacy/fallback path paying for a resolver no finding here asks for
+  // would be work this function need not do.
+  let identity = null
   const tierById = new Map(tiers.map((t) => [t.id, t]))
   const camperById = new Map(campers.map((c) => [c.id, c]))
   const byKey = new Map()
   for (const f of relevant) {
-    const tierId = identity.tierIdOf(f.camper_id)
+    const tierId = f.tier_id !== undefined
+      ? f.tier_id
+      : (identity ??= makeCamperIdentityResolver({ sheetCampers: campers, groups, tiers })).tierIdOf(f.camper_id)
     const tierName = tierId != null ? tierById.get(tierId)?.name ?? null : null
-    const key = `${f.label} ${tierId ?? ''}`
+    // F7 (Code Reviewer) — a delimiter-safe key: JSON.stringify, not an
+    // undelimited template-string join that a label containing the
+    // delimiter could collide on.
+    const key = JSON.stringify([f.label, tierId])
     if (!byKey.has(key)) byKey.set(key, { label: f.label, tierId, tierName, names: [] })
-    const name = camperById.get(f.camper_id)?.display_name ?? f.camper_id
+    // F5 (Red Hat) — NEVER a raw camper_id in director-facing copy (the same
+    // rule camperDisambiguator's own comment states): a camper row that is
+    // gone (hard-deleted after an earlier generation) degrades to a truthful
+    // sentence fragment instead.
+    const name = camperById.get(f.camper_id)?.display_name ?? 'a camper who is no longer on the roster'
     byKey.get(key).names.push(name)
   }
   return [...byKey.values()]

@@ -316,6 +316,62 @@ describe("a camper the bundle's scope genuinely does not cover", () => {
   })
 })
 
+// Round 3 (Red Hat F3) — the finding must carry the TIER COMMIT TIME actually
+// resolved, not leave a grouping screen to re-derive it later. The empty-
+// division-cell shape: this commit's sheet cell is empty for the camper's
+// Division column (so this write clears campers.division_label to null, per
+// T279 §12.2a's "an empty cell in a division column IS a fact worth
+// recording"), but tier RESOLUTION for this commit fell back to the camper's
+// PRE-COMMIT roster division (read before the transaction) — which can be a
+// DIFFERENT tier than the camper's roster GROUP names. A render-time
+// re-derivation off the POST-commit campers row would silently fall through
+// to the group's tier instead, naming a division the mismatch was never
+// generated against.
+describe('Round 3 F3 — the finding carries the tier commit time resolved, immune to its own division_label write', () => {
+  it("tier_id on the finding is the PRE-write roster division's tier, not the POST-write group's tier", () => {
+    const { db, campId } = freshDb()
+    // bundleTiers: ['tier-jr'] only — Seniors (tier-sr) is NOT covered.
+    seedTwoTierCamp(db, campId, { scopeMode: 'only', bundleTiers: ['tier-jr'] })
+    // Pre-existing roster row (an earlier import): division_label 'Seniors',
+    // but group_id pointing at the JUNIORS group — division beats group per
+    // camperElectiveIdentity.js's own stated precedence, so Seniors is what
+    // THIS commit's tier resolution actually used.
+    db.prepare('INSERT INTO campers (id, camp_id, display_name, group_id, division_label) VALUES (?, ?, ?, ?, ?)')
+      .run('cam-x', campId, 'Robin Stale', 'grp-jr', 'Seniors')
+    const runId = randomUUID()
+    const occurrences = twoTierOccurrences(runId)
+    const srOccurrence = occurrences.find((o) => o.tier_id === 'tier-sr' && o.time_block_id === 'tb-1')
+    const out = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1', runId, occurrences,
+      parsed: {
+        // THIS sheet's Division column is empty for this camper
+        // (division_observed true, division_label absent) — the write below
+        // clears campers.division_label to null, AFTER resolution already
+        // used the pre-write 'Seniors'.
+        campers: [{ id: 'cam-x', display_name: 'Robin Stale', external_id: null, group_id: null, division_observed: true }],
+        choices: [{ label: 'Archery', labelKey: ARCHERY_KEY }],
+        preferences: [{ camper_id: 'cam-x', occurrence_id: srOccurrence.id, label: 'Archery', labelKey: ARCHERY_KEY, rank: 1 }],
+        sameNameCampers: [],
+        skippedRows: [],
+      },
+      assignments: [],
+    })
+    expect(out.ok).toBe(true)
+
+    // The write DID clear division_label, confirming the trap is real.
+    expect(db.prepare('SELECT division_label, group_id FROM campers WHERE id = ?').get('cam-x'))
+      .toEqual({ division_label: null, group_id: 'grp-jr' })
+
+    const mismatch = out.findings.find((f) => f.kind === 'BUNDLE_TIER_NOT_COVERED')
+    expect(mismatch).toBeTruthy()
+    // tier-sr (Seniors), the tier resolution ACTUALLY used — never tier-jr
+    // (Juniors), which is only what a POST-write re-derivation would guess
+    // via the stale group_id.
+    expect(mismatch.tier_id).toBe('tier-sr')
+    db.close()
+  })
+})
+
 // T301's own invariant, carried onto the new state: a bundle must place
 // IDENTICALLY on the parsed-first-solve path and on a re-solve reconstructed
 // from the stored rows. The flat choice is new state on that path, so the
