@@ -254,3 +254,71 @@ describe('populateElectiveSet', () => {
     expect(rows[0].fields).not.toHaveProperty('location_id')
   })
 })
+
+// T195 — the "no longer on the sheet" marker on re-import. An offering this
+// importer previously wrote (a 'potential', import-id-keyed row) whose activity
+// is absent from the sheet being imported now is REPORTED, not silently left in
+// place and not auto-deleted/demoted (owner ruling on removal still pending).
+describe('populateElectiveSet — T195 vanished-offering marker', () => {
+  let repo
+  beforeEach(() => { repo = mockRepo() })
+
+  it('marks a potential import-originated offering that is no longer on the re-imported sheet, and never touches its row', async () => {
+    const existingActivities = [{ id: 'act-swim', name: 'Swim' }, { id: 'act-archery', name: 'Archery' }]
+    // Archery was imported last time (import-id-keyed, still potential); this
+    // sheet names only Swim.
+    const archeryId = deriveElectiveImportId(ELECTIVE_SET_ID, 'act-archery')
+    const parsed = parsedWith([{ timeIndex: 0, groupIndex: 0, activityName: 'Swim', locationName: null }])
+
+    const result = await populateElectiveSet(parsed, {
+      electiveSetId: ELECTIVE_SET_ID, campId: CAMP_ID, repo, existingActivities,
+      existingOfferings: [{ id: archeryId, activity_id: 'act-archery', status: 'potential' }],
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.vanishedOfferings).toEqual([
+      { activity_id: 'act-archery', name: 'Archery', status: 'potential' },
+    ])
+    // Non-destructive: the vanished row is never written or deleted.
+    expect(repo.calls.some((c) => c.entity === 'elective_set_activities' && c.id === archeryId)).toBe(false)
+  })
+
+  it('does not mark a confirmed offering absent from the sheet — a director decision, not a silent leftover', async () => {
+    const existingActivities = [{ id: 'act-swim', name: 'Swim' }, { id: 'act-archery', name: 'Archery' }]
+    const archeryId = deriveElectiveImportId(ELECTIVE_SET_ID, 'act-archery')
+    const parsed = parsedWith([{ timeIndex: 0, groupIndex: 0, activityName: 'Swim', locationName: null }])
+
+    const result = await populateElectiveSet(parsed, {
+      electiveSetId: ELECTIVE_SET_ID, campId: CAMP_ID, repo, existingActivities,
+      existingOfferings: [{ id: archeryId, activity_id: 'act-archery', status: 'confirmed' }],
+    })
+
+    expect(result.vanishedOfferings).toEqual([])
+  })
+
+  it('does not mark a director-created (non-import-keyed) offering absent from the sheet', async () => {
+    const existingActivities = [{ id: 'act-swim', name: 'Swim' }, { id: 'act-manual', name: 'Manual Add' }]
+    const parsed = parsedWith([{ timeIndex: 0, groupIndex: 0, activityName: 'Swim', locationName: null }])
+
+    const result = await populateElectiveSet(parsed, {
+      electiveSetId: ELECTIVE_SET_ID, campId: CAMP_ID, repo, existingActivities,
+      // A random uuid id, not deriveElectiveImportId — this offering did not come from an import.
+      existingOfferings: [{ id: 'offering-random-uuid', activity_id: 'act-manual', status: 'potential' }],
+    })
+
+    expect(result.vanishedOfferings).toEqual([])
+  })
+
+  it('marks nothing when every existing offering is still on the sheet', async () => {
+    const existingActivities = [{ id: 'act-swim', name: 'Swim' }]
+    const swimId = deriveElectiveImportId(ELECTIVE_SET_ID, 'act-swim')
+    const parsed = parsedWith([{ timeIndex: 0, groupIndex: 0, activityName: 'Swim', locationName: null }])
+
+    const result = await populateElectiveSet(parsed, {
+      electiveSetId: ELECTIVE_SET_ID, campId: CAMP_ID, repo, existingActivities,
+      existingOfferings: [{ id: swimId, activity_id: 'act-swim', status: 'potential' }],
+    })
+
+    expect(result.vanishedOfferings).toEqual([])
+  })
+})

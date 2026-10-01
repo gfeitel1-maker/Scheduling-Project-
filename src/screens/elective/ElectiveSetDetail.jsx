@@ -370,6 +370,15 @@ export default function ElectiveSetDetail({
   const [pendingDelete, setPendingDelete] = useState(null)
   const [deleting, setDeleting] = useState(false)
   const [importing, setImporting] = useState(false)
+  // T195 — offerings that were in this set but not on the sheet just imported,
+  // so the director is told rather than left to notice a stale offering.
+  // Report-only; nothing is deleted. Holds `{ setId, offerings }` (the raw rows,
+  // not just names, so an offering whose activity was deleted from the catalog —
+  // name null — is still surfaced rather than silently dropped). It is TAGGED
+  // with the set it belongs to and the render gates on `setId === set.id`, so a
+  // notice never carries over when this component is reused without a key across
+  // a set switch (Red Hat) — avoiding a reset-in-effect.
+  const [vanishedNotice, setVanishedNotice] = useState(null)
   const [confirmClear, setConfirmClear] = useState(false)
   const [clearing, setClearing] = useState(false)
   const fileInputRef = useRef(null)
@@ -582,6 +591,7 @@ export default function ElectiveSetDetail({
   async function runImport(file) {
     if (!file) return
     setError(null)
+    setVanishedNotice(null)
     setImporting(true)
     try {
       let pages
@@ -621,6 +631,14 @@ export default function ElectiveSetDetail({
       // the activities catalog live in different state owners (this
       // component vs. the parent).
       await Promise.all([reload(), refreshActivities()])
+      // T195 — tell the director which previously-imported offerings are not on
+      // the sheet they just imported. Report-only: those rows are left exactly
+      // as they were (never deleted or demoted on import). Keep the rows as-is
+      // (including any with a null name — an offering whose activity was deleted
+      // from the catalog, which is exactly the case this marker must not hide):
+      // the render supplies a fallback label.
+      const vanished = result.vanishedOfferings ?? []
+      setVanishedNotice(vanished.length > 0 ? { setId: set.id, offerings: vanished } : null)
     } catch (err) {
       // A mid-import failure can leave partial writes (populateElectiveSet has
       // no rollback). Reload FIRST so the UI reflects what actually landed
@@ -752,6 +770,20 @@ export default function ElectiveSetDetail({
       </div>
 
       {error && <div style={S.errorBanner}>{error}</div>}
+
+      {vanishedNotice && vanishedNotice.setId === set.id && (() => {
+        // An offering whose activity was deleted from the catalog has no name;
+        // label it rather than drop it, so a clean re-import that silently
+        // orphaned it is still reported (Red Hat).
+        const labels = vanishedNotice.offerings.map((v) => (v.name ? `“${v.name}”` : 'an offering whose activity is no longer in your catalog'))
+        return (
+          <div style={S.cautionBanner}>
+            {labels.length === 1
+              ? `${labels[0]} is in this set but not on the sheet you just imported. It was left as it is — nothing was removed.`
+              : `${labels.length} offerings are in this set but not on the sheet you just imported — left as they are, nothing removed: ${labels.join(', ')}.`}
+          </div>
+        )
+      })()}
 
       <input
         ref={fileInputRef}

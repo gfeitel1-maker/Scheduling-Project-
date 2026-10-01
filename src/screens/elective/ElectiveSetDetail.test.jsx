@@ -424,6 +424,77 @@ describe('ElectiveSetDetail — grid-schedule import affordance (docs/adr/2026-0
     )
   })
 
+  it('T195: surfaces a vanished-offering notice naming an offering not on the sheet just imported', async () => {
+    localClient.list.mockImplementation(byEntity({ elective_set_activities: [] }))
+    parseTextGrid.mockReturnValue({ pages: [{ title: 'x', columns: ['A'], rows: [{ label: 'Chugim', cells: ['Swim'] }] }] })
+    parseGridSchedule.mockReturnValue({ orientation: { axis: null, confident: false }, timeAxis: [], groupAxis: [], cells: [{ timeIndex: 0, groupIndex: 0, activityName: 'Swim', locationName: null }], unmapped: [] })
+    populateElectiveSet.mockResolvedValue({ ok: true, activities: [], vanishedOfferings: [{ activity_id: 'act-archery', name: 'Archery', status: 'potential' }] })
+
+    renderDetail({ activities: [activity()] })
+    await waitFor(() => expect(screen.getByText(/Import from a file/)).toBeTruthy())
+
+    const input = document.querySelector('input[type="file"]')
+    fireEvent.change(input, { target: { files: [new File(['x'], 'chugim.txt', { type: 'text/plain' })] } })
+
+    await waitFor(() => expect(screen.getByText(/Archery/)).toBeTruthy())
+    // Report-only wording: the director is told it was left alone, not removed.
+    expect(screen.getByText(/not on the sheet you just imported/)).toBeTruthy()
+    expect(screen.getByText(/nothing was removed|nothing removed/)).toBeTruthy()
+  })
+
+  it('T195: a clean re-import (nothing vanished) shows no vanished-offering notice', async () => {
+    localClient.list.mockImplementation(byEntity({ elective_set_activities: [] }))
+    parseTextGrid.mockReturnValue({ pages: [{ title: 'x', columns: ['A'], rows: [{ label: 'Chugim', cells: ['Swim'] }] }] })
+    parseGridSchedule.mockReturnValue({ orientation: { axis: null, confident: false }, timeAxis: [], groupAxis: [], cells: [{ timeIndex: 0, groupIndex: 0, activityName: 'Swim', locationName: null }], unmapped: [] })
+    populateElectiveSet.mockResolvedValue({ ok: true, activities: [], vanishedOfferings: [] })
+
+    renderDetail({ activities: [activity()] })
+    await waitFor(() => expect(screen.getByText(/Import from a file/)).toBeTruthy())
+
+    const input = document.querySelector('input[type="file"]')
+    fireEvent.change(input, { target: { files: [new File(['x'], 'chugim.txt', { type: 'text/plain' })] } })
+
+    await waitFor(() => expect(populateElectiveSet).toHaveBeenCalledTimes(1))
+    expect(screen.queryByText(/not on the sheet you just imported/)).toBeNull()
+  })
+
+  it('T195: clears the vanished-offering notice when the viewed set changes (component reused without a key)', async () => {
+    localClient.list.mockImplementation(byEntity({ elective_set_activities: [] }))
+    parseTextGrid.mockReturnValue({ pages: [{ title: 'x', columns: ['A'], rows: [{ label: 'Chugim', cells: ['Swim'] }] }] })
+    parseGridSchedule.mockReturnValue({ orientation: { axis: null, confident: false }, timeAxis: [], groupAxis: [], cells: [{ timeIndex: 0, groupIndex: 0, activityName: 'Swim', locationName: null }], unmapped: [] })
+    populateElectiveSet.mockResolvedValue({ ok: true, activities: [], vanishedOfferings: [{ activity_id: 'act-archery', name: 'Archery', status: 'potential' }] })
+
+    const view = renderDetail({ set: electiveSet({ id: 'set-A', name: 'Set A' }) })
+    await waitFor(() => expect(screen.getByText(/Import from a file/)).toBeTruthy())
+    const input = document.querySelector('input[type="file"]')
+    fireEvent.change(input, { target: { files: [new File(['x'], 'a.txt', { type: 'text/plain' })] } })
+    await waitFor(() => expect(screen.getByText(/Archery/)).toBeTruthy())
+
+    // Switch to a different set WITHOUT unmounting — ScheduleElectivesScreen
+    // reuses this component with no key. The prior set's notice must not carry over.
+    view.rerender(
+      <ElectiveSetDetail set={electiveSet({ id: 'set-B', name: 'Set B' })} role="admin" activities={[]} locations={[]} tiers={[]} groups={[]} refreshActivities={vi.fn()} onBack={vi.fn()} />
+    )
+    await waitFor(() => expect(screen.queryByText(/not on the sheet you just imported/)).toBeNull())
+  })
+
+  it('T195: surfaces a vanished offering whose activity was deleted from the catalog (null name) instead of dropping it', async () => {
+    localClient.list.mockImplementation(byEntity({ elective_set_activities: [] }))
+    parseTextGrid.mockReturnValue({ pages: [{ title: 'x', columns: ['A'], rows: [{ label: 'Chugim', cells: ['Swim'] }] }] })
+    parseGridSchedule.mockReturnValue({ orientation: { axis: null, confident: false }, timeAxis: [], groupAxis: [], cells: [{ timeIndex: 0, groupIndex: 0, activityName: 'Swim', locationName: null }], unmapped: [] })
+    populateElectiveSet.mockResolvedValue({ ok: true, activities: [], vanishedOfferings: [{ activity_id: 'act-gone', name: null, status: 'potential' }] })
+
+    renderDetail({ activities: [activity()] })
+    await waitFor(() => expect(screen.getByText(/Import from a file/)).toBeTruthy())
+    const input = document.querySelector('input[type="file"]')
+    fireEvent.change(input, { target: { files: [new File(['x'], 'chugim.txt', { type: 'text/plain' })] } })
+
+    // The only vanished offering has no name (activity deleted); the notice must
+    // still appear with a fallback label, not be silently suppressed.
+    await waitFor(() => expect(screen.getByText(/no longer in your catalog/)).toBeTruthy())
+    expect(screen.getByText(/not on the sheet you just imported/)).toBeTruthy()
+  })
+
   it('refusal reason (e.g. nonempty set) is surfaced, writes nothing new', async () => {
     localClient.list.mockImplementation(byEntity({ elective_set_activities: [] }))
     parseTextGrid.mockReturnValue({ pages: [{ title: 'x', columns: ['A'], rows: [{ label: 'Chugim', cells: ['Pottery'] }] }] })
