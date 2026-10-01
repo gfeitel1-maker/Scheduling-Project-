@@ -546,6 +546,50 @@ describe('T250 B1 — a mixed findings array renders each kind with its own sent
 })
 
 // ---------------------------------------------------------------------------
+// (C)(4) — owner/organizer scope addition, "defaults are fine": a camper on
+// this run's sheet with no ranked choice and no placement (sheetOnlyCampers,
+// electron/ops/getElectiveRun.js — deliberately excluded from
+// eligibilityFindings per T320 part 2 item 3, surfaced here instead) must be
+// NAMED, same treatment as the grouped BUNDLE_TIER_NOT_COVERED row: one row,
+// the count, names behind the same disclosure idiom. Names resolve through
+// `state.campers`, which the run view already holds — no new IPC.
+// ---------------------------------------------------------------------------
+describe('(C)(4) sheetOnlyCampers — named, not just counted', () => {
+  it('names every sheet-only camper behind a disclosure, with the sentence count equal to the names rendered', async () => {
+    localClient.getElectiveRun.mockResolvedValue({
+      ...CLEAN_RUN_STATE,
+      sheetOnlyCampers: ['camper-1', 'camper-2'],
+    })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+
+    const row = await screen.findByTestId('run-state-sheet-only-campers')
+    expect(row.textContent).toMatch(/2 campers on this run's sheet have no ranked choice and no placement/)
+    for (const name of ['Testcamper Alpha', 'Testcamper Bravo']) {
+      expect(within(row).getByText(name)).toBeTruthy()
+    }
+  })
+
+  it('uses singular wording for exactly one sheet-only camper, and shows their name directly', async () => {
+    localClient.getElectiveRun.mockResolvedValue({
+      ...CLEAN_RUN_STATE,
+      sheetOnlyCampers: ['camper-3'],
+    })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+
+    const row = await screen.findByTestId('run-state-sheet-only-campers')
+    expect(row.textContent).toMatch(/1 camper on this run's sheet has no ranked choice and no placement/)
+    expect(within(row).getAllByText('Testcamper Charlie').length).toBeGreaterThan(0)
+  })
+
+  it('renders no row at all when there are no sheet-only campers — no banner for the clean case', async () => {
+    localClient.getElectiveRun.mockResolvedValue({ ...CLEAN_RUN_STATE, sheetOnlyCampers: [] })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+    await screen.findByTestId('run-satisfaction-summary')
+    expect(screen.queryByTestId('run-state-sheet-only-campers')).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
 // T250 B3 — two same-named campers need something beside the name to tell
 // them apart, in both the placement table and CamperWeekPanel's camper list.
 // ---------------------------------------------------------------------------

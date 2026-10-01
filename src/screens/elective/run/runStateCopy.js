@@ -210,6 +210,18 @@ export function bundleTierNotCoveredGroupMessage({ label, tierName, names = [] }
   return `${subject} — ${count} ${camperWord} kept their request as an ordinary choice.`
 }
 
+// (C)(4), board item 9b — SHEET_CAMPER_WITHOUT_PREFERENCE (sheetOnlyCampers,
+// electron/ops/getElectiveRun.js) must be NAMED, same treatment as the
+// grouped BUNDLE_TIER_NOT_COVERED row: one row, the count, and names behind
+// the same disclosure idiom — never a bare count beside the regenerate
+// control. `count` is the number of sheet-only campers; the singular/plural
+// verb agreement is this function's whole job.
+export function sheetOnlyCampersMessage(count) {
+  const camperWord = count === 1 ? 'camper' : 'campers'
+  const verb = count === 1 ? 'has' : 'have'
+  return `${count} ${camperWord} on this run's sheet ${verb} no ranked choice and no placement.`
+}
+
 // C2 (board item 9b) — OUTER_RESOURCE_CONFLICT findings (findRouteConflicts,
 // src/engine/routeConflicts.js) carry no `.message`, only locationName/
 // dayId/blockId/capacity/occupants[].label. FinalizeFindingsList used to fall

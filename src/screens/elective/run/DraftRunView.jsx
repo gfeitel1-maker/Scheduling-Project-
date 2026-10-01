@@ -34,6 +34,7 @@ import {
   DANGLING_MOVE_PLACEHOLDER, FINALIZE_MESSAGES, REMOVE_PLACEMENT_LABEL, danglingMessage, occurrenceLabel, overCapacityMessage,
   resolveCamperDisambiguators, satisfactionSummary, stalenessOfferMessage,
   groupBundleTierNotCoveredFindings, bundleTierNotCoveredGroupMessage, finalizeFindingMessage,
+  sheetOnlyCampersMessage,
 } from './runStateCopy.js'
 
 const styles = {
@@ -550,7 +551,18 @@ export default function DraftRunView({
     () => groupBundleTierNotCoveredFindings({ findings: danglingFindings, campers: state.campers, groups, tiers }),
     [danglingFindings, state.campers, groups, tiers]
   )
-  const stateRowCount = overCapacityRows.length + danglingRows.length + collapsingOnlyRows.length + commitNotices.length + bundleMismatchGroups.length
+  // (C)(4) — SHEET_CAMPER_WITHOUT_PREFERENCE (sheetOnlyCampers,
+  // electron/ops/getElectiveRun.js — deliberately excluded from
+  // eligibilityFindings, T320 part 2 item 3) must be NAMED, not just counted.
+  // Resolved through `state.campers`, which this screen already holds (the
+  // run's own camper universe includes every sheet-only camper per T320 part
+  // 2 item 3) — no new IPC.
+  const sheetOnlyCamperNames = useMemo(() => {
+    const camperById = new Map((state.campers ?? []).map((c) => [c.id, c]))
+    return (state.sheetOnlyCampers ?? []).map((id) => camperById.get(id)?.display_name ?? id)
+  }, [state.campers, state.sheetOnlyCampers])
+  const stateRowCount = overCapacityRows.length + danglingRows.length + collapsingOnlyRows.length + commitNotices.length
+    + bundleMismatchGroups.length + (sheetOnlyCamperNames.length > 0 ? 1 : 0)
 
   const stateRows = [
     ...overCapacityRows.map((o, i) => (
@@ -695,6 +707,20 @@ export default function DraftRunView({
         />
       )
     }),
+    // (C)(4) — one row, the count, names behind the same disclosure idiom.
+    // No banner for the clean case: nothing renders when the list is empty.
+    sheetOnlyCamperNames.length > 0 ? (() => {
+      const index = overCapacityRows.length + danglingRows.length + collapsingOnlyRows.length + commitNotices.length + bundleMismatchGroups.length
+      return (
+        <RunStateRow
+          key="sheet-only-campers"
+          testId="run-state-sheet-only-campers"
+          first={index === 0}
+          last={index === stateRowCount - 1}
+          message={<>{sheetOnlyCampersMessage(sheetOnlyCamperNames.length)} <BundleMismatchGroupNames names={sheetOnlyCamperNames} /></>}
+        />
+      )
+    })() : null,
     // T250 A2 — appended AFTER the over-capacity and dangling rows: whatever
     // refusal the last Finalize attempt produced, inline in the run's own
     // run-state area rather than a separate block.

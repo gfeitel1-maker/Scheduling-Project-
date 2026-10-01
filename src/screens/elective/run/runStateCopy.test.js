@@ -12,7 +12,7 @@ import { describe, it, expect } from 'vitest'
 import {
   occurrenceLabel, satisfactionSummary, camperDisambiguator, resolveCamperDisambiguators,
   groupBundleTierNotCoveredFindings, bundleTierNotCoveredGroupMessage,
-  conflictFindingMessage, finalizeFindingMessage,
+  conflictFindingMessage, finalizeFindingMessage, sheetOnlyCampersMessage,
 } from './runStateCopy.js'
 
 describe('occurrenceLabel', () => {
@@ -302,5 +302,16 @@ describe('finalizeFindingMessage', () => {
     const message = finalizeFindingMessage({ kind: 'SOME_FUTURE_KIND_XYZ', somethingWeird: 1 }, {})
     expect(message).not.toContain('SOME_FUTURE_KIND_XYZ')
     expect(message).not.toMatch(/^\{/)
+  })
+})
+
+// (C)(4), board item 9b — sheetOnlyCampers must be named, not just counted.
+describe('sheetOnlyCampersMessage', () => {
+  it('states the plural count and verb', () => {
+    expect(sheetOnlyCampersMessage(2)).toBe("2 campers on this run's sheet have no ranked choice and no placement.")
+  })
+
+  it('states the singular count and verb for exactly one', () => {
+    expect(sheetOnlyCampersMessage(1)).toBe("1 camper on this run's sheet has no ranked choice and no placement.")
   })
 })
