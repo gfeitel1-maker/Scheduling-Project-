@@ -35,7 +35,7 @@ export function exportToExcel({ slots, activities, fixedEvents, groups, days, ti
       for (const block of timeBlocks) {
         const slot = slots.find(s => s.group_id === group.id && s.day_id === day.id && s.time_block_id === block.id)
         if (!slot) continue
-        const actName = formatCellLabel(resolveSlotCell(slot, lookups), { anchorBracket: true })
+        const actName = formatCellLabel(resolveSlotCell(slot, lookups), { fixedEventBracket: true })
         masterRows.push([group.name, day.label, block.name, actName])
       }
     }

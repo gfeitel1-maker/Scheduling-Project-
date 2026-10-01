@@ -38,11 +38,22 @@ function activityCount(n) {
 // that could be all activities or none of them. Shared by the body text and
 // the confirm button so they can never say two different things about the
 // same preview.
+// fixed_events holds both kinds; naming them apart (and omitting a zero line) keeps
+// the dialog from telling a director that a location used only by a FIXED event has a
+// "recurring" one. previewDelete supplies the split in fixed_event_kind_counts.
+function fixedEventParts(preview) {
+  const { fixed = 0, recurring = 0 } = preview.fixed_event_kind_counts ?? {}
+  const parts = []
+  if (fixed > 0) parts.push(`${fixed} fixed event${fixed === 1 ? '' : 's'}`)
+  if (recurring > 0) parts.push(`${recurring} recurring event${recurring === 1 ? '' : 's'}`)
+  return parts
+}
+
 function locationRefParts(preview) {
-  const { activities, fixed_event_count, event_count, special_day_slot_count, event_slot_count } = preview
+  const { activities, event_count, special_day_slot_count, event_slot_count } = preview
   const parts = []
   if (activities.length > 0) parts.push(activityCount(activities.length))
-  if (fixed_event_count > 0) parts.push(`${fixed_event_count} recurring event${fixed_event_count === 1 ? '' : 's'}`)
+  parts.push(...fixedEventParts(preview))
   if (event_count > 0) parts.push(`${event_count} event${event_count === 1 ? '' : 's'}`)
   if (special_day_slot_count > 0) parts.push(`${special_day_slot_count} special-day cell${special_day_slot_count === 1 ? '' : 's'}`)
   if (event_slot_count > 0) parts.push(`${event_slot_count} event cell${event_slot_count === 1 ? '' : 's'}`)
@@ -56,7 +67,7 @@ function joinParts(parts) {
 // One concept, one name, across both routes: a director sees "your schedules",
 // never "templates" or "routes".
 function whatChanges(preview) {
-  const { entity, name, slot_count, ref_count, fixed_event_count } = preview
+  const { entity, name, slot_count, ref_count } = preview
   const who = name || `this ${LABEL[entity].the}`
 
   if (entity === 'locations') {
@@ -87,7 +98,7 @@ function whatChanges(preview) {
 
   const parts = []
   if (slot_count > 0) parts.push(places(slot_count))
-  if (fixed_event_count > 0) parts.push(`${fixed_event_count} recurring event${fixed_event_count === 1 ? '' : 's'}`)
+  parts.push(...fixedEventParts(preview))
   if (parts.length === 0) return `Nothing in your schedules uses ${who}.`
   const list = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`
   return `${who} holds ${list} across your schedules. Deleting it removes that day from every group's week.`

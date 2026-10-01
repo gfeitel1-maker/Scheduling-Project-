@@ -119,7 +119,21 @@ function routesFor(db, rows) {
 }
 
 function fixedEventRows(db, day_id) {
-  return db.prepare('SELECT id FROM fixed_events WHERE day_id = ?').all(day_id)
+  return db.prepare('SELECT id, kind FROM fixed_events WHERE day_id = ?').all(day_id)
+}
+
+// fixed_events holds BOTH kinds (schema.sql: kind IN ('fixed','recurring')), so a
+// single count mislabelled as "recurring" told a director deleting a location used
+// only by a FIXED event that it had a recurring one (q-delete-dialog-mislabels-
+// fixed-as-recurring). Split the count by kind so the dialog can name each honestly.
+function fixedEventKindCounts(rows) {
+  let fixed = 0
+  let recurring = 0
+  for (const r of rows) {
+    if (r.kind === 'recurring') recurring += 1
+    else fixed += 1
+  }
+  return { fixed, recurring }
 }
 
 // v43 Slice 3a: elective_sets.day_id carries a real DB-level FK (schema.sql:
@@ -175,7 +189,7 @@ function locationReferenceRows(db, location_id) {
       .prepare('SELECT id, name, max_groups_per_slot FROM activities WHERE location_id = ?')
       .all(location_id),
     exclusions: db.prepare('SELECT id FROM week_location_exclusions WHERE location_id = ?').all(location_id),
-    fixedEvents: db.prepare('SELECT id FROM fixed_events WHERE location_id = ?').all(location_id),
+    fixedEvents: db.prepare('SELECT id, kind FROM fixed_events WHERE location_id = ?').all(location_id),
     events: db.prepare('SELECT id FROM events WHERE location_id = ?').all(location_id),
     special_day_slots: db.prepare('SELECT id FROM special_day_slots WHERE location_id = ?').all(location_id),
     event_slots: db.prepare('SELECT id FROM event_slots WHERE location_id = ?').all(location_id),
@@ -216,6 +230,7 @@ export function previewDelete(db, { entity, entity_id }) {
       ref_count: totalLocationRefCount(refs),
       activities: refs.activities,
       fixed_event_count: refs.fixedEvents.length,
+      fixed_event_kind_counts: fixedEventKindCounts(refs.fixedEvents),
       event_count: refs.events.length,
       special_day_slot_count: refs.special_day_slots.length,
       event_slot_count: refs.event_slots.length,
@@ -240,6 +255,8 @@ export function previewDelete(db, { entity, entity_id }) {
     routes,
     unprotected_count,
     fixed_event_count: entity === 'days_of_operation' ? fixedEventRows(db, entity_id).length : 0,
+    fixed_event_kind_counts:
+      entity === 'days_of_operation' ? fixedEventKindCounts(fixedEventRows(db, entity_id)) : { fixed: 0, recurring: 0 },
     weather_dependent_count: entity === 'activities' ? weatherDependents(db, entity_id).length : 0,
     // T194: campers whose group_id points here. Reported, never cascaded.
     camper_count: entity === 'groups' ? camperDependents(db, entity_id) : 0,

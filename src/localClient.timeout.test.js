@@ -107,4 +107,74 @@ describe('localClient bounded write timeout', () => {
     // teardown would surface that as an unhandled rejection / pending timer.
     expect(vi.getTimerCount()).toBe(0)
   })
+
+  // board-freeze-residuals item 7 — commitElectiveRun/finalizeElectiveRun go
+  // through the same main-process write/appendOp path as write/deleteEntity/
+  // bulkReplace (electron/ops/commitElectiveRun.js, finalizeElectiveRun.js),
+  // so a wedged main process can hang them exactly the same way. They had no
+  // bound at all before this — reusing WRITE_TIMEOUT_MS rather than inventing
+  // a second number.
+  it('a hung commitElectiveRun rejects within the 8000ms bound instead of hanging forever', async () => {
+    const hungCommit = vi.fn(() => new Promise(() => {}))
+    globalThis.window = {
+      shoresh: { commitElectiveRun: hungCommit },
+      location: { pathname: '/', search: '', replace: vi.fn() },
+    }
+    const { localClient } = await import('./localClient.js')
+
+    const pending = localClient.commitElectiveRun({ name: 'run', parsed: {} })
+    const assertion = expect(pending).rejects.toThrow(/^write timed out after 8000ms/)
+
+    await vi.advanceTimersByTimeAsync(8000)
+    await assertion
+  })
+
+  it('a slow-but-successful commitElectiveRun (settles just inside the bound) resolves normally', async () => {
+    let resolveCommit
+    const slowCommit = vi.fn(() => new Promise((resolve) => { resolveCommit = resolve }))
+    globalThis.window = {
+      shoresh: { commitElectiveRun: slowCommit },
+      location: { pathname: '/', search: '', replace: vi.fn() },
+    }
+    const { localClient } = await import('./localClient.js')
+
+    const pending = localClient.commitElectiveRun({ name: 'run', parsed: {} })
+
+    await vi.advanceTimersByTimeAsync(7999)
+    resolveCommit({ ok: true, runId: 'run-1', counts: { campers: 0 } })
+
+    await expect(pending).resolves.toEqual({ ok: true, runId: 'run-1', counts: { campers: 0 } })
+  })
+
+  it('a hung finalizeElectiveRun rejects within the 8000ms bound instead of hanging forever', async () => {
+    const hungFinalize = vi.fn(() => new Promise(() => {}))
+    globalThis.window = {
+      shoresh: { finalizeElectiveRun: hungFinalize },
+      location: { pathname: '/', search: '', replace: vi.fn() },
+    }
+    const { localClient } = await import('./localClient.js')
+
+    const pending = localClient.finalizeElectiveRun({ runId: 'run-1' })
+    const assertion = expect(pending).rejects.toThrow(/^write timed out after 8000ms/)
+
+    await vi.advanceTimersByTimeAsync(8000)
+    await assertion
+  })
+
+  it('a slow-but-successful finalizeElectiveRun (settles just inside the bound) resolves normally', async () => {
+    let resolveFinalize
+    const slowFinalize = vi.fn(() => new Promise((resolve) => { resolveFinalize = resolve }))
+    globalThis.window = {
+      shoresh: { finalizeElectiveRun: slowFinalize },
+      location: { pathname: '/', search: '', replace: vi.fn() },
+    }
+    const { localClient } = await import('./localClient.js')
+
+    const pending = localClient.finalizeElectiveRun({ runId: 'run-1' })
+
+    await vi.advanceTimersByTimeAsync(7999)
+    resolveFinalize({ ok: true, finalizedAt: '2026-09-30T12:00:00.000Z', snapshotRows: 0 })
+
+    await expect(pending).resolves.toEqual({ ok: true, finalizedAt: '2026-09-30T12:00:00.000Z', snapshotRows: 0 })
+  })
 })

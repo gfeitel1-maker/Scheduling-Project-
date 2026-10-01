@@ -57,12 +57,12 @@ export function resolveSlotCell(slot, lookups) {
 }
 
 // Render a structured cell to the exact label the Excel export produces.
-// `anchorBracket` distinguishes the master "All Groups" sheet (`[Anchor] X`)
-// from the per-day sheets (`X`, falling back to the literal `Anchor`).
-export function formatCellLabel(cell, { anchorBracket = false } = {}) {
+// `fixedEventBracket` distinguishes the master "All Groups" sheet (`[Fixed event] X`)
+// from the per-day sheets (`X`, falling back to the literal `Fixed event`).
+export function formatCellLabel(cell, { fixedEventBracket = false } = {}) {
   switch (cell.kind) {
     case 'fixed_event':
-      return anchorBracket ? `[Anchor] ${cell.name ?? ''}` : cell.name || 'Anchor'
+      return fixedEventBracket ? `[Fixed event] ${cell.name ?? ''}` : cell.name || 'Fixed event'
     case 'event':
       return cell.missing ? EVENT_REMOVED_LABEL : cell.name
     case 'elective':

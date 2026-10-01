@@ -95,7 +95,7 @@ describe('RootsHomeScreen', () => {
     expect(screen.queryByText('Groups')).not.toBeNull()
     expect(screen.queryByText('Age Divisions')).not.toBeNull()
     expect(screen.queryByText('Locations')).not.toBeNull()
-    expect(screen.queryByText('Anchors')).not.toBeNull()
+    expect(screen.queryByText('Fixed Events')).not.toBeNull()
     expect(screen.queryByText(/understood/i)).toBeNull()
     expect(screen.queryByText(/changed/i)).toBeNull()
   })
@@ -300,7 +300,7 @@ describe('RootsHomeScreen', () => {
       'Age Divisions': { gridColumn: '3', gridRow: '1' },
       'Locations': { gridColumn: '3', gridRow: '2' },
       'Days & Blocks': { gridColumn: '3', gridRow: '3' },
-      'Anchors': { gridColumn: '1 / span 3', gridRow: '5' },
+      'Fixed Events': { gridColumn: '1 / span 3', gridRow: '5' },
     }
     for (const [label, coords] of Object.entries(expected)) {
       const card = screen.getByText(label).closest('div').parentElement

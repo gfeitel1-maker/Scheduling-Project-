@@ -1899,6 +1899,11 @@ export const mockShoresh = {
   async commitElectiveRun({
     name, parsed, assignments = [], sourceFilename = null,
     occurrences = [], scheduleWeekId = null, scheduleTemplateId = null, runId: providedRunId = null,
+    // board-freeze-residuals item 4 — accepted and ignored, same additive-
+    // degradation posture as the op-log write above: the mock has no
+    // elective_run_findings table to persist into, and this only needs to
+    // accept the shape the real IPC call now also accepts.
+    findings: _findings = [],
   } = {}) {
     const sameName = parsed?.sameNameCampers ?? []
     if (sameName.length > 0) {

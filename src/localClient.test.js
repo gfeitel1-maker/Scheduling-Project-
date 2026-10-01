@@ -147,3 +147,46 @@ describe('localClient.ingestCommit', () => {
     expect(call.token).toBe('tok-123')
   })
 })
+
+// board-freeze-residuals item 4 — commitElectiveRun's destructure/passthrough
+// was missing `findings` entirely. AssignmentPanel.jsx's commit() passes
+// `findings: result.findings` (the solve-time eligibility findings, T320 part
+// 2 item 4), electron/main.js's commitElectiveRunHandler already destructures
+// and forwards `findings = []` to electron/ops/commitElectiveRun.js, which
+// persists them to elective_run_findings — but this wrapper dropped them on
+// the floor before they ever reached the IPC call, so nothing was ever
+// persisted from this panel.
+describe('localClient.commitElectiveRun', () => {
+  let commitElectiveRunSpy
+
+  beforeEach(() => {
+    vi.resetModules()
+    globalThis.localStorage = makeLocalStorage()
+    commitElectiveRunSpy = vi.fn().mockResolvedValue({ ok: true, runId: 'run-1', counts: { campers: 0 } })
+    globalThis.window = {
+      shoresh: { commitElectiveRun: commitElectiveRunSpy },
+      location: { pathname: '/', search: '', replace: vi.fn() },
+    }
+  })
+
+  it('forwards findings to shoresh.commitElectiveRun', async () => {
+    globalThis.localStorage.setItem(TOKEN_KEY, 'tok-123')
+    const { localClient } = await import('./localClient.js')
+
+    const findings = [{ kind: 'UNSUPPORTED_LINKED_CHOICE', message: 'x' }]
+    await localClient.commitElectiveRun({ name: 'run', parsed: {}, findings })
+
+    const call = commitElectiveRunSpy.mock.calls[0][0]
+    expect(call.findings).toBe(findings)
+    expect(call.token).toBe('tok-123')
+  })
+
+  it('defaults findings to an empty array when the caller supplies none', async () => {
+    globalThis.localStorage.setItem(TOKEN_KEY, 'tok-123')
+    const { localClient } = await import('./localClient.js')
+
+    await localClient.commitElectiveRun({ name: 'run', parsed: {} })
+
+    expect(commitElectiveRunSpy.mock.calls[0][0].findings).toEqual([])
+  })
+})

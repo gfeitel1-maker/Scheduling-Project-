@@ -685,6 +685,10 @@ CREATE TABLE IF NOT EXISTS pending_restores (
 -- exists) breaks fresh installs while leaving migrated databases untouched — the asymmetry a
 -- "just fix the name" edit would silently introduce. The v84 ALTER TABLE RENAME COLUMN is what
 -- actually performs the rename, uniformly, for both a fresh install and a migrated database.
+-- So by the time initSchema() returns, the LIVE column is always `fixed_event_model` — there is no
+-- live `anchor_model` column anywhere; this CREATE text is intermediate scaffolding the v84 block
+-- renames. Do not "finish the rename" by editing this line: it would break the v73 recreate's SELECT
+-- on a fresh install (T293 post-merge audit, 2026-10-01).
 CREATE TABLE IF NOT EXISTS cohorts (
   id TEXT PRIMARY KEY,
   camp_id TEXT NOT NULL REFERENCES camps(id),

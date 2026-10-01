@@ -72,13 +72,13 @@ describe('formatCellLabel — matches the Excel labels exactly', () => {
   it('activity with null name → empty string', () => {
     expect(formatCellLabel({ kind: 'activity', name: null })).toBe('')
   })
-  it('anchor per-day → name, falling back to literal "Anchor"', () => {
+  it('fixed-event per-day → name, falling back to literal "Fixed event"', () => {
     expect(formatCellLabel({ kind: 'fixed_event', name: 'Lunch' })).toBe('Lunch')
-    expect(formatCellLabel({ kind: 'fixed_event', name: null })).toBe('Anchor')
+    expect(formatCellLabel({ kind: 'fixed_event', name: null })).toBe('Fixed event')
   })
-  it('anchor master sheet → "[Anchor] name"', () => {
-    expect(formatCellLabel({ kind: 'fixed_event', name: 'Lunch' }, { anchorBracket: true })).toBe('[Anchor] Lunch')
-    expect(formatCellLabel({ kind: 'fixed_event', name: null }, { anchorBracket: true })).toBe('[Anchor] ')
+  it('fixed-event master sheet → "[Fixed event] name"', () => {
+    expect(formatCellLabel({ kind: 'fixed_event', name: 'Lunch' }, { fixedEventBracket: true })).toBe('[Fixed event] Lunch')
+    expect(formatCellLabel({ kind: 'fixed_event', name: null }, { fixedEventBracket: true })).toBe('[Fixed event] ')
   })
   it('event → name; dangling → "Event (removed)"', () => {
     expect(formatCellLabel({ kind: 'event', name: 'Color War', missing: false })).toBe('Color War')

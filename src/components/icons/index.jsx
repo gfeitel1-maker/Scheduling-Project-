@@ -227,7 +227,7 @@ export function InfoIcon({ size = 14, style, ...rest }) {
 // Close / clear / dismiss.
 //
 // The character this replaces, `×`, is still in the codebase in five places
-// and must stay there: "3 groups × 4 blocks", "2–4×/wk", "Add Anchor (×3)"
+// and must stay there: "3 groups × 4 blocks", "2–4×/wk", "Add Fixed Event (×3)"
 // are arithmetic, not buttons. That overloading is why this glyph was
 // converted by hand, one call site at a time, and why no sweep should ever
 // treat `×` as a close mark on sight.

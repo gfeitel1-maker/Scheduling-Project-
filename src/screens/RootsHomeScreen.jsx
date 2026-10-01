@@ -34,7 +34,7 @@ const BENTO_CARDS = [
   { key: 'tiers', label: 'Age Divisions', size: 'small' },
   { key: 'locations', label: 'Locations', size: 'small' },
   { key: 'days_and_blocks', label: 'Days & Blocks', size: 'small' },
-  { key: 'fixed_events', label: 'Anchors', size: 'wide' },
+  { key: 'fixed_events', label: 'Fixed Events', size: 'wide' },
 ]
 
 // Explicit start coordinates for the same DOM order / footprint sizes as

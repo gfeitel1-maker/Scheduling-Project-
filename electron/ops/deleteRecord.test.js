@@ -429,3 +429,30 @@ describe('boundaries', () => {
     expect([...CLEARABLE_ENTITIES].sort()).toEqual(['activities', 'days_of_operation', 'groups', 'locations'])
   })
 })
+
+// q-delete-dialog-mislabels-fixed-as-recurring: the preview must split the
+// fixed_events count by kind so the dialog can name a fixed event as "fixed",
+// not "recurring". fixed_event_count stays the combined total for the guard.
+describe('previewDelete splits fixed_events by kind', () => {
+  it('a day with one FIXED-kind event reports {fixed:1, recurring:0}', () => {
+    const ids = seedCamp()
+    write('fixed_events', 'fe-fixed', 'camp_id', 'camp1')
+    write('fixed_events', 'fe-fixed', 'day_id', ids.days[0])
+    write('fixed_events', 'fe-fixed', 'kind', 'fixed')
+
+    const preview = previewDelete(db, { entity: 'days_of_operation', entity_id: ids.days[0] })
+    expect(preview.fixed_event_count).toBe(1)
+    expect(preview.fixed_event_kind_counts).toEqual({ fixed: 1, recurring: 0 })
+  })
+
+  it('a day with one RECURRING-kind event reports {fixed:0, recurring:1}', () => {
+    const ids = seedCamp()
+    write('fixed_events', 'fe-rec', 'camp_id', 'camp1')
+    write('fixed_events', 'fe-rec', 'day_id', ids.days[0])
+    write('fixed_events', 'fe-rec', 'kind', 'recurring')
+
+    const preview = previewDelete(db, { entity: 'days_of_operation', entity_id: ids.days[0] })
+    expect(preview.fixed_event_count).toBe(1)
+    expect(preview.fixed_event_kind_counts).toEqual({ fixed: 0, recurring: 1 })
+  })
+})
