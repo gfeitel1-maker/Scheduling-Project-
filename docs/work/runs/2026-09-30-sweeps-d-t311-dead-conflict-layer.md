@@ -174,7 +174,7 @@ Command form, run from this worktree against the main checkout's graph (the grap
 and reflects committed `main`):
 
 ```
-graphify affected "<fn>()" --graph /Users/gregfeitel/dev/shoresh/graphify-out/graph.json
+graphify affected "<fn>()" --graph ~/dev/shoresh/graphify-out/graph.json
 ```
 
 **Header lines, verbatim** — each one carries the parentheses, so each resolved the CODE node, not
