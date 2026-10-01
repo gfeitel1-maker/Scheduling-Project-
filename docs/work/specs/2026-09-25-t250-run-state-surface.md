@@ -35,6 +35,17 @@ shells exist (Maker's job, per T250's own scope) and specifies only the run-stat
 
 ## Layout
 
+> **Amendment, 2026-09-30 (owner/organizer ruling).** The Finalize actions
+> band, originally placed directly below the run-state findings block (per
+> this section's original order below), is now rendered **above** the
+> run-state area instead — so a long BUNDLE_TIER_NOT_COVERED/dangling list
+> never pushes the Finalize control out of view. This is a current human
+> instruction overriding this approved spec (Constitution Art. I: precedence
+> order), not a reinterpretation of it; the order described below is
+> superseded for the actions band specifically and kept here as history. See
+> `src/screens/elective/run/DraftRunView.jsx`'s own file-header comment for
+> the implemented order.
+
 ### Where it sits
 
 In both Draft and Final, the run-state area is a fixed block **directly under the screen's own

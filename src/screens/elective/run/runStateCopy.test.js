@@ -9,7 +9,10 @@
 // numbered choice (T318 (c) — "an ordinal is shown only on positive evidence of
 // ordering").
 import { describe, it, expect } from 'vitest'
-import { occurrenceLabel, satisfactionSummary, camperDisambiguator, resolveCamperDisambiguators } from './runStateCopy.js'
+import {
+  occurrenceLabel, satisfactionSummary, camperDisambiguator, resolveCamperDisambiguators,
+  groupBundleTierNotCoveredFindings, bundleTierNotCoveredGroupMessage,
+} from './runStateCopy.js'
 
 describe('occurrenceLabel', () => {
   it('resolves the day name from `label`, the actual days_of_operation column', () => {
@@ -174,5 +177,74 @@ describe('T250 round 2 FIX 3 — resolveCamperDisambiguators is collision-aware 
     ])
     expect(result.get('c1')).toBeNull()
     expect(result.get('c2')).toBeNull()
+  })
+})
+
+// C1 — commitElectiveRun emits one BUNDLE_TIER_NOT_COVERED finding per camper
+// per bundle label, so a real camp shows 30+ near-identical rows, the same
+// camper repeated. groupBundleTierNotCoveredFindings compresses that
+// REPETITION (one row per (label, tier) pair), never the INFORMATION
+// (Art. V) — every camper named in the finding set must still be reachable.
+describe('groupBundleTierNotCoveredFindings', () => {
+  const groups = [{ id: 'grp-older', tier_id: 'tier-older' }, { id: 'grp-younger', tier_id: 'tier-younger' }]
+  const tiers = [{ id: 'tier-older', name: 'Older' }, { id: 'tier-younger', name: 'Younger' }]
+  const campers = [
+    { id: 'cam-1', display_name: 'Ari Green', group_id: 'grp-older', division_label: null },
+    { id: 'cam-2', display_name: 'Noa Katz', group_id: 'grp-older', division_label: null },
+    { id: 'cam-3', display_name: 'Bo Levi', group_id: 'grp-younger', division_label: null },
+  ]
+
+  it('groups findings for the same (label, tier) pair into one entry, naming every camper', () => {
+    const findings = [
+      { kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'cam-1', label: 'Ropes' },
+      { kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'cam-2', label: 'Ropes' },
+      { kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'cam-3', label: 'Ropes' },
+    ]
+    const result = groupBundleTierNotCoveredFindings({ findings, campers, groups, tiers })
+    expect(result).toHaveLength(2)
+    const older = result.find((g) => g.tierName === 'Older')
+    const younger = result.find((g) => g.tierName === 'Younger')
+    expect(older.label).toBe('Ropes')
+    expect(older.names.sort()).toEqual(['Ari Green', 'Noa Katz'])
+    expect(younger.names).toEqual(['Bo Levi'])
+  })
+
+  it('ignores findings of other kinds', () => {
+    const findings = [
+      { kind: 'PREFERENCE_EDIT_HELD', camper_id: 'cam-1', preference_id: 'p1' },
+    ]
+    expect(groupBundleTierNotCoveredFindings({ findings, campers, groups, tiers })).toEqual([])
+  })
+
+  it("groups a camper whose tier cannot be resolved at all under a null tierName — never a fabricated tier", () => {
+    const findings = [{ kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'cam-ghost', label: 'Ropes' }]
+    const result = groupBundleTierNotCoveredFindings({ findings, campers: [], groups, tiers })
+    expect(result).toHaveLength(1)
+    expect(result[0].tierName).toBeNull()
+    expect(result[0].names).toEqual(['cam-ghost'])
+  })
+
+  it('resolves the tier from division_label when it matches a tier name, even with no group_id', () => {
+    const divisionCampers = [{ id: 'cam-9', display_name: 'Shir Cohen', group_id: null, division_label: 'Older' }]
+    const findings = [{ kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'cam-9', label: 'Ropes' }]
+    const result = groupBundleTierNotCoveredFindings({ findings, campers: divisionCampers, groups, tiers })
+    expect(result[0].tierName).toBe('Older')
+  })
+})
+
+describe('bundleTierNotCoveredGroupMessage', () => {
+  it('names the label, the tier, and the count when the tier resolved', () => {
+    const message = bundleTierNotCoveredGroupMessage({ label: 'Ropes', tierName: 'Older', names: ['Ari Green', 'Noa Katz'] })
+    expect(message).toBe('"Ropes" does not cover Older — 2 campers kept their request as an ordinary choice.')
+  })
+
+  it('uses singular "camper" for a group of one', () => {
+    const message = bundleTierNotCoveredGroupMessage({ label: 'Ropes', tierName: 'Older', names: ['Ari Green'] })
+    expect(message).toBe('"Ropes" does not cover Older — 1 camper kept their request as an ordinary choice.')
+  })
+
+  it('degrades truthfully when no tier resolved, naming no tier at all', () => {
+    const message = bundleTierNotCoveredGroupMessage({ label: 'Ropes', tierName: null, names: ['Ari Green'] })
+    expect(message).toBe('"Ropes" does not cover these campers’ division — 1 camper kept their request as an ordinary choice.')
   })
 })

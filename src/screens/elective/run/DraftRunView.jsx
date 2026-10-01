@@ -1,8 +1,15 @@
 // T250 — the Draft state of a persisted elective run.
 //
-// Layout order is fixed by docs/work/specs/2026-09-25-t250-run-state-surface.md:
-// identity line, satisfaction summary, run-state area (over-capacity rows, then
-// dangling-manual-assignment rows), then the move/lock table.
+// Layout order was originally fixed by
+// docs/work/specs/2026-09-25-t250-run-state-surface.md: identity line,
+// satisfaction summary, run-state area (over-capacity rows, then
+// dangling-manual-assignment rows), then the Finalize actions band, then the
+// move/lock table. Owner/organizer ruling 2026-09-30 moved the actions band
+// ABOVE the run-state area (so Finalize is never pushed below a long findings
+// list) — current order: identity line, satisfaction summary, actions band,
+// run-state area, move/lock table. See that spec's "Layout" section for the
+// dated amendment note recording the divergence (Constitution Art. I: current
+// human instruction outranks an approved spec).
 //
 // Mounted inside AssignmentPanel, which sits under ElectiveSetDetail. The
 // admin gate is INHERITED from there (the participant entities are absent from
@@ -26,6 +33,7 @@ import { A } from '../assignment/assignmentStyles.js'
 import {
   DANGLING_MOVE_PLACEHOLDER, FINALIZE_MESSAGES, REMOVE_PLACEMENT_LABEL, danglingMessage, occurrenceLabel, overCapacityMessage,
   resolveCamperDisambiguators, satisfactionSummary, stalenessOfferMessage,
+  groupBundleTierNotCoveredFindings, bundleTierNotCoveredGroupMessage,
 } from './runStateCopy.js'
 
 const styles = {
@@ -108,6 +116,23 @@ function FinalizeFindingsList({ findings }) {
   )
 }
 
+// C1 (board item 9b) — one grouped BUNDLE_TIER_NOT_COVERED row for a
+// (label, tier) pair, instead of the raw per-camper findings commitElectiveRun
+// emits. The sentence states the LABEL, the TIER (or a truthful division-only
+// phrasing when no tier resolved), and the COUNT; every named camper stays
+// reachable behind the SAME disclosure idiom FinalizeFindingsList uses — never
+// dropped, only collapsed.
+function BundleMismatchGroupNames({ names }) {
+  return (
+    <details style={A.disclosure}>
+      <summary style={A.disclosureSummary}>{names.length === 1 ? names[0] : `${names.length} campers`}</summary>
+      <ul style={styles.findingsList}>
+        {names.map((name, i) => <li key={i}>{name}</li>)}
+      </ul>
+    </details>
+  )
+}
+
 function FinalizeRefusalRow({ refusal, onRegenerate, lockedAssignments }) {
   const { error, findings } = refusal
   const known = FINALIZE_MESSAGES[error]
@@ -165,7 +190,7 @@ function DanglingRowCollapseTimer({ assignmentId, setMovedAway, setCollapsingRow
 export default function DraftRunView({
   run, danglingFindings = [], onRegenerate, onFinalized, onBack,
   activities = [], days = [], timeBlocks = [], templateOccurrences = [],
-  scheduleTemplates = [], scheduleWeeks = [], tiers = [],
+  scheduleTemplates = [], scheduleWeeks = [], tiers = [], groups = [],
   // T250 A3 — true when `onRegenerate` is available because this session
   // HYDRATED a cold-opened run's state, never because it solved the run
   // itself. Drives the disclosure note beside the offer's button.
@@ -516,8 +541,16 @@ export default function DraftRunView({
     (f) => !movedAway.includes(f.assignment_id) && !durableDanglingRows.some((r) => r.assignment_id === f.assignment_id)
   )
   const danglingRows = durableDanglingRows
-  const commitNotices = danglingFindings.filter((f) => f.kind !== 'DANGLING_MANUAL_ASSIGNMENT')
-  const stateRowCount = overCapacityRows.length + danglingRows.length + collapsingOnlyRows.length + commitNotices.length
+  // C1 — BUNDLE_TIER_NOT_COVERED is GROUPED (see BundleMismatchGroupNames and
+  // runStateCopy.js's groupBundleTierNotCoveredFindings); PREFERENCE_EDIT_HELD
+  // and DANGLING_MANUAL_ASSIGNMENT keep their current per-camper rows (T232/D6
+  // require naming the child there).
+  const commitNotices = danglingFindings.filter((f) => f.kind !== 'DANGLING_MANUAL_ASSIGNMENT' && f.kind !== 'BUNDLE_TIER_NOT_COVERED')
+  const bundleMismatchGroups = useMemo(
+    () => groupBundleTierNotCoveredFindings({ findings: danglingFindings, campers: state.campers, groups, tiers }),
+    [danglingFindings, state.campers, groups, tiers]
+  )
+  const stateRowCount = overCapacityRows.length + danglingRows.length + collapsingOnlyRows.length + commitNotices.length + bundleMismatchGroups.length
 
   const stateRows = [
     ...overCapacityRows.map((o, i) => (
@@ -647,6 +680,21 @@ export default function DraftRunView({
         />
       )
     }),
+    // C1 — one row per (label, tier) group, each camper named reachable
+    // behind BundleMismatchGroupNames' disclosure rather than dropped.
+    ...bundleMismatchGroups.map((g, i) => {
+      const index = overCapacityRows.length + danglingRows.length + collapsingOnlyRows.length + commitNotices.length + i
+      const testId = `run-state-bundle-mismatch-${g.label}-${g.tierId ?? 'unresolved'}`
+      return (
+        <RunStateRow
+          key={`bundle-mismatch-${g.label}-${g.tierId ?? 'unresolved'}`}
+          testId={testId}
+          first={index === 0}
+          last={index === stateRowCount - 1}
+          message={<>{bundleTierNotCoveredGroupMessage(g)} <BundleMismatchGroupNames names={g.names} /></>}
+        />
+      )
+    }),
     // T250 A2 — appended AFTER the over-capacity and dangling rows: whatever
     // refusal the last Finalize attempt produced, inline in the run's own
     // run-state area rather than a separate block.
@@ -671,11 +719,12 @@ export default function DraftRunView({
             {satisfactionSummary({ rows, preferences: state.preferences, occurrences: state.occurrences, days, timeBlocks })}
           </div>
 
-          <RunStateArea>{stateRows}</RunStateArea>
-
-          {/* T250 A1 — the actions band. Positioned directly below the
-              run-state area and above the staleness/preference offers and the
-              move/lock table, per the spec's layout order. */}
+          {/* Owner/organizer ruling, 2026-09-30 — the actions band is
+              positioned ABOVE the run-state area, so Finalize is never pushed
+              below a long findings list. This CONTRADICTS the layout order
+              docs/work/specs/2026-09-25-t250-run-state-surface.md originally
+              fixed ("Layout"); that spec has a dated amendment note recording
+              the change — see its "Layout" section. */}
           <div style={styles.actionsBand}>
             <button
               className="press-97"
@@ -689,6 +738,8 @@ export default function DraftRunView({
               Locks this run. You&apos;ll see it as Final, and can always start a new version later.
             </span>
           </div>
+
+          <RunStateArea>{stateRows}</RunStateArea>
 
           {/* An offer, never a block: the table below stays fully usable.
               The FACT is stated whenever there is one, and the control appears

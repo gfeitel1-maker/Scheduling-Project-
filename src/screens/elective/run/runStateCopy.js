@@ -11,6 +11,14 @@ import { buildPreferenceLookup } from './camperElectiveWeek.js'
 // third accepted kind, every OTHER copy gains it automatically while this one
 // would have kept silently excluding it.
 import { hasOrderingEvidence } from '../../../engine/rankKind.js'
+// Board item 9b / C1 — the SAME tier-resolution precedence commitElectiveRun.js
+// uses to decide whether a bundle covers a camper (division_label beats the
+// roster group's tier — see that module's own header for why). The finding
+// this screen groups carries camper_id/label but not the tier, so re-deriving
+// it with a SECOND rule would risk disagreeing with the rule that produced the
+// finding in the first place. Precedented: AssignmentPanel.jsx already imports
+// this pure module from electron/ops the same way.
+import { makeCamperIdentityResolver } from '../../../../electron/ops/camperElectiveIdentity.js'
 
 // Q5 (director-facing terminology) was ruled by the owner 2026-09-29: "start a
 // new version". "Revision" implies editing the same run, which contradicts
@@ -157,6 +165,49 @@ function applyDistinguishingTier(group, key, result) {
     const value = entry[key]
     if (value && counts.get(value) === 1) result.set(entry.id, value)
   }
+}
+
+// C1 (board item 9b) — commitElectiveRun emits one BUNDLE_TIER_NOT_COVERED
+// finding per camper per bundle label, so a real camp's run showed 30+
+// near-identical rows, the same camper repeated across periods, ABOVE the
+// Finalize control. This groups them by (label, tier) into ONE row per pair —
+// compressing REPETITION, never INFORMATION (Art. V): every camper named in
+// the finding set is still present in the returned group's `names`.
+//
+// The finding carries camper_id and label but not the tier, so it is resolved
+// here via makeCamperIdentityResolver — the same precedence commitElectiveRun
+// itself used to decide the mismatch (division_label beats the roster group's
+// tier). A camper whose tier cannot be resolved at all (no campers row, or
+// neither division nor group resolves) gets `tierName: null` rather than a
+// fabricated or placeholder tier — the caller's copy must degrade truthfully,
+// never invent.
+export function groupBundleTierNotCoveredFindings({ findings = [], campers = [], groups = [], tiers = [] } = {}) {
+  const relevant = findings.filter((f) => f.kind === 'BUNDLE_TIER_NOT_COVERED')
+  if (relevant.length === 0) return []
+  const identity = makeCamperIdentityResolver({ sheetCampers: campers, groups, tiers })
+  const tierById = new Map(tiers.map((t) => [t.id, t]))
+  const camperById = new Map(campers.map((c) => [c.id, c]))
+  const byKey = new Map()
+  for (const f of relevant) {
+    const tierId = identity.tierIdOf(f.camper_id)
+    const tierName = tierId != null ? tierById.get(tierId)?.name ?? null : null
+    const key = `${f.label} ${tierId ?? ''}`
+    if (!byKey.has(key)) byKey.set(key, { label: f.label, tierId, tierName, names: [] })
+    const name = camperById.get(f.camper_id)?.display_name ?? f.camper_id
+    byKey.get(key).names.push(name)
+  }
+  return [...byKey.values()]
+}
+
+// The sentence for one grouped row. `tierName` null means the tier genuinely
+// could not be resolved — the phrasing names "these campers' division"
+// instead of inventing a tier word, per groupBundleTierNotCoveredFindings'
+// own posture.
+export function bundleTierNotCoveredGroupMessage({ label, tierName, names = [] }) {
+  const count = names.length
+  const camperWord = count === 1 ? 'camper' : 'campers'
+  const subject = tierName ? `"${label}" does not cover ${tierName}` : `"${label}" does not cover these campers’ division`
+  return `${subject} — ${count} ${camperWord} kept their request as an ordinary choice.`
 }
 
 const RANK_WORDS = ['a first choice', 'a second choice', 'a third choice']

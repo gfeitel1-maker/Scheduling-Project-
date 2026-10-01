@@ -104,7 +104,7 @@ const CLEAN_RUN_STATE = {
   // a run is opened cold from the run list (unlike templateOccurrences, which
   // is AssignmentPanel React state and empty on that path).
   rows: rows(), staleCount: 0, finalizedAgainstStaleGeneration: false, overCapacityOccurrences: [],
-  occurrences: OCCURRENCES,
+  occurrences: OCCURRENCES, campers: CAMPERS,
 }
 
 function catalogs() {
@@ -439,7 +439,7 @@ describe('T250 B1 — a mixed findings array renders each kind with its own sent
     },
   ]
 
-  it('renders the dangling sentence for DANGLING_MANUAL_ASSIGNMENT, and each OTHER finding under its own verbatim message, one row per finding, no action button', async () => {
+  it('renders the dangling sentence for DANGLING_MANUAL_ASSIGNMENT, each OTHER non-bundle finding under its own verbatim message, and the bundle finding GROUPED, one row per finding/group, no action button', async () => {
     localClient.getElectiveRun.mockResolvedValue({
       ...CLEAN_RUN_STATE,
       danglingFindings: [mixed[0]],
@@ -455,13 +455,54 @@ describe('T250 B1 — a mixed findings array renders each kind with its own sent
     expect(prefRow.textContent).toBe('This file still lists a preference you removed by hand, so it was not added back.')
     expect(within(prefRow).queryByRole('button')).toBeNull()
 
-    const bundleRow = screen.getByTestId('run-state-notice-camper-2-Sports Bundle')
-    expect(bundleRow.textContent).toBe('Testcamper Bravo ranked “Sports Bundle”, which a bundle claims for specific divisions only.')
+    // C1 — BUNDLE_TIER_NOT_COVERED is now GROUPED by (label, tier), rendered
+    // with this screen's own sentence (not the finding's raw .message), and
+    // the camper's name is reachable behind the disclosure.
+    const bundleRow = screen.getByTestId('run-state-bundle-mismatch-Sports Bundle-tier-1')
+    expect(bundleRow.textContent).toMatch(/"Sports Bundle" does not cover Juniors — 1 camper kept their request as an ordinary choice\./)
     expect(within(bundleRow).queryByRole('button')).toBeNull()
+    // The named camper is reachable (in the DOM, behind the disclosure) even
+    // though the finding's own raw .message is no longer printed verbatim.
+    expect(within(bundleRow).getAllByText('Testcamper Bravo').length).toBeGreaterThan(0)
 
-    // Exactly one row per finding — no collision, no dropped row.
+    // Exactly one row per finding/group — no collision, no dropped row.
     const area = screen.getByTestId('run-state-area')
     expect(area.querySelectorAll('[data-testid^="run-state-"][role]')).toHaveLength(3)
+  })
+
+  // The grouping's whole point: many near-identical findings for the SAME
+  // (label, tier) pair collapse to ONE row, and the count printed in the
+  // sentence matches the number of names actually reachable in the DOM —
+  // grouping may compress repetition but must never drop a name (Art. V).
+  it('collapses many findings for the same (label, tier) into ONE row, and the sentence count equals the names rendered', async () => {
+    const many = [
+      { kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'camper-1', label: 'Ropes' },
+      { kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'camper-2', label: 'Ropes' },
+      { kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'camper-3', label: 'Ropes' },
+    ]
+    localClient.getElectiveRun.mockResolvedValue({ ...CLEAN_RUN_STATE, danglingFindings: [] })
+    render(<DraftRunView run={DRAFT_RUN} danglingFindings={many} {...catalogs()} />)
+
+    const area = await screen.findByTestId('run-state-area')
+    const bundleRows = [...area.querySelectorAll('[data-testid^="run-state-bundle-mismatch-"]')]
+    expect(bundleRows).toHaveLength(1)
+    const row = bundleRows[0]
+    expect(row.textContent).toMatch(/3 campers kept their request as an ordinary choice/)
+    for (const name of ['Testcamper Alpha', 'Testcamper Bravo', 'Testcamper Charlie']) {
+      expect(within(row).getByText(name)).toBeTruthy()
+    }
+  })
+
+  // Owner/organizer ruling, 2026-09-30 — Finalize sits ABOVE the findings list
+  // (contradicting the spec's original fixed layout order, amended with a
+  // dated note). Pins the DOM order so a future edit cannot silently revert it.
+  it('places the Finalize actions band ABOVE the run-state area', async () => {
+    localClient.getElectiveRun.mockResolvedValue({ ...CLEAN_RUN_STATE, danglingFindings: [mixed[0]] })
+    render(<DraftRunView run={DRAFT_RUN} danglingFindings={mixed} {...catalogs()} />)
+    const button = await screen.findByRole('button', { name: 'Finalize run' })
+    const area = await screen.findByTestId('run-state-area')
+    // DOCUMENT_POSITION_FOLLOWING means `area` comes AFTER `button` in the DOM.
+    expect(button.compareDocumentPosition(area) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   // Round 2 FIX 5(a) (Code Reviewer, LOW) — a commitNotices row rendered
