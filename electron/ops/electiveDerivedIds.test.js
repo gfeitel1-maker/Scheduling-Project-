@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   deriveCamperId,
+  mintCamperId,
   electiveChoiceLabelKey,
   deriveElectiveOccurrenceId,
   deriveElectiveChoiceId,
@@ -727,6 +728,27 @@ describe('deriveCamperId', () => {
     it('holds the arrival to the same opaque alphabet as every other component', () => {
       expect(() => deriveCamperId('camp-1', { submissionKey: SUB, arrivalId: 'run 1' })).toThrow(/opaque/i)
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// ADR 2026-10-01 (camper id high entropy). campers.id for a NEWLY-CREATED
+// camper is now an opaque random token, minted by this function — it carries
+// no information about the camper, unlike deriveCamperId's output (which is
+// now used only to compute a camper_identity_keys lookup row's own id, never
+// campers.id directly).
+// ---------------------------------------------------------------------------
+describe('mintCamperId', () => {
+  it('is prefixed camper2: — visually distinguishable from the old camper1: name-embedding scheme', () => {
+    expect(mintCamperId()).toMatch(/^camper2:/)
+  })
+
+  it('mints a different token on every call', () => {
+    expect(mintCamperId()).not.toBe(mintCamperId())
+  })
+
+  it('carries no trace of any input — it takes none', () => {
+    expect(mintCamperId.length).toBe(0)
   })
 })
 

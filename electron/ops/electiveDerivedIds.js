@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { whitespaceInsensitiveName } from '../../src/ingest/preview.js'
 
 // Deterministic id derivation for the individual-elective participant
@@ -324,6 +325,29 @@ export function deriveCamperId(
     throw new Error('electiveDerivedIds: a camper needs an external_id or display_name to derive an id')
   }
   return `camper${V}:${join([opaque('camp_id', campId), 'name', nameKey])}`
+}
+
+// ADR docs/adr/2026-10-01-camper-id-high-entropy-format.md, Option B.
+//
+// `deriveCamperId` above is REPURPOSED by that ADR, not discarded: its output is
+// now only the id of a `camper_identity_keys` LOOKUP row (camp_id/key_mode/
+// key_value -> camper_id), never `campers.id` directly. `campers.id` for every
+// newly-created camper is this function's output instead — an opaque, random,
+// high-entropy token that carries no information about the camper (no name, no
+// external id, nothing derivable), so a purged camper's id reveals nothing about
+// who they were even before `camper_identity_keys`' own purge/tombstone handling
+// runs.
+//
+// `camper2:` (not `camper1:`, the prefix `deriveCamperId` still produces) is
+// deliberate and visually load-bearing during the pre-production transition: a
+// row whose id still reads `camper1:...name...` is pre-ADR data a developer's
+// local dev database may still hold (see the ADR's "Tombstones & digest keys
+// already written" section — existing campers.id values are NOT re-keyed by the
+// migration), while `camper2:` marks every camper actually minted under this
+// scheme. This is not a parsing contract (see the prohibition at the top of this
+// file) — nothing may recover a camper by inspecting the string.
+export function mintCamperId() {
+  return `camper2:${randomUUID()}`
 }
 
 // Key: (camp_id, source_sha256). FOR THE SHEET-IMPORT PATH ONLY.
