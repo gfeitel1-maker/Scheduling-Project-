@@ -842,7 +842,7 @@ describe('FixedEventsScreen — import of one recurring name creates only one ca
 
 // board q-export-columns-do-not-round-trip, B3 — create-or-update keyed on (name, day,
 // time block), since one named event recurs across several days as separate stored rows.
-describe('AnchorsScreen — import create-or-update', () => {
+describe('FixedEventsScreen — import create-or-update', () => {
   function fixedEvent(overrides = {}) {
     return {
       id: 'fe-1', camp_id: CAMP_ID, cohort_id: COHORT_ID, kind: 'fixed', name: 'Mifkad',
@@ -860,7 +860,7 @@ describe('AnchorsScreen — import create-or-update', () => {
       if (entity === 'activities') return Promise.resolve([{ id: 'activity-1', camp_id: CAMP_ID, name: 'Mifkad', catalog_role: 'pinned_event' }])
       return Promise.resolve([])
     })
-    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
+    render(<FixedEventsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
     await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
 
     const file = new File(['dummy'], 'anchors.xlsx')
@@ -892,7 +892,7 @@ describe('AnchorsScreen — import create-or-update', () => {
       if (entity === 'activities') return Promise.resolve([])
       return Promise.resolve([])
     })
-    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
+    render(<FixedEventsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
     await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
 
     const file = new File(['dummy'], 'anchors.xlsx')
