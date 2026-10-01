@@ -226,9 +226,29 @@ could not. None blocks the success predicate.
    `worktree-agent-af5849f4010b76963`, which shares that base and has not diverged — the dispatching
    session can fast-forward `claude/t200-notice-queue` onto it.
 
+## Worker decision on the escalation (2026-09-30) — FLAGGED FOR THE OWNER
+
+The escalation below was answered by the **board worker under the owner's delegated queue**, not by
+the owner. Relayed to this session verbatim and recorded quote-only, per
+`feedback_trust_peer_relays_from_owner` — the owner should confirm it:
+
+> "the predicate is the owner's own words, 'notices display in order, none lost', so the
+> keyboard-retry-inside-the-fade loss is NOT accepted. Take your recommendation: a retry on a notice
+> cancels that notice's pending dismiss timer (and clears its dismissing state) before the upsert,
+> ~10 lines, no new control."
+
+The same decision directed a bounded resolution round (red-first test from Red Hat's repro; fix Code
+Reviewer's MEDIUM by moving `onDismiss()` out of the `setState` updater; Red Hat re-audit scoped to
+dismiss/retry/fade; rebase onto current `origin/main`; re-run the named gates; re-score), and left the
+`N more` wording as shipped — Tester's "waiting" preference is recorded as a product-copy call for the
+owner, open point 1 below.
+
+**Outcome: the residual loss is CLOSED.** See "Round 3 (resolution)" above. The escalation text that
+follows is kept as the record of what was escalated and why, not as the live decision.
+
 ## Decision
 
-**ESCALATE one decision. The work itself is complete and green.**
+**ESCALATE one decision — SUPERSEDED by the worker decision above; recorded as history.**
 
 The board's wording is "notices display in order, none lost", and the success predicate inherits it.
 Red Hat has a **deterministic, fake-timer repro of a case where a notice is still lost**: dismiss a
