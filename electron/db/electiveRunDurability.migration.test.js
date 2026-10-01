@@ -63,8 +63,9 @@ describe('migration v83: version and table/column presence', () => {
     // by that — it is checking that v83's OWN migration landed, not that v83 is the current head.
     // T321 (v85) landed after this file was written; CURRENT_SCHEMA_VERSION
     // tracks the real current head, same reasoning this test already states.
-    expect(CURRENT_SCHEMA_VERSION).toBe(85)
-    expect(getSchemaVersion(db)).toBe(85)
+    // T322 S3a (v86, peer_tombstone_reports) landed after that; same reasoning again.
+    expect(CURRENT_SCHEMA_VERSION).toBe(86)
+    expect(getSchemaVersion(db)).toBe(86)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 83').get().c).toBe(1)
     db.close()
   })

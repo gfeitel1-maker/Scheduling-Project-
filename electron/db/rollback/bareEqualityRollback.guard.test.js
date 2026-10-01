@@ -106,7 +106,9 @@ describe('rollback bare-equality schema_migrations guard', () => {
     // count was last pinned.
     //
     // 46 is v85_down.js (T321, camper-id-high-entropy-format).
-    expect(files.length).toBe(46)
+    //
+    // 47 is v86_down.js (T322 S3a, peer_tombstone_reports).
+    expect(files.length).toBe(47)
   })
 
   it('every rollback file uses `>= N`, never bare `= N`, to delete its schema_migrations row', () => {
