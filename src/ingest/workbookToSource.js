@@ -94,7 +94,7 @@ export function workbookToSource(workbook, active = {}) {
   const approved = {}
   for (const layout of SHEET_LAYOUT) {
     // SLICE B2 (board q-export-columns-do-not-round-trip): fixed_events' "Fixed Events" sheet
-    // is re-imported ONLY through AnchorsScreen's own door — commitPlan/commitIngest have no
+    // is re-imported ONLY through FixedEventsScreen's own door — commitPlan/commitIngest have no
     // fixed_events committer, so this whole-workbook path must never emit it, whether or not
     // the uploaded workbook happens to carry a populated sheet for it.
     if (layout.screenImportOnly) continue

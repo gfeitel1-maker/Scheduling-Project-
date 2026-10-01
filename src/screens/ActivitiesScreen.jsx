@@ -1169,7 +1169,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
         onFileChange={onFileChange}
         maxWidth={820}
         nextLabel="Next: Recurring Events →"
-        onNext={() => onNavigate('anchors')}
+        onNext={() => onNavigate('recurringevents')}
         error={error}
       >
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>

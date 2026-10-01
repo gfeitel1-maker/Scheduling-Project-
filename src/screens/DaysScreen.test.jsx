@@ -56,7 +56,7 @@ beforeEach(() => {
   localClient.previewDelete.mockReset().mockResolvedValue({
     ok: true, entity: 'days_of_operation', entity_id: 'day-1', name: 'Monday',
     destructive: true, slot_count: 0, routes: [], unprotected_count: 0,
-    anchor_count: 0, overlay_count: 0, weather_dependent_count: 0,
+    fixed_event_count: 0, overlay_count: 0, weather_dependent_count: 0,
   })
   localClient.deleteRecord.mockReset().mockResolvedValue({ ok: true, cleared: 0 })
 })
@@ -211,7 +211,7 @@ describe('DaysScreen', () => {
     localClient.previewDelete.mockResolvedValue({
       ok: true, entity: 'days_of_operation', entity_id: 'day-1', name: 'Monday',
       destructive: true, slot_count: 30, routes: [], unprotected_count: 0,
-      anchor_count: 1, weather_dependent_count: 0,
+      fixed_event_count: 1, weather_dependent_count: 0,
     })
     localClient.deleteRecord.mockResolvedValue({ ok: true, cleared: 30 })
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)

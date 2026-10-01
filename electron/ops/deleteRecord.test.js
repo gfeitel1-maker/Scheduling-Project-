@@ -373,7 +373,7 @@ describe('deleting a day removes it from the week', () => {
 
     const preview = previewDelete(db, { entity: 'days_of_operation', entity_id: ids.days[0] })
     expect(preview.destructive).toBe(true)
-    expect(preview.anchor_count).toBe(1)
+    expect(preview.fixed_event_count).toBe(1)
     expect(preview.slot_count).toBe(20)
 
     const result = deleteRecord(db, {

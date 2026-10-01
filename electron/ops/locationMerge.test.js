@@ -426,7 +426,7 @@ describe('previewDelete for locations includes the four newer referrer kinds in 
     expect(preview.ok).toBe(true)
     expect(preview.ref_count).toBe(5)
     expect(preview.activities.map((a) => a.id)).toEqual(['a1'])
-    expect(preview.anchor_count).toBe(1)
+    expect(preview.fixed_event_count).toBe(1)
     expect(preview.event_count).toBe(1)
     expect(preview.special_day_slot_count).toBe(1)
     expect(preview.event_slot_count).toBe(1)

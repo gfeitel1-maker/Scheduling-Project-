@@ -22,7 +22,7 @@ function preview(over = {}) {
     destructive: false,
     slot_count: 0,
     routes: [],
-    anchor_count: 0,
+    fixed_event_count: 0,
     ...over,
   }
 }

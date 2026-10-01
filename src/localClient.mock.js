@@ -2745,7 +2745,7 @@ export const mockShoresh = {
         ok: true, entity, entity_id, name,
         ref_count: usedBy.length,
         activities: usedBy.map((a) => ({ id: a.id, name: a.name })),
-        anchor_count: 0, event_count: 0, special_day_slot_count: 0, event_slot_count: 0,
+        fixed_event_count: 0, event_count: 0, special_day_slot_count: 0, event_slot_count: 0,
       }
     }
     return {
@@ -2757,7 +2757,7 @@ export const mockShoresh = {
       slot_count: 0,
       routes: [],
       unprotected_count: 0,
-      anchor_count: 0,
+      fixed_event_count: 0,
       weather_dependent_count: 0,
     }
   },

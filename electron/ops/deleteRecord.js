@@ -118,7 +118,7 @@ function routesFor(db, rows) {
   return { routes, unprotected_count }
 }
 
-function anchorRows(db, day_id) {
+function fixedEventRows(db, day_id) {
   return db.prepare('SELECT id FROM fixed_events WHERE day_id = ?').all(day_id)
 }
 
@@ -175,7 +175,7 @@ function locationReferenceRows(db, location_id) {
       .prepare('SELECT id, name, max_groups_per_slot FROM activities WHERE location_id = ?')
       .all(location_id),
     exclusions: db.prepare('SELECT id FROM week_location_exclusions WHERE location_id = ?').all(location_id),
-    anchors: db.prepare('SELECT id FROM fixed_events WHERE location_id = ?').all(location_id),
+    fixedEvents: db.prepare('SELECT id FROM fixed_events WHERE location_id = ?').all(location_id),
     events: db.prepare('SELECT id FROM events WHERE location_id = ?').all(location_id),
     special_day_slots: db.prepare('SELECT id FROM special_day_slots WHERE location_id = ?').all(location_id),
     event_slots: db.prepare('SELECT id FROM event_slots WHERE location_id = ?').all(location_id),
@@ -188,8 +188,8 @@ function locationReferenceRows(db, location_id) {
 // "thing that uses this location" the confirm dialog describes) and must not
 // start counting now, or the guard and the sentence it protects would part
 // ways from what a director actually read.
-function totalLocationRefCount({ activities, anchors, events, special_day_slots, event_slots }) {
-  return activities.length + anchors.length + events.length + special_day_slots.length + event_slots.length
+function totalLocationRefCount({ activities, fixedEvents, events, special_day_slots, event_slots }) {
+  return activities.length + fixedEvents.length + events.length + special_day_slots.length + event_slots.length
 }
 
 // What the confirmation is built from. Read-only, but gated by the caller with
@@ -215,7 +215,7 @@ export function previewDelete(db, { entity, entity_id }) {
       name: row.name,
       ref_count: totalLocationRefCount(refs),
       activities: refs.activities,
-      anchor_count: refs.anchors.length,
+      fixed_event_count: refs.fixedEvents.length,
       event_count: refs.events.length,
       special_day_slot_count: refs.special_day_slots.length,
       event_slot_count: refs.event_slots.length,
@@ -239,7 +239,7 @@ export function previewDelete(db, { entity, entity_id }) {
     slot_count: rows.length,
     routes,
     unprotected_count,
-    anchor_count: entity === 'days_of_operation' ? anchorRows(db, entity_id).length : 0,
+    fixed_event_count: entity === 'days_of_operation' ? fixedEventRows(db, entity_id).length : 0,
     weather_dependent_count: entity === 'activities' ? weatherDependents(db, entity_id).length : 0,
     // T194: campers whose group_id points here. Reported, never cascaded.
     camper_count: entity === 'groups' ? camperDependents(db, entity_id) : 0,
@@ -332,7 +332,7 @@ function removeSlotRows(db, rows, { author_user_id, device_id }) {
 }
 
 // Deleting a DAY removes one column-day from every group's week, so it is in
-// the same destructive class as a group. Its anchors block the
+// the same destructive class as a group. Its fixed events block the
 // delete through a real FK; its template_slots rows do NOT (day_id carries no
 // FK) and today are silently orphaned instead. An orphan is not harmless — it
 // is carried by bulkReplace and rendered in a
@@ -342,7 +342,7 @@ function removeDayFromWeek(db, { day_id, slots, author_user_id, device_id }) {
     appendOp(db, { entity, entity_id, field: DELETE_FIELD, value: 1, author_user_id, device_id })
 
   const ops = []
-  for (const row of anchorRows(db, day_id)) ops.push(del('fixed_events', row.id))
+  for (const row of fixedEventRows(db, day_id)) ops.push(del('fixed_events', row.id))
   for (const row of electiveSetRows(db, day_id)) {
     ops.push(
       appendOp(db, {
@@ -401,7 +401,7 @@ function deleteOrMergeLocation(db, { entity_id, expected_ref_count, reassign_to,
 
   return runAtomic(db, () => {
     const refs = locationReferenceRows(db, entity_id)
-    const { activities, exclusions, anchors, events, special_day_slots, event_slots } = refs
+    const { activities, exclusions, fixedEvents, events, special_day_slots, event_slots } = refs
     const ref_count = totalLocationRefCount(refs)
 
     if (Number.isInteger(expected_ref_count) && ref_count !== expected_ref_count) {
@@ -415,7 +415,7 @@ function deleteOrMergeLocation(db, { entity_id, expected_ref_count, reassign_to,
     for (const activity of activities) {
       push('activities', activity.id, 'location_id', reassign_to ?? null)
     }
-    for (const anchor of anchors) {
+    for (const anchor of fixedEvents) {
       push('fixed_events', anchor.id, 'location_id', reassign_to ?? null)
     }
     for (const event of events) {

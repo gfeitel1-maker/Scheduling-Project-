@@ -22,7 +22,7 @@ import { aoaToSanitizedSheet } from './exportSanitize.js'
 // 2026-09-30-format-agnostic-setup-import.md 2026-10-01 amendment): Days gains
 // `day_of_week`, Time Blocks gains `part_of_day`.
 // v3 (SLICE B2, same board item/ADR): adds the "Fixed Events" sheet for
-// `fixed_events`, flagged `screenImportOnly` — re-imported via AnchorsScreen's
+// `fixed_events`, flagged `screenImportOnly` — re-imported via FixedEventsScreen's
 // own door, never the whole-workbook S4b path (workbookToSource skips it).
 export const PLAN_VERSION = 3
 
@@ -77,11 +77,11 @@ export const SHEET_LAYOUT = Object.freeze([
   },
   // SLICE B2 (board q-export-columns-do-not-round-trip, ADR 2026-09-30-format-agnostic-
   // setup-import.md 2026-10-01 amendment): fixed_events gets its own "Fixed Events" sheet so a
-  // director's own export round-trips through AnchorsScreen's importer. `screenImportOnly`
+  // director's own export round-trips through FixedEventsScreen's importer. `screenImportOnly`
   // marks this entry as re-imported ONLY through that screen's own door — workbookToSource
   // (S4b, the whole-workbook re-import) skips any entry carrying this flag, so
   // approved.fixed_events is never emitted there; commitPlan/commitIngest have no fixed_events
-  // committer and must never be asked for one. Columns mirror AnchorsScreen's own
+  // committer and must never be asked for one. Columns mirror FixedEventsScreen's own
   // downloadTemplate/onFileChange header exactly (name, day_label, time_block_name,
   // is_all_tiers, tier_names, notes) — OWNER NAMING CONSTRAINT: "Fixed Events" sheet and
   // event-vocabulary columns only, never "anchor".
@@ -158,7 +158,7 @@ function cellValueFor(col, row, maps) {
     return row.time_block_id != null ? (maps.timeBlockNameById.get(row.time_block_id) ?? '') : ''
   }
   if (col.bool && col.key === 'is_all_tiers') {
-    // AnchorsScreen parses this back with `.toUpperCase() === 'TRUE'` — the literal must match.
+    // FixedEventsScreen parses this back with `.toUpperCase() === 'TRUE'` — the literal must match.
     return row.is_all_groups ? 'TRUE' : 'FALSE'
   }
   if (col.labelList && col.key === 'tier_names') {

@@ -39,10 +39,10 @@ function activityCount(n) {
 // the confirm button so they can never say two different things about the
 // same preview.
 function locationRefParts(preview) {
-  const { activities, anchor_count, event_count, special_day_slot_count, event_slot_count } = preview
+  const { activities, fixed_event_count, event_count, special_day_slot_count, event_slot_count } = preview
   const parts = []
   if (activities.length > 0) parts.push(activityCount(activities.length))
-  if (anchor_count > 0) parts.push(`${anchor_count} recurring event${anchor_count === 1 ? '' : 's'}`)
+  if (fixed_event_count > 0) parts.push(`${fixed_event_count} recurring event${fixed_event_count === 1 ? '' : 's'}`)
   if (event_count > 0) parts.push(`${event_count} event${event_count === 1 ? '' : 's'}`)
   if (special_day_slot_count > 0) parts.push(`${special_day_slot_count} special-day cell${special_day_slot_count === 1 ? '' : 's'}`)
   if (event_slot_count > 0) parts.push(`${event_slot_count} event cell${event_slot_count === 1 ? '' : 's'}`)
@@ -56,7 +56,7 @@ function joinParts(parts) {
 // One concept, one name, across both routes: a director sees "your schedules",
 // never "templates" or "routes".
 function whatChanges(preview) {
-  const { entity, name, slot_count, ref_count, anchor_count } = preview
+  const { entity, name, slot_count, ref_count, fixed_event_count } = preview
   const who = name || `this ${LABEL[entity].the}`
 
   if (entity === 'locations') {
@@ -87,7 +87,7 @@ function whatChanges(preview) {
 
   const parts = []
   if (slot_count > 0) parts.push(places(slot_count))
-  if (anchor_count > 0) parts.push(`${anchor_count} recurring event${anchor_count === 1 ? '' : 's'}`)
+  if (fixed_event_count > 0) parts.push(`${fixed_event_count} recurring event${fixed_event_count === 1 ? '' : 's'}`)
   if (parts.length === 0) return `Nothing in your schedules uses ${who}.`
   const list = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`
   return `${who} holds ${list} across your schedules. Deleting it removes that day from every group's week.`

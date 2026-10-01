@@ -237,7 +237,7 @@ describe('module-level round trip (ADR §5, at the binder level)', () => {
 
   // SLICE B2 (board q-export-columns-do-not-round-trip): fixed_events gets its own "Fixed
   // Events" export sheet (src/utils/exportWorkbook.js SHEET_LAYOUT, `screenImportOnly: true` —
-  // re-imported through AnchorsScreen's own door, never the whole-workbook S4b path). At the
+  // re-imported through FixedEventsScreen's own door, never the whole-workbook S4b path). At the
   // binder level this is the same contract every other entity gets: the sheet binds every
   // required field with unmapped === [].
   it('fixed_events: exportWorkbook\'s "Fixed Events" sheet binds every required field by NATURAL KEY (day/time block names, not ids)', () => {

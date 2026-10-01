@@ -4,7 +4,7 @@ document_type: run
 date: 2026-10-01
 round: 1
 status: pass
-task_class: implementation
+task_class: database-sync
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/WORK_RECORD_STANDARD.md]
 related_tickets: [docs/work/tickets/T293-fixed-recurring-activity-vocabulary.md]
 related_specs: []

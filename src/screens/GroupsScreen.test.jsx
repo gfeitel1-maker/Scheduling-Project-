@@ -79,7 +79,7 @@ function preview(overrides = {}) {
     slot_count: 75,
     routes: [],
     unprotected_count: 0,
-    anchor_count: 0,
+    fixed_event_count: 0,
     weather_dependent_count: 0,
     ...overrides,
   }
