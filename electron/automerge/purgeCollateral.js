@@ -65,6 +65,45 @@ export const PURGE_INFRASTRUCTURE_TABLES = [
   'domain_state_migration_pending',
   'device_identity',
   'rendezvous_sequence',
+  // peer_tombstone_reports (T322 S3a, docs/adr/2026-09-19-multi-device-erasure-propagation.md's
+  // 2026-10-01 addendum): a peer's self-reported set of (tombstone id, version) pairs it has
+  // verified-and-projected — erasure-PROPAGATION metadata (which peer applied which purge, at what
+  // version), never camper data. Mechanically it is WIPED by the whole-device rebuild exactly like
+  // every other non-modeled table (nothing in restorePreservableKeys/hostKeyPreservation.js names
+  // it — only host_signing_key/device_identity_key get byte-identical preservation), so it is not
+  // PURGE_PRESERVED_TABLES. It belongs here, not in PURGE_WIPED_TABLES, because it SELF-RE-ESTABLISHES
+  // via ordinary operation, the same reasoning `devices` (stub-seeded on receipt) already uses in
+  // this bucket: every still-connected peer re-reports its applied-tombstone set on its very next
+  // `authenticate` (electron/auth/connectionAuth.js), so the table repopulates itself without any
+  // special-cased restore code, unlike PURGE_WIPED_TABLES' genuinely-unrecoverable director
+  // work-product (import_evidence, compound_cell_decisions, ...). A peer that never reconnects simply
+  // reads as UNKNOWN again until it does — the same honest "never certainty about a peer it cannot
+  // hear from" behavior S3a/S3b already require, not a regression a purge introduces.
+  //
+  // Red Hat confirmed (2026-10-01, T322 S3a round 2, tied to #686's digest-key leak): the table's
+  // columns are (device_id, tombstone_id, version, reported_at) only — no camper name, no camper
+  // field of any kind in the table definition or anywhere in its one write path
+  // (connectionAuth.js's persistAppliedTombstones, fed by syncNode.js's `SELECT id, version FROM
+  // tombstones`). tombstone_id is always `tombstones.id`, which is always `campers.id` for the
+  // purged camper (purgeSupportCommand.js mints one tombstone per purge, entity hardcoded
+  // 'campers', id = the purged camper's own id) — so whether this column is PII-bearing reduces to
+  // whether `campers.id` is. For every camper minted under the current scheme (the only mint site,
+  // `camperIdentityResolver.js` -> `mintCamperId()`, `camper2:<randomUUID()>`), it is opaque and
+  // carries nothing — a materially different outcome from #686's cleartext digest-map leak.
+  //
+  // CONDITIONAL, not structural, per Red Hat's finding — stated plainly rather than overclaimed:
+  // this is true because no pre-T321-style camper (`camper1:<camp>:name:<cleartext-nameKey>`,
+  // `electiveDerivedIds.js`) exists in any live camp today, which is an accepted, owner-flagged,
+  // point-in-time premise of T321's own ADR (`docs/adr/2026-10-01-camper-id-high-entropy-format.md`,
+  // "Tombstones & digest keys already written" — pre-T321 ids are NOT re-keyed, and the ADR itself
+  // asks the owner to confirm this "no live data" reading), not a guarantee this table or its write
+  // path enforces on its own (`persistAppliedTombstones` validates shape/type of an incoming id,
+  // never its format). If that premise is ever wrong — a restored pre-T321 snapshot promoted to a
+  // real camp, or a resolver regression that re-mints an old-style id — this table would carry
+  // whatever `tombstones.id` carries, with no gate here catching it, same as `tombstones` itself
+  // already would. Tracked as a residual, not fixed in this slice: fixing it means validating id
+  // format at the tombstone-mint or report-persist boundary, which is T321/T233 surface, not S3a's.
+  'peer_tombstone_reports',
 ]
 
 // The complete accounting: every non-modeled table falls into exactly one bucket. The test asserts

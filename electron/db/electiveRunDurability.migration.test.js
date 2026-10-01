@@ -57,15 +57,12 @@ function preV83Db(tag = 'v83-migrated') {
 describe('migration v83: version and table/column presence', () => {
   it('declares schema version 83 on a fresh db', () => {
     const db = freshDb()
-    // T293 (v84) landed after this file was written. CURRENT_SCHEMA_VERSION/getSchemaVersion
-    // track the real current head, same reasoning as electiveRunLifecycle.migration.test.js's
-    // "lands at the current schema version" test. The v83-specific row count below is unaffected
-    // by that — it is checking that v83's OWN migration landed, not that v83 is the current head.
-    // T321 (v85) landed after this file was written; CURRENT_SCHEMA_VERSION
-    // tracks the real current head, same reasoning this test already states.
-    // T322 S3a (v86, peer_tombstone_reports) landed after that; same reasoning again.
-    expect(CURRENT_SCHEMA_VERSION).toBe(86)
-    expect(getSchemaVersion(db)).toBe(86)
+    // A fresh db always lands at the current head, whatever that is — pinning the head
+    // to a literal broke on every later schema bump (v84, v85, now T322 S3a's v86) for
+    // a fact this test was never actually checking. What's actually under test — that
+    // v83's OWN migration landed — is the row count below, a legitimate literal because
+    // v83 is v83 forever, regardless of what head the app is at.
+    expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 83').get().c).toBe(1)
     db.close()
   })

@@ -68,6 +68,61 @@ archive_when: superseded when T322 S3b (director UI) lands and the full ticket's
 
 **Score summary:** Security 5, Red Hat (resilience) 5, Code Reviewer (maintainability) 4 — average 4.67, no dimension below 3; Tester/Designer N/A (no UI surface, excluded from the average, not scored as zero); Verifier PASS with no unresolved UNVERIFIED claims. Meets `CONSTITUTION.md` Art. VII's PASS bar.
 
+## CI round 2 (2026-10-01): schema-bump family fallout + purge-collateral classification
+
+CI on PR #711 went red twice after the round-1 push, both in the T321 "a chosen subset is not the
+gate" failure class — the local gate run was a correctly-run subset (all 12 originally-named focused
+files plus the registry/scanner family), not the whole gate, and the whole gate found more.
+
+**Round 2a — four schema-version pins** broke because they hardcoded the schema HEAD as a literal
+(`CURRENT_SCHEMA_VERSION`/`getSchemaVersion` compared to `85`), which v86 moved. Fixed by making each
+pin read `CURRENT_SCHEMA_VERSION` (the real source constant) instead of a hand-maintained literal,
+and keeping only the legitimate literal in each file — the `schema_migrations WHERE version = N`
+check for that migration's OWN number, which never changes: `anchorVocabularyRename.migration.test.js`
+(v84), `camperIdentityKeys.migration.test.js` (v85), `electiveRunDurability.migration.test.js` (v83),
+`electiveRunLifecycle.migration.test.js` (the fresh-vs-migrated chain-integrity check, both sides
+compared against the source constant rather than each other, preserving the original anti-vacuity
+intent while removing the hand-maintained literal). `migrationDomainState.js` classified v86 into
+`SCHEMA_ONLY_MIGRATIONS` (new table, no ALTER/backfill/appendOp, starts empty, host-local) — explicitly
+NOT `DOMAIN_STATE_MIGRATIONS`, leaving `[70, 77, 84, 85]` untouched. `bareEqualityRollback.guard.test.js`
+already needed no second fix beyond the round-1 count bump (46->47) — its only registry is a derived
+`readdirSync` glob, not a hand-maintained list.
+
+**Round 2b — purge-collateral classification.** `peer_tombstone_reports` is a new non-modeled table and
+needed a bucket in `electron/automerge/purgeCollateral.js`'s four-way partition (wiped / ledger /
+preserved / infrastructure). Classified `PURGE_INFRASTRUCTURE_TABLES`, not `PURGE_PRESERVED_TABLES`:
+mechanically the whole-device rebuild wipes it like every other non-modeled table (nothing in
+`restorePreservableKeys` names it — only `host_signing_key`/`device_identity_key` get byte-identical
+preservation), but it self-re-establishes via ordinary operation — every still-connected peer
+re-reports on its very next `authenticate` — the same reasoning `devices` (stub-seeded on receipt)
+already uses in that bucket, unlike `PURGE_WIPED_TABLES`' genuinely-unrecoverable director
+work-product.
+
+**Red Hat dispatched specifically to confirm no #686-class leak** (the prior incident where
+`elective_assignment_runs.snapshot_digest` carried a purged camper's identity in cleartext). Finding,
+score 4/5: `peer_tombstone_reports`'s columns (`device_id, tombstone_id, version, reported_at`) and
+its one write path (`connectionAuth.js`'s `persistAppliedTombstones`, fed by `syncNode.js`'s
+`SELECT id, version FROM tombstones`) carry no camper name or display value — `tombstone_id` is
+always `tombstones.id`, which is always `campers.id` for the purged camper. For every camper minted
+under the current scheme (`camper2:<randomUUID()>`, the only mint site), this is genuinely PII-free —
+materially different from #686. **But Red Hat correctly flagged the first-drafted classification
+comment as overclaiming**: the PII-free property holds because no live camp predates T321's
+high-entropy id scheme today (an accepted, owner-flagged, point-in-time premise of T321's own ADR,
+not a structural guarantee this table or its write path enforces — `persistAppliedTombstones`
+validates shape/type of an incoming id, never its format). The comment in `purgeCollateral.js` was
+rewritten to state this conditionally rather than as a permanent guarantee, and to name the residual
+(a pre-T321-style snapshot ever promoted to a real camp, or a resolver regression, would carry
+whatever `tombstones.id` carries, with no gate here catching it) as tracked-but-not-fixed-in-this-
+slice — fixing it is T321/T233 surface (id-format validation at mint or report-persist time), not
+S3a's.
+
+**Full local gate run after both rounds of fixes** (per owner override: the schema-bump family in
+full, not a duplicate whole-`npm run test` run on a loaded machine — CI judges the rest): 75 files,
+689 tests, all green (`electron/db/*.migration*.test.js`, `electron/db/rollback/*.test.js`,
+`electron/ops/*Parity*.test.js`, `electron/ipcSurfaceParity.test.js`,
+`electron/automerge/purgeCollateral.test.js`, `electron/db/migrationDomainState.test.js`).
+`check:governance`: no findings. `npm run lint`: 0 errors.
+
 ## Open items for the next worker (S3b, not this ticket's close)
 
 - T322 stays open. S3b (director-facing UI on `DeviceManagerScreen.jsx`) reads `peer_tombstone_reports` per-id (`LOGICALLY_ERASED` iff a row exists for `(peer, tombstone.id)` with `version >= tombstone.version`; otherwise `UNKNOWN`) — the ticket's S3b section and the ADR addendum both now say this correctly.

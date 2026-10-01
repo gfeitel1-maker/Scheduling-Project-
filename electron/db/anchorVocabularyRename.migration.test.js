@@ -60,10 +60,11 @@ describe('migration v84: fresh install declares the renamed columns', () => {
   it('declares schema version 84', () => {
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    // T321 (v85) landed after this file was written; CURRENT_SCHEMA_VERSION
-    // tracks the real current head, not v84's own release version — same
-    // reasoning electiveRunDurability.migration.test.js states for itself.
-    expect(CURRENT_SCHEMA_VERSION).toBe(85)
+    // Pin v84's OWN migration marker, not "what is the current head" — a literal
+    // CURRENT_SCHEMA_VERSION comparison broke on every later schema bump (T321's v85,
+    // T322 S3a's v86, ...) for a fact this test was never actually checking: whether
+    // v84 itself landed. That is what the row below verifies instead.
+    expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 84').get().c).toBe(1)
     db.close()
   })
 

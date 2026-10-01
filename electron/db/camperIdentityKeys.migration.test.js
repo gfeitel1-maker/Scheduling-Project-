@@ -68,8 +68,12 @@ function preV85Db(tag = 'v85-migrated') {
 describe('migration v85: version and table/index presence', () => {
   it('declares schema version 85 on a fresh db', () => {
     const db = freshDb()
-    expect(CURRENT_SCHEMA_VERSION).toBe(85)
-    expect(getSchemaVersion(db)).toBe(85)
+    // A fresh db always lands at the current head, whatever that is — pinning it to a
+    // literal (85) broke on every later schema bump (T322 S3a's v86, ...) for a fact
+    // this test was never actually checking. What's actually under test — that v85's
+    // OWN migration marker landed — is the row count below, which is a legitimate
+    // literal because v85 is v85 forever, regardless of what head the app is at.
+    expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 85').get().c).toBe(1)
     db.close()
   })
@@ -85,7 +89,7 @@ describe('migration v85: version and table/index presence', () => {
     const { db } = preV85Db()
     expect(hasTable(db, 'camper_identity_keys')).toBe(false)
     initSchema(db)
-    expect(getSchemaVersion(db)).toBe(85)
+    expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
     expect(hasTable(db, 'camper_identity_keys')).toBe(true)
     db.close()
   })
