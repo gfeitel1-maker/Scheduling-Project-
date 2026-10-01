@@ -33,7 +33,7 @@ import { ensureCohort } from './utils/ensureCohort'
 import { seedDays } from './utils/seedDays'
 import { describeWriteFailure } from './utils/writeErrorMessage'
 import { S, useEnterTransition, prefersReducedMotion } from './styles/shared'
-import { enqueue, upsertById, removeById, dismissHead } from './notices/noticeQueue'
+import { enqueue, upsertById, removeById } from './notices/noticeQueue'
 
 // Keys mirrored into screenKeys.js (a plain-data sibling file, not this
 // component file) so a guard test can assert every readiness/rootMap-node
@@ -387,6 +387,15 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
         // T200 board follow-up: removes only THIS invocation's own entry,
         // wherever it sits in the queue — not the head, not the whole queue.
         setNotices((q) => removeById(q, myId))
+        // Round 2, Finding 3: null the ref so a genuinely new bootstrap
+        // story (a later campId, or a later retry after this one already
+        // cleared) mints a fresh id instead of silently reusing this
+        // resolved invocation's — otherwise the id comparison at the
+        // dismiss site below can never go false for a bootstrap head and
+        // becomes a no-op restatement of `source === 'bootstrap'`. Guarded
+        // on identity because a retry started after this recompose was
+        // scheduled but before it ran may have already minted its own id.
+        if (bootstrapNoticeIdRef.current === myId) bootstrapNoticeIdRef.current = null
       }
     }
 
@@ -454,6 +463,17 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
           // non-bootstrap head can never render a "Retrying…" state.
           busy={headNotice.source === 'bootstrap' && bootstrapBusy}
           onDismiss={() => {
+            // Round 2, Finding 1 (HIGH, Red Hat CONFIRMED): removal here
+            // must be keyed to the id of the notice that was ACTUALLY
+            // dismissed — captured at click time, below — never "whatever
+            // is at index 0 now". This fires after a 140ms fade, and in
+            // that window a different writer (a clean bootstrap resolve)
+            // can remove the dismissed entry by id already, advancing the
+            // head to an unrelated notice the director never dismissed. A
+            // positional removal here would then destroy that unrelated
+            // notice instead; an id-keyed removal is a harmless no-op when
+            // its entry is already gone.
+            const dismissedNoticeId = headNotice.id
             // Round 3, MEDIUM / T200 board follow-up (f): mark the current
             // runBootstrap invocation dismissed ONLY when the notice being
             // dismissed IS that invocation's own bootstrap entry — so a
@@ -462,8 +482,11 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
             // never suppress a later bootstrap recompose.
             if (headNotice.source === 'bootstrap' && headNotice.id === bootstrapNoticeIdRef.current) {
               dismissedRef.current = true
+              // Round 2, Finding 3: null the ref so a later bootstrap story
+              // mints a fresh id rather than reusing this dismissed one.
+              bootstrapNoticeIdRef.current = null
             }
-            setNotices((q) => dismissHead(q))
+            setNotices((q) => removeById(q, dismissedNoticeId))
           }}
         />
       )}
@@ -520,15 +543,34 @@ function OpRejectedNoticeBanner({ headNotice, queueCount, busy, onDismiss }) {
       onDismiss()
       return
     }
-    setDismissingId(headNotice.id)
+    // Round 2, Finding 2 (MEDIUM, two reviewers): a second dismiss
+    // activation on the same head (keyboard Enter/Space isn't blocked by
+    // the dismissing style's pointer-events:none the way a mouse click is,
+    // and jsdom honours neither) used to arm a second timer without
+    // clearing the first, so both fired. Clearing any pending timer before
+    // arming a new one collapses a double activation into a single fade.
+    clearTimeout(dismissTimeoutRef.current)
+    const dismissingThisId = headNotice.id
+    setDismissingId(dismissingThisId)
     dismissTimeoutRef.current = setTimeout(() => {
-      // T200 board follow-up: onDismiss removes THIS notice by id
-      // (dismissHead, since this is always the current head) — a notice
-      // that arrived mid-fade is a separate queue entry and is never
-      // touched by this removal, so it can't be swallowed the way a
-      // single-scalar overwrite could.
-      setDismissingId(null)
-      onDismiss()
+      dismissTimeoutRef.current = null
+      // Guard: only fire onDismiss if this timer's id is still the one
+      // armed — a no-op if something else already resolved it. With the
+      // clearTimeout above this can't currently be reached by a stale
+      // timer, but it's a cheap belt-and-braces against the exact class of
+      // bug (an uncleared deferred callback acting on stale state) this
+      // round is hardening.
+      setDismissingId((current) => {
+        if (current !== dismissingThisId) return current
+        // T200 board follow-up: onDismiss removes THIS notice by id
+        // (removeById, keyed to the id captured at dismiss time — see
+        // AppShell's onDismiss, Round 2 Finding 1) — a notice that arrived
+        // mid-fade is a separate queue entry and is never touched by this
+        // removal, so it can't be swallowed the way a single-scalar
+        // overwrite could.
+        onDismiss()
+        return null
+      })
     }, 140)
   }
 

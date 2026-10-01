@@ -1,9 +1,12 @@
 // Pure-function tests for the FIFO notice queue (T200 board follow-up: an
 // offline-queue rejection could overwrite a bootstrap-failure notice,
-// losing it). These pin the four queue operations without any React/DOM —
+// losing it). These pin the three queue operations without any React/DOM —
 // src/App.test.jsx pins the director-visible behavior built on top of them.
+// Deliberately id-keyed throughout (round 2 removed `dismissHead`, a
+// positional removal that raced a deferred dismiss fade against an id-keyed
+// clean-resolve removal — see noticeQueue.js's header comment).
 import { describe, it, expect } from 'vitest'
-import { enqueue, upsertById, removeById, dismissHead } from './noticeQueue'
+import { enqueue, upsertById, removeById } from './noticeQueue'
 
 describe('enqueue', () => {
   it('appends a new entry to the end', () => {
@@ -85,27 +88,5 @@ describe('removeById', () => {
     const queue = [{ id: 'a', message: 'first' }, { id: 'b', message: 'second' }]
     removeById(queue, 'a')
     expect(queue).toEqual([{ id: 'a', message: 'first' }, { id: 'b', message: 'second' }])
-  })
-})
-
-describe('dismissHead', () => {
-  it('removes only the first entry', () => {
-    const queue = [
-      { id: 'a', message: 'first' },
-      { id: 'b', message: 'second' },
-    ]
-    const result = dismissHead(queue)
-    expect(result).toEqual([{ id: 'b', message: 'second' }])
-  })
-
-  it('returns an empty array when the queue has one entry', () => {
-    const queue = [{ id: 'a', message: 'first' }]
-    expect(dismissHead(queue)).toEqual([])
-  })
-
-  it('does not mutate the input array', () => {
-    const queue = [{ id: 'a', message: 'first' }, { id: 'b', message: 'second' }]
-    dismissHead(queue)
-    expect(queue).toHaveLength(2)
   })
 })

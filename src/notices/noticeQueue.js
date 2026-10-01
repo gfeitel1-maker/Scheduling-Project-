@@ -3,6 +3,15 @@
 // React, no App.jsx import. Every function returns a NEW array; the input
 // queue is never mutated. See noticeQueue.test.js for the behavior pinned
 // here without a DOM.
+//
+// Deliberately id-keyed throughout, with no positional removal (there used
+// to be a `dismissHead`, removed in round 2): the dismiss path is deferred
+// behind a ~140ms fade, and another writer (a bootstrap retry resolving
+// cleanly, a fresh arrival) can change what sits at index 0 before that
+// timer fires. A removal keyed to the id captured at dismiss time is a
+// no-op if that entry is already gone and never touches a different entry
+// that has since become head; a positional removal has no way to tell the
+// two apart.
 
 export function enqueue(queue, entry) {
   return [...queue, entry]
@@ -22,8 +31,4 @@ export function upsertById(queue, id, patch) {
 
 export function removeById(queue, id) {
   return queue.filter((entry) => entry.id !== id)
-}
-
-export function dismissHead(queue) {
-  return queue.slice(1)
 }
