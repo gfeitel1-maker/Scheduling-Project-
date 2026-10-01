@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { buildGraph, renderIndex, GENERATED_HEADER } from './build-work-index.js'
+import { readFileSync } from 'node:fs'
+import { join, dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { buildGraph, renderIndex, GENERATED_HEADER, SOURCE_DIRS } from './build-work-index.js'
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 // Fixtures are hand-written rather than read from docs/, so these tests keep
 // passing while the real documents change. A test that reads the live corpus
@@ -153,5 +158,17 @@ describe('renderIndex', () => {
     // An empty section must read as "checked, none found" — not as a section
     // that was skipped. Silence and zero are different claims.
     expect(render([TICKET, ADR])).toMatch(/None\./)
+  })
+})
+
+// docs/work/INDEX.md stopped being committed (see
+// docs/adr/2026-10-01-work-index-is-generated-not-committed.md) — docs/work/README.md is the
+// committed entry point a reader lands on instead. It must name every directory this builder
+// actually reads from, or it silently drifts from the generator's real inputs.
+describe('docs/work/README.md names every SOURCE_DIRS entry', () => {
+  it('mentions each source directory the index is built from', () => {
+    const readme = readFileSync(join(ROOT, 'docs', 'work', 'README.md'), 'utf8')
+    const missing = SOURCE_DIRS.filter((dir) => !readme.includes(dir))
+    expect(missing).toEqual([])
   })
 })

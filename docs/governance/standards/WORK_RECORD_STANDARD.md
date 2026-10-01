@@ -427,9 +427,12 @@ unnecessary, that is a rule 8 challenge — raise it, do not quietly omit it.
 **never hand-edited**. It carries a generated-file header. It holds open work by task class,
 decisions with their inverted backlinks, orphans, and dangling references.
 
-Regenerate with `npm run index:work`. `npm run check:governance` rebuilds it in memory and reports
-if the committed copy is stale, so a forgotten regeneration surfaces as a finding rather than as
-silent rot.
+It is gitignored and never committed — see
+[`docs/adr/2026-10-01-work-index-is-generated-not-committed.md`](../../adr/2026-10-01-work-index-is-generated-not-committed.md).
+Regenerate it locally with `npm run index:work`. There is no committed copy for `npm run
+check:governance` to compare against, so there is nothing for that gate to report as stale or
+missing — a forgotten regeneration is simply a stale local file, not a finding. `docs/work/README.md`
+is the committed entry point for a reader who has not run the generator.
 
 Being generated, `INDEX.md` is **descriptive, never authority** — `GOVERNANCE_INDEX.md` §9 applies
 to it in full. Where it disagrees with the documents it was built from, they are right and it is
