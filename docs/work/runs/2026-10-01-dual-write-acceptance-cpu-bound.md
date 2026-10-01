@@ -3,33 +3,28 @@ task: board q-freeze-pr-residuals (2) — dual-write acceptance coverage for ele
 document_type: run
 date: 2026-10-01
 round: 1
-status: complete
+status: pass
 task_class: test-infrastructure
 governing_docs:
   - docs/governance/standards/TESTING_STANDARD.md
 related_tickets:
-  - T251
-  - T199
+  - docs/work/tickets/T251-t199-acceptance-fixture.md
+  - docs/work/tickets/T199-individual-electives-end-to-end.md
 related_specs: []
 related_adrs:
   - docs/adr/2026-09-29-per-op-savepoint-inside-an-atomic-boundary.md
-selected_agents:
-  - Maker
-  - Code Reviewer
-  - Red Hat
-  - Verifier
-  - Grader
+selected_agents: [governor, maker, code-reviewer, red-hat, verifier, grader]
 omitted_agents:
-  - agent: Architect
+  - agent: architect
     reason: not-applicable
     note: test-only change, no new data shape or contract
-  - agent: Designer
+  - agent: designer
     reason: not-applicable
     note: no UI surface
-  - agent: Security
+  - agent: security
     reason: not-applicable
     note: no auth/secrets/IPC/packaging surface touched; test-only, local tmp dirs
-  - agent: Tester
+  - agent: tester
     reason: not-applicable
     note: no UI to exercise; this is a backend acceptance/perf-regression test
 deterministic_checks:
