@@ -40,6 +40,13 @@
 // then offer an ADD where the director meant a correction — writing a second row
 // beside the one they were fixing.
 import { resolvePreferenceCoordinates } from '../assignment/resolvePreferenceCoordinates.js'
+// board item 9b round 3 (item 2) — the ONE wording for "this camper's row is
+// gone", also used by runStateCopy.js's groupBundleTierNotCoveredFindings and
+// DraftRunView.jsx's sibling sites. A live ESM circular import
+// (runStateCopy.js already imports buildPreferenceLookup from THIS module);
+// safe because this binding is only read inside a function body, never at
+// module-evaluation time.
+import { UNKNOWN_CAMPER_LABEL } from './runStateCopy.js'
 // T318 round 2 — `hasOrderingEvidence` moved to src/engine/rankKind.js, a
 // dependency-free module also imported by the engine
 // (buildElectiveAssignments.js) and the ETL (preferenceSheet.js), so the
@@ -232,6 +239,19 @@ export function buildCamperElectiveWeek({
       }
     })
 
+  // board item 9b round 3 (item 2) — NOT the same defect class as
+  // listRunCampers' fallback above, deliberately left as `null` rather than
+  // UNKNOWN_CAMPER_LABEL. This is `null` both when `mine` is empty (a
+  // camperId with no placement rows at all — pinned pre-existing behaviour,
+  // camperElectiveWeek.test.js "returns an empty week for a camper with no
+  // placements") and when the one placement row's own `camper_name` is null.
+  // Either way CamperWeekPanel.jsx's `{week.camperName}` renders NOTHING for
+  // null — never the raw camper id — so there is no UUID to leak here; the
+  // heading is merely blank, a cosmetic gap rather than the information
+  // disclosure the fallback above exists to prevent. Left alone rather than
+  // widened into for that reason, matching the sweep test's two FinalRunView
+  // assertions (the picker list row and the opened week heading), both of
+  // which pass today without this branch changing.
   return {
     camperId,
     camperName: mine[0]?.camper_name ?? null,
@@ -248,7 +268,9 @@ export function listRunCampers(rows = NONE) {
     if (!byCamper.has(row.camper_id)) {
       byCamper.set(row.camper_id, {
         camperId: row.camper_id,
-        camperName: row.camper_name ?? row.camper_id,
+        // board item 9b round 3 (item 2) — never a raw camper UUID in
+        // director-facing copy; see UNKNOWN_CAMPER_LABEL's own header.
+        camperName: row.camper_name ?? UNKNOWN_CAMPER_LABEL,
         placementCount: 0,
         fallbackCount: 0,
       })

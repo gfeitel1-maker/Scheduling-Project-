@@ -103,9 +103,12 @@ describe('buildCamperElectiveWeek', () => {
       ])
     })
 
-    it('falls back to the id when the joined camper row is missing', () => {
+    // board item 9b round 3 (item 2) — was "falls back to the id", which was
+    // the raw-camper-UUID defect itself; never a raw id in director-facing
+    // copy (M1/UNKNOWN_CAMPER_LABEL).
+    it('falls back to the truthful degrade label, never the raw id, when the joined camper row is missing', () => {
       expect(listRunCampers([{ id: 'a1', camper_id: 'cam-x', camper_name: null, preference_rank: 1 }]))
-        .toEqual([{ camperId: 'cam-x', camperName: 'cam-x', placementCount: 1, fallbackCount: 0 }])
+        .toEqual([{ camperId: 'cam-x', camperName: 'a camper who is no longer on the roster', placementCount: 1, fallbackCount: 0 }])
     })
   })
 })

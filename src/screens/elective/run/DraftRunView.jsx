@@ -34,7 +34,7 @@ import {
   DANGLING_MOVE_PLACEHOLDER, FINALIZE_MESSAGES, REMOVE_PLACEMENT_LABEL, danglingMessage, occurrenceLabel, overCapacityMessage,
   resolveCamperDisambiguators, satisfactionSummary, stalenessOfferMessage,
   groupBundleTierNotCoveredFindings, bundleTierNotCoveredGroupMessage, finalizeFindingMessage,
-  sheetOnlyCampersMessage,
+  sheetOnlyCampersMessage, UNKNOWN_CAMPER_LABEL,
 } from './runStateCopy.js'
 
 const styles = {
@@ -584,7 +584,7 @@ export default function DraftRunView({
     // rule, also applied in runStateCopy.js's groupBundleTierNotCoveredFindings
     // for the same reason): a sheet-only camper whose row is gone (hard-deleted
     // after an earlier generation) degrades to a truthful sentence fragment.
-    return (state.sheetOnlyCampers ?? []).map((id) => camperById.get(id)?.display_name ?? 'a camper who is no longer on the roster')
+    return (state.sheetOnlyCampers ?? []).map((id) => camperById.get(id)?.display_name ?? UNKNOWN_CAMPER_LABEL)
   }, [state.campers, state.sheetOnlyCampers])
   const stateRowCount = overCapacityRows.length + danglingRows.length + collapsingOnlyRows.length + commitNotices.length
     + bundleMismatchGroups.length + (sheetOnlyCamperNames.length > 0 ? 1 : 0)
@@ -601,7 +601,7 @@ export default function DraftRunView({
     )),
     ...danglingRows.map((f, i) => {
       const index = overCapacityRows.length + i
-      const camperName = rows.find((r) => r.camper_id === f.camper_id)?.camper_name ?? f.camper_id
+      const camperName = rows.find((r) => r.camper_id === f.camper_id)?.camper_name ?? UNKNOWN_CAMPER_LABEL
       // T320 round 2, F5 — a collapsing row is still mid-write's aftermath
       // visually, so its control stays disabled through the animation too.
       const isCollapsing = collapsingRows.some((r) => r.assignment_id === f.assignment_id)
@@ -678,7 +678,7 @@ export default function DraftRunView({
     // can no longer usefully interact with.
     ...collapsingOnlyRows.map((f, i) => {
       const index = overCapacityRows.length + danglingRows.length + i
-      const camperName = rows.find((r) => r.camper_id === f.camper_id)?.camper_name ?? f.camper_id
+      const camperName = rows.find((r) => r.camper_id === f.camper_id)?.camper_name ?? UNKNOWN_CAMPER_LABEL
       return (
         <div
           key={`dm-wrap-${f.assignment_id}`}
@@ -895,7 +895,7 @@ export default function DraftRunView({
                 return (
                 <tr key={r.id} data-testid={`placement-row-${r.id}`}>
                   <td style={styles.td}>
-                    {r.camper_name ?? r.camper_id}
+                    {r.camper_name ?? UNKNOWN_CAMPER_LABEL}
                     {disambiguator ? (
                       <div style={styles.camperDisambiguator}>{disambiguator}</div>
                     ) : null}
@@ -903,7 +903,7 @@ export default function DraftRunView({
                   <td style={styles.td}>
                     <select
                       data-testid={`placement-occurrence-${r.id}`}
-                      aria-label={`Placement for ${r.camper_name ?? r.camper_id}`}
+                      aria-label={`Placement for ${r.camper_name ?? UNKNOWN_CAMPER_LABEL}`}
                       value={r.occurrence_id}
                       onChange={async (e) => {
                         const occurrenceId = e.target.value
@@ -923,7 +923,7 @@ export default function DraftRunView({
                     <input
                       type="checkbox"
                       data-testid={`placement-lock-${r.id}`}
-                      aria-label={`Lock ${r.camper_name ?? r.camper_id}'s placement`}
+                      aria-label={`Lock ${r.camper_name ?? UNKNOWN_CAMPER_LABEL}'s placement`}
                       checked={r.is_locked === 1 || r.is_locked === true}
                       onChange={async (e) => {
                         const locked = e.target.checked

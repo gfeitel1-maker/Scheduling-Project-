@@ -694,6 +694,75 @@ describe('(C)(4) sheetOnlyCampers — named, not just counted', () => {
 })
 
 // ---------------------------------------------------------------------------
+// board item 9b round 3 (item 2) — M1 fixed only the ONE site it introduced
+// (sheetOnlyCamperNames, DraftRunView.jsx). The same raw-camper-UUID defect
+// survives at every sibling site that reads `camper_name ?? camper_id` (or an
+// id-shaped fallback): the dangling-placement rows and their aria-labels, the
+// placement table cell and its two aria-labels, and listRunCampers' picker
+// list (which is FinalRunView's vector — CamperWeekPanel.jsx builds its list
+// from listRunCampers).
+//
+// A SWEEP, not one assertion per site: every camper-bearing surface is
+// rendered AT ONCE with a UUID-SHAPED camper id whose row is missing from the
+// `campers` catalog, and the whole container is walked for any `textContent`
+// or `aria-label` matching a real UUID shape. The fixture's ordinary ids
+// (`camper-1`, `cam-x`, …) are deliberately NOT UUID-shaped, so a regex this
+// strict could never have caught them — proving the guard can actually fire
+// needs an id the pattern can genuinely match (see memory: "Plant the defect
+// the guard can't see").
+//
+// `data-testid`, `id` and `key` are NEVER checked — several of them carry the
+// raw camper id by design (CamperWeekPanel's `camper-week-open-${camperId}`,
+// the placement row's React `key`) and are not rendered strings a director
+// reads.
+// ---------------------------------------------------------------------------
+describe('no raw camper UUID anywhere on the run screens (board item 9b round 3)', () => {
+  const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
+  const GHOST_ID = '11111111-2222-4333-8444-555555555555'
+
+  function assertNoRawUuid(container) {
+    expect(container.textContent).not.toMatch(UUID_RE)
+    for (const el of container.querySelectorAll('[aria-label]')) {
+      expect(el.getAttribute('aria-label')).not.toMatch(UUID_RE)
+    }
+  }
+
+  // Every camper-bearing surface at once: a dangling finding, a placement
+  // table row, and the CamperWeekPanel/FinalRunView camper list, all naming
+  // the SAME ghost camper — whose row is absent from `campers` (deleted after
+  // an earlier generation) and whose assignment row carries no `camper_name`
+  // either, so every fallback path is actually exercised.
+  const GHOST_RUN_STATE = {
+    ...CLEAN_RUN_STATE,
+    campers: CAMPERS, // the ghost is deliberately NOT in this list
+    rows: [
+      { id: 'a-ghost', occurrence_id: 'occ-1', camper_id: GHOST_ID, activity_id: 'act-1', choice_id: 'choice-1', preference_rank: 1, camper_name: null, source: 'solver', is_locked: 0 },
+    ],
+    danglingFindings: [
+      { kind: 'DANGLING_MANUAL_ASSIGNMENT', camper_id: GHOST_ID, assignment_id: 'a-ghost', occurrence_id: 'occ-1' },
+    ],
+  }
+
+  it('DraftRunView — dangling row, placement table, and their aria-labels', async () => {
+    localClient.getElectiveRun.mockResolvedValue(GHOST_RUN_STATE)
+    const { container } = render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+    await screen.findByTestId('run-state-dangling-move-a-ghost')
+    await screen.findByTestId('placement-row-a-ghost')
+    assertNoRawUuid(container)
+  })
+
+  it('FinalRunView — the CamperWeekPanel picker list AND the opened week (listRunCampers / buildCamperElectiveWeek)', async () => {
+    localClient.getElectiveRun.mockResolvedValue(GHOST_RUN_STATE)
+    const { container } = render(<FinalRunView run={FINAL_RUN} {...catalogs()} />)
+    const openButton = await screen.findByTestId(`camper-week-open-${GHOST_ID}`)
+    assertNoRawUuid(container) // the picker list itself, before any click
+    fireEvent.click(openButton)
+    await screen.findByTestId('camper-week')
+    assertNoRawUuid(container) // the opened week's heading
+  })
+})
+
+// ---------------------------------------------------------------------------
 // T250 B3 — two same-named campers need something beside the name to tell
 // them apart, in both the placement table and CamperWeekPanel's camper list.
 // ---------------------------------------------------------------------------

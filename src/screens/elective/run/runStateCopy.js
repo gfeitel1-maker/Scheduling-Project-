@@ -27,6 +27,16 @@ import { makeCamperIdentityResolver } from '../../../../electron/ops/camperElect
 // as START_REVISION_LABEL so every caller stays untouched by this change.
 export const START_REVISION_LABEL = 'Start a new version'
 
+// board item 9b round 3 (item 2) — the ONE place this wording is authored.
+// M1 (Red Hat round 4) established the rule (never a raw camper UUID in
+// director-facing copy) and this exact literal at two sites
+// (groupBundleTierNotCoveredFindings below, and DraftRunView.jsx's
+// sheetOnlyCamperNames). Exporting it stops a THIRD site from inventing a
+// third wording, and lets every sibling site (the placement table, the
+// dangling-placement rows, listRunCampers' picker list) share the same
+// owner-reviewed sentence rather than falling back to the raw id.
+export const UNKNOWN_CAMPER_LABEL = 'a camper who is no longer on the roster'
+
 // T320 (docs/adr/2026-09-30-elective-run-durability.md item 3; Governor
 // ruling R7) — RELEASE_LOCK_LABEL/'Release lock' is REMOVED: it was the
 // dangling row's only offered remedy and could not resolve the condition
@@ -218,7 +228,7 @@ export function groupBundleTierNotCoveredFindings({ findings = [], campers = [],
     // rule camperDisambiguator's own comment states): a camper row that is
     // gone (hard-deleted after an earlier generation) degrades to a truthful
     // sentence fragment instead.
-    const name = camperById.get(f.camper_id)?.display_name ?? 'a camper who is no longer on the roster'
+    const name = camperById.get(f.camper_id)?.display_name ?? UNKNOWN_CAMPER_LABEL
     byKey.get(key).names.push(name)
   }
   return [...byKey.values()]
