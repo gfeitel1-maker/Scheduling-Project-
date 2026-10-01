@@ -613,107 +613,133 @@ export function recordFieldKeys(doc, entity, entityId) {
   return Object.keys(doc[entity] ?? {}).filter((k) => k.startsWith(prefix) && splitRecordKey(k)?.entityId === entityId)
 }
 
-export function applyWrite(doc, { entity, entity_id, field, value, source, author_user_id }) {
-  assertModeled(entity)
+// The per-field body of a write, applied INSIDE an open A.change. Extracted so
+// applyWrite and applyWrites share one implementation rather than two copies —
+// provenance/authorship/tombstone semantics drift the moment there are two.
+function applyOneWriteInto(d, { entity, entity_id, field, value, source, author_user_id }) {
   const fields = PROJECTIONS[entity].fields
-  return A.change(doc, (d) => {
-    // Lazy top-up (see genesis comment above): a document persisted before `entity` existed in
-    // MODELED_ENTITIES (or a genesis-cloned doc whose frozen entity list predates it) has no
-    // collection for it yet. Create it here rather than assuming createEmptyDoc() already did —
-    // that keeps old on-disk docs working the moment an entity is un-deferred, without needing a
-    // migration step.
-    if (!d[entity]) d[entity] = {}
-    const coll = d[entity]
-    if (field === DELETE_FIELD) {
-      // A delete removes every field key for this record. There is no container
-      // to remove — that absence is the point of the shape.
-      const prefix = `${entity_id}${FIELD_DELIM}`
-      for (const key of Object.keys(coll)) {
-        if (key.startsWith(prefix) && splitRecordKey(key)?.entityId === entity_id) delete coll[key]
-      }
-      // A deleted record's provenance goes with it. Leaving markers behind would
-      // let a later record reusing the same id inherit a hand-edited claim it
-      // never earned.
-      const markerPrefix = `${entity}${FIELD_DELIM}${entity_id}${FIELD_DELIM}`
-      for (const collection of [PROVENANCE_COLLECTION, AUTHOR_COLLECTION]) {
-        const marks = d[collection]
-        if (!marks) continue
-        for (const key of Object.keys(marks)) {
-          if (key.startsWith(markerPrefix)) delete marks[key]
-        }
-      }
-      // WHO DELETED IT — a deliberate tombstone, and the one marker that has to
-      // OUTLIVE the record it describes.
-      //
-      // Trash's whole job is "what was deleted, by whom" (trash.js's listDeleted
-      // reads the DELETE op's author). Everything else about a deleted record is
-      // gone from the document by design — that absence IS the delete — so
-      // without this a deletion made on another device shows as "Unknown", which
-      // is the most visible face of the missing-author gap.
-      //
-      // Stored under the delete sentinel in the AUTHOR collection rather than in
-      // a collection of its own: `__deleted__` is not a projected field of any
-      // entity, so it cannot collide with a real field's author, and reusing the
-      // collection avoids a sixth genesis regeneration for one key per deleted
-      // record. Written AFTER the prefix sweep above, which would otherwise
-      // remove it immediately.
-      //
-      // Bounded by deletions rather than by fields, and cleared when the record
-      // comes back (see the write path below), so a restore does not leave a
-      // record permanently marked as deleted-by-someone.
-      if (author_user_id) {
-        const authors = d[AUTHOR_COLLECTION]
-        if (authors) authors[authorKey(entity, entity_id, DELETE_FIELD)] = author_user_id
-      }
-      return
+  // Lazy top-up (see genesis comment above): a document persisted before `entity` existed in
+  // MODELED_ENTITIES (or a genesis-cloned doc whose frozen entity list predates it) has no
+  // collection for it yet. Create it here rather than assuming createEmptyDoc() already did —
+  // that keeps old on-disk docs working the moment an entity is un-deferred, without needing a
+  // migration step.
+  if (!d[entity]) d[entity] = {}
+  const coll = d[entity]
+  if (field === DELETE_FIELD) {
+    // A delete removes every field key for this record. There is no container
+    // to remove — that absence is the point of the shape.
+    const prefix = `${entity_id}${FIELD_DELIM}`
+    for (const key of Object.keys(coll)) {
+      if (key.startsWith(prefix) && splitRecordKey(key)?.entityId === entity_id) delete coll[key]
     }
-    if (!fields.includes(field)) return
-    coll[recordKey(entity_id, field)] = coerceOpValue(value)
-    // Provenance tracks the LATEST write's ownership, so an import write CLEARS
-    // a human marker rather than leaving it. A director accepting an imported
-    // value (S2b's stale-accept passes source:'import') hands ownership back to
-    // the importer. A marker that only ever accumulated would freeze the field
-    // against every future re-import — a different bug that looks the same.
+    // A deleted record's provenance goes with it. Leaving markers behind would
+    // let a later record reusing the same id inherit a hand-edited claim it
+    // never earned.
+    const markerPrefix = `${entity}${FIELD_DELIM}${entity_id}${FIELD_DELIM}`
+    for (const collection of [PROVENANCE_COLLECTION, AUTHOR_COLLECTION]) {
+      const marks = d[collection]
+      if (!marks) continue
+      for (const key of Object.keys(marks)) {
+        if (key.startsWith(markerPrefix)) delete marks[key]
+      }
+    }
+    // WHO DELETED IT — a deliberate tombstone, and the one marker that has to
+    // OUTLIVE the record it describes.
     //
-    // `source` omitted leaves ownership unchanged: a caller that does not know
-    // must not silently claim either side.
-    if (source !== undefined) {
-      const prov = d[PROVENANCE_COLLECTION]
-      if (prov) {
-        const pKey = provenanceKey(entity, entity_id, field)
-        // NOT `source === 'human'`. The op-log's own rule (ADR
-        // 2026-08-08-s2a §2) is that a NULL source DECODES TO HUMAN — appendOp
-        // defaults `source = null`, and ingest.js's provenance map reads
-        // `latest.source !== 'import' ? 'human' : 'import'`. Only an explicit
-        // 'import' hands ownership to the importer.
-        //
-        // Getting this backwards would have inverted the default for every op
-        // that does not name a source, quietly UNprotecting most hand edits —
-        // the same failure this ADR exists to fix, arriving from the opposite
-        // direction.
-        if (source === 'import') delete prov[pKey]
-        else prov[pKey] = HUMAN_PROVENANCE
-      }
-    }
-    // Authorship, on the same "omitted leaves it unchanged" rule as provenance —
-    // a caller that does not know who is writing must not erase who did.
-    // An explicit null DOES clear it: that is a caller saying "nobody", which is
-    // what bootstrap and pairing honestly are.
-    if (author_user_id !== undefined) {
+    // Trash's whole job is "what was deleted, by whom" (trash.js's listDeleted
+    // reads the DELETE op's author). Everything else about a deleted record is
+    // gone from the document by design — that absence IS the delete — so
+    // without this a deletion made on another device shows as "Unknown", which
+    // is the most visible face of the missing-author gap.
+    //
+    // Stored under the delete sentinel in the AUTHOR collection rather than in
+    // a collection of its own: `__deleted__` is not a projected field of any
+    // entity, so it cannot collide with a real field's author, and reusing the
+    // collection avoids a sixth genesis regeneration for one key per deleted
+    // record. Written AFTER the prefix sweep above, which would otherwise
+    // remove it immediately.
+    //
+    // Bounded by deletions rather than by fields, and cleared when the record
+    // comes back (see the write path below), so a restore does not leave a
+    // record permanently marked as deleted-by-someone.
+    if (author_user_id) {
       const authors = d[AUTHOR_COLLECTION]
-      if (authors) {
-        const aKey = authorKey(entity, entity_id, field)
-        if (author_user_id === null) delete authors[aKey]
-        else authors[aKey] = author_user_id
-      }
+      if (authors) authors[authorKey(entity, entity_id, DELETE_FIELD)] = author_user_id
     }
-    // The record exists again, so any deleted-by tombstone is stale. Cleared on
-    // every write rather than only on a restore: a record can come back by
-    // routes restore.js does not own (a peer's concurrent edit that resurrects
-    // it), and a record listed in Trash while visibly present would be worse
-    // than the "Unknown" this whole change is fixing.
-    const authorsForTombstone = d[AUTHOR_COLLECTION]
-    if (authorsForTombstone) delete authorsForTombstone[authorKey(entity, entity_id, DELETE_FIELD)]
+    return
+  }
+  if (!fields.includes(field)) return
+  coll[recordKey(entity_id, field)] = coerceOpValue(value)
+  // Provenance tracks the LATEST write's ownership, so an import write CLEARS
+  // a human marker rather than leaving it. A director accepting an imported
+  // value (S2b's stale-accept passes source:'import') hands ownership back to
+  // the importer. A marker that only ever accumulated would freeze the field
+  // against every future re-import — a different bug that looks the same.
+  //
+  // `source` omitted leaves ownership unchanged: a caller that does not know
+  // must not silently claim either side.
+  if (source !== undefined) {
+    const prov = d[PROVENANCE_COLLECTION]
+    if (prov) {
+      const pKey = provenanceKey(entity, entity_id, field)
+      // NOT `source === 'human'`. The op-log's own rule (ADR
+      // 2026-08-08-s2a §2) is that a NULL source DECODES TO HUMAN — appendOp
+      // defaults `source = null`, and ingest.js's provenance map reads
+      // `latest.source !== 'import' ? 'human' : 'import'`. Only an explicit
+      // 'import' hands ownership to the importer.
+      //
+      // Getting this backwards would have inverted the default for every op
+      // that does not name a source, quietly UNprotecting most hand edits —
+      // the same failure this ADR exists to fix, arriving from the opposite
+      // direction.
+      if (source === 'import') delete prov[pKey]
+      else prov[pKey] = HUMAN_PROVENANCE
+    }
+  }
+  // Authorship, on the same "omitted leaves it unchanged" rule as provenance —
+  // a caller that does not know who is writing must not erase who did.
+  // An explicit null DOES clear it: that is a caller saying "nobody", which is
+  // what bootstrap and pairing honestly are.
+  if (author_user_id !== undefined) {
+    const authors = d[AUTHOR_COLLECTION]
+    if (authors) {
+      const aKey = authorKey(entity, entity_id, field)
+      if (author_user_id === null) delete authors[aKey]
+      else authors[aKey] = author_user_id
+    }
+  }
+  // The record exists again, so any deleted-by tombstone is stale. Cleared on
+  // every write rather than only on a restore: a record can come back by
+  // routes restore.js does not own (a peer's concurrent edit that resurrects
+  // it), and a record listed in Trash while visibly present would be worse
+  // than the "Unknown" this whole change is fixing.
+  const authorsForTombstone = d[AUTHOR_COLLECTION]
+  if (authorsForTombstone) delete authorsForTombstone[authorKey(entity, entity_id, DELETE_FIELD)]
+}
+
+export function applyWrite(doc, write) {
+  return applyWrites(doc, [write])
+}
+
+/** Apply a RUN of writes in ONE A.change.
+ *
+ * Identical in materialised state to calling applyWrite once per item (same
+ * writes, same order, same actor; within one change a later write to a key
+ * overwrites an earlier one exactly as a later same-actor change does, and
+ * same-actor changes are causally ordered so they never conflict with each
+ * other). What it is not identical in is cost: each A.change re-materialises
+ * the patched collections, which made a deferred flush of n writes O(n²) — see
+ * the 2026-10-01 amendment to
+ * docs/adr/2026-09-29-per-op-savepoint-inside-an-atomic-boundary.md.
+ *
+ * `assertModeled` and the PROJECTIONS lookup run as a PRE-PASS, outside the
+ * change, so a bad entity is rejected before any op is pending. */
+export function applyWrites(doc, writes) {
+  for (const w of writes) {
+    assertModeled(w.entity)
+  }
+  return A.change(doc, (d) => {
+    for (const w of writes) applyOneWriteInto(d, w)
   })
 }
 

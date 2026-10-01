@@ -9,8 +9,13 @@ import { openTemplatedDb, cleanupTemplatedDbs } from '../../db/testDbTemplate.js
 import { appendOp } from '../../ops/operations.js'
 import { docPath, loadDoc, saveDoc } from './docStore.js'
 import { createEmptyDoc, applyWrite } from '../../automerge/campDocument.js'
+import * as A from '@automerge/automerge'
+import { DOCUMENT_OUTCOME } from '../../ops/documentOutcome.js'
 import {
   recordLocalWrite,
+  recordLocalBulkReplace,
+  beginDeferredDocWrites,
+  commitDeferredDocWrites,
   setUserDataDirGetter,
   setDocCipher,
   resetForTests,
@@ -388,5 +393,106 @@ describe('at-rest document cipher (setDocCipher)', () => {
     const raw = fs.readFileSync(docPath(userDataDir, 'camp-1'))
     expect(raw.subarray(0, TAG.length).equals(TAG)).toBe(false) // not our fake-cipher tag
     expect(readRecord(loadDoc(userDataDir, 'camp-1'), 'groups', 'g1').name).toBe('Bunk A')
+  })
+})
+
+// --- The deferred flush replays a RUN of writes in one change (T6xx) --------
+//
+// commitDeferredDocWrites used to call applyLocalWriteNow once per queued item,
+// which is one A.change per field and therefore O(n²) across a runAtomic body
+// (see the 2026-10-01 amendment to
+// docs/adr/2026-09-29-per-op-savepoint-inside-an-atomic-boundary.md). These pin
+// the three things batching must not change: order across a mixed queue,
+// per-item failure containment, and the per-op id ledger scheduleSave carries.
+describe('commitDeferredDocWrites — batched replay', () => {
+  function slotRows(templateId, n) {
+    return Array.from({ length: n }, (_, i) => ({
+      id: `slot-${i}`,
+      template_id: templateId,
+      group_id: null,
+      activity_id: null,
+      day_id: null,
+      time_block_id: null,
+    }))
+  }
+
+  // These tests are only meaningful if the Automerge path actually RUNS. It is
+  // inert without a userDataDir getter (beforeEach sets one) — a test that
+  // silently returned early would pass while proving nothing.
+  it('the dual-write path is live in this suite (guards against an inert no-op)', () => {
+    recordLocalWrite(db, { entity: 'groups', entity_id: 'guard', field: 'name', value: 'live' })
+    expect(readRecord(getDocIfLoaded(db), 'groups', 'guard').name).toBe('live')
+  })
+
+  it('a mixed write/bulk queue replays in queue order', () => {
+    ensureSeeded(db)
+    beginDeferredDocWrites(db)
+    recordLocalWrite(db, { entity: 'groups', entity_id: 'g1', field: 'name', value: 'first' })
+    recordLocalWrite(db, { entity: 'groups', entity_id: 'g1', field: 'name', value: 'second' })
+    recordLocalBulkReplace(db, { entity: 'template_slots', scope_id: 'tpl-1', rows: slotRows('tpl-1', 2) })
+    recordLocalWrite(db, { entity: 'groups', entity_id: 'g1', field: 'name', value: 'third' })
+    recordLocalWrite(db, { entity: 'groups', entity_id: 'g2', field: 'name', value: 'other' })
+    commitDeferredDocWrites(db)
+
+    const doc = getDocIfLoaded(db)
+    // Last write to the field wins, across the bulk item sitting in the middle.
+    expect(readRecord(doc, 'groups', 'g1').name).toBe('third')
+    expect(readRecord(doc, 'groups', 'g2').name).toBe('other')
+    expect(JSON.parse(doc.template_slots_scopes['tpl-1'])).toHaveLength(2)
+  })
+
+  it('a failing write falls back per item: every other write lands exactly once', () => {
+    ensureSeeded(db)
+    // Op rows only — appendOp itself dual-writes, so these deliberately name
+    // DIFFERENT records from the ones the deferred batch below writes.
+    const opA = appendOp(db, { entity: 'groups', entity_id: 'ph-a', field: 'name', value: 'ph', device_id: 'device-1' })
+    const opBad = appendOp(db, { entity: 'groups', entity_id: 'ph-bad', field: 'name', value: 'ph', device_id: 'device-1' })
+    const opC = appendOp(db, { entity: 'groups', entity_id: 'ph-c', field: 'name', value: 'ph', device_id: 'device-1' })
+    const before = A.getAllChanges(getDocIfLoaded(db)).length
+
+    beginDeferredDocWrites(db)
+    recordLocalWrite(db, { entity: 'groups', entity_id: 'ga', field: 'name', value: 'A', op_id: opA.id }, opA)
+    // A real fault INSIDE the A.change callback: Automerge refuses a symbol
+    // value. Nothing before it in the batch may survive, and nothing after it
+    // may be lost.
+    recordLocalWrite(db, { entity: 'groups', entity_id: 'gbad', field: 'name', value: Symbol('nope'), op_id: opBad.id }, opBad)
+    recordLocalWrite(db, { entity: 'groups', entity_id: 'gc', field: 'name', value: 'C', op_id: opC.id }, opC)
+    expect(() => commitDeferredDocWrites(db)).not.toThrow()
+
+    const doc = getDocIfLoaded(db)
+    expect(readRecord(doc, 'groups', 'ga').name).toBe('A')
+    expect(readRecord(doc, 'groups', 'gc').name).toBe('C')
+    expect(readRecord(doc, 'groups', 'gbad')).toBeNull()
+    // EXACTLY ONCE: two surviving writes means two new changes, not four. A
+    // batch that half-applied before throwing would show more.
+    expect(A.getAllChanges(doc).length - before).toBe(2)
+
+    expect(opA[DOCUMENT_OUTCOME]).toBe('applied')
+    expect(opC[DOCUMENT_OUTCOME]).toBe('applied')
+    expect(opBad[DOCUMENT_OUTCOME]).toBe('failed')
+    // Attributed to ITS OWN op, not to the run.
+    expect(listDocumentWriteFailures(db).map((f) => f.op_id)).toEqual([opBad.id])
+  })
+
+  it('scheduleSave still carries every op id in a batched window', () => {
+    ensureSeeded(db)
+    const ops = ['n1', 'n2', 'n3', 'n4'].map((id) =>
+      appendOp(db, { entity: 'groups', entity_id: id, field: 'name', value: id, device_id: 'device-1' })
+    )
+    // Fail the save: the ledger of op ids in the window is what names the lost
+    // writes, and it is the only way to observe scheduleSave's set from outside.
+    const blocker = path.join(os.tmpdir(), `shoresh-livedoc-blocker-${Date.now()}-${Math.random()}`)
+    fs.writeFileSync(blocker, 'not a directory')
+    setUserDataDirGetter(() => blocker)
+
+    beginDeferredDocWrites(db)
+    for (const op of ops) {
+      recordLocalWrite(db, { entity: 'groups', entity_id: op.entity_id, field: 'name', value: op.entity_id, op_id: op.id }, op)
+    }
+    commitDeferredDocWrites(db)
+    flushPendingWrites()
+
+    expect(listDocumentWriteFailures(db).map((f) => f.op_id).sort()).toEqual(ops.map((o) => o.id).sort())
+    fs.rmSync(blocker, { force: true })
   })
 })

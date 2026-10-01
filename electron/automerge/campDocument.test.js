@@ -12,8 +12,9 @@ import {
   STAGE1_FIELDS,
   createEmptyDoc,
   applyWrite,
+  applyWrites,
   saveDoc,
-  loadDoc, readRecord, listRecordIds, recordKey } from './campDocument.js'
+  loadDoc, readRecord, listRecordIds, recordKey, PROVENANCE_COLLECTION, AUTHOR_COLLECTION } from './campDocument.js'
 import { DELETE_FIELD } from '../ops/operations.js'
 import { PROJECTIONS } from '../ops/projections.js'
 
@@ -306,5 +307,129 @@ describe('campDocument — Stage 1 Automerge doc for days_of_operation', () => {
       expect(Object.keys(merged.template_slots_scopes).sort()).toEqual(['tpl-a', 'tpl-b'])
       expect(Object.keys(A.getConflicts(merged) ?? {})).toHaveLength(0)
     })
+  })
+})
+
+// --- applyWrites: one A.change for a run of writes --------------------------
+//
+// The batched path must be indistinguishable from the per-write path in
+// MATERIALISED STATE. Saved BYTES are deliberately NOT compared: one change
+// legitimately encodes differently from N changes, and a byte comparison would
+// be a false red that the next person "fixes" by weakening the test.
+describe('campDocument — applyWrites batches a run into one change', () => {
+  // Both arms must start from the SAME document AND the SAME actor id, or any
+  // difference could be an actor artefact rather than a batching one. Neither
+  // two `createEmptyDoc()` calls nor two `A.load(A.save(base))` calls share an
+  // actor — both mint a fresh random one (measured). So the arms are built with
+  // `A.load(bytes, { actor })` against one explicit actor, which is the only
+  // construction here that is deterministic.
+  const ARM_ACTOR = 'aabbccdd00112233'
+  const CONCURRENT_ACTOR = '99887766554433aa'
+
+  // Base: genesis with the `activities` collection removed, so a write to it
+  // exercises applyWrite's lazy collection top-up branch.
+  const baseBytes = (() => {
+    const stripped = A.change(createEmptyDoc(), (d) => {
+      delete d.activities
+    })
+    return A.save(stripped)
+  })()
+
+  const armDoc = (actor = ARM_ACTOR) => A.load(baseBytes, { actor })
+
+  // Every branch of applyWrite's per-field body, in one fixture. A fixture that
+  // skips a branch proves nothing about that branch.
+  const WRITES = [
+    // (a) plain write, (c) source omitted, (f) author omitted
+    { entity: 'days_of_operation', entity_id: 'd1', field: 'label', value: 'Monday' },
+    // (d) source null -> HUMAN_PROVENANCE; author set
+    { entity: 'days_of_operation', entity_id: 'd1', field: 'sort_order', value: 1, source: null, author_user_id: 'u1' },
+    // (b) source 'import' -> provenance key deleted
+    { entity: 'days_of_operation', entity_id: 'd1', field: 'day_of_week', value: true, source: 'import', author_user_id: 'u2' },
+    { entity: 'days_of_operation', entity_id: 'd2', field: 'label', value: 'Tue', source: 'human', author_user_id: 'u1' },
+    // (e) author_user_id null -> author key deleted
+    { entity: 'days_of_operation', entity_id: 'd2', field: 'camp_id', value: 'camp-1', author_user_id: null },
+    // (i) field not in PROJECTIONS[entity].fields -> silent return
+    { entity: 'days_of_operation', entity_id: 'd2', field: 'not_a_registered_field', value: 'x', source: null, author_user_id: 'u1' },
+    // (j) collection absent -> lazy top-up
+    { entity: 'activities', entity_id: 'a1', field: 'name', value: 'Swim', source: null, author_user_id: 'u3' },
+    // (g) delete: field sweep, provenance/author prefix sweeps, deleted-by tombstone
+    { entity: 'days_of_operation', entity_id: 'd1', field: DELETE_FIELD, value: 1, author_user_id: 'u9' },
+    // (h) write after the delete -> tombstone cleared
+    { entity: 'days_of_operation', entity_id: 'd1', field: 'label', value: 'Monday again', source: null, author_user_id: 'u4' },
+    // (k) second write to a field already written -> last wins (and clears provenance)
+    { entity: 'days_of_operation', entity_id: 'd2', field: 'label', value: 'Tuesday FINAL', source: 'import' },
+  ]
+
+  const COLLECTIONS = ['days_of_operation', 'activities', PROVENANCE_COLLECTION, AUTHOR_COLLECTION]
+  const materialise = (doc) =>
+    Object.fromEntries(COLLECTIONS.map((c) => [c, JSON.parse(JSON.stringify(doc[c] ?? null))]))
+
+  const perWrite = (writes) => {
+    let doc = armDoc()
+    for (const w of writes) doc = applyWrite(doc, w)
+    return doc
+  }
+
+  it('one batched change materialises exactly what N separate changes do', () => {
+    const a = perWrite(WRITES)
+    const b = applyWrites(armDoc(), WRITES)
+    const expected = materialise(a)
+
+    // NON-VACUITY (i): a floor derived from the fixture, so empty-vs-empty fails.
+    expect(Object.keys(expected.days_of_operation)).toHaveLength(3) // d1.label, d2.label, d2.camp_id
+    expect(Object.keys(expected.activities)).toHaveLength(1)
+    expect(Object.keys(expected[PROVENANCE_COLLECTION]).length).toBeGreaterThanOrEqual(2)
+    expect(Object.keys(expected[AUTHOR_COLLECTION]).length).toBeGreaterThanOrEqual(3)
+
+    expect(materialise(b)).toEqual(expected)
+  })
+
+  it('the equality check is sensitive to write order (mutation check)', () => {
+    // NON-VACUITY (ii): reverse the batch and the comparison must FAIL. If it
+    // still passes, the assertion above is not actually comparing anything.
+    const a = perWrite(WRITES)
+    const reversed = applyWrites(armDoc(), [...WRITES].reverse())
+    expect(materialise(reversed)).not.toEqual(materialise(a))
+  })
+
+  it('applyWrites([one]) is applyWrite', () => {
+    const w = { entity: 'days_of_operation', entity_id: 'd9', field: 'label', value: 'Solo', source: null, author_user_id: 'u1' }
+    expect(materialise(applyWrites(armDoc(), [w]))).toEqual(materialise(applyWrite(armDoc(), w)))
+  })
+
+  it('rejects an unmodeled entity before any op is pending', () => {
+    const doc = armDoc()
+    expect(() => applyWrites(doc, [
+      { entity: 'days_of_operation', entity_id: 'd1', field: 'label', value: 'Monday' },
+      { entity: 'not_a_modeled_entity', entity_id: 'x', field: 'y', value: 'z' },
+    ])).toThrow()
+    // The input document is untouched — the throw happened in the pre-pass.
+    expect(readRecord(doc, 'days_of_operation', 'd1')).toBeNull()
+  })
+
+  it('a concurrent remote edit conflicts identically against the batched arm', () => {
+    // THE SYNC-SEAM TEST. Collapsing N changes into one must not change what a
+    // peer's concurrent edit to the same field does on merge.
+    const concurrentBytes = A.save(
+      applyWrite(armDoc(CONCURRENT_ACTOR), {
+        entity: 'days_of_operation',
+        entity_id: 'd2',
+        field: 'label',
+        value: 'CONCURRENT',
+        source: null,
+        author_user_id: 'u-remote',
+      })
+    )
+    const key = recordKey('d2', 'label')
+
+    const mergedA = A.merge(perWrite(WRITES), A.load(concurrentBytes, { actor: CONCURRENT_ACTOR }))
+    const mergedB = A.merge(applyWrites(armDoc(), WRITES), A.load(concurrentBytes, { actor: CONCURRENT_ACTOR }))
+
+    const conflictsA = A.getConflicts(mergedA.days_of_operation, key)
+    const conflictsB = A.getConflicts(mergedB.days_of_operation, key)
+    expect(Object.values(conflictsA ?? {}).sort()).toEqual(['CONCURRENT', 'Tuesday FINAL'])
+    expect(Object.values(conflictsB ?? {}).sort()).toEqual(Object.values(conflictsA ?? {}).sort())
+    expect(mergedB.days_of_operation[key]).toBe(mergedA.days_of_operation[key])
   })
 })
