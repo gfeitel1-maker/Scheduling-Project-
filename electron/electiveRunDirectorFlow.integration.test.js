@@ -166,6 +166,38 @@ describe('A0.1 listElectiveRunsHandler', () => {
     expect(typeof run.finalized_at).toBe('string')
     expect(run.finalized_by).toBeDefined()
   })
+
+  // C3 (board item 9b) — RunIdentity (src/screens/elective/run/RunStateRows.jsx)
+  // used to render `by ${run.finalized_by}`, a raw user id, verbatim to a
+  // director. The SELECT now carries the finalizing user's display name via a
+  // read-side LEFT JOIN (no schema change — the users table already exists).
+  it('also carries finalized_by_name, the finalizing user\'s display name, via a read-side join', async () => {
+    const { campId, user, handlers, token } = await seedAdmin({ name: 'Director Dana' })
+    const fx = seedFixture(db, { campId })
+    const { runId } = buildRun(db, campId, fx)
+    await handlers.finalizeElectiveRun({ token, runId })
+
+    const runs = await handlers.listElectiveRuns(token)
+    const run = runs.find((r) => r.id === runId)
+    expect(run.finalized_by).toBe(user.id)
+    expect(run.finalized_by_name).toBe('Director Dana')
+  })
+
+  it('finalized_by_name is null (not a crash, not a raw id) when finalized_by names no users row', async () => {
+    const { campId, handlers, token } = await seedAdmin()
+    const fx = seedFixture(db, { campId })
+    const { runId } = buildRun(db, campId, fx)
+    await handlers.finalizeElectiveRun({ token, runId })
+    // finalized_by carries no FK (schema.sql's own comment: nullable, a
+    // legacy pre-v74 row migrates forward with both NULL) — an id naming no
+    // live users row is a real, reachable state, not a contrived one.
+    db.prepare('UPDATE elective_assignment_runs SET finalized_by = ? WHERE id = ?').run('ghost-user-id', runId)
+
+    const runs = await handlers.listElectiveRuns(token)
+    const run = runs.find((r) => r.id === runId)
+    expect(run.finalized_by).toBe('ghost-user-id')
+    expect(run.finalized_by_name).toBeNull()
+  })
 })
 
 // ---------------------------------------------------------------------------

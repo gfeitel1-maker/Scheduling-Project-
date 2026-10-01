@@ -87,7 +87,7 @@ const DRAFT_RUN = {
 }
 const FINAL_RUN = {
   ...DRAFT_RUN, id: 'run-2', name: 'Elective assignment — 2026-09-20', status: 'final',
-  finalized_at: '2026-09-24T14:05:00.000Z', finalized_by: 'user-director',
+  finalized_at: '2026-09-24T14:05:00.000Z', finalized_by: 'user-director', finalized_by_name: 'Testdirector Dana',
 }
 
 function rows(overrides = []) {
@@ -756,10 +756,23 @@ describe('T250 archive_when — Final: read-only run identity', () => {
     expect(identity.textContent).toMatch(/Week 2/)
     expect(identity.textContent).toMatch(/Juniors/)
     expect(identity.textContent).toMatch(/2026-09-24/)
-    expect(identity.textContent).toMatch(/user-director/)
+    // C3 — the finalizing user's DISPLAY NAME, never the raw user id.
+    expect(identity.textContent).toMatch(/Testdirector Dana/)
+    expect(identity.textContent).not.toMatch(/user-director/)
     expect(identity.textContent).toMatch(/Final/)
     // Immutable: no move/lock table on a Final run.
     expect(screen.queryByTestId('placement-row-a1')).toBeNull()
+  })
+
+  // C3 (board item 9b) — finalized_by_name is absent (the users row is gone,
+  // or this is a legacy pre-C3 read) but finalized_by is still set: a
+  // director fact still happened, so the clause stays, truthfully degraded
+  // to "a director" rather than a raw id or a dropped clause.
+  it('falls back to "a director" when finalized_by is set but finalized_by_name did not resolve', async () => {
+    render(<FinalRunView run={{ ...FINAL_RUN, finalized_by_name: undefined }} campers={CAMPERS} {...catalogs()} />)
+    const identity = await screen.findByTestId('run-identity')
+    expect(identity.textContent).toMatch(/by a director/)
+    expect(identity.textContent).not.toMatch(/user-director/)
   })
 
   // Round 2 FIX 5(d) (Code Reviewer, LOW) — DraftRunView's own success

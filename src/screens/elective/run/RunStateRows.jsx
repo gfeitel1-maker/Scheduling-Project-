@@ -102,7 +102,14 @@ export function RunIdentity({ run, scheduleTemplates = [], scheduleWeeks = [], t
     week?.name,
     tier?.name,
     run.finalized_at ? `finalized ${run.finalized_at.slice(0, 10)}` : null,
-    run.finalized_by ? `by ${run.finalized_by}` : null,
+    // C3 (board item 9b) — the finalizing user's DISPLAY NAME
+    // (finalized_by_name, a read-side join electron/main.js's
+    // listElectiveRunsHandler now carries), never the raw finalized_by id.
+    // The clause stays whenever finalized_by is SET (a director fact really
+    // happened), degrading to "a director" when the name did not resolve
+    // (the users row is gone, or a legacy pre-C3 read) — never a raw id, and
+    // never silently dropped just because the name is missing.
+    run.finalized_by ? `by ${run.finalized_by_name || 'a director'}` : null,
   ].filter(Boolean)
   return (
     <div data-testid="run-identity" style={identityStyles.wrap}>

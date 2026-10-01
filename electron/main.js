@@ -2106,11 +2106,22 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     // tier_id/finalized_at/finalized_by: RunIdentity (src/screens/elective/
     // run/RunStateRows.jsx) reads all five, and they were previously
     // undefined on a run opened cold from this list.
+    //
+    // C3 (board item 9b) — finalized_by_name is a READ-SIDE LEFT JOIN, no
+    // schema change: RunIdentity used to render the raw finalized_by user id
+    // verbatim ("by f0c9f725-…"). finalized_by carries no FK (schema.sql's
+    // own comment on the column: nullable, a legacy row migrates forward with
+    // both NULL), so the join legitimately yields no match — u.name is then
+    // NULL and the screen falls back to "a director" rather than crashing or
+    // printing the id.
     return db
       .prepare(
-        `SELECT id, name, status, source_filename, solver_version,
-                schedule_week_id, schedule_template_id, tier_id, finalized_at, finalized_by
-           FROM elective_assignment_runs WHERE camp_id = ? ORDER BY name`
+        `SELECT r.id, r.name, r.status, r.source_filename, r.solver_version,
+                r.schedule_week_id, r.schedule_template_id, r.tier_id, r.finalized_at, r.finalized_by,
+                u.name AS finalized_by_name
+           FROM elective_assignment_runs r
+           LEFT JOIN users u ON u.id = r.finalized_by
+          WHERE r.camp_id = ? ORDER BY r.name`
       )
       .all(camp.id)
   }

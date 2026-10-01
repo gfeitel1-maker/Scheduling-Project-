@@ -59,3 +59,44 @@ describe('localClient.mock commitElectiveRun parity', () => {
     expect(occs).toEqual([expect.objectContaining({ id: 'occ-1', run_id: out.runId })])
   })
 })
+
+// C3 (board item 9b) — electron/main.js's listElectiveRunsHandler now joins
+// finalized_by_name off the users table so RunIdentity never renders the raw
+// finalized_by id. The mock mirrors the same field so browser-dev (what
+// Tester drives) matches electron:dev.
+describe('localClient.mock listElectiveRuns — finalized_by_name parity', () => {
+  it('resolves finalized_by_name from state.users by finalized_by, mirroring the real read-side join', async () => {
+    const parsed = { ...PARSED, preferences: [{ camper_id: 'cam-1', label: 'Archery', labelKey: 'archery', rank: 1 }] }
+    const out = await mockShoresh.commitElectiveRun({ name: 'Week 1', parsed, assignments: [] })
+    expect(out.ok).toBe(true)
+
+    const state = JSON.parse(localStorage.getItem('shoresh-mock-state'))
+    state.elective_assignment_runs = state.elective_assignment_runs.map((r) =>
+      r.id === out.runId ? { ...r, finalized_by: 'user-1' } : r
+    )
+    state.users = [...(state.users || []), { id: 'user-1', name: 'Director Dana' }]
+    localStorage.setItem('shoresh-mock-state', JSON.stringify(state))
+
+    const runs = await mockShoresh.listElectiveRuns()
+    const run = runs.find((r) => r.id === out.runId)
+    expect(run.finalized_by).toBe('user-1')
+    expect(run.finalized_by_name).toBe('Director Dana')
+  })
+
+  it('resolves to null (never a crash, never the raw id) when finalized_by names no users row', async () => {
+    const parsed = { ...PARSED, preferences: [{ camper_id: 'cam-1', label: 'Archery', labelKey: 'archery', rank: 1 }] }
+    const out = await mockShoresh.commitElectiveRun({ name: 'Week 1', parsed, assignments: [] })
+    expect(out.ok).toBe(true)
+
+    const state = JSON.parse(localStorage.getItem('shoresh-mock-state'))
+    state.elective_assignment_runs = state.elective_assignment_runs.map((r) =>
+      r.id === out.runId ? { ...r, finalized_by: 'ghost-user-id' } : r
+    )
+    localStorage.setItem('shoresh-mock-state', JSON.stringify(state))
+
+    const runs = await mockShoresh.listElectiveRuns()
+    const run = runs.find((r) => r.id === out.runId)
+    expect(run.finalized_by).toBe('ghost-user-id')
+    expect(run.finalized_by_name).toBeNull()
+  })
+})

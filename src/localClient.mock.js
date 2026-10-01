@@ -2029,8 +2029,19 @@ export const mockShoresh = {
       },
     }
   },
+  // C3 (board item 9b) — mirrors electron/main.js's listElectiveRunsHandler
+  // read-side LEFT JOIN: `finalized_by_name` off `state.users`, so browser-dev
+  // (what Tester drives) matches electron:dev rather than the raw id reaching
+  // RunIdentity. `?? null`, never left undefined — a run naming no users row
+  // (the row is gone, or this is a legacy run) resolves to null, same as the
+  // real SQL LEFT JOIN's no-match NULL.
   async listElectiveRuns() {
-    return loadState().elective_assignment_runs || []
+    const state = loadState()
+    const nameByUserId = new Map((state.users || []).map((u) => [u.id, u.name]))
+    return (state.elective_assignment_runs || []).map((r) => ({
+      ...r,
+      finalized_by_name: r.finalized_by ? nameByUserId.get(r.finalized_by) ?? null : null,
+    }))
   },
   // T244 — the shape changed from a bare array to an object
   // ({rows, staleCount, finalizedAgainstStaleGeneration, overCapacityOccurrences},
