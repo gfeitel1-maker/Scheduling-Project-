@@ -33,6 +33,7 @@ import { ensureCohort } from './utils/ensureCohort'
 import { seedDays } from './utils/seedDays'
 import { describeWriteFailure } from './utils/writeErrorMessage'
 import { S, useEnterTransition, prefersReducedMotion } from './styles/shared'
+import { enqueue, upsertById, removeById, dismissHead } from './notices/noticeQueue'
 
 // Keys mirrored into screenKeys.js (a plain-data sibling file, not this
 // component file) so a guard test can assert every readiness/rootMap-node
@@ -209,32 +210,34 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
   // this now shows a minimal, dismissible banner reusing the shared
   // S.errorBanner visual language already used for error surfaces across the
   // app, rather than inventing a new toast framework.
-  // Single scalar, not a queue: a second rejection while one is already
-  // showing replaces it rather than stacking. Accepted as adequate for this
-  // minimal notice (T12) — a real queue is out of scope here.
   //
-  // T204: the value is an OBJECT (`{ message }`), never a bare string, and
-  // every arrival allocates a fresh one. §5c's dismiss now fades out over
-  // --motion-fast, which opens a ~140ms window in which a NEW notice can
-  // arrive while the old one is still fading; the banner cancels its pending
-  // unmount when this identity changes, so the new notice is never swallowed
-  // by the outgoing one's timer. String state could not distinguish "the same
-  // message arrived again" from "no new notice", which is exactly the case
-  // that window makes reachable (two identical queue rejections in a row).
-  const [opRejectedNotice, setOpRejectedNotice] = useState(null)
-  // T201: only a bootstrap-failure notice gets a retry affordance — the
-  // offline-queue rejection below has nothing meaningful to re-run, so this
-  // stays null for that source and is only ever set alongside a bootstrap
-  // notice (see runBootstrap).
-  const [noticeRetry, setNoticeRetry] = useState(null)
+  // T200 board follow-up (owner ruling 2026-09-29 "yes to t200"): a bootstrap-
+  // failure notice and an offline-queue rejection used to share one scalar,
+  // so a second arrival overwrote the first and lost its retry affordance.
+  // `notices` is now an ordered FIFO (src/notices/noticeQueue.js's pure ops),
+  // each entry `{ id, message, retry: fn|null, source: 'bootstrap' |
+  // 'opRejected' }` — `retry` lives on the entry itself, not in separate
+  // shell state, so an unrelated notice ahead of or behind a bootstrap entry
+  // can never strip its retry. Only the head renders (see OpRejectedNoticeBanner).
+  //
+  // T204 (carried into the queue): every arrival gets a fresh id, never a
+  // reused one, so two identical messages in a row are still two entries —
+  // string/object identity alone could not tell "the same message arrived
+  // again" apart from "nothing new", which is exactly what a repeated
+  // offline rejection makes reachable.
+  const [notices, setNotices] = useState([])
+  const noticeIdSeq = useRef(0)
+  const nextNoticeId = (prefix) => `${prefix}-${++noticeIdSeq.current}`
   useEffect(() => {
     const unsub = localClient.onOpRejected?.((msg) => {
-      setOpRejectedNotice({
+      setNotices((q) => enqueue(q, {
+        id: nextNoticeId('opRejected'),
         message: msg.existing?.name
           ? `A location named "${msg.existing.name}" already exists and wasn't created.`
           : 'A change could not be saved because it conflicts with existing data.',
-      })
-      setNoticeRetry(null)
+        retry: null,
+        source: 'opRejected',
+      }))
     })
     return () => unsub?.()
   }, [])
@@ -308,6 +311,16 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
   // a dismiss sticks for THAT invocation's remaining recompose() calls but a
   // brand new retry always starts undismissed.
   const dismissedRef = useRef(false)
+  // T200 board follow-up: the id of THE bootstrap queue entry, assigned once
+  // (lazily, on the first invocation past the in-flight guard below) and
+  // then reused by every later retry of this same bootstrap — a retry is a
+  // new runBootstrap call, but it is still the same notice's story, so it
+  // must keep updating (and, on a clean resolve, removing) the one entry
+  // rather than orphaning it and minting a new one at the back. The
+  // "previous attempt has not finished yet" branch (bootstrapInFlight
+  // already true) reads this ref rather than minting its own id, for the
+  // same reason.
+  const bootstrapNoticeIdRef = useRef(null)
 
   // T200: both writers dispatched together, but round 2 (Red Hat HIGH) moved
   // away from awaiting Promise.allSettled as the notice trigger — a hang on
@@ -320,14 +333,12 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
   // bootstrapBusy — a hang no longer blocks the notice.
   //
   // The offline-queue notice (onOpRejected, above) is untouched by this:
-  // that source fires alone, asynchronously, one event at a time — it was
-  // never part of the race this collapses, so last-writer-wins is still
-  // sound for it (T200's "open design question"). KNOWN, NARROWED limit
-  // (T12/T200/T201): the bootstrap pair no longer races itself, but an
-  // unrelated onOpRejected notice can still arrive mid-bootstrap-retry and
-  // replace this notice (and its retry affordance) under the same
-  // single-scalar last-writer-wins rule — fixing that means the notice
-  // queue T12 explicitly ruled out of scope.
+  // that source fires alone, asynchronously, one event at a time. T200
+  // board follow-up: it previously shared one scalar with the bootstrap
+  // notice, so an unrelated arrival could overwrite the bootstrap notice
+  // (and its retry) under last-writer-wins. Both sources now write into the
+  // same FIFO `notices` queue instead of a shared scalar, so neither can
+  // clobber the other — see `notices` above.
   async function runBootstrap(id, { isRetry = false } = {}) {
     if (bootstrapInFlight.current) {
       seededForCamp.current = null
@@ -337,14 +348,25 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
       // behalf). Say so plainly, and keep the retry affordance so they can
       // try again once the stuck run frees up.
       if (isRetry) {
-        setOpRejectedNotice({ message: 'The previous attempt has not finished yet, so this was not retried. If nothing changes, restart the app.' })
-        setNoticeRetry(() => () => runBootstrap(id, { isRetry: true }))
+        const inFlightId = bootstrapNoticeIdRef.current
+        setNotices((q) => upsertById(q, inFlightId, {
+          message: 'The previous attempt has not finished yet, so this was not retried. If nothing changes, restart the app.',
+          retry: () => runBootstrap(id, { isRetry: true }),
+          source: 'bootstrap',
+        }))
       }
       return
     }
     bootstrapInFlight.current = true
     if (isRetry) setBootstrapBusy(true)
     dismissedRef.current = false
+    // Stable across retries of this same bootstrap, not regenerated per
+    // invocation: a retry re-runs this function (a new call), but it is
+    // still THE bootstrap notice's story, so it must keep updating (and,
+    // on a clean resolve, removing) the SAME queue entry rather than
+    // orphaning the old one and minting a new one at the back.
+    if (!bootstrapNoticeIdRef.current) bootstrapNoticeIdRef.current = nextNoticeId('bootstrap')
+    const myId = bootstrapNoticeIdRef.current
 
     const state = { days: 'pending', cohort: 'pending' }
     const recompose = () => {
@@ -353,14 +375,18 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
       const cohortReason = state.cohort === 'pending' || state.cohort === 'ok' ? null : state.cohort
       const notice = composeBootstrapNotice(daysReason, cohortReason)
       if (notice) {
-        setOpRejectedNotice({ message: notice })
         // T201: re-running both is safe — seedDays and ensureCohort are each
         // idempotent check-then-repair, not one-shot inserts (see seedDays.js's
         // header comment) — so "Try again" can simply call this again.
-        setNoticeRetry(() => () => runBootstrap(id, { isRetry: true }))
+        setNotices((q) => upsertById(q, myId, {
+          message: notice,
+          retry: () => runBootstrap(id, { isRetry: true }),
+          source: 'bootstrap',
+        }))
       } else if (state.days !== 'pending' && state.cohort !== 'pending') {
-        setOpRejectedNotice(null)
-        setNoticeRetry(null)
+        // T200 board follow-up: removes only THIS invocation's own entry,
+        // wherever it sits in the queue — not the head, not the whole queue.
+        setNotices((q) => removeById(q, myId))
       }
     }
 
@@ -414,20 +440,30 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
         ...(resolvedScreen === 'reconciliation' ? { entry: 'openDecisions' } : {}),
       }
 
+  const headNotice = notices[0] ?? null
+
   return (
     <>
-      {opRejectedNotice && (
+      {headNotice && (
         <OpRejectedNoticeBanner
-          notice={opRejectedNotice}
-          retry={noticeRetry}
-          busy={bootstrapBusy}
+          headNotice={headNotice}
+          queueCount={notices.length - 1}
+          // Round 3, HIGH / T200 board follow-up (h): bootstrapBusy only
+          // ever means something for the bootstrap entry — gating it here
+          // (rather than trusting the `retry &&` check alone) means a
+          // non-bootstrap head can never render a "Retrying…" state.
+          busy={headNotice.source === 'bootstrap' && bootstrapBusy}
           onDismiss={() => {
-            // Round 3, MEDIUM: mark the current runBootstrap invocation (if
-            // any) as dismissed so a still-pending settle can't reopen the
-            // notice the director just closed.
-            dismissedRef.current = true
-            setOpRejectedNotice(null)
-            setNoticeRetry(null)
+            // Round 3, MEDIUM / T200 board follow-up (f): mark the current
+            // runBootstrap invocation dismissed ONLY when the notice being
+            // dismissed IS that invocation's own bootstrap entry — so a
+            // still-pending settle can't reopen the notice the director just
+            // closed, but dismissing an unrelated offline-queue notice can
+            // never suppress a later bootstrap recompose.
+            if (headNotice.source === 'bootstrap' && headNotice.id === bootstrapNoticeIdRef.current) {
+              dismissedRef.current = true
+            }
+            setNotices((q) => dismissHead(q))
           }}
         />
       )}
@@ -460,19 +496,22 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
 // governs and the test moved instead (human gate opened for T204). The fade
 // mirrors ErrorBanner's dismiss exactly rather than inventing a second
 // mechanism.
-function OpRejectedNoticeBanner({ notice, retry, busy, onDismiss }) {
-  const enter = useEnterTransition('slideFade')
-  // WHICH notice is fading, not a bare boolean: a NEW notice arriving mid-fade
-  // must cancel the pending unmount rather than be swallowed by the outgoing
-  // notice's timer. Keying on the notice object's identity (see the state
-  // declaration in AppShell) means two identical messages in a row are still
-  // two arrivals, and makes `dismissing` a pure derivation — no effect
-  // resetting state on a prop change (which cascades renders).
-  const [dismissingNotice, setDismissingNotice] = useState(null)
-  const dismissing = dismissingNotice === notice
+// T200 board follow-up: `notices` is now a FIFO queue (see AppShell), and
+// this banner only ever shows the HEAD. The outer `wrap` (role="alert",
+// fixed frame) stays mounted across a dismiss-then-advance so the surface
+// never blinks to empty while another notice is waiting — only the inner
+// content (icon + message + actions, below) is keyed on the head notice's
+// id, which is what gives useEnterTransition a fresh mount to animate when
+// the FIFO advances to the next notice. AppShell unmounts the whole banner
+// only once the queue is fully empty.
+function OpRejectedNoticeBanner({ headNotice, queueCount, busy, onDismiss }) {
+  // WHICH notice id is fading, not a bare boolean — mirrors the previous
+  // identity-keyed `dismissing` derivation, now keyed on id instead of
+  // object identity since entries are queue items, not fresh objects per
+  // arrival of the SAME head.
+  const [dismissingId, setDismissingId] = useState(null)
+  const dismissing = dismissingId === headNotice.id
 
-  const currentNoticeRef = useRef(notice)
-  useEffect(() => { currentNoticeRef.current = notice })
   const dismissTimeoutRef = useRef(null)
   useEffect(() => () => clearTimeout(dismissTimeoutRef.current), [])
 
@@ -481,12 +520,14 @@ function OpRejectedNoticeBanner({ notice, retry, busy, onDismiss }) {
       onDismiss()
       return
     }
-    const dismissed = notice
-    setDismissingNotice(dismissed)
+    setDismissingId(headNotice.id)
     dismissTimeoutRef.current = setTimeout(() => {
-      // Only unmount if this is still the notice on screen; a newer one that
-      // arrived during the fade is a live notice and must survive.
-      if (currentNoticeRef.current !== dismissed) return
+      // T200 board follow-up: onDismiss removes THIS notice by id
+      // (dismissHead, since this is always the current head) — a notice
+      // that arrived mid-fade is a separate queue entry and is never
+      // touched by this removal, so it can't be swallowed the way a
+      // single-scalar overwrite could.
+      setDismissingId(null)
       onDismiss()
     }, 140)
   }
@@ -495,18 +536,35 @@ function OpRejectedNoticeBanner({ notice, retry, busy, onDismiss }) {
     <div
       style={{
         ...opRejectedNoticeStyles.wrap,
-        ...enter,
         ...(dismissing ? opRejectedNoticeStyles.dismissing : {}),
       }}
       role="alert"
     >
+      <OpRejectedNoticeContent
+        key={headNotice.id}
+        notice={headNotice}
+        queueCount={queueCount}
+        busy={busy}
+        onDismiss={handleDismiss}
+      />
+    </div>
+  )
+}
+
+// Split out so `key={headNotice.id}` on the parent forces a fresh mount —
+// and therefore a fresh useEnterTransition run — each time the FIFO
+// advances to a new head, without re-mounting the fixed outer frame.
+function OpRejectedNoticeContent({ notice, queueCount, busy, onDismiss }) {
+  const enter = useEnterTransition('slideFade')
+  return (
+    <div style={{ ...opRejectedNoticeStyles.content, ...enter }}>
       {/* §5c: outline alert icon, 16px, var(--danger), before the message. */}
       <div style={opRejectedNoticeStyles.message}>
         <WarningTriangleIcon size={16} color="var(--danger)" />
         <span>{notice.message}</span>
       </div>
       <div style={opRejectedNoticeStyles.actions}>
-        {retry && (
+        {notice.retry && (
           // Round 2, Tester HIGH: the notice stays mounted through the
           // retry (no clear-then-vanish) — the button swaps to a
           // disabled "Retrying…" label so the director can tell a
@@ -517,13 +575,21 @@ function OpRejectedNoticeBanner({ notice, retry, busy, onDismiss }) {
             type="button"
             disabled={busy}
             aria-disabled={busy}
-            onClick={() => retry()}
+            onClick={() => notice.retry()}
             style={opRejectedNoticeStyles.retryBtn}
           >{busy ? 'Retrying…' : 'Try again'}</button>
         )}
+        {queueCount > 0 && (
+          // Designer spec: informational only, never out-ranks the retry
+          // action for first read — outside the accessible live-region
+          // content (role="alert" on the outer wrap is aria-atomic, so an
+          // unhidden queue-depth change would re-announce the whole alert
+          // for information the director can't act on).
+          <span aria-hidden="true" style={opRejectedNoticeStyles.queueCount}>{queueCount} more</span>
+        )}
         <button
           type="button"
-          onClick={handleDismiss}
+          onClick={onDismiss}
           aria-label="Dismiss"
           style={opRejectedNoticeStyles.dismissBtn}
         ><CloseIcon /></button>
@@ -559,19 +625,29 @@ const opRejectedNoticeStyles = {
     maxWidth: 480,
     width: 'auto',
     marginBottom: 0,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
     boxShadow: '0 2px 12px color-mix(in srgb, var(--text) 12%, transparent)',
   },
-  // §5c dismiss motion: fade only, --motion-fast. Spread last so it wins over
-  // the enter transition's opacity/transition. pointerEvents off so a banner
-  // on its way out cannot be clicked again mid-fade.
+  // §5c dismiss motion: fade only, --motion-fast. pointerEvents off so a
+  // banner on its way out cannot be clicked again mid-fade. Applied to the
+  // outer `wrap` (not `content`) so it fades the whole frame when this is
+  // the LAST notice — the frame then unmounts once AppShell's queue empties.
+  // When another notice is waiting, the frame is never unmounted; only
+  // `content` re-keys to the next notice (see OpRejectedNoticeBanner).
   dismissing: {
     opacity: 0,
     transition: 'opacity var(--motion-fast) var(--ease-out)',
     pointerEvents: 'none',
+  },
+  // The per-notice animated piece: layout that used to live on `wrap`
+  // directly, now on its own element so `wrap` can stay mounted (and
+  // visually static) across a FIFO advance while only this re-keys and
+  // plays a fresh §5c enter.
+  content: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    width: '100%',
   },
   message: {
     display: 'flex',
@@ -609,6 +685,16 @@ const opRejectedNoticeStyles = {
     fontWeight: 600,
     textDecoration: 'underline',
     padding: 0,
+  },
+  // Designer spec: plain inline text, not a pill — no background, no
+  // border-radius, no padding beyond the row's existing `gap: 12`. Neither
+  // var(--danger) nor var(--primary): those two colors are already
+  // load-bearing here for "this is the error" / "this is the action", and
+  // the count must not compete with either for first read.
+  queueCount: {
+    fontSize: 13,
+    fontWeight: 400,
+    color: 'var(--text-secondary)',
   },
 }
 
