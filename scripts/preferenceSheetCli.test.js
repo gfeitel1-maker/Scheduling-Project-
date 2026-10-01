@@ -16,7 +16,7 @@ import { randomUUID } from 'node:crypto'
 import { openLocalDb } from '../electron/db/localDb.js'
 import { openTemplatedDb, cleanupTemplatedDbs } from '../electron/db/testDbTemplate.js'
 import { runPreferenceSheetCli } from './preferenceSheetCli.js'
-import { deriveCamperId } from '../electron/ops/electiveDerivedIds.js'
+import { deriveCamperId, electiveChoiceLabelKey } from '../electron/ops/electiveDerivedIds.js'
 
 afterAll(cleanupTemplatedDbs)
 
@@ -465,9 +465,18 @@ describe('runPreferenceSheetCli', () => {
     const seed = openLocalDb(dbPath)
     // Partial catalog — the camp has Archery, not Robotics/Soccer.
     seed.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run(randomUUID(), campId, 'Archery')
-    const camperId = deriveCamperId(campId, { displayName: 'Ari Green' })
+    // T321: the roster camper's own id is a random token, resolved through
+    // camper_identity_keys — seed that mapping too, or this row reads as a
+    // pre-migration, un-backfilled camper (accepted limitation: converges
+    // only on a LATER touch, not this one) rather than the ordinary
+    // already-converged re-import case this test means to cover.
+    const lookupId = deriveCamperId(campId, { displayName: 'Ari Green' })
+    const camperId = randomUUID()
     seed.prepare('INSERT INTO campers (id, camp_id, display_name) VALUES (?, ?, ?)')
       .run(camperId, campId, 'Ari Green')
+    seed.prepare(
+      'INSERT INTO camper_identity_keys (id, camp_id, key_mode, key_value, camper_id) VALUES (?, ?, ?, ?, ?)'
+    ).run(lookupId, campId, 'name', electiveChoiceLabelKey('Ari Green'), camperId)
     seed.close()
     const before = counts(dbPath)
 

@@ -76,6 +76,12 @@ const withDb = (fn) => {
   }
 }
 
+// T321 — `deriveCamperId` now returns only the `camper_identity_keys` LOOKUP
+// id, not the real `campers.id` (a random `camper2:<uuid>` token). Resolve
+// the lookup through that table to get the id a device would actually use.
+const resolveCamperId = (lookupId) =>
+  withDb((db) => db.prepare('SELECT camper_id FROM camper_identity_keys WHERE id = ?').get(lookupId)?.camper_id)
+
 /** Seed the camp's activity catalog — what the LABEL resolver resolves against. */
 function seedActivities(names) {
   withDb((db) => {
@@ -866,7 +872,8 @@ describe('T285 slice A — header and identity resolution', () => {
     // that display name. If the join order were reversed this fails, even though
     // the row count and the commit would both look fine.
     const ari = campers.find((c) => c.display_name === 'Ari Feldspar')
-    expect(ari.id).toBe(deriveCamperId(campId, { externalId: null, displayName: 'Ari Feldspar' }))
+    const lookupId = deriveCamperId(campId, { externalId: null, displayName: 'Ari Feldspar' })
+    expect(ari.id).toBe(resolveCamperId(lookupId))
   })
 
   it('P12: a header that is not row 1 is located, and the preamble is reported', () => {
@@ -1393,7 +1400,8 @@ describe('T285 slice G — a grid is one camper\u2019s sheet', () => {
     expect(camper.is_unattributed).toBeNull()
     // The identity contract, as for split names: the id IS the canonical
     // derivation, so this child matches on every later import.
-    expect(camper.id).toBe(deriveCamperId(campId, { externalId: null, displayName: 'Dalia Tuff' }))
+    const lookupId = deriveCamperId(campId, { externalId: null, displayName: 'Dalia Tuff' })
+    expect(camper.id).toBe(resolveCamperId(lookupId))
     expect(residueOf(result, 'UNATTRIBUTED_SUBJECT')).toHaveLength(0)
     // And the cells still land.
     expect(result.counts.preferences).toBe(18)
