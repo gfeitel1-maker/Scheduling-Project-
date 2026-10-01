@@ -308,6 +308,56 @@ describe('conflictFindingMessage', () => {
     expect(message).not.toContain('ghost-day')
     expect(message).not.toContain('ghost-tb')
   })
+
+  // Round 5 (Red Hat/Governor, found live via the scene2 screenshot) —
+  // findRouteConflicts registers ONE occupant entry PER OCCUPYING SLOT, so
+  // the same activity scheduled for three different groups in the same
+  // location/period appears three times in `occupants`. The real captured
+  // sentence read "Canoeing and Canoeing and Canoeing and Kayaking are
+  // scheduled there at once" — a director needs to know WHICH activities
+  // collide, not how many groups each one came from. Dedupe by label.
+  it('deduplicates a repeated occupant label — the SAME trap findRouteConflicts produces for three groups sharing one activity', () => {
+    const finding = {
+      kind: 'OUTER_RESOURCE_CONFLICT', locationName: 'Boathouse', dayId: 'day-1', blockId: 'tb-1', capacity: 1,
+      occupants: [{ label: 'Canoeing' }, { label: 'Canoeing' }, { label: 'Canoeing' }, { label: 'Kayaking' }],
+    }
+    const message = conflictFindingMessage(finding, { days, timeBlocks })
+    expect(message.match(/Canoeing/g)).toHaveLength(1)
+    expect(message.match(/Kayaking/g)).toHaveLength(1)
+    expect(message).toContain('Canoeing and Kayaking')
+  })
+
+  // Round 5 — ordinary English list punctuation, not "and" between every
+  // element: one item bare, two items "A and B", three or more
+  // "A, B and C".
+  it('joins exactly two distinct activities with "and", no comma', () => {
+    const finding = {
+      kind: 'OUTER_RESOURCE_CONFLICT', locationName: 'Boathouse', dayId: 'day-1', blockId: 'tb-1', capacity: 1,
+      occupants: [{ label: 'Canoeing' }, { label: 'Kayaking' }],
+    }
+    const message = conflictFindingMessage(finding, { days, timeBlocks })
+    expect(message).toContain('Canoeing and Kayaking')
+    expect(message).not.toContain('Canoeing, Kayaking')
+  })
+
+  it('joins three or more distinct activities with commas and a final "and"', () => {
+    const finding = {
+      kind: 'OUTER_RESOURCE_CONFLICT', locationName: 'Boathouse', dayId: 'day-1', blockId: 'tb-1', capacity: 1,
+      occupants: [{ label: 'Canoeing' }, { label: 'Kayaking' }, { label: 'Sailing' }],
+    }
+    const message = conflictFindingMessage(finding, { days, timeBlocks })
+    expect(message).toContain('Canoeing, Kayaking and Sailing')
+  })
+
+  it('names a single colliding activity bare, with no "and" or comma', () => {
+    const finding = {
+      kind: 'OUTER_RESOURCE_CONFLICT', locationName: 'Boathouse', dayId: 'day-1', blockId: 'tb-1', capacity: 1,
+      occupants: [{ label: 'Canoeing' }, { label: 'Canoeing' }],
+    }
+    const message = conflictFindingMessage(finding, { days, timeBlocks })
+    expect(message.match(/Canoeing/g)).toHaveLength(1)
+    expect(message).not.toMatch(/Canoeing\s+and\s+Canoeing/)
+  })
 })
 
 describe('finalizeFindingMessage', () => {

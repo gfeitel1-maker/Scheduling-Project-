@@ -259,6 +259,24 @@ export function sheetOnlyCampersMessage(count) {
 // clause is omitted entirely when it cannot be resolved, same posture as
 // occurrenceLabel/camperDisambiguator. Returns null for any other kind: this
 // function does not guess at a shape it does not own.
+//
+// Round 5 (found live via the scene2 screenshot, every unit test having
+// fixtures with distinct, single occupants) — findRouteConflicts registers
+// ONE occupant entry PER OCCUPYING SLOT, so the same activity scheduled for
+// three different groups in the same location/period appears three times in
+// `occupants`. Un-deduplicated this read "Canoeing and Canoeing and Canoeing
+// and Kayaking are scheduled there at once" — true, but not what a director
+// needs: WHICH activities collide, not how many groups each contributed.
+// `joinEnglishList` below is this module's own helper (no existing
+// list-joining utility found in the project) for ordinary English list
+// punctuation, which the un-deduplicated version also got wrong (joining
+// every pair with "and" instead of commas-then-"and" for 3+ items).
+function joinEnglishList(items) {
+  if (items.length <= 1) return items[0] ?? ''
+  if (items.length === 2) return `${items[0]} and ${items[1]}`
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
+}
+
 export function conflictFindingMessage(finding, { days = [], timeBlocks = [] } = {}) {
   if (finding?.kind !== 'OUTER_RESOURCE_CONFLICT') return null
   const { locationName, dayId, blockId, capacity, occupants = [] } = finding
@@ -266,8 +284,8 @@ export function conflictFindingMessage(finding, { days = [], timeBlocks = [] } =
   const dayName = day?.label ?? day?.name ?? null
   const blockName = timeBlocks.find((t) => t.id === blockId)?.name ?? null
   const when = dayName && blockName ? `${dayName}, ${blockName}` : dayName || blockName || null
-  const names = occupants.map((o) => o.label).filter(Boolean)
-  const activities = names.length > 0 ? names.join(' and ') : `${occupants.length} activities`
+  const names = [...new Set(occupants.map((o) => o.label).filter(Boolean))]
+  const activities = names.length > 0 ? joinEnglishList(names) : `${occupants.length} activities`
   const where = when ? `${locationName} on ${when}` : locationName
   return `${where} is double-booked over its capacity of ${capacity}: ${activities} are scheduled there at once.`
 }
