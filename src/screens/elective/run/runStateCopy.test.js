@@ -208,8 +208,8 @@ describe('groupBundleTierNotCoveredFindings', () => {
     const older = result.find((g) => g.tierName === 'Older')
     const younger = result.find((g) => g.tierName === 'Younger')
     expect(older.label).toBe('Ropes')
-    expect(older.names.sort()).toEqual(['Ari Green', 'Noa Katz'])
-    expect(younger.names).toEqual(['Bo Levi'])
+    expect(older.campers.map((c) => c.name).sort()).toEqual(['Ari Green', 'Noa Katz'])
+    expect(younger.campers.map((c) => c.name)).toEqual(['Bo Levi'])
   })
 
   it('ignores findings of other kinds', () => {
@@ -226,14 +226,14 @@ describe('groupBundleTierNotCoveredFindings', () => {
     expect(result[0].tierName).toBeNull()
     // F5 (Red Hat round 3) — never a raw camper_id, even for a camper whose
     // row is entirely absent.
-    expect(result[0].names).toEqual(['a camper who is no longer on the roster'])
+    expect(result[0].campers).toEqual([{ id: null, name: null }])
   })
 
   // F5 (Red Hat round 3) — camperDisambiguator's own rule, applied here too.
   it('NEVER prints a raw camper_id when the camper row is gone — degrades truthfully instead', () => {
     const findings = [{ kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'deleted-camper-id', label: 'Ropes', tier_id: 'tier-older' }]
     const result = groupBundleTierNotCoveredFindings({ findings, campers: [], groups, tiers })
-    expect(result[0].names).toEqual(['a camper who is no longer on the roster'])
+    expect(result[0].campers).toEqual([{ id: null, name: null }])
     expect(JSON.stringify(result)).not.toContain('deleted-camper-id')
   })
 
@@ -261,17 +261,17 @@ describe('groupBundleTierNotCoveredFindings', () => {
 
 describe('bundleTierNotCoveredGroupMessage', () => {
   it('names the label, the tier, and the count when the tier resolved', () => {
-    const message = bundleTierNotCoveredGroupMessage({ label: 'Ropes', tierName: 'Older', names: ['Ari Green', 'Noa Katz'] })
+    const message = bundleTierNotCoveredGroupMessage({ label: 'Ropes', tierName: 'Older', campers: [{ id: 'a', name: 'Ari Green' }, { id: 'b', name: 'Noa Katz' }] })
     expect(message).toBe('"Ropes" does not cover Older — 2 campers kept their request as an ordinary choice.')
   })
 
   it('uses singular "camper" for a group of one', () => {
-    const message = bundleTierNotCoveredGroupMessage({ label: 'Ropes', tierName: 'Older', names: ['Ari Green'] })
+    const message = bundleTierNotCoveredGroupMessage({ label: 'Ropes', tierName: 'Older', campers: [{ id: 'a', name: 'Ari Green' }] })
     expect(message).toBe('"Ropes" does not cover Older — 1 camper kept their request as an ordinary choice.')
   })
 
   it('degrades truthfully when no tier resolved, naming no tier at all', () => {
-    const message = bundleTierNotCoveredGroupMessage({ label: 'Ropes', tierName: null, names: ['Ari Green'] })
+    const message = bundleTierNotCoveredGroupMessage({ label: 'Ropes', tierName: null, campers: [{ id: 'a', name: 'Ari Green' }] })
     expect(message).toBe('"Ropes" does not cover these campers’ division — 1 camper kept their request as an ordinary choice.')
   })
 
@@ -284,7 +284,7 @@ describe('bundleTierNotCoveredGroupMessage', () => {
   // degrade the same honest way the sibling tierName === null branch already
   // does — never invent a label, never print "null" or an empty quoted string.
   it('degrades truthfully when label is null, never printing the literal "null" or an empty quoted string', () => {
-    const message = bundleTierNotCoveredGroupMessage({ label: null, tierName: 'Older', names: ['Ari Green'] })
+    const message = bundleTierNotCoveredGroupMessage({ label: null, tierName: 'Older', campers: [{ id: 'a', name: 'Ari Green' }] })
     expect(message).not.toMatch(/\bnull\b/)
     expect(message).not.toMatch(/""/)
   })
@@ -434,19 +434,25 @@ describe('regenerateUnavailableNote', () => {
   })
 })
 
-describe('groupBundleTierNotCoveredFindings — camper entries beside the names', () => {
+describe('groupBundleTierNotCoveredFindings — camper entries replace the names', () => {
   const campers = [{ id: 'cam-1', display_name: 'Ari Green', group_id: 'g-older' }]
   const groups = [{ id: 'g-older', tier_id: 'tier-older' }]
   const tiers = [{ id: 'tier-older', name: 'Older' }]
 
-  it('additionally returns `campers` entries, so the disclosure can disambiguate', () => {
+  it('returns `campers` entries and NO parallel names array', () => {
     const findings = [
       { kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'cam-1', label: 'Ropes', tier_id: 'tier-older' },
       { kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'gone', label: 'Ropes', tier_id: 'tier-older' },
     ]
     const [group] = groupBundleTierNotCoveredFindings({ findings, campers, groups, tiers })
-    // `names` is unchanged — every existing caller and assertion still holds.
-    expect(group.names).toEqual(['Ari Green', UNKNOWN_CAMPER_LABEL])
+    // `names` is GONE. Round 1 kept it beside `campers` with a comment saying
+    // every existing caller still held — both call sites pass `campers`, so
+    // there were none, and the only thing reading it was this assertion.
+    expect(group.names).toBeUndefined()
+    // The degraded sentence fragment is now produced where it is RENDERED
+    // (unresolvableCampersLabel / allCampersUnresolvableMessage), from
+    // `name: null`, rather than baked into a list the producer hands out.
+    expect(UNKNOWN_CAMPER_LABEL).toBe('a camper who is no longer on the roster')
     expect(group.campers).toEqual([
       { id: 'cam-1', name: 'Ari Green' },
       // A camper whose row is gone carries NO id: the id is only ever needed to

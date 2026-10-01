@@ -35,6 +35,7 @@ vi.mock('../../../localClient', () => ({
     list: vi.fn(),
     finalizeElectiveRun: vi.fn(),
     deleteElectiveRun: vi.fn(),
+    removeElectivePreference: vi.fn(),
   },
 }))
 
@@ -125,6 +126,7 @@ beforeEach(() => {
   localClient.list.mockReset().mockResolvedValue(CAMPERS)
   localClient.finalizeElectiveRun.mockReset()
   localClient.deleteElectiveRun.mockReset()
+  localClient.removeElectivePreference.mockReset()
 })
 
 // ---------------------------------------------------------------------------
@@ -565,7 +567,7 @@ describe('T250 B1 — a mixed findings array renders each kind with its own sent
     expect(within(bundleRow).queryByRole('button')).toBeNull()
     // The named camper is reachable (in the DOM, behind the disclosure) even
     // though the finding's own raw .message is no longer printed verbatim.
-    expect(within(bundleRow).getAllByText('Testcamper Bravo').length).toBeGreaterThan(0)
+    expect(bundleRow.textContent).toContain('Testcamper Bravo')
 
     // Exactly one row per finding/group — no collision, no dropped row.
     const area = screen.getByTestId('run-state-area')
@@ -613,7 +615,7 @@ describe('T250 B1 — a mixed findings array renders each kind with its own sent
 
     const bundleRow = await screen.findByTestId('run-state-bundle-mismatch-Sports Bundle-tier-1')
     expect(bundleRow.textContent).toMatch(/"Sports Bundle" does not cover Juniors — 1 camper kept their request as an ordinary choice\./)
-    expect(within(bundleRow).getAllByText('Testcamper Bravo').length).toBeGreaterThan(0)
+    expect(bundleRow.textContent).toContain('Testcamper Bravo')
   })
 
   // F1 (round 2 review) — bundleMismatchFindings (DraftRunView.jsx) used to key its
@@ -639,8 +641,8 @@ describe('T250 B1 — a mixed findings array renders each kind with its own sent
 
     const sportsRow = await screen.findByTestId('run-state-bundle-mismatch-Sports Bundle-tier-1')
     const artsRow = await screen.findByTestId('run-state-bundle-mismatch-Arts Bundle-tier-1')
-    expect(within(sportsRow).getAllByText('Testcamper Bravo').length).toBeGreaterThan(0)
-    expect(within(artsRow).getAllByText('Testcamper Bravo').length).toBeGreaterThan(0)
+    expect(sportsRow.textContent).toContain('Testcamper Bravo')
+    expect(artsRow.textContent).toContain('Testcamper Bravo')
   })
 
   // F1 correction (round 2, found reviewing the uncommitted diff) — the
@@ -750,7 +752,7 @@ describe('(C)(4) sheetOnlyCampers — named, not just counted', () => {
 
     const row = await screen.findByTestId('run-state-sheet-only-campers')
     expect(row.textContent).toMatch(/1 camper on this run's sheet has no ranked choice and no placement/)
-    expect(within(row).getAllByText('Testcamper Charlie').length).toBeGreaterThan(0)
+    expect(row.textContent).toContain('Testcamper Charlie')
   })
 
   it('renders no row at all when there are no sheet-only campers — no banner for the clean case', async () => {
@@ -1714,7 +1716,7 @@ describe('a camper disclosure never repeats one identical line', () => {
     render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
     const row = await screen.findByTestId('run-state-sheet-only-campers')
     const list = row.querySelector('ul')
-    expect(list.style.maxHeight).toBe('220px')
+    expect(list.style.maxHeight).toBe('360px')
     expect(list.style.overflowY).toBe('auto')
     // BOUNDED, never truncated.
     expect(list.querySelectorAll('li')).toHaveLength(40)
@@ -1751,7 +1753,7 @@ describe('plain Regenerate in the actions band', () => {
     const button = await screen.findByTestId('run-regenerate')
     expect(button.textContent).toBe('Regenerate')
     expect(screen.queryByTestId('run-regenerate-unavailable')).toBeNull()
-    const band = button.parentElement
+    const band = screen.getByTestId('run-actions-band')
     const buttons = [...band.querySelectorAll('button')]
     expect(buttons[0].textContent).toBe('Finalize run')
     expect(buttons[1]).toBe(button)
@@ -1837,5 +1839,207 @@ describe('plain Regenerate in the actions band', () => {
     render(<DraftRunView run={DRAFT_RUN} regeneratePending {...catalogs()} />)
     const note = await screen.findByTestId('run-regenerate-unavailable')
     expect(note.textContent).toBe('Preparing this run so it can be regenerated…')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// ROUND 2 — the director-facing hazards a real-renderer pass found.
+// ---------------------------------------------------------------------------
+describe('round 2 — the actions band', () => {
+  const cold = (props = {}) => (
+    <DraftRunView run={DRAFT_RUN} onRegenerate={vi.fn()} coldRegenerate {...catalogs()} {...props} />
+  )
+
+  it('FINALIZE IS DISABLED WHILE A REGENERATE IS IN FLIGHT', async () => {
+    // The irreversible action was the unguarded one, at full primary weight,
+    // beside a greyed-out reversible one. Measured in the real renderer:
+    // finalize {disabled:false} while regenerate {disabled:true,
+    // aria-busy:true} — and the click went through, finalizing a run whose
+    // regenerate was still outstanding.
+    let resolveList
+    localClient.listElectiveRuns.mockReturnValue(new Promise((r) => { resolveList = r }))
+    render(cold())
+    fireEvent.click(await screen.findByTestId('run-regenerate'))
+    const finalize = screen.getByRole('button', { name: 'Finalize run' })
+    await waitFor(() => expect(screen.getByTestId('run-regenerate').disabled).toBe(true))
+    expect(finalize.disabled).toBe(true)
+    fireEvent.click(finalize)
+    expect(localClient.finalizeElectiveRun).not.toHaveBeenCalled()
+    resolveList([DRAFT_RUN])
+  })
+
+  it('DELETE is disabled while a regenerate is in flight too', async () => {
+    let resolveList
+    localClient.listElectiveRuns.mockReturnValue(new Promise((r) => { resolveList = r }))
+    render(cold({ onDeleted: vi.fn() }))
+    fireEvent.click(await screen.findByTestId('run-regenerate'))
+    await waitFor(() => expect(screen.getByTestId('run-regenerate').disabled).toBe(true))
+    const del = screen.queryByRole('button', { name: /delete/i })
+    if (del) expect(del.disabled).toBe(true)
+    resolveList([DRAFT_RUN])
+  })
+
+  it('each control carries its OWN explanation, in its own slot', async () => {
+    // The band used to read "[Finalize run] [Regenerate] Locks this run…" in one
+    // row, so the sentence sat adjacent to the control whose effect is its
+    // opposite, and nothing said what Regenerate does.
+    render(cold())
+    const band = await screen.findByTestId('run-actions-band')
+    const slots = [...band.children]
+    expect(slots).toHaveLength(2)
+    const finalizeSlot = slots[0]
+    const regenerateSlot = slots[1]
+    expect(within(finalizeSlot).getByRole('button', { name: 'Finalize run' })).toBeTruthy()
+    expect(finalizeSlot.textContent).toContain('Locks this run.')
+    expect(within(regenerateSlot).getByTestId('run-regenerate')).toBeTruthy()
+    // Regenerate's own sentence, and the Finalize sentence is NOT in its slot.
+    expect(regenerateSlot.textContent).not.toContain('Locks this run.')
+    expect(regenerateSlot.textContent).toContain('Solves this run again')
+  })
+
+  it('the unavailable sentence sits in the regenerate slot, not beside the finalize hint', async () => {
+    // Two unrelated grey sentences used to render side by side in one row with
+    // no separator, reading as a single paragraph — and the first named a
+    // control that was not on screen.
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+    const band = await screen.findByTestId('run-actions-band')
+    const note = screen.getByTestId('run-regenerate-unavailable')
+    const [finalizeSlot, regenerateSlot] = [...band.children]
+    expect(regenerateSlot.contains(note)).toBe(true)
+    expect(finalizeSlot.contains(note)).toBe(false)
+    expect(finalizeSlot.textContent).toContain('Locks this run.')
+  })
+
+  it('the band wraps instead of squeezing a button onto two lines', async () => {
+    render(cold())
+    const band = await screen.findByTestId('run-actions-band')
+    expect(band.style.flexWrap).toBe('wrap')
+    for (const slot of band.children) expect(slot.style.flexShrink).toBe('0')
+  })
+})
+
+describe('round 2 — both regenerate offers at once', () => {
+  // `offerRegenerateShown` suppresses only the PLAIN control; the three specific
+  // offers are each gated on `onRegenerate` alone and nothing makes them
+  // mutually exclusive. With staleCount > 0 AND a preference edited, both render
+  // — and they used to carry DIFFERENT payloads, so picking the wrong one
+  // silently re-solved from the wrong input set.
+  //
+  // The edit is driven through the REAL affordance (CamperWeekPanel's remove
+  // button), because `preferencesEdited` is internal state and faking it would
+  // prove nothing about the screen.
+  // Bound to row a1 (camper-1, occ-1, choice-1), so the week row carries a
+  // `preferenceId` and therefore a Remove affordance.
+  const WITH_PREFERENCE = {
+    preferences: [{ id: 'pref-1', camper_id: 'camper-1', occurrence_id: 'occ-1', choice_id: 'choice-1', rank: 1, rank_kind: 'ranked' }],
+    choices: [{ id: 'choice-1', label: 'Archery' }, { id: 'choice-2', label: 'Ceramics' }],
+  }
+
+  async function editAPreference() {
+    fireEvent.click(await screen.findByTestId('camper-week-open-camper-1'))
+    // The remove affordance only exists once a row is OPEN for editing.
+    fireEvent.click((await screen.findAllByTestId(/^camper-week-edit-/))[0])
+    fireEvent.click((await screen.findAllByTestId(/^camper-week-remove-/))[0])
+    await screen.findByTestId('run-preference-edit-offer')
+  }
+
+  it('renders both offers, and they carry the SAME input set', async () => {
+    localClient.getElectiveRun.mockResolvedValue({ ...CLEAN_RUN_STATE, ...WITH_PREFERENCE, staleCount: 2 })
+    localClient.removeElectivePreference.mockResolvedValue({ ok: true })
+    const onRegenerate = vi.fn()
+    render(<DraftRunView run={DRAFT_RUN} onRegenerate={onRegenerate} {...catalogs()} />)
+    await editAPreference()
+
+    // BOTH on screen at once — the comment claimed exactly one ever is.
+    const staleness = screen.getByTestId('run-staleness-offer')
+    const preference = screen.getByTestId('run-preference-edit-offer')
+    expect(screen.queryByTestId('run-regenerate')).toBeNull()
+
+    fireEvent.click(within(staleness).getByRole('button', { name: /regenerat/i }))
+    await waitFor(() => expect(onRegenerate).toHaveBeenCalledTimes(1))
+    const fromStaleness = onRegenerate.mock.calls[0][0]
+    // The staleness offer used to carry lockedAssignments alone, so taking it
+    // threw away the edit the OTHER offer was there to apply.
+    expect(Object.keys(fromStaleness).sort()).toEqual(['choices', 'lockedAssignments', 'preferences'])
+    expect(preference).toBeTruthy()
+  })
+
+  it('whichever of the two the director picks, the same thing gets solved', async () => {
+    localClient.getElectiveRun.mockResolvedValue({ ...CLEAN_RUN_STATE, ...WITH_PREFERENCE, staleCount: 2 })
+    localClient.removeElectivePreference.mockResolvedValue({ ok: true })
+    const onRegenerate = vi.fn()
+    render(<DraftRunView run={DRAFT_RUN} onRegenerate={onRegenerate} {...catalogs()} />)
+    await editAPreference()
+    fireEvent.click(within(screen.getByTestId('run-preference-edit-offer')).getByTestId('run-preference-resolve'))
+    await waitFor(() => expect(onRegenerate).toHaveBeenCalledTimes(1))
+    const fromPreference = onRegenerate.mock.calls[0][0]
+    expect(Object.keys(fromPreference).sort()).toEqual(['choices', 'lockedAssignments', 'preferences'])
+    expect(fromPreference.lockedAssignments).toEqual([
+      { camperId: 'camper-3', occurrenceId: 'occ-2', activityId: 'act-2' },
+    ])
+  })
+})
+
+describe('round 2 — a one-camper disclosure', () => {
+  it('states the single camper inline, with no control to expand', async () => {
+    localClient.getElectiveRun.mockResolvedValue({ ...CLEAN_RUN_STATE, sheetOnlyCampers: ['camper-1'] })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+    const row = await screen.findByTestId('run-state-sheet-only-campers')
+    expect(row.textContent).toContain('Testcamper Alpha')
+    // A <details> that expands to show exactly what its own summary said is a
+    // control that does nothing.
+    expect(row.querySelector('summary')).toBeNull()
+    expect(row.querySelector('details')).toBeNull()
+  })
+
+  it('keeps the disambiguator visible when there IS one', async () => {
+    localClient.getElectiveRun.mockResolvedValue({
+      ...CLEAN_RUN_STATE,
+      campers: [
+        { id: 'twin-a', display_name: 'Testcamper Twin', group_name: 'Cabin One' },
+        { id: 'twin-b', display_name: 'Testcamper Twin', group_name: 'Cabin Two' },
+      ],
+      rows: [],
+      sheetOnlyCampers: ['twin-a'],
+    })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+    const row = await screen.findByTestId('run-state-sheet-only-campers')
+    expect(row.querySelector('details')).toBeNull()
+    expect(row.textContent).toContain('Testcamper Twin')
+    expect(row.textContent).toContain('Cabin One')
+  })
+})
+
+describe('round 2 — the clamp on a long name list', () => {
+  const listFor = async (count) => {
+    const many = Array.from({ length: count }, (_, i) => ({ id: `c-${i}`, display_name: `Testcamper N${i}` }))
+    localClient.getElectiveRun.mockResolvedValue({
+      ...CLEAN_RUN_STATE, campers: many, rows: [], sheetOnlyCampers: many.map((c) => c.id),
+    })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+    const row = await screen.findByTestId('run-state-sheet-only-campers')
+    return row.querySelector('ul')
+  }
+
+  it('does NOT clamp at a count the clamp was not earning its keep at', async () => {
+    // Measured at 14 entries: maxHeight 220, scrollH 252 — 1.78 rows hidden,
+    // with no fade, no shadow, and macOS overlay scrollbars invisible until the
+    // pointer moves. A director opening "14 campers" counted twelve.
+    const list = await listFor(14)
+    expect(list.style.maxHeight).toBe('')
+    expect(list.style.overflowY).toBe('')
+    expect(list.querySelectorAll('li')).toHaveLength(14)
+  })
+
+  it('clamps a genuine wall, and gives the clipped edge a visible cue', async () => {
+    const list = await listFor(40)
+    expect(list.style.maxHeight).toBe('360px')
+    expect(list.style.overflowY).toBe('auto')
+    // THE CUE. Without it the clip is silent on a platform whose scrollbars
+    // are invisible at rest.
+    // jsdom's CSSStyleDeclaration does not implement mask-image, so the parsed
+    // declaration is empty while the serialized attribute carries it.
+    expect(list.getAttribute('style')).toMatch(/mask-image:\s*linear-gradient/)
+    expect(list.querySelectorAll('li')).toHaveLength(40)
   })
 })

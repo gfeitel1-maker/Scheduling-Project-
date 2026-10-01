@@ -4,7 +4,7 @@
 // re-entrancy), M1 (a real route off the "not on a schedule yet" dead end),
 // M3 (row-count guard on the .txt import branch).
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react'
 
 vi.mock('../../../localClient', () => ({
   localClient: {
@@ -1086,6 +1086,37 @@ describe('AssignmentPanel — regeneratePending while a cold-opened run hydrates
     expect(screen.queryByTestId('run-regenerate-unavailable')).toBeNull()
   })
 
+  it('stops saying PREPARING when the read never settles, rather than waiting forever', async () => {
+    // Red Hat L2 — the read has no timeout of its own, so an unresponsive main
+    // process (exactly the condition this branch exists for) left the note at
+    // "Preparing this run so it can be regenerated…" indefinitely, having
+    // REPLACED a definite, actionable sentence with an indefinite one.
+    localClient.listElectiveRuns.mockResolvedValue([COLD_RUN])
+    let call = 0
+    localClient.getElectiveRun.mockImplementation(() => {
+      call += 1
+      if (call === 1) return Promise.resolve(STATE)
+      return new Promise(() => {})
+    })
+    // Fake timers BEFORE render: the timer is scheduled inside the hydration
+    // effect, so installing them afterwards would leave a real pending timer
+    // that no amount of advancing reaches.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      render(<AssignmentPanel {...baseProps()} />)
+      fireEvent.click(await screen.findByTestId('run-list-row-pending-run-1'))
+      const note = await screen.findByTestId('run-regenerate-unavailable')
+      expect(note.textContent).toBe('Preparing this run so it can be regenerated…')
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(8000) })
+      const text = screen.getByTestId('run-regenerate-unavailable').textContent
+      expect(text).toContain('taking longer than expected')
+      expect(text).toContain('go back to Runs and open it again')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('stops saying PREPARING when the hydration read FAILS, and reports it once', async () => {
     const onError = vi.fn()
     localClient.listElectiveRuns.mockResolvedValue([COLD_RUN])
@@ -1099,10 +1130,21 @@ describe('AssignmentPanel — regeneratePending while a cold-opened run hydrates
     fireEvent.click(await screen.findByTestId('run-list-row-pending-run-1'))
 
     await waitFor(() => expect(onError).toHaveBeenCalledTimes(1))
+    // ROUND 2 — the sentence is the FAILURE, not the generic one. Round 1 sent
+    // the described failure to `onError` and showed the director the same
+    // "can't be regenerated right now" they would have seen had nothing gone
+    // wrong, so a retry produced the identical sentence with no indication
+    // whether it would help. A full-body text search of the rendered page found
+    // no trace of the failure anywhere.
     await waitFor(() => {
-      expect(screen.getByTestId('run-regenerate-unavailable').textContent).toBe(
-        "This run can't be regenerated right now — go back to Runs and open it again."
-      )
+      const note = screen.getByTestId('run-regenerate-unavailable').textContent
+      expect(note).toContain('could not be prepared for regenerating')
+      // STILL ACTIONABLE, and it says what to do next rather than only that
+      // something is wrong.
+      expect(note).toContain('go back to Runs and open it again')
+      // The SAME string the error banner gets — one sentence, not two drifting
+      // paraphrases of one failure.
+      expect(onError).toHaveBeenCalledWith(note)
     })
   })
 })

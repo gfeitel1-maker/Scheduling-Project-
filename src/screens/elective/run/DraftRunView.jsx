@@ -37,7 +37,11 @@ import {
   sheetOnlyCampersMessage, UNKNOWN_CAMPER_LABEL,
   unresolvableCampersLabel, allCampersUnresolvableMessage,
   REGENERATE_LABEL, REGENERATE_BUSY_LABEL, regenerateUnavailableNote, COLD_REGENERATE_NOTE,
+  FINALIZE_HINT, REGENERATE_HINT,
 } from './runStateCopy.js'
+
+// See styles.namesListScroll for why this is 20 and not 10.
+const NAMES_CLAMP_AFTER = 20
 
 const styles = {
   summary: { fontSize: 13, marginBottom: 14 },
@@ -46,7 +50,14 @@ const styles = {
   td: { padding: '6px 8px', borderBottom: '1px solid var(--border)' },
   offer: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, fontSize: 13, marginBottom: 14 },
   camperDisambiguator: { fontSize: 11, color: 'var(--text-secondary)' },
-  actionsBand: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 },
+  // ONE SLOT PER CONTROL, each holding its own explanation. Round 1 had a single
+  // flex row of [button][button][sentence], which put the Finalize sentence
+  // adjacent to Regenerate — a control whose effect is its opposite — and left
+  // Regenerate with nothing saying what it does. `flexWrap` plus a non-shrinking
+  // slot is also what stops "Finalize run" being squeezed onto two lines beside
+  // a one-line "Regenerate" at 760px: the slots wrap, the labels do not.
+  actionsBand: { display: 'flex', alignItems: 'flex-start', gap: 20, marginBottom: 14, flexWrap: 'wrap' },
+  actionSlot: { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4, flexShrink: 0, maxWidth: 320 },
   actionsHint: { fontSize: 12, color: 'var(--text-secondary)' },
   // T320 (docs/adr/2026-09-30-elective-run-durability.md item 3;
   // docs/work/specs/2026-09-30-t320-dangling-replace-picker.md).
@@ -66,7 +77,27 @@ const styles = {
   // filled the screen. Bounded, never truncated — every camper stays reachable
   // by scrolling. NOT a "+N more" and NOT a nested collapse: this list is
   // already inside a <details> the director opened on purpose.
-  namesListScroll: { maxHeight: 220, overflowY: 'auto' },
+  // RAISED FROM 220px/10 ENTRIES, which clamped where it was not earning its
+  // keep: measured at 14 entries, 220px showed 12 and hid 1.78 rows with no
+  // fade, no shadow, and macOS overlay scrollbars invisible until the pointer
+  // moves — so "14 campers" expanded to a list a director counted twelve of.
+  // 360px holds 20 rows at the 18px row height measured in the real renderer,
+  // and the clamp now engages only past that.
+  //
+  // THE MASK IS THE CUE, and it is not decoration: it is the only thing on this
+  // platform that says the list continues. A pseudo-element or a shadow would
+  // need a stylesheet (the one exception in this repo is scoped to
+  // src/components/schedule/), and a "+N more" line is what this list already
+  // decided against. No new token: a mask's stops are alpha, not colour.
+  namesListScroll: {
+    maxHeight: 360,
+    overflowY: 'auto',
+    // Percentage stops, not `calc(100% - 28px)`: the calc form is valid CSS but
+    // jsdom's cssstyle drops the whole declaration for it, so the cue could not
+    // be pinned by a test. 92% is ~28px of fade at this clamp height.
+    maskImage: 'linear-gradient(to bottom, #000 92%, transparent)',
+    WebkitMaskImage: 'linear-gradient(to bottom, #000 92%, transparent)',
+  },
   // The pairing: the state, then its remedy, with nothing between them — same
   // shape as FinalRunView's own stale-generation pairing.
   pairing: { marginBottom: 16 },
@@ -146,12 +177,25 @@ function CamperNameDisclosure({ campers = [], disambiguators }) {
   const unresolvableCount = campers.length - named.length
   if (named.length === 0) return <>{allCampersUnresolvableMessage(campers.length)}</>
   const itemCount = named.length + (unresolvableCount > 0 ? 1 : 0)
+  // ONE camper is not a disclosure. The summary already states the only fact the
+  // body holds, so expanding it showed nothing new — the same "restates its own
+  // summary" defect as the all-unresolvable case above, one camper over. The
+  // disambiguator is the single thing the body DID add, so it comes inline too
+  // rather than being dropped with the control.
+  if (itemCount === 1) {
+    const only = named[0]
+    const disambiguator = only.id != null ? disambiguators?.get(only.id) ?? null : null
+    return (
+      <>
+        {only.name}
+        {disambiguator ? <span style={styles.camperDisambiguator}>{` \u00b7 ${disambiguator}`}</span> : null}
+      </>
+    )
+  }
   return (
     <details style={A.disclosure}>
-      <summary style={A.disclosureSummary}>
-        {campers.length === 1 ? named[0].name : `${campers.length} campers`}
-      </summary>
-      <ul style={itemCount > 10 ? { ...styles.findingsList, ...styles.namesListScroll } : styles.findingsList}>
+      <summary style={A.disclosureSummary}>{`${campers.length} campers`}</summary>
+      <ul style={itemCount > NAMES_CLAMP_AFTER ? { ...styles.findingsList, ...styles.namesListScroll } : styles.findingsList}>
         {named.map((c, i) => {
           // The SAME treatment the placement table gives a same-named camper —
           // two campers both called "Ari Feldspar" otherwise produce two
@@ -170,7 +214,11 @@ function CamperNameDisclosure({ campers = [], disambiguators }) {
   )
 }
 
-function FinalizeRefusalRow({ refusal, onRegenerate, lockedAssignments, days, timeBlocks }) {
+// `onRegenerate` here is DraftRunView's own guarded handler, taking no
+// arguments — not the raw prop. Round 1 passed the prop, so this offer alone had
+// neither the double-tap guard nor the busy label, while the commit message said
+// the busy state closed the gap for "the three existing offers".
+function FinalizeRefusalRow({ refusal, onRegenerate, regenerating, days, timeBlocks }) {
   const { error, findings } = refusal
   const known = FINALIZE_MESSAGES[error]
   const message = known ?? `Finalizing failed: ${error}. Nothing was changed — try again, or contact support if this keeps happening.`
@@ -181,8 +229,14 @@ function FinalizeRefusalRow({ refusal, onRegenerate, lockedAssignments, days, ti
         <RunStateRow testId="run-state-finalize-stale" message={<>{message}<FinalizeFindingsList findings={findings} days={days} timeBlocks={timeBlocks} /></>} first alert />
         {onRegenerate ? (
           <div style={styles.pairingAction}>
-            <button className="press-97" style={S.btnSecondary} onClick={() => onRegenerate({ lockedAssignments })}>
-              Re-derive and regenerate
+            <button
+              className="press-97"
+              style={regenerating ? { ...S.btnSecondary, ...S.buttonDisabled } : S.btnSecondary}
+              disabled={regenerating}
+              aria-busy={regenerating || undefined}
+              onClick={onRegenerate}
+            >
+              {regenerating ? REGENERATE_BUSY_LABEL : 'Re-derive and regenerate'}
             </button>
           </div>
         ) : null}
@@ -236,6 +290,12 @@ export default function DraftRunView({
   // — `onRegenerate` is not available YET, which is a different fact from not
   // being available at all, and the note says which.
   regeneratePending = false,
+  // The described failure when that hydration read actually FAILED, or when it
+  // has been pending long enough to stop calling itself "preparing". Round 1
+  // reported this through `onError` only, and nothing carrying it reached this
+  // screen — so the director saw the generic sentence and retrying produced the
+  // same sentence with no indication whether it would help.
+  regenerateFailure = null,
 }) {
   const { state, setState, loaded, loadError, reload } = useRunState(run.id)
   const [error, setError] = useState(null)
@@ -583,10 +643,36 @@ export default function DraftRunView({
     .filter((r) => r.is_locked === 1 || r.is_locked === true)
     .map((r) => ({ camperId: r.camper_id, occurrenceId: r.occurrence_id, activityId: r.activity_id }))
 
-  // The non-duplication rule for the plain Regenerate control in the actions
-  // band: whenever one of the three SPECIFIC regenerate offers is on screen,
-  // the plain one is not. Two controls that do nearly the same thing, one of
-  // them nameless about why, is worse than either alone.
+  // ONE INPUT SET, AND ONE HANDLER, FOR EVERY REGENERATE CONTROL ON THIS SCREEN.
+  //
+  // Round 1's comment claimed "exactly one regenerate control is ever on
+  // screen". That is true only of the PLAIN control: `offerRegenerateShown`
+  // below suppresses that one, while the three specific offers (staleness,
+  // preference edit, STALE_OUTER_SCHEDULE refusal) are each gated on
+  // `onRegenerate` alone and nothing makes them mutually exclusive. With
+  // `staleCount > 0` AND a preference edited, two render at once.
+  //
+  // The claim is withdrawn rather than enforced by a precedence order, because
+  // both FACTS are true and this screen states a fact whenever it is true —
+  // hiding one to leave a single button would be the worse trade. What is fixed
+  // is the thing that made two buttons dangerous: they carried DIFFERENT
+  // payloads, so the staleness offer threw away the very edit the other offer
+  // existed to apply, silently. Now every control re-solves from the same input
+  // set, and which one the director picks cannot change the outcome.
+  //
+  // The edited preferences are included whenever there IS an edit, which is
+  // exactly when solving from the run's own stored rows rather than the parsed
+  // sheet is the correct thing to do (see the preference offer's own note).
+  const regenerateArgs = preferencesEdited
+    ? { preferences: state.preferences, choices: state.choices, lockedAssignments }
+    : { lockedAssignments }
+  const regenerateNow = () => {
+    // Clearing the notice belongs with the action, not with one button: the
+    // re-solve is about to consume the edit either way.
+    if (preferencesEdited) setPreferencesEdited(false)
+    regenerate(regenerateArgs)
+  }
+
   // `onRegenerate` (the prop), not `regenerate` (the wrapper): the two are
   // truthy together, and reading the wrapper as a VALUE during render is a
   // ref-access lint error now that it carries the double-tap guard.
@@ -896,8 +982,8 @@ export default function DraftRunView({
         // own comment above).
         key={`finalize-refusal-${finalizeRefusalSeq}`}
         refusal={finalizeRefusal}
-        onRegenerate={regenerate}
-        lockedAssignments={lockedAssignments}
+        onRegenerate={onRegenerate ? regenerateNow : undefined}
+        regenerating={regenerating}
         days={days}
         timeBlocks={timeBlocks}
       />
@@ -921,43 +1007,67 @@ export default function DraftRunView({
               docs/work/specs/2026-09-25-t250-run-state-surface.md originally
               fixed ("Layout"); that spec has a dated amendment note recording
               the change — see its "Layout" section. */}
-          <div style={styles.actionsBand}>
-            <button
-              className="press-97"
-              style={S.btnPrimary}
-              disabled={finalizing}
-              onClick={finalizeRun}
-            >
-              {finalizing ? 'Finalizing…' : 'Finalize run'}
-            </button>
-            {/* EXACTLY ONE regenerate control is ever on screen. The staleness
-                offer, the preference-edit offer and a STALE_OUTER_SCHEDULE
-                refusal each carry their own, more specific one; this is the
-                plain control for the case none of them applies — which is
-                precisely a cold-opened draft run with nothing to re-derive
-                against. Secondary weight, the same weight those three offers
-                already use: primary stays uniquely Finalize, utility stays
-                uniquely Delete. */}
-            {!offerRegenerateShown && onRegenerate ? (
+          <div data-testid="run-actions-band" style={styles.actionsBand}>
+            {/* ONE SLOT, ONE CONTROL, ONE EXPLANATION OF THAT CONTROL. The
+                Finalize sentence used to sit after the Regenerate button in a
+                single row, where a director reading left to right met "Locks
+                this run" immediately after the control that does the opposite. */}
+            <div style={styles.actionSlot}>
               <button
                 className="press-97"
-                data-testid="run-regenerate"
-                style={regenerating ? { ...S.btnSecondary, ...S.buttonDisabled } : S.btnSecondary}
-                disabled={regenerating}
-                aria-busy={regenerating || undefined}
-                onClick={() => regenerate({ lockedAssignments })}
+                style={S.btnPrimary}
+                /* THE IRREVERSIBLE ACTION IS NOT THE UNGUARDED ONE. While a
+                   regenerate is in flight this was clickable at full primary
+                   weight beside a greyed-out Regenerate, and clicking it
+                   finalized the run with the re-solve still outstanding. */
+                disabled={finalizing || regenerating}
+                onClick={finalizeRun}
               >
-                {regenerating ? REGENERATE_BUSY_LABEL : REGENERATE_LABEL}
+                {finalizing ? 'Finalizing…' : 'Finalize run'}
               </button>
-            ) : null}
-            {!offerRegenerateShown && !onRegenerate ? (
-              <div data-testid="run-regenerate-unavailable" style={styles.actionsHint}>
-                {regenerateUnavailableNote(regeneratePending)}
-              </div>
-            ) : null}
-            <span style={styles.actionsHint}>
-              Locks this run. You&apos;ll see it as Final, and can always start a new version later.
-            </span>
+              <span style={styles.actionsHint}>{FINALIZE_HINT}</span>
+            </div>
+            <div style={styles.actionSlot}>
+              {/* The staleness offer, the preference-edit offer and a
+                  STALE_OUTER_SCHEDULE refusal each carry their own, more
+                  specific control; this is the plain one for the case none of
+                  them applies — precisely a cold-opened draft run with nothing
+                  to re-derive against. Secondary weight, the same weight those
+                  offers use: primary stays uniquely Finalize, utility stays
+                  uniquely Delete. */}
+              {!offerRegenerateShown && onRegenerate ? (
+                <>
+                  <button
+                    className="press-97"
+                    data-testid="run-regenerate"
+                    style={regenerating ? { ...S.btnSecondary, ...S.buttonDisabled } : S.btnSecondary}
+                    disabled={regenerating}
+                    aria-busy={regenerating || undefined}
+                    onClick={regenerateNow}
+                  >
+                    {regenerating ? REGENERATE_BUSY_LABEL : REGENERATE_LABEL}
+                  </button>
+                  <span style={styles.actionsHint}>{REGENERATE_HINT}</span>
+                </>
+              ) : null}
+              {/* The sentence stands where the control would have been, in the
+                  regenerate slot — not beside the Finalize hint, where the two
+                  rendered as one grey paragraph about a control that was not on
+                  screen and was never named. */}
+              {!offerRegenerateShown && !onRegenerate ? (
+                <div data-testid="run-regenerate-unavailable" style={styles.actionsHint}>
+                  {regenerateUnavailableNote(regeneratePending, regenerateFailure)}
+                </div>
+              ) : null}
+              {/* T320 part 2 item 3 — a standing fact about what regenerating
+                  THIS run reconsiders, so it belongs in the regenerate slot
+                  whichever control is offering the regenerate. Round 1 left it
+                  below the findings block, visually attached to the placement
+                  table and to no control at all. */}
+              {coldRegenerate ? (
+                <div data-testid="run-cold-regenerate-note" style={styles.actionsHint}>{COLD_REGENERATE_NOTE}</div>
+              ) : null}
+            </div>
           </div>
 
           <RunStateArea>{stateRows}</RunStateArea>
@@ -977,10 +1087,12 @@ export default function DraftRunView({
               {onRegenerate ? (
                 <button
                   className="press-97"
-                  style={S.btnSecondary}
-                  onClick={() => regenerate({ lockedAssignments })}
+                  style={regenerating ? { ...S.btnSecondary, ...S.buttonDisabled } : S.btnSecondary}
+                  disabled={regenerating}
+                  aria-busy={regenerating || undefined}
+                  onClick={regenerateNow}
                 >
-                  Re-derive and regenerate
+                  {regenerating ? REGENERATE_BUSY_LABEL : 'Re-derive and regenerate'}
                 </button>
               ) : null}
             </div>
@@ -993,9 +1105,7 @@ export default function DraftRunView({
               said "not the original sheet's full roster", which was honest of
               the old (preferences ∪ assignments) derivation and is no longer
               true. */}
-          {coldRegenerate ? (
-            <div data-testid="run-cold-regenerate-note" style={styles.actionsHint}>{COLD_REGENERATE_NOTE}</div>
-          ) : null}
+
 
           {/* T297 — the other half of the ticket's loop. An edit changes what a
               camper asked for; the placements still reflect the previous answer
@@ -1019,13 +1129,12 @@ export default function DraftRunView({
                 <button
                   className="press-97"
                   data-testid="run-preference-resolve"
-                  style={S.btnSecondary}
-                  onClick={() => {
-                    setPreferencesEdited(false)
-                    regenerate({ preferences: state.preferences, choices: state.choices, lockedAssignments })
-                  }}
+                  style={regenerating ? { ...S.btnSecondary, ...S.buttonDisabled } : S.btnSecondary}
+                  disabled={regenerating}
+                  aria-busy={regenerating || undefined}
+                  onClick={regenerateNow}
                 >
-                  Solve again
+                  {regenerating ? REGENERATE_BUSY_LABEL : 'Solve again'}
                 </button>
               ) : null}
             </div>
@@ -1120,6 +1229,10 @@ export default function DraftRunView({
           <button
             className="press-97"
             style={{ ...S.btnUtility, marginTop: 20 }}
+            /* Same reason as Finalize: the confirmation is a second step, but
+               its confirm button would still delete a run with a re-solve in
+               flight, which would then commit against a run that is gone. */
+            disabled={regenerating}
             onClick={() => setConfirmingDelete(true)}
           >
             Delete run
