@@ -8,6 +8,7 @@
 // for its own component.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, act } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 let opRejectedCallback
 
@@ -714,6 +715,65 @@ describe('AppShell: notice FIFO queue (T200 board follow-up)', () => {
     expect(screen.getByRole('alert')).toBeTruthy()
     expect(screen.getByRole('alert').textContent).toMatch(/could not be saved/i)
     expect(screen.queryByText(/more$/)).toBeNull()
+  })
+
+  // Round 4 board ruling on Red Hat's residual-loss repro (CONFIRMED): a
+  // keyboard retry activated inside the 140ms dismiss fade must cancel that
+  // notice's own pending dismiss timer before the retry's upsert lands —
+  // otherwise the stale timer later removes the fresh failure message the
+  // director has never read.
+  //
+  // Reached via `userEvent.keyboard('{Enter}')` on the already-focused Try
+  // again button, NOT `userEvent.click`/`fireEvent.click`. That distinction
+  // is the point: `userEvent.click` performs a real pointer interaction and
+  // asserts the target's computed `pointer-events` is not `none` first — it
+  // would throw here, because `opRejectedNoticeStyles.dismissing` sets
+  // `pointerEvents: 'none'` on the wrap while fading, which is exactly what
+  // blocks a second *mouse* click in production. `userEvent.keyboard` never
+  // performs that pointer-events check (it lives only in the pointer
+  // module) — pressing Enter on a focused button fires a synthetic click via
+  // the keyboard module's own default-action registry, which is how a real
+  // browser honours keyboard activation regardless of pointer-events. That
+  // is the reachable path this test exercises.
+  it('Round 4 Item 1: a keyboard retry inside the dismiss fade cancels that notice\'s own pending dismiss, so the new failure message is not later removed', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      seedDays.mockRejectedValueOnce(new Error('write failed for field "label"'))
+      render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+      await act(async () => {})
+
+      let alert = screen.getByRole('alert')
+      expect(alert.textContent).toMatch(/default weekdays/i)
+
+      const retryBtn = screen.getByRole('button', { name: /try again/i })
+      await act(async () => { retryBtn.focus() })
+
+      // Director dismisses the notice. This arms the 140ms fade timer for
+      // THIS notice's id — nothing has been removed yet.
+      await act(async () => { fireEvent.click(screen.getByLabelText('Dismiss')) })
+
+      // Within the fade window, the director retries via keyboard. The
+      // retry fails again with a brand-new message; bootstrap retries
+      // deliberately reuse their entry id, so this upsert writes the new
+      // message into the SAME id the stale dismiss timer is about to act on.
+      seedDays.mockRejectedValueOnce(new Error('UNIQUE constraint failed'))
+      await act(async () => { await vi.advanceTimersByTimeAsync(50) })
+      await act(async () => {
+        await user.keyboard('{Enter}')
+      })
+
+      // The original dismiss timer's remaining ~90ms elapses.
+      await act(async () => { await vi.advanceTimersByTimeAsync(100) })
+
+      // The fresh failure must still be on screen — the retry's own notice
+      // was never destroyed by a dismiss issued against the message it
+      // replaced.
+      alert = screen.getByRole('alert')
+      expect(alert.textContent).toMatch(/already has that name/i)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 
