@@ -51,6 +51,10 @@ import DraftRunView from '../run/DraftRunView.jsx'
 // T320 part 2 item 2 — the ONE copy string for RUN_IS_FINAL, shared with
 // DraftRunView rather than duplicated here.
 import { FINALIZE_MESSAGES, COLD_HYDRATION_FAILED_NOTE, COLD_HYDRATION_SLOW_NOTE } from '../run/runStateCopy.js'
+// Board item i-elective-attendance-residuals (a) — see electiveDraftStore.js
+// for why this exists (a DIVISION_ROSTER_MISMATCH asks the director to leave
+// this screen, which used to discard the whole parsed sheet on unmount).
+import { getDraft, saveDraft, clearDraft } from './electiveDraftStore.js'
 
 // Long enough that an ordinary cold-open read never trips it (the measured read
 // is tens of milliseconds), short enough that a director is not left watching an
@@ -189,6 +193,32 @@ function EncryptionDisclosure() {
         {ENCRYPTION_DISCLOSURE}
         {detail ? <div style={disclosureStyles.detail}>{detail}</div> : null}
       </span>
+    </div>
+  )
+}
+
+// Board item i-elective-attendance-residuals (a) — the styled confirm used
+// elsewhere in this app for a destructive, in-place replacement
+// (src/components/schedule/ConfirmRegenModal.jsx's own S.overlay/S.modalLg
+// pattern), not window.confirm. A new file silently discarding an
+// in-progress import's rows/mapping/resolutions would be the same silent
+// data loss T250's own commit guard exists to prevent, one screen over.
+function ReplaceDraftModal({ onConfirm, onCancel }) {
+  const enterStyle = useEnterTransition('liftFade')
+  return (
+    <div style={{ ...S.overlay, ...enterStyle }}>
+      <div style={{ ...S.modalLg, maxWidth: 420 }}>
+        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 16, marginBottom: 8 }}>
+          Replace the sheet you're working on?
+        </div>
+        <div style={{ fontSize: 13, color: 'var(--text)', marginBottom: 20 }}>
+          You have an in-progress import for this elective set. Choosing a new file replaces it — the rows, mapping and resolutions you have now will be lost.
+        </div>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button className="press-97" onClick={onCancel} style={S.btnSecondary}>Cancel</button>
+          <button className="press-97" onClick={onConfirm} style={S.btnDanger}>Replace It</button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -373,6 +403,13 @@ export default function AssignmentPanel({
   // feed the re-parse and the third does not.
   const [resolutions, setResolutions] = useState([])
   const [resolvingLabel, setResolvingLabel] = useState(null)
+  // Board item i-elective-attendance-residuals (a) — true once this session's
+  // preview was reconstructed from electiveDraftStore rather than a fresh
+  // solve, so the preview can say so (a flag, not a banner — see the render
+  // below). `pendingReplaceFile` holds a newly-picked file while the director
+  // is asked to confirm it over an in-progress draft; null the rest of the time.
+  const [resumedDraft, setResumedDraft] = useState(false)
+  const [pendingReplaceFile, setPendingReplaceFile] = useState(null)
   const fileInputRef = useRef(null)
   // H3 — a synchronous guard against a double-tap committing twice. The
   // `committing` prop below covers the ordinary case (React has re-rendered
@@ -380,6 +417,14 @@ export default function AssignmentPanel({
   // click, and this is exactly the tablet-double-tap window a state-driven
   // disabled prop cannot close on its own.
   const committingRef = useRef(false)
+  // Board item i-elective-attendance-residuals (a) — true once this session's
+  // preview has been saved to the draft store at least once; gates the save
+  // effect below so every unrelated keystroke before a sheet is ever parsed
+  // does not write an empty draft. `resumeKeyRef` records the camp+set this
+  // mount already attempted to resume, so a prop change does not re-trigger
+  // it (the ruled trigger is an unmount/remount, not a prop swap).
+  const draftLiveRef = useRef(false)
+  const resumeKeyRef = useRef(null)
   const enter = useEnterTransition('liftFade')
   const settleEnter = useEnterTransition('settle')
 
@@ -424,6 +469,38 @@ export default function AssignmentPanel({
     setDanglingFindings([])
     setResolutions([])
     setResolvingLabel(null)
+    // The director explicitly starting over — the draft, if any, goes with it.
+    clearDraft(campId, electiveSetId)
+    draftLiveRef.current = false
+    setResumedDraft(false)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  // Board item i-elective-attendance-residuals (a) — the gate in front of
+  // onFileSelected. A director who already has an in-progress import saved to
+  // the draft store gets asked before a new file silently replaces it;
+  // everyone else (the ordinary case — no draft exists yet) goes straight
+  // through, unchanged from before this ticket.
+  function handleFileChosen(file) {
+    if (!file) return
+    if (getDraft(campId, electiveSetId)) {
+      setPendingReplaceFile(file)
+      return
+    }
+    onFileSelected(file)
+  }
+
+  function confirmReplaceDraft() {
+    const file = pendingReplaceFile
+    clearDraft(campId, electiveSetId)
+    draftLiveRef.current = false
+    setResumedDraft(false)
+    setPendingReplaceFile(null)
+    onFileSelected(file)
+  }
+
+  function cancelReplaceDraft() {
+    setPendingReplaceFile(null)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
@@ -727,6 +804,159 @@ export default function AssignmentPanel({
     solve(occs, [], chosenTemplateId, null, [], newRunId)
   }
 
+  // Board item i-elective-attendance-residuals (a) — reconstructs this panel's
+  // pre-commit import session from electiveDraftStore, so leaving to fix a
+  // camper's group (DIVISION_ROSTER_MISMATCH's own advice) and coming back
+  // does not cost the director a re-upload. Mints a FRESH runId exactly like
+  // chooseTemplateAndSolve above — nothing has been committed yet, so there is
+  // no existing runId to preserve, and a fresh one is what deriveChoices below
+  // needs to stay consistent with the occurrence ids derived alongside it.
+  //
+  // Deliberately re-SOLVES rather than restoring `result`/findings from the
+  // draft — the draft never stores them (electiveDraftStore.js's own
+  // comment) — so the reopened preview reflects whatever the roster looks
+  // like NOW, not a frozen snapshot from before the director's fix.
+  // Round 2, Code Reviewer MEDIUM — state is populated ONLY after
+  // deriveOccurrences has succeeded, matching chooseTemplateAndSolve's own
+  // order above (derive first, setState only on success). The earlier version
+  // set rows/mapping/parsed/templateId/resumedDraft BEFORE this try/catch, so
+  // a throw here left the panel half-resumed — those fields populated but
+  // phase never moved off 'empty' and nothing was ever re-solved.
+  function resumeFromDraft(draft) {
+    if (!templates[draft.templateId]) {
+      // The schedule this draft was built against is gone (the set was taken
+      // off that route, or the route itself was deleted) — nothing here is
+      // safe to resolve against, so the draft is abandoned rather than
+      // resumed into a broken state.
+      clearDraft(campId, electiveSetId)
+      onError?.('The schedule this import was being assigned against is no longer available on this set. Start a new import.')
+      return
+    }
+    const newRunId = crypto.randomUUID()
+    let occs
+    try {
+      occs = deriveOccurrences({
+        slots: templateSlots, groups, electiveSetId, runId: newRunId,
+      }).templates[draft.templateId]?.occurrences ?? []
+    } catch (err) {
+      onError?.(describeWriteFailure(err, 'Could not prepare this schedule for assignment.'))
+      clearDraft(campId, electiveSetId)
+      // Round 2, Code Reviewer MEDIUM — nothing was set above, so phase is
+      // still whatever it already was (normally 'empty' on a fresh mount);
+      // stated explicitly rather than left implicit, so a future setter added
+      // above this guard does not silently leave a stale phase behind.
+      setPhase('empty')
+      return
+    }
+    setRows(draft.rows)
+    setMapping(draft.mapping)
+    setRecalledFromId(draft.recalledFromId ?? null)
+    setSourceLabel(draft.sourceLabel)
+    setSubmissionKey(draft.submissionKey)
+    setArrivalId(draft.arrivalId)
+    setUnreadSheets(draft.unreadSheets ?? [])
+    setResolutions(draft.resolutions ?? [])
+    setParsed(draft.parsed)
+    setTemplateId(draft.templateId)
+    setRunId(newRunId)
+    setOccurrences(occs)
+    draftLiveRef.current = true
+    setResumedDraft(true)
+    // Round 2, Code Reviewer LOW — `runPreferences` is explicitly null here,
+    // matching chooseTemplateAndSolve's first solve. `sheetOverride`
+    // (`draft.parsed`) already resolves preferences through solve()'s own
+    // `runPreferences ?? sheet.preferences` fallback; passing
+    // `draft.parsed.preferences` as BOTH arguments read as if a resumed draft
+    // needed a distinct preferences source, when it is the same one.
+    solve(occs, [], draft.templateId, null, [], newRunId, draft.parsed)
+  }
+
+  // Board item i-elective-attendance-residuals (a) — attempt a resume exactly
+  // once per camp+set this component instance is mounted for. Waits for
+  // `candidateTemplateIds` to be non-empty (templateSlots/groups loading
+  // asynchronously is ordinary) rather than firing on the very first render,
+  // because an empty `templates` object would otherwise read as "the
+  // template is gone" and wrongly discard a perfectly good draft before the
+  // real data has arrived. Does nothing while a persisted run is open
+  // (`viewRun`) — a cold-open run has its own hydration effect below, and the
+  // two must never race over the same state.
+  //
+  // Round 2, Red Hat LOW/doc — this assumes `templateSlots`/`groups` arrive
+  // ATOMICALLY (one complete set, not paginated or streamed in). If a future
+  // change loads either incrementally, `candidateTemplateIds.length > 0` can
+  // go true on a PARTIAL load that does not yet include `draft.templateId`,
+  // and `resumeFromDraft`'s own `!templates[draft.templateId]` guard would
+  // then discard a perfectly valid draft, reading the gap as "this schedule
+  // no longer exists" instead of "not loaded yet". Not a problem today
+  // because both props load as a single array from a single IPC read.
+  useEffect(() => {
+    const thisKey = `${campId}:${electiveSetId}`
+    if (resumeKeyRef.current === thisKey) return
+    if (viewRun) return
+    if (candidateTemplateIds.length === 0) return
+    resumeKeyRef.current = thisKey
+    const draft = getDraft(campId, electiveSetId)
+    if (!draft) return
+    // Round 2, Red Hat MEDIUM — mirrors the cold-run hydration effect below
+    // (its own `let cancelled = false` + cleanup): if this panel unmounts
+    // before the deferred microtask runs, `resumeFromDraft`'s setState calls
+    // must not fire against a session nothing is reading anymore. This does
+    // NOT reach into solve()'s own internal `setTimeout` — that hazard is
+    // pre-existing and shared by every solve() caller (chooseTemplateAndSolve,
+    // regenerate), not introduced here.
+    let cancelled = false
+    // Deferred a tick, matching the cold-run hydration effect below (its own
+    // async IIFE does the same): `resumeFromDraft` fires several setState
+    // calls and then solve() itself, and doing that synchronously inside the
+    // effect body is the cascading-render pattern react-hooks warns against.
+    queueMicrotask(() => { if (!cancelled) resumeFromDraft(draft) })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campId, electiveSetId, candidateTemplateIds.length, viewRun])
+
+  // Board item i-elective-attendance-residuals (a) — saves the current
+  // pre-commit inputs once this session reaches 'preview' (the earliest point
+  // a resume is useful — restoring into 'mapping' or 'parsed' would require
+  // this effect to do more guessing than a director re-pressing Confirm costs
+  // them), and keeps saving as those inputs change afterwards (the "and
+  // whenever resolutions change while a draft is live" half of the brief) —
+  // covers a director regenerating or re-resolving after first reaching
+  // preview. `draftLiveRef` is the gate: it flips on at 'preview' and nothing
+  // before that point writes a draft at all.
+  //
+  // Round 2, Red Hat HIGH — a 'preview' reached WITHOUT a fresh pre-commit
+  // parse is not a draft worth saving: commit→open the run from RunList→
+  // regenerate() also re-reaches 'preview', but `rows`/`mapping`/
+  // `sourceLabel`/`submissionKey` are never set on that path (nothing there
+  // ever imported a file this session) — saving it would resurrect a
+  // null-riddled pseudo-draft that later mis-fires ReplaceDraftModal with a
+  // false "rows/mapping will be lost" warning. `committedInfo` stays set
+  // across `regenerate()` (only `reset()` clears it) and `hydratedRunId`
+  // marks the cold-open-run equivalent, so excluding both restricts saving to
+  // a genuine in-progress import session, exactly like `viewRun` already did
+  // for the run-view case.
+  useEffect(() => {
+    if (viewRun) return
+    if (committedInfo) return
+    if (hydratedRunId) return
+    if (phase === 'preview') draftLiveRef.current = true
+    if (!draftLiveRef.current) return
+    if (!parsed || !templateId) return
+    // Intentional: a blocked run (e.g. T316's blank-capacity refusal) or a
+    // zero-placement solve still reaches 'preview' and is still saved here.
+    // Resuming loses nothing in that case either — the draft holds inputs,
+    // not the (empty) result, and a fresh re-solve on remount reproduces
+    // whatever this one produced.
+    saveDraft(campId, electiveSetId, {
+      rows, mapping, parsed, templateId, occurrences, resolutions,
+      sourceLabel, submissionKey, arrivalId, unreadSheets, recalledFromId,
+    })
+  }, [
+    phase, viewRun, committedInfo, hydratedRunId, campId, electiveSetId, rows, mapping,
+    parsed, templateId, occurrences, resolutions, sourceLabel, submissionKey, arrivalId,
+    unreadSheets, recalledFromId,
+  ])
+
   // T297 — `runPreferences`/`runChoices` re-solve from the run's OWN stored rows
   // instead of the parsed sheet. Both null/empty on every other path, where
   // `parsed.preferences` is the only truth there is (nothing is committed yet on
@@ -743,7 +973,16 @@ export default function AssignmentPanel({
   // exact runId, and deriveChoices below must key its choice ids off the
   // same one or a re-solve would silently mint different bundle choice ids
   // than the ones this run already committed.
-  function solve(occs, lockedAssignments = [], chosenTemplateId = null, runPreferences = null, runChoices = [], solveRunId = runId) {
+  //
+  // `sheetOverride` — board item i-elective-attendance-residuals (a). Resuming
+  // a draft restores `parsed` via `setParsed` and calls solve() in the SAME
+  // tick; that state update has not landed in this closure yet (same stale-
+  // closure hazard `chosenTemplateId`/`solveRunId` already document above), so
+  // without an explicit override every read of `parsed` below would see the
+  // sheet from BEFORE the resume — null on a cold remount. Every other caller
+  // omits it and solve() falls back to the `parsed` state value, unchanged.
+  function solve(occs, lockedAssignments = [], chosenTemplateId = null, runPreferences = null, runChoices = [], solveRunId = runId, sheetOverride = null) {
+    const sheet = sheetOverride ?? parsed
     setPhase('solving')
     // Deliberately async-shaped so the busy phase actually paints before the
     // (synchronous, potentially heavy) solve runs.
@@ -804,12 +1043,12 @@ export default function AssignmentPanel({
       // SET a group it resolved; it may never clear one it simply failed to
       // resolve", read in this direction.
       const identity = makeCamperIdentityResolver({
-        sheetCampers: parsed.campers, rosterCampers: campers, groups, tiers,
+        sheetCampers: sheet.campers, rosterCampers: campers, groups, tiers,
       })
       const enrichedCampers = identity.enriched
       const tierIdByCamperId = Object.fromEntries(identity.tierIdByCamperId)
       const resolvedPreferences = resolvePreferenceCoordinates({
-        preferences: runPreferences ?? parsed.preferences,
+        preferences: runPreferences ?? sheet.preferences,
         occurrences: occs,
         days,
         timeBlocks,
@@ -865,12 +1104,13 @@ export default function AssignmentPanel({
         ],
         choiceOfferings: bundleDerivation.choiceOfferings,
       })
-      // DELIBERATELY `parsed.preferences`, even on a re-solve from the database.
-      // findMismatches keys on `labelKey` and on `label` for its wording, and it
-      // reports about THE FILE ("was ranked by campers but does not match any
-      // offered activity") — a sentence about the sheet the director imported.
-      // It is not an oversight that the re-solve's own rows are not used here.
-      const mismatchFindings = findMismatches({ offerings, preferences: parsed.preferences })
+      // DELIBERATELY `sheet.preferences` (the parsed sheet, not `runPreferences`),
+      // even on a re-solve from the database. findMismatches keys on `labelKey`
+      // and on `label` for its wording, and it reports about THE FILE ("was
+      // ranked by campers but does not match any offered activity") — a
+      // sentence about the sheet the director imported. It is not an oversight
+      // that the re-solve's own rows are not used here.
+      const mismatchFindings = findMismatches({ offerings, preferences: sheet.preferences })
       // T232 — one finding PER unmatched division value, naming the value and
       // the division it probably meant. The previous version reported only a
       // count, which told a director that something was wrong and nothing
@@ -1024,6 +1264,11 @@ export default function AssignmentPanel({
       }
       setDanglingFindings(out.findings ?? [])
       setCommittedInfo({ runId: out.runId, camperCount: out.counts.campers, occurrenceCount: occurrences.length })
+      // Committed — the pre-commit draft this session may have saved no longer
+      // describes anything in progress.
+      clearDraft(campId, electiveSetId)
+      draftLiveRef.current = false
+      setResumedDraft(false)
       setPhase('committed')
     } catch (err) {
       onError?.(describeWriteFailure(err, 'Could not commit these assignments.'))
@@ -1267,6 +1512,12 @@ export default function AssignmentPanel({
           from one state, and must not unmount as the director moves through
           import -> mapping -> preview -> committed. */}
       <EncryptionDisclosure />
+      {/* Board item i-elective-attendance-residuals (a) — also outside every
+          phase branch: a draft can be live in any phase that renders the file
+          input, and this must intercept every one of them. */}
+      {pendingReplaceFile && (
+        <ReplaceDraftModal onConfirm={confirmReplaceDraft} onCancel={cancelReplaceDraft} />
+      )}
       <input
         ref={fileInputRef}
         type="file"
@@ -1278,7 +1529,7 @@ export default function AssignmentPanel({
         // these; T313 removed it, and SheetJS sniffs both from the same buffer._
         accept=".xlsx,.xlsm,.xls,.csv,.tsv,.txt"
         style={{ display: 'none' }}
-        onChange={(e) => onFileSelected(e.target.files?.[0])}
+        onChange={(e) => handleFileChosen(e.target.files?.[0])}
       />
 
       {viewRun ? (
@@ -1423,20 +1674,34 @@ export default function AssignmentPanel({
       {phase === 'solving' && <Busy label="Solving assignments…" />}
 
       {phase === 'preview' && result && (
-        <AssignmentPreview
-          assignments={result.assignments}
-          findings={result.findings}
-          choices={result.choices}
-          occurrences={occurrences}
-          days={days}
-          timeBlocks={timeBlocks}
-          tiers={tiers}
-          activities={activities}
-          campers={parsed.campers}
-          role={role}
-          onCommit={commit}
-          committing={phase === 'committing'}
-        />
+        <>
+          {/* Board item i-elective-attendance-residuals (a) — a FLAG in the
+              panel's existing finding-row vocabulary (S.findingsRailRow, the
+              same primitive the route chooser above uses for an informational
+              row), never a dismissible top banner — the repo's standing rule.
+              Neutral border, not danger red: resuming is not itself a problem,
+              the findings list right below it is what carries any actual
+              problem. */}
+          {resumedDraft && (
+            <div style={S.findingsRailRow('var(--border)')}>
+              Resumed from an in-progress import — these findings reflect the camp&apos;s current roster.
+            </div>
+          )}
+          <AssignmentPreview
+            assignments={result.assignments}
+            findings={result.findings}
+            choices={result.choices}
+            occurrences={occurrences}
+            days={days}
+            timeBlocks={timeBlocks}
+            tiers={tiers}
+            activities={activities}
+            campers={parsed.campers}
+            role={role}
+            onCommit={commit}
+            committing={phase === 'committing'}
+          />
+        </>
       )}
 
       {phase === 'committing' && <Busy label="Committing…" />}
