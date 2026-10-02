@@ -112,4 +112,26 @@ describe('recordDeviceHealthEvent — the row lands, and says so', () => {
     db.prepare("UPDATE device_health_events SET resolved_at = ? WHERE detail = 'first'").run(new Date().toISOString())
     expect(listDeviceHealthEvents(db).map((r) => r.detail)).toEqual(['second'])
   })
+
+  it('a deterministic id dedups a recurring event to ONE row (Red Hat RISK 1: bounded growth)', () => {
+    // A cross-camp rejection re-fires on every merge pass because the bad write
+    // lives in the append-only shared document. A deterministic id must collapse
+    // those to a single durable row instead of accumulating one per pass.
+    const key = 'crosscamp:activities:act-x:other-camp'
+    const first = recordDeviceHealthEvent(db, { campId: 'camp-1', kind: DEVICE_HEALTH.CROSS_CAMP_WRITE_REJECTED, id: key, detail: 'pass 1' })
+    const second = recordDeviceHealthEvent(db, { campId: 'camp-1', kind: DEVICE_HEALTH.CROSS_CAMP_WRITE_REJECTED, id: key, detail: 'pass 2' })
+    const third = recordDeviceHealthEvent(db, { campId: 'camp-1', kind: DEVICE_HEALTH.CROSS_CAMP_WRITE_REJECTED, id: key, detail: 'pass 3' })
+    expect(first).toBe(true)   // the row landed
+    expect(second).toBe(false) // deduped — no NEW row, and it says so
+    expect(third).toBe(false)
+    const rows = listDeviceHealthEvents(db).filter((r) => r.kind === DEVICE_HEALTH.CROSS_CAMP_WRITE_REJECTED)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].detail).toBe('pass 1') // first-writer-wins; later passes do not overwrite
+  })
+
+  it('distinct ids are NOT deduped — two different bad records each get a row (anti-vacuity)', () => {
+    expect(recordDeviceHealthEvent(db, { campId: 'camp-1', kind: DEVICE_HEALTH.CROSS_CAMP_WRITE_REJECTED, id: 'crosscamp:activities:a:x' })).toBe(true)
+    expect(recordDeviceHealthEvent(db, { campId: 'camp-1', kind: DEVICE_HEALTH.CROSS_CAMP_WRITE_REJECTED, id: 'crosscamp:activities:b:x' })).toBe(true)
+    expect(listDeviceHealthEvents(db).filter((r) => r.kind === DEVICE_HEALTH.CROSS_CAMP_WRITE_REJECTED)).toHaveLength(2)
+  })
 })

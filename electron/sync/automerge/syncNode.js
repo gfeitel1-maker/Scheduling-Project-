@@ -77,7 +77,7 @@ export function isSyncCompatible(incomingVersion, localVersion) {
 // installed builds in one process: overriding this alone lets a test node ANNOUNCE a version other
 // than this checkout's real CURRENT_SCHEMA_VERSION, to construct a genuine peer-version mismatch
 // without needing a second codebase.
-export async function startSyncNode({ deviceId, db, doc, onProjected, onProjectionError, onRemoteOps, onPairingRequest, onPairingDecision, isJoinWindowOpen, getJoinSecret, peerDiscovery, onAuthRejected, isPeerTrusted, listen, now, localSchemaVersion = CURRENT_SCHEMA_VERSION, handshakeSchemaVersion = localSchemaVersion } = {}) {
+export async function startSyncNode({ deviceId, db, doc, onProjected, onProjectionError, onCrossCampRejected, onRemoteOps, onPairingRequest, onPairingDecision, isJoinWindowOpen, getJoinSecret, peerDiscovery, onAuthRejected, isPeerTrusted, listen, now, localSchemaVersion = CURRENT_SCHEMA_VERSION, handshakeSchemaVersion = localSchemaVersion } = {}) {
   const getLocalSchemaVersion = () =>
     typeof localSchemaVersion === 'function' ? localSchemaVersion() : localSchemaVersion
   const getHandshakeSchemaVersion = () =>
@@ -153,12 +153,19 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
       // the app must learn about it here instead of only in projection_failures/the console
       // (T194 round 6, Defect 1). Reuses the same onProjectionError callback the fatal path below
       // already calls: one row per contained failure, never fatal, sync keeps converging either way.
-      if (onProjectionError && contained?.length) {
+      if (contained?.length) {
         for (const failure of contained) {
           try {
-            onProjectionError(failure.error, merged, fromPeerId)
+            // A cross-camp camp_id rejection is a security refusal of a peer write, not a
+            // projection failure (the row itself projected fine). Route it to its own
+            // surface; everything else is a contained projection failure as before.
+            if (failure.crossCamp) {
+              onCrossCampRejected?.(failure, merged, fromPeerId)
+            } else {
+              onProjectionError?.(failure.error, merged, fromPeerId)
+            }
           } catch (err) {
-            console.error(`syncNode: onProjectionError consumer threw (non-fatal, sync continues): ${err?.message ?? err}`)
+            console.error(`syncNode: projection-failure consumer threw (non-fatal, sync continues): ${err?.message ?? err}`)
           }
         }
       }

@@ -114,6 +114,46 @@ describe('projector — tenant guard parity (foreign camp_id is rejected, not cr
     expect(daysRows(dbA)).toEqual([{ id: 'day-1', camp_id: 'camp-1', label: 'Monday', day_of_week: null, sort_order: null }])
     dbA.close(); dbB.close()
   })
+
+  // board i-appendop-silent-camp-id-rejection (OWNER 2026-10-02: "log it AND surface
+  // it so the refusal is actually seen"). The guard's REFUSAL behavior is unchanged
+  // (tests above); these pin that projectAll no longer DROPS the refusal silently — it
+  // hands it back as a distinct `crossCamp` failure the sync layer can surface.
+  it('projectAll surfaces a foreign camp_id as a distinct crossCamp failure (no longer silent)', () => {
+    let doc = createEmptyDoc()
+    // A row the device WILL create (its label makes a legit row) that also carries a
+    // foreign camp_id — the realistic hostile/buggy-peer shape.
+    doc = applyWrite(doc, { entity: STAGE1_ENTITY, entity_id: 'day-1', field: 'label', value: 'Monday' })
+    doc = applyWrite(doc, { entity: STAGE1_ENTITY, entity_id: 'day-1', field: 'camp_id', value: 'other-camp' })
+    const failures = projectAll(db, doc)
+    const crossCamp = failures.filter((f) => f.crossCamp)
+    expect(crossCamp).toHaveLength(1)
+    expect(crossCamp[0]).toMatchObject({ entity: STAGE1_ENTITY, entityId: 'day-1', field: 'camp_id', rejectedValue: 'other-camp' })
+    // Guard behavior unchanged: the row still projected, keeping the DEVICE's camp.
+    expect(daysRows(db)).toEqual([{ id: 'day-1', camp_id: 'camp-1', label: 'Monday', day_of_week: null, sort_order: null }])
+  })
+
+  it('does NOT raise a crossCamp failure in the bootstrap window (no local camps row yet)', () => {
+    // Red Hat RISK 3: applyProjection's guard also returns false when this device has
+    // no camps row yet (`!camp`). That is a transient race, not a hostile write, and
+    // must NOT be promoted to a security surface. A row whose ONLY field is a foreign
+    // camp_id inserts nothing (op-log parity), so deleting the camps row is safe here.
+    db.prepare('DELETE FROM camps').run()
+    let doc = createEmptyDoc()
+    doc = applyWrite(doc, { entity: STAGE1_ENTITY, entity_id: 'evil-1', field: 'camp_id', value: 'other-camp' })
+    const failures = projectAll(db, doc)
+    expect(failures.filter((f) => f.crossCamp)).toHaveLength(0)
+    expect(daysRows(db)).toEqual([])
+  })
+
+  it('projectAll reports NO crossCamp failure for a legitimate same-camp write (anti-vacuity)', () => {
+    let doc = createEmptyDoc()
+    doc = applyWrite(doc, { entity: STAGE1_ENTITY, entity_id: 'day-1', field: 'label', value: 'Monday' })
+    doc = applyWrite(doc, { entity: STAGE1_ENTITY, entity_id: 'day-1', field: 'camp_id', value: 'camp-1' })
+    const failures = projectAll(db, doc)
+    expect(failures.filter((f) => f.crossCamp)).toHaveLength(0)
+    expect(daysRows(db)).toEqual([{ id: 'day-1', camp_id: 'camp-1', label: 'Monday', day_of_week: null, sort_order: null }])
+  })
 })
 
 describe('projector — a merged (conflict-resolved) document projects cleanly', () => {

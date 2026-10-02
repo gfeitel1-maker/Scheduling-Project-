@@ -537,6 +537,18 @@ function upsertRow(db, entity, id, row, fields, outstandingIds = null, failures 
   const savepoint = `row_${++rowSavepointCounter}`
   db.exec(`SAVEPOINT ${savepoint}`)
   let failedField = null
+  // A `camp_id` field this doc row carries for a DIFFERENT camp than this device.
+  // applyProjection's tenant guard refuses it by RETURNING false (not throwing —
+  // see its comment in projections.js), so it never reaches the catch below. Left
+  // unobserved it is exactly the "silent reject" board i-appendop-silent-camp-id-rejection
+  // is about. We note it here and surface it through `failures` (its own crossCamp
+  // shape, NOT a projection_failures row — a cross-camp write is not repairable by
+  // re-projection), without altering the guard's behavior: the rejected camp_id is
+  // still skipped, every OTHER field of the row still projects, and the merge stays
+  // non-fatal. A boolean flag (not a value sentinel) records the rejection so that
+  // a genuinely null rejected value is still caught.
+  let crossCampRejected = false
+  let crossCampRejectedValue
   try {
     // knownRow = row: every field the document currently holds for this id, all at once — unlike
     // op-log replay's true one-field-at-a-time arrival. Some entities' ensureExists (projections.js's
@@ -547,9 +559,34 @@ function upsertRow(db, entity, id, row, fields, outstandingIds = null, failures 
     for (const field of fields) {
       if (!(field in row)) continue
       failedField = field
-      applyProjection(db, { entity, entity_id: id, field, value: row[field], knownRow: row })
+      const applied = applyProjection(db, { entity, entity_id: id, field, value: row[field], knownRow: row })
+      // applyProjection returns `false` for, and only for, a rejected camp_id write.
+      if (applied === false && field === 'camp_id') {
+        crossCampRejected = true
+        crossCampRejectedValue = row[field]
+      }
     }
     db.exec(`RELEASE ${savepoint}`)
+    if (crossCampRejected) {
+      // Surface ONLY a genuine cross-camp mismatch: this device has its own camps
+      // row AND the rejected value names a different camp. applyProjection's guard
+      // also returns false in the transient bootstrap window where this device has
+      // no camps row yet (`!camp`) — that is a race, not a hostile write, so it
+      // stays a console line (the guard already logged it) and is not raised as a
+      // security surface. Non-throwing, non-repairable: handed to the caller as a
+      // distinct crossCamp failure so syncNode routes it to the
+      // CROSS_CAMP_WRITE_REJECTED device-health surface, not projection_failures.
+      const localCamp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+      if (localCamp && crossCampRejectedValue !== localCamp.id) {
+        failures?.push({
+          entity,
+          entityId: id,
+          field: 'camp_id',
+          crossCamp: true,
+          rejectedValue: crossCampRejectedValue,
+        })
+      }
+    }
     if (outstandingIds?.has(id)) {
       resolveProjectionFailure(db, entity, id)
       outstandingIds.delete(id)
