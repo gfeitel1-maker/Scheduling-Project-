@@ -16,6 +16,7 @@ import { randomUUID } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
 import { attributeElectiveSubject } from './attributeElectiveSubject.js'
 import { appendOp } from './operations.js'
+import { deriveElectiveRunFindingId } from './deriveElectiveRunFindingId.js'
 
 const dirs = []
 function freshDb() {
@@ -81,5 +82,70 @@ describe('attributeElectiveSubject — rekeys elective_run_outer_snapshots and e
     expect(db.prepare('SELECT COUNT(*) c FROM elective_run_outer_snapshots').get().c).toBe(1)
     expect(db.prepare('SELECT COUNT(*) c FROM elective_run_findings').get().c).toBe(1)
     expect(db.prepare('SELECT 1 FROM campers WHERE id = ?').get(subjectId)).toBeUndefined()
+  })
+
+  // q-elective-finding-id-collision-rekey-safe (2A) — the core rekey-safety
+  // guarantee. A camper with TWO assignment-only (choice_id null)
+  // BUNDLE_TIER_NOT_COVERED findings on two DIFFERENT bundle labels, surviving
+  // a cold reopen (hence the realistic derived ids below, not arbitrary test
+  // ids), must still have BOTH after attribution rekeys them onto a new
+  // camper id. Before 2A, both findings shared the same persisted id (same
+  // run/generation/kind/camper/null-choice/null-occurrence) and the rekey
+  // loop's own re-derivation (attributeElectiveSubject.js) would have
+  // collapsed them the same way commitElectiveRun.js's write loop did.
+  it('rekeys TWO assignment-only BUNDLE_TIER_NOT_COVERED findings (same null choice_id, different label_key) without collapsing them', () => {
+    const { db, campId } = freshDb()
+
+    const subjectId = 'camper1:sub:provisional-subject-2'
+    db.prepare(
+      "INSERT INTO campers (id, camp_id, display_name, is_unattributed) VALUES (?, ?, 'planner', 1)"
+    ).run(subjectId, campId)
+    db.prepare("INSERT INTO elective_assignment_runs (id, camp_id, name) VALUES ('run-2', ?, 'Week 2')").run(campId)
+    db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run('dev-2', 'Device 2')
+
+    const findingIdArchery = deriveElectiveRunFindingId(
+      'run-2', 'gen-1', 'BUNDLE_TIER_NOT_COVERED', subjectId, null, null, 'archery'
+    )
+    const findingIdGaga = deriveElectiveRunFindingId(
+      'run-2', 'gen-1', 'BUNDLE_TIER_NOT_COVERED', subjectId, null, null, 'gaga'
+    )
+    expect(findingIdArchery).not.toBe(findingIdGaga)
+
+    for (const [findingId, labelKey, message] of [
+      [findingIdArchery, 'archery', 'archery mismatch'],
+      [findingIdGaga, 'gaga', 'gaga mismatch'],
+    ]) {
+      appendOp(db, { entity: 'elective_run_findings', entity_id: findingId, field: 'run_id', value: 'run-2', device_id: 'dev-2' })
+      appendOp(db, { entity: 'elective_run_findings', entity_id: findingId, field: 'solver_generation', value: 'gen-1', device_id: 'dev-2' })
+      appendOp(db, { entity: 'elective_run_findings', entity_id: findingId, field: 'kind', value: 'BUNDLE_TIER_NOT_COVERED', device_id: 'dev-2' })
+      appendOp(db, { entity: 'elective_run_findings', entity_id: findingId, field: 'message', value: message, device_id: 'dev-2' })
+      appendOp(db, { entity: 'elective_run_findings', entity_id: findingId, field: 'camper_id', value: subjectId, device_id: 'dev-2' })
+      appendOp(db, { entity: 'elective_run_findings', entity_id: findingId, field: 'label_key', value: labelKey, device_id: 'dev-2' })
+    }
+
+    // Two rows BEFORE rekey.
+    expect(
+      db.prepare("SELECT COUNT(*) c FROM elective_run_findings WHERE run_id = ? AND kind = 'BUNDLE_TIER_NOT_COVERED'").get('run-2').c
+    ).toBe(2)
+
+    const result = attributeElectiveSubject(db, {
+      campId, deviceId: 'dev-1', subjectId, displayName: 'Noa Katz',
+    })
+    expect(result.ok).toBe(true)
+    expect(result.camperId).not.toBe(subjectId)
+
+    // Two rows AFTER rekey — the core guarantee. Both carry the new camper id
+    // and keep their distinct label_key.
+    const moved = db.prepare(
+      "SELECT camper_id, label_key, message FROM elective_run_findings WHERE run_id = ? AND kind = 'BUNDLE_TIER_NOT_COVERED' ORDER BY label_key"
+    ).all('run-2')
+    expect(moved).toHaveLength(2)
+    expect(moved.every((r) => r.camper_id === result.camperId)).toBe(true)
+    expect(moved.map((r) => r.label_key)).toEqual(['archery', 'gaga'])
+    expect(moved.map((r) => r.message)).toEqual(['archery mismatch', 'gaga mismatch'])
+
+    expect(
+      db.prepare('SELECT COUNT(*) c FROM elective_run_findings WHERE camper_id = ?').get(subjectId).c
+    ).toBe(0)
   })
 })

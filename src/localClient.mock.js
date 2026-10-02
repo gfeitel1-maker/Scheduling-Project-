@@ -637,7 +637,7 @@ export const MOCK_WRITE_ALLOWLIST = {
   // mock (the mock's own commitElectiveRun degrades `findings: []`, see
   // below), but ipcSurfaceParity.test.js requires this parity mirror to
   // exist regardless.
-  elective_run_findings: ['run_id', 'solver_generation', 'kind', 'camper_id', 'choice_id', 'occurrence_id', 'message'],
+  elective_run_findings: ['run_id', 'solver_generation', 'kind', 'camper_id', 'choice_id', 'occurrence_id', 'message', 'label_key'],
   conflicts: [],
 }
 

@@ -1888,7 +1888,13 @@ CREATE TABLE IF NOT EXISTS elective_run_outer_snapshots (
 -- regeneration, unlike elective_occurrences: a finding row has no "still locked" exemption
 -- to preserve, so an ordinary generation-scoped read filter is sufficient (see the ADR's
 -- item 4 "deliberate asymmetry" note).
--- Derived id: deriveElectiveRunFindingId(run_id, solver_generation, kind, camper_id, choice_id, occurrence_id).
+-- Derived id: deriveElectiveRunFindingId(run_id, solver_generation, kind, camper_id, choice_id, occurrence_id, label_key).
+-- `label_key` (v87, q-elective-finding-id-collision-rekey-safe) is the stable
+-- discriminator for an assignment-only BUNDLE_TIER_NOT_COVERED mismatch
+-- (choice_id null, so two different labels for one camper would otherwise
+-- derive the same id) — see deriveElectiveRunFindingId.js's labelKey comment.
+-- Nullable: every other finding kind, and a ranked BUNDLE_TIER_NOT_COVERED
+-- mismatch (choice_id already unique), never sets it.
 CREATE TABLE IF NOT EXISTS elective_run_findings (
   id TEXT PRIMARY KEY,
   run_id TEXT NOT NULL,
@@ -1897,7 +1903,8 @@ CREATE TABLE IF NOT EXISTS elective_run_findings (
   camper_id TEXT,
   choice_id TEXT,
   occurrence_id TEXT,
-  message TEXT NOT NULL
+  message TEXT NOT NULL,
+  label_key TEXT
 );
 
 -- T312 — A CAMP'S REMEMBERED COLUMN MAPPING for the elective preference import.

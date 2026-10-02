@@ -1279,7 +1279,7 @@ export const PROJECTIONS = {
   elective_run_findings: {
     table: 'elective_run_findings',
     key: 'id',
-    fields: ['run_id', 'solver_generation', 'kind', 'camper_id', 'choice_id', 'occurrence_id', 'message'],
+    fields: ['run_id', 'solver_generation', 'kind', 'camper_id', 'choice_id', 'occurrence_id', 'message', 'label_key'],
     ensureExists: (db, id, field, value, knownRow) => {
       const table = 'elective_run_findings'
       const readField = (wanted) => {

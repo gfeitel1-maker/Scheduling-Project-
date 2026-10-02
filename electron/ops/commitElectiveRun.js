@@ -497,7 +497,7 @@ export function commitElectiveRun(db, {
     const dedupeKey = `${camperId}::${labelKey}`
     if (bundleTierMismatchKeys.has(dedupeKey)) return
     bundleTierMismatchKeys.add(dedupeKey)
-    bundleTierMismatches.push({ camperId, label, tierId: tierId ?? null, choiceId: choiceId ?? null })
+    bundleTierMismatches.push({ camperId, labelKey, label, tierId: tierId ?? null, choiceId: choiceId ?? null })
   }
   // The rows that already exist, read ONCE. The inline per-row existence check
   // this replaces compiled a statement per parsed preference inside the
@@ -969,29 +969,29 @@ export function commitElectiveRun(db, {
       // back through elective_choices.label normalizes BOTH to the choice's
       // one stored spelling.
       //
-      // Derived id includes `choiceId`: noteMismatch dedupes on
-      // `${camperId}::${labelKey}` and each labelKey resolves to one flat
-      // choiceId, so two distinct mismatches for one camper (two different
-      // bundle labels) carry two distinct choice_ids and so two distinct
-      // rows — pinned by this file's own "two DISTINCT rows" test.
+      // Derived id includes `choiceId` AND, as of
+      // q-elective-finding-id-collision-rekey-safe (2A), `labelKey` as the
+      // optional 7th component. noteMismatch dedupes on
+      // `${camperId}::${labelKey}`, so passing labelKey through makes the
+      // persisted id unique per (camper, label) rather than per
+      // (camper, choice_id) — pinned by this file's own "two DISTINCT rows"
+      // tests, including F4 below.
       //
-      // KNOWN RESIDUAL (round 2 review F4, NOT fixed this round) — that only
-      // holds when a flat choice was actually minted. An ASSIGNMENT-ONLY
-      // mismatch (a solver fallback placement for a camper who never ranked
-      // the label) has `choiceId: null` — `labelsNeedingFlatChoice` above is
-      // built from `parsed.preferences` only, so no flat choice is ever
-      // minted to bind to for a label no one ranked. Two such mismatches for
-      // ONE camper on two DIFFERENT labels both derive the SAME id (same
-      // camperId, same null choiceId), so the second write collapses into
-      // the first and one mismatch is lost from this table — pinned as a
-      // known defect, not fixed, by this file's own "F4" test. The obvious
-      // fix (pre-scan assignments too) is not small: it would also change
-      // what the assignment loop above writes into `choice_id` for an
-      // assignment-only mismatch, which an earlier round deliberately set to
-      // null to fix a real outage — a design decision for the owner.
+      // FIXED (round 2 review F4). Previously, an ASSIGNMENT-ONLY mismatch (a
+      // solver fallback placement for a camper who never ranked the label)
+      // had `choiceId: null` — `labelsNeedingFlatChoice` above is built from
+      // `parsed.preferences` only, so no flat choice is ever minted to bind
+      // to for a label no one ranked — and two such mismatches for ONE
+      // camper on two DIFFERENT labels derived the SAME id (same camperId,
+      // same null choiceId), so the second write collapsed into the first.
+      // `labelKey` now discriminates them even when choiceId is null. This
+      // does NOT touch the assignment loop's `choice_id: resolved.choiceId`
+      // write above — that stays null for an assignment-only mismatch,
+      // exactly as an earlier round deliberately set it to fix a real
+      // outage (f6c4014a/#663).
       for (const m of bundleTierMismatches) {
         const findingId = deriveElectiveRunFindingId(
-          runId, solverGeneration, 'BUNDLE_TIER_NOT_COVERED', m.camperId, m.choiceId, null
+          runId, solverGeneration, 'BUNDLE_TIER_NOT_COVERED', m.camperId, m.choiceId, null, m.labelKey
         )
         write('elective_run_findings', findingId, {
           run_id: runId,
@@ -1005,6 +1005,7 @@ export function commitElectiveRun(db, {
           camper_id: m.camperId,
           choice_id: m.choiceId,
           occurrence_id: null,
+          label_key: m.labelKey,
         })
       }
     })

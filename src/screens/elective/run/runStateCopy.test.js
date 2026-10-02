@@ -275,6 +275,38 @@ describe('groupBundleTierNotCoveredFindings', () => {
     const result = groupBundleTierNotCoveredFindings({ findings, campers: divisionCampers, groups, tiers })
     expect(result[0].tierName).toBe('Older')
   })
+
+  // 2A (q-elective-finding-id-collision-rekey-safe) — two assignment-only
+  // mismatches for ONE camper on two different bundle labels persist with
+  // choice_id null, so the cold-reopened read has label null and label_key is
+  // the only discriminator. They must split into TWO groups (one per bundle),
+  // each naming the camper ONCE — not collapse into one row that reports "2
+  // campers" for a single affected child (the regression Red Hat caught once 2A
+  // made both findings survive to be read).
+  it('splits two null-label mismatches for one camper by label_key, never double-counting the camper', () => {
+    const findings = [
+      { kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'cam-1', label: null, label_key: 'gaga', tier_id: 'tier-older' },
+      { kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'cam-1', label: null, label_key: 'archery', tier_id: 'tier-older' },
+    ]
+    const result = groupBundleTierNotCoveredFindings({ findings, campers, groups, tiers })
+    expect(result).toHaveLength(2)
+    for (const g of result) {
+      expect(g.campers).toHaveLength(1)
+      expect(g.campers[0].name).toBe('Ari Green')
+    }
+  })
+
+  // Dedupe guard: two findings sharing one camper's (label_key, tier) group name
+  // the camper once, never twice.
+  it('names a camper once even if two findings land in the same (camper, label_key, tier) group', () => {
+    const findings = [
+      { kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'cam-1', label: null, label_key: 'gaga', tier_id: 'tier-older' },
+      { kind: 'BUNDLE_TIER_NOT_COVERED', camper_id: 'cam-1', label: null, label_key: 'gaga', tier_id: 'tier-older' },
+    ]
+    const result = groupBundleTierNotCoveredFindings({ findings, campers, groups, tiers })
+    expect(result).toHaveLength(1)
+    expect(result[0].campers).toEqual([{ id: 'cam-1', name: 'Ari Green' }])
+  })
 })
 
 describe('bundleTierNotCoveredGroupMessage', () => {

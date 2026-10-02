@@ -150,7 +150,7 @@ export function attributeElectiveSubject(db, {
     .all(subjectId)
   const runFindings = db
     .prepare(
-      `SELECT id, run_id, solver_generation, kind, choice_id, occurrence_id, message
+      `SELECT id, run_id, solver_generation, kind, choice_id, occurrence_id, message, label_key
          FROM elective_run_findings WHERE camper_id = ?`
     )
     .all(subjectId)
@@ -268,14 +268,21 @@ export function attributeElectiveSubject(db, {
       for (const f of runFindings) {
         write(
           'elective_run_findings',
-          deriveElectiveRunFindingId(f.run_id, f.solver_generation, f.kind, camperId, f.choice_id ?? null, f.occurrence_id ?? null),
+          // `label_key` (7th arg) — q-elective-finding-id-collision-rekey-
+          // safe (2A). Without it, two assignment-only BUNDLE_TIER_NOT_COVERED
+          // findings for this camper (same null choice_id, different label)
+          // would re-derive the SAME id here and collapse on rekey exactly
+          // as they used to collapse on the original commit write.
+          deriveElectiveRunFindingId(
+            f.run_id, f.solver_generation, f.kind, camperId, f.choice_id ?? null, f.occurrence_id ?? null, f.label_key ?? null
+          ),
           {
             // ensureExists (projections.js) only INSERTs once run_id/
             // solver_generation/kind/message are all known, and its INSERT
             // sets only those four columns — camper_id/choice_id/
-            // occurrence_id must come after so their write lands as an
-            // UPDATE on the now-existing row, not a no-op on one that isn't
-            // there yet.
+            // occurrence_id/label_key must come after so their write lands as
+            // an UPDATE on the now-existing row, not a no-op on one that
+            // isn't there yet.
             run_id: f.run_id,
             solver_generation: f.solver_generation,
             kind: f.kind,
@@ -283,6 +290,7 @@ export function attributeElectiveSubject(db, {
             camper_id: camperId,
             choice_id: f.choice_id,
             occurrence_id: f.occurrence_id,
+            label_key: f.label_key,
           }
         )
         remove('elective_run_findings', f.id)

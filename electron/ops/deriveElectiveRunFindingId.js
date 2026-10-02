@@ -42,15 +42,41 @@ function join(components) {
 // spell that word.
 const nullableOpaque = (name, value) => (value == null ? '\0NULL' : opaque(name, value))
 
-export function deriveElectiveRunFindingId(runId, solverGeneration, kind, camperId, choiceId, occurrenceId) {
-  return `erf${V}:${join([
+// `labelKey` (7th, optional) — q-elective-finding-id-collision-rekey-safe
+// (2A). An assignment-only BUNDLE_TIER_NOT_COVERED mismatch (a label the
+// camper never ranked) always carries `choice_id: null`, so two such
+// mismatches for ONE camper on two DIFFERENT labels derived the identical id
+// — the second write collapsed into the first. `labelKey` is the discriminator
+// `noteMismatch` already dedupes on (commitElectiveRun.js); appending it here
+// makes the id unique per (camper, label) instead of per (camper, choice_id).
+//
+// NO VERSION BUMP. `join` is length-prefixed and injective over
+// variable-length component lists, so appending a component only when one is
+// actually supplied cannot collide with a shorter id that never had it: a
+// 6-component id's trailing byte is never a valid prefix for a 7th
+// `length.value` segment to start mid-component, since each segment's own
+// length prefix pins where it ends. Every finding that does NOT carry a
+// labelKey (every kind but BUNDLE_TIER_NOT_COVERED, and the ranked case where
+// choiceId already disambiguates) derives the SAME id as before — byte for
+// byte — so no existing row is orphaned and no migration is needed. Only a
+// finding that carries a labelKey gains a 7th component.
+//
+// `labelKey` is NOT opaque-safe: a real sheet label ('Arts & Crafts', Hebrew
+// text) routinely fails the uuid/slug OPAQUE pattern opaque() enforces for
+// the other components, so it is pushed raw rather than through opaque().
+export function deriveElectiveRunFindingId(
+  runId, solverGeneration, kind, camperId, choiceId, occurrenceId, labelKey = null
+) {
+  const components = [
     opaque('run_id', runId),
     opaque('solver_generation', solverGeneration),
     opaque('kind', kind),
     nullableOpaque('camper_id', camperId),
     nullableOpaque('choice_id', choiceId),
     nullableOpaque('occurrence_id', occurrenceId),
-  ])}`
+  ]
+  if (typeof labelKey === 'string' && labelKey.length > 0) components.push(labelKey)
+  return `erf${V}:${join(components)}`
 }
 
 // This slice's eligibility allowlist — see the ADR's item 4 and open question
