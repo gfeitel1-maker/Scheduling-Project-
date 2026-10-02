@@ -395,7 +395,7 @@ CREATE INDEX IF NOT EXISTS idx_operations_entity ON operations(entity, entity_id
 CREATE TABLE IF NOT EXISTS device_health_events (
   id TEXT PRIMARY KEY,
   camp_id TEXT,
-  kind TEXT NOT NULL,        -- 'document_save_failed' | 'projection_failed' | 'import_journal_write_failed'
+  kind TEXT NOT NULL,        -- 'document_save_failed' | 'projection_failed' | 'import_journal_write_failed' | 'cross_camp_write_rejected'
   detail TEXT,               -- compact JSON: peer, pending op count, error message
   incident TEXT,             -- the tag that ties this row to its console lines
   occurred_at TEXT NOT NULL,

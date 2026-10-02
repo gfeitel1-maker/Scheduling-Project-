@@ -263,6 +263,50 @@ describe('syncNode — Automerge merge + projector over a real transport', () =>
     await waitFor(() => readRecord(b.getDoc(), 'activities', 'act-ok')?.name === 'Swim')
     expect(readRecord(b.getDoc(), 'activities', 'act-ok')?.name).toBe('Swim')
   })
+
+  it('a peer doc carrying a FOREIGN camp_id surfaces onCrossCampRejected (not silent) and sync keeps converging', async () => {
+    // board i-appendop-silent-camp-id-rejection (OWNER 2026-10-02): the tenant guard
+    // refuses a peer's cross-camp camp_id write WITHOUT throwing — so it never reaches
+    // onProjectionError. This pins that it is no longer silent: it reaches the dedicated
+    // onCrossCampRejected surface, the guard behavior is unchanged (row keeps THIS
+    // device's camp), and node B is not poisoned.
+    const genesis = createEmptyDoc()
+    const crossCamp = []
+    const projErrors = []
+    const a = await startSyncNode({ deviceId: 'device-a', db: dbA, doc: A.clone(genesis) })
+    const b = await startSyncNode({
+      deviceId: 'device-b',
+      db: dbB,
+      doc: A.clone(genesis),
+      onProjectionError: (err, _doc, fromPeerId) => projErrors.push({ err, fromPeerId }),
+      onCrossCampRejected: (failure, _doc, fromPeerId) => crossCamp.push({ failure, fromPeerId }),
+    })
+    nodes.push(a, b)
+    await a.dial(b.getMultiaddrs()[0])
+    await waitFor(() => a.getPeers().length > 0)
+
+    const { tokenA, tokenB } = setupAuthorizedDevicePair(dbA, dbB)
+    await authenticateBothWays(a, b, tokenA, tokenB)
+
+    // A legit row (its name makes a row on B) that also carries a camp_id for ANOTHER camp.
+    let bad = A.clone(genesis)
+    bad = applyWrite(bad, { entity: 'activities', entity_id: 'act-x', field: 'name', value: 'Archery' })
+    bad = applyWrite(bad, { entity: 'activities', entity_id: 'act-x', field: 'camp_id', value: 'other-camp' })
+    await a.sendDocTo(b.peerId, A.save(bad))
+
+    // Surfaced to the dedicated cross-camp sink, NOT to onProjectionError.
+    await waitFor(() => crossCamp.length > 0)
+    expect(projErrors).toHaveLength(0)
+    expect(crossCamp[0].failure).toMatchObject({ entity: 'activities', entityId: 'act-x', field: 'camp_id', crossCamp: true, rejectedValue: 'other-camp' })
+    // Guard behavior unchanged: the row projected keeping device B's OWN camp.
+    expect(dbB.prepare("SELECT camp_id FROM activities WHERE id = 'act-x'").get().camp_id).toBe('camp-1')
+
+    // Not poisoned: a subsequent valid edit still converges.
+    const good = applyWrite(a.getDoc(), { entity: 'activities', entity_id: 'act-ok', field: 'name', value: 'Swim' })
+    await a.applyLocal(good)
+    await waitFor(() => readRecord(b.getDoc(), 'activities', 'act-ok')?.name === 'Swim')
+    expect(readRecord(b.getDoc(), 'activities', 'act-ok')?.name).toBe('Swim')
+  })
 })
 
 // T322 S3a (docs/adr/2026-09-19-multi-device-erasure-propagation.md's "Addendum

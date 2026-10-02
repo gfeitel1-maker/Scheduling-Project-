@@ -38,6 +38,16 @@ export const DEVICE_HEALTH = Object.freeze({
   // to hang from, written on a failure path — which is exactly why it lives
   // here rather than in a third table of its own (see the v64 migration).
   IMPORT_JOURNAL_WRITE_FAILED: 'import_journal_write_failed',
+  // A merge from a peer carried a `camp_id` write for a DIFFERENT camp than this
+  // device belongs to. applyProjection's tenant guard (electron/ops/projections.js)
+  // refuses it — correctly, and without throwing: it is a security rejection of a
+  // hostile or buggy peer write, not a local failure, so sync must keep converging.
+  // The refusal used to be a console line nobody watches; routing it here makes it
+  // a durable, support-readable surface (board i-appendop-silent-camp-id-rejection,
+  // OWNER 2026-10-02: "log it AND surface it so the refusal is actually seen"). It
+  // is deliberately NOT `projection_failed` — a cross-camp write is not a repairable
+  // projection failure; re-projecting the same document rejects it again by design.
+  CROSS_CAMP_WRITE_REJECTED: 'cross_camp_write_rejected',
 })
 
 /**
@@ -48,21 +58,32 @@ export const DEVICE_HEALTH = Object.freeze({
  * reported rather than assumed, because assuming it is what hid the original
  * defect for a week.
  */
-export function recordDeviceHealthEvent(db, { campId, kind, detail, incident } = {}) {
+export function recordDeviceHealthEvent(db, { campId, kind, detail, incident, id } = {}) {
   if (!db || !kind) return false
   try {
-    db.prepare(
-      `INSERT INTO device_health_events (id, camp_id, kind, detail, incident, occurred_at)
+    // INSERT OR IGNORE so a caller that supplies a DETERMINISTIC `id` (e.g. a
+    // cross-camp rejection keyed by entity+record+value) collapses onto one row
+    // instead of accumulating a new row on every occurrence. This matters for
+    // recurring events: a bad write lives in the append-only shared Automerge
+    // document, so its rejection re-fires on every merge pass
+    // (DEVICE_HEALTH.CROSS_CAMP_WRITE_REJECTED) — without dedup that is unbounded
+    // row growth. The default `id` is a fresh random UUID, which never collides,
+    // so every existing (unkeyed) caller is unaffected and still lands its row.
+    const result = db.prepare(
+      `INSERT OR IGNORE INTO device_health_events (id, camp_id, kind, detail, incident, occurred_at)
        VALUES (?, ?, ?, ?, ?, ?)`
     ).run(
-      randomUUID(),
+      id ?? randomUUID(),
       campId ?? null,
       kind,
       detail == null ? null : String(detail).slice(0, 4000),
       incident ?? null,
       new Date().toISOString()
     )
-    return true
+    // Honest report of whether a NEW row landed: a deduped (already-present) keyed
+    // event returns false, matching this module's "the answer is reported, not
+    // assumed" contract.
+    return result.changes > 0
   } catch (err) {
     // The disk that just refused the document save can refuse this too. Nothing
     // can be done about that here; what matters is not CLAIMING it worked.

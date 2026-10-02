@@ -377,6 +377,37 @@ export function createAutomergeSyncStarter({
             detail: JSON.stringify({ fromPeerId: fromPeerId ?? null, error: String(err?.message ?? err) }),
           })
         },
+        // board i-appendop-silent-camp-id-rejection (OWNER 2026-10-02): a peer's merge
+        // carried a `camp_id` write for a DIFFERENT camp. applyProjection's tenant guard
+        // refused it without throwing (correct — a security rejection of a hostile/buggy
+        // peer write must not break sync); this makes that refusal visible instead of
+        // silent, via a durable device-health row support reads from.
+        //
+        // Deduped by a DETERMINISTIC id: the offending camp_id lives in the append-only
+        // shared document, so this rejection re-fires on EVERY subsequent merge pass.
+        // One row per distinct (entity, record, rejected value) — never one per pass.
+        // The rejected value is peer-controlled, so it is bounded before it becomes a
+        // primary key.
+        //
+        // No peer attribution on purpose: at projection time the merged document does
+        // not record which device authored a field, and `fromPeerId` here is merely the
+        // peer whose traffic TRIGGERED this pass — usually NOT the author — so blaming it
+        // (as an earlier draft's audit 'deny' did) would be actively misleading during an
+        // incident. The durable health row plus the guard's own console line are the
+        // "log AND surface" the ruling asked for.
+        onCrossCampRejected: (failure) => {
+          const boundedValue = String(failure?.rejectedValue ?? '?').slice(0, 200)
+          recordDeviceHealthEvent(db, {
+            campId,
+            kind: DEVICE_HEALTH.CROSS_CAMP_WRITE_REJECTED,
+            id: `crosscamp:${failure?.entity ?? '?'}:${failure?.entityId ?? '?'}:${boundedValue}`,
+            detail: JSON.stringify({
+              entity: failure?.entity ?? null,
+              entityId: failure?.entityId ?? null,
+              rejectedValue: failure?.rejectedValue ?? null,
+            }),
+          })
+        },
         onAuthRejected: (peerId, reply) => {
           console.error(`automerge sync: peer ${peerId} rejected our authenticate: ${JSON.stringify(reply)}`)
           recordAuditEvent(db, {
