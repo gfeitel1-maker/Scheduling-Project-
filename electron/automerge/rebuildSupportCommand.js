@@ -60,6 +60,13 @@ export const NOT_RECOVERABLE_NOTICE =
 function tableRowCounts(db) {
   const counts = {}
   for (const entity of MODELED_ORDER) {
+    // camp_authority_log (T331) has no backing SQL table of its own name — see campDocument.js's
+    // EXTRA_MODELED_ENTITIES comment. Its row-count equivalent is authority_cache (the derived
+    // admin/revoked set), reported under its own key rather than silently omitted.
+    if (entity === 'camp_authority_log') {
+      counts.authority_cache = db.prepare('SELECT COUNT(*) AS n FROM authority_cache').get().n
+      continue
+    }
     counts[entity] = db.prepare(`SELECT COUNT(*) AS n FROM ${entity}`).get().n
   }
   return counts

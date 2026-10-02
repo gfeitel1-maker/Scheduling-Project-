@@ -1,12 +1,16 @@
 // T331 battle tests (docs/adr/2026-10-02-distributed-revocation-authority.md) for the pure
-// causal-ancestor/quorum replay. These operate on real @automerge/automerge documents — the
-// causal-ancestor rule is specifically about Automerge's real change/deps graph, so a hand-rolled
-// fake graph would not actually exercise it (mocks hid the T329 defect; the same risk applies
-// here). Entries are plain JS objects pushed into the document directly — signature authenticity
-// is a separate, not-yet-wired concern (see authorityLogSignature.js); these tests exercise the
-// causal-ancestor/quorum MATH only, matching this module's own scope.
+// causal-ancestor/quorum replay. These operate on real @automerge/automerge documents, through the
+// SAME flat per-field document shape every other MODELED_ENTITIES entity uses (createEmptyDoc/
+// applyWrite) — the causal-ancestor rule is specifically about Automerge's real change/deps graph,
+// so a hand-rolled fake graph would not actually exercise it (mocks hid the T329 defect; the same
+// risk applies here). Entries are written field-by-field with no signature — signature
+// authenticity is a separate, already-built concern (authorityLogSignature.js), wired together in
+// projector.js's upsertCampAuthorityLogEntity; these tests exercise the causal-ancestor/quorum MATH
+// only, matching this module's own scope (see authorityLog.test.js for the signed, end-to-end
+// write path, and projector.test.js for the verify-and-replay integration).
 import * as Automerge from '@automerge/automerge'
 import { describe, expect, it } from 'vitest'
+import { createEmptyDoc, applyWrite } from './campDocument.js'
 import { createAuthorityReplayContext, currentAuthorityState, quorumThreshold } from './authorityReplay.js'
 
 let nextId = 0
@@ -15,13 +19,16 @@ function uid() {
 }
 
 function initDoc() {
-  return Automerge.from({ camp_authority_log: [] })
+  return createEmptyDoc()
 }
 
 function pushEntry(doc, entry) {
-  return Automerge.change(doc, (d) => {
-    d.camp_authority_log.push({ id: uid(), ...entry })
-  })
+  const id = uid()
+  let d = doc
+  for (const [field, value] of Object.entries(entry)) {
+    d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field, value })
+  }
+  return d
 }
 
 describe('quorumThreshold', () => {
@@ -221,6 +228,25 @@ describe('battle test 12 — a shrinking admin denominator never blocks an in-pr
     doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'TARGET', signer_device_id: 'X2' })
     const ctx = createAuthorityReplayContext(Automerge, doc, { founderDeviceId: 'FOUNDER' })
     expect(ctx.currentState().grantedSet.has('TARGET')).toBe(false)
+  })
+})
+
+describe('isEntryTrusted — authenticity filter', () => {
+  it('drops an entry the predicate rejects, before it can affect the replay', () => {
+    let doc = initDoc()
+    doc = pushEntry(doc, { kind: 'grant', target_device_id: 'A', signer_device_id: 'FOUNDER' })
+    doc = pushEntry(doc, { kind: 'grant', target_device_id: 'FORGED', signer_device_id: 'FOUNDER' })
+    const isEntryTrusted = (entry) => entry.target_device_id !== 'FORGED'
+    const ctx = createAuthorityReplayContext(Automerge, doc, { founderDeviceId: 'FOUNDER', isEntryTrusted })
+    expect(ctx.currentState().grantedSet.has('A')).toBe(true)
+    expect(ctx.currentState().grantedSet.has('FORGED')).toBe(false)
+  })
+
+  it('defaults to always-true when omitted (no behavior change for existing callers)', () => {
+    let doc = initDoc()
+    doc = pushEntry(doc, { kind: 'grant', target_device_id: 'A', signer_device_id: 'FOUNDER' })
+    const ctx = createAuthorityReplayContext(Automerge, doc, { founderDeviceId: 'FOUNDER' })
+    expect(ctx.currentState().grantedSet.has('A')).toBe(true)
   })
 })
 

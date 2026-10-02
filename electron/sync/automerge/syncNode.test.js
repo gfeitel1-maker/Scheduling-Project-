@@ -21,6 +21,7 @@ import { openLocalDb, CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
 import { createEmptyDoc, applyWrite } from '../../automerge/campDocument.js'
 import { ensureHostSigningKey, issueCampToken } from '../../auth/localAuth.js'
 import { startSyncNode } from './syncNode.js'
+import { signAuthorityEntry } from '../../automerge/authorityLogSignature.js'
 
 let files = []
 function freshDb(tag) {
@@ -192,6 +193,99 @@ describe('syncNode — Automerge merge + projector over a real transport', () =>
     const bytes = A.save(doc)
     console.log(`[stage4 evidence] serialized doc size for 20 activities + 10 groups: ${bytes.length} bytes`)
     expect(bytes.length).toBeGreaterThan(0)
+  })
+
+  it('T331 gate B — a device revoked via authority_cache is refused on the PRODUCTION sync path (handleSyncMessage via stepSync/applyLocal), not just handleReceived', async () => {
+    const genesis = createEmptyDoc()
+    const a = await startSyncNode({ deviceId: 'device-a', db: dbA, doc: A.clone(genesis) })
+    const b = await startSyncNode({ deviceId: 'device-b', db: dbB, doc: A.clone(genesis) })
+    nodes.push(a, b)
+
+    await a.dial(b.getMultiaddrs()[0])
+    await waitFor(() => a.getPeers().length > 0)
+
+    const { tokenA, tokenB } = setupAuthorizedDevicePair(dbA, dbB)
+    await authenticateBothWays(a, b, tokenA, tokenB)
+
+    // Node A's own locally-verified-and-replayed derived cache (projector.js's
+    // upsertCampAuthorityLogEntity) marks device-b as revoked — simulating that another admin's
+    // quorum already removed it, WITHOUT touching devices.revoked_at at all (the whole point of
+    // this ADR: distributed revocation does not route through the Host-local revokeDevice path).
+    dbA.prepare('INSERT INTO authority_cache (device_id, status, updated_at) VALUES (?, ?, ?)').run(
+      'device-b',
+      'revoked',
+      new Date().toISOString()
+    )
+
+    // device-b writes locally and syncs via the REAL production path: applyLocal -> stepSync ->
+    // transport.sendSyncMessage -> node A's handleSyncMessage. If gate B is wired, this write
+    // never lands in dbA's SQLite.
+    const changed = applyWrite(b.getDoc(), { entity: 'activities', entity_id: 'revoked-write', field: 'name', value: 'Should Not Land' })
+    await b.applyLocal(changed)
+
+    // Give the exchange time to attempt delivery, then prove it was refused — not merely slow.
+    await new Promise((r) => setTimeout(r, 300))
+    expect(activityRow(dbA, 'revoked-write')).toBeUndefined()
+
+    // Prove the connection itself is still alive and the refusal is SPECIFIC to device-b, not a
+    // general breakage: an ordinary write from the non-revoked side (A) still converges to B.
+    const okChange = applyWrite(a.getDoc(), { entity: 'activities', entity_id: 'ok-write', field: 'name', value: 'Fine' })
+    await a.applyLocal(okChange)
+    await waitFor(() => activityRow(dbB, 'ok-write')?.name === 'Fine')
+  })
+
+  it('T331 gate C — live teardown: a connected peer revoked via a real signed camp_authority_log entry is evicted from transport.getPeers()', async () => {
+    const genesis = createEmptyDoc()
+    const a = await startSyncNode({ deviceId: 'device-a', db: dbA, doc: A.clone(genesis) })
+    const b = await startSyncNode({ deviceId: 'device-b', db: dbB, doc: A.clone(genesis) })
+    nodes.push(a, b)
+
+    await a.dial(b.getMultiaddrs()[0])
+    await waitFor(() => a.getPeers().length > 0)
+
+    const { tokenA, tokenB } = setupAuthorizedDevicePair(dbA, dbB)
+    await authenticateBothWays(a, b, tokenA, tokenB)
+    await waitFor(() => b.getPeers().length > 0 && a.getPeers().length > 0)
+    await new Promise((r) => setTimeout(r, 150))
+
+    // Device A (the founder) mints a genesis entry naming itself, grants device-b admin, then
+    // revokes it — all real signed entries, written as ordinary local document writes (exactly
+    // how authorityLog.js's mint* helpers shape a multi-field entry) and propagated to node A's
+    // OWN db via applyLocal, which runs projectAll -> upsertCampAuthorityLogEntity ->
+    // tearDownRevokedConnectedPeers.
+    const sign = (fields) => signAuthorityEntry(dbA, fields)
+    function pushEntry(doc, fields, signed) {
+      const id = `entry-${Math.random()}`
+      let d = doc
+      for (const [field, value] of Object.entries(fields)) {
+        d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field, value })
+      }
+      if (signed) {
+        const signature = sign({ kind: fields.kind, target_device_id: fields.target_device_id, signer_device_id: fields.signer_device_id })
+        d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'signature', value: signature })
+      }
+      return d
+    }
+
+    let doc = a.getDoc()
+    doc = pushEntry(doc, { kind: 'genesis', target_device_id: 'device-a', target_peer_id: a.peerId.toString() }, false)
+    await a.applyLocal(doc)
+    doc = pushEntry(a.getDoc(), { kind: 'grant', target_device_id: 'device-b', target_peer_id: b.peerId.toString(), signer_device_id: 'device-a' }, true)
+    await a.applyLocal(doc)
+    await new Promise((r) => setTimeout(r, 150))
+
+    // device-b is still fully connected and syncing at this point.
+    expect(a.getPeers().length).toBeGreaterThan(0)
+
+    doc = pushEntry(a.getDoc(), { kind: 'revoke', target_device_id: 'device-b', signer_device_id: 'device-a' }, true)
+    await a.applyLocal(doc)
+
+    // The live teardown must de-admit device-b on node A's OWN transport (transport.revokePeer —
+    // see its own comment: this is the actual enforcement point, since broadcastDoc/stepSync gate
+    // every send on authenticatedPeers, not on the raw libp2p connection) — closing the third-
+    // device residual. A never had to manually hang up; projecting the revocation did it
+    // automatically.
+    await waitFor(() => !a.isPeerAuthenticated(b.peerId.toString()))
   })
 
   it('an adversarial malformed doc payload does not crash the receiving node', async () => {

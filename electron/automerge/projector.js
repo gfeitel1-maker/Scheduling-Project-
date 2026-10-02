@@ -30,6 +30,9 @@ import { assertNoUnrecordedUniqueConflicts } from './uniqueConflicts.js'
 import { listRecordIds, readRecord, hasAnyRecord } from './campDocument.js'
 import { verifyAuthFields } from '../auth/authSignature.js'
 import { verifyTombstone } from './tombstoneSignature.js'
+import * as Automerge from '@automerge/automerge'
+import { verifyAuthorityEntry } from './authorityLogSignature.js'
+import { createAuthorityReplayContext, isCompleteEntry, AUTHORITY_LOG_ENTITY } from './authorityReplay.js'
 import { recordAuditEvent } from '../audit/auditLog.js'
 import { PROJECTIONS } from '../ops/projections.js'
 import { STAGE1_ENTITY, MODELED_ENTITIES, BULK_REPLACE_MODELED_ENTITIES, DEFERRED_ENTITIES } from './campDocument.js'
@@ -115,7 +118,12 @@ const DOMAIN_ORDER_WITH_SNAPSHOTS = (() => {
 // below reads the just-projected SQLite `tombstones` table to decide whether to skip/delete a row.
 // A tombstone has no FK of its own (its id is an opaque reference to ANOTHER table's row, not a
 // real foreign key), so this position is safe for every other table's FK ordering too.
-const DOMAIN_ORDER_WITH_CAMPS_AND_USERS = ['camps', 'users', 'tombstones', ...DOMAIN_ORDER_WITH_SNAPSHOTS]
+// `camp_authority_log` (T331, docs/adr/2026-10-02-distributed-revocation-authority.md): positioned
+// right after `tombstones` — no FK of its own (same reasoning as tombstones' position), and it has
+// no SQL table to project into at all (see campDocument.js's EXTRA_MODELED_ENTITIES comment), so
+// its ordering relative to every domain entity is a don't-care; grouped with the other two
+// security-sensitive, bespoke-handling entities for readability.
+const DOMAIN_ORDER_WITH_CAMPS_AND_USERS = ['camps', 'users', 'tombstones', 'camp_authority_log', ...DOMAIN_ORDER_WITH_SNAPSHOTS]
 
 // FK-safe apply order, filtered to just the entities this document layer models (DOMAIN_SNAPSHOT_
 // ORDER, extended above, also lists deferred entities, which are out of scope here).
@@ -366,6 +374,74 @@ function upsertTombstonesEntity(db, doc) {
   }
 }
 
+// T331 ENFORCEMENT (docs/adr/2026-10-02-distributed-revocation-authority.md) — the verify-and-
+// replay loop producing the derived "currently admin"/"currently revoked" cache. Unlike every
+// other upsert* function here, this one does NOT project into a 1:1 mirror SQL table (there is
+// none — see campDocument.js's EXTRA_MODELED_ENTITIES comment); it writes two device-local,
+// never-synced tables instead: `applied_authority_log` (every entry this device has verified, an
+// audit trail) and `authority_cache` (the derived admin/revoked set, one row per device that has
+// ever been a target). Both are FULLY RE-DERIVED on every pass — never incrementally patched —
+// which is what makes purge/rebuild's "re-verify and carry forward, never reset" requirement a
+// property of calling this function again, not a separate mechanism: as long as the real
+// `camp_authority_log` collection in the document is untouched by a purge/rebuild (it is — purge
+// operates on this device's local SQLite projection, never on the synced document), re-running
+// this function reconstructs the identical derived state.
+//
+// Peer-id resolution for signature verification (an AUTHENTICITY gate, separate from and prior to
+// the causal-ancestor/quorum MATH in authorityReplay.js): a signer's peer id is read from that
+// signer's own earlier 'genesis'/'grant' entry naming it as a target — never from the mutable,
+// non-trust devices.libp2p_peer_id column (see authorityLogSignature.js's module header). This is
+// a practical, DOCUMENTED simplification: resolution walks entries in plain document order rather
+// than strict causal order, so a signer whose own identity-establishing entry has not yet been
+// seen in this pass is treated as unresolvable (entry dropped, fails closed) rather than guessed.
+function resolveAuthorityPeerIds(doc) {
+  const peerIdByDevice = new Map()
+  for (const id of listRecordIds(doc, AUTHORITY_LOG_ENTITY)) {
+    const row = readRecord(doc, AUTHORITY_LOG_ENTITY, id)
+    if (!row || (row.kind !== 'genesis' && row.kind !== 'grant')) continue
+    if (!row.target_device_id || !row.target_peer_id) continue
+    if (!peerIdByDevice.has(row.target_device_id)) peerIdByDevice.set(row.target_device_id, row.target_peer_id)
+  }
+  return peerIdByDevice
+}
+
+function upsertCampAuthorityLogEntity(db, doc) {
+  const peerIdByDevice = resolveAuthorityPeerIds(doc)
+  const isEntryTrusted = (entry) => {
+    const signerPeerId = peerIdByDevice.get(entry.signer_device_id)
+    if (!signerPeerId) return false // signer's own identity never established — fail closed
+    return verifyAuthorityEntry(
+      signerPeerId,
+      { kind: entry.kind, target_device_id: entry.target_device_id, signer_device_id: entry.signer_device_id },
+      entry.signature
+    )
+  }
+
+  const ctx = createAuthorityReplayContext(Automerge, doc, { isEntryTrusted })
+  const { grantedSet } = ctx.currentState()
+
+  const now = new Date().toISOString()
+  db.prepare('DELETE FROM applied_authority_log').run()
+  db.prepare('DELETE FROM authority_cache').run()
+  const insertLog = db.prepare(
+    'INSERT INTO applied_authority_log (entry_id, kind, target_device_id, signer_device_id, verified_at) VALUES (?, ?, ?, ?, ?)'
+  )
+  const everyTargetDeviceId = new Set(grantedSet)
+  for (const id of listRecordIds(doc, AUTHORITY_LOG_ENTITY)) {
+    const row = readRecord(doc, AUTHORITY_LOG_ENTITY, id)
+    if (!isCompleteEntry(row)) continue
+    const entry = { id, ...row }
+    if (entry.target_device_id) everyTargetDeviceId.add(entry.target_device_id)
+    if (entry.kind !== 'genesis' && !isEntryTrusted(entry)) continue
+    insertLog.run(id, entry.kind, entry.target_device_id ?? null, entry.signer_device_id ?? null, now)
+  }
+
+  const insertCache = db.prepare('INSERT INTO authority_cache (device_id, status, updated_at) VALUES (?, ?, ?)')
+  for (const deviceId of everyTargetDeviceId) {
+    insertCache.run(deviceId, grantedSet.has(deviceId) ? 'admin' : 'revoked', now)
+  }
+}
+
 // The denylist: which entities are gated by a `campers` tombstone, and which column on that
 // entity's own row carries the camper id to check. `campers` is gated by its own `id`;
 // elective_preferences/elective_assignments are gated by their `camper_id` field — participant
@@ -448,6 +524,10 @@ function upsertEntity(db, doc, entity, failures = null) {
   }
   if (entity === 'tombstones') {
     upsertTombstonesEntity(db, doc)
+    return
+  }
+  if (entity === AUTHORITY_LOG_ENTITY) {
+    upsertCampAuthorityLogEntity(db, doc)
     return
   }
   const fields = PROJECTIONS[entity].fields
@@ -634,6 +714,10 @@ function deleteReconcileEntity(db, doc, entity) {
   // app — instantly breaking the entire device, not a graceful degradation. There is no product
   // flow that deletes a camp; skip entirely.
   if (entity === 'camps') return
+  // camp_authority_log (T331) has no backing SQL table — nothing to delete-reconcile against. Its
+  // verified state is carried in applied_authority_log/authority_cache, written only by
+  // upsertCampAuthorityLogEntity below, never by the generic delete-reconcile pass.
+  if (entity === 'camp_authority_log') return
   const inDoc = new Set(listRecordIds(doc, entity))
   for (const { id } of db.prepare(`SELECT id FROM ${entity}`).all()) {
     if (!inDoc.has(id)) applyProjection(db, { entity, entity_id: id, field: DELETE_FIELD, value: 1 })
@@ -749,7 +833,13 @@ function entityHasAnyDocRow(doc, entity) {
 // data exists, defeating the guard's whole purpose. camps also has its own bespoke never-delete
 // handling (deleteReconcileEntity's early return) and convergence handling (upsertCampsEntity) — see
 // those comments; it doesn't participate in the empty-doc-vs-live-data question this guard asks.
-const RECONCILABLE_ORDER = MODELED_ORDER.filter((entity) => entity !== 'camps')
+// camp_authority_log (T331) is excluded for the same structural reason as `camps` above, though
+// for the opposite shape of reason: it has NO backing SQL table at all (see
+// campDocument.js's EXTRA_MODELED_ENTITIES comment), so `SELECT 1 FROM camp_authority_log` and
+// `DELETE FROM camp_authority_log` (rebuildFromDoc's wipe pass) would both throw. Its "does real
+// data exist" signal and its wipe/re-derive are handled entirely by upsertCampAuthorityLogEntity
+// re-running the full verify-and-replay from the document, which is idempotent and never destructive.
+const RECONCILABLE_ORDER = MODELED_ORDER.filter((entity) => entity !== 'camps' && entity !== 'camp_authority_log')
 
 function assertDocIsSupersetOrEmpty(db, doc) {
   const docHasAnyRow = RECONCILABLE_ORDER.some((entity) => entityHasAnyDocRow(doc, entity))
@@ -819,7 +909,7 @@ export function rebuildFromDoc(db, doc, entity) {
       // remove the device's own singleton identity row, and PROJECTIONS.camps.ensureExists
       // refuses to ever re-create it (by design — see projections.js), permanently breaking every
       // `SELECT ... FROM camps LIMIT 1` lookup in the app.
-      if (entity !== 'camps') db.prepare(`DELETE FROM ${entity}`).run()
+      if (entity !== 'camps' && entity !== 'camp_authority_log') db.prepare(`DELETE FROM ${entity}`).run()
       projectEntity(db, doc, entity)
     })
     run()

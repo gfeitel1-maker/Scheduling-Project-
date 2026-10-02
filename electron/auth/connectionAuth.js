@@ -156,6 +156,28 @@ export function evaluateAuthenticate(db, { token, device_id, peerId, appliedTomb
     }
   }
 
+  // Gate A (T331, docs/adr/2026-10-02-distributed-revocation-authority.md) — the DISTRIBUTED
+  // revocation check, independent of and in addition to the Host-local devices.revoked_at check
+  // above. A device can be removed by ANY currently-valid admin's signed camp_authority_log
+  // entry, reaching quorum for an admin/founder target — never requiring the Host specifically
+  // (that is the entire point of this ADR: the Host being the one revoked, or offline, must not
+  // block its own removal). Read from authority_cache, this device's LOCAL, already-verified-and-
+  // replayed derived cache (electron/automerge/projector.js's upsertCampAuthorityLogEntity) —
+  // never from the connecting peer's own self-report. Reuses this function's existing deny shape
+  // (code 4404) with its own distinguishing reason string, per the ADR's enforcement checklist.
+  const authorityStatus = db.prepare('SELECT status FROM authority_cache WHERE device_id = ?').get(verified.deviceId)?.status
+  if (authorityStatus === 'revoked') {
+    recordAuditEvent(db, {
+      actorUserId: verified.userId,
+      deviceId: verified.deviceId,
+      action: 'auth.authenticate',
+      outcome: 'deny',
+      reason: 'device_revoked_by_authority',
+      metadata: verified.jti ? { jti: verified.jti } : null,
+    })
+    return { ok: false, code: 4404, reason: 'device_revoked_by_authority' }
+  }
+
   persistAppliedTombstones(db, verified.deviceId, appliedTombstones)
 
   return { ok: true, verified }

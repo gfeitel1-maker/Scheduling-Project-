@@ -235,10 +235,13 @@ describe('campDocument — Stage 1 Automerge doc for days_of_operation', () => {
     // THIRTEENTH REGENERATION (T321, docs/adr/2026-10-01-camper-id-high-entropy-format.md):
     // `camper_identity_keys` added to DIRECT_CAMP_ENTITIES and so, automatically, to
     // MODELED_ENTITIES — same forcing function. Same acceptance as every regeneration above.
+    // FOURTEENTH REGENERATION (T331, docs/adr/2026-10-02-distributed-revocation-authority.md):
+    // `camp_authority_log` added to MODELED_ENTITIES/GENESIS_ENTITIES — see campDocument.js's
+    // GENESIS_B64 comment. Owner-accepted regeneration (pre-production, no live camps).
     it('createEmptyDoc always clones the same frozen genesis root', () => {
       const doc = createEmptyDoc()
       expect(A.getHeads(doc)).toEqual([
-        '012398ef68af7ea00c6d8b20b5a9bacaa47cd9b0462089d127df77e1bf09310b',
+        '841a628058948a3f9d6d89674700a4d4aba04c2aa44e300bf71f92f5165143b0',
       ])
       // Two independent calls must produce the SAME head every time — a genesis that varied per
       // call (e.g. one deriving fresh randomness or doing a runtime top-up) would defeat the whole

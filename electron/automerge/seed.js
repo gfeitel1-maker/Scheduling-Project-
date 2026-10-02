@@ -145,6 +145,13 @@ export function seedDocFromSqlite(db, doc = createEmptyDoc(), entity = STAGE1_EN
 export function seedAllFromSqlite(db, doc = createEmptyDoc()) {
   let d = doc
   for (const entity of MODELED_ENTITIES) {
+    // camp_authority_log (T331) has no PROJECTIONS registration and no backing SQL table to seed
+    // FROM — unlike tombstones, its verified-and-replayed state lives only in the device-local
+    // applied_authority_log/authority_cache tables (never a 1:1 mirror of the doc collection), so
+    // there is nothing in SQLite to carry into a freshly-seeded document. Correctly starts empty;
+    // real entries only ever arrive by being written directly into the live document (authorityLog.js)
+    // or by merging in from a peer.
+    if (entity === 'camp_authority_log') continue
     d = seedDocFromSqlite(db, d, entity)
   }
   for (const entity of BULK_REPLACE_MODELED_ENTITIES) {

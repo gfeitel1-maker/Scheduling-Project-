@@ -1111,6 +1111,11 @@ describe('appendOp — Stage 5b Automerge dual-write', () => {
       projectAll(targetDb, doc)
 
       for (const entity of MODELED_ENTITIES) {
+        // camp_authority_log (T331) has no backing SQL table of its own name — it is not
+        // projected into a 1:1 mirror table like tombstones; its verified state lives in
+        // applied_authority_log/authority_cache instead (see campDocument.js's
+        // EXTRA_MODELED_ENTITIES comment). Nothing to compare row-for-row here.
+        if (entity === 'camp_authority_log') continue
         const sourceRows = db.prepare(`SELECT * FROM ${entity} ORDER BY id`).all()
         const targetRows = targetDb.prepare(`SELECT * FROM ${entity} ORDER BY id`).all()
         expect(targetRows).toEqual(sourceRows)
