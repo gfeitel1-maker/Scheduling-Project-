@@ -201,8 +201,10 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // v73 (T241) relaxes ten UNIQUE(camp_id[, cohort_id], name) constraints to plain indexes and
   // adds two nullable/defaulted columns to the host-local `conflicts` table
   // (docs/adr/2026-09-23-merge-unique-collision-schema-and-conflict-shape.md). Schema-only: no
-  // existing row's VALUE changes on any modeled entity — every table rebuild is a straight
-  // SELECT * copy, and the constraint relaxation only changes what future writes are ALLOWED to
+  // existing row's VALUE changes on any modeled entity — each table rebuild copies every live
+  // column forward (rebuildTableCarryingColumns reads table_info and carries later-added columns
+  // with their data; docs/adr/2026-10-01-rebuild-migrations-carry-forward-later-columns.md), and
+  // the constraint relaxation only changes what future writes are ALLOWED to
   // do, not what any current row means. `conflicts` itself is not document-modeled (host-local
   // history), so its additive columns are outside domain-state's scope entirely.
   73,

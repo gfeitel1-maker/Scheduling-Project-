@@ -84,20 +84,14 @@ describe('rollbackV72', () => {
     db.close()
   })
 
-  // KNOWN-GAP / CHARACTERIZATION TEST — asserts the CURRENT WRONG behaviour of localDb.js's v73
-  // forward block ON PURPOSE (see this module's header, point 5). Reopening a database that this
-  // rollback has taken below 72 re-runs every forward block from v73 up; v73's nine-table rebuild
-  // (electron/db/localDb.js, guard `>= 72 && < 73`) enumerates an explicit column list rather than
-  // `SELECT *`, and that list predates `activities.catalog_role` (added by v75). The rebuild
-  // silently drops the column's data, then v75 re-adds it as all-NULL. This is a defect in
-  // localDb.js's v73 block, not in this rollback -- equally reachable via v73_down.js alone -- and
-  // is pinned here because this is the module that would otherwise claim reopening is harmless.
-  //
-  // When localDb.js's v73 block is fixed to preserve later-added columns (e.g. by rebuilding from
-  // the live `table_info(activities)` column list instead of a hardcoded one), THIS TEST GOES RED.
-  // The correct response then is to flip the final assertion to `'pinned_event'` and delete the
-  // corresponding warning from this module's header and CLI message -- not to delete this test.
-  it('KNOWN GAP: reopening after this rollback silently drops activities.catalog_role (v73 rebuild re-fires with a stale column list)', () => {
+  // Reopening a database that this rollback has taken below 72 re-runs every forward block from
+  // v73 up; v73's nine-table rebuild (electron/db/localDb.js, guard `>= 72 && < 73`) rebuilds each
+  // table from its LIVE column set (via rebuildTableCarryingColumns), so a column added by a LATER
+  // migration — `activities.catalog_role` (v75) — is carried forward WITH ITS DATA rather than
+  // silently dropped and re-added as all-NULL. This test pins that round-trip survival; it was the
+  // KNOWN-GAP characterization test before the v73 block was fixed (see
+  // docs/adr/2026-10-01-rebuild-migrations-carry-forward-later-columns.md).
+  it('reopening after this rollback preserves activities.catalog_role (v73 rebuild carries later-added columns forward)', () => {
     const db = freshDb()
     db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()
     db.prepare(
@@ -105,8 +99,8 @@ describe('rollbackV72', () => {
     ).run()
 
     // Non-vacuity: prove the column actually held the value BEFORE the rollback touches anything.
-    // If this assertion failed, the test below would be proving nothing about loss -- there'd be
-    // nothing to lose.
+    // If this assertion failed, the test below would be proving nothing about survival -- there'd
+    // be nothing to preserve.
     expect(db.prepare('SELECT catalog_role FROM activities WHERE id = ?').get('act1').catalog_role).toBe(
       'pinned_event'
     )
@@ -118,7 +112,7 @@ describe('rollbackV72', () => {
     const reopened = openLocalDb(file)
     const row = reopened.prepare('SELECT * FROM activities WHERE id = ?').get('act1')
     expect(row).toBeDefined()
-    expect(row.catalog_role).toBeNull()
+    expect(row.catalog_role).toBe('pinned_event')
     expect(getSchemaVersion(reopened)).toBe(CURRENT_SCHEMA_VERSION)
     reopened.close()
   })

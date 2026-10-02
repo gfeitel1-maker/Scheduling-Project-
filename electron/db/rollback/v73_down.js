@@ -13,6 +13,8 @@
 //
 // Usage:  node electron/db/rollback/v73_down.js <path-to-shoresh.sqlite>
 
+import { rebuildTableCarryingColumns } from '../rebuildTableCarryingColumns.js'
+
 // entity, then its unique-key column(s) (the collision key), matching the ADR's ten-table scope.
 const RELAXED_TABLES = [
   { table: 'locations', keyCols: ['camp_id', 'name'] },
@@ -70,185 +72,190 @@ export function rollbackV73(db) {
   db.pragma('foreign_keys = OFF')
   try {
     db.transaction(() => {
-      db.exec(`
-        CREATE TABLE locations_v72 (
-          id TEXT PRIMARY KEY,
-          camp_id TEXT NOT NULL REFERENCES camps(id),
-          name TEXT NOT NULL,
-          capacity INTEGER NOT NULL DEFAULT 1,
-          notes TEXT,
-          sort_order INTEGER,
-          map_geometry TEXT,
-          kind TEXT CHECK(
-            kind IS NULL OR kind IN ('building','classroom','pool','field','cabin','court','nature','office','generic')
-          ) DEFAULT NULL,
-          grid_x INTEGER DEFAULT NULL,
-          grid_y INTEGER DEFAULT NULL,
-          map_id TEXT DEFAULT NULL,
-          UNIQUE(camp_id, name)
-        );
-        INSERT INTO locations_v72 (id, camp_id, name, capacity, notes, sort_order, map_geometry, kind, grid_x, grid_y, map_id)
-          SELECT id, camp_id, name, capacity, notes, sort_order, map_geometry, kind, grid_x, grid_y, map_id FROM locations;
-        DROP TABLE locations;
-        ALTER TABLE locations_v72 RENAME TO locations;
-        DROP INDEX IF EXISTS idx_locations_camp_name;
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_locations_camp_name ON locations(camp_id, name);
+      // Each of the nine relaxed tables is rebuilt from its LIVE column set via
+      // rebuildTableCarryingColumns: baseColumns is the v72 shape and tableConstraints restores the
+      // name-UNIQUE this rollback exists to put back, while any column a LATER migration added —
+      // e.g. activities.catalog_role (v75) — is detected from table_info and carried forward WITH
+      // ITS DATA. Before this helper, the enumerated column lists here silently dropped such columns
+      // (the same defect class fixed on the forward path). See
+      // docs/adr/2026-10-01-rebuild-migrations-carry-forward-later-columns.md. The helper runs inside
+      // this transaction and does not touch the FK pragma (the caller's OFF/ON wrapper owns it).
+      rebuildTableCarryingColumns(db, {
+        table: 'locations',
+        baseColumns: [
+          'id TEXT PRIMARY KEY',
+          'camp_id TEXT NOT NULL REFERENCES camps(id)',
+          'name TEXT NOT NULL',
+          'capacity INTEGER NOT NULL DEFAULT 1',
+          'notes TEXT',
+          'sort_order INTEGER',
+          'map_geometry TEXT',
+          "kind TEXT CHECK(kind IS NULL OR kind IN ('building','classroom','pool','field','cabin','court','nature','office','generic')) DEFAULT NULL",
+          'grid_x INTEGER DEFAULT NULL',
+          'grid_y INTEGER DEFAULT NULL',
+          'map_id TEXT DEFAULT NULL',
+        ],
+        tableConstraints: ['UNIQUE(camp_id, name)'],
+        postIndexSql: [
+          'DROP INDEX IF EXISTS idx_locations_camp_name',
+          'CREATE UNIQUE INDEX IF NOT EXISTS idx_locations_camp_name ON locations(camp_id, name)',
+        ],
+      })
 
-        CREATE TABLE activities_v72 (
-          id TEXT PRIMARY KEY,
-          camp_id TEXT NOT NULL REFERENCES camps(id),
-          name TEXT NOT NULL,
-          priority INTEGER,
-          is_locked INTEGER,
-          span_blocks INTEGER,
-          location TEXT,
-          is_outdoor INTEGER,
-          max_groups_per_slot INTEGER,
-          min_per_week INTEGER,
-          max_per_week INTEGER,
-          same_tier_only INTEGER,
-          eligible_tier_ids TEXT,
-          eligible_group_ids TEXT,
-          prefer_before_day INTEGER,
-          prefer_before_day_min INTEGER,
-          weather_alternative_id TEXT,
-          notes TEXT,
-          location_id TEXT,
-          recurrence_truth_status TEXT,
-          UNIQUE(camp_id, name)
-        );
-        INSERT INTO activities_v72 (id, camp_id, name, priority, is_locked, span_blocks, location, is_outdoor, max_groups_per_slot, min_per_week, max_per_week, same_tier_only, eligible_tier_ids, eligible_group_ids, prefer_before_day, prefer_before_day_min, weather_alternative_id, notes, location_id, recurrence_truth_status)
-          SELECT id, camp_id, name, priority, is_locked, span_blocks, location, is_outdoor, max_groups_per_slot, min_per_week, max_per_week, same_tier_only, eligible_tier_ids, eligible_group_ids, prefer_before_day, prefer_before_day_min, weather_alternative_id, notes, location_id, recurrence_truth_status FROM activities;
-        DROP TABLE activities;
-        ALTER TABLE activities_v72 RENAME TO activities;
-        DROP INDEX IF EXISTS idx_activities_camp_name;
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_activities_camp_name ON activities(camp_id, name);
+      rebuildTableCarryingColumns(db, {
+        table: 'activities',
+        baseColumns: [
+          'id TEXT PRIMARY KEY',
+          'camp_id TEXT NOT NULL REFERENCES camps(id)',
+          'name TEXT NOT NULL',
+          'priority INTEGER',
+          'is_locked INTEGER',
+          'span_blocks INTEGER',
+          'location TEXT',
+          'is_outdoor INTEGER',
+          'max_groups_per_slot INTEGER',
+          'min_per_week INTEGER',
+          'max_per_week INTEGER',
+          'same_tier_only INTEGER',
+          'eligible_tier_ids TEXT',
+          'eligible_group_ids TEXT',
+          'prefer_before_day INTEGER',
+          'prefer_before_day_min INTEGER',
+          'weather_alternative_id TEXT',
+          'notes TEXT',
+          'location_id TEXT',
+          'recurrence_truth_status TEXT',
+        ],
+        tableConstraints: ['UNIQUE(camp_id, name)'],
+        postIndexSql: [
+          'DROP INDEX IF EXISTS idx_activities_camp_name',
+          'CREATE UNIQUE INDEX IF NOT EXISTS idx_activities_camp_name ON activities(camp_id, name)',
+        ],
+      })
 
-        CREATE TABLE events_v72 (
-          id TEXT PRIMARY KEY,
-          camp_id TEXT NOT NULL REFERENCES camps(id),
-          name TEXT NOT NULL,
-          sort_order INTEGER,
-          notes TEXT,
-          location_id TEXT,
-          UNIQUE(camp_id, name)
-        );
-        INSERT INTO events_v72 (id, camp_id, name, sort_order, notes, location_id)
-          SELECT id, camp_id, name, sort_order, notes, location_id FROM events;
-        DROP TABLE events;
-        ALTER TABLE events_v72 RENAME TO events;
-        DROP INDEX IF EXISTS idx_events_camp_name;
+      rebuildTableCarryingColumns(db, {
+        table: 'events',
+        baseColumns: [
+          'id TEXT PRIMARY KEY',
+          'camp_id TEXT NOT NULL REFERENCES camps(id)',
+          'name TEXT NOT NULL',
+          'sort_order INTEGER',
+          'notes TEXT',
+          'location_id TEXT',
+        ],
+        tableConstraints: ['UNIQUE(camp_id, name)'],
+        postIndexSql: ['DROP INDEX IF EXISTS idx_events_camp_name'],
+      })
 
-        CREATE TABLE elective_sets_v72 (
-          id TEXT PRIMARY KEY,
-          camp_id TEXT NOT NULL REFERENCES camps(id),
-          name TEXT NOT NULL,
-          sort_order INTEGER,
-          is_reusable INTEGER NOT NULL DEFAULT 1,
-          day_id TEXT REFERENCES days_of_operation(id),
-          time_block_id TEXT,
-          is_all_groups INTEGER,
-          group_ids TEXT,
-          schedule_week_id TEXT REFERENCES schedule_weeks(id),
-          UNIQUE(camp_id, name)
-        );
-        INSERT INTO elective_sets_v72 (id, camp_id, name, sort_order, is_reusable, day_id, time_block_id, is_all_groups, group_ids, schedule_week_id)
-          SELECT id, camp_id, name, sort_order, is_reusable, day_id, time_block_id, is_all_groups, group_ids, schedule_week_id FROM elective_sets;
-        DROP TABLE elective_sets;
-        ALTER TABLE elective_sets_v72 RENAME TO elective_sets;
-        DROP INDEX IF EXISTS idx_elective_sets_camp_name;
+      rebuildTableCarryingColumns(db, {
+        table: 'elective_sets',
+        baseColumns: [
+          'id TEXT PRIMARY KEY',
+          'camp_id TEXT NOT NULL REFERENCES camps(id)',
+          'name TEXT NOT NULL',
+          'sort_order INTEGER',
+          'is_reusable INTEGER NOT NULL DEFAULT 1',
+          'day_id TEXT REFERENCES days_of_operation(id)',
+          'time_block_id TEXT',
+          'is_all_groups INTEGER',
+          'group_ids TEXT',
+          'schedule_week_id TEXT REFERENCES schedule_weeks(id)',
+        ],
+        tableConstraints: ['UNIQUE(camp_id, name)'],
+        postIndexSql: ['DROP INDEX IF EXISTS idx_elective_sets_camp_name'],
+      })
 
-        CREATE TABLE groups_v72 (
-          id TEXT PRIMARY KEY,
-          camp_id TEXT NOT NULL REFERENCES camps(id),
-          name TEXT NOT NULL,
-          tier_id TEXT,
-          availability TEXT,
-          UNIQUE(camp_id, name)
-        );
-        INSERT INTO groups_v72 (id, camp_id, name, tier_id, availability)
-          SELECT id, camp_id, name, tier_id, availability FROM groups;
-        DROP TABLE groups;
-        ALTER TABLE groups_v72 RENAME TO groups;
-        DROP INDEX IF EXISTS idx_groups_camp_name;
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_groups_camp_name ON groups(camp_id, name);
+      rebuildTableCarryingColumns(db, {
+        table: 'groups',
+        baseColumns: [
+          'id TEXT PRIMARY KEY',
+          'camp_id TEXT NOT NULL REFERENCES camps(id)',
+          'name TEXT NOT NULL',
+          'tier_id TEXT',
+          'availability TEXT',
+        ],
+        tableConstraints: ['UNIQUE(camp_id, name)'],
+        postIndexSql: [
+          'DROP INDEX IF EXISTS idx_groups_camp_name',
+          'CREATE UNIQUE INDEX IF NOT EXISTS idx_groups_camp_name ON groups(camp_id, name)',
+        ],
+      })
 
-        -- fixed_event_model (T293, v84), not anchor_model: unlike localDb.js's forward v73 block
-        -- (which must detect the live column name dynamically, because it can run BEFORE v84 on a
-        -- genuine forward migration), this rollback only ever runs AFTER a full initSchema() to
-        -- CURRENT — every real and test call site rolls back from v84+ — so the live cohorts
-        -- column is always already fixed_event_model by the time this rebuild's SELECT reads it.
-        -- This rebuild is undoing v73's UNIQUE constraint only, a reason orthogonal to the v84
-        -- column rename; restating the column under its OLD name here would make the SELECT read
-        -- a column that does not exist.
-        CREATE TABLE cohorts_v72 (
-          id TEXT PRIMARY KEY,
-          camp_id TEXT NOT NULL REFERENCES camps(id),
-          name TEXT NOT NULL,
-          session_week_start TEXT,
-          session_week_end TEXT,
-          capacity_source TEXT,
-          fixed_event_model TEXT,
-          sort_order INTEGER,
-          UNIQUE(camp_id, name)
-        );
-        INSERT INTO cohorts_v72 (id, camp_id, name, session_week_start, session_week_end, capacity_source, fixed_event_model, sort_order)
-          SELECT id, camp_id, name, session_week_start, session_week_end, capacity_source, fixed_event_model, sort_order FROM cohorts;
-        DROP TABLE cohorts;
-        ALTER TABLE cohorts_v72 RENAME TO cohorts;
-        DROP INDEX IF EXISTS idx_cohorts_camp_name;
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_cohorts_camp_name ON cohorts(camp_id, name);
+      // fixed_event_model (T293, v84), not anchor_model: unlike localDb.js's forward v73 block
+      // (which must detect the live column name dynamically, because it can run BEFORE v84 on a
+      // genuine forward migration), this rollback only ever runs AFTER a full initSchema() to
+      // CURRENT — every real and test call site rolls back from v84+ — so the live cohorts column
+      // is always already fixed_event_model by the time this rebuild reads it.
+      rebuildTableCarryingColumns(db, {
+        table: 'cohorts',
+        baseColumns: [
+          'id TEXT PRIMARY KEY',
+          'camp_id TEXT NOT NULL REFERENCES camps(id)',
+          'name TEXT NOT NULL',
+          'session_week_start TEXT',
+          'session_week_end TEXT',
+          'capacity_source TEXT',
+          'fixed_event_model TEXT',
+          'sort_order INTEGER',
+        ],
+        tableConstraints: ['UNIQUE(camp_id, name)'],
+        postIndexSql: [
+          'DROP INDEX IF EXISTS idx_cohorts_camp_name',
+          'CREATE UNIQUE INDEX IF NOT EXISTS idx_cohorts_camp_name ON cohorts(camp_id, name)',
+        ],
+      })
 
-        CREATE TABLE tiers_v72 (
-          id TEXT PRIMARY KEY,
-          camp_id TEXT NOT NULL REFERENCES camps(id),
-          name TEXT NOT NULL,
-          sort_order INTEGER,
-          cohort_id TEXT REFERENCES cohorts(id),
-          UNIQUE(camp_id, cohort_id, name)
-        );
-        INSERT INTO tiers_v72 (id, camp_id, name, sort_order, cohort_id)
-          SELECT id, camp_id, name, sort_order, cohort_id FROM tiers;
-        DROP TABLE tiers;
-        ALTER TABLE tiers_v72 RENAME TO tiers;
-        DROP INDEX IF EXISTS idx_tiers_camp_cohort_name;
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_tiers_camp_cohort_name ON tiers(camp_id, cohort_id, name);
+      rebuildTableCarryingColumns(db, {
+        table: 'tiers',
+        baseColumns: [
+          'id TEXT PRIMARY KEY',
+          'camp_id TEXT NOT NULL REFERENCES camps(id)',
+          'name TEXT NOT NULL',
+          'sort_order INTEGER',
+          'cohort_id TEXT REFERENCES cohorts(id)',
+        ],
+        tableConstraints: ['UNIQUE(camp_id, cohort_id, name)'],
+        postIndexSql: [
+          'DROP INDEX IF EXISTS idx_tiers_camp_cohort_name',
+          'CREATE UNIQUE INDEX IF NOT EXISTS idx_tiers_camp_cohort_name ON tiers(camp_id, cohort_id, name)',
+        ],
+      })
 
-        CREATE TABLE time_blocks_v72 (
-          id TEXT PRIMARY KEY,
-          camp_id TEXT NOT NULL REFERENCES camps(id),
-          cohort_id TEXT REFERENCES cohorts(id),
-          name TEXT NOT NULL,
-          start_time TEXT,
-          end_time TEXT,
-          part_of_day TEXT,
-          sort_order INTEGER,
-          UNIQUE(camp_id, cohort_id, name)
-        );
-        INSERT INTO time_blocks_v72 (id, camp_id, cohort_id, name, start_time, end_time, part_of_day, sort_order)
-          SELECT id, camp_id, cohort_id, name, start_time, end_time, part_of_day, sort_order FROM time_blocks;
-        DROP TABLE time_blocks;
-        ALTER TABLE time_blocks_v72 RENAME TO time_blocks;
-        DROP INDEX IF EXISTS idx_time_blocks_camp_cohort_name;
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_time_blocks_camp_cohort_name ON time_blocks(camp_id, cohort_id, name);
+      rebuildTableCarryingColumns(db, {
+        table: 'time_blocks',
+        baseColumns: [
+          'id TEXT PRIMARY KEY',
+          'camp_id TEXT NOT NULL REFERENCES camps(id)',
+          'cohort_id TEXT REFERENCES cohorts(id)',
+          'name TEXT NOT NULL',
+          'start_time TEXT',
+          'end_time TEXT',
+          'part_of_day TEXT',
+          'sort_order INTEGER',
+        ],
+        tableConstraints: ['UNIQUE(camp_id, cohort_id, name)'],
+        postIndexSql: [
+          'DROP INDEX IF EXISTS idx_time_blocks_camp_cohort_name',
+          'CREATE UNIQUE INDEX IF NOT EXISTS idx_time_blocks_camp_cohort_name ON time_blocks(camp_id, cohort_id, name)',
+        ],
+      })
 
-        CREATE TABLE special_days_v72 (
-          id TEXT PRIMARY KEY,
-          camp_id TEXT NOT NULL REFERENCES camps(id),
-          name TEXT NOT NULL,
-          sort_order INTEGER,
-          notes TEXT,
-          UNIQUE(camp_id, name)
-        );
-        INSERT INTO special_days_v72 (id, camp_id, name, sort_order, notes)
-          SELECT id, camp_id, name, sort_order, notes FROM special_days;
-        DROP TABLE special_days;
-        ALTER TABLE special_days_v72 RENAME TO special_days;
-        DROP INDEX IF EXISTS idx_special_days_camp_name;
+      rebuildTableCarryingColumns(db, {
+        table: 'special_days',
+        baseColumns: [
+          'id TEXT PRIMARY KEY',
+          'camp_id TEXT NOT NULL REFERENCES camps(id)',
+          'name TEXT NOT NULL',
+          'sort_order INTEGER',
+          'notes TEXT',
+        ],
+        tableConstraints: ['UNIQUE(camp_id, name)'],
+        postIndexSql: ['DROP INDEX IF EXISTS idx_special_days_camp_name'],
+      })
 
-        DROP INDEX IF EXISTS idx_schedule_weeks_camp_name;
-        CREATE UNIQUE INDEX idx_schedule_weeks_camp_name ON schedule_weeks(camp_id, name);
-      `)
+      // schedule_weeks is NOT rebuilt — its name-UNIQUE lives only in a named unique index.
+      db.exec('DROP INDEX IF EXISTS idx_schedule_weeks_camp_name')
+      db.exec('CREATE UNIQUE INDEX idx_schedule_weeks_camp_name ON schedule_weeks(camp_id, name)')
 
       // conflicts: SQLite has no DROP COLUMN pre-3.35 semantics issue here (better-sqlite3 bundles
       // a modern SQLite that supports ALTER TABLE DROP COLUMN directly), but drop via rebuild

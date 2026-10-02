@@ -302,31 +302,12 @@ function computeDiff(fixture, seed) {
 // way to be wrong. (v1's window would start at line 0 and hash the file header;
 // no v1 entry exists, and if one ever does, that is why it churns.)
 const ACKNOWLEDGED_UNKNOWNS = new Map([
-  [
-    'v73 activities.catalog_role',
-    {
-      // Hash moved (T293, v84) when the v73 block's cohorts sub-rebuild was pulled out of the
-      // big multi-table exec() string into its own dynamically-column-named exec call (so a test
-      // harness that fakes a version rewind without undoing the actual table shape can't hit the
-      // column twice) — the activities rebuild this acknowledgement is actually about is
-      // byte-identical; only the surrounding source text inside the same block window moved.
-      blockHash: 'e7f26e8f720a',
-      why:
-        'v75 (T266) ALTER-adds activities.catalog_role. v73 REBUILDS activities from a ' +
-        'hardcoded column list written before that column existed, so on a run that ' +
-        'replays the whole chain the column is created by schema.sql, dropped by the v73 ' +
-        'rebuild, and re-added by v75. The end state is correct and is separately proven: ' +
-        'recurrenceTruthStatus.migration.test.js asserts a migrated database and a fresh ' +
-        'one have byte-identical activities columns. No row VALUE changes and nothing is ' +
-        'lost — a database reaching v73 by a real forward path (<= v72) cannot hold the ' +
-        'column, and a fresh install has no activities rows at all. ' +
-        'WORTH KNOWING FOR THE NEXT PERSON, because it is a standing property rather than ' +
-        'a one-off: the v73 rebuild will transiently drop EVERY column added to activities ' +
-        'after it, and it is only safe while the adding migration is numbered ABOVE 73 so ' +
-        'it re-adds the column afterwards. A future column added below that number, or a ' +
-        'rebuild moved later, would silently lose it.',
-    },
-  ],
+  // 'v73 activities.catalog_role' was acknowledged here (the v73 rebuild transiently dropped the
+  // v75-added column and let v75 re-add it as all-NULL) until the v73 forward/inverse blocks were
+  // changed to rebuild from the LIVE column set and carry later-added columns forward with their
+  // data (docs/adr/2026-10-01-rebuild-migrations-carry-forward-later-columns.md). The transient
+  // drop no longer happens, so the trace observes nothing to acknowledge — the entry is removed
+  // rather than re-hashed.
   [
     'v49 locations.tile_type',
     {
