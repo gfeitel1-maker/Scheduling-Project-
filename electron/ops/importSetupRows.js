@@ -20,10 +20,12 @@
 // propagates OUT of the callback, where runAtomic's catch discards the deferred
 // doc writes and the SQLite transaction rolls back. We catch it OUTSIDE
 // runAtomic only to attach row context — never inside, which would defeat the
-// rollback. We open no nested runAtomic and call no op that opens one, so the
-// nested-discard hazard (a nested inner discardDeferredDocWrites does not clear
-// its frame) cannot arise (T309,
-// docs/adr/2026-09-29-per-op-savepoint-inside-an-atomic-boundary.md).
+// rollback. We open no nested runAtomic and call no op that opens one. (Nested
+// inner discards are now frame-accurate regardless — board
+// i-nested-discard-leaks-queued-doc-writes made discardDeferredDocWrites
+// truncate to its own frame's mark — but this importer's single-frame
+// structure does not depend on that.) T309,
+// docs/adr/2026-09-29-per-op-savepoint-inside-an-atomic-boundary.md.
 //
 // Field ordering is guarded at this choke point rather than left to the caller:
 // a create goes through orderFieldsForCreate (UNIQUE field + extra scope columns

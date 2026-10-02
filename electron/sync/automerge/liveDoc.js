@@ -126,12 +126,12 @@ export function setLocalWriteBroadcaster(db, fn) {
 // made one device's node serve the other's writes (scenario 30). A global depth
 // counter here would be the same mistake: device A's rollback would discard
 // device B's already-committed buffer.
-let deferStates = new WeakMap() // db -> { depth, queue }
+let deferStates = new WeakMap() // db -> { depth, queue, marks }
 
 function deferStateFor(db) {
   let state = deferStates.get(db)
   if (!state) {
-    state = { depth: 0, queue: [] }
+    state = { depth: 0, queue: [], marks: [] }
     deferStates.set(db, state)
   }
   return state
@@ -543,13 +543,16 @@ function applyLocalBulkReplaceNow(db, { entity, scope_id, rows, op_id = null }) 
 // camp row) deliberately runs at APPLY time, not queue time, so a buffered
 // write behaves identically to an unbuffered one.
 export function beginDeferredDocWrites(db) {
-  deferStateFor(db).depth += 1
+  const state = deferStateFor(db)
+  state.marks.push(state.queue.length)
+  state.depth += 1
 }
 
 export function commitDeferredDocWrites(db) {
   const state = deferStateFor(db)
   if (state.depth === 0) return
   state.depth -= 1
+  state.marks.pop()
   if (state.depth > 0) return
   const queued = state.queue
   state.queue = []
@@ -648,8 +651,8 @@ export function discardDeferredDocWrites(db) {
   const state = deferStateFor(db)
   if (state.depth === 0) return
   state.depth -= 1
-  if (state.depth > 0) return
-  state.queue = []
+  const mark = state.marks.pop()
+  state.queue.length = mark
 }
 
 // Retry a document write before giving up on it.
