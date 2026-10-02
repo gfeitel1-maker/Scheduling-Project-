@@ -108,7 +108,11 @@ describe('rollback bare-equality schema_migrations guard', () => {
     // 46 is v85_down.js (T321, camper-id-high-entropy-format).
     //
     // 47 is v86_down.js (T322 S3a, peer_tombstone_reports).
-    expect(files.length).toBe(47)
+    expect(
+      files.length,
+      'a new electron/db/rollback/vNN_down.js landed — bump this literal and add a dated ' +
+        'one-line note above it (like the v84/v85/v86 notes) saying which vNN it is'
+    ).toBe(47)
   })
 
   it('every rollback file uses `>= N`, never bare `= N`, to delete its schema_migrations row', () => {

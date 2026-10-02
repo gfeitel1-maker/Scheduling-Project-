@@ -27,6 +27,7 @@ npm run lint            # ESLint
 npm run test             # Run all Vitest tests
 npm test -- <path/to/file.test.js>    # Run a single test file
 npm run test:integration # Run the sync/ingest integration scenarios (test/integration/run.automerge.js)
+npm run schema:check     # Required pre-push step for any change under electron/db/** or electron/db/schema.sql. Runs the whole schema-sensitive test family in one invocation (scripts/schemaCheck.js): every electron/db/*.test.js (every migration test plus the schema-version-aware tests that don't carry ".migration" in their filename — eraMigration, migrationDomainState, migrationWriteTrace, projectManager, testDbTemplate), electron/db/rollback/*.test.js (vNN_down.js tests plus the bareEqualityRollback/rollbackIdentity guards), electron/ops/*[Pp]arity*.test.js, electron/ipcSurfaceParity.test.js, electron/automerge/purgeCollateral.test.js, src/engine/fixtureSchemaParity.test.js, and the two real-pipeline integration fixtures (electron/electiveAcceptanceFixture.integration.test.js, electron/ingestPassExclusivity.integration.test.js)
 npm run ticket:next      # next free ticket number, before you name a new docs/work/tickets/TNNN-*.md
 npm run verify           # the full gate, EIGHT steps: agents:check + check:governance + licenses:check + build + security + test:integration + lint + test (the list is `VERIFY_STEPS` in scripts/verify.js, which is the authority — this line is descriptive and has been stale before). Ordered CHEAPEST-FIRST and short-circuits, so a 1.2s governance failure is reported in seconds instead of behind ~17 minutes of tests — same eight gates, sooner. Prints a final ✅/❌ verdict line so the result survives `| tail` and can't false-green
 ```
@@ -60,6 +61,12 @@ because the runner is a clean machine and a green local gate cannot separate "co
 `scripts/gate.sh` stamps, but you are **no longer expected to run the full local gate before
 pushing**; CI runs it anyway, on a quieter machine, in about half the time. See
 `docs/governance/standards/TESTING_STANDARD.md` §1.
+
+**`npm run check:governance` is required before every push, no exceptions** — unlike the full
+`npm run verify`, this one is not conditional on what changed or deferred to CI. It runs in about a
+second and catches run-record/frontmatter findings (a stale status field, a malformed `related_tickets`
+array, a missing agent accounting entry) that a later CI run reports anyway, just slower and after a
+round-trip.
 
 **Only one local gate runs at a time.** `npm run verify` takes a machine-wide lock
 (`scripts/gateLock.js`) keyed to the repository, so a second one waits and names the holder instead
