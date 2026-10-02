@@ -1836,6 +1836,27 @@ CREATE TABLE IF NOT EXISTS peer_tombstone_reports (
   PRIMARY KEY (device_id, tombstone_id)
 );
 
+-- peer_last_addresses (v88, T328 Slice 1 — docs/adr/2026-10-02-wan-discovery-transport-ladder.md,
+-- Slice 1). Device-local, NEVER-SYNCED cache of the last multiaddr a trusted peer was observed
+-- dialing FROM or was dialed AT, keyed by libp2p peer id (the same identifier devices.
+-- libp2p_peer_id already carries — see peerIdentity.js). Written only from syncNode.js's
+-- onPeerAdmitted hook, after a peer has completed the authenticated handshake (never from
+-- discovery, never from document merge). Read at startup (syncNode.js, before peerDiscovery
+-- fallthrough) to attempt a direct reconnect to every currently-trusted peer without depending on
+-- mDNS/rendezvous. `multiaddr` is stored WITH its `/p2p/<peerId>` component, so a redial target
+-- carries the peer id libp2p's Noise handshake must itself verify — an address that now answers as
+-- a DIFFERENT peer id fails that handshake and is dialed again next time, granting no trust either
+-- way (the stale-address-safety property the ADR requires; see peerAddressBook.js).
+-- Same exclusion class as device_identity_key/host_signing_key/peer_tombstone_reports above: NEVER
+-- included in any full-sync SELECT/payload, NEVER sent over the wire, NEVER added to
+-- DIRECT_CAMP_ENTITIES/PROJECTIONS/MODELED_ENTITIES. Purged and re-learned (not restored) on a
+-- camper-record purge, same reasoning as peer_tombstone_reports — see purgeCollateral.js.
+CREATE TABLE IF NOT EXISTS peer_last_addresses (
+  peer_id TEXT PRIMARY KEY,
+  multiaddr TEXT NOT NULL,
+  last_seen_at TEXT NOT NULL
+);
+
 -- elective_run_outer_snapshots (v74, T243, docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-
 -- slices.md). A finalized run's per-camper, per-cell export snapshot — the "outer" grid position
 -- (day/time-block) a camper's assignment resolves to, frozen at finalization time so the export

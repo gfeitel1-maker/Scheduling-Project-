@@ -241,6 +241,11 @@ const ACCEPTED_NON_REFERENCES = [
   //    handshake. Neither column points at a U2-deletable entity --
   { table: 'peer_tombstone_reports', column: 'device_id', reason: 'points at devices, not a U2-deletable entity — mirrors operations.device_id' },
   { table: 'peer_tombstone_reports', column: 'tombstone_id', reason: 'points at tombstones, not a U2-deletable entity — a permanent signed denylist entry is never undo-deleted (mirrors RESTORE_DECISIONS.tombstones)' },
+  // peer_last_addresses (T328 Slice 1, docs/adr/2026-10-02-wan-discovery-transport-ladder.md):
+  // peer_id is a plain libp2p peer-id STRING, not a FK to any U2-deletable entity — it is the
+  // same identifier devices.libp2p_peer_id already carries (a routing convenience, never a trust
+  // signal), looked up by equality, never undo-deleted as a side effect of deleting anything.
+  { table: 'peer_last_addresses', column: 'peer_id', reason: 'a plain libp2p peer-id string (mirrors devices.libp2p_peer_id), not a FK to a U2-deletable entity — written only from an authenticated connection' },
   { table: 'open_reconciliation_decisions', column: 'entity_id', reason: 'polymorphic (entity_type varies), schema.sql documents "not a FK" — mirrors source_aliases.entity_id' },
   { table: 'open_reconciliation_decisions', column: 'cohort_id', reason: 'host-local journal metadata (never synced); a stale pointer after undo makes a row not match on the next import, not a corrupted live record — mirrors source_aliases.cohort_id' },
   { table: 'open_reconciliation_decisions', column: 'import_run_id', reason: 'groups rows from one commitIngest call, not an entity pointer — mirrors import_evidence.import_run_id' },

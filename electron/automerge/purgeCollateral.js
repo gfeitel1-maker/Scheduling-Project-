@@ -104,6 +104,15 @@ export const PURGE_INFRASTRUCTURE_TABLES = [
   // already would. Tracked as a residual, not fixed in this slice: fixing it means validating id
   // format at the tombstone-mint or report-persist boundary, which is T321/T233 surface, not S3a's.
   'peer_tombstone_reports',
+  // peer_last_addresses (T328 Slice 1, docs/adr/2026-10-02-wan-discovery-transport-ladder.md,
+  // Slice 1): this device's own local cache of a trusted peer's last-observed multiaddr, written
+  // only from an authenticated connection (syncNode.js's onPeerAdmitted). Same bucket, same
+  // reasoning as peer_tombstone_reports immediately above — it does not replicate at all, nothing
+  // preserves it across a purge, and it is not lost camp state: the next time that peer completes
+  // an authenticated connection it is remembered again, with no special-cased restore code. A
+  // purge that drops it only means the next startup falls through to discovery (mDNS/rendezvous)
+  // sooner — the pre-Slice-1 behavior.
+  'peer_last_addresses',
 ]
 
 // The complete accounting: every non-modeled table falls into exactly one bucket. The test asserts
