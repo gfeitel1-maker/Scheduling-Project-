@@ -25,6 +25,8 @@
 //
 // Usage:  node electron/db/rollback/v53_down.js <path-to-shoresh.sqlite>
 
+import { assertHighestApplied } from './assertHighestApplied.js'
+
 export function rollbackV53(db) {
   db.transaction(() => {
     db.exec(`CREATE TABLE IF NOT EXISTS template_overlays (
@@ -63,6 +65,7 @@ if (process.argv[1] && process.argv[1].endsWith('v53_down.js')) {
   const { default: Database } = await import('better-sqlite3')
   const db = new Database(file)
   db.pragma('foreign_keys = ON')
+  assertHighestApplied(db, 53)
   const result = rollbackV53(db)
   db.close()
   console.log(`v53 rolled back: recreated ${result.recreated.join(', ')}`)

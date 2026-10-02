@@ -10,6 +10,8 @@
 //
 // Usage:  node electron/db/rollback/v69_down.js <path-to-shoresh.sqlite>
 
+import { assertHighestApplied } from './assertHighestApplied.js'
+
 export function rollbackV69(db) {
   const discarded = {
     lastSequence:
@@ -39,6 +41,7 @@ if (process.argv[1] && process.argv[1].endsWith('v69_down.js')) {
   const { default: Database } = await import('better-sqlite3')
   const db = new Database(file)
   db.pragma('foreign_keys = ON')
+  assertHighestApplied(db, 69)
   const result = rollbackV69(db)
   db.close()
   console.log(`v69 rolled back: rendezvous sequence counter (was ${result.lastSequence}) discarded`)

@@ -31,6 +31,8 @@
 //
 // Usage:  node electron/db/rollback/v59_down.js <path-to-shoresh.sqlite>
 
+import { assertHighestApplied } from './assertHighestApplied.js'
+
 export function rollbackV59(db) {
   db.transaction(() => {
     db.exec(`CREATE TABLE IF NOT EXISTS day_overrides (
@@ -75,6 +77,7 @@ if (process.argv[1] && process.argv[1].endsWith('v59_down.js')) {
   const { default: Database } = await import('better-sqlite3')
   const db = new Database(file)
   db.pragma('foreign_keys = ON')
+  assertHighestApplied(db, 59)
   const result = rollbackV59(db)
   console.log(JSON.stringify(result))
   db.close()

@@ -26,6 +26,8 @@
 const hasTable = (db, name) =>
   db.prepare("SELECT COUNT(*) c FROM sqlite_master WHERE type='table' AND name=?").get(name).c > 0
 
+import { assertHighestApplied } from './assertHighestApplied.js'
+
 export function rollbackV81(db) {
   const discarded = {
     bundles: hasTable(db, 'elective_bundles')
@@ -58,6 +60,7 @@ if (process.argv[1] && process.argv[1].endsWith('v81_down.js')) {
   const { default: Database } = await import('better-sqlite3')
   const db = new Database(file)
   db.pragma('foreign_keys = ON')
+  assertHighestApplied(db, 81)
   const result = rollbackV81(db)
   db.close()
   console.log(

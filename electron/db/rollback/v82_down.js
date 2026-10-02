@@ -40,6 +40,8 @@ const hasTable = (db, name) =>
 /**
  * @returns {{ok:true, discarded:{seedlings:number, activeSeedlings:number}}}
  */
+import { assertHighestApplied } from './assertHighestApplied.js'
+
 export function rollbackV82(db) {
   // BOTH NUMBERS, and they differ for a reason worth keeping. `seedlings` counts
   // every row including superseded ones — the history of what this camp has
@@ -78,6 +80,7 @@ if (process.argv[1] && process.argv[1].endsWith('v82_down.js')) {
   const { default: Database } = await import('better-sqlite3')
   const db = new Database(file)
   db.pragma('foreign_keys = ON')
+  assertHighestApplied(db, 82)
   const result = rollbackV82(db)
   db.close()
   console.log(

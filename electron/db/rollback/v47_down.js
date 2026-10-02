@@ -19,6 +19,8 @@
 //
 // Usage:  node electron/db/rollback/v47_down.js <path-to-shoresh.sqlite>
 
+import { assertHighestApplied } from './assertHighestApplied.js'
+
 export function rollbackV47(db) {
   const declines = db
     .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'declined_two_row_splits'")
@@ -49,6 +51,7 @@ if (process.argv[1] && process.argv[1].endsWith('v47_down.js')) {
   const { default: Database } = await import('better-sqlite3')
   const db = new Database(file)
   db.pragma('foreign_keys = ON')
+  assertHighestApplied(db, 47)
   const result = rollbackV47(db)
   db.close()
   console.log(`v47 rolled back: ${result.discardedDeclines} declined split(s) discarded`)

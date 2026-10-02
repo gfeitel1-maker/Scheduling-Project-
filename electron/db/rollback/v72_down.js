@@ -34,6 +34,8 @@
 //
 // Usage:  node electron/db/rollback/v72_down.js <path-to-shoresh.sqlite>
 
+import { assertHighestApplied } from './assertHighestApplied.js'
+
 export function rollbackV72(db) {
   db.prepare('DELETE FROM schema_migrations WHERE version >= 72').run()
 
@@ -50,6 +52,7 @@ if (process.argv[1] && process.argv[1].endsWith('v72_down.js')) {
   const { default: Database } = await import('better-sqlite3')
   const db = new Database(file)
   db.pragma('foreign_keys = ON')
+  assertHighestApplied(db, 72)
   rollbackV72(db)
   db.close()
   console.log(

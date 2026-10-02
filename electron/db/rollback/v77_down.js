@@ -37,6 +37,8 @@
 const hasTable = (db, name) =>
   db.prepare("SELECT COUNT(*) c FROM sqlite_master WHERE type='table' AND name=?").get(name).c > 0
 
+import { assertHighestApplied } from './assertHighestApplied.js'
+
 export function rollbackV77(db) {
   const discarded = {
     identityGaps: hasTable(db, 'fixed_event_identity_gaps')
@@ -80,6 +82,7 @@ if (process.argv[1] && process.argv[1].endsWith('v77_down.js')) {
   const { default: Database } = await import('better-sqlite3')
   const db = new Database(file)
   db.pragma('foreign_keys = ON')
+  assertHighestApplied(db, 77)
   const result = rollbackV77(db)
   db.close()
   console.log(`v77 rolled back: ${result.renamed.join(', ')}`)

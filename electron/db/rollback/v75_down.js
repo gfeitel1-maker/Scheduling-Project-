@@ -16,6 +16,8 @@
 //
 // Usage:  node electron/db/rollback/v75_down.js <path-to-shoresh.sqlite>
 
+import { assertHighestApplied } from './assertHighestApplied.js'
+
 export function rollbackV75(db) {
   // Count BEFORE dropping, so the report is honest about what went. This is the
   // number of activity rows that will re-enter the free-choice catalogue.
@@ -53,6 +55,7 @@ if (process.argv[1] && process.argv[1].endsWith('v75_down.js')) {
   const { default: Database } = await import('better-sqlite3')
   const db = new Database(file)
   db.pragma('foreign_keys = ON')
+  assertHighestApplied(db, 75)
   const result = rollbackV75(db)
   db.close()
   console.log(`v75 rolled back: discarded ${result.pinnedEventMarkers} pinned-event marker(s)`)

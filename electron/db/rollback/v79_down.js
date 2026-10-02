@@ -39,6 +39,8 @@ const hasColumn = (db, table, column) =>
 /**
  * @returns {{ok:true, discarded:{divisionLabels:number, rankKinds:number}}}
  */
+import { assertHighestApplied } from './assertHighestApplied.js'
+
 export function rollbackV79(db) {
   // ALL FIVE COLUMNS ARE COUNTED. This used to report only division_label and
   // rank_kind while the file's own header calls the coordinate columns "the LOSSIEST
@@ -99,6 +101,7 @@ if (process.argv[1] && process.argv[1].endsWith('v79_down.js')) {
   const { default: Database } = await import('better-sqlite3')
   const db = new Database(file)
   db.pragma('foreign_keys = ON')
+  assertHighestApplied(db, 79)
   const result = rollbackV79(db)
   db.close()
   console.log(

@@ -57,6 +57,8 @@ const hasTable = (db, name) =>
 const countIfPresent = (db, table) =>
   hasTable(db, table) ? db.prepare(`SELECT COUNT(*) c FROM ${table}`).get().c : 0
 
+import { assertHighestApplied } from './assertHighestApplied.js'
+
 export function rollbackV66(db) {
   // Count BEFORE destroying, so the report is honest about what went.
   const discarded = {
@@ -100,6 +102,7 @@ if (process.argv[1] && process.argv[1].endsWith('v66_down.js')) {
   const { default: Database } = await import('better-sqlite3')
   const db = new Database(file)
   db.pragma('foreign_keys = ON')
+  assertHighestApplied(db, 66)
   const result = rollbackV66(db)
   db.close()
   console.log(

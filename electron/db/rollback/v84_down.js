@@ -48,6 +48,8 @@ const renameSnapshotSlotKeysBack = (slots) =>
     return out
   })
 
+import { assertHighestApplied } from './assertHighestApplied.js'
+
 export function rollbackV84(db) {
   db.transaction(() => {
     renameColumnIfPresent(db, 'template_slots', 'fixed_event_id', 'anchor_id')
@@ -85,6 +87,7 @@ if (process.argv[1] && process.argv[1].endsWith('v84_down.js')) {
   const { default: Database } = await import('better-sqlite3')
   const db = new Database(file)
   db.pragma('foreign_keys = ON')
+  assertHighestApplied(db, 84)
   rollbackV84(db)
   db.close()
   console.log(

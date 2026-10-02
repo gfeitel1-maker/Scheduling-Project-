@@ -14,6 +14,7 @@
 // Usage:  node electron/db/rollback/v73_down.js <path-to-shoresh.sqlite>
 
 import { rebuildTableCarryingColumns } from '../rebuildTableCarryingColumns.js'
+import { assertHighestApplied } from './assertHighestApplied.js'
 
 // entity, then its unique-key column(s) (the collision key), matching the ADR's ten-table scope.
 const RELAXED_TABLES = [
@@ -288,6 +289,7 @@ if (process.argv[1] && process.argv[1].endsWith('v73_down.js')) {
   const { default: Database } = await import('better-sqlite3')
   const db = new Database(file)
   db.pragma('foreign_keys = ON')
+  assertHighestApplied(db, 73)
   try {
     const result = rollbackV73(db)
     db.close()
