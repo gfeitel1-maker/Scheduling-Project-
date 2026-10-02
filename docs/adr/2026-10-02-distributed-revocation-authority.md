@@ -358,14 +358,18 @@ each other.
 - **Changed:** `electron/automerge/campDocument.js` (new genesis-registered collection,
   `camp_authority_log`, additive to `MODELED_ENTITIES`/`GENESIS_ENTITIES`, same subset-guard-enforced
   regeneration pattern already used for `tombstones` — `GENESIS_B64`/`genesisRootHash`/
-  `sharesGenesis` themselves stay unchanged); `electron/automerge/projector.js` (verify-and-replay
-  loop, mirroring the tombstone/T330 loop, producing the derived "currently admin"/"currently revoked"
-  cache); `electron/sync/automerge/syncNode.js` (gate B); `electron/sync/automerge/mutualAuth.js` /
-  `authGate.js` (gate A); `electron/automerge/rebuildSupportCommand.js` and
-  `purgeSupportCommand.js` (carry `camp_authority_log` and its derived cache forward); `electron/
-  main.js`'s `approveDevice`/`revokeDevice` handlers (now also mint a signed `camp_authority_log`
-  entry via the acting admin's own `device_identity_key`, in addition to any existing immediate local
-  action).
+  `sharesGenesis` themselves stay unchanged; entries now include `grant`, `revoke` (immediate,
+  non-admin targets), and `revoke-vote` (accumulating, admin/founder targets) kinds);
+  `electron/automerge/projector.js` (verify-and-replay loop, mirroring the tombstone/T330 loop,
+  producing the derived "currently admin"/"currently revoked" cache plus a per-target vote tally for
+  `revoke-vote` entries, re-evaluated against the dynamically-recomputed `N`/threshold on every
+  projection pass); `electron/sync/automerge/syncNode.js` (gate B); `electron/sync/automerge/
+  mutualAuth.js` / `authGate.js` (gate A); `electron/automerge/rebuildSupportCommand.js` and
+  `purgeSupportCommand.js` (carry `camp_authority_log` and its derived cache forward, vote tallies
+  included); `electron/main.js`'s `approveDevice`/`revokeDevice` handlers (now also mint a signed
+  `camp_authority_log` entry via the acting admin's own `device_identity_key` — a `grant`/immediate
+  `revoke` for a non-admin target, or a `revoke-vote` for an admin/founder target — in addition to
+  any existing immediate local action).
 - **Schema:** new device-local, never-synced tables — e.g. `applied_authority_log` (verified entries)
   and a derived cache table for the current admin/revoked sets, joining the `device_identity_key`/
   `host_signing_key`/`tombstones`-derived-cache exclusion class (never registered in `PROJECTIONS`,
@@ -439,6 +443,197 @@ conflicting claims; the derived admin/revoked local cache and its migration.
    `handleReceived` is explicitly asserted NOT to be the path the test exercises.
 7. **Purge/rebuild never regresses the derived revoked set.** Run a purge/rebuild after several
    grant/revoke cycles; assert the derived admin/revoked cache after rebuild is identical to before it.
+8. **Quorum threshold matches the N=1..5 table exactly.** For each of N=2,3,4,5, construct that many
+   admins, cast votes one at a time against an admin target, and assert the target is removed only
+   once the count reaches the table's threshold — not before, not requiring more.
+9. **N=3 requires both others; N=4 tolerates one offline.** Concretely assert the N=3 case needs both
+   non-target admins' votes (one alone is insufficient) and the N=4 case removes the target with any
+   2 of 3 non-target admins voting, with the third never signing.
+10. **Concurrent quorum-vs-counter-revoke resolves symmetrically (case a, walked above).** Reproduce
+    the `F`/`S1`/`S2` scenario exactly as walked; assert both `S1` and `S2` end up revoked on every
+    peer after merge, independent of merge order.
+11. **Overlapping partial quorums converge via set union (case b).** Two peers each see a different
+    2-of-4 subset of votes for the same target; after merge, assert both peers compute the same
+    4-vote total and the same removal outcome.
+12. **A shrinking admin denominator never blocks an in-progress vote (case c).** Start a vote at N=5
+    (threshold 3); revoke one of the non-voting, non-target admins mid-vote (dropping N to 4,
+    threshold to 2); assert votes already cast still count and the lower threshold is the one applied
+    on the next evaluation — never a higher one, never a reset.
+
+## Committee/quorum revocation for an admin or founder target — added per owner direction (2026-10-02)
+
+The owner, after reviewing the any-admin-signs design above, asked for a **two-tier rule by target**:
+removing an ordinary (non-admin) device stays exactly as designed above — any one currently-valid
+admin's signature suffices, takes effect immediately. **Removing an admin, or the founder, is the
+high-stakes case and requires a committee/quorum** — "like a cabinet voting out a president" — of the
+*other* admins. The target never counts toward its own removal.
+
+### Candidate quorum formulations considered
+
+- **Fixed "any 2 other admins," capped at however many others exist.** `[N4 V7 F6]`. Degrades
+  identically to strict majority at N=2 and N=3 (see table below — with only 1 or 2 other admins,
+  "any 2" and "majority" collapse to the same requirement), and only diverges from majority once
+  there are 4+ others, where it becomes *weaker* than majority (a fixed 2-of-10 quorum, say) — a
+  real security cost for larger admin sets with no corresponding liveness benefit over majority at
+  the sizes this app actually has. **Rejected**: it buys nothing at the small N this product
+  actually runs at, and gives away security at sizes it might grow into.
+- **N-1 unanimity of the other admins, minus an explicit offline-tolerance carve-out** (e.g. "all
+  others, unless one has been offline > T days"). `[N3 V3 F5]` — **trap**: reintroduces wall-clock
+  reasoning this project has already learned not to trust across devices with no shared clock
+  (`reference_cpu_time_not_wall_clock_on_this_machine`), and a device offline for a legitimate
+  reason (vacation, broken laptop) is indistinguishable from one being deliberately stonewalled —
+  exactly the deadlock the owner named as unacceptable. **Rejected.**
+- **Strict majority of the other admins** (`floor((N-1)/2) + 1`, where `N` is the total valid-admin
+  count including the target). `[N6 V9 F9]` ★. **Chosen.** It is the literal "cabinet" model — more
+  than half the rest of the cabinet must agree — and it is the formula that produces exactly the
+  owner's own stated case ("at 2 admins, the other agreeing is enough") without being special-cased:
+  plug `N=2` into the general formula and it falls out, rather than being hand-coded as a special
+  rule for small camps.
+- **A percentage threshold of the full admin set** (e.g. "two-thirds of all admins, target
+  included"). `[N5 V5 F5]` — **trap**: counting the target toward its own removal contradicts the
+  owner's explicit "cabinet-not-president" framing (the president doesn't get a vote on their own
+  impeachment), and a percentage-of-everyone formula behaves worse than majority-of-others at small
+  N (e.g. two-thirds of 3 total = 2, same as majority-of-others there, but the target is still
+  implicitly in the denominator, which is the wrong shape even where the number matches). Rejected
+  in favor of the cleaner majority-of-others shape.
+
+### The recommended rule
+
+**Threshold = `floor((N-1)/2) + 1`, where `N` is the count of currently-valid admins — including the
+target — and the threshold is computed over the `N-1` *other* admins.** The target never signs
+toward its own removal.
+
+| N (admins incl. target) | Other admins (N-1) | Threshold (votes needed) | Offline the vote still survives | Notes |
+|---|---|---|---|---|
+| 1 | 0 | — (unsatisfiable) | n/a | **Irreducible residual, named below** — a sole admin cannot be quorum-removed; there is no committee. |
+| 2 | 1 | 1 | 0 | The owner's own stated case: "the other admin agreeing" is the whole quorum, by the general formula, not a special case. |
+| 3 | 2 | 2 | 0 | **The tight case** — both other admins must sign. No offline tolerance at all. See honest tradeoff below. |
+| 4 | 3 | 2 | 1 | First point real offline tolerance appears: any 2 of the 3 others. |
+| 5 | 4 | 3 | 1 | 3 of 4 others; one can be offline. |
+
+**N=1 is irreducible under any formula, not a defect of this one.** A camp with exactly one admin has
+no committee to convene — this is true of a literal cabinet-of-one too. The only way out is for that
+admin to first grant a second admin (the existing any-admin grant path, unchanged); if that admin is
+unreachable or malicious and no second admin was ever granted, the camp's admin layer is
+unrecoverable by this mechanism and would need an out-of-band remedy (support involvement, a fresh
+camp). **This ADR recommends — as a product follow-up, not scoped here — nudging every camp toward a
+second admin during setup**, so N=1 is a transient state, not a steady one. Flagged, not built.
+
+**N=3 is the honest hard case the owner needs to see plainly: with only two other admins, no
+quorum rule above "any 1 other admin" can tolerate even one of them being offline, because
+requiring more than 1 of 2 means requiring both.** This is forced by the arithmetic of small
+numbers, not a flaw in the formula — the real security-vs-liveness tradeoff only has room to exist
+once there are at least 3 *other* admins (N≥4). Below that, the choice is binary: either quorum for
+an admin-target at N=2/N=3 is only as strong as any-admin-signs already is (if the threshold were
+set to 1 regardless of N), or it demands full consensus of the (small) rest. **The recommended
+formula picks the latter** — true majority, not a diluted one — on the reasoning that a camp this
+small is also small enough that reaching both of two co-admins is an hours-not-weeks problem, not a
+structural deadlock; the tradeoff is named here precisely so the owner can weigh it against the
+practical reality of a specific camp's staff availability.
+
+**The general tradeoff, stated once:** a lower threshold tolerates more simultaneous offline admins
+but lets a smaller clique act unilaterally against a peer admin; a higher threshold is safer against
+collusion but risks the vote never completing if too many admins are simultaneously unreachable.
+**Strict majority of the others is the recommended point on that curve** — it is the standard
+"cabinet" answer, it degrades to exactly the owner's N=2 case without special-casing, and once N≥4
+it always tolerates at least one admin being offline, with the tolerance growing as the admin set
+grows. Confidence: ~75%.
+
+### The denominator problem — computed deterministically, same way for every peer
+
+`N` is not frozen at "vote start" and is not a self-reported field. It is computed the exact same way
+admin validity itself is computed: **`N` is the size of the admin set derivable via `isValidAdminAt`
+over the evaluating peer's own current document state (its sync frontier/heads), excluding nothing
+but counting the target if the target is still admin as of that same state.** Every peer, once it has
+received the same set of changes, computes the identical `N`, the identical threshold, and the
+identical vote tally — this is the same convergence property the causal-ancestor replay already
+gives the grant/revoke mechanism, extended rather than re-invented. Different peers mid-sync may
+transiently disagree (one has seen more changes than another), which is ordinary eventual
+consistency, not a correctness defect — once they hold the same changes, they agree.
+
+**`N` is recomputed on every evaluation, not cached from vote-start — see case (c) below for why this
+is the right choice, not just the convenient one.**
+
+### Entry shape and composition with the causal-ancestor rule
+
+`camp_authority_log` gains one more entry kind for the high-stakes case (grants and ordinary-device
+revokes are unchanged from the design above):
+
+```
+{ kind: 'revoke-vote', target_device_id, signer_device_id, signature }
+```
+
+Each `revoke-vote` is scored by the **same per-signer causal rule already established**: a vote
+counts only if `isValidAdminAt(signer_device_id, thatVoteChange)` is true — the signer held a live
+admin grant at the causal point they cast their own vote, exactly as for a `grant`/`revoke` entry.
+Votes for the same target accumulate as an append-only set (one entry per signer; a second vote from
+the same signer for the same target is idempotent, not double-counted). **The target is removed, on
+a given peer's evaluation, the instant the count of currently-valid votes for that target reaches the
+threshold computed from that peer's own current `N`** — no new primitive beyond "count valid
+append-only entries against a dynamically recomputed threshold," which is a small, composable
+extension of the replay already built for grant/revoke, not a second verification mechanism.
+
+Whether a `revoke`/`revoke-vote` is even the right entry kind for a given target is itself derived,
+not declared by the signer: at the moment a signer casts a vote (or an immediate single-signature
+revoke for a non-admin target), the signer's own client checks `isValidAdminAt(target, currentHeads)`
+to decide which shape to author. A receiver re-derives the same check independently rather than
+trusting the sender's framing — consistent with this ADR's standing rule that nothing about
+authority is ever trusted from a self-report.
+
+### Convergence of concurrent and partial quorums — the three nasty cases, walked
+
+**(a) A quorum forms concurrently with the target revoking one of its own voters.** Concrete worked
+example, N=3 (`F`, `S1`, `S2`; target `S1`; threshold 2 of 2 others): `F` and `S2` each cast a
+`revoke-vote` against `S1`. Concurrently (neither change is a causal ancestor of the other), `S1`
+signs a `revoke` against `S2`, trying to knock out one of its own voters before the quorum completes.
+**Walk it:** `S2`'s vote is checked via `isValidAdminAt(S2, S2'sVoteChange)` — and `S1`'s revoke-of-S2
+is *not* in the ancestor set of `S2`'s vote (they're concurrent) — so `S2`'s vote is valid and counts
+regardless of `S1`'s attempt. Symmetrically, `S1`'s revoke-of-`S2` is checked via
+`isValidAdminAt(S1, thatChange)` — the quorum against `S1` had not causally completed before `S1`
+signed (also concurrent) — so `S1`'s revoke-of-`S2` is *also* valid as authored. Once merged: `F`+`S2`
+reach the threshold of 2 against `S1` → `S1` is removed. `S1`'s own revoke-of-`S2` is independently
+valid → `S2` is removed too. **Final convergent state: both `S1` and `S2` end up revoked** — the
+same symmetric-mutual-destruction pattern already established for ordinary concurrent grant/revoke
+conflicts falls out here with zero new machinery, because a `revoke-vote` is scored by the identical
+per-signer causal rule as every other entry kind.
+
+**(b) Two overlapping partial quorums.** `revoke-vote` entries for the same target accumulate as an
+ordinary append-only set, deduplicated by `(target, signer)`. If one peer sees `{F, S1}` vote and
+another independently sees `{S2, S3}` vote for the same target (different partial views, perhaps
+during a network partition), the merged state is simply the **union**: `{F, S1, S2, S3}`. Whichever
+peer first holds the union evaluates the same count against the same threshold and reaches the same
+answer — this requires no new convergence argument beyond "set union is commutative and
+idempotent," which Automerge already gives for free for map/set-shaped collections.
+
+**(c) The admin set shrinks mid-vote (a denominator admin is itself removed while a vote is in
+progress).** Because `N` is recomputed fresh from the evaluating peer's current state rather than
+frozen at vote-start, a shrinking admin pool **only ever makes an in-progress vote easier to
+complete, never harder** — fewer others means a lower threshold on the next evaluation, and any
+votes already cast by admins who remain valid still count (a vote's validity is pinned to the
+signer's *own* causal point, not to the denominator at the time it was cast). This is the same
+property as (c)'s cousin case: shrinking the denominator cannot retroactively invalidate a vote that
+was valid when cast, and can only lower the bar for the votes still outstanding. No special-case
+logic is needed — recomputing `N`/threshold fresh on every evaluation, rather than caching it, is
+what makes this converge correctly without extra bookkeeping.
+
+### Recommendation for v1: adopt the two-tier model (quorum-for-admin-targets), any-admin kept as fallback
+
+**Recommended: adopt the two-tier rule as designed above — any-single-admin for ordinary device
+targets (unchanged), strict-majority-of-others quorum for admin/founder targets — for v1.
+Confidence: ~70%.** It matches what the owner asked for exactly (committee for the high-stakes case,
+simple for the ordinary case) and the N=3 tightness, while real, is bounded to the single smallest
+case where a true quorum can exist at all (N=1 has no quorum by construction regardless of formula).
+
+**Fallback, named explicitly per the owner's request: if the N=3 case (or any case up to N=4) proves
+operationally painful in practice** — e.g. a real camp finds itself with exactly 3 admins and
+struggling to reach both others when one legitimately needs removing — **the simpler fallback is to
+keep any-admin-signs for every target, admin or not**, exactly as this ADR originally designed before
+this revision. That fallback has no deadlock risk at any N, at the cost of losing the committee
+safeguard the owner specifically asked for against a single rogue or compromised admin acting against
+a peer admin. **The owner decides which to ship; this ADR's recommendation is the two-tier model,**
+on the reasoning that the committee safeguard is exactly the property a "fire the founder" scenario
+needs, and the N=3 cost is a real but narrow and self-resolving case (it stops being the tightest
+case the moment a camp grows to 4 admins).
 
 ## Tier-4 / capability impact
 
@@ -462,25 +657,33 @@ consistent with that ADR's rejection of per-camp genesis mutation.
 is confirmed unaffected (see above); this ADR is a corrected Slice 2 of that ladder's build plan, same
 position T330 occupied.
 
+## Owner rulings recorded (2026-10-02)
+
+The owner ruled on the three open questions from the prior revision of this ADR. Recorded here for
+the permanent record; none of them changed the mechanism itself.
+
+1. **Offline-race residual (former Open Q1): ACCEPTED as bounded for v1.** Owner: "very low for my
+   field... it is fine." No change to the mechanism — the causal-ancestor rule, symmetric
+   mutual-destruction on concurrent conflicts, and full auditability stand exactly as designed above.
+   This is now a closed, accepted risk, not an open question.
+2. **Unifying `camp_authority_log` admin status with `users.role='admin'` (former Open Q2): kept
+   SEPARATE for v1.** A follow-up is filed on the board: **`q-unify-admin-role-and-device-revocation`**.
+   Out of scope here — this ADR's `camp_authority_log` and the existing Host-signed `users.role` field
+   remain two distinct authority concepts, as originally designed.
+3. **Purge-tombstone single-host finding (former Open Q3): FOLLOW-UP, not fixed here.** A follow-up
+   is filed on the board: **`h-purge-survives-fired-founder`**. `tombstoneSignature.js`'s
+   `host_signing_key` dependency remains unchanged by this ADR; the follow-up ticket is where that
+   gets addressed, reusing this ADR's causal-ancestor verification work as its starting point.
+
 ## Open questions for the owner
 
-1. **Is the offline-race residual (an about-to-be-revoked admin's concurrent offline actions validate
-   under the strict causal-ancestor rule) an acceptable v1 risk**, bounded by symmetric
-   mutual-destruction, full auditability, and manual counter-action in a small, in-person-vetted
-   fleet — or does the owner want this flagged as a reason to revisit a quorum/co-sign requirement
-   later, understanding that reopens the any-admin-signs constraint this ADR was built to satisfy as
-   given? Not resolved here; genuinely a product/risk call, not a technical one.
-2. **Should `camp_authority_log` admin status (device-revocation authority) and `users.role = 'admin'`
-   (in-app permission authority, Host-signed today per T172) be unified into one concept, or is it
-   acceptable for v1 that a device can hold `camp_authority_log` admin status without also holding a
-   `users.role='admin'` credential (or vice versa)?** This ADR deliberately keeps them separate to
-   bound scope; unifying them would mean also distributing `users.role` signing away from
-   `host_signing_key`, which is a second, comparably large decision this ADR does not make.
-3. **Should the purge-tombstone single-host finding (above) be spun off as a follow-up ticket now**,
-   given the hard verification work it would reuse is already designed here, or deferred until a
-   second incident (same "pre-production, no live camps, already-disclosed gap" reasoning the
-   2026-09-19 ADR used for a structurally similar deferral)?
-4. **Who decides whether a newly-paired device gets admin status at the pairing moment** — is this
-   always the approving admin's choice (as designed above), or does the owner want a product rule
-   (e.g., "only the original founder, while still present, may grant admin" — which would itself be a
-   constraint this ADR's any-admin-signs design does not currently impose)?
+1. **Adopt the two-tier quorum-for-admin-targets model (recommended, ~70% confidence), or keep
+   any-admin-signs for every target including admins (the named fallback, no deadlock risk at any
+   N, but no committee safeguard against a single rogue admin)?** See "Committee/quorum revocation"
+   above for the full tradeoff, the N=1..5 table, and why N=3 is the tightest case under the
+   recommended formula. This is the one load-bearing decision this ADR cannot make on its own — the
+   formula is fully specified either way, but which rule ships is the owner's call.
+2. **Should product UX nudge every camp toward a second admin during setup**, so the N=1
+   irreducible-residual case (a sole admin cannot be quorum-removed by construction, same as a
+   cabinet of one) is a transient state rather than a steady one for small camps? Named as a
+   recommendation above, not scoped or built here.
