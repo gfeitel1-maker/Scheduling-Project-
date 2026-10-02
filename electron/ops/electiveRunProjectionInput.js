@@ -50,6 +50,7 @@ export function buildElectiveRunProjectionInput(db, { runId }) {
       preferences: ui.preferences,
       assignments: ui.rows,
       occurrences: ui.occurrences,
+      offeringOccurrencesByChoiceId: ui.offeringOccurrencesByChoiceId,
       staleCount: ui.staleCount,
       capacityRows: ui.overCapacityOccurrences,
       eligibilityFindings: ui.eligibilityFindings,

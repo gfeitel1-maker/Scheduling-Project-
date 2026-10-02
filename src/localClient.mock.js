@@ -2226,6 +2226,17 @@ export const mockShoresh = {
       .filter((c) => c.run_id === runId)
       .map((c) => ({ id: c.id, label: c.label, is_linked: c.is_linked ?? 0 }))
       .sort((a, b) => String(a.label).localeCompare(String(b.label)))
+    // 1A (docs/work/specs/2026-10-02-elective-run-mismatch-null-identity-and-anchor-design.md)
+    // — faithfully mirrored: the mock already stores elective_choice_offerings
+    // rows (used by the bundle-tier-mismatch commit logic above), so this is
+    // the same choice_id -> [occurrence_id, ...] map electron/ops/getElectiveRun.js
+    // reads from the real table.
+    const choiceIds = new Set(choices.map((c) => c.id))
+    const offeringOccurrencesByChoiceId = {}
+    for (const o of state.elective_choice_offerings || []) {
+      if (!choiceIds.has(o.choice_id) || o.occurrence_id == null) continue
+      (offeringOccurrencesByChoiceId[o.choice_id] ??= []).push(o.occurrence_id)
+    }
     // T250 A0.2 — faithfully mirrored: every camper with a preference or an
     // assignment on this run, group name resolved.
     const groupById = new Map((state.groups || []).map((g) => [g.id, g.name]))
@@ -2288,7 +2299,7 @@ export const mockShoresh = {
     // production digest mismatched on its own is_linked_choice boolean/
     // integer type, which this mock's plain-object rows never encounter.)
     return {
-      rows, occurrences, preferences, choices, campers, sheetOnlyCampers,
+      rows, occurrences, preferences, choices, offeringOccurrencesByChoiceId, campers, sheetOnlyCampers,
       staleCount: 0, finalizedAgainstStaleGeneration: false,
       overCapacityOccurrences: [], danglingFindings, eligibilityFindings, resourceConflicts: [],
       snapshotIncomplete: false, expectedSnapshotRows: null, heldSnapshotRows: null,

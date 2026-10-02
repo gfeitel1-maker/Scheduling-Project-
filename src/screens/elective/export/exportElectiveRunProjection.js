@@ -44,6 +44,7 @@ export function buildElectiveRunProjectionExport({
   capacityRows = [],
   eligibilityFindings = [],
   resourceConflicts = [],
+  offeringOccurrencesByChoiceId = {},
   generatedAt = new Date().toISOString(),
 } = {}) {
   if (run?.status === 'final' && run?.snapshotIncomplete) {
@@ -62,6 +63,8 @@ export function buildElectiveRunProjectionExport({
     exceptions: buildRunExceptionsExport({
       campers, preferences, assignments, occurrences, staleCount, capacityRows, eligibilityFindings, resourceConflicts,
     }),
-    summary: buildRunSummaryExport({ run, assignments, preferences, capacityRows, occurrences, days, timeBlocks }),
+    summary: buildRunSummaryExport({
+      run, assignments, preferences, capacityRows, occurrences, days, timeBlocks, offeringOccurrencesByChoiceId,
+    }),
   }
 }

@@ -50,6 +50,7 @@ const railColor = (isFallback) => (isFallback ? 'var(--accent)' : 'var(--border)
 // screen — re-running a filter, a locale-collated sort and four Map builds over a
 // run's whole row set, which is exactly what the memo exists to prevent.
 const NONE = []
+const EMPTY_OFFERINGS = {}
 
 function WeekRow({ entry, choices, editing, onEdit, onSetPreference, onRemovePreference }) {
   const when = [entry.dayName, entry.blockName].filter(Boolean).join(' · ')
@@ -170,6 +171,11 @@ export default function CamperWeekPanel({
   // absent-safe like the four above: a caller that hasn't been updated yet
   // renders exactly the same list it rendered before, with no disambiguator.
   campers: rosterCampers = NONE,
+  // 1A (docs/work/specs/2026-10-02-elective-run-mismatch-null-identity-and-anchor-design.md)
+  // — threaded straight through to buildCamperElectiveWeek; see that
+  // function's own comment. Absent-safe: a caller that hasn't been updated
+  // yet renders exactly the same week it rendered before.
+  offeringOccurrencesByChoiceId = EMPTY_OFFERINGS,
 }) {
   const [camperId, setCamperId] = useState(null)
   // Which ROW is open for editing, at most one. A week of open selects would be
@@ -194,8 +200,10 @@ export default function CamperWeekPanel({
   const week = useMemo(
     () => (camperId == null
       ? null
-      : buildCamperElectiveWeek({ camperId, rows, occurrences, activities, days, timeBlocks, preferences })),
-    [camperId, rows, occurrences, activities, days, timeBlocks, preferences]
+      : buildCamperElectiveWeek({
+          camperId, rows, occurrences, activities, days, timeBlocks, preferences, offeringOccurrencesByChoiceId,
+        })),
+    [camperId, rows, occurrences, activities, days, timeBlocks, preferences, offeringOccurrencesByChoiceId]
   )
 
   // Mounted only when it has campers to offer, matching RunList and

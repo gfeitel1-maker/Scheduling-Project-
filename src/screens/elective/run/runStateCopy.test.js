@@ -61,6 +61,24 @@ describe('satisfactionSummary', () => {
     expect(summary).toMatch(/a first choice/)
   })
 
+  // 2B (docs/work/specs/2026-10-02-elective-run-mismatch-null-identity-and-anchor-design.md)
+  // — a row with a non-null preference_rank whose assignment carries a null
+  // choice_id can never join a preference (buildPreferenceLookup returns null
+  // for any row whose choice_id is null). That is a join MISS, not a camper
+  // who ranked an unordered set, so it must not read "one of their choices" —
+  // it belongs in the existing "placed outside their preferences" bucket.
+  it('reports a non-null-rank row with a null choice_id (unjoinable) as placed outside their preferences, never as one of their choices', () => {
+    const rows = [
+      {
+        id: 'a1', camper_id: 'cam-1', occurrence_id: 'occ-1', choice_id: null,
+        preference_rank: 1, camper_name: 'Testcamper Alpha',
+      },
+    ]
+    const summary = satisfactionSummary({ rows, preferences: [], occurrences: [], days: [], timeBlocks: [] })
+    expect(summary).toMatch(/placed outside their preferences/)
+    expect(summary).not.toMatch(/one of their choices/)
+  })
+
   it('composes "N one of their choices" into "N got one of their choices" when it leads the sentence', () => {
     const rows = [
       { id: 'a1', camper_id: 'cam-1', occurrence_id: 'occ-1', choice_id: 'choice-1', preference_rank: 2, camper_name: 'A' },

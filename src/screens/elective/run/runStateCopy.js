@@ -441,7 +441,13 @@ const RANK_WORDS = ['a first choice', 'a second choice', 'a third choice']
 // placed than exist." camperCount is the distinct set of camper_id; the
 // rank-breakdown clause below is already correctly per-PLACEMENT and is
 // UNCHANGED.
-export function satisfactionSummary({ rows = [], preferences = [], occurrences = [], days = [], timeBlocks = [] } = {}) {
+export function satisfactionSummary({
+  rows = [], preferences = [], occurrences = [], days = [], timeBlocks = [],
+  // 1A (docs/work/specs/2026-10-02-elective-run-mismatch-null-identity-and-anchor-design.md)
+  // — threaded straight through to buildPreferenceLookup. Defaulted, so an
+  // existing caller that has not been updated yet keeps today's behaviour.
+  offeringOccurrencesByChoiceId = {},
+} = {}) {
   // Round 2 FIX 5(b) — elective_assignments.camper_id is nullable in the
   // schema (a null-camper row is schema-permitted, not known to be produced
   // today). Filtered out of the DISTINCT-camper count only; the row still
@@ -449,18 +455,24 @@ export function satisfactionSummary({ rows = [], preferences = [], occurrences =
   const camperCount = new Set(rows.map((r) => r.camper_id).filter((id) => id != null)).size
   const placementCount = rows.length
   const occurrenceCount = new Set(rows.map((r) => r.occurrence_id)).size
-  const preferenceFor = buildPreferenceLookup({ preferences, occurrences, days, timeBlocks, rows })
+  const preferenceFor = buildPreferenceLookup({
+    preferences, occurrences, days, timeBlocks, rows, offeringOccurrencesByChoiceId,
+  })
   const buckets = [0, 0, 0, 0] // first, second, third, lower
   let outside = 0
   let unordered = 0
   for (const row of rows) {
     const rank = row.preference_rank
-    if (rank == null) {
+    const match = preferenceFor(row)
+    // 2B — a non-null rank whose join MISSED (no preference row bound to this
+    // placement) is not "one of their choices", it is a placement no choice
+    // of theirs can be matched to. Only a MATCHED preference with no ordering
+    // evidence is a genuine unordered-set tie.
+    if (rank == null || match == null) {
       outside += 1
       continue
     }
-    const rankKind = preferenceFor(row)?.rankKind ?? null
-    if (!hasOrderingEvidence(rankKind)) {
+    if (!hasOrderingEvidence(match.rankKind)) {
       unordered += 1
     } else if (rank >= 1 && rank <= 3) {
       buckets[rank - 1] += 1

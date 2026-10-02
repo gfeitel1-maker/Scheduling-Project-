@@ -14,6 +14,11 @@ import { describeWriteFailure } from '../../../utils/writeErrorMessage'
 const EMPTY = {
   rows: [], staleCount: 0, finalizedAgainstStaleGeneration: false,
   overCapacityOccurrences: [], occurrences: [], preferences: [], choices: [],
+  // 1A (docs/work/specs/2026-10-02-elective-run-mismatch-null-identity-and-anchor-design.md)
+  // — a choice_id -> [occurrence_id, ...] map, threaded to buildPreferenceLookup
+  // so a linked-bundle preference still joins an assignment anchored at
+  // another member occurrence of the same bundle.
+  offeringOccurrencesByChoiceId: {},
   // T250 A0.2 — the run's own camper roster (with group_name resolved).
   campers: [],
   // T320 part 2 item 3 — a sheet camper with neither a preference nor an

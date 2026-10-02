@@ -140,6 +140,71 @@ describe('buildCamperElectiveWeek — the preference behind a placement', () => 
   })
 })
 
+// 1A (docs/work/specs/2026-10-02-elective-run-mismatch-null-identity-and-anchor-design.md)
+// — A LINKED-BUNDLE preference binds to the occurrence of the CELL where its
+// label appears on the sheet, while the bundle's ASSIGNMENT can be anchored
+// at ANOTHER occurrence of the same bundle (commitElectiveRun expands a
+// chosen bundle atomically across every member occurrence, but the preference
+// itself is indexed at only the one cell it was written in). Without the
+// bundle's offering occurrences, the join misses entirely and a rank-1
+// request reads as the non-ordinal "One of their choices" — see
+// camperElectiveWeek.js's rankLabel/UNORDERED_RANK_LABEL.
+describe('buildPreferenceLookup — linked-bundle anchor mismatch (1A)', () => {
+  const BUNDLE_OCCURRENCES = [
+    { id: 'occ-mon', day_id: 'day-mon', time_block_id: 'tb-1' },
+    { id: 'occ-tue', day_id: 'day-tue', time_block_id: 'tb-2' },
+  ]
+  // The camper ranked the bundle #1 at the Monday cell (occ-mon) — that is
+  // where the label appeared on their sheet.
+  const bundlePreference = {
+    id: 'pref-bundle', camper_id: 'cam-1', choice_id: 'choice-bundle',
+    occurrence_id: 'occ-mon', rank: 1, rank_kind: 'cell-choice',
+  }
+  // commitElectiveRun anchored the bundle's ASSIGNMENT at the OTHER member
+  // occurrence (occ-tue) — a real, occurring reassignment, not a typo in the
+  // fixture.
+  const assignmentRow = {
+    id: 'asg-1', camper_id: 'cam-1', occurrence_id: 'occ-tue', activity_id: 'act-ceramics',
+    choice_id: 'choice-bundle', preference_rank: 1, camper_name: 'Ari Green',
+  }
+  // Both occ-mon and occ-tue are offering occurrences of choice-bundle —
+  // exactly what electron/ops/getElectiveRun.js reads from
+  // elective_choice_offerings.
+  const offeringOccurrencesByChoiceId = { 'choice-bundle': ['occ-mon', 'occ-tue'] }
+
+  it('without the offerings map, the anchor mismatch makes the join miss entirely', () => {
+    const lookup = buildPreferenceLookup({
+      preferences: [bundlePreference], occurrences: BUNDLE_OCCURRENCES, days: DAYS, timeBlocks: TIME_BLOCKS,
+    })
+    expect(lookup(assignmentRow)).toBeNull()
+  })
+
+  it('with the offerings map, the assignment at the OTHER member occurrence still joins the preference', () => {
+    const lookup = buildPreferenceLookup({
+      preferences: [bundlePreference], occurrences: BUNDLE_OCCURRENCES, days: DAYS, timeBlocks: TIME_BLOCKS,
+      offeringOccurrencesByChoiceId,
+    })
+    const bound = lookup(assignmentRow)
+    expect(bound?.id).toBe('pref-bundle')
+    expect(bound?.rankKind).toBe('cell-choice')
+  })
+
+  it('end to end: buildCamperElectiveWeek reports the real rank, never the non-ordinal fallback', () => {
+    const week = buildCamperElectiveWeek({
+      camperId: 'cam-1',
+      rows: [assignmentRow],
+      occurrences: BUNDLE_OCCURRENCES,
+      activities: [{ id: 'act-ceramics', name: 'Ceramics' }],
+      days: DAYS,
+      timeBlocks: TIME_BLOCKS,
+      preferences: [bundlePreference],
+      offeringOccurrencesByChoiceId,
+    })
+    expect(week.entries[0].rank).toBe(1)
+    expect(week.entries[0].rankKind).toBe('cell-choice')
+  })
+})
+
 // board item 9b round 3 (T321-equivalent, no ticket) — the join itself is
 // tier-blind at 3 of the 4 acceptance-fixture misses: buildPreferenceLookup
 // called resolvePreferenceCoordinates WITHOUT tierIdByCamperId, so a

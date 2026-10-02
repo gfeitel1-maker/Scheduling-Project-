@@ -57,6 +57,9 @@ import { hasOrderingEvidence } from '../../../engine/rankKind.js'
 // useMemo keyed on them can actually hit — the same reason useRunState.js keeps
 // its own EMPTY at module level.
 const NONE = []
+// 1A — same reason as NONE: a stable reference so a caller that omits this
+// param (every pre-1A caller) does not invalidate a memo keyed on it.
+const NONE_OFFERINGS = {}
 
 const RANK_LABEL = { 1: 'First choice', 2: 'Second choice', 3: 'Third choice' }
 
@@ -166,7 +169,21 @@ function deriveTierIdByCamperId(rows, occurrences) {
  * occurrence.tier_id` — no roster re-derivation, no new catalog read. Omitted,
  * this behaves exactly as before (tier-blind), so no existing caller changes.
  */
-export function buildPreferenceLookup({ preferences, occurrences, days, timeBlocks, rows = NONE }) {
+// 1A (docs/work/specs/2026-10-02-elective-run-mismatch-null-identity-and-anchor-design.md)
+// — `offeringOccurrencesByChoiceId` (optional, from getElectiveRun.js's read
+// of elective_choice_offerings) maps a choice_id to every occurrence it is
+// offered at. A LINKED-BUNDLE preference is written at the one cell its label
+// appeared in, but commitElectiveRun expands the chosen bundle atomically
+// across every member occurrence, so the assignment it produces can anchor at
+// a DIFFERENT member occurrence of the same bundle. Without this map the
+// join misses (preference-occurrence != assignment-occurrence, and the
+// (camper, choice, null) fallback misses too, since the preference is
+// indexed at its own occurrence, not null) and a ranked bundle reads as the
+// non-ordinal fallback. Omitted or empty, this behaves exactly as before, so
+// no existing caller changes.
+export function buildPreferenceLookup({
+  preferences, occurrences, days, timeBlocks, rows = NONE, offeringOccurrencesByChoiceId = NONE_OFFERINGS,
+}) {
   const tierIdByCamperId = deriveTierIdByCamperId(rows, occurrences)
   // Bound ONCE for the whole week, against this run's occurrences. After that
   // there are two tiers, which is exactly what the engine's `rankAt` has: a row
@@ -182,9 +199,20 @@ export function buildPreferenceLookup({ preferences, occurrences, days, timeBloc
   const byKey = new Map()
   for (const p of bound) {
     if (p.choice_id == null) continue
+    const entry = { id: p.id, rankKind: p.rank_kind ?? null }
     const k = keyOf(p.camper_id, p.choice_id, p.occurrence_id)
     // FIRST wins, so a later duplicate cannot displace the row already found.
-    if (!byKey.has(k)) byKey.set(k, { id: p.id, rankKind: p.rank_kind ?? null })
+    if (!byKey.has(k)) byKey.set(k, entry)
+    // 1A — ALSO index this preference under every OTHER occurrence its own
+    // choice is offered at, so an assignment anchored at any member
+    // occurrence of the same bundle still finds it. A no-op for a plain
+    // (non-bundle) choice, which offers at most the one occurrence already
+    // indexed above.
+    for (const occurrenceId of offeringOccurrencesByChoiceId[p.choice_id] ?? NONE) {
+      if (occurrenceId === p.occurrence_id) continue
+      const bundleKey = keyOf(p.camper_id, p.choice_id, occurrenceId)
+      if (!byKey.has(bundleKey)) byKey.set(bundleKey, entry)
+    }
   }
   return (row) => {
     if (row.choice_id == null) return null
@@ -204,6 +232,9 @@ export function buildCamperElectiveWeek({
   // T297. Defaulted, so every T296 caller that passes no preferences keeps
   // producing exactly the week it produced before, with preferenceId null.
   preferences = NONE,
+  // 1A. Defaulted, so every pre-1A caller keeps the exact tier-blind-to-bundles
+  // join it had before — see buildPreferenceLookup's own comment.
+  offeringOccurrencesByChoiceId = NONE_OFFERINGS,
 } = {}) {
   const occurrenceById = new Map(occurrences.map((o) => [o.id, o]))
   const activityNameById = new Map(activities.map((a) => [a.id, a.name]))
@@ -219,7 +250,9 @@ export function buildCamperElectiveWeek({
 
   const mine = rows.filter((r) => r.camper_id === camperId)
   const occurrenceOf = (row) => occurrenceById.get(row.occurrence_id)
-  const preferenceFor = buildPreferenceLookup({ preferences, occurrences, days, timeBlocks, rows })
+  const preferenceFor = buildPreferenceLookup({
+    preferences, occurrences, days, timeBlocks, rows, offeringOccurrencesByChoiceId,
+  })
 
   const entries = mine
     .slice()
