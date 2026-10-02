@@ -303,7 +303,14 @@ export function getElectiveRun(db, { runId }) {
   // from the result.
   const eligibilityFindings = db
     .prepare(
-      'SELECT f.kind, f.camper_id, f.choice_id, f.occurrence_id, f.message, ec.label AS label ' +
+      // f.label_key (2A, q-elective-finding-id-collision-rekey-safe) — the
+      // persisted per-(camper,label) discriminator. For an assignment-only
+      // BUNDLE_TIER_NOT_COVERED mismatch choice_id is null, so ec.label is null
+      // via the LEFT JOIN; label_key is then the ONLY way the grouped disclosure
+      // (groupBundleTierNotCoveredFindings) can tell two of one camper's bundle
+      // mismatches apart instead of collapsing them into one row that
+      // double-counts the camper.
+      'SELECT f.kind, f.camper_id, f.choice_id, f.occurrence_id, f.message, f.label_key, ec.label AS label ' +
       'FROM elective_run_findings f LEFT JOIN elective_choices ec ON ec.id = f.choice_id ' +
       "WHERE f.run_id = ? AND f.solver_generation = ? AND f.kind != 'SHEET_CAMPER_WITHOUT_PREFERENCE'"
     )

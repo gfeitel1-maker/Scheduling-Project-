@@ -223,21 +223,27 @@ export function groupBundleTierNotCoveredFindings({ findings = [], campers = [],
     // undelimited template-string join that a label containing the
     // delimiter could collide on.
     //
-    // F2 (round 2 review) — a null `label` (an assignment-only mismatch, see
-    // bundleTierNotCoveredGroupMessage's own comment) groups EVERY null-label
-    // mismatch for a tier into one row, regardless of which bundle each
-    // camper actually hit. Accepted deliberately: the degraded sentence this
-    // produces ("A linked bundle does not cover <tier>") never claims a
-    // single bundle either, so grouping by tier alone does not make the row
-    // say anything false — it just can't be more specific than the data it
-    // was given. Splitting these further would need a label this run never
-    // persisted (see F4's root cause).
-    const key = JSON.stringify([f.label, tierId])
+    // 2A (q-elective-finding-id-collision-rekey-safe) — the group key now also
+    // carries `label_key`, the per-(camper,label) discriminator commitElectiveRun
+    // persists. BEFORE 2A a null `label` (an assignment-only mismatch, choice_id
+    // null so ec.label does not resolve) collapsed EVERY null-label mismatch for
+    // a tier into one row — which, now that two such findings for ONE camper
+    // actually survive to be read, would push that camper into the row TWICE and
+    // report "2 campers" where one is affected by two bundles. Keying on
+    // label_key splits them into one row per bundle, each naming the camper once.
+    // The session (commit-response) path carries a real `label` and no
+    // `label_key`, so its grouping is unchanged (label_key undefined → null).
+    const key = JSON.stringify([f.label, f.label_key ?? null, tierId])
     if (!byKey.has(key)) byKey.set(key, { label: f.label, tierId, tierName, campers: [] })
     // F5 (Red Hat) — NEVER a raw camper_id in director-facing copy (the same
     // rule camperDisambiguator's own comment states): a camper row that is
     // gone (hard-deleted after an earlier generation) degrades to a truthful
     // sentence fragment instead.
+    // Dedupe by camper_id within a group: a group is "one bundle/tier, the
+    // campers it affects", so one camper must appear at most once even if two
+    // findings land in the same group (belt-and-suspenders now that label_key
+    // keeps distinct-bundle findings in distinct groups).
+    if (byKey.get(key).campers.some((c) => c.id != null && c.id === f.camper_id)) continue
     const resolved = camperById.get(f.camper_id)?.display_name ?? null
     // `campers` REPLACED a parallel `names: [string]`, rather than being added
     // beside it. Round 1 kept both and left `names` with no production reader at
