@@ -220,4 +220,56 @@ describe('rebuildTableCarryingColumns', () => {
       })()
     ).toThrow(/changed column shape: cnt/)
   })
+
+  it('exclude: drops a named live column while carrying forward a different later-added column and its data', () => {
+    const db = makeDb()
+    db.exec('CREATE TABLE t (id TEXT PRIMARY KEY, name TEXT, kind TEXT, later TEXT);')
+    db.prepare("INSERT INTO t (id, name, kind, later) VALUES ('r1', 'A', 'fixed', 'kept')").run()
+
+    db.transaction(() => {
+      rebuildTableCarryingColumns(db, {
+        table: 't',
+        baseColumns: ['id TEXT PRIMARY KEY', 'name TEXT'],
+        tableConstraints: [],
+        postIndexSql: [],
+        exclude: ['kind'],
+      })
+    })()
+
+    const cols = db.pragma('table_info(t)').map((c) => c.name)
+    expect(cols).not.toContain('kind')
+    expect(cols).toContain('later')
+    expect(db.prepare('SELECT later FROM t WHERE id = ?').get('r1').later).toBe('kept')
+  })
+
+  it('exclude does not disable the shape guard for a genuine drop of a non-excluded column', () => {
+    const db = makeDb()
+    db.exec('CREATE TABLE t (id TEXT PRIMARY KEY, name TEXT, kind TEXT, keepme TEXT);')
+    db.prepare("INSERT INTO t (id, name, kind, keepme) VALUES ('r1', 'A', 'fixed', 'v')").run()
+
+    // Plant the exact failure the guard exists to catch: the rebuilt table is assembled WITHOUT a
+    // live, non-excluded column. `exclude: ['kind']` is present, proving it does not blind the
+    // guard to a drop of a DIFFERENT column it was never told to drop.
+    const realExec = db.exec.bind(db)
+    db.exec = (sql) => {
+      if (/CREATE TABLE "t__rebuild"/.test(sql)) {
+        sql = sql.replace(/,\s*"keepme"[^,\n]*/, '')
+      }
+      return realExec(sql)
+    }
+
+    expect(() =>
+      db.transaction(() => {
+        rebuildTableCarryingColumns(db, {
+          table: 't',
+          baseColumns: ['id TEXT PRIMARY KEY', 'name TEXT'],
+          tableConstraints: [],
+          postIndexSql: [],
+          exclude: ['kind'],
+        })
+      })()
+    ).toThrow(/would drop column\(s\): keepme/)
+
+    expect(db.prepare('SELECT keepme FROM t WHERE id = ?').get('r1').keepme).toBe('v')
+  })
 })

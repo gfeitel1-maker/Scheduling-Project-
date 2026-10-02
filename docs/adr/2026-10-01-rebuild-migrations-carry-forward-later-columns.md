@@ -96,3 +96,28 @@ The helper runs **inside** the caller's already-open transaction and does **not*
   `table_info` equality tests, e.g. `electron/db/anchorEventLocation.migration.test.js`).
 - Generated/virtual columns are intentionally excluded from the rebuild (none exist on the nine
   tables); adding one to a rebuilt table would require revisiting this helper.
+
+## Addendum (2026-10-01) — optional `exclude` for down-migrations that must drop a column
+
+The same enumerated-column-list defect this ADR cures on the v73 path also lived on
+`rollback/v51_down.js`, which recreates `anchor_activities` to drop `kind` and its table-level
+`CHECK` (SQLite refuses `DROP COLUMN` on a `CHECK`-referenced column). Its hand-written
+`INSERT ... SELECT` list silently dropped any column a migration added after v51's window (e.g.
+`recurrence_level`, and any not-yet-imagined later column) when rolling back through v51.
+
+To route v51_down through the one tested rebuild path, the helper gained an **optional `exclude`**
+set — names of live columns to drop **on purpose**. Semantics: excluded names are removed from the
+live-column view **once, up front**, before `baseColumns`/`extras` and before the superset+attribute
+invariant run, so an excluded column's absence from the rebuilt table reads as the intended drop it
+is rather than tripping the "would drop column(s)" guard. **Every other live column — including a
+later-added one — is still carried and still guarded exactly as before.** Omitted or empty,
+behavior is byte-identical, so the two original no-exclude call sites (the v73 forward block and
+`rollback/v73_down.js`) are unchanged.
+
+`rollback/v51_down.js` passes `exclude: ['kind']` with `tableConstraints: []` (dropping the CHECK),
+`recurrence_level` now handled as an ordinary carried extra rather than a hand-rolled conditional.
+No new schema version — this fixes an existing rollback. The guard's protection is unchanged for
+non-excluded columns: a genuine stale-carry drop of any other live column still fails loudly (pinned
+by a planted-defect test that drops a non-excluded column while an `exclude` set is present). The
+column-level `CHECK` / `FOREIGN KEY` / `COLLATE` residual blind spot above is unchanged; the
+excluded column is being dropped, not carried, so its own CHECK is intentionally gone with it.

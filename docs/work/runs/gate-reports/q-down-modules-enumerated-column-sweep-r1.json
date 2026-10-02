@@ -1,0 +1,28 @@
+{
+  "task_id": "q-down-modules-enumerated-column-sweep",
+  "round": 1,
+  "verifier_pass": true,
+  "gate_scores": {
+    "security": null,
+    "red_hat": 4,
+    "tester": null,
+    "code_reviewer": 5
+  },
+  "overall_score": 4.5,
+  "lowest_dimension": 4,
+  "blocking_findings": [],
+  "incomplete": false,
+  "gap": [],
+  "cross_gate_flags": [
+    {
+      "ref": "electron/db/rollback/v51_down.js",
+      "gate_names": [
+        "code_reviewer",
+        "red_hat"
+      ]
+    }
+  ],
+  "decision_eligibility": "PASS_ELIGIBLE",
+  "malformed": [],
+  "self_declared_na": []
+}

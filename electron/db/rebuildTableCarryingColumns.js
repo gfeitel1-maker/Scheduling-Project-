@@ -22,8 +22,22 @@
 // table_info-visible shape (type / NOT NULL / DEFAULT); column-level
 // CHECK/FOREIGN KEY/COLLATE are invisible to table_info and remain the documented
 // residual blind spot — not that a carried column's survival is in doubt.
-export function rebuildTableCarryingColumns(db, { table, baseColumns, tableConstraints, postIndexSql }) {
-  const liveInfo = db.pragma(`table_info(${table})`) // ordered by cid
+//
+// Optional `exclude`: names of live columns to DROP on purpose (e.g. a column
+// whose table-level CHECK is the whole reason a rebuild is needed, as in
+// rollback/v51_down.js dropping fixed_events.kind). An excluded column is
+// removed from the live-column view BEFORE the shape guard runs, so its
+// absence from the rebuilt table reads as the intended drop it is — not a
+// stale-carry bug. Every OTHER live column, including one added by a later
+// migration, is still carried and still guarded exactly as before. Omitted or
+// empty, behavior is unchanged.
+export function rebuildTableCarryingColumns(db, { table, baseColumns, tableConstraints, postIndexSql, exclude }) {
+  const excludeSet = new Set(exclude ?? [])
+  const liveInfoAll = db.pragma(`table_info(${table})`) // ordered by cid
+  // `exclude` names an EXPECTED drop (e.g. a column whose CHECK forces a rebuild in the first
+  // place) — remove it from every live-column view up front so the rest of this function, and its
+  // own shape guard, see exactly the column set that is actually supposed to survive.
+  const liveInfo = liveInfoAll.filter((c) => !excludeSet.has(c.name))
   const liveNames = liveInfo.map((c) => c.name)
 
   // Generated/virtual columns (table_xinfo.hidden !== 0) are excluded from the
