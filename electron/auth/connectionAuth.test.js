@@ -360,6 +360,49 @@ describe('evaluateAuthenticate — appliedTombstones self-report (T322 S3a)', ()
     expect(rows[0].version).toBe(1)
   })
 
+  // MONOTONIC GUARD (q-s3a-self-report-monotonic-guard). The self-report must only
+  // ever advance a stored (device, tombstone) version. A stale/out-of-order
+  // re-authenticate (an OLDER version arriving after a NEWER one for the same pair)
+  // must be a no-op — never LOWER the stored version, which would flicker a peer's
+  // S3b badge from LOGICALLY_ERASED back to UNKNOWN.
+  it('does not lower the stored version when an OLDER report arrives after a newer one', () => {
+    const deviceId = randomUUID()
+    setupCampWithAuthorizedDevice(deviceId)
+    const token = issueCampToken(db, randomUUID(), deviceId)
+
+    evaluateAuthenticate(db, { token, device_id: deviceId, appliedTombstones: [{ id: 'camper-x', version: 5 }] })
+    evaluateAuthenticate(db, { token, device_id: deviceId, appliedTombstones: [{ id: 'camper-x', version: 2 }] })
+
+    const rows = reportsFor(deviceId)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].version).toBe(5)
+  })
+
+  it('advances the stored version when a NEWER report arrives', () => {
+    const deviceId = randomUUID()
+    setupCampWithAuthorizedDevice(deviceId)
+    const token = issueCampToken(db, randomUUID(), deviceId)
+
+    evaluateAuthenticate(db, { token, device_id: deviceId, appliedTombstones: [{ id: 'camper-x', version: 2 }] })
+    evaluateAuthenticate(db, { token, device_id: deviceId, appliedTombstones: [{ id: 'camper-x', version: 7 }] })
+
+    const rows = reportsFor(deviceId)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].version).toBe(7)
+  })
+
+  it('inserts a fresh (device, tombstone) report that has no prior row', () => {
+    const deviceId = randomUUID()
+    setupCampWithAuthorizedDevice(deviceId)
+    const token = issueCampToken(db, randomUUID(), deviceId)
+
+    evaluateAuthenticate(db, { token, device_id: deviceId, appliedTombstones: [{ id: 'camper-fresh', version: 3 }] })
+
+    const rows = reportsFor(deviceId)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ tombstone_id: 'camper-fresh', version: 3 })
+  })
+
   it('persists only after the peer-identity binding check also passes', () => {
     const deviceId = randomUUID()
     setupCampWithAuthorizedDevice(deviceId)
