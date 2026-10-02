@@ -1117,8 +1117,10 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
         added++
         existingByKey.set(naturalKey, { id: newId, name: row.name, ...candidateFields })
       }
-      const { stoppedAt } = await commitSetupImportBatch(repository, { batch, totalCount })
-      setImportResult({ added: stoppedAt ? 0 : added, updated: stoppedAt ? 0 : updated, unchanged, skipped, stoppedAt })
+      // Pass our ACTIVITY-only counts; the helper zeroes them on a rollback (it
+      // owns the all-or-none invariant — no per-call-site ternary).
+      const committed = await commitSetupImportBatch(repository, { batch, totalCount, added, updated })
+      setImportResult({ added: committed.added, updated: committed.updated, unchanged, skipped, stoppedAt: committed.stoppedAt })
       setImportStep('done')
     } catch (err) {
       setError(describeWriteFailure(err, 'That import could not be completed.'))

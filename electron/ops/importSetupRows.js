@@ -57,23 +57,24 @@ export function importSetupRows(db, { rows, author_user_id = null, device_id }) 
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i]
         current = { number: i + 1, name: rowName(row), entity: row.entity, entity_id: row.entity_id }
-        // Exactly ONE ordering function per action — orderFieldsForCreate for a
-        // create, orderFieldsForWrite for an update — mirroring
-        // setupCrudRepository.createRecord/writeFields. A malformed action is a
-        // programming error in the confirmed set (not a director skip), so it
-        // throws and rolls the set back rather than silently routing a
-        // UNIQUE-entity create through the update path and bypassing
-        // orderFieldsForCreate's ordering guard + missing-unique-field throw.
-        // Applying one function per action is behaviourally identical to the
-        // door's createRecord ONLY because UNIQUE_FIRST_FIELD and
-        // REQUIRED_FIRST_ON_WRITE are disjoint registries today — if that ever
-        // breaks, setupCrudRepository.js flags it as a Governor-level decision,
-        // and the door-swap worker inherits that constraint here.
+        // A CREATE applies BOTH ordering functions, exactly as the door's
+        // createRecord does (orderFieldsForCreate, then writeFields re-applies
+        // orderFieldsForWrite): orderFieldsForCreate moves a UNIQUE_FIRST_FIELD
+        // (+ scope columns) to the front, and orderFieldsForWrite then moves a
+        // REQUIRED_FIRST_ON_WRITE field to the front. The two registries are
+        // disjoint, so for any one entity at most one of these moves anything —
+        // but applying only orderFieldsForCreate would DROP the kind-first guard
+        // for a fixed_events create (fixed_events is in REQUIRED_FIRST_ON_WRITE,
+        // not UNIQUE_FIRST_FIELD), leaving its cross-column CHECK (kind before
+        // is_all_groups, ADR 2026-08-28) to rest on hand-written field order —
+        // the exact per-call-site fragility the registry exists to remove (Red
+        // Hat HIGH). An UPDATE applies only orderFieldsForWrite, mirroring
+        // writeFields. A malformed action throws and rolls the whole set back.
         if (row.action !== 'create' && row.action !== 'update') {
           throw new Error(`importSetupRows: row ${i + 1} ("${rowName(row)}") has unknown action "${row.action}" — expected 'create' or 'update'`)
         }
         const ordered = row.action === 'create'
-          ? orderFieldsForCreate(row.entity, row.fields)
+          ? orderFieldsForWrite(row.entity, Object.fromEntries(orderFieldsForCreate(row.entity, row.fields)))
           : orderFieldsForWrite(row.entity, row.fields)
         for (const [field, value] of ordered) {
           if (value === undefined) continue

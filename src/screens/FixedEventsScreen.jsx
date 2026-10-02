@@ -830,14 +830,17 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
         // the director sees a count of how many landed on the other list.
         if (record.kind !== kind) filedElsewhere++
       }
-      // No build-time ambiguity stop? Commit the whole batch atomically.
+      // No build-time ambiguity stop? Commit the whole batch atomically. The
+      // helper zeroes our fixed-event counts on a rollback (one place owns the
+      // all-or-none invariant); filedElsewhere is this door's own secondary
+      // count, so it is gated here on the committed outcome.
+      let committed = { added: 0, updated: 0, stoppedAt }
       if (!stoppedAt) {
-        const result = await commitSetupImportBatch(repository, { batch, totalCount })
-        stoppedAt = result.stoppedAt
+        committed = await commitSetupImportBatch(repository, { batch, totalCount, added, updated })
       }
       setImportResult({
-        added: stoppedAt ? 0 : added, updated: stoppedAt ? 0 : updated,
-        unchanged, skipped, filedElsewhere: stoppedAt ? 0 : filedElsewhere, stoppedAt,
+        added: committed.added, updated: committed.updated,
+        unchanged, skipped, filedElsewhere: committed.stoppedAt ? 0 : filedElsewhere, stoppedAt: committed.stoppedAt,
       }); setImportStep('done')
     } catch (err) {
       setError(describeWriteFailure(err, 'That import could not be completed.'))

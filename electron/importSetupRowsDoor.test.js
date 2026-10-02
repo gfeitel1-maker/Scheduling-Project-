@@ -126,6 +126,33 @@ describe('import-setup-rows door — atomicity', () => {
     expect(db.prepare("SELECT 1 FROM days_of_operation WHERE id = 'day-wed'").get()).toBeUndefined()
   })
 
+  it('writes a fixed_events create kind-first even when the batch lists kind last (cross-column CHECK)', () => {
+    // fixed_events is in REQUIRED_FIRST_ON_WRITE (kind), NOT UNIQUE_FIRST_FIELD, so the
+    // primitive must compose orderFieldsForCreate THEN orderFieldsForWrite for a create —
+    // otherwise `kind` is not forced first and a recurring create (is_all_groups=0) written
+    // before kind='recurring' violates the stub's DEFAULT kind='fixed' CHECK and the whole
+    // import rolls back (Red Hat HIGH). The fields below deliberately list `kind` LAST.
+    const result = handlers.importSetupRows({
+      token,
+      rows: [{
+        action: 'create', entity: 'fixed_events', entity_id: 'fe-recurring', name: 'Shiur',
+        fields: {
+          is_all_groups: 0,
+          group_ids: JSON.stringify(['g1']),
+          day_id: 'day-mon',
+          time_block_id: 'tb-am',
+          activity_id: 'act-1',
+          camp_id: campId,
+          kind: 'recurring',
+        },
+      }],
+    })
+    expect(result.ok).toBe(true)
+    const row = db.prepare('SELECT kind, is_all_groups FROM fixed_events WHERE id = ?').get('fe-recurring')
+    expect(row.kind).toBe('recurring')
+    expect(row.is_all_groups).toBe(0)
+  })
+
   it('rejects an empty or malformed batch without touching the DB', () => {
     expect(() => handlers.importSetupRows({ token, rows: [] })).toThrow(/non-empty/i)
     expect(() => handlers.importSetupRows({ rows: [{ action: 'create', entity: 'days_of_operation', entity_id: 'x', fields: {} }] })).toThrow(/token/i)
