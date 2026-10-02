@@ -1,3 +1,13 @@
+---
+title: "Security assessment — T328 Slice 1 (persisted-peer address + direct reconnect)"
+document_type: reference
+authority: descriptive
+status: active
+date: 2026-10-02
+program: security-hardening
+governing_docs: [docs/adr/2026-10-02-wan-discovery-transport-ladder.md]
+---
+
 # SECURITY ASSESSMENT — T328 Slice 1 (persisted-peer address + direct reconnect)
 
 Date: 2026-10-02   Assessed against commit: 0506bbba (branch claude/t328-persisted-peer-reconnect)
