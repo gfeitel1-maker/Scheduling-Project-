@@ -41,7 +41,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // campers.division_label/is_unattributed and elective_preferences.rank_kind/
 // coordinate_day_label/coordinate_period_label) all land in this file; 79 is the
 // current version.
-export const CURRENT_SCHEMA_VERSION = 87
+export const CURRENT_SCHEMA_VERSION = 89
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -4254,6 +4254,58 @@ const DEVICE_HEALTH_EVENTS_DDL = `
     if (!hasLabelKey) db.exec('ALTER TABLE elective_run_findings ADD COLUMN label_key TEXT')
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (87, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v88 (T328 Slice 1, docs/adr/2026-10-02-wan-discovery-transport-ladder.md) — the new
+  // peer_last_addresses table. schema.sql already creates it unconditionally; this block is for
+  // a database upgrading from an earlier version, same two-places discipline as v86/
+  // peer_tombstone_reports. No back-fill: a peer's last-observed address is learned only from a
+  // live authenticated connection (syncNode.js's onPeerAdmitted), which this device cannot
+  // fabricate from anything it already has.
+  //
+  // Guard `>= 87 && < 88`, never a bare `< 88` (this repo's standing gotcha).
+  if (getSchemaVersion(db) >= 87 && getSchemaVersion(db) < 88) {
+    db.exec(`CREATE TABLE IF NOT EXISTS peer_last_addresses (
+      peer_id TEXT PRIMARY KEY,
+      multiaddr TEXT NOT NULL,
+      last_seen_at TEXT NOT NULL
+    )`)
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (88, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v89 (T328 Slice 1 correction pass, docs/adr/2026-10-02-wan-discovery-transport-ladder.md) —
+  // widens peer_last_addresses from one row per peer (v88's PRIMARY KEY(peer_id), last-write-wins)
+  // to MULTIPLE rows per peer (composite PRIMARY KEY(peer_id, multiaddr)), matching the ADR's
+  // "last-known multiaddrs" (plural). v88's last-write-wins silently discarded a still-good
+  // address for a multi-homed peer, which defeated reconnect for exactly the case Slice 1 exists
+  // to help. A LAYER on v88, not a rewrite of it (v88 is already committed and its own migration
+  // block above is unchanged) — same recreate-and-copy shape as v49/locations, v50/camp_maps, v53/
+  // schedule_snapshots above: no FK references this table, so no `foreign_keys = OFF` dance is
+  // needed. Every pre-v89 row (one per peer_id) carries forward unchanged — a single remembered
+  // address is a valid (if minimal) member of the new "set of recent addresses" shape, so there is
+  // no data loss and no back-fill needed beyond the copy itself.
+  //
+  // Guard `>= 88 && < 89`, never a bare `< 89` (this repo's standing gotcha).
+  if (getSchemaVersion(db) >= 88 && getSchemaVersion(db) < 89) {
+    db.exec(`
+      CREATE TABLE peer_last_addresses_v89 (
+        peer_id TEXT NOT NULL,
+        multiaddr TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        PRIMARY KEY (peer_id, multiaddr)
+      );
+      INSERT INTO peer_last_addresses_v89 (peer_id, multiaddr, last_seen_at)
+        SELECT peer_id, multiaddr, last_seen_at FROM peer_last_addresses;
+      DROP TABLE peer_last_addresses;
+      ALTER TABLE peer_last_addresses_v89 RENAME TO peer_last_addresses;
+    `)
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (89, ?)').run(
       new Date().toISOString()
     )
   }

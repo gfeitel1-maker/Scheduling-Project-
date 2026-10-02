@@ -355,6 +355,24 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     peerId: node.peerId.toString(),
     getPeers: () => node.getPeers().map((p) => p.toString()),
     getMultiaddrs: () => node.getMultiaddrs(),
+    // T328 Slice 1 (docs/adr/2026-10-02-wan-discovery-transport-ladder.md): the observed remote
+    // multiaddr for an already-connected peer, WITH its /p2p/<peerId> component so a later redial
+    // of this address carries the identity libp2p's own Noise handshake will re-verify (see
+    // peerAddressBook.js's module comment for why that is the stale-address-safety property).
+    // Returns null for a peer with no live connection (never thrown) — syncNode.js's
+    // onPeerAdmitted callback uses this only right after admission, when a connection exists, but
+    // a best-effort null here is the honest answer if that ever changes.
+    remoteAddrFor: (peerId) => {
+      try {
+        const conns = node.getConnections(peerIdFromString(peerId))
+        const remoteAddr = conns[0]?.remoteAddr
+        if (!remoteAddr) return null
+        const addrStr = remoteAddr.toString()
+        return addrStr.includes('/p2p/') ? addrStr : `${addrStr}/p2p/${peerId}`
+      } catch {
+        return null
+      }
+    },
     broadcastDoc,
     sendDocTo,
     sendSyncMessage,

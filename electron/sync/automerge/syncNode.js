@@ -20,6 +20,7 @@ import { wireMutualAuth } from './mutualAuth.js'
 import { createConnectivityEmitter } from './connectivityEvents.js'
 import { ensureDeviceIdentity } from '../../auth/deviceIdentity.js'
 import { createBoundPeerTrust } from './peerIdentity.js'
+import { rememberPeerAddress, redialTrustedPeers } from './peerAddressBook.js'
 import { getCurrentDoc, setCurrentDoc } from './liveDoc.js'
 import { sharesGenesis } from '../../automerge/campDocument.js'
 import { joinProof, verifyJoinProof } from '../joinCode.js'
@@ -614,6 +615,17 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
       // incompatible peer, so there is nothing for it to be marked caught up on").
       stepSync(peerId)
       notifyPeersChanged()
+      // T328 Slice 1 (docs/adr/2026-10-02-wan-discovery-transport-ladder.md): remember this
+      // peer's observed address, keyed to its (now-authenticated) peer id, for a future direct
+      // reconnect attempt before discovery — see redialTrustedPeers below and
+      // peerAddressBook.js. Best-effort and never fatal: a failure here must not un-admit a
+      // peer that already passed the real admission gate.
+      try {
+        const addr = transport.remoteAddrFor(peerId)
+        if (addr) rememberPeerAddress(db, peerId, addr)
+      } catch (err) {
+        console.error(`syncNode: failed to remember peer address for ${peerId} (non-fatal): ${err?.message ?? err}`)
+      }
     },
     onAuthenticate,
     onPairingRequest: onPairingRequestMsg,
@@ -692,6 +704,19 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
   // verified-and-projected purge tombstones, exactly the fact a peer's onAuthenticate persists
   // into ITS OWN peer_tombstone_reports about THIS device.
   const getAppliedTombstones = () => db.prepare('SELECT id, version FROM tombstones').all()
+  // T328 Slice 1 (docs/adr/2026-10-02-wan-discovery-transport-ladder.md): attempt a direct dial
+  // to every currently-trusted peer's remembered address BEFORE wireMutualAuth below wires up
+  // discovery-driven dialing (mDNS/rendezvous) — a reconnect to a still-reachable peer no longer
+  // depends on mDNS being on the same segment. Idempotent (skips a peer transport.getPeers()
+  // already reports connected) and fire-and-forget: a slow or failed dial must never delay
+  // startup or block wiring discovery. Each attempt's own failure handling (including the
+  // stale-address-safety case) lives in redialTrustedPeers/peerAddressBook.js.
+  redialTrustedPeers(db, {
+    dial: transport.dial,
+    isConnected: (peerId) => transport.getPeers().includes(peerId),
+  }).catch((err) => {
+    console.error(`syncNode: redialTrustedPeers failed (non-fatal, discovery still proceeds): ${err?.message ?? err}`)
+  })
   wireMutualAuth(
     { dial: transport.dial, authenticateWith: transport.authenticateWith, onPeerDiscovery: transport.onPeerDiscovery },
     { deviceId, getToken: () => authToken, onRejected: onAuthRejected, isPeerTrusted: isPeerTrusted ?? createBoundPeerTrust(db), emitter, getSchemaVersion: getHandshakeSchemaVersion, getAppliedTombstones }

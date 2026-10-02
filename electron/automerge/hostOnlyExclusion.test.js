@@ -57,7 +57,10 @@ const HOST_ONLY_TABLES = [
 // asserted absent — see usersAndCamps.test.js for the users/camps-specific coverage (a real user
 // created on one device materializing on another, camps-singleton-convergence, and proof
 // signing_secret never enters a real document).
-const NON_DOCUMENT_TABLES = ['devices', 'operations', 'conflicts']
+// peer_tombstone_reports/peer_last_addresses (T322 S3a / T328 Slice 1): device-local caches
+// written only from an authenticated connection, never replicated, never restored across a purge
+// (see purgeCollateral.js) — same posture as `devices`/`operations`/`conflicts` above.
+const NON_DOCUMENT_TABLES = ['devices', 'operations', 'conflicts', 'peer_tombstone_reports', 'peer_last_addresses']
 
 describe('host-only + infrastructure tables are structurally excluded from the Automerge document', () => {
   const excluded = [...HOST_ONLY_TABLES, ...NON_DOCUMENT_TABLES]

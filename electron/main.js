@@ -55,6 +55,7 @@ import { PROJECTIONS } from './ops/projections.js'
 import { createCampDataRecordWriter } from './campDataRecord.js'
 import { isAutomergeEngine } from './sync/automerge/syncEngineFlag.js'
 import { createAutomergeSyncStarter } from './sync/automerge/syncStarter.js'
+import { forgetPeerAddress } from './sync/automerge/peerAddressBook.js'
 import { resolveConflictInDoc } from './automerge/reconcile.js'
 import { syncRefusalForDomainMigration } from './db/migrationDomainState.js'
 import { getDocIfLoaded, setUserDataDirGetter as setAutomergeUserDataDirGetter, setDocCipher as setAutomergeDocCipher, flushPendingWrites as flushAutomergeDoc } from './sync/automerge/liveDoc.js'
@@ -1335,6 +1336,17 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       if (peerId) getAutomergeNode()?.revokePeer(peerId)
     } catch (err) {
       console.error(`revokeDevice: failed to evict ${targetDeviceId} from the live admission set: ${err?.message ?? err}`)
+    }
+
+    // T328 Slice 1 (docs/adr/2026-10-02-wan-discovery-transport-ladder.md): a revoked peer's
+    // remembered address must not survive to be redialed on a later startup. Same best-effort,
+    // non-fatal posture as the revokePeer eviction above — a failure here must never fail the
+    // revocation itself.
+    try {
+      const peerId = db.prepare('SELECT libp2p_peer_id FROM devices WHERE id = ?').get(targetDeviceId)?.libp2p_peer_id
+      if (peerId) forgetPeerAddress(db, peerId)
+    } catch (err) {
+      console.error(`revokeDevice: failed to forget remembered address for ${targetDeviceId}: ${err?.message ?? err}`)
     }
 
     return { deviceId: targetDeviceId, revoked: true }

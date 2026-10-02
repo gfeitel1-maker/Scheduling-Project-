@@ -2496,6 +2496,35 @@ describe('revokeDevice handler (devices.revoke, admin-only)', () => {
 
     expect(revokePeer).toHaveBeenCalledWith('peer-revoke-target')
   })
+
+  // T328 Slice 1 (docs/adr/2026-10-02-wan-discovery-transport-ladder.md): a revoked peer's
+  // remembered address must not survive revocation — otherwise a later startup's
+  // redialTrustedPeers would keep attempting a direct reconnect to a device the director just
+  // cut off. Asserts the ROW is gone, not merely that some function was called.
+  it('purges the revoked device\'s remembered address from peer_last_addresses', async () => {
+    await seedCampAndUser({ name: 'AdminRevokerAddr', pin: '123400', role: 'admin' })
+    const handlers = makeHandlers(db, deviceId, {
+      getAutomergeSyncNode: () => ({
+        setAuthToken: vi.fn(), getPeers: () => [], isPeerAuthenticated: () => false, revokePeer: vi.fn(),
+      }),
+    })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
+    const { token: adminToken } = await handlers.login({ name: 'AdminRevokerAddr', pin: '123400' })
+
+    const remoteDeviceId = randomUUID()
+    db.prepare(
+      "INSERT INTO devices (id, name, authorized_at, device_secret_identifier, pairing_status, libp2p_peer_id) VALUES (?, ?, ?, ?, 'authorized', ?)"
+    ).run(remoteDeviceId, 'Remote Device', new Date().toISOString(), randomBytes(32).toString('hex'), 'peer-revoke-addr-target')
+    db.prepare(
+      'INSERT INTO peer_last_addresses (peer_id, multiaddr, last_seen_at) VALUES (?, ?, ?)'
+    ).run('peer-revoke-addr-target', '/ip4/10.0.0.5/tcp/4001/p2p/peer-revoke-addr-target', new Date().toISOString())
+
+    handlers.revokeDevice({ token: adminToken, deviceId: remoteDeviceId })
+
+    expect(
+      db.prepare('SELECT * FROM peer_last_addresses WHERE peer_id = ?').get('peer-revoke-addr-target')
+    ).toBeUndefined()
+  })
 })
 
 // T61 — the handler-level half of "Replace runs in one main-process

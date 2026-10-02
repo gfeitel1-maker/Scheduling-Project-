@@ -111,11 +111,17 @@ describe('rollback bare-equality schema_migrations guard', () => {
     //
     // 48 is v87_down.js (q-elective-finding-id-collision-rekey-safe, 2A,
     // elective_run_findings.label_key).
+    //
+    // 49 is v88_down.js (T328 Slice 1, docs/adr/2026-10-02-wan-discovery-transport-ladder.md,
+    // peer_last_addresses).
+    //
+    // 50 is v89_down.js (T328 Slice 1 correction pass — peer_last_addresses widened to multiple
+    // addresses per peer).
     expect(
       files.length,
       'a new electron/db/rollback/vNN_down.js landed — bump this literal and add a dated ' +
         'one-line note above it (like the v84/v85/v86 notes) saying which vNN it is'
-    ).toBe(48)
+    ).toBe(50)
   })
 
   it('every rollback file uses `>= N`, never bare `= N`, to delete its schema_migrations row', () => {

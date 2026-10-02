@@ -309,6 +309,20 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // means is unaffected — this is purely a persisted-id discriminator, not a
   // domain fact.
   87,
+  // v88 (T328 Slice 1, docs/adr/2026-10-02-wan-discovery-transport-ladder.md) adds one new
+  // table, peer_last_addresses. Schema-only by the same reasoning as v86's
+  // peer_tombstone_reports immediately above: no ALTER of any existing table, no backfill, no
+  // appendOp, the table starts empty, and it is never modeled into the Automerge document (no
+  // PROJECTIONS entry, no MODELED_ENTITIES membership) — written only from an authenticated
+  // libp2p connection (syncNode.js's onPeerAdmitted). What an existing camp MEANS is entirely
+  // unaffected — this is a device-local routing cache, not a domain fact.
+  88,
+  // v89 (T328 Slice 1 correction pass, docs/adr/2026-10-02-wan-discovery-transport-ladder.md)
+  // widens peer_last_addresses to a composite key (multiple addresses per peer) and carries
+  // forward every existing row unchanged. Schema-only by the same reasoning as v88 immediately
+  // above: no appendOp, no backfill of new data, and the table is still never modeled into the
+  // Automerge document. What an existing camp MEANS is unaffected.
+  89,
 ])
 
 /** True if applying `version` can change what the camp means. */
