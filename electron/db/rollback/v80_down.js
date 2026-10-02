@@ -35,6 +35,8 @@ const hasColumn = (db, table, column) =>
 /**
  * @returns {{ok:true, discarded:{requiredMinimums:number, statedValues:number}}}
  */
+import { assertHighestApplied } from './assertHighestApplied.js'
+
 export function rollbackV80(db) {
   // BOTH HALVES ARE COUNTED, and they are different numbers. `requiredMinimums`
   // is how many offerings ENFORCE a minimum (min_mode = 'required') — the
@@ -82,6 +84,7 @@ if (process.argv[1] && process.argv[1].endsWith('v80_down.js')) {
   const { default: Database } = await import('better-sqlite3')
   const db = new Database(file)
   db.pragma('foreign_keys = ON')
+  assertHighestApplied(db, 80)
   const result = rollbackV80(db)
   db.close()
   console.log(

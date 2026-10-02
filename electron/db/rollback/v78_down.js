@@ -41,6 +41,8 @@ const countIfPresent = (db, table) =>
 /**
  * @returns {{ok:true, discarded:{preferences:number}} | {ok:false, error:string, blocking:Array}}
  */
+import { assertHighestApplied } from './assertHighestApplied.js'
+
 export function rollbackV78(db) {
   if (!hasTable(db, 'elective_preferences')) {
     db.prepare('DELETE FROM schema_migrations WHERE version >= 78').run()
@@ -110,6 +112,7 @@ if (process.argv[1] && process.argv[1].endsWith('v78_down.js')) {
   const { default: Database } = await import('better-sqlite3')
   const db = new Database(file)
   db.pragma('foreign_keys = ON')
+  assertHighestApplied(db, 78)
   const result = rollbackV78(db)
   if (!result.ok) {
     console.error(result.error)

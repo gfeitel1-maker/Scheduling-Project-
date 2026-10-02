@@ -41,6 +41,8 @@ const COLUMNS = {
   ],
 }
 
+import { assertHighestApplied } from './assertHighestApplied.js'
+
 export function rollbackV26(db, { purgeJournal = false, purgeSnapshots = false } = {}) {
   const hasJournal = db
     .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'migration_v26_retired_orphan_log'")
@@ -121,6 +123,7 @@ if (process.argv[1] && process.argv[1].endsWith('v26_down.js')) {
   const { default: Database } = await import('better-sqlite3')
   const db = new Database(file)
   db.pragma('foreign_keys = ON')
+  assertHighestApplied(db, 26)
   const result = rollbackV26(db, {
     purgeJournal: process.argv.includes('--purge-journal'),
     purgeSnapshots: process.argv.includes('--purge-snapshots'),

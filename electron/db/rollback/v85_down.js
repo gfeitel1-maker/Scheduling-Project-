@@ -41,6 +41,8 @@ const hasTable = (db, name) =>
 /**
  * @returns {{ok:true, discarded:{keys:number}}}
  */
+import { assertHighestApplied } from './assertHighestApplied.js'
+
 export function rollbackV85(db) {
   const discarded = { keys: 0 }
 
@@ -67,6 +69,7 @@ if (process.argv[1] && process.argv[1].endsWith('v85_down.js')) {
   const { default: Database } = await import('better-sqlite3')
   const db = new Database(file)
   db.pragma('foreign_keys = ON')
+  assertHighestApplied(db, 85)
   const result = rollbackV85(db)
   db.close()
   console.log(

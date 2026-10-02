@@ -17,6 +17,8 @@
 // The journal is KEPT by default, so a rollback can itself be rolled forward
 // again and so support can see exactly what moved.
 
+import { assertHighestApplied } from './assertHighestApplied.js'
+
 // Whitelist, never interpolate an unchecked table name into SQL.
 const TABLES = new Set(['template_slots', 'template_overlays', 'schedule_snapshots'])
 
@@ -67,6 +69,7 @@ if (process.argv[1] && process.argv[1].endsWith('v24_down.js')) {
   const { default: Database } = await import('better-sqlite3')
   const db = new Database(file)
   db.pragma('foreign_keys = ON')
+  assertHighestApplied(db, 24)
   const result = rollbackV24(db, { purgeJournal: process.argv.includes('--purge-journal') })
   db.close()
   console.log(`v24 rolled back: ${result.reverted} row(s) restored`)

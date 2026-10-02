@@ -14,6 +14,8 @@
 //
 // Usage:  node electron/db/rollback/v68_down.js <path-to-shoresh.sqlite>
 
+import { assertHighestApplied } from './assertHighestApplied.js'
+
 export function rollbackV68(db) {
   const discarded = {
     potentialOfferings: db
@@ -54,6 +56,7 @@ if (process.argv[1] && process.argv[1].endsWith('v68_down.js')) {
   const { default: Database } = await import('better-sqlite3')
   const db = new Database(file)
   db.pragma('foreign_keys = ON')
+  assertHighestApplied(db, 68)
   const result = rollbackV68(db)
   db.close()
   console.log(
