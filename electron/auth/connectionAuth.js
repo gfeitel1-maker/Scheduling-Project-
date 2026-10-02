@@ -58,8 +58,21 @@ function isNonEmptyString(v) {
 function persistAppliedTombstones(db, deviceId, appliedTombstones) {
   if (!Array.isArray(appliedTombstones)) return
   const reportedAt = new Date().toISOString()
+  // Monotonic upsert, keyed on the (device_id, tombstone_id) primary key
+  // (schema.sql): a report only ever ADVANCES a stored per-id version, never
+  // lowers it. A blind INSERT OR REPLACE would let a stale/out-of-order
+  // re-authenticate carry an OLDER version and overwrite a newer stored one,
+  // flickering a peer's S3b badge from LOGICALLY_ERASED back to UNKNOWN. The
+  // `WHERE excluded.version >= ...version` no-ops a strictly-older report and
+  // refreshes reported_at on an equal-or-newer one — safe either way, this is
+  // advisory display data that never feeds an admission decision.
   const upsert = db.prepare(
-    'INSERT OR REPLACE INTO peer_tombstone_reports (device_id, tombstone_id, version, reported_at) VALUES (?, ?, ?, ?)'
+    `INSERT INTO peer_tombstone_reports (device_id, tombstone_id, version, reported_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(device_id, tombstone_id) DO UPDATE SET
+       version = excluded.version,
+       reported_at = excluded.reported_at
+     WHERE excluded.version >= peer_tombstone_reports.version`
   )
   for (const entry of appliedTombstones) {
     if (!entry || typeof entry !== 'object') continue
