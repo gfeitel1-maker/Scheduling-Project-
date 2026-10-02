@@ -161,3 +161,42 @@ describe('cross-handler parity — S1, snapshot completeness', () => {
     expect(a.heldSnapshotRows).toBe(b.heldSnapshotRows)
   })
 })
+
+// 1A (docs/work/specs/2026-10-02-elective-run-mismatch-null-identity-and-anchor-design.md)
+// — getElectiveRun must surface every choice's offering occurrences, so the
+// read side (buildPreferenceLookup) can recover a linked-bundle preference
+// whose assignment anchors at a DIFFERENT member occurrence of the same
+// bundle than the one the preference was written at.
+describe('getElectiveRun — 1A, offeringOccurrencesByChoiceId', () => {
+  it('maps a linked-bundle choice to every occurrence elective_choice_offerings names for it', () => {
+    const { db, campId } = freshDb()
+    const runId = randomUUID()
+    commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1', runId, parsed: PARSED, assignments: ASSIGNMENTS, occurrences: OCCURRENCE_FIXTURE,
+    })
+    const bundleChoiceId = randomUUID()
+    db.prepare('INSERT INTO elective_choices (id, run_id, label, is_linked) VALUES (?, ?, ?, 1)')
+      .run(bundleChoiceId, runId, 'Bundle Pack')
+    db.prepare('INSERT INTO elective_occurrences (id, run_id, elective_set_id, day_id, time_block_id, tier_id) VALUES (?, ?, ?, ?, ?, ?)')
+      .run('occ-bundle-2', runId, 'set-1', 'day-2', 'tb-1', 'tier-1')
+    db.prepare('INSERT INTO elective_choice_offerings (id, choice_id, occurrence_id, activity_id) VALUES (?, ?, ?, ?)')
+      .run(randomUUID(), bundleChoiceId, 'occ-1', 'act-archery')
+    db.prepare('INSERT INTO elective_choice_offerings (id, choice_id, occurrence_id, activity_id) VALUES (?, ?, ?, ?)')
+      .run(randomUUID(), bundleChoiceId, 'occ-bundle-2', 'act-gaga')
+
+    const result = getElectiveRun(db, { runId })
+    expect(result.offeringOccurrencesByChoiceId[bundleChoiceId]).toEqual(
+      expect.arrayContaining(['occ-1', 'occ-bundle-2'])
+    )
+    expect(result.offeringOccurrencesByChoiceId[bundleChoiceId]).toHaveLength(2)
+  })
+
+  it('is an empty map for a run with no elective_choice_offerings rows', () => {
+    const { db, campId } = freshDb()
+    const runId = randomUUID()
+    commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1', runId, parsed: PARSED, assignments: ASSIGNMENTS, occurrences: OCCURRENCE_FIXTURE,
+    })
+    expect(getElectiveRun(db, { runId }).offeringOccurrencesByChoiceId).toEqual({})
+  })
+})

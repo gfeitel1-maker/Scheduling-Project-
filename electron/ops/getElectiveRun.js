@@ -168,6 +168,29 @@ export function getElectiveRun(db, { runId }) {
     .prepare('SELECT id, label, is_linked FROM elective_choices WHERE run_id = ? ORDER BY label')
     .all(runId)
 
+  // 1A (docs/work/specs/2026-10-02-elective-run-mismatch-null-identity-and-anchor-design.md)
+  // — a choice_id -> [occurrence_id, ...] map of every occurrence this run's
+  // choices are offered at. A LINKED-BUNDLE choice has several member
+  // occurrences (elective_choice_offerings, ADR D12); a plain choice has at
+  // most one. buildPreferenceLookup (camperElectiveWeek.js) needs this to
+  // recover a bundle preference when the solver's assignment anchors at a
+  // DIFFERENT member occurrence than the one the preference was written at —
+  // see that function's own comment. General, not bundle-specific: a plain
+  // choice's single-entry list changes nothing about the existing join.
+  const offeringOccurrencesByChoiceId = {}
+  for (const row of db
+    .prepare(
+      `SELECT o.choice_id, o.occurrence_id
+         FROM elective_choice_offerings o
+         JOIN elective_choices c ON c.id = o.choice_id
+        WHERE c.run_id = ?`
+    )
+    .all(runId)
+  ) {
+    if (row.occurrence_id == null) continue
+    (offeringOccurrencesByChoiceId[row.choice_id] ??= []).push(row.occurrence_id)
+  }
+
   // Shared with getElectiveRunOuterScheduleHandler (T248) — see
   // electron/ops/finalizedAgainstStaleGeneration.js.
   const finalizedAgainstStaleGeneration = computeFinalizedAgainstStaleGeneration(db, run)
@@ -296,7 +319,7 @@ export function getElectiveRun(db, { runId }) {
 
   return {
     rows, staleCount, finalizedAgainstStaleGeneration, overCapacityOccurrences, occurrences,
-    preferences, choices, campers, sheetOnlyCampers, danglingFindings, eligibilityFindings, resourceConflicts,
+    preferences, choices, offeringOccurrencesByChoiceId, campers, sheetOnlyCampers, danglingFindings, eligibilityFindings, resourceConflicts,
     // T320 item 1 — cross-handler parity with getElectiveRunOuterSchedule.js:
     // the SAME computeSnapshotCompleteness call.
     ...computeSnapshotCompleteness(db, run),

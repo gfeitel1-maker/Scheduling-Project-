@@ -117,6 +117,7 @@ export default function FinalRunView({
         capacityRows: state.overCapacityOccurrences,
         eligibilityFindings: state.eligibilityFindings,
         resourceConflicts: state.resourceConflicts,
+        offeringOccurrencesByChoiceId: state.offeringOccurrencesByChoiceId,
         generatedAt: new Date().toISOString(),
       }
       const data = buildElectiveRunProjectionExport(input)
@@ -242,6 +243,7 @@ export default function FinalRunView({
             timeBlocks={timeBlocks}
             preferences={state.preferences}
             campers={state.campers}
+            offeringOccurrencesByChoiceId={state.offeringOccurrencesByChoiceId}
           />
 
           {/* T250 A4 — a quiet text-only trigger at the bottom, well

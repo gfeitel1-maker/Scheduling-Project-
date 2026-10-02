@@ -45,6 +45,23 @@ describe('buildRunSummaryExport', () => {
     expect(result.unordered_count).toBe(1)
   })
 
+  // 2B (docs/work/specs/2026-10-02-elective-run-mismatch-null-identity-and-anchor-design.md)
+  // — an assignment with a non-null preference_rank but a null choice_id can
+  // never join a preference (buildPreferenceLookup refuses to look up a null
+  // choice_id). That is a join MISS, not an unordered-set placement, so it
+  // must not be folded into unordered_count.
+  it('does not count a non-null-rank assignment with a null choice_id (unjoinable) into unordered_count', () => {
+    const result = buildRunSummaryExport({
+      run: { id: 'run-1', name: 'Week 1', status: 'draft' },
+      assignments: [{ camper_id: 'c1', choice_id: null, occurrence_id: 'occ-1', preference_rank: 1 }],
+      preferences: [],
+      capacityRows: [],
+    })
+
+    expect(result.counts_by_rank).toEqual({})
+    expect(result.unordered_count).toBe(0)
+  })
+
   it('counts campers with preferences but no assignment as unassigned', () => {
     const result = buildRunSummaryExport({
       run: { id: 'run-1', name: 'Week 1', status: 'draft' },

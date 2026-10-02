@@ -35,6 +35,10 @@ export function buildRunSummaryExport({
   occurrences = [],
   days = [],
   timeBlocks = [],
+  // 1A (docs/work/specs/2026-10-02-elective-run-mismatch-null-identity-and-anchor-design.md)
+  // — threaded straight through to buildPreferenceLookup. Defaulted, so an
+  // existing caller that has not been updated yet keeps today's behaviour.
+  offeringOccurrencesByChoiceId = {},
 } = {}) {
   if (run?.status === 'final' && run?.snapshotIncomplete) {
     return {
@@ -46,16 +50,25 @@ export function buildRunSummaryExport({
   }
   const counts_by_rank = {}
   let unordered_count = 0
-  const preferenceFor = buildPreferenceLookup({ preferences, occurrences, days, timeBlocks, rows: assignments })
+  const preferenceFor = buildPreferenceLookup({
+    preferences, occurrences, days, timeBlocks, rows: assignments, offeringOccurrencesByChoiceId,
+  })
   const assignedCamperIds = new Set()
   for (const a of assignments) {
     assignedCamperIds.add(a.camper_id)
+    // 2B — a non-null rank whose join MISSED (no preference row bound to this
+    // assignment) is not an unordered-set placement, it is a placement no
+    // choice of theirs can be matched to. Only a MATCHED preference with no
+    // ordering evidence belongs in unordered_count; an unmatched row is left
+    // uncounted, the same treatment a null preference_rank already gets.
     if (a.preference_rank != null) {
-      const rankKind = preferenceFor(a)?.rankKind ?? null
-      if (hasOrderingEvidence(rankKind)) {
-        counts_by_rank[a.preference_rank] = (counts_by_rank[a.preference_rank] ?? 0) + 1
-      } else {
-        unordered_count += 1
+      const match = preferenceFor(a)
+      if (match != null) {
+        if (hasOrderingEvidence(match.rankKind)) {
+          counts_by_rank[a.preference_rank] = (counts_by_rank[a.preference_rank] ?? 0) + 1
+        } else {
+          unordered_count += 1
+        }
       }
     }
   }

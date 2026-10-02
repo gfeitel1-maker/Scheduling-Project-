@@ -998,7 +998,10 @@ export default function DraftRunView({
       {loaded ? (
         <>
           <div data-testid="run-satisfaction-summary" style={styles.summary} ref={summaryRef} tabIndex={-1}>
-            {satisfactionSummary({ rows, preferences: state.preferences, occurrences: state.occurrences, days, timeBlocks })}
+            {satisfactionSummary({
+              rows, preferences: state.preferences, occurrences: state.occurrences, days, timeBlocks,
+              offeringOccurrencesByChoiceId: state.offeringOccurrencesByChoiceId,
+            })}
           </div>
 
           {/* Owner/organizer ruling, 2026-09-30 — the actions band is
@@ -1223,6 +1226,7 @@ export default function DraftRunView({
             preferences={state.preferences}
             choices={state.choices}
             campers={state.campers}
+            offeringOccurrencesByChoiceId={state.offeringOccurrencesByChoiceId}
             onSetPreference={writePreference}
             onRemovePreference={removePreference}
           />
