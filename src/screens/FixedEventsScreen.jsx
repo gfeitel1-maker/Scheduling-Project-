@@ -21,6 +21,7 @@ import { ENTITY_FIELD_CATALOGS, inferEntityMapping, applyEntityMapping, describe
 import { resolveRowAction } from '../ingest/resolveRowAction.js'
 import { resolveRowCohort, describeCohortNote } from '../ingest/resolveRowCohort.js'
 import { formatImportStopMessage } from '../ingest/importStopMessage.js'
+import { commitSetupImportBatch } from '../ingest/setupImportCommit.js'
 
 const FIXED_EVENTS_CATALOG = ENTITY_FIELD_CATALOGS.fixed_events
 // The natural key for a fixed/recurring event row is compound: the same NAME can
@@ -746,6 +747,9 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
       // Shared across the whole loop so same-named rows (a recurring event's
       // several days) link to one activity instead of each creating its own.
       const activityCache = [...activities]
+      // Activity ids this batch already pins, so a later same-name row does not
+      // push a duplicate catalog_role update.
+      const pinnedInBatch = new Set()
       // Keyed by (name, day, time block) — the same row can recur on several days,
       // each its own stored row (board q-export-columns-do-not-round-trip, B3).
       const existingByKey = new Map(fixedEvents.map(a => [fixedEventNaturalKey(a.name, a.day_id, a.time_block_id), a]))
@@ -758,52 +762,83 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
         tier_names: 'unit_ids', notes: 'notes', cohort_name: 'cohort_id',
       }
       const providedKeys = new Set([...Object.keys(importMapping?.roles ?? {}).map(k => ROLE_TO_DB_KEY[k] ?? k), 'activity_id'])
+      // Atomic swap (board q-atomic-import-primitive, part 2): resolve the whole
+      // import into one confirmed create/update batch — including the pinned
+      // activity each fixed event links to, minted/pinned IN THE SAME batch before
+      // the event that references it, so a failure rolls everything back together
+      // and names the row. (Prior: each row wrote per-field with a per-row partial
+      // cleanup; earlier rows stayed written on a hard-stop.)
+      const batch = []
+      // In-loop twin of resolveActivityLink that appends to the batch instead of
+      // writing immediately; the shared resolveActivityLink stays as-is for the
+      // single-event save path.
+      const resolveActivityLinkIntoBatch = (name, rowNum) => {
+        const key = whitespaceInsensitiveName(name)
+        const matches = activityCache.filter((a) => whitespaceInsensitiveName(a.name) === key)
+        if (matches.length === 1) {
+          const m = matches[0]
+          if (m.catalog_role !== 'pinned_event' && !pinnedInBatch.has(m.id)) {
+            batch.push({ action: 'update', entity: 'activities', entity_id: m.id, fields: { catalog_role: 'pinned_event' }, name, __row: rowNum })
+            pinnedInBatch.add(m.id)
+          }
+          return m.id
+        }
+        if (matches.length === 0) {
+          const newActivityId = crypto.randomUUID()
+          batch.push({ action: 'create', entity: 'activities', entity_id: newActivityId, fields: { name, camp_id: campId, catalog_role: 'pinned_event' }, name, __row: rowNum })
+          activityCache.push({ id: newActivityId, camp_id: campId, name, catalog_role: 'pinned_event' })
+          pinnedInBatch.add(newActivityId)
+          return newActivityId
+        }
+        throw new Error(`"${name}" matches more than one activity in your catalog — rename one of them before saving.`)
+      }
       for (const [index, row] of importRows.entries()) {
         if (!row.name || row.warning) { skipped++; continue }
         const { warning: _warning, _dayLabel, _blockName, _tierNames, cohortName, ...record } = row
         const { cohortId } = resolveRowCohort(cohortName, cohorts, activeCohort)
+        let activityId
         try {
-          const activityId = await resolveActivityLink(record.name, activityCache)
-          const naturalKey = fixedEventNaturalKey(record.name, record.day_id, record.time_block_id)
-          const candidateFields = {
-            time_block_id: record.time_block_id, is_all_groups: record.is_all_groups,
-            group_ids: record.group_ids, unit_ids: record.unit_ids, notes: record.notes,
-            activity_id: activityId, cohort_id: cohortId,
-          }
-          const resolution = resolveRowAction(naturalKey, candidateFields, existingByKey, providedKeys)
-          if (resolution.action === 'unchanged') { unchanged++; continue }
-          if (resolution.action === 'update') {
-            await writeFields(resolution.existing.id, resolution.changedFields)
-            updated++
-            // Red Hat HIGH: refresh the baseline with the applied value for a later same-key row.
-            existingByKey.set(naturalKey, { ...resolution.existing, ...resolution.changedFields })
-            continue
-          }
-          const newId = crypto.randomUUID()
-          try {
-            await writeFields(newId, { kind: record.kind, day_id: record.day_id, ...candidateFields, camp_id: campId })
-          } catch (err) {
-            const cleanedUp = await cleanupPartialRow(newId)
-            throw cleanedUp ? err : new Error(`${err?.message || 'an unexpected error'} (and the partial row could not be cleaned up)`)
-          }
-          added++
-          existingByKey.set(naturalKey, { id: newId, name: record.name, day_id: record.day_id, ...candidateFields })
-          // A scoped row's kind can differ from this screen's `kind` (see the
-          // comment above rowKind's derivation) — never silent: the director
-          // sees a count of how many landed on the other list.
-          if (record.kind !== kind) filedElsewhere++
+          activityId = resolveActivityLinkIntoBatch(record.name, index + 1)
         } catch (err) {
-          // Hard stop, not a rollback: an UNEXPECTED failure stops the loop immediately
-          // (board q-export-columns-do-not-round-trip, honest-atomicity-half) — this row's
-          // own partial write is cleaned up above, but earlier rows stay written.
+          // Ambiguous activity name — a resolution failure BEFORE any write, so
+          // nothing has been committed: skip the commit and name the row.
           stoppedAt = formatImportStopMessage({
-            importedCount: added + updated, totalCount, rowNumber: index + 1,
-            rowName: row.name, reason: err?.message || 'an unexpected error',
+            totalCount, rowNumber: index + 1, rowName: row.name, reason: err?.message || 'an unexpected error',
           })
           break
         }
+        const naturalKey = fixedEventNaturalKey(record.name, record.day_id, record.time_block_id)
+        const candidateFields = {
+          time_block_id: record.time_block_id, is_all_groups: record.is_all_groups,
+          group_ids: record.group_ids, unit_ids: record.unit_ids, notes: record.notes,
+          activity_id: activityId, cohort_id: cohortId,
+        }
+        const resolution = resolveRowAction(naturalKey, candidateFields, existingByKey, providedKeys)
+        if (resolution.action === 'unchanged') { unchanged++; continue }
+        if (resolution.action === 'update') {
+          batch.push({ action: 'update', entity: 'fixed_events', entity_id: resolution.existing.id, fields: serializeFields(resolution.changedFields), name: row.name, __row: index + 1 })
+          updated++
+          // Red Hat HIGH: refresh the baseline with the value this batch will write for a later same-key row.
+          existingByKey.set(naturalKey, { ...resolution.existing, ...resolution.changedFields })
+          continue
+        }
+        const newId = crypto.randomUUID()
+        batch.push({ action: 'create', entity: 'fixed_events', entity_id: newId, fields: serializeFields({ kind: record.kind, day_id: record.day_id, ...candidateFields, camp_id: campId }), name: row.name, __row: index + 1 })
+        added++
+        existingByKey.set(naturalKey, { id: newId, name: record.name, day_id: record.day_id, ...candidateFields })
+        // A scoped row's kind can differ from this screen's `kind` — never silent:
+        // the director sees a count of how many landed on the other list.
+        if (record.kind !== kind) filedElsewhere++
       }
-      setImportResult({ added, updated, unchanged, skipped, filedElsewhere, stoppedAt }); setImportStep('done')
+      // No build-time ambiguity stop? Commit the whole batch atomically.
+      if (!stoppedAt) {
+        const result = await commitSetupImportBatch(repository, { batch, totalCount })
+        stoppedAt = result.stoppedAt
+      }
+      setImportResult({
+        added: stoppedAt ? 0 : added, updated: stoppedAt ? 0 : updated,
+        unchanged, skipped, filedElsewhere: stoppedAt ? 0 : filedElsewhere, stoppedAt,
+      }); setImportStep('done')
     } catch (err) {
       setError(describeWriteFailure(err, 'That import could not be completed.'))
       setImportStep(null); setImportRows([])

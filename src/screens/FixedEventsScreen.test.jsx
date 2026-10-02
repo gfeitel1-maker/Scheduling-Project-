@@ -7,6 +7,7 @@ vi.mock('../localClient', () => ({
   localClient: {
     list: vi.fn(),
     write: vi.fn(),
+    importSetupRows: vi.fn(),
     deleteEntity: vi.fn(),
   },
 }))
@@ -43,6 +44,22 @@ const COHORT_ID = 'cohort-1'
 function day(overrides = {}) {
   return { id: 'day-1', camp_id: CAMP_ID, label: 'Monday', day_of_week: 1, sort_order: 1, ...overrides }
 }
+
+// Door-swap (board q-atomic-import-primitive, part 2): confirmImport now commits ONE
+// atomic batch via localClient.importSetupRows instead of per-field writes. This
+// flattens that batch into the same [_, entity, entity_id, field, value] tuple the
+// old write mock recorded, so an import test's c[1]/c[2]/c[3]/c[4] assertions carry
+// over by swapping the source from localClient.write.mock.calls to importedFieldWrites().
+function importedFieldWrites() {
+  const rows = localClient.importSetupRows.mock.calls[0]?.[1] ?? []
+  const out = []
+  for (const r of rows) {
+    for (const [field, value] of Object.entries(r.fields ?? {})) {
+      out.push([undefined, r.entity, r.entity_id, field, value])
+    }
+  }
+  return out
+}
 function block(overrides = {}) {
   return { id: 'block-1', camp_id: CAMP_ID, cohort_id: COHORT_ID, name: 'Morning', start_time: '09:00:00', end_time: '10:00:00', sort_order: 1, ...overrides }
 }
@@ -60,6 +77,12 @@ beforeEach(() => {
   vi.spyOn(console, 'error').mockReset().mockImplementation(() => {})
   localClient.list.mockReset()
   localClient.write.mockReset().mockResolvedValue({ status: 'applied' })
+  localClient.importSetupRows.mockReset().mockImplementation(async (_token, rows) => ({
+    ok: true,
+    created: rows.filter((r) => r.action === 'create').length,
+    updated: rows.filter((r) => r.action === 'update').length,
+    rowCount: rows.length,
+  }))
   localClient.deleteEntity.mockReset().mockResolvedValue({ status: 'applied' })
 })
 
@@ -830,12 +853,12 @@ describe('FixedEventsScreen — import of one recurring name creates only one ca
     await waitFor(() => expect(screen.getByText(/^Import 5/)).not.toBeNull())
     fireEvent.click(screen.getByText(/^Import 5/))
 
-    await waitFor(() => {
-      const activityIdCalls = localClient.write.mock.calls.filter(c => c[1] === 'fixed_events' && c[3] === 'activity_id')
-      expect(activityIdCalls.length).toBe(5)
-    })
-
-    const nameCalls = localClient.write.mock.calls.filter(c => c[1] === 'activities' && c[3] === 'name')
+    await waitFor(() => expect(localClient.importSetupRows).toHaveBeenCalled())
+    // All five day-rows link to an activity, in one atomic batch...
+    const activityIdCalls = importedFieldWrites().filter(c => c[1] === 'fixed_events' && c[3] === 'activity_id')
+    expect(activityIdCalls.length).toBe(5)
+    // ...and exactly ONE catalog activity is created for the shared name.
+    const nameCalls = importedFieldWrites().filter(c => c[1] === 'activities' && c[3] === 'name')
     expect(nameCalls.length).toBe(1)
   })
 })
@@ -874,16 +897,20 @@ describe('FixedEventsScreen — import create-or-update', () => {
     fireEvent.click(screen.getByText(/^Import 1/))
 
     await waitFor(() => expect(screen.queryByText(/1 updated/)).not.toBeNull())
-    const notesWrites = localClient.write.mock.calls.filter(c => c[1] === 'fixed_events' && c[3] === 'notes')
+    const writes = importedFieldWrites()
+    const notesWrites = writes.filter(c => c[1] === 'fixed_events' && c[3] === 'notes')
     expect(notesWrites).toHaveLength(1)
     expect(notesWrites[0][2]).toBe('fe-1')
     expect(notesWrites[0][4]).toBe('Updated note')
     // identity fields are never re-written for an update
-    const nameWrites = localClient.write.mock.calls.filter(c => c[1] === 'fixed_events' && c[3] === 'name')
+    const nameWrites = writes.filter(c => c[1] === 'fixed_events' && c[3] === 'name')
     expect(nameWrites).toHaveLength(0)
   })
 
-  it('stops the import loop on an unexpected row failure and reports how many rows already landed', async () => {
+  // Atomic swap (board q-atomic-import-primitive, part 2): a row failure rolls the
+  // WHOLE import back — including the pinned activity minted in the same batch — and
+  // names the file row, instead of "imported N of M".
+  it('reports an all-or-none rollback when a row fails, naming the row', async () => {
     const days = ['Monday', 'Tuesday'].map((label, i) => day({ id: `d${i + 1}`, label, day_of_week: i + 1 }))
     localClient.list.mockImplementation((entity) => {
       if (entity === 'fixed_events') return Promise.resolve([])
@@ -903,23 +930,18 @@ describe('FixedEventsScreen — import create-or-update', () => {
     await userEvent.upload(fileInput, file)
     await waitFor(() => expect(screen.getByText(/^Import 2/)).not.toBeNull())
 
-    // `kind` is always the first field written for a NEW fixed_events row (REQUIRED_FIRST_ON_WRITE) —
-    // failing the write exactly when `kind` is written for the second such row fails that row's
-    // very first field, regardless of how many fields/activity-link writes preceded it.
-    let fixedEventKindWrites = 0
-    localClient.write.mockImplementation((...args) => {
-      if (args[1] === 'fixed_events' && args[3] === 'kind') {
-        fixedEventKindWrites++
-        if (fixedEventKindWrites === 2) return Promise.reject(new Error('disk full'))
-      }
-      return Promise.resolve({ status: 'applied' })
+    // The primitive rolls the whole set back and names the SECOND fixed-event row.
+    localClient.importSetupRows.mockImplementation(async (_t, rows) => {
+      const feIdxs = rows.map((r, i) => (r.entity === 'fixed_events' ? i : -1)).filter(i => i >= 0)
+      const failIdx = feIdxs[1]
+      return { ok: false, failedRow: { number: failIdx + 1, name: rows[failIdx].name, entity: 'fixed_events', entity_id: rows[failIdx].entity_id }, reason: 'disk full', created: 0, updated: 0 }
     })
-    localClient.deleteEntity.mockResolvedValue({ status: 'applied' })
 
     fireEvent.click(screen.getByText(/^Import 2/))
 
-    await waitFor(() => expect(screen.queryByText(/No further rows were written/)).not.toBeNull())
-    expect(screen.queryByText(/row 2 \('Mifkad'\) failed: disk full/)).not.toBeNull()
+    await waitFor(() => expect(screen.queryByText(/Nothing was imported/)).not.toBeNull())
+    expect(screen.queryByText(/row 2 of 2 \('Mifkad'\) couldn't be saved: disk full/)).not.toBeNull()
+    expect(screen.queryByText(/left exactly as it was/)).not.toBeNull()
   })
 })
 

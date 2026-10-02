@@ -20,7 +20,7 @@ import WeekContextBar from '../components/schedule/WeekContextBar'
 import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialog'
 import { ENTITY_FIELD_CATALOGS, inferEntityMapping, applyEntityMapping, describeMappingIssue } from '../ingest/entityColumnMapping.js'
 import { resolveRowAction } from '../ingest/resolveRowAction.js'
-import { formatImportStopMessage } from '../ingest/importStopMessage.js'
+import { commitSetupImportBatch } from '../ingest/setupImportCommit.js'
 
 const ACTIVITIES_CATALOG = ENTITY_FIELD_CATALOGS.activities
 import { createScheduleRepository } from '../data/scheduleRepository'
@@ -1057,8 +1057,16 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
       }
       const providedKeys = new Set(Object.keys(importMapping?.roles ?? {}).map(k => ROLE_TO_DB_KEY[k] ?? k))
       let added = 0, updated = 0, unchanged = 0, skipped = 0
-      let stoppedAt = null
       const totalCount = importRows.length
+      // Resolve into a confirmed set, then commit it ATOMICALLY (board
+      // q-atomic-import-primitive, part 2). A newly-seen place is minted IN THIS
+      // SAME batch, before the activity that references it, so a later failure
+      // rolls the place back too — the whole import is byte-identical on failure.
+      // (Prior: the place was created best-effort per-row and could orphan on a
+      // hard-stop; under true atomicity a place-mint failure aborts and names the
+      // row instead.) `added`/`updated` count ACTIVITIES only — the batch's
+      // primitive count would also include minted places.
+      const batch = []
       for (const [index, row] of importRows.entries()) {
         if (!row.name || row.warning) { skipped++; continue }
 
@@ -1067,24 +1075,14 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
           const trimmedLoc = String(row.location).trim()
           locationId = locationIdByName.get(trimmedLoc) ?? null
           if (!locationId) {
-            try {
-              // T101 (docs/work/tickets/T101-locations-deterministic-id-rename-recollide.md):
-              // deriveLocationId's base id may already belong to a RENAMED
-              // row (the row keeps its id, only its name changed) — minting
-              // there directly would silently overwrite the renamed row's
-              // name. resolveLocationCandidateId is the same disambiguation
-              // ingest.js's create paths use; `locations` (loaded from db,
-              // reflecting any rename) is its existing-rows input.
-              const newLocId = resolveLocationCandidateId(campId, trimmedLoc, locations).id
-              await repository.createRecord('locations', newLocId, { name: trimmedLoc, camp_id: campId, capacity: 1, notes: null })
-              locationId = newLocId
-              // T252's guard, applied here too: a row created THIS run must
-              // never evict an entry already established (by the live db, or
-              // by an earlier row in this same import) for that name.
-              if (!locationIdByName.has(trimmedLoc)) locationIdByName.set(trimmedLoc, newLocId)
-            } catch {
-              locationId = null // best-effort: the activity still imports, just without a place
-            }
+            // T101: deriveLocationId's base id may already belong to a RENAMED row;
+            // resolveLocationCandidateId is the same disambiguation ingest.js uses.
+            const newLocId = resolveLocationCandidateId(campId, trimmedLoc, locations).id
+            batch.push({ action: 'create', entity: 'locations', entity_id: newLocId, fields: { name: trimmedLoc, camp_id: campId, capacity: 1, notes: null }, name: trimmedLoc, __row: index + 1 })
+            locationId = newLocId
+            // T252's guard: a row created THIS run must never evict an entry already
+            // established (by the live db, or an earlier row in this same import).
+            if (!locationIdByName.has(trimmedLoc)) locationIdByName.set(trimmedLoc, newLocId)
           }
         }
 
@@ -1105,29 +1103,22 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
         }
         const naturalKey = whitespaceInsensitiveName(row.name)
         const resolution = resolveRowAction(naturalKey, candidateFields, existingByKey, providedKeys)
-        try {
-          if (resolution.action === 'unchanged') { unchanged++; continue }
-          if (resolution.action === 'update') {
-            await repository.writeFields('activities', resolution.existing.id, serializeFields(resolution.changedFields))
-            updated++
-            // Red Hat HIGH: refresh the baseline with the applied value for a later same-key row.
-            existingByKey.set(naturalKey, { ...resolution.existing, ...resolution.changedFields })
-            continue
-          }
-          const newId = crypto.randomUUID()
-          // `name` first — same collision-fails-atomically reasoning as saveActivity.
-          await repository.createRecord('activities', newId, serializeFields({ name: row.name, camp_id: campId, ...candidateFields }))
-          added++
-          existingByKey.set(naturalKey, { id: newId, name: row.name, ...candidateFields })
-        } catch (err) {
-          stoppedAt = formatImportStopMessage({
-            importedCount: added + updated, totalCount, rowNumber: index + 1,
-            rowName: row.name, reason: err?.message || 'an unexpected error',
-          })
-          break
+        if (resolution.action === 'unchanged') { unchanged++; continue }
+        if (resolution.action === 'update') {
+          batch.push({ action: 'update', entity: 'activities', entity_id: resolution.existing.id, fields: serializeFields(resolution.changedFields), name: row.name, __row: index + 1 })
+          updated++
+          // Red Hat HIGH: refresh the baseline with the value this batch will write for a later same-key row.
+          existingByKey.set(naturalKey, { ...resolution.existing, ...resolution.changedFields })
+          continue
         }
+        const newId = crypto.randomUUID()
+        // `name` first — collision-guarded field leads (primitive enforces it too).
+        batch.push({ action: 'create', entity: 'activities', entity_id: newId, fields: serializeFields({ name: row.name, camp_id: campId, ...candidateFields }), name: row.name, __row: index + 1 })
+        added++
+        existingByKey.set(naturalKey, { id: newId, name: row.name, ...candidateFields })
       }
-      setImportResult({ added, updated, unchanged, skipped, stoppedAt })
+      const { stoppedAt } = await commitSetupImportBatch(repository, { batch, totalCount })
+      setImportResult({ added: stoppedAt ? 0 : added, updated: stoppedAt ? 0 : updated, unchanged, skipped, stoppedAt })
       setImportStep('done')
     } catch (err) {
       setError(describeWriteFailure(err, 'That import could not be completed.'))

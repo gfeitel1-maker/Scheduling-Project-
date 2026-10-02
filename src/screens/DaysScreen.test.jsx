@@ -6,6 +6,7 @@ vi.mock('../localClient', () => ({
   localClient: {
     list: vi.fn(),
     write: vi.fn(),
+    importSetupRows: vi.fn(),
     deleteEntity: vi.fn(),
     previewDelete: vi.fn(),
     deleteRecord: vi.fn(),
@@ -50,6 +51,14 @@ beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => {})
   localClient.list.mockReset()
   localClient.write.mockReset().mockResolvedValue({ status: 'applied' })
+  // The atomic import door: echo the batch's create/update counts (the screen
+  // derives unchanged/skipped itself). Tests that need a failure override this.
+  localClient.importSetupRows.mockReset().mockImplementation(async (_token, rows) => ({
+    ok: true,
+    created: rows.filter((r) => r.action === 'create').length,
+    updated: rows.filter((r) => r.action === 'update').length,
+    rowCount: rows.length,
+  }))
   localClient.deleteEntity.mockReset().mockResolvedValue({ status: 'applied' })
   XLSX.utils.sheet_to_json.mockReset().mockReturnValue([])
   XLSX.read.mockReset().mockReturnValue({ SheetNames: ['Sheet1'], Sheets: { Sheet1: {} } })
@@ -389,8 +398,12 @@ describe('DaysScreen', () => {
 
     await waitFor(() => expect(screen.queryByText(/1 new/)).not.toBeNull())
     expect(screen.queryByText(/1 unchanged/)).not.toBeNull()
-    const labelsWritten = localClient.write.mock.calls.filter(c => c[3] === 'label').map(c => c[4])
-    expect(labelsWritten).toEqual(['Tuesday'])
+    // One atomic batch: a single create for Tuesday (duplicate unchanged, warned skipped).
+    expect(localClient.importSetupRows).toHaveBeenCalledTimes(1)
+    const batch = localClient.importSetupRows.mock.calls[0][1]
+    expect(batch).toHaveLength(1)
+    expect(batch[0].action).toBe('create')
+    expect(batch[0].fields.label).toBe('Tuesday')
   })
 
   // board q-export-columns-do-not-round-trip, B3 — a re-imported row whose natural key
@@ -410,9 +423,11 @@ describe('DaysScreen', () => {
     fireEvent.click(screen.getByText(/Import 1/))
 
     await waitFor(() => expect(screen.queryByText(/1 updated/)).not.toBeNull())
-    const dowWrites = localClient.write.mock.calls.filter(c => c[3] === 'day_of_week')
-    expect(dowWrites).toHaveLength(1)
-    expect(dowWrites[0][2]).toBe('d1')
+    const batch = localClient.importSetupRows.mock.calls[0][1]
+    const dowUpdates = batch.filter((r) => r.action === 'update' && 'day_of_week' in r.fields)
+    expect(dowUpdates).toHaveLength(1)
+    expect(dowUpdates[0].entity_id).toBe('d1')
+    expect(dowUpdates[0].fields.day_of_week).toBe(2)
   })
 
   // Red Hat HIGH — a SECOND sheet row sharing a natural key must diff against what the
@@ -436,8 +451,11 @@ describe('DaysScreen', () => {
     fireEvent.click(screen.getByText(/Import 2/))
 
     await waitFor(() => expect(screen.queryByText(/2 updated/)).not.toBeNull())
-    const dowWrites = localClient.write.mock.calls.filter(c => c[3] === 'day_of_week').map(c => c[4])
-    expect(dowWrites).toEqual([3, 1])
+    // Both updates for the same id are in ONE atomic batch, in order; the second
+    // diffs against the first's value (3), not the stale original (1).
+    const batch = localClient.importSetupRows.mock.calls[0][1]
+    const dowUpdates = batch.filter((r) => r.action === 'update').map((r) => r.fields.day_of_week)
+    expect(dowUpdates).toEqual([3, 1])
   })
 
   // board q-export-columns-do-not-round-trip, B2b derive-or-name — a file with no
@@ -456,8 +474,8 @@ describe('DaysScreen', () => {
     await waitFor(() => expect(screen.queryByText(/1 ready/)).not.toBeNull())
     fireEvent.click(screen.getByText(/Import 1/))
     await waitFor(() => expect(screen.queryByText(/1 new/)).not.toBeNull())
-    const dowWrites = localClient.write.mock.calls.filter(c => c[3] === 'day_of_week')
-    expect(dowWrites[0][4]).toBe(3)
+    const batch = localClient.importSetupRows.mock.calls[0][1]
+    expect(batch[0].fields.day_of_week).toBe(3)
   })
 
   it('flags a row that cannot be matched to a weekday as needing a director\'s eye, not a guess', async () => {
@@ -473,9 +491,10 @@ describe('DaysScreen', () => {
     await waitFor(() => expect(screen.queryByText(/cannot determine day_of_week/)).not.toBeNull())
   })
 
-  // honest-atomicity-half — an UNEXPECTED failure stops the loop immediately and reports
-  // exactly how many rows landed before it, never claiming atomicity.
-  it('stops the import loop on an unexpected row failure and reports how many rows already landed', async () => {
+  // Atomic swap (board q-atomic-import-primitive, part 2): a row failure rolls the
+  // WHOLE import back — nothing lands — and the message names the row and says the
+  // existing setup is untouched, instead of "imported N of M".
+  it('reports an all-or-none rollback when a row fails, naming the row', async () => {
     localClient.list.mockResolvedValue([])
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Import from Excel')).not.toBeNull())
@@ -490,20 +509,19 @@ describe('DaysScreen', () => {
     fireEvent.change(fileInput, { target: { files: [file] } })
     await waitFor(() => expect(screen.queryByText(/3 ready/)).not.toBeNull())
 
-    localClient.write
-      .mockResolvedValueOnce({ status: 'applied' }) // Monday day_of_week
-      .mockResolvedValueOnce({ status: 'applied' }) // Monday label
-      .mockResolvedValueOnce({ status: 'applied' }) // Monday camp_id
-      .mockResolvedValueOnce({ status: 'applied' }) // Monday sort_order
-      .mockRejectedValueOnce(new Error('disk full')) // Tuesday's first write fails
+    // The primitive rolled the whole set back and named the row that failed.
+    localClient.importSetupRows.mockResolvedValueOnce({
+      ok: false, failedRow: { number: 2, name: 'Tuesday', entity: 'days_of_operation', entity_id: 'new-day-id' }, reason: 'disk full', created: 0, updated: 0,
+    })
 
     fireEvent.click(screen.getByText(/Import 3/))
 
-    await waitFor(() => expect(screen.queryByText(/No further rows were written/)).not.toBeNull())
-    expect(screen.queryByText(/row 2 \('Tuesday'\) failed: disk full/)).not.toBeNull()
-    // Wednesday was never attempted.
-    const labelsWritten = localClient.write.mock.calls.filter(c => c[3] === 'label').map(c => c[4])
-    expect(labelsWritten).toEqual(['Monday'])
+    await waitFor(() => expect(screen.queryByText(/Nothing was imported/)).not.toBeNull())
+    expect(screen.queryByText(/row 2 of 3 \('Tuesday'\) couldn't be saved: disk full/)).not.toBeNull()
+    expect(screen.queryByText(/left exactly as it was/)).not.toBeNull()
+    // The whole confirmed set went to the primitive in ONE atomic call.
+    expect(localClient.importSetupRows).toHaveBeenCalledTimes(1)
+    expect(localClient.importSetupRows.mock.calls[0][1]).toHaveLength(3)
   })
 })
 

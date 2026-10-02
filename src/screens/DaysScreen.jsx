@@ -15,7 +15,7 @@ import InlineAddRow from '../components/setup/InlineAddRow'
 import { DOW, weekdayFromLabel } from './setup/setupHelpers'
 import { ENTITY_FIELD_CATALOGS, inferEntityMapping, applyEntityMapping, describeMappingIssue } from '../ingest/entityColumnMapping.js'
 import { resolveRowAction } from '../ingest/resolveRowAction.js'
-import { formatImportStopMessage } from '../ingest/importStopMessage.js'
+import { commitSetupImportBatch } from '../ingest/setupImportCommit.js'
 
 const DAYS_CATALOG = ENTITY_FIELD_CATALOGS.days_of_operation
 // day_of_week is excluded from the mapping gate: a file with no day_of_week column
@@ -244,53 +244,42 @@ export default function DaysScreen({ campId, role, onNavigate }) {
       // counts as named whether bound to a column OR derived from a weekday-name label (both
       // are a real value the row carries), sort_order only when its column was present.
       const providedKeys = new Set([...Object.keys(importMapping?.roles ?? {}), 'day_of_week'])
-      let added = 0, updated = 0, unchanged = 0, skipped = 0
-      let stoppedAt = null
+      let unchanged = 0, skipped = 0
       const totalCount = importRows.length
+      // Resolve every row into a confirmed create/update set, then commit it
+      // atomically (board q-atomic-import-primitive, part 2 — the door-swap):
+      // all-or-none, a failure names the row and leaves the camp byte-identical.
+      const batch = []
       for (const [index, row] of importRows.entries()) {
         if (!row.label || row.warning) { skipped++; continue }
         const sortVal = row.sort_order !== null ? row.sort_order : row.day_of_week
         const candidateFields = { day_of_week: row.day_of_week, sort_order: sortVal }
         const key = String(row.label).toLowerCase()
         const resolution = resolveRowAction(row.label, candidateFields, existingByKey, providedKeys)
-        try {
-          if (resolution.action === 'unchanged') {
-            unchanged++
-            continue
-          }
-          if (resolution.action === 'update') {
-            await repository.writeFields('days_of_operation', resolution.existing.id, resolution.changedFields)
-            updated++
-            // Red Hat HIGH: refresh the in-memory baseline with what was actually
-            // written, so a LATER row sharing this key diffs against the applied
-            // value, not the stale pre-import one (last-row-wins is honest).
-            existingByKey.set(key, { ...resolution.existing, ...resolution.changedFields })
-            continue
-          }
-          const id = crypto.randomUUID()
-          // day_of_week first — createRecord's write-then-cleanup-on-failure
-          // dance requires the collision-guarded field first (T205 / ADR 2026-08-15).
-          await repository.createRecord('days_of_operation', id, {
-            day_of_week: row.day_of_week,
-            label: row.label,
-            camp_id: campId,
-            sort_order: sortVal,
-          })
-          added++
-          existingByKey.set(String(row.label).toLowerCase(), { id, label: row.label, day_of_week: row.day_of_week, sort_order: sortVal })
-        } catch (err) {
-          // Hard stop, not a rollback: an UNEXPECTED failure stops the loop immediately so the
-          // director is told exactly which row and how many already landed, rather than a
-          // silent partial import masquerading as complete (board
-          // q-export-columns-do-not-round-trip, honest-atomicity-half).
-          console.error(`Failed to import day "${row.label}"`, err)
-          stoppedAt = formatImportStopMessage({
-            importedCount: added + updated, totalCount, rowNumber: index + 1,
-            rowName: row.label, reason: err?.message || 'an unexpected error',
-          })
-          break
+        if (resolution.action === 'unchanged') {
+          unchanged++
+          continue
         }
+        if (resolution.action === 'update') {
+          batch.push({ action: 'update', entity: 'days_of_operation', entity_id: resolution.existing.id, fields: resolution.changedFields, name: row.label, __row: index + 1 })
+          // Red Hat HIGH: refresh the in-memory baseline with what this batch will
+          // write, so a LATER row sharing this key diffs against the applied value,
+          // not the stale pre-import one (last-row-wins is honest).
+          existingByKey.set(key, { ...resolution.existing, ...resolution.changedFields })
+          continue
+        }
+        const id = crypto.randomUUID()
+        // day_of_week first — the collision-guarded field leads (T205 / ADR 2026-08-15);
+        // the primitive's orderFieldsForCreate enforces this regardless, but keep it explicit.
+        batch.push({ action: 'create', entity: 'days_of_operation', entity_id: id, fields: {
+          day_of_week: row.day_of_week,
+          label: row.label,
+          camp_id: campId,
+          sort_order: sortVal,
+        }, name: row.label, __row: index + 1 })
+        existingByKey.set(key, { id, label: row.label, day_of_week: row.day_of_week, sort_order: sortVal })
       }
+      const { added, updated, stoppedAt } = await commitSetupImportBatch(repository, { batch, totalCount })
       setImportResult({ added, updated, unchanged, skipped, stoppedAt }); setImportStep('done')
     } catch (err) {
       console.error('Import failed', err)

@@ -868,6 +868,45 @@ export const mockShoresh = {
     saveState(state)
     return { status: 'applied' }
   },
+  // T701 part 2 — the atomic setup-import primitive (electron/ops/importSetupRows.js).
+  // All-or-none: apply every row's fields through the same write() path (so the
+  // allowlist and UNIQUE emulation still apply), and on any failure restore the
+  // pre-import snapshot so dev mode shows the same byte-identical rollback the
+  // real runAtomic frame gives. Returns the primitive's result shape.
+  async importSetupRows({ rows } = {}) {
+    const snapshot = JSON.stringify(loadState())
+    let created = 0
+    let updated = 0
+    let i = 0
+    let row = null
+    try {
+      for (i = 0; i < rows.length; i++) {
+        row = rows[i]
+        if (row.action !== 'create' && row.action !== 'update') {
+          throw new Error(`unknown action "${row.action}"`)
+        }
+        for (const [field, value] of Object.entries(row.fields ?? {})) {
+          if (value === undefined) continue
+          const res = await this.write({ entity: row.entity, entity_id: row.entity_id, field, value })
+          if (res && res.status === 'rejected') {
+            throw new Error('UNIQUE constraint — a record with this value already exists')
+          }
+        }
+        if (row.action === 'create') created++
+        else updated++
+      }
+    } catch (err) {
+      saveState(JSON.parse(snapshot))
+      return {
+        ok: false,
+        failedRow: { number: i + 1, name: row?.name ?? row?.fields?.name ?? row?.fields?.label ?? row?.entity_id, entity: row?.entity, entity_id: row?.entity_id },
+        reason: err.message,
+        created: 0,
+        updated: 0,
+      }
+    }
+    return { ok: true, created, updated, rowCount: created + updated }
+  },
   // Wholesale delete-and-reinsert of one scope, mirroring the real
   // bulk_replace primitive (electron/ops/operations.js). The registered
   // bulk_replace entity (template_slots) is scoped

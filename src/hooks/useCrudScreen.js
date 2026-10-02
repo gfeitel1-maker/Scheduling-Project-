@@ -11,7 +11,7 @@
 // screen so each entity keeps its own wording.
 import { useState, useEffect } from 'react'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
-import { formatImportStopMessage } from '../ingest/importStopMessage.js'
+import { commitSetupImportBatch } from '../ingest/setupImportCommit.js'
 
 export function useCrudScreen({
   entity,
@@ -104,25 +104,25 @@ export function useCrudScreen({
     }
   }
 
-  // Skips warned rows. Against rows seen so far (starting from current state,
-  // growing as each row is added — so two duplicate rows in the SAME import
-  // batch resolve against each other too), either `duplicateCheck` (legacy:
-  // a true/false match always SKIPS, the original behavior) or `findExisting`
-  // (board q-export-columns-do-not-round-trip, B3: returns the matched existing
-  // row, or none) decides what a duplicate name means. With `findExisting`,
-  // `buildChangedFields(existing, row)` returns the fields that differ (an
-  // UPDATE, via writeFields) or a falsy value (UNCHANGED, no write) — the
-  // same create/update/unchanged split every hand-rolled setup screen's
-  // confirmImport now does, via src/ingest/resolveRowAction.js. Uses the
-  // same create-with-cleanup path as add() for a genuinely new row.
+  // Resolves warned/duplicate/create/update exactly as before, then commits the
+  // confirmed create/update set ATOMICALLY in one call via the shared
+  // commitSetupImportBatch (board q-atomic-import-primitive, part 2 — the
+  // door-swap): the whole import is all-or-none and a failure names the row,
+  // replacing the old per-row writeFields/createRecord hard-stop loop.
+  //
+  // Resolution is unchanged (#701): skip `warning` rows; against rows seen so
+  // far (starting from current state, growing as each row is queued — so two
+  // duplicate rows in the SAME batch resolve against each other too), either
+  // `duplicateCheck` (legacy true/false match always SKIPS) or `findExisting`
+  // + `buildChangedFields` (board q-export-columns-do-not-round-trip, B3:
+  // create-or-update, only the fields that differ). The writes themselves no
+  // longer happen here — they are collected into `batch` and applied atomically.
   async function importRows(parsedRows, { mapRow, duplicateCheck, findExisting, buildChangedFields, rowLabel = (row) => row.name ?? row.label ?? '' }) {
-    let added = 0
-    let updated = 0
     let unchanged = 0
     let skipped = 0
-    let stoppedAt = null
+    let createdSoFar = 0
     const seenRows = [...rows]
-    const totalCount = parsedRows.length
+    const batch = []
     for (const [index, row] of parsedRows.entries()) {
       if (row.warning) {
         skipped++
@@ -135,43 +135,26 @@ export function useCrudScreen({
           unchanged++
           continue
         }
-        try {
-          await repository.writeFields(entity, existing.id, changedFields)
-          updated++
-          // Red Hat HIGH: refresh seenRows with the applied value, replacing (never
-          // mutating — `existing` may be a shared React-state object) the stale entry,
-          // so a LATER row sharing this key diffs against what was actually written.
-          const index = seenRows.indexOf(existing)
-          if (index !== -1) seenRows[index] = { ...existing, ...changedFields }
-        } catch (err) {
-          // Hard stop, not a rollback: an UNEXPECTED failure stops the loop immediately
-          // (board q-export-columns-do-not-round-trip, honest-atomicity-half).
-          stoppedAt = formatImportStopMessage({
-            importedCount: added + updated, totalCount, rowNumber: index + 1,
-            rowName: rowLabel(row), reason: err?.message || 'an unexpected error',
-          })
-          break
-        }
+        batch.push({ action: 'update', entity, entity_id: existing.id, fields: changedFields, name: rowLabel(row), __row: index + 1 })
+        // Red Hat HIGH (carried forward): refresh seenRows with the value this
+        // batch will apply, replacing (never mutating — `existing` may be a
+        // shared React-state object) the stale entry, so a LATER row sharing this
+        // key diffs against what the earlier row writes.
+        const at = seenRows.indexOf(existing)
+        if (at !== -1) seenRows[at] = { ...existing, ...changedFields }
         continue
       }
       if (!findExisting && duplicateCheck(seenRows, row)) {
         skipped++
         continue
       }
-      try {
-        const id = crypto.randomUUID()
-        const fields = mapRow(row, added)
-        await repository.createRecord(entity, id, fields)
-        added++
-        seenRows.push({ id, ...fields })
-      } catch (err) {
-        stoppedAt = formatImportStopMessage({
-          importedCount: added + updated, totalCount, rowNumber: index + 1,
-          rowName: rowLabel(row), reason: err?.message || 'an unexpected error',
-        })
-        break
-      }
+      const id = crypto.randomUUID()
+      const fields = mapRow(row, createdSoFar)
+      createdSoFar++
+      batch.push({ action: 'create', entity, entity_id: id, fields, name: rowLabel(row), __row: index + 1 })
+      seenRows.push({ id, ...fields })
     }
+    const { added, updated, stoppedAt } = await commitSetupImportBatch(repository, { batch, totalCount: parsedRows.length })
     await load()
     return { added, updated, unchanged, skipped, stoppedAt }
   }

@@ -191,6 +191,18 @@ export function createSetupCrudRepository({
   return {
     writeFields,
 
+    // The atomic setup-import write (board q-atomic-import-primitive, part 2).
+    // Hands a confirmed, ordered create/update batch to the main-process
+    // primitive (electron/ops/importSetupRows.js) through ONE IPC, so the whole
+    // import is all-or-none — unlike createRecord/writeFields above, which commit
+    // per field. `__row` is door-side bookkeeping for failure reporting and is
+    // stripped before the wire. Returns the primitive's result verbatim
+    // ({ ok, created, updated, rowCount } or { ok:false, failedRow, reason }).
+    async importRows(rows) {
+      const payload = (rows ?? []).map(({ __row, ...row }) => row)
+      return localClient.importSetupRows(getToken(), payload)
+    },
+
     // Writes orderedFields in the given order. On any failure, best-effort
     // deletes the partially-created row (a field write earlier in the order —
     // typically `name` — may already have created it via ensureExists), then
