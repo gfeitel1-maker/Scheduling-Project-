@@ -196,22 +196,35 @@ export function buildPreferenceLookup({
   // in the run for every placement in the week, re-paid on each lock and move
   // because applyRow rebuilds `rows` and invalidates the memo. A run holds a few
   // thousand preference rows.
+  // TWO passes, deliberately. A preference's OWN cell must never be shadowed by
+  // another preference's bundle-propagation (Red Hat HIGH): a camper can hold
+  // two live rows for the SAME bundle choice at two cells (the per-cell edit
+  // path never dedupes across cells; resolvePreferenceCoordinates.js documents
+  // the dual-row state), and if 1A's propagation ran interleaved with the direct
+  // writes, whichever row sorted first could occupy the other's own-occurrence
+  // key and flip its rank. So: pass 1 claims every DIRECT own-occurrence key
+  // (FIRST wins among direct rows, exactly as before 1A); pass 2 fills only the
+  // keys a direct row did not claim, so propagation can never displace a real
+  // preference at its own cell.
   const byKey = new Map()
+  const directKeys = new Set()
   for (const p of bound) {
     if (p.choice_id == null) continue
-    const entry = { id: p.id, rankKind: p.rank_kind ?? null }
     const k = keyOf(p.camper_id, p.choice_id, p.occurrence_id)
-    // FIRST wins, so a later duplicate cannot displace the row already found.
-    if (!byKey.has(k)) byKey.set(k, entry)
-    // 1A — ALSO index this preference under every OTHER occurrence its own
-    // choice is offered at, so an assignment anchored at any member
-    // occurrence of the same bundle still finds it. A no-op for a plain
-    // (non-bundle) choice, which offers at most the one occurrence already
-    // indexed above.
+    directKeys.add(k)
+    if (!byKey.has(k)) byKey.set(k, { id: p.id, rankKind: p.rank_kind ?? null })
+  }
+  // 1A — index each preference under every OTHER occurrence its own choice is
+  // offered at, so an assignment anchored at any member occurrence of the same
+  // bundle still finds it. Never overwrites a DIRECT key (a real preference at
+  // that cell wins); a no-op for a plain (non-bundle) choice.
+  for (const p of bound) {
+    if (p.choice_id == null) continue
+    const entry = byKey.get(keyOf(p.camper_id, p.choice_id, p.occurrence_id))
     for (const occurrenceId of offeringOccurrencesByChoiceId[p.choice_id] ?? NONE) {
       if (occurrenceId === p.occurrence_id) continue
       const bundleKey = keyOf(p.camper_id, p.choice_id, occurrenceId)
-      if (!byKey.has(bundleKey)) byKey.set(bundleKey, entry)
+      if (!directKeys.has(bundleKey) && !byKey.has(bundleKey)) byKey.set(bundleKey, entry)
     }
   }
   return (row) => {

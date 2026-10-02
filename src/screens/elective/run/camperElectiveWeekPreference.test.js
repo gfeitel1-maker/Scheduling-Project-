@@ -203,6 +203,24 @@ describe('buildPreferenceLookup — linked-bundle anchor mismatch (1A)', () => {
     expect(week.entries[0].rank).toBe(1)
     expect(week.entries[0].rankKind).toBe('cell-choice')
   })
+
+  // Red Hat HIGH — a camper can hold TWO live preference rows for the SAME
+  // bundle choice at two cells (the per-cell edit path never dedupes across
+  // cells). 1A's bundle propagation must NEVER let the first-processed row's
+  // entry occupy the OTHER row's own-occurrence key: each cell's assignment
+  // must bind its OWN preference, not the other's propagated one. (One-pass
+  // FIRST-wins indexing failed this: pref-mon propagated to occ-tue before
+  // pref-tue's own direct write, flipping occ-tue's rank.)
+  it('a cell preference is never shadowed by another cell\'s bundle propagation for the same choice', () => {
+    const prefMon = { id: 'pref-mon', camper_id: 'cam-1', choice_id: 'choice-bundle', occurrence_id: 'occ-mon', rank: 2, rank_kind: 'cell-choice' }
+    const prefTue = { id: 'pref-tue', camper_id: 'cam-1', choice_id: 'choice-bundle', occurrence_id: 'occ-tue', rank: 1, rank_kind: 'cell-choice' }
+    const lookup = buildPreferenceLookup({
+      preferences: [prefMon, prefTue], occurrences: BUNDLE_OCCURRENCES, days: DAYS, timeBlocks: TIME_BLOCKS,
+      offeringOccurrencesByChoiceId,
+    })
+    expect(lookup({ ...assignmentRow, occurrence_id: 'occ-tue' })?.id).toBe('pref-tue')
+    expect(lookup({ ...assignmentRow, occurrence_id: 'occ-mon' })?.id).toBe('pref-mon')
+  })
 })
 
 // board item 9b round 3 (T321-equivalent, no ticket) — the join itself is
