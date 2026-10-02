@@ -317,6 +317,12 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // libp2p connection (syncNode.js's onPeerAdmitted). What an existing camp MEANS is entirely
   // unaffected — this is a device-local routing cache, not a domain fact.
   88,
+  // v89 (T328 Slice 1 correction pass, docs/adr/2026-10-02-wan-discovery-transport-ladder.md)
+  // widens peer_last_addresses to a composite key (multiple addresses per peer) and carries
+  // forward every existing row unchanged. Schema-only by the same reasoning as v88 immediately
+  // above: no appendOp, no backfill of new data, and the table is still never modeled into the
+  // Automerge document. What an existing camp MEANS is unaffected.
+  89,
 ])
 
 /** True if applying `version` can change what the camp means. */

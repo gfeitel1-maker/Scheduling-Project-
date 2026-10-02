@@ -23,6 +23,7 @@ import { tcp } from '@libp2p/tcp'
 import { noise } from '@chainsafe/libp2p-noise'
 import { yamux } from '@chainsafe/libp2p-yamux'
 import { identify } from '@libp2p/identify'
+import { multiaddr } from '@multiformats/multiaddr'
 import { startTransport } from './transport.js'
 import { AUTH_PROTO, receiveFramed } from './wireProtocol.js'
 
@@ -289,5 +290,49 @@ describe('transport — libp2p node lifecycle', () => {
     expect(peerId).toBeTruthy()
     // Re-stopping an already-stopped node must not throw.
     await expect(a.stop()).resolves.not.toThrow()
+  })
+
+  // T328 Slice 1 correction pass — the owner's explicit battle-test demand ("really push them to
+  // test it"): peerAddressBook.js's whole stale-address-safety argument rests on the premise that
+  // dialing a multiaddr with an explicit /p2p/<peerId> component makes libp2p's Noise handshake
+  // VERIFY the remote's cryptographic identity against that component, rejecting the connection on
+  // mismatch. That premise was previously only ASSUMED (peerAddressBook.test.js injected a
+  // hand-written rejection error). This is a REAL three-node test, not a simulation: node C is
+  // started and genuinely listening at its own real address; node B dials a multiaddr built from
+  // C's REAL ip/port but with node A's peer id spliced in instead of C's own — exactly the shape a
+  // remembered-but-now-stale address takes when a device moves/restarts at that IP under a
+  // different identity. libp2p must perform the real TCP connect to C, run the real Noise
+  // handshake, discover the responder's verified identity is C (not A), and reject.
+  it('stale-address safety: a /p2p-pinned dial to a REAL node answering as a DIFFERENT identity fails closed, and grants no admission', async () => {
+    const a = await startTransport({ deviceId: 'device-a', onAuthenticate: alwaysAdmit })
+    const b = await startTransport({ deviceId: 'device-b', onAuthenticate: alwaysAdmit })
+    const c = await startTransport({ deviceId: 'device-c', onAuthenticate: alwaysAdmit })
+    handles.push(a, b, c)
+
+    expect(a.peerId).not.toBe(c.peerId)
+
+    // C's REAL listening multiaddr, with C's own /p2p/<peerId> suffix stripped off...
+    const cRealAddr = c.getMultiaddrs()[0].toString()
+    const cIpPort = cRealAddr.replace(/\/p2p\/.*$/, '')
+    // ...and A's peer id spliced in instead — the exact shape of a remembered address whose
+    // peer has since moved off that IP/port and been replaced by a different device (C).
+    const poisoned = multiaddr(`${cIpPort}/p2p/${a.peerId}`)
+
+    // b genuinely TCP-connects to c and runs the real Noise handshake; c answers as itself (its
+    // own real keypair), which does not match the peer id (a's) requested in the multiaddr.
+    await expect(b.dial(poisoned)).rejects.toThrow()
+
+    // No admission could have happened — the dial itself never completed, so there was never a
+    // connection on which to run AUTH_PROTO. Assert the negative directly: b has no live
+    // connection to EITHER identity as a result of this attempt.
+    expect(b.getPeers()).not.toContain(a.peerId)
+    expect(b.getPeers()).not.toContain(c.peerId)
+
+    // Control, to rule out "the rejection above was really a network/firewall failure, not an
+    // identity check": the SAME ip/port, UNMODIFIED (c's own real peer id), connects fine — the
+    // network path to that address is genuinely reachable. Only the spliced peer id made it fail.
+    await b.dial(c.getMultiaddrs()[0])
+    await waitFor(() => b.getPeers().includes(c.peerId))
+    expect(b.getPeers()).toContain(c.peerId)
   })
 })

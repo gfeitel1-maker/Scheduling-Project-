@@ -63,20 +63,22 @@ describe('migration v88: version and table presence', () => {
   })
 })
 
-describe('peer_last_addresses: single row per peer_id', () => {
-  it('upserts rather than duplicates a second remembered address for the same peer_id', () => {
+// v89 (T328 Slice 1 correction pass) widened this table to a composite PRIMARY KEY
+// (peer_id, multiaddr) — see peerLastAddressesMultiAddr.migration.test.js for the schema-level
+// shape coverage (multiple addresses per peer, migration carry-forward). This describe block now
+// documents the per-ROW upsert semantics: the SAME (peer_id, multiaddr) pair updates in place
+// (never duplicates); a DIFFERENT multiaddr for the same peer_id is a separate row, not an upsert.
+describe('peer_last_addresses: upsert is keyed on (peer_id, multiaddr), not peer_id alone', () => {
+  it('upserts in place when the SAME peer_id + multiaddr is remembered again', () => {
     const db = freshDb()
-    db.prepare(
+    const upsert =
       'INSERT INTO peer_last_addresses (peer_id, multiaddr, last_seen_at) VALUES (?, ?, ?) ' +
-      'ON CONFLICT(peer_id) DO UPDATE SET multiaddr = excluded.multiaddr, last_seen_at = excluded.last_seen_at'
-    ).run('peer-a', '/ip4/10.0.0.5/tcp/4001/p2p/peer-a', '2026-10-02T00:00:00.000Z')
-    db.prepare(
-      'INSERT INTO peer_last_addresses (peer_id, multiaddr, last_seen_at) VALUES (?, ?, ?) ' +
-      'ON CONFLICT(peer_id) DO UPDATE SET multiaddr = excluded.multiaddr, last_seen_at = excluded.last_seen_at'
-    ).run('peer-a', '/ip4/10.0.0.9/tcp/4001/p2p/peer-a', '2026-10-02T00:01:00.000Z')
+      'ON CONFLICT(peer_id, multiaddr) DO UPDATE SET last_seen_at = excluded.last_seen_at'
+    db.prepare(upsert).run('peer-a', '/ip4/10.0.0.5/tcp/4001/p2p/peer-a', '2026-10-02T00:00:00.000Z')
+    db.prepare(upsert).run('peer-a', '/ip4/10.0.0.5/tcp/4001/p2p/peer-a', '2026-10-02T00:01:00.000Z')
     const rows = db.prepare('SELECT * FROM peer_last_addresses WHERE peer_id = ?').all('peer-a')
     expect(rows).toHaveLength(1)
-    expect(rows[0].multiaddr).toBe('/ip4/10.0.0.9/tcp/4001/p2p/peer-a')
+    expect(rows[0].last_seen_at).toBe('2026-10-02T00:01:00.000Z')
     db.close()
   })
 })

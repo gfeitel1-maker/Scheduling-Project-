@@ -1836,25 +1836,35 @@ CREATE TABLE IF NOT EXISTS peer_tombstone_reports (
   PRIMARY KEY (device_id, tombstone_id)
 );
 
--- peer_last_addresses (v88, T328 Slice 1 — docs/adr/2026-10-02-wan-discovery-transport-ladder.md,
--- Slice 1). Device-local, NEVER-SYNCED cache of the last multiaddr a trusted peer was observed
--- dialing FROM or was dialed AT, keyed by libp2p peer id (the same identifier devices.
--- libp2p_peer_id already carries — see peerIdentity.js). Written only from syncNode.js's
--- onPeerAdmitted hook, after a peer has completed the authenticated handshake (never from
--- discovery, never from document merge). Read at startup (syncNode.js, before peerDiscovery
--- fallthrough) to attempt a direct reconnect to every currently-trusted peer without depending on
--- mDNS/rendezvous. `multiaddr` is stored WITH its `/p2p/<peerId>` component, so a redial target
--- carries the peer id libp2p's Noise handshake must itself verify — an address that now answers as
--- a DIFFERENT peer id fails that handshake and is dialed again next time, granting no trust either
--- way (the stale-address-safety property the ADR requires; see peerAddressBook.js).
+-- peer_last_addresses (v88, widened at v89 to MULTIPLE addresses per peer — T328 Slice 1,
+-- docs/adr/2026-10-02-wan-discovery-transport-ladder.md, Slice 1, which says "last-known
+-- multiaddrs", plural). Device-local, NEVER-SYNCED cache of every distinct multiaddr a trusted
+-- peer was recently observed dialing FROM or was dialed AT, keyed by libp2p peer id (the same
+-- identifier devices.libp2p_peer_id already carries — see peerIdentity.js). Written only from
+-- syncNode.js's onPeerAdmitted hook, after a peer has completed the authenticated handshake
+-- (never from discovery, never from document merge). Read at startup (syncNode.js, before
+-- peerDiscovery fallthrough) to attempt a direct reconnect to EVERY remembered address of every
+-- currently-trusted peer, without depending on mDNS/rendezvous — a multi-homed peer (e.g. one NIC
+-- that moved networks since last seen, another still reachable) keeps both addresses instead of
+-- v88's last-write-wins single row silently discarding a still-good one. Composite PRIMARY KEY
+-- (peer_id, multiaddr): a peer re-observed at the SAME address updates last_seen_at in place; a
+-- peer observed at a NEW address gets an additional row. v89's migration (localDb.js) PRUNES to
+-- the PEER_LAST_ADDRESSES_MAX_PER_PEER (5) most-recent-by-last_seen_at rows per peer on every
+-- remember, so this table cannot grow unbounded — see peerAddressBook.js's rememberPeerAddress.
+-- `multiaddr` is stored WITH its `/p2p/<peerId>` component, so a redial target carries the peer id
+-- libp2p's Noise handshake must itself verify — an address that now answers as a DIFFERENT peer id
+-- fails that handshake and is dialed again next time, granting no trust either way (the
+-- stale-address-safety property the ADR requires; see peerAddressBook.js and
+-- transport.test.js's real two-node identity-mismatch test).
 -- Same exclusion class as device_identity_key/host_signing_key/peer_tombstone_reports above: NEVER
 -- included in any full-sync SELECT/payload, NEVER sent over the wire, NEVER added to
 -- DIRECT_CAMP_ENTITIES/PROJECTIONS/MODELED_ENTITIES. Purged and re-learned (not restored) on a
 -- camper-record purge, same reasoning as peer_tombstone_reports — see purgeCollateral.js.
 CREATE TABLE IF NOT EXISTS peer_last_addresses (
-  peer_id TEXT PRIMARY KEY,
+  peer_id TEXT NOT NULL,
   multiaddr TEXT NOT NULL,
-  last_seen_at TEXT NOT NULL
+  last_seen_at TEXT NOT NULL,
+  PRIMARY KEY (peer_id, multiaddr)
 );
 
 -- elective_run_outer_snapshots (v74, T243, docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-
