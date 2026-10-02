@@ -2,13 +2,19 @@
 // anchor_activities.kind and its CHECK constraint (the Fixed vs Recurring
 // classification, docs/adr/2026-08-28-fixed-vs-recurring-events.md §5).
 //
-//   1. Recreate the table without `kind` or either CHECK, same
-//      recreate-and-copy shape v51 itself used (not v42_down's bare
-//      `ALTER TABLE ... DROP COLUMN`): SQLite refuses to DROP COLUMN a
-//      column referenced by a table-level CHECK constraint, regardless of
-//      bundled SQLite version — confirmed empirically while writing this
-//      rollback (v51's cross-column CHECK references `kind` alongside the
-//      scope columns, exactly the case ALTER TABLE DROP COLUMN rejects).
+//   1. Recreate the table without `kind` or either CHECK, via the shared
+//      rebuildTableCarryingColumns helper (same recreate-and-copy shape v51
+//      itself used, not v42_down's bare `ALTER TABLE ... DROP COLUMN`):
+//      SQLite refuses to DROP COLUMN a column referenced by a table-level
+//      CHECK constraint, regardless of bundled SQLite version — confirmed
+//      empirically while writing this rollback (v51's cross-column CHECK
+//      references `kind` alongside the scope columns, exactly the case
+//      ALTER TABLE DROP COLUMN rejects). The helper rebuilds from the LIVE
+//      column set with `kind` named in `exclude`, so any column a migration
+//      AFTER v51 added (e.g. recurrence_level, or one not yet imagined) is
+//      carried forward with its data instead of silently dropped — the same
+//      defect class fixed on the v73 rollback path (#721, commit
+//      73574fae; docs/adr/2026-10-01-rebuild-migrations-carry-forward-later-columns.md).
 //   2. No registry membership left dangling: this script does not touch
 //      PROJECTIONS (electron/ops/projections.js), campDocument.js, or
 //      localClient.mock.js — those are separate, deliberate code changes a
@@ -22,56 +28,56 @@
 //
 // Usage:  node electron/db/rollback/v51_down.js <path-to-shoresh.sqlite>
 
+import { rebuildTableCarryingColumns } from '../rebuildTableCarryingColumns.js'
+
 export function rollbackV51(db) {
   const discarded = db.pragma('table_info(anchor_activities)').some((c) => c.name === 'kind')
     ? db.prepare("SELECT COUNT(*) c FROM anchor_activities WHERE kind = 'recurring'").get().c
     : 0
 
-  db.transaction(() => {
-    const cols = db.pragma('table_info(anchor_activities)').map((c) => c.name)
-    if (cols.includes('kind')) {
-      // recurrence_level (T181/v71) may or may not still be on this table —
-      // it existed when v51 first ran, but a db that has since taken v71
-      // (recurrence_level DROPped) no longer has it. Build the recreate
-      // column list dynamically rather than assuming either shape, so this
-      // rollback still works whichever order v51/v71 were applied or
-      // reverted in.
-      const hasRecurrenceLevel = cols.includes('recurrence_level')
-      db.pragma('foreign_keys = OFF')
-      db.exec(`
-        CREATE TABLE anchor_activities_v51down (
-          id TEXT PRIMARY KEY,
-          camp_id TEXT NOT NULL REFERENCES camps(id),
-          cohort_id TEXT REFERENCES cohorts(id),
-          day_id TEXT REFERENCES days_of_operation(id),
-          time_block_id TEXT,
-          name TEXT,
-          unit_id TEXT,
-          span_blocks INTEGER,
-          is_all_groups INTEGER,
-          group_ids TEXT,
-          notes TEXT,
-          schedule_week_id TEXT REFERENCES schedule_weeks(id),
-          ${hasRecurrenceLevel ? "recurrence_level TEXT NOT NULL DEFAULT 'daily'," : ''}
-          location_id TEXT
-        );
-        INSERT INTO anchor_activities_v51down
-          SELECT id, camp_id, cohort_id, day_id, time_block_id, name, unit_id, span_blocks,
-                 is_all_groups, group_ids, notes, schedule_week_id,
-                 ${hasRecurrenceLevel ? 'recurrence_level,' : ''} location_id
-          FROM anchor_activities;
-        DROP TABLE anchor_activities;
-        ALTER TABLE anchor_activities_v51down RENAME TO anchor_activities;
-      `)
-      db.pragma('foreign_keys = ON')
-    }
-    // `>= 51`, not `= 51`. A bare equality strands any HIGHER version in the
-    // table, so rolling back v51 on a database that has since migrated further
-    // leaves getSchemaVersion() reporting the higher version while v51's tables
-    // are gone — a shape no migration path can produce and none will repair.
-    // Convention since v46_down (see T220).
-    db.prepare('DELETE FROM schema_migrations WHERE version >= 51').run()
-  })()
+  // PRAGMA foreign_keys is a genuine no-op while a transaction is open — toggle BEFORE
+  // db.transaction() opens its BEGIN, not inside the callback (v73_down.js's pattern).
+  db.pragma('foreign_keys = OFF')
+  try {
+    db.transaction(() => {
+      const cols = db.pragma('table_info(anchor_activities)').map((c) => c.name)
+      if (cols.includes('kind')) {
+        // baseColumns is v51's own shape MINUS `kind` (the whole point of this rollback) and
+        // minus recurrence_level — recurrence_level (T181/v71) and any column a migration after
+        // v51 added are both detected from live table_info and carried forward with their data
+        // by the helper, whether or not they exist on this particular db.
+        rebuildTableCarryingColumns(db, {
+          table: 'anchor_activities',
+          baseColumns: [
+            'id TEXT PRIMARY KEY',
+            'camp_id TEXT NOT NULL REFERENCES camps(id)',
+            'cohort_id TEXT REFERENCES cohorts(id)',
+            'day_id TEXT REFERENCES days_of_operation(id)',
+            'time_block_id TEXT',
+            'name TEXT',
+            'unit_id TEXT',
+            'span_blocks INTEGER',
+            'is_all_groups INTEGER',
+            'group_ids TEXT',
+            'notes TEXT',
+            'schedule_week_id TEXT REFERENCES schedule_weeks(id)',
+            'location_id TEXT',
+          ],
+          tableConstraints: [],
+          postIndexSql: [],
+          exclude: ['kind'],
+        })
+      }
+      // `>= 51`, not `= 51`. A bare equality strands any HIGHER version in the
+      // table, so rolling back v51 on a database that has since migrated further
+      // leaves getSchemaVersion() reporting the higher version while v51's tables
+      // are gone — a shape no migration path can produce and none will repair.
+      // Convention since v46_down (see T220).
+      db.prepare('DELETE FROM schema_migrations WHERE version >= 51').run()
+    })()
+  } finally {
+    db.pragma('foreign_keys = ON')
+  }
 
   return { recurringDiscarded: discarded }
 }

@@ -371,4 +371,31 @@ describe('rollbackV51', () => {
     expect(db.prepare("SELECT name FROM anchor_activities WHERE id = 'a1'").get().name).toBe('Flagpole')
     db.close()
   })
+
+  it('carries forward a column added by a LATER migration (after v51s window) and its data, while still dropping kind', () => {
+    // Same defect class as the v73 fix (#721, commit 73574fae): v51_down.js's recreate step used to
+    // enumerate a hardcoded column list, which silently dropped any column a later migration added
+    // to fixed_events/anchor_activities after that list was written. Simulate exactly that: a column
+    // that does not exist in v51's own shape, added here via ALTER TABLE as a stand-in for "some
+    // migration after v51 added this", populated with real data, then rolled back through v77 + v51.
+    const db = freshDb()
+    db.exec("ALTER TABLE fixed_events ADD COLUMN later_added TEXT DEFAULT 'x'")
+    db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()
+    db.prepare(
+      "INSERT INTO fixed_events (id, camp_id, name, kind, is_all_groups, group_ids, later_added) " +
+        "VALUES ('a1', 'camp1', 'Flagpole', 'fixed', 1, NULL, 'preserved')"
+    ).run()
+
+    rollbackV77(db)
+    const result = rollbackV51(db)
+    expect(result).toEqual({ recurringDiscarded: 0 })
+
+    const cols = db.pragma('table_info(anchor_activities)').map((c) => c.name)
+    expect(cols).not.toContain('kind')
+    expect(cols).toContain('later_added')
+    const row = db.prepare("SELECT name, later_added FROM anchor_activities WHERE id = 'a1'").get()
+    expect(row.name).toBe('Flagpole')
+    expect(row.later_added).toBe('preserved')
+    db.close()
+  })
 })
