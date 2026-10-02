@@ -18,7 +18,7 @@ import { minutesFromMidnight } from './setup/setupHelpers'
 import { ENTITY_FIELD_CATALOGS, inferEntityMapping, applyEntityMapping, describeMappingIssue } from '../ingest/entityColumnMapping.js'
 import { resolveRowAction } from '../ingest/resolveRowAction.js'
 import { resolveRowCohort, describeCohortNote } from '../ingest/resolveRowCohort.js'
-import { formatImportStopMessage } from '../ingest/importStopMessage.js'
+import { commitSetupImportBatch } from '../ingest/setupImportCommit.js'
 
 const TIME_BLOCKS_CATALOG = ENTITY_FIELD_CATALOGS.time_blocks
 // part_of_day is excluded from the mapping gate: this app does NOT derive it from a time
@@ -385,12 +385,14 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
       // Code Reviewer HIGH+MEDIUM: only diff fields the sheet actually named.
       const ROLE_TO_DB_KEY = { cohort_name: 'cohort_id' }
       const providedKeys = new Set(Object.keys(importMapping?.roles ?? {}).map(k => ROLE_TO_DB_KEY[k] ?? k))
-      let added = 0, updated = 0, unchanged = 0, skipped = 0
-      let stoppedAt = null
+      let unchanged = 0, skipped = 0, createdSoFar = 0
       const totalCount = importRows.length
+      // Resolve into a confirmed create/update set, then commit it atomically
+      // (board q-atomic-import-primitive, part 2): all-or-none, a failure names the row.
+      const batch = []
       for (const [index, row] of importRows.entries()) {
         if (!row.name || row.warning) { skipped++; continue }
-        const sortVal = row.sort_order !== null ? row.sort_order : (blocks.length + added + 1)
+        const sortVal = row.sort_order !== null ? row.sort_order : (blocks.length + createdSoFar + 1)
         const { cohortId } = resolveRowCohort(row.cohortName, cohorts, activeCohort)
         const candidateFields = {
           start_time: row.start_time, end_time: row.end_time, part_of_day: row.part_of_day,
@@ -398,37 +400,28 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
         }
         const key = String(row.name).toLowerCase()
         const resolution = resolveRowAction(row.name, candidateFields, existingByKey, providedKeys)
-        try {
-          if (resolution.action === 'unchanged') { unchanged++; continue }
-          if (resolution.action === 'update') {
-            await repository.writeFields('time_blocks', resolution.existing.id, resolution.changedFields)
-            updated++
-            // Red Hat HIGH: refresh the baseline with the applied value for a later same-key row.
-            existingByKey.set(key, { ...resolution.existing, ...resolution.changedFields })
-            continue
-          }
-          const id = crypto.randomUUID()
-          // `name` first — same collision-fails-atomically reasoning as addBlock.
-          await repository.createRecord('time_blocks', id, {
-            name: row.name,
-            camp_id: campId,
-            cohort_id: cohortId,
-            start_time: row.start_time,
-            end_time: row.end_time,
-            part_of_day: row.part_of_day,
-            sort_order: sortVal,
-          })
-          added++
-          existingByKey.set(String(row.name).toLowerCase(), { id, name: row.name, ...candidateFields })
-        } catch (err) {
-          console.error(`Failed to import time block "${row.name}"`, err)
-          stoppedAt = formatImportStopMessage({
-            importedCount: added + updated, totalCount, rowNumber: index + 1,
-            rowName: row.name, reason: err?.message || 'an unexpected error',
-          })
-          break
+        if (resolution.action === 'unchanged') { unchanged++; continue }
+        if (resolution.action === 'update') {
+          batch.push({ action: 'update', entity: 'time_blocks', entity_id: resolution.existing.id, fields: resolution.changedFields, name: row.name, __row: index + 1 })
+          // Red Hat HIGH: refresh the baseline with the value this batch will write for a later same-key row.
+          existingByKey.set(key, { ...resolution.existing, ...resolution.changedFields })
+          continue
         }
+        const id = crypto.randomUUID()
+        // `name` first — collision-guarded field leads (primitive enforces it too).
+        batch.push({ action: 'create', entity: 'time_blocks', entity_id: id, fields: {
+          name: row.name,
+          camp_id: campId,
+          cohort_id: cohortId,
+          start_time: row.start_time,
+          end_time: row.end_time,
+          part_of_day: row.part_of_day,
+          sort_order: sortVal,
+        }, name: row.name, __row: index + 1 })
+        createdSoFar++
+        existingByKey.set(String(row.name).toLowerCase(), { id, name: row.name, ...candidateFields })
       }
+      const { added, updated, stoppedAt } = await commitSetupImportBatch(repository, { batch, totalCount })
       setImportResult({ added, updated, unchanged, skipped, stoppedAt }); setImportStep('done')
     } catch (err) {
       console.error('Import failed', err)

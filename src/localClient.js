@@ -243,6 +243,12 @@ export const localClient = {
   denyDevice: (deviceId) => shoresh.denyDevice({ token: currentToken(), deviceId }),
   listDevices: () => shoresh.listDevices(currentToken()),
   listPeerErasureState: () => shoresh.listPeerErasureState(currentToken()),
+  // announcing() like every other mutator: a bulk setup import must wake
+  // onLocalWrite subscribers (e.g. useSetupCounts' sidebar readiness) once it
+  // lands, or the director sees stale gap counts right after importing (Red Hat
+  // MEDIUM). A rolled-back failure fires it too — harmless, the re-read sees the
+  // unchanged data.
+  importSetupRows: announcing((token, rows) => shoresh.importSetupRows({ token: token ?? currentToken(), rows })),
   revokeDevice: (deviceId, reason) => shoresh.revokeDevice({ token: currentToken(), deviceId, reason }),
   duplicateWeek: (sourceWeekId, campId) => shoresh.duplicateWeek({ sourceWeekId, campId }),
   // deleteWeekHandler (electron/main.js) destructures { token, weekId } and goes

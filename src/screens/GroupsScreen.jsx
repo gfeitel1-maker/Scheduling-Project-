@@ -22,7 +22,7 @@ import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { duplicateSiblingsByIdFor } from './duplicateSiblings.js'
 import { ENTITY_FIELD_CATALOGS, inferEntityMapping, applyEntityMapping, describeMappingIssue } from '../ingest/entityColumnMapping.js'
 import { resolveRowAction } from '../ingest/resolveRowAction.js'
-import { formatImportStopMessage } from '../ingest/importStopMessage.js'
+import { commitSetupImportBatch } from '../ingest/setupImportCommit.js'
 
 const GROUPS_CATALOG = ENTITY_FIELD_CATALOGS.groups
 
@@ -474,44 +474,35 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
     // absent must never be diffed (its candidate is a parser default, not the file's word).
     const ROLE_TO_DB_KEY = { tier_name: 'tier_id', availability: 'availability' }
     const providedKeys = new Set(Object.keys(importMapping?.roles ?? {}).map(k => ROLE_TO_DB_KEY[k] ?? k))
-    let added = 0, updated = 0, unchanged = 0, skipped = 0
-    let stoppedAt = null
+    let unchanged = 0, skipped = 0
     const totalCount = importRows.length
+    // Resolve into a confirmed create/update set, then commit it atomically
+    // (board q-atomic-import-primitive, part 2): all-or-none, a failure names the row.
+    const batch = []
     for (const [index, row] of importRows.entries()) {
       if (!row.name || row.warning) { skipped++; continue }
       const candidateFields = { tier_id: row.tierId, availability: row.availability }
       const key = row.name.toLowerCase()
       const resolution = resolveRowAction(row.name, candidateFields, existingByKey, providedKeys)
-      try {
-        if (resolution.action === 'unchanged') { unchanged++; continue }
-        if (resolution.action === 'update') {
-          await repository.writeFields('groups', resolution.existing.id, resolution.changedFields)
-          updated++
-          // Red Hat HIGH: refresh the in-memory baseline with the applied value so a later
-          // row sharing this key diffs against it, not the stale pre-import value.
-          existingByKey.set(key, { ...resolution.existing, ...resolution.changedFields })
-          continue
-        }
-        const id = crypto.randomUUID()
-        // `name` first — same collision-fails-atomically reasoning as
-        // addGroup. createRecord does the write-then-cleanup-on-failure dance.
-        await repository.createRecord('groups', id, {
-          name: row.name,
-          camp_id: campId,
-          tier_id: row.tierId,
-          availability: row.availability,
-        })
-        added++
-        existingByKey.set(row.name.toLowerCase(), { id, name: row.name, tier_id: row.tierId, availability: row.availability })
-      } catch (err) {
-        console.error(`Failed to import group "${row.name}"`, err)
-        stoppedAt = formatImportStopMessage({
-          importedCount: added + updated, totalCount, rowNumber: index + 1,
-          rowName: row.name, reason: err?.message || 'an unexpected error',
-        })
-        break
+      if (resolution.action === 'unchanged') { unchanged++; continue }
+      if (resolution.action === 'update') {
+        batch.push({ action: 'update', entity: 'groups', entity_id: resolution.existing.id, fields: resolution.changedFields, name: row.name, __row: index + 1 })
+        // Red Hat HIGH: refresh the in-memory baseline with the value this batch will
+        // write so a later row sharing this key diffs against it, not the stale value.
+        existingByKey.set(key, { ...resolution.existing, ...resolution.changedFields })
+        continue
       }
+      const id = crypto.randomUUID()
+      // `name` first — the collision-guarded field leads (primitive enforces it too).
+      batch.push({ action: 'create', entity: 'groups', entity_id: id, fields: {
+        name: row.name,
+        camp_id: campId,
+        tier_id: row.tierId,
+        availability: row.availability,
+      }, name: row.name, __row: index + 1 })
+      existingByKey.set(row.name.toLowerCase(), { id, name: row.name, tier_id: row.tierId, availability: row.availability })
     }
+    const { added, updated, stoppedAt } = await commitSetupImportBatch(repository, { batch, totalCount })
     setImportResult({ added, updated, unchanged, skipped, stoppedAt }); setImportStep('done')
     setImporting(false); await load()
   }

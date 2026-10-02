@@ -8,7 +8,7 @@ function makeFakeLocalClient(initialRows = []) {
 }
 
 function fakeRepository(overrides = {}) {
-  const calls = { createRecord: [], writeFields: [], deleteAllRecords: [] }
+  const calls = { createRecord: [], writeFields: [], deleteAllRecords: [], importRows: [] }
   return {
     calls,
     createRecord: vi.fn((entity, id, fields) => {
@@ -18,6 +18,15 @@ function fakeRepository(overrides = {}) {
     writeFields: vi.fn((entity, id, fields) => {
       calls.writeFields.push([entity, id, fields])
       return overrides.writeFields ? overrides.writeFields(entity, id, fields) : Promise.resolve()
+    }),
+    // Mirrors the atomic primitive's contract: {ok, created, updated, rowCount},
+    // or a {ok:false, failedRow, reason} an override can inject.
+    importRows: vi.fn((rows) => {
+      calls.importRows.push(rows)
+      if (overrides.importRows) return overrides.importRows(rows)
+      const created = rows.filter((r) => r.action === 'create').length
+      const updated = rows.filter((r) => r.action === 'update').length
+      return Promise.resolve({ ok: true, created, updated, rowCount: created + updated })
     }),
     deleteAllRecords: vi.fn((entity, ids) => {
       calls.deleteAllRecords.push([entity, ids])
@@ -224,7 +233,12 @@ describe('useCrudScreen — importRows', () => {
     })
 
     expect(importResult).toEqual({ added: 1, updated: 0, unchanged: 0, skipped: 2, stoppedAt: null })
-    expect(repository.calls.createRecord).toEqual([['days_of_operation', 'new-id', { label: 'Tuesday', camp_id: 'camp-1' }]])
+    // One atomic batch with a single create for Tuesday (warned + duplicate skipped).
+    expect(repository.calls.importRows).toHaveLength(1)
+    expect(repository.calls.importRows[0]).toEqual([
+      { action: 'create', entity: 'days_of_operation', entity_id: 'new-id', fields: { label: 'Tuesday', camp_id: 'camp-1' }, name: 'Tuesday', __row: 3 },
+    ])
+    expect(repository.calls.createRecord).toEqual([]) // per-row create path no longer used
   })
 
   it('does not double-add two duplicate rows within the same import batch', async () => {
@@ -248,6 +262,8 @@ describe('useCrudScreen — importRows', () => {
     })
 
     expect(importResult).toEqual({ added: 1, updated: 0, unchanged: 0, skipped: 1, stoppedAt: null })
+    // Only ONE create reached the batch; the second Monday resolved as a skip.
+    expect(repository.calls.importRows[0].filter((r) => r.action === 'create')).toHaveLength(1)
   })
 
   // board q-export-columns-do-not-round-trip, B3 — findExisting/buildChangedFields replace a
@@ -279,7 +295,11 @@ describe('useCrudScreen — importRows', () => {
     })
 
     expect(importResult).toEqual({ added: 0, updated: 1, unchanged: 1, skipped: 0, stoppedAt: null })
-    expect(repository.calls.writeFields).toEqual([['days_of_operation', 'existing-mon', { day_of_week: 5 }]])
+    // One update row in the batch (changed day_of_week); the identical row wrote nothing.
+    expect(repository.calls.importRows[0]).toEqual([
+      { action: 'update', entity: 'days_of_operation', entity_id: 'existing-mon', fields: { day_of_week: 5 }, name: 'Monday', __row: 1 },
+    ])
+    expect(repository.calls.writeFields).toEqual([]) // per-row write path no longer used
   })
 
   // Red Hat HIGH — a SECOND row sharing a natural key must diff against what the FIRST row
@@ -311,20 +331,22 @@ describe('useCrudScreen — importRows', () => {
     })
 
     expect(importResult).toEqual({ added: 0, updated: 2, unchanged: 0, skipped: 0, stoppedAt: null })
-    expect(repository.calls.writeFields).toEqual([
-      ['activities', 'existing-1', { priority: 'high' }],
-      ['activities', 'existing-1', { priority: 'low' }],
+    // Both updates are in ONE atomic batch, in order; the second diffs against
+    // the first's value (high), not the stale original (low) — so it is present.
+    expect(repository.calls.importRows[0]).toEqual([
+      { action: 'update', entity: 'activities', entity_id: 'existing-1', fields: { priority: 'high' }, name: 'Archery', __row: 1 },
+      { action: 'update', entity: 'activities', entity_id: 'existing-1', fields: { priority: 'low' }, name: 'Archery', __row: 2 },
     ])
   })
 
-  it('stops the loop on an unexpected createRecord failure and reports how many rows already landed', async () => {
+  // Atomic swap (board q-atomic-import-primitive, part 2): a row failure now
+  // rolls the WHOLE import back — nothing landed — and the message names the row
+  // and says the existing setup is untouched, instead of "imported N of M".
+  it('reports an all-or-none rollback when a row fails, naming the row, nothing landed', async () => {
     const localClient = makeFakeLocalClient([])
-    let callCount = 0
     const repository = fakeRepository({
-      createRecord: () => {
-        callCount++
-        return callCount === 2 ? Promise.reject(new Error('disk full')) : Promise.resolve()
-      },
+      // The primitive rolled the whole set back and names the batch row (row 2).
+      importRows: () => Promise.resolve({ ok: false, failedRow: { number: 2, name: 'Tuesday', entity: 'days_of_operation', entity_id: 'new-id' }, reason: 'disk full', created: 0, updated: 0 }),
     })
     const { result } = renderHook(() =>
       useCrudScreen({ entity: 'days_of_operation', campId: 'camp-1', localClient, repository, scopeFilter, buildCreateFields: (f) => f })
@@ -344,11 +366,15 @@ describe('useCrudScreen — importRows', () => {
       importResult = await result.current.importRows(parsedRows, { mapRow, duplicateCheck })
     })
 
-    expect(importResult.added).toBe(1)
-    expect(importResult.stoppedAt).toMatch(/Imported 1 of 3 rows; row 2 \('Tuesday'\) failed: disk full/)
-    expect(importResult.stoppedAt).toMatch(/No further rows were written/)
-    expect(importResult.stoppedAt.toLowerCase()).not.toContain('atomic')
-    // Wednesday was never attempted.
-    expect(repository.calls.createRecord).toHaveLength(2)
+    // Nothing landed — all-or-none.
+    expect(importResult.added).toBe(0)
+    expect(importResult.updated).toBe(0)
+    expect(importResult.stoppedAt).toMatch(/Nothing was imported/)
+    expect(importResult.stoppedAt).toMatch(/row 2 of 3 \('Tuesday'\)/)
+    expect(importResult.stoppedAt).toMatch(/disk full/)
+    expect(importResult.stoppedAt).toMatch(/left exactly as it was/)
+    // The whole confirmed set went to the primitive in ONE call (all three rows).
+    expect(repository.calls.importRows).toHaveLength(1)
+    expect(repository.calls.importRows[0]).toHaveLength(3)
   })
 })

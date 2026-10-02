@@ -9,6 +9,7 @@ vi.mock('../localClient', () => ({
     list: vi.fn(),
     listByScope: vi.fn(),
     write: vi.fn(),
+    importSetupRows: vi.fn(),
     deleteEntity: vi.fn(),
     previewDelete: vi.fn(),
     deleteRecord: vi.fn(),
@@ -88,6 +89,12 @@ beforeEach(() => {
   })
   localClient.listByScope.mockReset().mockResolvedValue([])
   localClient.write.mockReset().mockResolvedValue({ status: 'applied' })
+  localClient.importSetupRows.mockReset().mockImplementation(async (_token, rows) => ({
+    ok: true,
+    created: rows.filter((r) => r.action === 'create').length,
+    updated: rows.filter((r) => r.action === 'update').length,
+    rowCount: rows.length,
+  }))
   localClient.deleteEntity.mockReset().mockResolvedValue({ status: 'applied' })
   localClient.previewDelete.mockReset().mockResolvedValue({
     ok: true, entity: 'locations', entity_id: 'loc-1', name: 'Pool', ref_count: 0, activities: [],
@@ -223,13 +230,17 @@ describe('LocationsScreen', () => {
     // the 'pool' duplicate now carries a changed capacity/kind vs the existing row — an
     // UPDATE (board q-export-columns-do-not-round-trip, B3), not a silent skip.
     expect(screen.queryByText(/1 updated/)).not.toBeNull()
-    const namesWritten = localClient.write.mock.calls.filter((c) => c[3] === 'name').map((c) => c[4])
-    expect(namesWritten).toEqual(['Gym'])
-    const capsWritten = localClient.write.mock.calls.filter((c) => c[1] === 'locations' && c[3] === 'capacity').map((c) => c[4])
-    expect(capsWritten).toContain(4)
-    const existingCapWrite = localClient.write.mock.calls.filter((c) => c[2] === 'loc-1' && c[3] === 'capacity')
-    expect(existingCapWrite).toHaveLength(1)
-    expect(existingCapWrite[0][4]).toBe(2)
+    // One atomic batch (board q-atomic-import-primitive, part 2): a create for Gym
+    // and an update for the existing Pool; the warned blank row is skipped.
+    expect(localClient.importSetupRows).toHaveBeenCalledTimes(1)
+    const batch = localClient.importSetupRows.mock.calls[0][1]
+    const creates = batch.filter((r) => r.action === 'create')
+    const updates = batch.filter((r) => r.action === 'update')
+    expect(creates.map((r) => r.fields.name)).toEqual(['Gym'])
+    expect(creates[0].fields.capacity).toBe(4)
+    expect(updates).toHaveLength(1)
+    expect(updates[0].entity_id).toBe('loc-1')
+    expect(updates[0].fields.capacity).toBe(2)
   })
 
   it('edits capacity via the stepper in the inline edit row and saves the new value', async () => {

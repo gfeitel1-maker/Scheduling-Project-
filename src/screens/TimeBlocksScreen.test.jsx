@@ -7,6 +7,7 @@ vi.mock('../localClient', () => ({
   localClient: {
     list: vi.fn(),
     write: vi.fn(),
+    importSetupRows: vi.fn(),
     deleteEntity: vi.fn(),
   },
 }))
@@ -55,6 +56,12 @@ beforeEach(() => {
     return Promise.resolve([])
   })
   localClient.write.mockReset().mockResolvedValue({ status: 'applied' })
+  localClient.importSetupRows.mockReset().mockImplementation(async (_token, rows) => ({
+    ok: true,
+    created: rows.filter((r) => r.action === 'create').length,
+    updated: rows.filter((r) => r.action === 'update').length,
+    rowCount: rows.length,
+  }))
   localClient.deleteEntity.mockReset().mockResolvedValue({ status: 'applied' })
   XLSX.utils.sheet_to_json.mockReset().mockReturnValue([])
   XLSX.read.mockReset().mockReturnValue({ SheetNames: ['Sheet1'], Sheets: { Sheet1: {} } })
@@ -449,8 +456,10 @@ describe('TimeBlocksScreen — import', () => {
     await waitFor(() => expect(screen.queryByText(/1 new/)).not.toBeNull())
     expect(screen.queryByText(/1 unchanged/)).not.toBeNull()
     expect(screen.queryByText(/1 skipped/)).not.toBeNull()
-    const namesWritten = localClient.write.mock.calls.filter(c => c[3] === 'name').map(c => c[4])
-    expect(namesWritten).toEqual(['Block 2'])
+    // One atomic batch: a single create for the new block (duplicate unchanged, warned skipped).
+    expect(localClient.importSetupRows).toHaveBeenCalledTimes(1)
+    const batch = localClient.importSetupRows.mock.calls[0][1]
+    expect(batch.filter(r => r.action === 'create').map(r => r.fields.name)).toEqual(['Block 2'])
   })
 
   // board q-export-columns-do-not-round-trip, B2b derive-or-name — part_of_day is NEVER

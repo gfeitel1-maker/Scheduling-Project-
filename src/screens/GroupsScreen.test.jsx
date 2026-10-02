@@ -7,6 +7,7 @@ vi.mock('../localClient', () => ({
   localClient: {
     list: vi.fn(),
     write: vi.fn(),
+    importSetupRows: vi.fn(),
     deleteEntity: vi.fn(),
     previewDelete: vi.fn(),
     deleteRecord: vi.fn(),
@@ -62,6 +63,12 @@ beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => {})
   localClient.list.mockReset()
   localClient.write.mockReset().mockResolvedValue({ status: 'applied' })
+  localClient.importSetupRows.mockReset().mockImplementation(async (_token, rows) => ({
+    ok: true,
+    created: rows.filter((r) => r.action === 'create').length,
+    updated: rows.filter((r) => r.action === 'update').length,
+    rowCount: rows.length,
+  }))
   localClient.deleteEntity.mockReset().mockResolvedValue({ status: 'applied' })
   localClient.previewDelete.mockReset().mockResolvedValue(preview())
   localClient.deleteRecord.mockReset().mockResolvedValue({ ok: true, cleared: 75 })
@@ -433,13 +440,17 @@ describe('GroupsScreen — import', () => {
     await waitFor(() => expect(screen.queryByText(/1 new/)).not.toBeNull())
     expect(screen.queryByText(/1 updated/)).not.toBeNull()
     expect(screen.queryByText(/1 skipped/)).not.toBeNull()
-    const namesWritten = localClient.write.mock.calls.filter(c => c[3] === 'name').map(c => c[4])
-    expect(namesWritten).toEqual(['Bogrim 1'])
-    const availWritten = localClient.write.mock.calls.filter(c => c[3] === 'availability').map(c => c[4])
-    expect(availWritten).toEqual(['morning'])
-    const tierWritesForExisting = localClient.write.mock.calls.filter(c => c[2] === 'g1' && c[3] === 'tier_id')
-    expect(tierWritesForExisting).toHaveLength(1)
-    expect(tierWritesForExisting[0][4]).toBe('tier-1')
+    // One atomic batch (board q-atomic-import-primitive, part 2): a create for the
+    // new group and an update of the existing one's tier_id; warned row skipped.
+    expect(localClient.importSetupRows).toHaveBeenCalledTimes(1)
+    const batch = localClient.importSetupRows.mock.calls[0][1]
+    const creates = batch.filter(r => r.action === 'create')
+    const updates = batch.filter(r => r.action === 'update')
+    expect(creates.map(r => r.fields.name)).toEqual(['Bogrim 1'])
+    expect(creates[0].fields.availability).toBe('morning')
+    expect(updates).toHaveLength(1)
+    expect(updates[0].entity_id).toBe('g1')
+    expect(updates[0].fields.tier_id).toBe('tier-1')
   })
 
   it('flags an import row whose age division name does not match any existing age division', async () => {

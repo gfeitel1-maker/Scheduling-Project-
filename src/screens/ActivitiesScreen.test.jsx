@@ -7,6 +7,7 @@ vi.mock('../localClient', () => ({
   localClient: {
     list: vi.fn(),
     write: vi.fn(),
+    importSetupRows: vi.fn(),
     deleteEntity: vi.fn(),
     previewDelete: vi.fn(),
     deleteRecord: vi.fn(),
@@ -40,6 +41,24 @@ import { deriveLocationId } from '../../electron/ops/locationId.js'
 import { RULE_FIELDS } from '../utils/ruleProvenance.js'
 
 const CAMP_ID = 'camp-1'
+
+// Door-swap (board q-atomic-import-primitive, part 2): the import now commits ONE
+// atomic batch via localClient.importSetupRows instead of per-field writes. This
+// flattens that batch into the same [_, entity, entity_id, field, value] tuple
+// shape the old write mock recorded, so an import test's c[1]/c[2]/c[3]/c[4]
+// assertions carry over by swapping the source from localClient.write.mock.calls
+// to importedFieldWrites(). Field values are exactly what the screen put in the
+// batch (already serialized where the screen serializes), matching the old writes.
+function importedFieldWrites() {
+  const rows = localClient.importSetupRows.mock.calls[0]?.[1] ?? []
+  const out = []
+  for (const r of rows) {
+    for (const [field, value] of Object.entries(r.fields ?? {})) {
+      out.push([undefined, r.entity, r.entity_id, field, value])
+    }
+  }
+  return out
+}
 
 function activity(overrides = {}) {
   return {
@@ -80,6 +99,12 @@ beforeEach(() => {
     return Promise.resolve([])
   })
   localClient.write.mockReset().mockResolvedValue({ status: 'applied' })
+  localClient.importSetupRows.mockReset().mockImplementation(async (_token, rows) => ({
+    ok: true,
+    created: rows.filter((r) => r.action === 'create').length,
+    updated: rows.filter((r) => r.action === 'update').length,
+    rowCount: rows.length,
+  }))
   localClient.deleteEntity.mockReset().mockResolvedValue({ status: 'applied' })
   localClient.previewDelete.mockReset().mockResolvedValue({
     ok: true, entity: 'activities', entity_id: 'act-1', name: 'Archery',
@@ -296,23 +321,29 @@ describe('ActivitiesScreen — import', () => {
     // existing row ([]) didn't have — an UPDATE, not a silent skip.
     expect(screen.queryByText(/1 updated/)).not.toBeNull()
     expect(screen.queryByText(/1 skipped/)).not.toBeNull()
-    const activityNamesWritten = localClient.write.mock.calls.filter(c => c[1] === 'activities' && c[3] === 'name').map(c => c[4])
+    // One atomic batch (board q-atomic-import-primitive, part 2) — flattened to the
+    // old per-field write shape so these assertions carry over unchanged.
+    const writes = importedFieldWrites()
+    const activityNamesWritten = writes.filter(c => c[1] === 'activities' && c[3] === 'name').map(c => c[4])
     expect(activityNamesWritten).toEqual(['Water Play'])
-    const priorityWritten = localClient.write.mock.calls.filter(c => c[3] === 'priority').map(c => c[4])
+    const priorityWritten = writes.filter(c => c[3] === 'priority').map(c => c[4])
     expect(priorityWritten).toEqual(['high'])
-    const eligTierWrites = localClient.write.mock.calls.filter(c => c[1] === 'activities' && c[2] === 'a1' && c[3] === 'eligible_tier_ids')
+    const eligTierWrites = writes.filter(c => c[1] === 'activities' && c[2] === 'a1' && c[3] === 'eligible_tier_ids')
     expect(eligTierWrites).toHaveLength(1)
 
-    // The sheet's free-text "Pool" resolved to a new locations row, created
-    // before the activity that references it.
-    const locationNamesWritten = localClient.write.mock.calls.filter(c => c[1] === 'locations' && c[3] === 'name').map(c => c[4])
+    // The sheet's free-text "Pool" resolved to a new locations row, queued in the
+    // SAME batch before the activity that references it (so a failure rolls both back).
+    const locationNamesWritten = writes.filter(c => c[1] === 'locations' && c[3] === 'name').map(c => c[4])
     expect(locationNamesWritten).toEqual(['Pool'])
     const derivedLocId = deriveLocationId(CAMP_ID, 'Pool')
-    expect(localClient.write).toHaveBeenCalledWith('token-abc', 'locations', derivedLocId, 'name', 'Pool')
-    expect(localClient.write).toHaveBeenCalledWith('token-abc', 'activities', 'new-activity-id', 'location_id', derivedLocId)
+    const batch = localClient.importSetupRows.mock.calls[0][1]
+    expect(batch.some(r => r.entity === 'locations' && r.action === 'create' && r.entity_id === derivedLocId && r.fields.name === 'Pool')).toBe(true)
+    expect(batch.some(r => r.entity === 'activities' && r.entity_id === 'new-activity-id' && r.fields.location_id === derivedLocId)).toBe(true)
+    // The locations row is ordered before the activity that references it.
+    expect(batch.findIndex(r => r.entity === 'locations')).toBeLessThan(batch.findIndex(r => r.entity === 'activities' && r.action === 'create'))
 
     // D5 UI freeze: the import path never writes the free-text column either.
-    expect(localClient.write.mock.calls.some(c => c[1] === 'activities' && c[3] === 'location')).toBe(false)
+    expect(writes.some(c => c[1] === 'activities' && c[3] === 'location')).toBe(false)
   })
 
   // Code Reviewer HIGH+MEDIUM (board q-export-columns-do-not-round-trip, B3) — an UPDATE
@@ -345,16 +376,17 @@ describe('ActivitiesScreen — import', () => {
 
     await waitFor(() => expect(screen.queryByText(/1 updated/)).not.toBeNull())
     // priority WAS named by the sheet and changed — it updates.
-    const priorityWrites = localClient.write.mock.calls.filter(c => c[2] === 'a1' && c[3] === 'priority')
+    const writes = importedFieldWrites()
+    const priorityWrites = writes.filter(c => c[2] === 'a1' && c[3] === 'priority')
     expect(priorityWrites).toHaveLength(1)
     expect(priorityWrites[0][4]).toBe('high')
     // eligible_group_ids has NO column anywhere in the catalog — never written, override survives.
-    expect(localClient.write.mock.calls.some(c => c[2] === 'a1' && c[3] === 'eligible_group_ids')).toBe(false)
+    expect(writes.some(c => c[2] === 'a1' && c[3] === 'eligible_group_ids')).toBe(false)
     // max_groups_per_slot/min_per_week/max_per_week/same_tier_only/location_id/etc are all
     // absent from this sheet — none of their parser defaults are written either.
     const unprovidedKeys = ['max_groups_per_slot', 'min_per_week', 'max_per_week', 'same_tier_only', 'location_id', 'notes']
     for (const key of unprovidedKeys) {
-      expect(localClient.write.mock.calls.some(c => c[2] === 'a1' && c[3] === key)).toBe(false)
+      expect(writes.some(c => c[2] === 'a1' && c[3] === key)).toBe(false)
     }
   })
 
@@ -411,7 +443,7 @@ describe('ActivitiesScreen — import refuses an ambiguous same-named match', ()
     await userEvent.upload(fileInput, file)
 
     await waitFor(() => expect(screen.queryByText(/ambiguous/i)).not.toBeNull())
-    const tierIdsWritten = localClient.write.mock.calls.filter(c => c[3] === 'eligible_tier_ids').map(c => c[4])
+    const tierIdsWritten = importedFieldWrites().filter(c => c[3] === 'eligible_tier_ids').map(c => c[4])
     expect(tierIdsWritten).toEqual([])
   })
 
@@ -438,9 +470,10 @@ describe('ActivitiesScreen — import refuses an ambiguous same-named match', ()
 
     await waitFor(() => expect(screen.queryByText(/ambiguous/i)).not.toBeNull())
     // Must not fall through to the create branch and mint a THIRD "Pool".
-    const locationNamesWritten = localClient.write.mock.calls.filter(c => c[1] === 'locations' && c[3] === 'name').map(c => c[4])
+    const writes = importedFieldWrites()
+    const locationNamesWritten = writes.filter(c => c[1] === 'locations' && c[3] === 'name').map(c => c[4])
     expect(locationNamesWritten).toEqual([])
-    const activityLocationIdsWritten = localClient.write.mock.calls.filter(c => c[1] === 'activities' && c[3] === 'location_id').map(c => c[4])
+    const activityLocationIdsWritten = writes.filter(c => c[1] === 'activities' && c[3] === 'location_id').map(c => c[4])
     expect(activityLocationIdsWritten).toEqual([])
   })
 })
@@ -475,10 +508,11 @@ describe('ActivitiesScreen — import location resolve is deterministic and case
 
     // A distinct "pool" row is minted, case-sensitive, deterministic id.
     const derivedPoolId = deriveLocationId(CAMP_ID, 'pool')
-    expect(localClient.write).toHaveBeenCalledWith('token-abc', 'locations', derivedPoolId, 'name', 'pool')
-    expect(localClient.write).toHaveBeenCalledWith('token-abc', 'activities', 'new-activity-id', 'location_id', derivedPoolId)
+    const batch = localClient.importSetupRows.mock.calls[0][1]
+    expect(batch.some(r => r.entity === 'locations' && r.action === 'create' && r.entity_id === derivedPoolId && r.fields.name === 'pool')).toBe(true)
+    expect(batch.some(r => r.entity === 'activities' && r.entity_id === 'new-activity-id' && r.fields.location_id === derivedPoolId)).toBe(true)
     // Never the pre-existing "Pool" row's id.
-    expect(localClient.write.mock.calls.some(c => c[1] === 'activities' && c[3] === 'location_id' && c[4] === 'loc-Pool')).toBe(false)
+    expect(batch.some(r => r.entity === 'activities' && r.fields.location_id === 'loc-Pool')).toBe(false)
   })
 
   it('reuses an existing exact-name "Pool" row on re-import — no duplicate is minted', async () => {
@@ -502,8 +536,9 @@ describe('ActivitiesScreen — import location resolve is deterministic and case
     await waitFor(() => expect(screen.queryByText(/1 new/)).not.toBeNull())
 
     // No new location row: exact-name "Pool" reuses the existing row.
-    expect(localClient.write.mock.calls.some(c => c[1] === 'locations' && c[3] === 'name')).toBe(false)
-    expect(localClient.write).toHaveBeenCalledWith('token-abc', 'activities', 'new-activity-id', 'location_id', 'loc-Pool')
+    const batch = localClient.importSetupRows.mock.calls[0][1]
+    expect(batch.some(r => r.entity === 'locations')).toBe(false)
+    expect(batch.some(r => r.entity === 'activities' && r.entity_id === 'new-activity-id' && r.fields.location_id === 'loc-Pool')).toBe(true)
   })
 
   it('within one import, "Field" and "field" mint TWO distinct location rows (case-sensitive)', async () => {
@@ -529,7 +564,7 @@ describe('ActivitiesScreen — import location resolve is deterministic and case
     await waitFor(() => expect(screen.queryByText(/2 new/)).not.toBeNull())
 
     // Two distinct location rows, one per case variant.
-    const locationNamesWritten = localClient.write.mock.calls.filter(c => c[1] === 'locations' && c[3] === 'name').map(c => c[4])
+    const locationNamesWritten = importedFieldWrites().filter(c => c[1] === 'locations' && c[3] === 'name').map(c => c[4])
     expect(locationNamesWritten.sort()).toEqual(['Field', 'field'])
   })
 
@@ -561,10 +596,11 @@ describe('ActivitiesScreen — import location resolve is deterministic and case
 
     // A distinct disambiguated row is minted for "Pool" — never the renamed row's id.
     const disambiguatedId = `${renamedRowId}:2`
-    expect(localClient.write).toHaveBeenCalledWith('token-abc', 'locations', disambiguatedId, 'name', 'Pool')
-    expect(localClient.write).toHaveBeenCalledWith('token-abc', 'activities', 'new-activity-id', 'location_id', disambiguatedId)
+    const batch = localClient.importSetupRows.mock.calls[0][1]
+    expect(batch.some(r => r.entity === 'locations' && r.action === 'create' && r.entity_id === disambiguatedId && r.fields.name === 'Pool')).toBe(true)
+    expect(batch.some(r => r.entity === 'activities' && r.entity_id === 'new-activity-id' && r.fields.location_id === disambiguatedId)).toBe(true)
     // The renamed row is never targeted by a locations write at all.
-    expect(localClient.write.mock.calls.some(c => c[1] === 'locations' && c[2] === renamedRowId)).toBe(false)
+    expect(batch.some(r => r.entity === 'locations' && r.entity_id === renamedRowId)).toBe(false)
   })
 
   it('cross-device determinism: the same CSV imported on two independent devices mints byte-identical location ids', async () => {
@@ -578,6 +614,8 @@ describe('ActivitiesScreen — import location resolve is deterministic and case
         return Promise.resolve([])
       })
       localClient.write.mockReset().mockResolvedValue({ status: 'applied' })
+      // Fresh per device so each device's batch is mock.calls[0] (no shared state).
+      localClient.importSetupRows.mockReset().mockImplementation(async (_t, rows) => ({ ok: true, created: rows.filter(r => r.action === 'create').length, updated: rows.filter(r => r.action === 'update').length, rowCount: rows.length }))
       const { unmount } = render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
       await waitFor(() => expect(screen.queryByText('No activities yet')).not.toBeNull())
       const file = new File(['dummy'], 'activities.xlsx')
@@ -589,9 +627,9 @@ describe('ActivitiesScreen — import location resolve is deterministic and case
       await waitFor(() => expect(screen.queryByText(/Import 1/)).not.toBeNull())
       fireEvent.click(screen.getByText(/Import 1/))
       await waitFor(() => expect(screen.queryByText(/1 new/)).not.toBeNull())
-      const locWrite = localClient.write.mock.calls.find(c => c[1] === 'locations' && c[3] === 'name')
+      const locCreate = localClient.importSetupRows.mock.calls[0][1].find(r => r.entity === 'locations' && r.action === 'create')
       unmount()
-      return locWrite[2] // entity_id minted for the location
+      return locCreate.entity_id // entity_id minted for the location
     }
 
     const idOnDeviceA = await importOnOneDevice()

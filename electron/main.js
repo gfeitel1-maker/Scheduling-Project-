@@ -19,6 +19,7 @@ import { recordAuditEvent } from './audit/auditLog.js'
 import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES, resolveParentJoinChain } from './ops/campScopedEntities.js'
 import { listEntities } from './ops/read.js'
 import { listPeerErasureStateFromDb } from './ops/peerErasureState.js'
+import { importSetupRows } from './ops/importSetupRows.js'
 import { IPC_PIN_FIELDS } from './ops/pinFields.js'
 import { listDeleted, getEntityHistory } from './ops/trash.js'
 import { RESTORABLE_ENTITIES, restoreEntity, lastKnownFieldSources } from './ops/restore.js'
@@ -1214,6 +1215,35 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     if (!isNonEmptyString(token)) throw new Error('token is required')
     requireAuthorized(db, { token, action: 'devices.read' })
     return listPeerErasureStateFromDb(db, { localDeviceId: deviceId })
+  }
+
+  // The atomic setup-import door (board q-atomic-import-primitive, part 2). The
+  // seven setup screens resolve a preview into a confirmed create/update batch
+  // and commit it here in ONE call; importSetupRows wraps the whole set in one
+  // runAtomic frame, so a mid-set failure rolls everything back (the DB is
+  // byte-identical to before) and names the row that failed. This is exactly the
+  // authority of the per-field setup writes it replaces — `<entity>.write`,
+  // staff+admin — so it is authorized the same way and is deliberately NOT
+  // Host-only (staff edit setup on any device; a batch of the same writes is no
+  // different). Credential/role fields never travel this path (the doors only
+  // ever send setup entities), so write()'s users.* guards are not duplicated.
+  function importSetupRowsHandler({ token, rows } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    if (!Array.isArray(rows) || rows.length === 0) throw new Error('rows must be a non-empty array')
+    const entities = [...new Set(rows.map((row) => row?.entity).filter(Boolean))]
+    if (entities.length === 0) throw new Error('every import row must name an entity')
+    // Authorize each distinct entity's write; capture the session userId for
+    // op authorship. Every entity must pass — a batch is all-or-none, so a
+    // caller may not smuggle an unauthorized entity in alongside an authorized one.
+    let userId = null
+    for (const entity of entities) {
+      ({ userId } = requireAuthorized(db, { token, action: `${entity}.write` }))
+    }
+    const result = importSetupRows(db, { rows, author_user_id: userId, device_id: deviceId })
+    // Regenerate the read-only camp-data export workbook on a clean commit,
+    // mirroring the onOpApplied fan-out the per-field write path triggered.
+    if (result.ok) campDataRecordWriter.schedule()
+    return result
   }
 
   function approveDevice({ token, deviceId: targetDeviceId } = {}) {
@@ -2691,6 +2721,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     listPendingPairingRequests,
     listDevices,
     listPeerErasureState,
+    importSetupRows: importSetupRowsHandler,
     approveDevice,
     denyDevice,
     revokeDevice,
@@ -2884,6 +2915,7 @@ if (isElectronEntryPoint()) {
     'shoresh:list-pending-pairing-requests',
     'shoresh:list-devices',
     'shoresh:list-peer-erasure-state',
+    'shoresh:import-setup-rows',
     'shoresh:approve-device',
     'shoresh:get-sync-engine',
     'shoresh:get-join-code',
@@ -2975,6 +3007,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:list-pending-pairing-requests', (_event, args) => handlers.listPendingPairingRequests(args))
     ipcMain.handle('shoresh:list-devices', (_event, args) => handlers.listDevices(args))
     ipcMain.handle('shoresh:list-peer-erasure-state', (_event, args) => handlers.listPeerErasureState(args))
+    ipcMain.handle('shoresh:import-setup-rows', (_event, args) => handlers.importSetupRows(args))
     ipcMain.handle('shoresh:approve-device', (_event, args) => handlers.approveDevice(args))
     ipcMain.handle('shoresh:get-sync-engine', () => handlers.getSyncEngine())
     ipcMain.handle('shoresh:get-join-code', (_event, args) => handlers.getJoinCode(args))
