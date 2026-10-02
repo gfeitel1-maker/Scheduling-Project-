@@ -246,6 +246,15 @@ const ACCEPTED_NON_REFERENCES = [
   // same identifier devices.libp2p_peer_id already carries (a routing convenience, never a trust
   // signal), looked up by equality, never undo-deleted as a side effect of deleting anything.
   { table: 'peer_last_addresses', column: 'peer_id', reason: 'a plain libp2p peer-id string (mirrors devices.libp2p_peer_id), not a FK to a U2-deletable entity — written only from an authenticated connection' },
+  // applied_authority_log / authority_cache (T331, docs/adr/2026-10-02-distributed-revocation-
+  // authority.md): device-local caches derived by replaying the camp_authority_log Automerge
+  // collection (electron/automerge/authorityReplay.js). Neither column is a FK to a U2-deletable
+  // entity — both name a device_id, which is never undo-deleted (a removed device's authority
+  // history is a permanent audit trail, mirrored by peer_tombstone_reports.device_id above).
+  { table: 'applied_authority_log', column: 'entry_id', reason: 'the camp_authority_log entry\'s own stable id (this table\'s PRIMARY KEY), not a FK to any entity' },
+  { table: 'applied_authority_log', column: 'target_device_id', reason: 'names a device_id, not a U2-deletable entity — permanent audit trail, mirrors peer_tombstone_reports.device_id' },
+  { table: 'applied_authority_log', column: 'signer_device_id', reason: 'names a device_id, not a U2-deletable entity — permanent audit trail, mirrors peer_tombstone_reports.device_id' },
+  { table: 'authority_cache', column: 'device_id', reason: 'names a device_id, not a U2-deletable entity — derived cache, fully recomputed on every projection pass and on purge/rebuild' },
   { table: 'open_reconciliation_decisions', column: 'entity_id', reason: 'polymorphic (entity_type varies), schema.sql documents "not a FK" — mirrors source_aliases.entity_id' },
   { table: 'open_reconciliation_decisions', column: 'cohort_id', reason: 'host-local journal metadata (never synced); a stale pointer after undo makes a row not match on the next import, not a corrupted live record — mirrors source_aliases.cohort_id' },
   { table: 'open_reconciliation_decisions', column: 'import_run_id', reason: 'groups rows from one commitIngest call, not an entity pointer — mirrors import_evidence.import_run_id' },

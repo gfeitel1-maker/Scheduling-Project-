@@ -323,6 +323,12 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // above: no appendOp, no backfill of new data, and the table is still never modeled into the
   // Automerge document. What an existing camp MEANS is unaffected.
   89,
+  // v90 (T331, docs/adr/2026-10-02-distributed-revocation-authority.md) creates
+  // applied_authority_log/authority_cache, both empty, host-local caches re-derived from the
+  // camp_authority_log Automerge collection. Schema-only: no appendOp, no backfill, and neither
+  // table is ever modeled into the document (no PROJECTIONS entry, no MODELED_ENTITIES
+  // membership) — what an existing camp MEANS is entirely unaffected.
+  90,
 ])
 
 /** True if applying `version` can change what the camp means. */

@@ -1867,6 +1867,34 @@ CREATE TABLE IF NOT EXISTS peer_last_addresses (
   PRIMARY KEY (peer_id, multiaddr)
 );
 
+-- applied_authority_log / authority_cache (v90, T331 — docs/adr/2026-10-02-distributed-
+-- revocation-authority.md). Device-local, NEVER-SYNCED mirror of the genesis-registered
+-- `camp_authority_log` Automerge collection, same exclusion class as device_identity_key/
+-- host_signing_key/peer_tombstone_reports/peer_last_addresses above — never registered in
+-- PROJECTIONS, campScopedEntities.js, or any syncable-field list (electron/automerge/
+-- authorityReplay.js's isValidAdminAt/currentAuthorityState recompute this from the document's
+-- real change set; these tables only CACHE that recomputation so the sync-message/handshake gates
+-- don't replay the whole document on every check). `applied_authority_log` records every
+-- camp_authority_log entry this device has verified (signature + causal-ancestor validity) and
+-- projected, by entry id — append-only, never deleted, mirrors `tombstones`' own audit posture.
+-- `authority_cache` is the DERIVED "currently granted admin" / "currently revoked" set, one row
+-- per device_id, fully recomputed (never incrementally patched) on every projection pass AND on
+-- purge/rebuild, which must RE-VERIFY and CARRY FORWARD this set rather than resetting it (the
+-- T329 purge-reset finding this ADR explicitly corrects).
+CREATE TABLE IF NOT EXISTS applied_authority_log (
+  entry_id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  target_device_id TEXT NOT NULL,
+  signer_device_id TEXT,
+  verified_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS authority_cache (
+  device_id TEXT PRIMARY KEY,
+  status TEXT NOT NULL CHECK (status IN ('admin', 'revoked')),
+  updated_at TEXT NOT NULL
+);
+
 -- elective_run_outer_snapshots (v74, T243, docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-
 -- slices.md). A finalized run's per-camper, per-cell export snapshot — the "outer" grid position
 -- (day/time-block) a camper's assignment resolves to, frozen at finalization time so the export
