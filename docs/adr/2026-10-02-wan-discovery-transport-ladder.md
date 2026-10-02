@@ -2,9 +2,9 @@
 title: "WAN discovery/transport ladder: DHT + hole-punch as the primary cross-network path, Cloudflare demoted to last resort"
 document_type: adr
 authority: normative
-status: proposed
+status: accepted
 date: 2026-10-02
-decided: null
+decided: 2026-10-02
 deciders: [product-owner]
 program: security-hardening
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, SECURITY.md]
@@ -27,12 +27,42 @@ implementation_state: not-started
 
 # WAN discovery/transport ladder — DHT-first, Cloudflare last
 
-**Ticket:** T327. **Status: proposed — this ADR is NOT self-accepted.** It records a new
-transport/security posture (it opens `kadDht`, `dcutr`, and `circuit-relay-v2`, all currently
-`signoff: null` in `electron/sync/automerge/transportCapabilities.js`). Per Constitution Article IV
-this is a security-posture change, which is explicitly outside the delegated-acceptance carve-out and
-remains the owner's alone. It is brought to the owner for acceptance. No production code ships from
-this ADR, and no capability is unblocked by it.
+**Ticket:** T327. **Status: accepted (owner, 2026-10-02).**
+
+## Acceptance (owner, 2026-10-02)
+
+The owner accepted this ADR, delegated, in these words (verbatim, relayed): *"go. ahead and approve
+it for me. i don't want to be asked. run it through security. battle test it. if it passes, then they
+can continue on. but realy push them to test it."* This is explicit current human instruction
+(Constitution Article I, precedence 1), which is why a security-posture ADR is accepted here despite
+Article IV's default that such changes are the owner's undelegated reserve — this is not the organizer
+self-accepting under the delegation carve-out, it is the owner's own ruling on this specific ADR.
+
+**The five open questions are resolved at their recommended defaults:**
+1. **Three-tier ladder accepted** (DHT-first, Cloudflare last), amending the 2026-09-17/2026-09-27
+   ordering.
+2. **Rotation fires AUTOMATICALLY on device removal** (director-initiated "rotate now" remains an
+   additional manual control, not the only trigger).
+3. **Public libp2p DHT/bootstrap network is the default** (configurable per camp; clean LAN-only
+   degradation when unreachable).
+4. **The four per-capability owner sign-offs (`kadDht`, `bootstrap`, `dcutr`, `relay`) are REPLACED
+   by a hard security + battle-test gate per capability** (owner: "run it through security. battle
+   test it. if it passes, then they can continue on."). Each capability unblocks — its `signoff`
+   entry is added to `transportCapabilities.js` — only after it PASSES: (a) a deep review by the
+   **security-assessment** agent AND **Security** AND **Red Hat**, and (b) real adversarial
+   battle-testing (forged-peer writes, join-secret brute-force against the public DHT, DHT
+   poisoning/eclipse, replay, hole-punch failure modes, and a red-before-green proof that
+   rotation-on-revocation actually cuts a removed device off). A Security or Grader FAIL that cannot
+   be closed STOPS the loop and returns to the owner via the organizer — it is never pushed past. The
+   `signoff` entry's `doc` field points at that capability's recorded security + battle-test evidence,
+   not at a bare owner date.
+5. **The tier-3 data relay stays an optional last resort: the code is built, but STANDING IT UP
+   (deploying/paying for a relay or Cloudflare) remains an owner action** — a spend/infra decision the
+   security+battle-test gate does NOT authorize. Same for any Cloudflare deploy.
+
+This ADR opens `kadDht`, `dcutr`, `circuit-relay-v2`, and `bootstrap` (all currently `signoff: null`
+in `electron/sync/automerge/transportCapabilities.js`) to be built against the gate above. No capability
+is unblocked by the ADR itself; each is unblocked only by passing its gate.
 
 ## Owner intent (the goal this ADR commits to)
 
@@ -273,12 +303,14 @@ will ask the owner to sign off, in dependency order, these currently-`null` rows
 | `dcutr` (`:40–45`) | `@libp2p/dcutr`, `@libp2p/autonat` | tier-2 hole-punch | explicit-close-on-punch-failure behaviour + its test; coordination caps |
 | `relay` (`:34–39`) | `@libp2p/circuit-relay-v2` | tier-2 coordination + tier-3 data path | coordination caps AND the separate, larger data-path caps; who operates the relay; the ciphertext-only re-derivation re-confirmed against the installed version |
 
-**Four distinct owner sign-offs, one per capability row — not a single flip.** Each requires its own
-recorded re-assessment under `docs/work/security/` before the owner adds its `signoff` entry. A
-security re-assessment is **owed before each capability is unblocked**; this ADR requests none of them
-now. The version-specific caps for `circuit-relay-v2`/`dcutr`/`kad-dht` must be re-read from whatever
-version is actually installed when each slice is picked up (org-source-verification; none is in the
-lockfile today).
+**Per the owner's acceptance, these four per-capability owner sign-offs are REPLACED by a hard
+security + battle-test gate** (see Acceptance §4). Each capability row's `signoff` entry is added only
+after that capability passes: (a) security-assessment + Security + Red Hat review, and (b) adversarial
+battle-testing, with the evidence recorded under `docs/work/security/` and referenced from the
+`signoff.doc` field. A Security or Grader FAIL that cannot be closed stops the loop and returns to the
+owner via the organizer — never pushed past. The version-specific caps for
+`circuit-relay-v2`/`dcutr`/`kad-dht` must be re-read from whatever version is actually installed when
+each slice is picked up (org-source-verification; none is in the lockfile today).
 
 ## Reordered build plan — primary path first, Cloudflare demoted
 
@@ -350,18 +382,12 @@ lost: no internet-reachable transport ships to a real camp before a signed updat
 - Automatic-on-revocation rotation (if accepted) makes every device revocation also a key turn — a
   behaviour change to the revocation path, covered by Slice 2's tests.
 
-## Open questions for the owner (acceptance items — decisions, not settled here)
+## Open questions — RESOLVED on acceptance (2026-10-02)
 
-1. **Accept the three-tier ladder as the target** (DHT-first, Cloudflare last), amending the
-   2026-09-17/2026-09-27 ordering.
-2. **Rotation trigger: automatic-on-revocation** (this ADR's recommendation, confidence high) — confirm,
-   or choose director-initiated-only.
-3. **Bootstrap nodes: public libp2p network (default) vs Shoresh-run vs hybrid** — this ADR recommends
-   public-with-configurability; the owner's "not a central noticeboard we run" intent is the deciding
-   constraint and his to apply.
-4. **Acknowledge the four forthcoming per-capability sign-offs** (`kadDht`, `bootstrap`, `dcutr`,
-   `relay`), each with its own re-assessment owed before it is unblocked. Accepting this ADR does not
-   grant any of them.
-5. **Tier-3 data relay (Slice 6 / Option B): confirm it is wanted** at all, and that the owner is
-   willing to provision/run a capped relay whose uptime CGNAT-both-ends pairs' ongoing sync depends on
-   (the operational commitment from 2026-09-27 Section 2).
+All five were resolved at their recommended defaults on the owner's acceptance; see the **Acceptance**
+section at the top for the binding record. In brief: (1) three-tier ladder accepted; (2) rotation
+automatic-on-revocation; (3) public libp2p DHT/bootstrap default, configurable; (4) the four
+per-capability sign-offs replaced by the security + battle-test gate; (5) relay code built, but
+standing it up (spend/infra) stays an owner action. The only items that still return to the owner are
+a security/Grader FAIL that cannot be closed, and any spend/infra action (deploying a relay or
+Cloudflare).
