@@ -299,6 +299,14 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // existing camp MEANS is entirely unaffected by this migration — there is no domain concept
   // it changes, only a new per-peer bookkeeping fact one device records about another.
   86,
+  // v87 (q-elective-finding-id-collision-rekey-safe, 2A) adds one nullable
+  // column, elective_run_findings.label_key. Schema-only by the same
+  // reasoning as v83's two new columns on elective_assignment_runs: no ALTER
+  // backfill, no appendOp, and every existing row's new column stays NULL
+  // until a future commit re-derives that finding. What an existing camp
+  // means is unaffected — this is purely a persisted-id discriminator, not a
+  // domain fact.
+  87,
 ])
 
 /** True if applying `version` can change what the camp means. */

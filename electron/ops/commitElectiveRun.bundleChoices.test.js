@@ -576,31 +576,24 @@ describe('BUNDLE_TIER_NOT_COVERED persists (board item 9b round 3, item 3)', () 
     db.close()
   })
 
-  // F4 (round 2 review) — KNOWN DEFECT, documented not fixed this round. Two
-  // ASSIGNMENT-ONLY mismatches (a solver fallback placement for a camper who
-  // never ranked the label — see the "an assignment-only mismatch ... stays
-  // null" test above) for ONE camper, on TWO different bundle labels, both
-  // have `choice_id: null` (labelsNeedingFlatChoice is built from
-  // `parsed.preferences` only, so no flat choice is ever minted for either
-  // label). deriveElectiveRunFindingId(runId, gen, 'BUNDLE_TIER_NOT_COVERED',
-  // camperId, choiceId, null) is then IDENTICAL for both — same camperId, same
-  // null choiceId — so the second write silently collapses into the first and
-  // one mismatch is lost from the persisted table.
+  // F4 (round 2 review), FIXED by q-elective-finding-id-collision-rekey-safe
+  // (2A). Two ASSIGNMENT-ONLY mismatches (a solver fallback placement for a
+  // camper who never ranked the label — see the "an assignment-only
+  // mismatch ... stays null" test above) for ONE camper, on TWO different
+  // bundle labels, both have `choice_id: null` (labelsNeedingFlatChoice is
+  // built from `parsed.preferences` only, so no flat choice is ever minted
+  // for either label). deriveElectiveRunFindingId now also takes `labelKey`
+  // as an optional 7th component, so the two mismatches — identical on every
+  // other component — derive DISTINCT ids and both persist.
   //
-  // NOT FIXED: the obvious fix (pre-scan assignments in
-  // `labelsNeedingFlatChoice` so a flat choice is always minted) is not a
-  // small change — a minted choice would then also flow into the assignment
-  // loop's `choice_id: resolved.choiceId` write (commitElectiveRun.js
-  // ~line 803), changing assignment-write behaviour an earlier round
-  // deliberately set to null to fix a real outage (see that loop's "ROUND 2
-  // CORRECTION" comment), and it would move the acceptance-fixture numbers.
-  // That is a design decision for the owner, not a bugfix for this round.
+  // This does NOT reverse the outage-era `choice_id: null` decision
+  // (f6c4014a/#663): the assignment's `choice_id` write is untouched. Only
+  // the FINDING's persisted identity gained a discriminator.
   //
-  // This test PINS the current (wrong) behaviour — ONE row where TWO are
-  // expected — as a tripwire: if a future change to `deriveElectiveRunFindingId`
-  // or `labelsNeedingFlatChoice` fixes this, the assertion below goes red and
-  // must be updated to `toHaveLength(2)` rather than silently drifting.
-  it('F4 — two ASSIGNMENT-ONLY mismatches for ONE camper on two different labels collide to ONE persisted row (known defect, pinned)', () => {
+  // This test now PINS the FIXED behaviour — TWO distinct rows — as a
+  // tripwire in the other direction: if a future change collapses them again,
+  // this goes red.
+  it('F4 — two ASSIGNMENT-ONLY mismatches for ONE camper on two different labels persist as TWO distinct rows (fixed by label_key)', () => {
     const { db, campId } = freshDb()
     seedTwoTierCamp(db, campId, { scopeMode: 'only', bundleTiers: ['tier-jr'] })
     db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run('act-gaga', campId, 'Gaga')
@@ -640,10 +633,10 @@ describe('BUNDLE_TIER_NOT_COVERED persists (board item 9b round 3, item 3)', () 
     const persisted = db.prepare(
       "SELECT * FROM elective_run_findings WHERE run_id = ? AND kind = 'BUNDLE_TIER_NOT_COVERED'"
     ).all(runId)
-    // CORRECT VALUE, when this is fixed: 2 (one row per label). Today: 1 —
-    // the second write collapses into the first because both share the same
-    // derived id (null choice_id, same camper_id).
-    expect(persisted).toHaveLength(1)
+    // One row per label — label_key discriminates the two, both choice_id null.
+    expect(persisted).toHaveLength(2)
+    expect(persisted.every((r) => r.choice_id === null)).toBe(true)
+    expect(new Set(persisted.map((r) => r.label_key))).toEqual(new Set([ARCHERY_KEY, 'gaga']))
     db.close()
   })
 

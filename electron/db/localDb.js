@@ -40,7 +40,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // campers.division_label/is_unattributed and elective_preferences.rank_kind/
 // coordinate_day_label/coordinate_period_label) all land in this file; 79 is the
 // current version.
-export const CURRENT_SCHEMA_VERSION = 86
+export const CURRENT_SCHEMA_VERSION = 87
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -4230,6 +4230,24 @@ const DEVICE_HEALTH_EVENTS_DDL = `
     )`)
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (86, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v87 (q-elective-finding-id-collision-rekey-safe, 2A) — adds
+  // elective_run_findings.label_key, nullable. schema.sql already creates it
+  // on a fresh db; this block is for a database upgrading from an earlier
+  // version, same two-places discipline as v82/camp_seedlings and
+  // v85/camper_identity_keys. No backfill: an existing finding row's label is
+  // not recoverable from anything else stored, so it stays NULL until that
+  // finding is re-derived by a future commit on this run.
+  //
+  // Guard `>= 86 && < 87`, never a bare `< 87` (this repo's standing gotcha).
+  if (getSchemaVersion(db) >= 86 && getSchemaVersion(db) < 87) {
+    const hasLabelKey = db.pragma('table_info(elective_run_findings)').some((c) => c.name === 'label_key')
+    if (!hasLabelKey) db.exec('ALTER TABLE elective_run_findings ADD COLUMN label_key TEXT')
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (87, ?)').run(
       new Date().toISOString()
     )
   }

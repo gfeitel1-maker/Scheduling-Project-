@@ -104,8 +104,11 @@ describe('migration v83: version and table/column presence', () => {
 
   it('elective_run_findings has the expected columns, in order', () => {
     const db = freshDb()
+    // label_key (v87, q-elective-finding-id-collision-rekey-safe) is ALTER-
+    // appended LAST on a migrated db, same column-order trap as every other
+    // ALTER-added column in this file.
     expect(colNames(db, 'elective_run_findings')).toEqual([
-      'id', 'run_id', 'solver_generation', 'kind', 'camper_id', 'choice_id', 'occurrence_id', 'message',
+      'id', 'run_id', 'solver_generation', 'kind', 'camper_id', 'choice_id', 'occurrence_id', 'message', 'label_key',
     ])
     db.close()
   })
