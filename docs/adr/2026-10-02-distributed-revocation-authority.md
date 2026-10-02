@@ -2,9 +2,9 @@
 title: "Distributed-authority revocation: any admin signs, causal-ancestor validity, founder removable"
 document_type: adr
 authority: normative
-status: proposed
+status: accepted
 date: 2026-10-02
-decided: null
+decided: 2026-10-02
 deciders: [product-owner]
 program: security-hardening
 governing_docs:
@@ -43,10 +43,29 @@ affects:
 
 # ADR: Distributed-authority revocation — any admin signs, causal-ancestor validity, founder removable
 
-**Ticket:** T331. **Status: proposed — not accepted.** No code, no capability opened, no merge. Goes
-to the product owner for acceptance. This ADR **supersedes**
+**Ticket:** T331. **Status: accepted (product owner, 2026-10-02).** This ADR **supersedes**
 [`docs/adr/2026-10-02-signed-revocation-witness.md`](2026-10-02-signed-revocation-witness.md) (T330)
 in full.
+
+## Acceptance (product owner, 2026-10-02)
+
+The owner accepted the two-tier quorum revocation model (relayed, verbatim): *"accept the above."*
+The accepted model is:
+
+- **Firing an ordinary (non-admin) device:** any **one** admin signs — immediate.
+- **Firing an admin or the founder:** a **majority of the *other* admins** must agree (the target
+  does not vote on its own removal). Threshold = `floor((N-1)/2)+1` over the N−1 other admins:
+  **N=2 → the 1 other; N=3 → both others; N=4 → 2 of 3; N=5 → 3 of 4 — never all admins.**
+
+Earlier owner rulings folded into this ADR and recorded below stand: the offline-at-the-instant-of-
+firing residual is **accepted as bounded for v1**; the distributed admin-revoker is kept **separate**
+from the Host-signed `users.role='admin'` for v1 (follow-up board item
+`q-unify-admin-role-and-device-revocation`); and the existing purge-tombstone `host_signing_key`
+single-host gap is a **separate follow-up** (`h-purge-survives-fired-founder`), out of scope here.
+
+This is explicit current human instruction (Constitution Article I), recorded as the Article IV
+acceptance. The implementation is built via the Maker through the full security + battle-test gate;
+the ADR being accepted does not itself ship code or open any capability.
 
 ## Why T330 is superseded, not amended
 

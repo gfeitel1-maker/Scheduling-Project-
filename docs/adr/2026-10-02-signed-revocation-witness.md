@@ -2,9 +2,10 @@
 title: "Signed, monotonic revocation witness — corrected WAN discovery ladder Slice 2"
 document_type: adr
 authority: normative
-status: proposed
+status: superseded
+superseded_by: docs/adr/2026-10-02-distributed-revocation-authority.md
 date: 2026-10-02
-decided: null
+decided: 2026-10-02
 deciders: [product-owner]
 program: security-hardening
 governing_docs:
