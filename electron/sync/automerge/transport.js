@@ -63,7 +63,16 @@ const MAX_CONNECTIONS = 200
 // scoped discovery; omitted by default so tests keep dialing directly over
 // loopback (mDNS needs a real network interface — see discovery.js's own
 // module comment).
-export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyncMessageReceived, listen, onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, onPairingDecision, peerDiscovery, now, connectionRateLimiter, privateKey, schemaVersion, relayServerFactory, relayTransportFactory, inboundConnectionThreshold } = {}) {
+// T336 (docs/work/specs/2026-10-03-t336-holepunch-build-design.md §1): `directUpgradeServiceFactory`
+// is the dcutr direct-upgrade service, injected the SAME way `relayServerFactory`/
+// `relayTransportFactory` already are — a caller-supplied factory (e.g. `dcutr()` from
+// '@libp2p/dcutr'), never imported here directly, so this module stays free of a direct import of
+// that package and this capability's gate stays entirely caller-controlled (syncStarter.js, gated
+// on `holePunchFoundationPresent()` + the `dcutr` capability's own signoff). The direct-upgrade
+// attempt only ever runs over a connection that arrived via T337's already camp-admitted relay (see
+// the design doc §1) — it needs no admission check of its own here, because it has no reachability
+// path into this node that didn't already pass the relay's own `isPeerAdmittedForRelay` gate above.
+export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyncMessageReceived, listen, onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, onPairingDecision, peerDiscovery, now, connectionRateLimiter, privateKey, schemaVersion, relayServerFactory, relayTransportFactory, directUpgradeServiceFactory, inboundConnectionThreshold } = {}) {
   // Per-SOURCE-IP inbound rate limiting (blocker #2 of the WAN hardening; connectionRateLimiter.js).
   // Closes the connection-churn hole authGate.js documents: a peer opening a fresh connection (fresh
   // peer id) per frame evades per-peer throttling and is otherwise bounded only by MAX_CONNECTIONS.
@@ -140,7 +149,11 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
           }
         : {}),
     },
-    services: { identify: identify(), ...(relayServerFactory ? { circuitRelay: relayServerFactory } : {}) },
+    services: {
+      identify: identify(),
+      ...(relayServerFactory ? { circuitRelay: relayServerFactory } : {}),
+      ...(directUpgradeServiceFactory ? { dcutr: directUpgradeServiceFactory } : {}),
+    },
     ...(peerDiscovery ? { peerDiscovery } : {}),
   })
 

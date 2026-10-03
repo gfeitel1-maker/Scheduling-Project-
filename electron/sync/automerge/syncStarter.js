@@ -394,12 +394,30 @@ export function createAutomergeSyncStarter({
         relayTransportFactory = circuitRelayTransport()
       }
 
+      // T336 (docs/work/specs/2026-10-03-t336-holepunch-build-design.md §1, "Activation trigger —
+      // on-redial-failure, not eager"): the direct-upgrade (hole-punch) service only ever runs on a
+      // connection that reached this node via T337's coordination relay — which itself only forms
+      // after `redialTrustedPeers` has already exhausted its cached-address attempts (the existing
+      // ladder ordering, unchanged by this wiring). So gating this on the SAME `relayEligible`
+      // check the relay factories above use (rather than inventing a second gate) already encodes
+      // "upgrade only after the relay step," not a separate eager/parallel trigger. This is the
+      // ONLY capability this slice wires here — the camp-scoped reachability-probe capability is
+      // NOT wired in this chunk; see the STOP finding in
+      // electron/sync/automerge/autoNatCampOnly.test.js's header comment for why (the installed
+      // probe-service package exposes no admission/connectionGater hook to scope it with).
+      let directUpgradeServiceFactory
+      if (relayEligible) {
+        const { dcutr } = await import('@libp2p/dcutr')
+        directUpgradeServiceFactory = dcutr()
+      }
+
       const startSyncNode = startSyncNodeImpl ? await startSyncNodeImpl() : (await import('./syncNode.js')).startSyncNode
       automergeSyncNode = await startSyncNode({
         deviceId,
         db,
         doc,
         relayServerFactory,
+        directUpgradeServiceFactory,
         relayTransportFactory,
         // Stage 5f, found on a real two-machine run: transport.js's DEFAULT_LISTEN is
         // '/ip4/127.0.0.1/tcp/0' — LOOPBACK ONLY. That default is correct for the in-process tests
