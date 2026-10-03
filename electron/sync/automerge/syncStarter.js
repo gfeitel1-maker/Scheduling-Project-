@@ -22,14 +22,18 @@ import {
   resolvePendingDomainStateMigrations,
   syncRefusalForDomainMigration,
 } from '../../db/migrationDomainState.js'
+import * as Automerge from '@automerge/automerge'
 import {
   getDocIfLoaded,
   ensureSeeded as ensureAutomergeDocSeeded,
   setLocalWriteBroadcaster as setAutomergeLocalWriteBroadcaster,
+  setCurrentDoc as setCurrentAutomergeDoc,
 } from './liveDoc.js'
 import { loadDoc as loadAutomergeDoc, docPath as automergeDocPath } from './docStore.js'
 import { resolveStartupDoc, dispatchRemoteOps, REMOTE_OPS_COALESCE_THRESHOLD } from './startupGuard.js'
-import { createMdnsDiscovery } from './discovery.js'
+import { createMdnsDiscovery, rotatingServiceTag } from './discovery.js'
+import { mintRendezvousNamespace } from './rendezvousNamespace.js'
+import { createVerifiedEntryTrust } from '../../automerge/authorityReplay.js'
 import { readRendezvousConfig, createRendezvousDiscovery } from './rendezvousClient.js'
 import { nextSequence } from './rendezvousSequence.js'
 import { ensureDeviceIdentity } from '../../auth/deviceIdentity.js'
@@ -43,6 +47,20 @@ import { codeForAuthRejectedReason } from '../../authRejectedSender.js'
 // either module's top level, and only invoked once start() actually runs —
 // long after both modules have finished initializing.
 import { sanitizeOpForIpc } from '../../main.js'
+
+// T335 gate finding (Security/Red Hat HIGH, round 2) — exported so the production wiring is
+// directly testable without going through the whole start() sequence or a real libp2p node.
+// Before this fix, syncStarter.js called `rotatingServiceTag(Automerge, doc, campId)` with NO
+// opts, so currentRevokedDeviceIds fell through to its always-true default: the LIVE mDNS tag was
+// computed over UNVERIFIED revoke entries, reopening the T329-F1 forgery class (an
+// attacker-controlled synced peer could inject an unsigned kind:'revoke' entry and move the
+// discovery tag network-wide). `createVerifiedEntryTrust` (authorityReplay.js) is the SAME
+// signature-gate projector.js's own SQLite projection already relies on — one verification, not a
+// second, looser one for discovery.
+export function computeRotatingServiceTag(doc, campId) {
+  const isEntryTrusted = createVerifiedEntryTrust(Automerge, doc)
+  return rotatingServiceTag(Automerge, doc, campId, { isEntryTrusted })
+}
 
 export function createAutomergeSyncStarter({
   deviceId,
@@ -256,7 +274,7 @@ export function createAutomergeSyncStarter({
         return
       }
 
-      const doc = resolveStartupDoc({
+      let doc = resolveStartupDoc({
         liveDoc: getDocIfLoaded(db),
         // Same cipher liveDoc was given above — this direct read is the second of the three
         // .automerge readers (assessment finding B), and all three must agree or an encrypted file
@@ -291,8 +309,19 @@ export function createAutomergeSyncStarter({
       // T288 — WAN discovery, additive to mDNS, gated on SHORESH_RENDEZVOUS_URL. Unset (the
       // default) means this array has exactly one entry, byte-identical to pre-T288 behaviour —
       // see transportBoundary.guard.test.js's LAN-only parity regression.
+      // T335 (docs/work/specs/2026-10-03-t335-key-turning-rotating-discovery-tag-design.md §4) —
+      // mint the camp's discovery secret once, if it doesn't exist yet (mint-only; this never
+      // calls rotateRendezvousNamespace), then derive the rotating mDNS tag from the document's
+      // own current revocation state. `mintRendezvousNamespace` is idempotent against sequential
+      // calls (its own header comment) — a camp that already minted a secret in a prior run gets
+      // `minted: false` and `doc` is left untouched here.
+      const dhtMint = mintRendezvousNamespace(doc, campId)
+      if (dhtMint.minted) {
+        doc = dhtMint.doc
+        setCurrentAutomergeDoc(db, doc)
+      }
       const rendezvousConfig = readRendezvousConfig(process.env)
-      const peerDiscovery = [createMdnsDiscovery({ campId })]
+      const peerDiscovery = [createMdnsDiscovery({ serviceTag: computeRotatingServiceTag(doc, campId) })]
       if (rendezvousConfig.enabled) {
         const { peerId: rendezvousPeerId, privateKey: rendezvousPrivateKey } = await ensureDeviceIdentity(db)
         peerDiscovery.push(
