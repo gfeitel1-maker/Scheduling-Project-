@@ -7,6 +7,7 @@ created: 2026-10-03
 archive_when: "a strict two-device camp recovers from a blind admin-revoke under sync lag (the locked-out admin can reconnect and the state self-corrects) AND Security has re-confirmed, red-before-green, that the blind-revoke-then-genuine-quorum sequence cannot readmit a genuinely quorum-revoked device"
 task_class: security-auth
 parent: ""
+governing_docs: [docs/adr/2026-10-02-distributed-revocation-authority.md, docs/governance/constitution/CONSTITUTION.md, SECURITY.md]
 related_prs: []
 ---
 

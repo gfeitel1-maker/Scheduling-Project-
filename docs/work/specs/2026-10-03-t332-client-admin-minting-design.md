@@ -5,10 +5,7 @@ authority: proposed
 status: draft
 created: 2026-10-03
 task_class: security-auth
-governing_docs:
-  - docs/governance/constitution/CONSTITUTION.md
-  - docs/governance/standards/ARCHITECTURE_STANDARD.md
-  - SECURITY.md
+governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, SECURITY.md]
 depends_on:
   - docs/adr/2026-10-02-distributed-revocation-authority.md
 archive_when: "a client-mode admin can mint a camp_authority_log grant/revoke from the UI end-to-end (founder removable from a non-founder admin's client device), a client-mode non-admin is refused, Security + Red Hat have reviewed the relaxed authorize path, and the red-before-green tests below are green"
