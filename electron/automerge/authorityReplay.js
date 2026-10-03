@@ -59,6 +59,29 @@ function ancestorsOf(changeHash, byHash) {
   return seen
 }
 
+// The TRUE causal closure for "current heads": every change the document holds that is NOT
+// itself a dependency of some OTHER held change (Automerge's own definition of a head), union
+// their ancestors AND the heads themselves. Round-4 correction (Red Hat): the previous shortcut,
+// `new Set(byHash.keys())`, is "every known change" in `getAllChanges`'s OWN iteration order —
+// which this file's own round-3 fix already proved is NOT canonical across merge orders for
+// concurrent changes. Membership in this Set never depended on that order (a Set has no order),
+// but nothing here actually required computing the FULL change set in the first place — the real
+// heads' ancestor closure is both correct AND already order-independent by construction (pure
+// graph reachability), so there is no reason to use the non-canonical shortcut at all.
+function headsClosure(byHash) {
+  const dependedOn = new Set()
+  for (const change of byHash.values()) {
+    for (const d of change.deps) dependedOn.add(d)
+  }
+  const closure = new Set()
+  for (const hash of byHash.keys()) {
+    if (dependedOn.has(hash)) continue // not a head — some other change depends on it
+    closure.add(hash)
+    for (const a of ancestorsOf(hash, byHash)) closure.add(a)
+  }
+  return closure
+}
+
 // Maps each COMPLETE camp_authority_log entry's stable id to the hash of the change that FIRST
 // completed it (i.e. the change after which every required field is present), by replaying changes
 // one at a time onto a scratch doc built from the SAME automerge module the caller passed in.
@@ -183,13 +206,28 @@ export function createAuthorityReplayContext(automerge, doc, { founderDeviceId, 
   //      ever enable a removal next sweep, never undo one already decided.
   function stateAt(changeHash) {
     if (stateCache.has(changeHash)) return stateCache.get(changeHash)
-    // For the "current heads" case there is no single entry to exclude — every known change is
-    // in scope. Order is irrelevant (a plain Set), by the whole-function comment above.
-    const ancestors = changeHash === FOUNDER_MARKER ? new Set(byHash.keys()) : ancestorsOf(changeHash, byHash)
+    // For the "current heads" case: the TRUE causal closure of the document's real heads
+    // (headsClosure, above) — never getAllChanges's own iteration order (round-4 correction; see
+    // headsClosure's comment for why the prior `new Set(byHash.keys())` shortcut was wrong even
+    // though a Set itself has no order — the BUG was computing "every change" via an order-
+    // dependent traversal in the first place, not merely iterating it in some order afterward).
+    const ancestors = changeHash === FOUNDER_MARKER ? headsClosure(byHash) : ancestorsOf(changeHash, byHash)
 
     const grantedSet = new Set(resolvedFounderDeviceId != null ? [resolvedFounderDeviceId] : [])
     const grantHashesByTarget = new Map() // target -> Set<changeHash> of every valid grant for it
-    const votesByTarget = new Map() // target -> Map<signer, changeHash> — voters validated at THEIR OWN causal point
+    // target -> Map<signer, Set<changeHash>> — EVERY valid vote-hash a signer cast against this
+    // target, never last-write-wins. Round-4 correction (Red Hat): an honest device can author
+    // MORE THAN ONE revoke entry against the same target across concurrent branches it never
+    // synced before merging (a crash-and-restore, two offline sessions under the same identity
+    // key — not only an adversary); which entry "survives" staleness filtering below must not
+    // depend on which one a non-canonical ancestors-Set iteration happened to visit last
+    // (`Map.set(signer, h)` last-write-wins was exactly that dependency). Grants stay simple and
+    // unconditionally additive — they are not a competing "claim" with a signer's own votes; a
+    // signer's grant-then-revoke-then-grant chain against the SAME target is a real temporal
+    // sequence (each grant/vote evaluated on its own causal merits, not a register overwritten by
+    // whichever is "latest"), which the existing stale-vote-after-regrant check below already
+    // captures correctly for the SEQUENTIAL case.
+    const voteHashesByTargetSigner = new Map()
 
     for (const h of ancestors) {
       for (const entry of entriesByChangeHash.get(h) ?? []) {
@@ -202,39 +240,44 @@ export function createAuthorityReplayContext(automerge, doc, { founderDeviceId, 
           grantHashesByTarget.get(entry.target_device_id).add(h)
           continue
         }
-        // revoke: register as a vote, keyed by its OWN change hash too — a re-grant after a prior
-        // revocation (round-3 correction: a straightforward omission caught by this fix's own
-        // test suite, not a new architecture question) must not let a vote cast BEFORE that
-        // re-grant keep counting against the target's NEW tenure. Resolved below, once every
-        // entry is classified, by dropping any vote that is a causal ANCESTOR of a later grant
-        // for the same target.
-        if (!votesByTarget.has(entry.target_device_id)) votesByTarget.set(entry.target_device_id, new Map())
-        votesByTarget.get(entry.target_device_id).set(entry.signer_device_id, h)
+        // revoke: record this vote-hash under (target, signer) — ALL of them, not just one.
+        if (!voteHashesByTargetSigner.has(entry.target_device_id)) voteHashesByTargetSigner.set(entry.target_device_id, new Map())
+        const bySigner = voteHashesByTargetSigner.get(entry.target_device_id)
+        if (!bySigner.has(entry.signer_device_id)) bySigner.set(entry.signer_device_id, new Set())
+        bySigner.get(entry.signer_device_id).add(h)
       }
     }
 
-    // Drop stale votes: a vote at change V for target T is stale if the document ALSO contains a
-    // 'grant' for T at a change that V causally precedes (i.e. the vote predates a later re-grant
-    // — it was cast against a PRIOR tenure, not the current one). Order-independent: purely an
-    // ancestor-set membership test, same primitive `isValidSignerAt` already relies on.
-    for (const [target, voterHashes] of votesByTarget) {
+    // Drop stale vote-hashes: a vote at change V for target T is stale if the document ALSO
+    // contains a 'grant' for T at a change that V causally precedes (i.e. the vote predates a
+    // later re-grant — cast against a PRIOR tenure, not the current one). Order-independent:
+    // purely an ancestor-set membership test, same primitive `isValidSignerAt` already relies on.
+    // A signer whose EVERY vote-hash against a target turns out stale no longer counts as a
+    // voter at all for it; one with at least one surviving hash counts exactly ONCE, regardless
+    // of how many vote-hashes they cast or which one happened to be inserted "first."
+    const votesByTarget = new Map() // target -> Map<signer, Set<survivingHash>>
+    for (const [target, bySigner] of voteHashesByTargetSigner) {
       const grantHashes = grantHashesByTarget.get(target)
-      if (!grantHashes) continue
-      for (const [voter, voteHash] of [...voterHashes]) {
-        const stale = [...grantHashes].some((gh) => gh !== voteHash && ancestorsOf(gh, byHash).has(voteHash))
-        if (stale) voterHashes.delete(voter)
+      for (const [signer, hashes] of bySigner) {
+        const surviving = grantHashes
+          ? new Set([...hashes].filter((v) => ![...grantHashes].some((gh) => gh !== v && ancestorsOf(gh, byHash).has(v))))
+          : hashes
+        if (surviving.size === 0) continue
+        if (!votesByTarget.has(target)) votesByTarget.set(target, new Map())
+        votesByTarget.get(target).set(signer, surviving)
       }
     }
 
     // Fixed point over admin/founder targets only (an ordinary, never-granted target is already
-    // correctly "not admin" — a revoke against it changes nothing about grantedSet).
+    // correctly "not admin" — a revoke against it changes nothing about grantedSet). Tally is the
+    // number of DISTINCT SIGNERS with at least one surviving vote, never a per-hash count.
     let changed = true
     while (changed) {
       changed = false
-      for (const [target, voterHashes] of votesByTarget) {
+      for (const [target, bySigner] of votesByTarget) {
         if (!grantedSet.has(target)) continue
         const threshold = quorumThreshold(grantedSet.size)
-        if (voterHashes.size >= threshold) {
+        if (bySigner.size >= threshold) {
           grantedSet.delete(target)
           changed = true
         }

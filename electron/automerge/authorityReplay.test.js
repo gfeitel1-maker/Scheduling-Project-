@@ -288,3 +288,150 @@ describe('currentAuthorityState', () => {
     expect(admins.has('FOUNDER')).toBe(true)
   })
 })
+
+// RED HAT round-4 reproduction (against the real module, no mocks) — a NEW instance of the
+// order-dependence class round-3 missed: the CURRENT-HEADS query path (currentState/
+// currentAuthorityState — the path projector.js actually calls on every projection pass) used
+// `getAllChanges`'s own iteration order to build "every known change" instead of a true ancestor
+// closure, AND a signer with MORE THAN ONE entry against the SAME target (reachable by an honest
+// device forking its own history — crash+restore, two offline sessions under one identity key,
+// not only an adversary) resolved to "whichever entry a non-canonical iteration visited last."
+describe('round-4 correction — same-signer, same-target entries across concurrent branches converge regardless of merge order', () => {
+  it("Red Hat's exact topology: FOUNDER's lone revoke-vote on one branch vs FOUNDER's own revoke-then-regrant cycle on a concurrent, never-synced branch", () => {
+    let base = initDoc()
+    base = pushEntry(base, { kind: 'grant', target_device_id: 'X', signer_device_id: 'FOUNDER' })
+    // N=2 (FOUNDER, X). Two branches fork from `base` and are NEVER synced with each other before
+    // the merges below.
+    let branchVote = Automerge.clone(base)
+    let branchCycle = Automerge.clone(base)
+    // branchVote: FOUNDER casts one revoke of X.
+    branchVote = pushEntry(branchVote, { kind: 'revoke', target_device_id: 'X', signer_device_id: 'FOUNDER' })
+    // branchCycle (concurrent): FOUNDER revokes X, then re-grants X — a full cycle, entirely on
+    // its own branch, never seeing branchVote's entry.
+    branchCycle = pushEntry(branchCycle, { kind: 'revoke', target_device_id: 'X', signer_device_id: 'FOUNDER' })
+    branchCycle = pushEntry(branchCycle, { kind: 'grant', target_device_id: 'X', signer_device_id: 'FOUNDER' })
+
+    const mergeOrder1 = Automerge.merge(Automerge.clone(branchVote), branchCycle)
+    const mergeOrder2 = Automerge.merge(Automerge.clone(branchCycle), branchVote)
+
+    const result1 = createAuthorityReplayContext(Automerge, mergeOrder1, { founderDeviceId: 'FOUNDER' }).currentState().grantedSet.has('X')
+    const result2 = createAuthorityReplayContext(Automerge, mergeOrder2, { founderDeviceId: 'FOUNDER' }).currentState().grantedSet.has('X')
+    expect(result1).toBe(result2)
+  })
+
+  it('a signer with 3 mutually-concurrent entries against the same target still resolves identically regardless of merge order', () => {
+    // Three-way fork, all from the same base, all never synced with each other before merging —
+    // FOUNDER signs a DIFFERENT entry on each branch, all mutually concurrent.
+    let base = initDoc()
+    base = pushEntry(base, { kind: 'grant', target_device_id: 'X', signer_device_id: 'FOUNDER' })
+    let b1 = pushEntry(Automerge.clone(base), { kind: 'revoke', target_device_id: 'X', signer_device_id: 'FOUNDER' })
+    let b2 = pushEntry(Automerge.clone(base), { kind: 'grant', target_device_id: 'X', signer_device_id: 'FOUNDER' })
+    let b3 = pushEntry(Automerge.clone(base), { kind: 'revoke', target_device_id: 'X', signer_device_id: 'FOUNDER' })
+
+    const orderA = Automerge.merge(Automerge.merge(Automerge.clone(b1), b2), b3)
+    const orderB = Automerge.merge(Automerge.merge(Automerge.clone(b3), b1), b2)
+    const orderC = Automerge.merge(Automerge.merge(Automerge.clone(b2), b3), b1)
+
+    const a = createAuthorityReplayContext(Automerge, orderA, { founderDeviceId: 'FOUNDER' }).currentState().grantedSet.has('X')
+    const b = createAuthorityReplayContext(Automerge, orderB, { founderDeviceId: 'FOUNDER' }).currentState().grantedSet.has('X')
+    const c = createAuthorityReplayContext(Automerge, orderC, { founderDeviceId: 'FOUNDER' }).currentState().grantedSet.has('X')
+    expect(a).toBe(b)
+    expect(b).toBe(c)
+  })
+})
+
+// CRITICAL (round-4) — property-based convergence: hand-picked topologies have now missed this
+// divergence class TWICE. Generate many random concurrent authority-log DAGs and assert merging
+// the same branch set in different orders always converges to the IDENTICAL final admin state.
+// Deterministic seed (a simple xorshift-style PRNG, no external dependency) so a failure
+// reproduces exactly from the printed seed.
+describe('round-4 CRITICAL — property-based convergence over random concurrent DAGs', () => {
+  function mulberry32(seed) {
+    let a = seed
+    return function () {
+      a |= 0
+      a = (a + 0x6d2b79f5) | 0
+      let t = Math.imul(a ^ (a >>> 15), 1 | a)
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+    }
+  }
+
+  const SEED = 331044
+  const CASES = 60
+  const DEVICES = ['FOUNDER', 'A', 'B', 'C']
+  const BRANCH_COUNT = 3
+  const OPS_PER_BRANCH = 3
+
+  // Builds one random concurrent DAG: FOUNDER + some devices granted on a shared base, then
+  // BRANCH_COUNT branches fork from that base and NEVER see each other's writes before the test
+  // merges them — each branch gets a short random sequence of grant/revoke ops from random
+  // signers against random targets (deliberately including the SAME signer acting on multiple
+  // branches, and the SAME target across branches, to hit both round-4 root causes).
+  function buildRandomDag(rng) {
+    const pick = (arr) => arr[Math.floor(rng() * arr.length)]
+    let base = initDoc()
+    base = pushEntry(base, { kind: 'grant', target_device_id: 'FOUNDER', signer_device_id: 'FOUNDER' })
+    // Pre-grant a random subset of the other devices on the shared base, so branches have more
+    // than one admin to work with.
+    for (const d of DEVICES) {
+      if (d !== 'FOUNDER' && rng() < 0.7) base = pushEntry(base, { kind: 'grant', target_device_id: d, signer_device_id: 'FOUNDER' })
+    }
+    const branches = []
+    for (let b = 0; b < BRANCH_COUNT; b++) {
+      let branch = Automerge.clone(base)
+      for (let i = 0; i < OPS_PER_BRANCH; i++) {
+        const kind = rng() < 0.5 ? 'grant' : 'revoke'
+        const signer = pick(DEVICES)
+        const target = pick(DEVICES)
+        if (signer === target) continue // never a valid entry; skip rather than waste an op
+        branch = pushEntry(branch, { kind, target_device_id: target, signer_device_id: signer })
+      }
+      branches.push(branch)
+    }
+    return branches
+  }
+
+  function finalAdmins(doc) {
+    return [...createAuthorityReplayContext(Automerge, doc, { founderDeviceId: 'FOUNDER' }).currentState().grantedSet].sort()
+  }
+
+  // Merges a list of branches in the given permutation of indices, pairwise, left to right.
+  function mergeInOrder(branches, order) {
+    let acc = Automerge.clone(branches[order[0]])
+    for (let i = 1; i < order.length; i++) acc = Automerge.merge(acc, branches[order[i]])
+    return acc
+  }
+
+  function permutations(n) {
+    if (n <= 1) return [[0]]
+    const rest = permutations(n - 1)
+    const out = []
+    for (const perm of rest) {
+      for (let i = 0; i < n; i++) {
+        out.push([...perm.slice(0, i), n - 1, ...perm.slice(i)])
+      }
+    }
+    return out
+  }
+
+  it(`${CASES} random concurrent DAGs (seed ${SEED}) all converge to the identical admin set regardless of merge order`, () => {
+    const rng = mulberry32(SEED)
+    const orders = permutations(BRANCH_COUNT) // all 3! = 6 merge orders for 3 branches
+    let casesChecked = 0
+    for (let c = 0; c < CASES; c++) {
+      const branches = buildRandomDag(rng)
+      const results = orders.map((order) => finalAdmins(mergeInOrder(branches, order)))
+      const canonical = JSON.stringify(results[0])
+      for (let i = 1; i < results.length; i++) {
+        expect(
+          JSON.stringify(results[i]),
+          `case ${c} (seed ${SEED}): merge order ${JSON.stringify(orders[i])} gave ${JSON.stringify(results[i])}, ` +
+            `but merge order ${JSON.stringify(orders[0])} gave ${canonical} — divergent final admin set for the SAME change set.`
+        ).toBe(canonical)
+      }
+      casesChecked++
+    }
+    expect(casesChecked).toBe(CASES)
+  })
+})
