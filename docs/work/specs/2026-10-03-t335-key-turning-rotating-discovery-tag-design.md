@@ -313,3 +313,11 @@ configuration list, not a wire message). The relevant checks:
 3. **Director-initiated manual "rotate now"** (ADR's "additional, not sole, trigger") is explicitly
    out of scope here — confirm whether a follow-up ticket should be opened now or deferred until a
    director actually asks for it (no UI currently exposes it).
+
+## Accepted limitation (organizer ruling 2026-10-03) — LAN/mDNS rotation is restart-bounded
+
+Finding 2 from the T335 gate (Security + Red Hat HIGH): the production mDNS wiring computes the tag once at startup and does not re-advertise under a new tag while the process runs. Investigation (`@libp2p/mdns` v12.0.32) confirmed `serviceTag` is captured by value in the outgoing-query closure at `start()`, and libp2p exposes no stable API to retrieve/restart the constructed MulticastDNS instance; real mDNS is untestable in this sandbox. Implementing live LAN re-registration would require an unverified instance-capture hack in the live discovery path.
+
+**Ruling: ACCEPT, documented-not-silent.** A running device keeps its LAN discovery tag until process restart. This is accepted because T331's authorization gate **still refuses a revoked device admission regardless of the advertised tag** — on the LAN this is an obscurity/liveness gap, not an auth hole. It is **NOT** the cross-network cut-off. **LIVE discovery-tag rotation is a HARD requirement of the T334 DHT slice** (acceptance criterion there; Red Hat + Security re-confirm a revoke-while-running cuts the device off over the DHT) — the public-DHT safety premise (brute-force-safe + cut-off-on-revocation) depends on live rotation being real there. Documented in `SECURITY.md` Known limitations and `PLATFORM_STATE.md`.
+
+Finding 1 (signature gate) is FIXED: the shared `createVerifiedEntryTrust` (peer-id resolution + `verifyAuthorityEntry`, factored out of `projector.js`) is threaded through the production call site `computeRotatingServiceTag`, with a non-vacuous wired-layer forgery test. The digest collision LOW is fixed (JSON encoding of the sorted id set).

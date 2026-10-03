@@ -308,3 +308,11 @@ starts**, per §6 below.
    2026-10-02-dated, operational reality** — is the public bootstrap network still healthy/available
    enough to depend on as the default, or has anything changed since the ADR's writing that the owner
    should know before this becomes the primary path for every camp's cross-network sync?
+
+## HARD acceptance criterion carried from T335 (organizer ruling 2026-10-03) — LIVE rotation on the DHT
+
+T335 accepts a restart-bounded discovery-tag rotation on the LAN/mDNS layer (an obscurity gap bounded by T331 auth; see T335 design + SECURITY.md). **That acceptance does NOT extend to the DHT.** This slice (T334) MUST implement LIVE discovery-tag rotation: when a device is revoked while the node is running, its DHT discoverability under the camp's tag must be cut off without a process restart (the public-DHT safety premise — brute-force-safe + cut-off-on-revocation — depends on the key actually turning live). This is a non-negotiable acceptance criterion:
+
+- The DHT provide/findProviders must re-key on the current rotating tag when the revocation set changes (DHT state travels over a persistent connection / re-provide cycle, unlike the one-time mDNS UDP service-tag constant — so live re-keying is achievable and testable here).
+- Red Hat + Security MUST re-confirm, as part of this slice's capability + battle-test gate, that a revoke-while-running actually cuts the revoked device off over the DHT (not restart-bounded). A red-before-green test is required.
+- This requirement cannot be quietly dropped or deferred; it is why the LAN restart-bounded limitation was acceptable (the real cut-off happens here).

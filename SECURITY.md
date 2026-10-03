@@ -185,6 +185,10 @@ file size, sheet count, and rows before a workbook is walked.
 
 ## Known limitations
 
+### LAN discovery-tag rotation is restart-bounded for a running process (v1, accepted; live rotation required in T334/DHT)
+
+The discovery tag (the key devices find each other under) is derived as a pure function of the signed T331 revocation set (T335 — `tag = HMAC(campDhtSecret, hash(revoked_device_ids))`), so it changes automatically when a device is revoked. On the **LAN/mDNS layer**, however, a device that is **already running** keeps advertising/querying under its startup tag until the process restarts: `@libp2p/mdns` captures the outgoing-query `serviceTag` by value at `start()`, and libp2p exposes no stable API to retrieve and restart the constructed mDNS instance to re-advertise under a new tag. **Why this is accepted as bounded, not an auth hole:** T331's authorization gate still **refuses a revoked device admission regardless of the tag it advertises** — a revoked device cannot sync or be admitted even if it remains findable-by-tag on the LAN until peers restart. So on the pure-LAN layer this is an **obscurity/liveness** gap (a revoked device stays discoverable-by-tag to not-yet-restarted peers), **not** an admission/authorization gap. **This is NOT the cross-network cut-off** — the brute-force-safe, cut-off-on-revocation property for the **public DHT** is where it matters, and there live rotation is a **hard requirement of T334** (the DHT slice), re-confirmed by Red Hat + Security in that slice's battle-test gate, because DHT state travels over a persistent connection rather than a one-time UDP service-tag constant.
+
 ### Two-device-camp revocation deadlock under sync lag (v1, accepted; fast-follow T333)
 
 Distributed revocation (T331, ADR `docs/adr/2026-10-02-distributed-revocation-authority.md`) cuts a
