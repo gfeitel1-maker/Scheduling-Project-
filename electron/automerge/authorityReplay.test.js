@@ -314,9 +314,23 @@ describe('round-4 correction — same-signer, same-target entries across concurr
     const mergeOrder1 = Automerge.merge(Automerge.clone(branchVote), branchCycle)
     const mergeOrder2 = Automerge.merge(Automerge.clone(branchCycle), branchVote)
 
-    const result1 = createAuthorityReplayContext(Automerge, mergeOrder1, { founderDeviceId: 'FOUNDER' }).currentState().grantedSet.has('X')
-    const result2 = createAuthorityReplayContext(Automerge, mergeOrder2, { founderDeviceId: 'FOUNDER' }).currentState().grantedSet.has('X')
-    expect(result1).toBe(result2)
+    const state1 = createAuthorityReplayContext(Automerge, mergeOrder1, { founderDeviceId: 'FOUNDER' }).currentState()
+    const state2 = createAuthorityReplayContext(Automerge, mergeOrder2, { founderDeviceId: 'FOUNDER' }).currentState()
+
+    // Code Reviewer MEDIUM (round-5 correction): equality-across-orders alone would also pass a
+    // regression that converges to the WRONG answer consistently. Pin the INDEPENDENTLY-derived
+    // correct outcome too: N=2 (FOUNDER, X), quorumThreshold(2) = 1. branchCycle's revoke (rv2) is
+    // stale (it causally precedes branchCycle's own re-grant) and is filtered out regardless of
+    // merge order — but branchVote's revoke (rv1) is concurrent with that re-grant, not an
+    // ancestor of it, so it is NOT stale and survives as FOUNDER's one valid vote. One vote meets
+    // threshold 1, so X is removed; FOUNDER (never targeted) stays admin. Both merge orders must
+    // land on this SAME absolute answer, not merely agree with each other.
+    expect(state1.grantedSet.has('X')).toBe(false)
+    expect(state1.grantedSet.has('FOUNDER')).toBe(true)
+    expect(state2.grantedSet.has('X')).toBe(false)
+    expect(state2.grantedSet.has('FOUNDER')).toBe(true)
+    // Cross-order convergence, kept as its own assertion (the property this test exists to prove).
+    expect(state1.grantedSet.has('X')).toBe(state2.grantedSet.has('X'))
   })
 
   it('a signer with 3 mutually-concurrent entries against the same target still resolves identically regardless of merge order', () => {
@@ -332,11 +346,22 @@ describe('round-4 correction — same-signer, same-target entries across concurr
     const orderB = Automerge.merge(Automerge.merge(Automerge.clone(b3), b1), b2)
     const orderC = Automerge.merge(Automerge.merge(Automerge.clone(b2), b3), b1)
 
-    const a = createAuthorityReplayContext(Automerge, orderA, { founderDeviceId: 'FOUNDER' }).currentState().grantedSet.has('X')
-    const b = createAuthorityReplayContext(Automerge, orderB, { founderDeviceId: 'FOUNDER' }).currentState().grantedSet.has('X')
-    const c = createAuthorityReplayContext(Automerge, orderC, { founderDeviceId: 'FOUNDER' }).currentState().grantedSet.has('X')
-    expect(a).toBe(b)
-    expect(b).toBe(c)
+    const stateA = createAuthorityReplayContext(Automerge, orderA, { founderDeviceId: 'FOUNDER' }).currentState()
+    const stateB = createAuthorityReplayContext(Automerge, orderB, { founderDeviceId: 'FOUNDER' }).currentState()
+    const stateC = createAuthorityReplayContext(Automerge, orderC, { founderDeviceId: 'FOUNDER' }).currentState()
+
+    // Code Reviewer MEDIUM (round-5 correction): pin the independently-derived correct answer,
+    // not just cross-order agreement. N=2 (FOUNDER, X), quorumThreshold(2) = 1. b1 and b3 are each
+    // concurrent with b2 (the grant) — neither is a causal ancestor of it — so neither is stale;
+    // FOUNDER counts as exactly ONE voter (same signer, not one vote per entry) with at least one
+    // surviving vote-hash. One voter already meets threshold 1, so X is removed in every order.
+    for (const state of [stateA, stateB, stateC]) {
+      expect(state.grantedSet.has('X')).toBe(false)
+      expect(state.grantedSet.has('FOUNDER')).toBe(true)
+    }
+    // Cross-order convergence, kept as its own assertion.
+    expect(stateA.grantedSet.has('X')).toBe(stateB.grantedSet.has('X'))
+    expect(stateB.grantedSet.has('X')).toBe(stateC.grantedSet.has('X'))
   })
 })
 
@@ -358,7 +383,15 @@ describe('round-4 CRITICAL — property-based convergence over random concurrent
   }
 
   const SEED = 331044
-  const CASES = 60
+  // Code Reviewer LOW (round-5 correction): CASES was 60, which measured 55-60s locally with no
+  // explicit testTimeout — comfortably past vitest's 20s default under any real CI load (this
+  // repo has hit exactly this CPU-time-vs-wall-clock flake class before). Reduced to 20 cases
+  // (still exercising all 6 permutations of 3 concurrent branches per case = 120 replay contexts
+  // per run) rather than relying on a long timeout alone — BRANCH_COUNT/OPS_PER_BRANCH are
+  // UNCHANGED, so the same-signer-multi-branch and same-target-across-branches topologies this
+  // property exists to cover are still fully represented every run. An explicit testTimeout is
+  // kept too, as a safety margin, not as the primary fix.
+  const CASES = 20
   const DEVICES = ['FOUNDER', 'A', 'B', 'C']
   const BRANCH_COUNT = 3
   const OPS_PER_BRANCH = 3
@@ -415,23 +448,71 @@ describe('round-4 CRITICAL — property-based convergence over random concurrent
     return out
   }
 
-  it(`${CASES} random concurrent DAGs (seed ${SEED}) all converge to the identical admin set regardless of merge order`, () => {
-    const rng = mulberry32(SEED)
-    const orders = permutations(BRANCH_COUNT) // all 3! = 6 merge orders for 3 branches
-    let casesChecked = 0
-    for (let c = 0; c < CASES; c++) {
-      const branches = buildRandomDag(rng)
-      const results = orders.map((order) => finalAdmins(mergeInOrder(branches, order)))
-      const canonical = JSON.stringify(results[0])
-      for (let i = 1; i < results.length; i++) {
-        expect(
-          JSON.stringify(results[i]),
-          `case ${c} (seed ${SEED}): merge order ${JSON.stringify(orders[i])} gave ${JSON.stringify(results[i])}, ` +
-            `but merge order ${JSON.stringify(orders[0])} gave ${canonical} — divergent final admin set for the SAME change set.`
-        ).toBe(canonical)
-      }
-      casesChecked++
+  // Code Reviewer MEDIUM (round-5 correction): the random-seed loop below asserts only
+  // cross-order EQUALITY — a regression that converges consistently to the WRONG answer would
+  // pass it. Pin a couple of hand-constructed, independently-verified-by-hand topologies (not
+  // randomized) so at least some cases check absolute correctness, not just convergence. N=3
+  // (FOUNDER, A, B); target A; threshold = quorumThreshold(3) = 2. Branch 0: B casts a revoke-vote
+  // on A. Branch 1: FOUNDER casts a revoke-vote on A. Branch 2: FOUNDER (redundantly) re-grants A
+  // — concurrent with, not an ancestor of, either vote, so neither is stale. Two DIFFERENT
+  // signers (B and FOUNDER) each contribute one valid vote: 2 meets threshold 2, so A is removed;
+  // B and FOUNDER remain admin, in every merge order.
+  it('fixed hand-constructed topology: two different signers\' concurrent revoke-votes reach quorum against A — absolute outcome pinned, not just cross-order equality', () => {
+    let base = initDoc()
+    base = pushEntry(base, { kind: 'grant', target_device_id: 'A', signer_device_id: 'FOUNDER' })
+    base = pushEntry(base, { kind: 'grant', target_device_id: 'B', signer_device_id: 'FOUNDER' })
+    const branch0 = pushEntry(Automerge.clone(base), { kind: 'revoke', target_device_id: 'A', signer_device_id: 'B' })
+    const branch1 = pushEntry(Automerge.clone(base), { kind: 'revoke', target_device_id: 'A', signer_device_id: 'FOUNDER' })
+    const branch2 = pushEntry(Automerge.clone(base), { kind: 'grant', target_device_id: 'A', signer_device_id: 'FOUNDER' })
+    const branches = [branch0, branch1, branch2]
+    for (const order of permutations(3)) {
+      const state = createAuthorityReplayContext(Automerge, mergeInOrder(branches, order), { founderDeviceId: 'FOUNDER' }).currentState()
+      expect(state.grantedSet.has('A'), `order ${JSON.stringify(order)}`).toBe(false)
+      expect(state.grantedSet.has('B'), `order ${JSON.stringify(order)}`).toBe(true)
+      expect(state.grantedSet.has('FOUNDER'), `order ${JSON.stringify(order)}`).toBe(true)
     }
-    expect(casesChecked).toBe(CASES)
   })
+
+  // A SECOND fixed, independently-verified topology, below threshold (the negative case: quorum
+  // NOT reached). N=3, threshold 2; only ONE valid vote (B's) against A — FOUNDER's branch is a
+  // plain re-grant, never a vote — so A must stay admin in every order.
+  it('fixed hand-constructed topology: a single vote below quorum does NOT remove the target — absolute outcome pinned', () => {
+    let base = initDoc()
+    base = pushEntry(base, { kind: 'grant', target_device_id: 'A', signer_device_id: 'FOUNDER' })
+    base = pushEntry(base, { kind: 'grant', target_device_id: 'B', signer_device_id: 'FOUNDER' })
+    const branch0 = pushEntry(Automerge.clone(base), { kind: 'revoke', target_device_id: 'A', signer_device_id: 'B' })
+    const branch1 = pushEntry(Automerge.clone(base), { kind: 'grant', target_device_id: 'B', signer_device_id: 'FOUNDER' })
+    const branches = [branch0, branch1]
+    for (const order of permutations(2)) {
+      const state = createAuthorityReplayContext(Automerge, mergeInOrder(branches, order), { founderDeviceId: 'FOUNDER' }).currentState()
+      expect(state.grantedSet.has('A'), `order ${JSON.stringify(order)}`).toBe(true)
+    }
+  })
+
+  it(
+    `${CASES} random concurrent DAGs (seed ${SEED}) all converge to the identical admin set regardless of merge order`,
+    () => {
+      const rng = mulberry32(SEED)
+      const orders = permutations(BRANCH_COUNT) // all 3! = 6 merge orders for 3 branches
+      let casesChecked = 0
+      for (let c = 0; c < CASES; c++) {
+        const branches = buildRandomDag(rng)
+        const results = orders.map((order) => finalAdmins(mergeInOrder(branches, order)))
+        const canonical = JSON.stringify(results[0])
+        for (let i = 1; i < results.length; i++) {
+          expect(
+            JSON.stringify(results[i]),
+            `case ${c} (seed ${SEED}): merge order ${JSON.stringify(orders[i])} gave ${JSON.stringify(results[i])}, ` +
+              `but merge order ${JSON.stringify(orders[0])} gave ${canonical} — divergent final admin set for the SAME change set.`
+          ).toBe(canonical)
+        }
+        casesChecked++
+      }
+      expect(casesChecked).toBe(CASES)
+    },
+    // Code Reviewer LOW (round-5 correction): explicit testTimeout, kept as a safety margin on
+    // top of (not instead of) the CASES reduction above — vitest's 20s default is comfortably
+    // exceeded by this test's real cost even at the reduced size under load.
+    60000
+  )
 })
