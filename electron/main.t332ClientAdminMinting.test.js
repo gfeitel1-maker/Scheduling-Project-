@@ -12,7 +12,7 @@
 // is the precedented, cheaper alternative to standing up real libp2p nodes per test.
 import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest'
 import os from 'node:os'
-import { randomUUID, randomBytes } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 
 vi.mock('electron', () => ({
   app: { getPath: vi.fn(() => os.tmpdir()), whenReady: vi.fn(() => Promise.resolve()), on: vi.fn() },

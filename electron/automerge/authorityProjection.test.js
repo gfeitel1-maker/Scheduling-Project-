@@ -267,6 +267,51 @@ describe('projector gate C — upsertCampAuthorityLogEntity (real signatures, re
       dbAfter.prepare("SELECT COUNT(*) c FROM applied_authority_log WHERE entry_id = ?").get(replayId).c
     ).toBe(0)
   })
+
+  // Amendment 2026-10-03 (Mechanism B, docs/adr/2026-10-02-distributed-revocation-authority.md's
+  // "self-heal" section) — devices.revoked_at is a continuously-reconciled projection of
+  // authority_cache, not a write-once stamp. Mirrors the scenario the amendment names: a device
+  // locally stamped `other`'s devices.revoked_at (a pre-sync wasAdminOrFounder misclassification
+  // in revokeDevice) before ever learning `other` was actually a valid admin.
+  it('self-heal — a projection pass that resolves a device to admin clears its stale devices.revoked_at', async () => {
+    const founder = await makeDevice()
+    const other = await makeDevice()
+    let doc = createEmptyDoc()
+    doc = writeGenesis(doc, { founderDeviceId: 'founder', founderPeerId: founder.peerId })
+    doc = writeGrant(doc, { targetDeviceId: 'other', targetPeerId: other.peerId, signerDeviceId: 'founder', signerDb: founder.db })
+
+    const db = campDb()
+    // Stale local stamp, as if this device had wrongly revoked 'other' before ever syncing the
+    // grant above.
+    db.prepare(
+      "INSERT INTO devices (id, name, authorized_at, revoked_at, revoked_by_user_id, revocation_reason, pairing_status) VALUES (?, ?, ?, ?, ?, ?, 'revoked')"
+    ).run('other', 'Other', new Date().toISOString(), new Date().toISOString(), 'actor-1', 'stale')
+
+    projectAll(db, doc)
+
+    expect(cacheStatus(db, 'other')).toBe('admin')
+    const row = db.prepare('SELECT revoked_at, revoked_by_user_id, revocation_reason, pairing_status FROM devices WHERE id = ?').get('other')
+    expect(row).toEqual({ revoked_at: null, revoked_by_user_id: null, revocation_reason: null, pairing_status: 'authorized' })
+  })
+
+  // Confirms Mechanism B can never become a readmission path: a device authority_cache actually
+  // resolves to 'revoked' must NEVER have its devices row touched (set OR cleared) by this pass.
+  it('self-heal never touches devices for a target authority_cache resolves to revoked — no readmission path', async () => {
+    const founder = await makeDevice()
+    const other = await makeDevice()
+    let doc = createEmptyDoc()
+    doc = writeGenesis(doc, { founderDeviceId: 'founder', founderPeerId: founder.peerId })
+    doc = writeGrant(doc, { targetDeviceId: 'other', targetPeerId: other.peerId, signerDeviceId: 'founder', signerDb: founder.db })
+    doc = writeRevoke(doc, { targetDeviceId: 'other', signerDeviceId: 'founder', signerDb: founder.db })
+
+    const db = campDb()
+    // No local devices row for 'other' at all — projection must not CREATE one, and must not
+    // authorize it, just because it appears in camp_authority_log.
+    projectAll(db, doc)
+
+    expect(cacheStatus(db, 'other')).toBe('revoked')
+    expect(db.prepare('SELECT * FROM devices WHERE id = ?').get('other')).toBeUndefined()
+  })
 })
 
 // Reads a (kind, signature) pair back off the document for the named target/kind — used only to

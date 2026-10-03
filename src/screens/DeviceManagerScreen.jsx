@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { localClient } from '../localClient'
 import { S, useEnterTransition } from '../styles/shared'
+import { deriveDeviceRowState } from './deviceRowState'
 
 // T18 / CONSTITUTION Art. V. `pairing_status` is a database enum and was
 // rendered raw — a director saw "authorized", "pending", "revoked", or the
@@ -15,25 +16,6 @@ const PAIRING_STATUS_LABEL = {
 
 function pairingStatusLabel(status) {
   return PAIRING_STATUS_LABEL[status] ?? 'Not set up yet'
-}
-
-// T332 fold-in (Red Hat HIGH, Art. V — never show the director a tidy lie). A pure function of
-// one device row + the viewer's own role/mode, so the mapping from `effectiveState` (the real
-// camp_authority_log replay, computed server-side in electron/main.js's listDevices — never
-// recomputed here) to badge/affordance is unit-testable without rendering. `effectiveState` is
-// `undefined` for an ordinary (never admin/founder) device — that row keeps the ORIGINAL
-// revoked_at-only logic unchanged, exactly as before this fold-in.
-export function deriveDeviceRowState(device, { role, canManage }) {
-  const removalPending = device.effectiveState === 'removal_pending'
-  const isRevoked = device.effectiveState === 'removed' || (device.effectiveState === undefined && !!device.revoked_at)
-  const isAuthorized = !!device.authorized_at && !isRevoked && !removalPending
-  const canVote = device.effectiveState !== undefined && role === 'admin' && canManage && !device.isSelf && !device.hasVoted && !isRevoked
-  const detailText = !removalPending
-    ? null
-    : Number.isFinite(device.votesNeeded) && Number.isFinite(device.votesCast)
-      ? `Needs ${device.votesNeeded - device.votesCast} more director${device.votesNeeded - device.votesCast === 1 ? '' : 's'} to confirm`
-      : 'Removal pending — waiting on other directors'
-  return { removalPending, isRevoked, isAuthorized, canVote, detailText }
 }
 
 // T322 S3b — the per-peer purge badge copy. The four never-claims from the
@@ -74,12 +56,13 @@ const ERASURE_COPY = {
 }
 
 export default function DeviceManagerScreen({ campId, role, deviceMode }) {
-  // T86 — approveDevice/denyDevice/revokeDevice write straight to this
-  // device's local, never-synced `devices` table; on a Client that write can
-  // never reach the Host, where device trust is actually enforced. The
-  // handlers refuse outright (electron/main.js), and this screen stays
-  // reachable read-only on a Client rather than presenting controls that
-  // would throw.
+  // T86, narrowed by the T332 fold-in (Code Reviewer HIGH): `denyDevice` still writes straight
+  // to this device's local, never-synced `devices` table with no distributed backstop, and the
+  // "Add a device" listening window is inherently Host-only (there is no code to show on a
+  // Client). Both of THOSE stay gated on `canManage`. `revokeDevice`/the admin-only Revoke and
+  // Confirm-removal actions below are NOT gated on it any more — their backend gate
+  // (authorize()'s role check) has been mode-agnostic since T332's base change, so a client-mode
+  // admin gets the identical affordance a host-mode admin does; see deriveDeviceRowState.js.
   const canManage = deviceMode !== 'client'
   const [pending, setPending] = useState([])
   const [allDevices, setAllDevices] = useState([])
@@ -321,7 +304,7 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
             </thead>
             <tbody>
               {allDevices.map((device) => {
-                const { removalPending, isRevoked, isAuthorized, canVote, detailText } = deriveDeviceRowState(device, { role, canManage })
+                const { removalPending, isRevoked, isAuthorized, canVote, detailText } = deriveDeviceRowState(device, { role })
                 return (
                   <tr key={device.id}>
                     <td style={S.td}>{device.name || '—'}</td>
@@ -343,7 +326,11 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
                     )}
                     <td style={S.td}>{fmt(device.authorized_at)}</td>
                     <td style={S.td}>
-                      {isAuthorized && role === 'admin' && canManage && (
+                      {/* T332 fold-in (Red Hat LOW — self-exclusion): never render the plain
+                          Revoke button for the viewer's own device row, symmetric with how
+                          canVote already excludes self — a director should never be able to
+                          click into the server-side "cannot remove your own device" refusal. */}
+                      {isAuthorized && role === 'admin' && !device.isSelf && (
                         <button
                           style={busy[device.id] ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
                           disabled={!!busy[device.id]}
@@ -366,9 +353,6 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
                       )}
                       {isRevoked && (
                         <span style={styles.revokedLabel}>Revoked</span>
-                      )}
-                      {isAuthorized && role === 'admin' && !canManage && (
-                        <span style={styles.revokedLabel}>View only from this device — use the main computer</span>
                       )}
                     </td>
                   </tr>

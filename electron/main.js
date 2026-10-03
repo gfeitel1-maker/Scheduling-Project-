@@ -1229,8 +1229,12 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     // currentAuthorityState), never recomputed independently here: admins is the current
     // granted set (includes a target until quorum actually removes it), votes is
     // target -> Map<signer, surviving-vote-hashes> for outstanding quorum votes. A device that
-    // was never granted/targeted gets no extra fields at all — this is additive, and leaves the
-    // ordinary revoked_at-only row shape untouched for every non-admin device.
+    // was never granted/targeted gets no EXTRA fields (effectiveState/votesNeeded/votesCast/
+    // hasVoted) — this is additive, and leaves the ordinary revoked_at-only row shape untouched
+    // for every non-admin device. `isSelf`, though, is added to EVERY row, admin or not: the
+    // self-target guard in revokeDevice (electron/main.js) refuses a self-revoke regardless of
+    // whether the target is an admin, so the UI's self-exclusion needs the same signal on every
+    // row, not only the admin-targeted ones.
     const doc = getCurrentDoc(db)
     let authorityState = null
     if (doc) {
@@ -1240,13 +1244,15 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
         console.error(`listDevices: computing authority state failed (non-fatal, admin rows fall back to pairing_status): ${err?.message ?? err}`)
       }
     }
-    if (!authorityState) return rows
 
     return rows.map((row) => {
+      const isSelf = row.id === deviceId
+      if (!authorityState) return { ...row, isSelf }
+
       const isCurrentAdmin = authorityState.admins.has(row.id)
       const votersForTarget = authorityState.votes.get(row.id)
       const wasEverTargeted = isCurrentAdmin || !!votersForTarget
-      if (!wasEverTargeted) return row
+      if (!wasEverTargeted) return { ...row, isSelf }
 
       const votesCast = votersForTarget ? votersForTarget.size : 0
       const votesNeeded = quorumThreshold(authorityState.admins.size)
@@ -1257,7 +1263,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
         votesNeeded,
         votesCast,
         hasVoted: !!votersForTarget?.has(deviceId),
-        isSelf: row.id === deviceId,
+        isSelf,
       }
     })
   }

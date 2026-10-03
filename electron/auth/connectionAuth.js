@@ -127,18 +127,44 @@ export function evaluateAuthenticate(db, { token, device_id, peerId, appliedTomb
     "INSERT OR IGNORE INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')"
   ).run(verified.deviceId, `Device ${verified.deviceId.slice(0, 8)}`)
 
-  const trust = deviceTrustStatus(db, verified.deviceId)
-  if (!trust.found || !trust.authorized || trust.revoked) {
-    const reason = deviceTrustReason(trust)
+  // Amendment 2026-10-03 (RISK-1, docs/adr/2026-10-02-distributed-revocation-authority.md's
+  // "gate precedence" section) — hoisted ABOVE the legacy devices.revoked_at check below.
+  // Precedence rule: when authority_cache has a row for this device, that row is authoritative
+  // for the revocation decision; devices.revoked_at is consulted ONLY when there is no row at
+  // all (pre-T331 back-compat, or a device nobody has granted/revoked through the distributed
+  // mechanism yet). 'revoked' denies unconditionally — unchanged in effect from Gate A as it
+  // existed before this amendment, just evaluated earlier. 'admin' skips the legacy check
+  // entirely, so a stale local devices.revoked_at stamp (e.g. from a pre-sync
+  // wasAdminOrFounder misclassification in revokeDevice, electron/main.js) can never override a
+  // fleet-confirmed-live admin. `undefined` (no row) falls straight through to the legacy check,
+  // byte-for-byte unchanged.
+  const authorityStatus = db.prepare('SELECT status FROM authority_cache WHERE device_id = ?').get(verified.deviceId)?.status
+  if (authorityStatus === 'revoked') {
     recordAuditEvent(db, {
       actorUserId: verified.userId,
       deviceId: verified.deviceId,
       action: 'auth.authenticate',
       outcome: 'deny',
-      reason,
+      reason: 'device_revoked_by_authority',
       metadata: verified.jti ? { jti: verified.jti } : null,
     })
-    return { ok: false, code: reason === 'device_revoked' ? 4404 : 4403, reason }
+    return { ok: false, code: 4404, reason: 'device_revoked_by_authority' }
+  }
+
+  if (authorityStatus !== 'admin') {
+    const trust = deviceTrustStatus(db, verified.deviceId)
+    if (!trust.found || !trust.authorized || trust.revoked) {
+      const reason = deviceTrustReason(trust)
+      recordAuditEvent(db, {
+        actorUserId: verified.userId,
+        deviceId: verified.deviceId,
+        action: 'auth.authenticate',
+        outcome: 'deny',
+        reason,
+        metadata: verified.jti ? { jti: verified.jti } : null,
+      })
+      return { ok: false, code: reason === 'device_revoked' ? 4404 : 4403, reason }
+    }
   }
 
   if (typeof peerId === 'string' && peerId.length > 0) {
@@ -157,27 +183,10 @@ export function evaluateAuthenticate(db, { token, device_id, peerId, appliedTomb
   }
 
   // Gate A (T331, docs/adr/2026-10-02-distributed-revocation-authority.md) — the DISTRIBUTED
-  // revocation check, independent of and in addition to the Host-local devices.revoked_at check
-  // above. A device can be removed by ANY currently-valid admin's signed camp_authority_log
-  // entry, reaching quorum for an admin/founder target — never requiring the Host specifically
-  // (that is the entire point of this ADR: the Host being the one revoked, or offline, must not
-  // block its own removal). Read from authority_cache, this device's LOCAL, already-verified-and-
-  // replayed derived cache (electron/automerge/projector.js's upsertCampAuthorityLogEntity) —
-  // never from the connecting peer's own self-report. Reuses this function's existing deny shape
-  // (code 4404) with its own distinguishing reason string, per the ADR's enforcement checklist.
-  const authorityStatus = db.prepare('SELECT status FROM authority_cache WHERE device_id = ?').get(verified.deviceId)?.status
-  if (authorityStatus === 'revoked') {
-    recordAuditEvent(db, {
-      actorUserId: verified.userId,
-      deviceId: verified.deviceId,
-      action: 'auth.authenticate',
-      outcome: 'deny',
-      reason: 'device_revoked_by_authority',
-      metadata: verified.jti ? { jti: verified.jti } : null,
-    })
-    return { ok: false, code: 4404, reason: 'device_revoked_by_authority' }
-  }
-
+  // revocation check is now evaluated ABOVE, hoisted ahead of the legacy devices.revoked_at
+  // check by the 2026-10-03 amendment (see this function's own comment at that check). No
+  // separate authority_cache read happens here any more — doing it twice would just be the
+  // same query run again, not a second gate.
   persistAppliedTombstones(db, verified.deviceId, appliedTombstones)
 
   return { ok: true, verified }
@@ -258,7 +267,22 @@ export function evaluatePairingRequest(db, { device_id, device_name }) {
 // 4, carried over unchanged).
 export function evaluateLogin(db, { device_id, device_secret_identifier, name, pin, peerId }) {
   const trust = deviceTrustStatus(db, device_id)
-  if (!trust.found || !trust.authorized || trust.revoked) {
+  // Amendment 2026-10-03 (RISK-1) — identical precedence to evaluateAuthenticate above: an
+  // admin wrongly locked out at the network gate must not separately fail login via this
+  // same-class local-only check. authority_cache 'revoked' still denies unconditionally;
+  // 'admin' skips the legacy trust gate (trust.row is still needed below for the device secret,
+  // so `trust` itself is still fetched either way); no row falls straight back to today's check.
+  const authorityStatus = db.prepare('SELECT status FROM authority_cache WHERE device_id = ?').get(device_id)?.status
+  if (authorityStatus === 'revoked') {
+    return { ok: false, reason: 'not_paired' }
+  }
+  if (authorityStatus !== 'admin' && (!trust.found || !trust.authorized || trust.revoked)) {
+    return { ok: false, reason: 'not_paired' }
+  }
+  // Still required regardless of authorityStatus: the device-secret check below reads
+  // trust.row, which is null when this device has no local `devices` row at all — a bypass
+  // can waive the revoked_at/authorized_at CHECK, never the existence of the row it reads.
+  if (!trust.row) {
     return { ok: false, reason: 'not_paired' }
   }
 

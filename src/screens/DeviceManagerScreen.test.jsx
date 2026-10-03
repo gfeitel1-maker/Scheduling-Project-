@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 //
-// T86 — approveDevice/denyDevice/revokeDevice write straight to this
-// device's local, never-synced `devices` table; on a Client that write can
-// never reach the Host, so the handlers refuse outright (electron/main.js).
-// This pins the UI half: a Client admin sees the read-only device list but
-// reaches no write control, while a Host admin's controls are unchanged.
+// T86, narrowed by the T332 fold-in (Code Reviewer HIGH) — denyDevice still writes straight to
+// this device's local, never-synced `devices` table with no distributed backstop, and the
+// pending-pairing Approve/Deny controls + the "Add a device" listening window stay Host-only.
+// revokeDevice (and the Confirm-removal vote affordance) do NOT: their backend gate
+// (authorize()'s role check) has been mode-agnostic since T332's base change, so a Client admin
+// now gets the identical Revoke control a Host admin does.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -64,7 +65,7 @@ describe('DeviceManagerScreen — write controls gated by device mode', () => {
     expect(screen.getByText('Revoke')).toBeTruthy()
   })
 
-  it('hides Approve/Deny/Revoke controls for an admin on a Client, keeping the list read-only', async () => {
+  it('hides Approve/Deny for a pending pairing request on a Client, but shows Revoke for an authorized device', async () => {
     localClient.listPendingPairingRequests.mockResolvedValue([pendingDevice()])
     localClient.listDevices.mockResolvedValue([authorizedDevice()])
 
@@ -74,9 +75,21 @@ describe('DeviceManagerScreen — write controls gated by device mode', () => {
     expect(await screen.findByText('iPad')).toBeTruthy()
     expect(screen.getByText('MacBook')).toBeTruthy()
 
-    // Writes: no control is presented on a Client.
+    // Pairing approval stays Host-only (denyDevice has no distributed backstop).
     expect(screen.queryByText('Approve')).toBeNull()
     expect(screen.queryByText('Deny')).toBeNull()
+
+    // T332 fold-in — Revoke no longer depends on deviceMode: a Client admin reaches the
+    // identical control a Host admin does, because the backend gate is role-only.
+    expect(screen.getByText('Revoke')).toBeTruthy()
+  })
+
+  it('a Client STAFF (non-admin) still gets no Revoke control — refused server-side regardless', async () => {
+    localClient.listDevices.mockResolvedValue([authorizedDevice()])
+
+    render(<DeviceManagerScreen campId="c1" role="staff" deviceMode="client" />)
+
+    expect(await screen.findByText('MacBook')).toBeTruthy()
     expect(screen.queryByText('Revoke')).toBeNull()
   })
 })
