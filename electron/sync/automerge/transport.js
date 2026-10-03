@@ -63,7 +63,7 @@ const MAX_CONNECTIONS = 200
 // scoped discovery; omitted by default so tests keep dialing directly over
 // loopback (mDNS needs a real network interface — see discovery.js's own
 // module comment).
-export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyncMessageReceived, listen, onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, onPairingDecision, peerDiscovery, now, connectionRateLimiter, privateKey, schemaVersion } = {}) {
+export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyncMessageReceived, listen, onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, onPairingDecision, peerDiscovery, now, connectionRateLimiter, privateKey, schemaVersion, relayServerFactory, relayTransportFactory, inboundConnectionThreshold } = {}) {
   // Per-SOURCE-IP inbound rate limiting (blocker #2 of the WAN hardening; connectionRateLimiter.js).
   // Closes the connection-churn hole authGate.js documents: a peer opening a fresh connection (fresh
   // peer id) per frame evades per-peer throttling and is otherwise bounded only by MAX_CONNECTIONS.
@@ -72,6 +72,22 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
   // (all-private) and in tests (loopback) — it can only ever limit a PUBLIC source, which appears
   // only once internet transport is enabled. Injectable for tests; a real limiter by default.
   const rateLimiter = connectionRateLimiter ?? makeConnectionRateLimiter(now ? { now } : {})
+  // T337 (docs/work/specs/2026-10-03-t337-coordination-layer-design.md §A, §E): the camp-peer
+  // circuit-relay-v2 coordination relay. `relayServerFactory`/`relayTransportFactory` are
+  // injected factory functions (e.g. circuitRelayServer()/circuitRelayTransport() from
+  // '@libp2p/circuit-relay-v2') — this module stays free of a direct import of that package, the
+  // same discipline peerDiscovery already follows, so the capability stays entirely caller-
+  // controlled (syncStarter.js, gated on SHORESH_RELAY_ENABLED + the `relay` capability's
+  // signoff) and this file never branches on capability state itself.
+  //
+  // `isPeerAdmittedForRelay` is a reassignable closure, not a const, because the connectionGater
+  // hooks below are evaluated by createLibp2p's config BEFORE registerAuthGate (further down)
+  // produces `authenticatedPeers` — the gater closures are only ever CALLED later, once a real
+  // HOP request arrives, by which point the reassignment below has already run. This is the
+  // mechanism that makes §A's "restriction falls out of the mechanism" claim concrete: R's
+  // circuitRelayServer refuses a RESERVE/CONNECT for any peer not in THIS node's own
+  // authenticatedPeers set — the exact same set broadcastDoc already gates every send on.
+  let isPeerAdmittedForRelay = () => false
   const node = await createLibp2p({
     // T162 (docs/adr/2026-09-14-device-identity-and-token-binding.md §1): a
     // persistent per-device identity, loaded by the caller (syncNode.js's
@@ -80,7 +96,7 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     // default of a fresh keypair per process start, unchanged from before.
     ...(privateKey ? { privateKey } : {}),
     addresses: { listen: listen ?? DEFAULT_LISTEN },
-    transports: [tcp()],
+    transports: [tcp(), ...(relayTransportFactory ? [relayTransportFactory] : [])],
     connectionEncrypters: [noise()],
     streamMuxers: [yamux()],
     // Security review backstop: bound how many peer connections this node will
@@ -89,7 +105,11 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     // (Per-peer frame-RATE limiting — a token bucket ahead of A.merge — is a
     // Stage-5 pre-wiring item per the Security review; the frame-SIZE cap lives
     // in wireProtocol.js's MAX_FRAME_BYTES.)
-    connectionManager: { maxConnections: MAX_CONNECTIONS },
+    // `inboundConnectionThreshold` is test-only (libp2p's own default is 5 connections per
+    // remote HOST — fine for a real camp LAN of distinct devices, but it refuses a test that
+    // dials several real nodes from the single loopback host in quick succession). Production
+    // never sets this; every existing caller omits it and gets libp2p's own default unchanged.
+    connectionManager: { maxConnections: MAX_CONNECTIONS, ...(inboundConnectionThreshold != null ? { inboundConnectionThreshold } : {}) },
     // Per-source-IP flood cap — see rateLimiter above. Returns true to DENY.
     connectionGater: {
       denyInboundConnection: (maConn) => {
@@ -99,8 +119,28 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
           return false // never let a classification error block a connection (fail open)
         }
       },
+      // T337 §A/§D — only wired when this node runs the relay server. Both hooks are
+      // circuit-relay-v2's own extension points (server/index.js's handleReserve/handleConnect),
+      // not something this app bolts on afterward: a RESERVE request from a peer this node has
+      // not itself admitted is refused before any reservation is created, and a CONNECT request
+      // naming a destination peer this node has not admitted is refused before any relayed
+      // stream opens. `isPeerAdmittedForRelay` reads the SAME authenticatedPeers set as every
+      // other admission check in this file — never a second copy of "is X allowed".
+      ...(relayServerFactory
+        ? {
+            denyInboundRelayReservation: (peerId) => !isPeerAdmittedForRelay(peerId.toString()),
+            // Both the REQUESTER (srcPeerId — "broker a coordination exchange FOR me") and the
+            // DESTINATION (dstPeerId — the dst's own reservation already required it to be
+            // admitted, but re-checked here rather than trusted from an earlier moment) must be
+            // admitted. The organizer's non-negotiable is the requester side: R must decline to
+            // broker for a non-admitted/revoked REQUESTER, not only refuse once the destination
+            // turns out to be unreachable/unadmitted.
+            denyOutboundRelayedConnection: (srcPeerId, dstPeerId) =>
+              !isPeerAdmittedForRelay(srcPeerId.toString()) || !isPeerAdmittedForRelay(dstPeerId.toString()),
+          }
+        : {}),
     },
-    services: { identify: identify() },
+    services: { identify: identify(), ...(relayServerFactory ? { circuitRelay: relayServerFactory } : {}) },
     ...(peerDiscovery ? { peerDiscovery } : {}),
   })
 
@@ -124,6 +164,9 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     ...(now ? { now } : {}),
     ...(schemaVersion != null ? { schemaVersion } : {}),
   })
+  // See the connectionGater block above — this is the reassignment that makes the relay gater
+  // hooks real once authenticatedPeers exists.
+  isPeerAdmittedForRelay = (peerId) => authenticatedPeers.has(peerId)
 
   await node.handle(PROTO, (stream, connection) => {
     const fromPeerId = connection.remotePeer.toString()
@@ -152,7 +195,16 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
       // A malformed/adversarial peer closing or corrupting the stream must not
       // crash this node — see design doc's "what must NOT be trusted" section.
     })
-  })
+  }, { runOnLimitedConnection: true })
+  // ^ T337 gate-fix round 2 (Code Reviewer LOW, FIX 3): without this opt-in, libp2p refuses to
+  // even INVOKE this handler for a stream arriving over a "limited" connection (circuit-relay-v2's
+  // relayed connections are always limited) — the stream is reset before authenticatedPeers is
+  // ever consulted. That would make the admission check moot for exactly the arrival path T337
+  // §D's carry-forward proofs are about, not merely redundant with it. Dial-side call sites
+  // (sendDocTo, below) already pass this same option; it was previously missing on the listen
+  // side, found while proving the end-to-end relayed-connection carry-forward in
+  // relayEndToEndRevoke.test.js. Admission itself is still the same authenticatedPeers check,
+  // unchanged — this only lets that check actually run over a relay.
 
   // Inbound half of the sync protocol — same admission gate as PROTO's handler above (Stage 5d-1's
   // ADR §3, threat #1/#4): an unauthenticated peer's bytes never reach A.receiveSyncMessage.
@@ -169,7 +221,7 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     }).catch(() => {
       // A malformed/adversarial peer closing or corrupting the stream must not crash this node.
     })
-  })
+  }, { runOnLimitedConnection: true }) // same reasoning as PROTO's handler above
 
   async function sendDocTo(peerId, docBytes) {
     const stream = await node.dialProtocol(toDialTarget(peerId), PROTO, { runOnLimitedConnection: true })
@@ -434,7 +486,29 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     // only stops a future dial; this is what tears down an existing one.
     revokePeer: (peerId) => {
       authenticatedPeers.delete(String(peerId))
+      // Gate-fix round 2 (Red Hat HIGH, FIX 1c): denyOutboundRelayedConnection already blocks a
+      // NEW CONNECT for a revoked peer, but a RESERVATION this peer made while still admitted
+      // sits in R's ReservationStore occupying one of MAX_SIMULTANEOUS_RESERVATIONS slots until
+      // its own TTL expires otherwise — reclaiming it here is defense-in-depth, not the load-
+      // bearing control (that is still the gater, which runs on every CONNECT regardless of
+      // whether this reclaim ever ran). Best-effort: a relay server not being configured, or the
+      // library's internal shape changing, must never make revocation itself fail.
+      if (relayServerFactory) {
+        try {
+          node.services.circuitRelay?.reservationStore?.removeReservation(peerIdFromString(String(peerId)))
+        } catch (err) {
+          console.error(`transport: failed to evict relay reservation for revoked peer ${peerId} (non-fatal — the CONNECT gater is the real control): ${err?.message ?? err}`)
+        }
+      }
     },
+    // T337 pre-signoff hardening — test-support accessor, not production wiring: the number of
+    // LIVE reservations currently held in R's ReservationStore (distinct from `getPeers()`, which
+    // reflects libp2p CONNECTIONS — a peer can be connected without holding a reservation, e.g.
+    // one refused for being over `maxReservations`). Only meaningful when `relayServerFactory` was
+    // provided; returns 0 otherwise. Exists so a real-multi-node test can pin "refresh doesn't
+    // grow the count, distinct peers do" against the actual ReservationStore rather than
+    // inferring it from HOP response codes alone.
+    getRelayReservationCount: () => node.services.circuitRelay?.reservationStore?.reservations?.size ?? 0,
     admitPeer: (peerId) => {
       const id = String(peerId)
       if (authenticatedPeers.has(id)) return

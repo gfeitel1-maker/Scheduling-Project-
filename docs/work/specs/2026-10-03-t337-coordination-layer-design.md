@@ -38,10 +38,21 @@ did converge on refinements *within* that ruled shape, folded into the Approach 
   eligibility rule — this was already implicit in "a camp peer" but the frame made explicit that it
   must not harden into a de-facto permanent host, which would silently recreate the single-point-of-
   failure/centralization shape the owner has repeatedly rejected elsewhere in this program.
-- **Disposable, one-shot coordination, never persisted** (3am-on-call + logistics, 3 hits — "cross-
-  dock handoff," "dead-man's-switch failover," "ad hoc relay that forgets it ever happened"):
-  reinforces the ADR's existing ~128 KiB/2 min coordination cap — the relay role is transient per
-  rendezvous attempt, not a standing service. Folded into §A/§B.
+- _Prior: **Disposable, one-shot coordination, never persisted** (3am-on-call + logistics, 3 hits —
+  "cross-dock handoff," "dead-man's-switch failover," "ad hoc relay that forgets it ever
+  happened"): reinforces the ADR's existing ~128 KiB/2 min coordination cap — the relay role is
+  transient per rendezvous attempt, not a standing service. Folded into §A/§B._ **Correction
+  (gate-fix round 3, Red Hat MEDIUM): this converged belief is FALSE against the actually-
+  installed `@libp2p/circuit-relay-v2@4.2.13`.** The client transport auto-REFRESHES its
+  reservation roughly every 30s for as long as it stays connected to R
+  (`transport/reservation-store.js`'s refresh timer: with a 120000ms TTL, `max(120000 − 300000,
+  30000) = 30000`), and the server's own `reserve()` resets the TTL on each refresh while
+  bypassing `maxReservations` for an EXISTING reservation (`server/reservation-store.js`). A
+  reservation is therefore a STANDING, perpetually-renewed camp-internal relay slot while the
+  client is online — not a one-shot, disposable, per-attempt thing. See §B/§E below for the
+  corrected description; whether a standing-but-bounded reservation of this shape is acceptable
+  under the owner's "no standing relay" line is a separate, still-pending owner decision — this
+  note only fixes what the mechanism actually does.
 - **CRDT-piggybacked presence as a complement, not a replacement** (logistics' "consignment
   inventory"/"kanban pull signal" + the 3am-on-call "Automerge-document-as-rendezvous-channel" idea,
   independently hit by two frames): worth recording as an open question (§G) precisely because it has
@@ -113,14 +124,21 @@ role to get right or get wrong; it inherits T331's existing admission gate by co
 the same "admission, not discovery, is the control" invariant T336 states for hole-punch, applied one
 layer earlier.
 
-**How the brief exchange drops out.** The `circuit-relay-v2` coordination hop carries only the
-reflexive-address exchange payload, capped (per the ADR, ~128 KiB / ~2 min, unchanged by this design —
-this slice does not revisit that cap). Once `dcutr` completes the simultaneous-open punch between B
-and C directly (T336 §1 step 3), the relayed connection through R is torn down; it was never the data
-path and never becomes one. On punch failure, the relayed connection is explicitly closed, not
-silently reused as a fallback data channel — that fallback, if the pair truly cannot punch through
-(both behind symmetric/CGNAT NAT), is Slice B's capped data-path relay or the Cloudflare rendezvous,
-both separately gated, never this coordination hop widening its own scope.
+**How the brief exchange drops out — corrected (gate-fix round 3).** Each individual relayed
+*stream* over the `circuit-relay-v2` hop is still capped per the ADR (~128 KiB / ~2 min per
+stream, unchanged by this design). But the underlying *reservation* that makes R reachable for B
+at all is NOT torn down once dcutr's simultaneous-open punch succeeds between B and C directly
+(T336 §1 step 3) — the reservation is a standing, auto-renewed slot (see the correction note
+above) that persists for as long as B's `circuitRelayTransport` stays connected to R, independent
+of whether any particular coordination attempt succeeded, failed, or was ever made. What DOES
+change once dcutr succeeds is which path carries TRAFFIC: the direct B↔C connection becomes
+primary, and R's relayed path for that pair goes idle — present as a fallback route, not
+exercised unless the direct path later breaks. The reservation itself is the standing, bounded
+reachability primitive this mechanism maintains; the DATA that flows through R per attempt is
+what's capped and short-lived. On punch failure, no relayed connection to C was ever carrying
+data to begin with (that is the data-path relay Slice B's own capped mechanism, separately
+gated) — this coordination layer's reservation existing is not the same thing as this
+coordination layer's reservation being USED as a data path.
 
 **When no camp peer is reachable at all.** If B's address book contains no camp peer it can currently
 reach (or none it can reach that can also reach C), the coordination attempt exhausts its candidates
@@ -151,9 +169,14 @@ R does not learn anything about B or C that a direct connection between R and ei
 already reveal; the coordination role adds no new category of exposure, only a slightly earlier/more
 frequent occasion to learn facts R is already camp-entitled to.
 
-**Cost.** Relay-node load on R: one short-lived `circuit-relay-v2` stream, capped at ~128 KiB / ~2 min
-per the existing ADR cap, torn down on punch success or failure — not a sustained service, and R's
-own normal sync/connectivity work is otherwise unaffected. Setup overhead for B: one extra address-book
+**Cost — corrected (gate-fix round 3).** Relay-node load on R is NOT a one-shot, torn-down-after-
+the-attempt cost. R holds a STANDING reservation per connected camp peer that has asked to be
+reachable through it — auto-refreshed roughly every 30s by the client side, for as long as that
+peer stays connected to R — plus whatever short-lived `circuit-relay-v2` STREAMS get opened
+through that reservation, each individually capped at ~128 KiB / ~2 min per the existing ADR cap.
+R's own normal sync/connectivity work is otherwise unaffected, and the per-stream cap bounds any
+single relayed exchange's cost, but the RESERVATION itself is not bounded in duration by this
+design — it lives as long as the connection does. Setup overhead for B: one extra address-book
 dial (to R) before the dcutr exchange can begin, plus R's own dial to C if R didn't already have a
 live connection to C — worst case two sequential dial attempts beyond what T336's remembered-address
 redial alone would need, each bounded by the same hard-deadline dial timer T336 §2 already requires
@@ -161,6 +184,35 @@ redial alone would need, each bounded by the same hard-deadline dial timer T336 
 candidate R's, trying them is best-effort/sequential (or capped-parallel), logged-never-thrown, the
 same pattern `redialTrustedPeers` already uses — this design does not introduce a new retry
 philosophy, it reuses the existing one.
+
+**Gate-fix round 3 correction (Red Hat MEDIUM — the round-2 addendum below was itself still
+wrong, make the claim true this time).** The round-2 addendum (preserved below for the record)
+described the fix as making reservations "disposable" on a short TTL. That is not what the code
+does, and cannot be made to do that without disabling the library's own refresh behavior entirely
+(which this design does not propose). What the implementation actually provides, honestly stated:
+a **standing, BOUNDED, camp-internal relay reservation** — bounded by (a) camp-admitted-only
+eligibility (§A's "falls out of the mechanism" argument, unchanged), (b) a per-stream data/time
+cap (~128 KiB / ~2 min per relayed exchange, unchanged by this round), and (c) a cap of 8
+simultaneous NEW reservations R will grant (`maxReservations`, `syncStarter.js`) — not bounded in
+how long an EXISTING reservation may be renewed, which the library does automatically and which
+this design does not override. With T336's dcutr present, the direct connection is primary once
+punched and the standing reservation becomes an idle fallback — traffic crosses R only when the
+direct path is unavailable. In the T337-alone case (dcutr absent), nothing prevents the relay from
+being the ONLY path for as long as the client stays connected — this is exactly the "relay as
+primary data path" risk the enablement gate (relayEnablement.js, §E below) exists to prevent by
+withholding relay activation until dcutr exists in the build. `transport.js`'s `revokePeer`
+evicts a revoked peer's reservation outright (`reservationStore.removeReservation`) as defense-in-
+depth alongside the CONNECT-time gater check — this remains correct and unchanged by this
+correction. See `electron/sync/automerge/relayCoordinationWindow.test.js` for the reservationTtl/
+maxReservations proofs, and `docs/work/security/` for the standing-reservation acceptability
+question, which is the owner's pending decision, not resettled here.
+
+_Prior (round 2, superseded by the correction above): "The ~128 KiB / ~2 min figure above is not
+automatic from `@libp2p/circuit-relay-v2`'s own defaults — the library's `reservations.
+reservationTtl` defaults to 2 hours (`DEFAULT_MAX_RESERVATION_TTL`), a renewable window, not the
+disposable one this design requires. The implementation (`syncStarter.js`) sets `reservations.
+reservationTtl` and `defaultDurationLimit` to the SAME explicit 120000ms window... " — kept for
+the record; the "disposable" framing in that text was itself wrong, per the round-3 correction._
 
 ## C. AutoNAT-camp-peers-only — hard, blocking requirement
 
@@ -257,6 +309,40 @@ Security or Grader FAIL stops the loop and returns to the owner via the organize
 pass does the `signoff` entry get written and the capability merge. This design does not add the
 package, does not flip `signoff`, and does not write `circuitRelay` into production wiring — that is
 Maker's job, after this design and the organizer's review of it.
+
+**Gate-fix round 2 addendum (Security-Assessment F-1).** `signoff` authorizes CODE MERGE, not
+runtime promotion to the PRIMARY data path — those are deliberately two separate gates. A bare
+`SHORESH_RELAY_ENABLED=true` must never be sufficient to make relay carry live traffic ahead of
+T336's dcutr direct-upgrade existing to bootstrap from it; the implementation (`relayEnablement.js`)
+additionally requires dcutr to actually be present in the build (`@libp2p/dcutr`/`@libp2p/autonat`
+resolvable) before `relayServerFactory`/`relayTransportFactory` are ever constructed, mechanically
+coupling activation to the thing this coordination layer exists to serve, rather than trusting a
+human to remember a second sentinel.
+
+**Gate-fix round 3 addendum (Red Hat MEDIUM — presence-not-signoff gap).** The round-2 coupling
+above checks whether `@libp2p/dcutr`/`@libp2p/autonat` are importable, not whether the `dcutr`
+capability row is actually SIGNED OFF. That gap matters precisely because of the round-3
+correction above §B: a relay reservation is standing, not disposable, so the window where dcutr's
+packages are present in the tree (T336 lands them) but `dcutr.signoff` is still `null` (review not
+yet complete) is a window where this coupling alone would already flip relay-eligible — exactly
+the "relay as the only path, indefinitely" shape this design exists to avoid outside dcutr being
+actually reviewed-and-authorized, not merely present. `electron/sync/automerge/
+dcutrPresenceWithoutSignoff.guard.test.js` asserts this invariant directly (either both packages
+are absent from the resolved tree, or `dcutr.signoff` is non-null) and fails loudly the moment it
+breaks, rather than relying on this doc note alone.
+
+**Gate-fix round 4 addendum (carried-forward blocking preconditions).** Three items this build
+proved partially or not at all are recorded as explicit BLOCKING preconditions on the `dcutr`/
+`autonat` capability's own gate, in `docs/work/tickets/T336-nat-holepunch-dcutr.md` — not loose
+"deferred" notes: (1) relay-specific every-hop revocation over the REAL merge-propagated revoke
+chain to a third relay node (T337 proved only the direct-call revoke path —
+`relayRevokeWhileRunning.test.js`, `relayCoordinationWindow.test.js`'s eviction test); (2)
+client-side camp-only auto-reservation (T337's gates — `denyInboundRelayReservation`/
+`denyOutboundRelayedConnection` — cover the SERVER side only; `RelayDiscovery`/
+`circuitRelayTransport`'s own client-side reservation/advertisement behavior is asserted-not-
+tested); (3) UI surfacing of `RESERVATION_REFUSED` once a camp's relay usage exceeds
+`maxReservations`. See that ticket for the full acceptance criteria this capability's gate must
+clear.
 
 ## F. Reuse vs. new; slice sequence
 

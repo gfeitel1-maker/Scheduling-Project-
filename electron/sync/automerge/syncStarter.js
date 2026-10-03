@@ -36,6 +36,12 @@ import { mintRendezvousNamespace } from './rendezvousNamespace.js'
 import { createVerifiedEntryTrust } from '../../automerge/authorityReplay.js'
 import { readRendezvousConfig, createRendezvousDiscovery } from './rendezvousClient.js'
 import { nextSequence } from './rendezvousSequence.js'
+// NAMING WARNING (gate-fix round 3, Code Reviewer MEDIUM): do not rename either import below to
+// name the hole-punch capability's own package/marker strings — transportBoundary.guard.test.js
+// scans THIS file's source text for every still-blocked capability's forbidden markers, and this
+// file has no legitimate reason to spell either one out literally. See relayEnablement.js's own
+// naming-warning comment for the full reasoning (and what happened the one time this file did).
+import { relayRuntimeEligible, holePunchFoundationPresent } from './relayEnablement.js'
 import { ensureDeviceIdentity } from '../../auth/deviceIdentity.js'
 import { recordAuditEvent } from '../../audit/auditLog.js'
 import { issueDeviceToken } from '../../auth/localAuth.js'
@@ -336,11 +342,65 @@ export function createAutomergeSyncStarter({
         )
       }
 
+      // T337 (docs/work/specs/2026-10-03-t337-coordination-layer-design.md §A, §E): the camp-peer
+      // circuit-relay-v2 coordination capability. BLOCKED by THREE independent gates, deliberately
+      // redundant: (1) the `relay` row's signoff in transportCapabilities.js is still null — this
+      // import and wiring is exactly what transportBoundary.guard.test.js is supposed to catch
+      // while that stays true, and it does (package presence AND this file's own `circuitRelay`
+      // reference both trip it; see that test's "declares no un-signed-off internet-transport
+      // dependency" and "references no marker of a still-blocked capability" assertions). (2)
+      // SHORESH_RELAY_ENABLED defaults to unset/false. (3) — gate-fix round 2, Security-Assessment
+      // F-1 — the flag ALONE is not sufficient: relayRuntimeEligible (relayEnablement.js) also
+      // requires the NEXT rung of the WAN ladder (the hole-punch direct-upgrade capability this
+      // coordination layer exists to bootstrap — see relayEnablement.js for exactly which
+      // packages it probes for, deliberately not named here) to actually exist in this build, so
+      // a bare flag flip can never promote relay to the PRIMARY data path on its own.
+      //
+      // reservationTtl is set explicitly rather than left at the library default
+      // (DEFAULT_MAX_RESERVATION_TTL, 2 hours) — gate-fix round 2, Red Hat HIGH. CORRECTED claim
+      // (gate-fix round 3, Red Hat MEDIUM — the round-2 comment here previously said this made
+      // reservations "disposable, ~2 min" / "expires with the attempt," which is FALSE and has
+      // been removed): the client transport auto-REFRESHES this reservation roughly every 30s for
+      // as long as it stays connected to R (circuit-relay-v2's own refresh timer; with a 120000ms
+      // TTL, max(120000−300000,30000)=30000), and the server's reserve() resets the TTL on each
+      // refresh. A reservation is therefore a STANDING, perpetually-renewed camp-internal relay
+      // slot, not a one-shot thing that expires after one coordination attempt. What this value
+      // actually bounds is the per-STREAM data/time budget (defaultDurationLimit, same number,
+      // deliberately) for each individual relayed exchange — the 128 KiB/2 min ADR cap — not how
+      // long the underlying reachability-via-R lasts. See
+      // docs/work/specs/2026-10-03-t337-coordination-layer-design.md §B's round-3 correction for
+      // the full honest description; the standing-reservation acceptability question is the
+      // owner's separate, still-pending decision.
+      // maxReservations is set to a small, explicit camp-LAN-scaled number (not the library
+      // default of 15, which was never chosen for this app's actual scale) — a camp is "a few
+      // devices" (ADR). It caps how many NEW reservations R will grant; it does not cap how long
+      // an EXISTING one may keep renewing (the library bypasses this cap on refresh).
+      const COORDINATION_WINDOW_MS = 120000
+      const MAX_SIMULTANEOUS_RESERVATIONS = 8
+      const relayEnabled = process.env.SHORESH_RELAY_ENABLED === 'true'
+      const relayEligible = relayRuntimeEligible({ relayEnabled, nextRungPresent: await holePunchFoundationPresent() })
+      let relayServerFactory
+      let relayTransportFactory
+      if (relayEligible) {
+        const { circuitRelayServer, circuitRelayTransport } = await import('@libp2p/circuit-relay-v2')
+        relayServerFactory = circuitRelayServer({
+          reservations: {
+            defaultDataLimit: 131072n,
+            defaultDurationLimit: COORDINATION_WINDOW_MS,
+            reservationTtl: COORDINATION_WINDOW_MS,
+            maxReservations: MAX_SIMULTANEOUS_RESERVATIONS,
+          },
+        })
+        relayTransportFactory = circuitRelayTransport()
+      }
+
       const startSyncNode = startSyncNodeImpl ? await startSyncNodeImpl() : (await import('./syncNode.js')).startSyncNode
       automergeSyncNode = await startSyncNode({
         deviceId,
         db,
         doc,
+        relayServerFactory,
+        relayTransportFactory,
         // Stage 5f, found on a real two-machine run: transport.js's DEFAULT_LISTEN is
         // '/ip4/127.0.0.1/tcp/0' — LOOPBACK ONLY. That default is correct for the in-process tests
         // it was written for (Stage 4 dialed over loopback deliberately), but it means a production

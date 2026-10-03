@@ -319,6 +319,17 @@ this design and the organizer's review of it.
    separate home networks, not two processes on one LAN simulating separate networks) before the gate
    is considered closed.
 
+## Carry-forward note (gate-fix round 4, T337 pre-signoff hardening)
+
+The ticket for this slice, `docs/work/tickets/T336-nat-holepunch-dcutr.md`, records three items as
+explicit BLOCKING preconditions on this capability's gate — not loose "deferred" notes — carried
+forward from T337's own build: (1) relay-specific every-hop revocation proven over the REAL
+merge-propagated revoke chain to a third relay node, not only T337's direct-call revoke proof; (2)
+client-side camp-only auto-reservation (`RelayDiscovery`/`circuitRelayTransport`'s own behavior,
+which T337's server-side gate does not cover), red-before-green at enable time; (3) UI surfacing of
+`RESERVATION_REFUSED` once a camp exceeds the relay's `maxReservations` cap. See that ticket for
+the full acceptance criteria.
+
 ## Commit
 
 Doc path: `docs/work/specs/2026-10-03-t336-slice-a-holepunch-design.md`. No capability opened, no

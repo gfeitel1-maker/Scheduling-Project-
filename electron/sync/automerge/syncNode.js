@@ -78,7 +78,7 @@ export function isSyncCompatible(incomingVersion, localVersion) {
 // installed builds in one process: overriding this alone lets a test node ANNOUNCE a version other
 // than this checkout's real CURRENT_SCHEMA_VERSION, to construct a genuine peer-version mismatch
 // without needing a second codebase.
-export async function startSyncNode({ deviceId, db, doc, onProjected, onProjectionError, onCrossCampRejected, onRemoteOps, onPairingRequest, onPairingDecision, isJoinWindowOpen, getJoinSecret, peerDiscovery, onAuthRejected, isPeerTrusted, listen, now, localSchemaVersion = CURRENT_SCHEMA_VERSION, handshakeSchemaVersion = localSchemaVersion } = {}) {
+export async function startSyncNode({ deviceId, db, doc, onProjected, onProjectionError, onCrossCampRejected, onRemoteOps, onPairingRequest, onPairingDecision, isJoinWindowOpen, getJoinSecret, peerDiscovery, onAuthRejected, isPeerTrusted, listen, now, localSchemaVersion = CURRENT_SCHEMA_VERSION, handshakeSchemaVersion = localSchemaVersion, relayServerFactory, relayTransportFactory } = {}) {
   const getLocalSchemaVersion = () =>
     typeof localSchemaVersion === 'function' ? localSchemaVersion() : localSchemaVersion
   const getHandshakeSchemaVersion = () =>
@@ -695,6 +695,14 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     // review, HIGH finding fix) — optional, tests only; production never
     // sets this and gets the real Date.now.
     ...(now ? { now } : {}),
+    // T337 (docs/work/specs/2026-10-03-t337-coordination-layer-design.md): the camp-peer
+    // circuit-relay-v2 coordination capability, gated behind SHORESH_RELAY_ENABLED (default
+    // false — see syncStarter.js) and the `relay` capability's signoff (transportCapabilities.js,
+    // currently null). Omitted by every caller that doesn't pass it (every existing test, and
+    // production while the flag is unset), so this is byte-identical to pre-T337 behavior
+    // until BOTH the flag is set AND the capability is signed off.
+    relayServerFactory,
+    relayTransportFactory,
   })
 
   // Discard this peer's sync progress the moment the connection is gone (see syncStates' own

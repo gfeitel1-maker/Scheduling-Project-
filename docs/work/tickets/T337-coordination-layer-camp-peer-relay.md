@@ -27,13 +27,19 @@ foundation. Design: `docs/work/specs/2026-10-03-t337-coordination-layer-design.m
 A device B whose cached address for target C no longer resolves consults its own `peer_last_addresses`
 for any OTHER camp peer R it can currently reach, dials R (reusing Slice-1's stale-address-safe dial),
 and asks R to broker a brief `circuit-relay-v2` coordination exchange to C; once B and C have each
-other's current reflexive addresses, T336 `dcutr` punches direct and the relayed hop is torn down
-(capped ~128 KiB / 2 min). No device is designated "the" relay (eligibility = currently reachable,
-per attempt — no single point of failure). The camp-admitted-only restriction is structural: R only
-brokers for a peer it has itself already passed through Noise + T331 `authorize()`/`isPeerRevoked`.
+other's current reflexive addresses, T336 `dcutr` punches direct and that direct path becomes
+primary. **Correction (gate-fix round 3, Red Hat MEDIUM): "the relayed hop is torn down" was
+wrong** — the underlying reservation is a STANDING, auto-renewed slot for as long as B stays
+connected to R (circuit-relay-v2's own refresh behavior, not overridden by this design); only the
+per-stream exchange is capped (~128 KiB / 2 min per relayed exchange), and only the TRAFFIC moves
+to the direct path once punched — R's reservation for B persists as an idle fallback, not a torn-
+down one-shot. No device is designated "the" relay (eligibility = currently reachable, per attempt
+— no single point of failure). The camp-admitted-only restriction is structural: R only brokers
+for a peer it has itself already passed through Noise + T331 `authorize()`/`isPeerRevoked`.
 Opens the Tier-4 `relay` (circuit-relay-v2) capability; lands guard-blocked (`signoff: null`) until
-the full gate passes. Runtime ladder unchanged (direct preferred; relay brief-coordinate-then-drop-out;
-Cloudflare only when no camp peer is reachable).
+the full gate passes. Runtime ladder unchanged (direct preferred once punched; relay is the
+reachability path until then, and an idle fallback after; Cloudflare only when no camp peer is
+reachable).
 
 ## Acceptance (hard, red-before-green, real multi-node libp2p — NO mocks)
 
@@ -42,9 +48,16 @@ Cloudflare only when no camp peer is reachable).
 - MUST-PROVE A: revoke-while-running severance at EVERY hop (B↔R, R↔C, final B↔C direct) AND the
   relay-role camp-only property — plant a revoked/non-admitted device asking R to broker, prove R
   DECLINES (not only that admission later refuses the punched connection).
-- MUST-PROVE B: AutoNAT camp-peers-only — 3 nodes (A / camp B / reachable-non-camp X); prove A would
-  use X before the restriction and never dials X after.
 - Both carry-forward proofs: a revoked device refused at admission via cached-address, hole-punch, AND
   the coordination-relay path; plus the Slice-1 cached-address carry-forward.
+
+**AutoNAT camp-peers-only is carried to the T336 gate, not T337's.** (Gate-fix round 2, FIX 4,
+Code Reviewer.) T337's mechanism never wires AutoNAT at all — §A's candidate-R selection and R's
+eligibility rest entirely on `peer_last_addresses`/`devices`-rooted dial reachability, never a
+reflexive-address probe. `transportCapabilities.js`'s `dcutr` row (not `relay`) owns
+`@libp2p/autonat`, and design §C itself scopes the AutoNAT-camp-peers-only red-before-green test to
+"before THAT capability's signoff is written." T337's acceptance above is scoped to what this
+ticket actually opens (`relay`/circuit-relay-v2); the 3-node (A / camp B / reachable-non-camp X)
+AutoNAT test belongs in T336's own acceptance, where AutoNAT is actually wired.
 - Full capability + battle-test gate (security-assessment + Security + Red Hat + Grader); signoff on a
   clean pass per the owner's T327 delegation.
