@@ -62,7 +62,8 @@ import { mintGenesisEntry, mintGrantEntry, mintRevokeEntry } from './automerge/a
 import { syncRefusalForDomainMigration } from './db/migrationDomainState.js'
 import { getDocIfLoaded, getCurrentDoc, setUserDataDirGetter as setAutomergeUserDataDirGetter, setDocCipher as setAutomergeDocCipher, flushPendingWrites as flushAutomergeDoc } from './sync/automerge/liveDoc.js'
 import { projectEntity } from './automerge/projector.js'
-import { AUTHORITY_LOG_ENTITY } from './automerge/authorityReplay.js'
+import { AUTHORITY_LOG_ENTITY, currentAuthorityState, quorumThreshold } from './automerge/authorityReplay.js'
+import * as Automerge from '@automerge/automerge'
 import { docPath as automergeDocPath } from './sync/automerge/docStore.js'
 import { acquireDocCipher, acquireDbKey, isAtRestEncryptionEnabled } from './db/atRestEncryption.js'
 import { unsharedWriteCount } from './ops/documentWriteFailures.js'
@@ -1221,7 +1222,44 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     // Device Manager list as phantom "Device xxxxxxxx / Not set up yet"
     // rows on every multi-device camp. Excluded here, not at the schema
     // level, so this stays scoped to the management-list read.
-    return db.prepare("SELECT id, name, pairing_status, authorized_at, revoked_at, last_synced_at FROM devices WHERE pairing_status IS NOT 'unknown'").all()
+    const rows = db.prepare("SELECT id, name, pairing_status, authorized_at, revoked_at, last_synced_at FROM devices WHERE pairing_status IS NOT 'unknown'").all()
+
+    // T332 fold-in (data contract for the "Removal pending" UI state) — the SAME derived
+    // replay state revokeDevice's own truth-in-UI gate reads (authorityReplay.js's
+    // currentAuthorityState), never recomputed independently here: admins is the current
+    // granted set (includes a target until quorum actually removes it), votes is
+    // target -> Map<signer, surviving-vote-hashes> for outstanding quorum votes. A device that
+    // was never granted/targeted gets no extra fields at all — this is additive, and leaves the
+    // ordinary revoked_at-only row shape untouched for every non-admin device.
+    const doc = getCurrentDoc(db)
+    let authorityState = null
+    if (doc) {
+      try {
+        authorityState = currentAuthorityState(Automerge, doc)
+      } catch (err) {
+        console.error(`listDevices: computing authority state failed (non-fatal, admin rows fall back to pairing_status): ${err?.message ?? err}`)
+      }
+    }
+    if (!authorityState) return rows
+
+    return rows.map((row) => {
+      const isCurrentAdmin = authorityState.admins.has(row.id)
+      const votersForTarget = authorityState.votes.get(row.id)
+      const wasEverTargeted = isCurrentAdmin || !!votersForTarget
+      if (!wasEverTargeted) return row
+
+      const votesCast = votersForTarget ? votersForTarget.size : 0
+      const votesNeeded = quorumThreshold(authorityState.admins.size)
+      const effectiveState = !isCurrentAdmin ? 'removed' : votesCast > 0 ? 'removal_pending' : 'active'
+      return {
+        ...row,
+        effectiveState,
+        votesNeeded,
+        votesCast,
+        hasVoted: !!votersForTarget?.has(deviceId),
+        isSelf: row.id === deviceId,
+      }
+    })
   }
 
   // T322 S3b — read-only per-peer erasure state for the Device Manager badge.
@@ -1365,14 +1403,24 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     // fleet-wide effect, so the T86-era Client guard that used to sit here is vestigial post-T331
     // and is removed rather than left as a stale proxy for an effect that is no longer host-local.
     if (!isNonEmptyString(targetDeviceId)) throw new Error('deviceId is required')
+    // T332 fold-in (Red Hat MEDIUM) — an admin may not revoke/vote-to-remove their OWN device.
+    // Enforced here, not just by hiding the button, because the "Confirm removal" affordance and
+    // the ordinary Revoke button both resolve to this same call.
+    if (targetDeviceId === deviceId) {
+      throw new Error('You cannot remove your own device.')
+    }
 
     const existing = db.prepare('SELECT id FROM devices WHERE id = ?').get(targetDeviceId)
     if (!existing) throw new Error('device not found')
 
-    const now = new Date().toISOString()
-    db.prepare(
-      "UPDATE devices SET revoked_at = ?, revoked_by_user_id = ?, revocation_reason = ?, pairing_status = 'revoked' WHERE id = ?"
-    ).run(now, userId, reason ?? null, targetDeviceId)
+    // T332 fold-in — read BEFORE minting this vote: was the target already a currently-granted
+    // admin/founder? This is what decides whether the local write below is gated on quorum at
+    // all. An ordinary device (no row here, the overwhelming common case, including every camp
+    // that predates T331 and has never minted a camp_authority_log entry) keeps TODAY's
+    // unconditional immediate-removal guarantee regardless of whether the mint below succeeds —
+    // the distributed mint is additive for it, never load-bearing for this device's own local
+    // enforcement. Only a target that is ALREADY an admin/founder enters the quorum-gated path.
+    const wasAdminOrFounder = db.prepare('SELECT status FROM authority_cache WHERE device_id = ?').get(targetDeviceId)?.status === 'admin'
 
     recordAuditEvent(db, {
       actorUserId: userId, deviceId: targetDeviceId,
@@ -1380,21 +1428,39 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       metadata: reason ? { reason } : null,
     })
 
-    // T331 (docs/adr/2026-10-02-distributed-revocation-authority.md) — the DISTRIBUTED half,
-    // additive to the Host-local devices.revoked_at write above. ALWAYS mints a signed 'revoke'
-    // entry naming THIS device as signer (deviceId, the acting admin's own identity) — never
-    // decided here whether the target is an ordinary device (immediate removal) or an admin/
-    // founder (a vote toward quorum): authorityReplay.js's replay re-derives that from the
-    // target's OWN causal state on every peer, per the ADR's "never trust a self-report" rule, so
-    // this call site does not reimplement that threshold logic. Best-effort/non-fatal, same
-    // posture as the revokePeer eviction immediately below — a failure here must never fail the
-    // Host-local revocation that already landed.
+    // T331 (docs/adr/2026-10-02-distributed-revocation-authority.md) — the DISTRIBUTED half.
+    // ALWAYS mints a signed 'revoke' entry naming THIS device as signer (deviceId, the acting
+    // admin's own identity) — never decided here whether the target is an ordinary device
+    // (immediate removal) or an admin/founder (a vote toward quorum): authorityReplay.js's
+    // replay re-derives that from the target's OWN causal state on every peer, per the ADR's
+    // "never trust a self-report" rule, so this call site does not reimplement that threshold
+    // logic. Best-effort/non-fatal — a failure here must never fail the audit record above.
     try {
       mintRevokeEntry(db, { targetDeviceId, signerDeviceId: deviceId })
       projectAuthorityLogLocally()
     } catch (err) {
       console.error(`revokeDevice: minting the distributed revoke authority entry failed (non-fatal): ${err?.message ?? err}`)
     }
+
+    // T332 fold-in (Red Hat HIGH, Art. V — never show the director a tidy lie). For an
+    // admin/founder target, the mint above may be only ONE vote toward quorum — re-read
+    // authority_cache (the SAME derived state projectAuthorityLogLocally() above just
+    // recomputed from the real camp_authority_log replay) rather than writing devices.revoked_at
+    // optimistically just because this one call was made; this device must not render or act on
+    // a removal that has not actually happened yet. An ordinary target keeps the unconditional
+    // immediate-removal guarantee from before this fold-in (see wasAdminOrFounder above).
+    const effectivelyRevoked = wasAdminOrFounder
+      ? db.prepare('SELECT status FROM authority_cache WHERE device_id = ?').get(targetDeviceId)?.status === 'revoked'
+      : true
+
+    if (!effectivelyRevoked) {
+      return { deviceId: targetDeviceId, revoked: false }
+    }
+
+    const now = new Date().toISOString()
+    db.prepare(
+      "UPDATE devices SET revoked_at = ?, revoked_by_user_id = ?, revocation_reason = ?, pairing_status = 'revoked' WHERE id = ?"
+    ).run(now, userId, reason ?? null, targetDeviceId)
 
     // A revoked device that is still CONNECTED must stop being admitted now, not
     // when it next happens to drop. Admission is granted once and otherwise only

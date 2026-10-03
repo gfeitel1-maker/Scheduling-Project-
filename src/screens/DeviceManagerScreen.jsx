@@ -17,6 +17,25 @@ function pairingStatusLabel(status) {
   return PAIRING_STATUS_LABEL[status] ?? 'Not set up yet'
 }
 
+// T332 fold-in (Red Hat HIGH, Art. V — never show the director a tidy lie). A pure function of
+// one device row + the viewer's own role/mode, so the mapping from `effectiveState` (the real
+// camp_authority_log replay, computed server-side in electron/main.js's listDevices — never
+// recomputed here) to badge/affordance is unit-testable without rendering. `effectiveState` is
+// `undefined` for an ordinary (never admin/founder) device — that row keeps the ORIGINAL
+// revoked_at-only logic unchanged, exactly as before this fold-in.
+export function deriveDeviceRowState(device, { role, canManage }) {
+  const removalPending = device.effectiveState === 'removal_pending'
+  const isRevoked = device.effectiveState === 'removed' || (device.effectiveState === undefined && !!device.revoked_at)
+  const isAuthorized = !!device.authorized_at && !isRevoked && !removalPending
+  const canVote = device.effectiveState !== undefined && role === 'admin' && canManage && !device.isSelf && !device.hasVoted && !isRevoked
+  const detailText = !removalPending
+    ? null
+    : Number.isFinite(device.votesNeeded) && Number.isFinite(device.votesCast)
+      ? `Needs ${device.votesNeeded - device.votesCast} more director${device.votesNeeded - device.votesCast === 1 ? '' : 's'} to confirm`
+      : 'Removal pending — waiting on other directors'
+  return { removalPending, isRevoked, isAuthorized, canVote, detailText }
+}
+
 // T322 S3b — the per-peer purge badge copy. The four never-claims from the
 // scoping note (docs/work/specs/2026-10-01-t233-s3-per-peer-erasure-state-ui-
 // design.md §4) are load-bearing here, not decoration:
@@ -302,16 +321,22 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
             </thead>
             <tbody>
               {allDevices.map((device) => {
-                const isRevoked = !!device.revoked_at
-                const isAuthorized = !!device.authorized_at && !isRevoked
+                const { removalPending, isRevoked, isAuthorized, canVote, detailText } = deriveDeviceRowState(device, { role, canManage })
                 return (
                   <tr key={device.id}>
                     <td style={S.td}>{device.name || '—'}</td>
                     <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 11 }}>{device.id.slice(0, 8)}</td>
                     <td style={S.td}>
-                      <span style={isRevoked ? styles.badgeRevoked : isAuthorized ? styles.badgeAuthorized : styles.badgePending}>
-                        {pairingStatusLabel(device.pairing_status)}
-                      </span>
+                      {removalPending ? (
+                        <span style={styles.badgeRemovalPending}>Removal pending</span>
+                      ) : (
+                        <span style={isRevoked ? styles.badgeRevoked : isAuthorized ? styles.badgeAuthorized : styles.badgePending}>
+                          {pairingStatusLabel(device.pairing_status)}
+                        </span>
+                      )}
+                      {removalPending && (
+                        <div style={styles.removalPendingDetail}>{detailText}</div>
+                      )}
                     </td>
                     {erasure.hasErasure && (
                       <td style={S.td}>{renderErasureCell(device)}</td>
@@ -326,6 +351,18 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
                         >
                           Revoke
                         </button>
+                      )}
+                      {canVote && (
+                        <button
+                          style={busy[device.id] ? { ...S.btnSecondary, ...S.buttonDisabled } : S.btnSecondary}
+                          disabled={!!busy[device.id]}
+                          onClick={() => handleRevoke(device.id)}
+                        >
+                          Confirm removal
+                        </button>
+                      )}
+                      {removalPending && device.hasVoted && (
+                        <span style={styles.revokedLabel}>You confirmed this removal</span>
                       )}
                       {isRevoked && (
                         <span style={styles.revokedLabel}>Revoked</span>
@@ -438,6 +475,19 @@ const styles = {
     color: 'var(--text-secondary)',
     fontSize: 11,
     fontWeight: 600,
+  },
+  // T332 fold-in (Designer spec) — amber, distinct from Active (blue, badgeAuthorized) and
+  // Removed (gray, badgeRevoked). Deliberately --accent, not --warning/--danger: this is not an
+  // error or a threat, it's a removal a director cast a vote toward that has not taken effect
+  // yet — the SAME chip pattern every other badge on this screen uses, just a different token.
+  badgeRemovalPending: {
+    display: 'inline-block',
+    ...S.chip('var(--accent)', true, { padding: '2px 8px', borderRadius: 99, fontSize: 11, border: 'none', cursor: 'default' }),
+  },
+  removalPendingDetail: {
+    fontSize: 11.5,
+    color: 'var(--text-secondary)',
+    marginTop: 4,
   },
   revokedLabel: {
     fontSize: 12,

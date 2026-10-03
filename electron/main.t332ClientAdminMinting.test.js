@@ -169,8 +169,9 @@ describe('T332 — client-mode admin minting', () => {
     const { token: admin2Token } = await handlers2.login({ name: 'Admin2Q', pin: '246813' })
 
     const result = handlers2.revokeDevice({ token: admin2Token, deviceId: admin3DeviceId, reason: 'vote 1 of 2' })
-    expect(result.revoked).toBe(true) // Host-local write always succeeds...
-    expect(authorityCacheStatus(admin3DeviceId)).toBe('admin') // ...but quorum is not met yet.
+    // T332 fold-in (Red Hat HIGH, Art. V) — gated on the real quorum state, not optimistic.
+    expect(result.revoked).toBe(false)
+    expect(authorityCacheStatus(admin3DeviceId)).toBe('admin') // quorum is not met yet.
 
     // Second vote, from the founder (standing in for the second other admin's own vote landing
     // via merge) — now quorum is met and the target is actually removed.
