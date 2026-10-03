@@ -212,6 +212,22 @@ export function syncStatusLabel(status) {
         'records what failed. Free up space before it runs out.',
     }
   }
+  // T336 Precondition 3 — this device's own relay-reservation attempt was refused
+  // (RESERVATION_REFUSED), most likely because the camp's coordination relay is at its
+  // MAX_SIMULTANEOUS_RESERVATIONS cap. Below unsharedWrites/lowDisk (both describe something
+  // already wrong or about to go wrong) but above the standing "only this computer" notice —
+  // this is rare (only matters once several devices need the relay at once) and resolves on
+  // its own as other devices disconnect, so `warning` rather than `danger`.
+  if (status?.relayReservationRefused) {
+    return {
+      text: 'relay full',
+      tone: 'warning',
+      title:
+        'This computer could not get a coordination slot through another device acting as a relay — this only ' +
+        'matters when devices cannot reach each other directly. It usually clears on its own as fewer devices ' +
+        'need it at once.',
+    }
+  }
   // T176 — no other computer holds a copy of this camp.
   //
   // Lowest priority of the three, and that ordering is the point: an unshared
