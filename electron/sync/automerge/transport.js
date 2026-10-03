@@ -63,7 +63,7 @@ const MAX_CONNECTIONS = 200
 // scoped discovery; omitted by default so tests keep dialing directly over
 // loopback (mDNS needs a real network interface — see discovery.js's own
 // module comment).
-export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyncMessageReceived, listen, onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, onPairingDecision, peerDiscovery, now, connectionRateLimiter, privateKey, schemaVersion, relayServerFactory, relayTransportFactory } = {}) {
+export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyncMessageReceived, listen, onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, onPairingDecision, peerDiscovery, now, connectionRateLimiter, privateKey, schemaVersion, relayServerFactory, relayTransportFactory, inboundConnectionThreshold } = {}) {
   // Per-SOURCE-IP inbound rate limiting (blocker #2 of the WAN hardening; connectionRateLimiter.js).
   // Closes the connection-churn hole authGate.js documents: a peer opening a fresh connection (fresh
   // peer id) per frame evades per-peer throttling and is otherwise bounded only by MAX_CONNECTIONS.
@@ -105,7 +105,11 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     // (Per-peer frame-RATE limiting — a token bucket ahead of A.merge — is a
     // Stage-5 pre-wiring item per the Security review; the frame-SIZE cap lives
     // in wireProtocol.js's MAX_FRAME_BYTES.)
-    connectionManager: { maxConnections: MAX_CONNECTIONS },
+    // `inboundConnectionThreshold` is test-only (libp2p's own default is 5 connections per
+    // remote HOST — fine for a real camp LAN of distinct devices, but it refuses a test that
+    // dials several real nodes from the single loopback host in quick succession). Production
+    // never sets this; every existing caller omits it and gets libp2p's own default unchanged.
+    connectionManager: { maxConnections: MAX_CONNECTIONS, ...(inboundConnectionThreshold != null ? { inboundConnectionThreshold } : {}) },
     // Per-source-IP flood cap — see rateLimiter above. Returns true to DENY.
     connectionGater: {
       denyInboundConnection: (maConn) => {
@@ -497,6 +501,14 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
         }
       }
     },
+    // T337 pre-signoff hardening — test-support accessor, not production wiring: the number of
+    // LIVE reservations currently held in R's ReservationStore (distinct from `getPeers()`, which
+    // reflects libp2p CONNECTIONS — a peer can be connected without holding a reservation, e.g.
+    // one refused for being over `maxReservations`). Only meaningful when `relayServerFactory` was
+    // provided; returns 0 otherwise. Exists so a real-multi-node test can pin "refresh doesn't
+    // grow the count, distinct peers do" against the actual ReservationStore rather than
+    // inferring it from HOP response codes alone.
+    getRelayReservationCount: () => node.services.circuitRelay?.reservationStore?.reservations?.size ?? 0,
     admitPeer: (peerId) => {
       const id = String(peerId)
       if (authenticatedPeers.has(id)) return

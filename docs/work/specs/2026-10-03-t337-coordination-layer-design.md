@@ -331,6 +331,19 @@ dcutrPresenceWithoutSignoff.guard.test.js` asserts this invariant directly (eith
 are absent from the resolved tree, or `dcutr.signoff` is non-null) and fails loudly the moment it
 breaks, rather than relying on this doc note alone.
 
+**Gate-fix round 4 addendum (carried-forward blocking preconditions).** Three items this build
+proved partially or not at all are recorded as explicit BLOCKING preconditions on the `dcutr`/
+`autonat` capability's own gate, in `docs/work/tickets/T336-nat-holepunch-dcutr.md` — not loose
+"deferred" notes: (1) relay-specific every-hop revocation over the REAL merge-propagated revoke
+chain to a third relay node (T337 proved only the direct-call revoke path —
+`relayRevokeWhileRunning.test.js`, `relayCoordinationWindow.test.js`'s eviction test); (2)
+client-side camp-only auto-reservation (T337's gates — `denyInboundRelayReservation`/
+`denyOutboundRelayedConnection` — cover the SERVER side only; `RelayDiscovery`/
+`circuitRelayTransport`'s own client-side reservation/advertisement behavior is asserted-not-
+tested); (3) UI surfacing of `RESERVATION_REFUSED` once a camp's relay usage exceeds
+`maxReservations`. See that ticket for the full acceptance criteria this capability's gate must
+clear.
+
 ## F. Reuse vs. new; slice sequence
 
 **Reused, unchanged:**
