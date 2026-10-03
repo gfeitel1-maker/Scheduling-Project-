@@ -25,6 +25,8 @@ related_docs:
   - docs/work/security/2026-10-03-t334-dht-capability-assessment.md
   - docs/work/specs/2026-10-03-cross-network-discovery-options-menu.md
   - docs/work/specs/2026-10-03-t334-slice3-dht-discovery-design.md
+  - docs/work/specs/2026-10-03-t336-slice-a-holepunch-design.md
+  - docs/work/specs/2026-10-03-t337-coordination-layer-design.md
 implementation_state: in-progress
 amended: 2026-10-03
 ---
@@ -465,14 +467,55 @@ them absent a new owner decision.
 - **Public-DHT metadata exposure** (the stated reason, `docs/work/security/2026-10-03-t334-dht-capability-assessment.md`): an unbounded, uncontrolled population of DHT participants can observe that *some* peer exists under an opaque key and reach it directly — a categorically different and worse exposure than a single operator (Cloudflare) holding the same shape of record, which the owner had already accepted. This is what "no. i do not accept this." was said about.
 - **The fork-per-camp centralization concern, which also rules out a Shoresh-run rendezvous node as a standing dependency** (not raised by the owner in this exchange, but load-bearing for not substituting one centralization problem for another): this project is architected as open-source, forked per camp (`project_open_source_fork_per_camp_model`) — any discovery mechanism that makes a *Shoresh-operated* server the normal-case dependency undermines that model for every forked camp that doesn't want to depend on Shoresh's infrastructure. This is why `docs/work/specs/2026-10-03-cross-network-discovery-options-menu.md`'s Option 3 (a Shoresh-run rendezvous node as the default) was never recommended as the default rung, and why the existing `SHORESH_RENDEZVOUS_URL` override — letting a forked camp point its tier-3 fallback at its own infrastructure instead of Shoresh's — is a hard requirement of the corrected tier 3, not an optional nicety.
 
-### Build sequence (owner/organizer-set, 2026-10-03)
+### Build sequence (owner/organizer-set, 2026-10-03; RESEQUENCED 2026-10-03, foundation-first)
 
-Two slices, in this order, **each slice's design comes to the organizer before any capability opens**
-— the same strict capability-gate discipline the original ADR already established (security
-re-assessment + Security + Red Hat + battle-test, `signoff` added only after the gate passes) is
-unchanged by this amendment; only *which* capabilities are in scope changes.
+_Prior: the sequence originally recorded here opened Slice A (`dcutr`) first, with Slice B
+(Cloudflare/relay-as-data-path) second. That ordering silently assumed `dcutr` could run without a
+prior live connection between the two peers. It cannot: `dcutr` **upgrades an existing connection to
+direct**, it does not create one — the T336 Slice-A design doc
+(`docs/work/specs/2026-10-03-t336-slice-a-holepunch-design.md`, §1 and Open Questions §1) surfaced this
+as a plain contradiction inside this ADR's own text: the mechanism section names
+`@libp2p/circuit-relay-v2` coordination mode as the channel that gets two peers' reflexive addresses
+in front of each other, but the build sequence below never scheduled opening that `relay` capability
+before `dcutr`. The organizer (owner-delegated) ruled on this finding: the coordination layer is
+FOUNDATIONAL and is built first, with hole-punch layered on top. This section is kept, struck through
+in spirit but not deleted, per this repo's historical-marking convention; the corrected sequence
+follows immediately below._
 
-**Slice A — hole-punch path first (tier 2's missing half).** Opens the `dcutr` row (`@libp2p/dcutr`,
+**The owner's runtime ladder is UNCHANGED by this resequence.** Resequencing which capability's code
+and gate land first is a build-order decision; it does not alter the ladder a connection attempt
+follows at runtime, which remains exactly: a direct hole-punched connection is strongly preferred; any
+relay is used only briefly to coordinate the punch and then drops out; a traffic-carrying relay is
+reserved for the rare un-punchable (both-ends-CGNAT/symmetric-NAT) case. Resequencing the *build* does
+not reorder the *ladder*.
+
+**Coordination-point default (new, settled by this resequence): a publicly-reachable CAMP PEER, not
+Cloudflare and not a Shoresh-run node.** Per
+`docs/work/specs/2026-10-03-t337-coordination-layer-design.md` §A: a device seeking to reconnect to a
+camp peer whose cached address no longer resolves asks another camp-admitted peer it *can* currently
+reach to act as a `circuit-relay-v2` coordination point, restricted by construction to peers that pass
+the existing T331 admission gate. This expresses the owner's no-central-dependency, distributed-
+hosting model (devices coordinate among themselves) and is why the coordination layer, not Cloudflare,
+is the foundation. The Cloudflare rendezvous (now Slice 3 below) remains the fallback used only when
+no camp peer is reachable to coordinate — demoted in sequence but not in role; its tier-3 "rare
+firewall-only fallback" position from the Decision table above is unchanged. The T209 Cloudflare
+Worker deploy is still NOT pulled forward by any part of this resequence — it stays owner-spend,
+client-only work until that gate.
+
+**Corrected build sequence, in this order** — each slice's design comes to the organizer before any
+capability opens, same strict capability-gate discipline as before (security re-assessment + Security
++ Red Hat + battle-test, `signoff` added only after the gate passes):
+
+**Foundation slice — Coordination layer (T337), built first.** Opens the `relay` row
+(`@libp2p/circuit-relay-v2`, `transportCapabilities.js:34-39`) in **coordination-only scope** (the
+existing ~128 KiB/2 min cap from the Decision table above, unchanged) — a camp-admitted peer relaying
+a brief reflexive-address exchange between two other camp peers, never a data path. See
+`docs/work/specs/2026-10-03-t337-coordination-layer-design.md` for the full design, including the
+AutoNAT-camp-peers-only hard requirement (shared with the hole-punch slice below) and the
+carry-forward admission proofs extended to the relayed-then-punched path. **Reuses:** T328 Slice 1's
+remembered-address reconnect (`peerAddressBook.js`) and the T331 admission gates, unchanged.
+
+**Hole-punch slice — Slice A (T336), layered on the coordination foundation.** Opens the `dcutr` row (`@libp2p/dcutr`,
 `@libp2p/autonat`; `transportCapabilities.js:40-45`, currently `signoff: null`) through the full
 capability + battle-test gate, including:
 - the Slice-1 cached-WAN-address carry-forward check — `docs/work/specs/2026-10-03-t334-slice3-dht-discovery-design.md` §5.6 named this for the (now-dropped) DHT path; the same check applies unchanged to hole-punch: a revoked device must not become redialable via `peerAddressBook.js`'s cached address merely because hole-punch widens reachability — the admission gate (`authorize()`), not discovery, must be what blocks it;
@@ -484,26 +527,30 @@ distributed-authority admission/revocation gates (`authorityReplay.js`, `authori
 this or any discovery option; admission stays the control, exactly as the slice-3 design's §2 parity
 requirement already stated for the (now-dropped) DHT path and restated here for hole-punch.
 
-**Slice B — Cloudflare rare-firewall fallback (tier 3's data-path half).** Only after Slice A's design
-and gate are through. Extends `@libp2p/circuit-relay-v2` to a capped, time-boxed **data** path
-(`relay` row, `transportCapabilities.js:34-39`, currently `signoff: null`) for the CGNAT-both-ends case
+**Fallback slice — Cloudflare rare-firewall fallback (tier 3's data-path half), last.** Only after the
+coordination foundation and the hole-punch slice's designs and gates are through. Extends
+`@libp2p/circuit-relay-v2` to a capped, time-boxed **data** path (`relay` row,
+`transportCapabilities.js:34-39`, currently `signoff: null` for this data-path scope — its
+coordination-only scope is opened earlier by the foundation slice above) for the CGNAT-both-ends case
 hole-punch cannot solve, alongside the **existing, already-signed-off** `rendezvousClient.js` discovery
 path (`transportCapabilities.js`'s `discovery` row — unaffected, no re-gate needed for discovery
-itself, only for the new relay-as-data-path use).
+itself, only for the new relay-as-data-path use). Engaged only when the foundation slice's camp-peer
+coordination cannot find a reachable camp peer at all (`docs/work/specs/2026-10-03-t337-coordination-
+layer-design.md` §A, last paragraph) — not a normal-operation dependency.
 
 **Reuses:** the T335 signed rotating discovery tag
 (`electron/sync/automerge/rotatingDiscoveryTag.js`'s `rotatingDiscoveryDigest`,
 `authorityRevocationDigest.js`) remains the correct lookup key for this rung too — it is
 transport-agnostic by design (per the options-menu doc's "Reused building blocks" section) and is not
 tied to the dropped DHT mechanism; the existing Cloudflare rendezvous client and KV-worker protocol
-shape; the T331 admission gates, same as Slice A.
+shape; the T331 admission gates, same as the foundation and hole-punch slices.
 
 ### OWNER SPEND/INFRA — reserved, do not build toward
 
 **Standing up the Cloudflare rendezvous Worker on the owner's own Cloudflare account/domain (ticket
 T209, `docs/work/tickets/T209-rendezvous-worker-phase-a.md`, currently `in-progress` — the Worker code
-exists, undeployed) is an owner action, not something either slice builds toward.** Slice B builds and
-tests the **client** against the existing Worker code/fixtures; the **deploy** step — provisioning the
+exists, undeployed) is an owner action, not something any slice builds toward.** The fallback slice
+builds and tests the **client** against the existing Worker code/fixtures; the **deploy** step — provisioning the
 actual Cloudflare account/domain resource — is brought to the owner when the rung is otherwise ready,
 exactly as the original ADR's Acceptance §5 already reserved "standing it up (deploying/paying for a
 relay or Cloudflare)" as a spend/infra decision outside the security+battle-test gate's authority.
@@ -512,8 +559,8 @@ relay or Cloudflare)" as a spend/infra decision outside the security+battle-test
 established for the Cloudflare discovery path, mirrored by the slice-3 design's proposed
 `SHORESH_DHT_BOOTSTRAP` pattern for the now-dropped DHT rung) must remain the mechanism by which a
 forked camp points tier 3 at its own rendezvous endpoint instead of the owner's. This is a hard
-requirement of the fork-per-camp model (see "Why" above), not an enhancement — Slice B must not
-hard-code a single owner-operated URL.
+requirement of the fork-per-camp model (see "Why" above), not an enhancement — the fallback slice must
+not hard-code a single owner-operated URL.
 
 ### Design-of-record, stated plainly (owner directive, 2026-10-03, relayed via organizer: "make sure
 that the docs reflect the public. - public never met piece is not a pathway.")
