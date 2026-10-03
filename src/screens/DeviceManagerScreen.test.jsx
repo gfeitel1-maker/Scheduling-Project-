@@ -18,7 +18,6 @@ vi.mock('../localClient', () => ({
     approveDevice: vi.fn(),
     denyDevice: vi.fn(),
     revokeDevice: vi.fn(),
-    clearUncorroboratedRevocation: vi.fn(),
     getJoinCode: vi.fn(),
     setJoinWindow: vi.fn(),
   },
@@ -271,57 +270,5 @@ describe('DeviceManagerScreen — per-peer erasure badge', () => {
     expect(await screen.findByText('Purge status')).toBeTruthy()
     expect(screen.getByTitle(/tracked only for devices currently in the camp/i)).toBeTruthy()
     expect(screen.queryByText('Not confirmed')).toBeNull()
-  })
-})
-
-// Amendment 2026-10-03b (docs/adr/2026-10-02-distributed-revocation-authority.md's "closing the
-// two-device residual" section) — the advisory recovery affordance for a revoked device whose
-// local stamp was applied with no prior authority knowledge of it.
-describe('DeviceManagerScreen — uncorroborated-revocation recovery affordance', () => {
-  it('shows "Undo removal" for a flagged revoked device, and clicking it calls the IPC action', async () => {
-    localClient.listDevices.mockResolvedValue([
-      authorizedDevice({
-        id: 'device-blind', name: 'Director Laptop', pairing_status: 'revoked',
-        revoked_at: '2026-10-03T00:00:00.000Z', revoked_without_authority_knowledge: 1,
-      }),
-    ])
-    localClient.clearUncorroboratedRevocation.mockResolvedValue({ deviceId: 'device-blind', cleared: true })
-
-    render(<DeviceManagerScreen campId="c1" role="admin" deviceMode="host" />)
-
-    expect(await screen.findByText(/removed before the other directors could confirm/i)).toBeTruthy()
-    const button = screen.getByText('Undo removal')
-    await userEvent.click(button)
-
-    expect(localClient.clearUncorroboratedRevocation).toHaveBeenCalledWith('device-blind')
-  })
-
-  it('does NOT show the recovery affordance for a genuinely-confirmed removal (no flag)', async () => {
-    localClient.listDevices.mockResolvedValue([
-      authorizedDevice({
-        id: 'device-confirmed', name: 'Confirmed Gone', pairing_status: 'revoked',
-        revoked_at: '2026-10-03T00:00:00.000Z', revoked_without_authority_knowledge: null,
-      }),
-    ])
-
-    render(<DeviceManagerScreen campId="c1" role="admin" deviceMode="host" />)
-
-    expect(await screen.findByText('Confirmed Gone')).toBeTruthy()
-    expect(screen.queryByText('Undo removal')).toBeNull()
-    expect(screen.queryByText(/removed before the other directors could confirm/i)).toBeNull()
-  })
-
-  it('does NOT show the recovery affordance to a staff (non-admin) viewer', async () => {
-    localClient.listDevices.mockResolvedValue([
-      authorizedDevice({
-        id: 'device-blind-2', name: 'Director Laptop', pairing_status: 'revoked',
-        revoked_at: '2026-10-03T00:00:00.000Z', revoked_without_authority_knowledge: 1,
-      }),
-    ])
-
-    render(<DeviceManagerScreen campId="c1" role="staff" deviceMode="host" />)
-
-    expect(await screen.findByText('Director Laptop')).toBeTruthy()
-    expect(screen.queryByText('Undo removal')).toBeNull()
   })
 })

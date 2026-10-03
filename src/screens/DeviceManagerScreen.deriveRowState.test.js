@@ -98,47 +98,4 @@ describe('deriveDeviceRowState', () => {
     )
     expect(removed).toMatchObject({ removalPending: false, isRevoked: true, isAuthorized: false, canVote: false })
   })
-
-  // Amendment 2026-10-03b — a revoked ordinary device whose stamp is flagged
-  // revoked_without_authority_knowledge === 1 surfaces the advisory recovery affordance, for an
-  // admin viewer only.
-  it('a revoked row with the uncorroborated flag surfaces the recovery affordance, for an admin only', () => {
-    const uncorroborated = deriveDeviceRowState(
-      { authorized_at: '2026-01-01', revoked_at: '2026-02-01', revoked_without_authority_knowledge: 1 },
-      { role: 'admin' }
-    )
-    expect(uncorroborated.isRevoked).toBe(true)
-    expect(uncorroborated.canRecoverUncorroborated).toBe(true)
-
-    const asStaff = deriveDeviceRowState(
-      { authorized_at: '2026-01-01', revoked_at: '2026-02-01', revoked_without_authority_knowledge: 1 },
-      { role: 'staff' }
-    )
-    expect(asStaff.canRecoverUncorroborated).toBe(false)
-  })
-
-  // The critical negative: a genuinely-confirmed removal (flag NULL, or absent entirely) must
-  // NEVER show the recovery affordance — this is what keeps "advisory" from becoming "the only
-  // signal that matters."
-  it('a genuinely-confirmed removal (no flag) never shows the recovery affordance', () => {
-    const confirmedOrdinary = deriveDeviceRowState(
-      { authorized_at: '2026-01-01', revoked_at: '2026-02-01', revoked_without_authority_knowledge: null },
-      { role: 'admin' }
-    )
-    expect(confirmedOrdinary.canRecoverUncorroborated).toBe(false)
-
-    const confirmedQuorum = deriveDeviceRowState(
-      { authorized_at: '2026-01-01', revoked_at: '2026-02-01', effectiveState: 'removed', isSelf: false, hasVoted: false },
-      { role: 'admin' }
-    )
-    expect(confirmedQuorum.canRecoverUncorroborated).toBe(false)
-
-    // Not revoked at all — the flag being truthy (it never would be in practice, but the gate
-    // must be explicit) still must not surface the affordance on an active row.
-    const notRevoked = deriveDeviceRowState(
-      { authorized_at: '2026-01-01', revoked_at: null, revoked_without_authority_knowledge: 1 },
-      { role: 'admin' }
-    )
-    expect(notRevoked.canRecoverUncorroborated).toBe(false)
-  })
 })

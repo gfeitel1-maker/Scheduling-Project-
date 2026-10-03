@@ -157,22 +157,6 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
     }
   }
 
-  // Amendment 2026-10-03b — the manual recovery trigger for a removal this device applied with
-  // no prior knowledge of the target's authority. Advisory UI only; the server-side guard in
-  // clearUncorroboratedRevocation is what actually enforces this cannot clear a genuinely
-  // confirmed removal.
-  async function handleRecoverUncorroborated(deviceId) {
-    setBusy((b) => ({ ...b, [deviceId]: true }))
-    try {
-      await localClient.clearUncorroboratedRevocation(deviceId)
-      load()
-    } catch (err) {
-      setError(err?.message || 'Failed to undo this removal')
-    } finally {
-      setBusy((b) => ({ ...b, [deviceId]: false }))
-    }
-  }
-
   function fmt(iso) {
     if (!iso) return '—'
     try {
@@ -329,7 +313,7 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
             </thead>
             <tbody>
               {allDevices.map((device) => {
-                const { removalPending, isRevoked, isAuthorized, canVote, canRecoverUncorroborated, detailText } = deriveDeviceRowState(device, { role })
+                const { removalPending, isRevoked, isAuthorized, canVote, detailText } = deriveDeviceRowState(device, { role })
                 return (
                   <tr key={device.id}>
                     <td style={S.td}>{device.name || '—'}</td>
@@ -378,20 +362,6 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
                       )}
                       {isRevoked && (
                         <span style={styles.revokedLabel}>Revoked</span>
-                      )}
-                      {canRecoverUncorroborated && (
-                        <div style={styles.recoverBlock}>
-                          <div style={styles.recoverNote}>
-                            This device was removed before the other directors could confirm it.
-                          </div>
-                          <button
-                            style={busy[device.id] ? { ...S.btnSecondary, ...S.buttonDisabled } : S.btnSecondary}
-                            disabled={!!busy[device.id]}
-                            onClick={() => handleRecoverUncorroborated(device.id)}
-                          >
-                            Undo removal
-                          </button>
-                        </div>
                       )}
                     </td>
                   </tr>
@@ -515,19 +485,6 @@ const styles = {
   revokedLabel: {
     fontSize: 12,
     color: 'var(--text-secondary)',
-  },
-  // Amendment 2026-10-03b — advisory recovery affordance, secondary to the plain "Revoked"
-  // label it sits below. The note is deliberately honest about the uncertainty (removed before
-  // confirmation, not "this is definitely wrong") — the server-side guard, not this copy, is
-  // what makes clicking it safe either way.
-  recoverBlock: {
-    marginTop: 6,
-  },
-  recoverNote: {
-    fontSize: 11.5,
-    color: 'var(--text-secondary)',
-    marginBottom: 4,
-    maxWidth: 220,
   },
   // T322 S3b. Deliberately muted, NOT a success-green chip: "Hidden" states a
   // confirmed-applied suppression, not that anything is safe, complete, or

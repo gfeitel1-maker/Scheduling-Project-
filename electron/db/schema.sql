@@ -108,19 +108,7 @@ CREATE TABLE IF NOT EXISTS devices (
   -- lives in localDb.js's v57 block, not here — see this file's INDEX PLACEMENT RULE comment
   -- above (a column added by ALTER TABLE cannot have its index declared here without breaking
   -- re-execution against a pre-migration db).
-  libp2p_peer_id TEXT,
-  -- v91 (Amendment 2026-10-03b, docs/adr/2026-10-02-distributed-revocation-authority.md's
-  -- "closing the two-device residual" section). `1` records that THIS device's revoked_at stamp
-  -- for this row was applied with ZERO prior authority_cache knowledge of the target (the
-  -- two-device-deadlock case) — set once, on the first revoked_at NULL->set transition, never
-  -- recomputed or self-reinforced afterward (electron/main.js's revokeDevice). `NULL` (default)
-  -- means not applicable: a quorum-admin path, an already-corroborated revoke, or a
-  -- pre-migration row. Read only by clearUncorroboratedRevocation's own guard — never by
-  -- authorize()/connectionAuth.js, and never written to authority_cache or the synced document.
-  -- Placed LAST (not with the other revocation columns above) to match the column order an
-  -- ALTER TABLE ADD COLUMN migration produces on an already-existing db (libp2pPeerId.migration
-  -- .test.js's fresh-vs-migrated parity check).
-  revoked_without_authority_knowledge INTEGER
+  libp2p_peer_id TEXT
 );
 
 -- Host-only singleton. Never replicated: absent from the Automerge document and

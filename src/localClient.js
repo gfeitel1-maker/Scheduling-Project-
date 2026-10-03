@@ -250,7 +250,6 @@ export const localClient = {
   // unchanged data.
   importSetupRows: announcing((token, rows) => shoresh.importSetupRows({ token: token ?? currentToken(), rows })),
   revokeDevice: (deviceId, reason) => shoresh.revokeDevice({ token: currentToken(), deviceId, reason }),
-  clearUncorroboratedRevocation: (deviceId) => shoresh.clearUncorroboratedRevocation({ token: currentToken(), deviceId }),
   duplicateWeek: (sourceWeekId, campId) => shoresh.duplicateWeek({ sourceWeekId, campId }),
   // deleteWeekHandler (electron/main.js) destructures { token, weekId } and goes
   // through authorize() — thread the token the same way every other authorized
