@@ -448,8 +448,25 @@ function upsertCampAuthorityLogEntity(db, doc) {
   }
 
   const insertCache = db.prepare('INSERT INTO authority_cache (device_id, status, updated_at) VALUES (?, ?, ?)')
+  // Amendment 2026-10-03 (Mechanism B, docs/adr/2026-10-02-distributed-revocation-authority.md's
+  // "self-heal" section) — devices.revoked_at is a CONTINUOUSLY-RECONCILED projection of
+  // authority_cache for any device authority_cache has an opinion about, never a write-once
+  // stamp. A device whose replay resolves to 'admin' here but whose local row is still stamped
+  // revoked (from an earlier wasAdminOrFounder misclassification in revokeDevice, before this
+  // device had synced the grant) gets that stale stamp cleared — this is what keeps the
+  // Device Manager UI honest once the gate-level fix (connectionAuth.js's hoisted
+  // authority_cache precedence) has already stopped enforcing it. Scoped to devices
+  // authority_cache has a row for (this loop) — never touches a device with no row at all, per
+  // the back-compat boundary. Only the 'admin' branch writes to `devices` — a 'revoked' status
+  // NEVER sets/clears anything here, so this can never become a readmission path for a
+  // genuinely quorum-revoked device.
+  const clearStaleRevocation = db.prepare(
+    "UPDATE devices SET revoked_at = NULL, revoked_by_user_id = NULL, revocation_reason = NULL, pairing_status = 'authorized' WHERE id = ? AND revoked_at IS NOT NULL"
+  )
   for (const deviceId of everyTargetDeviceId) {
-    insertCache.run(deviceId, grantedSet.has(deviceId) ? 'admin' : 'revoked', now)
+    const status = grantedSet.has(deviceId) ? 'admin' : 'revoked'
+    insertCache.run(deviceId, status, now)
+    if (status === 'admin') clearStaleRevocation.run(deviceId)
   }
 }
 

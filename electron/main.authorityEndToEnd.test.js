@@ -231,8 +231,11 @@ describe('T331 end-to-end — N=3 admin-target quorum, driven through the REAL r
     // Vote 1 — the director's REAL action, through the REAL revokeDevice handler. N=3, threshold
     // over the 2 OTHER admins (device-f, device-b) is floor((3-1)/2)+1 = 2. One vote is NOT enough.
     const result1 = handlersF.revokeDevice({ token: adminToken, deviceId: 'device-a', reason: 'vote 1 of 2' })
-    expect(result1.revoked).toBe(true) // the Host-local devices.revoked_at write always succeeds...
-    expect(authorityCacheStatus(dbF, 'device-a')).toBe('admin') // ...but the DISTRIBUTED quorum has not been met yet.
+    // T332 fold-in (Red Hat HIGH, Art. V) — the Host-local devices.revoked_at write is now
+    // gated on the real quorum state, not written optimistically: one vote against an
+    // admin/founder target must not report (or render) "revoked" yet.
+    expect(result1.revoked).toBe(false)
+    expect(authorityCacheStatus(dbF, 'device-a')).toBe('admin') // the DISTRIBUTED quorum has not been met yet.
     expect(
       dbF.prepare("SELECT COUNT(*) c FROM applied_authority_log WHERE target_device_id = 'device-a' AND kind = 'revoke'").get().c
     ).toBe(1)

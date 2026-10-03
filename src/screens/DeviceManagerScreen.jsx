@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { localClient } from '../localClient'
 import { S, useEnterTransition } from '../styles/shared'
+import { deriveDeviceRowState } from './deviceRowState'
 
 // T18 / CONSTITUTION Art. V. `pairing_status` is a database enum and was
 // rendered raw — a director saw "authorized", "pending", "revoked", or the
@@ -55,12 +56,13 @@ const ERASURE_COPY = {
 }
 
 export default function DeviceManagerScreen({ campId, role, deviceMode }) {
-  // T86 — approveDevice/denyDevice/revokeDevice write straight to this
-  // device's local, never-synced `devices` table; on a Client that write can
-  // never reach the Host, where device trust is actually enforced. The
-  // handlers refuse outright (electron/main.js), and this screen stays
-  // reachable read-only on a Client rather than presenting controls that
-  // would throw.
+  // T86, narrowed by the T332 fold-in (Code Reviewer HIGH): `denyDevice` still writes straight
+  // to this device's local, never-synced `devices` table with no distributed backstop, and the
+  // "Add a device" listening window is inherently Host-only (there is no code to show on a
+  // Client). Both of THOSE stay gated on `canManage`. `revokeDevice`/the admin-only Revoke and
+  // Confirm-removal actions below are NOT gated on it any more — their backend gate
+  // (authorize()'s role check) has been mode-agnostic since T332's base change, so a client-mode
+  // admin gets the identical affordance a host-mode admin does; see deriveDeviceRowState.js.
   const canManage = deviceMode !== 'client'
   const [pending, setPending] = useState([])
   const [allDevices, setAllDevices] = useState([])
@@ -273,8 +275,17 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
                           Deny
                         </button>
                       </div>
+                    ) : role === 'admin' ? (
+                      // Tester finding (T332 fold-in, round 3): a client-mode admin has full,
+                      // unconditional Revoke/Confirm-removal in the table below, so a blanket
+                      // "View only from this device — use the main computer" here would
+                      // contradict that on the same screen. Pairing approval specifically IS
+                      // still Host-only (denyDevice has no distributed backstop), so this says
+                      // nothing rather than claim something false — never a message implying
+                      // this device can manage nothing.
+                      null
                     ) : (
-                      <span style={styles.revokedLabel}>View only from this device — use the main computer</span>
+                      <span style={styles.revokedLabel}>View only from this device</span>
                     )}
                   </td>
                 </tr>
@@ -302,23 +313,33 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
             </thead>
             <tbody>
               {allDevices.map((device) => {
-                const isRevoked = !!device.revoked_at
-                const isAuthorized = !!device.authorized_at && !isRevoked
+                const { removalPending, isRevoked, isAuthorized, canVote, detailText } = deriveDeviceRowState(device, { role })
                 return (
                   <tr key={device.id}>
                     <td style={S.td}>{device.name || '—'}</td>
                     <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 11 }}>{device.id.slice(0, 8)}</td>
                     <td style={S.td}>
-                      <span style={isRevoked ? styles.badgeRevoked : isAuthorized ? styles.badgeAuthorized : styles.badgePending}>
-                        {pairingStatusLabel(device.pairing_status)}
-                      </span>
+                      {removalPending ? (
+                        <span style={styles.badgeRemovalPending}>Removal pending</span>
+                      ) : (
+                        <span style={isRevoked ? styles.badgeRevoked : isAuthorized ? styles.badgeAuthorized : styles.badgePending}>
+                          {pairingStatusLabel(device.pairing_status)}
+                        </span>
+                      )}
+                      {removalPending && (
+                        <div style={styles.removalPendingDetail}>{detailText}</div>
+                      )}
                     </td>
                     {erasure.hasErasure && (
                       <td style={S.td}>{renderErasureCell(device)}</td>
                     )}
                     <td style={S.td}>{fmt(device.authorized_at)}</td>
                     <td style={S.td}>
-                      {isAuthorized && role === 'admin' && canManage && (
+                      {/* T332 fold-in (Red Hat LOW — self-exclusion): never render the plain
+                          Revoke button for the viewer's own device row, symmetric with how
+                          canVote already excludes self — a director should never be able to
+                          click into the server-side "cannot remove your own device" refusal. */}
+                      {isAuthorized && role === 'admin' && !device.isSelf && (
                         <button
                           style={busy[device.id] ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
                           disabled={!!busy[device.id]}
@@ -327,11 +348,20 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
                           Revoke
                         </button>
                       )}
+                      {canVote && (
+                        <button
+                          style={busy[device.id] ? { ...S.btnSecondary, ...S.buttonDisabled } : S.btnSecondary}
+                          disabled={!!busy[device.id]}
+                          onClick={() => handleRevoke(device.id)}
+                        >
+                          Confirm removal
+                        </button>
+                      )}
+                      {removalPending && device.hasVoted && (
+                        <span style={styles.revokedLabel}>You confirmed this removal</span>
+                      )}
                       {isRevoked && (
                         <span style={styles.revokedLabel}>Revoked</span>
-                      )}
-                      {isAuthorized && role === 'admin' && !canManage && (
-                        <span style={styles.revokedLabel}>View only from this device — use the main computer</span>
                       )}
                     </td>
                   </tr>
@@ -438,6 +468,19 @@ const styles = {
     color: 'var(--text-secondary)',
     fontSize: 11,
     fontWeight: 600,
+  },
+  // T332 fold-in (Designer spec) — amber, distinct from Active (blue, badgeAuthorized) and
+  // Removed (gray, badgeRevoked). Deliberately --accent, not --warning/--danger: this is not an
+  // error or a threat, it's a removal a director cast a vote toward that has not taken effect
+  // yet — the SAME chip pattern every other badge on this screen uses, just a different token.
+  badgeRemovalPending: {
+    display: 'inline-block',
+    ...S.chip('var(--accent)', true, { padding: '2px 8px', borderRadius: 99, fontSize: 11, border: 'none', cursor: 'default' }),
+  },
+  removalPendingDetail: {
+    fontSize: 11.5,
+    color: 'var(--text-secondary)',
+    marginTop: 4,
   },
   revokedLabel: {
     fontSize: 12,
