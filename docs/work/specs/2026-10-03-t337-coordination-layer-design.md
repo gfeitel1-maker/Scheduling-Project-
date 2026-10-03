@@ -162,6 +162,17 @@ candidate R's, trying them is best-effort/sequential (or capped-parallel), logge
 same pattern `redialTrustedPeers` already uses — this design does not introduce a new retry
 philosophy, it reuses the existing one.
 
+**Gate-fix round 2 addendum (Red Hat HIGH, make the claim true, not narrower).** The ~128 KiB / ~2
+min figure above is not automatic from `@libp2p/circuit-relay-v2`'s own defaults — the library's
+`reservations.reservationTtl` defaults to **2 hours** (`DEFAULT_MAX_RESERVATION_TTL`), a renewable
+window, not the disposable one this design requires. The implementation (`syncStarter.js`) sets
+`reservations.reservationTtl` and `defaultDurationLimit` to the SAME explicit 120000ms window, and
+`reservations.maxReservations` to an explicit camp-scaled value (8), rather than leaving either at
+the library default. `transport.js`'s `revokePeer` additionally evicts a revoked peer's reservation
+outright (`reservationStore.removeReservation`) as defense-in-depth alongside the CONNECT-time
+gater check. See `electron/sync/automerge/relayCoordinationWindow.test.js` for the red-before-green
+proof (the real installed package's 2h default, then the fixed short window).
+
 ## C. AutoNAT-camp-peers-only — hard, blocking requirement
 
 T336 §2 already states this requirement for AutoNAT itself; it is restated here as spanning both
@@ -257,6 +268,15 @@ Security or Grader FAIL stops the loop and returns to the owner via the organize
 pass does the `signoff` entry get written and the capability merge. This design does not add the
 package, does not flip `signoff`, and does not write `circuitRelay` into production wiring — that is
 Maker's job, after this design and the organizer's review of it.
+
+**Gate-fix round 2 addendum (Security-Assessment F-1).** `signoff` authorizes CODE MERGE, not
+runtime promotion to the PRIMARY data path — those are deliberately two separate gates. A bare
+`SHORESH_RELAY_ENABLED=true` must never be sufficient to make relay carry live traffic ahead of
+T336's dcutr direct-upgrade existing to bootstrap from it; the implementation (`relayEnablement.js`)
+additionally requires dcutr to actually be present in the build (`@libp2p/dcutr`/`@libp2p/autonat`
+resolvable) before `relayServerFactory`/`relayTransportFactory` are ever constructed, mechanically
+coupling activation to the thing this coordination layer exists to serve, rather than trusting a
+human to remember a second sentinel.
 
 ## F. Reuse vs. new; slice sequence
 

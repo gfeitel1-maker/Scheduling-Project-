@@ -36,6 +36,7 @@ import { mintRendezvousNamespace } from './rendezvousNamespace.js'
 import { createVerifiedEntryTrust } from '../../automerge/authorityReplay.js'
 import { readRendezvousConfig, createRendezvousDiscovery } from './rendezvousClient.js'
 import { nextSequence } from './rendezvousSequence.js'
+import { relayRuntimeEligible, holePunchFoundationPresent } from './relayEnablement.js'
 import { ensureDeviceIdentity } from '../../auth/deviceIdentity.js'
 import { recordAuditEvent } from '../../audit/auditLog.js'
 import { issueDeviceToken } from '../../auth/localAuth.js'
@@ -337,25 +338,45 @@ export function createAutomergeSyncStarter({
       }
 
       // T337 (docs/work/specs/2026-10-03-t337-coordination-layer-design.md §A, §E): the camp-peer
-      // circuit-relay-v2 coordination capability. BLOCKED by two independent gates, deliberately
+      // circuit-relay-v2 coordination capability. BLOCKED by THREE independent gates, deliberately
       // redundant: (1) the `relay` row's signoff in transportCapabilities.js is still null — this
       // import and wiring is exactly what transportBoundary.guard.test.js is supposed to catch
       // while that stays true, and it does (package presence AND this file's own `circuitRelay`
       // reference both trip it; see that test's "declares no un-signed-off internet-transport
       // dependency" and "references no marker of a still-blocked capability" assertions). (2)
-      // SHORESH_RELAY_ENABLED defaults to unset/false — even if the guard's gate were somehow
-      // bypassed, this capability stays runtime-inert until a developer explicitly opts in, the
-      // same two-gate discipline SHORESH_RENDEZVOUS_URL/dhtEnabled-style flags already use
-      // elsewhere in this file. Capped per the ADR's ~128 KiB / ~2 min coordination-exchange
-      // ceiling — a brokered signaling hop, never a sustained data-relay service (§A "How the
-      // brief exchange drops out").
+      // SHORESH_RELAY_ENABLED defaults to unset/false. (3) — gate-fix round 2, Security-Assessment
+      // F-1 — the flag ALONE is not sufficient: relayRuntimeEligible (relayEnablement.js) also
+      // requires the NEXT rung of the WAN ladder (the hole-punch direct-upgrade capability this
+      // coordination layer exists to bootstrap — see relayEnablement.js for exactly which
+      // packages it probes for, deliberately not named here) to actually exist in this build, so
+      // a bare flag flip can never promote relay to the PRIMARY data path on its own.
+      //
+      // reservationTtl is deliberately set to the SAME window as the per-CONNECT duration cap
+      // (COORDINATION_WINDOW_MS) — gate-fix round 2, Red Hat HIGH: the library default
+      // (DEFAULT_MAX_RESERVATION_TTL, 2 hours) would make a reservation a renewable 2-hour window
+      // with a fresh 128 KiB/2 min budget per CONNECT, which is a standing-relay shape, not the
+      // design's own "disposable, ~2 min" claim (§A "Disposable, one-shot coordination, never
+      // persisted"). A reservation that cannot outlive one coordination attempt's own duration cap
+      // cannot be reused as a standing channel — it expires with the attempt it was made for.
+      // maxReservations is set to a small, explicit camp-LAN-scaled number (not the library
+      // default of 15, which was never chosen for this app's actual scale) — a camp is "a few
+      // devices" (ADR), and a handful of simultaneous in-flight coordination attempts is already
+      // generous headroom without leaving an unexamined library default in place.
+      const COORDINATION_WINDOW_MS = 120000
+      const MAX_SIMULTANEOUS_RESERVATIONS = 8
       const relayEnabled = process.env.SHORESH_RELAY_ENABLED === 'true'
+      const relayEligible = relayRuntimeEligible({ relayEnabled, nextRungPresent: await holePunchFoundationPresent() })
       let relayServerFactory
       let relayTransportFactory
-      if (relayEnabled) {
+      if (relayEligible) {
         const { circuitRelayServer, circuitRelayTransport } = await import('@libp2p/circuit-relay-v2')
         relayServerFactory = circuitRelayServer({
-          reservations: { defaultDataLimit: 131072n, defaultDurationLimit: 120000 },
+          reservations: {
+            defaultDataLimit: 131072n,
+            defaultDurationLimit: COORDINATION_WINDOW_MS,
+            reservationTtl: COORDINATION_WINDOW_MS,
+            maxReservations: MAX_SIMULTANEOUS_RESERVATIONS,
+          },
         })
         relayTransportFactory = circuitRelayTransport()
       }

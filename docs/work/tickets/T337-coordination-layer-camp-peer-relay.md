@@ -42,9 +42,16 @@ Cloudflare only when no camp peer is reachable).
 - MUST-PROVE A: revoke-while-running severance at EVERY hop (B↔R, R↔C, final B↔C direct) AND the
   relay-role camp-only property — plant a revoked/non-admitted device asking R to broker, prove R
   DECLINES (not only that admission later refuses the punched connection).
-- MUST-PROVE B: AutoNAT camp-peers-only — 3 nodes (A / camp B / reachable-non-camp X); prove A would
-  use X before the restriction and never dials X after.
 - Both carry-forward proofs: a revoked device refused at admission via cached-address, hole-punch, AND
   the coordination-relay path; plus the Slice-1 cached-address carry-forward.
+
+**AutoNAT camp-peers-only is carried to the T336 gate, not T337's.** (Gate-fix round 2, FIX 4,
+Code Reviewer.) T337's mechanism never wires AutoNAT at all — §A's candidate-R selection and R's
+eligibility rest entirely on `peer_last_addresses`/`devices`-rooted dial reachability, never a
+reflexive-address probe. `transportCapabilities.js`'s `dcutr` row (not `relay`) owns
+`@libp2p/autonat`, and design §C itself scopes the AutoNAT-camp-peers-only red-before-green test to
+"before THAT capability's signoff is written." T337's acceptance above is scoped to what this
+ticket actually opens (`relay`/circuit-relay-v2); the 3-node (A / camp B / reachable-non-camp X)
+AutoNAT test belongs in T336's own acceptance, where AutoNAT is actually wired.
 - Full capability + battle-test gate (security-assessment + Security + Red Hat + Grader); signoff on a
   clean pass per the owner's T327 delegation.

@@ -191,7 +191,16 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
       // A malformed/adversarial peer closing or corrupting the stream must not
       // crash this node — see design doc's "what must NOT be trusted" section.
     })
-  })
+  }, { runOnLimitedConnection: true })
+  // ^ T337 gate-fix round 2 (Code Reviewer LOW, FIX 3): without this opt-in, libp2p refuses to
+  // even INVOKE this handler for a stream arriving over a "limited" connection (circuit-relay-v2's
+  // relayed connections are always limited) — the stream is reset before authenticatedPeers is
+  // ever consulted. That would make the admission check moot for exactly the arrival path T337
+  // §D's carry-forward proofs are about, not merely redundant with it. Dial-side call sites
+  // (sendDocTo, below) already pass this same option; it was previously missing on the listen
+  // side, found while proving the end-to-end relayed-connection carry-forward in
+  // relayEndToEndRevoke.test.js. Admission itself is still the same authenticatedPeers check,
+  // unchanged — this only lets that check actually run over a relay.
 
   // Inbound half of the sync protocol — same admission gate as PROTO's handler above (Stage 5d-1's
   // ADR §3, threat #1/#4): an unauthenticated peer's bytes never reach A.receiveSyncMessage.
@@ -208,7 +217,7 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     }).catch(() => {
       // A malformed/adversarial peer closing or corrupting the stream must not crash this node.
     })
-  })
+  }, { runOnLimitedConnection: true }) // same reasoning as PROTO's handler above
 
   async function sendDocTo(peerId, docBytes) {
     const stream = await node.dialProtocol(toDialTarget(peerId), PROTO, { runOnLimitedConnection: true })
@@ -473,6 +482,20 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     // only stops a future dial; this is what tears down an existing one.
     revokePeer: (peerId) => {
       authenticatedPeers.delete(String(peerId))
+      // Gate-fix round 2 (Red Hat HIGH, FIX 1c): denyOutboundRelayedConnection already blocks a
+      // NEW CONNECT for a revoked peer, but a RESERVATION this peer made while still admitted
+      // sits in R's ReservationStore occupying one of MAX_SIMULTANEOUS_RESERVATIONS slots until
+      // its own TTL expires otherwise — reclaiming it here is defense-in-depth, not the load-
+      // bearing control (that is still the gater, which runs on every CONNECT regardless of
+      // whether this reclaim ever ran). Best-effort: a relay server not being configured, or the
+      // library's internal shape changing, must never make revocation itself fail.
+      if (relayServerFactory) {
+        try {
+          node.services.circuitRelay?.reservationStore?.removeReservation(peerIdFromString(String(peerId)))
+        } catch (err) {
+          console.error(`transport: failed to evict relay reservation for revoked peer ${peerId} (non-fatal — the CONNECT gater is the real control): ${err?.message ?? err}`)
+        }
+      }
     },
     admitPeer: (peerId) => {
       const id = String(peerId)

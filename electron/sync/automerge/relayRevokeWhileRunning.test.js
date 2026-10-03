@@ -137,6 +137,14 @@ describe('T337 revoke-while-running — R declines to broker a CONNECT for a pee
     r.revokePeer(c.peerId.toString())
 
     const connectResponse = await requestConnect(b, relayPeerId, c.peerId)
-    expect(connectResponse.status).toBe(Status.PERMISSION_DENIED)
+    // Gate-fix round 2 (FIX 1c): revokePeer now EVICTS the revoked peer's reservation outright
+    // (reservationStore.removeReservation), not only relying on denyOutboundRelayedConnection —
+    // so handleConnect's own `reservation == null` check fires first and returns NO_RESERVATION,
+    // never reaching the gater at all. This is a STRONGER closure than PERMISSION_DENIED would
+    // have been (the slot is actually reclaimed, not just refused-but-still-held) — assert the
+    // outcome that is now actually produced, and assert it is never OK, which is the property
+    // that actually matters here.
+    expect(connectResponse.status).toBe(Status.NO_RESERVATION)
+    expect(connectResponse.status).not.toBe(Status.OK)
   })
 })
