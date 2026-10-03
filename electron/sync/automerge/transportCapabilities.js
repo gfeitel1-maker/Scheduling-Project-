@@ -40,8 +40,9 @@ export const TRANSPORT_CAPABILITIES = {
     // exposes data or the computer harmfully, then no") and DELEGATED the determination to the
     // security + battle-test gate (his T327 delegation); the gate passed and the organizer accepted
     // on the passed gate. Runtime activation (SHORESH_RELAY_ENABLED) stays blocked independently of
-    // this entry: flag defaults false AND relayRuntimeEligible requires holePunchFoundationPresent()
-    // (dcutr/autonat), which is absent until T336 — see relayEnablement.js + dcutrPresenceWithoutSignoff.guard.test.js.
+    // this entry: relayRuntimeEligible requires SHORESH_RELAY_ENABLED, which defaults false. (As of
+    // T336 holePunchFoundationPresent() — the @libp2p/dcutr presence probe — is now true, but the
+    // flag default alone keeps relay+dcutr inert.) See relayEnablement.js + dcutrPresenceWithoutSignoff.guard.test.js.
     signoff: {
       date: '2026-10-03',
       owner: 'gate (owner 2026-10-03 conditional-YES + T327 delegation; accepted by organizer)',
@@ -53,9 +54,13 @@ export const TRANSPORT_CAPABILITIES = {
       doc: 'docs/work/security/2026-10-03-t337-standing-reservation-signoff-battletest.md#signoff-decision',
     },
   },
+  // T336 ships dcutr only. AutoNAT (@libp2p/autonat) is deliberately NOT shipped — @libp2p/autonat@3.0.28
+  // has no admission/connectionGater hook (cannot be camp-scoped; a non-camp party could use our node
+  // AS an AutoNAT server) and @libp2p/dcutr does not depend on it. See relayEnablement.js + the T336
+  // design doc. If AutoNAT is ever revisited it is separately-scoped new work with its own exposure review.
   dcutr: {
-    packages: ['@libp2p/dcutr', '@libp2p/autonat'],
-    sourceMarkers: ['dcutr', 'autonat'],
+    packages: ['@libp2p/dcutr'],
+    sourceMarkers: ['dcutr'],
     egressAllowlist: [],
     signoff: null,
   },

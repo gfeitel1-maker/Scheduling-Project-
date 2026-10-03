@@ -1,15 +1,15 @@
 // T336 chunk 1 — inertness-with-packages integration proof, analogue of T337's
 // relayEnablementIntegration.test.js (gate-fix round 2, Security-Assessment F-1). That test proved
-// the relay stays inert while dcutr/autonat were ABSENT from the build. They are no longer absent
-// (377c28f0 landed @libp2p/dcutr@3.0.28 + @libp2p/autonat@3.0.28 as this slice's foundation) — so
-// the property that matters now is the one this file proves: with the hole-punch foundation
-// packages GENUINELY PRESENT in the resolved dependency tree, and SHORESH_RELAY_ENABLED left at its
-// default (unset/false), startSyncNode still receives NO relay, dcutr, or AutoNAT wiring at all.
-// relayEnablementIntegration.test.js's own "non-vacuity" case already covers this exact scenario as
-// a side effect (flag OFF, packages now genuinely present) — this file states it as its own
-// first-class claim, with an explicit assertion that the real `@libp2p/dcutr`/`@libp2p/autonat`
-// packages are actually resolvable in THIS test environment, so the inertness being proven is not
-// vacuous (packages absent would make "no wiring" trivially true for the wrong reason).
+// the relay stays inert while dcutr was ABSENT from the build. It is no longer absent
+// (377c28f0 landed @libp2p/dcutr@3.0.28 as this slice's foundation; AutoNAT is NOT part of the
+// foundation — dropped, dcutr-only) — so the property that matters now is the one this file proves:
+// with the hole-punch foundation package GENUINELY PRESENT in the resolved dependency tree, and
+// SHORESH_RELAY_ENABLED left at its default (unset/false), startSyncNode still receives NO relay or
+// dcutr wiring at all. relayEnablementIntegration.test.js's own "non-vacuity" case already covers
+// this exact scenario as a side effect (flag OFF, package now genuinely present) — this file states
+// it as its own first-class claim, with an explicit assertion that the real `@libp2p/dcutr` package
+// is actually resolvable in THIS test environment, so the inertness being proven is not vacuous
+// (package absent would make "no wiring" trivially true for the wrong reason).
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -88,13 +88,13 @@ function makeStarter({ startSyncNodeImpl }) {
 }
 
 describe('T336 chunk 1 — hole-punch foundation present, SHORESH_RELAY_ENABLED unset(default): fully inert', () => {
-  it('non-vacuity precondition: @libp2p/dcutr and @libp2p/autonat are ACTUALLY resolvable in this test environment', () => {
+  it('non-vacuity precondition: @libp2p/dcutr is ACTUALLY resolvable in this test environment', () => {
     const require = createRequire(import.meta.url)
     expect(() => require.resolve('@libp2p/dcutr')).not.toThrow()
-    expect(() => require.resolve('@libp2p/autonat')).not.toThrow()
+    // AutoNAT is deliberately NOT part of the foundation (T336 ships dcutr only) — not asserted here.
   })
 
-  it('startSyncNode receives NO relay, dcutr, or AutoNAT wiring when the flag is left at its default', async () => {
+  it('startSyncNode receives NO relay or dcutr wiring when the flag is left at its default', async () => {
     insertCamp()
     delete process.env.SHORESH_RELAY_ENABLED
 

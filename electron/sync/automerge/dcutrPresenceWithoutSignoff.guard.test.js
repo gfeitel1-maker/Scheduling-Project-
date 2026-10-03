@@ -1,7 +1,7 @@
 // TIER-4 ENFORCEABLE BOUNDARY GUARD, sibling to transportBoundary.guard.test.js — T337 gate-fix
 // round 3 (Red Hat MEDIUM): closes the presence-not-signoff gap in relayEnablement.js.
 //
-// relayEnablement.js's coupling checks whether `@libp2p/dcutr`/`@libp2p/autonat` are IMPORTABLE,
+// relayEnablement.js's coupling checks whether `@libp2p/dcutr` is IMPORTABLE (AutoNAT dropped),
 // not whether the `dcutr` capability row is actually SIGNED OFF (transportCapabilities.js's own
 // header forbids production code from reading `signoff` at runtime, so that coupling cannot be
 // any tighter at the SOURCE level). The gap this leaves: the moment T336 lands those packages —
@@ -21,22 +21,26 @@ import { TRANSPORT_CAPABILITIES } from './transportCapabilities.js'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = join(__dirname, '..', '..', '..')
 
-const DCUTR_PACKAGES = ['@libp2p/dcutr', '@libp2p/autonat']
+// T336 ships @libp2p/dcutr only — AutoNAT is not part of the foundation (no admission hook; dcutr
+// does not depend on it). So this guard keys off @libp2p/dcutr alone.
+const DCUTR_PACKAGES = ['@libp2p/dcutr']
 
 describe('dcutr-present-without-signoff guard (T337 gate-fix round 3)', () => {
-  it('invariant: dcutr/autonat are absent from the resolved tree, OR dcutr.signoff is non-null', () => {
+  it('invariant: @libp2p/dcutr is absent from the resolved tree, OR dcutr.signoff is non-null', () => {
     const lockfile = JSON.parse(readFileSync(join(repoRoot, 'package-lock.json'), 'utf8'))
     const present = forbiddenPackagesPresent(lockfile.packages, DCUTR_PACKAGES)
     const signedOff = TRANSPORT_CAPABILITIES.dcutr.signoff != null
 
     expect(
       present.length === 0 || signedOff,
-      `@libp2p/dcutr/@libp2p/autonat present in the resolved dependency tree (${present.join(', ')}) ` +
+      `@libp2p/dcutr present in the resolved dependency tree (${present.join(', ')}) ` +
         `while TRANSPORT_CAPABILITIES.dcutr.signoff is still null. relayEnablement.js's presence-` +
-        `based coupling would now read these as "the hole-punch foundation exists" and could flip ` +
-        `relay to runtime-eligible even though the dcutr capability itself has not cleared its own ` +
-        `review gate. Either hold off landing these packages until dcutr.signoff is written in the ` +
-        `SAME change, or do not write a signoff without the packages actually present.`
+        `based coupling reads this as "the hole-punch foundation exists" and could flip relay to ` +
+        `runtime-eligible even though the dcutr capability has not cleared its own review gate. ` +
+        `During the T336 build this assertion is EXPECTED to fail (package present, signoff null) — ` +
+        `that red is the capability provably blocked; the signoff written at gate-pass flips it green ` +
+        `in the SAME change. Do not write a signoff without the package actually present, or land the ` +
+        `package without writing the signoff in that same change.`
     ).toBe(true)
   })
 
@@ -54,15 +58,18 @@ describe('dcutr-present-without-signoff guard (T337 gate-fix round 3)', () => {
     expect(present.length === 0 || signedOffInThisScenario).toBe(false) // the invariant WOULD fail here
   })
 
-  it('GREEN today: the real resolved tree has neither package present (confirmed against package-lock.json)', () => {
+  it('documents the T336 build state: @libp2p/dcutr IS present now (foundation landed), so only a signoff satisfies the invariant', () => {
     const lockfile = JSON.parse(readFileSync(join(repoRoot, 'package-lock.json'), 'utf8'))
-    expect(forbiddenPackagesPresent(lockfile.packages, DCUTR_PACKAGES)).toEqual([])
+    // T336 landed @libp2p/dcutr (377c28f0), so the package IS in the resolved tree. While
+    // dcutr.signoff is null the invariant above is intentionally violated (the capability is blocked);
+    // writing the signoff at gate-pass is what satisfies it. This is the present-but-unsigned block.
+    expect(forbiddenPackagesPresent(lockfile.packages, DCUTR_PACKAGES)).toEqual(['@libp2p/dcutr'])
   })
 
-  // Companion non-vacuity: the invariant must also tolerate the OTHER honest resolution (packages
-  // present AND signed off) — it should not be structured as "packages must always be absent".
+  // Companion non-vacuity: the invariant must also tolerate the OTHER honest resolution (package
+  // present AND signed off) — it should not be structured as "the package must always be absent".
   it('the invariant also accepts the opposite honest state: present AND signed off', () => {
-    const present = ['@libp2p/dcutr', '@libp2p/autonat']
+    const present = ['@libp2p/dcutr']
     const signedOff = true
     expect(present.length === 0 || signedOff).toBe(true)
   })

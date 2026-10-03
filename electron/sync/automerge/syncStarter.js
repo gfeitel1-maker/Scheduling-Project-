@@ -401,10 +401,11 @@ export function createAutomergeSyncStarter({
       // ladder ordering, unchanged by this wiring). So gating this on the SAME `relayEligible`
       // check the relay factories above use (rather than inventing a second gate) already encodes
       // "upgrade only after the relay step," not a separate eager/parallel trigger. This is the
-      // ONLY capability this slice wires here — the camp-scoped reachability-probe capability is
-      // NOT wired in this chunk; see the STOP finding in
-      // electron/sync/automerge/autoNatCampOnly.test.js's header comment for why (the installed
-      // probe-service package exposes no admission/connectionGater hook to scope it with).
+      // ONLY capability this slice wires here — the reachability-probe service (AutoNAT) is NOT
+      // wired at all: it was DROPPED (organizer ruling 2026-10-03) because the installed
+      // probe-service package exposes no admission/connectionGater hook to camp-scope it with (so a
+      // non-camp party could use this node as a probe server) and dcutr does not depend on it. See
+      // the amendment banner in docs/work/specs/2026-10-03-t336-holepunch-build-design.md.
       let directUpgradeServiceFactory
       if (relayEligible) {
         const { dcutr } = await import('@libp2p/dcutr')

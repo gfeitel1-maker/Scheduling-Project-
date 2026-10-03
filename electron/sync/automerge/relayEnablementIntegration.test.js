@@ -80,7 +80,7 @@ function makeStarter({ startSyncNodeImpl }) {
 }
 
 describe('T337 gate-fix round 2 — SHORESH_RELAY_ENABLED alone cannot activate the relay', () => {
-  // UPDATED for T336 (377c28f0 landed @libp2p/dcutr + @libp2p/autonat; this chunk wires dcutr):
+  // UPDATED for T336 (377c28f0 landed @libp2p/dcutr; AutoNAT dropped, dcutr-only; this chunk wires dcutr):
   // this test's original premise ("dcutr absent, this build, today") is no longer true — the
   // hole-punch foundation packages are now present in every build's resolved tree, same as this
   // file's own test environment. With BOTH conditions now genuinely satisfied (flag ON AND

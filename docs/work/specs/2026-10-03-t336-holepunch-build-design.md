@@ -11,6 +11,22 @@ related_docs: [docs/work/security/2026-10-03-t337-standing-reservation-signoff-b
 
 # T336 — NAT hole-punch build design
 
+> **AMENDMENT 2026-10-03 (organizer ruling — AutoNAT DROPPED; this slice ships dcutr only).**
+> During chunk-1 build, Precondition 4 (AutoNAT-camp-peers-only) was proven UNACHIEVABLE:
+> `@libp2p/autonat@3.0.28` has no admission/connectionGater hook (verified in installed source), so
+> AutoNAT cannot be camp-scoped and a non-camp party could use our node AS an AutoNAT server — a new
+> outside-audience exposure = the owner's NO. Because `@libp2p/dcutr` does NOT depend on AutoNAT (the
+> punch works from relay/identify-observed addresses), the capability ships **dcutr-only**: AutoNAT
+> is not installed, not wired, and removed from the `dcutr` capability row. This DROPS Precondition 4
+> as unachievable-and-unneeded and ELIMINATES the AutoNAT dial-back exposure entirely (it does not
+> camp-scope it). Wherever §2 (AutoNAT camp-scoping) and §4 Precondition 4 below describe wiring or
+> proving AutoNAT, treat them as HISTORICAL — superseded by this amendment. Honest tradeoff: without
+> AutoNAT self-reachability detection, dcutr may fall back to the T337 standing relay somewhat more
+> often in some NAT scenarios — no capability loss, just occasional extra (already-approved, bounded)
+> relay use. Revisiting AutoNAT is separately-scoped new work with its own exposure review + owner
+> decision. Everything else in this design (dcutr mechanism §1, Preconditions 1/2/3, naming trap §5,
+> full-verify-is-the-gate) stands unchanged.
+
 **Supersedes-in-practice:** `docs/work/specs/2026-10-03-t336-slice-a-holepunch-design.md` (that
 doc's own frontmatter has been updated with a pointer to this one — not deleted, per this repo's
 historical-marking convention; its mechanism analysis, exposure analysis, and two carry-forward
