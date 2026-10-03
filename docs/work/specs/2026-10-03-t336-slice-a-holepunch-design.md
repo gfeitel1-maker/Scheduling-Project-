@@ -11,6 +11,15 @@ governing_docs: [docs/adr/2026-10-02-wan-discovery-transport-ladder.md, SECURITY
 
 # T336 — Slice A (remembered-address + NAT hole-punch) design
 
+**SUPERSEDED 2026-10-03 by the full build design,
+`docs/work/specs/2026-10-03-t336-holepunch-build-design.md`.** That document takes T337's actual
+*landed* coordination layer (merged, `#736`) as given, resolves this doc's own Open Questions §1
+and §2 concretely, and adds the test-design for the ticket's three carried-forward BLOCKING
+preconditions. This doc's mechanism analysis (§1), exposure analysis (§2), NAT-coverage framing
+(§3), and the two carry-forward proofs (§4) are unchanged and correct — they are cited, not
+restated, by the build design. Kept in place per this repo's historical-marking convention; not
+current for Maker pickup on its own.
+
 **RESEQUENCED 2026-10-03 — layers on the T337 coordination foundation.** The organizer
 (owner-delegated) ruled on this design's own Open Questions §1 finding (dcutr cannot run cold,
 because it upgrades an existing connection rather than creating one): the coordination layer that
