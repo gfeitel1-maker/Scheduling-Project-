@@ -11,6 +11,19 @@ governing_docs: [docs/adr/2026-10-02-wan-discovery-transport-ladder.md, SECURITY
 
 # T336 — Slice A (remembered-address + NAT hole-punch) design
 
+**RESEQUENCED 2026-10-03 — layers on the T337 coordination foundation.** The organizer
+(owner-delegated) ruled on this design's own Open Questions §1 finding (dcutr cannot run cold,
+because it upgrades an existing connection rather than creating one): the coordination layer that
+supplies dcutr's first contact is foundational and is built FIRST, as T337
+(`docs/work/specs/2026-10-03-t337-coordination-layer-design.md`), with this hole-punch design layered
+on top of it. This resolves Open Question §1 as option (a)/(b)'s substance — the coordination channel
+is opened as its own slice before `dcutr` — with the coordination default being a camp-admitted peer
+acting as `circuit-relay-v2` in coordination mode (not Cloudflare, not a Shoresh-run node), per T337
+§A. The remainder of this document is otherwise unchanged and still describes the hole-punch
+mechanism, exposure profile, and test seams correctly; read "the coordination channel" wherever it
+appears below as "the T337 coordination layer," now a resolved prerequisite rather than an open
+question.
+
 **Design-only. Opens and builds nothing.** Produced per the owner-decided ladder: LAN meet [hard
 prerequisite] → remembered-address + NAT hole-punch (dcutr/AutoNAT) [PRIMARY cross-network rung] →
 Cloudflare rendezvous [RARE firewall-only fallback] (`docs/adr/2026-10-02-wan-discovery-transport-
