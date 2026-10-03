@@ -11,6 +11,22 @@ archive_when: superseded — see status
 
 # Cross-network discovery — options menu (design only, builds nothing)
 
+> **RESOLUTION/CORRECTION (2026-10-03, owner directive via organizer).** This document is
+> **superseded** by the "Amendment 2026-10-03" and "Design-of-record, stated plainly" sections of
+> `docs/adr/2026-10-02-wan-discovery-transport-ladder.md` — that ADR is the current authority, not
+> this spec. Two framings below are **corrected, not merely superseded**, and must not be read as
+> live design questions:
+> 1. **The public DHT (Option 1, and the public-network shape named throughout) is rejected and
+>    removed as a discovery pathway** — not deprioritized, not a future option. One-line why: it
+>    exposes device online-status/network address to an unbounded public population.
+> 2. **The "two peers that have never shared a LAN" framing this document uses below — including the
+>    "honest unsolvable residual" / "what no option can fully satisfy" language — is a mis-framing the
+>    owner rejected.** LAN-meet-first is a **hard prerequisite**, not a case this architecture tries to
+>    solve. A pair of devices with no shared LAN history is **out of scope by first principle**, never
+>    a residual, gap, or open problem. Read every "never met since" / "both stale" passage below as the
+>    analysis that *led to* Option 4 being recommended, not as a currently-accepted characterization of
+>    an unsolved case.
+
 **RESOLVED (2026-10-03).** The owner resolved this menu's open questions to Option 4's shape —
 remembered-address + hole-punch as the default path, single-operator rendezvous (the existing
 Cloudflare path) as the rare fallback — in his own words, not merely by picking a numbered option:

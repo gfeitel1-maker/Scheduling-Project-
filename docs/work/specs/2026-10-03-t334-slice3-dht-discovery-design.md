@@ -17,7 +17,10 @@ the public-DHT cross-network path this design wires, verbatim: *"no. i do not ac
 "Amendment 2026-10-03" section of
 `docs/adr/2026-10-02-wan-discovery-transport-ladder.md` is the current authority: the public DHT is
 dropped from the ladder entirely, replaced by remembered-address reconnect + NAT hole-punch as the
-primary cross-network path, with Cloudflare rendezvous kept as the rare fallback. The dormant,
+primary cross-network path, with Cloudflare rendezvous kept as the rare fallback. **The public DHT is
+not a deferred or future-rung pathway — it is rejected and removed**, one-line why: it exposes device
+online-status/network address to an unbounded public population. No future slice re-adds it without a
+fresh owner decision. The dormant,
 gated code this design produced (`electron/sync/automerge/dhtDiscovery.js`, `dhtEnabled: false`,
 `kadDht`/`bootstrap` rows still `signoff: null` in `transportCapabilities.js`) is not activated and no
 further work proceeds against this document. It is kept, not deleted, as the historical record of the

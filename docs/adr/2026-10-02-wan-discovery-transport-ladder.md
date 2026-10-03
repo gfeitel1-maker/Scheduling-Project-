@@ -515,6 +515,29 @@ forked camp points tier 3 at its own rendezvous endpoint instead of the owner's.
 requirement of the fork-per-camp model (see "Why" above), not an enhancement — Slice B must not
 hard-code a single owner-operated URL.
 
+### Design-of-record, stated plainly (owner directive, 2026-10-03, relayed via organizer: "make sure
+that the docs reflect the public. - public never met piece is not a pathway.")
+
+The two corrections above are easy to read as tier reshuffling. They are not. Stated as the two
+standing facts every WAN-discovery doc must reflect:
+
+1. **The public DHT is not a discovery pathway.** Not an option, not a future rung, not deferred —
+   **rejected and removed** from the ladder. The one-line why: it exposes device online-status and
+   network address to an unbounded population of strangers on the public network, a categorically
+   worse exposure than the single-operator Cloudflare fallback the owner had already accepted. No
+   future slice re-adds `kadDht`/`bootstrap` discovery without a fresh owner decision.
+2. **"Two devices that never shared a LAN" is not a pathway and not an open problem.** LAN-meet-first
+   (Tier 1 in the table above) is a **hard prerequisite** — trust establishment, not a discovery case
+   to be solved. The architecture only ever reconnects devices that have **already met and established
+   mutual trust on a LAN**. A pair of devices with no shared LAN history is **out of scope by first
+   principle**, not a residual, not a gap, not an "honest unsolvable case" to be engineered around or
+   left open for a future rung. Any doc, past or future, that frames it as a hard case still needing a
+   solution is mis-framing this architecture and must be corrected on sight.
+
+The corrected ladder, restated once more for unambiguous reference: **LAN meet [hard prerequisite] →
+remembered-address + NAT hole-punch (dcutr/AutoNAT) [PRIMARY cross-network path] → Cloudflare
+rendezvous [RARE firewall-only fallback].** No public-DHT rung. No never-met pathway.
+
 ### Doc hygiene this amendment performs
 
 - `docs/work/specs/2026-10-03-t334-slice3-dht-discovery-design.md` is marked **SUPERSEDED/REJECTED**
