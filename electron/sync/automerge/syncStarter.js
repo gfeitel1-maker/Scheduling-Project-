@@ -103,6 +103,12 @@ export function createAutomergeSyncStarter({
   // that function, never reset — a single process only ever attempts startup
   // once (the idempotency guard inside it prevents a second real attempt).
   let automergeStartupAttempted = false
+  // T336 Precondition 3 — the most recent relay-reservation refusal this device's own transport
+  // has observed, if any. getSyncStatus reads this via getRelayReservationRefused() the same way
+  // it reads automergeStartupAttempted above: a plain in-memory flag, not persisted, because it
+  // describes a live transport condition that resolves itself once a slot frees up — a director
+  // reopening the app after a restart with no camps near capacity should not see a stale warning.
+  let relayReservationRefused = null
 
   // A director approving or denying a pairing request doesn't know or care
   // how the request arrived. startSyncNode's onPairingRequest (below)
@@ -537,6 +543,14 @@ export function createAutomergeSyncStarter({
           const mainWindow = getMainWindow()
           if (mainWindow) mainWindow.webContents.send('shoresh:auth-rejected', { code: codeForAuthRejectedReason(reply?.reason) })
         },
+        // T336 Precondition 3 — transport.js's wrapped addRelay observed a genuine
+        // RESERVATION_REFUSED. Recorded here (not acted on further — this is a UI notice, not a
+        // retry trigger) and pushed to the renderer the same way every other sync-status change
+        // already is, via pushSyncStatus below.
+        onRelayReservationRefused: (detail) => {
+          relayReservationRefused = detail
+          try { getLiveHandlers()?.pushSyncStatus?.() } catch { /* never break sync over a UI notice */ }
+        },
       })
 
       // Stage 5f item 2: a local edit (appendOp -> liveDoc.recordLocalWrite) must reach connected
@@ -596,5 +610,6 @@ export function createAutomergeSyncStarter({
     start,
     getNode: () => automergeSyncNode,
     getStartupAttempted: () => automergeStartupAttempted,
+    getRelayReservationRefused: () => relayReservationRefused,
   }
 }

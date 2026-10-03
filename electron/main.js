@@ -307,7 +307,7 @@ export function disposeCampDataRecordThenCloseDb(liveHandlers, oldDb) {
   try { liveHandlers?.disposeCampDataRecord?.() } catch { /* ignore */ }
   try { oldDb?.close?.() } catch { /* ignore — db may already be closed */ }
 }
-export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath: _userDataPath, getAutomergeSyncNode, getAutomergeStartupAttempted, onCampBootstrapped, onCampJoined, retrySync } = {}) {
+export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath: _userDataPath, getAutomergeSyncNode, getAutomergeStartupAttempted, getRelayReservationRefused, onCampBootstrapped, onCampJoined, retrySync } = {}) {
   // Both default to safe no-ops so every existing caller/test that doesn't
   // pass them (there are many) is unaffected — Stage 5d-2b additions only,
   // never a behavior change for a caller that stays silent about them.
@@ -319,6 +319,11 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // 'host' fallback getSyncStatus() always returned, rather than a new
   // 'host-not-syncing' state nobody asked for.
   const getAutomergeStartupAttemptedFn = getAutomergeStartupAttempted || (() => false)
+  // T336 Precondition 3 — the most recent relay-reservation refusal transport.js's own real-time
+  // observation has recorded (syncStarter.js's getRelayReservationRefused), if any. Defaults to a
+  // no-op returning null so every existing test/caller that doesn't wire this sees getSyncStatus's
+  // unchanged shape, same discipline as getAutomergeStartupAttemptedFn above.
+  const getRelayReservationRefusedFn = getRelayReservationRefused || (() => null)
   // T273 — invoked once by bootstrapCamp, after the camp exists and this
   // device has authorized itself. On a first run there is no camp at
   // app.whenReady(), so startAutomergeSyncNodeIfEnabled returns early and
@@ -882,6 +887,12 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       )
       .get(deviceId).n
 
+    // T336 Precondition 3 — reported on EVERY state, same discipline as unsharedWrites/lowDisk
+    // above: a refused relay reservation is a fact about this device's own transport, not a
+    // connectivity state, and a camp near its relay cap is just as true whether this device is
+    // the Host or a Client.
+    const relayReservationRefused = Boolean(getRelayReservationRefusedFn())
+
     // T268 — a refused sync (electron/db/migrationDomainState.js) is checked
     // BEFORE branching on mode: a refused Client is just as blind as a
     // refused Host, and this must never read as connected/healthy for
@@ -911,10 +922,11 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
         unsharedWrites,
         lowDisk: disk.low,
         otherDeviceCount,
+        relayReservationRefused,
       }
     }
 
-    if (!modeChosen) return { mode: null, connected: false, state: 'standalone', unsharedWrites, lowDisk: disk.low, otherDeviceCount }
+    if (!modeChosen) return { mode: null, connected: false, state: 'standalone', unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused }
     if (mode === 'host') {
       // T268: `connected: true, state: 'host'` used to be unconditional here —
       // a Host that failed to start its sync node (refusal aside; e.g. the
@@ -927,9 +939,9 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
         // last case exists to avoid a boot flicker: the node starts
         // asynchronously after app.whenReady(), so "not yet attempted" must
         // read the same as it always has, not as a false alarm.
-        return { mode: 'host', connected: true, state: 'host', unsharedWrites, lowDisk: disk.low, otherDeviceCount }
+        return { mode: 'host', connected: true, state: 'host', unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused }
       }
-      return { mode: 'host', connected: false, state: 'host-not-syncing', unsharedWrites, lowDisk: disk.low, otherDeviceCount }
+      return { mode: 'host', connected: false, state: 'host-not-syncing', unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused }
     }
     // Stage 6c: the honest source of "can this device reach the camp" is the
     // libp2p node's peer set, not a socket. `getPeers()` returns every
@@ -943,7 +955,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     const connected = peers.length > 0
     const authed = peers.some((peerId) => node.isPeerAuthenticated(peerId))
     const state = !connected ? 'client-disconnected' : (authed ? 'client-connected' : 'client-connecting')
-    return { mode: 'client', connected, authenticated: authed, state, unsharedWrites, lowDisk: disk.low, otherDeviceCount }
+    return { mode: 'client', connected, authenticated: authed, state, unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused }
   }
 
   // T27 — push the status when it changes, rather than leaving the renderer to
@@ -3518,6 +3530,7 @@ if (isElectronEntryPoint()) {
     userDataPath,
     getAutomergeSyncNode: () => syncStarter.getNode(),
     getAutomergeStartupAttempted: () => syncStarter.getStartupAttempted(),
+    getRelayReservationRefused: () => syncStarter.getRelayReservationRefused(),
     // T273 — the only thing that starts sync on the session that creates the
     // camp. Its own `if (automergeSyncNode) return` idempotency guard makes a
     // second invocation (app.whenReady's, already returned by then) harmless.
