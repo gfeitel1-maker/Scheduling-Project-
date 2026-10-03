@@ -33,6 +33,7 @@ import { loadDoc as loadAutomergeDoc, docPath as automergeDocPath } from './docS
 import { resolveStartupDoc, dispatchRemoteOps, REMOTE_OPS_COALESCE_THRESHOLD } from './startupGuard.js'
 import { createMdnsDiscovery, rotatingServiceTag } from './discovery.js'
 import { mintRendezvousNamespace } from './rendezvousNamespace.js'
+import { createVerifiedEntryTrust } from '../../automerge/authorityReplay.js'
 import { readRendezvousConfig, createRendezvousDiscovery } from './rendezvousClient.js'
 import { nextSequence } from './rendezvousSequence.js'
 import { ensureDeviceIdentity } from '../../auth/deviceIdentity.js'
@@ -46,6 +47,20 @@ import { codeForAuthRejectedReason } from '../../authRejectedSender.js'
 // either module's top level, and only invoked once start() actually runs —
 // long after both modules have finished initializing.
 import { sanitizeOpForIpc } from '../../main.js'
+
+// T335 gate finding (Security/Red Hat HIGH, round 2) — exported so the production wiring is
+// directly testable without going through the whole start() sequence or a real libp2p node.
+// Before this fix, syncStarter.js called `rotatingServiceTag(Automerge, doc, campId)` with NO
+// opts, so currentRevokedDeviceIds fell through to its always-true default: the LIVE mDNS tag was
+// computed over UNVERIFIED revoke entries, reopening the T329-F1 forgery class (an
+// attacker-controlled synced peer could inject an unsigned kind:'revoke' entry and move the
+// discovery tag network-wide). `createVerifiedEntryTrust` (authorityReplay.js) is the SAME
+// signature-gate projector.js's own SQLite projection already relies on — one verification, not a
+// second, looser one for discovery.
+export function computeRotatingServiceTag(doc, campId) {
+  const isEntryTrusted = createVerifiedEntryTrust(Automerge, doc)
+  return rotatingServiceTag(Automerge, doc, campId, { isEntryTrusted })
+}
 
 export function createAutomergeSyncStarter({
   deviceId,
@@ -306,7 +321,7 @@ export function createAutomergeSyncStarter({
         setCurrentAutomergeDoc(db, doc)
       }
       const rendezvousConfig = readRendezvousConfig(process.env)
-      const peerDiscovery = [createMdnsDiscovery({ serviceTag: rotatingServiceTag(Automerge, doc, campId) })]
+      const peerDiscovery = [createMdnsDiscovery({ serviceTag: computeRotatingServiceTag(doc, campId) })]
       if (rendezvousConfig.enabled) {
         const { peerId: rendezvousPeerId, privateKey: rendezvousPrivateKey } = await ensureDeviceIdentity(db)
         peerDiscovery.push(

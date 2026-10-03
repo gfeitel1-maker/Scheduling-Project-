@@ -20,6 +20,7 @@
 // assuming a bespoke array shape.
 import { decodeChange } from '@automerge/automerge'
 import { listRecordIds, readRecord } from './campDocument.js'
+import { verifyAuthorityEntry } from './authorityLogSignature.js'
 
 export const AUTHORITY_LOG_ENTITY = 'camp_authority_log'
 
@@ -320,6 +321,53 @@ export function currentAuthorityState(automerge, doc, { founderDeviceId } = {}) 
 
 export function quorumThreshold(n) {
   return Math.floor((n - 1) / 2) + 1
+}
+
+// T335 gate finding (Security/Red Hat HIGH, round 2) — moved here from projector.js (where it was
+// private/unexported) so the discovery path (rotatingDiscoveryTag.js) can use the EXACT same
+// signature verification projector.js's upsertCampAuthorityLogEntity already relies on, rather
+// than a second, looser definition. Resolves each target device's peer id from the causally LATEST
+// genesis/grant entry naming it (never raw document iteration order — the same
+// isCausallyAtLeastAsLate-based tie-break stateAt already needs for the same reason: a target
+// re-granted after a revoke+re-grant cycle must resolve deterministically regardless of merge
+// order).
+export function resolveAuthorityPeerIds(automerge, doc) {
+  const entryChangeHash = entryChangeHashIndex(automerge, doc)
+  const winningHashByDevice = new Map()
+  const peerIdByDevice = new Map()
+  for (const id of listRecordIds(doc, AUTHORITY_LOG_ENTITY)) {
+    const row = readRecord(doc, AUTHORITY_LOG_ENTITY, id)
+    if (!row || (row.kind !== 'genesis' && row.kind !== 'grant')) continue
+    if (!row.target_device_id || !row.target_peer_id) continue
+    const h = entryChangeHash.get(id)
+    if (!h) continue
+    const incumbent = winningHashByDevice.get(row.target_device_id)
+    if (incumbent != null && !isCausallyAtLeastAsLate(automerge, doc, h, incumbent)) continue
+    winningHashByDevice.set(row.target_device_id, h)
+    peerIdByDevice.set(row.target_device_id, row.target_peer_id)
+  }
+  return peerIdByDevice
+}
+
+// The REAL `isEntryTrusted` predicate: an entry counts only if its signer's peer id can be
+// resolved (from an already-causally-established genesis/grant entry) AND its signature verifies
+// against that peer id. Shared by projector.js (the SQLite projection) and the discovery path
+// (rotatingDiscoveryTag.js) — one definition of "trusted," so the two consumers cannot drift into
+// disagreeing about which revoke entries count. A caller with no verified peer-id source at all
+// (this module's own unit tests) uses the always-true default on createAuthorityReplayContext
+// instead — this helper is for callers that DO have a real document to verify against, i.e. every
+// production call site.
+export function createVerifiedEntryTrust(automerge, doc) {
+  const peerIdByDevice = resolveAuthorityPeerIds(automerge, doc)
+  return function isEntryTrusted(entry) {
+    const signerPeerId = peerIdByDevice.get(entry.signer_device_id)
+    if (!signerPeerId) return false // signer's own identity never established — fail closed
+    return verifyAuthorityEntry(
+      signerPeerId,
+      { id: entry.id, kind: entry.kind, target_device_id: entry.target_device_id, signer_device_id: entry.signer_device_id },
+      entry.signature
+    )
+  }
 }
 
 // T335 (docs/work/specs/2026-10-03-t335-key-turning-rotating-discovery-tag-design.md §1.1) — the

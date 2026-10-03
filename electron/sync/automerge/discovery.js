@@ -90,6 +90,12 @@ export function createMdnsDiscovery({ campId, ...options } = {}) {
 // (syncStarter.js) switches to this rotating variant. Pure: no document write, derives entirely
 // from `rotatingDiscoveryDigest` (electron/automerge/authorityRevocationDigest.js's revocation
 // digest, HMACed against the camp's minted discovery secret).
-export function rotatingServiceTag(automerge, doc, campId) {
-  return `${SERVICE_TAG_PREFIX}${rotatingDiscoveryDigest(automerge, doc, campId).slice(0, 16)}${SERVICE_TAG_SUFFIX}`
+// `opts` is threaded straight through to rotatingDiscoveryDigest/currentRevokedDeviceIds — T335
+// gate finding (Security/Red Hat HIGH, round 2): a caller MUST pass `{ isEntryTrusted }` built
+// from the real document (authorityReplay.js's createVerifiedEntryTrust) or an unsigned/forged
+// revoke entry moves the tag. There is deliberately no default here that would let a caller
+// forget it silently (unlike currentRevokedDeviceIds's own always-true default, which exists only
+// for that module's unsigned unit tests).
+export function rotatingServiceTag(automerge, doc, campId, opts) {
+  return `${SERVICE_TAG_PREFIX}${rotatingDiscoveryDigest(automerge, doc, campId, opts).slice(0, 16)}${SERVICE_TAG_SUFFIX}`
 }

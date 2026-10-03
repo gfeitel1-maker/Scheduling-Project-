@@ -31,8 +31,7 @@ import { listRecordIds, readRecord, hasAnyRecord } from './campDocument.js'
 import { verifyAuthFields } from '../auth/authSignature.js'
 import { verifyTombstone } from './tombstoneSignature.js'
 import * as Automerge from '@automerge/automerge'
-import { verifyAuthorityEntry } from './authorityLogSignature.js'
-import { createAuthorityReplayContext, isCompleteEntry, isCausallyAtLeastAsLate, entryChangeHashIndex, AUTHORITY_LOG_ENTITY } from './authorityReplay.js'
+import { createAuthorityReplayContext, createVerifiedEntryTrust, isCompleteEntry, AUTHORITY_LOG_ENTITY } from './authorityReplay.js'
 import { recordAuditEvent } from '../audit/auditLog.js'
 import { PROJECTIONS } from '../ops/projections.js'
 import { STAGE1_ENTITY, MODELED_ENTITIES, BULK_REPLACE_MODELED_ENTITIES, DEFERRED_ENTITIES } from './campDocument.js'
@@ -387,46 +386,15 @@ function upsertTombstonesEntity(db, doc) {
 // operates on this device's local SQLite projection, never on the synced document), re-running
 // this function reconstructs the identical derived state.
 //
-// Peer-id resolution for signature verification (an AUTHENTICITY gate, separate from and prior to
-// the causal-ancestor/quorum MATH in authorityReplay.js): a signer's peer id is read from that
-// signer's own earlier 'genesis'/'grant' entry naming it as a target — never from the mutable,
-// non-trust devices.libp2p_peer_id column (see authorityLogSignature.js's module header). This is
-// a COMPLETE pass over every entry (not an incremental/partial one, so nothing is "seen too
-// early" within a single call) — but when the SAME target_device_id has more than one genesis/
-// grant entry (re-granted after a revoke+re-grant cycle, or a device that rotated its own libp2p
-// identity), which one wins must not depend on raw document iteration order (Code Reviewer
-// MEDIUM, round-3 correction — the same non-canonical-ordering hazard authorityReplay.js's
-// `stateAt` had to stop depending on). Resolved via `isCausallyAtLeastAsLate`
-// (authorityReplay.js): the causally LATEST entry wins, merge-order-independently.
-function resolveAuthorityPeerIds(automerge, doc) {
-  const entryChangeHash = entryChangeHashIndex(automerge, doc)
-  const winningHashByDevice = new Map()
-  const peerIdByDevice = new Map()
-  for (const id of listRecordIds(doc, AUTHORITY_LOG_ENTITY)) {
-    const row = readRecord(doc, AUTHORITY_LOG_ENTITY, id)
-    if (!row || (row.kind !== 'genesis' && row.kind !== 'grant')) continue
-    if (!row.target_device_id || !row.target_peer_id) continue
-    const h = entryChangeHash.get(id)
-    if (!h) continue
-    const incumbent = winningHashByDevice.get(row.target_device_id)
-    if (incumbent != null && !isCausallyAtLeastAsLate(automerge, doc, h, incumbent)) continue
-    winningHashByDevice.set(row.target_device_id, h)
-    peerIdByDevice.set(row.target_device_id, row.target_peer_id)
-  }
-  return peerIdByDevice
-}
-
+// Peer-id resolution + signature verification (an AUTHENTICITY gate, separate from and prior to
+// the causal-ancestor/quorum MATH in authorityReplay.js) now lives in authorityReplay.js's
+// `createVerifiedEntryTrust` (T335 gate finding, round 2) — shared with the discovery path
+// (rotatingDiscoveryTag.js) so both consumers verify a `camp_authority_log` entry identically,
+// rather than this module keeping a private copy that the discovery path could silently drift
+// from (see that function's own comment for the merge-order-independent peer-id resolution this
+// also absorbed).
 function upsertCampAuthorityLogEntity(db, doc) {
-  const peerIdByDevice = resolveAuthorityPeerIds(Automerge, doc)
-  const isEntryTrusted = (entry) => {
-    const signerPeerId = peerIdByDevice.get(entry.signer_device_id)
-    if (!signerPeerId) return false // signer's own identity never established — fail closed
-    return verifyAuthorityEntry(
-      signerPeerId,
-      { id: entry.id, kind: entry.kind, target_device_id: entry.target_device_id, signer_device_id: entry.signer_device_id },
-      entry.signature
-    )
-  }
+  const isEntryTrusted = createVerifiedEntryTrust(Automerge, doc)
 
   const ctx = createAuthorityReplayContext(Automerge, doc, { isEntryTrusted })
   const { grantedSet } = ctx.currentState()

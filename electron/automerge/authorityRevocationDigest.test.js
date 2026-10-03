@@ -8,7 +8,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { createEmptyDoc, applyWrite } from './campDocument.js'
-import { revocationDigest } from './authorityRevocationDigest.js'
+import { revocationDigest, encodeRevokedIds } from './authorityRevocationDigest.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -72,6 +72,21 @@ describe('revocationDigest', () => {
     const isEntryTrusted = (entry) => entry.signature !== 'forged'
     const after = revocationDigest(Automerge, doc, { founderDeviceId: 'FOUNDER', isEntryTrusted })
     expect(after).toEqual(before) // untrusted revoke never moved the digest
+  })
+})
+
+// T335 gate finding (Red Hat LOW, round 2) — a bare `.join(',')` lets two different revoked sets
+// collide when a device id itself contains a comma: ['a,b', 'c'] and ['a', 'b,c'] both join to
+// "a,b,c". encodeRevokedIds must disambiguate these.
+describe('encodeRevokedIds — collision-safe encoding', () => {
+  it('does not collide when a device id contains the delimiter character', () => {
+    const encodedA = encodeRevokedIds(['a,b', 'c'])
+    const encodedB = encodeRevokedIds(['a', 'b,c'])
+    expect(encodedA).not.toEqual(encodedB)
+  })
+
+  it('is still deterministic for the same sorted input', () => {
+    expect(encodeRevokedIds(['A', 'B'])).toEqual(encodeRevokedIds(['A', 'B']))
   })
 })
 

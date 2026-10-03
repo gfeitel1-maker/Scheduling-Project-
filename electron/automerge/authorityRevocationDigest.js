@@ -6,7 +6,16 @@
 import { createHash } from 'node:crypto'
 import { currentRevokedDeviceIds } from './authorityReplay.js'
 
+// T335 gate finding (Red Hat LOW, round 2) — a bare `ids.join(',')` lets two different revoked
+// sets collide if a device id itself contains a comma (['a,b', 'c'] and ['a', 'b,c'] both join to
+// the same string). JSON.stringify of the (already sorted) array is unambiguous: it escapes any
+// comma/quote inside an id, and array boundaries are explicit, so two different arrays can never
+// serialize to the same string.
+export function encodeRevokedIds(ids) {
+  return JSON.stringify(ids)
+}
+
 export function revocationDigest(automerge, doc, opts = {}) {
   const ids = currentRevokedDeviceIds(automerge, doc, opts)
-  return createHash('sha256').update(ids.join(',')).digest('hex')
+  return createHash('sha256').update(encodeRevokedIds(ids)).digest('hex')
 }
