@@ -11,7 +11,7 @@
 import * as Automerge from '@automerge/automerge'
 import { describe, expect, it } from 'vitest'
 import { createEmptyDoc, applyWrite } from './campDocument.js'
-import { createAuthorityReplayContext, currentAuthorityState, quorumThreshold } from './authorityReplay.js'
+import { createAuthorityReplayContext, currentAuthorityState, currentRevokedDeviceIds, quorumThreshold } from './authorityReplay.js'
 
 let nextId = 0
 function uid() {
@@ -515,4 +515,77 @@ describe('round-4 CRITICAL — property-based convergence over random concurrent
     // exceeded by this test's real cost even at the reduced size under load.
     60000
   )
+})
+
+// T335 (docs/work/specs/2026-10-03-t335-key-turning-rotating-discovery-tag-design.md §7.1-2) —
+// currentRevokedDeviceIds is the new pure export the rotating discovery tag derives from. These
+// tests exercise it directly, at the causal/quorum-math layer this module owns (see this file's
+// header for why isEntryTrusted is injected rather than exercised with real signatures here).
+describe('currentRevokedDeviceIds', () => {
+  it('is empty before any revocation', () => {
+    let doc = initDoc()
+    doc = pushEntry(doc, { kind: 'grant', target_device_id: 'A', signer_device_id: 'FOUNDER' })
+    expect(currentRevokedDeviceIds(Automerge, doc, { founderDeviceId: 'FOUNDER' })).toEqual([])
+  })
+
+  it('includes a device once its revocation reaches quorum, sorted', () => {
+    let doc = initDoc()
+    doc = pushEntry(doc, { kind: 'grant', target_device_id: 'A', signer_device_id: 'FOUNDER' })
+    doc = pushEntry(doc, { kind: 'grant', target_device_id: 'B', signer_device_id: 'FOUNDER' })
+    doc = pushEntry(doc, { kind: 'grant', target_device_id: 'C', signer_device_id: 'FOUNDER' })
+    // N=4 (FOUNDER, A, B, C); threshold for an admin target = 2.
+    doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'C', signer_device_id: 'FOUNDER' })
+    doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'C', signer_device_id: 'A' })
+    expect(currentRevokedDeviceIds(Automerge, doc, { founderDeviceId: 'FOUNDER' })).toEqual(['C'])
+  })
+
+  it('is identical across two different merge orders of the same change set (determinism)', () => {
+    let base = initDoc()
+    base = pushEntry(base, { kind: 'grant', target_device_id: 'A', signer_device_id: 'FOUNDER' })
+    base = pushEntry(base, { kind: 'grant', target_device_id: 'B', signer_device_id: 'FOUNDER' })
+    let branch1 = Automerge.clone(base)
+    let branch2 = Automerge.clone(base)
+    branch1 = pushEntry(branch1, { kind: 'revoke', target_device_id: 'A', signer_device_id: 'FOUNDER' })
+    branch1 = pushEntry(branch1, { kind: 'revoke', target_device_id: 'A', signer_device_id: 'B' })
+    branch2 = pushEntry(branch2, { kind: 'revoke', target_device_id: 'A', signer_device_id: 'FOUNDER' })
+    branch2 = pushEntry(branch2, { kind: 'revoke', target_device_id: 'A', signer_device_id: 'B' })
+
+    const mergedOrder1 = Automerge.merge(Automerge.clone(branch1), branch2)
+    const mergedOrder2 = Automerge.merge(Automerge.clone(branch2), branch1)
+    const ids1 = currentRevokedDeviceIds(Automerge, mergedOrder1, { founderDeviceId: 'FOUNDER' })
+    const ids2 = currentRevokedDeviceIds(Automerge, mergedOrder2, { founderDeviceId: 'FOUNDER' })
+    expect(ids1).toEqual(ids2)
+  })
+
+  it('a frozen (cut-off) device replay never observes a later revocation of a third device', () => {
+    let doc = initDoc()
+    doc = pushEntry(doc, { kind: 'grant', target_device_id: 'A', signer_device_id: 'FOUNDER' })
+    doc = pushEntry(doc, { kind: 'grant', target_device_id: 'D', signer_device_id: 'FOUNDER' })
+    doc = pushEntry(doc, { kind: 'grant', target_device_id: 'C', signer_device_id: 'FOUNDER' })
+    // Device D's local copy is frozen here (cutoff) — no later entries ever reach it.
+    const frozenAtD = Automerge.clone(doc)
+    // Trusted devices keep going: C is revoked, quorum-reached.
+    doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'C', signer_device_id: 'FOUNDER' })
+    doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'C', signer_device_id: 'A' })
+    const trusted = currentRevokedDeviceIds(Automerge, doc, { founderDeviceId: 'FOUNDER' })
+    const frozen = currentRevokedDeviceIds(Automerge, frozenAtD, { founderDeviceId: 'FOUNDER' })
+    expect(trusted).toEqual(['C'])
+    expect(frozen).toEqual([]) // D never saw the revocation of C
+    expect(frozen).not.toEqual(trusted)
+  })
+
+  it('only counts a revoke entry that passes isEntryTrusted', () => {
+    let doc = initDoc()
+    doc = pushEntry(doc, { kind: 'grant', target_device_id: 'A', signer_device_id: 'FOUNDER' })
+    doc = pushEntry(doc, { kind: 'grant', target_device_id: 'B', signer_device_id: 'FOUNDER' })
+    doc = pushEntry(doc, { kind: 'grant', target_device_id: 'C', signer_device_id: 'FOUNDER' })
+    doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'C', signer_device_id: 'FOUNDER' })
+    doc = pushEntry(doc, { kind: 'revoke', target_device_id: 'C', signer_device_id: 'A', signature: 'forged' })
+    // isEntryTrusted rejects any entry carrying signature 'forged' (simulating a failed signature
+    // verification) — only the FOUNDER's revoke (no signature marker needed, trusted) counts, so
+    // C stays below quorum (1 of 2 required) and is NOT revoked.
+    const isEntryTrusted = (entry) => entry.signature !== 'forged'
+    const ids = currentRevokedDeviceIds(Automerge, doc, { founderDeviceId: 'FOUNDER', isEntryTrusted })
+    expect(ids).toEqual([])
+  })
 })

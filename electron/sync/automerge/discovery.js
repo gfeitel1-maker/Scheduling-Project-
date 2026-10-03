@@ -37,6 +37,7 @@
 // leak is fixed, and both paths now derive from the same shared campIdHash.
 import { mdns } from '@libp2p/mdns'
 import { campIdHash } from '../campIdHash.js'
+import { rotatingDiscoveryDigest } from './rotatingDiscoveryTag.js'
 
 const SERVICE_TAG_PREFIX = '_shoresh-'
 const SERVICE_TAG_SUFFIX = '._udp.local'
@@ -80,4 +81,15 @@ export function belongsToCamp(discoveredServiceTag, campId) {
 export function createMdnsDiscovery({ campId, ...options } = {}) {
   const serviceTag = campId ? campDiscoveryTag(campId) : options.serviceTag
   return mdns({ ...options, serviceTag })
+}
+
+// T335 (docs/work/specs/2026-10-03-t335-key-turning-rotating-discovery-tag-design.md §4) — the
+// rotating counterpart to campDiscoveryTag above, same shape/length constraints (opaque prefix +
+// 16 hex chars + suffix). `campDiscoveryTag` is kept, unchanged, for any caller that still needs a
+// stable per-camp identifier unrelated to discovery; only the live discovery call site
+// (syncStarter.js) switches to this rotating variant. Pure: no document write, derives entirely
+// from `rotatingDiscoveryDigest` (electron/automerge/authorityRevocationDigest.js's revocation
+// digest, HMACed against the camp's minted discovery secret).
+export function rotatingServiceTag(automerge, doc, campId) {
+  return `${SERVICE_TAG_PREFIX}${rotatingDiscoveryDigest(automerge, doc, campId).slice(0, 16)}${SERVICE_TAG_SUFFIX}`
 }

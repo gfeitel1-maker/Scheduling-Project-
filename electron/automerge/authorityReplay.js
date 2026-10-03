@@ -321,3 +321,26 @@ export function currentAuthorityState(automerge, doc, { founderDeviceId } = {}) 
 export function quorumThreshold(n) {
   return Math.floor((n - 1) / 2) + 1
 }
+
+// T335 (docs/work/specs/2026-10-03-t335-key-turning-rotating-discovery-tag-design.md §1.1) — the
+// sorted set of device ids that have EVER been a valid admin/founder target but are NOT currently
+// admin, i.e. "currently revoked." Built on the same stateAt/currentState machinery as
+// currentAuthorityState above (merge-order-independent by construction — see that function's
+// comment), so this is a pure, total function of the document's own causal state: no sequencer, no
+// wall-clock. `isEntryTrusted` gates which entries count here EXACTLY as it gates grantedSet/votes
+// in createAuthorityReplayContext — a target named only by an untrusted (unsigned/unverified)
+// revoke entry never appears in the "ever targeted" set this function builds, so it never
+// contributes to the result.
+export function currentRevokedDeviceIds(automerge, doc, { founderDeviceId, isEntryTrusted = () => true } = {}) {
+  const ctx = createAuthorityReplayContext(automerge, doc, { founderDeviceId, isEntryTrusted })
+  const { grantedSet } = ctx.currentState()
+  const everyTargetDeviceId = new Set(grantedSet)
+  for (const id of listRecordIds(doc, AUTHORITY_LOG_ENTITY)) {
+    const row = readRecord(doc, AUTHORITY_LOG_ENTITY, id)
+    if (!isCompleteEntry(row)) continue
+    const entry = { id, ...row }
+    if (entry.kind !== 'genesis' && !isEntryTrusted(entry)) continue
+    if (entry.target_device_id) everyTargetDeviceId.add(entry.target_device_id)
+  }
+  return [...everyTargetDeviceId].filter((id) => !grantedSet.has(id)).sort()
+}

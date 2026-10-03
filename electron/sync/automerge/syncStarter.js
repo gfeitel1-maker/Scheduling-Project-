@@ -22,14 +22,17 @@ import {
   resolvePendingDomainStateMigrations,
   syncRefusalForDomainMigration,
 } from '../../db/migrationDomainState.js'
+import * as Automerge from '@automerge/automerge'
 import {
   getDocIfLoaded,
   ensureSeeded as ensureAutomergeDocSeeded,
   setLocalWriteBroadcaster as setAutomergeLocalWriteBroadcaster,
+  setCurrentDoc as setCurrentAutomergeDoc,
 } from './liveDoc.js'
 import { loadDoc as loadAutomergeDoc, docPath as automergeDocPath } from './docStore.js'
 import { resolveStartupDoc, dispatchRemoteOps, REMOTE_OPS_COALESCE_THRESHOLD } from './startupGuard.js'
-import { createMdnsDiscovery } from './discovery.js'
+import { createMdnsDiscovery, rotatingServiceTag } from './discovery.js'
+import { mintRendezvousNamespace } from './rendezvousNamespace.js'
 import { readRendezvousConfig, createRendezvousDiscovery } from './rendezvousClient.js'
 import { nextSequence } from './rendezvousSequence.js'
 import { ensureDeviceIdentity } from '../../auth/deviceIdentity.js'
@@ -256,7 +259,7 @@ export function createAutomergeSyncStarter({
         return
       }
 
-      const doc = resolveStartupDoc({
+      let doc = resolveStartupDoc({
         liveDoc: getDocIfLoaded(db),
         // Same cipher liveDoc was given above — this direct read is the second of the three
         // .automerge readers (assessment finding B), and all three must agree or an encrypted file
@@ -291,8 +294,19 @@ export function createAutomergeSyncStarter({
       // T288 — WAN discovery, additive to mDNS, gated on SHORESH_RENDEZVOUS_URL. Unset (the
       // default) means this array has exactly one entry, byte-identical to pre-T288 behaviour —
       // see transportBoundary.guard.test.js's LAN-only parity regression.
+      // T335 (docs/work/specs/2026-10-03-t335-key-turning-rotating-discovery-tag-design.md §4) —
+      // mint the camp's discovery secret once, if it doesn't exist yet (mint-only; this never
+      // calls rotateRendezvousNamespace), then derive the rotating mDNS tag from the document's
+      // own current revocation state. `mintRendezvousNamespace` is idempotent against sequential
+      // calls (its own header comment) — a camp that already minted a secret in a prior run gets
+      // `minted: false` and `doc` is left untouched here.
+      const dhtMint = mintRendezvousNamespace(doc, campId)
+      if (dhtMint.minted) {
+        doc = dhtMint.doc
+        setCurrentAutomergeDoc(db, doc)
+      }
       const rendezvousConfig = readRendezvousConfig(process.env)
-      const peerDiscovery = [createMdnsDiscovery({ campId })]
+      const peerDiscovery = [createMdnsDiscovery({ serviceTag: rotatingServiceTag(Automerge, doc, campId) })]
       if (rendezvousConfig.enabled) {
         const { peerId: rendezvousPeerId, privateKey: rendezvousPrivateKey } = await ensureDeviceIdentity(db)
         peerDiscovery.push(
