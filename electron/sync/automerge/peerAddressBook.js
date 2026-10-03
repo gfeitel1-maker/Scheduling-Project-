@@ -111,6 +111,42 @@ export function listTrustedRememberedAddresses(db) {
 // rejects) is logged and never thrown, so one bad remembered address can never block the rest.
 // Returns the list of peer ids actually dialed (for tests; may repeat a peer id once per address
 // dialed for it).
+// T337 (docs/work/specs/2026-10-03-t337-coordination-layer-design.md §A step 1): candidate-R
+// selection for the coordination relay. B, failing a direct redial to its target C, needs any
+// OTHER currently-trusted camp peer it has a remembered address for, ranked by last_seen_at
+// (most-recently-observed first — the exact ordering redialTrustedPeers already uses) and
+// CAPPED so one reconnect attempt can never fan out into an unbounded dial storm. Reuses
+// PEER_LAST_ADDRESSES_MAX_PER_PEER as that cap rather than inventing a second number — the
+// ticket's "mirrors redialTrustedPeers' cap" instruction, read literally: that is the only
+// existing cap in this file, and growth is already bounded by it per-peer.
+//
+// Deliberately excludes `excludePeerId` (the target C itself — dialing C as its own relay
+// candidate is meaningless) and returns ONE row per candidate peer (its single
+// most-recently-seen address), not one row per remembered address — R is a peer to dial, not a
+// peer to retry at every address it was ever seen at.
+export function selectCoordinationCandidates(db, excludePeerId, { isPeerTrusted } = {}) {
+  const checkTrust = isPeerTrusted ?? createBoundPeerTrust(db)
+  const rows = db
+    .prepare(
+      'SELECT d.id AS deviceId, d.libp2p_peer_id AS peerId, p.multiaddr AS multiaddr, p.last_seen_at AS lastSeenAt ' +
+        'FROM peer_last_addresses p JOIN devices d ON d.libp2p_peer_id = p.peer_id ' +
+        'WHERE p.peer_id != ? ' +
+        'ORDER BY p.last_seen_at DESC, p.multiaddr DESC'
+    )
+    .all(excludePeerId)
+
+  const candidates = []
+  const seenPeerIds = new Set()
+  for (const row of rows) {
+    if (seenPeerIds.has(row.peerId)) continue // one (most-recent) address per candidate peer
+    if (!checkTrust(row.peerId)) continue
+    seenPeerIds.add(row.peerId)
+    candidates.push({ peerId: row.peerId, multiaddr: row.multiaddr })
+    if (candidates.length >= PEER_LAST_ADDRESSES_MAX_PER_PEER) break
+  }
+  return candidates
+}
+
 export async function redialTrustedPeers(db, { dial, isConnected, isPeerTrusted } = {}) {
   const checkTrust = isPeerTrusted ?? createBoundPeerTrust(db)
   const targets = listTrustedRememberedAddresses(db)

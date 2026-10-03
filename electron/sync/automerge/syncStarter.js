@@ -336,11 +336,37 @@ export function createAutomergeSyncStarter({
         )
       }
 
+      // T337 (docs/work/specs/2026-10-03-t337-coordination-layer-design.md §A, §E): the camp-peer
+      // circuit-relay-v2 coordination capability. BLOCKED by two independent gates, deliberately
+      // redundant: (1) the `relay` row's signoff in transportCapabilities.js is still null — this
+      // import and wiring is exactly what transportBoundary.guard.test.js is supposed to catch
+      // while that stays true, and it does (package presence AND this file's own `circuitRelay`
+      // reference both trip it; see that test's "declares no un-signed-off internet-transport
+      // dependency" and "references no marker of a still-blocked capability" assertions). (2)
+      // SHORESH_RELAY_ENABLED defaults to unset/false — even if the guard's gate were somehow
+      // bypassed, this capability stays runtime-inert until a developer explicitly opts in, the
+      // same two-gate discipline SHORESH_RENDEZVOUS_URL/dhtEnabled-style flags already use
+      // elsewhere in this file. Capped per the ADR's ~128 KiB / ~2 min coordination-exchange
+      // ceiling — a brokered signaling hop, never a sustained data-relay service (§A "How the
+      // brief exchange drops out").
+      const relayEnabled = process.env.SHORESH_RELAY_ENABLED === 'true'
+      let relayServerFactory
+      let relayTransportFactory
+      if (relayEnabled) {
+        const { circuitRelayServer, circuitRelayTransport } = await import('@libp2p/circuit-relay-v2')
+        relayServerFactory = circuitRelayServer({
+          reservations: { defaultDataLimit: 131072n, defaultDurationLimit: 120000 },
+        })
+        relayTransportFactory = circuitRelayTransport()
+      }
+
       const startSyncNode = startSyncNodeImpl ? await startSyncNodeImpl() : (await import('./syncNode.js')).startSyncNode
       automergeSyncNode = await startSyncNode({
         deviceId,
         db,
         doc,
+        relayServerFactory,
+        relayTransportFactory,
         // Stage 5f, found on a real two-machine run: transport.js's DEFAULT_LISTEN is
         // '/ip4/127.0.0.1/tcp/0' — LOOPBACK ONLY. That default is correct for the in-process tests
         // it was written for (Stage 4 dialed over loopback deliberately), but it means a production
