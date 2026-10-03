@@ -185,6 +185,20 @@ file size, sheet count, and rows before a workbook is walked.
 
 ## Known limitations
 
+### Two-device-camp revocation deadlock under sync lag (v1, accepted; fast-follow T333)
+
+Distributed revocation (T331, ADR `docs/adr/2026-10-02-distributed-revocation-authority.md`) cuts a
+removed device/admin off fleet-wide, and the gate-precedence/self-heal work closes the sync-lag
+mis-lockout of a legitimate admin **for any camp with three or more reachable devices**. In a **strict
+two-device camp** where the two devices are each other's only peer, a blind revoke of an admin under
+sync lag (the revoking device has not yet synced that admin's grant) can **lock that admin out until a
+third device joins the camp** — the revoking device projects the target as revoked from its own
+unsynced view and then denies the only connection over which the correcting grant could arrive. Camps
+of 3+ devices self-heal automatically. A recovery affordance was designed and reverted (it was inert
+against the real admission gate — see the ADR's "Known limitation (v1)" section); the proper fix
+re-touches the admission gate's readmission guarantee and is tracked as fast-follow **T333**. Accepted
+for v1 per the owner's 2026-10-03 ruling.
+
 ### No TLS / certificate trust on the sync connection
 
 libp2p peer connections are encrypted and mutually authenticated by the **Noise protocol**, so

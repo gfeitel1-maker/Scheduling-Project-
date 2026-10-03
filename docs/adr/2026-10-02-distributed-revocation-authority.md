@@ -894,3 +894,30 @@ transport capability is touched, consistent with the base ADR's own Tier-4 state
 6. **`evaluateLogin`'s legacy check gets the same treatment as `evaluateAuthenticate`.** Repeat test 1
    against `evaluateLogin` specifically — an admin wrongly locked out of the network gate must not
    separately fail login via `deviceTrustStatus`'s own direct `revoked_at` read.
+
+## Known limitation (v1) — strict two-device-camp revocation deadlock (owner-accepted, fast-follow T333)
+
+**Owner ruling 2026-10-03 (Option 2 — ship now, document the limit).** The gate-precedence +
+self-heal in Amendment 2026-10-03 closes RISK-1 for any camp with **three or more** reachable devices:
+a blind revoke made under sync lag self-corrects as soon as the revoking device syncs the missing
+grant from any third peer (its replay reclassifies the target to `'admin'` and the self-heal clears
+the stale `devices.revoked_at`). **In a strict two-device camp where the two devices are each other's
+only peer, this does not self-heal:** if one device performs a blind revoke of the other (who is a
+currently-valid admin) under sync lag, it stamps `devices.revoked_at` locally **and** its own replay
+projects that peer as `'revoked'` in `authority_cache` (its single revoke entry looks sufficient
+because it has not synced the grant that would make it a quorum vote). Gate A then denies the only
+connection over which the missing grant could arrive, so the lockout persists **until a third device
+joins the camp** (at which point the grant propagates and the state self-corrects).
+
+Stated plainly, no euphemism: **in a 2-device camp, an accidental revoke of an admin under sync lag
+can lock that admin out until a third device joins.** Camps of 3+ devices self-heal automatically.
+
+A recovery mechanism (a 2026-10-03b amendment) was designed and implemented, then **reverted** before
+merge: clearing the legacy `devices.revoked_at` column had no effect because the block is Gate A's
+`authority_cache` read, which the recovery (correctly, to avoid readmission) does not touch — so the
+affordance was inert, and shipping an "undo" button that does nothing would itself be the kind of
+tidy lie this ADR chain exists to prevent. The proper fix (Gate A consulting an uncorroborated-revoke
+marker to allow reconnection, **plus** a marker lifecycle that clears on corroboration so a
+blind-revoke-then-genuine-quorum sequence cannot become a readmission hole) re-touches the admission
+gate's readmission guarantee and is deferred to **fast-follow ticket T333**, where Security must
+re-confirm the no-readmission sequence. Until then this limitation stands as accepted for v1.
