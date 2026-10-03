@@ -1,3 +1,5 @@
+import { createRequire } from 'node:module'
+
 // T337 gate-fix round 2 (Security-Assessment F-1): SHORESH_RELAY_ENABLED alone must never be
 // enough to make circuit-relay-v2 the LIVE data path. Without this, flipping that one env var
 // promotes the relay to a standing connection carrier with no dcutr direct-upgrade behind it —
@@ -31,12 +33,29 @@ export function relayRuntimeEligible({ relayEnabled, nextRungPresent }) {
   return Boolean(relayEnabled) && Boolean(nextRungPresent)
 }
 
-// Real probe: attempts to resolve the actual packages. Never throws — absence is the expected,
-// common case (every build today), not an error.
+// Real probe: is the T336 hole-punch foundation (dcutr/autonat) actually present in THIS build?
+// Never throws — absence is the expected, common case (every build today), not an error.
+//
+// Uses `require.resolve`, NOT `await import()`, on purpose — it has to thread between two hard
+// constraints that `import()` cannot satisfy at once:
+//   1. These packages are intentionally ABSENT until T336. Vite's static import-analysis (which
+//      transforms the browser-environment .jsx test files) tries to RESOLVE a dynamic `import()`'s
+//      bare specifier at TRANSFORM time and hard-fails ("Failed to resolve import @libp2p/dcutr"),
+//      breaking every browser-env test whose import graph transitively reaches this module via the
+//      sync stack (the elective *.integration.test.jsx suite). `require.resolve` is not an import
+//      Vite rewrites, so it leaves resolution at runtime.
+//   2. The Tier-4 egress guard (internetRendezvousScan.js) flags any `import(` whose argument is
+//      not an immediate string literal as a computed/covert-egress channel — so the obvious
+//      `import(/* @vite-ignore */ '@libp2p/dcutr')` (comment between `import(` and the quote) and a
+//      computed specifier BOTH trip it. `require.resolve('<literal>')` matches no egress pattern.
+// Resolvability is the right signal for a presence gate anyway: it mirrors the lockfile-presence
+// guard (dcutrPresenceWithoutSignoff.guard.test.js) and never executes the package. Async kept for
+// call-site compatibility.
 export async function holePunchFoundationPresent() {
   try {
-    await import('@libp2p/dcutr')
-    await import('@libp2p/autonat')
+    const require = createRequire(import.meta.url)
+    require.resolve('@libp2p/dcutr')
+    require.resolve('@libp2p/autonat')
     return true
   } catch {
     return false
