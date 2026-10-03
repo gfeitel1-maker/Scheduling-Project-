@@ -82,15 +82,25 @@ describe('DeviceManagerScreen — write controls gated by device mode', () => {
     // T332 fold-in — Revoke no longer depends on deviceMode: a Client admin reaches the
     // identical control a Host admin does, because the backend gate is role-only.
     expect(screen.getByText('Revoke')).toBeTruthy()
+
+    // Tester finding (round 3): a client-mode admin has full Revoke/Confirm-removal, so no
+    // "use the main computer" copy may appear ANYWHERE on this screen for them — it would
+    // contradict the working control right next to it.
+    expect(screen.queryByText(/main computer/i)).toBeNull()
   })
 
-  it('a Client STAFF (non-admin) still gets no Revoke control — refused server-side regardless', async () => {
+  it('a Client STAFF (non-admin) still gets no Revoke control, and an accurate (non-misleading) note instead', async () => {
+    localClient.listPendingPairingRequests.mockResolvedValue([pendingDevice()])
     localClient.listDevices.mockResolvedValue([authorizedDevice()])
 
     render(<DeviceManagerScreen campId="c1" role="staff" deviceMode="client" />)
 
     expect(await screen.findByText('MacBook')).toBeTruthy()
     expect(screen.queryByText('Revoke')).toBeNull()
+    // Staff never had "use the main computer" accuracy either (staff can't approve/deny on ANY
+    // device) — the note stays, but without the inapplicable "use the main computer" framing.
+    expect(screen.getByText('View only from this device')).toBeTruthy()
+    expect(screen.queryByText(/main computer/i)).toBeNull()
   })
 })
 

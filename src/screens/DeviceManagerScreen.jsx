@@ -275,8 +275,17 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
                           Deny
                         </button>
                       </div>
+                    ) : role === 'admin' ? (
+                      // Tester finding (T332 fold-in, round 3): a client-mode admin has full,
+                      // unconditional Revoke/Confirm-removal in the table below, so a blanket
+                      // "View only from this device — use the main computer" here would
+                      // contradict that on the same screen. Pairing approval specifically IS
+                      // still Host-only (denyDevice has no distributed backstop), so this says
+                      // nothing rather than claim something false — never a message implying
+                      // this device can manage nothing.
+                      null
                     ) : (
-                      <span style={styles.revokedLabel}>View only from this device — use the main computer</span>
+                      <span style={styles.revokedLabel}>View only from this device</span>
                     )}
                   </td>
                 </tr>
