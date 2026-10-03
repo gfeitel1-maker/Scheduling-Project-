@@ -12,7 +12,21 @@
 // flag — closing the one-line-flip risk for exactly the case that matters right now. Once T336
 // lands those packages AND wires them, this flips automatically; a human still has to widen the
 // REGISTRY's own signoff before either capability is authorized to merge/ship, this coupling only
-// stops relay from running ahead of dcutr's mere EXISTENCE in the build.
+// stops relay from running ahead of dcutr's mere EXISTENCE in the build. The presence-not-signoff
+// gap this still leaves (packages land before `dcutr.signoff` is written) is caught separately
+// and loudly by electron/sync/automerge/dcutrPresenceWithoutSignoff.guard.test.js — this module
+// does not read the registry itself, that test does.
+//
+// NAMING WARNING (gate-fix round 3, Code Reviewer MEDIUM) — do NOT rename `relayRuntimeEligible`'s
+// `nextRungPresent` or `holePunchFoundationPresent` below to contain the literal substrings
+// "dcutr" or "autonat". Those strings are in ALL_FORBIDDEN_MARKERS (transportCapabilities.js's
+// `dcutr` row) and are scanned against syncStarter.js's SOURCE TEXT by
+// transportBoundary.guard.test.js — a "helpful" rename that makes this file's purpose more
+// explicit will leak into syncStarter.js's import site and trip the UNRELATED `dcutr` capability's
+// guard marker (a correct-but-confusing failure: the guard is right that the substring appeared,
+// but the actual dcutr capability was never touched). This has already happened once during this
+// ticket's own gate-fix rounds — the fix was renaming away from the literal substrings, not
+// silencing the guard.
 export function relayRuntimeEligible({ relayEnabled, nextRungPresent }) {
   return Boolean(relayEnabled) && Boolean(nextRungPresent)
 }

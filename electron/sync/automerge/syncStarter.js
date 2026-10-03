@@ -36,6 +36,11 @@ import { mintRendezvousNamespace } from './rendezvousNamespace.js'
 import { createVerifiedEntryTrust } from '../../automerge/authorityReplay.js'
 import { readRendezvousConfig, createRendezvousDiscovery } from './rendezvousClient.js'
 import { nextSequence } from './rendezvousSequence.js'
+// NAMING WARNING (gate-fix round 3, Code Reviewer MEDIUM): do not rename either import below to
+// name the hole-punch capability's own package/marker strings — transportBoundary.guard.test.js
+// scans THIS file's source text for every still-blocked capability's forbidden markers, and this
+// file has no legitimate reason to spell either one out literally. See relayEnablement.js's own
+// naming-warning comment for the full reasoning (and what happened the one time this file did).
 import { relayRuntimeEligible, holePunchFoundationPresent } from './relayEnablement.js'
 import { ensureDeviceIdentity } from '../../auth/deviceIdentity.js'
 import { recordAuditEvent } from '../../audit/auditLog.js'
@@ -351,17 +356,25 @@ export function createAutomergeSyncStarter({
       // packages it probes for, deliberately not named here) to actually exist in this build, so
       // a bare flag flip can never promote relay to the PRIMARY data path on its own.
       //
-      // reservationTtl is deliberately set to the SAME window as the per-CONNECT duration cap
-      // (COORDINATION_WINDOW_MS) — gate-fix round 2, Red Hat HIGH: the library default
-      // (DEFAULT_MAX_RESERVATION_TTL, 2 hours) would make a reservation a renewable 2-hour window
-      // with a fresh 128 KiB/2 min budget per CONNECT, which is a standing-relay shape, not the
-      // design's own "disposable, ~2 min" claim (§A "Disposable, one-shot coordination, never
-      // persisted"). A reservation that cannot outlive one coordination attempt's own duration cap
-      // cannot be reused as a standing channel — it expires with the attempt it was made for.
+      // reservationTtl is set explicitly rather than left at the library default
+      // (DEFAULT_MAX_RESERVATION_TTL, 2 hours) — gate-fix round 2, Red Hat HIGH. CORRECTED claim
+      // (gate-fix round 3, Red Hat MEDIUM — the round-2 comment here previously said this made
+      // reservations "disposable, ~2 min" / "expires with the attempt," which is FALSE and has
+      // been removed): the client transport auto-REFRESHES this reservation roughly every 30s for
+      // as long as it stays connected to R (circuit-relay-v2's own refresh timer; with a 120000ms
+      // TTL, max(120000−300000,30000)=30000), and the server's reserve() resets the TTL on each
+      // refresh. A reservation is therefore a STANDING, perpetually-renewed camp-internal relay
+      // slot, not a one-shot thing that expires after one coordination attempt. What this value
+      // actually bounds is the per-STREAM data/time budget (defaultDurationLimit, same number,
+      // deliberately) for each individual relayed exchange — the 128 KiB/2 min ADR cap — not how
+      // long the underlying reachability-via-R lasts. See
+      // docs/work/specs/2026-10-03-t337-coordination-layer-design.md §B's round-3 correction for
+      // the full honest description; the standing-reservation acceptability question is the
+      // owner's separate, still-pending decision.
       // maxReservations is set to a small, explicit camp-LAN-scaled number (not the library
       // default of 15, which was never chosen for this app's actual scale) — a camp is "a few
-      // devices" (ADR), and a handful of simultaneous in-flight coordination attempts is already
-      // generous headroom without leaving an unexamined library default in place.
+      // devices" (ADR). It caps how many NEW reservations R will grant; it does not cap how long
+      // an EXISTING one may keep renewing (the library bypasses this cap on refresh).
       const COORDINATION_WINDOW_MS = 120000
       const MAX_SIMULTANEOUS_RESERVATIONS = 8
       const relayEnabled = process.env.SHORESH_RELAY_ENABLED === 'true'

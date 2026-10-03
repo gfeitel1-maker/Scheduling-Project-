@@ -27,13 +27,19 @@ foundation. Design: `docs/work/specs/2026-10-03-t337-coordination-layer-design.m
 A device B whose cached address for target C no longer resolves consults its own `peer_last_addresses`
 for any OTHER camp peer R it can currently reach, dials R (reusing Slice-1's stale-address-safe dial),
 and asks R to broker a brief `circuit-relay-v2` coordination exchange to C; once B and C have each
-other's current reflexive addresses, T336 `dcutr` punches direct and the relayed hop is torn down
-(capped ~128 KiB / 2 min). No device is designated "the" relay (eligibility = currently reachable,
-per attempt — no single point of failure). The camp-admitted-only restriction is structural: R only
-brokers for a peer it has itself already passed through Noise + T331 `authorize()`/`isPeerRevoked`.
+other's current reflexive addresses, T336 `dcutr` punches direct and that direct path becomes
+primary. **Correction (gate-fix round 3, Red Hat MEDIUM): "the relayed hop is torn down" was
+wrong** — the underlying reservation is a STANDING, auto-renewed slot for as long as B stays
+connected to R (circuit-relay-v2's own refresh behavior, not overridden by this design); only the
+per-stream exchange is capped (~128 KiB / 2 min per relayed exchange), and only the TRAFFIC moves
+to the direct path once punched — R's reservation for B persists as an idle fallback, not a torn-
+down one-shot. No device is designated "the" relay (eligibility = currently reachable, per attempt
+— no single point of failure). The camp-admitted-only restriction is structural: R only brokers
+for a peer it has itself already passed through Noise + T331 `authorize()`/`isPeerRevoked`.
 Opens the Tier-4 `relay` (circuit-relay-v2) capability; lands guard-blocked (`signoff: null`) until
-the full gate passes. Runtime ladder unchanged (direct preferred; relay brief-coordinate-then-drop-out;
-Cloudflare only when no camp peer is reachable).
+the full gate passes. Runtime ladder unchanged (direct preferred once punched; relay is the
+reachability path until then, and an idle fallback after; Cloudflare only when no camp peer is
+reachable).
 
 ## Acceptance (hard, red-before-green, real multi-node libp2p — NO mocks)
 

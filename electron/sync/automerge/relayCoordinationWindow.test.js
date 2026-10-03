@@ -1,12 +1,16 @@
-// T337 gate-fix round 2 (Red Hat HIGH, FIX 1): the design/ticket repeatedly claim the
-// coordination hop is "disposable, ~2 min, 128 KiB" — but @libp2p/circuit-relay-v2@4.2.13's own
-// ReservationStore defaults reservationTtl to DEFAULT_MAX_RESERVATION_TTL (2 HOURS,
-// node_modules/@libp2p/circuit-relay-v2/dist/src/constants.js), which is a renewable standing-
-// relay window, not a disposable signaling hop. This file proves (a) the real, installed
-// library's default actually is that 2-hour value (so the "red" baseline is not assumed), (b)
-// transport.js's wiring, when given an explicit short reservationTtl, produces a reservation that
-// actually expires on that short window — real multi-node, no mocks — and (c) revokePeer evicts
-// an existing reservation outright rather than leaving it to expire on its own.
+// T337 gate-fix round 2 (Red Hat HIGH, FIX 1), corrected round 3 (Red Hat MEDIUM): the design/
+// ticket originally (and wrongly) claimed the coordination hop was "disposable, ~2 min, 128 KiB"
+// — @libp2p/circuit-relay-v2@4.2.13's client transport auto-refreshes a reservation roughly every
+// 30s for as long as the client stays connected (transport/reservation-store.js's refresh timer),
+// so a reservation is a STANDING, perpetually-renewed slot, not disposable-per-attempt, REGARDLESS
+// of the reservationTtl value configured here — see
+// docs/work/specs/2026-10-03-t337-coordination-layer-design.md §B's round-3 correction. What
+// reservationTtl/defaultDurationLimit DO bound, honestly: (a) how long a reservation survives if
+// the client goes OFFLINE without the refresh timer running (library default
+// DEFAULT_MAX_RESERVATION_TTL, 2 hours — confirmed below against the real installed package, so
+// the "red" baseline here is not assumed), and (b) the per-STREAM data/time budget for each
+// individual relayed exchange. This file proves (a), (b), and (c) revokePeer evicts an existing
+// reservation outright rather than leaving it to expire on its own — real multi-node, no mocks.
 import { describe, it, expect, afterEach } from 'vitest'
 import { createLibp2p } from 'libp2p'
 import { tcp } from '@libp2p/tcp'
