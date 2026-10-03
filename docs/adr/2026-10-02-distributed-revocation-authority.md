@@ -706,3 +706,191 @@ the permanent record; none of them changed the mechanism itself.
    irreducible-residual case (a sole admin cannot be quorum-removed by construction, same as a
    cabinet of one) is a transient state rather than a steady one for small camps? Named as a
    recommendation above, not scoped or built here.
+
+## Amendment 2026-10-03 — gate precedence & self-heal (RISK 1)
+
+**Status: accepted, organizer-delegated per the T327 delegation.** Relayed ruling: *"the organizer
+has accepted this amendment on the owner's behalf per the T327 delegation (it's an amendment within
+the delegated build, no spend/infra)."* This is an amendment within the already-accepted T331 build,
+not a new product decision — the precedence/self-heal mechanism below implements the owner's own
+2026-10-02 acceptance of the quorum model; it does not change what was accepted, only closes a gap
+in how it is *enforced* against a pre-existing, never-reconciled gate.
+
+### The problem (Red Hat HIGH, confirmed)
+
+T331 made `authority_cache` (derived from `camp_authority_log` replay) the enforcement truth, at Gate
+A (`electron/auth/connectionAuth.js:168`) and Gate B (`syncNode.js`). It never reconciled this with
+the **legacy** Host-local device-trust gate at `connectionAuth.js:131`
+(`deviceTrustStatus`/`deviceTrustReason`, `electron/auth/deviceTrust.js:4-14`), which reads
+`devices.revoked_at` **directly** and rejects a connection **before** Gate A is ever reached.
+
+Concretely: device X calls `revokeDevice(A)` where A is actually a currently-valid admin, but X's own
+`authority_cache` has **no row for A at all** — X has never synced A's grant entry (X joined after A
+was promoted, or has been offline since). `wasAdminOrFounder` (`electron/main.js:1423`) reads `false`
+(no row ≠ `'admin'`), so X takes the unconditional immediate-removal path and stamps
+`devices.revoked_at` on its own local `devices` row for A. On X's *next* evaluation of a connection
+from A, the legacy gate at `connectionAuth.js:131` rejects A outright, before Gate A's
+`authority_cache` check (which would have correctly left A admitted, since X's own replay — once it
+has the real document state — would classify X's revoke as a vote, not an immediate removal) is ever
+consulted. The quorum protection T331 designed is bypassed **on X specifically**, by a gate T331 never
+touched.
+
+### 1. Precedence rule
+
+**When an `authority_cache` row exists for a device, that row is authoritative for the revocation
+decision at every gate; `devices.revoked_at` is consulted only when no row exists for that device.**
+
+Concretely, in `evaluateAuthenticate` (`connectionAuth.js`), the authority lookup already performed
+for Gate A (line 168) must be hoisted to run **before** the legacy trust check at line 131, and its
+result must participate in that check:
+
+```
+authorityStatus = authority_cache.status for verified.deviceId   // undefined if no row
+
+if authorityStatus === 'revoked':
+    deny 4404 device_revoked_by_authority      // today's Gate A, unchanged in effect
+elif authorityStatus === 'admin':
+    // authoritative: this device is NOT revoked, full stop — do not consult devices.revoked_at,
+    // do not let a stale local stamp override a fleet-confirmed-live admin
+    (skip the legacy revoked_at check entirely for this device)
+else:  // authorityStatus is undefined — no authority_cache row for this device at all
+    fall back to today's devices.revoked_at / deviceTrustStatus check, unchanged
+```
+
+`evaluateLogin`'s `deviceTrustStatus` call (line 260) gets the identical treatment — it is the same
+class of local-only admission gate and must not diverge from `evaluateAuthenticate`'s rule, or a
+wrongly-locked-out admin could pass the network gate but still be refused at the login step on the
+same device.
+
+**Why this cannot readmit a genuinely quorum-revoked device.** The `'revoked'` branch is unchanged
+and still blocks unconditionally — that is Gate A, already correct per T331, and this amendment adds
+nothing to it. The only behavior this amendment changes is: a device whose `authority_cache` row says
+`'admin'` is no longer *additionally* blockable by a stale local `devices.revoked_at`. An
+`authority_cache` row only ever says `'admin'` when this device's own causal-ancestor replay — a pure
+function of the real Automerge change set, per T331's `isValidAdminAt` — currently grants that device
+admin status. A device that is truly fleet-revoked (quorum reached, or an ordinary target with a
+valid single-admin revoke) has a `'revoked'` row, not an `'admin'` one; there is no row state that is
+simultaneously "authority_cache says admin" and "actually revoked by quorum." A not-yet-synced revoke
+in flight is ordinary CRDT propagation lag — functionally identical to today's accepted behavior
+before this amendment (a revoked device stays briefly admitted on a peer that hasn't synced the revoke
+yet), not a new hole.
+
+**Back-compat boundary.** A device with no `authority_cache` row at all — every device on a camp that
+predates T331 and has never had `camp_authority_log` seeded, or (within a T331+ camp) a device that
+has genuinely never been the target of any grant/revoke entry the evaluating device has synced — falls
+straight back to exactly today's `devices.revoked_at` check, byte-for-byte unchanged. No distinction is
+drawn between "genuinely pre-T331" and "T331 camp, this device just has no entry yet": the single rule
+("no row → legacy check") covers both, which is also why back-compat needs no special-casing and no
+camp-version flag.
+
+### 2. Self-heal mechanism
+
+**Mechanism A (gate-level, primary):** once the revoked-but-actually-admin device's grant entry
+reaches the wrongly-locking device via *any* sync path — not necessarily a direct connection to the
+admin being blocked — `authority_cache` is recomputed by `projector.js`'s existing
+`upsertCampAuthorityLogEntity`/full-replay pass and the row for that admin flips from absent (or
+stale) to `'admin'`. The very next evaluation of a connection from that admin at the precedence rule
+above no longer consults `devices.revoked_at` at all — the lockout clears automatically, with no new
+mechanism beyond the precedence rule itself and the replay T331 already runs on every projection pass.
+
+**Mechanism B (projection-level, recommended in addition, for UI truth):** `projector.js`'s
+projection pass should also **clear the stale `devices.revoked_at` row** (and
+`revoked_by_user_id`/`revocation_reason`/`pairing_status`) whenever `authority_cache` resolves a
+device to `'admin'` while `devices.revoked_at` is still set for it — i.e. make `devices.revoked_at`
+a continuously-reconciled projection of `authority_cache` for any device `authority_cache` has an
+opinion about, not a write-once stamp. This is not strictly required for the gate fix (Mechanism A
+already stops the lockout), but without it the Roster/device-list UI keeps showing the admin as
+"Revoked" indefinitely even after the network gate has quietly stopped enforcing it — exactly the
+"never show the director a tidy lie" rule this ADR's own T332 fold-in (commit 97da1ee2) was written
+to uphold. Scope this to devices `authority_cache` has a row for; a device with no row is still
+governed by `devices.revoked_at` directly (per the back-compat boundary above) and must not be
+touched.
+
+**The nasty sub-case — does this break the "blocked the delivering connection" deadlock?** Per-device:
+yes, with one honestly-named exception. `devices` is a device-local SQLite table, never synced — when
+X calls `revokeDevice(A)`, only **X's own** local `devices.revoked_at` for A is stamped; every other
+device's local `devices` row for A is untouched. X blocking A therefore only blocks connections
+**specifically to X**. In any topology where X has at least one other reachable peer (B or C) that is
+not itself blocking A, X syncs the Automerge document normally with that peer, receives A's grant
+entry via ordinary CRDT sync (no connection to A required at all), and Mechanism A fires on X's next
+evaluation of A. **Confirmed this breaks the deadlock in any fleet with a third reachable device.**
+**Residual, named rather than papered over:** a strict two-device topology (X and A are each other's
+only peer), or a network partition where X's only ever-reachable peer is A, has no third path for the
+grant to arrive by — X stays locked out of A until some other channel (A reconnects after X
+independently learns otherwise, or manual intervention) breaks it. This is the same shape of bounded
+residual the base ADR already accepts for the offline-race case above (no quorum, no clock → some
+narrow topologies cannot be fully closed) — not a new concession, the same one, applied to a second
+scenario. Not fixed here; named for the owner/organizer same as the base ADR's own residual.
+
+### 3. Scope of the fix
+
+**Closes the whole lockout class, not only the T332 widening.** The bug is in
+`connectionAuth.js`/`deviceTrust.js`, which `evaluateAuthenticate`/`evaluateLogin` call identically
+regardless of whether the device that called `revokeDevice` was acting in host mode or client mode —
+T332 only *widened who could reach* the vulnerable code path (previously host-only, now any
+authorized admin), it did not introduce the gate-precedence bug itself. The precedence fix is applied
+at the gate, independent of caller identity, so it closes the lockout for a host-originated
+misclassification exactly as it does for a client-originated one.
+
+### 4. `revokeDevice`'s immediate-path decision — recommendation
+
+**Keep `revokeDevice`'s existing structure (always mint, pre-mint `wasAdminOrFounder` snapshot decides
+whether the unconditional-immediate-removal guarantee applies) — do not restructure the minting
+order.** Analysis: the ambiguity is a genuine knowledge gap, not a decision-ordering bug — a device
+that has never synced an admin's grant entry has no way to know, at mint time or after, that the
+target is anything other than ordinary, because its own causal-ancestor replay is a pure function of
+*its own* change set, which does not yet contain that grant. Re-checking `authority_cache` after
+minting (as `effectivelyRevoked` already does for the `wasAdminOrFounder === true` branch) does not
+change this for the `wasAdminOrFounder === false` branch, because the gap is in what the document
+*contains locally*, not in when the check runs.
+
+**Do, however, make `devices.revoked_at` a continuously-reconciled projection of `authority_cache`
+(Mechanism B above) for every camp with an active `camp_authority_log`** — which is every camp post
+the T331 schema migration, since the genesis entry is seeded unconditionally at document creation.
+This does not prevent the initial wrong stamp (nothing can, given the knowledge gap), but it guarantees
+the stamp is corrected the moment better knowledge arrives, on every device, not only at the gate.
+`revokeDevice`'s own manual `UPDATE devices SET revoked_at = ...` (line 1461-1463) should remain for
+the immediate/single-admin case (it is correct there, and removing it would add latency to the common
+case for no benefit) but must no longer be the *only* writer of that column — `projector.js` must be
+able to override it in either direction (set or clear) on every projection pass.
+
+### Schema / Tier-4 confirmation
+
+**No schema change.** `authority_cache` and `devices` already exist with the columns this design
+reads and writes; this is a logic-ordering and reconciliation change in `connectionAuth.js`,
+`deviceTrust.js` (or a thin wrapper), and `projector.js` only.
+
+**No Tier-4 capability involved.** Everything here operates on the already-wired local SQLite
+projection and the already-synced `camp_authority_log` collection; no new libp2p package or
+transport capability is touched, consistent with the base ADR's own Tier-4 statement.
+
+### Red-before-green tests the Maker must pass
+
+1. **Sync-lag lockout, then self-heal.** Three devices (F founder, A granted admin later, X with no
+   `authority_cache` row for A). X calls `revokeDevice(A)`; assert X's local `devices.revoked_at` is
+   stamped for A (today's behavior, unchanged) but assert a connection attempt from A to **a third
+   device (F or a new device C)** is unaffected. Then sync X with F/C (not with A); assert X's
+   `authority_cache` row for A flips to `'admin'`; assert a subsequent connection attempt from A to X
+   now succeeds at `evaluateAuthenticate`, and (Mechanism B) assert X's local `devices.revoked_at` for
+   A is cleared by the next projection pass.
+2. **Genuinely quorum-revoked device stays blocked — no readmission.** Reach real quorum against
+   admin A (per the base ADR's own battle tests); assert `authority_cache` resolves A to `'revoked'`
+   on every peer; assert a connection attempt from A is refused at Gate A/B on every peer, including
+   one whose local `devices.revoked_at` for A was never set at all (i.e. revocation enforcement does
+   not depend on the legacy column once `authority_cache` says `'revoked'`).
+3. **Pre-T331 / no-authority_cache-row back-compat, unchanged.** A device with no `camp_authority_log`
+   entries at all touching it (simulating a pre-T331 camp, or an ordinary device nobody has ever
+   granted/revoked through the distributed mechanism) is still correctly blocked by a direct
+   `UPDATE devices SET revoked_at = ...` with no corresponding `authority_cache` row; assert the gate
+   behaves byte-for-byte as it did before this amendment in that case.
+4. **Host-mode and client-mode hit the identical fix.** Repeat test 1 with the revoking device acting
+   as Host instead of Client (no code-path branch in `connectionAuth.js` distinguishes the two); assert
+   identical self-heal behavior, confirming the fix is not T332-specific.
+5. **Two-device residual is observed, not silently passing.** X and A are each other's only peer; X
+   wrongly revokes A exactly as in test 1; assert X stays locked out of A indefinitely absent a third
+   path (document this as an expected, asserted-bounded residual, not a silent gap — the test should
+   fail loudly if some change accidentally "fixes" this in a way that contradicts the quorum model,
+   e.g. by letting the gate itself leak authority state cross-device without a document-level channel).
+6. **`evaluateLogin`'s legacy check gets the same treatment as `evaluateAuthenticate`.** Repeat test 1
+   against `evaluateLogin` specifically — an admin wrongly locked out of the network gate must not
+   separately fail login via `deviceTrustStatus`'s own direct `revoked_at` read.
