@@ -110,23 +110,27 @@ describe('Tier-4 internet-transport boundary guard (per-capability, T288)', () =
 // (T288 addendum §6, seams 1-3: "plant the defect the guard cannot see", not just the defect the
 // guard was designed around.)
 describe('Tier-4 guard — non-vacuity (planted defects)', () => {
-  it('seam 1: a relay package still goes red EVEN WITH discovery signed off', () => {
-    // discovery.signoff IS set in the real registry (checked_in state) — this proves flipping
-    // discovery does not widen what the relay check tolerates.
+  it('seam 1: a still-blocked package goes red EVEN WITH discovery AND relay signed off', () => {
+    // discovery.signoff AND relay.signoff are BOTH set in the real registry now (T337 landed the
+    // relay coordination signoff) — this proves signing off those capabilities does not widen what
+    // the per-capability check tolerates for an UNSIGNED one. We plant @libp2p/webrtc, whose
+    // `webrtc` capability is still signoff:null, so it must still be flagged.
     expect(Boolean(TRANSPORT_CAPABILITIES.discovery.signoff)).toBe(true)
+    expect(Boolean(TRANSPORT_CAPABILITIES.relay.signoff)).toBe(true)
+    expect(TRANSPORT_CAPABILITIES.webrtc.signoff).toBe(null)
     const plantedLockfilePackages = {
-      'node_modules/@libp2p/circuit-relay-v2': {},
+      'node_modules/@libp2p/webrtc': {},
     }
     const present = forbiddenPackagesPresent(plantedLockfilePackages, ALL_FORBIDDEN_PACKAGES())
-    expect(present).toEqual(['@libp2p/circuit-relay-v2'])
+    expect(present).toEqual(['@libp2p/webrtc'])
   })
 
   it('seam 2: a transitive/nested package path is still caught (not direct-deps-only)', () => {
     const plantedLockfilePackages = {
-      'node_modules/some-wrapper/node_modules/@libp2p/circuit-relay-v2': {},
+      'node_modules/some-wrapper/node_modules/@libp2p/webrtc': {},
     }
     const present = forbiddenPackagesPresent(plantedLockfilePackages, ALL_FORBIDDEN_PACKAGES())
-    expect(present).toEqual(['@libp2p/circuit-relay-v2'])
+    expect(present).toEqual(['@libp2p/webrtc'])
   })
 
   it('seam 3: a file imported only by the discovery client is still flagged by its own basename', () => {

@@ -35,7 +35,23 @@ export const TRANSPORT_CAPABILITIES = {
     packages: ['@libp2p/circuit-relay-v2'],
     sourceMarkers: ['circuitRelay'],
     egressAllowlist: [],
-    signoff: null,
+    // T337 — authorizes CODE MERGE of the inert coordination relay only. Not a hand-signature: the
+    // owner gave a 2026-10-03 conditional YES ("if it is safe, secure, and reasonable... if it
+    // exposes data or the computer harmfully, then no") and DELEGATED the determination to the
+    // security + battle-test gate (his T327 delegation); the gate passed and the organizer accepted
+    // on the passed gate. Runtime activation (SHORESH_RELAY_ENABLED) stays blocked independently of
+    // this entry: flag defaults false AND relayRuntimeEligible requires holePunchFoundationPresent()
+    // (dcutr/autonat), which is absent until T336 — see relayEnablement.js + dcutrPresenceWithoutSignoff.guard.test.js.
+    signoff: {
+      date: '2026-10-03',
+      owner: 'gate (owner 2026-10-03 conditional-YES + T327 delegation; accepted by organizer)',
+      scope: 'coordination/signaling only; primary-data-path use gated on dcutr (T336) signoff',
+      conditions: [
+        'C2: client-side camp-only auto-reservation — prove at the T336 runtime-enable gate before SHORESH_RELAY_ENABLED=true',
+        'C4: internet-scale pre-auth sizing (rateLimit.js/authGate.js) — re-confirm at the T336 gate',
+      ],
+      doc: 'docs/work/security/2026-10-03-t337-standing-reservation-signoff-battletest.md#signoff-decision',
+    },
   },
   dcutr: {
     packages: ['@libp2p/dcutr', '@libp2p/autonat'],
