@@ -105,7 +105,8 @@ function buildEntryChangeIndexFrom(automerge, doc) {
   return index
 }
 
-// Exposed for projector.js's resolveAuthorityPeerIds (Code Reviewer MEDIUM, round-3 correction):
+// Used by resolveAuthorityPeerIds (now in this module; T335 factored it out of projector.js into the
+// shared createVerifiedEntryTrust) (Code Reviewer MEDIUM, round-3 correction):
 // when the SAME target_device_id has more than one genesis/grant entry (re-granted after a
 // revoke+re-grant cycle, or a device that changed its own libp2p identity), picking "whichever
 // this device's doc happens to iterate first" is not deterministic across merge order — the SAME

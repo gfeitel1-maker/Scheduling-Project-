@@ -316,3 +316,7 @@ T335 accepts a restart-bounded discovery-tag rotation on the LAN/mDNS layer (an 
 - The DHT provide/findProviders must re-key on the current rotating tag when the revocation set changes (DHT state travels over a persistent connection / re-provide cycle, unlike the one-time mDNS UDP service-tag constant — so live re-keying is achievable and testable here).
 - Red Hat + Security MUST re-confirm, as part of this slice's capability + battle-test gate, that a revoke-while-running actually cuts the revoked device off over the DHT (not restart-bounded). A red-before-green test is required.
 - This requirement cannot be quietly dropped or deferred; it is why the LAN restart-bounded limitation was acceptable (the real cut-off happens here).
+
+### Implementation cost note (carried from T335 Red Hat re-gate)
+
+The T335 signature-gated tag derivation (`createVerifiedEntryTrust` → full `camp_authority_log` replay + one ed25519 verify per entry) runs exactly ONCE at process start, so cost is a non-issue on the LAN/mDNS path. T334's live rotation recomputes the tag whenever the revocation set changes — if that reuses the full-replay-plus-per-entry-verify pattern on EVERY DHT re-key tick, it could become costly at a large authority-log size. The T334 implementation should recompute incrementally / memoize the verified revocation set per converged document state (re-verify only new entries), not re-replay the whole log on every tick. Red Hat + Security to confirm the live-rotation cost is bounded as part of this slice's gate.
