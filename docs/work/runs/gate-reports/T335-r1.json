@@ -1,0 +1,33 @@
+{
+  "task_id": "T335",
+  "round": 1,
+  "verifier_pass": true,
+  "gate_scores": {
+    "security": 5,
+    "red_hat": 4,
+    "tester": null,
+    "code_reviewer": 4
+  },
+  "overall_score": 4.333333333333333,
+  "lowest_dimension": 4,
+  "blocking_findings": [],
+  "incomplete": false,
+  "gap": [],
+  "cross_gate_flags": [
+    {
+      "ref": "electron/automerge/authorityReplay.js",
+      "gate_names": [
+        "code_reviewer",
+        "security"
+      ]
+    }
+  ],
+  "decision_eligibility": "PASS_ELIGIBLE",
+  "malformed": [],
+  "self_declared_na": [
+    {
+      "gate_name": "tester",
+      "na_reason": "Backend discovery mechanism; no director-facing UI surface. Omitted from expected opinion gates per Constitution Art. VII (Governor documented omission)."
+    }
+  ]
+}
