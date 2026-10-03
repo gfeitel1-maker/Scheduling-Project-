@@ -30,7 +30,9 @@ export function mintGenesisEntry(db, { founderDeviceId, founderPeerId }) {
 /** A signed 'grant' entry — the acting (signer) device grants admin status to a target device. */
 export function mintGrantEntry(db, { targetDeviceId, targetPeerId, signerDeviceId }) {
   const entryId = randomUUID()
-  const signature = signAuthorityEntry(db, { kind: 'grant', target_device_id: targetDeviceId, signer_device_id: signerDeviceId })
+  // `id` is bound into the signature (authorityLogSignature.js) — a genuine signed tuple cannot
+  // be replayed under a DIFFERENT record id to resurrect a device a later revoke removed.
+  const signature = signAuthorityEntry(db, { id: entryId, kind: 'grant', target_device_id: targetDeviceId, signer_device_id: signerDeviceId })
   writeField(db, { entryId, field: 'kind', value: 'grant', deviceId: signerDeviceId })
   writeField(db, { entryId, field: 'target_device_id', value: targetDeviceId, deviceId: signerDeviceId })
   writeField(db, { entryId, field: 'target_peer_id', value: targetPeerId, deviceId: signerDeviceId })
@@ -47,7 +49,7 @@ export function mintGrantEntry(db, { targetDeviceId, targetPeerId, signerDeviceI
  */
 export function mintRevokeEntry(db, { targetDeviceId, signerDeviceId }) {
   const entryId = randomUUID()
-  const signature = signAuthorityEntry(db, { kind: 'revoke', target_device_id: targetDeviceId, signer_device_id: signerDeviceId })
+  const signature = signAuthorityEntry(db, { id: entryId, kind: 'revoke', target_device_id: targetDeviceId, signer_device_id: signerDeviceId })
   writeField(db, { entryId, field: 'kind', value: 'revoke', deviceId: signerDeviceId })
   writeField(db, { entryId, field: 'target_device_id', value: targetDeviceId, deviceId: signerDeviceId })
   writeField(db, { entryId, field: 'signer_device_id', value: signerDeviceId, deviceId: signerDeviceId })

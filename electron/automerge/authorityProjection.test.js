@@ -11,7 +11,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { initSchema, openLocalDb } from '../db/localDb.js'
 import { ensureDeviceIdentity } from '../auth/deviceIdentity.js'
-import { createEmptyDoc, applyWrite } from './campDocument.js'
+import { createEmptyDoc, applyWrite, listRecordIds, readRecord } from './campDocument.js'
 import { signAuthorityEntry } from './authorityLogSignature.js'
 import { projectAll, rebuildFromDoc } from './projector.js'
 
@@ -53,7 +53,7 @@ function writeGenesis(doc, { founderDeviceId, founderPeerId }) {
 
 function writeGrant(doc, { targetDeviceId, targetPeerId, signerDeviceId, signerDb }) {
   const id = uid()
-  const signature = signAuthorityEntry(signerDb, { kind: 'grant', target_device_id: targetDeviceId, signer_device_id: signerDeviceId })
+  const signature = signAuthorityEntry(signerDb, { id, kind: 'grant', target_device_id: targetDeviceId, signer_device_id: signerDeviceId })
   let d = applyWrite(doc, { entity: 'camp_authority_log', entity_id: id, field: 'kind', value: 'grant' })
   d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'target_device_id', value: targetDeviceId })
   d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'target_peer_id', value: targetPeerId })
@@ -64,7 +64,7 @@ function writeGrant(doc, { targetDeviceId, targetPeerId, signerDeviceId, signerD
 
 function writeRevoke(doc, { targetDeviceId, signerDeviceId, signerDb }) {
   const id = uid()
-  const signature = signAuthorityEntry(signerDb, { kind: 'revoke', target_device_id: targetDeviceId, signer_device_id: signerDeviceId })
+  const signature = signAuthorityEntry(signerDb, { id, kind: 'revoke', target_device_id: targetDeviceId, signer_device_id: signerDeviceId })
   let d = applyWrite(doc, { entity: 'camp_authority_log', entity_id: id, field: 'kind', value: 'revoke' })
   d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'target_device_id', value: targetDeviceId })
   d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'signer_device_id', value: signerDeviceId })
@@ -106,7 +106,7 @@ describe('projector gate C — upsertCampAuthorityLogEntity (real signatures, re
     // Attacker claims to BE the founder (signer_device_id: 'founder') but signs with their OWN key
     // — the signature will not verify against the founder's real peer id.
     const id = uid()
-    const forgedSig = signAuthorityEntry(attacker.db, { kind: 'grant', target_device_id: 'attacker-device', signer_device_id: 'founder' })
+    const forgedSig = signAuthorityEntry(attacker.db, { id, kind: 'grant', target_device_id: 'attacker-device', signer_device_id: 'founder' })
     let d = applyWrite(doc, { entity: 'camp_authority_log', entity_id: id, field: 'kind', value: 'grant' })
     d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'target_device_id', value: 'attacker-device' })
     d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'target_peer_id', value: attacker.peerId })
@@ -182,4 +182,99 @@ describe('projector gate C — upsertCampAuthorityLogEntity (real signatures, re
     projectAll(db, doc)
     expect(cacheStatus(db, 'founder')).toBe('revoked')
   })
+
+  it('Code Reviewer MEDIUM (round-3 correction) — re-granted with a NEW peer id (no intervening revoke): the CAUSALLY LATEST grant\'s peer id wins for signature resolution, not whichever the document happens to list first', async () => {
+    const founder = await makeDevice()
+    const otherOld = await makeDevice() // 'other's FIRST device_identity_key
+    const otherNew = await makeDevice() // 'other's SECOND device_identity_key (e.g. corrected/re-affirmed)
+    let doc = createEmptyDoc()
+    doc = writeGenesis(doc, { founderDeviceId: 'founder', founderPeerId: founder.peerId })
+    doc = writeGrant(doc, { targetDeviceId: 'other', targetPeerId: otherOld.peerId, signerDeviceId: 'founder', signerDb: founder.db })
+    // A second grant for the SAME target, causally after the first, naming a DIFFERENT peer id —
+    // no revoke in between, so this is purely a peer-id-resolution question, isolated from the
+    // separate vote-persistence-across-re-grant question.
+    doc = writeGrant(doc, { targetDeviceId: 'other', targetPeerId: otherNew.peerId, signerDeviceId: 'founder', signerDb: founder.db })
+
+    const db = campDb()
+    projectAll(db, doc)
+    expect(cacheStatus(db, 'other')).toBe('admin')
+
+    // 'other' now signs a fresh entry with its NEW key. If peer-id resolution picked the STALE
+    // (causally earlier) grant's peer id instead of the latest one, this signature would fail to
+    // verify and the entry would be silently dropped.
+    doc = writeGrant(doc, { targetDeviceId: 'yet-another', targetPeerId: 'peer-yet-another', signerDeviceId: 'other', signerDb: otherNew.db })
+    projectAll(db, doc)
+    expect(cacheStatus(db, 'yet-another')).toBe('admin')
+    expect(
+      db.prepare("SELECT COUNT(*) c FROM applied_authority_log WHERE target_device_id = 'yet-another'").get().c
+    ).toBe(1)
+  })
+
+  it('a vote cast before a re-grant does not count against the device\'s NEW tenure after it is re-granted', async () => {
+    const founder = await makeDevice()
+    const otherOld = await makeDevice()
+    const otherNew = await makeDevice()
+    let doc = createEmptyDoc()
+    doc = writeGenesis(doc, { founderDeviceId: 'founder', founderPeerId: founder.peerId })
+    doc = writeGrant(doc, { targetDeviceId: 'other', targetPeerId: otherOld.peerId, signerDeviceId: 'founder', signerDb: founder.db })
+    // N=2 (founder, other) — founder's lone vote already meets threshold 1 and removes 'other'.
+    doc = writeRevoke(doc, { targetDeviceId: 'other', signerDeviceId: 'founder', signerDb: founder.db })
+    const dbMid = campDb()
+    projectAll(dbMid, doc)
+    expect(cacheStatus(dbMid, 'other')).toBe('revoked')
+
+    // 'other' is re-granted (re-paired under a new key) causally AFTER the revoke above. The
+    // stale vote must NOT still be sitting there, instantly re-removing the fresh grant.
+    doc = writeGrant(doc, { targetDeviceId: 'other', targetPeerId: otherNew.peerId, signerDeviceId: 'founder', signerDb: founder.db })
+    const db = campDb()
+    projectAll(db, doc)
+    expect(cacheStatus(db, 'other')).toBe('admin')
+  })
+
+  it('SECURITY CRITICAL (round-3 correction) — a captured genuine grant signature replayed under a NEW record id does NOT resurrect a revoked device', async () => {
+    const founder = await makeDevice()
+    const other = await makeDevice()
+    let doc = createEmptyDoc()
+    doc = writeGenesis(doc, { founderDeviceId: 'founder', founderPeerId: founder.peerId })
+    // The genuine, original grant — captured off the wire by an attacker (anyone with document
+    // read access, which under CRDT sync is every paired device, can see every entry including
+    // its signature).
+    doc = writeGrant(doc, { targetDeviceId: 'other', targetPeerId: other.peerId, signerDeviceId: 'founder', signerDb: founder.db })
+    const originalGrant = db_latestEntry(doc, 'grant', 'other')
+    // The founder later revokes it.
+    doc = writeRevoke(doc, { targetDeviceId: 'other', signerDeviceId: 'founder', signerDb: founder.db })
+
+    const dbBefore = campDb()
+    projectAll(dbBefore, doc)
+    expect(cacheStatus(dbBefore, 'other')).toBe('revoked')
+
+    // The attack: replay the EXACT captured (kind, target_device_id, signer_device_id, signature)
+    // tuple — unchanged, including the real signature, which the founder is STILL a valid admin
+    // for — under a BRAND NEW record id, hoping to resurrect 'other' as admin.
+    const replayId = 'replayed-entry-id'
+    let replayed = applyWrite(doc, { entity: 'camp_authority_log', entity_id: replayId, field: 'kind', value: 'grant' })
+    replayed = applyWrite(replayed, { entity: 'camp_authority_log', entity_id: replayId, field: 'target_device_id', value: 'other' })
+    replayed = applyWrite(replayed, { entity: 'camp_authority_log', entity_id: replayId, field: 'target_peer_id', value: other.peerId })
+    replayed = applyWrite(replayed, { entity: 'camp_authority_log', entity_id: replayId, field: 'signer_device_id', value: 'founder' })
+    replayed = applyWrite(replayed, { entity: 'camp_authority_log', entity_id: replayId, field: 'signature', value: originalGrant.signature })
+
+    const dbAfter = campDb()
+    projectAll(dbAfter, replayed)
+    // The replayed entry must fail signature verification (it was signed for a DIFFERENT id) and
+    // never reach applied_authority_log — 'other' stays revoked.
+    expect(cacheStatus(dbAfter, 'other')).toBe('revoked')
+    expect(
+      dbAfter.prepare("SELECT COUNT(*) c FROM applied_authority_log WHERE entry_id = ?").get(replayId).c
+    ).toBe(0)
+  })
 })
+
+// Reads a (kind, signature) pair back off the document for the named target/kind — used only to
+// simulate an attacker capturing a genuine signed entry it observed on the wire/in the document.
+function db_latestEntry(doc, kind, targetDeviceId) {
+  for (const id of listRecordIds(doc, 'camp_authority_log')) {
+    const row = readRecord(doc, 'camp_authority_log', id)
+    if (row?.kind === kind && row?.target_device_id === targetDeviceId) return row
+  }
+  return null
+}

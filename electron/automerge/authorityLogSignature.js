@@ -31,14 +31,23 @@ import { privateKeyFromProtobuf } from '@libp2p/crypto/keys'
 import { peerIdFromString } from '@libp2p/peer-id'
 
 // Domain-separation context — never interchangeable with a tombstone (shoresh-tombstone-sig-v1)
-// or auth-field (shoresh-auth-sig-v2) signature. Bump if the signed shape ever changes.
-const AUTHORITY_SIG_CONTEXT = 'shoresh-authority-sig-v1'
+// or auth-field (shoresh-auth-sig-v2) signature. v2 (round-3 correction): the signed shape gained
+// `id` — see SIGNED_FIELDS below — so this is bumped to make the two shapes structurally
+// non-interchangeable even if a future bug ever tried to verify a v1-shaped message against a
+// v2 signer or vice versa (pre-production; no v1-signed entry has ever shipped).
+const AUTHORITY_SIG_CONTEXT = 'shoresh-authority-sig-v2'
 
-// Fixed signed-field order, per the ADR: binding kind+target+signer stops a signature minted for
-// one (kind, target, signer) triple being replayed as a different one. No `seq` field,
-// deliberately — ordering comes from Automerge's own change-dependency graph (authorityReplay.js),
-// never from a self-reported counter.
-const SIGNED_FIELDS = ['kind', 'target_device_id', 'signer_device_id']
+// Fixed signed-field order. `id` — the entry's own camp_authority_log record id — is bound
+// DELIBERATELY (round-3 security correction): without it, a genuine signed (kind, target, signer)
+// tuple captured off one entry verifies equally well under a BRAND-NEW record id, letting a
+// captured grant be replayed into the document again after a later revoke has already superseded
+// it — resurrecting a removed device while the original signer is still (legitimately) a valid
+// admin, with no forged signature required. Binding `id` means a replayed tuple only verifies
+// under the SAME id it was originally signed for, and authorityReplay.js's entry map is keyed by
+// id, so an identical id is an idempotent no-op, not a fresh signal. No `seq` field, deliberately
+// — ordering comes from Automerge's own change-dependency graph (authorityReplay.js), never from
+// a self-reported counter.
+const SIGNED_FIELDS = ['id', 'kind', 'target_device_id', 'signer_device_id']
 
 // RFC 8410 fixed prefixes for a RAW (headerless) Ed25519 key: PKCS8 wraps a 32-byte private seed,
 // SPKI wraps a 32-byte public key. Confirmed empirically (org-source-verification) against this

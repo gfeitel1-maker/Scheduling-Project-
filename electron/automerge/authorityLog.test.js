@@ -61,7 +61,7 @@ describe('mintGrantEntry / mintRevokeEntry', () => {
     expect(row.target_peer_id).toBe('peer-2')
     expect(row.signer_device_id).toBe('signer-1')
     expect(
-      verifyAuthorityEntry(signerPeerId, { kind: row.kind, target_device_id: row.target_device_id, signer_device_id: row.signer_device_id }, row.signature)
+      verifyAuthorityEntry(signerPeerId, { id: entryId, kind: row.kind, target_device_id: row.target_device_id, signer_device_id: row.signer_device_id }, row.signature)
     ).toBe(true)
   })
 

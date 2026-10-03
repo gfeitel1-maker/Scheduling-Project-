@@ -108,6 +108,35 @@ describe('battle test 3 — concurrent mutual revocation converges symmetrically
     expect([...s1.grantedSet].sort()).toEqual([...s2.grantedSet].sort())
   })
 
+  // RED HAT HIGH (round-3 correction) — the ADR's CANONICAL N=2 case: founder F and admin A are
+  // the ONLY two admins. Each, concurrently, revokes the other. At N=2 a single vote already
+  // meets the threshold (floor((2-1)/2)+1 = 1), so BOTH revocations should independently complete
+  // — symmetric mutual destruction, not a race either side can win. The bug this test catches:
+  // vote-counting that re-filters a voter against a SHARED, iteration-order-mutated grantedSet
+  // (instead of each voter's OWN per-vote causal validity) makes whichever revoke is PROCESSED
+  // FIRST "win" (its voter is still in the live set) while the other's voter has already been
+  // evicted by the time its own vote is tallied — giving a DIFFERENT survivor depending on merge
+  // order. Both merge orders must converge to the SAME outcome: both removed.
+  it('N=2 canonical case: founder F and admin A revoke each other concurrently — BOTH removed, identically in both merge orders', () => {
+    let base = initDoc()
+    base = pushEntry(base, { kind: 'grant', target_device_id: 'A', signer_device_id: 'FOUNDER' })
+    // N=2 (FOUNDER, A). threshold for an admin target = quorumThreshold(2) = 1 — the one other
+    // admin's vote alone suffices.
+    let branchFA = Automerge.clone(base)
+    let branchAF = Automerge.clone(base)
+    branchFA = pushEntry(branchFA, { kind: 'revoke', target_device_id: 'A', signer_device_id: 'FOUNDER' })
+    branchAF = pushEntry(branchAF, { kind: 'revoke', target_device_id: 'FOUNDER', signer_device_id: 'A' })
+
+    const mergeOrder1 = Automerge.merge(Automerge.clone(branchFA), branchAF)
+    const mergeOrder2 = Automerge.merge(Automerge.clone(branchAF), branchFA)
+
+    for (const merged of [mergeOrder1, mergeOrder2]) {
+      const state = createAuthorityReplayContext(Automerge, merged, { founderDeviceId: 'FOUNDER' }).currentState()
+      expect(state.grantedSet.has('FOUNDER')).toBe(false)
+      expect(state.grantedSet.has('A')).toBe(false)
+    }
+  })
+
   it('two admins concurrently revoke each other and BOTH actually complete removal (N=2 others each)', () => {
     // F, A, B, C: target A and target B are each revoked by a THIRD admin concurrently with each
     // other's own single-signer attempt, reaching quorum on both sides — the ADR's symmetric

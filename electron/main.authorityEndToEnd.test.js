@@ -243,7 +243,7 @@ describe('T331 end-to-end — N=3 admin-target quorum, driven through the REAL r
     // multi-device-signer pattern; the signature itself is genuine, signed with device-b's own
     // private key, never dbF's).
     const entryId = randomUUID()
-    const sig = signAuthorityEntry(keyB, { kind: 'revoke', target_device_id: 'device-a', signer_device_id: 'device-b' })
+    const sig = signAuthorityEntry(keyB, { id: entryId, kind: 'revoke', target_device_id: 'device-a', signer_device_id: 'device-b' })
     const { appendOp } = await import('./ops/operations.js')
     appendOp(dbF, { entity: 'camp_authority_log', entity_id: entryId, field: 'kind', value: 'revoke', device_id: 'device-b' })
     appendOp(dbF, { entity: 'camp_authority_log', entity_id: entryId, field: 'target_device_id', value: 'device-a', device_id: 'device-b' })

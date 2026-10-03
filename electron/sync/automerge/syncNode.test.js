@@ -261,7 +261,7 @@ describe('syncNode — Automerge merge + projector over a real transport', () =>
         d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field, value })
       }
       if (signed) {
-        const signature = sign({ kind: fields.kind, target_device_id: fields.target_device_id, signer_device_id: fields.signer_device_id })
+        const signature = sign({ id, kind: fields.kind, target_device_id: fields.target_device_id, signer_device_id: fields.signer_device_id })
         d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'signature', value: signature })
       }
       return d

@@ -19,6 +19,11 @@ export const REASON_TO_CODE = {
   device_not_found: 4403,
   device_not_authorized: 4403,
   device_revoked: 4404,
+  // T331 (docs/adr/2026-10-02-distributed-revocation-authority.md) — the DISTRIBUTED revocation
+  // gate (connectionAuth.js's authority_cache check), same code as the Host-local device_revoked
+  // above (4404 is "you are revoked"; which mechanism decided it is not a distinction the director
+  // needs to see as a different notice).
+  device_revoked_by_authority: 4404,
   peer_identity_mismatch: 4405,
 }
 
