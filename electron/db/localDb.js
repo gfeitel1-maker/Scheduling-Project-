@@ -41,7 +41,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // campers.division_label/is_unattributed and elective_preferences.rank_kind/
 // coordinate_day_label/coordinate_period_label) all land in this file; 79 is the
 // current version.
-export const CURRENT_SCHEMA_VERSION = 90
+export const CURRENT_SCHEMA_VERSION = 91
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -4336,6 +4336,31 @@ const DEVICE_HEALTH_EVENTS_DDL = `
     `)
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (90, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v91 (Amendment 2026-10-03b, docs/adr/2026-10-02-distributed-revocation-authority.md's
+  // "closing the two-device residual" section) — one nullable column on `devices`, same
+  // device-local, never-synced class as authorized_at/revoked_at/revocation_reason already on
+  // this table (see hostOnlyExclusion.test.js's NON_DOCUMENT_TABLES — `devices` as a whole is
+  // already excluded from the synced document, so this column needs no separate registration
+  // anywhere). `1` records that a specific devices.revoked_at stamp was applied with ZERO prior
+  // authority_cache knowledge of the target (the two-device-deadlock case); `NULL` (default)
+  // means "not applicable" — a quorum-admin path, an already-corroborated revoke, or a
+  // pre-migration row. No back-fill: a pre-v91 revoked_at stamp's provenance is genuinely
+  // unknown and must stay NULL (= "not flagged for recovery"), not guessed at.
+  //
+  // Guard `>= 90 && < 91`, never a bare `< 91` (this repo's standing gotcha).
+  if (getSchemaVersion(db) >= 90 && getSchemaVersion(db) < 91) {
+    const hasColumn = db
+      .pragma('table_info(devices)')
+      .some((col) => col.name === 'revoked_without_authority_knowledge')
+    if (!hasColumn) {
+      db.exec('ALTER TABLE devices ADD COLUMN revoked_without_authority_knowledge INTEGER')
+    }
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (91, ?)').run(
       new Date().toISOString()
     )
   }

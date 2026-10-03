@@ -1222,7 +1222,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     // Device Manager list as phantom "Device xxxxxxxx / Not set up yet"
     // rows on every multi-device camp. Excluded here, not at the schema
     // level, so this stays scoped to the management-list read.
-    const rows = db.prepare("SELECT id, name, pairing_status, authorized_at, revoked_at, last_synced_at FROM devices WHERE pairing_status IS NOT 'unknown'").all()
+    const rows = db.prepare("SELECT id, name, pairing_status, authorized_at, revoked_at, last_synced_at, revoked_without_authority_knowledge FROM devices WHERE pairing_status IS NOT 'unknown'").all()
 
     // T332 fold-in (data contract for the "Removal pending" UI state) — the SAME derived
     // replay state revokeDevice's own truth-in-UI gate reads (authorityReplay.js's
@@ -1426,7 +1426,16 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     // unconditional immediate-removal guarantee regardless of whether the mint below succeeds —
     // the distributed mint is additive for it, never load-bearing for this device's own local
     // enforcement. Only a target that is ALREADY an admin/founder enters the quorum-gated path.
-    const wasAdminOrFounder = db.prepare('SELECT status FROM authority_cache WHERE device_id = ?').get(targetDeviceId)?.status === 'admin'
+    const priorAuthorityRow = db.prepare('SELECT status FROM authority_cache WHERE device_id = ?').get(targetDeviceId)
+    const wasAdminOrFounder = priorAuthorityRow?.status === 'admin'
+    // Amendment 2026-10-03b (docs/adr/2026-10-02-distributed-revocation-authority.md's "closing
+    // the two-device residual" section) — the EXACT "no authority knowledge at all" case, read
+    // from the SAME pre-mint snapshot as wasAdminOrFounder above, strictly before this call's
+    // own mint+projectAuthorityLogLocally() can self-confirm a 'revoked' row into existence.
+    // Distinct from "known and already revoked" (a repeat call, or a target some OTHER device's
+    // entry already named) and from "known admin" (the wasAdminOrFounder branch above) — only
+    // "this device's own causal history has never said anything about this target" sets it.
+    const noPriorAuthorityKnowledge = priorAuthorityRow == null
 
     recordAuditEvent(db, {
       actorUserId: userId, deviceId: targetDeviceId,
@@ -1464,9 +1473,18 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     }
 
     const now = new Date().toISOString()
+    // Amendment 2026-10-03b — `revoked_without_authority_knowledge` records, durably and
+    // non-self-reinforcingly, whether THIS specific revoked_at stamp was applied blind. The
+    // `CASE WHEN revoked_at IS NULL` guard fires only on the first NULL->set transition: a
+    // repeat revoke call against an already-revoked device (whose authority_cache is now
+    // self-confirmed as 'revoked' from THIS call's own earlier mint) never overwrites it. The
+    // hard revoked_at stamp itself is byte-for-byte unchanged from before this amendment.
     db.prepare(
-      "UPDATE devices SET revoked_at = ?, revoked_by_user_id = ?, revocation_reason = ?, pairing_status = 'revoked' WHERE id = ?"
-    ).run(now, userId, reason ?? null, targetDeviceId)
+      `UPDATE devices SET revoked_at = ?, revoked_by_user_id = ?, revocation_reason = ?,
+         pairing_status = 'revoked',
+         revoked_without_authority_knowledge = CASE WHEN revoked_at IS NULL THEN ? ELSE revoked_without_authority_knowledge END
+       WHERE id = ?`
+    ).run(now, userId, reason ?? null, noPriorAuthorityKnowledge ? 1 : null, targetDeviceId)
 
     // A revoked device that is still CONNECTED must stop being admitted now, not
     // when it next happens to drop. Admission is granted once and otherwise only
@@ -1493,6 +1511,41 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     }
 
     return { deviceId: targetDeviceId, revoked: true }
+  }
+
+  // Amendment 2026-10-03b (docs/adr/2026-10-02-distributed-revocation-authority.md's "closing
+  // the two-device residual" section) — the manual recovery trigger for the case Mechanism B
+  // (projector.js's self-heal) cannot reach on its own: a devices.revoked_at stamp applied with
+  // ZERO prior authority knowledge of the target (the two-device-deadlock case) can lock a
+  // caller out of the ONE connection that could ever have delivered the corroborating history.
+  // The guard below — refusing unless revoked_without_authority_knowledge === 1 — is the WHOLE
+  // safety property this action rests on: it refuses identically for a genuinely quorum-revoked
+  // admin (that column is never set on that path) and for an already-corroborated ordinary
+  // revoke (same). This function reads and writes `devices` ONLY — it never touches
+  // authority_cache or the Automerge document, so it cannot resurrect anything the fleet
+  // actually revoked; see this function's own doc in the ADR amendment for why.
+  function clearUncorroboratedRevocation({ token, deviceId: targetDeviceId } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const { userId } = requireAuthorized(db, { token, action: 'devices.revoke' })
+    if (!isNonEmptyString(targetDeviceId)) throw new Error('deviceId is required')
+
+    const row = db.prepare(
+      'SELECT revoked_at, revoked_without_authority_knowledge FROM devices WHERE id = ?'
+    ).get(targetDeviceId)
+    if (!row?.revoked_at) throw new Error('device is not currently revoked')
+    if (row.revoked_without_authority_knowledge !== 1) {
+      // Refuses for BOTH the quorum-admin path and an already-corroborated ordinary revoke —
+      // this is the one guard the whole safety property rests on.
+      throw new Error('this device was revoked with authority knowledge and cannot be cleared this way')
+    }
+
+    db.prepare(
+      "UPDATE devices SET revoked_at = NULL, revoked_by_user_id = NULL, revocation_reason = NULL, revoked_without_authority_knowledge = NULL, pairing_status = 'authorized' WHERE id = ?"
+    ).run(targetDeviceId)
+
+    recordAuditEvent(db, { actorUserId: userId, deviceId: targetDeviceId, action: 'device.clear_uncorroborated_revocation', outcome: 'allow' })
+
+    return { deviceId: targetDeviceId, cleared: true }
   }
 
   function verifySession({ token } = {}) {
@@ -2880,6 +2933,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     approveDevice,
     denyDevice,
     revokeDevice,
+    clearUncorroboratedRevocation,
     getSyncEngine,
     getJoinCode,
     setJoinWindow,
@@ -3084,6 +3138,7 @@ if (isElectronEntryPoint()) {
     'shoresh:join-cancel',
     'shoresh:deny-device',
     'shoresh:revoke-device',
+    'shoresh:clear-uncorroborated-revocation',
     'shoresh:duplicate-week',
     'shoresh:delete-week',
     'shoresh:attribute-subject',
@@ -3176,6 +3231,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:join-cancel', () => handlers.joinCancel())
     ipcMain.handle('shoresh:deny-device', (_event, args) => handlers.denyDevice(args))
     ipcMain.handle('shoresh:revoke-device', (_event, args) => handlers.revokeDevice(args))
+    ipcMain.handle('shoresh:clear-uncorroborated-revocation', (_event, args) => handlers.clearUncorroboratedRevocation(args))
     ipcMain.handle('shoresh:duplicate-week', (_event, args) => handlers.duplicateWeek(args))
     ipcMain.handle('shoresh:delete-week', (_event, args) => handlers.deleteWeek(args))
     ipcMain.handle('shoresh:attribute-subject', (_event, args) => handlers.attributeSubject(args))

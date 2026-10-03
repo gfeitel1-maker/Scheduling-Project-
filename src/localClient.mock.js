@@ -2775,6 +2775,14 @@ export const mockShoresh = {
     updateDevice(deviceId, { revoked_at: new Date().toISOString(), revocation_reason: reason })
     return { deviceId, revoked: true }
   },
+  // Amendment 2026-10-03b — the mock has no authority_cache/camp_authority_log at all, so there
+  // is no uncorroborated-revocation scenario to simulate; this stand-in exists only so a dev
+  // session at :5200 calling it does not throw a missing-method error, matching this file's
+  // existing posture for other mechanisms with no mock equivalent (e.g. listPendingConflicts).
+  async clearUncorroboratedRevocation(deviceId) {
+    updateDevice(deviceId, { revoked_at: null, revocation_reason: null })
+    return { deviceId, cleared: true }
+  },
   async getDevicePairingStatus() {
     const self = (loadState().devices || []).find((d) => d.id === 'mock-device')
     return { isPaired: !!(self && self.authorized_at), pairing_status: self ? self.pairing_status : null }

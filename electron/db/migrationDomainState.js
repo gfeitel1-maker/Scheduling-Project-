@@ -329,6 +329,13 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // table is ever modeled into the document (no PROJECTIONS entry, no MODELED_ENTITIES
   // membership) — what an existing camp MEANS is entirely unaffected.
   90,
+  // v91 (Amendment 2026-10-03b, docs/adr/2026-10-02-distributed-revocation-authority.md's
+  // "closing the two-device residual" section) adds one nullable column
+  // (devices.revoked_without_authority_knowledge) to the already host-local, never-synced
+  // `devices` table. Schema-only: no appendOp, no backfill (the column starts NULL for every
+  // existing row), and `devices` as a whole has never been modeled into the document — what an
+  // existing camp MEANS is entirely unaffected.
+  91,
 ])
 
 /** True if applying `version` can change what the camp means. */
