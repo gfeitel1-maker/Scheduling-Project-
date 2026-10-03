@@ -894,3 +894,224 @@ transport capability is touched, consistent with the base ADR's own Tier-4 state
 6. **`evaluateLogin`'s legacy check gets the same treatment as `evaluateAuthenticate`.** Repeat test 1
    against `evaluateLogin` specifically — an admin wrongly locked out of the network gate must not
    separately fail login via `deviceTrustStatus`'s own direct `revoked_at` read.
+
+## Amendment 2026-10-03b: closing the two-device residual (organizer-delegated, fix-first ruling)
+
+Status: **accepted** (delegated per T327 — organizer-accepted, same standing as the 2026-10-03
+amendment above). The prior amendment named the two-device deadlock as a bounded, accepted residual
+("not fixed here; named for the owner/organizer"). The organizer has since ruled fix-first: this
+amendment closes it, without reopening the readmission guarantee the base ADR and the prior amendment
+both depend on.
+
+### The residual, restated precisely
+
+X and A are each other's only peer. A is an admin whose `grant` entry X has not synced. X calls
+`revokeDevice(A)`. Inside that call, `wasAdminOrFounder` (read from X's local `authority_cache`
+**before** this call's own mint) is `false` — not because A is ordinary, but because X's causal
+replay has never seen A's grant. `effectivelyRevoked` is therefore unconditionally `true`, and X
+stamps `devices.revoked_at` for A. The **only** channel that could ever deliver A's grant to X — a
+direct connection from A — is the one X's own gate now refuses. Mechanism B (the prior amendment's
+continuous reconciliation) cannot run, because it only fires on data X already has; it never arrives.
+
+### Why "has an `authority_cache` entry" is not, by itself, the signal
+
+The organizer's framing — ordinary (row, non-admin) → immediate; unknown (no row) → defer; admin
+(row) → quorum; revoked (row) → denied — is correct in spirit but cannot be implemented against
+`authority_cache` as it stands today, for one reason that only shows up when you trace
+`revokeDevice`'s own write order: **`revokeDevice` unconditionally mints a `revoke` entry and then
+calls `projectAuthorityLogLocally()` before it even decides whether the removal is immediate or
+quorum-gated.** That projection pass rebuilds `authority_cache` from scratch
+(`upsertCampAuthorityLogEntity`'s `DELETE FROM authority_cache` + full replay), and the replay's own
+rule is binary: any target not in `grantedSet` is `'revoked'`. X's own just-minted entry, by itself,
+is sufficient to put A in `authority_cache` as `'revoked'` on X's device — **immediately, every
+time, regardless of whether A was ever actually known to X before.** So by the time anything
+downstream (a connection-gate check, a recovery action, a second revoke call) reads
+`authority_cache.status`, it is **always** `'revoked'` for a just-revoked target. The presence of a
+row is self-confirming, not externally corroborated — it cannot distinguish "the fleet confirms this
+was never an admin" from "I, X, am the only one who has ever said anything about this device, and I
+just said it was revoked." Treating "has a row" as the signal for "stays denied" would make every
+single immediate revoke — including the exact ambiguous one this residual is about — permanently
+unrecoverable, which is the bug, not the fix.
+
+**Investigated and rejected: making ordinary approvals mint their own authority-log entry** (so
+"no row anywhere" cleanly means "genuinely never mentioned," closing the ambiguity at the source).
+Traced to `electron/main.js`'s `approveDevice` (only mints via `mintGrantEntry` when
+`makeAdmin: true`; an ordinary approval mints nothing at all today) and to
+`electron/automerge/authorityLog.js`/`authorityReplay.js`/`projector.js`'s binary `admin`/`revoked`
+classification. A sound version of this requires the new entry to be **signed and verified** the
+same way `grant`/`revoke` already are — an **unsigned** "member" entry would let any already-admitted
+peer forge a low-looking entry for an about-to-be-promoted admin before that admin's real grant
+syncs, silently downgrading a real admin to "known-ordinary" and causing the exact immediate,
+non-quorum removal this amendment exists to prevent: a worse, attacker-reachable version of the
+present bug, not a fix. But `camp_authority_log`'s signature verification (`resolveAuthorityPeerIds`
+in `projector.js`) only resolves a signer's peer id from that signer's **own** prior
+`genesis`/`grant` entry as a *target* — i.e. only devices that are themselves admins have a
+verifiable peer id in this log today. Most ordinary approvals are performed by a device that is
+itself not in the admin set (T332 deliberately opened `devices.approve` to any authorized role, not
+only admins), so a signed "member" entry from that device could never be verified by a remote peer
+under the existing scheme. Making it verifiable requires registering **every** device's peer id in
+the authority log at approval time, not only admins' — a real, structural widening of
+`camp_authority_log`'s own trust model, bigger than this residual's budget and bigger than "small."
+**Conclusion: the sound version of Option (a) does not exist at this task's size; the unsound version
+is a security regression. Option (a) is rejected.**
+
+### The actual fix: make the one-time decision durable, not the derived cache
+
+The information this residual needs was never missing — `revokeDevice` already computes it, once,
+correctly: `wasAdminOrFounder`, read from `authority_cache` **before** this call's own mint touches
+anything. The bug is that this value is used only to gate `effectivelyRevoked` and is then thrown
+away; nothing records *why* a given `devices.revoked_at` stamp was applied. Persist that one bit,
+at the moment it is known, and never recompute or self-reinforce it afterward.
+
+**Schema (one column, `devices`, local-only, never-synced — same class as `authorized_at`/
+`revoked_at` themselves):**
+
+```sql
+ALTER TABLE devices ADD COLUMN revoked_without_authority_knowledge INTEGER;
+```
+
+`NULL` (default) = not applicable (quorum-admin path, or a revoke with prior corroboration — see
+below) or a pre-migration row. `1` = this specific `revoked_at` stamp was applied with **zero**
+prior authority knowledge of the target, at the moment it was applied.
+
+**`revokeDevice` (electron/main.js), minimal diff at the existing write site:**
+
+```js
+// Read BEFORE this call's own mint — unchanged, already exists as `wasAdminOrFounder`.
+const priorAuthorityRow = db.prepare('SELECT status FROM authority_cache WHERE device_id = ?').get(targetDeviceId)
+const wasAdminOrFounder = priorAuthorityRow?.status === 'admin'
+// NEW: the exact "no authority knowledge at all" case — distinct from "known and already revoked"
+// (a repeat call, or a target some OTHER device's entry already named) or "known admin" (handled
+// by the existing quorum branch). Computed ONCE, from state that exists strictly before this call's
+// own mint can taint it.
+const noPriorAuthorityKnowledge = priorAuthorityRow == null
+
+// ... existing mint + projectAuthorityLogLocally() + effectivelyRevoked computation, unchanged ...
+
+if (effectivelyRevoked) {
+  db.prepare(
+    `UPDATE devices SET revoked_at = ?, revoked_by_user_id = ?, revocation_reason = ?,
+       pairing_status = 'revoked',
+       revoked_without_authority_knowledge = CASE WHEN revoked_at IS NULL THEN ? ELSE revoked_without_authority_knowledge END
+     WHERE id = ?`
+  ).run(now, userId, reason ?? null, noPriorAuthorityKnowledge ? 1 : null, targetDeviceId)
+}
+```
+
+The `CASE WHEN revoked_at IS NULL THEN ... ELSE revoked_without_authority_knowledge END` guard is
+load-bearing: the flag is set from the decision context **the first time** `revoked_at` transitions
+from `NULL` to a value, and a repeat revoke call against an already-revoked device (where
+`authority_cache` is now self-confirmed as `'revoked'` from the first call's own mint) never
+overwrites it — this is exactly what keeps the flag from being self-reinforcing across calls.
+
+**The hard-block behavior itself does not change.** An ordinary device is still removed immediately,
+exactly as today — zero latency regression for the common case. The only change is that the rare
+ambiguous stamp now carries a durable, honest record of the uncertainty it was made under.
+
+### The recovery affordance
+
+A new director-gated IPC action, `clearUncorroboratedRevocation({ token, deviceId })`:
+
+```js
+function clearUncorroboratedRevocation({ token, deviceId: targetDeviceId } = {}) {
+  const { userId } = requireAuthorized(db, { token, action: 'devices.revoke' })
+  const row = db.prepare(
+    'SELECT revoked_at, revoked_without_authority_knowledge FROM devices WHERE id = ?'
+  ).get(targetDeviceId)
+  if (!row?.revoked_at) throw new Error('device is not currently revoked')
+  if (row.revoked_without_authority_knowledge !== 1) {
+    // Refuses for BOTH the quorum-admin path and an already-corroborated ordinary revoke —
+    // this is the one guard the whole safety property rests on (see below).
+    throw new Error('this device was revoked with authority knowledge and cannot be cleared this way')
+  }
+  db.prepare(
+    "UPDATE devices SET revoked_at = NULL, revoked_by_user_id = NULL, revocation_reason = NULL, revoked_without_authority_knowledge = NULL, pairing_status = 'authorized' WHERE id = ?"
+  ).run(targetDeviceId)
+  recordAuditEvent(db, { actorUserId: userId, deviceId: targetDeviceId, action: 'device.clear_uncorroborated_revocation', outcome: 'allow' })
+  return { deviceId: targetDeviceId, cleared: true }
+}
+```
+
+Effect: clears the local hard-block, exactly like Mechanism B's existing `clearStaleRevocation` does
+automatically for the `'admin'` outcome — this is the manual trigger for the case Mechanism B cannot
+reach on its own, because the data that would let it self-heal can only arrive over the connection
+the stale block is itself refusing. Once cleared, A can reconnect to X; real history (A's grant, or
+A's genesis ancestry) syncs; the next projection pass resolves `authority_cache` correctly, and (if A
+really is an admin) Mechanism B takes over from there exactly as in test 1 above.
+
+DeviceManagerScreen (`src/screens/DeviceManagerScreen.jsx`) shows this as a secondary action — e.g.
+"This device was removed without confirming authority elsewhere. If this looks wrong, you can allow
+it to reconnect." — on a revoked device row where the IPC read of `revoked_without_authority_knowledge`
+is `1`. The UI condition is advisory only; the IPC handler's own guard above is what actually enforces
+the safety property, so a stale or buggy UI read can at worst hide the button, never forge the
+server-side permission to use it.
+
+### Why this cannot readmit a genuinely-revoked device
+
+The guard is a single, non-self-referential fact, fixed at the moment the original hard block was
+applied, read nowhere else, and never recomputed from the self-confirming `authority_cache` the rest
+of this ADR already established is unsafe for this purpose:
+
+- A **quorum-confirmed** admin revoke never sets `revoked_without_authority_knowledge` at all (that
+  branch doesn't touch the column) — `clearUncorroboratedRevocation` refuses unconditionally.
+- An **ordinary, already-known** revoke (the target had *some* prior authority-log row — including
+  a case where a different device had already revoked it — before this call minted anything) also
+  leaves the column `NULL` — refused.
+- Only the exact "nobody, as far as X's own causal history shows, has ever said anything about this
+  device before this call" case sets the flag — and that is precisely the case the organizer's rule
+  calls "no authority knowledge at all."
+- Clearing the column does **not** touch `authority_cache` or `camp_authority_log` — it only removes
+  the local gate's basis for denying the *connection*. If the device is, in fact, genuinely revoked
+  by the fleet (quorum reached elsewhere, or truly never granted anywhere), the **first** fresh sync
+  after reconnection re-derives `authority_cache.status = 'revoked'` from the real document, and
+  `connectionAuth.js`'s existing early check (line 142, unchanged by this amendment) denies it again
+  on the very next authenticate attempt — this is the same "innocent until the real history is in"
+  posture the base ADR already extends to any quorum-pending admin today (who keeps full connectivity
+  until quorum completes), not a new category of trust.
+
+### Rejected alternative: deferring (never writing `revoked_at`) for the unknown case
+
+Considered and rejected in favor of the above for diff size, not for soundness — both are sound.
+Never writing `revoked_at` when `noPriorAuthorityKnowledge` is true (instead of writing-then-flagging)
+would also work, but changes `revokeDevice`'s return contract for a case that is, by far, overwhelmingly
+the ordinary-device case in practice (most "no row" targets really are ordinary) — adding a third
+return shape (`{ revoked: false, deferred: true }`) the caller/UI must newly handle, for a path that
+should feel instant in the 99% case. The write-then-flag design keeps the common case byte-for-byte
+identical and confines the new behavior to the recovery action, which is the smaller surface.
+
+### Schema / Tier-4 impact (updated)
+
+**One schema change**, smaller than the one rejected above: one nullable `INTEGER` column on
+`devices` — a local-only, never-synced table already carrying `authorized_at`/`revoked_at`/
+`revocation_reason` in the same spirit. Standard migration + `vNN_down.js` rollback +
+`schemaCheck.js` family, per `CLAUDE.md`. No change to `camp_authority_log`'s shape, no new entry
+`kind`, no change to `authorityLog.js`/`authorityReplay.js`, no change to the synced document at
+all. **No Tier-4 capability involved** — same as the prior amendment.
+
+### Red-before-green tests (Maker), extending the list above
+
+7. **Recovery restores an innocent admin; quorum-revoked stays denied — both in the same run.**
+   Two-device camp, X and A, A admin via an unsynced grant. X calls `revokeDevice(A)`; assert
+   `devices.revoked_without_authority_knowledge = 1` for A on X. Assert a connection attempt from A
+   to X is refused (today's behavior, unchanged). Call `clearUncorroboratedRevocation({ deviceId: A })`
+   on X; assert it succeeds and `devices.revoked_at` for A on X is now `NULL`. Assert A can now
+   connect to X, and that after this connection syncs A's real grant, `authority_cache.status` for A
+   on X resolves to `'admin'` and stays that way on a subsequent reconnect.
+   In the **same test file**, separately: bring a target device to genuine quorum-revoked status
+   (per the base ADR's existing battle tests) on some device Y; assert
+   `devices.revoked_without_authority_knowledge` is `NULL` for that target on Y (the column was never
+   set, because `wasAdminOrFounder`/corroboration applied); call
+   `clearUncorroboratedRevocation({ deviceId: <target> })` on Y and assert it **throws** and
+   `devices.revoked_at` remains set. Both assertions must be red before the fix (the first because
+   the lockout is permanent today; the second is already true today but must stay true after the fix
+   lands, i.e. a regression guard, not a new finding).
+8. **The flag is set once and never self-reinforces.** Repeat `revokeDevice(A)` on X a second time
+   (idempotent-ish re-click) before anything syncs; assert `revoked_without_authority_knowledge`
+   is unchanged (still `1`, not overwritten, not cleared) and `revoked_at`'s original timestamp is
+   preserved (the `CASE WHEN revoked_at IS NULL` guard fires only on the first transition).
+9. **IPC contract.** `clearUncorroboratedRevocation` requires `devices.revoke` authorization
+   (unchanged actor-permission boundary — this is a revocation-adjacent action, not a new
+   permission), throws a distinguishable message on a device that is not currently revoked and on
+   one revoked with authority knowledge (two distinct refusal paths, both exercised), and is
+   idempotent against a double-call after the first clear succeeds (second call throws "device is
+   not currently revoked" — a safe, expected no-op, not a crash).
