@@ -1,106 +1,97 @@
 ---
 title: "T334 Slice 3 — DHT discovery (primary WAN path) design"
 document_type: spec
-authority: proposed
-status: draft
+authority: approved
+status: superseded
 task_class: security-auth
 created: 2026-10-03
 governing_docs: [docs/adr/2026-10-02-wan-discovery-transport-ladder.md, docs/adr/2026-09-18-rendezvous-record-encoding-and-namespace-rotation.md, docs/adr/2026-10-02-signed-revocation-witness.md, SECURITY.md]
-related_docs: [docs/work/security/2026-10-02-t329-slice2-camp-epoch-assessment.md, docs/work/security/2026-09-15-wan-dht-boundary-assessment.md, docs/adr/2026-10-02-distributed-revocation-authority.md]
-archive_when: Slice 3 is implemented, security+battle-test gate recorded, kadDht/bootstrap signoff entries added
+related_docs: [docs/work/security/2026-10-02-t329-slice2-camp-epoch-assessment.md, docs/work/security/2026-09-15-wan-dht-boundary-assessment.md, docs/adr/2026-10-02-distributed-revocation-authority.md, docs/work/specs/2026-10-03-t335-key-turning-rotating-discovery-tag-design.md, docs/work/security/2026-10-03-t334-dht-capability-assessment.md, docs/work/specs/2026-10-03-cross-network-discovery-options-menu.md]
+archive_when: superseded — see status
 ---
 
 # T334 Slice 3 — DHT discovery design
 
-**Status: blocked on a prerequisite gap found during this design pass — see §0.** Everything past
-§0 is the design Maker would execute once that gap is resolved; none of it should start before
-Governor routes §0 to the owner.
+**SUPERSEDED/REJECTED (2026-10-03, owner decision — historical, not current).** The owner rejected
+the public-DHT cross-network path this design wires, verbatim: *"no. i do not accept this."* The
+"Amendment 2026-10-03" section of
+`docs/adr/2026-10-02-wan-discovery-transport-ladder.md` is the current authority: the public DHT is
+dropped from the ladder entirely, replaced by remembered-address reconnect + NAT hole-punch as the
+primary cross-network path, with Cloudflare rendezvous kept as the rare fallback. **The public DHT is
+not a deferred or future-rung pathway — it is rejected and removed**, one-line why: it exposes device
+online-status/network address to an unbounded public population. No future slice re-adds it without a
+fresh owner decision. The dormant,
+gated code this design produced (`electron/sync/automerge/dhtDiscovery.js`, `dhtEnabled: false`,
+`kadDht`/`bootstrap` rows still `signoff: null` in `transportCapabilities.js`) is not activated and no
+further work proceeds against this document. It is kept, not deleted, as the historical record of the
+design that was built dormant and then rejected before activation — do not pick this up as a current
+spec.
 
-## §0 — Prerequisite check: Slice 2 is NOT done (this blocks Slice 3 as the ADR itself defines it)
+---
+
+_Everything below this line is the original, now-superseded design, preserved for historical
+reference._
+
+**Status: prerequisite closed (2026-10-03) — organizer-approved.** T335 (merged `4a9c4020`) shipped
+the signed, rotating discovery tag §0 originally found missing. Everything below is the design Maker
+executes directly; §4's strict capability-gate sequence (signoff withheld until the security+battle-test
+gate passes, including the HARD live-rotation acceptance criterion at the bottom of this doc) is
+unchanged and still governs when the DHT actually activates for a running camp.
+
+## §0 — Prerequisite check: the signed rotating discovery tag is now SHIPPED (T335, merged 4a9c4020)
 
 The ADR's own build plan (`docs/adr/2026-10-02-wan-discovery-transport-ladder.md`, "Reordered build
-plan") makes Slice 3 depend on Slice 2: *"Prerequisite for the DHT being safe to open."* Slice 2 is
-the rotating, scrypt-derived discovery tag firing automatically on revocation — the mechanism the
-ADR's whole safety argument for a public DHT rests on ("How the already-built keys make a public DHT
-safe").
+plan") made Slice 3 depend on a rotating discovery tag firing automatically on revocation —
+*"Prerequisite for the DHT being safe to open."* This design doc originally found that prerequisite
+unshipped (the frozen `claude/t329-ephemeral-join-secret-rotation` attempt, failed by
+`docs/work/security/2026-10-02-t329-slice2-camp-epoch-assessment.md` for F1-F3: an unsigned,
+peer-writable `campEpoch` LWW scalar that any paired device — including a revoked one — could forge,
+checked receive-side only, with no forged-epoch/resync-to-parity test coverage).
 
-**Slice 2 is not shipped.** It was attempted on branch `claude/t329-ephemeral-join-secret-rotation`
-(commit `9f120797`), and a security-assessment review failed it and froze the branch (commit
-`41e7f142`, `docs/work/security/2026-10-02-t329-slice2-camp-epoch-assessment.md`). The three
-disqualifying findings:
+**T335 closed this gap with a different, signed mechanism — verified in code 2026-10-03:**
 
-- **F1 (CRITICAL):** the merge-layer `campEpoch` field is an unsigned, peer-writable LWW scalar
-  (`campEpoch.js:27-41`, gate at `syncNode.js:250-261`) — any paired device, including a revoked one,
-  can write an arbitrarily high epoch and pass the gate.
-- **F2 (CRITICAL):** the gate is receive-side only; a still-connected revoked device reaches epoch
-  parity through ordinary bidirectional sync and then merges freely — "even an entirely honest
-  revoked device defeats the gate simply by staying connected."
-- **F3 (HIGH):** the committed battle-test exercises only an honest, stale, forked-from-genesis
-  adversary; the forged-epoch and resync-to-parity cases the ADR's own acceptance criteria demand
-  (ADR §4: "forged-peer writes... replay... a red-before-green proof that rotation-on-revocation
-  actually cuts a removed device off") were never tested, and under the current design both would
-  stay green.
+- `electron/automerge/authorityRevocationDigest.js` (`revocationDigest`) computes a deterministic,
+  sorted, JSON-encoded SHA-256 digest of `currentRevokedDeviceIds` (`electron/automerge/authorityReplay.js:383`),
+  which is gated by the same `createVerifiedEntryTrust` (`authorityReplay.js:361`) signature
+  verification the T331/T332 merge-layer projector already uses to accept `camp_authority_log`
+  entries. The revoked-device set this digest covers is therefore **signed**, not a peer-writable
+  scalar — F1's root cause (an unsigned field anyone could write) does not exist in this design.
+- `electron/sync/automerge/rotatingDiscoveryTag.js` (`rotatingDiscoveryDigest`) derives
+  `HMAC-SHA256(campDhtSecret, revocationDigest)` — a pure, total function of already-present document
+  state (no document write, no network call, no wall-clock dependency). Because the tag is a pure
+  function of the *signed* revocation set, F2's root cause (a receive-side-only gate a still-connected
+  revoked device can out-wait) does not apply here either: the tag itself changes the instant the
+  signed revocation set changes, for every device computing it.
+- `electron/sync/automerge/discovery.js` (`rotatingServiceTag`) and
+  `electron/sync/automerge/syncStarter.js` (`computeRotatingServiceTag`) wire this into production
+  mDNS discovery today: `syncStarter.js:318` calls `mintRendezvousNamespace` once at startup (idempotent
+  — a camp that already minted a `campDhtSecret` in a prior run is a no-op) to guarantee the secret
+  exists, and `syncStarter.js:324` keys `createMdnsDiscovery`'s `serviceTag` off
+  `computeRotatingServiceTag(doc, campId)` rather than the old static, campId-hashed
+  `campDiscoveryTag` (`discovery.js`'s `campDiscoveryTag` function still exists but is no longer what
+  `syncStarter.js` uses for the live mDNS tag).
+- Note the precise mechanism T335 used, since it differs from what this doc originally expected:
+  `mintRendezvousNamespace` now has a real production caller (`syncStarter.js:318`, minting the
+  `campDhtSecret` HMAC key) — but `rotateRendezvousNamespace` still has zero production callers, and
+  that is correct, not a gap. T335 does not rotate the stored namespace value itself; it derives a
+  tag that is already a pure function of the signed revocation set, so the tag "rotates" automatically
+  as that set changes, with no separate rotation-trigger write needed.
 
-The assessment's explicit conclusion: *"Slice 3 (DHT) must not be signed off on the premise that
-Slice 2 closed it."*
+**Documented residual (carried forward, not reopened by this closure):** T335 accepted a
+restart-bounded limitation on the LAN/mDNS path specifically — a running device keeps the mDNS
+`serviceTag` it computed at startup until it restarts, because `@libp2p/mdns` captures `serviceTag` by
+value at construction. **That acceptance does not extend to the DHT** — see the HARD acceptance
+criterion carried from T335 at the bottom of this document, which requires this slice to implement
+*live* re-keying (no restart needed) precisely because the DHT's safety argument depends on it.
 
-**What this means concretely for today's codebase (post-T328/T331/T332, verified by grep):**
-
-- `electron/sync/automerge/rendezvousNamespace.js` — `mintRendezvousNamespace` / `rotateRendezvousNamespace`
-  — has **zero production callers**. Nothing mints a namespace when rendezvous is enabled; nothing
-  rotates it on device revocation. It is a tested, correct primitive sitting unwired (confirmed by
-  `grep -rn "rotateRendezvousNamespace\|mintRendezvousNamespace" electron src`, matches only the
-  module's own file and its test).
-- T331/T332 (the merged distributed-revocation + client-admin-minting work) implemented the
-  **merge-layer authorization half** (`camp_authority_log`, the signed revocation witness ADR) —
-  a different, and per the signed-witness ADR (`2026-10-02-signed-revocation-witness.md:264-276`)
-  independently-sound, mechanism. That ADR explicitly treats namespace/epoch rotation as a separate
-  *liveness/discoverability* layer that "stays, unchanged" — it does not claim to have wired it, and
-  says authorization must not rest on it alone. So T331/T332 did not silently absorb Slice 2; Slice 2
-  remains a distinct, unshipped, previously-failed piece of work.
-- `electron/sync/automerge/syncStarter.js` still derives its mDNS tag from the static, campId-hashed
-  `campDiscoveryTag` (`discovery.js:49-51`) and its rendezvous namespace from whatever
-  `readRendezvousNamespace` finds — which today is **nothing**, because nothing mints it. The
-  Cloudflare rendezvous path (`SHORESH_RENDEZVOUS_URL`-gated) is therefore currently a no-op in
-  practice for any camp that hasn't had some other code path mint a namespace — a separate finding
-  worth flagging to Governor but outside this ticket's scope.
-
-**Consequence for this design.** The ADR's tier-2 safety argument is: *"the rotating secret means the
-public DHT only ever holds opaque, short-lived, un-impersonable provider records."* That argument
-requires (a) a namespace that actually exists and is actually minted when rendezvous/DHT discovery is
-enabled, and (b) that namespace actually rotating, in a way an adversary cannot forge, when a device
-is revoked. Neither holds today. Wiring `provide`/`findProviders` under `readRendezvousNamespace`'s
-output right now would key the DHT off a value that is either `null` (DHT discovery silently never
-activates — the safe failure) or, once something mints it, a namespace that **never rotates on
-revocation** (F1/F2's root cause: no production trigger exists at all, forged or not) — i.e. exactly
-the deterministic, non-rotating key the 2026-09-15 assessment identified as the original hazard this
-whole ladder exists to close.
-
-**Recommendation to Governor: this is a stop, not a design problem to route around.** Two honest
-paths, both product/security decisions above this document's authority:
-
-1. **Treat "Slice 2, redesigned to close F1-F3" as a hard prerequisite sub-slice of T334**, done
-   test-first with Security + Red Hat before any DHT package is installed. The redesign direction the
-   failed assessment already points at: bind the rotation witness to `host_signing_key` (or reuse the
-   T331/T332 signed revocation-witness primitive directly, since it is the mechanism that already
-   passed its own gate) instead of inventing a second, unsigned epoch field — rotate the discovery
-   *namespace* as a side effect of the already-signed revocation witness landing, not as an
-   independent unsigned counter.
-2. **Ship Slice 3's wiring code now, test-first, but keep `kadDht`/`bootstrap` signoff at `null` and
-   gate activation on a namespace that is provably rotating** — i.e. build everything below, prove it
-   against the mDNS-parity and tag-rotation-invalidation test seams using a **test-only** namespace
-   rotation trigger, and treat "wire the real, signed rotation trigger into production" as the actual
-   gating item the security+battle-test pass (§5) must close before `signoff` is ever set. This is
-   defensible because `transportCapabilities.js`'s registry already enforces that no package/wiring
-   alone opens the capability — only a `signoff` entry does, and that entry is explicitly withheld
-   until the gate passes (§4). Under this path Slice 3's code can be built in parallel with the
-   redesigned rotation trigger, which de-risks the schedule without ever exposing a live camp.
-
-Both paths converge on the same technical design below for the DHT wiring itself; they differ only in
-whether the rotation-trigger redesign is a blocking predecessor ticket or a parallel one that must
-land before `signoff` (not before code). **This document assumes path 2** (build now, gate
-activation), because it lets Maker start without reopening Slice 2's failed design, and flags the
-choice as the one open question Governor must take to the owner (§6).
+**Consequence for this design.** The ADR's tier-2 safety argument — *"the rotating secret means the
+public DHT only ever holds opaque, short-lived, un-impersonable provider records"* — now rests on a
+real, signed, rotating primitive rather than an unwired placeholder. The "build now vs. block on a
+redesign" dilemma this doc originally posed to Governor (§8.1/§8.2 below) is resolved: the prerequisite
+is done, so Maker builds the DHT wiring in §1-§6 directly against `rotatingDiscoveryDigest`. The strict
+gate sequence in §4 — packages and wiring land with `signoff: null`, security+battle-test gate runs,
+only then does a follow-up PR flip `signoff` and activate the capability — is unchanged and still the
+correct discipline; closing the prerequisite does not shortcut that sequence.
 
 ## Candidate approaches considered
 
@@ -109,9 +100,10 @@ Closed case for the wiring shape itself — the ADR already fixed it (`provide`/
 from the public network by default). The one place a genuine option existed (bootstrap node source)
 was already decided by the ADR with recorded rationale ("option 1 as the default, option-3
 configurability", confidence medium) and is carried forward unchanged in §2 below rather than
-re-litigated. Divergence was spent instead on **§0** — the real open question this pass surfaced is
-not "how should the DHT be wired" (settled) but "is it safe to wire it at all yet" (not settled),
-which is a prerequisite-sequencing question, not a design-shape one.
+re-litigated. Divergence was originally spent on **§0** — at the time of writing, the real open
+question was not "how should the DHT be wired" (settled) but "is it safe to wire it at all yet". T335
+has since closed that question (§0, updated 2026-10-03): the prerequisite is shipped, so this doc's
+remaining content is the settled wiring design with no open sequencing question left to diverge on.
 
 ## §1 — Reused vs. new
 
@@ -119,8 +111,9 @@ which is a prerequisite-sequencing question, not a design-shape one.
 - `electron/sync/automerge/syncStarter.js`'s `peerDiscovery` array (`:295-345`) — DHT discovery is a
   third entry alongside the existing mDNS (`createMdnsDiscovery`) and rendezvous
   (`createRendezvousDiscovery`) entries, same array, same shape.
-- `electron/sync/automerge/rendezvousNamespace.js` — `readRendezvousNamespace` is the read path the
-  DHT keys off; no new namespace-storage primitive is needed, only (per §0) a real production writer.
+- `electron/sync/automerge/rotatingDiscoveryTag.js` — `rotatingDiscoveryDigest` is the read path the
+  DHT keys off (per §0, now shipped by T335); no new namespace-storage or rotation-trigger primitive
+  is needed.
 - `electron/sync/automerge/transportCapabilities.js` — the capability-gate mechanism is exactly
   right for this; no change to its shape, only two new rows already present (`kadDht`, `bootstrap`,
   both currently `signoff: null`).
@@ -148,19 +141,20 @@ which is a prerequisite-sequencing question, not a design-shape one.
 createDhtDiscovery({ campId, doc, libp2pNode, bootstrapList, intervalMs }) -> peerDiscovery service
 ```
 
-- Keyed on **the rotating discovery tag**, read the same way `rendezvousClient.js`'s tick loop reads
-  it today (`rendezvousClient.js:142`, `readRendezvousNamespace(doc(), campId)`), never on `campId`
-  directly. If `readRendezvousNamespace` returns `null` (rendezvous/DHT never enabled for this camp,
-  or — per §0 path 2 — the rotation trigger isn't wired yet in a given build), the service is a
-  documented no-op: it issues no `provide`, no `findProviders`, and emits no discovery events. This
-  is the deliberate safe-closed state, not an error path — exactly how a camp with
-  `SHORESH_RENDEZVOUS_URL` unset degrades today.
-- The DHT key used for `provide`/`findProviders` is `sha256(namespace || ':' || epoch)` (not the raw
-  namespace) — hashed, not published in the clear, so a passive public-DHT observer sees only an
-  opaque CID-like key, consistent with the "opaque, un-impersonable provider records" property the
-  ADR's safety argument requires. `findProviders` on the current epoch's key only; an old epoch's key
-  is never looked up, so a device that missed a rotation (was revoked, or offline) cannot find current
-  peers by replaying a stale key — it must resync via mDNS/LAN or Cloudflare fallback first.
+- Keyed on **the rotating discovery tag**, `rotatingDiscoveryDigest(automerge, doc, campId, opts)`
+  (`electron/sync/automerge/rotatingDiscoveryTag.js`, shipped by T335) — never on `campId` directly,
+  and never on a raw namespace. That function throws if no `campDhtSecret` has been minted yet for
+  the camp, mirroring the no-silent-fallback contract `syncStarter.js` already relies on for mDNS; the
+  caller mints via `mintRendezvousNamespace` first (same idempotent call `syncStarter.js:318` already
+  makes), exactly as the mDNS wiring does today. This is the deliberate safe-closed state, not an
+  error path.
+- The DHT key used for `provide`/`findProviders` is the rotating digest itself (already
+  `HMAC(campDhtSecret, revocationDigest)`, truncated hex) — opaque, un-impersonable, and a pure
+  function of the signed revoked-device set, consistent with the "opaque, un-impersonable provider
+  records" property the ADR's safety argument requires. `findProviders` on the current digest only;
+  the previous digest is never looked up, so a device that missed a revocation-set change (was
+  revoked, or offline) cannot find current peers by replaying a stale key — it must resync via
+  mDNS/LAN or Cloudflare fallback first.
 - `provide` and `findProviders` run on the same tick interval already established for rendezvous
   (`rendezvousClient.js`'s tick loop pattern) — reuse that interval constant rather than inventing a
   second one.
@@ -215,7 +209,8 @@ the gate exists to catch, not a defect to design around.
    meant to be exercised red-before-green versus how CI's gate actually runs it (this is an
    org-interface-contracts question for Verifier/Governor, not resolved here).
 2. **Security re-assessment + Security + Red Hat run against that landed-but-inert code** (§5's
-   checklist) plus, per §0, against whatever the Slice-2 rotation-trigger redesign produced.
+   checklist) plus, per the bottom "HARD acceptance criterion carried from T335" section, confirming
+   live (not restart-bounded) re-keying against T335's shipped rotation mechanism.
 3. **Only after that gate passes**, a follow-up PR adds the two `signoff` entries
    (`{date, owner, doc}`, `doc` pointing at the recorded security+battle-test evidence under
    `docs/work/security/`) and flips `dhtEnabled` to the real runtime condition. This is the PR that
@@ -286,28 +281,30 @@ Per the ADR's table and the two things this design pass additionally surfaced:
 not change an existing contract other modules call (the `{id, multiaddrs}` peerDiscovery shape is
 preserved exactly). It operates entirely within the ADR already accepted
 (`docs/adr/2026-10-02-wan-discovery-transport-ladder.md`) and the capability-gate mechanism already
-established (T288). The one tradeoff decision inside this document — build Slice 3's wiring now with
-signoff withheld, rather than blocking on a redesigned Slice 2 first (§0, "this document assumes path
-2") — is a sequencing call for Governor/owner, not an irreversible architectural commitment; it does
-not need its own ADR, but **must be recorded in the ticket and confirmed by the owner before Maker
-starts**, per §6 below.
+established (T288). The sequencing tradeoff this document originally flagged (build Slice 3's wiring
+with signoff withheld, vs. blocking on a prerequisite redesign first) is resolved by T335's merge —
+see §0 — and needs no ADR of its own: the still-open capability-gate sequence in §4 (signoff withheld
+until the security+battle-test gate passes) remains the governing discipline Maker follows.
 
 ## §8 — Open questions for Governor (product/owner decisions, not technical ones)
 
-1. **§0's core question: is "build Slice 3 code now, gate activation" (path 2) acceptable, or does the
-   owner want the Slice-2 rotation-trigger redesign done and passed first (path 1)?** The owner's own
-   acceptance language on the parent ADR ("battle test it... if it passes, then they can continue on")
-   reads as capability-by-capability gating, which supports path 2, but the ADR's build-plan explicitly
-   lists Slice 2 as Slice 3's prerequisite — this needs the owner's explicit confirmation, not an
-   inference either way.
-2. **Who redesigns the failed Slice 2 rotation trigger, and when relative to this ticket?** Candidate
-   direction (bind rotation to the already-signed revocation witness from T331/T332 rather than a new
-   unsigned field) is named in §0 but is itself a design decision for a future Architect pass, not
-   decided here.
-3. **Confirm the bootstrap-node default (public libp2p/IPFS network) against current, not
-   2026-10-02-dated, operational reality** — is the public bootstrap network still healthy/available
-   enough to depend on as the default, or has anything changed since the ADR's writing that the owner
-   should know before this becomes the primary path for every camp's cross-network sync?
+1. **RESOLVED by T335 (merged 4a9c4020).** §0's "path 1 vs. path 2" question — block on a Slice-2
+   redesign first, or build Slice 3 now with activation gated — is moot: T335 shipped the signed
+   rotating-tag prerequisite directly, so Maker builds against it with no owner choice between paths
+   required. Kept here, struck rather than deleted, so the history of why this mattered is not lost.
+2. **RESOLVED by T335 (merged 4a9c4020).** "Who redesigns the failed rotation trigger, and when" is
+   moot — T335 is that redesign, already reviewed and landed (bound to the signed T331/T332 revocation
+   witness via `authorityRevocationDigest.js`/`currentRevokedDeviceIds`, per §0 above), not a future
+   Architect pass.
+3. **Confirm the bootstrap-node default (public libp2p/IPFS network) against current operational
+   reality — a verify-at-pickup technical check, not an owner question by default.** Per the
+   organizer's 2026-10-03 ruling, Maker/Verifier records this as a pickup-time check in the gate
+   evidence under `docs/work/security/`: is the public bootstrap network still healthy/available
+   enough to depend on as the default. **Only an unhealthy result escalates** — if the public network
+   is not dependable, the public-bootstrap default itself comes into question and a Shoresh-run
+   bootstrap node is a real spend/infra decision (per §2's "OWNER SPEND/INFRA FLAG"), which does need
+   organizer→owner routing. A healthy result requires no escalation and is simply recorded as
+   evidence.
 
 ## HARD acceptance criterion carried from T335 (organizer ruling 2026-10-03) — LIVE rotation on the DHT
 
