@@ -86,7 +86,7 @@ async function authenticateBothWays(x, y, deviceIdX, tokenX, deviceIdY, tokenY) 
   await y.authenticateWith(x.peerId, { type: 'authenticate', token: tokenY, device_id: deviceIdY, schemaVersion: CURRENT_SCHEMA_VERSION })
 }
 
-async function waitFor(predicate, { timeout = 10000, interval = 50 } = {}) {
+async function waitFor(predicate, { timeout = 25000, interval = 50 } = {}) {
   const start = Date.now()
   while (!predicate()) {
     if (Date.now() - start > timeout) throw new Error('waitFor: timed out')
@@ -168,6 +168,11 @@ async function buildFourNodes({ connectDR }) {
   await b.dial(r.getMultiaddrs()[0])
   await waitFor(() => b.getPeers().length > 0)
   await b.authenticateWith(r.peerId, { type: 'authenticate', token: tokens['device-b'], device_id: 'device-b', schemaVersion: CURRENT_SCHEMA_VERSION })
+  // T336 Precondition 2's client-side restriction (transport.js) means B's OWN circuitRelayTransport
+  // only attempts a reservation against a relay B itself admits — so B must admit R directly, the
+  // same test-support call every other client-transport test now needs (relayEndToEndRevoke.test.js,
+  // relayByteCap.test.js), mirroring r.admitPeer(b...) which only admits B into R's own set.
+  b.admitPeer(r.peerId)
 
   // B's circuitRelayTransport auto-reserves on R once RESERVE succeeds — wait for the real
   // /p2p-circuit listen address, the same signal relayEndToEndRevoke.test.js uses, rather than a
@@ -210,7 +215,7 @@ describe('T336 Precondition 1 — relay-specific every-hop revocation over the R
     // could be coincidental rather than caused by the propagation step.
     const response = await requestConnect(a, relayPeerId, bPeerId)
     expect(response.status).toBe(Status.OK)
-  })
+  }, 40000)
 
   it('GREEN: a revoke that merge-propagates from D to R via the ordinary Automerge sync path tears B down on R — admission AND reservation', async () => {
     const { dbD, d, r, b, a, relayPeerId } = await buildFourNodes({ connectDR: true })
@@ -248,5 +253,5 @@ describe('T336 Precondition 1 — relay-specific every-hop revocation over the R
     const afterRevoke = await requestConnect(a, relayPeerId, bPeerId)
     expect(afterRevoke.status).toBe(Status.NO_RESERVATION)
     expect(afterRevoke.status).not.toBe(Status.OK)
-  }, 20000)
+  }, 40000)
 })

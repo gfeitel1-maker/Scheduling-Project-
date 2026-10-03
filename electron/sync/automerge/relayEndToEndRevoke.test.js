@@ -58,6 +58,10 @@ describe('T337 end-to-end relayed connection — revoke-while-running cuts off t
     await c.dial(r.getMultiaddrs()[0])
     r.admitPeer(b.peerId)
     r.admitPeer(c.peerId)
+    // T336 Precondition 2 (transport.js): a circuitRelayTransport client only ever attempts a
+    // reservation against a relay it has itself admitted — C must admit R directly, the same way
+    // B admits C below for the final hop.
+    c.admitPeer(r.peerId)
 
     // C's circuitRelayTransport auto-reserves on R once identify surfaces R's HOP support
     // (RelayDiscovery's topology listener — see @libp2p/circuit-relay-v2's transport/discovery.js,
