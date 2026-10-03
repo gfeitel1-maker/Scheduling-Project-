@@ -57,8 +57,12 @@ import { isAutomergeEngine } from './sync/automerge/syncEngineFlag.js'
 import { createAutomergeSyncStarter } from './sync/automerge/syncStarter.js'
 import { forgetPeerAddress } from './sync/automerge/peerAddressBook.js'
 import { resolveConflictInDoc } from './automerge/reconcile.js'
+import { ensureDeviceIdentity } from './auth/deviceIdentity.js'
+import { mintGenesisEntry, mintGrantEntry, mintRevokeEntry } from './automerge/authorityLog.js'
 import { syncRefusalForDomainMigration } from './db/migrationDomainState.js'
-import { getDocIfLoaded, setUserDataDirGetter as setAutomergeUserDataDirGetter, setDocCipher as setAutomergeDocCipher, flushPendingWrites as flushAutomergeDoc } from './sync/automerge/liveDoc.js'
+import { getDocIfLoaded, getCurrentDoc, setUserDataDirGetter as setAutomergeUserDataDirGetter, setDocCipher as setAutomergeDocCipher, flushPendingWrites as flushAutomergeDoc } from './sync/automerge/liveDoc.js'
+import { projectEntity } from './automerge/projector.js'
+import { AUTHORITY_LOG_ENTITY } from './automerge/authorityReplay.js'
 import { docPath as automergeDocPath } from './sync/automerge/docStore.js'
 import { acquireDocCipher, acquireDbKey, isAtRestEncryptionEnabled } from './db/atRestEncryption.js'
 import { unsharedWriteCount } from './ops/documentWriteFailures.js'
@@ -1142,6 +1146,21 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       "UPDATE devices SET authorized_at = ?, authorized_by_user_id = ?, pairing_status = 'authorized' WHERE id = ?"
     ).run(new Date().toISOString(), user.id, deviceId)
 
+    // T331 (docs/adr/2026-10-02-distributed-revocation-authority.md) — the axiomatic genesis
+    // entry: this device, by virtue of being the one that just created the camp, IS the founder.
+    // No signature (axiomatic, per the ADR) — just this device's own device_identity_key PEER ID,
+    // so every OTHER device can later verify entries this founder signs. Best-effort: a camp that
+    // bootstrapped successfully must never be reported as failed because this mint hiccuped (same
+    // non-fatal posture as the sync-node-start try/catch directly below) — the founder's own
+    // admin status falls back to (re-)resolving on the next projection pass once this succeeds.
+    try {
+      const { peerId: founderPeerId } = await ensureDeviceIdentity(db)
+      mintGenesisEntry(db, { founderDeviceId: deviceId, founderPeerId })
+      projectAuthorityLogLocally()
+    } catch (err) {
+      console.error(`bootstrapCamp: minting the genesis authority entry failed (non-fatal): ${err?.message ?? err}`)
+    }
+
     // A Host trivially has 100% of its own data from the instant of its own
     // bootstrap — it never syncs FROM another device, so it must never be
     // gated by the first-sync write-gate (design doc Part 4.1/4.3, slice 2).
@@ -1247,7 +1266,25 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return result
   }
 
-  function approveDevice({ token, deviceId: targetDeviceId } = {}) {
+  // T331 — after minting a camp_authority_log entry on THIS device, the generic op-log dual-write
+  // (appendOp -> recordLocalWrite) has updated the shared DOCUMENT, but nothing re-runs the
+  // projector for an entity with no PROJECTIONS registration (applyProjection no-ops for it — see
+  // campDocument.js's EXTRA_MODELED_ENTITIES comment). Unlike every registered entity, whose SQL
+  // side is already correct the instant appendOp returns, camp_authority_log's derived
+  // applied_authority_log/authority_cache need an explicit projection pass on the ORIGINATING
+  // device too — a remote peer gets this for free from syncNode.js's own projectAndNotify/
+  // handleSyncMessage once the entry syncs out, but this device must not wait for its own round
+  // trip before its own gates A/B see the result. Best-effort/non-fatal: a projection hiccup here
+  // must never undo the mint that already landed in the document.
+  function projectAuthorityLogLocally() {
+    try {
+      projectEntity(db, getCurrentDoc(db), AUTHORITY_LOG_ENTITY)
+    } catch (err) {
+      console.error(`projectAuthorityLogLocally: local authority-log projection failed (non-fatal): ${err?.message ?? err}`)
+    }
+  }
+
+  function approveDevice({ token, deviceId: targetDeviceId, makeAdmin = false } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const { userId } = requireAuthorized(db, { token, action: 'devices.approve' })
     // T86 — same reason as ingestCommit/confirmAlias: this writes straight to
@@ -1272,6 +1309,28 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     ).run(now, userId, secret, targetDeviceId)
 
     recordAuditEvent(db, { actorUserId: userId, deviceId: targetDeviceId, action: 'device.approve', outcome: 'allow' })
+
+    // T331 (docs/adr/2026-10-02-distributed-revocation-authority.md) — the in-person pairing UX
+    // IS the natural point to mint a signed admin grant too, when the approving admin chooses to
+    // grant admin status rather than staff-only trust (the ADR's own design: "rides the pairing
+    // moment that already exists"). An ORDINARY (non-admin) device needs no camp_authority_log
+    // entry at all — it is simply absent from the admin set, which is the default; the existing
+    // devices.authorized_at write above IS its whole trust grant, unchanged. target_peer_id is
+    // best-effort: a brand-new device has not yet authenticated over libp2p (that only happens
+    // AFTER this approval, on its next connect), so its peer id may still be unknown here — the
+    // grant still lands and the device is still a valid admin (authorityReplay.js's isComplete
+    // check does not require target_peer_id), it just cannot itself SIGN further entries until a
+    // later connection resolves its peer id. Best-effort/non-fatal, same posture as bootstrapCamp's
+    // genesis mint — a legitimate approval must never fail because this mint hiccuped.
+    if (makeAdmin) {
+      try {
+        const targetPeerId = db.prepare('SELECT libp2p_peer_id FROM devices WHERE id = ?').get(targetDeviceId)?.libp2p_peer_id ?? null
+        mintGrantEntry(db, { targetDeviceId, targetPeerId, signerDeviceId: deviceId })
+        projectAuthorityLogLocally()
+      } catch (err) {
+        console.error(`approveDevice: minting the admin grant authority entry failed (non-fatal): ${err?.message ?? err}`)
+      }
+    }
 
     // The joining device has its pending stream tracked in the libp2p node;
     // authGate.js resolves false when there is nothing pending for it, so this
@@ -1324,6 +1383,21 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       metadata: reason ? { reason } : null,
     })
 
+    // T331 (docs/adr/2026-10-02-distributed-revocation-authority.md) — the DISTRIBUTED half,
+    // additive to the Host-local devices.revoked_at write above. ALWAYS mints a signed 'revoke'
+    // entry naming THIS device as signer (deviceId, the acting admin's own identity) — never
+    // decided here whether the target is an ordinary device (immediate removal) or an admin/
+    // founder (a vote toward quorum): authorityReplay.js's replay re-derives that from the
+    // target's OWN causal state on every peer, per the ADR's "never trust a self-report" rule, so
+    // this call site does not reimplement that threshold logic. Best-effort/non-fatal, same
+    // posture as the revokePeer eviction immediately below — a failure here must never fail the
+    // Host-local revocation that already landed.
+    try {
+      mintRevokeEntry(db, { targetDeviceId, signerDeviceId: deviceId })
+      projectAuthorityLogLocally()
+    } catch (err) {
+      console.error(`revokeDevice: minting the distributed revoke authority entry failed (non-fatal): ${err?.message ?? err}`)
+    }
 
     // A revoked device that is still CONNECTED must stop being admitted now, not
     // when it next happens to drop. Admission is granted once and otherwise only
