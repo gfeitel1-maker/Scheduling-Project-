@@ -38,7 +38,7 @@
 // of ws-object-addressed"; that file and its map are deleted, so
 // `pendingPairingPeers` here is the only one._
 import { peerIdFromString } from '@libp2p/peer-id'
-import { AUTH_PROTO, sendFramed, receiveFramed } from './wireProtocol.js'
+import { AUTH_PROTO, sendFramed, receiveFramed, AUTH_MAX_FRAME_BYTES } from './wireProtocol.js'
 import { shouldThrottle, PAIRING_RATE_MS, LOGIN_MIN_INTERVAL_MS, SourceRateLimiter } from '../rateLimit.js'
 
 // T288 round 3: per-source caps for the two count-based limiters below. A real camp runs maybe
@@ -389,7 +389,7 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
       }
 
       stream.abort(new Error('unsupported_auth_message'))
-    }).catch(() => {
+    }, { maxDataLength: AUTH_MAX_FRAME_BYTES }).catch(() => {
       // A peer closing/corrupting the stream mid-frame must not crash this
       // node — same defensive posture as transport.js's doc-sync handler.
     })

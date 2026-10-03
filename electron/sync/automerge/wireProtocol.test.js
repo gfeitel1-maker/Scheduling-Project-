@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest'
-import { PROTO, sendFramed, receiveFramed, MAX_FRAME_BYTES } from './wireProtocol.js'
+import { PROTO, sendFramed, receiveFramed, MAX_FRAME_BYTES, AUTH_MAX_FRAME_BYTES } from './wireProtocol.js'
 
 // libp2p v3's Stream is an EventTarget: reads arrive via async iteration
 // (Stream extends AsyncIterable), writes go through a synchronous `.send()`
@@ -92,6 +92,18 @@ describe('wireProtocol', () => {
   it('exports a bounded frame cap (Security review)', () => {
     expect(typeof MAX_FRAME_BYTES).toBe('number')
     expect(MAX_FRAME_BYTES).toBeGreaterThan(0)
+  })
+
+  it('exports a SEPARATE, much smaller frame cap for the pre-auth protocol (T336 C4 sizing review)', () => {
+    // AUTH_PROTO frames are tiny JSON (token/PIN/device_id/role strings) — nowhere near a
+    // document's size. Reusing MAX_FRAME_BYTES (32 MiB, sized for whole-document exchange incl.
+    // base64 map images) on the UNAUTHENTICATED auth path lets an un-admitted peer force this node
+    // to buffer up to 32 MiB per concurrent connection before any admission decision is made —
+    // amplified by however many connections the per-source/global caps allow concurrently. A cap
+    // sized to real auth payloads removes that amplification without touching the doc-sync cap.
+    expect(typeof AUTH_MAX_FRAME_BYTES).toBe('number')
+    expect(AUTH_MAX_FRAME_BYTES).toBeGreaterThan(0)
+    expect(AUTH_MAX_FRAME_BYTES).toBeLessThan(MAX_FRAME_BYTES / 100)
   })
 
   it('rejects an inbound frame larger than maxDataLength, without delivering it', async () => {

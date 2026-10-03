@@ -9,8 +9,13 @@
 // covered by connectionAuth.test.js and syncNodeAuthGate.test.js, which wire
 // the real evaluateAuthenticate through this same mechanism.
 import { describe, it, expect, afterEach } from 'vitest'
+import { createLibp2p } from 'libp2p'
+import { tcp } from '@libp2p/tcp'
+import { noise } from '@chainsafe/libp2p-noise'
+import { yamux } from '@chainsafe/libp2p-yamux'
 import { startTransport } from './transport.js'
 import { PAIRING_RATE_MS, LOGIN_MIN_INTERVAL_MS } from '../rateLimit.js'
+import { AUTH_PROTO, sendFramed, AUTH_MAX_FRAME_BYTES } from './wireProtocol.js'
 
 let handles = []
 afterEach(async () => {
@@ -128,6 +133,47 @@ describe('authGate — admission gate mechanics (fake authenticator)', () => {
     handles = handles.filter((h) => h !== a)
 
     await waitFor(() => b.isPeerAuthenticated(a.peerId) === false)
+  })
+
+  it('an oversized AUTH_PROTO frame is rejected before reaching onAuthenticate (T336 C4 sizing fix)', async () => {
+    // A raw second node, bypassing authenticateWith's own small, legitimate payload — proving the
+    // wiring, not just the constant. Dials AUTH_PROTO directly and sends an otherwise-VALID
+    // `authenticate` frame padded past AUTH_MAX_FRAME_BYTES but still well under the doc-sync
+    // MAX_FRAME_BYTES this used to share. The padding must be inside a well-formed JSON message —
+    // garbage bytes would be rejected by the pre-existing malformed-frame handling regardless of
+    // size, which would prove nothing about the size cap specifically.
+    const attacker = await createLibp2p({
+      addresses: { listen: ['/ip4/127.0.0.1/tcp/0'] },
+      transports: [tcp()],
+      connectionEncrypters: [noise()],
+      streamMuxers: [yamux()],
+    })
+
+    let authenticateCalled = false
+    const b = await startTransport({
+      deviceId: 'device-b',
+      onAuthenticate: () => {
+        authenticateCalled = true
+        return { ok: true }
+      },
+    })
+    handles.push(b)
+
+    await attacker.dial(b.getMultiaddrs()[0])
+    const stream = await attacker.dialProtocol(b.getMultiaddrs()[0], AUTH_PROTO)
+
+    const padding = 'x'.repeat(AUTH_MAX_FRAME_BYTES + 1024)
+    const oversizedButValidFrame = new TextEncoder().encode(
+      JSON.stringify({ type: 'authenticate', token: 'x', device_id: 'device-a', padding })
+    )
+    expect(oversizedButValidFrame.byteLength).toBeGreaterThan(AUTH_MAX_FRAME_BYTES)
+    await expect(sendFramed(stream, oversizedButValidFrame)).resolves.toBeUndefined()
+
+    await new Promise((r) => setTimeout(r, 150))
+    expect(authenticateCalled).toBe(false)
+    expect(b.isPeerAuthenticated(attacker.peerId.toString())).toBe(false)
+
+    await attacker.stop()
   })
 
   it('an unsupported auth message type is rejected, not silently ignored', async () => {
