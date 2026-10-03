@@ -2346,22 +2346,22 @@ describe('approveDevice handler (devices.approve, admin-only)', () => {
     expect(() => handlers.approveDevice({ token: adminToken, deviceId: 'does-not-exist' })).toThrow('device not found')
   })
 
-  // T86 — approveDevice writes straight to THIS device's local, never-synced
-  // `devices` table (same shape as ingestCommit/confirmAlias); on a Client
-  // that write can never reach the Host, so it must refuse outright.
-  it('refuses on a device in Client mode, and writes nothing', async () => {
+  // T332 (docs/work/specs/2026-10-03-t332-client-admin-minting-design.md), superseding the T86
+  // refusal that used to live here: the camp_authority_log mint is mode-agnostic by construction,
+  // so a client-mode admin now reaches the same success path a host-mode admin already had.
+  it('succeeds on a device in Client mode for an admin caller', async () => {
     await seedCampAndUser({ name: 'AdminApproverClient', pin: '123400', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
     const { token: adminToken } = await handlers.login({ name: 'AdminApproverClient', pin: '123400' })
     db.prepare("INSERT INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run('approve-target-client', 'iPad')
     await handlers.chooseMode({ mode: 'client' })
 
-    expect(() => handlers.approveDevice({ token: adminToken, deviceId: 'approve-target-client' }))
-      .toThrow('Device management can only be done on the main computer.')
+    const result = handlers.approveDevice({ token: adminToken, deviceId: 'approve-target-client' })
+    expect(result).toEqual({ deviceId: 'approve-target-client', authorized: true })
 
     const row = db.prepare('SELECT authorized_at, pairing_status FROM devices WHERE id = ?').get('approve-target-client')
-    expect(row.authorized_at).toBeNull()
-    expect(row.pairing_status).toBe('pending')
+    expect(row.authorized_at).toEqual(expect.any(String))
+    expect(row.pairing_status).toBe('authorized')
   })
 })
 
@@ -2449,22 +2449,22 @@ describe('revokeDevice handler (devices.revoke, admin-only)', () => {
     expect(() => handlers.revokeDevice({ token: adminToken, deviceId: 'no-such-device' })).toThrow('device not found')
   })
 
-  // T86 — same reason as approveDevice's client-mode refusal: a self-revoke
-  // on a Client soft-bricks that device's own session locally while leaving
-  // real Host-enforced trust untouched.
-  it('refuses on a device in Client mode, and writes nothing', async () => {
+  // T332 (docs/work/specs/2026-10-03-t332-client-admin-minting-design.md), superseding the T86
+  // refusal that used to live here: mintRevokeEntry is mode-agnostic by construction, so a
+  // client-mode admin now reaches the same success path a host-mode admin already had.
+  it('succeeds on a device in Client mode for an admin caller', async () => {
     await seedCampAndUser({ name: 'AdminRevokerClient', pin: '123400', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
     const { token: adminToken } = await handlers.login({ name: 'AdminRevokerClient', pin: '123400' })
     db.prepare("INSERT INTO devices (id, name, pairing_status, authorized_at) VALUES (?, ?, 'authorized', ?)").run('revoke-target-client', 'Tablet', new Date().toISOString())
     await handlers.chooseMode({ mode: 'client' })
 
-    expect(() => handlers.revokeDevice({ token: adminToken, deviceId: 'revoke-target-client' }))
-      .toThrow('Device management can only be done on the main computer.')
+    const result = handlers.revokeDevice({ token: adminToken, deviceId: 'revoke-target-client' })
+    expect(result).toEqual({ deviceId: 'revoke-target-client', revoked: true })
 
     const row = db.prepare('SELECT revoked_at, pairing_status FROM devices WHERE id = ?').get('revoke-target-client')
-    expect(row.revoked_at).toBeNull()
-    expect(row.pairing_status).toBe('authorized')
+    expect(row.revoked_at).toEqual(expect.any(String))
+    expect(row.pairing_status).toBe('revoked')
   })
 
   // Stage 6c: the WebSocket original closed the revoked device's socket with

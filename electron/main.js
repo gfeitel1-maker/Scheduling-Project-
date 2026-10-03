@@ -1287,16 +1287,13 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   function approveDevice({ token, deviceId: targetDeviceId, makeAdmin = false } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const { userId } = requireAuthorized(db, { token, action: 'devices.approve' })
-    // T86 — same reason as ingestCommit/confirmAlias: this writes straight to
-    // THIS device's local, never-synced `devices` table. On a Client that
-    // write can never reach the Host, where device trust is actually
-    // enforced, so it must refuse outright rather than present a false
-    // success. Checked after requireAuthorized, matching that precedent, so
-    // an unauthorized caller gets the auth failure rather than learning the
-    // device's mode.
-    if (mode === 'client') {
-      throw new Error('Device management can only be done on the main computer.')
-    }
+    // T332 (docs/work/specs/2026-10-03-t332-client-admin-minting-design.md), superseding the T86
+    // guard that used to sit here: that guard's premise was that this function's only effect was
+    // a write to THIS device's local, never-synced `devices` table, which a Client could never
+    // make take effect fleet-wide. T331's camp_authority_log mint (below, when makeAdmin is true)
+    // is mode-agnostic by construction and IS the fleet-wide effect now — relaxing this guard is
+    // what finally lets a Client device reach it. The local `devices` UPDATE below remains exactly
+    // what it always was: a best-effort local convenience, not load-bearing for fleet-wide trust.
     if (!isNonEmptyString(targetDeviceId)) throw new Error('deviceId is required')
 
     const existing = db.prepare('SELECT id FROM devices WHERE id = ?').get(targetDeviceId)
@@ -1363,10 +1360,10 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   function revokeDevice({ token, deviceId: targetDeviceId, reason } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const { userId } = requireAuthorized(db, { token, action: 'devices.revoke' })
-    // T86 — same reason as approveDevice above.
-    if (mode === 'client') {
-      throw new Error('Device management can only be done on the main computer.')
-    }
+    // T332 (docs/work/specs/2026-10-03-t332-client-admin-minting-design.md) — same reasoning as
+    // approveDevice above: mintRevokeEntry below is unconditional and mode-agnostic, the real
+    // fleet-wide effect, so the T86-era Client guard that used to sit here is vestigial post-T331
+    // and is removed rather than left as a stale proxy for an effect that is no longer host-local.
     if (!isNonEmptyString(targetDeviceId)) throw new Error('deviceId is required')
 
     const existing = db.prepare('SELECT id FROM devices WHERE id = ?').get(targetDeviceId)
