@@ -41,7 +41,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // campers.division_label/is_unattributed and elective_preferences.rank_kind/
 // coordinate_day_label/coordinate_period_label) all land in this file; 79 is the
 // current version.
-export const CURRENT_SCHEMA_VERSION = 89
+export const CURRENT_SCHEMA_VERSION = 90
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -4306,6 +4306,36 @@ const DEVICE_HEALTH_EVENTS_DDL = `
     `)
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (89, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v90 (T331, docs/adr/2026-10-02-distributed-revocation-authority.md) — the new
+  // applied_authority_log/authority_cache tables. schema.sql already creates both
+  // unconditionally; this block is for a database upgrading from an earlier version, same
+  // two-places discipline as v86/v88. No back-fill: both are derived/cache tables recomputed
+  // from the camp_authority_log document collection, which this device re-verifies and replays
+  // from scratch the first time it runs post-upgrade — there is nothing to carry forward out of
+  // a pre-v90 db that never had this collection at all.
+  //
+  // Guard `>= 89 && < 90`, never a bare `< 90` (this repo's standing gotcha).
+  if (getSchemaVersion(db) >= 89 && getSchemaVersion(db) < 90) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS applied_authority_log (
+        entry_id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        target_device_id TEXT NOT NULL,
+        signer_device_id TEXT,
+        verified_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS authority_cache (
+        device_id TEXT PRIMARY KEY,
+        status TEXT NOT NULL CHECK (status IN ('admin', 'revoked')),
+        updated_at TEXT NOT NULL
+      );
+    `)
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (90, ?)').run(
       new Date().toISOString()
     )
   }

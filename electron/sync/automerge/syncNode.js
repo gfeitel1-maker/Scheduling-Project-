@@ -146,9 +146,27 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     return reconcileAndRecordConflicts(db, merged)
   }
 
+  // T331 gate C, third enforcement point (docs/adr/2026-10-02-distributed-revocation-authority.md)
+  // — "live teardown on projection": the moment THIS device's own derived authority_cache
+  // (just recomputed by the projectAll call above, via upsertCampAuthorityLogEntity) shows a
+  // CURRENTLY-CONNECTED peer as revoked, tear that connection down now rather than waiting for it
+  // to drop on its own — closing the third-device residual (a device revoked by two OTHER admins'
+  // quorum, propagated here by ordinary merge, must not keep its live connection to THIS device
+  // either). Mirrors T330's identical teardown argument; `transport.revokePeer` already exists and
+  // is idempotent (safe to call on a peer that is already disconnected).
+  function tearDownRevokedConnectedPeers() {
+    for (const [peerId, deviceId] of peerDeviceIds) {
+      const status = db.prepare('SELECT status FROM authority_cache WHERE device_id = ?').get(deviceId)?.status
+      if (status === 'revoked') {
+        transport.revokePeer(peerId)
+      }
+    }
+  }
+
   function projectAndNotify(merged, before, fromPeerId) {
     try {
       const contained = projectAll(db, merged)
+      tearDownRevokedConnectedPeers()
       onProjected?.(merged)
       // Containment (round 3) made a bad row non-fatal — projectAll no longer throws for it, so
       // the app must learn about it here instead of only in projection_failures/the console
@@ -329,6 +347,28 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
   // lifecycle as `syncStates` directly above — see transport.js's onPeerDisconnected wiring below.
   const peerSchemaVersions = new Map()
 
+  // T331 (docs/adr/2026-10-02-distributed-revocation-authority.md) gate B support: this peer's
+  // AUTHENTICATED device id, recorded the moment `authenticate` succeeds (same lifecycle as
+  // peerSchemaVersions directly above — never trusted from a self-report after that point,
+  // populated once from `evaluateAuthenticate`'s own verified token). `isPeerRevoked` below reads
+  // this to resolve a peerId to the deviceId whose status this device's own locally-verified-
+  // and-replayed `authority_cache` (projector.js's upsertCampAuthorityLogEntity) actually tracks —
+  // never from devices.libp2p_peer_id, the mutable routing-only column.
+  const peerDeviceIds = new Map()
+
+  // Mirrors isPeerSyncCompatible's shape exactly (T271 pattern) — the literal T329 finding this
+  // ADR exists to close: gated on the PRODUCTION path (handleSyncMessage below), not merely
+  // handleReceived. A peer never authenticated (no entry in peerDeviceIds) is NOT revoked by this
+  // check — admission already requires a live, non-revoked token at authenticate time; this is an
+  // ADDITIONAL check for a device revoked by another admin's quorum AFTER it was admitted, while
+  // its connection is still open.
+  function isPeerRevoked(peerId) {
+    const deviceId = peerDeviceIds.get(String(peerId))
+    if (!deviceId) return false
+    const status = db.prepare('SELECT status FROM authority_cache WHERE device_id = ?').get(deviceId)?.status
+    return status === 'revoked'
+  }
+
   // Thin, pure(-ish — reads two closure-local values, no side effects) wrapper around
   // isSyncCompatible: what the peer announced (peerSchemaVersions, `null` if never recorded — a
   // peer that hasn't authenticated yet, or omitted the field) vs. what THIS device currently
@@ -418,6 +458,17 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
   }
 
   async function handleSyncMessage(bytes, { fromPeerId }) {
+    // T331 gate B (docs/adr/2026-10-02-distributed-revocation-authority.md) — the LITERAL T329
+    // finding this ADR exists to close: a revoked device's sync must be refused on THIS production
+    // path (handleSyncMessage, the real stepSync<->handleSyncMessage round trip), not merely
+    // handleReceived (the test-only/direct-send path). Checked FIRST, before the schema-
+    // compatibility check below and before any syncStates.set, same "never mark a refused
+    // exchange as caught-up" discipline isPeerSyncCompatible's own check already uses — a device
+    // revoked mid-connection must not be able to keep syncing until it happens to disconnect.
+    if (isPeerRevoked(fromPeerId)) {
+      console.error(`syncNode: refused a sync message from ${fromPeerId} — this device is revoked (T331 enforcement)`)
+      return
+    }
     // T271 round 3: refuse to APPLY an incoming sync message from a schema-version-incompatible
     // peer — this is the production path round 1 missed entirely (see peerSchemaVersions' comment
     // above). The check happens BEFORE any syncStates.set for this exchange, which is the load-
@@ -492,6 +543,11 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
       // future admission path passing a non-string peerId would otherwise create a second,
       // never-matched entry that, under fail-closed, refuses a legitimate peer forever.
       peerSchemaVersions.set(String(fromPeerId), typeof msg.schemaVersion === 'number' ? msg.schemaVersion : null)
+      // T331 gate B support: record THIS peer's authenticated device id, so isPeerRevoked above
+      // can resolve a later revocation against the exact device that proved itself at this moment
+      // — never the client-supplied msg.device_id directly (result.verified.deviceId is the
+      // value evaluateAuthenticate itself validated the token against).
+      peerDeviceIds.set(String(fromPeerId), result.verified.deviceId)
     }
     return result.ok ? { ok: true } : { ok: false, reason: result.reason }
   }
@@ -649,6 +705,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
   transport.onPeerDisconnected((peerId) => {
     syncStates.delete(peerId)
     peerSchemaVersions.delete(peerId)
+    peerDeviceIds.delete(peerId)
     pendingVersionReset.delete(peerId)
     notifyPeersChanged()
   })
@@ -786,6 +843,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
       setCurrentDoc(db, doc)
       try {
         projectAll(db, doc)
+        tearDownRevokedConnectedPeers()
         onProjected?.(doc)
       } catch (err) {
         onProjectionError?.(err, doc, null)

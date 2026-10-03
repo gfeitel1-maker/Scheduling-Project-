@@ -87,7 +87,22 @@ export const DEFERRED_ENTITIES = new Set()
 // (upsertTombstonesEntity: signature verification + monotonicity + the denylist deletion pass),
 // exactly the security-sensitive reasoning `users`' credential fields already require. See
 // projector.js's upsertTombstonesEntity and this file's GENESIS_ENTITIES/GENESIS_B64 below.
-const EXTRA_MODELED_ENTITIES = ['camps', 'users', 'tombstones']
+// `camp_authority_log` (T331, docs/adr/2026-10-02-distributed-revocation-authority.md): added the
+// same way `tombstones` was — not a camp_id-scoped "domain" entity (an authority-log entry names a
+// device, not a camp), and it needs its own bespoke projector handling (signature verification via
+// authorityLogSignature.js + causal-ancestor/quorum replay via authorityReplay.js — see
+// projector.js's upsertCampAuthorityLogEntity). Entries are written field-by-field through the
+// SAME generic appendOp/applyWrite path every other MODELED_ENTITIES entity uses (no PROJECTIONS
+// registration needed — applyWrite only requires MODELED_ENTITIES membership, not a PROJECTIONS
+// entry; see assertModeled above). Deliberately only two entry `kind`s are ever WRITTEN —
+// 'genesis' (axiomatic, unsigned, seeded once at document creation) and 'revoke' (grants use
+// 'grant') — collapsing the ADR's three writer-chosen kinds (grant/revoke/revoke-vote) to two: the
+// REPLAY (authorityReplay.js) re-derives immediate-removal vs. vote-toward-quorum from the
+// target's own causal state rather than trusting a writer-chosen 'revoke-vote' label, which is
+// already required by the ADR's own "never trust a self-report" rule — so a separate `revoke-vote`
+// kind is redundant with 'revoke', not a stricter check. Behaviorally identical to the ADR's
+// three-kind vocabulary; documented here as the deliberate simplification it is.
+const EXTRA_MODELED_ENTITIES = ['camps', 'users', 'tombstones', 'camp_authority_log']
 
 export const MODELED_ENTITIES = new Set(
   [...DIRECT_CAMP_ENTITIES, ...Object.keys(PARENT_SCOPED_ENTITIES), ...EXTRA_MODELED_ENTITIES].filter(
@@ -272,6 +287,7 @@ function assertModeled(entity) {
 const GENESIS_ENTITIES = [
   'activities',
   'fixed_events',
+  'camp_authority_log',
   'camp_maps',
   'camp_seedlings',
   'camper_identity_keys',
@@ -369,8 +385,17 @@ const GENESIS_ENTITIES = [
 // byte-for-byte before adding the new entry), same acceptance as every prior regeneration:
 // pre-production, no live camps on this sync engine, existing `.automerge` files may be discarded.
 // New pinned head: 012398ef68af7ea00c6d8b20b5a9bacaa47cd9b0462089d127df77e1bf09310b
+// FOURTEENTH REGENERATION (T331, docs/adr/2026-10-02-distributed-revocation-authority.md):
+// `camp_authority_log` added to EXTRA_MODELED_ENTITIES/MODELED_ENTITIES above, so it needed
+// adding to GENESIS_ENTITIES (alphabetically, right after `fixed_events`, before `camp_maps` —
+// same cluster-local insertion discipline as every prior regeneration) and GENESIS_B64
+// regenerated again. An APPEND: no existing key changes meaning. Same acceptance as every prior
+// regeneration: pre-production, no live camps on this sync engine, existing `.automerge` files
+// may be discarded (owner ruling, 2026-10-02: "Regenerating GENESIS_B64 IS acceptable here —
+// this is pre-production... the same move v66/v72 made when they added genesis collections"). New
+// pinned head: 841a628058948a3f9d6d89674700a4d4aba04c2aa44e300bf71f92f5165143b0
 const GENESIS_B64 =
-  'hW9Kg/t5mAwAygMBECWl3YlnQBZYZHRLlRX3P0UBASOY72ivfqAMbYsgtam6yqR82bBGIInRJ9934b8JMQsGAQIDAhMCIwZAAlYCBx3VAiECIwo0AUICVgKAAQJ/AH8Bfy5/1P6C1QZ/AH8HbZHRbiIxDEWfaNWWIlgVtZX2q/YHrJDcYSIycZSbsJ2/X81EwID2KfaxY/vaf16NLf7siwdfrBmSDCZxM1sEXPDxyI/JRRbvEIsvo5ww8rlBrqaXz1Z7zYXvzoyiZ+TsHbhzZqRoJ5qQTfEavxAwNYQY0h/jgFgk18iP/wT4eYWHGl2AJGSvjvtHXjwytw+U31dge/UWol2HPCnaPkQW7dXamjPiHUwZHRq89c41Suejmwr+vqNaC7IwmsRelzKIIreFvy851zhPyzhmrYlvzWHQwl2zix8gh6D2xKeZcN15BCemll7ztjkp6xnRRIt153/gpKU+tbIvQe18B/6i7eFqwG3MGyoYUjAF3FzRX+DEHROsN0GmK8+zfS7JYsL1gnNzqdf+7O9dodUEruYbvi1qvBYdDiwawVUlMr+mIS77GwU/NlROYvZzYJa4oC39ongR+AcuAH4BAhoBfmUcEAEuLgAuAC4AAA=='
+  'hW9Kg2iUTr0A0AMBECWl3YlnQBZYZHRLlRX3P0UBhBpigFiUij+dbYlnRwCk1KugTCqkTjAL9x+S9RZRQ7AGAQIDAhMCIwZAAlYCBx3bAiECIwo0AUICVgKAAQJ/AH8Bfy9/1P6C1QZ/AH8HbZHhTgMhEIR/VaPWpjU2auJL+QSEwlyPlGMJA9V7e8Nh22vjr2O/3VtmmK9HbbI7uuzAF6OHqHTJvSSXR+Vl/zChQUeuphMB613Y87WWSMpZhFyHDxh53yAX9ct7I72kzGerRyVHpOQsuLF6pJJOSUTS2Ul4h0fVAKVJtw8DQlapBL7+0+DbGe5KsB4qIjmx3N7y7JC4vqH8OAPTizNQ0nVI1dH6pjO7XowpKSFcwZjQocHL3akE1blg68LPKyolIykGHdnL3AaR1SWD5znnEsf6GPskJfKpFfSSuWnn7AaonRdz4N1EuOwcvP0Lcd2KmOSIoIPBsnM/sKqN3rW1D17MlANfaHrY4nGReUEZQ/Q6g6sz+gYO3DDCOO1VTXnS9jYnM4XLGefqtK/9s70uFY1EcDFl+DTb8Zhl2DFLABeFSHyvIk7vNyr8GF9YzWynxmRxRtv4yfGs8QsvAH4BAhsBfmQdEAEvLwAvAC8AAA=='
 
 function genesisDoc() {
   return A.clone(A.load(Uint8Array.from(Buffer.from(GENESIS_B64, 'base64'))))
@@ -626,11 +651,16 @@ export function recordFieldKeys(doc, entity, entityId) {
   return Object.keys(doc[entity] ?? {}).filter((k) => k.startsWith(prefix) && splitRecordKey(k)?.entityId === entityId)
 }
 
+// camp_authority_log (T331) is deliberately NOT in PROJECTIONS — it has no backing SQL table to
+// project into (see EXTRA_MODELED_ENTITIES comment above); its allowed field list lives here
+// instead, the one place applyOneWriteInto needs it to gate a write by field name.
+export const CAMP_AUTHORITY_LOG_FIELDS = ['kind', 'target_device_id', 'target_peer_id', 'signer_device_id', 'signature']
+
 // The per-field body of a write, applied INSIDE an open A.change. Extracted so
 // applyWrite and applyWrites share one implementation rather than two copies —
 // provenance/authorship/tombstone semantics drift the moment there are two.
 function applyOneWriteInto(d, { entity, entity_id, field, value, source, author_user_id }) {
-  const fields = PROJECTIONS[entity].fields
+  const fields = entity === 'camp_authority_log' ? CAMP_AUTHORITY_LOG_FIELDS : PROJECTIONS[entity].fields
   // Lazy top-up (see genesis comment above): a document persisted before `entity` existed in
   // MODELED_ENTITIES (or a genesis-cloned doc whose frozen entity list predates it) has no
   // collection for it yet. Create it here rather than assuming createEmptyDoc() already did —

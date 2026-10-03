@@ -65,6 +65,17 @@ export const PURGE_INFRASTRUCTURE_TABLES = [
   'domain_state_migration_pending',
   'device_identity',
   'rendezvous_sequence',
+  // applied_authority_log / authority_cache (T331, docs/adr/2026-10-02-distributed-revocation-
+  // authority.md): device-local caches derived by replaying the camp_authority_log Automerge
+  // collection (electron/automerge/authorityReplay.js). The DOCUMENT COLLECTION ITSELF is not
+  // purged (purge/rebuild operates on this device's local SQLite projection, not the synced
+  // document) — so wiping these two cache tables loses nothing: the next projection pass
+  // re-verifies and re-replays the untouched camp_authority_log from scratch and repopulates both
+  // tables identically, which is exactly the "re-verifies and carries forward the revocation set,
+  // never resets it" discipline this ADR requires (the carry-forward comes from the document
+  // never having been purged, not from preserving these derived rows byte-identically).
+  'applied_authority_log',
+  'authority_cache',
   // peer_tombstone_reports (T322 S3a, docs/adr/2026-09-19-multi-device-erasure-propagation.md's
   // 2026-10-01 addendum): a peer's self-reported set of (tombstone id, version) pairs it has
   // verified-and-projected — erasure-PROPAGATION metadata (which peer applied which purge, at what

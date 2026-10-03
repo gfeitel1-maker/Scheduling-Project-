@@ -117,11 +117,14 @@ describe('rollback bare-equality schema_migrations guard', () => {
     //
     // 50 is v89_down.js (T328 Slice 1 correction pass — peer_last_addresses widened to multiple
     // addresses per peer).
+    //
+    // 51 is v90_down.js (T331, docs/adr/2026-10-02-distributed-revocation-authority.md —
+    // applied_authority_log/authority_cache).
     expect(
       files.length,
       'a new electron/db/rollback/vNN_down.js landed — bump this literal and add a dated ' +
         'one-line note above it (like the v84/v85/v86 notes) saying which vNN it is'
-    ).toBe(50)
+    ).toBe(51)
   })
 
   it('every rollback file uses `>= N`, never bare `= N`, to delete its schema_migrations row', () => {

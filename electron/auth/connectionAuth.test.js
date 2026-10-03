@@ -180,6 +180,40 @@ describe('evaluateAuthenticate — shared admission decision', () => {
     expect(result.reason).toBe('device_revoked')
   })
 
+  it('T331 gate A: rejects a device the DISTRIBUTED authority_cache marks revoked, even though devices.revoked_at was never set (no Host-local revocation)', () => {
+    const deviceId = randomUUID()
+    setupCampWithAuthorizedDevice(deviceId)
+    const token = issueCampToken(db, randomUUID(), deviceId)
+    // No devices.revoked_at write at all — this device was removed by another admin's quorum,
+    // never by THIS device's own Host-local revokeDevice() path. The gate must still refuse it.
+    db.prepare('INSERT INTO authority_cache (device_id, status, updated_at) VALUES (?, ?, ?)').run(
+      deviceId,
+      'revoked',
+      new Date().toISOString()
+    )
+
+    const result = evaluateAuthenticate(db, { token, device_id: deviceId })
+
+    expect(result.ok).toBe(false)
+    expect(result.code).toBe(4404)
+    expect(result.reason).toBe('device_revoked_by_authority')
+  })
+
+  it('T331 gate A: admits a device the authority_cache marks admin', () => {
+    const deviceId = randomUUID()
+    setupCampWithAuthorizedDevice(deviceId)
+    const token = issueCampToken(db, randomUUID(), deviceId)
+    db.prepare('INSERT INTO authority_cache (device_id, status, updated_at) VALUES (?, ?, ?)').run(
+      deviceId,
+      'admin',
+      new Date().toISOString()
+    )
+
+    const result = evaluateAuthenticate(db, { token, device_id: deviceId })
+
+    expect(result.ok).toBe(true)
+  })
+
   it('rejects an unauthorized (never-approved) device', () => {
     const campId = randomUUID()
     db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(campId, 'Test Camp')

@@ -604,6 +604,43 @@ live admission set immediately — `transport.js`'s `revokePeer`), so nothing it
 another device. What it wrote locally stays in its own copy. The enforcement point is admission,
 not inspection of the writes.
 
+### Distributed revocation/admin authority (T331)
+
+The device revocation above describes the pre-existing, Host-local mechanism: one admin's own
+`revokeDevice` call, enforced on that one device's live connections and local admission. T331
+(`docs/adr/2026-10-02-distributed-revocation-authority.md`) adds a SEPARATE, fleet-wide mechanism
+on top of it — the two cooperate; neither replaces the other.
+
+**What it defends.** A device (ordinary or admin, including the founder) that any currently-valid
+admin signs a removal for is refused: at the handshake (`connectionAuth.js`'s `evaluateAuthenticate`,
+independent of `devices.revoked_at`), on the production sync-message path
+(`syncNode.js`'s `handleSyncMessage`, the literal path a prior design (T329) missed), and by live
+teardown of an already-open connection the moment any device projects the removal
+(`projector.js`'s `upsertCampAuthorityLogEntity`). This is **convergent and fleet-wide**: every
+device independently replays the same signed, append-only `camp_authority_log` collection and
+reaches the same answer regardless of which device signed the removal or in what order changes
+merge — there is no central authority to be offline or compromised. An ordinary device is removed
+by any one currently-valid admin; an admin or the founder requires a quorum of the *other*
+currently-valid admins (`floor((N-1)/2)+1`), so no single rogue admin can unilaterally remove a
+peer admin.
+
+**What it does NOT defend against.** A device that is about to be removed, or senses it, can
+author entries **offline** citing a causal basis from before its removal propagated to it; those
+entries are valid as authored and can drag a legitimate admin down with it (symmetric
+mutual-destruction, not a silent win — every entry is permanently visible in the audit trail and
+counter-revocable). The owner accepted this residual as bounded for v1, given this project's small,
+in-person-vetted device fleets and full auditability; it is not closed by a quorum requirement or a
+wall-clock grace window, both of which this project has separately ruled out for device trust
+decisions.
+
+**Scope, stated plainly.** This mechanism's admin set is a NEW, device-scoped authority concept —
+it is deliberately kept separate from the existing `users.role = 'admin'` credential (a Host-signed,
+per-user field governing in-app permissions via `authorize()`) for v1. In practice a camp's director
+is usually both, but unifying the two is a larger decision this ADR does not make
+(tracked as a follow-up). Signing uses each device's own `device_identity_key` (already generated
+on first sync-node start), never `host_signing_key` — this is the whole point: no single device's
+key material is a single point of failure for revoking another device.
+
 ---
 
 ## Explicitly NOT for
