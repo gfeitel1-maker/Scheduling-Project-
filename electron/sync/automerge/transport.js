@@ -72,7 +72,7 @@ const MAX_CONNECTIONS = 200
 // attempt only ever runs over a connection that arrived via T337's already camp-admitted relay (see
 // the design doc §1) — it needs no admission check of its own here, because it has no reachability
 // path into this node that didn't already pass the relay's own `isPeerAdmittedForRelay` gate above.
-export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyncMessageReceived, listen, onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, onPairingDecision, peerDiscovery, now, connectionRateLimiter, privateKey, schemaVersion, relayServerFactory, relayTransportFactory, directUpgradeServiceFactory, inboundConnectionThreshold } = {}) {
+export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyncMessageReceived, listen, onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, onPairingDecision, peerDiscovery, now, connectionRateLimiter, privateKey, schemaVersion, relayServerFactory, relayTransportFactory, directUpgradeServiceFactory, inboundConnectionThreshold, onRelayReservationRefused } = {}) {
   // Per-SOURCE-IP inbound rate limiting (blocker #2 of the WAN hardening; connectionRateLimiter.js).
   // Closes the connection-churn hole authGate.js documents: a peer opening a fresh connection (fresh
   // peer id) per frame evades per-peer throttling and is otherwise bounded only by MAX_CONNECTIONS.
@@ -120,6 +120,35 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     return (components) => {
       const instance = factory(components)
       clientRelayInstance = instance
+      // T336 Precondition 3 (docs/work/specs/2026-10-03-t336-holepunch-build-design.md §4): every
+      // reservation attempt this node's circuitRelayTransport ever makes — the library's own
+      // internal 'relay:discover' listener (index.js), listener.js's configured-relay path, AND
+      // our own retryClientRelayDiscoveryFor below — goes through this ONE addRelay method, so
+      // wrapping it once here catches a refusal from any of those paths rather than only the one
+      // this file calls directly. The original call is still made and its result/rejection still
+      // propagates unchanged (the library's own '.catch' loggers downstream still run) — this only
+      // OBSERVES a RESERVATION_REFUSED rejection in order to report it; it never swallows or
+      // alters one. See reservation-store.js's #createReservation: a refusal throws a plain Error
+      // whose message is `reservation failed with status ${status}`, there is no refusal EVENT.
+      if (instance?.reservationStore?.addRelay) {
+        const originalAddRelay = instance.reservationStore.addRelay.bind(instance.reservationStore)
+        instance.reservationStore.addRelay = (peerId, type) => {
+          const result = originalAddRelay(peerId, type)
+          return Promise.resolve(result).catch((err) => {
+            if (/RESERVATION_REFUSED/.test(String(err?.message))) {
+              try {
+                onRelayReservationRefused?.({
+                  type: 'relay-reservation-refused',
+                  peerId: peerId?.toString ? peerId.toString() : String(peerId),
+                  reason: 'RESERVATION_REFUSED',
+                  at: Date.now(),
+                })
+              } catch { /* a UI-notice callback must never break the reservation path itself */ }
+            }
+            throw err
+          })
+        }
+      }
       if (instance?.discovery) {
         const seen = new Set()
         instance.discovery.filter = {
