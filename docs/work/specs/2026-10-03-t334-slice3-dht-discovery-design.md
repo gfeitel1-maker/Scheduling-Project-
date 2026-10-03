@@ -2,15 +2,32 @@
 title: "T334 Slice 3 — DHT discovery (primary WAN path) design"
 document_type: spec
 authority: approved
-status: active
+status: superseded
 task_class: security-auth
 created: 2026-10-03
 governing_docs: [docs/adr/2026-10-02-wan-discovery-transport-ladder.md, docs/adr/2026-09-18-rendezvous-record-encoding-and-namespace-rotation.md, docs/adr/2026-10-02-signed-revocation-witness.md, SECURITY.md]
-related_docs: [docs/work/security/2026-10-02-t329-slice2-camp-epoch-assessment.md, docs/work/security/2026-09-15-wan-dht-boundary-assessment.md, docs/adr/2026-10-02-distributed-revocation-authority.md, docs/work/specs/2026-10-03-t335-key-turning-rotating-discovery-tag-design.md]
-archive_when: Slice 3 is implemented, security+battle-test gate recorded, kadDht/bootstrap signoff entries added
+related_docs: [docs/work/security/2026-10-02-t329-slice2-camp-epoch-assessment.md, docs/work/security/2026-09-15-wan-dht-boundary-assessment.md, docs/adr/2026-10-02-distributed-revocation-authority.md, docs/work/specs/2026-10-03-t335-key-turning-rotating-discovery-tag-design.md, docs/work/security/2026-10-03-t334-dht-capability-assessment.md, docs/work/specs/2026-10-03-cross-network-discovery-options-menu.md]
+archive_when: superseded — see status
 ---
 
 # T334 Slice 3 — DHT discovery design
+
+**SUPERSEDED/REJECTED (2026-10-03, owner decision — historical, not current).** The owner rejected
+the public-DHT cross-network path this design wires, verbatim: *"no. i do not accept this."* The
+"Amendment 2026-10-03" section of
+`docs/adr/2026-10-02-wan-discovery-transport-ladder.md` is the current authority: the public DHT is
+dropped from the ladder entirely, replaced by remembered-address reconnect + NAT hole-punch as the
+primary cross-network path, with Cloudflare rendezvous kept as the rare fallback. The dormant,
+gated code this design produced (`electron/sync/automerge/dhtDiscovery.js`, `dhtEnabled: false`,
+`kadDht`/`bootstrap` rows still `signoff: null` in `transportCapabilities.js`) is not activated and no
+further work proceeds against this document. It is kept, not deleted, as the historical record of the
+design that was built dormant and then rejected before activation — do not pick this up as a current
+spec.
+
+---
+
+_Everything below this line is the original, now-superseded design, preserved for historical
+reference._
 
 **Status: prerequisite closed (2026-10-03) — organizer-approved.** T335 (merged `4a9c4020`) shipped
 the signed, rotating discovery tag §0 originally found missing. Everything below is the design Maker

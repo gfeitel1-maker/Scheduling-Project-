@@ -2,14 +2,24 @@
 title: "Cross-network discovery options menu (public DHT rejected by owner)"
 document_type: spec
 authority: proposed
-status: draft
+status: superseded
 task_class: security-auth
 created: 2026-10-03
 governing_docs: [docs/adr/2026-10-02-wan-discovery-transport-ladder.md, docs/work/security/2026-10-03-t334-dht-capability-assessment.md, docs/adr/2026-07-28-explicit-userdata-directory.md, SECURITY.md]
-archive_when: the owner picks an option and a follow-up ADR records the chosen ladder
+archive_when: superseded — see status
 ---
 
 # Cross-network discovery — options menu (design only, builds nothing)
+
+**RESOLVED (2026-10-03).** The owner resolved this menu's open questions to Option 4's shape —
+remembered-address + hole-punch as the default path, single-operator rendezvous (the existing
+Cloudflare path) as the rare fallback — in his own words, not merely by picking a numbered option:
+*"devices have to first meet on the same lan... after that they should be able to go anywhere... the
+cloudflare relay is a back up for a rare case where a weird firewall throws a barrier we can't work
+around."* The binding record of this resolution is the "Amendment 2026-10-03" section of
+`docs/adr/2026-10-02-wan-discovery-transport-ladder.md`. This document's analysis below is unchanged
+and remains useful context for why Option 4 was recommended and why Options 1 and 3-as-default were
+not, but it is no longer the open question — the decision is made.
 
 **This document opens no capability, writes no code, and recommends but does not decide.** It exists
 because the owner rejected the public-DHT cross-network path verbatim ("no. i do not accept this.")

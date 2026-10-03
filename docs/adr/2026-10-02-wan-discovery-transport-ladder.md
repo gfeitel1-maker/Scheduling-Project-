@@ -22,7 +22,11 @@ related_adrs:
 related_docs:
   - docs/work/security/2026-09-15-wan-dht-boundary-assessment.md
   - docs/work/security/2026-09-26-internet-transport-signoff-reassessment.md
-implementation_state: not-started
+  - docs/work/security/2026-10-03-t334-dht-capability-assessment.md
+  - docs/work/specs/2026-10-03-cross-network-discovery-options-menu.md
+  - docs/work/specs/2026-10-03-t334-slice3-dht-discovery-design.md
+implementation_state: in-progress
+amended: 2026-10-03
 ---
 
 # WAN discovery/transport ladder — DHT-first, Cloudflare last
@@ -391,3 +395,133 @@ per-capability sign-offs replaced by the security + battle-test gate; (5) relay 
 standing it up (spend/infra) stays an owner action. The only items that still return to the owner are
 a security/Grader FAIL that cannot be closed, and any spend/infra action (deploying a relay or
 Cloudflare).
+
+_Prior: item (3) above and the Decision/Tier-2 sections below recorded the **public libp2p
+DHT/bootstrap network** (kad-dht + public bootstrap nodes) as this ADR's PRIMARY WAN discovery
+mechanism. That rung is superseded by the amendment immediately below — the owner rejected the
+public DHT itself, not merely its defaults. Tier 2 in the table and the whole "Tier 2 settled
+concretely" section (kad-dht keying, bootstrap-node sourcing, the public-DHT safety argument) are
+therefore historical: they describe a rung that was proposed, built as dormant/gated code
+(`dhtDiscovery.js`, `signoff: null`), and then rejected before activation — read them as a record of
+what was tried and why it didn't ship, not as the current plan. They are intentionally left in place
+below rather than deleted, per this repo's historical-marking convention._
+
+## Amendment 2026-10-03 (owner decision — corrected ladder, public DHT removed)
+
+**Status: ACCEPTED.** This amendment is itself a decision the owner made directly (not an
+organizer-delegated acceptance under Article IV's carve-out) — his own words are the authority for
+it, recorded below with the date, same standard the original 2026-10-02 acceptance used.
+
+### What changed, and why
+
+Session 2026-10-03 produced `docs/work/security/2026-10-03-t334-dht-capability-assessment.md`, which
+found the public libp2p DHT materially worse than the already-accepted Cloudflare rendezvous on three
+axes: an unbounded public observer population (any of millions of DHT participants, not one operator),
+internet-wide reachability of the pre-auth discovery surface, and eclipse/Sybil exposure of lookups
+that the rotating-tag confidentiality argument does not cover (it protects the *key*, not the
+*availability/integrity* of a lookup against it — see that assessment and
+`docs/work/specs/2026-10-03-t334-slice3-dht-discovery-design.md` §5.3 for the un-closed finding).
+
+The owner's response, verbatim, relayed via the organizer, 2026-10-03: **"no. i do not accept this."**
+He then corrected the framing of the whole ladder, verbatim: **"devices have to first meet on the same
+lan. that is a hard stop first principle. after that they should be able to go anywhere. it is the
+different wifis then usual finding each other that we are trying to solve for, or even one new
+wifi/connection to original. between all users of a camp. the cloudflare relay is a back up for a rare
+case where a weird firewall throws a barrier we can't work around."**
+
+Two distinct corrections are in that statement, both binding:
+
+1. **The public DHT is dropped from the ladder entirely** — not deprioritized, not reordered, removed.
+   The rejection is of the public-DHT *mechanism itself* (unbounded-observer metadata exposure), not of
+   its position in the ladder. No future slice re-adds `kadDht`/`bootstrap` discovery without a fresh
+   owner decision; `docs/work/specs/2026-10-03-cross-network-discovery-options-menu.md`'s Option 1
+   (private/closed DHT) was independently assessed as a trap in that same document and is not an
+   exception to this.
+2. **Cloudflare was never actually rejected as a concept** — his original "cloudflare relay is a back up
+   for a rare case" restates, not reverses, the original ADR's tier-3 "last resort / bottom rung, not
+   the primary path" framing (see "Owner intent" above, 2026-10-02: *"for truly odd circumstances
+   only"*). What changed is tier 2's mechanism, not tier 3's role. Do not read this amendment as the
+   owner softening on Cloudflare — he is restating the same constraint that was already correctly
+   recorded, now contrasted against the DHT rung that was removed.
+
+### The corrected three-tier ladder (supersedes the Decision table's Tier 2 above)
+
+| Tier | Purpose | Mechanism | Status |
+|---|---|---|---|
+| **1. LAN meet** | hard-stop first principle — devices MUST establish mutual trust on the same LAN before anything else is attempted; this is not "a case to solve," it is the gate everything downstream passes through | mDNS multicast (`@libp2p/mdns`) + the existing LAN trust-establishment handshake | **shipped**, unchanged |
+| **2. Remembered-address reconnect + NAT hole-punch** (PRIMARY cross-network path) | the actual problem being solved: devices that have already met on LAN, now on different wifis (including a device moved to one new connection), finding each other again across all of a camp's devices | `peerAddressBook.js`'s `rememberPeerAddress`/`redialTrustedPeers` (merged, Slice 1) + `@libp2p/dcutr`/`@libp2p/autonat` hole-punch (not yet merged) | redial: **shipped**. Hole-punch: **blocked** (`dcutr` row, `signoff: null`) — next to build |
+| **3. Cloudflare rendezvous** (RARE fallback) | engaged only when tier 2 cannot connect — "a weird firewall throws a barrier we can't work around" (owner, 2026-10-03), not a normal-operation dependency | existing, already-signed-off `rendezvousClient.js` discovery; `@libp2p/circuit-relay-v2` as a capped, time-boxed data path for the CGNAT-both-ends case tier 2 cannot punch through | discovery: **wired, signed off** (2026-09-28). Relay-as-data-path: **blocked** (`relay` row, `signoff: null`) |
+
+**No tier-2 DHT rung exists in the corrected ladder.** The kad-dht/bootstrap mechanism, the public-DHT
+safety argument, and the bootstrap-node sourcing recommendation in the "Tier 2 settled concretely"
+section above are **historical** — struck from the current plan by this amendment, kept in the
+document per this repo's convention for marking superseded content rather than deleting it. The
+`kadDht` and `bootstrap` rows in `transportCapabilities.js` (lines 70-81) remain in the registry at
+`signoff: null` — their blocked, inert state is unchanged by this amendment, and no further work opens
+them absent a new owner decision.
+
+### Why: the two rejections this amendment records
+
+- **Public-DHT metadata exposure** (the stated reason, `docs/work/security/2026-10-03-t334-dht-capability-assessment.md`): an unbounded, uncontrolled population of DHT participants can observe that *some* peer exists under an opaque key and reach it directly — a categorically different and worse exposure than a single operator (Cloudflare) holding the same shape of record, which the owner had already accepted. This is what "no. i do not accept this." was said about.
+- **The fork-per-camp centralization concern, which also rules out a Shoresh-run rendezvous node as a standing dependency** (not raised by the owner in this exchange, but load-bearing for not substituting one centralization problem for another): this project is architected as open-source, forked per camp (`project_open_source_fork_per_camp_model`) — any discovery mechanism that makes a *Shoresh-operated* server the normal-case dependency undermines that model for every forked camp that doesn't want to depend on Shoresh's infrastructure. This is why `docs/work/specs/2026-10-03-cross-network-discovery-options-menu.md`'s Option 3 (a Shoresh-run rendezvous node as the default) was never recommended as the default rung, and why the existing `SHORESH_RENDEZVOUS_URL` override — letting a forked camp point its tier-3 fallback at its own infrastructure instead of Shoresh's — is a hard requirement of the corrected tier 3, not an optional nicety.
+
+### Build sequence (owner/organizer-set, 2026-10-03)
+
+Two slices, in this order, **each slice's design comes to the organizer before any capability opens**
+— the same strict capability-gate discipline the original ADR already established (security
+re-assessment + Security + Red Hat + battle-test, `signoff` added only after the gate passes) is
+unchanged by this amendment; only *which* capabilities are in scope changes.
+
+**Slice A — hole-punch path first (tier 2's missing half).** Opens the `dcutr` row (`@libp2p/dcutr`,
+`@libp2p/autonat`; `transportCapabilities.js:40-45`, currently `signoff: null`) through the full
+capability + battle-test gate, including:
+- the Slice-1 cached-WAN-address carry-forward check — `docs/work/specs/2026-10-03-t334-slice3-dht-discovery-design.md` §5.6 named this for the (now-dropped) DHT path; the same check applies unchanged to hole-punch: a revoked device must not become redialable via `peerAddressBook.js`'s cached address merely because hole-punch widens reachability — the admission gate (`authorize()`), not discovery, must be what blocks it;
+- the revoke-while-running cut-off criterion carried from T335/T334's HARD acceptance criterion (the slice-3 design's closing section) — a device revoked while connected must actually lose reach, live, not merely on next restart. This criterion was written against the DHT path specifically because DHT discoverability needed live re-keying; for the hole-punch path the equivalent requirement is that `redialTrustedPeers` and the hole-punch dial path both re-check trust immediately before each dial attempt (already the documented contract at `peerAddressBook.js:30`, "re-checks trust IMMEDIATELY BEFORE each individual dial") and that a revoked device's cached address cannot be used to establish a new hole-punched connection that survives `authorize()`.
+
+**Reuses:** the merged Slice 1 remembered-address reconnect (`electron/sync/automerge/peerAddressBook.js`
+— `rememberPeerAddress`, `redialTrustedPeers`, backed by the `peer_last_addresses` table), and the T331
+distributed-authority admission/revocation gates (`authorityReplay.js`, `authorize()`) — unchanged by
+this or any discovery option; admission stays the control, exactly as the slice-3 design's §2 parity
+requirement already stated for the (now-dropped) DHT path and restated here for hole-punch.
+
+**Slice B — Cloudflare rare-firewall fallback (tier 3's data-path half).** Only after Slice A's design
+and gate are through. Extends `@libp2p/circuit-relay-v2` to a capped, time-boxed **data** path
+(`relay` row, `transportCapabilities.js:34-39`, currently `signoff: null`) for the CGNAT-both-ends case
+hole-punch cannot solve, alongside the **existing, already-signed-off** `rendezvousClient.js` discovery
+path (`transportCapabilities.js`'s `discovery` row — unaffected, no re-gate needed for discovery
+itself, only for the new relay-as-data-path use).
+
+**Reuses:** the T335 signed rotating discovery tag
+(`electron/sync/automerge/rotatingDiscoveryTag.js`'s `rotatingDiscoveryDigest`,
+`authorityRevocationDigest.js`) remains the correct lookup key for this rung too — it is
+transport-agnostic by design (per the options-menu doc's "Reused building blocks" section) and is not
+tied to the dropped DHT mechanism; the existing Cloudflare rendezvous client and KV-worker protocol
+shape; the T331 admission gates, same as Slice A.
+
+### OWNER SPEND/INFRA — reserved, do not build toward
+
+**Standing up the Cloudflare rendezvous Worker on the owner's own Cloudflare account/domain (ticket
+T209, `docs/work/tickets/T209-rendezvous-worker-phase-a.md`, currently `in-progress` — the Worker code
+exists, undeployed) is an owner action, not something either slice builds toward.** Slice B builds and
+tests the **client** against the existing Worker code/fixtures; the **deploy** step — provisioning the
+actual Cloudflare account/domain resource — is brought to the owner when the rung is otherwise ready,
+exactly as the original ADR's Acceptance §5 already reserved "standing it up (deploying/paying for a
+relay or Cloudflare)" as a spend/infra decision outside the security+battle-test gate's authority.
+
+**Keep the rendezvous URL camp-configurable.** The existing `SHORESH_RENDEZVOUS_URL` override (already
+established for the Cloudflare discovery path, mirrored by the slice-3 design's proposed
+`SHORESH_DHT_BOOTSTRAP` pattern for the now-dropped DHT rung) must remain the mechanism by which a
+forked camp points tier 3 at its own rendezvous endpoint instead of the owner's. This is a hard
+requirement of the fork-per-camp model (see "Why" above), not an enhancement — Slice B must not
+hard-code a single owner-operated URL.
+
+### Doc hygiene this amendment performs
+
+- `docs/work/specs/2026-10-03-t334-slice3-dht-discovery-design.md` is marked **SUPERSEDED/REJECTED**
+  (frontmatter `status`) by this amendment — see that file's own header update. It remains in the repo
+  as the historical record of the design that was built dormant and then rejected before activation; it
+  is not current and must not be picked up by Maker.
+- `docs/work/specs/2026-10-03-cross-network-discovery-options-menu.md` is updated to note the owner
+  resolved the open questions it posed to Option 4's shape (remembered-address + hole-punch default,
+  single-operator rendezvous fallback) — the same shape this amendment records as the corrected ladder,
+  confirming the options-menu's recommendation was the one the owner picked.
