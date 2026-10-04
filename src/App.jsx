@@ -27,6 +27,7 @@ import ConflictsScreen from './screens/ConflictsScreen'
 import TrashScreen from './screens/TrashScreen'
 import DeviceManagerScreen from './screens/DeviceManagerScreen'
 import SeedScreen from './screens/SeedScreen'
+import AboutScreen from './screens/AboutScreen'
 import { useDeviceMode } from './hooks/useDeviceMode'
 import { usePendingConflicts } from './hooks/usePendingConflicts'
 import { ensureCohort } from './utils/ensureCohort'
@@ -105,6 +106,10 @@ const SCREENS = {
   // "remembered schedule" anti-pattern the plural-candidate-schedules ADR
   // forbids.
   devices:      DeviceManagerScreen,
+  // About & Legal — reached from the sidebar footer, not a nav stage. A
+  // view-only surface (about note, version, user agreement, license,
+  // third-party attributions); see src/screens/AboutScreen.jsx.
+  about:        AboutScreen,
 }
 
 // Which schedule route a sidebar destination stands for. Absent for the

@@ -449,6 +449,7 @@ Two token types are minted, verified, and enforced separately — see `electron/
 | ~~`schedule:map`~~ | ~~`src/screens/DayMapScreen.jsx`~~ | **RETIRED (PR #201, commit `335e311`).** The Day Map view and its `schedule:map` key are deleted along with the rest of the spatial layer; `DayMapScreen.jsx` and `src/data/deriveOccupancy.js` no longer exist. A future schedule-driven map is a separate (Phaser-based) initiative. |
 | `conflicts` | `src/screens/ConflictsScreen.jsx` | Write-conflict resolution with pre-resolution DB snapshot; only screen given extra props (`onNavigate`, `pendingConflicts`) beyond `campId` |
 | `devices` | `src/screens/DeviceManagerScreen.jsx` | Admin: approve pairing requests, view paired devices, revoke device access — admin-only |
+| `about` | `src/screens/AboutScreen.jsx` | View-only About & Legal surface reached from the sidebar footer: a neutral About note, the app version, the user agreement, the Apache-2.0 license notice, and a pointer to the bundled third-party attributions. No accept-gate, no stored state — pure UI. |
 
 ---
 
