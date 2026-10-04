@@ -62,7 +62,28 @@ export const TRANSPORT_CAPABILITIES = {
     packages: ['@libp2p/dcutr'],
     sourceMarkers: ['dcutr'],
     egressAllowlist: [],
-    signoff: null,
+    // T336 — authorizes the CODE MERGE of the inert hole-punch capability only. Not a hand-signature:
+    // the owner gave a 2026-10-03 conditional YES ("if it is safe, secure, and reasonable... if it
+    // exposes data or the computer harmfully, then no") and DELEGATED the determination to the
+    // security + battle-test gate (T327 delegation); the gate passed for the INERT merge and the
+    // organizer accepted after independently spot-checking the branch. Writing this flips the dcutr
+    // Tier-4 guard reds green = the merge; it does NOT activate anything (this registry is never read
+    // at runtime). Runtime activation is SHORESH_RELAY_ENABLED (default false), a SEPARATE owner
+    // go-live gated on the pre-activation preconditions in `doc`.
+    signoff: {
+      date: '2026-10-03',
+      owner: 'gate (owner 2026-10-03 conditional-YES + T327 delegation; accepted by organizer)',
+      scope: 'coordination/hole-punch, code-merge-inert; runtime activation gated on the pre-activation preconditions + owner go-live',
+      conditions: [
+        'MAX_CONNECTIONS=200 distributed-source DoS mitigation (T336-created latent exposure) — reserved-slot floor for admitted peers + early-drop for un-admitted + aggregate inbound cap',
+        'real independently-NATed two-device cross-network dcutr punch validation (owner hardware)',
+        're-confirm T337 C2 (client camp-only reservation) + C4 (pre-auth sizing) at the activation gate',
+        're-run dcutr-subtree npm audit + postinstall check at activation',
+        'ADR 2026-09-14 owner items: signed auto-update; internet-scale rate-limit review',
+        "SHORESH_RELAY_ENABLED must be the literal string 'true' (fails closed otherwise)",
+      ],
+      doc: 'docs/work/security/2026-10-03-t336-holepunch-dcutr-inert-merge-assessment.md#signoff-decision',
+    },
   },
   webrtc: {
     packages: ['@libp2p/webrtc', '@libp2p/webrtc-direct'],
