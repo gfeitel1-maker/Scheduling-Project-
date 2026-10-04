@@ -454,6 +454,39 @@ describe('Sidebar: host-not-syncing retry affordance (T275)', () => {
   })
 })
 
+// T336 Precondition 3 — the relay-reservation-refused signal must reach a director-VISIBLE
+// element, not merely fire an event (the "Assert the Row, Not the Call" discipline). Reuses the
+// existing LAN & Devices gear-menu label slot (same host as T160's lowDisk/T176's
+// otherDeviceCount warnings) rather than a new toast/banner.
+describe('Sidebar: relay-reservation-refused signal is director-visible (T336)', () => {
+  function openGear() {
+    fireEvent.click(screen.getByTitle('Settings'))
+  }
+
+  it('renders "relay full" in the LAN & Devices row when the status reports a refused reservation', () => {
+    renderSidebar({
+      syncStatus: {
+        mode: 'client', connected: true, state: 'client-connected',
+        unsharedWrites: 0, lowDisk: false, otherDeviceCount: 1,
+        relayReservationRefused: true,
+      },
+    })
+    openGear()
+    expect(within(screen.getByRole('menu')).getByText('relay full')).toBeTruthy()
+  })
+
+  it('does not render it when no refusal was reported', () => {
+    renderSidebar({
+      syncStatus: {
+        mode: 'client', connected: true, state: 'client-connected',
+        unsharedWrites: 0, lowDisk: false, otherDeviceCount: 1,
+      },
+    })
+    openGear()
+    expect(within(screen.getByRole('menu')).queryByText('relay full')).toBeNull()
+  })
+})
+
 // T277 — a quiet, always-present footer indicator that appears ONLY when
 // sync is not running. The gear-popup placement (T275) failed the
 // director's-eye check: nobody finds a stalled sync inside a Settings menu.

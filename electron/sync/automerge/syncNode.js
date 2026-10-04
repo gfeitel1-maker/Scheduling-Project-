@@ -78,7 +78,7 @@ export function isSyncCompatible(incomingVersion, localVersion) {
 // installed builds in one process: overriding this alone lets a test node ANNOUNCE a version other
 // than this checkout's real CURRENT_SCHEMA_VERSION, to construct a genuine peer-version mismatch
 // without needing a second codebase.
-export async function startSyncNode({ deviceId, db, doc, onProjected, onProjectionError, onCrossCampRejected, onRemoteOps, onPairingRequest, onPairingDecision, isJoinWindowOpen, getJoinSecret, peerDiscovery, onAuthRejected, isPeerTrusted, listen, now, localSchemaVersion = CURRENT_SCHEMA_VERSION, handshakeSchemaVersion = localSchemaVersion, relayServerFactory, relayTransportFactory } = {}) {
+export async function startSyncNode({ deviceId, db, doc, onProjected, onProjectionError, onCrossCampRejected, onRemoteOps, onPairingRequest, onPairingDecision, isJoinWindowOpen, getJoinSecret, peerDiscovery, onAuthRejected, isPeerTrusted, listen, now, localSchemaVersion = CURRENT_SCHEMA_VERSION, handshakeSchemaVersion = localSchemaVersion, relayServerFactory, relayTransportFactory, directUpgradeServiceFactory, onRelayReservationRefused } = {}) {
   const getLocalSchemaVersion = () =>
     typeof localSchemaVersion === 'function' ? localSchemaVersion() : localSchemaVersion
   const getHandshakeSchemaVersion = () =>
@@ -703,6 +703,16 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     // until BOTH the flag is set AND the capability is signed off.
     relayServerFactory,
     relayTransportFactory,
+    // T336 — same gating discipline as relayServerFactory/relayTransportFactory immediately above:
+    // omitted by every caller that doesn't pass it, byte-identical to pre-T336 behavior until the
+    // same relay-eligibility gate (syncStarter.js) opens.
+    directUpgradeServiceFactory,
+    // T336 Precondition 3 — a direct passthrough to transport.js, same discipline as
+    // onPairingRequest/onLogin above (a plain caller-supplied callback, not a listener registry
+    // like onPeersChanged below): syncStarter.js is the only real caller and reports this straight
+    // to pushSyncStatus, so there is exactly one subscriber and no need for the registry machinery
+    // onPeersChanged exists for (multiple potential subscribers across this module's lifetime).
+    onRelayReservationRefused,
   })
 
   // Discard this peer's sync progress the moment the connection is gone (see syncStates' own

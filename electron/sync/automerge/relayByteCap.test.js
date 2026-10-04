@@ -66,6 +66,9 @@ async function setupRelayedPair() {
   await c.dial(r.getMultiaddrs()[0])
   r.admitPeer(b.peerId)
   r.admitPeer(c.peerId)
+  // T336 Precondition 2 (transport.js): a circuitRelayTransport client only ever attempts a
+  // reservation against a relay it has itself admitted — C must admit R directly.
+  c.admitPeer(r.peerId)
 
   await waitFor(() => c.getMultiaddrs().some((ma) => ma.toString().includes('/p2p-circuit')))
   const circuitAddr = c.getMultiaddrs().find((ma) => ma.toString().includes('/p2p-circuit'))

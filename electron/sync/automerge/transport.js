@@ -63,7 +63,16 @@ const MAX_CONNECTIONS = 200
 // scoped discovery; omitted by default so tests keep dialing directly over
 // loopback (mDNS needs a real network interface — see discovery.js's own
 // module comment).
-export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyncMessageReceived, listen, onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, onPairingDecision, peerDiscovery, now, connectionRateLimiter, privateKey, schemaVersion, relayServerFactory, relayTransportFactory, inboundConnectionThreshold } = {}) {
+// T336 (docs/work/specs/2026-10-03-t336-holepunch-build-design.md §1): `directUpgradeServiceFactory`
+// is the dcutr direct-upgrade service, injected the SAME way `relayServerFactory`/
+// `relayTransportFactory` already are — a caller-supplied factory (e.g. `dcutr()` from
+// '@libp2p/dcutr'), never imported here directly, so this module stays free of a direct import of
+// that package and this capability's gate stays entirely caller-controlled (syncStarter.js, gated
+// on `holePunchFoundationPresent()` + the `dcutr` capability's own signoff). The direct-upgrade
+// attempt only ever runs over a connection that arrived via T337's already camp-admitted relay (see
+// the design doc §1) — it needs no admission check of its own here, because it has no reachability
+// path into this node that didn't already pass the relay's own `isPeerAdmittedForRelay` gate above.
+export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyncMessageReceived, listen, onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, onPairingDecision, peerDiscovery, now, connectionRateLimiter, privateKey, schemaVersion, relayServerFactory, relayTransportFactory, directUpgradeServiceFactory, inboundConnectionThreshold, onRelayReservationRefused } = {}) {
   // Per-SOURCE-IP inbound rate limiting (blocker #2 of the WAN hardening; connectionRateLimiter.js).
   // Closes the connection-churn hole authGate.js documents: a peer opening a fresh connection (fresh
   // peer id) per frame evades per-peer throttling and is otherwise bounded only by MAX_CONNECTIONS.
@@ -88,6 +97,86 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
   // circuitRelayServer refuses a RESERVE/CONNECT for any peer not in THIS node's own
   // authenticatedPeers set — the exact same set broadcastDoc already gates every send on.
   let isPeerAdmittedForRelay = () => false
+  // T336 Precondition 2 — the CLIENT-side counterpart of the server-side restriction above: this
+  // node's own circuitRelayTransport must never even ATTEMPT a reservation against a relay this
+  // node has not itself admitted, independent of whether that relay would have granted it. The
+  // transport's own RelayDiscovery only calls onConnect (which feeds its reservation attempts) for
+  // a peer its topology `filter` reports as not-yet-seen (`filter.has(peerId) !== true`) — so
+  // treating a non-admitted peer as "already seen" (closed over the SAME isPeerAdmittedForRelay
+  // closure the server-side gater reads, not a second copy of "is X allowed") makes RelayDiscovery
+  // structurally skip it, rather than relying entirely on the far side's own refusal to save us.
+  // Wraps the caller-supplied factory rather than importing @libp2p/circuit-relay-v2 directly,
+  // keeping this module's existing discipline of staying free of that import.
+  //
+  // One-shot caveat this wrapper alone does NOT handle: libp2p's registrar notifies a topology
+  // listener (RelayDiscovery's onConnect) exactly ONCE per peer, at the moment identify completes
+  // — which races the auth handshake, since a real admission normally lands a round-trip or two
+  // AFTER identify, not before it. Blocking at that one-shot moment for a peer that is admitted
+  // moments later would permanently skip a legitimate camp relay, not just a stray one. See
+  // `retryClientRelayDiscoveryFor` below (called from the SAME onPeerAdmitted hook every admission
+  // path already fires through) for the other half that makes this correct, not merely early.
+  let clientRelayInstance = null
+  function wrapClientRelayDiscoveryToCampOnly(factory) {
+    return (components) => {
+      const instance = factory(components)
+      clientRelayInstance = instance
+      // T336 Precondition 3 (docs/work/specs/2026-10-03-t336-holepunch-build-design.md §4): every
+      // reservation attempt this node's circuitRelayTransport ever makes — the library's own
+      // internal 'relay:discover' listener (index.js), listener.js's configured-relay path, AND
+      // our own retryClientRelayDiscoveryFor below — goes through this ONE addRelay method, so
+      // wrapping it once here catches a refusal from any of those paths rather than only the one
+      // this file calls directly. The original call is still made and its result/rejection still
+      // propagates unchanged (the library's own '.catch' loggers downstream still run) — this only
+      // OBSERVES a RESERVATION_REFUSED rejection in order to report it; it never swallows or
+      // alters one. See reservation-store.js's #createReservation: a refusal throws a plain Error
+      // whose message is `reservation failed with status ${status}`, there is no refusal EVENT.
+      if (instance?.reservationStore?.addRelay) {
+        const originalAddRelay = instance.reservationStore.addRelay.bind(instance.reservationStore)
+        instance.reservationStore.addRelay = (peerId, type) => {
+          const result = originalAddRelay(peerId, type)
+          return Promise.resolve(result).catch((err) => {
+            if (/RESERVATION_REFUSED/.test(String(err?.message))) {
+              try {
+                onRelayReservationRefused?.({
+                  type: 'relay-reservation-refused',
+                  peerId: peerId?.toString ? peerId.toString() : String(peerId),
+                  reason: 'RESERVATION_REFUSED',
+                  at: Date.now(),
+                })
+              } catch { /* a UI-notice callback must never break the reservation path itself */ }
+            }
+            throw err
+          })
+        }
+      }
+      if (instance?.discovery) {
+        const seen = new Set()
+        instance.discovery.filter = {
+          has: (peerId) => {
+            const id = peerId.toString()
+            if (!isPeerAdmittedForRelay(id)) return true // treat as already-seen: never notify
+            return seen.has(id)
+          },
+          add: (peerId) => {
+            const id = peerId.toString()
+            if (isPeerAdmittedForRelay(id)) seen.add(id)
+          },
+          remove: (peerId) => { seen.delete(peerId.toString()) },
+        }
+      }
+      return instance
+    }
+  }
+  // The retroactive half: a peer admitted AFTER its one-shot discovery notification was already
+  // skipped (the ordinary case — admission follows identify) gets its reservation attempt redone
+  // here, directly against the real ReservationStore, bypassing the registrar entirely. Best-
+  // effort and silently ignored on failure (not connected, doesn't speak HOP, already have enough
+  // relays, etc.) — exactly the same non-fatal handling circuitRelayTransport's own 'relay:discover'
+  // listener already gives this call for the normal, non-retried path.
+  function retryClientRelayDiscoveryFor(peerIdString) {
+    if (!clientRelayInstance) return
+    Promise.resolve(clientRelayInstance.reservationStore.addRelay(peerIdFromString(peerIdString), 'discovered')).catch(() => {})
+  }
   const node = await createLibp2p({
     // T162 (docs/adr/2026-09-14-device-identity-and-token-binding.md §1): a
     // persistent per-device identity, loaded by the caller (syncNode.js's
@@ -96,7 +185,7 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     // default of a fresh keypair per process start, unchanged from before.
     ...(privateKey ? { privateKey } : {}),
     addresses: { listen: listen ?? DEFAULT_LISTEN },
-    transports: [tcp(), ...(relayTransportFactory ? [relayTransportFactory] : [])],
+    transports: [tcp(), ...(relayTransportFactory ? [wrapClientRelayDiscoveryToCampOnly(relayTransportFactory)] : [])],
     connectionEncrypters: [noise()],
     streamMuxers: [yamux()],
     // Security review backstop: bound how many peer connections this node will
@@ -140,7 +229,11 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
           }
         : {}),
     },
-    services: { identify: identify(), ...(relayServerFactory ? { circuitRelay: relayServerFactory } : {}) },
+    services: {
+      identify: identify(),
+      ...(relayServerFactory ? { circuitRelay: relayServerFactory } : {}),
+      ...(directUpgradeServiceFactory ? { dcutr: directUpgradeServiceFactory } : {}),
+    },
     ...(peerDiscovery ? { peerDiscovery } : {}),
   })
 
@@ -159,7 +252,10 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     onAuthenticate,
     onPairingRequest,
     onLogin,
-    onPeerAdmitted,
+    onPeerAdmitted: (id) => {
+      retryClientRelayDiscoveryFor(id)
+      onPeerAdmitted?.(id)
+    },
     onPairingDecision,
     ...(now ? { now } : {}),
     ...(schemaVersion != null ? { schemaVersion } : {}),
@@ -513,6 +609,7 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
       const id = String(peerId)
       if (authenticatedPeers.has(id)) return
       authenticatedPeers.add(id)
+      retryClientRelayDiscoveryFor(id)
       // Same follow-on an inbound `authenticate` gets: admission is what
       // starts the Automerge sync exchange (syncNode's onPeerAdmitted seeds a
       // sync state and steps it). Without this the joining device would sit

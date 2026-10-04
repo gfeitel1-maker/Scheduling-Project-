@@ -272,6 +272,35 @@ describe('syncStatusLabel — a nearly full disk is a warning, not a connection 
   })
 })
 
+describe('syncStatusLabel — a refused relay reservation (T336 Precondition 3)', () => {
+  it('says so on any state, including a perfectly healthy one', () => {
+    for (const state of ['host', 'client-connected', 'standalone']) {
+      const label = syncStatusLabel({ state, relayReservationRefused: true })
+      expect(label.text, state).toBe('relay full')
+      expect(label.tone, state).toBe('warning')
+      expect(label.title, state).toMatch(/coordination slot/)
+    }
+  })
+
+  it('yields to an unshared write and to a nearly full disk — both are worse', () => {
+    const vsUnshared = syncStatusLabel({ state: 'host', relayReservationRefused: true, unsharedWrites: 2 })
+    expect(vsUnshared.text).toBe('2 changes not shared')
+    const vsLowDisk = syncStatusLabel({ state: 'host', relayReservationRefused: true, lowDisk: true })
+    expect(vsLowDisk.text).toBe('storage almost full')
+  })
+
+  it('outranks the quiet "only this computer" standing notice', () => {
+    const label = syncStatusLabel({ state: 'host', relayReservationRefused: true, otherDeviceCount: 0 })
+    expect(label.text).toBe('relay full')
+  })
+
+  it('is silent when no refusal was reported', () => {
+    const healthy = syncStatusLabel({ state: 'host' }).text
+    expect(syncStatusLabel({ state: 'host', relayReservationRefused: false }).text).toBe(healthy)
+    expect(healthy).not.toMatch(/relay/)
+  })
+})
+
 describe('syncStatusLabel — no second copy of the camp (T176)', () => {
   it('says so, in terms that are true today and stay true after encryption', () => {
     const label = syncStatusLabel({ state: 'host', otherDeviceCount: 0 })

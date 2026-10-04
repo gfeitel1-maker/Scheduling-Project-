@@ -103,6 +103,12 @@ export function createAutomergeSyncStarter({
   // that function, never reset — a single process only ever attempts startup
   // once (the idempotency guard inside it prevents a second real attempt).
   let automergeStartupAttempted = false
+  // T336 Precondition 3 — the most recent relay-reservation refusal this device's own transport
+  // has observed, if any. getSyncStatus reads this via getRelayReservationRefused() the same way
+  // it reads automergeStartupAttempted above: a plain in-memory flag, not persisted, because it
+  // describes a live transport condition that resolves itself once a slot frees up — a director
+  // reopening the app after a restart with no camps near capacity should not see a stale warning.
+  let relayReservationRefused = null
 
   // A director approving or denying a pairing request doesn't know or care
   // how the request arrived. startSyncNode's onPairingRequest (below)
@@ -394,12 +400,31 @@ export function createAutomergeSyncStarter({
         relayTransportFactory = circuitRelayTransport()
       }
 
+      // T336 (docs/work/specs/2026-10-03-t336-holepunch-build-design.md §1, "Activation trigger —
+      // on-redial-failure, not eager"): the direct-upgrade (hole-punch) service only ever runs on a
+      // connection that reached this node via T337's coordination relay — which itself only forms
+      // after `redialTrustedPeers` has already exhausted its cached-address attempts (the existing
+      // ladder ordering, unchanged by this wiring). So gating this on the SAME `relayEligible`
+      // check the relay factories above use (rather than inventing a second gate) already encodes
+      // "upgrade only after the relay step," not a separate eager/parallel trigger. This is the
+      // ONLY capability this slice wires here — the reachability-probe service (AutoNAT) is NOT
+      // wired at all: it was DROPPED (organizer ruling 2026-10-03) because the installed
+      // probe-service package exposes no admission/connectionGater hook to camp-scope it with (so a
+      // non-camp party could use this node as a probe server) and dcutr does not depend on it. See
+      // the amendment banner in docs/work/specs/2026-10-03-t336-holepunch-build-design.md.
+      let directUpgradeServiceFactory
+      if (relayEligible) {
+        const { dcutr } = await import('@libp2p/dcutr')
+        directUpgradeServiceFactory = dcutr()
+      }
+
       const startSyncNode = startSyncNodeImpl ? await startSyncNodeImpl() : (await import('./syncNode.js')).startSyncNode
       automergeSyncNode = await startSyncNode({
         deviceId,
         db,
         doc,
         relayServerFactory,
+        directUpgradeServiceFactory,
         relayTransportFactory,
         // Stage 5f, found on a real two-machine run: transport.js's DEFAULT_LISTEN is
         // '/ip4/127.0.0.1/tcp/0' — LOOPBACK ONLY. That default is correct for the in-process tests
@@ -518,6 +543,14 @@ export function createAutomergeSyncStarter({
           const mainWindow = getMainWindow()
           if (mainWindow) mainWindow.webContents.send('shoresh:auth-rejected', { code: codeForAuthRejectedReason(reply?.reason) })
         },
+        // T336 Precondition 3 — transport.js's wrapped addRelay observed a genuine
+        // RESERVATION_REFUSED. Recorded here (not acted on further — this is a UI notice, not a
+        // retry trigger) and pushed to the renderer the same way every other sync-status change
+        // already is, via pushSyncStatus below.
+        onRelayReservationRefused: (detail) => {
+          relayReservationRefused = detail
+          try { getLiveHandlers()?.pushSyncStatus?.() } catch { /* never break sync over a UI notice */ }
+        },
       })
 
       // Stage 5f item 2: a local edit (appendOp -> liveDoc.recordLocalWrite) must reach connected
@@ -577,5 +610,6 @@ export function createAutomergeSyncStarter({
     start,
     getNode: () => automergeSyncNode,
     getStartupAttempted: () => automergeStartupAttempted,
+    getRelayReservationRefused: () => relayReservationRefused,
   }
 }

@@ -40,8 +40,9 @@ export const TRANSPORT_CAPABILITIES = {
     // exposes data or the computer harmfully, then no") and DELEGATED the determination to the
     // security + battle-test gate (his T327 delegation); the gate passed and the organizer accepted
     // on the passed gate. Runtime activation (SHORESH_RELAY_ENABLED) stays blocked independently of
-    // this entry: flag defaults false AND relayRuntimeEligible requires holePunchFoundationPresent()
-    // (dcutr/autonat), which is absent until T336 — see relayEnablement.js + dcutrPresenceWithoutSignoff.guard.test.js.
+    // this entry: relayRuntimeEligible requires SHORESH_RELAY_ENABLED, which defaults false. (As of
+    // T336 holePunchFoundationPresent() — the @libp2p/dcutr presence probe — is now true, but the
+    // flag default alone keeps relay+dcutr inert.) See relayEnablement.js + dcutrPresenceWithoutSignoff.guard.test.js.
     signoff: {
       date: '2026-10-03',
       owner: 'gate (owner 2026-10-03 conditional-YES + T327 delegation; accepted by organizer)',
@@ -53,11 +54,36 @@ export const TRANSPORT_CAPABILITIES = {
       doc: 'docs/work/security/2026-10-03-t337-standing-reservation-signoff-battletest.md#signoff-decision',
     },
   },
+  // T336 ships dcutr only. AutoNAT (@libp2p/autonat) is deliberately NOT shipped — @libp2p/autonat@3.0.28
+  // has no admission/connectionGater hook (cannot be camp-scoped; a non-camp party could use our node
+  // AS an AutoNAT server) and @libp2p/dcutr does not depend on it. See relayEnablement.js + the T336
+  // design doc. If AutoNAT is ever revisited it is separately-scoped new work with its own exposure review.
   dcutr: {
-    packages: ['@libp2p/dcutr', '@libp2p/autonat'],
-    sourceMarkers: ['dcutr', 'autonat'],
+    packages: ['@libp2p/dcutr'],
+    sourceMarkers: ['dcutr'],
     egressAllowlist: [],
-    signoff: null,
+    // T336 — authorizes the CODE MERGE of the inert hole-punch capability only. Not a hand-signature:
+    // the owner gave a 2026-10-03 conditional YES ("if it is safe, secure, and reasonable... if it
+    // exposes data or the computer harmfully, then no") and DELEGATED the determination to the
+    // security + battle-test gate (T327 delegation); the gate passed for the INERT merge and the
+    // organizer accepted after independently spot-checking the branch. Writing this flips the dcutr
+    // Tier-4 guard reds green = the merge; it does NOT activate anything (this registry is never read
+    // at runtime). Runtime activation is SHORESH_RELAY_ENABLED (default false), a SEPARATE owner
+    // go-live gated on the pre-activation preconditions in `doc`.
+    signoff: {
+      date: '2026-10-03',
+      owner: 'gate (owner 2026-10-03 conditional-YES + T327 delegation; accepted by organizer)',
+      scope: 'coordination/hole-punch, code-merge-inert; runtime activation gated on the pre-activation preconditions + owner go-live',
+      conditions: [
+        'MAX_CONNECTIONS=200 distributed-source DoS mitigation (T336-created latent exposure) — reserved-slot floor for admitted peers + early-drop for un-admitted + aggregate inbound cap',
+        'real independently-NATed two-device cross-network dcutr punch validation (owner hardware)',
+        're-confirm T337 C2 (client camp-only reservation) + C4 (pre-auth sizing) at the activation gate',
+        're-run dcutr-subtree npm audit + postinstall check at activation',
+        'ADR 2026-09-14 owner items: signed auto-update; internet-scale rate-limit review',
+        "SHORESH_RELAY_ENABLED must be the literal string 'true' (fails closed otherwise)",
+      ],
+      doc: 'docs/work/security/2026-10-03-t336-holepunch-dcutr-inert-merge-assessment.md#signoff-decision',
+    },
   },
   webrtc: {
     packages: ['@libp2p/webrtc', '@libp2p/webrtc-direct'],

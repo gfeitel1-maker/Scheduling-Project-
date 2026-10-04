@@ -98,6 +98,13 @@
     "licenseText": null
   },
   {
+    "name": "@libp2p/dcutr",
+    "version": "3.0.28",
+    "license": "Apache-2.0 OR MIT",
+    "homepage": "https://github.com/libp2p/js-libp2p/tree/main/packages/protocol-dcutr#readme",
+    "licenseText": null
+  },
+  {
     "name": "@libp2p/identify",
     "version": "4.1.14",
     "license": "Apache-2.0 OR MIT",

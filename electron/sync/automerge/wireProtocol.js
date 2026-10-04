@@ -53,6 +53,17 @@ export const SYNC_PROTO = '/shoresh/automerge-sync/1.0.0'
 // shrink a frame to a delta and this cap can drop sharply.
 export const MAX_FRAME_BYTES = 32 * 1024 * 1024
 
+// T336 C4 (docs/work/security/pre-auth sizing review): a SEPARATE, much smaller cap for
+// AUTH_PROTO. authenticate/pairing_request/login/pairing_approved frames are tiny JSON (tokens,
+// device ids, PINs, role strings, a signed join_confirm) — nowhere near MAX_FRAME_BYTES, which is
+// sized for a whole camp document. Reusing the document cap here would let an UN-ADMITTED peer
+// force up to 32 MiB of buffering per connection before any admission decision runs, amplified by
+// however many connections the per-source/global caps (connectionRateLimiter.js, transport.js's
+// MAX_CONNECTIONS) allow concurrently. 64 KiB is generous headroom over any real auth payload
+// (the largest, a signed join_confirm blob, is well under 1 KiB) while cutting that worst-case
+// pre-auth memory amplification by ~500x.
+export const AUTH_MAX_FRAME_BYTES = 64 * 1024
+
 // How long to wait for a backpressured stream to drain before giving up.
 //
 // Red Hat finding on the libp2p 3.x migration (T215). v3's `.send()` returns false under

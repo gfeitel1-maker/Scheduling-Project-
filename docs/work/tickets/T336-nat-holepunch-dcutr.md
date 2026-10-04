@@ -1,10 +1,10 @@
 ---
 ticket: T336
 document_type: ticket
-title: NAT hole-punch (dcutr/AutoNAT) layered on T337's coordination foundation, opens the dcutr/autonat capability
+title: NAT hole-punch (dcutr) layered on T337's coordination foundation, opens the dcutr capability
 status: open
 created: 2026-10-03
-archive_when: "dcutr/AutoNAT are built test-first on T337's coordination foundation, AutoNAT is proven camp-peers-only (red-before-green, a reachable non-camp peer is never usable as an AutoNAT server), the three T337-carry-forward blocking preconditions below are each proven on real multi-node libp2p, and the dcutr/autonat capability is signed off through the full capability+battle-test gate"
+archive_when: "dcutr is built test-first on T337's coordination foundation, the three T337-carry-forward blocking preconditions below are each proven on real multi-node libp2p, and the dcutr capability is signed off through the full capability+battle-test gate (AutoNAT DROPPED — see 'What it does')"
 task_class: security-auth
 parent: ""
 governing_docs: [docs/work/specs/2026-10-03-t336-slice-a-holepunch-design.md, docs/work/specs/2026-10-03-t337-coordination-layer-design.md, docs/adr/2026-10-02-wan-discovery-transport-ladder.md, SECURITY.md]
@@ -21,17 +21,28 @@ Amendment + RESEQUENCE 2026-10-03) is: LAN meet [hard prerequisite] → remember
 firewall-only fallback]. T337 (`docs/work/specs/2026-10-03-t337-coordination-layer-design.md`)
 built the camp-peer circuit-relay-v2 coordination foundation this slice needs — dcutr cannot run
 cold (it upgrades an existing connection, it does not create one). This ticket is the hole-punch
-slice itself: `@libp2p/dcutr` + `@libp2p/autonat`, opening the `dcutr` row in
-`electron/sync/automerge/transportCapabilities.js` (currently `packages: ['@libp2p/dcutr',
-'@libp2p/autonat']`, `signoff: null`). Design: `docs/work/specs/2026-10-03-t336-slice-a-holepunch-design.md`.
+slice itself: `@libp2p/dcutr` (AutoNAT dropped — see "What it does"), opening the `dcutr` row in
+`electron/sync/automerge/transportCapabilities.js` (`packages: ['@libp2p/dcutr']`, `signoff: null`).
+Design: `docs/work/specs/2026-10-03-t336-holepunch-build-design.md` (supersedes the slice-A doc).
 
 ## What it does
 
 Once T337's coordination relay (R) gets two camp peers (B and C) each other's current reflexive
 addresses, `dcutr`'s simultaneous-open punch (this slice) attempts a DIRECT connection between B
-and C, bypassing R once it succeeds. AutoNAT (this slice) is the reachability-probe service each
-device runs to learn its own reflexive address in the first place — restricted to camp-admitted
-peers only (never a shared/public AutoNAT default), per the design's §C hard requirement.
+and C, bypassing R once it succeeds. dcutr works from the relay/identify-observed addresses it
+already has; it does not depend on AutoNAT.
+
+**AutoNAT DROPPED (organizer ruling 2026-10-03).** `@libp2p/autonat@3.0.28` has NO
+admission/connectionGater hook (verified in installed source + `autoNatCampOnly` test before it was
+removed), so it CANNOT be camp-scoped — a non-camp party could use our node AS an AutoNAT server,
+which is a new outside-audience exposure = the owner's NO. Since `@libp2p/dcutr` does not depend on
+AutoNAT, the capability ships dcutr-only: this DROPS the AutoNAT-camp-peers-only precondition as
+unachievable-and-unneeded (not "passed"/"done" — explicitly removed) and ELIMINATES the AutoNAT
+dial-back exposure entirely rather than camp-scoping it. Honest tradeoff: without AutoNAT
+self-reachability detection, dcutr may fall back to the T337 standing relay somewhat more often in
+some NAT scenarios — no capability loss, just occasional extra (already-approved, bounded) relay
+use. If AutoNAT is ever revisited it is separately-scoped new work with its own exposure review and
+owner decision.
 
 ## Acceptance (hard, red-before-green, real multi-node libp2p — NO mocks)
 
@@ -39,11 +50,9 @@ peers only (never a shared/public AutoNAT default), per the design's §C hard re
   relay has exchanged their current reflexive addresses, and the relayed connection through R
   becomes an idle fallback once punched (not torn down — see T337's round-3 doc correction:
   circuit-relay-v2 reservations are standing, not disposable).
-- AutoNAT camp-peers-only — hard, blocking, per the T337 design's §C requirement restated for this
-  capability: 3 real libp2p nodes (A / camp-admitted B / reachable-but-non-camp X). Red-before-
-  green: BEFORE the camp-scoping restriction is implemented, demonstrate A is willing to use X as
-  an AutoNAT server (the hazard exists and the test catches it); AFTER, A never dials X for AutoNAT
-  purposes and only ever uses B or another camp-admitted peer.
+- ~~AutoNAT camp-peers-only~~ **DROPPED** — AutoNAT is not shipped (see "What it does"):
+  `@libp2p/autonat@3.0.28` has no admission hook so it cannot be camp-scoped, and dcutr does not
+  need it. There is no AutoNAT to prove camp-only; the exposure is eliminated by not shipping it.
 - Revocation enforced at every hop of the punch handoff (the direct B↔C connection included), the
   same "admission, not discovery, is the control" invariant T337 already proves one layer earlier.
 
@@ -77,6 +86,6 @@ preconditions, not optional follow-ups:
    This capability's gate must wire a surfaced signal (director-visible, not a silent log line)
    before signoff.
 
-A Security or Grader FAIL on any of the four acceptance items above (including these three
-carried-forward preconditions) stops the loop and returns to the owner via the organizer. Only
-after a clean pass on all of them does `dcutr.signoff` get written.
+A Security or Grader FAIL on any acceptance item above (including these three carried-forward
+preconditions) stops the loop and returns to the owner via the organizer. Only after a clean pass
+on all of them does `dcutr.signoff` get written.

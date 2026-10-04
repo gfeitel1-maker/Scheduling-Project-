@@ -80,7 +80,16 @@ function makeStarter({ startSyncNodeImpl }) {
 }
 
 describe('T337 gate-fix round 2 — SHORESH_RELAY_ENABLED alone cannot activate the relay', () => {
-  it('RED/documenting: with the flag ON but dcutr absent (this build, today), startSyncNode receives NO relay factories', async () => {
+  // UPDATED for T336 (377c28f0 landed @libp2p/dcutr; AutoNAT dropped, dcutr-only; this chunk wires dcutr):
+  // this test's original premise ("dcutr absent, this build, today") is no longer true — the
+  // hole-punch foundation packages are now present in every build's resolved tree, same as this
+  // file's own test environment. With BOTH conditions now genuinely satisfied (flag ON AND
+  // foundation present), relayEligible is correctly TRUE and the relay/dcutr factories ARE handed
+  // to startSyncNode — that is the intended, designed behavior this slice builds, not a hazard.
+  // The coupling's actual non-negotiable property — flag alone is never sufficient — is what the
+  // inertness-with-packages test immediately below this describe block proves instead (flag OFF,
+  // packages genuinely present, still fully inert).
+  it('documenting: with the flag ON and the foundation genuinely present, startSyncNode DOES receive the relay + direct-upgrade factories', async () => {
     insertCamp()
     process.env.SHORESH_RELAY_ENABLED = 'true'
 
@@ -91,8 +100,9 @@ describe('T337 gate-fix round 2 — SHORESH_RELAY_ENABLED alone cannot activate 
 
     expect(fakeStartSyncNode).toHaveBeenCalledTimes(1)
     const passedArgs = fakeStartSyncNode.mock.calls[0][0]
-    expect(passedArgs.relayServerFactory).toBeUndefined()
-    expect(passedArgs.relayTransportFactory).toBeUndefined()
+    expect(typeof passedArgs.relayServerFactory).toBe('function')
+    expect(typeof passedArgs.relayTransportFactory).toBe('function')
+    expect(typeof passedArgs.directUpgradeServiceFactory).toBe('function')
   })
 
   it('non-vacuity: with the flag OFF (default), the same coupling is trivially also inert', async () => {
@@ -107,5 +117,6 @@ describe('T337 gate-fix round 2 — SHORESH_RELAY_ENABLED alone cannot activate 
     const passedArgs = fakeStartSyncNode.mock.calls[0][0]
     expect(passedArgs.relayServerFactory).toBeUndefined()
     expect(passedArgs.relayTransportFactory).toBeUndefined()
+    expect(passedArgs.directUpgradeServiceFactory).toBeUndefined()
   })
 })

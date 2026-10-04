@@ -14,11 +14,13 @@ describe('relayRuntimeEligible — composition logic', () => {
 })
 
 describe('holePunchFoundationPresent — real probe against this build', () => {
-  // RED/documenting baseline, against the actually-installed tree (org-source-verification):
-  // T336 is unbuilt — @libp2p/dcutr and @libp2p/autonat are not in package.json/package-lock.json
-  // today (confirmed: `grep '"@libp2p/dcutr"' package.json` finds nothing). So this probe must
-  // return false, REGARDLESS of SHORESH_RELAY_ENABLED, until T336 actually lands those packages.
-  it('resolves false today — dcutr/autonat are not installed in this build', async () => {
-    await expect(holePunchFoundationPresent()).resolves.toBe(false)
+  // Against the actually-installed tree (org-source-verification): T336 landed @libp2p/dcutr@3.0.28
+  // (377c28f0), so the hole-punch foundation IS present and this probe resolves TRUE. (AutoNAT is
+  // not part of the foundation and not installed — see relayEnablement.js header; the probe keys off
+  // dcutr alone.) Presence of the package does NOT by itself activate anything: relayRuntimeEligible
+  // still requires SHORESH_RELAY_ENABLED, which defaults false — asserted in relayEnablement's
+  // composition table above and in holePunchInertnessWithPackages.test.js.
+  it('resolves true — @libp2p/dcutr is installed in this build (T336 foundation)', async () => {
+    await expect(holePunchFoundationPresent()).resolves.toBe(true)
   })
 })
