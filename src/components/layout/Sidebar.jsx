@@ -456,7 +456,21 @@ export default function Sidebar({
               : 'Backup now'}
           </button>
         )}
-        v0.1.0
+        {/* About & Legal — a quiet footer link to the view-only surface
+            (about note, version, user agreement, license, attributions). The
+            version stays beside it as the plain label it has always been. */}
+        <button
+          type="button"
+          onClick={() => onNavigate('about')}
+          style={{
+            display: 'block', width: '100%', textAlign: 'left',
+            padding: '4px 0 0', border: 'none', background: 'none',
+            fontFamily: 'inherit', fontSize: 11, cursor: 'pointer',
+            color: current === 'about' ? 'var(--text)' : 'var(--text-secondary)',
+          }}
+        >
+          About &amp; Legal · v0.1.0
+        </button>
       </div>
     </aside>
   )
