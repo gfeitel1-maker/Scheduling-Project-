@@ -2,10 +2,10 @@
 title: "Distributed purge authority: any valid admin signs a purge, rooted in device_identity_key, judged by the T331 causal-ancestor replay"
 document_type: adr
 authority: normative
-status: proposed
+status: accepted
 date: 2026-10-07
-decided: ""
-deciders: [product-owner]
+decided: 2026-10-07
+deciders: [organizer-delegated]
 program: security-hardening
 governing_docs:
   - docs/governance/constitution/CONSTITUTION.md
@@ -43,12 +43,18 @@ affects:
 
 # ADR: Distributed purge authority — any valid admin signs a purge
 
-**Ticket:** T342 (board item `h-purge-survives-fired-founder`). **Status: proposed.** Acceptance is the
-organizer's under the owner's standing delegation (Constitution Art. IV), because this applies the
-already-accepted T331 model ([`2026-10-02-distributed-revocation-authority.md`](2026-10-02-distributed-revocation-authority.md))
-to the one place that ADR named and deliberately left open (its "Related finding: purge-tombstone
-signing has the identical single-host assumption"). It makes no new product-direction choice except
-the one flagged in "Open questions" (threshold), where a default is recommended.
+**Ticket:** T342 (board item `h-purge-survives-fired-founder`).
+
+**Status: accepted 2026-10-07** by the board-keeper under the owner's standing delegation (Constitution
+Art. IV; `i-standing-scope-discipline` addendum2): this applies the already-accepted T331 model
+([`2026-10-02-distributed-revocation-authority.md`](2026-10-02-distributed-revocation-authority.md)) to
+the one place that ADR named and deliberately left open (its "Related finding: purge-tombstone signing
+has the identical single-host assumption"), and its decisions are defaults-consistent with that model.
+The owner is informed with the power to reverse. **Decision B (threshold) = option (i), any one valid
+admin may purge a camper record** — ruled on the evidence that a quorum provably does not close the
+rogue-any-admin-grant residual it would be adopted to close (BT-4b) and reintroduces the N=2
+absent-founder deadlock this ticket exists to remove; consistent with the board item's own framing
+("any admin / the agreed quorum signs").
 
 **Design-only.** No code ships from this document. The eventual build goes through the full security +
 battle-test gate.
