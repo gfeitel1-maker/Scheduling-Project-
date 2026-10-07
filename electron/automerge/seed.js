@@ -14,6 +14,7 @@
 //
 // Scoped to DIRECT_CAMP_ENTITIES only, same boundary as campDocument.js/
 // projector.js.
+import * as A from '@automerge/automerge'
 import { PROJECTIONS } from '../ops/projections.js'
 import { BULK_REPLACE_ENTITIES } from '../ops/campScopedEntities.js'
 import {
@@ -21,10 +22,13 @@ import {
   MODELED_ENTITIES,
   BULK_REPLACE_MODELED_ENTITIES,
   DEFERRED_ENTITIES,
+  CAMP_AUTHORITY_LOG_FIELDS,
   createEmptyDoc,
   applyWrite,
+  applyWrites,
   applyBulkReplace,
 } from './campDocument.js'
+import { authorityEntryAncestry, AUTHORITY_LOG_ENTITY } from './authorityReplay.js'
 
 function assertModeled(entity) {
   if (DEFERRED_ENTITIES.has(entity)) {
@@ -142,20 +146,78 @@ export function seedDocFromSqlite(db, doc = createEmptyDoc(), entity = STAGE1_EN
 // not just its flat collection above — both must be seeded, or projectAll's scope-level
 // delete-reconcile (deleteReconcileBulkReplaceEntity) would treat a freshly-seeded doc as having
 // deleted every existing schedule (see that function's "doc is authoritative superset" requirement).
-export function seedAllFromSqlite(db, doc = createEmptyDoc()) {
+export function seedAllFromSqlite(db, doc = createEmptyDoc(), { authoritySourceDoc = null } = {}) {
   let d = doc
   for (const entity of MODELED_ENTITIES) {
     // camp_authority_log (T331) has no PROJECTIONS registration and no backing SQL table to seed
     // FROM — unlike tombstones, its verified-and-replayed state lives only in the device-local
     // applied_authority_log/authority_cache tables (never a 1:1 mirror of the doc collection), so
-    // there is nothing in SQLite to carry into a freshly-seeded document. Correctly starts empty;
-    // real entries only ever arrive by being written directly into the live document (authorityLog.js)
-    // or by merging in from a peer.
+    // there is nothing in SQLite to carry into a freshly-seeded document. It is instead carried
+    // FROM THE LIVE DOCUMENT being regenerated (carryAuthorityLog below, T342 Slice 0), because the
+    // T331 causal-ancestor replay needs the signer's grants to remain causal ancestors of the
+    // change that completed each entry — ancestry the document regeneration would otherwise destroy.
     if (entity === 'camp_authority_log') continue
     d = seedDocFromSqlite(db, d, entity)
   }
   for (const entity of BULK_REPLACE_MODELED_ENTITIES) {
     d = seedBulkReplaceEntityFromSqlite(db, d, entity)
   }
+  // Carry the authority log from the live document, re-authoring each entry so the entry-level
+  // causal partial order is preserved in the regenerated document (T342 Slice 0). Only when a
+  // source document is supplied — the startup/first-seed path (liveDoc.js) has no prior document
+  // and correctly starts with an empty authority log.
+  if (authoritySourceDoc) {
+    d = carryAuthorityLog(authoritySourceDoc, d)
+  }
   return d
+}
+
+// T342 Slice 0 (docs/adr/2026-10-07-distributed-purge-authority.md, "The regeneration problem").
+// Carry camp_authority_log from the live document being regenerated INTO the freshly-seeded domain
+// document, re-authoring each entry so the T331 causal-ancestor replay still validates afterwards.
+//
+// Each entry is re-authored as its OWN Automerge change on a fork that holds exactly its original
+// ancestor entries — so its `deps` are the maximal ancestors, concurrency between unrelated entries
+// is preserved, and no new ordering is invented. Entries are processed in topological order (an
+// entry after all its ancestor entries). THE TRAP (ADR): each fork needs its OWN fresh Automerge
+// actor id, or two sibling forks reuse an actor's sequence numbers and corrupt the merge —
+// A.clone() assigns a fresh actor on every call, which is how each fork gets one.
+//
+// All fields are re-authored verbatim, including the signature and target_peer_id, so the signed
+// verify-and-replay path (projector.js's createVerifiedEntryTrust) still resolves peer ids and
+// verifies signatures against the carried entries exactly as it did against the originals.
+//
+// The re-authored authority branch and the SQLite-seeded domain data share ONLY the frozen genesis
+// root, so merging them keeps the two concurrent — the authority log is not entangled with domain
+// history.
+export function carryAuthorityLog(sourceDoc, targetDoc) {
+  const ancestry = authorityEntryAncestry(A, sourceDoc) // Map entryId -> { row, ancestorEntryIds }
+  if (ancestry.size === 0) return targetDoc
+
+  // Topological order: fewer ancestor entries first. A strict ancestor has a strictly smaller
+  // ancestor set, so ascending ancestor-count is a valid linearization; entry id breaks ties
+  // deterministically.
+  const ordered = [...ancestry.keys()].sort((x, y) => {
+    const d = ancestry.get(x).ancestorEntryIds.size - ancestry.get(y).ancestorEntryIds.size
+    return d !== 0 ? d : x < y ? -1 : x > y ? 1 : 0
+  })
+
+  const reauthored = new Map() // entryId -> Automerge doc whose heads include that entry's own change
+  for (const id of ordered) {
+    const { row, ancestorEntryIds } = ancestry.get(id)
+    let base = createEmptyDoc()
+    for (const anc of ancestorEntryIds) base = A.merge(base, A.clone(reauthored.get(anc)))
+    base = A.clone(base) // fresh actor for THIS entry's change; its deps become the merged heads (the maximal ancestors)
+    const writes = CAMP_AUTHORITY_LOG_FIELDS.filter((f) => row[f] !== undefined && row[f] !== null).map((f) => ({
+      entity: AUTHORITY_LOG_ENTITY,
+      entity_id: id,
+      field: f,
+      value: row[f],
+    }))
+    reauthored.set(id, applyWrites(base, writes))
+  }
+
+  let authorityBranch = createEmptyDoc()
+  for (const d of reauthored.values()) authorityBranch = A.merge(authorityBranch, A.clone(d))
+  return A.merge(targetDoc, authorityBranch)
 }
