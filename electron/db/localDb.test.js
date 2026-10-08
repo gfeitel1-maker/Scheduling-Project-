@@ -61,7 +61,7 @@ describe('openLocalDb at-rest key guard', () => {
   })
 
   it('is inert when encryption is off — opens normally with no key', async () => {
-    delete process.env.SHORESH_AT_REST_ENCRYPTION
+    process.env.SHORESH_AT_REST_ENCRYPTION = 'off'
     vi.resetModules()
     const { openLocalDb: openLocalDbEncOff } = await import('./localDb.js')
 
@@ -72,7 +72,7 @@ describe('openLocalDb at-rest key guard', () => {
   })
 
   it('refuses even a genuine plaintext SQLite file once encryption turns on — fail-closed regardless of on-disk format', async () => {
-    delete process.env.SHORESH_AT_REST_ENCRYPTION
+    process.env.SHORESH_AT_REST_ENCRYPTION = 'off'
     vi.resetModules()
     const { openLocalDb: openLocalDbEncOff } = await import('./localDb.js')
 

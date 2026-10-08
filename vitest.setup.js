@@ -25,3 +25,7 @@
 import { configure } from '@testing-library/dom'
 
 configure({ asyncUtilTimeout: 3000 })
+
+// Existing suites use plaintext fixtures; the production default is ON (T175). Tests that exercise
+// encryption set the variable explicitly.
+process.env.SHORESH_AT_REST_ENCRYPTION ??= 'off'

@@ -66,7 +66,7 @@ import { projectEntity } from './automerge/projector.js'
 import { AUTHORITY_LOG_ENTITY, currentAuthorityState, quorumThreshold } from './automerge/authorityReplay.js'
 import * as Automerge from '@automerge/automerge'
 import { docPath as automergeDocPath } from './sync/automerge/docStore.js'
-import { acquireDocCipher, acquireDbKey, isAtRestEncryptionEnabled } from './db/atRestEncryption.js'
+import { acquireDocCipher, acquireDbKey, isAtRestEncryptionEnabled, latchEncryptionIfKeyPresent } from './db/atRestEncryption.js'
 import { unsharedWriteCount } from './ops/documentWriteFailures.js'
 import { createDiskSpaceMonitor } from './db/diskSpace.js'
 import { codeForAuthRejectedReason } from './authRejectedSender.js'
@@ -893,6 +893,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     // connectivity state, and a camp near its relay cap is just as true whether this device is
     // the Host or a Client.
     const relayReservationRefused = Boolean(getRelayReservationRefusedFn())
+    const atRestEncryptionEnabled = isAtRestEncryptionEnabled()
 
     // T268 — a refused sync (electron/db/migrationDomainState.js) is checked
     // BEFORE branching on mode: a refused Client is just as blind as a
@@ -924,10 +925,11 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
         lowDisk: disk.low,
         otherDeviceCount,
         relayReservationRefused,
+        atRestEncryptionEnabled,
       }
     }
 
-    if (!modeChosen) return { mode: null, connected: false, state: 'standalone', unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused }
+    if (!modeChosen) return { mode: null, connected: false, state: 'standalone', unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused, atRestEncryptionEnabled }
     if (mode === 'host') {
       // T268: `connected: true, state: 'host'` used to be unconditional here —
       // a Host that failed to start its sync node (refusal aside; e.g. the
@@ -940,9 +942,9 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
         // last case exists to avoid a boot flicker: the node starts
         // asynchronously after app.whenReady(), so "not yet attempted" must
         // read the same as it always has, not as a false alarm.
-        return { mode: 'host', connected: true, state: 'host', unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused }
+        return { mode: 'host', connected: true, state: 'host', unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused, atRestEncryptionEnabled }
       }
-      return { mode: 'host', connected: false, state: 'host-not-syncing', unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused }
+      return { mode: 'host', connected: false, state: 'host-not-syncing', unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused, atRestEncryptionEnabled }
     }
     // Stage 6c: the honest source of "can this device reach the camp" is the
     // libp2p node's peer set, not a socket. `getPeers()` returns every
@@ -956,7 +958,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     const connected = peers.length > 0
     const authed = peers.some((peerId) => node.isPeerAuthenticated(peerId))
     const state = !connected ? 'client-disconnected' : (authed ? 'client-connected' : 'client-connecting')
-    return { mode: 'client', connected, authenticated: authed, state, unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused }
+    return { mode: 'client', connected, authenticated: authed, state, unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused, atRestEncryptionEnabled }
   }
 
   // T27 — push the status when it changes, rather than leaving the renderer to
@@ -3016,11 +3018,14 @@ if (isElectronEntryPoint()) {
   // place an Electron app opens its resources anyway.
   await app.whenReady()
 
+  const envOff = process.env.SHORESH_AT_REST_ENCRYPTION === 'off'
+  if (latchEncryptionIfKeyPresent(userDataPath) && envOff) {
+    console.warn('SHORESH_AT_REST_ENCRYPTION=off ignored: this device is encrypted.')
+  }
+
   // At-rest encryption (ADR 2026-09-15, ticket T175): acquire the per-device document cipher and
-  // inject it into liveDoc, so every .automerge read/write goes through it. Default OFF
-  // (SHORESH_AT_REST_ENCRYPTION!='on') → acquireDocCipher returns null → liveDoc stays plaintext,
-  // so this whole block is inert until the flag is deliberately turned on for the reviewed
-  // real-app rollout. When ON, a missing/unavailable keychain key is fatal by design (no key = no
+  // inject it into liveDoc, so every .automerge read/write goes through it. Default ON
+  // (only SHORESH_AT_REST_ENCRYPTION='off' disables it, and not once the key file exists). When ON, a missing/unavailable keychain key is fatal by design (no key = no
   // data), but it must arrive as the human recovery story, not a raw stack trace (assessment
   // finding 3) — see docs/current/KEY_RECOVERY_STORY.md.
   let docCipher = null

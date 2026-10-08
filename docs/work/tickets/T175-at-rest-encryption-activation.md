@@ -20,6 +20,13 @@ backup; no reader is left behind; and SECURITY.md states the (narrower-than-"enc
 boundary. Non-goals: protecting a running/unlocked machine or a same-OS-login attacker (out of scope
 by design — trusted-device model).
 
+> **FLIP CHANGE SET (2026-10-08, draft PR; merging = the flip).** Default is now ON; encryption is
+> sticky once `db.key.enc` exists (env var ignored), no disable is offered, and the sidebar states
+> "cannot be recovered" only when encrypted. Design: docs/adr/2026-10-08-at-rest-encryption-sticky-no-ambient-disable.md.
+> The director-gated disable path is deferred to T345. Still owed before merge: owner packaged-app
+> smoke, an independent security re-review of the flip diff, and the Stage-3 headless E2E against the
+> real keychain.
+
 > **OWNER DECISION — 2026-09-16: the flip is DEFERRED.** All code is complete, merged (through #451),
 > and gate-verified; the packaging, supply chain, MCP/CLI key path, and finding-5 gate are closed; the
 > SECURITY.md wording is drafted (below). Encryption is built, staged, and **OFF by default — nothing

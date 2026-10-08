@@ -3333,7 +3333,7 @@ describe('makeHandlers: getSecurityStatus (T249)', () => {
   })
 
   // The identity assertion above is the right SHAPE but cannot fail today:
-  // SHORESH_AT_REST_ENCRYPTION is unset in the test env, so
+  // SHORESH_AT_REST_ENCRYPTION is pinned to 'off' by vitest.setup.js, so
   // isAtRestEncryptionEnabled() is deterministically false and a handler that
   // hardcoded `false` would pass it too (Code Reviewer, MEDIUM). Re-importing
   // main.js under a flipped env is not worth its cost here, so the drift the
@@ -3613,5 +3613,34 @@ describe('T306 — attributeSubject handler', () => {
     expect(() => handlers.attributeSubject({ subjectId, displayName: 'X' })).toThrow(/token/i)
     expect(() => handlers.attributeSubject({ token, displayName: 'X' })).toThrow(/subjectId/i)
     expect(() => handlers.attributeSubject({ token, subjectId })).toThrow(/displayName/i)
+  })
+})
+
+describe('T175 sticky at-rest encryption wiring', () => {
+  const src = fs.readFileSync(new URL('./main.js', import.meta.url), 'utf8')
+
+  it('getSyncStatus reports atRestEncryptionEnabled from the shared resolver on every return', () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    expect(handlers.getSyncStatus().atRestEncryptionEnabled).toBe(false)
+    const body = src.slice(src.indexOf('function getSyncStatus()'), src.indexOf('function pushSyncStatus'))
+    expect(body).toContain('isAtRestEncryptionEnabled()')
+    const returns = body.match(/return \{[^]*?relayReservationRefused[^]*?\}/g) ?? []
+    expect(returns.length).toBe(5)
+    for (const r of returns) expect(r).toContain('atRestEncryptionEnabled')
+  })
+
+  it('latches encryption after whenReady and before the key is acquired', () => {
+    const ready = src.indexOf('await app.whenReady()')
+    const latch = src.indexOf('latchEncryptionIfKeyPresent(userDataPath)')
+    const acquire = src.indexOf('acquireDbKey(userDataPath, safeStorage)')
+    expect(ready).toBeGreaterThan(-1)
+    expect(latch).toBeGreaterThan(ready)
+    expect(acquire).toBeGreaterThan(latch)
+  })
+
+  it('offers no IPC or preload surface to disable at-rest encryption', () => {
+    const preload = fs.readFileSync(new URL('./preload.js', import.meta.url), 'utf8')
+    expect(preload).not.toMatch(/disable\w*Encrypt|setAtRestEncryption|encryption[-_]?(off|disable)/i)
+    expect(src).not.toMatch(/ipcMain\.handle\('shoresh:[^']*(disable|set)-?[^']*encrypt/i)
   })
 })

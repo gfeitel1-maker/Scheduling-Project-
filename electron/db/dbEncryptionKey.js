@@ -19,7 +19,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 export const KEY_BYTES = 32 // 256-bit
-const KEY_FILE = 'db.key.enc'
+export const KEY_FILE = 'db.key.enc'
 
 // getOrCreateDbKey(userDataDir, safeStorage) -> Buffer(32).
 // safeStorage is Electron's `safeStorage` (or a compatible stub in tests): it must expose
