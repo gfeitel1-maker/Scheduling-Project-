@@ -157,13 +157,18 @@ describe('recoverInterruptedMigration — a crash mid-rekey must not strand the 
     return b
   }
 
-  const marker = (f) => { fs.writeFileSync(`${f}.migration-in-progress`, 'x'); tmp.push(`${f}.migration-in-progress`) }
+  // Binds the marker to a specific backup the way migratePlaintextToEncrypted does.
+  const marker = (f, b) => {
+    const st = b ? fs.statSync(b) : { size: 0, mtimeMs: 0 }
+    fs.writeFileSync(`${f}.migration-in-progress`, JSON.stringify({ backupPath: b ?? `${f}.gone.bak`, size: st.size, mtimeMs: st.mtimeMs }))
+    tmp.push(`${f}.migration-in-progress`)
+  }
 
-  it('restores the newest PLAINTEXT .bak over a half-encrypted file and clears wal/shm', () => {
-    const f = tmpFile('rec'); fs.writeFileSync(f, crypto.randomBytes(2048)); marker(f)
+  it('restores the PLAINTEXT .bak the marker names over a half-encrypted file and clears wal/shm', () => {
+    const f = tmpFile('rec'); fs.writeFileSync(f, crypto.randomBytes(2048))
     fs.writeFileSync(`${f}-wal`, 'x'); fs.writeFileSync(`${f}-shm`, 'x')
     bak(f, '2026-01-01T00-00-00-000Z', MAGIC + 'OLD')
-    bak(f, '2026-02-01T00-00-00-000Z', MAGIC + 'NEWEST')
+    marker(f, bak(f, '2026-02-01T00-00-00-000Z', MAGIC + 'NEWEST'))
     const res = recoverInterruptedMigration(f, KEY, { Database: Fake })
     expect(res.recovered).toBe(true)
     expect(fs.readFileSync(f, 'latin1')).toBe(MAGIC + 'NEWEST')
@@ -184,8 +189,8 @@ describe('recoverInterruptedMigration — a crash mid-rekey must not strand the 
   })
 
   it('rethrows a probe failure that is not a key/cipher error instead of treating it as a wrong key', () => {
-    const f = tmpFile('rec-driver'); fs.writeFileSync(f, crypto.randomBytes(2048)); marker(f)
-    bak(f, '2026-02-01T00-00-00-000Z', MAGIC + 'PLAIN')
+    const f = tmpFile('rec-driver'); fs.writeFileSync(f, crypto.randomBytes(2048))
+    marker(f, bak(f, '2026-02-01T00-00-00-000Z', MAGIC + 'PLAIN'))
     function Broken() { throw new Error('driver failed to load') }
     expect(() => recoverInterruptedMigration(f, KEY, { Database: Broken })).toThrow(/driver failed to load/)
     expect(fs.readFileSync(f).length).toBe(2048)
@@ -212,7 +217,7 @@ describe('recoverInterruptedMigration — a crash mid-rekey must not strand the 
 
   it('ignores an ENCRYPTED .bak: throws, names it, and never deletes it', () => {
     const f = tmpFile('rec-encbak'); fs.writeFileSync(f, crypto.randomBytes(2048)); marker(f)
-    const b = bak(f, '2026-02-01T00-00-00-000Z', crypto.randomBytes(2048))
+    const b = bak(f, '2026-02-01T00-00-00-000Z', crypto.randomBytes(2048)); marker(f, b)
     let err
     try { recoverInterruptedMigration(f, KEY, { Database: Fake }) } catch (e) { err = e }
     expect(err?.code).toBe('db_migration_interrupted')
@@ -220,13 +225,39 @@ describe('recoverInterruptedMigration — a crash mid-rekey must not strand the 
   })
 
   it('throws with the .bak path when the restore copy fails, keeping the .bak', () => {
-    const f = tmpFile('rec-copyfail'); fs.writeFileSync(f, crypto.randomBytes(2048)); marker(f)
-    const b = bak(f, '2026-02-01T00-00-00-000Z', MAGIC + 'PLAIN')
+    const f = tmpFile('rec-copyfail'); fs.writeFileSync(f, crypto.randomBytes(2048))
+    const b = bak(f, '2026-02-01T00-00-00-000Z', MAGIC + 'PLAIN'); marker(f, b)
     const fsImpl = { ...fs, copyFileSync: () => { throw new Error('disk full') } }
     let err
     try { recoverInterruptedMigration(f, KEY, { Database: Fake, fsImpl }) } catch (e) { err = e }
     expect(err?.code).toBe('db_migration_interrupted')
     expect(err.message).toContain(b)
     expect(fs.existsSync(b)).toBe(true)
+  })
+
+  it('a stale marker + plaintext .bak (crash after verify, before clear) cannot restore OLD data over NEWER data', () => {
+    const f = tmpFile('rec-stalemarker'); fs.writeFileSync(f, 'GOOD-ENC')
+    const b = bak(f, '2026-02-01T00-00-00-000Z', MAGIC + 'OLD'); marker(f, b)
+    // key opens the db: the marker is stale and must be cleared along with the plaintext copy
+    expect(recoverInterruptedMigration(f, KEY, { Database: Fake }).recovered).toBe(false)
+    expect(fs.existsSync(`${f}.migration-in-progress`)).toBe(false)
+    expect(fs.existsSync(b)).toBe(false)
+    // newer data written, then the file becomes unreadable
+    const newer = crypto.randomBytes(2048); fs.writeFileSync(f, newer)
+    let err
+    try { recoverInterruptedMigration(f, KEY, { Database: Fake }) } catch (e) { err = e }
+    expect(err?.code).toBe('db_unreadable')
+    expect(fs.readFileSync(f).equals(newer)).toBe(true)
+  })
+
+  it('a marker only authorizes the backup it names: a changed .bak is refused and kept', () => {
+    const f = tmpFile('rec-bound'); fs.writeFileSync(f, crypto.randomBytes(2048))
+    const b = bak(f, '2026-02-01T00-00-00-000Z', MAGIC + 'OLD'); marker(f, b)
+    fs.writeFileSync(b, MAGIC + 'DIFFERENT-LENGTH')
+    let err
+    try { recoverInterruptedMigration(f, KEY, { Database: Fake }) } catch (e) { err = e }
+    expect(err?.code).toBe('db_migration_interrupted')
+    expect(fs.existsSync(b)).toBe(true)
+    expect(fs.readFileSync(f).length).toBe(2048)
   })
 })

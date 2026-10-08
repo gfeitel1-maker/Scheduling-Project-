@@ -46,7 +46,8 @@ describe.skipIf(!driverAvailable)('SQLite at-rest encryption — real driver, th
     tmp.push(bak)
     fs.copyFileSync(f, bak)
     fs.writeFileSync(f, crypto.randomBytes(8192)) // the interrupted rekey left garbage
-    fs.writeFileSync(`${f}.migration-in-progress`, bak); tmp.push(`${f}.migration-in-progress`)
+    const st = fs.statSync(bak)
+    fs.writeFileSync(`${f}.migration-in-progress`, JSON.stringify({ backupPath: bak, size: st.size, mtimeMs: st.mtimeMs })); tmp.push(`${f}.migration-in-progress`)
 
     const db = openLocalDb(f, { key: k })
     expect(db.prepare('SELECT name FROM camps WHERE id = ?').get('c1').name).toBe('Camp One')
@@ -58,10 +59,18 @@ describe.skipIf(!driverAvailable)('SQLite at-rest encryption — real driver, th
   it('an unreadable db with no plaintext .bak fails with db_migration_interrupted, not an opaque error', () => {
     const f = tmpFile('crash-nobak')
     fs.writeFileSync(f, crypto.randomBytes(8192))
-    fs.writeFileSync(`${f}.migration-in-progress`, ''); tmp.push(`${f}.migration-in-progress`)
+    fs.writeFileSync(`${f}.migration-in-progress`, JSON.stringify({ backupPath: `${f}.gone.bak`, size: 0, mtimeMs: 0 })); tmp.push(`${f}.migration-in-progress`)
     let err
     try { openLocalDb(f, { key: key() }) } catch (e) { err = e }
     expect(err?.code).toBe('db_migration_interrupted')
+  })
+
+  it('an encrypted db the key cannot open and no upgrade in flight fails with db_unreadable (code survives openLocalDb)', () => {
+    const f = tmpFile('unreadable')
+    fs.writeFileSync(f, crypto.randomBytes(8192))
+    let err
+    try { openLocalDb(f, { key: key() }) } catch (e) { err = e }
+    expect(err?.code).toBe('db_unreadable')
   })
 
   it('opens a fresh db KEYED, writes, and the on-disk file is NOT plaintext', () => {

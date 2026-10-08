@@ -73,6 +73,15 @@ describe('getOrCreateDbKey', () => {
 describe('getOrCreateDbKey — never mint over an existing encrypted db', () => {
   const MAGIC = Buffer.from('SQLite format 3\0', 'latin1')
 
+  it('refuses when an Automerge doc file is encrypted (docPaths), but not when it is plaintext Automerge', () => {
+    const enc = path.join(dir, 'a.automerge'); fs.writeFileSync(enc, Buffer.concat([Buffer.from('SHEN', 'ascii'), Buffer.alloc(64)]))
+    let err
+    try { getOrCreateDbKey(dir, fakeSafeStorage(), { docPaths: [enc] }) } catch (e) { err = e }
+    expect(err?.code).toBe('db_key_file_missing')
+    const plain = path.join(dir, 'b.automerge'); fs.writeFileSync(plain, Buffer.from([0x85, 0x6f, 0x4a, 0x83, 1, 2, 3]))
+    expect(getOrCreateDbKey(dir, fakeSafeStorage(), { docPaths: [plain] })).toHaveLength(32)
+  })
+
   it('refuses with db_key_file_missing when a data path is encrypted and the key file is gone', () => {
     const data = path.join(dir, 'camp.sqlite')
     fs.writeFileSync(data, Buffer.alloc(4096, 0x9c))

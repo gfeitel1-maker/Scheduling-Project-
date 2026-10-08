@@ -18,6 +18,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { isPlaintextSqliteFile } from './sqliteCipher.js'
+import { isEncrypted as isEncryptedDoc } from './docCipher.js'
 
 export const KEY_BYTES = 32 // 256-bit
 export const KEY_FILE = 'db.key.enc'
@@ -52,6 +53,14 @@ function isEncryptedDataFile(p, fsImpl) {
   }
 }
 
+function isEncryptedDocFile(p, fsImpl) {
+  try {
+    return isEncryptedDoc(fsImpl.readFileSync(p).subarray(0, 4))
+  } catch {
+    return false
+  }
+}
+
 function readKey(keyPath, safeStorage, fsImpl) {
   const sealed = fsImpl.readFileSync(keyPath)
   const hex = safeStorage.decryptString(sealed)
@@ -77,12 +86,12 @@ export function getDbKey(userDataDir, safeStorage, { fsImpl = fs } = {}) {
 // safeStorage is Electron's `safeStorage` (or a compatible stub in tests): it must expose
 // isEncryptionAvailable(), encryptString(str)->Buffer, decryptString(Buffer)->str.
 // dataPaths: existing data files this key would have to open. If the key file is gone but one of
-// them is already encrypted, minting a fresh key would orphan it, so refuse instead.
-export function getOrCreateDbKey(userDataDir, safeStorage, { fsImpl = fs, dataPaths = [] } = {}) {
+// them is already encrypted (docPaths: Automerge docs, judged by the SHEN header), minting a fresh key would orphan it, so refuse instead.
+export function getOrCreateDbKey(userDataDir, safeStorage, { fsImpl = fs, dataPaths = [], docPaths = [] } = {}) {
   requireSafeStorage(safeStorage, 'getOrCreateDbKey')
   const keyPath = path.join(userDataDir, KEY_FILE)
   if (fsImpl.existsSync(keyPath)) return getDbKey(userDataDir, safeStorage, { fsImpl })
-  const orphaned = dataPaths.find((p) => isEncryptedDataFile(p, fsImpl))
+  const orphaned = dataPaths.find((p) => isEncryptedDataFile(p, fsImpl)) ?? docPaths.find((p) => isEncryptedDocFile(p, fsImpl))
   if (orphaned) {
     throw coded(
       'db_key_file_missing',

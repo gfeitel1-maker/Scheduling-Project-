@@ -5015,7 +5015,7 @@ export function openLocalDb(filePath, { key = null, plaintext = false } = {}) {
     // path closes it above, then re-throws here).
     try { if (db) db.close() } catch { /* ignore — already closed or never opened */ }
     // Re-throw schema_too_new as-is; wrap everything else.
-    if (err.code === 'schema_too_new' || err.code === 'db_migration_interrupted') throw err
+    if (err.code === 'schema_too_new' || err.code === 'db_migration_interrupted' || err.code === 'db_unreadable') throw err
     throw new Error(`Failed to open local database at ${filePath}: ${err.message}`)
   }
   return db

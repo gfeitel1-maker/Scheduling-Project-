@@ -3143,9 +3143,16 @@ if (isElectronEntryPoint()) {
   let docCipher = null
   let dbKey = null
   let dbPath = getCurrentProjectPath(userDataPath, defaultDbPath)
+  const keyGuard = {
+    dataPaths: [...new Set([dbPath, ...readRecentProjects(userDataPath).map((e) => e.path)])],
+    docPaths: (() => {
+      const dir = path.join(userDataPath, 'automerge')
+      try { return fs.readdirSync(dir).filter((n) => n.endsWith('.automerge')).map((n) => path.join(dir, n)) } catch { return [] }
+    })(),
+  }
   try {
-    dbKey = acquireDbKey(userDataPath, safeStorage, { dataPaths: [dbPath] }) // null when encryption is off → SQLite stays plaintext
-    docCipher = acquireDocCipher(userDataPath, safeStorage, { dataPaths: [dbPath] })
+    dbKey = acquireDbKey(userDataPath, safeStorage, keyGuard) // null when encryption is off → SQLite stays plaintext
+    docCipher = acquireDocCipher(userDataPath, safeStorage, keyGuard)
   } catch (err) {
     if (err?.code === 'keychain_unavailable' || err?.code === 'db_key_file_missing') {
       console.error(err.message)

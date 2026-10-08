@@ -87,7 +87,8 @@ export function migratePlaintextToEncrypted(filePath, key, {
   }
 
   const markerPath = `${filePath}${MIGRATION_MARKER_SUFFIX}`
-  fsImpl.writeFileSync(markerPath, backupPath)
+  const bakStat = fsImpl.statSync(backupPath)
+  fsImpl.writeFileSync(markerPath, JSON.stringify({ backupPath, size: bakStat.size, mtimeMs: bakStat.mtimeMs }))
   const clearMarker = () => { try { fsImpl.unlinkSync(markerPath) } catch { /* best effort */ } }
 
   const restoreFromBackup = () => {
@@ -149,18 +150,28 @@ export function migratePlaintextToEncrypted(filePath, key, {
 // and put the newest PLAINTEXT .bak back so the normal migration can run again. Only a .bak with a
 // plaintext header qualifies: schema-migration backups of an already-encrypted db share the name
 // pattern and must never be restored as if they were plaintext. A .bak is never deleted here.
+function readMarker(markerPath, fsImpl) {
+  try {
+    const m = JSON.parse(fsImpl.readFileSync(markerPath, 'utf8'))
+    return typeof m?.backupPath === 'string' ? m : null
+  } catch {
+    return null
+  }
+}
+
 export function recoverInterruptedMigration(filePath, key, { Database, fsImpl = fs } = {}) {
   if (!Database) throw new Error('recoverInterruptedMigration: a Database constructor is required')
   let size
   try { size = fsImpl.statSync(filePath).size } catch { return { recovered: false } }
   if (!size || isPlaintextSqliteFile(filePath, { fsImpl })) return { recovered: false }
 
+  let opened = false
   try {
     const probe = new Database(filePath)
     try {
       probe.pragma(rawKeyPragma(key))
       probe.prepare('SELECT count(*) AS n FROM sqlite_master').get()
-      return { recovered: false }
+      opened = true
     } finally {
       probe.close()
     }
@@ -168,7 +179,19 @@ export function recoverInterruptedMigration(filePath, key, { Database, fsImpl = 
     if (err?.code !== 'SQLITE_NOTADB') throw err
   }
 
-  if (!fsImpl.existsSync(`${filePath}${MIGRATION_MARKER_SUFFIX}`)) {
+  const markerPath = `${filePath}${MIGRATION_MARKER_SUFFIX}`
+  const bound = readMarker(markerPath, fsImpl)
+  if (opened) {
+    // The key opens the db, so any marker is stale (the crash came after rekey+verify). Clear it and
+    // the plaintext .bak it names, so neither can later authorize restoring old data over newer data.
+    if (bound && isPlaintextSqliteFile(bound.backupPath, { fsImpl })) {
+      try { fsImpl.unlinkSync(bound.backupPath) } catch { /* best effort */ }
+    }
+    try { fsImpl.unlinkSync(markerPath) } catch { /* absent or best effort */ }
+    return { recovered: false }
+  }
+
+  if (!bound) {
     const e = new Error(
       `The camp database at ${filePath} could not be opened with this device's encryption key, and no ` +
         'encryption upgrade was in progress, so nothing was changed. The key may have been replaced or ' +
@@ -178,14 +201,14 @@ export function recoverInterruptedMigration(filePath, key, { Database, fsImpl = 
     throw e
   }
 
-  const dir = path.dirname(filePath)
-  const prefix = `${path.basename(filePath)}.pre-migration-`
-  const candidates = fsImpl.readdirSync(dir)
-    .filter((n) => n.startsWith(prefix) && n.endsWith('.bak'))
-    .map((n) => path.join(dir, n))
-    .filter((p) => isPlaintextSqliteFile(p, { fsImpl }))
-    .map((p) => ({ p, mtime: fsImpl.statSync(p).mtimeMs }))
-    .sort((a, b) => (a.p < b.p ? 1 : a.p > b.p ? -1 : b.mtime - a.mtime))
+  // Only the backup THIS marker was written for qualifies; any other plaintext .bak is not authorized.
+  const candidates = []
+  try {
+    const st = fsImpl.statSync(bound.backupPath)
+    if (st.size === bound.size && st.mtimeMs === bound.mtimeMs && isPlaintextSqliteFile(bound.backupPath, { fsImpl })) {
+      candidates.push({ p: bound.backupPath })
+    }
+  } catch { /* backup gone */ }
 
   const fail = (detail) => {
     const e = new Error(
