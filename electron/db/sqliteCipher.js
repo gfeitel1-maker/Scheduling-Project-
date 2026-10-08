@@ -14,6 +14,7 @@
 // testable without the native module; the real keying + sqlcipher_export are covered by an
 // integration test that runs once the module is installed.
 import fs from 'node:fs'
+import path from 'node:path'
 
 const SQLITE_MAGIC = Buffer.from('SQLite format 3\0', 'latin1') // 16 bytes
 
@@ -130,4 +131,61 @@ export function migratePlaintextToEncrypted(filePath, key, {
   try { if (fsImpl.existsSync(backupPath)) fsImpl.unlinkSync(backupPath) } catch { /* non-fatal — best effort */ }
 
   return { migrated: true, backupPath }
+}
+
+// Crash recovery for migratePlaintextToEncrypted. If the process died between the in-place rekey and
+// the verify/shred, the db file is half-encrypted and a plaintext `.pre-migration-*.bak` remains.
+// A keyed open then fails opaquely. Detect that (file present, not plaintext, key does not open it)
+// and put the newest PLAINTEXT .bak back so the normal migration can run again. Only a .bak with a
+// plaintext header qualifies: schema-migration backups of an already-encrypted db share the name
+// pattern and must never be restored as if they were plaintext. A .bak is never deleted here.
+export function recoverInterruptedMigration(filePath, key, { Database, fsImpl = fs } = {}) {
+  if (!Database) throw new Error('recoverInterruptedMigration: a Database constructor is required')
+  let size
+  try { size = fsImpl.statSync(filePath).size } catch { return { recovered: false } }
+  if (!size || isPlaintextSqliteFile(filePath, { fsImpl })) return { recovered: false }
+
+  try {
+    const probe = new Database(filePath)
+    try {
+      probe.pragma(rawKeyPragma(key))
+      probe.prepare('SELECT count(*) AS n FROM sqlite_master').get()
+      return { recovered: false }
+    } finally {
+      probe.close()
+    }
+  } catch { /* the key does not open it — fall through to recovery */ }
+
+  const dir = path.dirname(filePath)
+  const prefix = `${path.basename(filePath)}.pre-migration-`
+  const candidates = fsImpl.readdirSync(dir)
+    .filter((n) => n.startsWith(prefix) && n.endsWith('.bak'))
+    .map((n) => path.join(dir, n))
+    .filter((p) => isPlaintextSqliteFile(p, { fsImpl }))
+    .map((p) => ({ p, mtime: fsImpl.statSync(p).mtimeMs }))
+    .sort((a, b) => (a.p < b.p ? 1 : a.p > b.p ? -1 : b.mtime - a.mtime))
+
+  const fail = (detail) => {
+    const e = new Error(
+      `The camp database at ${filePath} could not be opened: an earlier encryption upgrade was ` +
+        `interrupted part-way and the file is now unreadable. ${detail}`
+    )
+    e.code = 'db_migration_interrupted'
+    return e
+  }
+  if (candidates.length === 0) {
+    throw fail('No pre-migration backup was found beside it to restore from, so nothing was changed. ' +
+      'Recover by re-syncing this device from a paired peer; see docs/current/KEY_RECOVERY_STORY.md.')
+  }
+  const bakPath = candidates[0].p
+  try {
+    for (const suffix of ['-wal', '-shm']) {
+      const p = `${filePath}${suffix}`
+      if (fsImpl.existsSync(p)) fsImpl.unlinkSync(p)
+    }
+    fsImpl.copyFileSync(bakPath, filePath)
+  } catch (err) {
+    throw fail(`Restoring the backup failed (${err?.message ?? err}). The backup is intact at ${bakPath}.`)
+  }
+  return { recovered: true, backupPath: bakPath }
 }

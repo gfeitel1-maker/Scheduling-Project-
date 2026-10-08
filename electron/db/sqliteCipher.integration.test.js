@@ -35,6 +35,33 @@ function tmpFile(tag) {
 const key = () => crypto.randomBytes(32)
 
 describe.skipIf(!driverAvailable)('SQLite at-rest encryption — real driver, through openLocalDb', () => {
+  it('recovers a half-encrypted db from its plaintext .bak and re-migrates (crash during rekey)', () => {
+    const f = tmpFile('crash')
+    const k = key()
+    const plain = openLocalDb(f, { plaintext: true })
+    plain.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('c1', 'Camp One')
+    plain.pragma('wal_checkpoint(TRUNCATE)')
+    plain.close()
+    const bak = `${f}.pre-migration-2026-01-01T00-00-00-000Z.bak`
+    tmp.push(bak)
+    fs.copyFileSync(f, bak)
+    fs.writeFileSync(f, crypto.randomBytes(8192)) // the interrupted rekey left garbage
+
+    const db = openLocalDb(f, { key: k })
+    expect(db.prepare('SELECT name FROM camps WHERE id = ?').get('c1').name).toBe('Camp One')
+    db.close()
+    expect(isPlaintextSqliteFile(f)).toBe(false)
+    expect(fs.existsSync(bak)).toBe(false) // no plaintext copy left behind
+  })
+
+  it('an unreadable db with no plaintext .bak fails with db_migration_interrupted, not an opaque error', () => {
+    const f = tmpFile('crash-nobak')
+    fs.writeFileSync(f, crypto.randomBytes(8192))
+    let err
+    try { openLocalDb(f, { key: key() }) } catch (e) { err = e }
+    expect(err?.code).toBe('db_migration_interrupted')
+  })
+
   it('opens a fresh db KEYED, writes, and the on-disk file is NOT plaintext', () => {
     const f = tmpFile('fresh')
     const k = key()

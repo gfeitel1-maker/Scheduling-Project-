@@ -6,7 +6,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
-import { isPlaintextSqliteFile, rawKeyPragma, migratePlaintextToEncrypted } from './sqliteCipher.js'
+import { isPlaintextSqliteFile, rawKeyPragma, migratePlaintextToEncrypted, recoverInterruptedMigration } from './sqliteCipher.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -136,5 +136,75 @@ describe('migratePlaintextToEncrypted — orchestration safety (fakes; real cryp
     expect(() => migratePlaintextToEncrypted(f, Buffer.alloc(32, 1), { Database: Fake, writeBackup }))
       .toThrow(/verification/)
     expect(fs.readFileSync(f, 'utf8')).toBe('PLAINTEXT-ORIGINAL') // rekey rewrote it, verify failed, restored
+  })
+})
+
+describe('recoverInterruptedMigration — a crash mid-rekey must not strand the db', () => {
+  const MAGIC = 'SQLite format 3\0'
+  const KEY = Buffer.alloc(32, 7)
+  // Keyed open "works" only on a file whose content starts with GOOD-ENC.
+  function Fake(p) { this.p = p }
+  Fake.prototype.pragma = function () {}
+  Fake.prototype.prepare = function () {
+    const ok = fs.readFileSync(this.p, 'utf8').startsWith('GOOD-ENC')
+    return { get: () => { if (!ok) throw new Error('file is not a database'); return { n: 1 } } }
+  }
+  Fake.prototype.close = function () {}
+
+  function bak(f, stamp, content) {
+    const b = `${f}.pre-migration-${stamp}.bak`
+    fs.writeFileSync(b, content); tmp.push(b)
+    return b
+  }
+
+  it('restores the newest PLAINTEXT .bak over a half-encrypted file and clears wal/shm', () => {
+    const f = tmpFile('rec'); fs.writeFileSync(f, crypto.randomBytes(2048))
+    fs.writeFileSync(`${f}-wal`, 'x'); fs.writeFileSync(`${f}-shm`, 'x')
+    bak(f, '2026-01-01T00-00-00-000Z', MAGIC + 'OLD')
+    bak(f, '2026-02-01T00-00-00-000Z', MAGIC + 'NEWEST')
+    const res = recoverInterruptedMigration(f, KEY, { Database: Fake })
+    expect(res.recovered).toBe(true)
+    expect(fs.readFileSync(f, 'latin1')).toBe(MAGIC + 'NEWEST')
+    expect(fs.existsSync(`${f}-wal`)).toBe(false)
+    expect(fs.existsSync(`${f}-shm`)).toBe(false)
+  })
+
+  it('leaves a file the key opens untouched', () => {
+    const f = tmpFile('rec-ok'); fs.writeFileSync(f, 'GOOD-ENC')
+    bak(f, '2026-02-01T00-00-00-000Z', MAGIC + 'PLAIN')
+    expect(recoverInterruptedMigration(f, KEY, { Database: Fake }).recovered).toBe(false)
+    expect(fs.readFileSync(f, 'utf8')).toBe('GOOD-ENC')
+  })
+
+  it('does nothing for an absent file', () => {
+    expect(recoverInterruptedMigration(tmpFile('rec-absent'), KEY, { Database: Fake }).recovered).toBe(false)
+  })
+
+  it('throws db_migration_interrupted naming "none found" when there is no .bak', () => {
+    const f = tmpFile('rec-nobak'); fs.writeFileSync(f, crypto.randomBytes(2048))
+    let err
+    try { recoverInterruptedMigration(f, KEY, { Database: Fake }) } catch (e) { err = e }
+    expect(err?.code).toBe('db_migration_interrupted')
+    expect(err.message).toMatch(/no pre-migration backup/i)
+  })
+
+  it('ignores an ENCRYPTED .bak: throws, names it, and never deletes it', () => {
+    const f = tmpFile('rec-encbak'); fs.writeFileSync(f, crypto.randomBytes(2048))
+    const b = bak(f, '2026-02-01T00-00-00-000Z', crypto.randomBytes(2048))
+    let err
+    try { recoverInterruptedMigration(f, KEY, { Database: Fake }) } catch (e) { err = e }
+    expect(err?.code).toBe('db_migration_interrupted')
+    expect(fs.existsSync(b)).toBe(true)
+  })
+
+  it('throws with the .bak path when the restore copy fails, keeping the .bak', () => {
+    const f = tmpFile('rec-copyfail'); fs.writeFileSync(f, crypto.randomBytes(2048))
+    const b = bak(f, '2026-02-01T00-00-00-000Z', MAGIC + 'PLAIN')
+    const fsImpl = { ...fs, copyFileSync: () => { throw new Error('disk full') } }
+    let err
+    try { recoverInterruptedMigration(f, KEY, { Database: Fake, fsImpl }) } catch (e) { err = e }
+    expect(err?.code).toBe('db_migration_interrupted')
+    expect(err.message).toContain(b)
+    expect(fs.existsSync(b)).toBe(true)
   })
 })
