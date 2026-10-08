@@ -38,6 +38,27 @@ export function gateIsStrict(source) {
 export function importsPunchTransport(source) {
   return /['"]\.\/punchTransport\.js['"]/.test(stripComments(source))
 }
+// The dynamic import must sit INSIDE the block of the `if (punchRuntimeEligible(` gate, and be the only one.
+export function importIsInsideGate(source) {
+  const code = stripComments(source)
+  const imports = [...code.matchAll(/import\(\s*['"]\.\/punchTransport\.js['"]\s*\)/g)]
+  const gate = code.indexOf('if (punchRuntimeEligible(')
+  if (imports.length !== 1 || gate < 0) return false
+  let paren = 0
+  let i0 = code.indexOf('(', gate)
+  for (; i0 < code.length; i0++) {
+    if (code[i0] === '(') paren++
+    else if (code[i0] === ')' && --paren === 0) break
+  }
+  const open = code.indexOf('{', i0)
+  let depth = 0
+  let close = -1
+  for (let i = open; i < code.length; i++) {
+    if (code[i] === '{') depth++
+    else if (code[i] === '}' && --depth === 0) { close = i; break }
+  }
+  return imports[0].index > open && imports[0].index < close
+}
 export function namesNativePackage(source) {
   return /['"]node-datachannel['"]/.test(stripComments(source))
 }
@@ -83,6 +104,15 @@ describe('punch-present-without-signoff guard (T347)', () => {
     expect(gateIsStrict(read('electron/sync/automerge/syncStarter.js'))).toBe(true)
   })
 
+  it('the punchTransport.js import in syncStarter.js sits inside the punchRuntimeEligible gate block', () => {
+    expect(importIsInsideGate(read('electron/sync/automerge/syncStarter.js'))).toBe(true)
+  })
+
+  it('inertPresence is declared on exactly the punch row (no other row may loosen the package scan)', () => {
+    const declaring = Object.entries(TRANSPORT_CAPABILITIES).filter(([, c]) => c.inertPresence).map(([k]) => k)
+    expect(declaring).toEqual(['punch'])
+  })
+
   it('only syncStarter.js imports punchTransport.js', () => {
     const importers = walkSources(['electron', 'src']).filter((f) => importsPunchTransport(readFileSync(join(repoRoot, f), 'utf8')))
     expect(importers).toEqual(['electron/sync/automerge/syncStarter.js'])
@@ -111,6 +141,14 @@ describe('punch-present-without-signoff guard (T347)', () => {
       expect(gateIsStrict(`if (process.env.SHORESH_PUNCH_ENABLED?.toLowerCase() === 'true') {}`)).toBe(false)
       expect(gateIsStrict(`a = process.env.SHORESH_PUNCH_ENABLED === 'true'\nb = process.env.SHORESH_PUNCH_ENABLED === 'true'`)).toBe(false)
       expect(gateIsStrict(`// process.env.SHORESH_PUNCH_ENABLED === 'true'\nconst x = 1`)).toBe(false)
+    })
+
+    it('a hoisted import (above the gate, or a second one) is detected', () => {
+      const gated = `if (punchRuntimeEligible({})) {\n  m = await import('./punchTransport.js')\n}`
+      expect(importIsInsideGate(gated)).toBe(true)
+      expect(importIsInsideGate(`m = await import('./punchTransport.js')\n` + gated.replace(/m = await import\('\.\/punchTransport\.js'\)/, 'm = null'))).toBe(false)
+      expect(importIsInsideGate(gated + `\nawait import('./punchTransport.js')`)).toBe(false)
+      expect(importIsInsideGate(`if (other) {\n  await import('./punchTransport.js')\n}\nif (punchRuntimeEligible({})) {}`)).toBe(false)
     })
 
     it('a second importer of punchTransport.js or of node-datachannel is detected', () => {

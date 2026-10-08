@@ -65,6 +65,31 @@ not re-implemented. Nothing activates in this slice.
 - The egress text scan cannot see STUN contact made inside the native library; the capability row's
   signoff is the control.
 
+## Known limits carried to later slices (round 2 review; not fixed in S1)
+
+- Quit under real Electron is unproven: `will-quit` is async and Electron does not await it, so
+  `cleanup()` may not run on a packaged quit. Needs a packaged-quit test before S5.
+- `validateSdp` is regex-deep (no `m=` count, `a=setup`, fingerprint algorithm/format checks); a
+  malformed-but-passing SDP reaches `setRemoteDescription`. Schedule a child-process SDP-mutation fuzz
+  and the utilityProcess isolation before S5 enables the transport.
+- Candidates: any host/srflx/prflx UDP address is accepted (loopback, link-local, private), and the
+  32-candidate pre-answer queue drops the overflow. Real signaling MUST be authenticated before this
+  module consumes candidates.
+- `acceptAnswer` sets `phase = 'established'` before the native `setRemoteDescription`; a throw there
+  leaves a half-state until the connect timeout and the answer cannot be retried.
+- `listen('/ip4/0.0.0.0/udp/0')` is advertised verbatim by `getAddrs`; it is not dialable. S2 must
+  resolve the bound port.
+- Capability check = native module loads AND a signaling channel was injected; it does not consult
+  `punch.signoff` (the registry is build-time only). Confirm with Security. Nothing injects signaling
+  yet, so the wired branch is covered only by the inertness tests.
+- `createPunchSessionForTest` and the `ndc` option are test seams on the production module.
+- Status stays `open` until the Governor-run full `npm run verify` is green on a quiet machine (the
+  earlier run was INCONCLUSIVE: `transportConnectionDos.test.js` timed out at load 19.56).
+
+Fixed in round 2: listener cap now counts only pending (pre-open) inbound sessions; an offer whose sid
+is already in `sessions` is dropped; the guard proves the import sits inside the gate block and that
+`inertPresence` is declared on exactly the `punch` row.
+
 ## Remaining
 
 - Governor-run full `npm run verify` and review loop (Security, Red Hat) on the transport.

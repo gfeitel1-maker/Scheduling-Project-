@@ -345,6 +345,7 @@ class PunchListener extends EventTarget {
     this.addr = null
     this.shutdown = new AbortController()
     this.inbound = new Set()
+    this.pending = new Set()
   }
 
   async listen(ma) {
@@ -361,12 +362,17 @@ class PunchListener extends EventTarget {
   updateAnnounceAddrs() {}
 
   onOffer(sid, sdp) {
-    if (this.inbound.size >= this.transport.opts.maxPendingInbound) {
+    if (this.transport.sessions.has(sid)) {
+      this.transport.log('dropping offer %s: session id already in use', sid)
+      return
+    }
+    if (this.pending.size >= this.transport.opts.maxPendingInbound) {
       this.transport.log('dropping offer %s: too many pending inbound sessions', sid)
       return
     }
     const session = this.transport.newSession({ role: 'answerer', sid, direction: 'inbound' })
     this.inbound.add(session)
+    this.pending.add(session)
     try {
       session.acceptOffer(sdp)
     } catch (err) {
@@ -375,7 +381,10 @@ class PunchListener extends EventTarget {
       return
     }
     session.waitOpen({ timeoutMs: this.transport.opts.connectTimeoutMs, signal: this.shutdown.signal })
-      .then((maConn) => this.upgrader.upgradeInbound(maConn, { signal: this.shutdown.signal }).catch((err) => maConn.abort(err)))
+      .then((maConn) => {
+        this.pending.delete(session)
+        return this.upgrader.upgradeInbound(maConn, { signal: this.shutdown.signal }).catch((err) => maConn.abort(err))
+      })
       .catch((err) => {
         this.transport.log.error('inbound punch failed - %e', err)
         session.close()
@@ -445,6 +454,7 @@ class PunchTransport {
       onClosed: (s) => {
         this.sessions.delete(s.sid)
         this.listener?.inbound.delete(s)
+        this.listener?.pending.delete(s)
       },
     })
     this.sessions.set(sid, session)
