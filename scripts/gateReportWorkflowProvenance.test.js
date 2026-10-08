@@ -102,3 +102,61 @@ describe('workflowDir provenance', () => {
     expect(r.bound).toBe(false)
   })
 })
+
+// Real Workflow run (T347), sanitised. Its run directory and journal labels name no task; the
+// task appears only in each reviewer's recorded prompt (agent-<id>.jsonl). Results are
+// {verdict, findings:[string]} rather than {blocking, nonblocking}.
+const FIXTURE_347 = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'workflow-run-t347')
+const SEC347 = 'No confirmed vulnerabilities in the diff of origin/main...65fef8cd'
+const RH347 = 'VERIFIED, planted-defect evidence is real.'
+const CR347 = 'Verdict: pass. Fix commit 65fef8cd matches owner-approved items (a)-(c)'
+const good347 = () => [opinion('security', SEC347), opinion('red_hat', RH347), opinion('code_reviewer', CR347)]
+
+describe('workflowDir provenance, task named only in the dispatched prompt', () => {
+  it('binds reports to reviewers whose recorded prompt names the task', () => {
+    expect(run(good347(), FIXTURE_347, 'T347').decision_eligibility).toBe('PASS_ELIGIBLE')
+  })
+
+  it('refuses a task that is only a secondary mention (not the first task id) in the reviewer prompt', () => {
+    const sec = opinion('security', SEC347)
+    for (const id of ['T340', 'T331']) {
+      expect(checkWorkflowProvenance({ ...loadWorkflowRun(FIXTURE_347), taskId: id, report: sec }).bound).toBe(false)
+    }
+    expect(checkWorkflowProvenance({ ...loadWorkflowRun(FIXTURE_347), taskId: 'T347', report: sec }).bound).toBe(true)
+  })
+
+  it('refuses a task that is only a secondary mention (not the first task id) in the reviewer prompt', () => {
+    const sec = opinion('security', SEC347)
+    for (const id of ['T340', 'T331']) {
+      expect(checkWorkflowProvenance({ ...loadWorkflowRun(FIXTURE_347), taskId: id, report: sec }).bound).toBe(false)
+    }
+    expect(checkWorkflowProvenance({ ...loadWorkflowRun(FIXTURE_347), taskId: 'T347', report: sec }).bound).toBe(true)
+  })
+
+  it('refuses a run whose reviewer prompts never mention the task', () => {
+    expect(() => run(good347(), FIXTURE_347, 'T999')).toThrow(/T999/)
+  })
+
+  it('does not let T34 match a prompt naming T347', () => {
+    expect(() => run(good347(), FIXTURE_347, 'T34')).toThrow(/T34/)
+  })
+
+  it('refuses when the prompt that names the task belongs to a different agent', () => {
+    const dir = join(scratch, 'run')
+    cpSync(FIXTURE_347, dir, { recursive: true })
+    writeFileSync(join(dir, 'agent-a77bebf8889850805.jsonl'),
+      JSON.stringify({ type: 'user', message: { content: 'Security review of something else' } }) + '\n')
+    expect(() => run(good347(), dir, 'T347')).toThrow(/security/)
+  })
+
+  it('refuses a flipped verdict against a recorded pass', () => {
+    const forged = [{ gate_name: 'security', verdict: 'FAIL', score: 1, na_reason: null, evidence_ref: null,
+      findings: [{ severity: 'BLOCKING', summary: SEC347 }] }, ...good347().slice(1)]
+    expect(() => run(forged, FIXTURE_347, 'T347')).toThrow(/security/)
+  })
+
+  it('refuses an invented finding', () => {
+    const forged = [opinion('security', 'SQL injection in the pairing handler'), ...good347().slice(1)]
+    expect(() => run(forged, FIXTURE_347, 'T347')).toThrow(/security/)
+  })
+})
