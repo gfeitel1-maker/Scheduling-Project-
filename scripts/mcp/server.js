@@ -13,7 +13,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
-import { resolveHeadlessDbKey } from '../../electron/db/headlessDbKey.js'
+import { resolveAuthorizedHeadlessDbKey } from '../../electron/db/headlessDbKey.js'
 import { dispatchToolCall } from './dispatch.js'
 
 import {
@@ -52,13 +52,13 @@ if (!dbPath) {
   process.exit(1)
 }
 // At-rest key for an encrypted DB (ADR 2026-09-16). Read from a protected channel
-// (SHORESH_DB_KEY / SHORESH_DB_KEY_FILE), never argv. null → plaintext open, exactly as before, so
-// this is inert unless encryption is on and the unlock helper has supplied a key.
+// (SHORESH_DB_KEY / SHORESH_DB_KEY_FILE), never argv, put there by the unlock helper only for a tool the
+// director authorized (ADR 2026-10-08). Encryption on and no key → named tool-not-authorized refusal.
 let dbKey = null
 try {
-  dbKey = resolveHeadlessDbKey()
+  ;({ key: dbKey } = resolveAuthorizedHeadlessDbKey({ requireWrite: allowWrite }))
 } catch (err) {
-  console.error(`scripts/mcp/server.js: ${err.message}`)
+  console.error(`scripts/mcp/server.js: ${err.code ? `${err.code}: ` : ''}${err.message}`)
   process.exit(1)
 }
 const ctx = { dbPath, allowWrite, authorUserId, dbKey }

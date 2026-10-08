@@ -22,7 +22,7 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
+import { StdioClientTransport, getDefaultEnvironment } from '@modelcontextprotocol/sdk/client/stdio.js'
 
 import { openLocalDb } from '../../electron/db/localDb.js'
 
@@ -87,6 +87,9 @@ describe('preference sheet over the stdio MCP transport', () => {
       command: process.execPath,
       args: [SERVER, '--db', dbPath, '--allow-write', '--author-user-id', userId],
       cwd: REPO,
+      // The transport does not inherit the parent env, and encryption defaults ON: this test's db is a
+      // disposable plaintext fixture, so pin the server's process off rather than authorize a tool.
+      env: { ...getDefaultEnvironment(), SHORESH_AT_REST_ENCRYPTION: 'off' },
     })
     client = new Client({ name: 'shoresh-e2e-test', version: '1.0.0' }, { capabilities: {} })
     await client.connect(transport)

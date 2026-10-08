@@ -64,6 +64,9 @@ contextBridge.exposeInMainWorld('shoresh', {
   getDevicePairingStatus: () => ipcRenderer.invoke('shoresh:get-device-pairing-status'),
   listPendingPairingRequests: (token) => ipcRenderer.invoke('shoresh:list-pending-pairing-requests', { token }),
   approveDevice: (args) => ipcRenderer.invoke('shoresh:approve-device', args),
+  listToolAuthorizations: (token) => ipcRenderer.invoke('shoresh:list-tool-authorizations', { token }),
+  grantToolAuthorization: (args) => ipcRenderer.invoke('shoresh:grant-tool-authorization', args),
+  revokeToolAuthorization: (args) => ipcRenderer.invoke('shoresh:revoke-tool-authorization', args),
   // Join flow — docs/adr/2026-09-08-libp2p-join-flow.md. The join-* calls are
   // token-free by construction: a device with no camp has no session to pass.
   getSyncEngine: () => ipcRenderer.invoke('shoresh:get-sync-engine'),

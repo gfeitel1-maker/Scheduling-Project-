@@ -18,6 +18,7 @@
 //   node scripts/preferenceCorpusProbe.mjs --json <f>     # also write raw results
 //   node scripts/preferenceCorpusProbe.mjs --seed-catalog # camp HAS done setup
 
+import './pinAtRestOff.js'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'

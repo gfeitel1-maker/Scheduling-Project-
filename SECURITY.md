@@ -327,15 +327,32 @@ lost with no other paired device holding a copy, the encrypted data cannot be re
 - **Turning it off is not an ambient setting.** Once a device holds its key file, the
   `SHORESH_AT_REST_ENCRYPTION` environment variable is ignored. No in-app disable is offered; a future
   director-gated disable is a separate ticket (`docs/adr/2026-10-08-at-rest-encryption-sticky-no-ambient-disable.md`).
-- **Headless tools:** the MCP server and CLI reach an encrypted DB only via the protected key channel and
-  the Electron unlock helper (`docs/adr/2026-09-16-headless-db-key-access-for-mcp-cli.md`); the key is
-  never passed on the command line.
-- **Headless key-acquisition failure is FAIL-CLOSED (T260).** A headless caller (MCP server, CLI,
-  rebuild) that reaches `openLocalDb` with no key, because `resolveHeadlessDbKey()` found neither
-  `SHORESH_DB_KEY` nor `SHORESH_DB_KEY_FILE`, is refused with a named `db_key_unavailable` before any
-  open attempt. Because the default is on, the guard fires in every process. Setting
-  `SHORESH_AT_REST_ENCRYPTION=off` in a headless process cannot make an encrypted file readable; it
-  only yields an opaque SQLite error, which is fail-closed by physics.
+- **Headless tools need a director-granted authorization.** The MCP server and CLIs reach an encrypted DB
+  only through the Electron unlock helper (`electron/unlockDbKey.js`), which releases the key to a tool
+  only if it presents a live, non-revoked per-tool secret (`SHORESH_TOOL_SECRET` or `--secret-stdin`,
+  never argv). The director grants, lists and revokes these in the app (Devices screen, Connected Tools);
+  each grant is named, scoped read or read-and-change, shown its secret once (only a hash is stored), and
+  audited. The grants live in a keychain-sealed store outside the camp database, so they are readable
+  without the camp key, including when the app is closed. Every check goes through one function
+  (`checkToolAuthorization` in `electron/auth/toolAuthorizations.js`). The key itself is never written
+  to disk and never passed on the command line
+  (`docs/adr/2026-09-16-headless-db-key-access-for-mcp-cli.md`, amended by
+  the 2026-10-08 "director-authorized tool connections" ADR, PR #745).
+- **This is accountability, not a cryptographic boundary.** A process running as the same OS user, with
+  the same keychain access the app has, can still run the unlock helper's Electron entry itself and
+  unseal the key. Authorization records which tools the director chose to connect and gives a clear
+  refusal to the rest; it does not defend against a same-login attacker (that stays out of scope, as
+  above), and there is no per-tool key wrapping.
+- **Named refusals.** An unknown or forged tool secret gets `tool-not-authorized`; a revoked one gets
+  `tool-authorization-revoked`; a read-only tool asked to write gets `tool-scope-read-only`. A headless
+  tool launched with encryption on and no key also gets `tool-not-authorized`. `db_key_unavailable`
+  remains only for the genuine case of an authorized tool whose keychain entry cannot be read, and for
+  the interactive `openLocalDb` seam. Tool use and refusals are queued in the sealed store and recorded
+  to `audit_events` by the running app.
+- **Throwaway-DB scripts are pinned off, and a guard keeps every caller classified.** Scripts that build
+  disposable plaintext DBs import `scripts/pinAtRestOff.js` first. `openLocalDbCallers.guard.test.js`
+  fails if any non-test `openLocalDb` caller is neither keyed nor pinned, or if the key can be released
+  without passing the authorization checkpoint.
 - The interactive app acquires a real key via the OS keychain and, on the first launch with encryption
   on, migrates a plaintext file to encrypted once.
 

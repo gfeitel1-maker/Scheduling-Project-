@@ -23,6 +23,7 @@
 // unless --force is given, because the builder bootstraps a camp row and a
 // second one in the same file would break the single-camp-per-device invariant
 // every `SELECT ... FROM camps LIMIT 1` in this codebase depends on.
+import '../pinAtRestOff.js'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'

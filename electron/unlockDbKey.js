@@ -22,43 +22,81 @@
 // --exec erases that whole risk class. It adds NO new trust: the key only ever exists in a process
 // running as the same OS user, with the same keychain access the app itself has.
 //
-// The arg-parsing and the child-env construction are pure and exported for tests; the safeStorage +
+// AUTHORIZATION GATE (docs/adr/2026-10-08-director-authorized-tool-connections.md). This helper is the
+// SOLE key-release path, and it releases only to a tool that presents a live, non-revoked, director-
+// granted secret — via SHORESH_TOOL_SECRET or --secret-stdin, NEVER argv. Verification funnels through
+// ONE checkpoint (electron/auth/toolAuthorizations.js checkToolAuthorization). This is accountability
+// (explicit, named, revocable, audited), not a crypto defense against a same-OS-user attacker, who can
+// still run Electron and unseal the key; do not describe it as one.
+//
+// The arg-parsing, env construction and release gate are pure and exported for tests; the safeStorage +
 // spawn glue runs only when this file is the Electron entry point.
+import { checkToolAuthorization, ToolAuthorizationError } from './auth/toolAuthorizations.js'
+import { getOrCreateDbKey } from './db/dbEncryptionKey.js'
+
+// Everything after `--exec` (skipping an optional `--` separator) is the command to run.
 export function parseUnlockArgs(argv) {
+  if (argv.some((a) => /^--(tool-)?secret(=|$)/.test(a))) {
+    throw new Error('unlockDbKey: a tool secret is never accepted via argv (it is visible in `ps`). Use SHORESH_TOOL_SECRET or --secret-stdin.')
+  }
+  const secretFromStdin = argv.includes('--secret-stdin')
   const execIndex = argv.indexOf('--exec')
   if (execIndex >= 0) {
-    // Everything after `--exec` (skipping an optional `--` separator) is the command to run.
     let rest = argv.slice(execIndex + 1)
     if (rest[0] === '--') rest = rest.slice(1)
     if (rest.length === 0) throw new Error('unlockDbKey: --exec requires a command to run')
-    return { mode: 'exec', command: rest }
+    return secretFromStdin ? { mode: 'exec', command: rest, secretFromStdin } : { mode: 'exec', command: rest }
   }
-  return { mode: 'print' }
+  return secretFromStdin ? { mode: 'print', secretFromStdin } : { mode: 'print' }
 }
 
-// The environment a spawned child gets: the current env plus the key. Pure + testable.
-export function childEnvWithKey(keyHex, baseEnv = process.env) {
-  return { ...baseEnv, SHORESH_DB_KEY: keyHex }
+// The environment a spawned child gets: the current env plus the key and the authorization's scope.
+// The tool secret itself is stripped. Pure + testable.
+export function childEnvWithKey(keyHex, baseEnv = process.env, authorization = null) {
+  const env = { ...baseEnv, SHORESH_DB_KEY: keyHex }
+  delete env.SHORESH_TOOL_SECRET
+  if (authorization) {
+    env.SHORESH_TOOL_SCOPE = authorization.scope
+    env.SHORESH_TOOL_AUTHORIZATION_ID = authorization.id
+  }
+  return env
+}
+
+// The ONLY place the key is unsealed for a tool: the checkpoint runs first and throws a named refusal
+// (tool-not-authorized / tool-authorization-revoked) before the key is touched, so a refused tool
+// never causes the keychain entry to be read or minted. A failure to obtain the key for an AUTHORIZED
+// tool is the one genuine db_key_unavailable case.
+export function releaseKeyToTool({ userDataPath, safeStorage, env = process.env, stdinText = null, getKey = getOrCreateDbKey }) {
+  const secret = env.SHORESH_TOOL_SECRET || stdinText
+  const authorization = checkToolAuthorization(userDataPath, safeStorage, secret)
+  let key
+  try {
+    key = getKey(userDataPath, safeStorage)
+  } catch (err) {
+    const wrapped = new ToolAuthorizationError('db_key_unavailable', `The database key could not be obtained from the OS keychain: ${err?.message ?? err}`)
+    throw wrapped
+  }
+  return { keyHex: key.toString('hex'), authorization }
 }
 
 const invokedDirectly =
   process.argv[1] && process.argv[1].replace(/\\/g, '/').endsWith('electron/unlockDbKey.js')
 if (invokedDirectly) {
-  const [{ app, safeStorage }, { applyUserDataPath }, { getOrCreateDbKey }, { spawn }] = await Promise.all([
+  const [{ app, safeStorage }, { applyUserDataPath }, { spawn }, { readFileSync }] = await Promise.all([
     import('electron'),
     import('./db/userDataPath.js'),
-    import('./db/dbEncryptionKey.js'),
     import('node:child_process'),
+    import('node:fs'),
   ])
   app.whenReady().then(() => {
-    let parsed
     try {
-      parsed = parseUnlockArgs(process.argv.slice(2))
+      const parsed = parseUnlockArgs(process.argv.slice(2))
       const userDataPath = applyUserDataPath(app)
-      const keyHex = getOrCreateDbKey(userDataPath, safeStorage).toString('hex')
+      const stdinText = parsed.secretFromStdin ? readFileSync(0, 'utf8') : null
+      const { keyHex, authorization } = releaseKeyToTool({ userDataPath, safeStorage, stdinText })
       if (parsed.mode === 'exec') {
         const [cmd, ...args] = parsed.command
-        const child = spawn(cmd, args, { stdio: 'inherit', env: childEnvWithKey(keyHex) })
+        const child = spawn(cmd, args, { stdio: 'inherit', env: childEnvWithKey(keyHex, process.env, authorization) })
         child.on('exit', (code, signal) => app.exit(signal ? 1 : (code ?? 0)))
         child.on('error', (err) => { process.stderr.write(`unlockDbKey: spawn failed — ${err.message}\n`); app.exit(1) })
         return // do NOT exit here — wait for the child
@@ -66,7 +104,7 @@ if (invokedDirectly) {
       process.stdout.write(keyHex + '\n')
       app.exit(0)
     } catch (err) {
-      process.stderr.write(`unlockDbKey: ${err?.message ?? err}\n`)
+      process.stderr.write(`unlockDbKey: ${err?.code ? `${err.code}: ` : ''}${err?.message ?? err}\n`)
       app.exit(1)
     }
   })

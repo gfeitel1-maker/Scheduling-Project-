@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { localClient } from '../localClient'
 import { S, useEnterTransition } from '../styles/shared'
 import { deriveDeviceRowState } from './deviceRowState'
+import ConnectedToolsPanel from '../components/ConnectedToolsPanel'
 
 // T18 / CONSTITUTION Art. V. `pairing_status` is a database enum and was
 // rendered raw — a director saw "authorized", "pending", "revoked", or the
@@ -371,6 +372,8 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
           </table>
         )}
       </section>
+
+      {role === 'admin' && <ConnectedToolsPanel />}
     </div>
   )
 }

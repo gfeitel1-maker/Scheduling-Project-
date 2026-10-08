@@ -32,3 +32,38 @@ export function resolveHeadlessDbKey({ env = process.env, fsImpl = fs } = {}) {
   }
   return Buffer.from(hex, 'hex')
 }
+
+// What every headless entry point (MCP server, ingest/electives CLIs) calls. The key only reaches the
+// environment via the unlock helper after a director-granted authorization
+// (docs/adr/2026-10-08-director-authorized-tool-connections.md), so "encryption on and no key" means
+// "this tool was not launched through an authorization" — a NAMED refusal, never the opaque
+// db_key_unavailable. The scope the authorization carried is honored for writes.
+export function resolveAuthorizedHeadlessDbKey({
+  env = process.env,
+  fsImpl = fs,
+  requireWrite = false,
+  // Same rule as atRestEncryption.js (default on; only exactly 'off' disables), read from `env` so a
+  // headless process needs no module-load-order luck and no keychain latch.
+  encryptionEnabled = env.SHORESH_AT_REST_ENCRYPTION !== 'off',
+} = {}) {
+  const key = resolveHeadlessDbKey({ env, fsImpl })
+  if (!key) {
+    if (!encryptionEnabled) return { key: null, scope: null }
+    throw refusal(
+      'tool-not-authorized',
+      'This tool is not authorized to connect to this camp. Ask the director to authorize it in Connected Tools, ' +
+        'then launch it through the unlock helper (electron electron/unlockDbKey.js --exec -- ...) with its secret in SHORESH_TOOL_SECRET.'
+    )
+  }
+  const scope = env.SHORESH_TOOL_SCOPE ?? null
+  if (requireWrite && scope === 'read') {
+    throw refusal('tool-scope-read-only', 'This tool was authorized for read access only; it cannot make changes.')
+  }
+  return { key, scope }
+}
+
+function refusal(code, message) {
+  const err = new Error(message)
+  err.code = code
+  return err
+}

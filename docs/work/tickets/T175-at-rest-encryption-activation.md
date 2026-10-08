@@ -399,3 +399,22 @@ better-sqlite3. Remaining supply-chain care is ongoing (re-audit on any bump); t
 ## Open question needing a hardware test
 Does `safeStorage` survive an OS keychain reset / Migration Assistant transfer? Determines how often
 the hard-fail fires. Needs a restored-Mac test (owner-side).
+
+## 2026-10-08 — headless tools connect via director-authorized secrets (owner ruling: "it's accountability")
+The default is ON, so the MCP server and CLIs can no longer open a camp DB without a key, and the
+unlock helper had no notion of who was asking. Per `docs/adr/2026-10-08-director-authorized-tool-connections.md`
+(owner: "A. it's accountability"):
+- `electron/unlockDbKey.js` stays the sole key-release path and now gates on `releaseKeyToTool` ->
+  `checkToolAuthorization` (the single checkpoint, `electron/auth/toolAuthorizations.js`): a live,
+  non-revoked per-tool secret from env or stdin, never argv. The key is still never on disk.
+- Authorizations are a keychain-sealed store outside the camp DB; the director grants (secret shown once,
+  hash stored), lists and revokes them through `authorize()`-gated IPC and a Connected Tools panel on the
+  Devices screen. Grant, revoke, and tool use/refusal reach `audit_events`.
+- Named refusals `tool-not-authorized` / `tool-authorization-revoked` / `tool-scope-read-only`;
+  `db_key_unavailable` is reserved for a missing keychain entry. MCP server, `scripts/ingest.js` and
+  `scripts/electives.js` surface them.
+- The three remaining throwaway scripts (`preferenceCorpusProbe`, `make-era-fixtures`,
+  `electiveAcceptanceCamp`) are pinned off via `scripts/pinAtRestOff.js`; `electron/db/openLocalDbCallers.guard.test.js`
+  fails on any unkeyed, unpinned caller and on any key release that bypasses the checkpoint.
+- Non-goal, stated plainly: this does not defend against a same-OS-user attacker, and there is no
+  per-tool key wrapping. It is a record of which tools the director chose to connect.

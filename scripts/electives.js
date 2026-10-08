@@ -15,6 +15,7 @@
 
 import { fileURLToPath } from 'node:url'
 import { runElectivesCli } from './electivesCli.js'
+import { resolveAuthorizedHeadlessDbKey } from '../electron/db/headlessDbKey.js'
 
 const USAGE =
   'usage: node scripts/electives.js <preview|commit|export> --db <path> ' +
@@ -60,9 +61,18 @@ export function main(argv) {
     return 1
   }
 
+  let dbKey
+  try {
+    ;({ key: dbKey } = resolveAuthorizedHeadlessDbKey({ requireWrite: opts.action === 'commit' }))
+  } catch (err) {
+    console.error(`${err.code ?? 'error'}: ${err.message}`)
+    return 1
+  }
+
   const result = runElectivesCli({
     action: opts.action,
     dbPath: opts.dbPath,
+    dbKey,
     file: opts.file,
     authorUserId: opts.authorUserId,
     runId: opts.runId,
