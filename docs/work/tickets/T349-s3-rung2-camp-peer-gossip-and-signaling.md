@@ -45,6 +45,16 @@ mechanism T338 sketched. No third party, and rung 3 (`rendezvousClient`) is neve
 - `electron/sync/automerge/punchRung2.js` — `attemptRung2` resolves the peer's verified entry,
   requires a signalling route, dials each candidate; returns `{ok:true, candidate}` or
   `{ok:false, reason}` (`no-gossip-entry`, `no-signal-route`, `dial-failed`).
+  **Plainly: `attemptRung2` is a precondition check plus a dial.** It never sends an SDP itself and
+  makes no NAT punch; the signed SDP exchange happens on the stream through `createPunchSignaling`,
+  which the punch transport must be wired to (S4 supplies a per-peer channel). `hasRoute` is true
+  when any admitted peer is connected, not when that peer reaches the target, and forwarding has no
+  ack, so a relay drop is invisible to the origin. The loopback test proves the stream/forwarding
+  and signature properties, not NAT traversal.
+- Scope note: the `authorityLogSignature.js` refactor touches a security-sensitive module; the
+  existing authority-log tests pass unchanged.
+- Test helper lives at `test/punchRung2Support.js` (plaintext test DBs are a test-harness-only
+  pattern the `openLocalDbCallers` guard keeps out of `electron/`).
 - `authorityLogSignature.js` gains `signMessageWithDeviceKey` / `verifyMessageWithPeerId`; the
   existing authority-entry functions delegate to them unchanged.
 
@@ -57,3 +67,7 @@ mechanism T338 sketched. No third party, and rung 3 (`rendezvousClient`) is neve
 - The reconnect coordinator (rung 1 -> 2 -> 3 ordering).
 - The one-signaling-channel-per-transport limit of S1 means a real deployment needs a per-peer
   transport or a multiplexing channel; the loopback test uses one transport per ordered pair.
+- Hardening follow-ups from review (not done here): send timeout on the relay path and a separate
+  rate bucket keyed by origin for relayed frames; replay cache keyed on (from, id) with expiry tied
+  to the skew window; monotonic ts check on gossip entries; reject loopback/link-local/RFC1918/port-0
+  candidates once wired.

@@ -7,7 +7,7 @@ import { peerIdFromString } from '@libp2p/peer-id'
 import { signMessageWithDeviceKey } from '../../automerge/authorityLogSignature.js'
 import { decode } from 'it-length-prefixed'
 import { sendFramed } from './wireProtocol.js'
-import { makeDevice, registerAll, revokeOn, makeGatedNode, authenticateTo, cleanupDevices } from './punchRung2TestSupport.js'
+import { makeDevice, registerAll, revokeOn, makeGatedNode, authenticateTo, cleanupDevices } from '../../../test/punchRung2Support.js'
 import { createPunchSignaling, canonicalEnvelope, PUNCH_SIGNAL_PROTO, MAX_FRAME_BYTES } from './punchSignaling.js'
 import { deviceRegistryFromDb } from './punchGossip.js'
 

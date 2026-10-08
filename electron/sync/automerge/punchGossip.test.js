@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import * as A from '@automerge/automerge'
 import { recordKey } from '../../automerge/campDocument.js'
 import { readRendezvousAddressKey } from './rendezvousAddressKey.js'
-import { makeDevice, registerAll, revokeOn, freshCampDoc, cleanupDevices, CAMP_ID } from './punchRung2TestSupport.js'
+import { makeDevice, registerAll, revokeOn, freshCampDoc, cleanupDevices, CAMP_ID } from '../../../test/punchRung2Support.js'
 import {
   publishReflexive, readReflexive, sealGossipEntry, deviceRegistryFromDb, GOSSIP_TTL_MS, MAX_CANDIDATES, GOSSIP_FIELD_PREFIX,
 } from './punchGossip.js'
