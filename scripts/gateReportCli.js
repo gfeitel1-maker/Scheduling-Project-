@@ -135,7 +135,7 @@ export function runGateReportCli(inputPath, { runsDir }) {
 
     const provenance = checkOpinionProvenance({ text: transcriptText, gateName })
     if (provenance.bound) return report
-    const viaWorkflow = workflowAgents && checkWorkflowProvenance({ agents: workflowAgents, report })
+    const viaWorkflow = workflowAgents && checkWorkflowProvenance({ ...workflowAgents, taskId: input.taskId, report })
     if (viaWorkflow?.bound) return report
 
     const reason = viaWorkflow ? viaWorkflow.reason

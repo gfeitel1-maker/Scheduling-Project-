@@ -289,6 +289,6 @@ transcript, so the transcript binding refused every workflow-driven slice. `gate
 also accepts `workflowDir` (`scripts/workflowDispatchProvenance.js`): a report binds if the run's
 `agent-<id>.meta.json` names a subagent of the gate's type, `journal.jsonl` records its result, and
 the report agrees with that result (verdict, BLOCKING findings from `blocking`, every summary a
-verbatim substring of a recorded entry). Same honesty envelope as above: it does not prove the
-dispatch reviewed this commit, and copying real text from an unrelated run defeats it. The
+verbatim substring, at least 20 characters, of a recorded entry; an empty findings list binds only a result that recorded no entries). The run must also be tied to the report's `taskId`: the id appears as a token in the run directory name or a journal `started` label. Same honesty envelope as above: it does not prove the
+dispatch reviewed this commit (a label names the task, not the commit), and copying real text from an unrelated run defeats it. The
 transcript path is unchanged.

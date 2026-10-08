@@ -10,21 +10,29 @@
 // Instead: the verdict must agree, every BLOCKING finding must match a recorded blocking entry,
 // and every finding summary must appear verbatim (whitespace-normalised) in a recorded entry.
 //
+// The run is tied to the task by name: the taskId must appear as a token in the run directory name
+// or in a journal 'started' label (e.g. "governor:t346"). Findings must be non-empty (an empty list
+// binds only a result that recorded none) and each summary at least MIN_SUMMARY characters.
+//
 // Limits, same envelope as opinionReportProvenance.js: this does not prove the dispatch reviewed
-// this commit, and a determined author who copies real text from an unrelated run defeats it.
+// this commit (a label names the task, not the commit), and a determined author who copies real text from an unrelated run defeats it.
 // It stops invented findings, a flipped verdict, and an absent or wrong-typed reviewer.
 
 import { readFileSync, readdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, basename, resolve } from 'node:path'
 import { SUBAGENT_TYPE_BY_GATE } from './opinionReportProvenance.js'
 
 const norm = (s) => String(s).replace(/\s+/g, ' ').trim()
 
+const MIN_SUMMARY = 20
+
 export function loadWorkflowRun(dir) {
   const results = new Map()
+  const labels = []
   for (const line of readFileSync(join(dir, 'journal.jsonl'), 'utf8').split('\n')) {
     if (!line) continue
     const ev = JSON.parse(line)
+    if (ev.type === 'started' && ev.label) labels.push(String(ev.label))
     if (ev.type === 'result' && ev.agentId) results.set(ev.agentId, ev.result)
   }
   const agents = []
@@ -34,7 +42,7 @@ export function loadWorkflowRun(dir) {
     const { agentType } = JSON.parse(readFileSync(join(dir, name), 'utf8'))
     if (results.has(m[1])) agents.push({ agentId: m[1], agentType, result: results.get(m[1]) })
   }
-  return agents
+  return { agents, labels, dirName: basename(resolve(dir)) }
 }
 
 function entriesOf(result) {
@@ -50,15 +58,21 @@ function consistent(report, result) {
       : result?.verdict === 'fail' && blocking.length > 0 ? 'FAIL' : null
     if (report.verdict !== expected) return false
   }
-  return (report.findings ?? []).every((f) => {
+  const findings = report.findings ?? []
+  if (findings.length === 0) return all.length === 0
+  return findings.every((f) => {
     const s = norm(f?.summary ?? '')
-    if (!s || !all.some((e) => e.includes(s))) return false
+    if (s.length < MIN_SUMMARY || !all.some((e) => e.includes(s))) return false
     return f.severity !== 'BLOCKING' || blocking.some((e) => e.includes(s))
   })
 }
 
 /** @returns {{bound: boolean, agentId?: string, reason?: string}} */
-export function checkWorkflowProvenance({ agents, report }) {
+export function checkWorkflowProvenance({ agents, labels = [], dirName = '', taskId, report }) {
+  const tie = new RegExp(`(^|[^a-z0-9])${String(taskId ?? '').replace(/[^a-z0-9]/gi, '')}([^a-z0-9]|$)`, 'i')
+  if (!taskId || ![dirName, ...labels].some((t) => tie.test(t))) {
+    return { bound: false, reason: `the workflow run is not tied to task ${taskId} (no run directory name or dispatch label names it)` }
+  }
   const subagentType = SUBAGENT_TYPE_BY_GATE[report?.gate_name]
   if (!subagentType) return { bound: false, reason: `"${report?.gate_name}" is not an opinion gate` }
   const candidates = agents.filter((a) => a.agentType === subagentType)
