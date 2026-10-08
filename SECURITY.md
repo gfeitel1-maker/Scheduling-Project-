@@ -338,6 +338,8 @@ lost with no other paired device holding a copy, the encrypted data cannot be re
   to disk and never passed on the command line
   (`docs/adr/2026-09-16-headless-db-key-access-for-mcp-cli.md`, amended by
   the 2026-10-08 "director-authorized tool connections" ADR, PR #745).
+- **Revocation stops future launches only.** A tool that already holds the key keeps it until it restarts.
+- **Read scope is advisory.** It is enforced only by cooperating tools; a same-user process can bypass it.
 - **This is accountability, not a cryptographic boundary.** A process running as the same OS user, with
   the same keychain access the app has, can still run the unlock helper's Electron entry itself and
   unseal the key. Authorization records which tools the director chose to connect and gives a clear
