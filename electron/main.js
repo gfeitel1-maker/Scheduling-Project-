@@ -1411,7 +1411,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return { authorization }
   }
 
-  function approveDevice({ token, deviceId: targetDeviceId, makeAdmin = false } = {}) {
+  async function approveDevice({ token, deviceId: targetDeviceId, makeAdmin = false } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const { userId } = requireAuthorized(db, { token, action: 'devices.approve' })
     // T332 (docs/work/specs/2026-10-03-t332-client-admin-minting-design.md), superseding the T86
@@ -1423,14 +1423,37 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     // what it always was: a best-effort local convenience, not load-bearing for fleet-wide trust.
     if (!isNonEmptyString(targetDeviceId)) throw new Error('deviceId is required')
 
-    const existing = db.prepare('SELECT id FROM devices WHERE id = ?').get(targetDeviceId)
+    const existing = db.prepare(
+      'SELECT authorized_at, authorized_by_user_id, pairing_status, device_secret_identifier, revoked_at, revoked_by_user_id, revocation_reason FROM devices WHERE id = ?'
+    ).get(targetDeviceId)
     if (!existing) throw new Error('device not found')
 
     const secret = randomBytes(32).toString('hex')
     const now = new Date().toISOString()
+    // T346: the row is written BEFORE the frame is sent (the joiner can log in the instant it
+    // receives it), and put back exactly if delivery fails. The audit allow and the admin mint
+    // wait for a confirmed delivery: the mint replicates fleet-wide and cannot be undone.
     db.prepare(
       "UPDATE devices SET authorized_at = ?, authorized_by_user_id = ?, pairing_status = 'authorized', device_secret_identifier = ?, revoked_at = NULL, revoked_by_user_id = NULL, revocation_reason = NULL WHERE id = ?"
     ).run(now, userId, secret, targetDeviceId)
+
+    const node = getAutomergeNode()
+    let delivered = false
+    try {
+      delivered = (await node?.sendPairingApproved(targetDeviceId, secret)) === true
+    } catch {
+      delivered = false
+    }
+    if (!delivered) {
+      db.prepare(
+        'UPDATE devices SET authorized_at = ?, authorized_by_user_id = ?, pairing_status = ?, device_secret_identifier = ?, revoked_at = ?, revoked_by_user_id = ?, revocation_reason = ? WHERE id = ?'
+      ).run(
+        existing.authorized_at, existing.authorized_by_user_id, existing.pairing_status, existing.device_secret_identifier,
+        existing.revoked_at, existing.revoked_by_user_id, existing.revocation_reason, targetDeviceId
+      )
+      recordAuditEvent(db, { actorUserId: userId, deviceId: targetDeviceId, action: 'device.approve', outcome: 'deny', reason: 'joiner_disconnected' })
+      return { deviceId: targetDeviceId, authorized: false, reason: 'joiner_disconnected' }
+    }
 
     recordAuditEvent(db, { actorUserId: userId, deviceId: targetDeviceId, action: 'device.approve', outcome: 'allow' })
 
@@ -1455,11 +1478,6 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
         console.error(`approveDevice: minting the admin grant authority entry failed (non-fatal): ${err?.message ?? err}`)
       }
     }
-
-    // The joining device has its pending stream tracked in the libp2p node;
-    // authGate.js resolves false when there is nothing pending for it, so this
-    // is safe to call unconditionally.
-    getAutomergeNode()?.sendPairingApproved(targetDeviceId, secret)
 
     return { deviceId: targetDeviceId, authorized: true }
   }

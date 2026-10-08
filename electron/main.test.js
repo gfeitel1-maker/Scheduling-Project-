@@ -2304,9 +2304,10 @@ describe('listDevices handler (devices.read, staff+admin)', () => {
 })
 
 describe('approveDevice handler (devices.approve, admin-only)', () => {
-  it('requires a token', () => {
+  const deliveredNode = () => ({ getAutomergeSyncNode: () => ({ sendPairingApproved: vi.fn().mockResolvedValue(true) }) })
+  it('requires a token', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    expect(() => handlers.approveDevice({ deviceId: 'some-device' })).toThrow('token is required')
+    await expect(handlers.approveDevice({ deviceId: 'some-device' })).rejects.toThrow('token is required')
   })
 
   it('rejects a staff-role caller', async () => {
@@ -2317,18 +2318,18 @@ describe('approveDevice handler (devices.approve, admin-only)', () => {
 
     db.prepare("INSERT INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run('approve-target-1', 'iPad')
 
-    expect(() => handlers.approveDevice({ token: staffToken, deviceId: 'approve-target-1' })).toThrow()
+    await expect(handlers.approveDevice({ token: staffToken, deviceId: 'approve-target-1' })).rejects.toThrow()
   })
 
   it('authorizes a pending device for an admin caller, minting device_secret_identifier', async () => {
     await seedCampAndUser({ name: 'AdminApprover', pin: '123400', role: 'admin' })
-    const handlers = makeHandlers(db, deviceId, {})
+    const handlers = makeHandlers(db, deviceId, deliveredNode())
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const { token: adminToken } = await handlers.login({ name: 'AdminApprover', pin: '123400' })
 
     db.prepare("INSERT INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run('approve-target-2', 'Laptop')
 
-    const result = handlers.approveDevice({ token: adminToken, deviceId: 'approve-target-2' })
+    const result = await handlers.approveDevice({ token: adminToken, deviceId: 'approve-target-2' })
     expect(result).toEqual({ deviceId: 'approve-target-2', authorized: true })
 
     const row = db.prepare('SELECT authorized_at, pairing_status, device_secret_identifier FROM devices WHERE id = ?').get('approve-target-2')
@@ -2343,7 +2344,7 @@ describe('approveDevice handler (devices.approve, admin-only)', () => {
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const { token: adminToken } = await handlers.login({ name: 'AdminApprover2', pin: '123400' })
 
-    expect(() => handlers.approveDevice({ token: adminToken, deviceId: 'does-not-exist' })).toThrow('device not found')
+    await expect(handlers.approveDevice({ token: adminToken, deviceId: 'does-not-exist' })).rejects.toThrow('device not found')
   })
 
   // T332 (docs/work/specs/2026-10-03-t332-client-admin-minting-design.md), superseding the T86
@@ -2351,17 +2352,67 @@ describe('approveDevice handler (devices.approve, admin-only)', () => {
   // so a client-mode admin now reaches the same success path a host-mode admin already had.
   it('succeeds on a device in Client mode for an admin caller', async () => {
     await seedCampAndUser({ name: 'AdminApproverClient', pin: '123400', role: 'admin' })
-    const handlers = makeHandlers(db, deviceId, {})
+    const handlers = makeHandlers(db, deviceId, deliveredNode())
     const { token: adminToken } = await handlers.login({ name: 'AdminApproverClient', pin: '123400' })
     db.prepare("INSERT INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run('approve-target-client', 'iPad')
     await handlers.chooseMode({ mode: 'client' })
 
-    const result = handlers.approveDevice({ token: adminToken, deviceId: 'approve-target-client' })
+    const result = await handlers.approveDevice({ token: adminToken, deviceId: 'approve-target-client' })
     expect(result).toEqual({ deviceId: 'approve-target-client', authorized: true })
 
     const row = db.prepare('SELECT authorized_at, pairing_status FROM devices WHERE id = ?').get('approve-target-client')
     expect(row.authorized_at).toEqual(expect.any(String))
     expect(row.pairing_status).toBe('authorized')
+  })
+})
+
+describe('approveDevice when the joining device is gone (T346)', () => {
+  const PRE = { authorized_at: null, authorized_by_user_id: null, pairing_status: 'pending', device_secret_identifier: null, revoked_at: null, revoked_by_user_id: null, revocation_reason: null }
+  const COLS = 'authorized_at, authorized_by_user_id, pairing_status, device_secret_identifier, revoked_at, revoked_by_user_id, revocation_reason'
+
+  async function setup(nodeOpt) {
+    await seedCampAndUser({ name: 'GoneAdmin', pin: '123400', role: 'admin' })
+    const handlers = makeHandlers(db, deviceId, nodeOpt)
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
+    const { token } = await handlers.login({ name: 'GoneAdmin', pin: '123400' })
+    db.prepare("INSERT INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run('gone-target', 'Phone')
+    return { handlers, token }
+  }
+  const row = () => db.prepare(`SELECT ${COLS} FROM devices WHERE id = ?`).get('gone-target')
+  const outcomes = () => db.prepare("SELECT outcome FROM audit_events WHERE action = 'device.approve'").all().map((r) => r.outcome)
+
+  it('returns joiner_disconnected, restores the row, and records no allow when delivery fails', async () => {
+    const { handlers, token } = await setup({ getAutomergeSyncNode: () => ({ sendPairingApproved: vi.fn().mockResolvedValue(false) }) })
+    const result = await handlers.approveDevice({ token, deviceId: 'gone-target' })
+    expect(result).toEqual({ deviceId: 'gone-target', authorized: false, reason: 'joiner_disconnected' })
+    expect(row()).toEqual(PRE)
+    expect(outcomes()).toEqual(['deny'])
+  })
+
+  it('mints no admin grant when delivery fails with makeAdmin', async () => {
+    const { handlers, token } = await setup({ getAutomergeSyncNode: () => ({ sendPairingApproved: vi.fn().mockResolvedValue(false) }) })
+    await handlers.approveDevice({ token, deviceId: 'gone-target', makeAdmin: true })
+    expect(db.prepare("SELECT COUNT(*) AS n FROM applied_authority_log WHERE target_device_id = 'gone-target'").get().n).toBe(0)
+  })
+
+  it('counts a missing node as not delivered', async () => {
+    const { handlers, token } = await setup({ getAutomergeSyncNode: () => null })
+    const result = await handlers.approveDevice({ token, deviceId: 'gone-target' })
+    expect(result).toEqual({ deviceId: 'gone-target', authorized: false, reason: 'joiner_disconnected' })
+    expect(row()).toEqual(PRE)
+  })
+
+  it('has the row authorized before the frame is sent, and audits allow after delivery', async () => {
+    let rowAtSend
+    const { handlers, token } = await setup({
+      getAutomergeSyncNode: () => ({
+        sendPairingApproved: vi.fn(async () => { rowAtSend = row(); return true }),
+      }),
+    })
+    const result = await handlers.approveDevice({ token, deviceId: 'gone-target' })
+    expect(result).toEqual({ deviceId: 'gone-target', authorized: true })
+    expect(rowAtSend.pairing_status).toBe('authorized')
+    expect(outcomes()).toEqual(['allow'])
   })
 })
 
