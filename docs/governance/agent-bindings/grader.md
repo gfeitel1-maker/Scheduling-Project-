@@ -143,7 +143,17 @@ by the **Governor**, so their dispatch records live in the **Governor's** sessio
 the Grader's own — pass that transcript as `input.sessionTranscript`. As of 2026-10-01 the check
 recognizes **foreground (synchronous) dispatches** too: a reviewer dispatched synchronously has no
 `toolUseResult.agentId` launch-ack, only a returned `tool_result`, and that returned result is now
-accepted as the completion signal. If you cannot obtain the dispatch-bearing transcript, say so
+accepted as the completion signal.
+
+**Workflow-tool dispatches: pass `input.workflowDir`.** Reviewers dispatched by the Workflow tool
+leave no records in any session transcript; they live in the run directory
+(`<session>/subagents/workflows/wf_*/`, holding `journal.jsonl` and `agent-<id>.meta.json`). Set
+`input.workflowDir` to it (alongside or instead of `sessionTranscript`). A report binds only if that
+run has a completed subagent of the gate's type whose recorded result agrees with it: same verdict
+(`pass`/`fail` with blocking entries), every finding summary quoted verbatim from a recorded
+`blocking`/`nonblocking` entry (at least 20 characters; a report with no findings binds only a result that recorded none), every BLOCKING finding from `blocking`. Transcribe, do not
+paraphrase, finding summaries. A missing dispatch, wrong agent type or differing content still
+refuses. The run must also name the report's `taskId` (in its directory name or a journal `started` label such as `governor:t346`), or it refuses. If you cannot obtain the dispatch-bearing transcript, say so
 plainly — a binding you cannot make is disclosed as the `HIGH` "we cannot tell", never routed around
 with a hand-written report.
 

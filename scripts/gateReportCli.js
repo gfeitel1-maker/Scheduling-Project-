@@ -16,6 +16,7 @@ import { buildVerifierReport } from './verifierReport.js'
 import { writeGateReport } from './gateReportPersist.js'
 import { OPINION_GATE_NAMES } from './gateReportSchema.js'
 import { checkOpinionProvenance, SUBAGENT_TYPE_BY_GATE } from './opinionReportProvenance.js'
+import { loadWorkflowRun, checkWorkflowProvenance } from './workflowDispatchProvenance.js'
 
 const REQUIRED_FIELDS = ['taskId', 'round', 'expectedOpinionGates', 'reports']
 
@@ -110,6 +111,16 @@ export function runGateReportCli(inputPath, { runsDir }) {
       throw new CliUsageError(`cannot read sessionTranscript file: ${input.sessionTranscript} (${e.message})`)
     }
   }
+  // A Workflow-tool run writes its reviewers to a run directory instead of the Governor transcript;
+  // `workflowDir` binds against that. Either source may bind a report.
+  let workflowAgents
+  if (input.workflowDir !== undefined) {
+    try {
+      workflowAgents = loadWorkflowRun(input.workflowDir)
+    } catch (e) {
+      throw new CliUsageError(`cannot read workflowDir: ${input.workflowDir} (${e.message})`)
+    }
+  }
   // A report that fails provenance binding cannot be turned into a GateReport at all — not even
   // a BLOCK one. Substituting a sentinel and writing it (the pre-fix behavior) produces a
   // plausible-looking artifact recording a verdict about inputs the tool never actually saw.
@@ -124,9 +135,12 @@ export function runGateReportCli(inputPath, { runsDir }) {
 
     const provenance = checkOpinionProvenance({ text: transcriptText, gateName })
     if (provenance.bound) return report
+    const viaWorkflow = workflowAgents && checkWorkflowProvenance({ ...workflowAgents, taskId: input.taskId, report })
+    if (viaWorkflow?.bound) return report
 
-    const reason = input.sessionTranscript === undefined
-      ? `no sessionTranscript was supplied — cannot verify a ${SUBAGENT_TYPE_BY_GATE[gateName]} dispatch produced this report`
+    const reason = viaWorkflow ? viaWorkflow.reason
+      : input.sessionTranscript === undefined
+      ? `no sessionTranscript or workflowDir was supplied — cannot verify a ${SUBAGENT_TYPE_BY_GATE[gateName]} dispatch produced this report`
       : provenance.reason
     console.error(`${gateName} report is UNBOUND — ${reason}`)
     unbound.push(`${gateName}: ${reason}`)

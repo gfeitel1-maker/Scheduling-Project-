@@ -281,3 +281,14 @@ downgrade). Filed at `docs/adr/2026-09-15-opinion-report-dispatch-provenance.md`
   invented here, since it is a new legitimate-input category, not a hardening of the existing one,
   and speculative infrastructure for a case that may not need supporting was avoided per the
   karpathy constraint.
+
+## Addendum (2026-10-08): Workflow-run directories
+
+Reviewers dispatched by the Workflow tool write no `toolUseResult.agentId` records into any
+transcript, so the transcript binding refused every workflow-driven slice. `gateReportCli.js` now
+also accepts `workflowDir` (`scripts/workflowDispatchProvenance.js`): a report binds if the run's
+`agent-<id>.meta.json` names a subagent of the gate's type, `journal.jsonl` records its result, and
+the report agrees with that result (verdict, BLOCKING findings from `blocking`, every summary a
+verbatim substring, at least 20 characters, of a recorded entry; an empty findings list binds only a result that recorded no entries). The run must also be tied to the report's `taskId`: the id appears as a token in the run directory name or a journal `started` label. Same honesty envelope as above: it does not prove the
+dispatch reviewed this commit (a label names the task, not the commit), and copying real text from an unrelated run defeats it. The
+transcript path is unchanged.
