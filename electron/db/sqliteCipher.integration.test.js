@@ -178,4 +178,8 @@ describe('SQLite at-rest driver availability', () => {
   it(driverAvailable ? 'driver present — encryption integration ran' : 'driver ABSENT — integration skipped (not a pass for encryption)', () => {
     expect(typeof driverAvailable).toBe('boolean')
   })
+  // In CI a skipped encryption suite is a green that did not run: require the driver there.
+  it.runIf(process.env.CI)('CI: the encrypting driver is installed, so this suite actually ran', () => {
+    expect(driverAvailable).toBe(true)
+  })
 })

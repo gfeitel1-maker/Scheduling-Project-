@@ -50,20 +50,21 @@ const TEST_KEY_HEX = '00112233445566778899aabbccddeeff00112233445566778899aabbcc
 const WRONG_KEY_HEX = 'ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100'
 
 let openLocalDb
+// Probed SYNCHRONOUSLY at module load: describe.skipIf below is evaluated at collection time, before
+// any beforeAll runs, so a probe inside beforeAll left this suite permanently skipped even where the
+// driver works. require() succeeding is NOT enough — the native binding loads lazily and only fails at
+// construction, so build a throwaway in-memory db to prove the driver is usable in THIS runtime.
 let driverAvailable = false
+try {
+  const D = createRequire(import.meta.url)('better-sqlite3-multiple-ciphers')
+  D(':memory:').close()
+  driverAvailable = true
+} catch {
+  driverAvailable = false
+}
 
 beforeAll(async () => {
   ;({ openLocalDb } = await import(LOCAL_DB_URL))
-  const require = createRequire(import.meta.url)
-  // require() succeeding is NOT enough — the native binding loads lazily and only fails at
-  // construction. Build a throwaway in-memory db to prove the driver is usable in THIS runtime.
-  try {
-    const D = require('better-sqlite3-multiple-ciphers')
-    D(':memory:').close()
-    driverAvailable = true
-  } catch {
-    driverAvailable = false
-  }
 })
 
 afterAll(() => {
@@ -145,6 +146,11 @@ describe('T260 fail-closed: encryption enabled in-process + no key = refuse by n
 })
 
 // ── DRIVER-DEPENDENT: the real SQLCipher end-to-end chain ───────────────────────────────────────────
+// In CI a skipped encryption suite is a green that did not run: require the driver there.
+it.runIf(process.env.CI)('CI: the encrypting driver is installed, so the headless E2E actually ran', () => {
+  expect(driverAvailable).toBe(true)
+})
+
 describe.skipIf(!driverAvailable)('headless E2E — real encrypted DB read back through the env-key channel', () => {
   it('creates an encrypted DB with a fixed TEST key, then a headless open via SHORESH_DB_KEY reads it back', () => {
     const f = tmpFile('readback')
