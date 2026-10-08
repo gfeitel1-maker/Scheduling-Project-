@@ -88,7 +88,7 @@ function ElectiveSetRow({ set, onBuild, onSave, onDelete, role, duplicateSibling
   )
 }
 
-export default function ElectivesScreen({ campId, role, onNavigate }) {
+export default function ElectivesScreen({ campId, role, onNavigate, weekId, weeks = [] }) {
   const { rows: sets, loading, error, setError, adding, add, save, reload } = useCrudScreen({
     entity: 'elective_sets',
     campId,
@@ -106,6 +106,13 @@ export default function ElectivesScreen({ campId, role, onNavigate }) {
 
   const [pendingDelete, setPendingDelete] = useState(null)
   const [deleting, setDeleting] = useState(false)
+  const [confirmingPurge, setConfirmingPurge] = useState(false)
+  const [purging, setPurging] = useState(false)
+  const [purgeResult, setPurgeResult] = useState(null)
+  const [scopeChoice, setScopeChoice] = useState(null)
+  const currentWeek = weeks.find((w) => w.id === weekId)
+  const scope = (scopeChoice ?? (currentWeek ? 'week' : 'season')) === 'week' && currentWeek ? 'week' : 'season'
+  const scopeName = scope === 'week' ? currentWeek.name : 'the whole season'
 
   async function addSet(values) {
     const name = String(values.name ?? '').trim()
@@ -131,6 +138,21 @@ export default function ElectivesScreen({ campId, role, onNavigate }) {
     } finally {
       setDeleting(false)
       setPendingDelete(null)
+    }
+  }
+
+  async function confirmPurgeSeason() {
+    setPurging(true)
+    setPurgeResult(null)
+    try {
+      const result = await localClient.purgeElectiveSeason(scope === 'week' ? { scope, weekId } : { scope })
+      if (!result?.ok) throw new Error(result?.error ?? 'purge-failed')
+      setPurgeResult({ count: result.runsDeleted ?? 0, scopeName })
+    } catch (err) {
+      setError(describeWriteFailure(err, 'The elective choices could not be cleared.'))
+    } finally {
+      setPurging(false)
+      setConfirmingPurge(false)
     }
   }
 
@@ -179,6 +201,50 @@ export default function ElectivesScreen({ campId, role, onNavigate }) {
             </tbody>
           </table>
         </div>
+      )}
+
+      <div style={{ textAlign: 'right', marginBottom: 16 }}>
+        <div role="radiogroup" aria-label="Clear scope" style={{ marginBottom: 8, fontSize: 13 }}>
+          <label style={{ marginRight: 16, opacity: currentWeek ? 1 : 0.5 }}>
+            <input
+              type="radio" name="purge-scope" checked={scope === 'week'} disabled={!currentWeek}
+              onChange={() => setScopeChoice('week')}
+            />{' '}
+            {`This week (${currentWeek ? currentWeek.name : 'no week selected'})`}
+          </label>
+          <label>
+            <input type="radio" name="purge-scope" checked={scope === 'season'} onChange={() => setScopeChoice('season')} />{' '}
+            The whole season
+          </label>
+        </div>
+        <button
+          onClick={() => setConfirmingPurge(true)}
+          disabled={role !== 'admin'}
+          title={role !== 'admin' ? 'Admin only' : `Clear every elective choice, assignment and run for ${scopeName}`}
+          style={role !== 'admin' ? { ...S.btnRowDanger, ...S.buttonDisabled } : S.btnRowDanger}
+        >
+          {scope === 'week' ? 'Clear this week\u2019s elective choices' : 'Clear season\u2019s elective choices'}
+        </button>
+      </div>
+
+      {purgeResult !== null && (
+        <div role="status" style={{ ...S.emptyStateBody, textAlign: 'right', marginBottom: 16 }}>
+          {purgeResult.count === 0
+            ? `No elective runs to clear for ${purgeResult.scopeName} \u2014 nothing was changed.`
+            : `Cleared ${purgeResult.count} elective ${purgeResult.count === 1 ? 'run' : 'runs'} for ${purgeResult.scopeName} and their choices and assignments.`}
+        </div>
+      )}
+
+      {confirmingPurge && (
+        <ConfirmDangerDialog
+          title={scope === 'week' ? `Clear elective choices for ${scopeName}?` : 'Clear all elective choices for the season?'}
+          body={`This permanently removes ${scope === 'week' ? `only the elective runs for ${scopeName}` : 'every elective run for the whole season'}, with all camper choices and assignments in them, from this device and from every device this camp syncs with. A device that is offline will catch up when it reconnects. If another device is actively editing a run at that exact moment, it can reappear there, unnamed — clearing again finishes the job. It does not erase them from this app’s own change history, and nothing here can reach a copy already exported or taken off this computer.`}
+          recovery={`Kept: your elective sets and their offerings, campers, groups, tiers, activities, and schedules${scope === 'week' ? ', and the elective runs of other weeks' : ''}.`}
+          confirmLabel={scope === 'week' ? 'Clear Week' : 'Clear Season'}
+          busy={purging}
+          onConfirm={confirmPurgeSeason}
+          onCancel={() => setConfirmingPurge(false)}
+        />
       )}
 
       {pendingDelete && (

@@ -319,3 +319,29 @@ describe('deleteElectiveRunHandler', () => {
     void adminToken
   })
 })
+
+// T343 — purgeElectiveSeasonHandler: same elective_assignment_runs.delete posture.
+describe('purgeElectiveSeasonHandler', () => {
+  it('clears every run when called by an admin', async () => {
+    const { campId, handlers, token } = await seedAdmin()
+    const fx = seedFixture(db, { campId })
+    buildRun(db, campId, fx)
+    buildRun(db, campId, fx)
+
+    const result = await handlers.purgeElectiveSeason({ token })
+    expect(result.ok).toBe(true)
+    expect(result.runsDeleted).toBe(2)
+    expect(db.prepare('SELECT COUNT(*) c FROM elective_assignment_runs').get().c).toBe(0)
+    expect(db.prepare('SELECT COUNT(*) c FROM elective_sets').get().c).toBe(1)
+  })
+
+  it('default-denies staff and leaves the runs in place', async () => {
+    const { campId, handlers } = await seedAdmin()
+    const fx = seedFixture(db, { campId })
+    buildRun(db, campId, fx)
+    const { token: staffToken } = await seedStaff({}, { campId, handlers })
+
+    expect(() => handlers.purgeElectiveSeason({ token: staffToken })).toThrow('admin role required')
+    expect(db.prepare('SELECT COUNT(*) c FROM elective_assignment_runs').get().c).toBe(1)
+  })
+})
