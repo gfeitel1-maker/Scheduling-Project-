@@ -90,6 +90,29 @@ describe('T337 end-to-end relayed connection — revoke-while-running cuts off t
     // re-running the full handshake."
     c.revokePeer(b.peerId)
 
-    await expect(b.sendDocTo(c.peerId, bytes)).rejects.toBeTruthy()
+    // Observe the cut-off on the RECEIVER (C), not the sender. Whether B's own
+    // sendDocTo observes the abort is timing-dependent — C aborts the stream on
+    // its side, and B may finish writing before that abort propagates back — so
+    // the sender-side rejection is NOT the signal (it raced the 3000ms wall at
+    // ~13%). What is deterministic is that C's admission gate (transport.js's
+    // PROTO handler, authenticatedPeers.has) stops B's post-revoke doc from ever
+    // reaching onDocReceived.
+    //
+    // Gate-state proof (synchronous, no wait): C no longer admits B.
+    expect(c.isPeerAuthenticated(b.peerId)).toBe(false)
+
+    // Behaviour proof: attempt B's post-revoke send and confirm C never received
+    // it. Tolerate the send resolving OR rejecting — it must not be the signal.
+    const receivedBefore = receivedOnC.length
+    await b.sendDocTo(c.peerId, bytes).then(() => {}, () => {})
+    // Bounded settle: poll the ACTUAL observable, not a fixed sleep. If the gate
+    // were broken and C accepted B's doc, onDocReceived would push and this exits
+    // immediately (RED); with the gate intact receivedOnC never grows and the
+    // loop bounds its wait well under testTimeout before asserting.
+    const settleBy = Date.now() + 1000
+    while (receivedOnC.length === receivedBefore && Date.now() < settleBy) {
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+    expect(receivedOnC.length).toBe(receivedBefore)
   }, 20000)
 })
