@@ -1,12 +1,12 @@
 // @vitest-environment node
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
-import { isPlaintextSqliteFile, rawKeyPragma, migratePlaintextToEncrypted } from './sqliteCipher.js'
+import { isPlaintextSqliteFile, rawKeyPragma, migratePlaintextToEncrypted, recoverInterruptedMigration, shredOrphanedPlaintextBackups, probeDbFile, shouldShredOrphanedBackups } from './sqliteCipher.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -136,5 +136,195 @@ describe('migratePlaintextToEncrypted — orchestration safety (fakes; real cryp
     expect(() => migratePlaintextToEncrypted(f, Buffer.alloc(32, 1), { Database: Fake, writeBackup }))
       .toThrow(/verification/)
     expect(fs.readFileSync(f, 'utf8')).toBe('PLAINTEXT-ORIGINAL') // rekey rewrote it, verify failed, restored
+  })
+})
+
+describe('recoverInterruptedMigration — a crash mid-rekey must not strand the db', () => {
+  const MAGIC = 'SQLite format 3\0'
+  const KEY = Buffer.alloc(32, 7)
+  // Keyed open "works" only on a file whose content starts with GOOD-ENC.
+  function Fake(p) { this.p = p }
+  Fake.prototype.pragma = function () {}
+  Fake.prototype.prepare = function () {
+    const ok = fs.readFileSync(this.p, 'utf8').startsWith('GOOD-ENC')
+    return { get: () => { if (!ok) throw Object.assign(new Error('file is not a database'), { code: 'SQLITE_NOTADB' }); return { n: 1 } } }
+  }
+  Fake.prototype.close = function () {}
+
+  function bak(f, stamp, content) {
+    const b = `${f}.pre-migration-${stamp}.bak`
+    fs.writeFileSync(b, content); tmp.push(b)
+    return b
+  }
+
+  // Binds the marker to a specific backup the way migratePlaintextToEncrypted does.
+  const marker = (f, b) => {
+    const st = b ? fs.statSync(b) : { size: 0, mtimeMs: 0 }
+    fs.writeFileSync(`${f}.migration-in-progress`, JSON.stringify({ backupPath: b ?? `${f}.gone.bak`, size: st.size, mtimeMs: st.mtimeMs }))
+    tmp.push(`${f}.migration-in-progress`)
+  }
+
+  it('restores the PLAINTEXT .bak the marker names over a half-encrypted file and clears wal/shm', () => {
+    const f = tmpFile('rec'); fs.writeFileSync(f, crypto.randomBytes(2048))
+    fs.writeFileSync(`${f}-wal`, 'x'); fs.writeFileSync(`${f}-shm`, 'x')
+    bak(f, '2026-01-01T00-00-00-000Z', MAGIC + 'OLD')
+    marker(f, bak(f, '2026-02-01T00-00-00-000Z', MAGIC + 'NEWEST'))
+    const res = recoverInterruptedMigration(f, KEY, { Database: Fake })
+    expect(res.recovered).toBe(true)
+    expect(fs.readFileSync(f, 'latin1')).toBe(MAGIC + 'NEWEST')
+    expect(fs.existsSync(`${f}-wal`)).toBe(false)
+    expect(fs.existsSync(`${f}-shm`)).toBe(false)
+    const aside = fs.readdirSync(path.dirname(f)).filter((n) => n.startsWith(`${path.basename(f)}.unreadable-`) && !n.endsWith('-wal') && !n.endsWith('-shm'))
+    expect(aside.length).toBe(1) // the unreadable file is kept, not overwritten
+    aside.forEach((n) => tmp.push(path.join(path.dirname(f), n)))
+  })
+
+  it('does NOT overwrite an encrypted db the key cannot open when no rekey was in progress (stale plaintext .bak)', () => {
+    const f = tmpFile('rec-stale'); const enc = crypto.randomBytes(2048); fs.writeFileSync(f, enc)
+    bak(f, '2026-02-01T00-00-00-000Z', MAGIC + 'STALE')
+    let err
+    try { recoverInterruptedMigration(f, KEY, { Database: Fake }) } catch (e) { err = e }
+    expect(err?.code).toBe('db_unreadable')
+    expect(fs.readFileSync(f).equals(enc)).toBe(true)
+  })
+
+  it('rethrows a probe failure that is not a key/cipher error instead of treating it as a wrong key', () => {
+    const f = tmpFile('rec-driver'); fs.writeFileSync(f, crypto.randomBytes(2048))
+    marker(f, bak(f, '2026-02-01T00-00-00-000Z', MAGIC + 'PLAIN'))
+    function Broken() { throw new Error('driver failed to load') }
+    expect(() => recoverInterruptedMigration(f, KEY, { Database: Broken })).toThrow(/driver failed to load/)
+    expect(fs.readFileSync(f).length).toBe(2048)
+  })
+
+  it('leaves a file the key opens untouched', () => {
+    const f = tmpFile('rec-ok'); fs.writeFileSync(f, 'GOOD-ENC')
+    bak(f, '2026-02-01T00-00-00-000Z', MAGIC + 'PLAIN')
+    expect(recoverInterruptedMigration(f, KEY, { Database: Fake }).recovered).toBe(false)
+    expect(fs.readFileSync(f, 'utf8')).toBe('GOOD-ENC')
+  })
+
+  it('does nothing for an absent file', () => {
+    expect(recoverInterruptedMigration(tmpFile('rec-absent'), KEY, { Database: Fake }).recovered).toBe(false)
+  })
+
+  it('throws db_migration_interrupted naming "none found" when there is no .bak', () => {
+    const f = tmpFile('rec-nobak'); fs.writeFileSync(f, crypto.randomBytes(2048)); marker(f)
+    let err
+    try { recoverInterruptedMigration(f, KEY, { Database: Fake }) } catch (e) { err = e }
+    expect(err?.code).toBe('db_migration_interrupted')
+    expect(err.message).toMatch(/no pre-migration backup/i)
+  })
+
+  it('ignores an ENCRYPTED .bak: throws, names it, and never deletes it', () => {
+    const f = tmpFile('rec-encbak'); fs.writeFileSync(f, crypto.randomBytes(2048)); marker(f)
+    const b = bak(f, '2026-02-01T00-00-00-000Z', crypto.randomBytes(2048)); marker(f, b)
+    let err
+    try { recoverInterruptedMigration(f, KEY, { Database: Fake }) } catch (e) { err = e }
+    expect(err?.code).toBe('db_migration_interrupted')
+    expect(fs.existsSync(b)).toBe(true)
+  })
+
+  it('throws with the .bak path when the restore copy fails, keeping the .bak', () => {
+    const f = tmpFile('rec-copyfail'); fs.writeFileSync(f, crypto.randomBytes(2048))
+    const b = bak(f, '2026-02-01T00-00-00-000Z', MAGIC + 'PLAIN'); marker(f, b)
+    const fsImpl = { ...fs, copyFileSync: () => { throw new Error('disk full') } }
+    let err
+    try { recoverInterruptedMigration(f, KEY, { Database: Fake, fsImpl }) } catch (e) { err = e }
+    expect(err?.code).toBe('db_migration_interrupted')
+    expect(err.message).toContain(b)
+    expect(fs.existsSync(b)).toBe(true)
+  })
+
+  it('a stale marker + plaintext .bak (crash after verify, before clear) cannot restore OLD data over NEWER data', () => {
+    const f = tmpFile('rec-stalemarker'); fs.writeFileSync(f, 'GOOD-ENC')
+    const b = bak(f, '2026-02-01T00-00-00-000Z', MAGIC + 'OLD'); marker(f, b)
+    // key opens the db: the marker is stale and must be cleared along with the plaintext copy
+    expect(recoverInterruptedMigration(f, KEY, { Database: Fake }).recovered).toBe(false)
+    expect(fs.existsSync(`${f}.migration-in-progress`)).toBe(false)
+    expect(fs.existsSync(b)).toBe(false)
+    // newer data written, then the file becomes unreadable
+    const newer = crypto.randomBytes(2048); fs.writeFileSync(f, newer)
+    let err
+    try { recoverInterruptedMigration(f, KEY, { Database: Fake }) } catch (e) { err = e }
+    expect(err?.code).toBe('db_unreadable')
+    expect(fs.readFileSync(f).equals(newer)).toBe(true)
+  })
+
+  it('a marker only authorizes the backup it names: a changed .bak is refused and kept', () => {
+    const f = tmpFile('rec-bound'); fs.writeFileSync(f, crypto.randomBytes(2048))
+    const b = bak(f, '2026-02-01T00-00-00-000Z', MAGIC + 'OLD'); marker(f, b)
+    fs.writeFileSync(b, MAGIC + 'DIFFERENT-LENGTH')
+    let err
+    try { recoverInterruptedMigration(f, KEY, { Database: Fake }) } catch (e) { err = e }
+    expect(err?.code).toBe('db_migration_interrupted')
+    expect(fs.existsSync(b)).toBe(true)
+    expect(fs.readFileSync(f).length).toBe(2048)
+  })
+})
+
+describe('shredOrphanedPlaintextBackups', () => {
+  const MAGIC = Buffer.from('SQLite format 3\0', 'latin1')
+  let d
+  beforeEach(() => { d = fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-shred-')) })
+  afterEach(() => { fs.rmSync(d, { recursive: true, force: true }) })
+
+  it('deletes plaintext-header pre-migration backups and keeps encrypted-header ones', () => {
+    const db = path.join(d, 'camp.sqlite')
+    const plain = `${db}.pre-migration-2026-01-01T00-00-00-000Z.bak`
+    const enc = `${db}.pre-migration-2026-01-02T00-00-00-000Z.bak`
+    const other = path.join(d, 'other.sqlite.pre-migration-x.bak')
+    fs.writeFileSync(plain, Buffer.concat([MAGIC, Buffer.alloc(100, 7)]))
+    fs.writeFileSync(enc, Buffer.alloc(4096, 0x9c))
+    fs.writeFileSync(other, Buffer.concat([MAGIC, Buffer.alloc(10)]))
+    const r = shredOrphanedPlaintextBackups(db)
+    expect(r.shredded).toEqual([plain])
+    expect(fs.existsSync(plain)).toBe(false)
+    expect(fs.existsSync(enc)).toBe(true)
+    expect(fs.existsSync(other)).toBe(true)
+  })
+
+  it('overwrites the bytes before unlinking', () => {
+    const db = path.join(d, 'camp.sqlite')
+    const plain = `${db}.pre-migration-a.bak`
+    fs.writeFileSync(plain, Buffer.concat([MAGIC, Buffer.alloc(100, 7)]))
+    const writes = []
+    const fsImpl = { ...fs, writeFileSync: (p, b) => { writes.push([p, Buffer.from(b)]); return fs.writeFileSync(p, b) } }
+    shredOrphanedPlaintextBackups(db, { fsImpl })
+    expect(writes).toHaveLength(1)
+    expect(writes[0][1].every((x) => x === 0)).toBe(true)
+  })
+})
+
+describe('shouldShredOrphanedBackups / probeDbFile (no driver)', () => {
+  const MAGIC = Buffer.from('SQLite format 3\0', 'latin1')
+  let d
+  beforeEach(() => { d = fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-probe-')) })
+  afterEach(() => { fs.rmSync(d, { recursive: true, force: true }) })
+  const enc = { existed: true, nonEmpty: true, encryptedHeader: true }
+
+  it('shreds for a pre-existing non-empty encrypted-header db', () => {
+    expect(shouldShredOrphanedBackups(enc)).toBe(true)
+  })
+  it('shreds right after this call migrated a pre-existing plaintext db', () => {
+    expect(shouldShredOrphanedBackups({ existed: true, nonEmpty: true, encryptedHeader: false, migratedThisCall: true })).toBe(true)
+  })
+  it('never shreds for an absent db', () => {
+    expect(shouldShredOrphanedBackups({ existed: false, nonEmpty: false, encryptedHeader: false })).toBe(false)
+  })
+  it('never shreds for a zero-length db', () => {
+    expect(shouldShredOrphanedBackups({ existed: true, nonEmpty: false, encryptedHeader: false })).toBe(false)
+  })
+  it('never shreds for a plaintext db that was not migrated by this call', () => {
+    expect(shouldShredOrphanedBackups({ existed: true, nonEmpty: true, encryptedHeader: false })).toBe(false)
+  })
+  it('probeDbFile reports absent, zero-length, plaintext and encrypted files', () => {
+    const f = path.join(d, 'a.sqlite')
+    expect(probeDbFile(f)).toEqual({ existed: false, nonEmpty: false, encryptedHeader: false })
+    fs.writeFileSync(f, '')
+    expect(probeDbFile(f)).toEqual({ existed: true, nonEmpty: false, encryptedHeader: false })
+    fs.writeFileSync(f, Buffer.concat([MAGIC, Buffer.alloc(50)]))
+    expect(probeDbFile(f)).toEqual({ existed: true, nonEmpty: true, encryptedHeader: false })
+    fs.writeFileSync(f, Buffer.alloc(4096, 0x9c))
+    expect(probeDbFile(f)).toEqual({ existed: true, nonEmpty: true, encryptedHeader: true })
   })
 })

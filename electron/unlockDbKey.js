@@ -2,7 +2,7 @@
 // docs/adr/2026-09-16-headless-db-key-access-for-mcp-cli.md, producer side; T179 slice 2).
 //
 // The MCP server / CLI (plain Node) cannot reach the OS keychain. This tiny helper runs UNDER
-// ELECTRON as the logged-in user, unseals the per-device key via safeStorage (getOrCreateDbKey), and
+// ELECTRON as the logged-in user, unseals the per-device key via safeStorage (getDbKey, read-only: it never mints), and
 // hands it to the headless tools WITHOUT ever writing it to disk:
 //
 //   electron electron/unlockDbKey.js --exec -- node scripts/mcp/server.js --db <path> [--allow-write]
@@ -32,7 +32,7 @@
 // The arg-parsing, env construction and release gate are pure and exported for tests; the safeStorage +
 // spawn glue runs only when this file is the Electron entry point.
 import { checkToolAuthorization, ToolAuthorizationError } from './auth/toolAuthorizations.js'
-import { getOrCreateDbKey } from './db/dbEncryptionKey.js'
+import { getDbKey } from './db/dbEncryptionKey.js'
 
 // Everything after `--exec` (skipping an optional `--` separator) is the command to run.
 export function parseUnlockArgs(argv) {
@@ -66,7 +66,7 @@ export function childEnvWithKey(keyHex, baseEnv = process.env, authorization = n
 // (tool-not-authorized / tool-authorization-revoked) before the key is touched, so a refused tool
 // never causes the keychain entry to be read or minted. A failure to obtain the key for an AUTHORIZED
 // tool is the one genuine db_key_unavailable case.
-export function releaseKeyToTool({ userDataPath, safeStorage, env = process.env, stdinText = null, getKey = getOrCreateDbKey }) {
+export function releaseKeyToTool({ userDataPath, safeStorage, env = process.env, stdinText = null, getKey = getDbKey }) {
   const secret = env.SHORESH_TOOL_SECRET || stdinText
   const authorization = checkToolAuthorization(userDataPath, safeStorage, secret)
   let key

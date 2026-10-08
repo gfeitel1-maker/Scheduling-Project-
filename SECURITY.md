@@ -320,9 +320,16 @@ malware running as that user. It is a trusted-device model, not full-disk encryp
 against a live, authenticated attacker. For a shared machine, use separate OS user accounts; the
 keychain isolation is per-OS-user.
 
+Plaintext `*.pre-migration-*.bak` copies are shredded (overwrite, then delete; best-effort on
+APFS/SSD) once encryption has verified, because a plaintext copy defeats at-rest encryption; recovery
+is a peer re-sync. See `docs/current/KEY_RECOVERY_STORY.md`.
+
 **Recovery:** the key lives only in this device's keychain. If the OS keychain is reset or the device is
 lost with no other paired device holding a copy, the encrypted data cannot be recovered. See
 `docs/current/KEY_RECOVERY_STORY.md`.
+
+**Downgrades are unsupported.** Running a build older than the encryption build against an encrypted database or
+document is not supported: older builds cannot read either. The ruling is no downgrades and no mixed-version fleets.
 
 - **It is a deliberate hard-fail:** no key means no readable data, with no graceful fallback (the key is
   minted and sealed automatically, with no passphrase to forget, and survives app reinstalls).

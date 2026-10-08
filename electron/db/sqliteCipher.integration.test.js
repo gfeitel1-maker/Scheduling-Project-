@@ -35,6 +35,85 @@ function tmpFile(tag) {
 const key = () => crypto.randomBytes(32)
 
 describe.skipIf(!driverAvailable)('SQLite at-rest encryption — real driver, through openLocalDb', () => {
+  it('recovers a half-encrypted db from its plaintext .bak and re-migrates (crash during rekey)', () => {
+    const f = tmpFile('crash')
+    const k = key()
+    const plain = openLocalDb(f, { plaintext: true })
+    plain.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('c1', 'Camp One')
+    plain.pragma('wal_checkpoint(TRUNCATE)')
+    plain.close()
+    const bak = `${f}.pre-migration-2026-01-01T00-00-00-000Z.bak`
+    tmp.push(bak)
+    fs.copyFileSync(f, bak)
+    fs.writeFileSync(f, crypto.randomBytes(8192)) // the interrupted rekey left garbage
+    const st = fs.statSync(bak)
+    fs.writeFileSync(`${f}.migration-in-progress`, JSON.stringify({ backupPath: bak, size: st.size, mtimeMs: st.mtimeMs })); tmp.push(`${f}.migration-in-progress`)
+
+    const db = openLocalDb(f, { key: k })
+    expect(db.prepare('SELECT name FROM camps WHERE id = ?').get('c1').name).toBe('Camp One')
+    db.close()
+    expect(isPlaintextSqliteFile(f)).toBe(false)
+    expect(fs.existsSync(bak)).toBe(false) // no plaintext copy left behind
+  })
+
+  describe('orphaned plaintext pre-migration backups', () => {
+    const MAGIC = Buffer.from('SQLite format 3\0', 'latin1')
+    function encryptedDb(tag, k) {
+      const f = tmpFile(tag)
+      const db = openLocalDb(f, { key: k }); db.close()
+      return f
+    }
+    const bakNamed = (f, n, content) => { const b = `${f}.pre-migration-${n}.bak`; tmp.push(b); fs.writeFileSync(b, content); return b }
+
+    it('a successful keyed open shreds a plaintext .bak but keeps an encrypted-header one', () => {
+      const k = key(); const f = encryptedDb('orphan', k)
+      const plain = bakNamed(f, 'p', Buffer.concat([MAGIC, Buffer.alloc(200, 5)]))
+      const enc = bakNamed(f, 'e', fs.readFileSync(f))
+      openLocalDb(f, { key: k }).close()
+      expect(fs.existsSync(plain)).toBe(false)
+      expect(fs.existsSync(enc)).toBe(true)
+    })
+
+    it('db absent + plaintext .bak -> .bak kept (a fresh empty db must never trigger a shred)', () => {
+      const f = tmpFile('absent')
+      const plain = bakNamed(f, 'p', Buffer.concat([MAGIC, Buffer.alloc(200, 5)]))
+      openLocalDb(f, { key: key() }).close()
+      expect(fs.existsSync(plain)).toBe(true)
+    })
+
+    it('db zero-length + plaintext .bak -> .bak kept', () => {
+      const f = tmpFile('zero')
+      fs.writeFileSync(f, '')
+      const plain = bakNamed(f, 'p', Buffer.concat([MAGIC, Buffer.alloc(200, 5)]))
+      openLocalDb(f, { key: key() }).close()
+      expect(fs.existsSync(plain)).toBe(true)
+    })
+
+    it('a failed key deletes nothing', () => {
+      const f = encryptedDb('orphan-badkey', key())
+      const plain = bakNamed(f, 'p', Buffer.concat([MAGIC, Buffer.alloc(200, 5)]))
+      expect(() => openLocalDb(f, { key: key() })).toThrow()
+      expect(fs.existsSync(plain)).toBe(true)
+    })
+  })
+
+  it('an unreadable db with no plaintext .bak fails with db_migration_interrupted, not an opaque error', () => {
+    const f = tmpFile('crash-nobak')
+    fs.writeFileSync(f, crypto.randomBytes(8192))
+    fs.writeFileSync(`${f}.migration-in-progress`, JSON.stringify({ backupPath: `${f}.gone.bak`, size: 0, mtimeMs: 0 })); tmp.push(`${f}.migration-in-progress`)
+    let err
+    try { openLocalDb(f, { key: key() }) } catch (e) { err = e }
+    expect(err?.code).toBe('db_migration_interrupted')
+  })
+
+  it('an encrypted db the key cannot open and no upgrade in flight fails with db_unreadable (code survives openLocalDb)', () => {
+    const f = tmpFile('unreadable')
+    fs.writeFileSync(f, crypto.randomBytes(8192))
+    let err
+    try { openLocalDb(f, { key: key() }) } catch (e) { err = e }
+    expect(err?.code).toBe('db_unreadable')
+  })
+
   it('opens a fresh db KEYED, writes, and the on-disk file is NOT plaintext', () => {
     const f = tmpFile('fresh')
     const k = key()
@@ -98,5 +177,9 @@ describe.skipIf(!driverAvailable)('SQLite at-rest encryption — real driver, th
 describe('SQLite at-rest driver availability', () => {
   it(driverAvailable ? 'driver present — encryption integration ran' : 'driver ABSENT — integration skipped (not a pass for encryption)', () => {
     expect(typeof driverAvailable).toBe('boolean')
+  })
+  // In CI a skipped encryption suite is a green that did not run: require the driver there.
+  it.runIf(process.env.CI)('CI: the encrypting driver is installed, so this suite actually ran', () => {
+    expect(driverAvailable).toBe(true)
   })
 })

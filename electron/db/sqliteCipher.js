@@ -14,6 +14,7 @@
 // testable without the native module; the real keying + sqlcipher_export are covered by an
 // integration test that runs once the module is installed.
 import fs from 'node:fs'
+import path from 'node:path'
 
 const SQLITE_MAGIC = Buffer.from('SQLite format 3\0', 'latin1') // 16 bytes
 
@@ -61,6 +62,10 @@ export function isPlaintextSqliteFile(filePath, { fsImpl = fs } = {}) {
 // is the safety net if it fails partway, and it is restored-from on any failure before we rethrow.
 //
 // `Database` is injected (the better-sqlite3-multiple-ciphers constructor) so this is testable.
+// Present only while a rekey is in flight. Recovery restores a plaintext .bak ONLY when it exists, so a
+// stale .bak can never be mistaken for the product of an interrupted rekey.
+const MIGRATION_MARKER_SUFFIX = '.migration-in-progress'
+
 export function migratePlaintextToEncrypted(filePath, key, {
   Database,
   writeBackup,
@@ -81,6 +86,11 @@ export function migratePlaintextToEncrypted(filePath, key, {
     throw e
   }
 
+  const markerPath = `${filePath}${MIGRATION_MARKER_SUFFIX}`
+  const bakStat = fsImpl.statSync(backupPath)
+  fsImpl.writeFileSync(markerPath, JSON.stringify({ backupPath, size: bakStat.size, mtimeMs: bakStat.mtimeMs }))
+  const clearMarker = () => { try { fsImpl.unlinkSync(markerPath) } catch { /* best effort */ } }
+
   const restoreFromBackup = () => {
     // rekey may have partially rewritten the file; put the known-good plaintext copy back so the
     // caller's retry (or the next launch) starts from an intact db, not a half-encrypted one.
@@ -90,6 +100,7 @@ export function migratePlaintextToEncrypted(filePath, key, {
         if (fsImpl.existsSync(p)) fsImpl.unlinkSync(p)
       }
       fsImpl.copyFileSync(backupPath, filePath)
+      clearMarker()
     } catch { /* best effort — the backup itself still exists at backupPath regardless */ }
   }
 
@@ -127,7 +138,141 @@ export function migratePlaintextToEncrypted(filePath, key, {
   }
 
   // 4. Success — shred the plaintext backup (finding 4: the .bak is the only remaining cleartext copy).
+  clearMarker()
   try { if (fsImpl.existsSync(backupPath)) fsImpl.unlinkSync(backupPath) } catch { /* non-fatal — best effort */ }
 
   return { migrated: true, backupPath }
+}
+
+// Crash recovery for migratePlaintextToEncrypted. If the process died between the in-place rekey and
+// the verify/shred, the db file is half-encrypted and a plaintext `.pre-migration-*.bak` remains.
+// A keyed open then fails opaquely. Detect that (file present, not plaintext, key does not open it)
+// and put the newest PLAINTEXT .bak back so the normal migration can run again. Only a .bak with a
+// plaintext header qualifies: schema-migration backups of an already-encrypted db share the name
+// pattern and must never be restored as if they were plaintext. A .bak is never deleted here.
+function readMarker(markerPath, fsImpl) {
+  try {
+    const m = JSON.parse(fsImpl.readFileSync(markerPath, 'utf8'))
+    return typeof m?.backupPath === 'string' ? m : null
+  } catch {
+    return null
+  }
+}
+
+export function recoverInterruptedMigration(filePath, key, { Database, fsImpl = fs } = {}) {
+  if (!Database) throw new Error('recoverInterruptedMigration: a Database constructor is required')
+  let size
+  try { size = fsImpl.statSync(filePath).size } catch { return { recovered: false } }
+  if (!size || isPlaintextSqliteFile(filePath, { fsImpl })) return { recovered: false }
+
+  let opened = false
+  try {
+    const probe = new Database(filePath)
+    try {
+      probe.pragma(rawKeyPragma(key))
+      probe.prepare('SELECT count(*) AS n FROM sqlite_master').get()
+      opened = true
+    } finally {
+      probe.close()
+    }
+  } catch (err) {
+    if (err?.code !== 'SQLITE_NOTADB') throw err
+  }
+
+  const markerPath = `${filePath}${MIGRATION_MARKER_SUFFIX}`
+  const bound = readMarker(markerPath, fsImpl)
+  if (opened) {
+    // The key opens the db, so any marker is stale (the crash came after rekey+verify). Clear it and
+    // the plaintext .bak it names, so neither can later authorize restoring old data over newer data.
+    if (bound && isPlaintextSqliteFile(bound.backupPath, { fsImpl })) {
+      try { fsImpl.unlinkSync(bound.backupPath) } catch { /* best effort */ }
+    }
+    try { fsImpl.unlinkSync(markerPath) } catch { /* absent or best effort */ }
+    return { recovered: false }
+  }
+
+  if (!bound) {
+    const e = new Error(
+      `The camp database at ${filePath} could not be opened with this device's encryption key, and no ` +
+        'encryption upgrade was in progress, so nothing was changed. The key may have been replaced or ' +
+        'the file damaged. See docs/current/KEY_RECOVERY_STORY.md.'
+    )
+    e.code = 'db_unreadable'
+    throw e
+  }
+
+  // Only the backup THIS marker was written for qualifies; any other plaintext .bak is not authorized.
+  const candidates = []
+  try {
+    const st = fsImpl.statSync(bound.backupPath)
+    if (st.size === bound.size && st.mtimeMs === bound.mtimeMs && isPlaintextSqliteFile(bound.backupPath, { fsImpl })) {
+      candidates.push({ p: bound.backupPath })
+    }
+  } catch { /* backup gone */ }
+
+  const fail = (detail) => {
+    const e = new Error(
+      `The camp database at ${filePath} could not be opened: an earlier encryption upgrade was ` +
+        `interrupted part-way and the file is now unreadable. ${detail}`
+    )
+    e.code = 'db_migration_interrupted'
+    return e
+  }
+  if (candidates.length === 0) {
+    throw fail('No pre-migration backup was found beside it to restore from, so nothing was changed. ' +
+      'Recover by re-syncing this device from a paired peer; see docs/current/KEY_RECOVERY_STORY.md.')
+  }
+  const bakPath = candidates[0].p
+  const aside = `${filePath}.unreadable-${new Date().toISOString().replace(/[:.]/g, '-')}`
+  try {
+    for (const suffix of ['', '-wal', '-shm']) {
+      if (fsImpl.existsSync(`${filePath}${suffix}`)) fsImpl.renameSync(`${filePath}${suffix}`, `${aside}${suffix}`)
+    }
+    fsImpl.copyFileSync(bakPath, filePath)
+  } catch (err) {
+    for (const suffix of ['', '-wal', '-shm']) {
+      try { if (fsImpl.existsSync(`${aside}${suffix}`)) fsImpl.renameSync(`${aside}${suffix}`, `${filePath}${suffix}`) } catch { /* best effort */ }
+    }
+    throw fail(`Restoring the backup failed (${err?.message ?? err}). The backup is intact at ${bakPath}; the original file was left in place.`)
+  }
+  return { recovered: true, backupPath: bakPath, unreadableCopy: aside }
+}
+
+// Security cleanup, called only after a keyed open has SUCCEEDED. An interrupted or abandoned
+// at-rest upgrade can leave a plaintext `<db>.pre-migration-*.bak` — the only cleartext copy of the
+// camp — beside a db that now opens encrypted. Delete (overwrite, then unlink) those. Schema-migration
+// backups share the name pattern; an ENCRYPTED-header one is a legitimate rollback copy and is kept,
+// so the decision is by header, never by name alone.
+export function shredOrphanedPlaintextBackups(filePath, { fsImpl = fs } = {}) {
+  const dir = path.dirname(filePath)
+  const prefix = `${path.basename(filePath)}.pre-migration-`
+  const shredded = []
+  let names
+  try { names = fsImpl.readdirSync(dir) } catch { return { shredded } }
+  for (const n of names) {
+    if (!n.startsWith(prefix) || !n.endsWith('.bak')) continue
+    const p = path.join(dir, n)
+    if (!isPlaintextSqliteFile(p, { fsImpl })) continue
+    try {
+      fsImpl.writeFileSync(p, Buffer.alloc(fsImpl.statSync(p).size))
+      fsImpl.unlinkSync(p)
+      shredded.push(p)
+    } catch { /* best effort — a locked file must not block opening the camp */ }
+  }
+  return { shredded }
+}
+
+// Facts about the db file, taken BEFORE the keyed open: a keyed open of an absent or zero-length
+// file CREATES an empty encrypted db, which proves nothing about any backup beside it.
+export function probeDbFile(filePath, { fsImpl = fs } = {}) {
+  let size
+  try { size = fsImpl.statSync(filePath).size } catch { return { existed: false, nonEmpty: false, encryptedHeader: false } }
+  const nonEmpty = size > 0
+  return { existed: true, nonEmpty, encryptedHeader: nonEmpty && !isPlaintextSqliteFile(filePath, { fsImpl }) }
+}
+
+// A plaintext backup is orphaned only if the db was a real, non-empty, already-encrypted file before
+// this open, or this very call migrated a pre-existing plaintext db and verified it.
+export function shouldShredOrphanedBackups({ existed, nonEmpty, encryptedHeader, migratedThisCall = false }) {
+  return migratedThisCall || (existed && nonEmpty && encryptedHeader)
 }

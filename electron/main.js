@@ -3142,10 +3142,27 @@ if (isElectronEntryPoint()) {
   // finding 3) — see docs/current/KEY_RECOVERY_STORY.md.
   let docCipher = null
   let dbKey = null
+  let dbPath = getCurrentProjectPath(userDataPath, defaultDbPath)
+  const keyGuard = {
+    dataPaths: [...new Set([dbPath, ...readRecentProjects(userDataPath).map((e) => e.path)])],
+    docPaths: () => {
+      const dir = path.join(userDataPath, 'automerge')
+      try { return fs.readdirSync(dir).filter((n) => n.endsWith('.automerge')).map((n) => path.join(dir, n)) } catch (err) {
+        if (err?.code === 'ENOENT') return []
+        const e = new Error(`Could not list ${dir} (${err?.code ?? err?.message}) to check for encrypted camp documents before creating a new encryption key, so no key was created. Fix the directory permissions and start again; see docs/current/KEY_RECOVERY_STORY.md.`)
+        e.code = 'db_key_guard_unreadable'
+        throw e
+      }
+    },
+  }
   try {
-    dbKey = acquireDbKey(userDataPath, safeStorage) // null when encryption is off → SQLite stays plaintext
-    docCipher = acquireDocCipher(userDataPath, safeStorage)
+    dbKey = acquireDbKey(userDataPath, safeStorage, keyGuard) // null when encryption is off → SQLite stays plaintext
+    docCipher = acquireDocCipher(userDataPath, safeStorage, keyGuard)
   } catch (err) {
+    if (err?.code === 'keychain_unavailable' || err?.code === 'db_key_file_missing' || err?.code === 'db_key_guard_unreadable') {
+      console.error(err.message)
+      throw err
+    }
     console.error(
       'At-rest encryption is enabled but this device\'s storage key could not be obtained ' +
         `(${err?.message ?? err}). The camp data on this device cannot be read without it. This is ` +
@@ -3162,7 +3179,6 @@ if (isElectronEntryPoint()) {
   }
 
   // Mutable state — swapped by project-lifecycle handlers (open/create/restore).
-  let dbPath = getCurrentProjectPath(userDataPath, defaultDbPath)
   let db = openLocalDb(dbPath, { key: dbKey })
   let deviceId = getOrCreateDeviceId(db)
 
