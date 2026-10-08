@@ -1354,6 +1354,14 @@ describe('AssignmentPanel — picking a new file while a draft is in progress co
     window.confirm = vi.fn(() => { throw new Error('window.confirm must not be used') })
     try {
       await driveToPreview()
+      // The replace-confirm path is taken only when a draft already exists
+      // (handleFileChosen -> getDraft). driveToPreview resolves when "Commit
+      // Assignments" is in the DOM, but the save-draft passive effect that
+      // persists the draft runs a tick later — fire the new-file change before
+      // it lands and handleFileChosen sees no draft, parses the new file, and
+      // the modal never appears (the ~13% flake). Wait for the actual
+      // persisted-draft signal, not a timeout.
+      await waitFor(() => expect(getDraft('camp-1', 'set-1')).toBeTruthy())
       const newFile = new File(['Name\t#1\nBen\tArchery'], 'sheet2.txt', { type: 'text/plain' })
       fireEvent.change(document.querySelector('input[type="file"]'), { target: { files: [newFile] } })
 
@@ -1369,6 +1377,9 @@ describe('AssignmentPanel — picking a new file while a draft is in progress co
 
   it('canceling keeps the existing draft/preview and does not parse the new file', async () => {
     await driveToPreview()
+    // See the sibling test: wait for the save-draft effect to persist before
+    // picking a new file, so the replace-confirm path is taken deterministically.
+    await waitFor(() => expect(getDraft('camp-1', 'set-1')).toBeTruthy())
     const newFile = new File(['Name\t#1\nBen\tArchery'], 'sheet2.txt', { type: 'text/plain' })
     fireEvent.change(document.querySelector('input[type="file"]'), { target: { files: [newFile] } })
 
