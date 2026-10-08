@@ -1,0 +1,70 @@
+---
+ticket: T347
+document_type: ticket
+title: S1 — punch transport (node-datachannel as a libp2p transport), inert build behind SHORESH_PUNCH_ENABLED
+status: open
+created: 2026-10-08
+archive_when: "electron/sync/automerge/punchTransport.js exists as a libp2p transport over a node-datachannel data channel with Noise, authGate/T331 mutualAuth, isPeerRevoked and Automerge sync proven unchanged over it; native misuse is proven unable to abort the process; syncStarter.js wires it only when SHORESH_PUNCH_ENABLED is the literal string 'true' and the native module loads; the build is green with node-datachannel present and punch.signoff null"
+task_class: security-auth
+parent: ""
+governing_docs: [docs/adr/2026-10-08-relayless-cross-network-reconnect.md, docs/governance/standards/TESTING_STANDARD.md, SECURITY.md]
+related_prs: []
+related_tickets: []
+---
+
+# T347 — S1: punch transport, inert build
+
+## Context
+
+First slice of the relay-less cross-network reconnect
+(`docs/adr/2026-10-08-relayless-cross-network-reconnect.md`, "Mechanism decision", "Integration
+ruling", "Hazards"). The ICE data channel is a libp2p transport, not a side channel, so admission is
+not re-implemented. Nothing activates in this slice.
+
+## What S1 builds
+
+- `node-datachannel@0.33.4` (exact). The darwin-x64 prebuilt loads under Node.
+- `electron/sync/automerge/punchTransport.js` — a libp2p transport factory injected into
+  `startTransport` as `punchTransportFactory`, exactly like `relayTransportFactory`
+  (`transport.js` never imports it). The opened data channel is a `MultiaddrConnection` handed to
+  libp2p's upgrader. Signaling is an injected `{ sendSignal, onSignal }`; no real channel exists yet.
+  Options: stable DTLS cert (`certificatePemFile`/`keyPemFile`), fixed `ice.iceUfrag`/`icePwd`,
+  pinned `portRange`, `disableAutoNegotiation` (always on), explicit `role`, STUN servers only
+  (`turn:` is rejected at configuration time, relay candidates are rejected on receipt).
+- Native safety: every input is validated before any node-datachannel call; a per-session phase
+  machine makes out-of-order native calls unreachable; every teardown calls `pc.close()` and, once
+  nothing is live, the module `cleanup()`; `main.js` `will-quit` calls `syncStarter.shutdownPunch()`.
+- Gate: `syncStarter.js` wires the factory only when `process.env.SHORESH_PUNCH_ENABLED === 'true'`,
+  `node-datachannel` actually loads (`punchEnablement.js`), and a signaling channel was injected.
+- Registry: `transportCapabilities.js` gains a `punch` row (`packages: ['node-datachannel']`,
+  `signoff: null`, `inertPresence: true`). `punchPresenceWithoutSignoff.guard.test.js` is what makes
+  the presence tolerable: sole importer, strict single gate, sole namers of the package, exact pin.
+
+## Findings the build depends on (probed on 0.33.4, darwin-x64)
+
+- `pc.close()` alone does not let the process exit; the process hangs until `cleanup()`-class
+  teardown runs. (The quit test shows `close()` on every pc plus waiting for `closed` was sufficient
+  on this platform; `cleanup()` is still run because the ADR requires it and other platforms are
+  unproven.)
+- `cleanup()` in the same tick as `close()` segfaults (exit 139). Teardown therefore waits for each
+  pc's `closed` state, hops one `setImmediate`, then calls `cleanup()`. `cleanup()` runs only when the
+  last transport stops.
+- `setLocalDescription('offer')` with no data channel aborts the process (SIGABRT); a test control
+  proves the harness sees this.
+- Same-host ICE works over the LAN host candidate, so S1's loopback tests need no STUN.
+
+## Follow-ups (not built)
+
+- utilityProcess isolation of node-datachannel (crash containment) — decide with Security/Red Hat.
+- Real signaling (rung 2 camp-peer, rung 3 Worker), per-peer signaling keyed by peer, address book
+  integration, rung-1 no-re-signal reuse of cert/ufrag/port.
+- S5: T327 capability signoff; MUST-VERIFY from the ADR — cross-NAT/symmetric NAT, IPv6, ASAR
+  packaging (`asarUnpack` of the `.node`), non-darwin-x64 prebuilts under the Electron ABI.
+- The `will-quit` handler in `main.js` is `async` and Electron does not await it; the punch shutdown
+  is started before the awaited node stop so its synchronous part closes every pc immediately.
+- The egress text scan cannot see STUN contact made inside the native library; the capability row's
+  signoff is the control.
+
+## Remaining
+
+- Governor-run full `npm run verify` and review loop (Security, Red Hat) on the transport.

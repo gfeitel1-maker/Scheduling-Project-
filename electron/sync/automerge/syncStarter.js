@@ -42,6 +42,7 @@ import { nextSequence } from './rendezvousSequence.js'
 // file has no legitimate reason to spell either one out literally. See relayEnablement.js's own
 // naming-warning comment for the full reasoning (and what happened the one time this file did).
 import { relayRuntimeEligible, holePunchFoundationPresent } from './relayEnablement.js'
+import { punchRuntimeEligible, punchNativeLoadable } from './punchEnablement.js'
 import { ensureDeviceIdentity } from '../../auth/deviceIdentity.js'
 import { recordAuditEvent } from '../../audit/auditLog.js'
 import { issueDeviceToken } from '../../auth/localAuth.js'
@@ -76,7 +77,11 @@ export function createAutomergeSyncStarter({
   getMainWindow,
   getLiveHandlers,
   startSyncNodeImpl,
+  punchSignaling,
 }) {
+  // T347 (S1): set only when the punch transport was actually wired, so quit can tear down its
+  // native state and an unwired build never loads the module.
+  let punchModule = null
   // Declared here (ahead of automergeSyncNode's own definition further down)
   // so makeHandlers' chooseMode/login closures can reach whatever node is
   // running by the time THEY run, without makeHandlers needing to know
@@ -418,6 +423,19 @@ export function createAutomergeSyncStarter({
         directUpgradeServiceFactory = dcutr()
       }
 
+      // T347 (S1, ticket docs/work/tickets/T347-*.md): the ICE data-channel libp2p transport. INERT by
+      // default — wired only when SHORESH_PUNCH_ENABLED is exactly the string 'true' (no truthy
+      // coercion), the native module actually loads here, and a signaling channel was injected (S1
+      // builds none; the rung 2/3 channel lands in a later slice). Authorization is separate: the
+      // capability row's signoff stays null until S5's T327 gate.
+      let punchTransportFactory
+      const listenAddrs = ['/ip4/0.0.0.0/tcp/0']
+      if (punchRuntimeEligible({ punchEnabled: process.env.SHORESH_PUNCH_ENABLED === 'true', nativeLoadable: punchSignaling != null && punchNativeLoadable() })) {
+        punchModule = await import('./punchTransport.js')
+        punchTransportFactory = punchModule.punchTransport({ signaling: punchSignaling })
+        listenAddrs.push('/ip4/0.0.0.0/udp/0')
+      }
+
       const startSyncNode = startSyncNodeImpl ? await startSyncNodeImpl() : (await import('./syncNode.js')).startSyncNode
       automergeSyncNode = await startSyncNode({
         deviceId,
@@ -426,6 +444,7 @@ export function createAutomergeSyncStarter({
         relayServerFactory,
         directUpgradeServiceFactory,
         relayTransportFactory,
+        punchTransportFactory,
         // Stage 5f, found on a real two-machine run: transport.js's DEFAULT_LISTEN is
         // '/ip4/127.0.0.1/tcp/0' — LOOPBACK ONLY. That default is correct for the in-process tests
         // it was written for (Stage 4 dialed over loopback deliberately), but it means a production
@@ -433,7 +452,7 @@ export function createAutomergeSyncStarter({
         // dials, and nothing can connect. Production must bind all interfaces. This is the single
         // line that makes LAN sync possible at all, and no in-process test could ever have caught
         // its absence, because loopback is exactly what those tests want.
-        listen: ['/ip4/0.0.0.0/tcp/0'],
+        listen: listenAddrs,
         onRemoteOps: (events) => {
           // T292 round 2 FIX 2 — a remote merge never fires onOpApplied (that
           // listener only covers this device's OWN local write()/
@@ -609,6 +628,7 @@ export function createAutomergeSyncStarter({
   return {
     start,
     getNode: () => automergeSyncNode,
+    shutdownPunch: async () => { await punchModule?.shutdownPunchNative() },
     getStartupAttempted: () => automergeStartupAttempted,
     getRelayReservationRefused: () => relayReservationRefused,
   }

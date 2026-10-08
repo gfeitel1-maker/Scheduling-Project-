@@ -3877,12 +3877,18 @@ if (isElectronEntryPoint()) {
     // T292 round 2 FIX 3 — flush any still-pending debounced camp data
     // document write before the process exits. See flushCampDataRecordOnQuit.
     flushCampDataRecordOnQuit(liveHandlers)
+    // T347 (S1): a no-op unless SHORESH_PUNCH_ENABLED wired the punch transport. Started BEFORE the
+    // awaited node stop because Electron does not await this handler: its synchronous prefix closes
+    // every open pc immediately, and libdatachannel's cleanup() (without which the process cannot
+    // exit) follows. Never throws into the quit path.
+    const punchShutdown = syncStarter.shutdownPunch().catch(() => {})
     const automergeSyncNode = syncStarter.getNode()
     if (automergeSyncNode) {
       try {
         await automergeSyncNode.stop()
       } catch { /* shutting down anyway */ }
     }
+    await punchShutdown
   })
   } catch (err) {
     reportStartupFailure(err)
