@@ -2418,6 +2418,40 @@ describe('approveDevice when the joining device is gone (T346)', () => {
     expect(row().device_secret_identifier).toBe(secrets[1])
   })
 
+  it('two overlapping approves that both fail leave the row at its pre-approve state, in either order', async () => {
+    let sends = []
+    const { handlers, token } = await setup({
+      getAutomergeSyncNode: () => ({ sendPairingApproved: vi.fn(() => sends.shift()) }),
+    })
+    for (const order of [['a', 'b'], ['b', 'a']]) {
+      const resolvers = {}
+      sends = [new Promise((r) => { resolvers.a = r }), new Promise((r) => { resolvers.b = r })]
+      const a = handlers.approveDevice({ token, deviceId: 'gone-target' })
+      const b = handlers.approveDevice({ token, deviceId: 'gone-target' })
+      resolvers[order[0]](false)
+      await (order[0] === 'a' ? a : b)
+      resolvers[order[1]](false)
+      await Promise.all([a, b])
+      expect(row()).toEqual(PRE)
+    }
+  })
+
+  it('an approve that failed after an overlapping one delivered restores the delivered state, not the original', async () => {
+    let resolveB
+    const sends = [Promise.resolve(true), new Promise((r) => { resolveB = r })]
+    const secrets = []
+    const { handlers, token } = await setup({
+      getAutomergeSyncNode: () => ({ sendPairingApproved: vi.fn((_id, secret) => { secrets.push(secret); return sends.shift() }) }),
+    })
+    const a = handlers.approveDevice({ token, deviceId: 'gone-target' })
+    const b = handlers.approveDevice({ token, deviceId: 'gone-target' })
+    await expect(a).resolves.toEqual({ deviceId: 'gone-target', authorized: true })
+    resolveB(false)
+    await b
+    expect(row().pairing_status).toBe('authorized')
+    expect(row().device_secret_identifier).toBe(secrets[0])
+  })
+
   it('records send_error, logs, and still returns joiner_disconnected when sendPairingApproved throws', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {

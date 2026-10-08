@@ -1418,6 +1418,9 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return { authorization }
   }
 
+  // deviceId -> { baseline, count }: the row as it stood before the first of any overlapping approves.
+  const inflightApprovals = new Map()
+
   async function approveDevice({ token, deviceId: targetDeviceId, makeAdmin = false } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const { userId } = requireAuthorized(db, { token, action: 'devices.approve' })
@@ -1444,6 +1447,12 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       "UPDATE devices SET authorized_at = ?, authorized_by_user_id = ?, pairing_status = 'authorized', device_secret_identifier = ?, revoked_at = NULL, revoked_by_user_id = NULL, revocation_reason = NULL WHERE id = ?"
     ).run(now, userId, secret, targetDeviceId)
 
+    // Overlapping approves of one device share the baseline captured by the first, so a failed
+    // delivery can never restore another call's undelivered write.
+    const inflight = inflightApprovals.get(targetDeviceId) ?? { baseline: existing, count: 0 }
+    inflight.count++
+    inflightApprovals.set(targetDeviceId, inflight)
+
     const node = getAutomergeNode()
     let delivered = false
     let sendFailed = false
@@ -1452,19 +1461,23 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     } catch (err) {
       console.error('approveDevice: sendPairingApproved threw: ' + (err?.message ?? err))
       sendFailed = true
+    } finally {
+      if (--inflight.count === 0) inflightApprovals.delete(targetDeviceId)
     }
+    const baseline = inflight.baseline
     if (!delivered) {
       // A later approve may own the row by now; only put back what this call wrote.
       db.prepare(
         'UPDATE devices SET authorized_at = ?, authorized_by_user_id = ?, pairing_status = ?, device_secret_identifier = ?, revoked_at = ?, revoked_by_user_id = ?, revocation_reason = ? WHERE id = ? AND device_secret_identifier = ?'
       ).run(
-        existing.authorized_at, existing.authorized_by_user_id, existing.pairing_status, existing.device_secret_identifier,
-        existing.revoked_at, existing.revoked_by_user_id, existing.revocation_reason, targetDeviceId, secret
+        baseline.authorized_at, baseline.authorized_by_user_id, baseline.pairing_status, baseline.device_secret_identifier,
+        baseline.revoked_at, baseline.revoked_by_user_id, baseline.revocation_reason, targetDeviceId, secret
       )
       recordAuditEvent(db, { actorUserId: userId, deviceId: targetDeviceId, action: 'device.approve', outcome: 'deny', reason: sendFailed ? 'send_error' : 'joiner_disconnected' })
       return { deviceId: targetDeviceId, authorized: false, reason: 'joiner_disconnected' }
     }
 
+    inflight.baseline = { authorized_at: now, authorized_by_user_id: userId, pairing_status: 'authorized', device_secret_identifier: secret, revoked_at: null, revoked_by_user_id: null, revocation_reason: null }
     recordAuditEvent(db, { actorUserId: userId, deviceId: targetDeviceId, action: 'device.approve', outcome: 'allow' })
 
     // T331 (docs/adr/2026-10-02-distributed-revocation-authority.md) — the in-person pairing UX

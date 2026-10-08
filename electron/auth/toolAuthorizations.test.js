@@ -156,6 +156,43 @@ describe('sealed-store read-modify-write is serialized', () => {
     expect(() => grant()).not.toThrow()
     expect(fs.existsSync(lockFile())).toBe(false)
   })
+
+  const liveLock = (token) => JSON.stringify({ pid: 2, at: Date.now(), token })
+
+  it('breaking a stale lock never takes a lock another waiter has just acquired', () => {
+    fs.writeFileSync(lockFile(), JSON.stringify({ pid: 1, at: 0, token: 'old' }))
+    const old = new Date(Date.now() - 60000)
+    fs.utimesSync(lockFile(), old, old)
+    let swapped = false
+    const swap = (fn) => (...args) => {
+      if (!swapped && args[0] === lockFile()) {
+        swapped = true
+        fs.unlinkSync(lockFile())
+        fs.writeFileSync(lockFile(), liveLock('other'))
+      }
+      return fn(...args)
+    }
+    const fsImpl = { ...fs, unlinkSync: swap(fs.unlinkSync), renameSync: swap(fs.renameSync) }
+    const err = refusal(() => grantToolAuthorization(dir, fakeSafeStorage, { label: 'x', scope: 'read' }, { fsImpl }))
+    expect(err.code).toBe('tool-auth-store-busy')
+    expect(JSON.parse(fs.readFileSync(lockFile(), 'utf8')).token).toBe('other')
+  }, 10000)
+
+  it('releasing does not delete a lock that another process now owns', () => {
+    let swapped = false
+    const fsImpl = {
+      ...fs,
+      writeFileSync: (...args) => {
+        if (!swapped && String(args[0]).endsWith('.tmp')) {
+          swapped = true
+          fs.writeFileSync(lockFile(), liveLock('other'))
+        }
+        return fs.writeFileSync(...args)
+      },
+    }
+    grantToolAuthorization(dir, fakeSafeStorage, { label: 'x', scope: 'read' }, { fsImpl })
+    expect(JSON.parse(fs.readFileSync(lockFile(), 'utf8')).token).toBe('other')
+  })
 })
 
 describe('audit queue coalesces repeated denials', () => {

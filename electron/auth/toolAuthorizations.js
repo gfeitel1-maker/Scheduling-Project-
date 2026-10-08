@@ -84,28 +84,40 @@ function sleep(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 }
 
+const lockToken = (fsImpl, file) => {
+  try { return JSON.parse(fsImpl.readFileSync(file, 'utf8')).token } catch { return undefined }
+}
+
+// Moves a stale lock aside atomically (only one waiter's rename can win), then checks it really was
+// the stale lock this waiter judged; if a live lock was swapped in meanwhile it is put back.
+function breakStaleLock(fsImpl, lock, token) {
+  const seen = lockToken(fsImpl, lock)
+  if (Date.now() - fsImpl.statSync(lock).mtimeMs <= LOCK_STALE_MS) return false
+  const aside = `${lock}.${token}.stale`
+  fsImpl.renameSync(lock, aside)
+  if (lockToken(fsImpl, aside) !== seen) {
+    try { fsImpl.linkSync(aside, lock) } catch { /* someone else holds it now */ }
+  }
+  fsImpl.unlinkSync(aside)
+  return true
+}
+
 // The unlock helper runs in a separate process, so every read-modify-write of the sealed store takes
 // this cross-process lock and re-reads inside it; otherwise a late write-back can undo a revoke.
 function updateStore(userDataDir, safeStorage, mutate, { fsImpl = fs } = {}) {
   const lock = path.join(userDataDir, TOOL_AUTH_FILE + LOCK_SUFFIX)
   const deadline = Date.now() + LOCK_TIMEOUT_MS
+  const token = crypto.randomBytes(8).toString('hex')
   let fd
-  let brokeStale = false
   for (;;) {
     try {
       fd = fsImpl.openSync(lock, 'wx')
       break
     } catch (err) {
       if (err.code !== 'EEXIST') throw err
-      if (!brokeStale) {
-        try {
-          if (Date.now() - fsImpl.statSync(lock).mtimeMs > LOCK_STALE_MS) {
-            brokeStale = true
-            fsImpl.unlinkSync(lock)
-            continue
-          }
-        } catch { /* lock vanished; retry */ }
-      }
+      try {
+        if (breakStaleLock(fsImpl, lock, token)) continue
+      } catch { /* lock vanished; retry */ }
       if (Date.now() >= deadline) {
         throw new ToolAuthorizationError('tool-auth-store-busy', 'The tool authorization store is busy. Try again.')
       }
@@ -113,14 +125,16 @@ function updateStore(userDataDir, safeStorage, mutate, { fsImpl = fs } = {}) {
     }
   }
   try {
-    fsImpl.writeSync(fd, JSON.stringify({ pid: process.pid, at: Date.now() }))
+    fsImpl.writeSync(fd, JSON.stringify({ pid: process.pid, at: Date.now(), token }))
     fsImpl.closeSync(fd)
     const state = read(userDataDir, safeStorage, fsImpl)
     const result = mutate(state)
     write(userDataDir, safeStorage, state, fsImpl)
     return result
   } finally {
-    try { fsImpl.unlinkSync(lock) } catch { /* already gone */ }
+    if (lockToken(fsImpl, lock) === token) {
+      try { fsImpl.unlinkSync(lock) } catch { /* already gone */ }
+    }
   }
 }
 
