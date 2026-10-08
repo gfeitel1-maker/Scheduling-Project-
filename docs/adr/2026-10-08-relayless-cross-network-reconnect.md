@@ -18,9 +18,22 @@ implements: []
 
 ## Status
 
-ACCEPTED by the organizer 2026-10-08 under delegation (it encodes the owner's rulings below exactly).
-Design-only; the security-batch worker builds it, socket-affinity check FIRST (STOP + report if the
-QUIC transport cannot share a UDP socket with the STUN client).
+ACCEPTED (the 3-rung LADDER below is the owner's intent and stands) — but the PUNCH TRANSPORT
+MECHANISM it assumed is BLOCKED, so the build is HELD pending an owner mechanism decision.
+
+> **Step 0 feasibility result, 2026-10-08 — STOP (QUIC+STUN mechanism infeasible as published).**
+> The socket-affinity check (the make-or-break) FAILED against `@chainsafe/libp2p-quic@2.1.5` /
+> libp2p 3.3.11, two independent hinges, independently challenged and not refuted:
+> (1) the listener socket is owned by native quinn (`dist/src/listener.js:72`), with no socket
+> access, no SO_REUSEPORT (ENOTSUP on macOS/Node), no raw-datagram send — so a STUN query cannot
+> leave from the listener's port; and (2) dials originate from SEPARATE ephemeral client endpoints
+> (`transport.js:55/63/95`, `new napi.Client(...)`), NOT the listen port — so the mapping a peer sees
+> on our dial differs from the listener's, and a coordinated simultaneous open from the listen port
+> is impossible with the package as published, independent of STUN.
+> CONSEQUENCE: "QUIC + STUN-from-socket" (Decision §1/§3 below) cannot be built on the published
+> transport. The LADDER (rungs 1→2→3, the ordering invariant, no relay, the residual) is unaffected
+> and stands; only HOW the punch socket works is open. Mechanism under revision — see "Mechanism
+> decision (owner)". Build is BLOCKED; no agent substitutes a mechanism the owner did not choose.
 
 > **Owner rulings, 2026-10-08, verbatim:**
 > "it is possible for them to meet over different wifis once they have established a connection on lan
@@ -32,6 +45,42 @@ The owner's objection is to Cloudflare being the ONLY or PRIMARY way to meet —
 last-resort fallback. So rungs 1–2 are always tried first and must succeed with no Worker at all; rung
 3 is the owner's own Cloudflare rendezvous Worker (T209, on his account), shipped as the default but
 camp-overridable. No relay is built; data is never in any third party's path.
+
+## Mechanism decision (owner) — QUIC+STUN dead; WebRTC/ICE recommended, pending its own spike
+
+Step 0 killed "QUIC + STUN-from-socket" (above). Revised-hinge evaluation (owner's rulings preserved:
+no relay, owner not the middleman, his Cloudflare last-only):
+
+- **WebRTC / ICE — RECOMMENDED (pending a bounded feasibility spike, same STOP-bar).** ICE is built
+  for exactly this: each agent gathers host + server-reflexive (STUN) candidates FROM THE SAME SOCKET,
+  exchanges them via signaling, then connectivity-checks (punches) from that same socket — solving
+  BOTH QUIC hinges by design. Crucially, the SIGNALING (SDP/candidate blobs) is carried over OUR
+  rungs, not a circuit relay or a WebRTC signaling server: rung 2 = camp-peer authenticated sync,
+  rung 3 = the owner's Worker (last-resort). NO TURN (TURN = relay = rejected) ⇒ symmetric/CGNAT stays
+  the documented residual, unchanged. LADDER: holds, but the rungs become the SIGNALING channel. RUNG
+  1 ("redial the remembered public address") SURVIVES ONLY IN SPIRIT: ICE re-gathers fresh ephemeral
+  candidates and normally re-signals each session, so rung 1 becomes "attempt connectivity checks
+  against the peer's LAST-KNOWN candidates WITHOUT re-signaling" — direct, no third party, tried first,
+  but BEST-EFFORT (works only while the peer's mapping persists; stale ⇒ fall to rung 2/3 signaling).
+  The 1→2→3 ordering invariant holds. POSTURE: STUN reflector only (owner-accepted, 2026-09-28); data
+  is the device-to-device WebRTC channel; no relay. COST/UNKNOWN: node↔node WebRTC needs a node
+  backend — @libp2p/webrtc is primarily browser↔server, so node↔node likely needs node-datachannel
+  (native) or werift (pure-JS, less battle-tested); whether @libp2p/webrtc accepts CUSTOM
+  (rung-carried) signaling and works node↔node with NO TURN is UNVERIFIED → a Step-0-style spike MUST
+  settle it before committing. SIGNOFFS: `webrtc` (+ possibly `webrtc-direct`) via the T327 gate.
+- **App-owned dgram socket (STUN + punch + listen + dial on ONE socket we own), then a stream
+  transport over it — FALLBACK.** Solves both hinges cleanly (we own the socket) and makes rung 1
+  cleanest (one persistent socket). But no libp2p transport accepts an externally-owned UDP socket
+  (that is exactly why QUIC failed), so "a stream transport over it" means building our own
+  reliable-stream + Noise over UDP — a LARGE, security-critical transport reinvention. Only if WebRTC
+  node↔node proves infeasible.
+- **Fork the native QUIC layer — LAST RESORT** (owner/keeper): owning a per-platform Rust/napi fork of
+  a security-critical transport; high maintenance + supply-chain burden. Avoid unless both above fail.
+
+RECOMMENDATION: pursue WebRTC/ICE, GATED on a bounded node↔node-WebRTC + custom-signaling + no-TURN
+feasibility spike (STOP-and-report if it doesn't hold, exactly as Step 0 did for QUIC). This is a
+mechanism change from what the owner specified (QUIC) — his decision; the build stays BLOCKED until he
+rules and the spike passes.
 
 ## Context
 
