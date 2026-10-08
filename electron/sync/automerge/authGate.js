@@ -422,6 +422,10 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
 
   return {
     authenticatedPeers,
+    isPairingPending: (peerId) => {
+      for (const id of pendingPairingPeers.values()) if (id === peerId) return true
+      return false
+    },
     sendPairingApproved: (deviceId, deviceSecretIdentifier) =>
       deliverPairingDecision(deviceId, { type: 'pairing_approved', device_secret_identifier: deviceSecretIdentifier }),
     sendPairingDenied: (deviceId) => deliverPairingDecision(deviceId, { type: 'pairing_denied' }),

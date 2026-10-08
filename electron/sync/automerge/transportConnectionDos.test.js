@@ -189,4 +189,18 @@ describe('T340 connection-manager DoS hardening', () => {
     await b.broadcastDoc(new Uint8Array([1, 2, 3]))
     await waitFor(() => received.length === 1)
   })
+
+  it('8: a pending pairing is not aborted by the deadline, so the director decision still lands after it', async () => {
+    const decisions = []
+    const director = await startTransport({ deviceId: 'director', onAuthenticate: alwaysAdmit, onPairingRequest: () => ({ ok: true }), unadmittedDeadlineMs: 300 })
+    const joiner = await startTransport({ deviceId: 'joiner', listen: [], onAuthenticate: alwaysAdmit, onPairingDecision: (d) => decisions.push(d) })
+    cleanups.push(() => director.stop(), () => joiner.stop())
+    await joiner.dial(director.getMultiaddrs()[0])
+    const reply = await joiner.authenticateWith(director.peerId, { type: 'pairing_request', device_id: 'joiner-dev', device_name: 'J' })
+    expect(reply?.type).toBe('pairing_pending')
+
+    await sleep(900)
+    expect(await director.sendPairingApproved('joiner-dev', 'secret')).toBe(true)
+    await waitFor(() => decisions.length === 1)
+  })
 })

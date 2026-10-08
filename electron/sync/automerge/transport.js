@@ -266,7 +266,7 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     } catch { /* release must never throw into libp2p's event dispatch */ }
   })
 
-  const { authenticatedPeers, sendPairingApproved, sendPairingDenied } = registerAuthGate(node, {
+  const { authenticatedPeers, isPairingPending, sendPairingApproved, sendPairingDenied } = registerAuthGate(node, {
     onAuthenticate,
     onPairingRequest,
     onLogin,
@@ -308,7 +308,10 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
   // HONEST GUARANTEE: an ESTABLISHED admitted connection is never evicted by an un-admitted flood. A
   // reconnecting camp device is indistinguishable from the flood at connection:open (admission is not
   // decided yet), so it gets a slot within bounded deadline turnover, NOT instantly under an active
-  // flood. Outbound connections are our own choice, so they are counted but never aborted here.
+  // flood. Exemption: a peer with a pending pairing is NOT aborted by the deadline, because the
+  // director's decision is human-time and is delivered by dialing back over this very connection (a
+  // NAT'd joiner has no other dialable address). That hold is bounded by MAX_PENDING_PAIRING and still
+  // counts against the un-admitted cap. Outbound connections are our own choice, so they are counted but never aborted here.
   const unadmittedCap = maxConnections - reservedFloor
   const deadlineTimers = new Map()
   node.addEventListener('connection:open', (evt) => {
@@ -321,7 +324,8 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     }
     const timer = setTimeout(() => {
       deadlineTimers.delete(connection)
-      if (connection.status === 'open' && !authenticatedPeers.has(connection.remotePeer.toString())) {
+      const peer = connection.remotePeer.toString()
+      if (connection.status === 'open' && !authenticatedPeers.has(peer) && !isPairingPending(peer)) {
         connection.abort(new Error('authgate_deadline'))
       }
     }, unadmittedDeadlineMs)
