@@ -108,7 +108,7 @@ async function runClient() {
   const tmpDir = makeTmpDir()
   configureDualWrite(tmpDir)
 
-  const db = openLocalDb(`${tmpDir}/client.db`)
+  const db = openLocalDb(`${tmpDir}/client.db`, { plaintext: true })
   const deviceId = getOrCreateDeviceId(db)
   db.prepare('INSERT OR IGNORE INTO devices (id, name) VALUES (?, ?)').run(deviceId, 'XVerClient')
 

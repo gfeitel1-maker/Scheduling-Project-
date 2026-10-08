@@ -92,8 +92,7 @@ minted a fresh keypair on every process start.
   SQLite database in the same singleton (`CHECK (id = 1)`) shape as `host_signing_key`, hex-encoded
   in libp2p's own protobuf marshal format. It is never replicated: it appears in no projection, no
   camp-scoped entity set, and no Automerge document, and a test pins that exclusion. It inherits
-  at-rest encryption from SQLCipher along with the rest of the database (on by default)
-  (on by default); there is deliberately no separate key store for it.
+  at-rest encryption from SQLCipher along with the rest of the database (on by default); there is deliberately no separate key store for it.
 - **What it buys.** A session token is no longer a pure bearer credential. On `authenticate` and on
   `login`, the peer identity libp2p's Noise handshake already proved for the connection is checked
   against `devices.libp2p_peer_id` on a trust-on-first-use basis: the first peer id presented for a
@@ -306,8 +305,8 @@ deliberately not built here.
 
 At-rest encryption is on by default. Both the camp document (`<campId>.automerge`) and the local
 database (`shoresh.sqlite`) are encrypted on disk with a random 32-byte per-device key sealed in the
-operating system keychain (macOS Keychain / Windows DPAPI via Electron `safeStorage`). The key is never
-written beside the data. See `docs/adr/2026-09-15-at-rest-encryption-scoping.md`.
+operating system keychain (macOS Keychain / Windows DPAPI via Electron `safeStorage`). The plaintext key is never
+written to disk; only its safeStorage-sealed form (`db.key.enc`) sits beside the data. See `docs/adr/2026-09-15-at-rest-encryption-scoping.md`.
 
 **This defends one specific thing: a powered-off or stolen device.** Someone who takes the hardware, or
 copies the files off it (a backup, a synced folder, a discarded disk), cannot read a camp's data without

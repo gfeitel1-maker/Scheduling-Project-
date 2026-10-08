@@ -199,7 +199,7 @@ export class AmHost {
   }
 
   async start() {
-    this.db = openLocalDb(this.dbPath)
+    this.db = openLocalDb(this.dbPath, { plaintext: true })
     this.deviceId = getOrCreateDeviceId(this.db)
     this.db.prepare('INSERT OR IGNORE INTO devices (id, name, authorized_at, pairing_status) VALUES (?, ?, ?, ?)').run(
       this.deviceId, 'Host', new Date().toISOString(), 'authorized'
@@ -376,7 +376,7 @@ export class AmClient {
   }
 
   open() {
-    this.db = openLocalDb(this.dbPath)
+    this.db = openLocalDb(this.dbPath, { plaintext: true })
     this.deviceId = getOrCreateDeviceId(this.db)
     this.db.prepare('INSERT OR IGNORE INTO devices (id, name) VALUES (?, ?)').run(
       this.deviceId, `Client-${this.deviceId.slice(0, 8)}`
