@@ -26,11 +26,10 @@
 // manifest and enforces that they are actually present on disk.
 //
 // A package in the lockfile's production set that is MISSING from
-// `node_modules` is a HARD FAILURE, not a skip — see buildLicenseManifest.
-// The one deliberate exception is a package whose lockfile entry declares
-// `os`/`cpu` values that exclude the current platform: that absence is
-// expected (npm never installs it here) and is skipped without error, exactly
-// like it would be omitted from `node_modules` on this platform by design.
+// `node_modules` is a HARD FAILURE unless the cache or a verified fetch
+// resolves it — see buildLicenseManifest. That includes a package whose
+// lockfile `os`/`cpu` excludes the current platform: it is never skipped, so
+// the manifest is identical whichever OS generates it.
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
@@ -277,20 +276,6 @@ function classifyLicense(pkgJson) {
   return null
 }
 
-// npm's lockfile `os`/`cpu` arrays list allowed values, optionally negated
-// with a `!` prefix (e.g. `["!win32"]` means "everything except Windows").
-// Absent/empty means unrestricted.
-function platformExcluded(values, current) {
-  if (!Array.isArray(values) || values.length === 0) return false
-  const negated = values.filter((v) => v.startsWith('!'))
-  if (negated.length > 0) return negated.some((v) => v.slice(1) === current)
-  return !values.includes(current)
-}
-
-function isPlatformGatedOut(entry) {
-  return platformExcluded(entry.os, process.platform) || platformExcluded(entry.cpu, process.arch)
-}
-
 /**
  * Derives the production dependency SET from `rootDir`'s committed
  * `package-lock.json` (every `packages` entry not flagged `dev`, regardless
@@ -301,9 +286,9 @@ function isPlatformGatedOut(entry) {
  * { name, version, license, homepage, licenseText }.
  *
  * Throws on:
- *   - a production package present in the lockfile but missing from
- *     node_modules (unless its lockfile entry's os/cpu excludes this
- *     platform, in which case it is deliberately skipped)
+ *   - a production package present in the lockfile, missing from
+ *     node_modules, and resolvable from neither the cache nor a verified
+ *     fetch (platform-gated entries included — they are never skipped)
  *   - a package whose license field cannot be classified
  *
  * Never returns partial results on failure — the caller only sees the array
@@ -381,7 +366,11 @@ export async function buildLicenseManifest(rootDir, { fetchImpl = globalThis.fet
   for (const [key, entry] of Object.entries(lockPackages)) {
     if (key === '') continue // the root project entry itself
     if (entry.dev) continue
-    if (isPlatformGatedOut(entry)) continue // expected absence — not an error
+    // A platform-gated entry (os/cpu) is NOT skipped: a per-OS native prebuilt
+    // ships in that OS's build even though it is absent from node_modules
+    // everywhere else, so skipping it made the manifest depend on which OS
+    // generated it. Absent from disk, it resolves via the committed cache, or
+    // via an integrity-verified fetch that writes the cache.
     productionEntries.push({ key, entry, name: deriveNameFromKey(key), version: entry.version })
   }
 
