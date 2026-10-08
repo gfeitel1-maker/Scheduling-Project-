@@ -18,6 +18,8 @@
 // FILE PATHS (not basenames — a second file sharing a basename at a different path must not
 // inherit the exemption) authorized to perform their own network egress (fetch/https/etc). Every
 // other file under electron/sync/** must have zero egress, regardless of capability state.
+// `inertPresence`: true = the package may sit in the tree while `signoff` is null, but only under a
+// dedicated guard test that proves its sole strictly-gated entry point (see the `punch` row).
 // `signoff`: null = blocked (default). `{date, owner, doc}` = authorized, `doc` pointing at a dated
 // sign-off record.
 export const TRANSPORT_CAPABILITIES = {
@@ -91,6 +93,21 @@ export const TRANSPORT_CAPABILITIES = {
     egressAllowlist: [],
     signoff: null,
   },
+  // T347 (S1 of docs/adr/2026-10-08-relayless-cross-network-reconnect.md): node-datachannel, the ICE
+  // data-channel pipe wrapped as a libp2p transport (punchTransport.js). The package is present in
+  // the tree while `signoff` is null — the T327 signoff lands in S5 — so `inertPresence` records that
+  // this presence is deliberate and tolerated by the package scan, and ONLY because
+  // punchPresenceWithoutSignoff.guard.test.js proves the single strictly-gated door to it
+  // (SHORESH_PUNCH_ENABLED === 'true' in syncStarter.js, no other importer). `sourceMarkers` is empty
+  // on purpose: syncStarter.js must reference the gate, and that test, not a marker, polices it.
+  // Runtime egress (STUN) happens inside the native library, which the text egress scan cannot see.
+  punch: {
+    packages: ['node-datachannel'],
+    sourceMarkers: [],
+    egressAllowlist: [],
+    inertPresence: true,
+    signoff: null,
+  },
   websockets: {
     packages: ['@libp2p/websockets'],
     sourceMarkers: [],
@@ -130,8 +147,9 @@ export const TRANSPORT_CAPABILITIES = {
 }
 
 // Flat views the guard consumes — computed, never hand-duplicated.
-export const ALL_FORBIDDEN_PACKAGES = () =>
-  Object.values(TRANSPORT_CAPABILITIES).flatMap((c) => (c.signoff ? [] : c.packages))
+export const forbiddenPackagesFor = (registry) =>
+  Object.values(registry).flatMap((c) => (c.signoff || c.inertPresence ? [] : c.packages))
+export const ALL_FORBIDDEN_PACKAGES = () => forbiddenPackagesFor(TRANSPORT_CAPABILITIES)
 export const ALL_FORBIDDEN_MARKERS = () =>
   Object.values(TRANSPORT_CAPABILITIES).flatMap((c) => (c.signoff ? [] : c.sourceMarkers))
 export const DISCOVERY_EGRESS_ALLOWLIST = TRANSPORT_CAPABILITIES.discovery.egressAllowlist

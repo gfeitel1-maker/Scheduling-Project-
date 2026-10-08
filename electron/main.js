@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, dialog, safeStorage, Menu, shell } from 'electron'
+import { createWillQuitHandler } from './willQuit.js'
 import path from 'node:path'
 import os from 'node:os'
 import fs from 'node:fs'
@@ -3864,7 +3865,7 @@ if (isElectronEntryPoint()) {
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit()
   })
-  app.on('will-quit', async () => {
+  app.on('will-quit', createWillQuitHandler({ app, cleanup: async () => {
     // Stage 5e item 3: flush any debounced Automerge doc save before the process exits, so a
     // deliberate quit never loses a write to the durability window liveDoc.js's scheduleSave
     // documents (up to SAVE_DEBOUNCE_MS of in-memory-only writes otherwise). A no-op when nothing
@@ -3877,13 +3878,19 @@ if (isElectronEntryPoint()) {
     // T292 round 2 FIX 3 — flush any still-pending debounced camp data
     // document write before the process exits. See flushCampDataRecordOnQuit.
     flushCampDataRecordOnQuit(liveHandlers)
+    // T347 (S1): a no-op unless SHORESH_PUNCH_ENABLED wired the punch transport. Started BEFORE the
+    // awaited node stop because Electron does not await this handler: its synchronous prefix closes
+    // every open pc immediately, and libdatachannel's cleanup() (without which the process cannot
+    // exit) follows. Never throws into the quit path.
+    const punchShutdown = syncStarter.shutdownPunch().catch(() => {})
     const automergeSyncNode = syncStarter.getNode()
     if (automergeSyncNode) {
       try {
         await automergeSyncNode.stop()
       } catch { /* shutting down anyway */ }
     }
-  })
+    await punchShutdown
+  } }))
   } catch (err) {
     reportStartupFailure(err)
   }

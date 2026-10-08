@@ -90,7 +90,11 @@ const ADMITTED_TAG = 'shoresh-admitted'
 // attempt only ever runs over a connection that arrived via T337's already camp-admitted relay (see
 // the design doc §1) — it needs no admission check of its own here, because it has no reachability
 // path into this node that didn't already pass the relay's own `isPeerAdmittedForRelay` gate above.
-export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyncMessageReceived, listen, onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, onPairingDecision, peerDiscovery, now, connectionRateLimiter, privateKey, schemaVersion, relayServerFactory, relayTransportFactory, directUpgradeServiceFactory, inboundConnectionThreshold, onRelayReservationRefused, maxConnections = MAX_CONNECTIONS, maxIncomingPendingConnections = MAX_INCOMING_PENDING_CONNECTIONS, reservedFloor = RESERVED_FLOOR, unadmittedDeadlineMs = UNADMITTED_DEADLINE_MS } = {}) {
+// S1 (T347, docs/adr/2026-10-08-relayless-cross-network-reconnect.md "Integration ruling"):
+// `punchTransportFactory` is the ICE data-channel libp2p transport, injected the same way and never
+// imported here. Connections it forms enter libp2p's normal upgrader, so Noise + the auth gate
+// below apply to them unchanged; no admission is re-implemented for it.
+export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyncMessageReceived, listen, onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, onPairingDecision, peerDiscovery, now, connectionRateLimiter, privateKey, schemaVersion, relayServerFactory, relayTransportFactory, directUpgradeServiceFactory, punchTransportFactory, inboundConnectionThreshold, onRelayReservationRefused, maxConnections = MAX_CONNECTIONS, maxIncomingPendingConnections = MAX_INCOMING_PENDING_CONNECTIONS, reservedFloor = RESERVED_FLOOR, unadmittedDeadlineMs = UNADMITTED_DEADLINE_MS } = {}) {
   // Per-SOURCE-IP inbound rate limiting (blocker #2 of the WAN hardening; connectionRateLimiter.js).
   // Closes the connection-churn hole authGate.js documents: a peer opening a fresh connection (fresh
   // peer id) per frame evades per-peer throttling and is otherwise bounded only by MAX_CONNECTIONS.
@@ -203,7 +207,7 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     // default of a fresh keypair per process start, unchanged from before.
     ...(privateKey ? { privateKey } : {}),
     addresses: { listen: listen ?? DEFAULT_LISTEN },
-    transports: [tcp(), ...(relayTransportFactory ? [wrapClientRelayDiscoveryToCampOnly(relayTransportFactory)] : [])],
+    transports: [tcp(), ...(relayTransportFactory ? [wrapClientRelayDiscoveryToCampOnly(relayTransportFactory)] : []), ...(punchTransportFactory ? [punchTransportFactory] : [])],
     connectionEncrypters: [noise()],
     streamMuxers: [yamux()],
     // Security review backstop: bound how many peer connections this node will
