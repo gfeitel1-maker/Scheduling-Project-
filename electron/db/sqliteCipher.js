@@ -210,12 +210,13 @@ export function recoverInterruptedMigration(filePath, key, { Database, fsImpl = 
     }
   } catch { /* backup gone */ }
 
-  const fail = (detail) => {
+  const fail = (detail, backupPath) => {
     const e = new Error(
       `The camp database at ${filePath} could not be opened: an earlier encryption upgrade was ` +
         `interrupted part-way and the file is now unreadable. ${detail}`
     )
     e.code = 'db_migration_interrupted'
+    if (backupPath) e.backupPath = backupPath
     return e
   }
   if (candidates.length === 0) {
@@ -233,7 +234,7 @@ export function recoverInterruptedMigration(filePath, key, { Database, fsImpl = 
     for (const suffix of ['', '-wal', '-shm']) {
       try { if (fsImpl.existsSync(`${aside}${suffix}`)) fsImpl.renameSync(`${aside}${suffix}`, `${filePath}${suffix}`) } catch { /* best effort */ }
     }
-    throw fail(`Restoring the backup failed (${err?.message ?? err}). The backup is intact at ${bakPath}; the original file was left in place.`)
+    throw fail(`Restoring the backup failed (${err?.message ?? err}). The backup is intact at ${bakPath}; the original file was left in place.`, bakPath)
   }
   return { recovered: true, backupPath: bakPath, unreadableCopy: aside }
 }

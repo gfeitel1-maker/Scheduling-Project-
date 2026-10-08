@@ -943,6 +943,18 @@ export const mockShoresh = {
   async reportSmokeReady() {
     return { ok: true }
   },
+  // Browser preview of the boot-recovery screen: ?bootFailure=<code>[&backupPath=<path>].
+  async getBootFailure() {
+    if (typeof window === 'undefined') return null
+    const q = new URLSearchParams(window.location.search)
+    const code = q.get('bootFailure')
+    if (!code) return null
+    const backupPath = q.get('backupPath')
+    return backupPath ? { code, backupPath } : { code }
+  },
+  async quitApp() {
+    return undefined
+  },
   // Import committed into the localStorage-backed mock state. T74 brought this to
   // PARITY with the real committer (electron/ops/ingest.js commitIngest/commitPlan)
   // for the reconciliation flow: it builds the SAME pure ReconciliationPlan via the

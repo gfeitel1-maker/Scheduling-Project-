@@ -13,7 +13,7 @@ import { authorize } from './auth/authorize.js'
 import { applyUserDataPath } from './db/userDataPath.js'
 import { readBuildInfo, formatBuildLabel, readAppVersion, buildAboutPanelOptions } from './buildInfo.js'
 import { installMenu } from './menu.js'
-import { describeStartupFailure, formatStartupFailureLog } from './startupFailure.js'
+import { formatStartupFailureLog, handleStartupFailure } from './startupFailure.js'
 import { deriveWriteAction, deriveBulkReplaceAction } from './auth/deriveWriteAction.js'
 import { recordAuditEvent } from './audit/auditLog.js'
 import {
@@ -3071,32 +3071,68 @@ function isElectronEntryPoint() {
 if (isElectronEntryPoint()) {
   const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
+  function openMainWindow() {
+    const win = new BrowserWindow({
+      width: 1400,
+      height: 900,
+      icon: path.join(__dirname, '..', 'build', 'icon.png'),
+      webPreferences: {
+        preload: path.join(__dirname, 'preload.js'),
+        contextIsolation: true,
+      },
+    })
+    win.webContents.on('preload-error', (_event, preloadPath, error) => {
+      console.error('PRELOAD ERROR', preloadPath, error)
+    })
+    // NOTE: the deploy smoke-test heartbeat is NOT written here. It is written
+    // when the RENDERER calls the `shoresh:smoke-ready` IPC channel from App's
+    // mount effect — see writeSmokeMarker() / the handler registration below.
+    // That proves React actually mounted AND a main round-trip works, which a
+    // `dom-ready` window event (shell parsed, but React may have thrown) does
+    // not. A blank-white-screen build therefore fails the gate.
+    if (!app.isPackaged) {
+      win.setTitle('Shoresh [DEV]')
+    }
+    const devServerUrl = process.env.VITE_DEV_SERVER_URL
+    if (devServerUrl) {
+      win.loadURL(devServerUrl)
+    } else {
+      win.loadFile(path.join(__dirname, '../dist/index.html'))
+    }
+    return win
+  }
+
   // Never leave the process alive with no window and no explanation. Three
   // audiences, three channels: the director gets a dialog, whoever is helping
   // them gets a file, and a terminal launch gets stderr plus a non-zero exit.
   // Shared by the module-level startup catch below and the whenReady() catch
   // around createWindow(), so a throw inside createWindow (e.g. BrowserWindow
   // construction failing) is reported the same way as one before it.
+  // A recognized key/database failure opens a window showing BootRecoveryScreen instead of a
+  // native dialog (handleStartupFailure decides); anything else still shows the dialog and exits.
   function reportStartupFailure(err) {
-    const when = new Date().toISOString()
-    let logPath = null
-    try {
-      const dir = app.getPath('userData')
-      fs.mkdirSync(dir, { recursive: true })
-      logPath = path.join(dir, 'startup-error.log')
-      fs.writeFileSync(logPath, formatStartupFailureLog(err, when))
-    } catch {
-      logPath = null // a logging failure must not replace the real error
-    }
-
-    const { title, message } = describeStartupFailure(err, logPath)
-    process.stderr.write(`\n${title}\n${message}\n`)
-
-    // showErrorBox is safe before 'ready' and is the only way to say anything
-    // when the failure happened before a window could exist.
-    try { dialog.showErrorBox(title, message) } catch { /* headless */ }
-
-    app.exit(1)
+    return handleStartupFailure(err, {
+      writeLog: (e) => {
+        try {
+          const dir = app.getPath('userData')
+          fs.mkdirSync(dir, { recursive: true })
+          const logPath = path.join(dir, 'startup-error.log')
+          fs.writeFileSync(logPath, formatStartupFailureLog(e, new Date().toISOString()))
+          return logPath
+        } catch {
+          return null // a logging failure must not replace the real error
+        }
+      },
+      ipcMain,
+      createWindow: async () => {
+        await app.whenReady()
+        openMainWindow()
+      },
+      showErrorBox: (title, message) => dialog.showErrorBox(title, message),
+      exit: (code) => app.exit(code),
+      quit: () => app.quit(),
+      stderr: (text) => process.stderr.write(text),
+    })
   }
 
   // T19 + T175: the setup runs in an async IIFE so it can `await app.whenReady()` before touching
@@ -3731,34 +3767,11 @@ if (isElectronEntryPoint()) {
   })
 
   function createWindow() {
-    mainWindow = new BrowserWindow({
-      width: 1400,
-      height: 900,
-      icon: path.join(__dirname, '..', 'build', 'icon.png'),
-      webPreferences: {
-        preload: path.join(__dirname, 'preload.js'),
-        contextIsolation: true,
-      },
-    })
-    mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
-      console.error('PRELOAD ERROR', preloadPath, error)
-    })
-    // NOTE: the deploy smoke-test heartbeat is NOT written here. It is written
-    // when the RENDERER calls the `shoresh:smoke-ready` IPC channel from App's
-    // mount effect — see writeSmokeMarker() / the handler registration below.
-    // That proves React actually mounted AND a main round-trip works, which a
-    // `dom-ready` window event (shell parsed, but React may have thrown) does
-    // not. A blank-white-screen build therefore fails the gate.
-    if (!app.isPackaged) {
-      mainWindow.setTitle('Shoresh [DEV]')
-    }
-    const devServerUrl = process.env.VITE_DEV_SERVER_URL
-    if (devServerUrl) {
-      mainWindow.loadURL(devServerUrl)
-    } else {
-      mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
-    }
+    mainWindow = openMainWindow()
   }
+
+  ipcMain.handle('shoresh:get-boot-failure', () => null)
+  ipcMain.handle('shoresh:quit-app', () => app.quit())
 
   // C6 — the Licenses window. A standalone BrowserWindow rather than an AppShell
   // screen, deliberately: AppShell only renders at phase === 'session', and a

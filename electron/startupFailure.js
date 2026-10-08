@@ -66,3 +66,43 @@ export function formatStartupFailureLog(err, when) {
     '',
   ].join('\n')
 }
+
+export const BOOT_RECOVERY_CODES = new Set([
+  'db_unreadable',
+  'db_migration_interrupted',
+  'keychain_unavailable',
+  'db_key_guard_unreadable',
+  'db_key_file_missing',
+])
+
+// What may cross to the renderer: a code and, for an interrupted migration, the backup path.
+// Never the message or stack — those carry file paths and internal names.
+export function toBootFailure(err) {
+  const code = err && err.code
+  if (!BOOT_RECOVERY_CODES.has(code)) return null
+  const failure = { code }
+  if (err.backupPath) failure.backupPath = err.backupPath
+  return failure
+}
+
+// Dependencies are injected so the choice between "show the recovery screen" and "dialog + exit"
+// is testable without Electron. A recognized failure keeps the log but opens a window whose only
+// IPC is the failure itself and quit; the DB, handlers and sync are never started.
+export async function handleStartupFailure(err, { writeLog, ipcMain, createWindow, showErrorBox, exit, quit, stderr }) {
+  const logPath = writeLog(err)
+  const bootFailure = toBootFailure(err)
+  if (bootFailure) {
+    try {
+      // main.js registers null/quit handlers at module scope before startup runs; Electron throws on a second handle().
+      for (const ch of ['shoresh:get-boot-failure', 'shoresh:quit-app']) ipcMain.removeHandler(ch)
+      ipcMain.handle('shoresh:get-boot-failure', () => bootFailure)
+      ipcMain.handle('shoresh:quit-app', () => quit())
+      await createWindow()
+      return
+    } catch { /* fall through to the native dialog */ }
+  }
+  const { title, message } = describeStartupFailure(err, logPath)
+  stderr(`\n${title}\n${message}\n`)
+  try { showErrorBox(title, message) } catch { /* headless */ }
+  exit(1)
+}
