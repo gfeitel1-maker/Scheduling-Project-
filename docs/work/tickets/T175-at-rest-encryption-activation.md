@@ -1,7 +1,7 @@
 ---
 title: "At-rest encryption activation — flip on document + SQLite encryption, safely"
 document_type: ticket
-status: in-progress
+status: completed
 created: 2026-09-15
 task_class: security-auth
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-09-15-at-rest-encryption-scoping.md, docs/work/security/2026-09-15-at-rest-encryption-activation-assessment.md, docs/current/KEY_RECOVERY_STORY.md]
@@ -418,3 +418,16 @@ unlock helper had no notion of who was asking. Per `docs/adr/2026-10-08-director
   fails on any unkeyed, unpinned caller and on any key release that bypasses the checkpoint.
 - Non-goal, stated plainly: this does not defend against a same-OS-user attacker, and there is no
   per-tool key wrapping. It is a record of which tools the director chose to connect.
+
+## 2026-10-08 — COMPLETED: default ON merged (#748, fe681e65)
+
+At-rest encryption is ON by default on main: the document and SQLite are encrypted, sticky once
+`db.key.enc` exists (no ambient env disable), the single-device "cannot be recovered" copy ships with its
+absence test, SECURITY.md states the narrowed boundary, and headless tools reach the key only through
+director-authorized tool connections (docs/adr/2026-10-08-director-authorized-tool-connections.md).
+
+**Real-app verification: waived by the owner, 2026-10-08** (relayed by the board keeper): he is the only
+user and his data is fake, so the packaged smoke run was dropped rather than run. That clause of
+archive_when is closed by owner ruling, not by evidence. Residual risks are filed on the Build Board as
+`q-t175-*` items (crash mid-rekey without auto-restore, no-keyring startup copy, downgrade unsupported,
+deleted key file, tool-auth store race / audit cap / grant-before-audit / authorized-tool mint).
