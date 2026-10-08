@@ -2,9 +2,10 @@
 ticket: T342
 document_type: ticket
 title: Make data-erase/purge survive a fired/absent founder — distributed purge authority
-status: open
+status: wont-fix
 created: 2026-10-07
-archive_when: "the purge/erasure path no longer depends on host_signing_key: a purge-tombstone is signed with the signer's device_identity_key and judged by the T331 causal-ancestor replay (founder not special, a fired founder's later purge dropped fleet-wide), the authority log carries forward through a purge's document regeneration (S0), enforcement sits on the production projection/sync path, convergence is proven by property/fuzz over concurrent purge-authority DAGs, purge carries forward through rebuild, and all three slices pass the full security + battle-test gate (security-assessment + Security + Red Hat + Grader, red-before-green)"
+closed: 2026-10-07
+archive_when: "SHELVED / wont-fix (owner, 2026-10-07, decided-not-worth-it) — recorded as closed; no code ships"
 task_class: security-auth
 parent: ""
 governing_docs: [docs/adr/2026-10-07-distributed-purge-authority.md, docs/adr/2026-10-02-distributed-revocation-authority.md, docs/adr/2026-09-19-multi-device-erasure-propagation.md, SECURITY.md]
@@ -13,6 +14,19 @@ related_tickets: [docs/work/tickets/T233-multi-device-erasure-propagation.md, do
 ---
 
 # T342 — Distributed purge authority (purge survives a fired/absent founder)
+
+## SHELVED — wont-fix (owner, 2026-10-07, decided-not-worth-it)
+
+The owner shelved this after design + a two-round build attempt. Reasoning: the app runs on a camp
+host's work laptop that is physically turned in on departure, so physical device return + the
+already-shipped T331 distributed revocation cover the fired/absent-founder concern in practice; the
+unique case this ticket adds (erase a camper when the founding device is gone *and* not returned) does
+not justify the cost; and the only sound fix (binding causal context into the signed payload, reopening
+the merged T331 signature crypto) was rejected outright. The faithful-carry design hit an intrinsic
+forgery class — deriving signer-validity from re-authorable Automerge ancestry while the signature binds
+content, not ancestry. **No code ships**; `main`'s purge/erasure behaviour stands unchanged. Full record
+and gate history: [`docs/adr/2026-10-07-distributed-purge-authority.md`](../../adr/2026-10-07-distributed-purge-authority.md)
+(status: rejected). Abandoned WIP: commits `5992313d` / `0fd89cec`, never merged.
 
 ## Context
 

@@ -397,12 +397,7 @@ function purgeCamperRecordLocked({ dbPath, userDataDir, cipher = null, key = nul
         .run(entityId, 'campers', version, sig, new Date().toISOString())
       tombstone = { id: entityId, entity: 'campers', version }
 
-      // T342 Slice 0: carry camp_authority_log forward from the live document being regenerated.
-      // Unlike every other entity it has no backing SQL table to seed FROM, and the T331 causal-
-      // ancestor replay needs each entry's signer-grants to remain causal ancestors of the change
-      // that completed it — ancestry a naive regeneration destroys. seedAllFromSqlite re-authors the
-      // log so the derived admin/revoked set survives the purge instead of resetting to empty.
-      const candidate = seedAllFromSqlite(oldDb, createEmptyDoc(), { authoritySourceDoc: doc })
+      const candidate = seedAllFromSqlite(oldDb, createEmptyDoc())
       if (!sharesGenesis(candidate)) {
         throw new RebuildRefusalError(
           'purgeCamperRecord: the regenerated document unexpectedly does not share this camp\'s ' +

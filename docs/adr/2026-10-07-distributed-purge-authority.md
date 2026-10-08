@@ -2,18 +2,17 @@
 title: "Distributed purge authority: any valid admin signs a purge, rooted in device_identity_key, judged by the T331 causal-ancestor replay"
 document_type: adr
 authority: normative
-status: accepted
+status: rejected
 date: 2026-10-07
 decided: 2026-10-07
-deciders: [organizer-delegated]
+deciders: [product-owner]
 program: security-hardening
 governing_docs:
   - docs/governance/constitution/CONSTITUTION.md
   - docs/governance/standards/ARCHITECTURE_STANDARD.md
   - SECURITY.md
 supersedes: []
-amends:
-  - docs/adr/2026-09-19-multi-device-erasure-propagation.md
+amends: []
 related_adrs:
   - docs/adr/2026-10-02-distributed-revocation-authority.md
   - docs/adr/2026-09-19-multi-device-erasure-propagation.md
@@ -45,16 +44,38 @@ affects:
 
 **Ticket:** T342 (board item `h-purge-survives-fired-founder`).
 
-**Status: accepted 2026-10-07** by the board-keeper under the owner's standing delegation (Constitution
-Art. IV; `i-standing-scope-discipline` addendum2): this applies the already-accepted T331 model
-([`2026-10-02-distributed-revocation-authority.md`](2026-10-02-distributed-revocation-authority.md)) to
-the one place that ADR named and deliberately left open (its "Related finding: purge-tombstone signing
-has the identical single-host assumption"), and its decisions are defaults-consistent with that model.
-The owner is informed with the power to reverse. **Decision B (threshold) = option (i), any one valid
-admin may purge a camper record** — ruled on the evidence that a quorum provably does not close the
-rogue-any-admin-grant residual it would be adopted to close (BT-4b) and reintroduces the N=2
-absent-founder deadlock this ticket exists to remove; consistent with the board item's own framing
-("any admin / the agreed quorum signs").
+**Status: REJECTED / SHELVED 2026-10-07 by the product owner — decided-not-worth-it.** This ADR was
+briefly accepted under delegation and a build was attempted; it is now shelved and **no code ships**.
+The record is kept (repo historical convention) because the design and the reason it was abandoned are
+both worth preserving.
+
+**Why shelved (owner's reasoning, 2026-10-07):**
+
+1. **The threat model is already covered.** The app runs on a camp host's *work laptop*, which is
+   physically turned in when that person leaves. Physical device return plus the already-shipped T331
+   distributed revocation (a fired admin's device is revoked fleet-wide) cover the fired/absent-founder
+   concern in practice. The one case this ADR uniquely adds — erasing a camper record when the original
+   founding device is gone *and* not returned — does not justify the cost.
+2. **The faithful-carry design hit an intrinsic forgery class.** The build (two gate rounds) established
+   that carrying `camp_authority_log` through a purge's document regeneration requires keeping multiple
+   completing changes per entry and deriving signer-validity from *re-authorable* Automerge ancestry —
+   but the T331 signature binds entry **content** only (`id, kind, target_device_id, signer_device_id`),
+   **not ancestry**. So validity derived from re-authorable ancestry is forgeable in both directions (a
+   peer re-completes an already-signed entry on a chosen branch to flip a signer's apparent validity).
+   `main` resists only because it keeps a single completing change per entry. See the gate record below.
+3. **The only real fix was rejected outright.** Closing the forgery properly means binding the entry's
+   causal context into the signed payload — reopening the merged, gate-passed T331 signature crypto and
+   re-signing/migrating every authority entry. The owner rejected reopening T331 crypto for this.
+
+**Gate record (for the archive):** Slice 0 round 1 closed on a Red Hat HIGH (union-of-ancestors validity
+forgeable, reproduced). Round 2 (per-specific-completing-change) closed that direction but Security, Red
+Hat and Code Reviewer converged on the mirror-image forgery above (both Security and Red Hat
+`forgery_verdict=OPEN`). Per the round cap this was terminal → escalated → owner shelved. Abandoned WIP:
+commits `5992313d` (r1) and `0fd89cec` (r2) on `claude/eager-lamport-2d3f5d`, never merged; `main`'s
+purge/erasure behaviour stands unchanged.
+
+The design content below is retained as the record of what was considered; it is **not** an active
+decision and nothing in it is implemented.
 
 **Design-only.** No code ships from this document. The eventual build goes through the full security +
 battle-test gate.
