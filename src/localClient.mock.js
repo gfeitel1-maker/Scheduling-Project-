@@ -2774,6 +2774,8 @@ export const mockShoresh = {
     return { status: 'cancelled' }
   },
   async approveDevice(deviceId) {
+    // Mock-only switch so the joiner-gone flag can be screenshotted in the browser preview.
+    if (deviceId === 'mock-device-pending') return { deviceId, authorized: false, reason: 'joiner_disconnected' }
     const now = new Date().toISOString()
     updateDevice(deviceId, { pairing_status: 'authorized', authorized_at: now, revoked_at: null })
     return { deviceId, authorized: true }
