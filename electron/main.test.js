@@ -2402,6 +2402,33 @@ describe('approveDevice when the joining device is gone (T346)', () => {
     expect(row()).toEqual(PRE)
   })
 
+  it('a later approve that succeeded is not wiped by an earlier approve whose delivery fails afterwards', async () => {
+    let resolveA
+    const sends = [new Promise((r) => { resolveA = r }), Promise.resolve(true)]
+    const secrets = []
+    const { handlers, token } = await setup({
+      getAutomergeSyncNode: () => ({ sendPairingApproved: vi.fn((_id, secret) => { secrets.push(secret); return sends.shift() }) }),
+    })
+    const a = handlers.approveDevice({ token, deviceId: 'gone-target' })
+    const b = handlers.approveDevice({ token, deviceId: 'gone-target' })
+    await expect(b).resolves.toEqual({ deviceId: 'gone-target', authorized: true })
+    resolveA(false)
+    await expect(a).resolves.toEqual({ deviceId: 'gone-target', authorized: false, reason: 'joiner_disconnected' })
+    expect(row().pairing_status).toBe('authorized')
+    expect(row().device_secret_identifier).toBe(secrets[1])
+  })
+
+  it('records send_error, logs, and still returns joiner_disconnected when sendPairingApproved throws', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const { handlers, token } = await setup({ getAutomergeSyncNode: () => ({ sendPairingApproved: vi.fn().mockRejectedValue(new Error('stream reset')) }) })
+      const result = await handlers.approveDevice({ token, deviceId: 'gone-target' })
+      expect(result).toEqual({ deviceId: 'gone-target', authorized: false, reason: 'joiner_disconnected' })
+      expect(db.prepare("SELECT reason FROM audit_events WHERE action = 'device.approve'").all()).toEqual([{ reason: 'send_error' }])
+      expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('sendPairingApproved threw: stream reset'))
+    } finally { errSpy.mockRestore() }
+  })
+
   it('has the row authorized before the frame is sent, and audits allow after delivery', async () => {
     let rowAtSend
     const { handlers, token } = await setup({
