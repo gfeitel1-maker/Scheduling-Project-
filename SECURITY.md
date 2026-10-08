@@ -324,6 +324,9 @@ keychain isolation is per-OS-user.
 lost with no other paired device holding a copy, the encrypted data cannot be recovered. See
 `docs/current/KEY_RECOVERY_STORY.md`.
 
+**Downgrades are unsupported.** Running a build older than the encryption build against an encrypted database or
+document is not supported: older builds cannot read either. The ruling is no downgrades and no mixed-version fleets.
+
 - **It is a deliberate hard-fail:** no key means no readable data, with no graceful fallback (the key is
   minted and sealed automatically, with no passphrase to forget, and survives app reinstalls).
 - **Turning it off is not an ambient setting.** Once a device holds its key file, the
