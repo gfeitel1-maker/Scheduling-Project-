@@ -45,6 +45,24 @@ const DEFAULT_LISTEN = ['/ip4/127.0.0.1/tcp/0']
 // this ceiling is deliberately generous and only caps a flood.
 const MAX_CONNECTIONS = 200
 
+// T340 precondition 1 (docs/adr/2026-10-08-max-connections-dos-mitigation.md). libp2p's installed
+// default for maxIncomingPendingConnections is 10 (connection-manager/constants.defaults); it bounds
+// inbound connections accepted but not yet through the Noise upgrade. 16 stays a deliberate camp-scale
+// bound while leaving headroom above the default for a reconnect burst (a few dozen devices coming
+// back after a Wi-Fi blip), since a pending slot is held only for the handshake.
+const MAX_INCOMING_PENDING_CONNECTIONS = 16
+
+// Slots that an un-admitted flood can never occupy. A camp is at most a few dozen devices; 32 is
+// generous. The un-admitted ceiling is therefore MAX_CONNECTIONS - RESERVED_FLOOR = 168.
+const RESERVED_FLOOR = 32
+
+// libp2p's inboundUpgradeTimeout (10s) is pre-Noise only and nothing bounds a connection that has
+// finished Noise but never authenticates, so this deadline is new. 10s is ample: a real
+// authenticate round-trip is tens of milliseconds on a LAN.
+const UNADMITTED_DEADLINE_MS = 10_000
+
+const ADMITTED_TAG = 'shoresh-admitted'
+
 // Start a libp2p node. mDNS discovery is deliberately NOT wired in here (that
 // is discovery.js, slice 4d) — tests and in-process callers dial directly.
 //
@@ -72,7 +90,7 @@ const MAX_CONNECTIONS = 200
 // attempt only ever runs over a connection that arrived via T337's already camp-admitted relay (see
 // the design doc §1) — it needs no admission check of its own here, because it has no reachability
 // path into this node that didn't already pass the relay's own `isPeerAdmittedForRelay` gate above.
-export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyncMessageReceived, listen, onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, onPairingDecision, peerDiscovery, now, connectionRateLimiter, privateKey, schemaVersion, relayServerFactory, relayTransportFactory, directUpgradeServiceFactory, inboundConnectionThreshold, onRelayReservationRefused } = {}) {
+export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyncMessageReceived, listen, onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, onPairingDecision, peerDiscovery, now, connectionRateLimiter, privateKey, schemaVersion, relayServerFactory, relayTransportFactory, directUpgradeServiceFactory, inboundConnectionThreshold, onRelayReservationRefused, maxConnections = MAX_CONNECTIONS, maxIncomingPendingConnections = MAX_INCOMING_PENDING_CONNECTIONS, reservedFloor = RESERVED_FLOOR, unadmittedDeadlineMs = UNADMITTED_DEADLINE_MS } = {}) {
   // Per-SOURCE-IP inbound rate limiting (blocker #2 of the WAN hardening; connectionRateLimiter.js).
   // Closes the connection-churn hole authGate.js documents: a peer opening a fresh connection (fresh
   // peer id) per frame evades per-peer throttling and is otherwise bounded only by MAX_CONNECTIONS.
@@ -198,7 +216,7 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     // remote HOST — fine for a real camp LAN of distinct devices, but it refuses a test that
     // dials several real nodes from the single loopback host in quick succession). Production
     // never sets this; every existing caller omits it and gets libp2p's own default unchanged.
-    connectionManager: { maxConnections: MAX_CONNECTIONS, ...(inboundConnectionThreshold != null ? { inboundConnectionThreshold } : {}) },
+    connectionManager: { maxConnections, maxIncomingPendingConnections, ...(inboundConnectionThreshold != null ? { inboundConnectionThreshold } : {}) },
     // Per-source-IP flood cap — see rateLimiter above. Returns true to DENY.
     connectionGater: {
       denyInboundConnection: (maConn) => {
@@ -248,11 +266,12 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     } catch { /* release must never throw into libp2p's event dispatch */ }
   })
 
-  const { authenticatedPeers, sendPairingApproved, sendPairingDenied } = registerAuthGate(node, {
+  const { authenticatedPeers, isPairingConnection, sendPairingApproved, sendPairingDenied } = registerAuthGate(node, {
     onAuthenticate,
     onPairingRequest,
     onLogin,
     onPeerAdmitted: (id) => {
+      setAdmittedTag(id, true)
       retryClientRelayDiscoveryFor(id)
       onPeerAdmitted?.(id)
     },
@@ -263,6 +282,61 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
   // See the connectionGater block above — this is the reassignment that makes the relay gater
   // hooks real once authenticatedPeers exists.
   isPeerAdmittedForRelay = (peerId) => authenticatedPeers.has(peerId)
+
+  // L2a: a tag makes libp2p's ConnectionPruner close an admitted peer LAST when over maxConnections.
+  // It is NOT a security control (revocation still works by removal from authenticatedPeers) and it
+  // does nothing at exactly maxConnections, where the pruner never runs (see the L2b block below).
+  // merge, never patch: patch would wipe the peer's other tags.
+  const setAdmittedTag = (id, on) => {
+    try {
+      Promise.resolve(node.peerStore.merge(peerIdFromString(id), { tags: { [ADMITTED_TAG]: on ? { value: 100 } : undefined } })).catch(() => {})
+    } catch { /* best-effort: a tagging failure must never affect admission */ }
+  }
+  node.addEventListener('peer:disconnect', (evt) => setAdmittedTag(evt.detail.toString(), false))
+
+  // L2b, the real floor (ADR 2026-10-08-max-connections-dos-mitigation.md). Tags (L2a) cannot help at
+  // exactly maxConnections: libp2p refuses an inbound by count before the Noise upgrade and its
+  // pruner only runs on overshoot. So un-admitted INBOUND connections are capped at
+  // maxConnections - reservedFloor, read LIVE at decision time (getConnections() minus
+  // authenticatedPeers), and the newest one over the cap is aborted.
+  //
+  // Plus a deadline: an inbound connection whose peer is still not admitted after
+  // unadmittedDeadlineMs is aborted (ungraceful, to free the slot at once). This is what bounds the
+  // un-admitted bucket's turnover, and it defeats an attacker holding an authGate stream open, which
+  // libp2p's safelyCloseConnectionIfUnused would otherwise skip.
+  //
+  // HONEST GUARANTEE: An ESTABLISHED admitted connection is never evicted by an un-admitted flood (hard
+  // guarantee — the floor). A RECONNECTING camp device regains a slot LIKELY within an authGate-deadline
+  // turnover cycle, but this is NOT guaranteed under a sustained distributed flood — it competes for the
+  // recycling un-admitted slots. (Indistinguishable from the flood at connection:open, so not instant under an active
+  // flood. Exemption: the SINGLE LAN connection that carried an accepted pairing_request is NOT
+  // aborted by the deadline (pairing is LAN-only, owner ruling 2026-10-08), because the director's
+  // decision is human-time. It is keyed to that connection, not the peer id, and cleared when it
+  // closes. Bounded by MAX_PENDING_PAIRING; still counts against the un-admitted cap. Outbound connections are our own choice, so they are counted but never aborted here.
+  const unadmittedCap = maxConnections - reservedFloor
+  const deadlineTimers = new Map()
+  node.addEventListener('connection:open', (evt) => {
+    const connection = evt.detail
+    if (connection.direction !== 'inbound' || authenticatedPeers.has(connection.remotePeer.toString())) return
+    const unadmitted = node.getConnections().filter((c) => !authenticatedPeers.has(c.remotePeer.toString())).length
+    if (unadmitted > unadmittedCap) {
+      connection.abort(new Error('unadmitted_connection_cap'))
+      return
+    }
+    const timer = setTimeout(() => {
+      deadlineTimers.delete(connection)
+      const peer = connection.remotePeer.toString()
+      if (connection.status === 'open' && !authenticatedPeers.has(peer) && !isPairingConnection(connection)) {
+        connection.abort(new Error('authgate_deadline'))
+      }
+    }, unadmittedDeadlineMs)
+    timer.unref?.()
+    deadlineTimers.set(connection, timer)
+  })
+  node.addEventListener('connection:close', (evt) => {
+    clearTimeout(deadlineTimers.get(evt.detail))
+    deadlineTimers.delete(evt.detail)
+  })
 
   await node.handle(PROTO, (stream, connection) => {
     const fromPeerId = connection.remotePeer.toString()
@@ -582,6 +656,7 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     // only stops a future dial; this is what tears down an existing one.
     revokePeer: (peerId) => {
       authenticatedPeers.delete(String(peerId))
+      setAdmittedTag(String(peerId), false)
       // Gate-fix round 2 (Red Hat HIGH, FIX 1c): denyOutboundRelayedConnection already blocks a
       // NEW CONNECT for a revoked peer, but a RESERVATION this peer made while still admitted
       // sits in R's ReservationStore occupying one of MAX_SIMULTANEOUS_RESERVATIONS slots until
@@ -605,10 +680,19 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     // grow the count, distinct peers do" against the actual ReservationStore rather than
     // inferring it from HOP response codes alone.
     getRelayReservationCount: () => node.services.circuitRelay?.reservationStore?.reservations?.size ?? 0,
+    // Test-support accessor, same precedent as getRelayReservationCount above.
+    isAdmittedTagged: async (peerId) => {
+      try {
+        return (await node.peerStore.get(peerIdFromString(String(peerId)))).tags.has(ADMITTED_TAG)
+      } catch {
+        return false
+      }
+    },
     admitPeer: (peerId) => {
       const id = String(peerId)
       if (authenticatedPeers.has(id)) return
       authenticatedPeers.add(id)
+      setAdmittedTag(id, true)
       retryClientRelayDiscoveryFor(id)
       // Same follow-on an inbound `authenticate` gets: admission is what
       // starts the Automerge sync exchange (syncNode's onPeerAdmitted seeds a
@@ -640,6 +724,10 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
         cb(evt.detail.toString())
       })
     },
-    stop: () => node.stop(),
+    stop: () => {
+      for (const t of deadlineTimers.values()) clearTimeout(t)
+      deadlineTimers.clear()
+      return node.stop()
+    },
   }
 }

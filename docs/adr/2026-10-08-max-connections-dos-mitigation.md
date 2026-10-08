@@ -123,6 +123,12 @@ turnover cycle, but this is NOT guaranteed under a sustained distributed flood**
 recycling un-admitted slots. L1's per-IP limiter bounds any single attacker; the distributed case is
 bounded, not eliminated.
 
+**Amendment 1 (2026-10-08) — honest wording, verbatim.** "An ESTABLISHED admitted connection is never evicted by an un-admitted flood (hard guarantee — the floor). A RECONNECTING camp device regains a slot LIKELY within an authGate-deadline turnover cycle, but this is NOT guaranteed under a sustained distributed flood — it competes for the recycling un-admitted slots." This supersedes any softer or stronger reading of (b) above.
+
+**Pairing is LAN-only (owner ruling 2026-10-08: "pairing can only ever happen first over a local network").** `pairing_request` is refused unless the connection's remote address is a positive, non-null private (RFC1918 / IPv6 ULA) / loopback / link-local IP (`isLanMultiaddr` in `electron/sync/automerge/authGate.js`; fail-closed, unlike the rate limiter's unknown-is-local rule). Null, public, `/dns`-only and any `/p2p-circuit` address are refused with the signal `pairing-requires-local-network`. The authGate-deadline exemption therefore applies only to a LAN pairing connection, is keyed to the single connection that carried the accepted `pairing_request` (not the peer id), and is cleared, with the pending entry, when that connection closes. No TTL and no per-peer cap are used.
+
+**Routed to the T340 internet-scale rate-limit review:** the sizing of the 16 pre-Noise pending slots (`MAX_INCOMING_PENDING_CONNECTIONS`).
+
 ## Numbers (sized, not magic)
 
 - `maxConnections` stays **200**. The fix is **priority**, not raising the cap — raising it only

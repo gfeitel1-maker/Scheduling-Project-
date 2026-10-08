@@ -75,7 +75,7 @@ export const TRANSPORT_CAPABILITIES = {
       owner: 'gate (owner 2026-10-03 conditional-YES + T327 delegation; accepted by organizer)',
       scope: 'coordination/hole-punch, code-merge-inert; runtime activation gated on the pre-activation preconditions + owner go-live',
       conditions: [
-        'MAX_CONNECTIONS=200 distributed-source DoS mitigation (T336-created latent exposure) — reserved-slot floor for admitted peers + early-drop for un-admitted + aggregate inbound cap',
+        "MAX_CONNECTIONS=200 distributed-source DoS mitigation (T336-created latent exposure) — MITIGATED 2026-10-08 (docs/adr/2026-10-08-max-connections-dos-mitigation.md): un-admitted inbound cap + authGate deadline + pending cap. An ESTABLISHED admitted connection is never evicted by an un-admitted flood (hard guarantee — the floor). A RECONNECTING camp device regains a slot LIKELY within an authGate-deadline turnover cycle, but this is NOT guaranteed under a sustained distributed flood — it competes for the recycling un-admitted slots.",
         'real independently-NATed two-device cross-network dcutr punch validation (owner hardware)',
         're-confirm T337 C2 (client camp-only reservation) + C4 (pre-auth sizing) at the activation gate',
         're-run dcutr-subtree npm audit + postinstall check at activation',

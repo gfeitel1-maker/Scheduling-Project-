@@ -29,7 +29,9 @@ tracks that decision and its hard preconditions; it is NOT a build task to start
 
 ## Pre-activation preconditions (each resolved OR explicitly owner-accepted before the flag is set true)
 
-1. **MAX_CONNECTIONS=200 distributed-source DoS mitigation** — owned as a T336-created LATENT
+1. **DONE (T340 DoS slice; `docs/adr/2026-10-08-max-connections-dos-mitigation.md`, implemented in
+   `electron/sync/automerge/transport.js`, pinned by `transportConnectionDos.test.js`):
+   MAX_CONNECTIONS=200 distributed-source DoS mitigation** — owned as a T336-created LATENT
    exposure (the flat 200-connection cap's internet reachability is gated by `relayEligible`→dcutr,
    which did not exist before T336; unreachable while inert). Once internet-reachable a distributed
    many-source-IP flood can exhaust the cap. Mitigation shape: reserved-slot floor for
@@ -40,15 +42,20 @@ tracks that decision and its hard preconditions; it is NOT a build task to start
    `docs/work/security/2026-10-03-t336-cross-network-punch-validation.md` (marked NOT YET DONE):
    two devices on genuinely separate home networks complete a successful dcutr direct punch after a
    LAN meet, with graceful relay fallback observed when the punch fails. Owner hardware.
-3. **Re-confirm T337 C2 (client camp-only reservation) + C4 (pre-auth sizing)** against the shipping
+3. **DONE for now (2026-10-08, `docs/work/security/2026-10-08-t340-precondition-evidence.md` (a)); re-run at activation:
+   Re-confirm T337 C2 (client camp-only reservation) + C4 (pre-auth sizing)** against the shipping
    code state at activation (both proven at build time; re-verify at go-live).
-4. **Re-run the dcutr-subtree `npm audit` + postinstall-script check** at activation (clean at build
+4. **DONE for now (2026-10-08, evidence (b): 0 prod advisories, no install hooks); re-run at activation:
+   Re-run the dcutr-subtree `npm audit` + postinstall-script check** at activation (clean at build
    time: 0 advisories, no postinstall scripts).
-5. **ADR 2026-09-14 owner-level items** not owned by the capability slices: signed/integrity-checked
-   auto-update (an internet-facing Electron app without it is an RCE vector); a full internet-scale
-   libp2p rate-limit review.
-6. **Documentation / operational:** `SHORESH_RELAY_ENABLED` must be the literal string `'true'`
-   (strict `=== 'true'`; other values fail closed to inert).
+5. **ADR 2026-09-14 owner-level items** not owned by the capability slices: ~~signed/integrity-checked
+   auto-update (an internet-facing Electron app without it is an RCE vector)~~ _CLOSED: owner
+   2026-10-08 will not build it; there is no update path, board item `h-signed-auto-update-closed`._
+   Still open: a full internet-scale libp2p rate-limit review (includes the sizing of the 16
+   pre-Noise pending slots, `MAX_INCOMING_PENDING_CONNECTIONS`; pairing itself is LAN-only per owner
+   ruling 2026-10-08, see the max-connections ADR).
+6. **DONE (documented, evidence (c)):** `SHORESH_RELAY_ENABLED` must be the literal string `'true'`
+   (strict `=== 'true'` at `electron/sync/automerge/syncStarter.js:386`; other values fail closed to inert).
 
 ## Not in scope here
 

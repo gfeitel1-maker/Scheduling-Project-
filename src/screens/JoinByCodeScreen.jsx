@@ -46,6 +46,7 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
   const [pin, setPin] = useState('')
   const [error, setError] = useState(null)
   const [camp, setCamp] = useState(null)
+  const [deniedReason, setDeniedReason] = useState(null)
   const busyRef = useRef(false)
   // Held from the approval so login can present it; never rendered.
   const secretRef = useRef(null)
@@ -134,6 +135,7 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
         return
       }
       if (pairing.status === 'denied') {
+        setDeniedReason(pairing.reason)
         setStep(STEP.denied)
         return
       }
@@ -141,6 +143,7 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
       setStep(STEP.waitingForApproval)
       const decision = await localClient.joinAwaitPairingDecision()
       if (decision.status !== 'approved') {
+        setDeniedReason(decision.reason)
         setStep(STEP.denied)
         return
       }
@@ -250,8 +253,10 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
 
         {step === STEP.denied && (
           <Outcome
-            title="This device wasn't allowed in"
-            body={<>Whoever is at the main computer turned down the request. You can ask them and try again.</>}
+            title={deniedReason === 'pairing-requires-local-network' ? "Not on the camp's network" : "This device wasn't allowed in"}
+            body={deniedReason === 'pairing-requires-local-network'
+              ? <>Pairing must happen on the camp's local network — connect this device to the same Wi-Fi/LAN and try again</>
+              : <>Whoever is at the main computer turned down the request. You can ask them and try again.</>}
             actionLabel="Try again"
             onAction={startOver}
           />

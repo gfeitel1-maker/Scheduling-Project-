@@ -167,11 +167,44 @@ function decodeMessage(bytes) {
 // removed as broken, see the ADR's round-3 revision). It never gates admission: a caller that omits
 // it, or a peer whose `authenticate` frame omits its own schemaVersion (an older, pre-T271 build),
 // is admitted exactly as before.
+// T340 (owner ruling 2026-10-08: pairing can only ever happen first over a local network).
+// FAIL-CLOSED, deliberately NOT connectionRateLimiter's isPrivateOrLoopback (which treats unknown as
+// local so a rate limiter never breaks a real peer). Here LAN means a POSITIVE, well-formed private
+// (RFC1918 / IPv6 ULA fc00::/7) / loopback / link-local IP as the FIRST component of the remote
+// address. A null/garbage address, a public IP, a /dns-only address and any /p2p-circuit address
+// (relayed: the TCP peer is the relay, not the joiner) are NOT LAN.
+export const PAIRING_REQUIRES_LOCAL_NETWORK = 'pairing-requires-local-network'
+
+export function isLanMultiaddr(maStr) {
+  if (typeof maStr !== 'string' || maStr.includes('p2p-circuit')) return false
+  const [, kind, ip] = maStr.split('/')
+  if (kind === 'ip4') {
+    const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(ip ?? '')
+    if (!m) return false
+    const o = m.slice(1).map(Number)
+    if (o.some((n) => n > 255)) return false
+    return o[0] === 10 || o[0] === 127 || (o[0] === 172 && o[1] >= 16 && o[1] <= 31) || (o[0] === 192 && o[1] === 168) || (o[0] === 169 && o[1] === 254)
+  }
+  if (kind === 'ip6') {
+    const addr = (ip ?? '').split('%')[0].toLowerCase()
+    if (!/^[0-9a-f:]+$/.test(addr) || !addr.includes(':')) return false
+    if (addr === '::1') return true
+    const first = addr.split(':')[0]
+    if (!/^[0-9a-f]{1,4}$/.test(first)) return false
+    const v = parseInt(first, 16)
+    return (v & 0xfe00) === 0xfc00 || (v & 0xffc0) === 0xfe80
+  }
+  return false
+}
+
 export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, onPairingDecision, now = Date.now, schemaVersion } = {}) {
   const authenticatedPeers = new Set()
   // device_id -> PeerId string, for a pairing_request whose director
   // decision hasn't landed yet. See module comment above.
   const pendingPairingPeers = new Map()
+  // device_id -> the single connection that carried the accepted pairing_request. The un-admitted
+  // deadline exemption is keyed to THIS connection, not the peer id, and dies with it.
+  const pendingPairingConnections = new Map()
   // device_id -> the Host's half of the join-code proof for THIS attempt, so
   // the director's decision (delivered later, on a new stream) still carries
   // it. Without this the joining device would have nothing to verify on the
@@ -195,6 +228,15 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
 
   node.addEventListener('peer:disconnect', (evt) => {
     authenticatedPeers.delete(evt.detail.toString())
+  })
+
+  node.addEventListener('connection:close', (evt) => {
+    for (const [deviceId, conn] of pendingPairingConnections) {
+      if (conn !== evt.detail) continue
+      pendingPairingConnections.delete(deviceId)
+      pendingPairingPeers.delete(deviceId)
+      pendingJoinConfirms.delete(deviceId)
+    }
   })
 
   node.handle(AUTH_PROTO, (stream, connection) => {
@@ -263,6 +305,13 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
       }
 
       if (msg.type === 'pairing_request') {
+        if (!isLanMultiaddr(connection.remoteAddr?.toString())) {
+          try {
+            await sendFramed(stream, encodeMessage({ type: 'pairing_denied', reason: PAIRING_REQUIRES_LOCAL_NETWORK }))
+          } catch { /* peer went away; the refusal stands */ }
+          await stream.close().catch(() => {})
+          return
+        }
         const at = now()
         const sourceKey = rateLimitKeyFor(connection)
         const throttled =
@@ -299,6 +348,7 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
             // be held open for an arbitrarily long human decision.
             if (typeof msg.device_id === 'string') {
               pendingPairingPeers.set(msg.device_id, fromPeerId)
+              pendingPairingConnections.set(msg.device_id, connection)
               if (result.joinConfirm) pendingJoinConfirms.set(msg.device_id, result.joinConfirm)
             }
             await sendFramed(stream, encodeMessage({ type: 'pairing_pending', ...(result.joinConfirm ? { join_confirm: result.joinConfirm } : {}) }))
@@ -404,6 +454,7 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
     const peerId = pendingPairingPeers.get(deviceId)
     if (!peerId) return false
     pendingPairingPeers.delete(deviceId)
+    pendingPairingConnections.delete(deviceId)
     const joinConfirm = pendingJoinConfirms.get(deviceId) ?? null
     pendingJoinConfirms.delete(deviceId)
     const outgoing = joinConfirm && frame.type === 'pairing_approved'
@@ -422,6 +473,10 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
 
   return {
     authenticatedPeers,
+    isPairingConnection: (connection) => {
+      for (const conn of pendingPairingConnections.values()) if (conn === connection) return true
+      return false
+    },
     sendPairingApproved: (deviceId, deviceSecretIdentifier) =>
       deliverPairingDecision(deviceId, { type: 'pairing_approved', device_secret_identifier: deviceSecretIdentifier }),
     sendPairingDenied: (deviceId) => deliverPairingDecision(deviceId, { type: 'pairing_denied' }),

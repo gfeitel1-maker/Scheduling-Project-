@@ -249,7 +249,7 @@ export async function startJoinSession({
       if (reply?.type === 'pairing_approved') {
         return { status: 'approved', deviceSecretIdentifier: reply.device_secret_identifier }
       }
-      if (reply?.type === 'pairing_denied') return { status: 'denied' }
+      if (reply?.type === 'pairing_denied') return { status: 'denied', ...(reply.reason ? { reason: reply.reason } : {}) }
       return { status: 'pending' }
     },
 
@@ -261,7 +261,7 @@ export async function startJoinSession({
       const msg = await pairingDecision.promise
       return msg.type === 'pairing_approved'
         ? { status: 'approved', deviceSecretIdentifier: msg.device_secret_identifier }
-        : { status: 'denied' }
+        : { status: 'denied', ...(msg.reason ? { reason: msg.reason } : {}) }
     },
 
     /** PIN sign-in against the HOST's user table — the same `attemptLogin`
