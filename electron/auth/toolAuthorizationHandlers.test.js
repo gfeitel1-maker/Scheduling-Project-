@@ -84,4 +84,24 @@ describe('tool authorization IPC handlers', () => {
     expect(rows[0].outcome).toBe('deny')
     expect(rows[0].reason).toBe('tool-not-authorized')
   })
+  it('grant never exists without its audit row: a failing audit write leaves no grant', () => {
+    db.exec('DROP TABLE audit_events')
+    expect(() => handlers.grantToolAuthorization({ token: adminToken, label: 'MCP', scope: 'read' })).toThrow()
+    expect(handlers.listToolAuthorizations({ token: adminToken })).toEqual([])
+  })
+  it('a sealing failure leaves no grant audit row and no grant', () => {
+    const spy = vi.spyOn(fakeSafeStorage, 'encryptString').mockImplementation(() => { throw new Error('keychain down') })
+    try {
+      expect(() => handlers.grantToolAuthorization({ token: adminToken, label: 'MCP', scope: 'read' })).toThrow(/keychain down/)
+    } finally { spy.mockRestore() }
+    expect(audit('tool_authorization.grant')).toHaveLength(0)
+    expect(handlers.listToolAuthorizations({ token: adminToken })).toEqual([])
+  })
+  it('landed deny audit rows carry count, first_at and last_at', () => {
+    for (let i = 0; i < 3; i++) expect(() => checkToolAuthorization(dir, fakeSafeStorage, 'bogus.secret')).toThrow()
+    handlers.listToolAuthorizations({ token: adminToken })
+    const rows = audit('tool_authorization.use')
+    expect(rows).toHaveLength(1)
+    expect(JSON.parse(rows[0].metadata)).toMatchObject({ count: 3, first_at: expect.any(String), last_at: expect.any(String) })
+  })
 })

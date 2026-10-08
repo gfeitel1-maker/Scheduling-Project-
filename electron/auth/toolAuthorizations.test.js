@@ -118,3 +118,59 @@ describe('use is audited via a drainable queue (no camp key needed at key-releas
     expect(drainToolAuditEvents(dir, fakeSafeStorage)).toEqual([])
   })
 })
+
+describe('sealed-store read-modify-write is serialized', () => {
+  const lockFile = () => path.join(dir, `${TOOL_AUTH_FILE}.lock`)
+
+  it('a revoke that lands between the check\'s read and its audit write is not overwritten', () => {
+    const { authorization, secret } = grant()
+    let intercepted = false
+    const fsImpl = {
+      ...fs,
+      existsSync: fs.existsSync,
+      renameSync: fs.renameSync,
+      writeFileSync: fs.writeFileSync,
+      readFileSync: (...args) => {
+        const stale = fs.readFileSync(...args)
+        if (!intercepted) {
+          intercepted = true
+          revokeToolAuthorization(dir, fakeSafeStorage, authorization.id)
+        }
+        return stale
+      },
+    }
+    checkToolAuthorization(dir, fakeSafeStorage, secret, { fsImpl })
+    const [rec] = listToolAuthorizations(dir, fakeSafeStorage)
+    expect(rec.revoked_at).not.toBeNull()
+  })
+
+  it('a fresh lock held by someone else makes grant fail with tool-auth-store-busy', () => {
+    fs.writeFileSync(lockFile(), JSON.stringify({ pid: 1, at: Date.now() }))
+    expect(refusal(() => grant()).code).toBe('tool-auth-store-busy')
+  }, 10000)
+
+  it('a stale lock is broken and grant succeeds; the lock is gone afterwards', () => {
+    fs.writeFileSync(lockFile(), JSON.stringify({ pid: 1, at: 0 }))
+    const old = new Date(Date.now() - 60000)
+    fs.utimesSync(lockFile(), old, old)
+    expect(() => grant()).not.toThrow()
+    expect(fs.existsSync(lockFile())).toBe(false)
+  })
+})
+
+describe('audit queue coalesces repeated denials', () => {
+  it('500 forged + 300 revoked-id checks keep the allow and yield two deny entries with counts', () => {
+    const { authorization, secret } = grant()
+    checkToolAuthorization(dir, fakeSafeStorage, secret)
+    const second = grant()
+    revokeToolAuthorization(dir, fakeSafeStorage, second.authorization.id)
+    for (let i = 0; i < 500; i++) expect(() => checkToolAuthorization(dir, fakeSafeStorage, `forged.${i}`)).toThrow()
+    for (let i = 0; i < 300; i++) expect(() => checkToolAuthorization(dir, fakeSafeStorage, second.secret)).toThrow()
+    const events = drainToolAuditEvents(dir, fakeSafeStorage)
+    expect(events.filter((e) => e.outcome === 'allow')).toHaveLength(1)
+    const denies = events.filter((e) => e.outcome === 'deny')
+    expect(denies.map((d) => d.count).sort()).toEqual([300, 500])
+    expect(denies.every((d) => d.first_at && d.last_at && d.at === d.first_at)).toBe(true)
+    expect(authorization.id).toBeTruthy()
+  }, 60000)
+})

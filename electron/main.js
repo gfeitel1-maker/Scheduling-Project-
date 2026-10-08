@@ -1367,7 +1367,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
         targetId: e.authorization_id,
         outcome: e.outcome,
         reason: e.reason,
-        metadata: { at: e.at },
+        metadata: { at: e.at, count: e.count ?? 1, first_at: e.first_at ?? e.at, last_at: e.last_at ?? e.at },
       })
     }
   }
@@ -1382,17 +1382,24 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   function grantToolAuthorization({ token, label, scope } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const { userId } = requireAuthorized(db, { token, action: 'tool_authorizations.grant' })
-    const result = sealGrantToolAuthorization(...toolAuthorizationStore(), { label, scope, createdBy: deviceId })
-    recordAuditEvent(db, {
-      actorUserId: userId,
-      deviceId,
-      action: 'tool_authorization.grant',
-      targetType: 'tool_authorizations',
-      targetId: result.authorization.id,
-      outcome: 'allow',
-      metadata: { scope: result.authorization.scope },
-    })
-    return result
+    const id = randomBytes(8).toString('hex')
+    // recordAuditEvent swallows infrastructure failures, so confirm the row exists before sealing:
+    // a grant must never exist without its audit row, and a sealing failure rolls the row back.
+    return db.transaction(() => {
+      recordAuditEvent(db, {
+        actorUserId: userId,
+        deviceId,
+        action: 'tool_authorization.grant',
+        targetType: 'tool_authorizations',
+        targetId: id,
+        outcome: 'allow',
+        metadata: { scope },
+      })
+      if (!db.prepare('SELECT 1 FROM audit_events WHERE action = ? AND target_id = ?').get('tool_authorization.grant', id)) {
+        throw new Error('Could not record the grant in the audit log; no tool was authorized')
+      }
+      return sealGrantToolAuthorization(...toolAuthorizationStore(), { label, scope, createdBy: deviceId, id })
+    })()
   }
 
   function revokeToolAuthorization({ token, id } = {}) {
@@ -1439,19 +1446,22 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
 
     const node = getAutomergeNode()
     let delivered = false
+    let sendFailed = false
     try {
       delivered = (await node?.sendPairingApproved(targetDeviceId, secret)) === true
-    } catch {
-      delivered = false
+    } catch (err) {
+      console.error('approveDevice: sendPairingApproved threw: ' + (err?.message ?? err))
+      sendFailed = true
     }
     if (!delivered) {
+      // A later approve may own the row by now; only put back what this call wrote.
       db.prepare(
-        'UPDATE devices SET authorized_at = ?, authorized_by_user_id = ?, pairing_status = ?, device_secret_identifier = ?, revoked_at = ?, revoked_by_user_id = ?, revocation_reason = ? WHERE id = ?'
+        'UPDATE devices SET authorized_at = ?, authorized_by_user_id = ?, pairing_status = ?, device_secret_identifier = ?, revoked_at = ?, revoked_by_user_id = ?, revocation_reason = ? WHERE id = ? AND device_secret_identifier = ?'
       ).run(
         existing.authorized_at, existing.authorized_by_user_id, existing.pairing_status, existing.device_secret_identifier,
-        existing.revoked_at, existing.revoked_by_user_id, existing.revocation_reason, targetDeviceId
+        existing.revoked_at, existing.revoked_by_user_id, existing.revocation_reason, targetDeviceId, secret
       )
-      recordAuditEvent(db, { actorUserId: userId, deviceId: targetDeviceId, action: 'device.approve', outcome: 'deny', reason: 'joiner_disconnected' })
+      recordAuditEvent(db, { actorUserId: userId, deviceId: targetDeviceId, action: 'device.approve', outcome: 'deny', reason: sendFailed ? 'send_error' : 'joiner_disconnected' })
       return { deviceId: targetDeviceId, authorized: false, reason: 'joiner_disconnected' }
     }
 
