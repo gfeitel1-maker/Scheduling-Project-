@@ -57,15 +57,90 @@ function write(userDataDir, safeStorage, state, fsImpl) {
 const publicRecord = ({ secret_hash: _h, ...rest }) => rest
 
 function queue(state, event, now) {
-  state.audit.push({ ...event, at: now.toISOString() })
-  if (state.audit.length > AUDIT_QUEUE_CAP) state.audit.splice(0, state.audit.length - AUDIT_QUEUE_CAP)
+  const at = now.toISOString()
+  if (event.outcome === 'deny') {
+    const same = state.audit.find(
+      (e) => e.outcome === 'deny' && e.action === event.action && e.reason === event.reason && e.authorization_id === event.authorization_id
+    )
+    if (same) {
+      same.count = (same.count ?? 1) + 1
+      same.last_at = at
+      return
+    }
+  }
+  state.audit.push({ ...event, at, count: 1, first_at: at, last_at: at })
+  while (state.audit.length > AUDIT_QUEUE_CAP) {
+    const i = state.audit.findIndex((e) => e.outcome === 'deny')
+    state.audit.splice(i === -1 ? 0 : i, 1)
+  }
 }
 
-export function grantToolAuthorization(userDataDir, safeStorage, { label, scope, createdBy = null } = {}, { fsImpl = fs, now = new Date() } = {}) {
+const LOCK_SUFFIX = '.lock'
+const LOCK_RETRY_MS = 25
+const LOCK_TIMEOUT_MS = 2000
+const LOCK_STALE_MS = 10000
+
+function sleep(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+const lockToken = (fsImpl, file) => {
+  try { return JSON.parse(fsImpl.readFileSync(file, 'utf8')).token } catch { return undefined }
+}
+
+// Moves a stale lock aside atomically (only one waiter's rename can win), then checks it really was
+// the stale lock this waiter judged; if a live lock was swapped in meanwhile it is put back.
+function breakStaleLock(fsImpl, lock, token) {
+  const seen = lockToken(fsImpl, lock)
+  if (Date.now() - fsImpl.statSync(lock).mtimeMs <= LOCK_STALE_MS) return false
+  const aside = `${lock}.${token}.stale`
+  fsImpl.renameSync(lock, aside)
+  if (lockToken(fsImpl, aside) !== seen) {
+    try { fsImpl.linkSync(aside, lock) } catch { /* someone else holds it now */ }
+  }
+  fsImpl.unlinkSync(aside)
+  return true
+}
+
+// The unlock helper runs in a separate process, so every read-modify-write of the sealed store takes
+// this cross-process lock and re-reads inside it; otherwise a late write-back can undo a revoke.
+function updateStore(userDataDir, safeStorage, mutate, { fsImpl = fs } = {}) {
+  const lock = path.join(userDataDir, TOOL_AUTH_FILE + LOCK_SUFFIX)
+  const deadline = Date.now() + LOCK_TIMEOUT_MS
+  const token = crypto.randomBytes(8).toString('hex')
+  let fd
+  for (;;) {
+    try {
+      fd = fsImpl.openSync(lock, 'wx')
+      break
+    } catch (err) {
+      if (err.code !== 'EEXIST') throw err
+      try {
+        if (breakStaleLock(fsImpl, lock, token)) continue
+      } catch { /* lock vanished; retry */ }
+      if (Date.now() >= deadline) {
+        throw new ToolAuthorizationError('tool-auth-store-busy', 'The tool authorization store is busy. Try again.')
+      }
+      sleep(LOCK_RETRY_MS)
+    }
+  }
+  try {
+    fsImpl.writeSync(fd, JSON.stringify({ pid: process.pid, at: Date.now(), token }))
+    fsImpl.closeSync(fd)
+    const state = read(userDataDir, safeStorage, fsImpl)
+    const result = mutate(state)
+    write(userDataDir, safeStorage, state, fsImpl)
+    return result
+  } finally {
+    if (lockToken(fsImpl, lock) === token) {
+      try { fsImpl.unlinkSync(lock) } catch { /* already gone */ }
+    }
+  }
+}
+
+export function grantToolAuthorization(userDataDir, safeStorage, { label, scope, createdBy = null, id = crypto.randomBytes(8).toString('hex') } = {}, { fsImpl = fs, now = new Date() } = {}) {
   if (typeof label !== 'string' || label.trim().length === 0) throw new Error('A tool name (label) is required')
   if (!SCOPES.includes(scope)) throw new Error(`scope must be one of: ${SCOPES.join(', ')}`)
-  const state = read(userDataDir, safeStorage, fsImpl)
-  const id = crypto.randomBytes(8).toString('hex')
   const secret = `${id}.${crypto.randomBytes(32).toString('hex')}`
   const record = {
     id,
@@ -76,18 +151,17 @@ export function grantToolAuthorization(userDataDir, safeStorage, { label, scope,
     revoked_at: null,
     secret_hash: sha256(secret),
   }
-  state.tools.push(record)
-  write(userDataDir, safeStorage, state, fsImpl)
+  updateStore(userDataDir, safeStorage, (state) => { state.tools.push(record) }, { fsImpl })
   return { authorization: publicRecord(record), secret }
 }
 
 export function revokeToolAuthorization(userDataDir, safeStorage, id, { fsImpl = fs, now = new Date() } = {}) {
-  const state = read(userDataDir, safeStorage, fsImpl)
-  const record = state.tools.find((t) => t.id === id)
-  if (!record) throw new Error('Tool authorization not found')
-  if (!record.revoked_at) record.revoked_at = now.toISOString()
-  write(userDataDir, safeStorage, state, fsImpl)
-  return publicRecord(record)
+  return updateStore(userDataDir, safeStorage, (state) => {
+    const record = state.tools.find((t) => t.id === id)
+    if (!record) throw new Error('Tool authorization not found')
+    if (!record.revoked_at) record.revoked_at = now.toISOString()
+    return publicRecord(record)
+  }, { fsImpl })
 }
 
 export function listToolAuthorizations(userDataDir, safeStorage, { fsImpl = fs } = {}) {
@@ -111,22 +185,24 @@ export function checkToolAuthorization(userDataDir, safeStorage, secret, { fsImp
   const matches = crypto.timingSafeEqual(expected, actual) && Boolean(record)
 
   const refuse = (code, message) => {
-    queue(state, { action: 'tool_authorization.use', outcome: 'deny', reason: code, authorization_id: matches ? record.id : null }, now)
-    try { write(userDataDir, safeStorage, state, fsImpl) } catch { /* the refusal still stands */ }
+    const event = { action: 'tool_authorization.use', outcome: 'deny', reason: code, authorization_id: matches ? record.id : null }
+    try { updateStore(userDataDir, safeStorage, (s) => queue(s, event, now), { fsImpl }) } catch { /* the refusal still stands */ }
     throw new ToolAuthorizationError(code, message)
   }
   if (!matches) return refuse('tool-not-authorized', NOT_AUTHORIZED_MESSAGE)
   if (record.revoked_at) return refuse('tool-authorization-revoked', REVOKED_MESSAGE)
 
-  queue(state, { action: 'tool_authorization.use', outcome: 'allow', reason: null, authorization_id: record.id }, now)
-  try { write(userDataDir, safeStorage, state, fsImpl) } catch { /* audit queue is best-effort; the grant is valid */ }
+  const event = { action: 'tool_authorization.use', outcome: 'allow', reason: null, authorization_id: record.id }
+  try { updateStore(userDataDir, safeStorage, (s) => queue(s, event, now), { fsImpl }) } catch { /* audit queue is best-effort; the grant is valid */ }
   return { id: record.id, label: record.label, scope: record.scope }
 }
 
 export function drainToolAuditEvents(userDataDir, safeStorage, { fsImpl = fs } = {}) {
-  const state = read(userDataDir, safeStorage, fsImpl)
-  if (state.audit.length === 0) return []
-  const events = state.audit
-  write(userDataDir, safeStorage, { ...state, audit: [] }, fsImpl)
-  return events
+  const file = path.join(userDataDir, TOOL_AUTH_FILE)
+  if (!fsImpl.existsSync(file)) return []
+  return updateStore(userDataDir, safeStorage, (state) => {
+    const events = state.audit
+    state.audit = []
+    return events
+  }, { fsImpl })
 }

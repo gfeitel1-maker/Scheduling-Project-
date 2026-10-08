@@ -47,6 +47,8 @@ move to internet-reachable discovery requires that re-assessment first — enfor
 and its build-failing guard (which reads the real `electron/sync/automerge/syncStarter.js` discovery
 wiring, not a dead loopback constant).
 
+Pairing is accepted only from a private (RFC1918 / IPv6 ULA), loopback or link-local address. Carrier-grade NAT `100.64.0.0/10` falls outside that list, as does every Tailscale address and any VPN or relay path; all are refused with `pairing-requires-local-network` ([docs/adr/2026-10-08-max-connections-dos-mitigation.md](docs/adr/2026-10-08-max-connections-dos-mitigation.md)).
+
 ---
 
 ## What is hardened

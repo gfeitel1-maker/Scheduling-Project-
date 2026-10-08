@@ -136,7 +136,7 @@ describe('JoinByCodeScreen — the whole way through', () => {
     expect(await screen.findByText(/wasn't allowed in/i)).toBeTruthy()
   })
 
-  const LAN_COPY = "Pairing must happen on the camp's local network — connect this device to the same Wi-Fi/LAN and try again"
+  const LAN_COPY = "Pairing must happen on the camp's local network — connect this device to the same Wi-Fi/LAN as the main computer and try again. VPN, Tailscale and mobile-carrier connections can't be used to pair."
 
   it('names the local-network requirement when pairing is refused for it (waiting path)', async () => {
     localClient.joinAwaitPairingDecision.mockResolvedValue({ status: 'denied', reason: 'pairing-requires-local-network' })

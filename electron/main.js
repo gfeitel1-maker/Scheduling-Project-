@@ -1367,7 +1367,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
         targetId: e.authorization_id,
         outcome: e.outcome,
         reason: e.reason,
-        metadata: { at: e.at },
+        metadata: { at: e.at, count: e.count ?? 1, first_at: e.first_at ?? e.at, last_at: e.last_at ?? e.at },
       })
     }
   }
@@ -1382,17 +1382,24 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   function grantToolAuthorization({ token, label, scope } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const { userId } = requireAuthorized(db, { token, action: 'tool_authorizations.grant' })
-    const result = sealGrantToolAuthorization(...toolAuthorizationStore(), { label, scope, createdBy: deviceId })
-    recordAuditEvent(db, {
-      actorUserId: userId,
-      deviceId,
-      action: 'tool_authorization.grant',
-      targetType: 'tool_authorizations',
-      targetId: result.authorization.id,
-      outcome: 'allow',
-      metadata: { scope: result.authorization.scope },
-    })
-    return result
+    const id = randomBytes(8).toString('hex')
+    // recordAuditEvent swallows infrastructure failures, so confirm the row exists before sealing:
+    // a grant must never exist without its audit row, and a sealing failure rolls the row back.
+    return db.transaction(() => {
+      recordAuditEvent(db, {
+        actorUserId: userId,
+        deviceId,
+        action: 'tool_authorization.grant',
+        targetType: 'tool_authorizations',
+        targetId: id,
+        outcome: 'allow',
+        metadata: { scope },
+      })
+      if (!db.prepare('SELECT 1 FROM audit_events WHERE action = ? AND target_id = ?').get('tool_authorization.grant', id)) {
+        throw new Error('Could not record the grant in the audit log; no tool was authorized')
+      }
+      return sealGrantToolAuthorization(...toolAuthorizationStore(), { label, scope, createdBy: deviceId, id })
+    })()
   }
 
   function revokeToolAuthorization({ token, id } = {}) {
@@ -1410,6 +1417,9 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     })
     return { authorization }
   }
+
+  // deviceId -> { baseline, count }: the row as it stood before the first of any overlapping approves.
+  const inflightApprovals = new Map()
 
   async function approveDevice({ token, deviceId: targetDeviceId, makeAdmin = false } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
@@ -1437,24 +1447,37 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       "UPDATE devices SET authorized_at = ?, authorized_by_user_id = ?, pairing_status = 'authorized', device_secret_identifier = ?, revoked_at = NULL, revoked_by_user_id = NULL, revocation_reason = NULL WHERE id = ?"
     ).run(now, userId, secret, targetDeviceId)
 
+    // Overlapping approves of one device share the baseline captured by the first, so a failed
+    // delivery can never restore another call's undelivered write.
+    const inflight = inflightApprovals.get(targetDeviceId) ?? { baseline: existing, count: 0 }
+    inflight.count++
+    inflightApprovals.set(targetDeviceId, inflight)
+
     const node = getAutomergeNode()
     let delivered = false
+    let sendFailed = false
     try {
       delivered = (await node?.sendPairingApproved(targetDeviceId, secret)) === true
-    } catch {
-      delivered = false
+    } catch (err) {
+      console.error('approveDevice: sendPairingApproved threw: ' + (err?.message ?? err))
+      sendFailed = true
+    } finally {
+      if (--inflight.count === 0) inflightApprovals.delete(targetDeviceId)
     }
+    const baseline = inflight.baseline
     if (!delivered) {
+      // A later approve may own the row by now; only put back what this call wrote.
       db.prepare(
-        'UPDATE devices SET authorized_at = ?, authorized_by_user_id = ?, pairing_status = ?, device_secret_identifier = ?, revoked_at = ?, revoked_by_user_id = ?, revocation_reason = ? WHERE id = ?'
+        'UPDATE devices SET authorized_at = ?, authorized_by_user_id = ?, pairing_status = ?, device_secret_identifier = ?, revoked_at = ?, revoked_by_user_id = ?, revocation_reason = ? WHERE id = ? AND device_secret_identifier = ?'
       ).run(
-        existing.authorized_at, existing.authorized_by_user_id, existing.pairing_status, existing.device_secret_identifier,
-        existing.revoked_at, existing.revoked_by_user_id, existing.revocation_reason, targetDeviceId
+        baseline.authorized_at, baseline.authorized_by_user_id, baseline.pairing_status, baseline.device_secret_identifier,
+        baseline.revoked_at, baseline.revoked_by_user_id, baseline.revocation_reason, targetDeviceId, secret
       )
-      recordAuditEvent(db, { actorUserId: userId, deviceId: targetDeviceId, action: 'device.approve', outcome: 'deny', reason: 'joiner_disconnected' })
+      recordAuditEvent(db, { actorUserId: userId, deviceId: targetDeviceId, action: 'device.approve', outcome: 'deny', reason: sendFailed ? 'send_error' : 'joiner_disconnected' })
       return { deviceId: targetDeviceId, authorized: false, reason: 'joiner_disconnected' }
     }
 
+    inflight.baseline = { authorized_at: now, authorized_by_user_id: userId, pairing_status: 'authorized', device_secret_identifier: secret, revoked_at: null, revoked_by_user_id: null, revocation_reason: null }
     recordAuditEvent(db, { actorUserId: userId, deviceId: targetDeviceId, action: 'device.approve', outcome: 'allow' })
 
     // T331 (docs/adr/2026-10-02-distributed-revocation-authority.md) — the in-person pairing UX
