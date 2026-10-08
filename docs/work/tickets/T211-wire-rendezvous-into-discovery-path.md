@@ -1,7 +1,7 @@
 ---
 title: "Phase C — feed validated rendezvous discoveries into the existing dial and mutual-auth path"
 document_type: ticket
-status: parked
+status: completed
 created: 2026-09-17
 task_class: security-auth
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md, docs/governance/standards/WORK_RECORD_STANDARD.md, SECURITY.md]
@@ -9,6 +9,18 @@ archive_when: "A trusted peer discovered via rendezvous completes mutual auth an
 ---
 
 # T211 — Phase C: wire rendezvous into the existing path
+
+> **STATUS 2026-10-08 — COMPLETED (dial-path wiring built).** The ticket's core deliverable — feeding
+> validated rendezvous discoveries into the same `onPeerDiscovery`/dial path as mDNS — is BUILT and on
+> main: `createRendezvousDiscovery` is wired into `peerDiscovery` alongside mDNS at
+> `electron/sync/automerge/syncStarter.js:339-340` and emits `peer` events libp2p auto-dials
+> (`electron/sync/automerge/rendezvousClient.js:209-247`), gated by the signed-off `discovery`
+> capability. The "Blocked — owner gate" below is historical: the single `INTERNET_TRANSPORT_SIGNOFF`
+> boolean it names was SUPERSEDED by the per-capability registry (T288), and `discovery` is signed off
+> (2026-09-28). What is NOT this ticket, and is carried forward: the rendezvous record is still
+> address-less (`rendezvousClient.js:157`), so end-to-end cross-network reconnect is designed in
+> `docs/adr/2026-10-08-relayless-cross-network-reconnect.md` (rungs 1–3); activation remains the
+> owner's go-live (T340). This ticket covers the wiring only, which is done.
 
 ## Scope
 
