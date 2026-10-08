@@ -14,7 +14,6 @@
 // testable without the native module; the real keying + sqlcipher_export are covered by an
 // integration test that runs once the module is installed.
 import fs from 'node:fs'
-import path from 'node:path'
 
 const SQLITE_MAGIC = Buffer.from('SQLite format 3\0', 'latin1') // 16 bytes
 
