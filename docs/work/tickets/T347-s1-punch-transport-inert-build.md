@@ -90,6 +90,35 @@ Fixed in round 2: listener cap now counts only pending (pre-open) inbound sessio
 is already in `sessions` is dropped; the guard proves the import sits inside the gate block and that
 `inertPresence` is declared on exactly the `punch` row.
 
+## Evidence: guard non-vacuity (planted defects, captured red, restored)
+
+Round-3 fix pass. Each defect was planted in the real file, the guard run, then the file restored.
+
+1. Hoist the import: `await import('./punchTransport.js')` added above the gate in
+   `electron/sync/automerge/syncStarter.js`.
+```
+ × the punchTransport.js import in syncStarter.js sits inside the punchRuntimeEligible gate block
+AssertionError: expected false to be true // Object.is equality
+ Tests  1 failed | 11 passed (12)
+```
+2. `inertPresence: true` added to a second registry row (`websockets`) in `transportCapabilities.js`.
+```
+ × inertPresence is declared on exactly the punch row (no other row may loosen the package scan)
+AssertionError: expected [ 'punch', 'websockets' ] to deeply equal [ 'punch' ]
+ Tests  1 failed | 11 passed (12)
+```
+
+## Round-3 changes
+
+- `will-quit` now vetoes the first event, awaits teardown (bounded 5s), then `app.quit()`
+  (`electron/willQuit.js`, tested in `electron/willQuit.test.js`). The "quit under real Electron is
+  unproven" limit above is closed in unit scope; a packaged-quit run is still owed before S5.
+- `syncStarter.js` no longer calls `punchNativeLoadable()` unless the flag is exactly `'true'` and
+  signaling is injected (`punchProbeShortCircuit.test.js`; red-first: the flag-off case failed with
+  "expected vi.fn() to not be called at all, but actually been called 1 times").
+- `punchTransport.native.test.js`: the 775ms figure was the observed elapsed time, not a bound; the
+  bound at HEAD was 15000ms and is load-sensitive, so it is now 45000ms (assertion kept).
+
 ## Remaining
 
 - Governor-run full `npm run verify` and review loop (Security, Red Hat) on the transport.

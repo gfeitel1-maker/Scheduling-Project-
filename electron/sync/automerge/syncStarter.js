@@ -430,7 +430,8 @@ export function createAutomergeSyncStarter({
       // capability row's signoff stays null until S5's T327 gate.
       let punchTransportFactory
       const listenAddrs = ['/ip4/0.0.0.0/tcp/0']
-      if (punchRuntimeEligible({ punchEnabled: process.env.SHORESH_PUNCH_ENABLED === 'true', nativeLoadable: punchSignaling != null && punchNativeLoadable() })) {
+      const punchEnabled = process.env.SHORESH_PUNCH_ENABLED === 'true'
+      if (punchRuntimeEligible({ punchEnabled, nativeLoadable: punchEnabled && punchSignaling != null && punchNativeLoadable() })) {
         punchModule = await import('./punchTransport.js')
         punchTransportFactory = punchModule.punchTransport({ signaling: punchSignaling })
         listenAddrs.push('/ip4/0.0.0.0/udp/0')

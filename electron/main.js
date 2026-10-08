@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, dialog, safeStorage, Menu, shell } from 'electron'
+import { createWillQuitHandler } from './willQuit.js'
 import path from 'node:path'
 import os from 'node:os'
 import fs from 'node:fs'
@@ -3864,7 +3865,7 @@ if (isElectronEntryPoint()) {
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit()
   })
-  app.on('will-quit', async () => {
+  app.on('will-quit', createWillQuitHandler({ app, cleanup: async () => {
     // Stage 5e item 3: flush any debounced Automerge doc save before the process exits, so a
     // deliberate quit never loses a write to the durability window liveDoc.js's scheduleSave
     // documents (up to SAVE_DEBOUNCE_MS of in-memory-only writes otherwise). A no-op when nothing
@@ -3889,7 +3890,7 @@ if (isElectronEntryPoint()) {
       } catch { /* shutting down anyway */ }
     }
     await punchShutdown
-  })
+  } }))
   } catch (err) {
     reportStartupFailure(err)
   }

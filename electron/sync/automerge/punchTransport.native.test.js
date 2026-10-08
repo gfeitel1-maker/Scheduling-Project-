@@ -258,21 +258,26 @@ function runUntil(script, bound) {
   })
 }
 
+// The exit bound is an upper limit on a loaded machine (child import + ICE setup took >15s at load
+// ~80), not an expectation: a healthy run exits in well under a second. The hang this guards is
+// proven separately by the control test, which never exits regardless of load.
+const EXIT_BOUND_MS = 45000
+
 describe('punch quit with an open pc', () => {
   it('transport stop() on both sides lets the process exit on its own within the bound', async () => {
-    const r = await runUntil(quitScript('await tb.stop(); await ta.stop()'), 15000)
+    const r = await runUntil(quitScript('await tb.stop(); await ta.stop()'), EXIT_BOUND_MS)
     expect(r.out).toContain('OPEN open')
     expect(r.signal).toBeNull()
     expect(r.code).toBe(0)
-    expect(r.ms).toBeLessThan(15000)
-  }, 30000)
+    expect(r.ms).toBeLessThan(EXIT_BOUND_MS)
+  }, EXIT_BOUND_MS + 30000)
 
   it("main's quit hook (shutdownPunchNative alone) lets the process exit on its own", async () => {
-    const r = await runUntil(quitScript('await shutdownPunchNative()'), 15000)
+    const r = await runUntil(quitScript('await shutdownPunchNative()'), EXIT_BOUND_MS)
     expect(r.out).toContain('OPEN open')
     expect(r.signal).toBeNull()
     expect(r.code).toBe(0)
-  }, 30000)
+  }, EXIT_BOUND_MS + 30000)
 
   it('control: the same scenario WITHOUT a teardown does not exit (the hang this prevents)', async () => {
     const r = await runUntil(quitScript(''), 6000)
