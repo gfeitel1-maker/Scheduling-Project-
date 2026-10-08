@@ -2,7 +2,7 @@
 title: "Relay-less cross-network reconnect: a 3-rung no-middleman ladder (remembered reflexive → camp-peer gossip → camp-owned rendezvous)"
 document_type: adr
 authority: normative
-status: proposed
+status: accepted
 implementation_state: not-started
 date: 2026-10-08
 decided: 2026-10-08
@@ -18,7 +18,9 @@ implements: []
 
 ## Status
 
-PROPOSED. Design-only; hand to the security-batch worker on the organizer's acceptance.
+ACCEPTED by the organizer 2026-10-08 under delegation (it encodes the owner's rulings below exactly).
+Design-only; the security-batch worker builds it, socket-affinity check FIRST (STOP + report if the
+QUIC transport cannot share a UDP socket with the STUN client).
 
 > **Owner rulings, 2026-10-08, verbatim:**
 > "it is possible for them to meet over different wifis once they have established a connection on lan
