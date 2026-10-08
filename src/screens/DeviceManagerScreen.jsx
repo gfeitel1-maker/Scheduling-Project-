@@ -26,6 +26,8 @@ function pairingStatusLabel(status) {
 //   2. never cryptographic/physical — this is guess-resistant logical erasure;
 //   3. never certainty about a peer it cannot hear from — UNKNOWN means unknown;
 //   4. never a count it cannot back — only states the self-report supports.
+const JOINER_GONE_COPY = 'The device disconnected before approval — ask it to request again'
+
 const ERASURE_COPY = {
   LOGICALLY_ERASED: {
     label: 'Hidden',
@@ -73,6 +75,7 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
   // (hasErasure), so the common no-purge camp sees no new noise.
   const [erasure, setErasure] = useState({ hasErasure: false, states: {}, localDeviceId: null })
   const [error, setError] = useState(null)
+  const [gone, setGone] = useState({})
   const [busy, setBusy] = useState({})
   // Add a device (docs/adr/2026-09-08-libp2p-join-flow.md §4). Only meaningful
   // on the Host — a Client has no code to show and cannot approve anyone.
@@ -115,6 +118,11 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
         localClient.listPeerErasureState(),
       ])
       setPending(p || [])
+      setGone((g) => {
+        const ids = new Set((p || []).map((d) => d.id))
+        const kept = Object.fromEntries(Object.entries(g).filter(([id]) => ids.has(id)))
+        return Object.keys(kept).length === Object.keys(g).length ? g : kept
+      })
       setAllDevices(d || [])
       setErasure(e || { hasErasure: false, states: {}, localDeviceId: null })
     } catch (err) {
@@ -122,10 +130,22 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
     }
   }
 
+  function clearGone(deviceId) {
+    setGone((g) => {
+      if (!g[deviceId]) return g
+      const { [deviceId]: _removed, ...rest } = g
+      return rest
+    })
+  }
+
   async function handleApprove(deviceId) {
     setBusy((b) => ({ ...b, [deviceId]: true }))
+    clearGone(deviceId)
     try {
-      await localClient.approveDevice(deviceId)
+      const result = await localClient.approveDevice(deviceId)
+      if (result?.authorized === false && result.reason === 'joiner_disconnected') {
+        setGone((g) => ({ ...g, [deviceId]: true }))
+      }
       load()
     } catch (err) {
       setError(err?.message || 'Failed to approve device')
@@ -136,6 +156,7 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
 
   async function handleDeny(deviceId) {
     setBusy((b) => ({ ...b, [deviceId]: true }))
+    clearGone(deviceId)
     try {
       await localClient.denyDevice(deviceId)
       load()
@@ -275,6 +296,7 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
                         >
                           Deny
                         </button>
+                        {gone[device.id] && <span style={styles.flagMuted}>{JOINER_GONE_COPY}</span>}
                       </div>
                     ) : role === 'admin' ? (
                       // Tester finding (T332 fold-in, round 3): a client-mode admin has full,
@@ -492,6 +514,15 @@ const styles = {
   // T322 S3b. Deliberately muted, NOT a success-green chip: "Hidden" states a
   // confirmed-applied suppression, not that anything is safe, complete, or
   // deleted. A neutral chip keeps it a quiet flag, never a reassurance.
+  flagMuted: {
+    display: 'inline-block',
+    padding: '2px 8px',
+    borderRadius: 99,
+    background: 'var(--border)',
+    color: 'var(--text-secondary)',
+    fontSize: 12,
+    fontWeight: 600,
+  },
   badgeErased: {
     display: 'inline-block',
     padding: '2px 8px',

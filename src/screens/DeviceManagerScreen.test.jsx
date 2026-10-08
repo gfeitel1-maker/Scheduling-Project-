@@ -275,3 +275,36 @@ describe('DeviceManagerScreen — per-peer erasure badge', () => {
     expect(screen.queryByText('Not confirmed')).toBeNull()
   })
 })
+
+describe('DeviceManagerScreen — approve when the joiner is gone (T346)', () => {
+  const COPY = 'The device disconnected before approval — ask it to request again'
+
+  it('shows the flag inside that request row, not in the error banner', async () => {
+    localClient.listPendingPairingRequests.mockResolvedValue([pendingDevice(), pendingDevice({ id: 'pending-2', name: 'Tablet' })])
+    localClient.approveDevice.mockResolvedValue({ deviceId: 'pending-1', authorized: false, reason: 'joiner_disconnected' })
+    const user = userEvent.setup()
+    render(<DeviceManagerScreen campId="c1" role="admin" deviceMode="host" />)
+
+    await user.click((await screen.findAllByText('Approve'))[0])
+
+    const flag = await screen.findByText(COPY)
+    expect(flag.closest('tr').textContent).toContain('iPad')
+    expect(screen.getAllByText(COPY)).toHaveLength(1)
+    expect(screen.queryByText('Failed to approve device')).toBeNull()
+    expect(localClient.listPendingPairingRequests).toHaveBeenCalledTimes(2)
+  })
+
+  it('clears the flag on the next approve of that device', async () => {
+    localClient.listPendingPairingRequests.mockResolvedValue([pendingDevice()])
+    localClient.approveDevice
+      .mockResolvedValueOnce({ deviceId: 'pending-1', authorized: false, reason: 'joiner_disconnected' })
+      .mockResolvedValueOnce({ deviceId: 'pending-1', authorized: true })
+    const user = userEvent.setup()
+    render(<DeviceManagerScreen campId="c1" role="admin" deviceMode="host" />)
+
+    await user.click(await screen.findByText('Approve'))
+    await screen.findByText(COPY)
+    await user.click(screen.getByText('Approve'))
+    await vi.waitFor(() => expect(screen.queryByText(COPY)).toBeNull())
+  })
+})

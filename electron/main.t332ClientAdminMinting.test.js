@@ -188,12 +188,12 @@ describe('T332 — client-mode admin minting', () => {
     const newDeviceId = 'device-new-join'
     insertDevice(newDeviceId, { authorized: false })
 
-    const handlers2 = makeHandlers(db, admin2DeviceId, { getAutomergeSyncNode: () => null })
+    const handlers2 = makeHandlers(db, admin2DeviceId, { getAutomergeSyncNode: () => ({ sendPairingApproved: async () => true }) })
     await handlers2.chooseMode({ mode: 'client' })
     const { token: admin2Token } = await handlers2.login({ name: 'Admin2Approve', pin: '246813' })
 
     // (a) no throw.
-    const result = handlers2.approveDevice({ token: admin2Token, deviceId: newDeviceId, makeAdmin: true })
+    const result = await handlers2.approveDevice({ token: admin2Token, deviceId: newDeviceId, makeAdmin: true })
     expect(result).toEqual({ deviceId: newDeviceId, authorized: true })
 
     // (b) the local devices row is authorized.
@@ -222,11 +222,11 @@ describe('T332 — client-mode admin minting', () => {
     const hostKeyBefore = db.prepare('SELECT * FROM host_signing_key').get()
     const signingPubBefore = db.prepare('SELECT signing_public_key FROM camps LIMIT 1').get().signing_public_key
 
-    const handlers2 = makeHandlers(db, admin2DeviceId, { getAutomergeSyncNode: () => null })
+    const handlers2 = makeHandlers(db, admin2DeviceId, { getAutomergeSyncNode: () => ({ sendPairingApproved: async () => true }) })
     await handlers2.chooseMode({ mode: 'client' })
     const { token: admin2Token } = await handlers2.login({ name: 'Admin2HK', pin: '246813' })
 
-    handlers2.approveDevice({ token: admin2Token, deviceId: newDeviceId, makeAdmin: true })
+    await handlers2.approveDevice({ token: admin2Token, deviceId: newDeviceId, makeAdmin: true })
     handlers2.revokeDevice({ token: admin2Token, deviceId: founderDeviceId })
 
     expect(db.prepare('SELECT * FROM host_signing_key').get()).toEqual(hostKeyBefore)
