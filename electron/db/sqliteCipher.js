@@ -14,6 +14,7 @@
 // testable without the native module; the real keying + sqlcipher_export are covered by an
 // integration test that runs once the module is installed.
 import fs from 'node:fs'
+import path from 'node:path'
 
 const SQLITE_MAGIC = Buffer.from('SQLite format 3\0', 'latin1') // 16 bytes
 
@@ -235,4 +236,28 @@ export function recoverInterruptedMigration(filePath, key, { Database, fsImpl = 
     throw fail(`Restoring the backup failed (${err?.message ?? err}). The backup is intact at ${bakPath}; the original file was left in place.`)
   }
   return { recovered: true, backupPath: bakPath, unreadableCopy: aside }
+}
+
+// Security cleanup, called only after a keyed open has SUCCEEDED. An interrupted or abandoned
+// at-rest upgrade can leave a plaintext `<db>.pre-migration-*.bak` — the only cleartext copy of the
+// camp — beside a db that now opens encrypted. Delete (overwrite, then unlink) those. Schema-migration
+// backups share the name pattern; an ENCRYPTED-header one is a legitimate rollback copy and is kept,
+// so the decision is by header, never by name alone.
+export function shredOrphanedPlaintextBackups(filePath, { fsImpl = fs } = {}) {
+  const dir = path.dirname(filePath)
+  const prefix = `${path.basename(filePath)}.pre-migration-`
+  const shredded = []
+  let names
+  try { names = fsImpl.readdirSync(dir) } catch { return { shredded } }
+  for (const n of names) {
+    if (!n.startsWith(prefix) || !n.endsWith('.bak')) continue
+    const p = path.join(dir, n)
+    if (!isPlaintextSqliteFile(p, { fsImpl })) continue
+    try {
+      fsImpl.writeFileSync(p, Buffer.alloc(fsImpl.statSync(p).size))
+      fsImpl.unlinkSync(p)
+      shredded.push(p)
+    } catch { /* best effort — a locked file must not block opening the camp */ }
+  }
+  return { shredded }
 }

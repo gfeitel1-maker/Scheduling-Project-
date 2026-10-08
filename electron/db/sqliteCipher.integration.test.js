@@ -56,6 +56,32 @@ describe.skipIf(!driverAvailable)('SQLite at-rest encryption — real driver, th
     expect(fs.existsSync(bak)).toBe(false) // no plaintext copy left behind
   })
 
+  describe('orphaned plaintext pre-migration backups', () => {
+    const MAGIC = Buffer.from('SQLite format 3\0', 'latin1')
+    function encryptedDb(tag, k) {
+      const f = tmpFile(tag)
+      const db = openLocalDb(f, { key: k }); db.close()
+      return f
+    }
+    const bakNamed = (f, n, content) => { const b = `${f}.pre-migration-${n}.bak`; tmp.push(b); fs.writeFileSync(b, content); return b }
+
+    it('a successful keyed open shreds a plaintext .bak but keeps an encrypted-header one', () => {
+      const k = key(); const f = encryptedDb('orphan', k)
+      const plain = bakNamed(f, 'p', Buffer.concat([MAGIC, Buffer.alloc(200, 5)]))
+      const enc = bakNamed(f, 'e', fs.readFileSync(f))
+      openLocalDb(f, { key: k }).close()
+      expect(fs.existsSync(plain)).toBe(false)
+      expect(fs.existsSync(enc)).toBe(true)
+    })
+
+    it('a failed key deletes nothing', () => {
+      const f = encryptedDb('orphan-badkey', key())
+      const plain = bakNamed(f, 'p', Buffer.concat([MAGIC, Buffer.alloc(200, 5)]))
+      expect(() => openLocalDb(f, { key: key() })).toThrow()
+      expect(fs.existsSync(plain)).toBe(true)
+    })
+  })
+
   it('an unreadable db with no plaintext .bak fails with db_migration_interrupted, not an opaque error', () => {
     const f = tmpFile('crash-nobak')
     fs.writeFileSync(f, crypto.randomBytes(8192))

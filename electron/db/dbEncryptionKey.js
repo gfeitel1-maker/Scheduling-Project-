@@ -17,7 +17,6 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import { isPlaintextSqliteFile } from './sqliteCipher.js'
 import { isEncrypted as isEncryptedDoc } from './docCipher.js'
 
 export const KEY_BYTES = 32 // 256-bit
@@ -45,19 +44,43 @@ function requireSafeStorage(safeStorage, who) {
   }
 }
 
-function isEncryptedDataFile(p, fsImpl) {
+// ENOENT = nothing there to guard. Any OTHER read failure on an existing file (EACCES, EIO...)
+// means we cannot tell whether it is encrypted, so minting a key could orphan it: refuse.
+function guardUnreadable(p, keyPath, err) {
+  if (err?.code === 'ENOENT') return false
+  throw coded(
+    'db_key_guard_unreadable',
+    `Could not read ${p} (${err?.code ?? err?.message ?? err}) to check whether it is already encrypted, ` +
+      `so the encryption key was not created (${keyPath}). Refusing to risk orphaning that data. ` +
+      'Fix the file or directory permissions and start again; see docs/current/KEY_RECOVERY_STORY.md.'
+  )
+}
+
+function isEncryptedDataFile(p, fsImpl, keyPath) {
   try {
-    return fsImpl.statSync(p).size > 0 && !isPlaintextSqliteFile(p, { fsImpl })
-  } catch {
-    return false
+    if (fsImpl.statSync(p).size === 0) return false
+    return !isPlaintextSqliteHeader(p, fsImpl)
+  } catch (err) {
+    return guardUnreadable(p, keyPath, err)
   }
 }
 
-function isEncryptedDocFile(p, fsImpl) {
+function isPlaintextSqliteHeader(p, fsImpl) {
+  const fd = fsImpl.openSync(p, 'r')
+  try {
+    const magic = Buffer.from('SQLite format 3\0', 'latin1')
+    const buf = Buffer.alloc(magic.length)
+    return fsImpl.readSync(fd, buf, 0, magic.length, 0) === magic.length && buf.equals(magic)
+  } finally {
+    try { fsImpl.closeSync(fd) } catch { /* ignore */ }
+  }
+}
+
+function isEncryptedDocFile(p, fsImpl, keyPath) {
   try {
     return isEncryptedDoc(fsImpl.readFileSync(p).subarray(0, 4))
-  } catch {
-    return false
+  } catch (err) {
+    return guardUnreadable(p, keyPath, err)
   }
 }
 
@@ -91,7 +114,7 @@ export function getOrCreateDbKey(userDataDir, safeStorage, { fsImpl = fs, dataPa
   requireSafeStorage(safeStorage, 'getOrCreateDbKey')
   const keyPath = path.join(userDataDir, KEY_FILE)
   if (fsImpl.existsSync(keyPath)) return getDbKey(userDataDir, safeStorage, { fsImpl })
-  const orphaned = dataPaths.find((p) => isEncryptedDataFile(p, fsImpl)) ?? docPaths.find((p) => isEncryptedDocFile(p, fsImpl))
+  const orphaned = dataPaths.find((p) => isEncryptedDataFile(p, fsImpl, keyPath)) ?? docPaths.find((p) => isEncryptedDocFile(p, fsImpl, keyPath))
   if (orphaned) {
     throw coded(
       'db_key_file_missing',

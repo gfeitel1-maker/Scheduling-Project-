@@ -1,12 +1,12 @@
 // @vitest-environment node
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
-import { isPlaintextSqliteFile, rawKeyPragma, migratePlaintextToEncrypted, recoverInterruptedMigration } from './sqliteCipher.js'
+import { isPlaintextSqliteFile, rawKeyPragma, migratePlaintextToEncrypted, recoverInterruptedMigration, shredOrphanedPlaintextBackups } from './sqliteCipher.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -259,5 +259,38 @@ describe('recoverInterruptedMigration — a crash mid-rekey must not strand the 
     expect(err?.code).toBe('db_migration_interrupted')
     expect(fs.existsSync(b)).toBe(true)
     expect(fs.readFileSync(f).length).toBe(2048)
+  })
+})
+
+describe('shredOrphanedPlaintextBackups', () => {
+  const MAGIC = Buffer.from('SQLite format 3\0', 'latin1')
+  let d
+  beforeEach(() => { d = fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-shred-')) })
+  afterEach(() => { fs.rmSync(d, { recursive: true, force: true }) })
+
+  it('deletes plaintext-header pre-migration backups and keeps encrypted-header ones', () => {
+    const db = path.join(d, 'camp.sqlite')
+    const plain = `${db}.pre-migration-2026-01-01T00-00-00-000Z.bak`
+    const enc = `${db}.pre-migration-2026-01-02T00-00-00-000Z.bak`
+    const other = path.join(d, 'other.sqlite.pre-migration-x.bak')
+    fs.writeFileSync(plain, Buffer.concat([MAGIC, Buffer.alloc(100, 7)]))
+    fs.writeFileSync(enc, Buffer.alloc(4096, 0x9c))
+    fs.writeFileSync(other, Buffer.concat([MAGIC, Buffer.alloc(10)]))
+    const r = shredOrphanedPlaintextBackups(db)
+    expect(r.shredded).toEqual([plain])
+    expect(fs.existsSync(plain)).toBe(false)
+    expect(fs.existsSync(enc)).toBe(true)
+    expect(fs.existsSync(other)).toBe(true)
+  })
+
+  it('overwrites the bytes before unlinking', () => {
+    const db = path.join(d, 'camp.sqlite')
+    const plain = `${db}.pre-migration-a.bak`
+    fs.writeFileSync(plain, Buffer.concat([MAGIC, Buffer.alloc(100, 7)]))
+    const writes = []
+    const fsImpl = { ...fs, writeFileSync: (p, b) => { writes.push([p, Buffer.from(b)]); return fs.writeFileSync(p, b) } }
+    shredOrphanedPlaintextBackups(db, { fsImpl })
+    expect(writes).toHaveLength(1)
+    expect(writes[0][1].every((x) => x === 0)).toBe(true)
   })
 })

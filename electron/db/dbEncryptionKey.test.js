@@ -114,6 +114,29 @@ describe('getOrCreateDbKey — never mint over an existing encrypted db', () => 
   })
 })
 
+describe('getOrCreateDbKey — unreadable existing data fails closed', () => {
+  const eacces = () => Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' })
+  const throwingFs = (method) => ({ ...fs, [method]: () => { throw eacces() } })
+
+  it.each([
+    ['docPaths', 'readFileSync', (p) => ({ docPaths: [p] })],
+    ['dataPaths', 'openSync', (p) => ({ dataPaths: [p] })],
+  ])('an EACCES reading an existing %s file refuses to mint', (_n, method, mk) => {
+    const p = path.join(dir, 'x.file'); fs.writeFileSync(p, Buffer.alloc(64, 0x9c))
+    let err
+    try { getOrCreateDbKey(dir, fakeSafeStorage(), { fsImpl: throwingFs(method), ...mk(p) }) } catch (e) { err = e }
+    expect(err?.code).toBe('db_key_guard_unreadable')
+    expect(err.message).toContain(p)
+    expect(err.message).toMatch(/key was not created/)
+    expect(hasDbKey(dir)).toBe(false)
+  })
+
+  it('an ENOENT file is nothing to guard and still mints', () => {
+    const p = path.join(dir, 'absent.automerge')
+    expect(getOrCreateDbKey(dir, fakeSafeStorage(), { docPaths: [p], dataPaths: [p] })).toHaveLength(32)
+  })
+})
+
 describe('keychain unavailable', () => {
   it('throws keychain_unavailable naming the escape and its limit', () => {
     let err
