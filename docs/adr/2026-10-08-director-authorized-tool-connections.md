@@ -2,7 +2,7 @@
 title: "Director-authorized tool connections: how an MCP/CLI tool is authorized to a camp, and how that authorization releases the at-rest DB key"
 document_type: adr
 authority: normative
-status: proposed
+status: accepted
 implementation_state: not-started
 date: 2026-10-08
 decided: 2026-10-08
@@ -19,10 +19,23 @@ blocks: [T175]
 
 ## Status
 
-PROPOSED. One interpretation question is flagged to the owner (see "Posture — the one thing to
-confirm") because it determines the whole shape; everything below is written for the interpretation I
-recommend. Design-only. Changes no security posture beyond what the owner set *under the recommended
-interpretation*; the alternative interpretation would, and is flagged rather than assumed.
+ACCEPTED. The interpretation flagged below was put to the owner and ruled.
+
+> **Owner ruling, 2026-10-08, verbatim:** "A. it's accountability."
+
+Interpretation A is confirmed: this is a **governance and accountability** control layered on the
+existing same-OS-user + keychain boundary — **no new cryptographic boundary, no posture change**; the
+2026-09-16 ADR's "same-OS-user = already trusted" tradeoff stands. Accepted by the organizer under
+delegation with the owner's interpretation on record. Design-only.
+
+### Non-goal (explicit)
+
+This authorization layer **does NOT defend against a same-OS-user attacker.** A process running as the
+same OS user, with the same keychain access the app has, can still obtain the key by running the
+unlock helper itself — unchanged and inherent to `safeStorage` (2026-09-16 ADR). The control's value
+is **accountability**: a director's explicit, named, revocable, listed, audited choice of which tools
+connect, and a clear named refusal when one is not authorized. It is not, and must not be presented
+as, a cryptographic barrier against a local attacker.
 
 ## First principle (owner, verbatim)
 
