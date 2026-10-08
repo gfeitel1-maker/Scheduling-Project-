@@ -52,6 +52,15 @@ had synced recently.** Then:
 synced.** With any second synced device, the "real loss" case does not occur — that
 device *is* the backup, continuously.
 
+**There is deliberately no plaintext local backup.** Once encryption has verified, the first-run
+plaintext rollback backup and any legacy plaintext schema-migration backups
+(`*.pre-migration-*.bak`) are shredded, because a plaintext copy beside the data defeats at-rest
+encryption. Recovery for a damaged single device is therefore a peer re-sync (owner/keeper ruling
+2026-10-08). Shredding is overwrite-then-delete and only best-effort on APFS/SSD, where the
+filesystem may keep old blocks; it is a mitigation, not a guarantee. A backup is shredded only
+when the database was already a non-empty encrypted file before the open, or this same open has
+just migrated and verified a plaintext one — never beside an absent or empty database.
+
 ## Why the storage key hard-fails (and why that is allowed here)
 
 Every other recent decision in this codebase holds to *a missing thing must not

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
 import { randomUUID, randomBytes } from 'node:crypto'
 import { writePreMigrationBackup } from './projectManager.js'
-import { isPlaintextSqliteFile, rawKeyPragma, migratePlaintextToEncrypted, recoverInterruptedMigration, shredOrphanedPlaintextBackups } from './sqliteCipher.js'
+import { isPlaintextSqliteFile, rawKeyPragma, migratePlaintextToEncrypted, recoverInterruptedMigration, shredOrphanedPlaintextBackups, probeDbFile, shouldShredOrphanedBackups } from './sqliteCipher.js'
 
 // Synchronous, lazy require for the OPTIONAL encrypting driver — only reached when a key is passed
 // (see encryptingDatabaseCtor). ESM has no sync import, and openLocalDb is sync, so createRequire is
@@ -4957,8 +4957,11 @@ export function openLocalDb(filePath, { key = null, plaintext = false } = {}) {
     throw err
   }
   let db
+  let preOpen = null
+  let migratedThisCall = false
   try {
     if (key && !plaintext) {
+      preOpen = probeDbFile(filePath)
       const EncDatabase = encryptingDatabaseCtor()
       // Migrate an existing plaintext file to encrypted BEFORE opening it keyed (a keyed open of a
       // plaintext file would fail). Detection is by file header, not trial-and-error. A new/absent or
@@ -4966,6 +4969,7 @@ export function openLocalDb(filePath, { key = null, plaintext = false } = {}) {
       const { backupPath: recoveredFrom } = recoverInterruptedMigration(filePath, key, { Database: EncDatabase })
       if (isPlaintextSqliteFile(filePath)) {
         migratePlaintextToEncrypted(filePath, key, { Database: EncDatabase, writeBackup: writePreMigrationBackup })
+        migratedThisCall = true
         if (recoveredFrom) { try { fs.unlinkSync(recoveredFrom) } catch { /* best effort */ } }
       }
       db = new EncDatabase(filePath)
@@ -4983,7 +4987,7 @@ export function openLocalDb(filePath, { key = null, plaintext = false } = {}) {
     // property is 'schema_too_new' so IPC handlers can return a friendly
     // message instead of a generic crash.
     const existingVersion = getSchemaVersion(db)
-    if (key && !plaintext) shredOrphanedPlaintextBackups(filePath) // getSchemaVersion just read through the key: it works
+    if (key && !plaintext && shouldShredOrphanedBackups({ ...preOpen, migratedThisCall })) shredOrphanedPlaintextBackups(filePath) // getSchemaVersion just read through the key: it works
     if (existingVersion > CURRENT_SCHEMA_VERSION) {
       db.close()
       const err = new Error(

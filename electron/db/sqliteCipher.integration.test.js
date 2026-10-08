@@ -74,6 +74,21 @@ describe.skipIf(!driverAvailable)('SQLite at-rest encryption — real driver, th
       expect(fs.existsSync(enc)).toBe(true)
     })
 
+    it('db absent + plaintext .bak -> .bak kept (a fresh empty db must never trigger a shred)', () => {
+      const f = tmpFile('absent')
+      const plain = bakNamed(f, 'p', Buffer.concat([MAGIC, Buffer.alloc(200, 5)]))
+      openLocalDb(f, { key: key() }).close()
+      expect(fs.existsSync(plain)).toBe(true)
+    })
+
+    it('db zero-length + plaintext .bak -> .bak kept', () => {
+      const f = tmpFile('zero')
+      fs.writeFileSync(f, '')
+      const plain = bakNamed(f, 'p', Buffer.concat([MAGIC, Buffer.alloc(200, 5)]))
+      openLocalDb(f, { key: key() }).close()
+      expect(fs.existsSync(plain)).toBe(true)
+    })
+
     it('a failed key deletes nothing', () => {
       const f = encryptedDb('orphan-badkey', key())
       const plain = bakNamed(f, 'p', Buffer.concat([MAGIC, Buffer.alloc(200, 5)]))

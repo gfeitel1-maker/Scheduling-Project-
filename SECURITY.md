@@ -320,6 +320,10 @@ malware running as that user. It is a trusted-device model, not full-disk encryp
 against a live, authenticated attacker. For a shared machine, use separate OS user accounts; the
 keychain isolation is per-OS-user.
 
+Plaintext `*.pre-migration-*.bak` copies are shredded (overwrite, then delete; best-effort on
+APFS/SSD) once encryption has verified, because a plaintext copy defeats at-rest encryption; recovery
+is a peer re-sync. See `docs/current/KEY_RECOVERY_STORY.md`.
+
 **Recovery:** the key lives only in this device's keychain. If the OS keychain is reset or the device is
 lost with no other paired device holding a copy, the encrypted data cannot be recovered. See
 `docs/current/KEY_RECOVERY_STORY.md`.

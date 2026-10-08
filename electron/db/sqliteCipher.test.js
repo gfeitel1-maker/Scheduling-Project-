@@ -6,7 +6,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
-import { isPlaintextSqliteFile, rawKeyPragma, migratePlaintextToEncrypted, recoverInterruptedMigration, shredOrphanedPlaintextBackups } from './sqliteCipher.js'
+import { isPlaintextSqliteFile, rawKeyPragma, migratePlaintextToEncrypted, recoverInterruptedMigration, shredOrphanedPlaintextBackups, probeDbFile, shouldShredOrphanedBackups } from './sqliteCipher.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -292,5 +292,39 @@ describe('shredOrphanedPlaintextBackups', () => {
     shredOrphanedPlaintextBackups(db, { fsImpl })
     expect(writes).toHaveLength(1)
     expect(writes[0][1].every((x) => x === 0)).toBe(true)
+  })
+})
+
+describe('shouldShredOrphanedBackups / probeDbFile (no driver)', () => {
+  const MAGIC = Buffer.from('SQLite format 3\0', 'latin1')
+  let d
+  beforeEach(() => { d = fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-probe-')) })
+  afterEach(() => { fs.rmSync(d, { recursive: true, force: true }) })
+  const enc = { existed: true, nonEmpty: true, encryptedHeader: true }
+
+  it('shreds for a pre-existing non-empty encrypted-header db', () => {
+    expect(shouldShredOrphanedBackups(enc)).toBe(true)
+  })
+  it('shreds right after this call migrated a pre-existing plaintext db', () => {
+    expect(shouldShredOrphanedBackups({ existed: true, nonEmpty: true, encryptedHeader: false, migratedThisCall: true })).toBe(true)
+  })
+  it('never shreds for an absent db', () => {
+    expect(shouldShredOrphanedBackups({ existed: false, nonEmpty: false, encryptedHeader: false })).toBe(false)
+  })
+  it('never shreds for a zero-length db', () => {
+    expect(shouldShredOrphanedBackups({ existed: true, nonEmpty: false, encryptedHeader: false })).toBe(false)
+  })
+  it('never shreds for a plaintext db that was not migrated by this call', () => {
+    expect(shouldShredOrphanedBackups({ existed: true, nonEmpty: true, encryptedHeader: false })).toBe(false)
+  })
+  it('probeDbFile reports absent, zero-length, plaintext and encrypted files', () => {
+    const f = path.join(d, 'a.sqlite')
+    expect(probeDbFile(f)).toEqual({ existed: false, nonEmpty: false, encryptedHeader: false })
+    fs.writeFileSync(f, '')
+    expect(probeDbFile(f)).toEqual({ existed: true, nonEmpty: false, encryptedHeader: false })
+    fs.writeFileSync(f, Buffer.concat([MAGIC, Buffer.alloc(50)]))
+    expect(probeDbFile(f)).toEqual({ existed: true, nonEmpty: true, encryptedHeader: false })
+    fs.writeFileSync(f, Buffer.alloc(4096, 0x9c))
+    expect(probeDbFile(f)).toEqual({ existed: true, nonEmpty: true, encryptedHeader: true })
   })
 })

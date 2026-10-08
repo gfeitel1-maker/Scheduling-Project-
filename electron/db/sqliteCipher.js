@@ -261,3 +261,18 @@ export function shredOrphanedPlaintextBackups(filePath, { fsImpl = fs } = {}) {
   }
   return { shredded }
 }
+
+// Facts about the db file, taken BEFORE the keyed open: a keyed open of an absent or zero-length
+// file CREATES an empty encrypted db, which proves nothing about any backup beside it.
+export function probeDbFile(filePath, { fsImpl = fs } = {}) {
+  let size
+  try { size = fsImpl.statSync(filePath).size } catch { return { existed: false, nonEmpty: false, encryptedHeader: false } }
+  const nonEmpty = size > 0
+  return { existed: true, nonEmpty, encryptedHeader: nonEmpty && !isPlaintextSqliteFile(filePath, { fsImpl }) }
+}
+
+// A plaintext backup is orphaned only if the db was a real, non-empty, already-encrypted file before
+// this open, or this very call migrated a pre-existing plaintext db and verified it.
+export function shouldShredOrphanedBackups({ existed, nonEmpty, encryptedHeader, migratedThisCall = false }) {
+  return migratedThisCall || (existed && nonEmpty && encryptedHeader)
+}

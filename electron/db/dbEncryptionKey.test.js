@@ -137,6 +137,21 @@ describe('getOrCreateDbKey — unreadable existing data fails closed', () => {
   })
 })
 
+describe('getOrCreateDbKey — docPaths getter is lazy', () => {
+  it('is not called when a key file already exists (a readdir error cannot block a keyed device)', () => {
+    const ss = fakeSafeStorage()
+    getOrCreateDbKey(dir, ss)
+    const docPaths = () => { throw new Error('transient readdir failure') }
+    expect(getOrCreateDbKey(dir, ss, { docPaths })).toHaveLength(32)
+  })
+  it('is called, and its result judged, when no key file exists', () => {
+    const enc = path.join(dir, 'a.automerge'); fs.writeFileSync(enc, Buffer.concat([Buffer.from('SHEN', 'ascii'), Buffer.alloc(64)]))
+    let err
+    try { getOrCreateDbKey(dir, fakeSafeStorage(), { docPaths: () => [enc] }) } catch (e) { err = e }
+    expect(err?.code).toBe('db_key_file_missing')
+  })
+})
+
 describe('keychain unavailable', () => {
   it('throws keychain_unavailable naming the escape and its limit', () => {
     let err

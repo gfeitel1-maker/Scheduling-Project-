@@ -3145,15 +3145,15 @@ if (isElectronEntryPoint()) {
   let dbPath = getCurrentProjectPath(userDataPath, defaultDbPath)
   const keyGuard = {
     dataPaths: [...new Set([dbPath, ...readRecentProjects(userDataPath).map((e) => e.path)])],
-    docPaths: (() => {
+    docPaths: () => {
       const dir = path.join(userDataPath, 'automerge')
       try { return fs.readdirSync(dir).filter((n) => n.endsWith('.automerge')).map((n) => path.join(dir, n)) } catch (err) {
         if (err?.code === 'ENOENT') return []
-        const e = new Error(`Could not list ${dir} (${err?.code ?? err?.message}) to check for encrypted camp documents, so the encryption key was not created. Fix the directory permissions and start again; see docs/current/KEY_RECOVERY_STORY.md.`)
+        const e = new Error(`Could not list ${dir} (${err?.code ?? err?.message}) to check for encrypted camp documents before creating a new encryption key, so no key was created. Fix the directory permissions and start again; see docs/current/KEY_RECOVERY_STORY.md.`)
         e.code = 'db_key_guard_unreadable'
         throw e
       }
-    })(),
+    },
   }
   try {
     dbKey = acquireDbKey(userDataPath, safeStorage, keyGuard) // null when encryption is off → SQLite stays plaintext
