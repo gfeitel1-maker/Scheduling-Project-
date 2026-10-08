@@ -153,7 +153,7 @@ run has a completed subagent of the gate's type whose recorded result agrees wit
 (`pass`/`fail` with blocking entries), every finding summary quoted verbatim from a recorded
 `blocking`/`nonblocking` entry (at least 20 characters; a report with no findings binds only a result that recorded none), every BLOCKING finding from `blocking`. Transcribe, do not
 paraphrase, finding summaries. A missing dispatch, wrong agent type or differing content still
-refuses. A result recorded as `{verdict, findings:[string]}` counts as non-blocking entries on a pass and blocking entries on a fail. The run must also name the report's `taskId`: in its directory name or a journal `started` label such as `governor:t346`, or in that reviewer's own recorded prompt (the first user message of `agent-<id>.jsonl`; this ties that agent only). Otherwise it refuses. If you cannot obtain the dispatch-bearing transcript, say so
+refuses. A result recorded as `{verdict, findings:[string]}` counts as non-blocking entries on a pass and blocking entries on a fail. The run must also name the report's `taskId`: in its directory name or a journal `started` label such as `governor:t346`, or as the first task id named in that reviewer's own recorded prompt (the first user message of `agent-<id>.jsonl`; a later mention does not count, and this ties that agent only). Otherwise it refuses. If you cannot obtain the dispatch-bearing transcript, say so
 plainly — a binding you cannot make is disclosed as the `HIGH` "we cannot tell", never routed around
 with a hand-written report.
 

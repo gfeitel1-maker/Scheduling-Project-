@@ -117,6 +117,22 @@ describe('workflowDir provenance, task named only in the dispatched prompt', () 
     expect(run(good347(), FIXTURE_347, 'T347').decision_eligibility).toBe('PASS_ELIGIBLE')
   })
 
+  it('refuses a task that is only a secondary mention (not the first task id) in the reviewer prompt', () => {
+    const sec = opinion('security', SEC347)
+    for (const id of ['T340', 'T331']) {
+      expect(checkWorkflowProvenance({ ...loadWorkflowRun(FIXTURE_347), taskId: id, report: sec }).bound).toBe(false)
+    }
+    expect(checkWorkflowProvenance({ ...loadWorkflowRun(FIXTURE_347), taskId: 'T347', report: sec }).bound).toBe(true)
+  })
+
+  it('refuses a task that is only a secondary mention (not the first task id) in the reviewer prompt', () => {
+    const sec = opinion('security', SEC347)
+    for (const id of ['T340', 'T331']) {
+      expect(checkWorkflowProvenance({ ...loadWorkflowRun(FIXTURE_347), taskId: id, report: sec }).bound).toBe(false)
+    }
+    expect(checkWorkflowProvenance({ ...loadWorkflowRun(FIXTURE_347), taskId: 'T347', report: sec }).bound).toBe(true)
+  })
+
   it('refuses a run whose reviewer prompts never mention the task', () => {
     expect(() => run(good347(), FIXTURE_347, 'T999')).toThrow(/T999/)
   })

@@ -13,7 +13,9 @@
 // The task tie is either run-wide or per dispatch: the taskId appears as a token in the run
 // directory name or a journal 'started' label (e.g. "governor:t346"), or in the dispatched
 // reviewer's own recorded prompt (the first user message of agent-<id>.jsonl) — the only place a
-// run that labels agents by role ("security") names its task. A prompt tie binds that agent only.
+// run that labels agents by role ("security") names its task. A prompt tie holds only when the
+// taskId is the FIRST task id named in that prompt (a later mention is a cross-reference, not the
+// subject) and binds that agent only.
 // A result may also be {verdict, findings:[string]}: a pass records them as non-blocking entries,
 // a fail as blocking ones. Findings must be non-empty (an empty list
 // binds only a result that recorded none) and each summary at least MIN_SUMMARY characters.
@@ -29,6 +31,8 @@ import { SUBAGENT_TYPE_BY_GATE } from './opinionReportProvenance.js'
 const norm = (s) => String(s).replace(/\s+/g, ' ').trim()
 
 const MIN_SUMMARY = 20
+
+const firstTaskId = (prompt) => /\bT\d+\b/i.exec(prompt ?? '')?.[0].toUpperCase()
 
 function firstPrompt(dir, agentId) {
   try {
@@ -93,7 +97,7 @@ export function checkWorkflowProvenance({ agents, labels = [], dirName = '', tas
   if (ofType.length === 0) {
     return { bound: false, reason: `no completed ${subagentType} dispatch found in the workflow run` }
   }
-  const candidates = ofType.filter((a) => runTied || (taskId && tie.test(a.prompt ?? '')))
+  const candidates = ofType.filter((a) => runTied || (taskId && firstTaskId(a.prompt) === String(taskId).toUpperCase()))
   if (candidates.length === 0) {
     return { bound: false, reason: `the workflow run is not tied to task ${taskId} (no run directory name, dispatch label or ${subagentType} prompt names it)` }
   }
