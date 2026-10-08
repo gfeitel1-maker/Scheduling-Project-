@@ -12,6 +12,7 @@ import net from 'node:net'
 import { describe, it, expect, afterEach } from 'vitest'
 import { createLibp2p } from 'libp2p'
 import { tcp } from '@libp2p/tcp'
+import { generateKeyPair } from '@libp2p/crypto/keys'
 import { noise } from '@chainsafe/libp2p-noise'
 import { yamux } from '@chainsafe/libp2p-yamux'
 import { startTransport } from './transport.js'
@@ -202,5 +203,37 @@ describe('T340 connection-manager DoS hardening', () => {
     await sleep(900)
     expect(await director.sendPairingApproved('joiner-dev', 'secret')).toBe(true)
     await waitFor(() => decisions.length === 1)
+  })
+
+  it('9: the exemption is keyed to the pairing connection and clears when it closes', async () => {
+    const key = await generateKeyPair('Ed25519')
+    const director = await startTransport({ deviceId: 'director', onAuthenticate: alwaysAdmit, onPairingRequest: () => ({ ok: true }), unadmittedDeadlineMs: 300 })
+    const joiner = await startTransport({ deviceId: 'joiner', listen: [], onAuthenticate: alwaysAdmit, privateKey: key })
+    const joiner2 = await startTransport({ deviceId: 'joiner2', listen: [], onAuthenticate: alwaysAdmit, privateKey: key })
+    cleanups.push(() => director.stop(), () => joiner.stop(), () => joiner2.stop())
+    const conn = await joiner.dial(director.getMultiaddrs()[0])
+    const reply = await joiner.authenticateWith(director.peerId, { type: 'pairing_request', device_id: 'joiner-dev', device_name: 'J' })
+    expect(reply?.type).toBe('pairing_pending')
+    await sleep(700)
+    expect(conn.status).toBe('open')
+    conn.abort(new Error('joiner left'))
+    await waitFor(() => director.getPeers().length === 0)
+    const again = await joiner2.dial(director.getMultiaddrs()[0])
+    await waitFor(() => again.status !== 'open', { timeout: 2000 })
+    expect(await director.sendPairingApproved('joiner-dev', 'secret')).toBe(false)
+  })
+
+  it('10: a SECOND connection from the same pending peer id is not exempt and is aborted at the deadline', async () => {
+    const key = await generateKeyPair('Ed25519')
+    const director = await startTransport({ deviceId: 'director', onAuthenticate: alwaysAdmit, onPairingRequest: () => ({ ok: true }), unadmittedDeadlineMs: 300 })
+    const joiner1 = await startTransport({ deviceId: 'j1', listen: [], onAuthenticate: alwaysAdmit, privateKey: key })
+    const joiner2 = await startTransport({ deviceId: 'j2', listen: [], onAuthenticate: alwaysAdmit, privateKey: key })
+    cleanups.push(() => director.stop(), () => joiner1.stop(), () => joiner2.stop())
+    expect(joiner1.peerId).toBe(joiner2.peerId)
+    const c1 = await joiner1.dial(director.getMultiaddrs()[0])
+    await joiner1.authenticateWith(director.peerId, { type: 'pairing_request', device_id: 'joiner-dev', device_name: 'J' })
+    const c2 = await joiner2.dial(director.getMultiaddrs()[0])
+    await waitFor(() => c2.status !== 'open', { timeout: 2000 })
+    expect(c1.status).toBe('open')
   })
 })

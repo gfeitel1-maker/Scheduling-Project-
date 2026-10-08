@@ -266,7 +266,7 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     } catch { /* release must never throw into libp2p's event dispatch */ }
   })
 
-  const { authenticatedPeers, isPairingPending, sendPairingApproved, sendPairingDenied } = registerAuthGate(node, {
+  const { authenticatedPeers, isPairingConnection, sendPairingApproved, sendPairingDenied } = registerAuthGate(node, {
     onAuthenticate,
     onPairingRequest,
     onLogin,
@@ -305,13 +305,14 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
   // un-admitted bucket's turnover, and it defeats an attacker holding an authGate stream open, which
   // libp2p's safelyCloseConnectionIfUnused would otherwise skip.
   //
-  // HONEST GUARANTEE: an ESTABLISHED admitted connection is never evicted by an un-admitted flood. A
-  // reconnecting camp device is indistinguishable from the flood at connection:open (admission is not
-  // decided yet), so it gets a slot within bounded deadline turnover, NOT instantly under an active
-  // flood. Exemption: a peer with a pending pairing is NOT aborted by the deadline, because the
-  // director's decision is human-time and is delivered by dialing back over this very connection (a
-  // NAT'd joiner has no other dialable address). That hold is bounded by MAX_PENDING_PAIRING and still
-  // counts against the un-admitted cap. Outbound connections are our own choice, so they are counted but never aborted here.
+  // HONEST GUARANTEE: An ESTABLISHED admitted connection is never evicted by an un-admitted flood (hard
+  // guarantee — the floor). A RECONNECTING camp device regains a slot LIKELY within an authGate-deadline
+  // turnover cycle, but this is NOT guaranteed under a sustained distributed flood — it competes for the
+  // recycling un-admitted slots. (Indistinguishable from the flood at connection:open, so not instant under an active
+  // flood. Exemption: the SINGLE LAN connection that carried an accepted pairing_request is NOT
+  // aborted by the deadline (pairing is LAN-only, owner ruling 2026-10-08), because the director's
+  // decision is human-time. It is keyed to that connection, not the peer id, and cleared when it
+  // closes. Bounded by MAX_PENDING_PAIRING; still counts against the un-admitted cap. Outbound connections are our own choice, so they are counted but never aborted here.
   const unadmittedCap = maxConnections - reservedFloor
   const deadlineTimers = new Map()
   node.addEventListener('connection:open', (evt) => {
@@ -325,7 +326,7 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     const timer = setTimeout(() => {
       deadlineTimers.delete(connection)
       const peer = connection.remotePeer.toString()
-      if (connection.status === 'open' && !authenticatedPeers.has(peer) && !isPairingPending(peer)) {
+      if (connection.status === 'open' && !authenticatedPeers.has(peer) && !isPairingConnection(connection)) {
         connection.abort(new Error('authgate_deadline'))
       }
     }, unadmittedDeadlineMs)

@@ -249,7 +249,7 @@ export async function startJoinSession({
       if (reply?.type === 'pairing_approved') {
         return { status: 'approved', deviceSecretIdentifier: reply.device_secret_identifier }
       }
-      if (reply?.type === 'pairing_denied') return { status: 'denied' }
+      if (reply?.type === 'pairing_denied') return { status: 'denied', ...(reply.reason ? { reason: reply.reason } : {}) }
       return { status: 'pending' }
     },
 

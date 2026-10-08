@@ -51,7 +51,9 @@ tracks that decision and its hard preconditions; it is NOT a build task to start
 5. **ADR 2026-09-14 owner-level items** not owned by the capability slices: ~~signed/integrity-checked
    auto-update (an internet-facing Electron app without it is an RCE vector)~~ _CLOSED: owner
    2026-10-08 will not build it; there is no update path, board item `h-signed-auto-update-closed`._
-   Still open: a full internet-scale libp2p rate-limit review.
+   Still open: a full internet-scale libp2p rate-limit review (includes the sizing of the 16
+   pre-Noise pending slots, `MAX_INCOMING_PENDING_CONNECTIONS`; pairing itself is LAN-only per owner
+   ruling 2026-10-08, see the max-connections ADR).
 6. **DONE (documented, evidence (c)):** `SHORESH_RELAY_ENABLED` must be the literal string `'true'`
    (strict `=== 'true'` at `electron/sync/automerge/syncStarter.js:386`; other values fail closed to inert).
 
