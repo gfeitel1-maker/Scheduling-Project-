@@ -10,6 +10,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act, waitFor } from '@testing-library/react'
 
 const mockLocalClient = {
+  getBootFailure: vi.fn(),
   getCamp: vi.fn(),
   campHasSetupData: vi.fn(),
   chooseMode: vi.fn(),
@@ -47,6 +48,8 @@ describe('useDeviceMode.bootstrapCamp', () => {
 
   it('signs the director in with the credentials they just chose', async () => {
     const { result } = renderHook(() => useDeviceMode())
+    // bootstrap happens after startup init has settled, never concurrently with it
+    await waitFor(() => expect(result.current.phase).not.toBe('loading'))
     await act(async () => {
       await result.current.bootstrapCamp({
         campName: 'Camp Kinneret', adminName: 'Dana Feldman', adminPin: '4827',

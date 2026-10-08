@@ -60,6 +60,7 @@ export function useDeviceMode() {
   // reads this before it settles to a boolean.
   const [campIsEmpty, setCampIsEmpty] = useState(null)
   const [error, setError] = useState(null)
+  const [bootFailure, setBootFailure] = useState(null)
   const [initNonce, setInitNonce] = useState(0)
   // Director-facing explanation for why they landed back on the login screen.
   // null = ordinary (fresh device, deliberate logout, benign local-expiry).
@@ -88,6 +89,20 @@ export function useDeviceMode() {
   useEffect(() => {
     let active = true
     async function init() {
+      try {
+        const failure = await localClient.getBootFailure()
+        if (!active) return
+        if (failure) {
+          setBootFailure(failure)
+          setLoading(false)
+          return
+        }
+      } catch (err) {
+        if (!active) return
+        setError(err && err.message ? err.message : String(err))
+        setLoading(false)
+        return
+      }
       try {
         // Read before anything else: the Join screen's whole shape depends on
         // it, and it is a pre-auth constant for the process lifetime. A client
@@ -262,7 +277,7 @@ export function useDeviceMode() {
   }, [])
 
   let phase
-  if (error) phase = 'error'
+  if (error || bootFailure) phase = 'error'
   else if (loading) phase = 'loading'
   else if (!mode) phase = 'mode-select'
   else if (mode === 'host' && !camp) phase = 'bootstrap'
@@ -284,6 +299,7 @@ export function useDeviceMode() {
     role,
     sessionEndedReason,
     error,
+    bootFailure,
     retry,
     chooseHost,
     chooseJoin,

@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('shoresh', {
   // writes the smoke marker only when SHORESH_SMOKE_NONCE is set (a no-op
   // round-trip otherwise). See electron/main.js and scripts/deploy-local.sh.
   reportSmokeReady: () => ipcRenderer.invoke('shoresh:smoke-ready'),
+  getBootFailure: () => ipcRenderer.invoke('shoresh:get-boot-failure'),
+  quitApp: () => ipcRenderer.invoke('shoresh:quit-app'),
   onOpApplied: (callback) => {
     const wrapped = (_event, op) => callback(op)
     ipcRenderer.on('shoresh:op-applied', wrapped)

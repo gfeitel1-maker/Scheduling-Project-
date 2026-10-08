@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { describeStartupFailure, formatStartupFailureLog } from './startupFailure.js'
+import { describeStartupFailure, formatStartupFailureLog, toBootFailure, handleStartupFailure } from './startupFailure.js'
 
 // T19. The defect was silence, so these tests are about whether anything is
 // SAID and whether a director could act on it — not about any single fault.
@@ -74,5 +74,86 @@ describe('formatStartupFailureLog', () => {
   it('survives an error with no stack', () => {
     expect(() => formatStartupFailureLog('plain string', 'now')).not.toThrow()
     expect(formatStartupFailureLog('plain string', 'now')).toMatch(/plain string/)
+  })
+})
+
+describe('toBootFailure', () => {
+  const codeErr = (code, extra = {}) => Object.assign(new Error(`secret /path/db.key.enc ${code}`), { code, ...extra })
+
+  it.each([
+    'db_unreadable',
+    'db_migration_interrupted',
+    'keychain_unavailable',
+    'db_key_guard_unreadable',
+    'db_key_file_missing',
+  ])('maps %s to just its code', (code) => {
+    expect(toBootFailure(codeErr(code))).toEqual({ code })
+  })
+
+  it('carries backupPath for an interrupted migration that has one', () => {
+    expect(toBootFailure(codeErr('db_migration_interrupted', { backupPath: '/x/a.bak' })))
+      .toEqual({ code: 'db_migration_interrupted', backupPath: '/x/a.bak' })
+  })
+
+  it('returns null for unknown, missing and out-of-scope codes', () => {
+    expect(toBootFailure(new Error('boom'))).toBeNull()
+    expect(toBootFailure(codeErr('schema_too_new'))).toBeNull()
+    expect(toBootFailure(null)).toBeNull()
+  })
+
+  it('never leaks message or stack', () => {
+    const out = toBootFailure(codeErr('db_unreadable'))
+    expect(Object.keys(out)).toEqual(['code'])
+  })
+})
+
+describe('handleStartupFailure', () => {
+  function fakes() {
+    const handlers = {}
+    const calls = { logged: [], windows: 0, box: 0, exit: [], quit: 0 }
+    return {
+      handlers,
+      calls,
+      deps: {
+        writeLog: (err) => calls.logged.push(err),
+        ipcMain: { handle: (ch, fn) => { handlers[ch] = fn } },
+        createWindow: async () => { calls.windows += 1 },
+        showErrorBox: () => { calls.box += 1 },
+        exit: (n) => calls.exit.push(n),
+        quit: () => { calls.quit += 1 },
+        stderr: () => {},
+      },
+    }
+  }
+
+  it('shows the recovery window for a recognized code, with no dialog and no exit', async () => {
+    const { deps, calls, handlers } = fakes()
+    const err = Object.assign(new Error('SQLITE /p/db.key.enc'), { code: 'db_unreadable' })
+    await handleStartupFailure(err, deps)
+    expect(calls.logged).toEqual([err])
+    expect(calls.windows).toBe(1)
+    expect(calls.box).toBe(0)
+    expect(calls.exit).toEqual([])
+    expect(await handlers['shoresh:get-boot-failure']()).toEqual({ code: 'db_unreadable' })
+    handlers['shoresh:quit-app']()
+    expect(calls.quit).toBe(1)
+  })
+
+  it('keeps the dialog and exit(1) for an unrecognized error', async () => {
+    const { deps, calls, handlers } = fakes()
+    await handleStartupFailure(new Error('boom'), deps)
+    expect(calls.logged).toHaveLength(1)
+    expect(calls.windows).toBe(0)
+    expect(calls.box).toBe(1)
+    expect(calls.exit).toEqual([1])
+    expect(handlers['shoresh:get-boot-failure']).toBeUndefined()
+  })
+
+  it('falls back to dialog and exit if the recovery window cannot be created', async () => {
+    const { deps, calls } = fakes()
+    deps.createWindow = async () => { throw new Error('no window') }
+    await handleStartupFailure(Object.assign(new Error('x'), { code: 'db_unreadable' }), deps)
+    expect(calls.box).toBe(1)
+    expect(calls.exit).toEqual([1])
   })
 })

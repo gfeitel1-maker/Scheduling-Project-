@@ -213,6 +213,7 @@ describe('recoverInterruptedMigration — a crash mid-rekey must not strand the 
     try { recoverInterruptedMigration(f, KEY, { Database: Fake }) } catch (e) { err = e }
     expect(err?.code).toBe('db_migration_interrupted')
     expect(err.message).toMatch(/no pre-migration backup/i)
+    expect(err.backupPath).toBeUndefined()
   })
 
   it('ignores an ENCRYPTED .bak: throws, names it, and never deletes it', () => {
@@ -232,6 +233,7 @@ describe('recoverInterruptedMigration — a crash mid-rekey must not strand the 
     try { recoverInterruptedMigration(f, KEY, { Database: Fake, fsImpl }) } catch (e) { err = e }
     expect(err?.code).toBe('db_migration_interrupted')
     expect(err.message).toContain(b)
+    expect(err.backupPath).toBe(b)
     expect(fs.existsSync(b)).toBe(true)
   })
 

@@ -29,6 +29,7 @@ import DeviceManagerScreen from './screens/DeviceManagerScreen'
 import SeedScreen from './screens/SeedScreen'
 import AboutScreen from './screens/AboutScreen'
 import { useDeviceMode } from './hooks/useDeviceMode'
+import BootRecoveryScreen from './screens/BootRecoveryScreen'
 import { usePendingConflicts } from './hooks/usePendingConflicts'
 import { ensureCohort } from './utils/ensureCohort'
 import { seedDays } from './utils/seedDays'
@@ -769,6 +770,10 @@ export default function App() {
   }, [])
 
   if (device.phase === 'loading') return null
+
+  if (device.phase === 'error' && device.bootFailure) {
+    return <BootRecoveryScreen failure={device.bootFailure} />
+  }
 
   if (device.phase === 'error') {
     return (

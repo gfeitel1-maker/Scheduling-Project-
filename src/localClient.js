@@ -100,6 +100,8 @@ export const localClient = {
   // through here (not window.shoresh directly) to satisfy the mock-parity
   // invariant; in browser dev it hits the mock's no-op.
   reportSmokeReady: () => shoresh.reportSmokeReady(),
+  getBootFailure: () => shoresh.getBootFailure(),
+  quitApp: () => shoresh.quitApp(),
   onOpApplied: (cb) => shoresh.onOpApplied(cb),
   // Fires after a mutating call made on THIS device resolves. See the note
   // above `localWriteSubscribers`.
