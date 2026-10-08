@@ -18,8 +18,12 @@ implements: []
 
 ## Status
 
-ACCEPTED (the 3-rung LADDER below is the owner's intent and stands) — but the PUNCH TRANSPORT
-MECHANISM it assumed is BLOCKED, so the build is HELD pending an owner mechanism decision.
+ACCEPTED. The 3-rung LADDER is the owner's intent and stands; the punch transport mechanism is now
+RESOLVED — **WebRTC/ICE via `node-datachannel`**, confirmed by a feasibility spike (5/5, narrow —
+see "Mechanism decision"). Build proceeds on the organizer's acceptance of the revised hinge, under
+the hard constraints and must-verify residuals recorded below. (Mechanism change QUIC→WebRTC is
+delegation-scoped: QUIC was an engineering pick, not an owner instruction, and WebRTC preserves every
+owner ruling — no relay, owner not the middleman, his Cloudflare last-only.)
 
 > **Step 0 feasibility result, 2026-10-08 — STOP (QUIC+STUN mechanism infeasible as published).**
 > The socket-affinity check (the make-or-break) FAILED against `@chainsafe/libp2p-quic@2.1.5` /
@@ -32,8 +36,8 @@ MECHANISM it assumed is BLOCKED, so the build is HELD pending an owner mechanism
 > is impossible with the package as published, independent of STUN.
 > CONSEQUENCE: "QUIC + STUN-from-socket" (Decision §1/§3 below) cannot be built on the published
 > transport. The LADDER (rungs 1→2→3, the ordering invariant, no relay, the residual) is unaffected
-> and stands; only HOW the punch socket works is open. Mechanism under revision — see "Mechanism
-> decision (owner)". Build is BLOCKED; no agent substitutes a mechanism the owner did not choose.
+> and stands; only HOW the punch socket works is open. RESOLVED — the mechanism is now WebRTC/ICE via
+> `node-datachannel` (feasibility-spiked 5/5, narrow); see "Mechanism decision".
 
 > **Owner rulings, 2026-10-08, verbatim:**
 > "it is possible for them to meet over different wifis once they have established a connection on lan
@@ -51,36 +55,59 @@ camp-overridable. No relay is built; data is never in any third party's path.
 Step 0 killed "QUIC + STUN-from-socket" (above). Revised-hinge evaluation (owner's rulings preserved:
 no relay, owner not the middleman, his Cloudflare last-only):
 
-- **WebRTC / ICE — RECOMMENDED (pending a bounded feasibility spike, same STOP-bar).** ICE is built
-  for exactly this: each agent gathers host + server-reflexive (STUN) candidates FROM THE SAME SOCKET,
-  exchanges them via signaling, then connectivity-checks (punches) from that same socket — solving
-  BOTH QUIC hinges by design. Crucially, the SIGNALING (SDP/candidate blobs) is carried over OUR
-  rungs, not a circuit relay or a WebRTC signaling server: rung 2 = camp-peer authenticated sync,
-  rung 3 = the owner's Worker (last-resort). NO TURN (TURN = relay = rejected) ⇒ symmetric/CGNAT stays
-  the documented residual, unchanged. LADDER: holds, but the rungs become the SIGNALING channel. RUNG
-  1 ("redial the remembered public address") SURVIVES ONLY IN SPIRIT: ICE re-gathers fresh ephemeral
-  candidates and normally re-signals each session, so rung 1 becomes "attempt connectivity checks
-  against the peer's LAST-KNOWN candidates WITHOUT re-signaling" — direct, no third party, tried first,
-  but BEST-EFFORT (works only while the peer's mapping persists; stale ⇒ fall to rung 2/3 signaling).
-  The 1→2→3 ordering invariant holds. POSTURE: STUN reflector only (owner-accepted, 2026-09-28); data
-  is the device-to-device WebRTC channel; no relay. COST/UNKNOWN: node↔node WebRTC needs a node
-  backend — @libp2p/webrtc is primarily browser↔server, so node↔node likely needs node-datachannel
-  (native) or werift (pure-JS, less battle-tested); whether @libp2p/webrtc accepts CUSTOM
-  (rung-carried) signaling and works node↔node with NO TURN is UNVERIFIED → a Step-0-style spike MUST
-  settle it before committing. SIGNOFFS: `webrtc` (+ possibly `webrtc-direct`) via the T327 gate.
-- **App-owned dgram socket (STUN + punch + listen + dial on ONE socket we own), then a stream
-  transport over it — FALLBACK.** Solves both hinges cleanly (we own the socket) and makes rung 1
-  cleanest (one persistent socket). But no libp2p transport accepts an externally-owned UDP socket
-  (that is exactly why QUIC failed), so "a stream transport over it" means building our own
-  reliable-stream + Noise over UDP — a LARGE, security-critical transport reinvention. Only if WebRTC
-  node↔node proves infeasible.
-- **Fork the native QUIC layer — LAST RESORT** (owner/keeper): owning a per-platform Rust/napi fork of
-  a security-critical transport; high maintenance + supply-chain burden. Avoid unless both above fail.
+**CHOSEN: WebRTC/ICE via `node-datachannel` — feasibility-spiked 5/5 (narrow), independently
+challenged.** ICE gathers host + server-reflexive (STUN) candidates FROM THE SAME SOCKET and punches
+from that same socket, solving both QUIC hinges by design; the signaling (~445 B SDP+candidates)
+rides OUR rungs (rung 2 camp-peer sync, rung 3 the owner's Worker last-resort), only Cloudflare STUN
+is contacted, and NO TURN (⇒ symmetric/CGNAT stays the documented residual). Spike specifics:
 
-RECOMMENDATION: pursue WebRTC/ICE, GATED on a bounded node↔node-WebRTC + custom-signaling + no-TURN
-feasibility spike (STOP-and-report if it doesn't hold, exactly as Step 0 did for QUIC). This is a
-mechanism change from what the owner specified (QUIC) — his decision; the build stays BLOCKED until he
-rules and the spike passes.
+- **Use `node-datachannel` (0.33.4) DIRECTLY, not `@libp2p/webrtc`.** @libp2p/webrtc's non-direct
+  transport needs a circuit relay for signaling, and webrtc-direct assumes a publicly-reachable
+  listener — both incompatible with our no-relay / behind-NAT model. node-datachannel with our custom
+  rung signaling works.
+- **Rung 1 CONFIRMED (best-effort, no-re-signal):** a remembered-candidate reconnect completed with
+  0 signaling messages given a stable DTLS cert, fixed ufrag/pwd, pinned single-port ICE,
+  `disableAutoNegotiation`, and preserved offerer/answerer roles. The NAT remapped the port
+  (50002→10377), so a remembered srflx port is NOT stable across mapping changes → rung 1 falls back
+  to a MINIMAL re-signal (rung 2/3) when the mapping moved. Spirit preserved: direct, no third party,
+  tried first; guarantee is best-effort. The 1→2→3 ordering invariant holds.
+
+### Integration ruling — the ICE channel is a libp2p TRANSPORT, not a side channel
+
+The node-datachannel DTLS data channel plugs in as a **custom libp2p transport adapter** (injected as
+a transport factory exactly like `tcp()` / the relay transport at `transport.js:206`): our rung
+signaling drives the PeerConnection/DataChannel setup, and the opened DataChannel is wrapped as a
+libp2p duplex byte stream handed to libp2p's normal connection upgrader. Consequence: **Noise,
+`authGate`/T331 admission, Yamux, and Automerge sync run over it UNCHANGED** — the cross-network
+connection is indistinguishable from a LAN one above the transport, and admission is **not
+re-implemented**. The DTLS channel is a pipe; Noise over it carries the libp2p peer identity (same
+double-layer @libp2p/webrtc uses). A **side channel** (bridging bytes around libp2p) is REJECTED — it
+would bypass or duplicate the T331/Noise auth stack, a security regression.
+
+### Hazards — HARD build constraints (from the spike)
+
+- **Native misuse SIGABRTs the Electron MAIN process** (e.g. "No DataChannel or Track to negotiate").
+  The adapter MUST defensively guard every node-datachannel call, and MUST call `pc.close()` +
+  `cleanup()` on every teardown/quit path (quit hangs otherwise). Because a native crash takes the
+  whole app down, the build weighs isolating node-datachannel in an Electron `utilityProcess`
+  (crash-contained, bytes bridged to the main-process libp2p) vs. strict in-main lifecycle guards +
+  misuse tests; default to guarded-in-main with a utilityProcess-isolation follow-up noted, and
+  decide at build with Security/Red Hat.
+
+### Capability + residuals
+
+- **Capability signoff:** this adds `node-datachannel` as a WAN transport — update the
+  `transportCapabilities.js` `webrtc` row (today `['@libp2p/webrtc','@libp2p/webrtc-direct']`) to
+  include `node-datachannel` (or a dedicated row), signed off via the **T327 gate**.
+- **MUST-VERIFY before ship (unexercised by the spike):** cross-NAT and SYMMETRIC-NAT behavior (the
+  real two-device owner-hardware test; symmetric stays the no-relay residual), IPv6, **ASAR packaging
+  (the native `.node` must load from a packaged build — likely needs `asarUnpack`)**, and
+  **non-darwin-x64 platforms** (prebuilts under the Electron ABI on every shipped OS). ASAR + per-OS
+  native loading is a genuine ship-blocker to prove.
+
+FALLBACKS (unused): an app-owned dgram socket + a custom reliable-stream/Noise-over-UDP transport —
+LARGE, security-critical; and forking the native QUIC layer — LAST RESORT. Neither is needed:
+node-datachannel passed.
 
 ## Context
 
