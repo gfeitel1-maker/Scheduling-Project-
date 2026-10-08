@@ -22,7 +22,7 @@ import { ensureDeviceIdentity } from '../auth/deviceIdentity.js'
 import { createEmptyDoc, applyWrite } from './campDocument.js'
 import { signAuthorityEntry } from './authorityLogSignature.js'
 import { projectAll } from './projector.js'
-import { createAuthorityReplayContext, currentRevokedDeviceIds } from './authorityReplay.js'
+import { createAuthorityReplayContext, currentRevokedDeviceIds, createVerifiedEntryTrust } from './authorityReplay.js'
 import { seedAllFromSqlite, carryAuthorityLog } from './seed.js'
 
 const files = []
@@ -172,6 +172,46 @@ describe('BT-8 — carry/merge convergence (pure causal/quorum replay)', () => {
   function changeHashes(doc) {
     return new Set(Automerge.getAllChanges(doc).map((c) => Automerge.decodeChange(c).hash))
   }
+  // Author/re-author an entry with a CALLER-CHOSEN id, so the same entry id can be completed again
+  // on a second branch (the re-completion the discriminator below turns on).
+  function pushEntryAt(doc, id, entry) {
+    let d = doc
+    for (const [field, value] of Object.entries(entry)) {
+      d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field, value })
+    }
+    return d
+  }
+
+  // DISCRIMINATOR (Code Reviewer, round 2): the other BT-8 cases above/below exercise only FAITHFUL
+  // copies, whose completing changes all share one entry-level ancestry, so they converge under a
+  // replay that judges a signer over the UNION of ancestors across an entry's completing changes
+  // JUST AS WELL as one that judges per specific completing change — i.e. they do NOT discriminate
+  // the round-2 validity rule. This case does: an ADVERSARIAL second completing change (a backdated
+  // re-completion of an existing entry id) carries extra history that the union model folds into the
+  // signer-validity math, flipping a result; the per-specific-completing-change model does not.
+  //
+  // N=2 (FOUNDER, A). FOUNDER revokes A (R1) and A revokes FOUNDER (RF), concurrently — the ADR's
+  // canonical symmetric case, so BOTH are removed. The attacker then re-authors R1 on a branch that
+  // already holds RF, so a second completing change of R1 has RF as a causal ancestor. Under the
+  // union model FOUNDER (R1's signer) then looks already-revoked in R1's "causal past", dropping R1
+  // so the concurrently-revoked A SURVIVES — the exact Red Hat HIGH, here in the unsigned replay.
+  // RED if the round-2 replay rule is reverted to the union; GREEN as written.
+  it('adversarial re-completion: a backdated second completing change cannot flip a signer\'s validity (RED under the union model)', () => {
+    const base = pushEntry(createEmptyDoc(), { kind: 'grant', target_device_id: 'A', signer_device_id: 'FOUNDER' })
+    const branchF = pushEntryAt(Automerge.clone(base), 'R1', { kind: 'revoke', target_device_id: 'A', signer_device_id: 'FOUNDER' })
+    const branchA = pushEntryAt(Automerge.clone(base), 'RF', { kind: 'revoke', target_device_id: 'FOUNDER', signer_device_id: 'A' })
+    const legit = Automerge.merge(Automerge.clone(branchF), branchA)
+    expect(admins(legit)).toEqual([]) // symmetric mutual destruction — both removed
+
+    // Attacker re-authors R1 atop RF, injecting RF into one of R1's completing changes' ancestry.
+    const attackBranch = pushEntryAt(Automerge.clone(branchA), 'R1', { kind: 'revoke', target_device_id: 'A', signer_device_id: 'FOUNDER' })
+    const attacked = Automerge.merge(Automerge.clone(legit), attackBranch)
+
+    // Both completing changes of R1 are present; a genuine one still witnesses FOUNDER as a valid
+    // signer, so R1 counts and A is NOT resurrected. (Under the union model this is ['A'] — RED.)
+    expect(admins(attacked)).not.toContain('A')
+    expect(admins(attacked)).toEqual([])
+  })
 
   it('hand-constructed absolute outcome: original, carried, and both merges all equal the known state', () => {
     // N=3 (FOUNDER, A, B); target A revoked by a quorum (B and FOUNDER). Known outcome: admins
@@ -307,5 +347,86 @@ describe('BT-10 — rebuild idempotence over carried authority entries (signed)'
     projectAll(dbMerged, merged)
     expect(authoritySnapshot(dbMerged)).toEqual(cacheOriginal)
     expect(appliedLogRows(dbMerged)).toEqual(logOriginal)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// ADVERSARIAL RE-COMPLETION — Red Hat's CONFIRMED HIGH forgery (round 1), reproduced on the real
+// crypto/merge seam (real Ed25519 device keys, real Automerge documents, the SIGNED verify-and-
+// replay path via createVerifiedEntryTrust). The regeneration carry makes an entry legitimately
+// hold MORE THAN ONE completing change (peer holds the original, the regenerating device holds a
+// re-authored copy). The round-1 validity model judged a signer over the UNION of the ancestors of
+// ALL of an entry's completing changes, so a peer who adds ONE more completing change for an
+// existing entry id — on a branch carrying extra backdated history — could inject that history into
+// the union and flip the signer's validity. Here that drops a legitimate revoke vote, so a device
+// that a concurrent revoke should have removed instead SURVIVES.
+//
+// Signatures are real and unchanged: the attacker only RE-AUTHORS entries that were already validly
+// signed (the entry id and content are signature-bound, so the content cannot be altered), choosing
+// the re-authored change's Automerge ancestry. That is exactly the power a merge gives any peer.
+// ---------------------------------------------------------------------------
+describe('adversarial re-completion — a re-authored completing change cannot flip a signer\'s validity', () => {
+  // Author/re-author an entry with a CALLER-CHOSEN id (so the same entry id can be completed again
+  // on a second branch — the re-completion the attack relies on). Verbatim-signed exactly as the
+  // real write path signs, so the production trust predicate verifies it.
+  function writeGenesisAt(doc, id, { founderDeviceId, founderPeerId }) {
+    let d = applyWrite(doc, { entity: 'camp_authority_log', entity_id: id, field: 'kind', value: 'genesis' })
+    d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'target_device_id', value: founderDeviceId })
+    d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'target_peer_id', value: founderPeerId })
+    return d
+  }
+  function writeGrantAt(doc, id, { targetDeviceId, targetPeerId, signerDeviceId, signerDb }) {
+    const signature = signAuthorityEntry(signerDb, { id, kind: 'grant', target_device_id: targetDeviceId, signer_device_id: signerDeviceId })
+    let d = applyWrite(doc, { entity: 'camp_authority_log', entity_id: id, field: 'kind', value: 'grant' })
+    d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'target_device_id', value: targetDeviceId })
+    d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'target_peer_id', value: targetPeerId })
+    d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'signer_device_id', value: signerDeviceId })
+    d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'signature', value: signature })
+    return d
+  }
+  function writeRevokeAt(doc, id, { targetDeviceId, signerDeviceId, signerDb }) {
+    const signature = signAuthorityEntry(signerDb, { id, kind: 'revoke', target_device_id: targetDeviceId, signer_device_id: signerDeviceId })
+    let d = applyWrite(doc, { entity: 'camp_authority_log', entity_id: id, field: 'kind', value: 'revoke' })
+    d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'target_device_id', value: targetDeviceId })
+    d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'signer_device_id', value: signerDeviceId })
+    d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'signature', value: signature })
+    return d
+  }
+  function admins(doc) {
+    const isEntryTrusted = createVerifiedEntryTrust(Automerge, doc)
+    return [...createAuthorityReplayContext(Automerge, doc, { isEntryTrusted }).currentState().grantedSet].sort()
+  }
+
+  it('a forged backdated re-completion of F\'s revoke cannot let the concurrently-revoked admin A survive', async () => {
+    const F = await makeDevice()
+    const A = await makeDevice()
+
+    // N=2 (F, A). base = genesis(F) + grant(A by F).
+    let base = writeGenesisAt(createEmptyDoc(), 'genesis', { founderDeviceId: 'F', founderPeerId: F.peerId })
+    base = writeGrantAt(base, 'grantA', { targetDeviceId: 'A', targetPeerId: A.peerId, signerDeviceId: 'F', signerDb: F.db })
+
+    // LEGITIMATE concurrent mutual revocation (the ADR's N=2 canonical symmetric case, threshold 1):
+    //   branchF: F revokes A        (entry R1)
+    //   branchA: A revokes F        (entry RF)
+    // R1 and RF are concurrent, so BOTH complete — both removed. Pinned as the correct outcome.
+    const branchF = writeRevokeAt(Automerge.clone(base), 'R1', { targetDeviceId: 'A', signerDeviceId: 'F', signerDb: F.db })
+    const branchA = writeRevokeAt(Automerge.clone(base), 'RF', { targetDeviceId: 'F', signerDeviceId: 'A', signerDb: A.db })
+    const legit = Automerge.merge(Automerge.clone(branchF), branchA)
+    expect(admins(legit)).toEqual([]) // both removed — symmetric mutual destruction
+
+    // ATTACK: A re-authors R1 (F's revoke of A — a real, F-signed entry A cannot alter) on a branch
+    // that ALREADY contains RF, so the re-authored completing change of R1 has RF as a causal
+    // ancestor. After merge, entry R1 has two completing changes: the original (concurrent with RF)
+    // and the forged one (RF in its past). The round-1 union model then "sees" RF in R1's causal
+    // past and judges F — R1's signer — as already revoked, dropping R1 so A is NOT removed.
+    const attackBranch = writeRevokeAt(Automerge.clone(branchA), 'R1', { targetDeviceId: 'A', signerDeviceId: 'F', signerDb: F.db })
+    const attacked = Automerge.merge(Automerge.clone(legit), attackBranch)
+
+    // The one load-bearing assertion: the removed admin A must NOT be resurrected by the forged
+    // re-completion. RED against the round-1 WIP (A survives); GREEN once validity is judged per
+    // specific completing change rather than over the union.
+    expect(admins(attacked)).not.toContain('A')
+    // And the outcome is still the correct symmetric one — the forgery buys the attacker nothing.
+    expect(admins(attacked)).toEqual([])
   })
 })

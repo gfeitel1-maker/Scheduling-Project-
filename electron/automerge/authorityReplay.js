@@ -182,11 +182,7 @@ function buildEntryGraph(automerge, doc) {
     for (const h of completingHashesByEntry.get(x) ?? []) if (past.has(h)) return true
     return false
   }
-  function inScope(entryId, changeSet) {
-    for (const h of completingHashesByEntry.get(entryId) ?? []) if (changeSet.has(h)) return true
-    return false
-  }
-  return { byHash, completingHashesByEntry, causalPast, precedes, inScope }
+  return { byHash, completingHashesByEntry, causalPast, precedes }
 }
 
 // "entry a is causally at least as late as entry b": b precedes a (a wins), or they are concurrent
@@ -244,7 +240,7 @@ const FOUNDER_MARKER = Symbol('founder')
  */
 export function createAuthorityReplayContext(automerge, doc, { founderDeviceId, isEntryTrusted = () => true } = {}) {
   const graph = buildEntryGraph(automerge, doc)
-  const { byHash, completingHashesByEntry, causalPast, precedes, inScope } = graph
+  const { byHash, completingHashesByEntry, precedes } = graph
 
   // Every COMPLETE entry, by stable id — applying the authenticity filter once here (genesis is
   // axiomatic, never filtered). Keyed by id, so a merge of a peer's originals with this device's
@@ -268,14 +264,20 @@ export function createAuthorityReplayContext(automerge, doc, { founderDeviceId, 
   const stateCache = new Map()
 
   // The admin state over an ancestor CHANGE SET — the causal past of some evaluation point (the
-  // document's heads for the current state, or one entry's own causal past for the recursive
-  // signer-validity sub-problem). Everything below is keyed on the STABLE ENTRY ID, never a raw
-  // change hash, so a re-authored copy of an entry (T342 Slice 0) is counted exactly once and can
-  // never flip a result. Memoized by `key` (the evaluation point).
+  // document's heads for the current state, or the ancestors of ONE specific completing change for
+  // the recursive signer-validity sub-problem). Judging that sub-problem at a SPECIFIC completing
+  // change — never over the UNION of ancestors across an entry's several completing changes — is
+  // what makes a peer's extra, BACKDATED re-completion of an existing entry id unable to perturb a
+  // legitimate change's validity math (T342 Slice 0 round 2, Red Hat CONFIRMED HIGH): a legitimate
+  // completing change's ancestors are its own, so injected history on a sibling re-completion is not
+  // among them. The entry MAP (`rows`) is still keyed by stable entry id, so a re-authored copy is
+  // ONE logical entry, not two. Memoized by `key` (the evaluation point).
   //
   // Order-independence, by construction (unchanged from the T331 model):
-  //   1. An entry counts only if `isValidSignerAt(signer, entryId)` — the SIGNER's OWN causal-past
-  //      state (a strictly smaller, memoized sub-problem) — never what this accumulator holds yet.
+  //   1. An entry counts only if its signer held a live admin grant at the causal ancestors of ONE
+  //      specific in-scope completing change of the entry (signerValidAtSomeCompletingChange — a
+  //      strictly smaller, memoized sub-problem) — never the UNION of ancestors across the entry's
+  //      completing changes, and never what this accumulator holds yet.
   //   2. Grants are unconditionally additive: a plain Set union.
   //   3. A vote, once validated, counts PERMANENTLY — pinned to the signer's causal point, never
   //      re-filtered against the shrinking grantedSet.
@@ -291,9 +293,11 @@ export function createAuthorityReplayContext(automerge, doc, { founderDeviceId, 
 
     for (const [id, entry] of rows) {
       if (entry.kind === 'genesis') continue // axiomatic, already seeded via resolvedFounderDeviceId
-      if (!inScope(id, ancestorChanges)) continue // an entry is in scope iff ANY of its completing changes is
       if (entry.signer_device_id === entry.target_device_id) continue // never counts toward own removal
-      if (!isValidSignerAt(entry.signer_device_id, id)) continue // signer valid at this entry's own causal past
+      // In scope AND signer-valid, judged together at ONE specific completing change of this entry —
+      // never over the union across completing changes (that union is influenceable by a peer's added
+      // re-completion, Red Hat HIGH round 1).
+      if (!signerValidAtSomeCompletingChange(id, entry.signer_device_id, ancestorChanges)) continue
       if (entry.kind === 'grant') {
         grantedSet.add(entry.target_device_id)
         if (!grantEntriesByTarget.has(entry.target_device_id)) grantEntriesByTarget.set(entry.target_device_id, new Set())
@@ -343,13 +347,26 @@ export function createAuthorityReplayContext(automerge, doc, { founderDeviceId, 
     return result
   }
 
-  function isValidSignerAt(deviceId, entryId) {
-    return stateAtKeyed(`entry:${entryId}`, causalPast(entryId)).grantedSet.has(deviceId)
+  // A completing change c of `entryId` witnesses the entry iff c is itself in `ancestorChanges` (the
+  // entry is causally in scope at this evaluation point) AND `deviceId` held a live admin grant among
+  // c's OWN causal ancestors. Evaluated per specific completing change, never over the union across an
+  // entry's completing changes: a merge holds the original completing change plus any re-authored
+  // copies, and judging each change against its OWN ancestors means a peer's extra, backdated
+  // re-completion cannot inject ancestry into a legitimate change's validity math (T342 Slice 0 round
+  // 2, Red Hat CONFIRMED HIGH). The faithful carry re-authors each entry on a fork holding exactly its
+  // original ancestor entries, so its copy witnesses validity identically to the original.
+  function signerValidAtSomeCompletingChange(entryId, deviceId, ancestorChanges) {
+    for (const h of completingHashesByEntry.get(entryId) ?? []) {
+      if (!ancestorChanges.has(h)) continue
+      if (isValidAdminAt(deviceId, h)) return true
+    }
+    return false
   }
 
-  /** True iff `deviceId` held a live admin grant among the causal ancestors of `changeHash`. Kept
-   *  for the module's own convenience export; no production caller passes a change hash — the whole
-   *  production surface asks only for the current-heads state. */
+  /** True iff `deviceId` held a live admin grant among the causal ancestors of `changeHash`. Also the
+   *  per-completing-change building block signerValidAtSomeCompletingChange uses; exported as a
+   *  convenience for callers that ask about an arbitrary change (no production caller does — the whole
+   *  production surface asks only for the current-heads state). */
   function isValidAdminAt(deviceId, changeHash) {
     return stateAtKeyed(`change:${changeHash}`, ancestorsOf(changeHash, byHash)).grantedSet.has(deviceId)
   }
