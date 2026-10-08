@@ -1,7 +1,7 @@
 ---
 title: "History rewrite: purge real camp identity and personal paths from public git history"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-05
 task_class: documentation-governance
 archive_when: "the owner has ruled on the 2026-09-25 re-scope below — either (a) the rewrite has landed, the remote reflects it, and GitHub's cached objects are confirmed unreachable, or (b) the rewrite is recorded here as declined on the measured evidence and the forward-looking guard has shipped"
@@ -282,11 +282,13 @@ Ticket allocation note: the highest allocated ticket is **T282** (T279–T282 ar
 `peaceful-keller-404ba9` worktree). Next free is T283 — deliberately unused, per the instruction to
 fold this into T120 rather than open a competing ticket.
 
-## Decision record: rewrite DECLINED (2026-10-08) — DRAFT for the board keeper to rule
+## Decision record: rewrite DECLINED (2026-10-08) — OWNER RULING
 
-> **Status of this section: DRAFT recommendation, not a ruling.** T120's `status` stays `open` until
-> the board keeper rules. Evidence below is from Build Board item `i-ci-minutes-residual-cost`
-> (verified 2026-09-25) plus a fresh re-verification of the current tip.
+> **RULED 2026-10-08 — DECLINED by the owner** (relayed by the board keeper: "yes, yes" to the
+> T120-declined recommendation). The archive_when clause (b) is met: the rewrite is recorded here as
+> declined on the measured evidence, and the forward-looking guard (T263, #546) has shipped. Evidence
+> below is from Build Board item `i-ci-minutes-residual-cost` (verified 2026-09-25) plus a fresh
+> re-verification of the current tip.
 
 **Recommendation: decline the history rewrite; keep the forward-looking guard (T263, shipped).**
 
