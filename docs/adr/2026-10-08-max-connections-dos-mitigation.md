@@ -117,10 +117,11 @@ seam T336/T337 use), its admission is known.
 **Honest guarantee (what the tests pin — do not overclaim).** At `connection:open` the peerId is known
 but admission is **not yet decided**, so a legitimately-reconnecting camp device is indistinguishable
 from the flood at that instant. Therefore L2 guarantees: **(a)** an ESTABLISHED admitted connection
-(in `authenticatedPeers`) is **never evicted** by an un-admitted flood — the floor; and **(b)** the
-authGate deadline forces un-admitted-bucket turnover so a reconnecting camp device lands a slot within
-a **bounded number of deadline cycles — not instant** admission under an active flood. L1's per-IP
-limiter bounds any single attacker; the distributed case relies on (b)'s turnover.
+(in `authenticatedPeers`) is **never evicted** by an un-admitted flood — a **hard guarantee** (the
+floor); and **(b)** a RECONNECTING camp device regains a slot **likely within an authGate-deadline
+turnover cycle, but this is NOT guaranteed under a sustained distributed flood** — it competes for the
+recycling un-admitted slots. L1's per-IP limiter bounds any single attacker; the distributed case is
+bounded, not eliminated.
 
 ## Numbers (sized, not magic)
 
@@ -156,8 +157,9 @@ The implementing slice records the final arithmetic with the installed defaults 
 2. RED→GREEN (Gap 1, at-cap, L2b floor): at EXACTLY `maxConnections` filled with post-Noise
    un-admitted connections, an admitted device's reconnect is refused by the count check WITHOUT
    L2b; WITH the floor (un-admitted capped at `maxConnections − reservedFloor`) the reserved slots
-   are available. State the guarantee honestly — established-admitted never evicted + bounded
-   turnover, not instant reconnect under active flood.
+   are available. State the guarantee honestly (per the Honest-guarantee paragraph above):
+   established-admitted is never evicted (a hard guarantee); a reconnect is likely within turnover
+   but NOT guaranteed under a sustained distributed flood.
 3. RED→GREEN (Gap 2, authGate deadline): a connection that completes Noise then holds an `authGate`
    stream open without authenticating is ABORTED at the deadline, freeing the slot; WITHOUT the
    deadline it is un-prunable and holds the slot.
