@@ -281,3 +281,45 @@ owner decision** and the measured case against it is unchanged.
 Ticket allocation note: the highest allocated ticket is **T282** (T279–T282 are held unpushed in the
 `peaceful-keller-404ba9` worktree). Next free is T283 — deliberately unused, per the instruction to
 fold this into T120 rather than open a competing ticket.
+
+## Decision record: rewrite DECLINED (2026-10-08) — DRAFT for the board keeper to rule
+
+> **Status of this section: DRAFT recommendation, not a ruling.** T120's `status` stays `open` until
+> the board keeper rules. Evidence below is from Build Board item `i-ci-minutes-residual-cost`
+> (verified 2026-09-25) plus a fresh re-verification of the current tip.
+
+**Recommendation: decline the history rewrite; keep the forward-looking guard (T263, shipped).**
+
+**Owner statement on record:** "this is an open source repo. i will never sell it. i will never
+patent it."
+
+### Evidence (measured)
+
+- `main` swept at `e88be5c6`: 1,905 tracked files, paths and raw bytes, **0 hits** for camp name or
+  developer username.
+- 6 history blobs of 2 MB or more: clean.
+- Full history: 9,101 text blobs / 257 MB, **no PII and no live secrets** (the 3 secret-shaped hits
+  are fixtures in `scripts/security-gate.test.js`).
+- GitHub text surfaces: 4 hits, redacted and re-verified to 0.
+- T263 privacy guard (#546) in `scripts/security-gate.js` fires on 5 planted classes.
+
+### Current-tip re-verification (2026-10-08, base `b489ab9a`)
+
+- `git grep -I -c -i` for the developer username: **0** matching files.
+- `scanPrivacy` from `scripts/security-gate.js` (hashed identity tokens, camp-identity shape rule,
+  home path, email, phone; paths and contents) run over all **2,526** tracked files: **0 findings**.
+  The camp name is held only as a SHA-256 digest in that file, so it is covered by this scan rather
+  than grepped in plaintext here.
+
+### Cost of rewriting
+
+1,466 commits rewritten; 32 orphaned worktrees; 42 force-pushed branches; 542 broken PRs; 0 forks
+exist to protect.
+
+### Residual gaps (stated, not hidden)
+
+- Binary file contents are unscanned by the guard (filenames only).
+- Unstructured personal names (a bare name with no `Camp`/`JCC`/path/email shape) are unmatchable.
+- Actions logs become public on the private-to-public flip until retention expiry.
+
+For these the control is human review before the visibility flip.

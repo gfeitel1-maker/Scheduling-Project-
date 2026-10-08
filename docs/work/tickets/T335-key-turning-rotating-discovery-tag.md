@@ -2,7 +2,7 @@
 ticket: T335
 document_type: ticket
 title: Key-turning — rotating discovery tag derived from the signed T331 revocation set (DHT prerequisite)
-status: open
+status: completed
 created: 2026-10-03
 archive_when: "the discovery tag is a pure function of the signed T331 revocation set wired into mDNS discovery, an unsigned revoke entry cannot move the production tag (wired-layer test), and the LAN restart-bounded limitation is documented in SECURITY.md/PLATFORM_STATE with live rotation carried as a hard T334 acceptance criterion"
 task_class: security-auth
