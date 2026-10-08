@@ -306,10 +306,17 @@ describe('syncStatusLabel — no second copy of the camp (T176)', () => {
     const label = syncStatusLabel({ state: 'host', otherDeviceCount: 0 })
     expect(label.text).toBe('only this computer')
     expect(label.title).toMatch(/no second copy to restore from/)
-    // NOT "cannot be recovered" — that only becomes true once at-rest
-    // encryption is switched on, and writing it early would be a claim the code
-    // does not yet support (the T149 defect class).
+    // The stronger claim is true only when the device's data is actually encrypted.
     expect(label.title).not.toMatch(/cannot be recovered|unrecoverable/i)
+    const off = syncStatusLabel({ state: 'host', otherDeviceCount: 0, atRestEncryptionEnabled: false })
+    expect(off.title).not.toMatch(/cannot be recovered|unrecoverable/i)
+  })
+
+  it('says the camp cannot be recovered only when at-rest encryption is on', () => {
+    const label = syncStatusLabel({ state: 'host', otherDeviceCount: 0, atRestEncryptionEnabled: true })
+    expect(label.text).toBe('only this computer')
+    expect(label.title).toMatch(/its data is encrypted on this computer/)
+    expect(label.title).toMatch(/the camp cannot be recovered/)
   })
 
   it('is quiet — a standing condition, not an incident', () => {

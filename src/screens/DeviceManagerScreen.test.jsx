@@ -20,6 +20,9 @@ vi.mock('../localClient', () => ({
     revokeDevice: vi.fn(),
     getJoinCode: vi.fn(),
     setJoinWindow: vi.fn(),
+    listToolAuthorizations: vi.fn().mockResolvedValue([]),
+    grantToolAuthorization: vi.fn(),
+    revokeToolAuthorization: vi.fn(),
   },
 }))
 

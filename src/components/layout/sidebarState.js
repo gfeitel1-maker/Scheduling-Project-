@@ -243,20 +243,22 @@ export function syncStatusLabel(status) {
   // they have not followed it, and until now the count lived behind the Devices
   // screen, which is where you go once you already suspect something.
   //
-  // THE COPY IS TRUE TODAY AND STAYS TRUE AFTER ENCRYPTION. It says there is no
-  // second copy — which is a fact about this camp right now — rather than "the
-  // data cannot be recovered", which only becomes true once at-rest encryption
-  // is switched on. Writing the stronger sentence early would be a claim the
-  // code does not yet support, which is the T149 defect class.
+  // The stronger "cannot be recovered" sentence is claimed only when the status says this device's
+  // data is encrypted (`atRestEncryptionEnabled === true`); otherwise only the true-regardless fact
+  // (no second copy) is stated.
   //
   // `undefined` is not zero: a caller that never reported the count must render
   // silence, not an assertion that the camp is alone.
   if (status?.otherDeviceCount === 0) {
+    const encrypted = status.atRestEncryptionEnabled === true
     return {
       text: 'only this computer',
       tone: 'secondary',
-      title:
-        'No other computer has a copy of this camp. If this one is lost, stolen or replaced, there is ' +
+      title: encrypted
+        ? 'No other computer has a copy of this camp, and its data is encrypted on this computer. If this ' +
+          'one is lost, stolen or replaced, the camp cannot be recovered. Adding another device keeps the ' +
+          'two in step automatically.'
+        : 'No other computer has a copy of this camp. If this one is lost, stolen or replaced, there is ' +
         'no second copy to restore from. Adding another device keeps the two in step automatically.',
     }
   }

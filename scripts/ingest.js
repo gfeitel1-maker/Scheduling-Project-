@@ -9,6 +9,7 @@
 
 import { fileURLToPath } from 'node:url'
 import { runIngestCli } from './ingestCli.js'
+import { resolveAuthorizedHeadlessDbKey } from '../electron/db/headlessDbKey.js'
 
 const USAGE = 'usage: node scripts/ingest.js <file> --db <path> [--preview | --commit] [--mode add|replace] [--author <userId>] [--json]'
 
@@ -81,7 +82,15 @@ export function main(argv) {
     return 1
   }
 
-  const result = runIngestCli(opts)
+  let dbKey
+  try {
+    ;({ key: dbKey } = resolveAuthorizedHeadlessDbKey({ requireWrite: opts.action === 'commit' }))
+  } catch (err) {
+    console.error(`${err.code ?? 'error'}: ${err.message}`)
+    return 1
+  }
+
+  const result = runIngestCli({ ...opts, dbKey })
   if (opts.json) {
     console.log(JSON.stringify(result, null, 2))
   } else {

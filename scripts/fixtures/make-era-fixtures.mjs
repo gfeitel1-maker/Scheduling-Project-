@@ -12,6 +12,7 @@
 //
 // Deterministic: fixed ids, fixed timestamps, no randomness — so re-running it
 // produces the same bytes and a diff means a real change.
+import '../pinAtRestOff.js'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'

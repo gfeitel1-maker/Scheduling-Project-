@@ -2703,6 +2703,17 @@ export const mockShoresh = {
       .filter((d) => !d.authorized_at && !d.revoked_at && (d.pairing_status == null || d.pairing_status === 'pending'))
       .map(({ id, name }) => ({ id, name }))
   },
+  // Connected tools: the browser mock has no keychain and no headless tools, so there is nothing to
+  // authorize; an empty list keeps the panel honest in the dev preview.
+  async listToolAuthorizations() {
+    return []
+  },
+  async grantToolAuthorization() {
+    throw new Error('Connected tools are only available in the desktop app')
+  },
+  async revokeToolAuthorization() {
+    throw new Error('Connected tools are only available in the desktop app')
+  },
   async listDevices() {
     return (loadState().devices || []).map(({ id, name, pairing_status, authorized_at, revoked_at, last_synced_at }) =>
       ({ id, name, pairing_status, authorized_at, revoked_at, last_synced_at }))

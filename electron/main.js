@@ -16,6 +16,12 @@ import { installMenu } from './menu.js'
 import { describeStartupFailure, formatStartupFailureLog } from './startupFailure.js'
 import { deriveWriteAction, deriveBulkReplaceAction } from './auth/deriveWriteAction.js'
 import { recordAuditEvent } from './audit/auditLog.js'
+import {
+  grantToolAuthorization as sealGrantToolAuthorization,
+  revokeToolAuthorization as sealRevokeToolAuthorization,
+  listToolAuthorizations as sealListToolAuthorizations,
+  drainToolAuditEvents,
+} from './auth/toolAuthorizations.js'
 import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES, resolveParentJoinChain } from './ops/campScopedEntities.js'
 import { listEntities } from './ops/read.js'
 import { listPeerErasureStateFromDb } from './ops/peerErasureState.js'
@@ -66,7 +72,7 @@ import { projectEntity } from './automerge/projector.js'
 import { AUTHORITY_LOG_ENTITY, currentAuthorityState, quorumThreshold } from './automerge/authorityReplay.js'
 import * as Automerge from '@automerge/automerge'
 import { docPath as automergeDocPath } from './sync/automerge/docStore.js'
-import { acquireDocCipher, acquireDbKey, isAtRestEncryptionEnabled } from './db/atRestEncryption.js'
+import { acquireDocCipher, acquireDbKey, isAtRestEncryptionEnabled, latchEncryptionIfKeyPresent } from './db/atRestEncryption.js'
 import { unsharedWriteCount } from './ops/documentWriteFailures.js'
 import { createDiskSpaceMonitor } from './db/diskSpace.js'
 import { codeForAuthRejectedReason } from './authRejectedSender.js'
@@ -308,7 +314,7 @@ export function disposeCampDataRecordThenCloseDb(liveHandlers, oldDb) {
   try { liveHandlers?.disposeCampDataRecord?.() } catch { /* ignore */ }
   try { oldDb?.close?.() } catch { /* ignore — db may already be closed */ }
 }
-export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath: _userDataPath, getAutomergeSyncNode, getAutomergeStartupAttempted, getRelayReservationRefused, onCampBootstrapped, onCampJoined, retrySync } = {}) {
+export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath: _userDataPath, safeStorage: injectedSafeStorage, getAutomergeSyncNode, getAutomergeStartupAttempted, getRelayReservationRefused, onCampBootstrapped, onCampJoined, retrySync } = {}) {
   // Both default to safe no-ops so every existing caller/test that doesn't
   // pass them (there are many) is unaffected — Stage 5d-2b additions only,
   // never a behavior change for a caller that stays silent about them.
@@ -893,6 +899,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     // connectivity state, and a camp near its relay cap is just as true whether this device is
     // the Host or a Client.
     const relayReservationRefused = Boolean(getRelayReservationRefusedFn())
+    const atRestEncryptionEnabled = isAtRestEncryptionEnabled()
 
     // T268 — a refused sync (electron/db/migrationDomainState.js) is checked
     // BEFORE branching on mode: a refused Client is just as blind as a
@@ -924,10 +931,11 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
         lowDisk: disk.low,
         otherDeviceCount,
         relayReservationRefused,
+        atRestEncryptionEnabled,
       }
     }
 
-    if (!modeChosen) return { mode: null, connected: false, state: 'standalone', unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused }
+    if (!modeChosen) return { mode: null, connected: false, state: 'standalone', unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused, atRestEncryptionEnabled }
     if (mode === 'host') {
       // T268: `connected: true, state: 'host'` used to be unconditional here —
       // a Host that failed to start its sync node (refusal aside; e.g. the
@@ -940,9 +948,9 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
         // last case exists to avoid a boot flicker: the node starts
         // asynchronously after app.whenReady(), so "not yet attempted" must
         // read the same as it always has, not as a false alarm.
-        return { mode: 'host', connected: true, state: 'host', unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused }
+        return { mode: 'host', connected: true, state: 'host', unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused, atRestEncryptionEnabled }
       }
-      return { mode: 'host', connected: false, state: 'host-not-syncing', unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused }
+      return { mode: 'host', connected: false, state: 'host-not-syncing', unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused, atRestEncryptionEnabled }
     }
     // Stage 6c: the honest source of "can this device reach the camp" is the
     // libp2p node's peer set, not a socket. `getPeers()` returns every
@@ -956,7 +964,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     const connected = peers.length > 0
     const authed = peers.some((peerId) => node.isPeerAuthenticated(peerId))
     const state = !connected ? 'client-disconnected' : (authed ? 'client-connected' : 'client-connecting')
-    return { mode: 'client', connected, authenticated: authed, state, unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused }
+    return { mode: 'client', connected, authenticated: authed, state, unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused, atRestEncryptionEnabled }
   }
 
   // T27 — push the status when it changes, rather than leaving the renderer to
@@ -1339,6 +1347,68 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     } catch (err) {
       console.error(`projectAuthorityLogLocally: local authority-log projection failed (non-fatal): ${err?.message ?? err}`)
     }
+  }
+
+  // Director-authorized tool connections (docs/adr/2026-10-08-director-authorized-tool-connections.md).
+  // The grants live in a safeStorage-sealed store OUTSIDE this db so the unlock helper can read them
+  // without the camp key. Accountability control only — not a defense against a same-OS-user process.
+  function toolAuthorizationStore() {
+    if (!handlersUserDataPath) throw new Error('Connected tools are not available on this device')
+    return [handlersUserDataPath, injectedSafeStorage ?? safeStorage]
+  }
+
+  // Tool use/refusal events are queued in the sealed store by the key-release path (which has no camp
+  // key, so cannot reach audit_events); the app lands them here.
+  function landToolAuthorizationAudit() {
+    for (const e of drainToolAuditEvents(...toolAuthorizationStore())) {
+      recordAuditEvent(db, {
+        action: e.action,
+        targetType: 'tool_authorizations',
+        targetId: e.authorization_id,
+        outcome: e.outcome,
+        reason: e.reason,
+        metadata: { at: e.at },
+      })
+    }
+  }
+
+  function listToolAuthorizations({ token } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    requireAuthorized(db, { token, action: 'tool_authorizations.read' })
+    landToolAuthorizationAudit()
+    return sealListToolAuthorizations(...toolAuthorizationStore())
+  }
+
+  function grantToolAuthorization({ token, label, scope } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const { userId } = requireAuthorized(db, { token, action: 'tool_authorizations.grant' })
+    const result = sealGrantToolAuthorization(...toolAuthorizationStore(), { label, scope, createdBy: deviceId })
+    recordAuditEvent(db, {
+      actorUserId: userId,
+      deviceId,
+      action: 'tool_authorization.grant',
+      targetType: 'tool_authorizations',
+      targetId: result.authorization.id,
+      outcome: 'allow',
+      metadata: { scope: result.authorization.scope },
+    })
+    return result
+  }
+
+  function revokeToolAuthorization({ token, id } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const { userId } = requireAuthorized(db, { token, action: 'tool_authorizations.revoke' })
+    if (!isNonEmptyString(id)) throw new Error('id is required')
+    const authorization = sealRevokeToolAuthorization(...toolAuthorizationStore(), id)
+    recordAuditEvent(db, {
+      actorUserId: userId,
+      deviceId,
+      action: 'tool_authorization.revoke',
+      targetType: 'tool_authorizations',
+      targetId: id,
+      outcome: 'allow',
+    })
+    return { authorization }
   }
 
   function approveDevice({ token, deviceId: targetDeviceId, makeAdmin = false } = {}) {
@@ -2904,6 +2974,9 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     listPeerErasureState,
     importSetupRows: importSetupRowsHandler,
     approveDevice,
+    listToolAuthorizations,
+    grantToolAuthorization,
+    revokeToolAuthorization,
     denyDevice,
     revokeDevice,
     getSyncEngine,
@@ -3016,11 +3089,14 @@ if (isElectronEntryPoint()) {
   // place an Electron app opens its resources anyway.
   await app.whenReady()
 
+  const envOff = process.env.SHORESH_AT_REST_ENCRYPTION === 'off'
+  if (latchEncryptionIfKeyPresent(userDataPath) && envOff) {
+    console.warn('SHORESH_AT_REST_ENCRYPTION=off ignored: this device is encrypted.')
+  }
+
   // At-rest encryption (ADR 2026-09-15, ticket T175): acquire the per-device document cipher and
-  // inject it into liveDoc, so every .automerge read/write goes through it. Default OFF
-  // (SHORESH_AT_REST_ENCRYPTION!='on') → acquireDocCipher returns null → liveDoc stays plaintext,
-  // so this whole block is inert until the flag is deliberately turned on for the reviewed
-  // real-app rollout. When ON, a missing/unavailable keychain key is fatal by design (no key = no
+  // inject it into liveDoc, so every .automerge read/write goes through it. Default ON
+  // (only SHORESH_AT_REST_ENCRYPTION='off' disables it, and not once the key file exists). When ON, a missing/unavailable keychain key is fatal by design (no key = no
   // data), but it must arrive as the human recovery story, not a raw stack trace (assessment
   // finding 3) — see docs/current/KEY_RECOVERY_STORY.md.
   let docCipher = null
@@ -3098,6 +3174,9 @@ if (isElectronEntryPoint()) {
     'shoresh:list-peer-erasure-state',
     'shoresh:import-setup-rows',
     'shoresh:approve-device',
+    'shoresh:list-tool-authorizations',
+    'shoresh:grant-tool-authorization',
+    'shoresh:revoke-tool-authorization',
     'shoresh:get-sync-engine',
     'shoresh:get-join-code',
     'shoresh:set-join-window',
@@ -3191,6 +3270,9 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:list-peer-erasure-state', (_event, args) => handlers.listPeerErasureState(args))
     ipcMain.handle('shoresh:import-setup-rows', (_event, args) => handlers.importSetupRows(args))
     ipcMain.handle('shoresh:approve-device', (_event, args) => handlers.approveDevice(args))
+    ipcMain.handle('shoresh:list-tool-authorizations', (_event, args) => handlers.listToolAuthorizations(args))
+    ipcMain.handle('shoresh:grant-tool-authorization', (_event, args) => handlers.grantToolAuthorization(args))
+    ipcMain.handle('shoresh:revoke-tool-authorization', (_event, args) => handlers.revokeToolAuthorization(args))
     ipcMain.handle('shoresh:get-sync-engine', () => handlers.getSyncEngine())
     ipcMain.handle('shoresh:get-join-code', (_event, args) => handlers.getJoinCode(args))
     ipcMain.handle('shoresh:set-join-window', (_event, args) => handlers.setJoinWindow(args))

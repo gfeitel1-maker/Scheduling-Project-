@@ -30,19 +30,51 @@ async function load() {
 }
 
 describe('at-rest encryption activation flag', () => {
-  it('defaults OFF when unset — acquireDocCipher returns null (plaintext)', async () => {
+  it('defaults ON when unset — acquireDocCipher returns a cipher', async () => {
     const m = await load()
-    expect(m.isAtRestEncryptionEnabled()).toBe(false)
-    expect(m.acquireDocCipher(userDataDir, fakeSafeStorage())).toBeNull()
+    expect(m.isAtRestEncryptionEnabled()).toBe(true)
+    expect(m.acquireDocCipher(userDataDir, fakeSafeStorage())).not.toBeNull()
   })
 
-  it('stays OFF for any value other than exactly "on" (typo/"off"/empty never half-enables)', async () => {
-    for (const v of ['off', 'ON', 'true', '1', '']) {
+  it('is OFF only for exactly "off"; any other value (typo, empty) stays ON', async () => {
+    process.env.SHORESH_AT_REST_ENCRYPTION = 'off'
+    expect((await load()).isAtRestEncryptionEnabled()).toBe(false)
+    for (const v of ['of', 'OFF', 'false', '0', '']) {
       vi.resetModules()
       process.env.SHORESH_AT_REST_ENCRYPTION = v
       const m = await load()
-      expect(m.isAtRestEncryptionEnabled(), `value ${JSON.stringify(v)}`).toBe(false)
+      expect(m.isAtRestEncryptionEnabled(), `value ${JSON.stringify(v)}`).toBe(true)
     }
+  })
+
+  describe('sticky latch (no ambient disable once a device holds its key)', () => {
+    it('env "off" + db.key.enc present -> latched ON, acquireDbKey returns a key', async () => {
+      process.env.SHORESH_AT_REST_ENCRYPTION = 'on'
+      const seed = await load()
+      seed.acquireDbKey(userDataDir, fakeSafeStorage())
+      vi.resetModules()
+      process.env.SHORESH_AT_REST_ENCRYPTION = 'off'
+      const m = await load()
+      expect(m.isAtRestEncryptionEnabled()).toBe(false)
+      expect(m.latchEncryptionIfKeyPresent(userDataDir)).toBe(true)
+      expect(m.isAtRestEncryptionEnabled()).toBe(true)
+      expect(m.acquireDbKey(userDataDir, fakeSafeStorage())).toBeInstanceOf(Buffer)
+    })
+
+    it('env "off" + no key file -> stays OFF', async () => {
+      process.env.SHORESH_AT_REST_ENCRYPTION = 'off'
+      const m = await load()
+      expect(m.latchEncryptionIfKeyPresent(userDataDir)).toBe(false)
+      expect(m.isAtRestEncryptionEnabled()).toBe(false)
+    })
+
+    it('unknown stat error (EACCES) fails closed -> latched ON', async () => {
+      process.env.SHORESH_AT_REST_ENCRYPTION = 'off'
+      const m = await load()
+      const fsImpl = { statSync: () => { throw Object.assign(new Error('denied'), { code: 'EACCES' }) } }
+      expect(m.latchEncryptionIfKeyPresent(userDataDir, { fsImpl })).toBe(true)
+      expect(m.isAtRestEncryptionEnabled()).toBe(true)
+    })
   })
 
   it('when "on", acquireDocCipher returns a working cipher keyed from the sealed device key', async () => {

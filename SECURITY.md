@@ -92,8 +92,7 @@ minted a fresh keypair on every process start.
   SQLite database in the same singleton (`CHECK (id = 1)`) shape as `host_signing_key`, hex-encoded
   in libp2p's own protobuf marshal format. It is never replicated: it appears in no projection, no
   camp-scoped entity set, and no Automerge document, and a test pins that exclusion. It inherits
-  at-rest encryption from SQLCipher along with the rest of the database once at-rest encryption is
-  activated (`SHORESH_AT_REST_ENCRYPTION`); there is deliberately no separate key store for it.
+  at-rest encryption from SQLCipher along with the rest of the database (on by default); there is deliberately no separate key store for it.
 - **What it buys.** A session token is no longer a pure bearer credential. On `authenticate` and on
   `login`, the peer identity libp2p's Noise handshake already proved for the connection is checked
   against `devices.libp2p_peer_id` on a trust-on-first-use basis: the first peer id presented for a
@@ -302,62 +301,62 @@ cracking one director's PIN still buys every admin-gated action in the camp, not
 director's own. Narrowing that wildcard is a follow-up the owner has been told about and is
 deliberately not built here.
 
-### At-rest encryption — implemented, OFF by default, and narrower than "encrypted at rest" (T175/T179)
+### At-rest encryption (what it does and does not protect)
 
-Everything above ("whoever has the document already has the camp's data") describes the state with
-at-rest encryption **off**, which is the shipping default today. At-rest encryption is fully
-implemented behind the `SHORESH_AT_REST_ENCRYPTION` flag (default off); **nothing on disk is
-encrypted until it is deliberately turned on.** When it is on, the SQLite database and the
-`.automerge` document are encrypted with a random 32-byte per-device key sealed by Electron
-`safeStorage` in the OS keychain (macOS Keychain / Windows DPAPI) — see
-`docs/adr/2026-09-15-at-rest-encryption-scoping.md`.
+At-rest encryption is on by default. Both the camp document (`<campId>.automerge`) and the local
+database (`shoresh.sqlite`) are encrypted on disk with a random 32-byte per-device key sealed in the
+operating system keychain (macOS Keychain / Windows DPAPI via Electron `safeStorage`). The plaintext key is never
+written to disk; only its safeStorage-sealed form (`db.key.enc`) sits beside the data. See `docs/adr/2026-09-15-at-rest-encryption-scoping.md`.
 
-**Be precise about the guarantee — it is narrower than the phrase "encrypted at rest" implies:**
+**This defends one specific thing: a powered-off or stolen device.** Someone who takes the hardware, or
+copies the files off it (a backup, a synced folder, a discarded disk), cannot read a camp's data without
+also being able to log in as the same OS user on that machine.
 
-- **What it defends:** a *powered-off* stolen or lost device, or a *copied file* (a backup, a synced
-  folder, a discarded disk) — an offline attacker who has the bytes but not a running, unlocked
-  machine logged in as that user. In that case the replicated PIN hashes and the whole camp are
-  ciphertext, not the crackable-off-a-file exposure described above.
-- **What it does NOT defend:** the keychain entry is per-OS-user, so on a realistic shared-login
-  camp-office Mac this does **nothing** against the person at the next desk on the *same* login, and
-  nothing against a running, unlocked device or a compromised OS account — the key is available to
-  anything running as that user by design. It is file-at-rest protection, not running-process
-  protection.
-- **It is a deliberate hard-fail:** no key means no readable data, with no graceful fallback (the
-  key is minted and sealed automatically — no passphrase to forget — and survives app reinstalls, so
-  the loss cases are the "three keys, one event" recovery story in
-  `docs/current/KEY_RECOVERY_STORY.md`).
-- **Headless tools:** the MCP server and CLI reach an encrypted DB only via the protected key channel
-  and the Electron unlock helper (`docs/adr/2026-09-16-headless-db-key-access-for-mcp-cli.md`); the
-  key is never passed on the command line.
-- **Headless key-acquisition failure is FAIL-CLOSED (stated policy — T260).** The intended policy is:
-  a headless caller (MCP server, CLI, rebuild) that reaches `openLocalDb` with no key — because
-  `resolveHeadlessDbKey()` found neither `SHORESH_DB_KEY` nor `SHORESH_DB_KEY_FILE` — must be refused,
-  exit non-zero, and stop; it must **never continue unencrypted when encryption is expected**, because
-  continuing unencrypted would defeat the purpose. The refusal is enforced by the T260 guard in
-  `openLocalDb`, which throws a named `db_key_unavailable` *before any open attempt* — **but only when
-  at-rest encryption is enabled in that process.** Be precise about that dependency, because it
-  determines exactly how much is enforced today versus after the production default-flip:
-  - `isAtRestEncryptionEnabled()` reads `SHORESH_AT_REST_ENCRYPTION` **once per process, at import**.
-    A headless tool inherits the policy only if that flag is present in *its own* environment. The
-    unlock helper injects `SHORESH_DB_KEY` (the key), not the flag — so under the current env-var-only
-    activation a headless process that is not itself launched with the flag set has the guard dormant,
-    and a keyless open there behaves as it did before (a plaintext file opens; an encrypted file dies
-    with an opaque SQLite error — still unreadable, i.e. fail-closed by physics, but not the named
-    refusal). To get the named, before-open refusal in a headless tool today, launch it with the flag.
-  - **After the production default-flip** (making `'on'` the default in `atRestEncryption.js`, T175),
-    the policy is process-wide with no env var, so the guard fires unconditionally in every process,
-    including headless — at which point "a keyless headless tool cannot silently read or write
-    cleartext once encryption is the policy" holds without qualification. Closing that gap for the
-    env-var-only era (e.g. an on-disk-header refusal independent of the flag) is a remaining flip
-    step recorded in T175, not a claim to make before the default flips.
-  - The interactive app is unaffected in every regime: it acquires a real key via the OS keychain and,
-    on the first launch with encryption on, migrates the plaintext file to encrypted; the "encryption
-    on + plaintext file" state is transient there.
+**It does NOT defend against:** an attacker who is already logged in as the same OS user (a shared
+office login is therefore not protected from its own users), a running and unlocked machine, or
+malware running as that user. It is a trusted-device model, not full-disk encryption and not a defense
+against a live, authenticated attacker. For a shared machine, use separate OS user accounts; the
+keychain isolation is per-OS-user.
 
-This section states the boundary up front rather than letting "encrypted at rest" imply more than it
-delivers (the T149 stale-claim lesson, applied in advance). The claim will only be made once the flag
-is actually enabled — see T175 for the remaining preconditions before that flip.
+**Recovery:** the key lives only in this device's keychain. If the OS keychain is reset or the device is
+lost with no other paired device holding a copy, the encrypted data cannot be recovered. See
+`docs/current/KEY_RECOVERY_STORY.md`.
+
+- **It is a deliberate hard-fail:** no key means no readable data, with no graceful fallback (the key is
+  minted and sealed automatically, with no passphrase to forget, and survives app reinstalls).
+- **Turning it off is not an ambient setting.** Once a device holds its key file, the
+  `SHORESH_AT_REST_ENCRYPTION` environment variable is ignored. No in-app disable is offered; a future
+  director-gated disable is a separate ticket (`docs/adr/2026-10-08-at-rest-encryption-sticky-no-ambient-disable.md`).
+- **Headless tools need a director-granted authorization.** The MCP server and CLIs reach an encrypted DB
+  only through the Electron unlock helper (`electron/unlockDbKey.js`), which releases the key to a tool
+  only if it presents a live, non-revoked per-tool secret (`SHORESH_TOOL_SECRET` or `--secret-stdin`,
+  never argv). The director grants, lists and revokes these in the app (Devices screen, Connected Tools);
+  each grant is named, scoped read or read-and-change, shown its secret once (only a hash is stored), and
+  audited. The grants live in a keychain-sealed store outside the camp database, so they are readable
+  without the camp key, including when the app is closed. Every check goes through one function
+  (`checkToolAuthorization` in `electron/auth/toolAuthorizations.js`). The key itself is never written
+  to disk and never passed on the command line
+  (`docs/adr/2026-09-16-headless-db-key-access-for-mcp-cli.md`, amended by
+  the 2026-10-08 "director-authorized tool connections" ADR, PR #745).
+- **Revocation stops future launches only.** A tool that already holds the key keeps it until it restarts.
+- **Read scope is advisory.** It is enforced only by cooperating tools; a same-user process can bypass it.
+- **This is accountability, not a cryptographic boundary.** A process running as the same OS user, with
+  the same keychain access the app has, can still run the unlock helper's Electron entry itself and
+  unseal the key. Authorization records which tools the director chose to connect and gives a clear
+  refusal to the rest; it does not defend against a same-login attacker (that stays out of scope, as
+  above), and there is no per-tool key wrapping.
+- **Named refusals.** An unknown or forged tool secret gets `tool-not-authorized`; a revoked one gets
+  `tool-authorization-revoked`; a read-only tool asked to write gets `tool-scope-read-only`. A headless
+  tool launched with encryption on and no key also gets `tool-not-authorized`. `db_key_unavailable`
+  remains only for the genuine case of an authorized tool whose keychain entry cannot be read, and for
+  the interactive `openLocalDb` seam. Tool use and refusals are queued in the sealed store and recorded
+  to `audit_events` by the running app.
+- **Throwaway-DB scripts are pinned off, and a guard keeps every caller classified.** Scripts that build
+  disposable plaintext DBs import `scripts/pinAtRestOff.js` first. `openLocalDbCallers.guard.test.js`
+  fails if any non-test `openLocalDb` caller is neither keyed nor pinned, or if the key can be released
+  without passing the authorization checkpoint.
+- The interactive app acquires a real key via the OS keychain and, on the first launch with encryption
+  on, migrates a plaintext file to encrypted once.
 
 #### Children's records raise the stakes on that flag (ADR 2026-09-17 D8, T194)
 
@@ -369,11 +368,11 @@ for this activity".
 Two consequences, stated here rather than left implicit:
 
 - **At-rest encryption is a precondition for real camp use of this feature, not an enhancement.**
-  Everything above about the default-off flag still applies unchanged, and with it off, a copied
-  database or `.automerge` file is a plaintext list of children. The flag is still off by default
-  today and T194 does not change that; what changes is that turning it on stops being a hardening
-  nice-to-have for this data class. Do not read the existence of the `campers` table as evidence the
-  flag has been flipped.
+  Encryption is on by default and, once a device holds its key, cannot be turned off by the
+  environment (see above). A device that never ran encrypted, or one where the flag was explicitly
+  set off before first keying, holds a plaintext list of children in a copied database or
+  `.automerge` file; for this data class keeping it on is a precondition, not a hardening
+  nice-to-have.
 - **The footprint is deliberately, minimally scoped.** D8 fixes it at name, group and external id.
   No contact details, no medical data, no date of birth, no household or parent records. Adding a
   column here is an **ADR-level change**, not a field addition — the small footprint is the primary
@@ -548,8 +547,7 @@ they were, before OR after the purge.
 **What this is, precisely: logical erasure ("invisible forever"), not physical byte-erasure.** The
 tombstone gates *projection*, so the record can never be seen or re-created on any device again — that
 is the guarantee the product owner set (2026-09-19). But the purged field values still physically
-remain in each device's `.automerge` history (at-rest-encrypted when `SHORESH_AT_REST_ENCRYPTION` is on,
-plaintext otherwise), unreadable through the app. Removing those bytes from the whole fleet has no
+remain in each device's `.automerge` history (at-rest-encrypted by default), unreadable through the app. Removing those bytes from the whole fleet has no
 stable form cheaper than a coordinated genesis rotation (a re-pair of every device), which is retained
 as a documented **break-glass**, not this path. Still genuinely out of reach by any path: any copy of
 the `.automerge` or database made before the purge (a backup, an export, a device that never

@@ -1,29 +1,35 @@
 // At-rest encryption activation switch + key acquisition (ADR
 // docs/adr/2026-09-15-at-rest-encryption-scoping.md; ticket T175).
 //
-// WHY A FLAG, AND WHY IT DEFAULTS OFF. Turning on at-rest encryption is a one-way, one-time
-// migration of every device's on-disk bytes from plaintext to encrypted, and a botched migration
-// must never risk a camp's data. The mechanism (key provider, document cipher, SQLite keying,
-// migration) is built and unit-tested, but the LIVE flip must be verified against the real running
-// Electron app on a real OS keychain — something the test suite cannot prove (safeStorage needs
-// Electron; a native SQLite migration needs a real file). So the flip is staged behind this flag,
-// exactly the way the sync-engine cutover was (syncEngineFlag.js): the code path is complete and
-// reversible, and the default stays OFF until that real-app smoke passes, at which point the default
-// here flips in a one-line change with the smoke evidence recorded.
-//
-// Read ONCE at import, mirroring the repo's other env toggles (SHORESH_SYNC_ENGINE, SHORESH_SMOKE_NONCE).
-// The fail-safe direction is OFF: an unset or mistyped value leaves data in the current (plaintext)
-// state, never half-migrates. Enabling must be exact.
-import { getOrCreateDbKey } from './dbEncryptionKey.js'
+// DEFAULT ON, AND STICKY. Encryption is on unless SHORESH_AT_REST_ENCRYPTION is exactly 'off'. 'off' is
+// a pre-activation / test escape only: once a device holds its key file (db.key.enc) the variable is
+// ignored (latchEncryptionIfKeyPresent), because flipping an already-encrypted device to plaintext
+// mode makes its own data unreadable. No in-app disable is offered; see
+// docs/adr/2026-10-08-at-rest-encryption-sticky-no-ambient-disable.md.
+import fs from 'node:fs'
+import path from 'node:path'
+import { getOrCreateDbKey, KEY_FILE } from './dbEncryptionKey.js'
 import { makeDocCipher } from './docCipher.js'
 
 const rawValue = process.env.SHORESH_AT_REST_ENCRYPTION
 
-// Exactly 'on' enables it. Anything else — unset, empty, 'off', a typo — stays plaintext.
-export const AT_REST_ENCRYPTION = rawValue === 'on' ? 'on' : 'off'
+export const AT_REST_ENCRYPTION = rawValue === 'off' ? 'off' : 'on'
+
+let stickyOn = false
+
+// An unknown state (any error but ENOENT) latches ON: it must never read as safe to disable.
+export function latchEncryptionIfKeyPresent(userDataDir, { fsImpl = fs } = {}) {
+  try {
+    fsImpl.statSync(path.join(userDataDir, KEY_FILE))
+    stickyOn = true
+  } catch (err) {
+    if (err?.code !== 'ENOENT') stickyOn = true
+  }
+  return stickyOn
+}
 
 export function isAtRestEncryptionEnabled() {
-  return AT_REST_ENCRYPTION === 'on'
+  return AT_REST_ENCRYPTION === 'on' || stickyOn
 }
 
 // acquireDbKey(userDataDir, safeStorage) -> Buffer(32) | null

@@ -242,6 +242,9 @@ export const localClient = {
   joinCancel: () => shoresh.joinCancel(),
   denyDevice: (deviceId) => shoresh.denyDevice({ token: currentToken(), deviceId }),
   listDevices: () => shoresh.listDevices(currentToken()),
+  listToolAuthorizations: () => shoresh.listToolAuthorizations(currentToken()),
+  grantToolAuthorization: (label, scope) => shoresh.grantToolAuthorization({ token: currentToken(), label, scope }),
+  revokeToolAuthorization: (id) => shoresh.revokeToolAuthorization({ token: currentToken(), id }),
   listPeerErasureState: () => shoresh.listPeerErasureState(currentToken()),
   // announcing() like every other mutator: a bulk setup import must wake
   // onLocalWrite subscribers (e.g. useSetupCounts' sidebar readiness) once it
