@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { parseUnlockArgs, childEnvWithKey, releaseKeyToTool } from './unlockDbKey.js'
 import { grantToolAuthorization, revokeToolAuthorization } from './auth/toolAuthorizations.js'
-import { KEY_FILE } from './db/dbEncryptionKey.js'
+import { KEY_FILE, getOrCreateDbKey } from './db/dbEncryptionKey.js'
 
 const HEX64 = 'ab'.repeat(32)
 
@@ -89,12 +89,15 @@ describe('releaseKeyToTool — the authorization gate on key release', () => {
 
   it('grant -> a tool presenting the env secret gets the key and its scope', () => {
     const { secret, authorization } = grant('read-write')
+    getOrCreateDbKey(dir, fakeSafeStorage) // the app has run once on this device
+    getOrCreateDbKey(dir, fakeSafeStorage) // the app has run once on this device
     const out = release({ env: { SHORESH_TOOL_SECRET: secret } })
     expect(out.keyHex).toMatch(/^[0-9a-f]{64}$/)
     expect(out.authorization).toMatchObject({ id: authorization.id, scope: 'read-write' })
   })
   it('stdin secret works too', () => {
     const { secret } = grant()
+    getOrCreateDbKey(dir, fakeSafeStorage) // the app has run once on this device
     expect(release({ env: {}, stdinText: `${secret}\n` }).keyHex).toMatch(/^[0-9a-f]{64}$/)
   })
   it('revoked -> tool-authorization-revoked and the key is NOT released or even minted', () => {
@@ -114,6 +117,14 @@ describe('releaseKeyToTool — the authorization gate on key release', () => {
     }
     expect(fs.existsSync(path.join(dir, KEY_FILE))).toBe(false)
   })
+  it('an authorized tool on a device with no key file is refused and never causes a key to be minted', () => {
+    const { secret } = grant()
+    let err
+    try { release({ env: { SHORESH_TOOL_SECRET: secret } }) } catch (e) { err = e }
+    expect(err?.code).toBe('db_key_unavailable')
+    expect(err.message).toMatch(/open the app once first/)
+    expect(fs.existsSync(path.join(dir, KEY_FILE))).toBe(false)
+  })
   it('a getKey failure for an AUTHORIZED tool is db_key_unavailable — the only place that code is used', () => {
     const { secret } = grant()
     let err
@@ -124,6 +135,7 @@ describe('releaseKeyToTool — the authorization gate on key release', () => {
   })
   it('the key is never on disk: no file under userData holds it, raw or hex (scanner is non-vacuous)', () => {
     const { secret } = grant()
+    getOrCreateDbKey(dir, fakeSafeStorage) // the app has run once on this device
     const { keyHex } = release({ env: { SHORESH_TOOL_SECRET: secret } })
     expect(fs.existsSync(path.join(dir, KEY_FILE))).toBe(true) // only the SEALED blob
     expect(diskContains(dir, keyHex)).toBe(false)
@@ -132,6 +144,7 @@ describe('releaseKeyToTool — the authorization gate on key release', () => {
   })
   it('the child env carries key + scope + id, and never the tool secret', () => {
     const { secret, authorization } = grant()
+    getOrCreateDbKey(dir, fakeSafeStorage) // the app has run once on this device
     const { keyHex, authorization: a } = release({ env: { SHORESH_TOOL_SECRET: secret } })
     const env = childEnvWithKey(keyHex, { PATH: '/p', SHORESH_TOOL_SECRET: secret }, a)
     expect(env.SHORESH_DB_KEY).toBe(keyHex)

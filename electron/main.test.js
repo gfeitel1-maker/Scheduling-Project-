@@ -3744,7 +3744,7 @@ describe('T175 sticky at-rest encryption wiring', () => {
   it('latches encryption after whenReady and before the key is acquired', () => {
     const ready = src.indexOf('await app.whenReady()')
     const latch = src.indexOf('latchEncryptionIfKeyPresent(userDataPath)')
-    const acquire = src.indexOf('acquireDbKey(userDataPath, safeStorage)')
+    const acquire = src.indexOf('acquireDbKey(userDataPath, safeStorage')
     expect(ready).toBeGreaterThan(-1)
     expect(latch).toBeGreaterThan(ready)
     expect(acquire).toBeGreaterThan(latch)

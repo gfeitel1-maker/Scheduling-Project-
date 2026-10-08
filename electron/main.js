@@ -3142,10 +3142,15 @@ if (isElectronEntryPoint()) {
   // finding 3) — see docs/current/KEY_RECOVERY_STORY.md.
   let docCipher = null
   let dbKey = null
+  let dbPath = getCurrentProjectPath(userDataPath, defaultDbPath)
   try {
-    dbKey = acquireDbKey(userDataPath, safeStorage) // null when encryption is off → SQLite stays plaintext
-    docCipher = acquireDocCipher(userDataPath, safeStorage)
+    dbKey = acquireDbKey(userDataPath, safeStorage, { dataPaths: [dbPath] }) // null when encryption is off → SQLite stays plaintext
+    docCipher = acquireDocCipher(userDataPath, safeStorage, { dataPaths: [dbPath] })
   } catch (err) {
+    if (err?.code === 'keychain_unavailable' || err?.code === 'db_key_file_missing') {
+      console.error(err.message)
+      throw err
+    }
     console.error(
       'At-rest encryption is enabled but this device\'s storage key could not be obtained ' +
         `(${err?.message ?? err}). The camp data on this device cannot be read without it. This is ` +
@@ -3162,7 +3167,6 @@ if (isElectronEntryPoint()) {
   }
 
   // Mutable state — swapped by project-lifecycle handlers (open/create/restore).
-  let dbPath = getCurrentProjectPath(userDataPath, defaultDbPath)
   let db = openLocalDb(dbPath, { key: dbKey })
   let deviceId = getOrCreateDeviceId(db)
 
