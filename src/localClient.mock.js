@@ -3122,17 +3122,24 @@ export const mockShoresh = {
     return { ok: true, ops_written: 1 }
   },
 
-  // T343 — end-of-season purge, mirroring purgeElectiveSeason.js: every run and
-  // its run-scoped rows; the offerings setup is untouched.
-  async purgeElectiveSeason() {
+  // T343 — elective purge, mirroring purgeElectiveSeason.js: season = every run
+  // (incl. schedule_week_id NULL); week = runs with that exact schedule_week_id.
+  // Only the in-scope runs' run-scoped rows go; the offerings setup is untouched.
+  async purgeElectiveSeason({ scope = 'season', weekId } = {}) {
+    if (scope === 'week' && !weekId) return { ok: false, error: 'weekId is required for a by-week purge' }
     const state = loadState()
-    const runsDeleted = (state.elective_assignment_runs || []).length
+    const runs = state.elective_assignment_runs || []
+    const gone = new Set(runs.filter((r) => scope !== 'week' || r.schedule_week_id === weekId).map((r) => r.id))
+    const inRun = (r) => !gone.has(r.run_id)
+    const goneChoiceIds = new Set((state.elective_choices || []).filter((c) => gone.has(c.run_id)).map((c) => c.id))
+    state.elective_choice_offerings = (state.elective_choice_offerings || []).filter((o) => !goneChoiceIds.has(o.choice_id))
     for (const t of [
       'elective_run_outer_snapshots', 'elective_run_findings', 'elective_assignments', 'elective_preferences',
-      'elective_choice_offerings', 'elective_choices', 'elective_occurrences', 'elective_assignment_runs',
-    ]) state[t] = []
+      'elective_choices', 'elective_occurrences',
+    ]) state[t] = (state[t] || []).filter(inRun)
+    state.elective_assignment_runs = runs.filter((r) => !gone.has(r.id))
     saveState(state)
-    return { ok: true, runsDeleted, ops_written: runsDeleted }
+    return { ok: true, runsDeleted: gone.size, ops_written: gone.size }
   },
 
   // Permanently delete a special day and its scoped rows, mirroring

@@ -2,9 +2,10 @@
 ticket: T343
 document_type: ticket
 title: Director-triggered end-of-season purge of elective choices (bulk clear, confirm step)
-status: open
+status: completed
 created: 2026-10-07
-archive_when: "a director can, from the Electives UI, trigger a confirmed bulk clear that deletes EVERY elective run for the camp with the full run-scoped cascade (preferences, assignments, choices, choice_offerings, occurrences, run snapshots, run findings, the run rows) and NOTHING else — campers, groups, tiers, activities, days, schedules, fixed_events and the elective OFFERINGS setup (elective_sets/set_activities/bundles/bundle_periods/bundle_tiers) are untouched — through the normal op-log/document write path in one runAtomic frame, resurrection-safe under a concurrent peer write, convergent, with honest confirm copy; built test-first and merged through the full gate (Red Hat on the delete/merge path + Security + check:governance + Grader)"
+closed: 2026-10-07
+archive_when: "a director can, from the Electives UI, pick a SCOPE (this week OR the whole season) and trigger a confirmed bulk clear that deletes the in-scope elective runs with the full run-scoped cascade (preferences, assignments, choices, choice_offerings, occurrences, run snapshots, run findings, the run rows) and NOTHING else — campers, groups, tiers, activities, days, schedules, fixed_events and the elective OFFERINGS setup (elective_sets/set_activities/bundles/bundle_periods/bundle_tiers) are untouched — through the normal op-log/document write path in one runAtomic frame, resurrection-safe under a concurrent peer write, convergent, with honest scope-named confirm copy; a by-week clear touches ONLY runs whose schedule_week_id matches the selected week and a whole-season clear sweeps all runs incl. schedule_week_id NULL; built test-first and merged through the full gate (Red Hat on the delete/merge path + Security + check:governance + Grader)"
 task_class: database-sync
 parent: ""
 governing_docs: [docs/governance/standards/TESTING_STANDARD.md, SECURITY.md]
@@ -24,9 +25,15 @@ no signatures, no quorum, no ancestry/crypto** (explicitly out of scope — that
 
 ## Scope (owner-confirmed exactly — do NOT widen, Karpathy)
 
-**CLEAR, for the camp — every `elective_assignment_run` with the full run-scoped cascade**, exactly the
-cascade `electron/ops/deleteElectiveRun.js` already performs per run (reuse it; do not reimplement the
-order or the tombstone-guard):
+**SCOPE CHOICE (owner refinement 2026-10-07):** the director picks **this week** or **the whole
+season**. By-week clears only `elective_assignment_runs` WHERE `schedule_week_id` = the selected week
+(runs with `schedule_week_id` NULL — whole-camp/legacy — are NOT matched); whole-season clears every run
+for the camp (including NULL-week runs). Same cascade either way; a run-selection filter, not new cascade
+logic.
+
+**CLEAR, for the in-scope runs — each `elective_assignment_run` with the full run-scoped cascade**,
+exactly the cascade `electron/ops/deleteElectiveRun.js` already performs per run (reuse it; do not
+reimplement the order or the tombstone-guard):
 
 1. `elective_run_findings` (run_id)
 2. `elective_run_outer_snapshots` (run_id)

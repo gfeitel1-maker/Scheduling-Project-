@@ -2385,10 +2385,12 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // T343 — end-of-season purge: every elective run, one atomic frame. Same
   // authorization as deleteElectiveRunHandler (the action name enforces
   // admin-only); the cascade lives in electron/ops/purgeElectiveSeason.js.
-  function purgeElectiveSeasonHandler({ token } = {}) {
+  function purgeElectiveSeasonHandler({ token, scope = 'season', weekId } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
+    if (scope !== 'season' && scope !== 'week') throw new Error('scope must be season or week')
+    if (scope === 'week' && !isNonEmptyString(weekId)) throw new Error('weekId is required for a by-week purge')
     const session = requireAuthorized(db, { token, action: 'elective_assignment_runs.delete' })
-    const { ops, ...reportable } = purgeElectiveSeason(db, { author_user_id: session?.userId ?? null, device_id: deviceId })
+    const { ops, ...reportable } = purgeElectiveSeason(db, { scope, weekId, author_user_id: session?.userId ?? null, device_id: deviceId })
     return { ...reportable, ops_written: ops.length }
   }
 

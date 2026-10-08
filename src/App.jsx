@@ -438,7 +438,7 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
   const resolvedScreen = screen === 'readiness' ? 'roots' : screen
   const Screen = SCREENS[resolvedScreen] || TiersScreen
   const scheduleRoute = SCHEDULE_ROUTE_BY_SCREEN[resolvedScreen]
-  const isWeekScreen = resolvedScreen === 'activities' || resolvedScreen === 'groups' || resolvedScreen === 'locations'
+  const isWeekScreen = resolvedScreen === 'activities' || resolvedScreen === 'groups' || resolvedScreen === 'locations' || resolvedScreen === 'electives'
   const screenProps = resolvedScreen === 'conflicts'
     ? { campId, role, onNavigate: navigate, pendingConflicts }
     : {

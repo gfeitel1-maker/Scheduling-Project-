@@ -115,13 +115,58 @@ describe('ElectivesScreen', () => {
   it('shows an inline count after a successful purge', async () => {
     await openPurge()
     fireEvent.click(screen.getByText('Clear Season'))
-    await screen.findByText('Cleared 3 elective runs and their choices and assignments.')
+    await screen.findByText('Cleared 3 elective runs for the whole season and their choices and assignments.')
   })
 
   it('says honestly when a purge had nothing to clear', async () => {
     localClient.purgeElectiveSeason.mockResolvedValue({ ok: true, runsDeleted: 0 })
     await openPurge()
     fireEvent.click(screen.getByText('Clear Season'))
-    await screen.findByText(/No elective runs to clear/)
+    await screen.findByText(/No elective runs to clear for the whole season/)
+  })
+
+  const WEEKS = [{ id: 'wk-1', name: 'Week 1' }, { id: 'wk-2', name: 'Week 2' }]
+  async function openWeekly(props = {}) {
+    localClient.list.mockImplementation(byEntity({ elective_sets: [electiveSet()] }))
+    render(<ElectivesScreen campId={CAMP_ID} role="admin" weekId="wk-1" weeks={WEEKS} {...props} />)
+    await waitFor(() => expect(screen.queryByText('Afternoon Chugim')).not.toBeNull())
+  }
+
+  it('offers This week (<name>) and The whole season scopes, defaulting to the week', async () => {
+    await openWeekly()
+    const week = screen.getByLabelText('This week (Week 1)')
+    const season = screen.getByLabelText('The whole season')
+    expect(week.checked).toBe(true)
+    expect(season.checked).toBe(false)
+  })
+
+  it('this-week scope: confirm copy names the week, keeps the caveats, and purges by week', async () => {
+    await openWeekly()
+    fireEvent.click(screen.getByText(/Clear this week.s elective choices/))
+    expect(screen.getByText(/only the elective runs for Week 1/)).not.toBeNull()
+    expect(screen.getByText(/does not erase them from this app.s own change history/)).not.toBeNull()
+    expect(screen.getByText(/already exported or taken off this computer/)).not.toBeNull()
+    expect(screen.getByText(/reappear there, unnamed — clearing again finishes the job/)).not.toBeNull()
+    fireEvent.click(screen.getByText('Clear Week'))
+    await screen.findByText('Cleared 3 elective runs for Week 1 and their choices and assignments.')
+    expect(localClient.purgeElectiveSeason).toHaveBeenCalledWith({ scope: 'week', weekId: 'wk-1' })
+  })
+
+  it('whole-season scope: confirm copy names the season and purges the season', async () => {
+    await openWeekly()
+    fireEvent.click(screen.getByLabelText('The whole season'))
+    fireEvent.click(screen.getByText(/Clear season.s elective choices/))
+    expect(screen.getByText(/every elective run for the whole season/)).not.toBeNull()
+    fireEvent.click(screen.getByText('Clear Season'))
+    await screen.findByText('Cleared 3 elective runs for the whole season and their choices and assignments.')
+    expect(localClient.purgeElectiveSeason).toHaveBeenCalledWith({ scope: 'season' })
+  })
+
+  it('with no current week, only the whole season is offered', async () => {
+    localClient.list.mockImplementation(byEntity({ elective_sets: [electiveSet()] }))
+    render(<ElectivesScreen campId={CAMP_ID} role="admin" weeks={WEEKS} />)
+    await waitFor(() => expect(screen.queryByText('Afternoon Chugim')).not.toBeNull())
+    expect(screen.getByLabelText('This week (no week selected)').disabled).toBe(true)
+    expect(screen.getByLabelText('The whole season').checked).toBe(true)
   })
 })

@@ -71,7 +71,7 @@ function seed() {
   return { db, f }
 }
 
-function buildRun(db, f, { runId = randomUUID(), rosterOnlyId = randomUUID() } = {}) {
+function buildRun(db, f, { runId = randomUUID(), rosterOnlyId = randomUUID(), scheduleWeekId = null } = {}) {
   const occurrenceId = deriveElectiveOccurrenceId(runId, f.setId, f.dayId, f.timeBlockId, f.tierId)
   const occurrences = [{ id: occurrenceId, elective_set_id: f.setId, day_id: f.dayId, time_block_id: f.timeBlockId, tier_id: f.tierId }]
   const campers = [{ id: f.camperId, name: 'Ari Green' }]
@@ -87,7 +87,7 @@ function buildRun(db, f, { runId = randomUUID(), rosterOnlyId = randomUUID() } =
   }))
   const out = commitElectiveRun(db, {
     campId: f.campId, deviceId: 'dev-1', name: `Run ${runId.slice(0, 4)}`, parsed, assignments, occurrences,
-    scheduleTemplateId: f.templateId, runId,
+    scheduleTemplateId: f.templateId, runId, scheduleWeekId,
   })
   expect(out.ok).toBe(true)
   return out.runId
@@ -104,6 +104,106 @@ function twoPopulatedRuns() {
   expect(db.prepare('SELECT COUNT(*) c FROM elective_choice_offerings').get().c).toBeGreaterThan(0)
   return { db, f, runs }
 }
+
+function weeklyRuns() {
+  const { db, f } = seed()
+  const wk = (id, name) => db.prepare('INSERT INTO schedule_weeks (id, camp_id, name) VALUES (?, ?, ?)').run(id, f.campId, name)
+  wk('wk-1', 'Week 1')
+  wk('wk-2', 'Week 2')
+  const runs = {
+    w1: buildRun(db, f, { scheduleWeekId: 'wk-1' }),
+    w2: buildRun(db, f, { scheduleWeekId: 'wk-2' }),
+    nul: buildRun(db, f, { scheduleWeekId: null }),
+  }
+  return { db, f, runs }
+}
+const runCount = (db, runId) => db.prepare('SELECT COUNT(*) c FROM elective_assignment_runs WHERE id = ?').get(runId).c
+const scopedCount = (db, runId) =>
+  RUN_SCOPED.reduce((n, t) => n + db.prepare(`SELECT COUNT(*) c FROM ${t} WHERE run_id = ?`).get(runId).c, 0)
+
+describe('purgeElectiveSeason scope', () => {
+  it('by-week: clears ONLY the selected week\'s runs and their cascade', () => {
+    const { db, runs } = weeklyRuns()
+    const out = purgeElectiveSeason(db, { ...ctx, scope: 'week', weekId: 'wk-1' })
+    expect(out.runsDeleted).toBe(1)
+    expect(runCount(db, runs.w1)).toBe(0)
+    expect(scopedCount(db, runs.w1)).toBe(0)
+    db.close()
+  })
+
+  it('by-week: other weeks\' runs and the NULL-week run survive with cascade intact and KEPT is untouched', () => {
+    const { db, runs } = weeklyRuns()
+    const survivors = [runs.w2, runs.nul]
+    const before = survivors.map((r) => scopedCount(db, r))
+    const kept = dump(db, KEPT)
+    purgeElectiveSeason(db, { ...ctx, scope: 'week', weekId: 'wk-1' })
+    survivors.forEach((r, i) => {
+      expect(runCount(db, r)).toBe(1)
+      expect(scopedCount(db, r)).toBe(before[i])
+      expect(before[i]).toBeGreaterThan(0)
+    })
+    expect(dump(db, KEPT)).toBe(kept)
+    db.close()
+  })
+
+  it('NULL-week pin: a by-week purge does not clear the NULL-week run; a season purge does', () => {
+    const a = weeklyRuns()
+    purgeElectiveSeason(a.db, { ...ctx, scope: 'week', weekId: 'wk-2' })
+    expect(runCount(a.db, a.runs.nul)).toBe(1)
+    a.db.close()
+    const b = weeklyRuns()
+    purgeElectiveSeason(b.db, { ...ctx, scope: 'season' })
+    expect(runCount(b.db, b.runs.nul)).toBe(0)
+    b.db.close()
+  })
+
+  it('whole-season: clears every week\'s runs and the NULL-week run', () => {
+    const { db, runs } = weeklyRuns()
+    const out = purgeElectiveSeason(db, { ...ctx, scope: 'season' })
+    expect(out.runsDeleted).toBe(3)
+    for (const r of Object.values(runs)) {
+      expect(runCount(db, r)).toBe(0)
+      expect(scopedCount(db, r)).toBe(0)
+    }
+    db.close()
+  })
+
+  it('by-week requires a weekId (no silent widening to the whole season)', () => {
+    const { db, runs } = weeklyRuns()
+    expect(() => purgeElectiveSeason(db, { ...ctx, scope: 'week' })).toThrow()
+    expect(() => purgeElectiveSeason(db, { ...ctx, scope: 'week', weekId: null })).toThrow()
+    expect(runCount(db, runs.w1)).toBe(1)
+    db.close()
+  })
+
+  it('by-week atomicity: a failure mid-clear leaves everything byte-identical', () => {
+    const { db, f } = weeklyRuns()
+    const extra = buildRun(db, f, { scheduleWeekId: 'wk-1' })
+    const all = [...RUN_SCOPED, 'elective_choice_offerings', 'elective_assignment_runs', 'operations']
+    const before = dump(db, all)
+    db.exec(`CREATE TEMP TRIGGER boom BEFORE DELETE ON elective_assignment_runs
+      WHEN OLD.id = '${extra}' BEGIN SELECT RAISE(ABORT, 'injected'); END;`)
+    expect(() => purgeElectiveSeason(db, { ...ctx, scope: 'week', weekId: 'wk-1' })).toThrow()
+    db.exec('DROP TRIGGER boom')
+    expect(dump(db, all)).toBe(before)
+    db.close()
+  })
+
+  it('by-week idempotent: a second by-week purge is a no-op', () => {
+    const { db } = weeklyRuns()
+    purgeElectiveSeason(db, { ...ctx, scope: 'week', weekId: 'wk-1' })
+    expect(purgeElectiveSeason(db, { ...ctx, scope: 'week', weekId: 'wk-1' })).toEqual({ ok: true, runsDeleted: 0, ops: [] })
+    db.close()
+  })
+
+  it('by-week resurrection-safety: a child write on a purged week run does not re-create it', () => {
+    const { db, runs } = weeklyRuns()
+    purgeElectiveSeason(db, { ...ctx, scope: 'week', weekId: 'wk-1' })
+    appendOp(db, { entity: 'elective_preferences', entity_id: randomUUID(), field: 'run_id', value: runs.w1, ...ctx })
+    expect(runCount(db, runs.w1)).toBe(0)
+    db.close()
+  })
+})
 
 describe('purgeElectiveSeason', () => {
   it('clear-all: every run-scoped row of every run is gone and no run remains', () => {
