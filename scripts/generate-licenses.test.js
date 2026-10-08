@@ -127,14 +127,24 @@ describe('buildLicenseManifest', () => {
     ])
   })
 
-  it('deliberately skips a package whose lockfile entry excludes the current platform, without error', async () => {
+  it('INCLUDES a package whose lockfile entry excludes the current platform, resolved from the committed cache — the manifest is OS-independent', async () => {
+    // A per-OS native prebuilt (e.g. @node-datachannel/linux-x64-gnu) is absent
+    // from node_modules on every OS but its own, yet ships in that OS's build.
+    // Skipping it made a darwin-generated manifest look stale on Linux CI.
     writeLock(root, {
       'node_modules/other-platform-pkg': { version: '1.0.0', os: ['not-a-real-platform'] },
     })
-    // deliberately not writing it to disk — this is the "not installed on this
-    // platform, and that's expected" case the os/cpu gate exists to recognize
-    const packages = await buildLicenseManifest(root)
-    expect(packages).toEqual([])
+    const record = { name: 'other-platform-pkg', version: '1.0.0', license: 'MIT', homepage: null, licenseText: 'MIT text' }
+    writeCacheRecord(root, 'other-platform-pkg', '1.0.0', record)
+    const packages = await buildLicenseManifest(root, { fetchImpl: () => { throw new Error('must not fetch on a cache hit') } })
+    expect(packages).toEqual([record])
+  })
+
+  it('hard-fails (not a silent skip) on a platform-excluded package with neither a cache record nor a resolvable tarball', async () => {
+    writeLock(root, {
+      'node_modules/other-platform-pkg': { version: '1.0.0', os: ['not-a-real-platform'] },
+    })
+    await expect(buildLicenseManifest(root)).rejects.toThrow(/other-platform-pkg/)
   })
 
   it('does NOT skip an optionalDependency with no os/cpu restriction just because it is optional — missing means it should have installed and failed to, which is a hard failure', async () => {
