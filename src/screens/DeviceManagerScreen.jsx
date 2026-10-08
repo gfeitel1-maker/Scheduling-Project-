@@ -26,8 +26,6 @@ function pairingStatusLabel(status) {
 //   2. never cryptographic/physical — this is guess-resistant logical erasure;
 //   3. never certainty about a peer it cannot hear from — UNKNOWN means unknown;
 //   4. never a count it cannot back — only states the self-report supports.
-const JOINER_GONE_COPY = 'The device disconnected before approval — ask it to request again'
-
 const ERASURE_COPY = {
   LOGICALLY_ERASED: {
     label: 'Hidden',
@@ -57,6 +55,8 @@ const ERASURE_COPY = {
     title: 'Purge status is tracked only for devices currently in the camp.',
   },
 }
+
+const JOINER_GONE_COPY = 'The device disconnected before approval — ask it to request again'
 
 export default function DeviceManagerScreen({ campId, role, deviceMode }) {
   // T86, narrowed by the T332 fold-in (Code Reviewer HIGH): `denyDevice` still writes straight

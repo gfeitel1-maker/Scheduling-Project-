@@ -255,7 +255,7 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
           <Outcome
             title={deniedReason === 'pairing-requires-local-network' ? "Not on the camp's network" : "This device wasn't allowed in"}
             body={deniedReason === 'pairing-requires-local-network'
-              ? <>Pairing must happen on the camp's local network — connect this device to the same Wi-Fi/LAN and try again</>
+              ? <>Pairing must happen on the camp's local network — connect this device to the same Wi-Fi/LAN as the main computer and try again. VPN, Tailscale and mobile-carrier connections can't be used to pair.</>
               : <>Whoever is at the main computer turned down the request. You can ask them and try again.</>}
             actionLabel="Try again"
             onAction={startOver}
