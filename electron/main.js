@@ -39,6 +39,7 @@ import { duplicateWeek } from './ops/duplicateWeek.js'
 import { deleteWeek } from './ops/deleteWeek.js'
 import { deleteElectiveSet } from './ops/deleteElectiveSet.js'
 import { deleteElectiveRun } from './ops/deleteElectiveRun.js'
+import { purgeElectiveSeason } from './ops/purgeElectiveSeason.js'
 import { attributeElectiveSubject } from './ops/attributeElectiveSubject.js'
 import { deleteSpecialDay } from './ops/deleteSpecialDay.js'
 import { deleteEvent } from './ops/deleteEvent.js'
@@ -2381,6 +2382,16 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return { ...reportable, ops_written: ops.length }
   }
 
+  // T343 — end-of-season purge: every elective run, one atomic frame. Same
+  // authorization as deleteElectiveRunHandler (the action name enforces
+  // admin-only); the cascade lives in electron/ops/purgeElectiveSeason.js.
+  function purgeElectiveSeasonHandler({ token } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const session = requireAuthorized(db, { token, action: 'elective_assignment_runs.delete' })
+    const { ops, ...reportable } = purgeElectiveSeason(db, { author_user_id: session?.userId ?? null, device_id: deviceId })
+    return { ...reportable, ops_written: ops.length }
+  }
+
   // Moving/locking a camper inside a draft run (T245, same ADR, decision (b)).
   // Same admin-only participant-entity posture as the handlers above — the
   // action name, not a hand-written role check, is what enforces it
@@ -2839,6 +2850,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     attributeSubject: attributeSubjectHandler,
     deleteElectiveSet: deleteElectiveSetHandler,
     deleteElectiveRun: deleteElectiveRunHandler,
+    purgeElectiveSeason: purgeElectiveSeasonHandler,
     deleteSpecialDay: deleteSpecialDayHandler,
     deleteEvent: deleteEventHandler,
     listDurableElectiveSets: listDurableElectiveSetsHandler,
@@ -3163,6 +3175,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:preview-delete', (_event, args) => handlers.previewDelete(args))
     ipcMain.handle('shoresh:delete-record', (_event, args) => handlers.deleteRecord(args))
     ipcMain.handle('shoresh:delete-elective-run', (_event, args) => handlers.deleteElectiveRun(args))
+    ipcMain.handle('shoresh:purge-elective-season', (_event, args) => handlers.purgeElectiveSeason(args))
     ipcMain.handle('shoresh:merge-location', (_event, args) => handlers.mergeLocation(args))
     ipcMain.handle('shoresh:merge-activity', (_event, args) => handlers.mergeActivity(args))
     ipcMain.handle('shoresh:preview-activity-merge', (_event, args) => handlers.previewActivityMerge(args))

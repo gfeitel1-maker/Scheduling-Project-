@@ -63,6 +63,41 @@ import { appendOp, DELETE_FIELD, runAtomic } from './operations.js'
 // (src/screens/elective/run/DeleteRunDialog.jsx, DELETE_RUN_COST_COPY) still
 // names the possibility rather than promising a completeness the code cannot
 // back.
+// The per-run cascade, shared with purgeElectiveSeason.js so there is ONE
+// implementation. MUST be called inside a runAtomic frame; returns the ops.
+export function cascadeDeleteElectiveRun(db, runId, { author_user_id, device_id } = {}) {
+  const ops = []
+  const del = (entity, entity_id) =>
+    ops.push(appendOp(db, { entity, entity_id, field: DELETE_FIELD, value: 1, author_user_id, device_id }))
+
+  // T320 part 2 item 3 — these rows now carry a real `camper_id`, so an
+  // orphan is orphaned PII, not just a stray diagnostic.
+  const runFindings = db.prepare('SELECT id FROM elective_run_findings WHERE run_id = ?').all(runId)
+  for (const f of runFindings) del('elective_run_findings', f.id)
+
+  const snapshots = db.prepare('SELECT id FROM elective_run_outer_snapshots WHERE run_id = ?').all(runId)
+  for (const s of snapshots) del('elective_run_outer_snapshots', s.id)
+
+  const assignments = db.prepare('SELECT id FROM elective_assignments WHERE run_id = ?').all(runId)
+  for (const a of assignments) del('elective_assignments', a.id)
+
+  const preferences = db.prepare('SELECT id FROM elective_preferences WHERE run_id = ?').all(runId)
+  for (const p of preferences) del('elective_preferences', p.id)
+
+  const choices = db.prepare('SELECT id FROM elective_choices WHERE run_id = ?').all(runId)
+  for (const c of choices) {
+    const offerings = db.prepare('SELECT id FROM elective_choice_offerings WHERE choice_id = ?').all(c.id)
+    for (const o of offerings) del('elective_choice_offerings', o.id)
+  }
+  for (const c of choices) del('elective_choices', c.id)
+
+  const occurrences = db.prepare('SELECT id FROM elective_occurrences WHERE run_id = ?').all(runId)
+  for (const o of occurrences) del('elective_occurrences', o.id)
+
+  del('elective_assignment_runs', runId)
+  return ops
+}
+
 export function deleteElectiveRun(db, { runId }, { author_user_id, device_id } = {}) {
   if (typeof runId !== 'string' || !runId) return { error: 'not-found' }
 
@@ -70,40 +105,5 @@ export function deleteElectiveRun(db, { runId }, { author_user_id, device_id } =
     return { error: 'not-found' }
   }
 
-  const del = (entity, entity_id) =>
-    appendOp(db, { entity, entity_id, field: DELETE_FIELD, value: 1, author_user_id, device_id })
-
-  const outcome = runAtomic(db, () => {
-    const ops = []
-
-    // T320 part 2 item 3 — these rows now carry a real `camper_id`, so an
-    // orphan is orphaned PII, not just a stray diagnostic.
-    const runFindings = db.prepare('SELECT id FROM elective_run_findings WHERE run_id = ?').all(runId)
-    for (const f of runFindings) ops.push(del('elective_run_findings', f.id))
-
-    const snapshots = db.prepare('SELECT id FROM elective_run_outer_snapshots WHERE run_id = ?').all(runId)
-    for (const s of snapshots) ops.push(del('elective_run_outer_snapshots', s.id))
-
-    const assignments = db.prepare('SELECT id FROM elective_assignments WHERE run_id = ?').all(runId)
-    for (const a of assignments) ops.push(del('elective_assignments', a.id))
-
-    const preferences = db.prepare('SELECT id FROM elective_preferences WHERE run_id = ?').all(runId)
-    for (const p of preferences) ops.push(del('elective_preferences', p.id))
-
-    const choices = db.prepare('SELECT id FROM elective_choices WHERE run_id = ?').all(runId)
-    for (const c of choices) {
-      const offerings = db.prepare('SELECT id FROM elective_choice_offerings WHERE choice_id = ?').all(c.id)
-      for (const o of offerings) ops.push(del('elective_choice_offerings', o.id))
-    }
-    for (const c of choices) ops.push(del('elective_choices', c.id))
-
-    const occurrences = db.prepare('SELECT id FROM elective_occurrences WHERE run_id = ?').all(runId)
-    for (const o of occurrences) ops.push(del('elective_occurrences', o.id))
-
-    ops.push(del('elective_assignment_runs', runId))
-
-    return { ok: true, ops }
-  })
-
-  return outcome
+  return runAtomic(db, () => ({ ok: true, ops: cascadeDeleteElectiveRun(db, runId, { author_user_id, device_id }) }))
 }

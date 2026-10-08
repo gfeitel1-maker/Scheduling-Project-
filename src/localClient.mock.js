@@ -3122,6 +3122,19 @@ export const mockShoresh = {
     return { ok: true, ops_written: 1 }
   },
 
+  // T343 — end-of-season purge, mirroring purgeElectiveSeason.js: every run and
+  // its run-scoped rows; the offerings setup is untouched.
+  async purgeElectiveSeason() {
+    const state = loadState()
+    const runsDeleted = (state.elective_assignment_runs || []).length
+    for (const t of [
+      'elective_run_outer_snapshots', 'elective_run_findings', 'elective_assignments', 'elective_preferences',
+      'elective_choice_offerings', 'elective_choices', 'elective_occurrences', 'elective_assignment_runs',
+    ]) state[t] = []
+    saveState(state)
+    return { ok: true, runsDeleted, ops_written: runsDeleted }
+  },
+
   // Permanently delete a special day and its scoped rows, mirroring
   // deleteSpecialDay.js's cascade (T106, docs/adr/2026-08-20-special-days-
   // authoring-and-day-override-repoint.md D1): special_day_slots and

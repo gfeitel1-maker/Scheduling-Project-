@@ -106,6 +106,9 @@ export default function ElectivesScreen({ campId, role, onNavigate }) {
 
   const [pendingDelete, setPendingDelete] = useState(null)
   const [deleting, setDeleting] = useState(false)
+  const [confirmingPurge, setConfirmingPurge] = useState(false)
+  const [purging, setPurging] = useState(false)
+  const [purgeResult, setPurgeResult] = useState(null)
 
   async function addSet(values) {
     const name = String(values.name ?? '').trim()
@@ -131,6 +134,21 @@ export default function ElectivesScreen({ campId, role, onNavigate }) {
     } finally {
       setDeleting(false)
       setPendingDelete(null)
+    }
+  }
+
+  async function confirmPurgeSeason() {
+    setPurging(true)
+    setPurgeResult(null)
+    try {
+      const result = await localClient.purgeElectiveSeason()
+      if (!result?.ok) throw new Error(result?.error ?? 'purge-failed')
+      setPurgeResult(result.runsDeleted ?? 0)
+    } catch (err) {
+      setError(describeWriteFailure(err, 'The season\u2019s elective choices could not be cleared.'))
+    } finally {
+      setPurging(false)
+      setConfirmingPurge(false)
     }
   }
 
@@ -179,6 +197,37 @@ export default function ElectivesScreen({ campId, role, onNavigate }) {
             </tbody>
           </table>
         </div>
+      )}
+
+      <div style={{ textAlign: 'right', marginBottom: 16 }}>
+        <button
+          onClick={() => setConfirmingPurge(true)}
+          disabled={role !== 'admin'}
+          title={role !== 'admin' ? 'Admin only' : 'Clear every elective choice, assignment and run for the season'}
+          style={role !== 'admin' ? { ...S.btnRowDanger, ...S.buttonDisabled } : S.btnRowDanger}
+        >
+          Clear season&rsquo;s elective choices
+        </button>
+      </div>
+
+      {purgeResult !== null && (
+        <div role="status" style={{ ...S.emptyStateBody, textAlign: 'right', marginBottom: 16 }}>
+          {purgeResult === 0
+            ? 'No elective runs to clear \u2014 nothing was changed.'
+            : `Cleared ${purgeResult} elective ${purgeResult === 1 ? 'run' : 'runs'} and their choices and assignments.`}
+        </div>
+      )}
+
+      {confirmingPurge && (
+        <ConfirmDangerDialog
+          title="Clear all elective choices for the season?"
+          body="This permanently removes every elective run, with all camper choices and assignments in them, from this device and from every device this camp syncs with. A device that is offline will catch up when it reconnects. If another device is actively editing a run at that exact moment, it can reappear there, unnamed — clearing again finishes the job. It does not erase them from this app’s own change history, and nothing here can reach a copy already exported or taken off this computer."
+          recovery="Kept: your elective sets and their offerings, campers, groups, tiers, activities, and schedules."
+          confirmLabel="Clear Season"
+          busy={purging}
+          onConfirm={confirmPurgeSeason}
+          onCancel={() => setConfirmingPurge(false)}
+        />
       )}
 
       {pendingDelete && (

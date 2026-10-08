@@ -14,6 +14,7 @@ vi.mock('../localClient', () => ({
     write: vi.fn(),
     deleteEntity: vi.fn(),
     deleteElectiveSet: vi.fn(),
+    purgeElectiveSeason: vi.fn(),
   },
 }))
 
@@ -41,6 +42,7 @@ beforeEach(() => {
   localClient.write.mockReset().mockResolvedValue({ status: 'applied' })
   localClient.deleteEntity.mockReset().mockResolvedValue({ status: 'applied' })
   localClient.deleteElectiveSet.mockReset().mockResolvedValue({ status: 'applied' })
+  localClient.purgeElectiveSeason.mockReset().mockResolvedValue({ ok: true, runsDeleted: 3 })
 })
 
 describe('ElectivesScreen', () => {
@@ -94,5 +96,32 @@ describe('ElectivesScreen', () => {
     fireEvent.click(screen.getByText('Delete Elective Set'))
 
     await waitFor(() => expect(localClient.deleteElectiveSet).toHaveBeenCalledWith({ electiveSetId: 'set-1' }))
+  })
+
+  async function openPurge() {
+    localClient.list.mockImplementation(byEntity({ elective_sets: [electiveSet()] }))
+    render(<ElectivesScreen campId={CAMP_ID} role="admin" />)
+    await waitFor(() => expect(screen.queryByText('Afternoon Chugim')).not.toBeNull())
+    fireEvent.click(screen.getByText(/Clear season.s elective choices/))
+  }
+
+  it('purge confirm copy discloses history retention, exported copies, and the sync-race reappearance', async () => {
+    await openPurge()
+    expect(screen.getByText(/does not erase them from this app.s own change history/)).not.toBeNull()
+    expect(screen.getByText(/already exported or taken off this computer/)).not.toBeNull()
+    expect(screen.getByText(/reappear there, unnamed — clearing again finishes the job/)).not.toBeNull()
+  })
+
+  it('shows an inline count after a successful purge', async () => {
+    await openPurge()
+    fireEvent.click(screen.getByText('Clear Season'))
+    await screen.findByText('Cleared 3 elective runs and their choices and assignments.')
+  })
+
+  it('says honestly when a purge had nothing to clear', async () => {
+    localClient.purgeElectiveSeason.mockResolvedValue({ ok: true, runsDeleted: 0 })
+    await openPurge()
+    fireEvent.click(screen.getByText('Clear Season'))
+    await screen.findByText(/No elective runs to clear/)
   })
 })
