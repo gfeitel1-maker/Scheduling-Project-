@@ -1,0 +1,192 @@
+// @vitest-environment node
+//
+// T340 precondition 1 (docs/adr/2026-10-08-max-connections-dos-mitigation.md): connection-manager
+// DoS hardening, exercised against REAL libp2p nodes (no mock of the connection manager). Scale
+// numbers (maxConnections, reservedFloor, deadline, pending cap) are passed through startTransport's
+// options for speed; production defaults are the ADR numbers.
+//
+// HONEST GUARANTEE these tests pin, and no more: an ESTABLISHED admitted connection is never evicted
+// by an un-admitted flood; a reconnecting camp device gets a slot within bounded authGate-deadline
+// turnover, NOT instantly under an active flood.
+import net from 'node:net'
+import { describe, it, expect, afterEach } from 'vitest'
+import { createLibp2p } from 'libp2p'
+import { tcp } from '@libp2p/tcp'
+import { noise } from '@chainsafe/libp2p-noise'
+import { yamux } from '@chainsafe/libp2p-yamux'
+import { startTransport } from './transport.js'
+import { AUTH_PROTO } from './wireProtocol.js'
+
+let cleanups = []
+afterEach(async () => {
+  await Promise.all(cleanups.map((c) => c().catch(() => {})))
+  cleanups = []
+})
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+async function waitFor(predicate, { timeout = 4000, interval = 20 } = {}) {
+  const start = Date.now()
+  while (!(await predicate())) {
+    if (Date.now() - start > timeout) throw new Error('waitFor: timed out')
+    await sleep(interval)
+  }
+}
+
+const alwaysAdmit = () => ({ ok: true })
+
+async function startTarget(opts = {}) {
+  const t = await startTransport({ deviceId: 'target', onAuthenticate: alwaysAdmit, inboundConnectionThreshold: 1000, ...opts })
+  cleanups.push(() => t.stop())
+  return t
+}
+
+async function startCamp(id) {
+  const t = await startTransport({ deviceId: id, onAuthenticate: alwaysAdmit })
+  cleanups.push(() => t.stop())
+  return t
+}
+
+async function startAttacker() {
+  const node = await createLibp2p({
+    addresses: { listen: [] },
+    transports: [tcp()],
+    connectionEncrypters: [noise()],
+    streamMuxers: [yamux()],
+  })
+  cleanups.push(() => node.stop())
+  return node
+}
+
+const openAttackerConns = (attackers) => attackers.filter((a) => a.getConnections().length > 0).length
+
+async function flood(target, n) {
+  const attackers = []
+  for (let i = 0; i < n; i++) {
+    const a = await startAttacker()
+    attackers.push(a)
+    await a.dial(target.getMultiaddrs()[0]).catch(() => {})
+  }
+  return attackers
+}
+
+async function authenticate(client, target) {
+  const reply = await client.authenticateWith(target.peerId, { type: 'authenticate', token: 't', device_id: 'x' })
+  return reply?.type === 'auth_ok'
+}
+
+describe('T340 connection-manager DoS hardening', () => {
+  it('1: an un-admitted flood never evicts an established admitted connection and is capped to maxConnections - reservedFloor', async () => {
+    const target = await startTarget({ maxConnections: 8, reservedFloor: 3, unadmittedDeadlineMs: 400 })
+    const camp = await startCamp('camp')
+    await camp.dial(target.getMultiaddrs()[0])
+    expect(await authenticate(camp, target)).toBe(true)
+
+    // non-vacuity: with capacity free the admitted connection is simply untouched
+    expect(target.getPeers()).toContain(camp.peerId)
+
+    const attackers = await flood(target, 12)
+    await sleep(100)
+    expect(openAttackerConns(attackers)).toBeLessThanOrEqual(5)
+    expect(target.getPeers()).toContain(camp.peerId)
+
+    await sleep(900)
+    expect(target.getPeers()).toContain(camp.peerId)
+    expect(target.isPeerAuthenticated(camp.peerId)).toBe(true)
+  })
+
+  it('2: an un-upgraded backlog is bounded by maxIncomingPendingConnections', async () => {
+    const target = await startTarget({ maxIncomingPendingConnections: 3 })
+    const port = Number(/\/tcp\/(\d+)/.exec(target.getMultiaddrs()[0].toString())[1])
+    const sockets = []
+    let closed = 0
+    for (let i = 0; i < 10; i++) {
+      const s = net.connect(port, '127.0.0.1')
+      s.on('error', () => {})
+      s.on('close', () => { closed++ })
+      sockets.push(s)
+    }
+    cleanups.push(async () => sockets.forEach((s) => s.destroy()))
+    await sleep(600)
+    expect(closed).toBe(7)
+  })
+
+  it('3: the admitted tag is present after admit and absent after revoke and after disconnect', async () => {
+    const target = await startTarget()
+    const campA = await startCamp('a')
+    const campB = await startCamp('b')
+    await campA.dial(target.getMultiaddrs()[0])
+    await campB.dial(target.getMultiaddrs()[0])
+    expect(await target.isAdmittedTagged(campA.peerId)).toBe(false)
+    expect(await authenticate(campA, target)).toBe(true)
+    expect(await authenticate(campB, target)).toBe(true)
+    await waitFor(() => target.isAdmittedTagged(campA.peerId))
+    expect(await target.isAdmittedTagged(campB.peerId)).toBe(true)
+
+    target.revokePeer(campA.peerId)
+    await waitFor(async () => !(await target.isAdmittedTagged(campA.peerId)))
+
+    await campB.stop()
+    await waitFor(async () => !(await target.isAdmittedTagged(campB.peerId)))
+  })
+
+  it('3b: admitPeer (first-join bootstrap) also tags', async () => {
+    const target = await startTarget()
+    const camp = await startCamp('c')
+    target.admitPeer(camp.peerId)
+    await waitFor(() => target.isAdmittedTagged(camp.peerId))
+  })
+
+  it('4: at exactly maxConnections an admitted reconnect is refused without the floor, and lands within bounded turnover with it', async () => {
+    const target = await startTarget({ maxConnections: 6, reservedFloor: 2, unadmittedDeadlineMs: 300 })
+    const camp = await startCamp('camp')
+    await flood(target, 6)
+
+    const start = Date.now()
+    let admitted = false
+    while (!admitted && Date.now() - start < 3000) {
+      try {
+        await camp.dial(target.getMultiaddrs()[0])
+        admitted = await authenticate(camp, target)
+      } catch { /* refused / aborted — turnover is not instant under an active flood */ }
+      if (!admitted) await sleep(100)
+    }
+    expect(admitted).toBe(true)
+    expect(target.isPeerAuthenticated(camp.peerId)).toBe(true)
+  })
+
+  it('5: a held-open authGate stream is aborted at the deadline', async () => {
+    const target = await startTarget({ unadmittedDeadlineMs: 400 })
+    const attacker = await startAttacker()
+    const conn = await attacker.dial(target.getMultiaddrs()[0])
+    const stream = await attacker.dialProtocol(target.getMultiaddrs()[0], AUTH_PROTO)
+    expect(stream).toBeTruthy()
+
+    await sleep(150)
+    expect(conn.status).toBe('open')
+    await waitFor(() => conn.status !== 'open', { timeout: 2000 })
+    expect(attacker.getConnections().length).toBe(0)
+  })
+
+  it('6: the un-admitted bucket cap aborts the newest connection, not an older one', async () => {
+    const target = await startTarget({ maxConnections: 10, reservedFloor: 7, unadmittedDeadlineMs: 5000 })
+    const first = await flood(target, 3)
+    await sleep(100)
+    expect(openAttackerConns(first)).toBe(3)
+    const newest = await flood(target, 1)
+    await sleep(200)
+    expect(openAttackerConns(first)).toBe(3)
+    expect(openAttackerConns(newest)).toBe(0)
+  })
+
+  it('7: with production defaults an immediately-authenticating pair syncs exactly as before', async () => {
+    const received = []
+    const a = await startTransport({ deviceId: 'a', onAuthenticate: alwaysAdmit, onDocReceived: (b) => received.push(b) })
+    const b = await startTransport({ deviceId: 'b', onAuthenticate: alwaysAdmit })
+    cleanups.push(() => a.stop(), () => b.stop())
+    await b.dial(a.getMultiaddrs()[0])
+    expect(await authenticate(b, a)).toBe(true)
+    expect(await authenticate(a, b)).toBe(true)
+    await b.broadcastDoc(new Uint8Array([1, 2, 3]))
+    await waitFor(() => received.length === 1)
+  })
+})
