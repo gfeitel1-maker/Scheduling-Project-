@@ -116,7 +116,13 @@ describe('handleStartupFailure', () => {
       calls,
       deps: {
         writeLog: (err) => calls.logged.push(err),
-        ipcMain: { handle: (ch, fn) => { handlers[ch] = fn } },
+        ipcMain: {
+          handle: (ch, fn) => {
+            if (ch in handlers) throw new Error(`Attempted to register a second handler for '${ch}'`)
+            handlers[ch] = fn
+          },
+          removeHandler: (ch) => { delete handlers[ch] },
+        },
         createWindow: async () => { calls.windows += 1 },
         showErrorBox: () => { calls.box += 1 },
         exit: (n) => calls.exit.push(n),
@@ -137,6 +143,16 @@ describe('handleStartupFailure', () => {
     expect(await handlers['shoresh:get-boot-failure']()).toEqual({ code: 'db_unreadable' })
     handlers['shoresh:quit-app']()
     expect(calls.quit).toBe(1)
+  })
+
+  it('replaces handlers main.js already registered at module scope, instead of throwing on the duplicate', async () => {
+    const { deps, calls, handlers } = fakes()
+    handlers['shoresh:get-boot-failure'] = () => null
+    handlers['shoresh:quit-app'] = () => {}
+    await handleStartupFailure(Object.assign(new Error('x'), { code: 'db_unreadable' }), deps)
+    expect(calls.box).toBe(0)
+    expect(calls.exit).toEqual([])
+    expect(await handlers['shoresh:get-boot-failure']()).toEqual({ code: 'db_unreadable' })
   })
 
   it('keeps the dialog and exit(1) for an unrecognized error', async () => {

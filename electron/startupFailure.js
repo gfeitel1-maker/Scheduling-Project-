@@ -93,6 +93,8 @@ export async function handleStartupFailure(err, { writeLog, ipcMain, createWindo
   const bootFailure = toBootFailure(err)
   if (bootFailure) {
     try {
+      // main.js registers null/quit handlers at module scope before startup runs; Electron throws on a second handle().
+      for (const ch of ['shoresh:get-boot-failure', 'shoresh:quit-app']) ipcMain.removeHandler(ch)
       ipcMain.handle('shoresh:get-boot-failure', () => bootFailure)
       ipcMain.handle('shoresh:quit-app', () => quit())
       await createWindow()
