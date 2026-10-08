@@ -261,7 +261,7 @@ export async function startJoinSession({
       const msg = await pairingDecision.promise
       return msg.type === 'pairing_approved'
         ? { status: 'approved', deviceSecretIdentifier: msg.device_secret_identifier }
-        : { status: 'denied' }
+        : { status: 'denied', ...(msg.reason ? { reason: msg.reason } : {}) }
     },
 
     /** PIN sign-in against the HOST's user table — the same `attemptLogin`

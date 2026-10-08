@@ -5,9 +5,11 @@
 // numbers (maxConnections, reservedFloor, deadline, pending cap) are passed through startTransport's
 // options for speed; production defaults are the ADR numbers.
 //
-// HONEST GUARANTEE these tests pin, and no more: an ESTABLISHED admitted connection is never evicted
-// by an un-admitted flood; a reconnecting camp device gets a slot within bounded authGate-deadline
-// turnover, NOT instantly under an active flood.
+// HONEST GUARANTEE these tests pin, and no more:
+// An ESTABLISHED admitted connection is never evicted by an un-admitted flood (hard guarantee — the
+// floor). A RECONNECTING camp device regains a slot LIKELY within an authGate-deadline turnover cycle,
+// but this is NOT guaranteed under a sustained distributed flood — it competes for the recycling
+// un-admitted slots.
 import net from 'node:net'
 import { describe, it, expect, afterEach } from 'vitest'
 import { createLibp2p } from 'libp2p'
@@ -137,7 +139,7 @@ describe('T340 connection-manager DoS hardening', () => {
     await waitFor(() => target.isAdmittedTagged(camp.peerId))
   })
 
-  it('4: at exactly maxConnections an admitted reconnect is refused without the floor, and lands within bounded turnover with it', async () => {
+  it('4: at exactly maxConnections an admitted reconnect is refused without the floor, and likely lands via authGate-deadline turnover with it (likely, not guaranteed under a sustained flood)', async () => {
     const target = await startTarget({ maxConnections: 6, reservedFloor: 2, unadmittedDeadlineMs: 300 })
     const camp = await startCamp('camp')
     await flood(target, 6)

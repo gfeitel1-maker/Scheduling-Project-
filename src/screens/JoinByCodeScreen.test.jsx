@@ -136,6 +136,34 @@ describe('JoinByCodeScreen — the whole way through', () => {
     expect(await screen.findByText(/wasn't allowed in/i)).toBeTruthy()
   })
 
+  const LAN_COPY = "Pairing must happen on the camp's local network — connect this device to the same Wi-Fi/LAN and try again"
+
+  it('names the local-network requirement when pairing is refused for it (waiting path)', async () => {
+    localClient.joinAwaitPairingDecision.mockResolvedValue({ status: 'denied', reason: 'pairing-requires-local-network' })
+    const user = userEvent.setup()
+    render(<JoinByCodeScreen />)
+    await enterCode(user)
+    expect(await screen.findByText(LAN_COPY)).toBeTruthy()
+    expect(screen.queryByText(/wasn't allowed in/i)).toBeNull()
+  })
+
+  it('names the local-network requirement when the first reply is the refusal', async () => {
+    localClient.joinRequestPairing.mockResolvedValue({ status: 'denied', reason: 'pairing-requires-local-network' })
+    const user = userEvent.setup()
+    render(<JoinByCodeScreen />)
+    await enterCode(user)
+    expect(await screen.findByText(LAN_COPY)).toBeTruthy()
+  })
+
+  it('keeps the generic copy for a denial with any other or no reason', async () => {
+    localClient.joinRequestPairing.mockResolvedValue({ status: 'denied', reason: 'something-else' })
+    const user = userEvent.setup()
+    render(<JoinByCodeScreen />)
+    await enterCode(user)
+    expect(await screen.findByText(/wasn't allowed in/i)).toBeTruthy()
+    expect(screen.queryByText(LAN_COPY)).toBeNull()
+  })
+
   // The state that could not exist under the op-log, where identity and data
   // arrived in one message. Under a CRDT they are two steps, and the gap is a
   // real place a device gets stuck. A spinner here would be a lie.
