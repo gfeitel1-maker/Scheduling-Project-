@@ -62,6 +62,10 @@ export function isPlaintextSqliteFile(filePath, { fsImpl = fs } = {}) {
 // is the safety net if it fails partway, and it is restored-from on any failure before we rethrow.
 //
 // `Database` is injected (the better-sqlite3-multiple-ciphers constructor) so this is testable.
+// Present only while a rekey is in flight. Recovery restores a plaintext .bak ONLY when it exists, so a
+// stale .bak can never be mistaken for the product of an interrupted rekey.
+const MIGRATION_MARKER_SUFFIX = '.migration-in-progress'
+
 export function migratePlaintextToEncrypted(filePath, key, {
   Database,
   writeBackup,
@@ -82,6 +86,10 @@ export function migratePlaintextToEncrypted(filePath, key, {
     throw e
   }
 
+  const markerPath = `${filePath}${MIGRATION_MARKER_SUFFIX}`
+  fsImpl.writeFileSync(markerPath, backupPath)
+  const clearMarker = () => { try { fsImpl.unlinkSync(markerPath) } catch { /* best effort */ } }
+
   const restoreFromBackup = () => {
     // rekey may have partially rewritten the file; put the known-good plaintext copy back so the
     // caller's retry (or the next launch) starts from an intact db, not a half-encrypted one.
@@ -91,6 +99,7 @@ export function migratePlaintextToEncrypted(filePath, key, {
         if (fsImpl.existsSync(p)) fsImpl.unlinkSync(p)
       }
       fsImpl.copyFileSync(backupPath, filePath)
+      clearMarker()
     } catch { /* best effort — the backup itself still exists at backupPath regardless */ }
   }
 
@@ -128,6 +137,7 @@ export function migratePlaintextToEncrypted(filePath, key, {
   }
 
   // 4. Success — shred the plaintext backup (finding 4: the .bak is the only remaining cleartext copy).
+  clearMarker()
   try { if (fsImpl.existsSync(backupPath)) fsImpl.unlinkSync(backupPath) } catch { /* non-fatal — best effort */ }
 
   return { migrated: true, backupPath }
@@ -154,7 +164,19 @@ export function recoverInterruptedMigration(filePath, key, { Database, fsImpl = 
     } finally {
       probe.close()
     }
-  } catch { /* the key does not open it — fall through to recovery */ }
+  } catch (err) {
+    if (err?.code !== 'SQLITE_NOTADB') throw err
+  }
+
+  if (!fsImpl.existsSync(`${filePath}${MIGRATION_MARKER_SUFFIX}`)) {
+    const e = new Error(
+      `The camp database at ${filePath} could not be opened with this device's encryption key, and no ` +
+        'encryption upgrade was in progress, so nothing was changed. The key may have been replaced or ' +
+        'the file damaged. See docs/current/KEY_RECOVERY_STORY.md.'
+    )
+    e.code = 'db_unreadable'
+    throw e
+  }
 
   const dir = path.dirname(filePath)
   const prefix = `${path.basename(filePath)}.pre-migration-`
@@ -178,14 +200,17 @@ export function recoverInterruptedMigration(filePath, key, { Database, fsImpl = 
       'Recover by re-syncing this device from a paired peer; see docs/current/KEY_RECOVERY_STORY.md.')
   }
   const bakPath = candidates[0].p
+  const aside = `${filePath}.unreadable-${new Date().toISOString().replace(/[:.]/g, '-')}`
   try {
-    for (const suffix of ['-wal', '-shm']) {
-      const p = `${filePath}${suffix}`
-      if (fsImpl.existsSync(p)) fsImpl.unlinkSync(p)
+    for (const suffix of ['', '-wal', '-shm']) {
+      if (fsImpl.existsSync(`${filePath}${suffix}`)) fsImpl.renameSync(`${filePath}${suffix}`, `${aside}${suffix}`)
     }
     fsImpl.copyFileSync(bakPath, filePath)
   } catch (err) {
-    throw fail(`Restoring the backup failed (${err?.message ?? err}). The backup is intact at ${bakPath}.`)
+    for (const suffix of ['', '-wal', '-shm']) {
+      try { if (fsImpl.existsSync(`${aside}${suffix}`)) fsImpl.renameSync(`${aside}${suffix}`, `${filePath}${suffix}`) } catch { /* best effort */ }
+    }
+    throw fail(`Restoring the backup failed (${err?.message ?? err}). The backup is intact at ${bakPath}; the original file was left in place.`)
   }
-  return { recovered: true, backupPath: bakPath }
+  return { recovered: true, backupPath: bakPath, unreadableCopy: aside }
 }

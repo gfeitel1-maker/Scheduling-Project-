@@ -46,6 +46,7 @@ describe.skipIf(!driverAvailable)('SQLite at-rest encryption — real driver, th
     tmp.push(bak)
     fs.copyFileSync(f, bak)
     fs.writeFileSync(f, crypto.randomBytes(8192)) // the interrupted rekey left garbage
+    fs.writeFileSync(`${f}.migration-in-progress`, bak); tmp.push(`${f}.migration-in-progress`)
 
     const db = openLocalDb(f, { key: k })
     expect(db.prepare('SELECT name FROM camps WHERE id = ?').get('c1').name).toBe('Camp One')
@@ -57,6 +58,7 @@ describe.skipIf(!driverAvailable)('SQLite at-rest encryption — real driver, th
   it('an unreadable db with no plaintext .bak fails with db_migration_interrupted, not an opaque error', () => {
     const f = tmpFile('crash-nobak')
     fs.writeFileSync(f, crypto.randomBytes(8192))
+    fs.writeFileSync(`${f}.migration-in-progress`, ''); tmp.push(`${f}.migration-in-progress`)
     let err
     try { openLocalDb(f, { key: key() }) } catch (e) { err = e }
     expect(err?.code).toBe('db_migration_interrupted')

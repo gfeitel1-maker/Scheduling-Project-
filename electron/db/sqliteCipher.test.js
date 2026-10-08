@@ -147,7 +147,7 @@ describe('recoverInterruptedMigration — a crash mid-rekey must not strand the 
   Fake.prototype.pragma = function () {}
   Fake.prototype.prepare = function () {
     const ok = fs.readFileSync(this.p, 'utf8').startsWith('GOOD-ENC')
-    return { get: () => { if (!ok) throw new Error('file is not a database'); return { n: 1 } } }
+    return { get: () => { if (!ok) throw Object.assign(new Error('file is not a database'), { code: 'SQLITE_NOTADB' }); return { n: 1 } } }
   }
   Fake.prototype.close = function () {}
 
@@ -157,8 +157,10 @@ describe('recoverInterruptedMigration — a crash mid-rekey must not strand the 
     return b
   }
 
+  const marker = (f) => { fs.writeFileSync(`${f}.migration-in-progress`, 'x'); tmp.push(`${f}.migration-in-progress`) }
+
   it('restores the newest PLAINTEXT .bak over a half-encrypted file and clears wal/shm', () => {
-    const f = tmpFile('rec'); fs.writeFileSync(f, crypto.randomBytes(2048))
+    const f = tmpFile('rec'); fs.writeFileSync(f, crypto.randomBytes(2048)); marker(f)
     fs.writeFileSync(`${f}-wal`, 'x'); fs.writeFileSync(`${f}-shm`, 'x')
     bak(f, '2026-01-01T00-00-00-000Z', MAGIC + 'OLD')
     bak(f, '2026-02-01T00-00-00-000Z', MAGIC + 'NEWEST')
@@ -167,6 +169,26 @@ describe('recoverInterruptedMigration — a crash mid-rekey must not strand the 
     expect(fs.readFileSync(f, 'latin1')).toBe(MAGIC + 'NEWEST')
     expect(fs.existsSync(`${f}-wal`)).toBe(false)
     expect(fs.existsSync(`${f}-shm`)).toBe(false)
+    const aside = fs.readdirSync(path.dirname(f)).filter((n) => n.startsWith(`${path.basename(f)}.unreadable-`) && !n.endsWith('-wal') && !n.endsWith('-shm'))
+    expect(aside.length).toBe(1) // the unreadable file is kept, not overwritten
+    aside.forEach((n) => tmp.push(path.join(path.dirname(f), n)))
+  })
+
+  it('does NOT overwrite an encrypted db the key cannot open when no rekey was in progress (stale plaintext .bak)', () => {
+    const f = tmpFile('rec-stale'); const enc = crypto.randomBytes(2048); fs.writeFileSync(f, enc)
+    bak(f, '2026-02-01T00-00-00-000Z', MAGIC + 'STALE')
+    let err
+    try { recoverInterruptedMigration(f, KEY, { Database: Fake }) } catch (e) { err = e }
+    expect(err?.code).toBe('db_unreadable')
+    expect(fs.readFileSync(f).equals(enc)).toBe(true)
+  })
+
+  it('rethrows a probe failure that is not a key/cipher error instead of treating it as a wrong key', () => {
+    const f = tmpFile('rec-driver'); fs.writeFileSync(f, crypto.randomBytes(2048)); marker(f)
+    bak(f, '2026-02-01T00-00-00-000Z', MAGIC + 'PLAIN')
+    function Broken() { throw new Error('driver failed to load') }
+    expect(() => recoverInterruptedMigration(f, KEY, { Database: Broken })).toThrow(/driver failed to load/)
+    expect(fs.readFileSync(f).length).toBe(2048)
   })
 
   it('leaves a file the key opens untouched', () => {
@@ -181,7 +203,7 @@ describe('recoverInterruptedMigration — a crash mid-rekey must not strand the 
   })
 
   it('throws db_migration_interrupted naming "none found" when there is no .bak', () => {
-    const f = tmpFile('rec-nobak'); fs.writeFileSync(f, crypto.randomBytes(2048))
+    const f = tmpFile('rec-nobak'); fs.writeFileSync(f, crypto.randomBytes(2048)); marker(f)
     let err
     try { recoverInterruptedMigration(f, KEY, { Database: Fake }) } catch (e) { err = e }
     expect(err?.code).toBe('db_migration_interrupted')
@@ -189,7 +211,7 @@ describe('recoverInterruptedMigration — a crash mid-rekey must not strand the 
   })
 
   it('ignores an ENCRYPTED .bak: throws, names it, and never deletes it', () => {
-    const f = tmpFile('rec-encbak'); fs.writeFileSync(f, crypto.randomBytes(2048))
+    const f = tmpFile('rec-encbak'); fs.writeFileSync(f, crypto.randomBytes(2048)); marker(f)
     const b = bak(f, '2026-02-01T00-00-00-000Z', crypto.randomBytes(2048))
     let err
     try { recoverInterruptedMigration(f, KEY, { Database: Fake }) } catch (e) { err = e }
@@ -198,7 +220,7 @@ describe('recoverInterruptedMigration — a crash mid-rekey must not strand the 
   })
 
   it('throws with the .bak path when the restore copy fails, keeping the .bak', () => {
-    const f = tmpFile('rec-copyfail'); fs.writeFileSync(f, crypto.randomBytes(2048))
+    const f = tmpFile('rec-copyfail'); fs.writeFileSync(f, crypto.randomBytes(2048)); marker(f)
     const b = bak(f, '2026-02-01T00-00-00-000Z', MAGIC + 'PLAIN')
     const fsImpl = { ...fs, copyFileSync: () => { throw new Error('disk full') } }
     let err
