@@ -83,10 +83,10 @@ support person handles **oppositely**:
   above, reached from the support path.
 
 See ADR `2026-09-15-at-rest-encryption-scoping.md` constraint 2. At-rest encryption is now
-implemented but **gated off by default** (`SHORESH_AT_REST_ENCRYPTION`; the key is acquired via
-`safeStorage` in `electron/main.js`, with a headless key channel in `electron/unlockDbKey.js`) —
-with the flag off, the db and document are plaintext, so this undecryptable-document case only
-arises once the storage key is enabled.
+**on by default** and sticky once a device holds its key (`SHORESH_AT_REST_ENCRYPTION` is then
+ignored; the key is acquired via `safeStorage` in `electron/main.js`, with a headless key channel in
+`electron/unlockDbKey.js`) — so this undecryptable-document case is reachable on any device whose
+keychain entry is lost.
 
 ## Where each key actually lives (for the check-it-yourself reader)
 

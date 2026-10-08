@@ -350,11 +350,11 @@ for this activity".
 Two consequences, stated here rather than left implicit:
 
 - **At-rest encryption is a precondition for real camp use of this feature, not an enhancement.**
-  Everything above about the default-off flag still applies unchanged, and with it off, a copied
-  database or `.automerge` file is a plaintext list of children. The flag is still off by default
-  today and T194 does not change that; what changes is that turning it on stops being a hardening
-  nice-to-have for this data class. Do not read the existence of the `campers` table as evidence the
-  flag has been flipped.
+  Encryption is on by default and, once a device holds its key, cannot be turned off by the
+  environment (see above). A device that never ran encrypted, or one where the flag was explicitly
+  set off before first keying, holds a plaintext list of children in a copied database or
+  `.automerge` file; for this data class keeping it on is a precondition, not a hardening
+  nice-to-have.
 - **The footprint is deliberately, minimally scoped.** D8 fixes it at name, group and external id.
   No contact details, no medical data, no date of birth, no household or parent records. Adding a
   column here is an **ADR-level change**, not a field addition — the small footprint is the primary
