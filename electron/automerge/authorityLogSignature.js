@@ -66,6 +66,13 @@ export function canonicalAuthorityMessage(fields) {
 // throws "no key" for an ordinary device; it throws only if ensureDeviceIdentity was genuinely
 // never called on this db, which is a wiring bug, not an authority-tier question.
 export function signAuthorityEntry(db, fields) {
+  return signMessageWithDeviceKey(db, canonicalAuthorityMessage(fields))
+}
+
+// The device-identity Ed25519 signing step, factored out so other camp-peer-signed payloads
+// (punchGossip.js, punchSignaling.js) sign with the SAME key custody under their OWN
+// domain-separated message contexts rather than a second copy of the key plumbing.
+export function signMessageWithDeviceKey(db, message) {
   const row = db.prepare('SELECT private_key FROM device_identity_key WHERE id = 1').get()
   if (!row || !row.private_key) {
     throw new Error(
@@ -79,7 +86,7 @@ export function signAuthorityEntry(db, fields) {
     format: 'der',
     type: 'pkcs8',
   })
-  return edSign(null, Buffer.from(canonicalAuthorityMessage(fields), 'utf8'), privateKeyObj).toString('base64url')
+  return edSign(null, Buffer.from(message, 'utf8'), privateKeyObj).toString('base64url')
 }
 
 // Verifies a `camp_authority_log` entry's signature against the SIGNER's libp2p peer id (recovered
@@ -87,6 +94,12 @@ export function signAuthorityEntry(db, fields) {
 // synchronous (callable from projector.js's existing sync transaction loop), NEVER throws, and
 // NEVER returns true for junk/wrong/absent input.
 export function verifyAuthorityEntry(signerPeerId, fields, sig) {
+  return verifyMessageWithPeerId(signerPeerId, canonicalAuthorityMessage(fields), sig)
+}
+
+// Pure counterpart of signMessageWithDeviceKey: verifies `sig` over `message` against the public
+// key recovered from an Ed25519 libp2p peer id. NEVER throws; false for junk/wrong/absent input.
+export function verifyMessageWithPeerId(signerPeerId, message, sig) {
   if (typeof signerPeerId !== 'string' || signerPeerId.length === 0) return false
   if (typeof sig !== 'string' || sig.length === 0) return false
   try {
@@ -99,7 +112,7 @@ export function verifyAuthorityEntry(signerPeerId, fields, sig) {
     })
     const signature = Buffer.from(sig, 'base64url')
     if (signature.length === 0) return false
-    return edVerify(null, Buffer.from(canonicalAuthorityMessage(fields), 'utf8'), publicKeyObj, signature)
+    return edVerify(null, Buffer.from(message, 'utf8'), publicKeyObj, signature)
   } catch {
     return false
   }
