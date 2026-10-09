@@ -72,6 +72,8 @@ export default function ManualBuildView({
   // Events overlay placement Slice 1
   eventsAll = [], onPlaceEvent, onOpenEvent,
   isContentRaced, onDismissContentRace,
+  // T350 slice 4 — drawn by GroupGridFrame, identical on both routes.
+  replacements, onOpenSpecialDay,
 }) {
   // T92 onboarding pulse: exactly one cell — the first mergeable one — gets
   // the hint, and only until the flag is cleared (first interaction with any
@@ -210,6 +212,9 @@ export default function ManualBuildView({
       collapsedBlockIds={collapsedBlockIds}
       onToggleBlockCollapsed={onToggleBlockCollapsed}
       renderCell={renderCell}
+      replacements={replacements}
+      actMap={actMap}
+      onOpenSpecialDay={onOpenSpecialDay}
     />
   )
 }

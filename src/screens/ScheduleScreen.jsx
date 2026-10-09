@@ -5,6 +5,7 @@ import { cellKeyboardCoordinates } from './schedule/cellKeyboardCoordinates'
 import { UndoIcon } from '../components/icons'
 import { createScheduleRepository } from '../data/scheduleRepository'
 import { getSetupGaps, describeSetupGaps } from '../engine/readiness'
+import { everyDayReplaced } from '../engine/effectiveDays'
 import { S, useEnterTransition } from '../styles/shared'
 import StatBadge from '../components/schedule/StatBadge'
 import ScheduleSkeleton from '../components/schedule/ScheduleSkeleton'
@@ -114,7 +115,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const hasInFlightClaimRef = useRef(() => false)
   const {
     setupLists, setActivities, weeks, setWeeks,
-    weekId, weekDeletedBanner, setWeekDeletedBanner, exclusions, replacedDayIds, specialDaysReadFailed,
+    weekId, weekDeletedBanner, setWeekDeletedBanner, exclusions, replacedDayIds, replacements, specialDaysReadFailed,
     templateData, loading, loadError, templateError, reload,
   } = useScheduleData({
     campId, weekId: preferredWeekId, repo, routes: ROUTES,
@@ -366,6 +367,10 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // navigate/eventFocusId).
   function openEvent(eventId) {
     onNavigate?.('specialevents', { eventId })
+  }
+  // T350 slice 4: a replaced day's name opens that special day for editing.
+  function openSpecialDay(specialDayId) {
+    onNavigate?.('schedule:special', { specialDayId })
   }
 
   // T3 — selection + clipboard + paste + keyboard live in their own hook. It
@@ -909,8 +914,15 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     setExportChoosing(true)
   }
 
+  // T350 slice 4: useGeneration refuses this week anyway; the disabled control
+  // carries the one-phrase reason (Governor ruling 4).
+  const allDaysReplaced = everyDayReplaced(days, replacedDayIds)
+  const ALL_REPLACED_TITLE = 'Every day is a special day'
+  const canRebuild = role === 'admin' && !allDaysReplaced
+
   function routeOffer(r) {
     const copy = ROUTE_COPY[r]
+    const offerDisabled = generating || role !== 'admin' || allDaysReplaced
     return (
       <div key={r} style={{
         background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10,
@@ -920,12 +932,12 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 15, color: 'var(--text)' }}>{copy.offerTitle}</div>
         <button className="press-97"
           onClick={() => { setRoute(r); onNavigate?.(`schedule:${r}`); startRoute[r]() }}
-          disabled={generating || role !== 'admin'}
-          title={role !== 'admin' ? 'Admin only' : undefined}
+          disabled={offerDisabled}
+          title={role !== 'admin' ? 'Admin only' : allDaysReplaced ? ALL_REPLACED_TITLE : undefined}
           style={{
             ...(r === 'generated' ? S.btnPrimary : S.btnSecondary),
             marginTop: 6,
-            ...(generating || role !== 'admin' ? S.buttonDisabled : {}),
+            ...(offerDisabled ? S.buttonDisabled : {}),
           }}
         >{copy.offerAction}</button>
       </div>
@@ -1029,17 +1041,17 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
               // get the muted disabled form with no hover reveal.
               <button
                 onClick={() => setConfirmRegen(true)}
-                disabled={role !== 'admin'}
-                title={role !== 'admin' ? 'Admin only' : undefined}
-                style={role !== 'admin'
+                disabled={!canRebuild}
+                title={role !== 'admin' ? 'Admin only' : allDaysReplaced ? ALL_REPLACED_TITLE : undefined}
+                style={!canRebuild
                   ? { ...S.btnSecondary, ...S.buttonDisabled, padding: '5px 10px', fontSize: 12, color: 'var(--text-secondary)' }
                   : { ...S.btnSecondary, padding: '5px 10px', fontSize: 12, color: 'var(--text-secondary)', transition: 'color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out)' }}
-                onMouseEnter={role === 'admin' ? (e) => {
+                onMouseEnter={canRebuild ? (e) => {
                   e.currentTarget.style.color = 'var(--danger)'
                   e.currentTarget.style.borderColor = 'var(--danger)'
                   e.currentTarget.style.background = 'color-mix(in srgb, var(--danger) 8%, var(--surface))'
                 } : undefined}
-                onMouseLeave={role === 'admin' ? (e) => {
+                onMouseLeave={canRebuild ? (e) => {
                   e.currentTarget.style.color = 'var(--text-secondary)'
                   e.currentTarget.style.borderColor = 'var(--border)'
                   e.currentTarget.style.background = 'var(--surface)'
@@ -1273,6 +1285,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 onCellSelect={handleCellSelect}
                 collapsedBlockIds={collapsedBlockIds}
                 onToggleBlockCollapsed={toggleBlockCollapsed}
+                replacements={replacements}
+                onOpenSpecialDay={openSpecialDay}
               />
             )}
 
@@ -1310,6 +1324,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 highlightColor={highlightColor}
                 collapsedBlockIds={collapsedBlockIds}
                 onToggleBlockCollapsed={toggleBlockCollapsed}
+                replacements={replacements}
+                onOpenSpecialDay={openSpecialDay}
               />
             )}
 
@@ -1346,6 +1362,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 highlightColor={highlightColor}
                 collapsedBlockIds={collapsedBlockIds}
                 onToggleBlockCollapsed={toggleBlockCollapsed}
+                replacements={replacements}
+                onOpenSpecialDay={openSpecialDay}
               />
             )}
 
@@ -1362,6 +1380,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 onSelectActivity={setSelectedActivity}
                 collapsedBlockIds={collapsedBlockIds}
                 onToggleBlockCollapsed={toggleBlockCollapsed}
+                replacements={replacements}
+                onOpenSpecialDay={openSpecialDay}
               />
             )}
 

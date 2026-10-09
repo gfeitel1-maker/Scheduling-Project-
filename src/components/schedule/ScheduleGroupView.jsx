@@ -36,6 +36,8 @@ export default function ScheduleGroupView({
   // Events overlay placement Slice 1
   eventsAll = [], onPlaceEvent, onOpenEvent,
   isContentRaced, onDismissContentRace,
+  // T350 slice 4 — drawn by GroupGridFrame, identical on both routes.
+  replacements, onOpenSpecialDay,
 }) {
   function renderCell({ day, dayIndex, block, blockIndex, isCollapsed, ariaColIndex, cellKey }) {
     const decision = decideCell(geometry, selectedGroup, day.id, block.id)
@@ -144,6 +146,9 @@ export default function ScheduleGroupView({
       collapsedBlockIds={collapsedBlockIds}
       onToggleBlockCollapsed={onToggleBlockCollapsed}
       renderCell={renderCell}
+      replacements={replacements}
+      actMap={actMap}
+      onOpenSpecialDay={onOpenSpecialDay}
     />
   )
 }

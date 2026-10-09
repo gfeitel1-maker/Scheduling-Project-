@@ -16,8 +16,12 @@ export const ROW_FLOOR_COMPACT = 40
 // value was ever resolved (D1-D3 cover the ROW floors only), and any non-zero
 // floor introduces horizontal scrolling the tables did not have, which would
 // break the visual-parity predicate. Left for whoever resolves colFloor.
-export function columnTracks(columnCount) {
-  return `140px repeat(${columnCount}, minmax(0, 1fr))`
+//
+// `rowHeader: false` drops that column — only when every day of the week is
+// replaced, so no camp block row exists to label (T350 slice 4).
+export function columnTracks(columnCount, { rowHeader = true } = {}) {
+  const body = `repeat(${columnCount}, minmax(0, 1fr))`
+  return rowHeader ? `140px ${body}` : body
 }
 
 const NONE_COLLAPSED = new Set()

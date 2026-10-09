@@ -6,10 +6,13 @@ import { placeCell, placeRowHeader } from '../../screens/schedule/gridPlacement'
 import { rowFlagKind, ROW_FLAG_TITLE } from '../../screens/schedule/rowFlags'
 import { blockNamesForSpan } from './cellLabel'
 import useGridKeyboardNav from './useGridKeyboardNav'
+import ReplacedLane, { LaneOpen, PlacementConflictDot, ReplacedDayCell } from './ReplacedLane'
+import { replacedLaneNotes } from '../../screens/schedule/replacedLane'
 import { S } from '../../styles/shared'
 import './scheduleGrid.css'
 
 const NO_COLLAPSE = new Set()
+const NO_REPLACEMENTS = new Map()
 
 // DndContext and the one grid-surface droppable live in ScheduleScreen (they
 // cover sidebar + grid). Drag state is the FSM's and reaches cells as data
@@ -40,6 +43,9 @@ export default function ScheduleDayView({
   // Events overlay placement Slice 1
   eventsAll = [], onPlaceEvent, onOpenEvent,
   isContentRaced, onDismissContentRace,
+  // T350 slice 4: a replaced day shows the special day's own grid, read-only.
+  replacements = NO_REPLACEMENTS,
+  onOpenSpecialDay,
 }) {
   const gridTemplateColumns = columnTracks(groups.length)
   const rowTracks = buildRowTracks({ timeBlocks, collapsedBlockIds })
@@ -50,12 +56,36 @@ export default function ScheduleDayView({
     <div className="schedule-view-enter">
       {/* Day pills */}
       <div style={{ ...S.centeredRow, gap: 8, marginBottom: 16, alignItems: 'center' }}>
-        {days.map(d => (
-          <button key={d.id} onClick={() => onSelectDay(d.id)} className="press-98" style={S.chip('var(--primary)', selectedDay === d.id, { padding: '5px 16px', fontSize: 12, fontFamily: 'var(--font-sans)' })}>{d.label}</button>
-        ))}
+        {days.map(d => {
+          const r = replacements.get(d.id)
+          return (
+            <button
+              key={d.id}
+              onClick={() => onSelectDay(d.id)}
+              className="press-98 day-pill"
+              data-replaced={r ? '' : undefined}
+              data-placement-conflict={r?.conflictTitle ? '' : undefined}
+              style={S.chip('var(--primary)', selectedDay === d.id, { padding: '5px 16px', fontSize: 12, fontFamily: 'var(--font-sans)' })}
+            >
+              <span>{d.label}</span>
+              {r && <span className="day-pill-name" title={r.name}>{r.name}</span>}
+              {r && <PlacementConflictDot replacement={r} />}
+            </button>
+          )
+        })}
       </div>
 
-      {selectedDay && (
+      {selectedDay && replacements.has(selectedDay) && (
+        <ReplacedDayGrid
+          groups={groups}
+          replacement={replacements.get(selectedDay)}
+          actMap={actMap}
+          gridNav={gridNav}
+          onOpenSpecialDay={onOpenSpecialDay}
+        />
+      )}
+
+      {selectedDay && !replacements.has(selectedDay) && (
         <div style={{ overflowX: 'auto' }}>
           <div
             role="grid"
@@ -221,6 +251,91 @@ export default function ScheduleDayView({
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// The whole frame is the special day: its blocks are the rows (no collapse —
+// collapse is keyed to camp block ids), groups the columns, notes the last row.
+function ReplacedDayGrid({ groups, replacement, actMap, gridNav, onOpenSpecialDay }) {
+  const gridTemplateColumns = columnTracks(groups.length)
+  const blocks = replacement.blocks
+  const notes = replacedLaneNotes(replacement)
+  const empty = blocks.length === 0
+  const rowTracks = empty
+    ? 'minmax(120px, auto)'
+    : [buildRowTracks({ timeBlocks: blocks }), notes && 'auto'].filter(Boolean).join(' ')
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <div
+        role="grid"
+        className="schedule-grid-frame"
+        aria-rowcount={(empty ? 1 : blocks.length + (notes ? 1 : 0)) + 1}
+        aria-colcount={groups.length + 1}
+        data-replaced=""
+        style={{ '--frame-min-width': `${140 + groups.length * 130}px` }}
+        {...gridNav}
+      >
+        <div role="rowgroup" className="schedule-grid schedule-grid--header" style={{ gridTemplateColumns }}>
+          <div role="row" aria-rowindex={1} style={{ display: 'contents' }}>
+            <div
+              role="columnheader"
+              className="cell row-header"
+              aria-colindex={1}
+              data-placement-conflict={replacement.conflictTitle ? '' : undefined}
+              style={{ ...placeRowHeader({ blockIndex: 0 }), position: 'relative' }}
+            >
+              <LaneOpen replacement={replacement} onOpenSpecialDay={onOpenSpecialDay} />
+              <PlacementConflictDot replacement={replacement} />
+            </div>
+            {groups.map((g, groupIndex) => (
+              <div key={g.id} role="columnheader" className="cell" aria-colindex={groupIndex + 2} style={placeCell({ blockIndex: 0, columnIndex: groupIndex })}>{g.name}</div>
+            ))}
+          </div>
+        </div>
+
+        <div role="rowgroup" className="schedule-grid schedule-grid--body" style={{ gridTemplateColumns, '--grid-rows': rowTracks }}>
+          {empty ? (
+            <ReplacedLane
+              replacement={replacement}
+              subjectId="all"
+              groupId="all"
+              campBlockCount={1}
+              ariaColIndex={1}
+              style={{ gridColumn: '1 / -1' }}
+              onOpenSpecialDay={onOpenSpecialDay}
+            />
+          ) : (
+            <>
+              {blocks.map((block, blockIndex) => (
+                <div key={block.id} role="row" aria-rowindex={blockIndex + 2} style={{ display: 'contents' }}>
+                  <div role="rowheader" className="cell row-header" aria-colindex={1} style={placeRowHeader({ blockIndex })}>
+                    <span className="block-name">{block.name}</span>
+                    <span className="block-time">{block.start_time?.slice(0,5)}–{block.end_time?.slice(0,5)}</span>
+                  </div>
+                  {groups.map((group, groupIndex) => (
+                    <ReplacedDayCell
+                      key={group.id}
+                      replacement={replacement}
+                      groupId={group.id}
+                      blockId={block.id}
+                      ariaColIndex={groupIndex + 2}
+                      style={placeCell({ blockIndex, columnIndex: groupIndex })}
+                      actMap={actMap}
+                    />
+                  ))}
+                </div>
+              ))}
+              {notes && (
+                <div role="row" aria-rowindex={blocks.length + 2} style={{ display: 'contents' }}>
+                  <div role="rowheader" className="cell row-header" aria-colindex={1} style={placeRowHeader({ blockIndex: blocks.length })}>Notes</div>
+                  <div role="gridcell" className="cell replaced-lane-notes" aria-colindex={2} style={placeCell({ blockIndex: blocks.length, columnIndex: 0, colSpan: groups.length })}>{notes}</div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

@@ -149,3 +149,28 @@ describe('useDragFSM — static-ghost replace attribute', () => {
     expect(commit).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('useDragFSM — replaced day (T350 slice 4)', () => {
+  it('a release on a replaced lane resolves but is invalid, so nothing commits', async () => {
+    const lane = makeEl()
+    lane.setAttribute('data-cell-key', 'g1|d2|replaced')
+    lane.setAttribute('data-drop-disabled', '')
+    document.elementFromPoint = () => lane
+    const commit = vi.fn()
+    const { result } = renderHook(() => useDragFSM({
+      commit, describeDrag: () => 'x', describeHit: () => 'y', isOccupied: () => false,
+    }))
+    const event = {
+      active: { data: { current: { slot: { groupId: 'g1', dayId: 'd1', blockId: 'b1' } } } },
+      activatorEvent: { clientX: 5, clientY: 5 },
+      delta: { x: 0, y: 0 },
+    }
+    act(() => { result.current.dndProps.onDragStart(event) })
+    await act(async () => {
+      result.current.dndProps.onDragEnd(event)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(commit).not.toHaveBeenCalled()
+  })
+})

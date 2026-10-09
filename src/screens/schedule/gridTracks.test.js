@@ -97,4 +97,8 @@ describe('columnTracks', () => {
     expect(columnTracks(5)).toBe('140px repeat(5, minmax(0, 1fr))')
     expect(columnTracks(1)).toBe('140px repeat(1, minmax(0, 1fr))')
   })
+
+  it('drops the row-header column when every day is replaced (T350 slice 4)', () => {
+    expect(columnTracks(3, { rowHeader: false })).toBe('repeat(3, minmax(0, 1fr))')
+  })
 })
