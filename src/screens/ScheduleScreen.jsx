@@ -113,7 +113,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const hasInFlightClaimRef = useRef(() => false)
   const {
     setupLists, setActivities, weeks, setWeeks,
-    weekId, weekDeletedBanner, setWeekDeletedBanner, exclusions,
+    weekId, weekDeletedBanner, setWeekDeletedBanner, exclusions, replacedDayIds,
     templateData, loading, loadError, templateError, reload,
   } = useScheduleData({
     campId, weekId: preferredWeekId, repo, routes: ROUTES,
@@ -383,7 +383,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const { saveSnapshot, deleteSnapshot, restoreSnapshot, renameSnapshot } = useSnapshots({
     routeState, repo, setActionError,
     recalcStats, resetUndoRedo,
-    groups, activities, days, timeBlocks, fixedEvents, weekId,
+    groups, activities, days, timeBlocks, fixedEvents, weekId, replacedDayIds,
     activityExclusions, groupExclusions, locationExclusions,
   })
 
@@ -402,7 +402,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     setConfirmRegen, setSelectedGroup, statsFor: recalcStatsPure,
     groups, tiers, days, timeBlocks, activities, fixedEvents, locations,
     electiveSetActivities, events: eventsAll,
-    weekId, activityExclusions, groupExclusions, locationExclusions,
+    weekId, replacedDayIds, activityExclusions, groupExclusions, locationExclusions,
   })
   // Generation reloads slots wholesale — bump the flag-ack resync so the
   // post-generation diff reads as a reload, never the quiet edit-ack, even when
@@ -525,15 +525,15 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   }, [])
 
   function recalcStats(slotList) {
-    setStats(recalcStatsPure(slotList))
+    setStats(recalcStatsPure(slotList, replacedDayIds))
   }
 
   function recalcFindings(slotList) {
     // FIXED_EVENT_DUPLICATE is generated-route only — see useScheduleData's route
     // loop for the same gate and reasoning.
     setFindings(recalcFindingsPure(slotList, route === 'generated'
-      ? { groups, activities, days, fixedEvents, weekId, activityExclusions, groupExclusions, locationExclusions }
-      : { groups, activities, days }))
+      ? { groups, activities, days, replacedDayIds, fixedEvents, weekId, activityExclusions, groupExclusions, locationExclusions }
+      : { groups, activities, days, replacedDayIds }))
   }
 
   // The schedule_templates row for a route is created lazily, on first use.

@@ -47,6 +47,28 @@ function makeRepo(overrides = {}) {
 }
 
 describe('useScheduleData', () => {
+  // T350 slice 3: the load resolves this week's special-day placements into
+  // replacedDayIds and computes stats/findings over the days that still run.
+  it('resolves replacedDayIds for the loaded week and hides that day from stats', async () => {
+    const tid = deriveScheduleTemplateId('week-1', 'generated')
+    const repo = makeRepo({
+      loadSpecialDayPlacements: vi.fn(async () => ([{ week_id: 'week-1', day_id: 'd1', special_day_id: 'sd1' }])),
+      loadSpecialDays: vi.fn(async () => ([{ id: 'sd1', name: 'Visiting Day' }])),
+      loadTemplateData: vi.fn(async () => ({
+        templates: [{ id: tid, week_id: 'week-1', kind: 'generated' }],
+        slots: [slotRow({ template_id: tid, activity_id: 'act-1' })],
+        overlays: [], snapshots: [],
+      })),
+    })
+    const { result } = renderHook(() =>
+      useScheduleData({ campId: CAMP_ID, weekId: 'week-1', repo, routes: ['generated'] })
+    )
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(repo.loadSpecialDayPlacements).toHaveBeenCalledWith('week-1')
+    expect(result.current.replacedDayIds).toEqual(['d1'])
+    expect(result.current.templateData.statsByRoute.generated).toEqual({ open: 0, filled: 0 })
+  })
+
   it('loads setup lists, resolves weekId, and clears loading', async () => {
     const repo = makeRepo()
     const { result } = renderHook(() =>
@@ -472,11 +494,11 @@ describe('recalcStats (pure)', () => {
       slotRow({ is_fixed_event: false, activity_id: null }),
       slotRow({ is_fixed_event: true, activity_id: 'act-2' }),
     ]
-    expect(recalcStats(slots)).toEqual({ open: 2, filled: 1 })
+    expect(recalcStats(slots, [])).toEqual({ open: 2, filled: 1 })
   })
 
   it('returns zeroes for an empty slot list', () => {
-    expect(recalcStats([])).toEqual({ open: 0, filled: 0 })
+    expect(recalcStats([], [])).toEqual({ open: 0, filled: 0 })
   })
 
   it('excludes unavailable-typed slots from open (they are permanently unplaceable time, not open time)', () => {
@@ -484,7 +506,7 @@ describe('recalcStats (pure)', () => {
       slotRow({ is_fixed_event: false, activity_id: 'act-1' }),
       slotRow({ is_fixed_event: false, activity_id: null, type: 'unavailable' }),
     ]
-    expect(recalcStats(slots)).toEqual({ open: 1, filled: 1 })
+    expect(recalcStats(slots, [])).toEqual({ open: 1, filled: 1 })
   })
 })
 
@@ -495,6 +517,7 @@ describe('recalcFindings (pure)', () => {
       groups: [{ id: 'g1', tier_id: 't1' }],
       activities: [{ id: 'act-1', name: 'Swim', min_per_week: 1 }],
       days: [{ id: 'd1', day_of_week: 1 }],
+      replacedDayIds: [],
     }
     const result = recalcFindings(slots, ctx)
     expect(Array.isArray(result)).toBe(true)

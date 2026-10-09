@@ -54,7 +54,7 @@ describe('assembleScheduleEngineInputs', () => {
     const eventId = randomUUID()
     db.prepare('INSERT INTO events (id, camp_id, name, location_id) VALUES (?, ?, ?, ?)').run(eventId, campId, 'Color War', locId)
 
-    const inputs = assembleScheduleEngineInputs(db, campId)
+    const inputs = assembleScheduleEngineInputs(db, campId, null)
     db.close()
 
     expect(inputs.electiveSetActivities).toEqual([
@@ -63,5 +63,37 @@ describe('assembleScheduleEngineInputs', () => {
     expect(inputs.events).toEqual([
       expect.objectContaining({ id: eventId, name: 'Color War', location_id: locId }),
     ])
+  })
+
+  // T350 (ADR 2026-10-09 D4): the headless path resolves replaced days for the
+  // week it is asked about, and only that week; no week means nothing replaced.
+  it('returns replacedDayIds for the given week, [] for another week or none', () => {
+    const dir = makeTmpDir()
+    dirs.push(dir)
+    const db = openLocalDb(path.join(dir, 'shoresh.sqlite'))
+    const campId = randomUUID()
+    db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Camp Test', 'a'.repeat(64))
+    const mon = randomUUID()
+    const tue = randomUUID()
+    db.prepare('INSERT INTO days_of_operation (id, camp_id, label, day_of_week) VALUES (?, ?, ?, ?)').run(mon, campId, 'Monday', 1)
+    db.prepare('INSERT INTO days_of_operation (id, camp_id, label, day_of_week) VALUES (?, ?, ?, ?)').run(tue, campId, 'Tuesday', 2)
+    const w1 = randomUUID()
+    const w2 = randomUUID()
+    db.prepare('INSERT INTO schedule_weeks (id, camp_id, name) VALUES (?, ?, ?)').run(w1, campId, 'Week 1')
+    db.prepare('INSERT INTO schedule_weeks (id, camp_id, name) VALUES (?, ?, ?)').run(w2, campId, 'Week 2')
+    const sd = randomUUID()
+    db.prepare('INSERT INTO special_days (id, camp_id, name) VALUES (?, ?, ?)').run(sd, campId, 'Visiting Day')
+    db.prepare('INSERT INTO special_day_placements (id, week_id, day_id, special_day_id) VALUES (?, ?, ?, ?)').run(randomUUID(), w1, tue, sd)
+
+    const week1 = assembleScheduleEngineInputs(db, campId, w1)
+    const week2 = assembleScheduleEngineInputs(db, campId, w2)
+    const none = assembleScheduleEngineInputs(db, campId, null)
+    db.close()
+
+    expect(week1.replacedDayIds).toEqual([tue])
+    expect(week1.days.map(d => d.id).sort()).toEqual([mon, tue].sort())
+    expect(week2.replacedDayIds).toEqual([])
+    expect(none.replacedDayIds).toEqual([])
+    expect(() => assembleScheduleEngineInputs(db, campId)).toThrow(/weekId/)
   })
 })

@@ -76,7 +76,7 @@ export const SETTINGS_CALLEE_REGISTRY = {
     // current source — re-confirm this set whenever normalizeInput changes).
     keys: new Set([
       'cohorts', 'days', 'activities', 'campId', 'locations', 'electiveSetActivities',
-      'events', 'fixedEventsOnly', 'weekId',
+      'events', 'fixedEventsOnly', 'weekId', 'replacedDayIds',
       'timeBlocks', 'tiers', 'groups', 'preplacedSlots', 'fixedEvents',
     ]),
   },

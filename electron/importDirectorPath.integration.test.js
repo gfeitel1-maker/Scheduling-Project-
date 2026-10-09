@@ -94,7 +94,7 @@ function scheduleInput() {
   const rowsByEntity = {}
   for (const entity of SCHEDULE_INPUT_ENTITIES) rowsByEntity[entity] = db.prepare(`SELECT * FROM ${entity}`).all()
   const { cohorts: _c, ...flat } = normalizeScheduleInputs(rowsByEntity, campId)
-  return { ...flat, activities: resolvePriorityForGeneration(flat.activities), campId }
+  return { ...flat, activities: resolvePriorityForGeneration(flat.activities), campId, replacedDayIds: [] }
 }
 
 describe('director import with every reconciliation card unanswered (campB-by-day)', () => {

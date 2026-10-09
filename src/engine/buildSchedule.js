@@ -6,6 +6,7 @@ import { isFreeChoiceActivity } from './freeChoiceActivities.js'
 import { resolveElectiveOfferingLocations } from './electiveOccupancy.js'
 import { findRouteConflicts } from './routeConflicts.js'
 import { resolveWeekCatalog } from './weekCatalog.js'
+import { dropReplacedPreplaced, requireReplacedDayIds, replacedTargetFinding } from './effectiveDays.js'
 
 // Pure function — zero React dependencies, zero Supabase calls.
 //
@@ -55,11 +56,22 @@ function mulberry32(seed) {
 // activity's location_id is unmapped and therefore unconstrained (see
 // placeBlocked). Callers that rely on place capacity must therefore pass
 // `locations`; both live callers do.
+//
+// T350 (ADR 2026-10-09 D4): replaced days are applied HERE, once, for both
+// branches — dropped from `days` and from every cohort's preplacedSlots, so a
+// locked/elective/event row stored on a special day is never placed, counted
+// or charged to a location. `replacedDays` (the removed rows) is kept only so
+// a prefer_before_day goal aimed at one can say it cannot be met.
 function normalizeInput(input) {
+  const replaced = new Set(requireReplacedDayIds(input.replacedDayIds, 'buildSchedule'))
+  const allDays = input.days || []
+  const days = allDays.filter(d => !replaced.has(d.id))
+  const replacedDays = allDays.filter(d => replaced.has(d.id))
   if (input.cohorts) {
     return {
-      cohorts: input.cohorts,
-      days: input.days,
+      cohorts: input.cohorts.map(c => ({ ...c, preplacedSlots: dropReplacedPreplaced(c.preplacedSlots, replaced) })),
+      days,
+      replacedDays,
       activities: input.activities,
       campId: input.campId || '',
       locations: input.locations || [],
@@ -75,11 +87,12 @@ function normalizeInput(input) {
       timeBlocks: input.timeBlocks || [],
       tiers: input.tiers || [],
       groups: input.groups || [],
-      preplacedSlots: input.preplacedSlots || [],
+      preplacedSlots: dropReplacedPreplaced(input.preplacedSlots, replaced),
       activityTargets: null,
       _legacyFixedEvents: input.fixedEvents || [],
     }],
-    days: input.days || [],
+    days,
+    replacedDays,
     activities: input.activities || [],
     campId: input.campId || '',
     locations: input.locations || [],
@@ -209,7 +222,7 @@ const UNFILLABLE_TAGS = {
   activity: 'Activity at capacity',
 }
 
-function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, locationNameById, electiveSetActivities, events, fixedEventsOnly = false, weekId = null }) {
+function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, locationCapById, locationNameById, electiveSetActivities, events, fixedEventsOnly = false, weekId = null }) {
   const { cohort, timeBlocks, tiers: _tiers, groups, preplacedSlots, activityTargets, _legacyFixedEvents } = cohortEntry
   const cohortId = cohort?.id ?? null
 
@@ -817,7 +830,10 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
         if (act.prefer_before_day == null || act.prefer_before_day_min == null) continue
         if (!(eligibility.get(act.id) || new Set()).has(group.id)) continue
         const targetIdx = days.findIndex(d => d.day_of_week === act.prefer_before_day)
-        if (targetIdx < 0) continue
+        if (targetIdx < 0) {
+          if (replacedDays.some(d => d.day_of_week === act.prefer_before_day)) findings.push(replacedTargetFinding(group, act))
+          continue
+        }
         // One SESSION, not one block: a 2-block swim is a single swim. The
         // tail rows of a span carry the same activityId and would otherwise
         // each count, which both overstates the week and disagreed with
@@ -848,9 +864,18 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
 // findings must reflect what's on screen, not just what the last generate()
 // happened to compute. Mirrors the aggregate-findings logic in scheduleCohort's
 // Pass 3, but reads counts off `slots` instead of the live placement maps.
-export function computeFindings({ slots, groups, activities, days, fixedEvents, weekId = null, activityExclusions, groupExclusions, locationExclusions }) {
+//
+// T350: `replacedDayIds` is required (see normalizeInput). Replaced days and
+// any stored rows on them are dropped up front, so every loop below — goals,
+// distribution and the fixed-event audit — sees only the days that run, with
+// or without fixedEvents/weekId (the manual route passes neither).
+export function computeFindings({ slots: allSlots, groups, activities, days: allDays, fixedEvents, weekId = null, activityExclusions, groupExclusions, locationExclusions, replacedDayIds }) {
+  const replaced = new Set(requireReplacedDayIds(replacedDayIds, 'computeFindings'))
   const findings = []
-  if (!slots || !groups || !activities || !days) return findings
+  if (!allSlots || !groups || !activities || !allDays) return findings
+  const days = allDays.filter(d => !replaced.has(d.id))
+  const replacedDays = allDays.filter(d => replaced.has(d.id))
+  const slots = allSlots.filter(s => !replaced.has(s.day_id))
 
   const eligibility = new Map()
   for (const act of activities) {
@@ -911,7 +936,10 @@ export function computeFindings({ slots, groups, activities, days, fixedEvents, 
       if (act.prefer_before_day == null || act.prefer_before_day_min == null) continue
       if (!(eligibility.get(act.id) || new Set()).has(group.id)) continue
       const targetIdx = days.findIndex(d => d.day_of_week === act.prefer_before_day)
-      if (targetIdx < 0) continue
+      if (targetIdx < 0) {
+        if (replacedDays.some(d => d.day_of_week === act.prefer_before_day)) findings.push(replacedTargetFinding(group, act))
+        continue
+      }
       const beforeCount = activitySlots.filter(s =>
         s.group_id === group.id && s.activity_id === act.id &&
         (dayOrder.get(s.day_id) ?? 99) < targetIdx
@@ -979,7 +1007,7 @@ export function computeFindings({ slots, groups, activities, days, fixedEvents, 
 }
 
 function buildSchedule(input) {
-  const { cohorts, days, activities, campId, locations, electiveSetActivities, events, fixedEventsOnly, weekId } = normalizeInput(input)
+  const { cohorts, days, replacedDays, activities, campId, locations, electiveSetActivities, events, fixedEventsOnly, weekId } = normalizeInput(input)
 
   // location_id → capacity (how many GROUPS fit in this place at once). Built
   // once from the camp's locations rows. A stored capacity of 0 or negative
@@ -1030,7 +1058,7 @@ function buildSchedule(input) {
     const cohortEntry = cohorts[idx]
     const cohortSeed = campId + (cohortEntry.cohort?.id || String(idx))
     const rand = mulberry32(djb2(cohortSeed))
-    const { slots, findings } = scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, locationNameById, electiveSetActivities, events, fixedEventsOnly, weekId })
+    const { slots, findings } = scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, locationCapById, locationNameById, electiveSetActivities, events, fixedEventsOnly, weekId })
     allSlots.push(...slots)
     allFindings.push(...findings)
     allFixedEvents.push(...(cohortEntry._legacyFixedEvents || []))

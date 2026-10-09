@@ -35,6 +35,7 @@ const root = path.resolve(here, '..', '..')
 // finding-text home fail loudly instead of silently escaping (T254).
 const FINDING_TEXT_SOURCES = [
   'src/engine/buildSchedule.js',
+  'src/engine/effectiveDays.js',
   'src/utils/computeOverlaps.js',
   'src/utils/computeWeekClosures.js',
   'src/components/schedule/slotCellConstants.js',

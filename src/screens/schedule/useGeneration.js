@@ -4,8 +4,24 @@ import { routeSetter } from './useRouteState'
 import { resolveWeekCatalog } from '../../engine/weekCatalog'
 import { resolvePriorityForGeneration } from '../../ingest/resolvePriorityForGeneration'
 import { resolveFixedEventActivityIds } from '../../engine/fixedEventActivityLink'
+import { dropDeadReferences } from './useSnapshots'
 
 const GENERIC_REFUSAL = "Couldn't generate: a recurring event has no activity."
+export const ALL_DAYS_REPLACED = 'Every day this week is a special day, so there is nothing to generate.'
+
+// T350 (ADR 2026-10-09 D4.6): generate() bulk-replaces the whole template, so
+// the stored rows of days replaced by a special day are carried forward into
+// the payload — hidden, never destroyed — after the same dead-reference guard
+// restoreSnapshot uses. Mapped to the engine-slot shape replaceWeek persists.
+function carryForwardReplaced(storedSlots, replacedDayIds, catalog) {
+  const replaced = new Set(replacedDayIds)
+  return dropDeadReferences(storedSlots.filter(s => replaced.has(s.day_id)), catalog).map(s => ({
+    group_id: s.group_id, day_id: s.day_id, time_block_id: s.time_block_id,
+    activity_id: s.activity_id, fixed_event_id: s.fixed_event_id,
+    type: s.is_fixed_event ? 'fixed_event' : 'activity',
+    is_span_head: s.is_span_head, flags: s.flags,
+  }))
+}
 
 function unlinkedEventsMessage(allNames, lead) {
   const names = [...new Set(allNames)]
@@ -53,6 +69,7 @@ export function useGeneration({
   electiveSetActivities,
   events,
   weekId,
+  replacedDayIds,
   activityExclusions,
   groupExclusions,
   locationExclusions,
@@ -67,6 +84,13 @@ export function useGeneration({
   // Writes ONLY to the generated candidate — the manual one is never read,
   // moved or cleared here.
   async function generate() {
+    // A week that is all special days has nothing to place: say so, write
+    // nothing (ADR D11.1).
+    const replacedSet = new Set(replacedDayIds)
+    if (days.length > 0 && days.every(d => replacedSet.has(d.id))) {
+      setActionError(ALL_DAYS_REPLACED)
+      return
+    }
     setGenerating(true)
     resetUndoRedo()
 
@@ -109,7 +133,7 @@ export function useGeneration({
       .map(s => ({ groupId: s.group_id, dayId: s.day_id, blockId: s.time_block_id, eventId: s.event_id }))
     const preplacedSlots = [...lockedPreplaced, ...electivePreplaced, ...eventPreplaced]
 
-    const result = buildSchedule({ groups: effGroups, tiers, days, timeBlocks, activities: resolvePriorityForGeneration(effActivities), fixedEvents: effFixedEvents, campId, preplacedSlots, locations, electiveSetActivities, events, weekId })
+    const result = buildSchedule({ groups: effGroups, tiers, days, timeBlocks, activities: resolvePriorityForGeneration(effActivities), fixedEvents: effFixedEvents, campId, preplacedSlots, locations, electiveSetActivities, events, weekId, replacedDayIds })
     setGenFindings(result.findings || [])
     setGenDismissed(new Set())
 
@@ -151,7 +175,8 @@ export function useGeneration({
     setActionError(null)
     try {
       // Replace every slot in one transactional bulk_replace.
-      await repo.replaceWeek(tid, result.slots)
+      const carried = carryForwardReplaced(slotsByRoute.generated, replacedDayIds, { groups, days, timeBlocks, activities, fixedEvents })
+      await repo.replaceWeek(tid, [...result.slots, ...carried])
     } catch (err) {
       setActionError(
         err?.message?.includes('admin role required')
@@ -164,7 +189,7 @@ export function useGeneration({
 
     const freshSlots = await repo.reloadSlots(tid)
     setGenSlots(freshSlots)
-    setGenStats(statsFor(freshSlots))
+    setGenStats(statsFor(freshSlots, replacedDayIds))
     setGenerating(false)
   }
 
@@ -206,7 +231,7 @@ export function useGeneration({
     const liveIds = new Set(effActivities.map(a => a.id))
     const isLinked = fe => resolveFixedEventActivityIds(fe).filter(id => liveIds.has(id)).length === 1
     const unlinkedNames = effFixedEvents.filter(fe => !isLinked(fe)).map(fe => fe.name || fe.id)
-    const result = buildSchedule({ groups: effGroups, tiers, days, timeBlocks, activities: resolvePriorityForGeneration(effActivities), fixedEvents: effFixedEvents.filter(isLinked), campId, locations, electiveSetActivities, events, fixedEventsOnly: true, weekId })
+    const result = buildSchedule({ groups: effGroups, tiers, days, timeBlocks, activities: resolvePriorityForGeneration(effActivities), fixedEvents: effFixedEvents.filter(isLinked), campId, locations, electiveSetActivities, events, fixedEventsOnly: true, weekId, replacedDayIds })
     setManualFindings(result.findings || [])
     setManualDismissed(new Set())
 
@@ -241,7 +266,8 @@ export function useGeneration({
 
     setActionError(null)
     try {
-      await repo.replaceWeek(tid, result.slots)
+      const carried = carryForwardReplaced(slotsByRoute.manual, replacedDayIds, { groups, days, timeBlocks, activities, fixedEvents })
+      await repo.replaceWeek(tid, [...result.slots, ...carried])
     } catch (err) {
       setActionError(
         err?.message?.includes('admin role required')
@@ -254,7 +280,7 @@ export function useGeneration({
 
     const freshSlots = await repo.reloadSlots(tid)
     setManualSlots(freshSlots)
-    setManualStats(statsFor(freshSlots))
+    setManualStats(statsFor(freshSlots, replacedDayIds))
     // Findings are shown the moment the blank week opens — every activity still
     // under its weekly target, as an honest list of what the week owes you.
     // Computed against the week-effective catalog (effGroups/effActivities) so a
@@ -262,7 +288,7 @@ export function useGeneration({
     // No fixedEvents/weekId here — this is the MANUAL route (placeFixedEvents is the
     // manual blank-week bootstrap), and FIXED_EVENT_DUPLICATE is generated-route
     // only (a manual fixed-event/regular clash already surfaces as OVERLAP).
-    setManualFindings(computeFindings({ slots: freshSlots, groups: effGroups, activities: effActivities, days }))
+    setManualFindings(computeFindings({ slots: freshSlots, groups: effGroups, activities: effActivities, days, replacedDayIds }))
     setManualDismissed(new Set())
     if (groups.length > 0) setSelectedGroup(prev => prev ?? groups[0].id)
     if (unlinkedNames.length > 0) setActionError(unlinkedEventsMessage(unlinkedNames, 'Your blank week is ready, but some events were left out'))

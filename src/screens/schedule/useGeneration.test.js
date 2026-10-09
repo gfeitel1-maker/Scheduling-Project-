@@ -10,7 +10,7 @@ vi.mock('../../engine/buildSchedule', () => ({
 }))
 
 import buildSchedule, { computeFindings } from '../../engine/buildSchedule'
-import { useGeneration } from './useGeneration'
+import { useGeneration, ALL_DAYS_REPLACED } from './useGeneration'
 
 function makeRepo(overrides = {}) {
   return {
@@ -57,6 +57,7 @@ function setup(overrides = {}) {
     timeBlocks: [{ id: 'b1', sort_order: 1 }],
     activities: [{ id: 'a1', name: 'Swim' }],
     fixedEvents: [],
+    replacedDayIds: [],
     ...rest,
   }
   const hook = renderHook((props) => useGeneration(props), { initialProps: p })
@@ -322,5 +323,59 @@ describe('useGeneration', () => {
     await act(async () => { await result.current.regenFromScratch() })
     expect(props.setConfirmRegen).toHaveBeenCalledWith(false)
     expect(props.repo.replaceWeek).toHaveBeenCalledWith('tid-generated', [{ id: 'ns-1' }])
+  })
+})
+
+// T350 slice 3 (docs/adr/2026-10-09-special-day-binds-to-a-week-day.md D4, D11).
+describe('useGeneration with days replaced by a special day', () => {
+  const twoDays = [{ id: 'd1' }, { id: 'd2' }]
+  const stored = (over) => ({ group_id: 'g1', day_id: 'd2', time_block_id: 'b1', activity_id: 'a1', fixed_event_id: null, is_fixed_event: false, is_span_head: true, flags: {}, ...over })
+
+  it('every engine call and stats call carries replacedDayIds', async () => {
+    const statsFor = vi.fn(() => ({ open: 0, filled: 0 }))
+    const { result } = setup({ days: twoDays, replacedDayIds: ['d2'], statsFor })
+    await act(async () => { await result.current.generate() })
+    await act(async () => { await result.current.placeFixedEvents() })
+    expect(buildSchedule).toHaveBeenCalledTimes(2)
+    for (const [arg] of buildSchedule.mock.calls) expect(arg.replacedDayIds).toEqual(['d2'])
+    for (const [arg] of computeFindings.mock.calls) expect(arg.replacedDayIds).toEqual(['d2'])
+    expect(statsFor).toHaveBeenCalledTimes(2)
+    for (const call of statsFor.mock.calls) expect(call[1]).toEqual(['d2'])
+  })
+
+  it('every day replaced: Generate shows the notice, writes nothing, does not throw', async () => {
+    const { result, props } = setup({ days: twoDays, replacedDayIds: ['d1', 'd2'] })
+    await act(async () => { await result.current.generate() })
+    expect(props.setActionError).toHaveBeenCalledWith(ALL_DAYS_REPLACED)
+    expect(buildSchedule).not.toHaveBeenCalled()
+    expect(props.repo.replaceWeek).not.toHaveBeenCalled()
+    expect(props.saveSnapshot).not.toHaveBeenCalled()
+  })
+
+  it("generate() carries the replaced day's stored rows forward, through the dead-reference guard", async () => {
+    const live = stored()
+    const deadActivity = stored({ activity_id: 'gone' })
+    const deadBlock = stored({ time_block_id: 'gone-block' })
+    const normalDay = stored({ day_id: 'd1' })
+    const { result, props } = setup({
+      days: twoDays, replacedDayIds: ['d2'],
+      slotsByRoute: { generated: [live, deadActivity, deadBlock, normalDay], manual: [] },
+    })
+    await act(async () => { await result.current.generate() })
+    const [, payload] = props.repo.replaceWeek.mock.calls[0]
+    expect(payload).toEqual([
+      { id: 'ns-1' },
+      { group_id: 'g1', day_id: 'd2', time_block_id: 'b1', activity_id: 'a1', fixed_event_id: null, type: 'activity', is_span_head: true, flags: {} },
+    ])
+  })
+
+  it("placeFixedEvents() carries the manual route's replaced-day rows forward too", async () => {
+    const { result, props } = setup({
+      days: twoDays, replacedDayIds: ['d2'],
+      slotsByRoute: { generated: [], manual: [stored()] },
+    })
+    await act(async () => { await result.current.placeFixedEvents() })
+    const [, payload] = props.repo.replaceWeek.mock.calls[0]
+    expect(payload.filter(r => r.day_id === 'd2')).toHaveLength(1)
   })
 })

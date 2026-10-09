@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { computeFindings } from '../../engine/buildSchedule'
+import { resolveEffectiveDays, requireReplacedDayIds } from '../../engine/effectiveDays'
 import { normalizeScheduleInputs } from '../../../electron/ops/scheduleInputNormalization'
 import { isRestorable } from '../snapshotRestore'
 import { deriveScheduleTemplateId } from '../../../electron/ops/scheduleTemplateId'
@@ -23,10 +24,9 @@ function resolveTemplateId(templates, weekId, kind) {
   return row ? row.id : deriveScheduleTemplateId(weekId, kind)
 }
 
-// Pure — no setState, no closures over hook state. `ctx` unused today (the
-// count needs nothing beyond the slot list itself) but kept as a parameter for
-// symmetry with recalcFindings and so a future stat that needs more data
-// doesn't change the call signature.
+// Pure — no setState, no closures over hook state. `replacedDayIds` is
+// required (T350): a stored row on a day replaced by a special day is hidden,
+// so it is neither open nor filled.
 // The `type !== 'unavailable'` guard is NOT what fixes T65, and it does not
 // fire on the live path. Every caller today feeds this DB-loaded rows, and
 // normalizeSlots (src/utils/normalizeSlots.js) never yields a `type` field —
@@ -43,10 +43,12 @@ function resolveTemplateId(templates, weekId, kind) {
 // replaces the whole template scope, so one regenerate cleans it. Restoring a
 // pre-fix snapshot likewise reintroduces them (restoreSnapshotRows is
 // deliberately unfiltered, and those rows carry no `type` to filter on).
-export function recalcStats(slotList) {
+export function recalcStats(slotList, replacedDayIds) {
+  const replaced = new Set(requireReplacedDayIds(replacedDayIds, 'recalcStats'))
+  const live = slotList.filter(s => !replaced.has(s.day_id))
   return {
-    open: slotList.filter(s => s.is_fixed_event === false && s.type !== 'unavailable').length,
-    filled: slotList.filter(s => s.is_fixed_event === false && s.type !== 'unavailable' && s.activity_id).length,
+    open: live.filter(s => s.is_fixed_event === false && s.type !== 'unavailable').length,
+    filled: live.filter(s => s.is_fixed_event === false && s.type !== 'unavailable' && s.activity_id).length,
   }
 }
 
@@ -55,6 +57,7 @@ export function recalcStats(slotList) {
 export function recalcFindings(slotList, ctx) {
   return computeFindings({
     slots: slotList, groups: ctx.groups, activities: ctx.activities, days: ctx.days,
+    replacedDayIds: ctx.replacedDayIds,
     fixedEvents: ctx.fixedEvents, weekId: ctx.weekId,
     activityExclusions: ctx.activityExclusions, groupExclusions: ctx.groupExclusions, locationExclusions: ctx.locationExclusions,
   })
@@ -71,6 +74,7 @@ const EMPTY_SETUP_LISTS = {
   eventsAll: [],
 }
 const EMPTY_EXCLUSIONS = { activityExclusions: [], groupExclusions: [], locationExclusions: [] }
+const NO_REPLACED_DAYS = []
 // See the R2-quiescence comment on lastLoadStartedAtRef below for why this
 // is a wall-clock gate, not a load-count one.
 const REPAIR_QUIESCENCE_MS = 750
@@ -97,6 +101,7 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
   const [weekId, setWeekId] = useState(null)
   const [weekDeletedBanner, setWeekDeletedBanner] = useState(null)
   const [exclusions, setExclusions] = useState(EMPTY_EXCLUSIONS)
+  const [replacedDayIds, setReplacedDayIds] = useState(NO_REPLACED_DAYS)
   const [templateData, setTemplateDataState] = useState(EMPTY_TEMPLATE_DATA)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(null)
@@ -262,6 +267,20 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
       weekExclusions = EMPTY_EXCLUSIONS
       setExclusions(EMPTY_EXCLUSIONS)
     }
+    // T350: days of this week bound to a special day. Same best-effort posture
+    // as the exclusions above — a failed read replaces nothing.
+    let replaced = NO_REPLACED_DAYS
+    try {
+      const [placements, specialDays] = await Promise.all([
+        repo.loadSpecialDayPlacements(liveWeekId),
+        repo.loadSpecialDays(),
+      ])
+      if (gen !== generationRef.current) return
+      replaced = resolveEffectiveDays({ days: d, placements, weekId: liveWeekId, specialDays }).replacedDayIds
+    } catch {
+      if (gen !== generationRef.current) return
+    }
+    setReplacedDayIds(replaced)
     // Both routes are refreshed on every load. loadAll() re-runs on every
     // applied op, and a load that only refreshed the route on screen would
     // leave the other one showing whatever it held before the op arrived.
@@ -334,7 +353,7 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
           // fail the load itself (templateError is reserved for the actual
           // read failing, not this additive repair pass).
         }
-        nextStats[r] = recalcStats(saved)
+        nextStats[r] = recalcStats(saved, replaced)
         // FIXED_EVENT_DUPLICATE is meaningful only on the generated route — a
         // manual fixed-event/regular clash already surfaces as OVERLAP at render,
         // and "regenerate to clear it" is meaningless where there is no
@@ -343,12 +362,12 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
         // manual clean.
         nextFindings[r] = r === 'generated'
           ? recalcFindings(saved, {
-              groups: g, activities: a, days: d, fixedEvents: anc, weekId: liveWeekId,
+              groups: g, activities: a, days: d, replacedDayIds: replaced, fixedEvents: anc, weekId: liveWeekId,
               activityExclusions: weekExclusions.activityExclusions,
               groupExclusions: weekExclusions.groupExclusions,
               locationExclusions: weekExclusions.locationExclusions,
             })
-          : recalcFindings(saved, { groups: g, activities: a, days: d })
+          : recalcFindings(saved, { groups: g, activities: a, days: d, replacedDayIds: replaced })
         nextSnaps[r] = (snapData || [])
           .filter(x => x.template_id === tid)
           .sort((x, y) => new Date(y.created_at) - new Date(x.created_at))
@@ -402,6 +421,7 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
     weekId,
     weekDeletedBanner, setWeekDeletedBanner,
     exclusions,
+    replacedDayIds,
     templateData,
     loading, loadError, templateError,
     reload: load,
