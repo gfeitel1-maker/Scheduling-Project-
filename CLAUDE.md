@@ -101,6 +101,11 @@ silently exercises the OLD version while the tree under test declares the new on
 describes neither tree. Run `npm ci` in the worktree itself, and confirm the resolved version rather
 than trusting that the install reported success.
 
+**On an Intel Mac, run that `npm ci` under Node 22, not the pinned Node 25.** The encrypting SQLite
+driver (`better-sqlite3-multiple-ciphers`) is a required dependency and does not compile under Node 25
+there, so a plain `npm ci` fails. Use `PATH=/usr/local/opt/node@22/bin:$PATH npm ci` (the same
+toolchain the release build needs). CI on Linux is unaffected — it installs a prebuilt driver.
+
 Note that the obvious probe fails misleadingly for some modern packages: `require('libp2p/package.json')`
 throws `ERR_PACKAGE_PATH_NOT_EXPORTED`, because libp2p 3.x's `exports` map does not expose
 `./package.json`. That is the exports map talking, not a broken install. Read the file directly:
