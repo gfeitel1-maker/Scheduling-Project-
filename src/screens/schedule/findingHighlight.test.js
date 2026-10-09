@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { slotIdsForFinding, highlightMapForKind, inViewLabel, railEmptyText } from './findingHighlight'
+import { slotIdsForFinding, highlightMapForKind, railEmptyText } from './findingHighlight'
 
 // docs/work/specs/2026-08-01-generated-flag-review.md — the derivation Code
 // Reviewer singled out as the one genuinely new, easy-to-get-wrong piece of
@@ -100,25 +100,12 @@ describe('highlightMapForKind', () => {
   })
 })
 
-// Packaged-app audit #21: the list is already open while a concern is lit, so
-// the note is a bare count, never "open the list".
-describe('inViewLabel', () => {
-  it('is a bare in-view count when some are off view', () => {
-    expect(inViewLabel(2, 6)).toBe('2 of 6 in view')
-    expect(inViewLabel(0, 6)).toBe('0 of 6 in view')
-  })
-  it('says nothing when all are in view or there are none', () => {
-    expect(inViewLabel(6, 6)).toBeNull()
-    expect(inViewLabel(0, 0)).toBeNull()
-  })
-})
-
 // Packaged-app audit #23: the empty needs list agrees with the Placed badge.
 describe('railEmptyText', () => {
   it('reports open cells while any remain', () => {
     expect(railEmptyText({ filled: 0, open: 80 })).toBe('80 open')
   })
   it('says everything is placed only when it is', () => {
-    expect(railEmptyText({ filled: 80, open: 80 })).toBe('Everything on your list is placed.')
+    expect(railEmptyText({ filled: 80, open: 80 })).toBe('All placed')
   })
 })

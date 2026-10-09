@@ -122,7 +122,7 @@ export default function SpecialSchedulesScreen({ campId, onNavigate, initialSele
       setTemplateSlots((templateSlotsData || []).filter((s) => s.event_id))
       setDays((daysData || []).filter((d) => d.camp_id === campId))
     } catch {
-      setError("Couldn't load your camp setup — check your connection and refresh.")
+      setError("Couldn't load camp setup.")
     } finally {
       setLoading(false)
     }

@@ -91,13 +91,13 @@ export function useSnapshots({
     } catch (err) {
       setActionError(
         err?.message?.includes('admin role required')
-          ? 'Only an admin can delete a saved version'
+          ? 'Admin only.'
           : describeWriteFailure(err, 'That version could not be deleted.')
       )
       return
     }
     if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
-      setActionError('That version could not be deleted. It is still in the list.')
+      setActionError("Couldn't delete that version.")
       return
     }
     setSnapshots(prev => prev.filter(s => s.id !== snapshotId))
@@ -120,7 +120,7 @@ export function useSnapshots({
     // to the OTHER route would silently overwrite this route's entire week —
     // so the version must be one of this route's before anything is written.
     if (fullSnap.template_id !== templateId) {
-      setActionError('That saved version belongs to the other schedule. Switch to it to restore this version.')
+      setActionError('Belongs to the other schedule.')
       return
     }
 
@@ -162,7 +162,7 @@ export function useSnapshots({
     } catch (err) {
       setActionError(
         err?.message?.includes('admin role required')
-          ? 'Only an admin can restore a version.'
+          ? 'Admin only.'
           : describeWriteFailure(err, 'That version could not be restored.')
       )
       return
@@ -180,7 +180,7 @@ export function useSnapshots({
     setDismissedFindingKeys(new Set())
 
     if (droppedCount > 0) {
-      setActionError(`Restored. ${droppedCount} cell(s) referenced items that no longer exist (likely from a re-import) and were skipped.`)
+      setActionError(`Restored; ${droppedCount} cell(s) skipped (item removed).`)
     }
   }
 

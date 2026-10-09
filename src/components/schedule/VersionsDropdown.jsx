@@ -62,13 +62,13 @@ export default function VersionsDropdown({ snapshots, isOpen, role, onToggle, on
           {/* Header */}
           <div style={{ padding: '12px 14px 8px', borderBottom: '1px solid var(--border)' }}>
             <div style={{ fontFamily: 'var(--font-condensed)', fontSize: 15, fontWeight: 600 }}>Version History</div>
-            <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>Auto-saved before each regeneration</div>
+            <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>Auto-saved</div>
           </div>
 
           {/* Snapshot list */}
           <div style={{ maxHeight: 280, overflowY: 'auto' }}>
             {snapshots.length === 0 && (
-              <div style={{ padding: '16px 14px', fontSize: 12, color: 'var(--text-secondary)' }}>No versions saved yet.</div>
+              <div style={{ padding: '16px 14px', fontSize: 12, color: 'var(--text-secondary)' }}>None yet</div>
             )}
             {snapshots.map((snap) => {
               // `on_screen` is derived from the version's payload by
@@ -159,7 +159,7 @@ export default function VersionsDropdown({ snapshots, isOpen, role, onToggle, on
                       onClick={() => { onRestore(snap); onToggle() }}
                       disabled={!isAdmin || snap.restorable === false}
                       title={
-                        snap.restorable === false ? 'This version recorded no schedule data and cannot be restored'
+                        snap.restorable === false ? "Empty — can't restore"
                           : !isAdmin ? 'Director only'
                             : undefined
                       }
@@ -182,7 +182,7 @@ export default function VersionsDropdown({ snapshots, isOpen, role, onToggle, on
                         onClick={() => { onDelete(snap.id); setConfirmingDeleteId(null) }}
                         onBlur={() => setConfirmingDeleteId(null)}
                         autoFocus
-                        title="Permanently delete this version"
+                        title="Delete"
                         style={{ fontSize: 10, fontWeight: 700, color: 'var(--danger)', background: 'color-mix(in srgb, var(--danger) 10%, transparent)', border: 'none', borderRadius: 5, cursor: 'pointer', padding: '3px 6px', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
                       >
                         Delete?
@@ -190,7 +190,7 @@ export default function VersionsDropdown({ snapshots, isOpen, role, onToggle, on
                     ) : (
                       <button
                         onClick={() => setConfirmingDeleteId(snap.id)}
-                        title={snap.restorable === false ? 'Delete this empty version' : 'Delete this version'}
+                        title="Delete"
                         style={{ fontSize: 10, color: 'var(--text-secondary)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', fontFamily: 'inherit' }}
                       >
                         delete
@@ -221,7 +221,7 @@ export default function VersionsDropdown({ snapshots, isOpen, role, onToggle, on
               disabled={!nameInput.trim()}
               style={{ width: '100%', padding: 6, borderRadius: 7, background: nameInput.trim() ? 'var(--primary)' : 'var(--border)', color: nameInput.trim() ? '#fff' : 'var(--text-secondary)', border: 'none', fontFamily: 'inherit', fontSize: 12, fontWeight: 700, cursor: nameInput.trim() ? 'pointer' : 'default' }}
             >
-              Save as named version
+              Save version
             </button>
           </div>
         </div>

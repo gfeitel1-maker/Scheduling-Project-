@@ -101,7 +101,7 @@ describe('useClipboardSelection', () => {
 
     await act(async () => result.current.handleCellSelect({ groupId: 'g1', dayId: 'd1', blockId: 'b3', is_fixed_event: true }, {}))
     expect(placeActivityManual).not.toHaveBeenCalled()
-    expect(result.current.pasteError).toContain('recurring event')
+    expect(result.current.pasteError).toBe("Can't paste there.")
     expect(result.current.pasteMode).toBe(true)
   })
 

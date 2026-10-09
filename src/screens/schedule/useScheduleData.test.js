@@ -121,7 +121,7 @@ describe('useScheduleData', () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false))
 
-    expect(result.current.templateError).toMatch(/Failed to load saved schedule/i)
+    expect(result.current.templateError).toMatch(/Couldn't load the saved schedule/)
     expect(result.current.setupLists.groups).toHaveLength(1)
     expect(result.current.loadError).toBeNull()
   })

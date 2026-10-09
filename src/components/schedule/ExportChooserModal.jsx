@@ -13,7 +13,7 @@ export default function ExportChooserModal({ options, onChoose, onCancel, format
   return (
     <div style={{ ...S.overlay, ...enterStyle }}>
       <div style={{ ...S.modalLg, maxWidth: 460 }}>
-        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 16, marginBottom: 6 }}>Which schedule do you want to export?</div>
+        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 16, marginBottom: 6 }}>Export which?</div>
         <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 18 }}>
           You have more than one week in progress. Pick the one to send to {formatLabel}.
         </div>

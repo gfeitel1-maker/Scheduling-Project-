@@ -102,7 +102,7 @@ export default function ScheduleElectivesScreen({ campId, role, onNavigate, init
       setScheduleWeeks(scheduleWeeksData || [])
       setCampers((campersData || []).filter((c) => c.camp_id === campId))
     } catch {
-      setError("Couldn't load your camp setup — check your connection and refresh.")
+      setError("Couldn't load camp setup.")
     } finally {
       setLoading(false)
     }

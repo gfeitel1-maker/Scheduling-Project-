@@ -5,7 +5,7 @@ import { resolveWeekCatalog } from '../../engine/weekCatalog'
 import { resolvePriorityForGeneration } from '../../ingest/resolvePriorityForGeneration'
 import { resolveFixedEventActivityIds } from '../../engine/fixedEventActivityLink'
 
-const GENERIC_REFUSAL = 'This schedule could not be generated: a fixed or recurring event is not linked to a valid activity. Fix it on the Fixed/Recurring Events screen and try again.'
+const GENERIC_REFUSAL = "Couldn't generate: a recurring event has no activity."
 
 function unlinkedEventsMessage(allNames, lead) {
   const names = [...new Set(allNames)]
@@ -133,7 +133,7 @@ export function useGeneration({
     try {
       tid = await ensureTemplateRow('generated')
     } catch {
-      setActionError('Could not open the generated schedule — nothing was changed. Try again, and tell support if it repeats.')
+      setActionError("Couldn't open it. Nothing changed.")
       setGenerating(false)
       return
     }
@@ -142,7 +142,7 @@ export function useGeneration({
       try {
         await saveSnapshot(null, true, 'generated')
       } catch {
-        setActionError('Could not save undo point — regeneration cancelled')
+        setActionError("Couldn't save undo point. Cancelled.")
         setGenerating(false)
         return
       }
@@ -155,7 +155,7 @@ export function useGeneration({
     } catch (err) {
       setActionError(
         err?.message?.includes('admin role required')
-          ? 'Only an admin can regenerate the schedule'
+          ? 'Admin only.'
           : describeWriteFailure(err, 'That schedule could not be regenerated.')
       )
       setGenerating(false)
@@ -224,7 +224,7 @@ export function useGeneration({
     try {
       tid = await ensureTemplateRow('manual')
     } catch {
-      setActionError('Could not open the manual schedule — nothing was changed. Try again, and tell support if it repeats.')
+      setActionError("Couldn't open it. Nothing changed.")
       setGenerating(false)
       return
     }
@@ -233,7 +233,7 @@ export function useGeneration({
       try {
         await saveSnapshot(null, true, 'manual')
       } catch {
-        setActionError('Could not save undo point — regeneration cancelled')
+        setActionError("Couldn't save undo point. Cancelled.")
         setGenerating(false)
         return
       }
@@ -245,8 +245,8 @@ export function useGeneration({
     } catch (err) {
       setActionError(
         err?.message?.includes('admin role required')
-          ? 'Only an admin can place fixedEvents'
-          : describeWriteFailure(err, 'That fixedEvents could not be placed.')
+          ? 'Admin only.'
+          : describeWriteFailure(err, "Couldn't place recurring events.")
       )
       setGenerating(false)
       return

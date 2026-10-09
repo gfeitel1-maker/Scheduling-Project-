@@ -11,7 +11,7 @@ import IndeterminateBar from '../components/schedule/IndeterminateBar'
 import ErrorBanner from '../components/schedule/ErrorBanner'
 import { legendEntriesFor, FLAG_SEVERITY, setActivityPalette } from '../components/schedule/slotCellConstants'
 import FindingsRail from '../components/schedule/FindingsRail'
-import { highlightMapForKind, inViewLabel, railEmptyText } from './schedule/findingHighlight'
+import { highlightMapForKind, railEmptyText } from './schedule/findingHighlight'
 import ConfirmRegenModal from '../components/schedule/ConfirmRegenModal'
 import ExportChooserModal from '../components/schedule/ExportChooserModal'
 import VersionsDropdown from '../components/schedule/VersionsDropdown'
@@ -619,7 +619,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     }
     if (f.kind === 'DISTRIBUTION') {
       const byDay = days.find(d => d.day_of_week === f.byDay)?.label ?? 'later in the week'
-      return `Try to fit ${f.requiredBefore} in before ${byDay} — ${f.beforeCount} so far. Spread them out if you can.`
+      return `${f.beforeCount} of ${f.requiredBefore} before ${byDay}`
     }
     return f.reason
   }
@@ -629,7 +629,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       key: s.id,
       kind: 'UNFILLABLE',
       severity: FLAG_SEVERITY.UNFILLABLE,
-      reason: s.flags?.UNFILLABLE_reason || 'No activity this group can do fits here',
+      reason: s.flags?.UNFILLABLE_reason || 'Nothing fits',
       locator: slotLocator(s),
       slotIds: [s.id],
       groupId: s.group_id,
@@ -638,7 +638,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       key: `overlap-${s.id}`,
       kind: 'OVERLAP',
       severity: FLAG_SEVERITY.OVERLAP,
-      reason: s.flags?.OVERLAP_reason || 'More groups are booked into this than it holds',
+      reason: s.flags?.OVERLAP_reason || 'Over capacity',
       locator: slotLocator(s),
       groupId: s.group_id,
     })),
@@ -646,7 +646,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       key: `week-closed-${s.id}`,
       kind: 'WEEK_CLOSED',
       severity: FLAG_SEVERITY.WEEK_CLOSED,
-      reason: s.flags?.WEEK_CLOSED_reason || 'Marked not to run this week',
+      reason: s.flags?.WEEK_CLOSED_reason || 'Off this week',
       locator: slotLocator(s),
       groupId: s.group_id,
     })),
@@ -685,19 +685,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
 
   // Toggle a concern box: clicking the active one turns the review off.
   const toggleRail = (target) => setRailView(v => (v === target ? null : target))
-
-  // How many lit cells are reachable in the current view, so the off-view note
-  // can be honest about "3 of 8 shown here". Only meaningful while a concern is
-  // highlighted (group/day are the views with a grid; activity drilldown shows
-  // its own cells and is treated as "all visible").
-  const highlightedIds = [...highlightMap.keys()]
-  const visibleHighlighted = highlightedIds.filter(id => {
-    const s = slots.find(x => x.id === id)
-    if (!s) return false
-    if (view === 'group') return s.group_id === selectedGroup
-    if (view === 'day') return s.day_id === selectedDay
-    return true
-  }).length
 
   function dismissFindingsRow(row) {
     if (row.kind === 'UNFILLABLE') dismissFlag(row.slotIds, 'UNFILLABLE')
@@ -837,16 +824,12 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const ROUTE_COPY = {
     manual: {
       label: 'Manual',
-      caption: 'The week you\u2019re building',
       offerTitle: 'Build it myself',
-      offerBody: 'Start from a blank week with your meals and recurring events already in place. You place every activity yourself \u2014 the way you would in a spreadsheet, but it watches for clashes and tells you what each group still needs.',
       offerAction: 'Start a blank week',
     },
     generated: {
       label: 'Generated',
-      caption: 'The week the app proposed',
       offerTitle: 'Let the app propose one',
-      offerBody: 'The app fills the week from your activity targets. You then move things around by dragging.',
       offerAction: 'Generate a schedule',
     },
   }
@@ -862,8 +845,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   if (!initialRoute && !localRoute && startedRoutes.length > 1) {
     return (
       <div style={{ padding: '60px 16px', textAlign: 'center' }}>
-        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 15, color: 'var(--text)' }}>Which week do you want to open?</div>
-        <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 6, marginBottom: 20 }}>You have both. Opening one changes nothing about the other, and you can switch any time from the left.</div>
+        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 15, color: 'var(--text)', marginBottom: 20 }}>Open</div>
         <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
           {ROUTES.map(r => (
             <button className="press-97"
@@ -933,7 +915,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
         padding: '18px 20px', width: 280, display: 'flex', flexDirection: 'column', gap: 8,
       }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 15, color: 'var(--text)' }}>{copy.offerTitle}</div>
-        <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{copy.offerBody}</div>
         <button className="press-97"
           onClick={() => { setRoute(r); onNavigate?.(`schedule:${r}`); startRoute[r]() }}
           disabled={generating || role !== 'admin'}
@@ -1014,9 +995,10 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 what you SEE, not what you have. */}
             <button
               onClick={() => setWeatherMode(w => !w)}
+              aria-pressed={weatherMode}
               style={{ padding: '6px 12px', border: `1px solid ${weatherMode ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 6, background: weatherMode ? 'color-mix(in srgb, var(--accent) 9%, var(--surface))' : 'var(--surface)', color: weatherMode ? 'var(--accent)' : 'var(--text-secondary)', fontWeight: 600, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', lineHeight: 1 }}
             >
-              Weather Mode {weatherMode ? 'ON' : 'OFF'}
+              Weather
             </button>
 
             {/* Acting on the schedule: undo, redo, rebuild — one cluster, since
@@ -1024,13 +1006,15 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
             <button
               onClick={() => { bumpFlagAckResync(); handleUndo() }}
               disabled={undoStack.length === 0}
-              title={undoStack.length > 0 ? `Undo: ${undoStack[undoStack.length - 1].description}` : 'Nothing to undo'}
+              aria-label="Undo"
+              title={undoStack.length > 0 ? `Undo: ${undoStack[undoStack.length - 1].description}` : undefined}
               style={{ padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', cursor: undoStack.length === 0 ? 'not-allowed' : 'pointer', opacity: undoStack.length === 0 ? 0.35 : 1, fontSize: 14, fontFamily: 'inherit' }}
             ><UndoIcon /></button>
             <button
               onClick={() => { bumpFlagAckResync(); handleRedo() }}
               disabled={redoStack.length === 0}
-              title={redoStack.length > 0 ? `Redo: ${redoStack[redoStack.length - 1].description}` : 'Nothing to redo'}
+              aria-label="Redo"
+              title={redoStack.length > 0 ? `Redo: ${redoStack[redoStack.length - 1].description}` : undefined}
               style={{ padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', cursor: redoStack.length === 0 ? 'not-allowed' : 'pointer', opacity: redoStack.length === 0 ? 0.35 : 1, fontSize: 14, fontFamily: 'inherit' }}
             ><UndoIcon direction="redo" /></button>
 
@@ -1056,7 +1040,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                   e.currentTarget.style.borderColor = 'var(--border)'
                   e.currentTarget.style.background = 'var(--surface)'
                 } : undefined}
-              >Rebuild this schedule</button>
+              >Rebuild</button>
             )}
 
             <div style={{ flex: 1 }} />
@@ -1102,9 +1086,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
               <button
                 className="press-97"
                 onClick={() => handleExportClick('json')}
-                title="Machine-readable schedule data for another tool"
                 style={{ ...S.btnSecondary, padding: '5px 10px', fontSize: 12, color: 'var(--text-secondary)' }}
-              >Export data (JSON)</button>
+              >Export JSON</button>
             </div>
           </>
         )}
@@ -1178,18 +1161,11 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
               onDismiss={dismissFindingsRow}
               onLocate={locateFindingsRow}
               onClose={() => setRailView(null)}
-              intro={{ title: 'What this week still needs', sub: "Nothing here is a mistake. It's what's left to place." }}
+              intro={{ title: 'Still to place' }}
               emptyText={railEmptyText(stats)}
             />
           )}
         </div>
-        {/* Off-view honesty: a concern's count is camp-wide, but the grid only
-            lights the current view. Say so rather than silently showing fewer. */}
-        {highlightedKind && (view === 'group' || view === 'day') && inViewLabel(visibleHighlighted, highlightedIds.length) && (
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 8 }}>
-            {inViewLabel(visibleHighlighted, highlightedIds.length)}
-          </div>
-        )}
         </div>
       )}
 
@@ -1200,12 +1176,13 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
           <span>
             {pasteError
               ? `⚠ ${pasteError}`
-              : `⊡ ${clipboardItems.length - pasteModeIndex} of ${clipboardItems.length} to paste — click a cell to place "${clipboardItems[pasteModeIndex]?.activityName}"`}
+              : `⊡ Paste ${clipboardItems[pasteModeIndex]?.activityName} (${clipboardItems.length - pasteModeIndex} left)`}
           </span>
           <button
             onClick={cancelPaste}
+            aria-label="Cancel paste"
             style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 11, fontFamily: 'inherit', padding: 0 }}
-          >Esc to cancel</button>
+          >✕</button>
         </div>
       )}
 
@@ -1244,8 +1221,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 <div style={{ display: 'flex', marginBottom: 8 }}>{routeOffer(route)}</div>
               ) : (
                 <div style={{ padding: '60px 16px', textAlign: 'center' }}>
-                  <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 15, color: 'var(--text)' }}>How do you want to build this week?</div>
-                  <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 6, marginBottom: 20 }}>You can do both. Nothing you build one way affects the other.</div>
                   <div style={{ display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap', textAlign: 'left' }}>
                     {routeOffer('manual')}
                     {routeOffer('generated')}
@@ -1429,7 +1404,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
         <ExportChooserModal
           options={ROUTES.map(r => ({
             key: r,
-            title: ROUTE_COPY[r].caption,
+            title: ROUTE_COPY[r].label,
             filled: slotsByRoute[r].filter(x => x.is_fixed_event === false && x.activity_id).length,
             total: slotsByRoute[r].filter(x => x.is_fixed_event === false).length,
           }))}

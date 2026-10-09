@@ -55,7 +55,7 @@ export default function FindingsRail({ rows, onDismiss, onLocate, onClose, intro
             {row.kind !== 'OVERLAP' && row.kind !== 'WEEK_CLOSED' && (
               <button
                 onClick={() => onDismiss(row)}
-                title="I can live with this — hide it"
+                title="Hide"
                 style={{
                   fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)',
                   background: 'none', border: '1px solid var(--border)', borderRadius: 5,

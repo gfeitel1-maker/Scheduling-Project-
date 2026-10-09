@@ -155,8 +155,8 @@ describe('WS5 S2a/S3 — toolbar slims: Field Trips removed, route label removed
     expect(screen.getByText('Group View')).toBeTruthy()
     expect(screen.getByText('Daily View')).toBeTruthy()
     expect(screen.getByText('Activity View')).toBeTruthy()
-    expect(screen.getByTitle(/Nothing to undo|^Undo:/)).toBeTruthy()
-    expect(screen.getByTitle(/Nothing to redo|^Redo:/)).toBeTruthy()
+    expect(screen.getByLabelText('Undo')).toBeTruthy()
+    expect(screen.getByLabelText('Redo')).toBeTruthy()
   })
 
   it('renders Weather Mode, Versions, Export to Excel, and Rebuild directly on the toolbar, with no "⋯"/"More" control anywhere', async () => {
@@ -164,11 +164,11 @@ describe('WS5 S2a/S3 — toolbar slims: Field Trips removed, route label removed
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
 
-    expect(screen.getByText(/Weather Mode/)).toBeTruthy()
+    expect(screen.getByText('Weather')).toBeTruthy()
     expect(screen.getByRole('button', { name: /Versions/ })).toBeTruthy()
     expect(screen.getByText('Export to Excel')).toBeTruthy()
-    expect(screen.getByText('Export data (JSON)')).toBeTruthy()
-    expect(screen.getByText('Rebuild this schedule')).toBeTruthy()
+    expect(screen.getByText('Export JSON')).toBeTruthy()
+    expect(screen.getByText('Rebuild')).toBeTruthy()
 
     // The S2a overflow popup is gone entirely — no trigger, no menu role.
     expect(screen.queryByTitle('More')).toBeNull()
@@ -184,7 +184,7 @@ describe('WS5 S2a/S3 — toolbar slims: Field Trips removed, route label removed
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
 
     expect(screen.getByText('Export to Excel')).toBeTruthy()
-    expect(screen.queryByText('Rebuild this schedule')).toBeNull()
+    expect(screen.queryByText('Rebuild')).toBeNull()
   })
 
   it('Rebuild is disabled with "Admin only" for a non-admin', async () => {
@@ -192,7 +192,7 @@ describe('WS5 S2a/S3 — toolbar slims: Field Trips removed, route label removed
     render(<ScheduleScreen campId={CAMP_ID} role="staff" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
 
-    const rebuildBtn = screen.getByText('Rebuild this schedule')
+    const rebuildBtn = screen.getByText('Rebuild')
     expect(rebuildBtn.disabled).toBe(true)
     expect(rebuildBtn.getAttribute('title')).toBe('Admin only')
   })
@@ -208,12 +208,12 @@ describe('WS5 S2a/S3 — toolbar slims: Field Trips removed, route label removed
     fireEvent.click(screen.getByRole('button', { name: /Versions/ }))
     await waitFor(() => expect(screen.getByText('Version History')).toBeTruthy())
 
-    const weatherBtn = screen.getByRole('button', { name: /Weather Mode OFF/ })
+    const weatherBtn = screen.getByRole('button', { name: 'Weather', pressed: false })
     fireEvent.mouseDown(weatherBtn)
     fireEvent.click(weatherBtn)
 
     expect(screen.queryByText('Version History')).toBeNull()
-    expect(screen.getByRole('button', { name: /Weather Mode ON/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Weather', pressed: true })).toBeTruthy()
     expect(screen.getByText('Export to Excel')).toBeTruthy()
   })
 })
@@ -301,7 +301,7 @@ describe('flags round-trips through bulk_replace as a parsed object (Round 2 Fix
     // elements and throws — and matching the legend would prove nothing here,
     // since the legend is static and renders whether or not any slot is flagged.
     const statBadgeLabel = () => screen.getAllByText(/Unfillable/)
-      .find(el => el.parentElement?.getAttribute('title') === 'Click to review these')
+      .find(el => el.parentElement?.getAttribute('title') === 'Review')
 
     await waitFor(() => {
       expect(statBadgeLabel()).toBeTruthy()
@@ -447,7 +447,7 @@ describe('ScheduleScreen mutation functions exercised via rendered component', (
     fireEvent.click(screen.getByText('Generate a schedule'))
 
     await waitFor(() => {
-      expect(screen.getByText(/Only an admin can regenerate the schedule/i)).toBeTruthy()
+      expect(screen.getByText(/Admin only\./)).toBeTruthy()
     })
     // Still on the "no schedule" empty state — the rejection did not leave
     // the screen stuck on a spinner or throw past the click handler.
@@ -470,7 +470,7 @@ describe('snapshot CRUD ported to localClient', () => {
     fireEvent.click(screen.getByRole('button', { name: /Versions/ }))
     const nameInput = screen.getByPlaceholderText('Name current version…')
     fireEvent.change(nameInput, { target: { value: 'My Version' } })
-    fireEvent.click(screen.getByText('Save as named version'))
+    fireEvent.click(screen.getByText('Save version'))
 
     await waitFor(() => {
       expect(localClient.write).toHaveBeenCalledWith('token-abc', 'schedule_snapshots', 'new-id-1', 'name', 'My Version')
@@ -633,7 +633,7 @@ describe('generate() aborts the destructive wipe when the pre-emptive snapshot f
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
 
-    fireEvent.click(screen.getByText('Rebuild this schedule'))
+    fireEvent.click(screen.getByText('Rebuild'))
     await waitFor(() => expect(screen.getByText('Rebuild it')).toBeTruthy())
     fireEvent.click(screen.getByText('Rebuild it'))
 
@@ -904,7 +904,7 @@ describe('separate manual and generated routes', () => {
     bothRoutes()
     const navigated = []
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={(s) => navigated.push(s)} />)
-    await waitFor(() => expect(screen.getByText('Which week do you want to open?')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Open')).toBeTruthy())
     // Nothing of either week is on screen until the director picks.
     expect(screen.queryAllByText('Swim').some(el => el.closest(CELL_SELECTOR))).toBe(false)
 
@@ -920,7 +920,7 @@ describe('separate manual and generated routes', () => {
     })
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
-    expect(screen.queryByText('Which week do you want to open?')).toBeFalsy()
+    expect(screen.queryByText('Open')).toBeFalsy()
   })
 
   it('never labels either route as the real or current schedule', async () => {
@@ -943,9 +943,9 @@ describe('separate manual and generated routes', () => {
   it('writes Generate only to the generated schedule, leaving the manual one alone', async () => {
     bothRoutes()
     render(routeScreen('generated'))
-    await waitFor(() => expect(screen.getByText('Rebuild this schedule')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Rebuild')).toBeTruthy())
 
-    fireEvent.click(screen.getByText('Rebuild this schedule'))
+    fireEvent.click(screen.getByText('Rebuild'))
     await waitFor(() => expect(screen.getByText('Rebuild it')).toBeTruthy())
     fireEvent.click(screen.getByText('Rebuild it'))
 
@@ -981,7 +981,7 @@ describe('separate manual and generated routes', () => {
     render(routeScreen('manual'))
 
     const stillNeeded = () => screen.getAllByText((_, el) => el?.textContent?.trim().startsWith('Still needed'))
-      .find(el => el.parentElement?.getAttribute('title') === 'Click to review these')
+      .find(el => el.parentElement?.getAttribute('title') === 'Review')
     await waitFor(() => expect(stillNeeded()).toBeTruthy())
     // Archery needs 3 a week and nothing is placed on the blank grid.
     const tile = stillNeeded().parentElement
@@ -1165,9 +1165,9 @@ describe('ScheduleScreen — camp whose generated template has a random UUID id'
   it('C3: generate() writes to the UUID id and mints no schedule_templates row', async () => {
     uuidCamp()
     render(routeScreen('generated'))
-    await waitFor(() => expect(screen.getByText('Rebuild this schedule')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Rebuild')).toBeTruthy())
 
-    fireEvent.click(screen.getByText('Rebuild this schedule'))
+    fireEvent.click(screen.getByText('Rebuild'))
     await waitFor(() => expect(screen.getByText('Rebuild it')).toBeTruthy())
     fireEvent.click(screen.getByText('Rebuild it'))
 
@@ -1353,13 +1353,13 @@ describe('ScheduleScreen — switching routes cannot carry work across candidate
     await waitFor(() => {
       fireEvent.keyDown(window, { key: 'a', ctrlKey: true })
       fireEvent.keyDown(window, { key: 'c', ctrlKey: true })
-      expect(document.body.textContent).toMatch(/to paste/)
+      expect(document.body.textContent).toMatch(/left\)/)
     })
 
     rerender(routeScreen('manual'))
     // Paste mode carrying the OTHER candidate's cells is exactly the
     // cross-candidate write the route separation exists to prevent.
-    await waitFor(() => expect(document.body.textContent).not.toMatch(/to paste/))
+    await waitFor(() => expect(document.body.textContent).not.toMatch(/left\)/))
   })
 
   // 'drops the undo stack when the director navigates to the other route' used
@@ -1381,7 +1381,7 @@ describe('ScheduleScreen — a rejected schedule_templates write is reported, no
 
     fireEvent.click(screen.getByText('Generate a schedule'))
 
-    await waitFor(() => expect(screen.getByText(/Could not open the generated schedule/i)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/Couldn't open it/)).toBeTruthy())
     // Nothing was written to any week.
     expect(localClient.bulkReplace).not.toHaveBeenCalled()
   })
@@ -1394,7 +1394,7 @@ describe('ScheduleScreen — a rejected schedule_templates write is reported, no
 
     fireEvent.click(screen.getByText('Start a blank week'))
 
-    await waitFor(() => expect(screen.getByText(/Could not open the manual schedule/i)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/Couldn't open it/)).toBeTruthy())
     expect(localClient.bulkReplace).not.toHaveBeenCalled()
   })
 })
@@ -1540,9 +1540,9 @@ describe('T3: selecting, copying and pasting cells', () => {
     fireEvent.click(scheduleCell('Swim').closest(CELL_SELECTOR), { metaKey: true })
     fireEvent.keyDown(window, { key: 'c', metaKey: true })
 
-    await waitFor(() => expect(screen.getByText(/to paste/i)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/left\)/)).toBeTruthy())
     // The banner has to say how to get out again — paste mode swallows clicks.
-    expect(screen.getByText(/Esc to cancel/i)).toBeTruthy()
+    expect(screen.getByLabelText('Cancel paste')).toBeTruthy()
   })
 
   it('Escape leaves paste mode without writing anything', async () => {
@@ -1554,11 +1554,11 @@ describe('T3: selecting, copying and pasting cells', () => {
 
     fireEvent.click(scheduleCell('Swim').closest(CELL_SELECTOR), { metaKey: true })
     fireEvent.keyDown(window, { key: 'c', metaKey: true })
-    await waitFor(() => expect(screen.getByText(/to paste/i)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/left\)/)).toBeTruthy())
 
     const writesBefore = localClient.write.mock.calls.length
     fireEvent.keyDown(window, { key: 'Escape' })
-    await waitFor(() => expect(screen.queryByText(/to paste/i)).toBeNull())
+    await waitFor(() => expect(screen.queryByText(/left\)/)).toBeNull())
     expect(localClient.write.mock.calls.length).toBe(writesBefore)
   })
 })

@@ -24,6 +24,6 @@ export function rowFlagKind(geometry, cells, blockId) {
 }
 
 export const ROW_FLAG_TITLE = {
-  unfillable: 'This period has an unfillable slot',
-  advisory: 'This period needs attention',
+  unfillable: 'Unfillable slot',
+  advisory: 'Needs attention',
 }

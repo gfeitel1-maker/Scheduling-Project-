@@ -149,7 +149,7 @@ export default function CellInlineEditor({
         type="text"
         className="cell-inline-editor-input"
         value={value}
-        placeholder={currentActivityName || 'Type an activity…'}
+        placeholder={currentActivityName || 'Activity'}
         onChange={e => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
         onBlur={handleBlur}

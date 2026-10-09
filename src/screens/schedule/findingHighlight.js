@@ -63,15 +63,9 @@ export function highlightMapForKind(kind, rows, slots) {
   return map
 }
 
-// The lit concern's list is already open beside the grid, so the off-view note
-// is only a count; null when every lit cell is already in view.
-export function inViewLabel(visible, total) {
-  return visible < total ? `${visible} of ${total} in view` : null
-}
-
 // The needs list reads targets, the Placed badge reads cells. An empty list
 // on a week with open cells must not claim everything is placed.
 export function railEmptyText(stats) {
   const open = (stats?.open ?? 0) - (stats?.filled ?? 0)
-  return open > 0 ? `${open} open` : 'Everything on your list is placed.'
+  return open > 0 ? `${open} open` : 'All placed'
 }
