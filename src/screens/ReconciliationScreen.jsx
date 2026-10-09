@@ -193,7 +193,7 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
       setReport(nextReport)
     } catch (err) {
       if (requestGenRef.current !== myGen) return
-      setError(describeWriteFailure(err, 'Could not check this file against your camp.'))
+      setError(describeWriteFailure(err, 'Couldn’t check this file. Nothing was imported.'))
     } finally {
       if (requestGenRef.current === myGen) setLoading(false)
     }
@@ -351,7 +351,7 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
   if (loading && !report) {
     return (
       <div style={{ maxWidth: 920, margin: '0 auto' }}>
-        <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Checking this file against your camp…</p>
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Checking…</p>
       </div>
     )
   }
@@ -462,7 +462,7 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
 
       {understoodCount > 0 && (
         <div style={styles.understoodRow}>
-          <span>{understoodCount} rows read cleanly — nothing needed from you.</span>{' '}
+          <span>{understoodCount} understood, nothing to decide.</span>{' '}
           <button className="press-97" onClick={() => setShowUnderstood((v) => !v)} style={styles.linkButton}>
             {showUnderstood ? 'Hide details' : 'Show details'}
           </button>

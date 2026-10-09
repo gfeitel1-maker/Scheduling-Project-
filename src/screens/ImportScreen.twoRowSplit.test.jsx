@@ -182,7 +182,7 @@ describe('ImportScreen — two-rows split suggestion (Slice 2b)', () => {
     await userEvent.click(screen.getByText('Also a flexible activity — split into two?'))
     const input = await screen.findByRole('textbox')
     await userEvent.clear(input)
-    expect(await screen.findByText('Add a suffix so the two activities have different names.')).toBeTruthy()
+    expect(await screen.findByText('Names must differ.')).toBeTruthy()
     expect(screen.getByText('Split').closest('button').disabled).toBe(true)
   })
 
@@ -274,7 +274,7 @@ describe('ImportScreen — two-rows split suggestion (Slice 2b)', () => {
     expect(localClient.write).not.toHaveBeenCalled()
     // Back on the file-upload antechamber (ledger + proposal cleared) — the
     // staged split decision was dropped along with everything else review-time.
-    expect(await screen.findByText(/Drop last year's schedule here/)).toBeTruthy()
+    expect(await screen.findByText(/Drop schedule here/)).toBeTruthy()
   })
 
   it('a collision found at review time shows the three-way reuse/rename/cancel, without writing', async () => {

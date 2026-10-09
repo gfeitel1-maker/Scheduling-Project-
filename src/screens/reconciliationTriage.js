@@ -23,7 +23,7 @@ const displayTo = (field, delta) => (field === 'unit' ? unitDisplayName(delta?.t
 // recognised" fallback would bury it.
 export function mapCommitError(err) {
   const message = err?.message ?? ''
-  return /admin role required/i.test(message) ? 'Only an admin can import a schedule.'
+  return /admin role required/i.test(message) ? 'Admins only — nothing was imported.'
     : /can only be run on the main computer/i.test(message) ? `${message} Nothing was imported.`
     : describeWriteFailure(err, 'Nothing was imported. Your camp is exactly as it was.')
 }

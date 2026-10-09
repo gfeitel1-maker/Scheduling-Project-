@@ -455,7 +455,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
 
       if (pages.length === 0) {
         setProposal(null)
-        setError('No schedule could be read out of that. It may be a scan rather than a document with text in it.')
+        setError('No text found in that file — is it a scanned image? Nothing was imported.')
         return
       }
 
@@ -480,8 +480,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       if (shapeSplit.shaped.length === 0) {
         setProposal(null)
         setError(
-          `${files.map((f) => f.name).join(', ')} doesn't look like a schedule — expected day columns ` +
-          '(e.g. Monday–Friday) or time-of-day rows. Nothing was imported.'
+          `${files.map((f) => f.name).join(', ')}: no day columns or time rows found. Nothing was imported.`
         )
         return
       }
@@ -806,7 +805,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       setActivityRules(Object.fromEntries(rules))
     } catch (err) {
       setProposal(null)
-      setError(describeWriteFailure(err, 'That file could not be read.'))
+      setError(describeWriteFailure(err, 'File not readable.'))
     }
   }
 
@@ -826,11 +825,11 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       // A fail-closed reject (missing/edited metadata, camp/cohort mismatch) is a
       // clear user-facing message, not a crash — nothing was imported.
       setProposal(null)
-      setError(err?.message ?? 'That worksheet could not be read.')
+      setError(err?.message ?? 'Worksheet not readable.')
       return
     }
     if (!activeCohort) {
-      setError('Waiting for a Program to load before importing. Try again in a moment.')
+      setError('Program still loading — try again.')
       return
     }
     const workbookFactCount = INGESTIBLE_ENTITIES.reduce((n, e) => n + (source.approved[e]?.length ?? 0), 0)
@@ -1107,7 +1106,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
         // director at the half-built day instead of at a retry that cannot work.
         setSpecialDayPlan(null)
       } else {
-        setError(describeWriteFailure(err, 'That special day could not be built.'))
+        setError(describeWriteFailure(err, 'Special day not built.'))
       }
     } finally {
       buildingSpecialDayRef.current = false
@@ -1574,8 +1573,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
           background: 'var(--surface)', border: '1px solid var(--border)',
           borderRadius: 10, padding: '16px', fontSize: 13, lineHeight: 1.6, color: 'var(--text)',
         }}>
-          Import runs on the main computer. Open this camp on the main computer to import last
-          year's schedule.
+          Import runs on the main computer only.
         </div>
       </div>
     )
@@ -1583,12 +1581,6 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
 
   return (
     <div style={{ maxWidth: 760, ...enterStyle }}>
-      <p style={{ margin: '0 0 18px', fontSize: 13, lineHeight: 1.6, color: 'var(--text-secondary)', maxWidth: '62ch' }}>
-        Already have last year's schedule? Open it here and Shoresh will read the groups, days,
-        periods and activities out of it. Nothing is added until you have looked at the list and
-        said so.
-      </p>
-
       {error && <div style={{ ...S.errorBanner, marginBottom: 16 }}>{error}</div>}
 
       {specialDayResult && (
@@ -1693,7 +1685,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
           }}
         >
           <div style={{ fontSize: 13, color: 'var(--text)', marginBottom: 10 }}>
-            Drop last year's schedule here
+            Drop schedule here
           </div>
           <label
             className="press-97"
@@ -1716,16 +1708,12 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
           <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 10 }}>
             {fileNames.length > 0
               ? fileNames.join(', ')
-              : 'Excel, CSV or a plain text schedule. Several files at once is fine.'}
+              : '.xlsx · .csv · .txt — several at once'}
           </div>
         </div>
         {/* S4a — download a worksheet pre-filled with what the camp already
             knows, to edit and re-import. Read-only; writes nothing. */}
         <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.6 }}>
-            Prefer to fill in the details in a spreadsheet? Download a worksheet with everything Shoresh
-            already knows, edit it, and open it back here.
-          </div>
           <button className="press-97" onClick={downloadWorksheet} disabled={exporting} style={{ ...S.btnSecondary, opacity: exporting ? 0.45 : 1 }}>
             {exporting ? 'Preparing…' : 'Download worksheet'}
           </button>
@@ -1739,8 +1727,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
             borderLeft: '3px solid var(--primary)',
             borderRadius: 8, padding: '12px 14px', marginBottom: 8, fontSize: 13, lineHeight: 1.6,
           }}>
-            Everything below is what Shoresh found in the file. Nothing is added yet — the next
-            step shows exactly what would change and lets you review anything worth a second look.
+            Found in the file. Nothing added yet.
           </div>
 
           {/* The orientation was detected, not known. Saying so lets a director
@@ -1748,8 +1735,8 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
           {proposal.orientation && (
             <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 18, lineHeight: 1.6 }}>
               {proposal.orientation.confident
-                ? `Read as one page per ${proposal.orientation.pages === 'groups' ? 'group, with the days across the top' : 'day, with the groups across the top'}.`
-                : 'Could not tell how this file is laid out, so some of the list below may be wrong. Worth checking closely.'}
+                ? `Layout: ${proposal.orientation.pages === 'groups' ? 'a page per group, days across' : 'a page per day, groups across'}`
+                : 'Layout unclear — check the list closely.'}
             </div>
           )}
 
@@ -1768,16 +1755,12 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
                 letterSpacing: '0.12em', textTransform: 'uppercase',
                 color: 'var(--text-secondary)', marginBottom: 8,
               }}>
-                Something moved for a day
-              </div>
-              <div style={{ color: 'var(--text-secondary)', marginBottom: 8 }}>
-                These look like a regular slot that shifted on one day, not new activities.
-                Nothing is being held up — this is just so you know.
+                Moved on one day
               </div>
               <ul style={{ margin: 0, paddingLeft: 18, color: 'var(--text)' }}>
                 {movedPlacements.map((m) => (
                   <li key={`${m.pinned}|${m.moved}|${m.days.join(',')}`} style={{ marginBottom: 4 }}>
-                    <strong>{m.pinned}</strong> ({m.pinned_block}) looks like it moved to{' '}
+                    <strong>{m.pinned}</strong> ({m.pinned_block}) →{' '}
                     <strong>{m.moved}</strong> ({m.moved_block}) on {m.days.join(', ')}
                     <span style={{ color: 'var(--text-secondary)' }}> · {m.groups.join(', ')}</span>
                   </li>
@@ -1811,8 +1794,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
               {locationBindings.length > 0 && (
                 <>
                   <div style={{ color: 'var(--text-secondary)', marginBottom: 6 }}>
-                    These activities have the same name as a place you already set up, so Shoresh can
-                    put them there. Untick any that happen somewhere else.
+                    Same name as a place you have. Untick any held elsewhere.
                   </div>
                   <ul style={{ listStyle: 'none', margin: '0 0 10px', padding: 0 }}>
                     {locationBindings.map((b) => (
@@ -1833,19 +1815,16 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
 
               {ambiguousPlaceNames.length > 0 && (
                 <div style={{ color: 'var(--text-secondary)', marginBottom: 10 }}>
-                  You have more than one place called{' '}
                   {ambiguousPlaceNames.map((n, i) => (
                     <span key={n}>{i > 0 ? ', ' : ''}&quot;{n}&quot;</span>
-                  ))}, so Shoresh cannot tell which one is meant. Rename one under Locations, or set
-                  these by hand.
+                  ))}: more than one place has this name, so none was picked.
                 </div>
               )}
 
               {placeCandidates.length > 0 && (
                 <>
                   <div style={{ color: 'var(--text-secondary)', marginBottom: 6 }}>
-                    Any of these activity names that are also the name of a place? Tick them and
-                    Shoresh will add the place — it won&apos;t assume anything happens there.
+                    Also a place? Tick to add it.
                   </div>
                   <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexWrap: 'wrap', gap: '2px 14px' }}>
                     {placeCandidates.map((n) => (
@@ -1882,15 +1861,13 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
                   Not recognised
                 </div>
                 <div style={{ color: 'var(--text-secondary)', marginBottom: 8 }}>
-                  Shoresh could not match this to anything above. Nothing was added for it — check
-                  whether it matters before you continue.
+                  Nothing was added for these.
                 </div>
                 {declinedPages.length > 0 && (
                   <ul style={{ margin: '0 0 8px', paddingLeft: 18 }}>
                     {declinedPages.map((title, i) => (
                       <li key={`${title}-${i}`}>
-                        Tab "{title}" doesn't look like a schedule (no day columns or time-of-day
-                        rows), so nothing was imported from it.
+                        Tab "{title}": skipped (no day columns or time rows)
                       </li>
                     ))}
                   </ul>
@@ -1957,12 +1934,10 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
                   letterSpacing: '0.12em', textTransform: 'uppercase',
                   color: 'var(--text-secondary)', marginBottom: 8,
                 }}>
-                  Worth a second look
+                  Check these
                 </div>
                 <div style={{ color: 'var(--text-secondary)', marginBottom: 8 }}>
-                  These will be added like everything else. They just do not read like the
-                  other names, so they may be a cell that got split in an odd place — worth
-                  a glance before you continue.
+                  Added as-is. May be a cell split in an odd place.
                 </div>
                 <ul style={{ margin: 0, paddingLeft: 18 }}>
                   {suspects.map((sus) => (
@@ -2013,9 +1988,6 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
                     an explicit clear. */}
                 {entity === 'groups' && names.length > 0 && (
                   <div style={{ marginTop: 12 }}>
-                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.6 }}>
-                      Which age division each group belongs to. Left as-is uses what the file itself says.
-                    </div>
                     {names.map((name) => {
                       const override = groupUnitOverrides[name]
                       const isClear = !!(override && typeof override === 'object' && override.clear)
@@ -2069,7 +2041,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
                             }}
                             style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' }}
                           >
-                            <option value="">{proposal.groupUnits?.[name] ? `From file: ${proposal.groupUnits[name]}` : 'No age division (from file)'}</option>
+                            <option value="">{proposal.groupUnits?.[name] ? `From file: ${proposal.groupUnits[name]}` : 'From file: none'}</option>
                             {existingTierOptions.map((t) => {
                               // Owner-confirmable presentation choice (flagged in the
                               // PR): when the SAME name appears twice, the label
@@ -2111,7 +2083,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
                   <div style={{ marginTop: 12 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                       <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                        Guessed how often and for whom, from the file. Edit anything that looks wrong.
+                        Guessed from the file.
                       </div>
                       <button className="press-97" onClick={clearInferredRules} style={{ ...S.btnSecondary, padding: '4px 10px', fontSize: 11 }}>
                         Clear inferred rules
@@ -2150,13 +2122,11 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
                 Recurring Events
               </div>
               <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.6 }}>
-                These activities sat at the same time across a group’s days, so they look fixed rather
-                than scheduled fresh each day. They’re added as recurring events you can edit later.
+                Same time across a group’s days — added as recurring events.
               </div>
               {fixedEvents.some((fe) => fe.confidence === 'low') && (
                 <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.6 }}>
-                  Some appeared on a majority of a group’s days but not all — you’ll be asked to confirm
-                  those on the next step.
+                  Some aren’t on every day — you’ll confirm those next.
                 </div>
               )}
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'flex-start' }}>
@@ -2241,10 +2211,6 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
               }}>
                 Longer Blocks
               </div>
-              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.6 }}>
-                These filled more than one time block in a row. Tell us if this happens every week,
-                or if it was a one-time thing.
-              </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'flex-start' }}>
                 {multiBlockCandidates.map((c) => {
                   const key = multiBlockKey(c)
@@ -2319,11 +2285,10 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
                 letterSpacing: '0.12em', textTransform: 'uppercase',
                 color: 'var(--text-secondary)', marginBottom: 8,
               }}>
-                Names That Look Like Typos
+                Similar names
               </div>
               <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.6 }}>
-                Two spellings that might be the same thing. Shoresh won't merge these on its own —
-                some camps really do run both.
+                Not merged unless you say so.
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {nameVariantCandidates.map((c) => {
@@ -2343,8 +2308,8 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
                       {decision ? (
                         <div style={{ fontSize: 12, color: 'var(--text)' }}>
                           {decision === 'merge'
-                            ? `✓ "${c.variant}" will be read as "${c.canonical}"`
-                            : `✓ Kept apart — "${c.variant}" and "${c.canonical}" are different things`}
+                            ? `✓ "${c.variant}" → "${c.canonical}"`
+                            : '✓ Kept apart'}
                         </div>
                       ) : (
                         <>
@@ -2355,15 +2320,12 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
                             "{c.variant}"
                             <span style={{ opacity: 0.6, fontSize: 11 }}> · seen {times(c.variantCount)}</span>
                           </div>
-                          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.5 }}>
-                            Are these the same thing?
-                          </div>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                             <button type="button" onClick={() => choose('merge')} style={pill}>
-                              Same thing — call it "{c.canonical}"
+                              Same — call it "{c.canonical}"
                             </button>
                             <button type="button" onClick={() => choose('keep')} style={pill}>
-                              Different things — keep both
+                              Keep both
                             </button>
                             <button type="button" onClick={() => choose(undefined)} style={pill}>
                               Not sure — ask me later
@@ -2385,11 +2347,10 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
                 letterSpacing: '0.12em', textTransform: 'uppercase',
                 color: 'var(--text-secondary)', marginBottom: 8,
               }}>
-                Cells We Weren't Sure About
+                Unclear cells
               </div>
               <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.6 }}>
-                These cells combined more than one word. Tell us what each one means — Shoresh will
-                remember your answer for next time.
+                Your answer is remembered next time.
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {compoundCellCandidates.map((c) => {
@@ -2427,9 +2388,9 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
                             "{c.pattern}"
                           </div>
                           <div style={{ fontSize: 12, color: 'var(--text)' }}>
-                            {decision === 'wrapper' && `✓ Wrapper — "${wrapper}" won't become its own activity`}
-                            {decision === 'alternatives' && '✓ Alternatives — either one is eligible'}
-                            {decision === 'as_written' && '✓ Kept as one thing, as written'}
+                            {decision === 'wrapper' && `✓ "${wrapper}" is a wrapper, not an activity`}
+                            {decision === 'alternatives' && '✓ Either one'}
+                            {decision === 'as_written' && '✓ As written'}
                           </div>
                         </>
                       ) : (
@@ -2440,22 +2401,17 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
                               · seen {c.occurrences} {c.occurrences === 1 ? 'time' : 'times'}
                             </span>
                           </div>
-                          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.5 }}>
-                            {isAmbiguous
-                              ? `Is this one activity as written, or are "${c.parts[0]}" and "${c.parts[1]}" two separate things?`
-                              : `Is this one activity as written, or does "${wrapper}" mean something happens around "${anchor}"?`}
-                          </div>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                             <button type="button" onClick={() => choose('as_written')} style={pill}>
-                              One thing, as written
+                              As written
                             </button>
                             {!isAmbiguous && (
                               <button type="button" onClick={() => choose('wrapper')} style={pill}>
-                                "{wrapper}" is a wrapper around "{anchor}"
+                                "{wrapper}" wraps "{anchor}"
                               </button>
                             )}
                             <button type="button" onClick={() => choose('alternatives')} style={pill}>
-                              These are alternatives — either one
+                              Either one
                             </button>
                             <button type="button" onClick={() => choose(undefined)} style={pill}>
                               Not sure — ask me later
@@ -2484,11 +2440,11 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
               border: '1px solid var(--border)', borderRadius: 8,
             }}>
               <div style={{ fontSize: 13, color: 'var(--text)', marginBottom: 10 }}>
-                Your camp already has <strong>{existingCountAll}</strong> {existingCountAll === 1 ? 'item' : 'items'} set up across the entire camp. What should happen to {existingCountAll === 1 ? 'it' : 'them'}?
+                <strong>{existingCountAll}</strong> {existingCountAll === 1 ? 'item' : 'items'} already set up, camp-wide.
               </div>
               {[
-                { key: 'add', title: 'Keep them', sub: 'Add what I import alongside what’s already here.' },
-                { key: 'replace', title: 'Replace them', sub: `This will replace all Age Divisions, Groups, Days, Time Blocks, and Activities across the entire camp — every Program, not just this one. Clears the ${existingCountAll} existing ${existingCountAll === 1 ? 'item' : 'items'} first, then imports.` },
+                { key: 'add', title: 'Keep them', sub: 'Add the import alongside.' },
+                { key: 'replace', title: 'Replace them', sub: `Clears ${existingCountAll} ${existingCountAll === 1 ? 'item' : 'items'} first: Age Divisions, Groups, Days, Time Blocks and Activities in every Program.` },
               ].map(opt => {
                 const on = importMode === opt.key
                 return (
@@ -2525,19 +2481,17 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
               {importMode === 'replace' && (() => {
                 const recoverableWarnings = [
                   { key: 'slots', count: slotCount, render: () => (
-                      <>Both your <strong>Manual Build</strong> and <strong>Generated Schedule</strong> will
-                      be cleared ({slotCount} {slotCount === 1 ? 'slot' : 'slots'}).</>) },
+                      <><strong>Manual Build</strong> and <strong>Generated Schedule</strong> cleared
+                      ({slotCount} {slotCount === 1 ? 'slot' : 'slots'}).</>) },
                   { key: 'anchors', count: fixedEventCount, render: () => (
-                      <>Your <strong>{fixedEventCount}</strong> Recurring {fixedEventCount === 1 ? 'Event' : 'Events'} will
-                      be cleared. {fixedEventCount === 1 ? 'It is' : 'They are'} recoverable from Trash.</>) },
+                      <><strong>{fixedEventCount}</strong> Recurring {fixedEventCount === 1 ? 'Event' : 'Events'} cleared,
+                      recoverable from Trash.</>) },
                 ].filter((w) => w.count > 0)
 
                 const irreversibleWarnings = [
                   { key: 'snapshots', count: snapshotCount, render: () => (
-                      <>You have <strong>{snapshotCount}</strong> saved schedule {snapshotCount === 1 ? 'version' : 'versions'}.
-                      Unlike the items above, {snapshotCount === 1 ? 'this is' : 'these are'} not Trash-restorable —
-                      {snapshotCount === 1 ? ' it names' : ' they name'} groups and activities that will no longer exist,
-                      so replacing makes {snapshotCount === 1 ? 'it' : 'them'} permanently unrestorable.</>) },
+                      <><strong>{snapshotCount}</strong> saved schedule {snapshotCount === 1 ? 'version' : 'versions'} lost
+                      permanently — not in Trash.</>) },
                 ].filter((w) => w.count > 0)
 
                 if (recoverableWarnings.length === 0 && irreversibleWarnings.length === 0) return null
@@ -2693,7 +2647,7 @@ function ActivityRuleRow({ name, rule, allGroups, onChange, onToggleGroup }) {
             {frequencySummary} · {prioritySummary} · {eligibilitySummary}
           </span>
           {eligibilityUnknown && (
-            <span style={{ color: 'var(--text)' }}>Worth checking — groups unclear</span>
+            <span style={{ color: 'var(--text)' }}>Groups unclear</span>
           )}
         </div>
         {adjustButton}
@@ -2734,10 +2688,7 @@ function ActivityRuleRow({ name, rule, allGroups, onChange, onToggleGroup }) {
         </select>
 
         {eligibilityUnknown ? (
-          <span style={{ color: 'var(--text)' }}>
-            Shoresh couldn’t tell from this file’s layout which groups do which activity, so eligibility
-            is left open. Worth checking.
-          </span>
+          <span style={{ color: 'var(--text)' }}>Groups unclear — left open</span>
         ) : (
           <span style={{ color: textColor }}>{formatEligibility(groupNames, allGroups)}</span>
         )}
@@ -2849,13 +2800,9 @@ function TwoRowSplitSuggestion({ name, decision, preview, onChangeSuffix, onTogg
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <button onClick={onReuse} style={optionStyle}>
               <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>Reuse it</div>
-              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
-                Attach the flexible pattern to the existing "{preview.newName}" activity.
-              </div>
             </button>
             <button onClick={onPickDifferent} style={optionStyle}>
               <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>Pick a different name</div>
-              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>Choose another suffix.</div>
             </button>
             <button onClick={onDecline} style={optionStyle}>
               <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>Cancel</div>
@@ -2885,7 +2832,7 @@ function TwoRowSplitSuggestion({ name, decision, preview, onChangeSuffix, onTogg
         </div>
         {preview.degenerate ? (
           <div style={{ color: 'var(--danger)', fontSize: 11, marginBottom: 6 }}>
-            Add a suffix so the two activities have different names.
+            Names must differ.
           </div>
         ) : (
           <div style={{ color: 'var(--text-secondary)', fontSize: 11, marginBottom: 6 }}>

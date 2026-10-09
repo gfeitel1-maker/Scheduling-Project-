@@ -82,7 +82,7 @@ describe('understood vs. needs-attention', () => {
 
     await waitFor(() => expect(screen.getByText(/0 of 0 question/)).toBeTruthy())
     expect(screen.queryByText(/Use the file's value/)).toBeNull()
-    expect(screen.getByText(/1 rows read cleanly/)).toBeTruthy()
+    expect(screen.getByText(/1 understood, nothing to decide/)).toBeTruthy()
   })
 
   it('a low-confidence field change on an existing row surfaces a card and counts in the spine denominator', async () => {

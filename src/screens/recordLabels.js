@@ -48,6 +48,8 @@ const FIELD_LABEL = {
   priority: 'Priority',
   eligible_tier_ids: 'Eligible age divisions',
   eligible_group_ids: 'Eligible groups',
+  eligible_groups: 'Eligible groups',
+  eligible_tiers: 'Eligible age divisions',
   prefer_before_day: 'Preferred by day',
   prefer_before_day_min: 'Preferred by day, fewest',
   weather_alternative_id: 'Wet-weather alternative',
