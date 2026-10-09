@@ -33,10 +33,14 @@ export function createQuitFlush(steps) {
 
 // An OS session end (Windows log-off/shutdown, macOS shutdown/logout) may give only seconds, and
 // the async will-quit teardown may never finish. So flush synchronously FIRST, then attempt the
-// graceful quit. query-session-end is not vetoed: the director asked the OS to shut down.
-export function wireSessionEndFlush({ app, powerMonitor, win, flush }) {
+// graceful quit. query-session-end is not vetoed: the director asked the OS to shut down. Every
+// BrowserWindow is wired, because any open window (e.g. Licenses) keeps the process alive.
+export function wireSessionEndFlush({ app, powerMonitor, flush }) {
   const flushThenQuit = () => { flush(); app.quit() }
-  win.on('query-session-end', () => flush())
-  win.on('session-end', flushThenQuit)
   powerMonitor.on('shutdown', flushThenQuit)
+  app.on('browser-window-created', (_event, win) => {
+    if (win.isDestroyed()) return
+    win.on('query-session-end', () => flush())
+    win.on('session-end', flushThenQuit)
+  })
 }

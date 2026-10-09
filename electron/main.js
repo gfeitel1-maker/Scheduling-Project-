@@ -3938,6 +3938,7 @@ if (isElectronEntryPoint()) {
   }
 
   app.whenReady().then(() => {
+    wireSessionEndFlush({ app, powerMonitor, flush: quitFlush })
     try {
       installAppMenuAndAboutPanel()
     } catch (err) {
@@ -3947,7 +3948,6 @@ if (isElectronEntryPoint()) {
     }
     try {
       createWindow()
-      wireSessionEndFlush({ app, powerMonitor, win: mainWindow, flush: quitFlush })
     } catch (err) {
       reportStartupFailure(err)
     }
