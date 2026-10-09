@@ -303,7 +303,7 @@ Your best protection is still a second computer joined to the camp — it keeps 
 
 Both computers must be on the **same Wi-Fi**. VPN and phone hotspots won't work.
 
-**On the computer the camp was set up on** (for now, it has to be this one):
+**On the host computer** (the one the camp was set up on, unless you moved hosting — see [Moving hosting to another computer](#moving-hosting-to-another-computer)):
 
 1. Open the **Settings** gear → **LAN & Devices**.
 2. Click **Add a device**.
@@ -326,6 +326,22 @@ Both computers must be on the **same Wi-Fi**. VPN and phone hotspots won't work.
 8. Wait for **Getting your camp…**, then click **Continue**.
 
 If it says **No camp answered that code**, check the code, check **Add a device** is still open, and check both are on the same Wi-Fi.
+
+### Moving hosting to another computer
+
+Only the host computer can add devices. If that computer is being replaced or turned in, hand hosting to another computer that is already joined to the camp. That computer must be a director's (admin) device.
+
+1. Make sure both computers are open, signed in, and on the **same Wi-Fi**.
+2. On the current host, open the **Settings** gear → **LAN & Devices**.
+3. On the other computer's row, click **Hand hosting to <name>**.
+4. On the other computer, read the message and click **Make this the host**. (**Cancel** leaves everything as it was.)
+5. Both apps restart. Wait until the new computer shows the camp code under **Add a device**.
+
+Do not close, turn in, or restore the old computer until the new one shows the camp code. The old computer stays in the camp as an ordinary device and keeps syncing.
+
+If you see **Handoff did not complete**, nothing changed and the old computer is still the host — try again. If the new computer says it **could not finish taking over**, keep both computers open on the same Wi-Fi; it tries again by itself. If it keeps failing, restart the new computer.
+
+**If the old computer is already gone or broken:** export your schedule (section 10), start a new camp on the new computer, and use **Import last year** to bring the file in. Then join your other computers to the new camp.
 
 ---
 
