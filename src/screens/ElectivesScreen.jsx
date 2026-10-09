@@ -234,9 +234,11 @@ export default function ElectivesScreen({ campId, role, onNavigate, weekId, week
             The whole season
           </label>
         </div>
-        <button className="press-97" onClick={downloadCampers} disabled={exporting} style={{ ...S.btnSecondary, marginRight: 8 }}>
-          {exporting ? 'Downloading…' : 'Download campers'}
-        </button>
+        {role === 'admin' && (
+          <button className="press-97" onClick={downloadCampers} disabled={exporting} style={{ ...S.btnSecondary, marginRight: 8 }}>
+            {exporting ? 'Downloading…' : 'Download campers'}
+          </button>
+        )}
         <button
           onClick={() => setConfirmingPurge(true)}
           disabled={role !== 'admin'}

@@ -186,4 +186,11 @@ describe('ElectivesScreen', () => {
     fireEvent.click(await screen.findByText('Download campers'))
     await waitFor(() => expect(screen.queryByText('No camper choices to download.')).not.toBeNull())
   })
+
+  it('hides Download campers from staff, whose preference reads are denied', async () => {
+    localClient.list.mockImplementation(byEntity({ elective_sets: [] }))
+    render(<ElectivesScreen campId={CAMP_ID} role="staff" />)
+    await screen.findByText('No elective sets yet')
+    expect(screen.queryByText('Download campers')).toBeNull()
+  })
 })
