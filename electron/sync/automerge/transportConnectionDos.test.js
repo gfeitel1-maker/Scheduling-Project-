@@ -101,7 +101,7 @@ describe('T340 connection-manager DoS hardening', () => {
 
     const attackers = await flood(target, 12)
     // the attacker side can see 'open' before the target's cap abort propagates; wait for it
-    await waitFor(() => openAttackerConns(target, attackers) <= 5)
+    await waitFor(() => openAttackerConns(target, attackers) <= 5, { timeout: HANDSHAKE_SAFE_DEADLINE_MS / 2 }) // bounded below the deadline, so a deadline-reaped uncapped flood cannot satisfy it
     expect(target.getPeers()).toContain(camp.peerId)
 
     await sleep(HANDSHAKE_SAFE_DEADLINE_MS + 500) // past the deadline: the admitted conn must survive it
