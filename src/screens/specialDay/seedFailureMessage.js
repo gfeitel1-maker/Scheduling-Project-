@@ -7,6 +7,6 @@
 // without react-refresh's only-export-components constraint.
 export function seedFailureMessage(seededCount, totalCount) {
   return seededCount > 0
-    ? `Only seeded ${seededCount} of ${totalCount} time blocks before hitting an error — the rest were not added.`
-    : 'Could not seed time blocks.'
+    ? `Added ${seededCount} of ${totalCount} blocks.`
+    : "Couldn't add blocks."
 }

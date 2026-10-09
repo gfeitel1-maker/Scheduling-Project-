@@ -172,6 +172,7 @@ describe('EventGridEditor — column axis (event_groups), new capability', () =>
     fireEvent.click(screen.getAllByTitle('Remove group')[0])
 
     expect(confirmSpy).toHaveBeenCalledTimes(1)
+    expect(confirmSpy).toHaveBeenCalledWith('Remove group and its 1 cell?')
     expect(localClient.deleteEntity).not.toHaveBeenCalled()
     confirmSpy.mockRestore()
   })
@@ -305,7 +306,7 @@ describe('EventGridEditor — Clear schedule control (Tester MEDIUM / Open Quest
     })
     expect(localClient.deleteEntity.mock.calls.some(([, entity]) => entity === 'events')).toBe(false)
 
-    await waitFor(() => expect(screen.getAllByText(/Add your first block/).length).toBeGreaterThan(0))
+    await waitFor(() => expect(screen.getAllByText('+ Add Block')).toHaveLength(2))
     confirmSpy.mockRestore()
   })
 
@@ -466,9 +467,9 @@ describe('EventGridEditor — grid-schedule import affordance (docs/adr/2026-08-
 })
 
 describe('EventGridEditor — back control', () => {
-  it('renders the corrected "← Back to Special Schedules" label (returns to the picker list)', async () => {
+  it('renders the corrected "← Special Schedules" label (returns to the picker list)', async () => {
     baseFixtures({})
     render(<EventGridEditor campId={CAMP_ID} eventId={EVT_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
-    await waitFor(() => expect(screen.getAllByText('← Back to Special Schedules')[0]).toBeTruthy())
+    await waitFor(() => expect(screen.getAllByText('← Special Schedules')[0]).toBeTruthy())
   })
 })

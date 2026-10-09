@@ -25,14 +25,12 @@ import SpecialDayCell from './SpecialDayCell'
 import '../../components/schedule/scheduleGrid.css'
 
 const LABELS = {
-  backLink: '← Back to Special Schedules',
+  backLink: '← Special Schedules',
   addBlock: '+ Add Block',
   notesLabel: 'Notes',
   printAction: 'Print',
   locationPlaceholder: '— No location —',
   locationAddHint: '+ location',
-  emptyBlocksTitle: 'No time blocks yet.',
-  emptyBlocksBody: "Add your first block, or go back and seed from your camp's regular time blocks.",
   deletedElsewhere: 'This special day was deleted.',
 }
 
@@ -112,7 +110,7 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
           .sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? '')))
       )
     } catch {
-      setError("Couldn't load your camp setup — check your connection and refresh.")
+      setError("Couldn't load camp setup.")
     } finally {
       setLoading(false)
     }
@@ -221,8 +219,8 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
   }
 
   async function removeBlock(blockId) {
-    const hasFilled = slots.some((s) => s.time_block_id === blockId && s.activity_id)
-    if (hasFilled && !window.confirm('This block has filled cells. Remove it anyway?')) return
+    const filled = slots.filter((s) => s.time_block_id === blockId && s.activity_id).length
+    if (filled > 0 && !window.confirm(`Remove block and its ${filled} cell${filled === 1 ? '' : 's'}?`)) return
     try {
       const token = localStorage.getItem('shoresh-token')
       const blockSlots = slots.filter((s) => s.time_block_id === blockId)
@@ -336,14 +334,12 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
 
       {timeBlocks.length === 0 ? (
         <div style={S.emptyState}>
-          <div style={S.emptyStateTitle}>{LABELS.emptyBlocksTitle}</div>
-          <div style={S.emptyStateBody}>{LABELS.emptyBlocksBody}</div>
-          <button className="press-97" onClick={addBlock} style={{ ...S.btnPrimary, marginTop: 12 }}>{LABELS.addBlock}</button>
+          <button className="press-97" onClick={addBlock} style={S.btnPrimary}>{LABELS.addBlock}</button>
         </div>
       ) : groups.length === 0 ? (
         <div style={S.emptyState}>
           <div style={S.emptyStateTitle}>No groups yet.</div>
-          <div style={S.emptyStateBody}>Add groups in Camp Set Up before building this special day's grid.</div>
+          <div style={S.emptyStateBody}>Add groups first.</div>
         </div>
       ) : (
         <div style={{ overflowX: 'auto' }}>
@@ -418,7 +414,7 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
           value={notesDraft}
           onChange={(e) => setNotesDraft(e.target.value)}
           onBlur={(e) => commitNotes(e.target.value)}
-          placeholder="Team rosters, station staffing, points, trip times…"
+          placeholder="Notes"
           style={{
             width: '100%', minHeight: 140, resize: 'vertical', fontFamily: 'var(--font-sans)',
             fontSize: 13, padding: '10px 12px', border: '1px solid var(--border)',

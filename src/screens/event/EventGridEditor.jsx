@@ -32,18 +32,16 @@ import EventCell from './EventCell'
 import '../../components/schedule/scheduleGrid.css'
 
 const LABELS = {
-  backLink: '← Back to Special Schedules',
+  backLink: '← Special Schedules',
   addBlock: '+ Add Block',
   addGroup: '+ Add Group',
   clearSchedule: 'Clear schedule',
   clearScheduleConfirm: "Clear this event's whole schedule? This can't be undone.",
   notesLabel: 'Notes',
   printAction: 'Print',
-  emptyBlocksTitle: 'No time blocks yet.',
-  emptyBlocksBody: 'Add your first block and group to start building this schedule.',
   deletedElsewhere: 'This event was deleted.',
   importAction: 'or import this event’s schedule from a file',
-  noGridFound: 'No schedule could be read out of that. It may be a scan rather than a document with text in it.',
+  noGridFound: "Couldn't read that file.",
 }
 
 async function writeField(entity, id, field, value) {
@@ -156,7 +154,7 @@ export default function EventGridEditor({ campId, eventId, onBack, onDeletedElse
           }
           blocksForEvent = seededBlocks
         } catch (err) {
-          setError(describeWriteFailure(err, 'Could not seed this schedule from your camp setup.'))
+          setError(describeWriteFailure(err, "Couldn't copy camp setup."))
         }
       }
       if (groupsForEvent.length === 0 && !seededEventIdsRef.current.has(`${eventId}:groups`)) {
@@ -173,7 +171,7 @@ export default function EventGridEditor({ campId, eventId, onBack, onDeletedElse
           }
           groupsForEvent = seededGroups
         } catch (err) {
-          setError(describeWriteFailure(err, 'Could not seed this schedule from your camp setup.'))
+          setError(describeWriteFailure(err, "Couldn't copy camp setup."))
         }
       }
 
@@ -187,7 +185,7 @@ export default function EventGridEditor({ campId, eventId, onBack, onDeletedElse
           .sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? '')))
       )
     } catch {
-      setError("Couldn't load your camp setup — check your connection and refresh.")
+      setError("Couldn't load camp setup.")
     } finally {
       setLoading(false)
     }
@@ -262,8 +260,8 @@ export default function EventGridEditor({ campId, eventId, onBack, onDeletedElse
   }
 
   async function removeBlock(blockId) {
-    const hasFilled = slots.some((s) => s.time_block_id === blockId && s.activity_id)
-    if (hasFilled && !window.confirm('This block has filled cells. Remove it anyway?')) return
+    const filled = slots.filter((s) => s.time_block_id === blockId && s.activity_id).length
+    if (filled > 0 && !window.confirm(`Remove block and its ${filled} cell${filled === 1 ? '' : 's'}?`)) return
     try {
       const token = localStorage.getItem('shoresh-token')
       const blockSlots = slots.filter((s) => s.time_block_id === blockId)
@@ -322,8 +320,8 @@ export default function EventGridEditor({ campId, eventId, onBack, onDeletedElse
   }
 
   async function removeEventGroup(groupId) {
-    const hasFilled = slots.some((s) => s.event_group_id === groupId && s.activity_id)
-    if (hasFilled && !window.confirm('This group has filled cells. Remove it anyway?')) return
+    const filled = slots.filter((s) => s.event_group_id === groupId && s.activity_id).length
+    if (filled > 0 && !window.confirm(`Remove group and its ${filled} cell${filled === 1 ? '' : 's'}?`)) return
     try {
       const token = localStorage.getItem('shoresh-token')
       const groupSlots = slots.filter((s) => s.event_group_id === groupId)
@@ -521,9 +519,7 @@ export default function EventGridEditor({ campId, eventId, onBack, onDeletedElse
 
       {timeBlocks.length === 0 || eventGroups.length === 0 ? (
         <div style={S.emptyState}>
-          <div style={S.emptyStateTitle}>{LABELS.emptyBlocksTitle}</div>
-          <div style={S.emptyStateBody}>{LABELS.emptyBlocksBody}</div>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 12 }}>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
             <button className="press-97" onClick={addBlock} style={S.btnPrimary}>{LABELS.addBlock}</button>
             <button className="press-97" onClick={addEventGroup} style={S.btnPrimary}>{LABELS.addGroup}</button>
             <button className="press-97" onClick={() => fileInputRef.current?.click()} disabled={importing} style={S.btnSecondary}>
@@ -633,7 +629,6 @@ function BlockName({ block, onRename }) {
     <span
       className="block-name"
       onClick={startEditing}
-      title="Click to rename"
       style={{ cursor: 'text', flex: 1, borderBottom: '1px dotted var(--border)' }}
     >
       {block.name}
@@ -668,7 +663,6 @@ function EventGroupName({ group, onRename }) {
     <span
       className="block-name"
       onClick={startEditing}
-      title="Click to rename"
       style={{ cursor: 'text', flex: 1, borderBottom: '1px dotted var(--border)' }}
     >
       {group.name}
