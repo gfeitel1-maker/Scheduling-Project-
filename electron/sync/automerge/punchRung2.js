@@ -9,7 +9,8 @@ import { EVENTS } from './connectivityEvents.js'
 // No third party: this module never touches the rendezvous (rung 3) - the coordinator escalates
 // to it only after this returns { ok: false }.
 //
-// readEntries() => Map<deviceId, entry> is punchGossip.readReflexive over the live document
+// highWater is REQUIRED (punchGossip.createHighWaterStore, persisted): without it the rollback
+// check is silently absent, so the attempt refuses to run. readEntries(highWater) => Map<deviceId, entry> is punchGossip.readReflexive over the live document
 // (signature, registry, revocation, TTL, size, public-address and rollback checks already enforced;
 // its `.skewed` map names verified entries refused only for clock skew).
 // signaling is createPunchSignaling; bindChannel(channel) hands the punch transport the
@@ -17,10 +18,11 @@ import { EVENTS } from './connectivityEvents.js'
 // authenticated punch-signal stream - there is no path that dials without it. dial(multiaddrString)
 // is the libp2p dial; emit(name, fields) is the connectivity emitter.
 // Resolves { ok: true, candidate } or { ok: false, reason }; never throws.
-export async function attemptRung2({ peerDeviceId, readEntries, signaling, bindChannel, dial, emit = () => {} }) {
+export async function attemptRung2({ peerDeviceId, readEntries, signaling, bindChannel, dial, highWater, emit = () => {} }) {
+  if (!highWater || typeof highWater.get !== 'function' || typeof highWater.set !== 'function') return { ok: false, reason: 'no-high-water-store' }
   let entries
   try {
-    entries = readEntries()
+    entries = readEntries(highWater)
   } catch {
     return { ok: false, reason: 'gossip-unreadable' }
   }

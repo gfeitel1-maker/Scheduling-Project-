@@ -17,6 +17,7 @@
 // and anything over the size bounds - before decrypting an oversize value, and before trusting a
 // decrypted one.
 import crypto from 'node:crypto'
+import fs from 'node:fs'
 import net from 'node:net'
 import * as A from '@automerge/automerge'
 import { recordKey, readRecord } from '../../automerge/campDocument.js'
@@ -46,34 +47,70 @@ function canonicalMessage({ deviceId, peerId, ts, candidates }) {
 }
 
 // Public unicast only: a gossip candidate is dialled by every camp peer, so a private, loopback,
-// link-local, CGNAT, multicast, unspecified or IPv4-mapped address would aim the dial at the
-// reader's own network (a hostile-but-valid peer's SSRF-style probe).
+// link-local, CGNAT, multicast, unspecified, documentation/benchmark, IPv4-mapped or IPv4-embedding
+// (NAT64, 6to4) address would aim the dial at the reader's own network (a hostile-but-valid peer's
+// SSRF-style probe).
+function v4Public(a, b, c) {
+  if (a === 0 || a === 10 || a === 127 || a >= 224) return false
+  if (a === 100 && b >= 64 && b <= 127) return false
+  if (a === 169 && b === 254) return false
+  if (a === 172 && b >= 16 && b <= 31) return false
+  if (a === 192 && b === 168) return false
+  if (a === 192 && b === 0 && c === 2) return false
+  if (a === 198 && b === 51 && c === 100) return false
+  if (a === 203 && b === 0 && c === 113) return false
+  if (a === 198 && (b === 18 || b === 19)) return false
+  return true
+}
+
+// Eight 16-bit groups of an IPv6 literal (net.isIPv6 already vetted it), or null.
+function parseIPv6Groups(ip) {
+  let s = ip
+  if (s.includes('%')) return null
+  let tail = null
+  if (s.includes('.')) {
+    const i = s.lastIndexOf(':')
+    const v4 = s.slice(i + 1)
+    if (!net.isIPv4(v4)) return null
+    const o = v4.split('.').map(Number)
+    tail = [(o[0] << 8) | o[1], (o[2] << 8) | o[3]]
+    s = `${s.slice(0, i + 1)}0:0`
+  }
+  const halves = s.split('::')
+  if (halves.length > 2) return null
+  const parse = (h) => (h === '' ? [] : h.split(':').map((g) => parseInt(g, 16)))
+  const head = parse(halves[0])
+  let groups = head
+  if (halves.length === 2) {
+    const rest = parse(halves[1])
+    const fill = 8 - head.length - rest.length
+    if (fill < 1) return null
+    groups = [...head, ...new Array(fill).fill(0), ...rest]
+  }
+  if (groups.length !== 8 || groups.some((g) => !Number.isInteger(g) || g < 0 || g > 0xffff)) return null
+  if (tail) groups.splice(6, 2, ...tail)
+  return groups
+}
+
 export function isPublicAddress(version, ip) {
   if (version === 'ip4') {
     if (net.isIPv4(ip) === false) return false
-    const [a, b] = ip.split('.').map(Number)
-    if (a === 0 || a === 10 || a === 127 || a >= 224) return false
-    if (a === 100 && b >= 64 && b <= 127) return false
-    if (a === 169 && b === 254) return false
-    if (a === 172 && b >= 16 && b <= 31) return false
-    if (a === 192 && b === 168) return false
-    return true
+    const [a, b, c] = ip.split('.').map(Number)
+    return v4Public(a, b, c)
   }
   if (!net.isIPv6(ip)) return false
-  let host
-  try {
-    host = new URL(`http://[${ip}]`).hostname.slice(1, -1)
-  } catch {
-    return false
-  }
-  const groups = host.split(':')
-  if (host.startsWith('::ffff:')) return false
-  const first = parseInt(groups[0] || '0', 16)
-  if (host.startsWith('::')) {
-    const rest = groups.filter(Boolean)
-    if (rest.length <= 2) return false
-  }
-  if ((first & 0xffc0) === 0xfe80 || (first & 0xfe00) === 0xfc00 || (first & 0xff00) === 0xff00) return false
+  const g = parseIPv6Groups(ip)
+  if (!g) return false
+  const [g0, g1, g2, g3, g4, g5] = g
+  // ::, ::1, IPv4-compatible and IPv4-mapped (::ffff:a.b.c.d)
+  if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0 && (g5 === 0xffff || g5 === 0)) return false
+  // NAT64 64:ff9b::/96 and 64:ff9b:1::/48
+  if (g0 === 0x64 && g1 === 0xff9b && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0) return false
+  if (g0 === 0x64 && g1 === 0xff9b && g2 === 1) return false
+  // 6to4 2002::/16: rejected outright - the embedded IPv4 is sender-chosen and the prefix has no
+  // legitimate use as a camp peer's reflexive address.
+  if (g0 === 0x2002) return false
+  if ((g0 & 0xffc0) === 0xfe80 || (g0 & 0xfe00) === 0xfc00 || (g0 & 0xff00) === 0xff00) return false
   return true
 }
 
@@ -157,17 +194,50 @@ export function publishReflexive(doc, db, { campId, deviceId, peerId, candidates
   })
 }
 
+const HIGH_WATER_MAX = 256
+
+/**
+ * The reader's persisted memory of the newest verified ts per device (rollback check). Bounded at
+ * `max` devices (oldest-inserted evicted); with a filePath it is rewritten on every raise so a
+ * restart cannot re-accept a rolled-back entry. A missing or corrupt file starts empty.
+ */
+export function createHighWaterStore({ filePath, max = HIGH_WATER_MAX } = {}) {
+  const m = new Map()
+  if (filePath) {
+    try {
+      for (const [k, v] of JSON.parse(fs.readFileSync(filePath, 'utf8'))) if (typeof k === 'string' && Number.isFinite(v)) m.set(k, v)
+    } catch { /* first run or unreadable: start empty */ }
+  }
+  return {
+    get: (k) => m.get(k),
+    set(k, v) {
+      m.delete(k)
+      m.set(k, v)
+      while (m.size > max) m.delete(m.keys().next().value)
+      if (filePath) {
+        try {
+          fs.writeFileSync(`${filePath}.tmp`, JSON.stringify([...m]))
+          fs.renameSync(`${filePath}.tmp`, filePath)
+        } catch { /* best-effort; the in-memory mark still holds */ }
+      }
+    },
+  }
+}
+
 /**
  * Map<deviceId, {deviceId, peerId, candidates, ts}> of every entry that passed every check. The
  * returned map carries `.skewed`: Map<deviceId, skewMs> of correctly signed entries refused only
  * because they are dated beyond the future-skew bound - the sender's clock disagrees with ours, and
  * the caller must surface that rather than treat it as "no entry".
  *
- * highWater (optional Map<deviceId, ts>) is the reader's memory of the newest verified ts per
- * device: an entry older than it is a rolled-back document value and is refused.
+ * highWater (REQUIRED; a Map or createHighWaterStore) is the reader's memory of the newest verified
+ * ts per device: an entry older than it is a rolled-back document value and is refused.
  * allowPrivateCandidates is for loopback test fixtures only.
  */
 export function readReflexive(doc, { campId, registry, now = Date.now, highWater, allowPrivateCandidates = false }) {
+  if (!highWater || typeof highWater.get !== 'function' || typeof highWater.set !== 'function') {
+    throw new Error('punchGossip: readReflexive requires a highWater store (rollback protection is not optional)')
+  }
   const out = new Map()
   out.skewed = new Map()
   const addressKey = readRendezvousAddressKey(doc, campId)
@@ -191,10 +261,9 @@ export function readReflexive(doc, { campId, registry, now = Date.now, highWater
       continue
     }
     if (at - entry.ts > GOSSIP_TTL_MS) continue
-    if (highWater) {
-      if (entry.ts < (highWater.get(deviceId) ?? -Infinity)) continue
-      highWater.set(deviceId, entry.ts)
-    }
+    const mark = highWater.get(deviceId) ?? -Infinity
+    if (entry.ts < mark) continue
+    if (entry.ts > mark) highWater.set(deviceId, entry.ts)
     out.set(deviceId, { deviceId, peerId: boundPeerId, candidates: entry.candidates, ts: entry.ts })
   }
   return out

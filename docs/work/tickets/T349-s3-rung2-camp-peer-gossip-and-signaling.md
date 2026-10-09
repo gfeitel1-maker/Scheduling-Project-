@@ -76,7 +76,7 @@ Replay memory is keyed on `(from, id)`, lives until `ts + MAX_SKEW_MS`, is bound
 across restart through a JSON file store (`createReplayStore({filePath})`, no SQLite schema change;
 the caller picks the path at wiring). Relay forwards time out (`forwardTimeoutMs`, the onward dial is
 aborted) and are rate-limited per ORIGIN (`originRateMax`) as well as per peer. Gossip readers take a
-`highWater` map and refuse an entry older than the newest verified ts per device. Gossip candidates
+`highWater` store (required, see Scoped fix round) and refuse an entry older than the newest verified ts per device. Gossip candidates
 must be public unicast `ip4`/`ip6` udp with a non-zero port (private, loopback, link-local, CGNAT,
 multicast, unspecified and IPv4-mapped refused at publish AND read; `allowPrivateCandidates` is a
 loopback-fixture switch only). Clock skew is surfaced: a verified future-dated gossip entry gives
@@ -84,8 +84,19 @@ loopback-fixture switch only). Clock skew is surfaced: a verified future-dated g
 future-dated signal emits the same event instead of vanishing. Each behavior has a test that was
 shown red with the defect planted.
 
-Still not built: the `highWater` map and `emit` are parameters, wired by the follow-up; the replay
-store path is chosen there too.
+Still not built: `emit` and the `highWater` / replay store file paths are wired by the follow-up.
+
+## Scoped fix round (keeper-ruled)
+
+- `isPublicAddress` parses IPv6 numerically (eight 16-bit groups; no URL parsing). Added refusals:
+  NAT64 `64:ff9b::/96` and `64:ff9b:1::/48`; 6to4 `2002::/16` rejected outright (not by embedded
+  IPv4: the prefix has no legitimate use for a camp peer); test-nets `192.0.2.0/24`,
+  `198.51.100.0/24`, `203.0.113.0/24`; benchmarking `198.18.0.0/15`. Test fixtures that used
+  test-net addresses as "public" now use real public ranges.
+- `highWater` persists via `createHighWaterStore({filePath})` (bounded JSON file, same mechanism as
+  the replay store, no schema change) and is REQUIRED: `readReflexive` throws without one,
+  `attemptRung2` returns `no-high-water-store` without reading or dialling.
+- Filed, NOT fixed: rate-limit-before-replay-check budget ordering (low).
 
 ## Flake write-up
 
