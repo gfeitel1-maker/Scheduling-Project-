@@ -30,7 +30,7 @@ import { LocationPicker } from '../components/LocationPicker'
 import { CapacityStepper } from '../components/CapacityStepper'
 import { resolveLocationCandidateId } from '../../electron/ops/locationId.js'
 import { CONFIDENCE_COPY, plainEvidenceSentence } from '../components/reconciliation/reconciliationCards.jsx'
-import { deriveActivityProvenance, hasAnyEvidence, worstTier, TIER_LABEL, TIER_DOT_COLOR, tierShapeStyle } from '../utils/ruleProvenance.js'
+import { deriveActivityProvenance, hasAnyEvidence, worstTier, TIER_LABEL, needsLook, NEEDS_LOOK_DOT_STYLE } from '../utils/ruleProvenance.js'
 import { DOW, parseIdList, makeSerializeFieldValue } from './setup/setupHelpers'
 import { createLocationRecord, updateLocationCapacityRecord } from '../lib/locationDedup'
 import { useLatestTimeout } from '../hooks/useLatestTimeout'
@@ -62,7 +62,7 @@ function normalizeActivity(row) {
 // (min/max-per-week, eligible groups, location). Renders nothing when the
 // activity has no import_evidence at all — hand-created activities stay
 // quiet, per the ADR's "not framed as what Shoresh learned".
-// TIER_LABEL, TIER_DOT_COLOR, and tierShapeStyle moved to
+// TIER_LABEL and the needs-a-look dot style moved to
 // ../utils/ruleProvenance.js (T119) — Locations' capacity provenance dot
 // shares the same tier vocabulary now.
 
@@ -106,7 +106,7 @@ function ProvenancePopoverRow({ row, onConfirm, onChange }) {
   return (
     <div style={dotStyles.row}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ ...dotStyles.rowDot, ...tierShapeStyle(row.tier) }} />
+        {needsLook(row.tier) && <span style={{ ...dotStyles.rowDot, ...NEEDS_LOOK_DOT_STYLE }} />}
         <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{row.label}</span>
         <span style={dotStyles.tierLabel}>{TIER_LABEL[row.tier]}</span>
       </div>
@@ -209,6 +209,9 @@ function RuleProvenanceDot({ activity, evidenceByField, fieldSources, onConfirmF
 
   const rows = deriveActivityProvenance(fieldSources, evidenceByField)
   const worst = worstTier(rows.map(r => r.tier))
+  // Kept mounted while open so confirming the last inferred field does not
+  // yank the popover out from under the director.
+  if (!open && !needsLook(worst)) return null
   const needsReview = rows.filter(r => r.tier !== 'confirmed').length
   // Denominator DERIVED from rows, never a literal: it was hardcoded to 3 and
   // silently went wrong the moment RULE_FIELDS gained its 4th entry (T114
@@ -218,7 +221,7 @@ function RuleProvenanceDot({ activity, evidenceByField, fieldSources, onConfirmF
   const ariaLabel = needsReview > 0
     ? `Provenance: ${worst}, ${needsReview} of ${rows.length} fields need review`
     : 'Provenance: all confirmed'
-  const shape = tierShapeStyle(worst)
+  const shape = NEEDS_LOOK_DOT_STYLE
 
   return (
     <span style={{ position: 'relative', display: 'inline-block', marginLeft: 6 }} onClick={e => e.stopPropagation()}>

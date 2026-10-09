@@ -186,7 +186,7 @@ function CapacityAdvisoryStrip({ items, locations, onAccept, busyId }) {
 
 // T119 (redirect) — mirrors ActivitiesScreen's RuleProvenanceDot/
 // ProvenancePopover pattern instead of a bare tooltip dot, reusing the same
-// shared tier vocabulary (TIER_LABEL/tierShapeStyle, ../utils/ruleProvenance.js)
+// shared tier vocabulary (TIER_LABEL/NEEDS_LOOK_DOT_STYLE, ../utils/ruleProvenance.js)
 // so "Confirmed"/"Observed"/"Inferred" mean the same thing on both screens.
 // Kept as its own small component here rather than sharing
 // RuleProvenanceDot/ProvenancePopover directly: those are built around N

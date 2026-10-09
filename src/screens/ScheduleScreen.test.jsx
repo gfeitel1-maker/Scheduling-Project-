@@ -348,6 +348,16 @@ describe('DB-shaped slots (integers, as list() actually returns) drive the span/
     await waitFor(() => expect(screen.getByText('Placed')).toBeTruthy())
     expect(screen.getByText('Placed').parentElement.textContent).toContain('1 of 1')
   })
+
+  it('Placed is neutral: progress, not a problem, so it carries no status colour (owner 2026-10-09)', async () => {
+    mockList()
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Placed')).toBeTruthy())
+    const badge = screen.getByText('Placed').closest('button')
+    expect(badge.innerHTML).not.toContain('--success')
+    expect(badge.firstElementChild.style.color).toBe('var(--text)')
+    expect(badge.style.border).toContain('var(--border)')
+  })
 })
 
 // Round 2 B2: loadAll() previously never called buildSchedule() or otherwise

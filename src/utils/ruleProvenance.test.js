@@ -5,8 +5,8 @@ import {
   worstTier,
   deriveActivityProvenance,
   TIER_LABEL,
-  TIER_DOT_COLOR,
-  tierShapeStyle,
+  needsLook,
+  NEEDS_LOOK_DOT_STYLE,
   tierForCapacitySource,
 } from './ruleProvenance.js'
 
@@ -91,29 +91,20 @@ describe('deriveActivityProvenance', () => {
 // T119 (locations capacity provenance, mirroring Activities' pattern) — the
 // tier vocabulary is shared across both screens so the color/shape/label
 // meaning of "confirmed"/"observed"/"inferred" can never drift between them.
-describe('shared tier vocabulary (TIER_LABEL, TIER_DOT_COLOR, tierShapeStyle)', () => {
+describe('shared tier vocabulary (TIER_LABEL, needsLook, NEEDS_LOOK_DOT_STYLE)', () => {
   it('has a label for every tier', () => {
     expect(TIER_LABEL).toEqual({ confirmed: 'Confirmed', observed: 'Observed', inferred: 'Inferred' })
   })
 
-  it('has a dot color for every tier', () => {
-    expect(Object.keys(TIER_DOT_COLOR).sort()).toEqual(['confirmed', 'inferred', 'observed'])
+  // Owner ruling 2026-10-09 (K5): two visible states, not three.
+  it('marks only an inferred field; confirmed and observed are unmarked', () => {
+    expect(needsLook('inferred')).toBe(true)
+    expect(needsLook('observed')).toBe(false)
+    expect(needsLook('confirmed')).toBe(false)
   })
 
-  it('gives confirmed a plain filled dot', () => {
-    expect(tierShapeStyle('confirmed')).toEqual({ background: TIER_DOT_COLOR.confirmed, border: 'none', boxShadow: 'none' })
-  })
-
-  it('gives observed a ring (no fill) so it is distinguishable by shape, not just hue', () => {
-    const style = tierShapeStyle('observed')
-    expect(style.background).toBe('transparent')
-    expect(style.border).toContain(TIER_DOT_COLOR.observed)
-  })
-
-  it('gives inferred a filled dot with a surface gap ring', () => {
-    const style = tierShapeStyle('inferred')
-    expect(style.background).toBe(TIER_DOT_COLOR.inferred)
-    expect(style.boxShadow).toContain(TIER_DOT_COLOR.inferred)
+  it('the one mark is a plain bronze dot', () => {
+    expect(NEEDS_LOOK_DOT_STYLE).toEqual({ background: 'var(--accent)', border: 'none', boxShadow: 'none' })
   })
 })
 
