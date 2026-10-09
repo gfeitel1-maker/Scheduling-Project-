@@ -267,6 +267,37 @@ describe('host handoff: restart recovery', () => {
   })
 })
 
+describe('host handoff: the successor cannot finish activating', () => {
+  it('a failing commit-time write keeps S in stored with its pending key, says why on both sides, and a later retry activates', async () => {
+    const keyMsg = await toKey()
+    const stored = await send(h, s, keyMsg)
+    const commit = await send(s, h, stored.reply)
+    expect(commit.reply.type).toBe('COMMIT') // H has committed: S now holds the only copy
+    s.db.exec("CREATE TRIGGER fail_alias BEFORE INSERT ON source_aliases BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END")
+
+    const result = await send(h, s, commit.reply)
+    expect(result).toMatchObject({ ok: false, reason: 'activation_failed' })
+    expect(isHostDevice(s.db)).toBe(false)
+    expect(row(s).state).toBe('stored')
+    expect(pendingKey(s)).toBeDefined()
+    expect(s.svc.status().lastResult).toMatchObject({ ok: false, reason: 'activation_failed', peerDeviceId: h.deviceId })
+    expect(s.svc.status().lastResult.detail).toContain('disk I/O error')
+
+    // The refusal reaches H as an ERROR; H keeps its committed row (it must keep re-sending COMMIT)
+    // and reports the failure on its control.
+    await send(s, h, { type: 'ERROR', handoff_id: commit.reply.handoff_id, reason: 'activation_failed' })
+    expect(row(h).state).toBe('committed')
+    expect(h.svc.status().lastResult).toMatchObject({ ok: false, reason: 'activation_failed', peerDeviceId: s.deviceId })
+
+    s.db.exec('DROP TRIGGER fail_alias')
+    const retry = await send(h, s, h.svc.contactMessage(s.deviceId))
+    expect(retry.reply.type).toBe('DONE')
+    expect(isHostDevice(s.db)).toBe(true)
+    expect(liveKeys()).toBe(1)
+    expect(s.svc.status().lastResult).toBeNull()
+  })
+})
+
 describe('host handoff: relaunch seam', () => {
   it('reports relaunch on the result and calls the injected relaunch only from afterReplyFlushed', async () => {
     const keyMsg = await toKey()

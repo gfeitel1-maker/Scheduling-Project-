@@ -154,6 +154,9 @@ export function createHostHandoff({ db, deviceId, getDeviceIdentity, now = Date.
     if (row.role === 'giver' && GIVER_PRE_DECISION.has(row.state)) {
       fail(row, reason)
       clearRow()
+    } else if (row.role === 'giver' && row.state === 'committed') {
+      // Past the decision point: keep the row so COMMIT is re-sent on the next contact; only report.
+      fail(row, reason)
     } else if (row.role === 'taker' && (row.state === 'offered' || row.state === 'accepted')) {
       ephemerals.delete(handoffId)
       clearRow()
@@ -325,13 +328,25 @@ export function createHostHandoff({ db, deviceId, getDeviceIdentity, now = Date.
     if (db.prepare('SELECT 1 FROM host_signing_key').get() || pending.public_key !== camp.signing_public_key) {
       return deny('two_keys', peerDeviceId, msg.handoff_id)
     }
-    db.transaction(() => {
-      db.prepare('INSERT INTO host_signing_key (id, public_key, private_key, created_at) VALUES (1, ?, ?, ?)')
-        .run(pending.public_key, pending.private_key, pending.created_at)
-      replaceTables(camp.id, JSON.parse(pending.host_only_rows))
-      db.prepare('DELETE FROM host_signing_key_pending').run()
-      setState('done')
-    })()
+    // The giver has already committed, so the pending key is the camp's only copy. If this write
+    // fails the transaction rolls back whole: S stays `stored` with the pending key, says why, and
+    // activates on the giver's next COMMIT (re-sent on every contact, and answered to every STATUS).
+    try {
+      db.transaction(() => {
+        db.prepare('INSERT INTO host_signing_key (id, public_key, private_key, created_at) VALUES (1, ?, ?, ?)')
+          .run(pending.public_key, pending.private_key, pending.created_at)
+        replaceTables(camp.id, JSON.parse(pending.host_only_rows))
+        db.prepare('DELETE FROM host_signing_key_pending').run()
+        setState('done')
+      })()
+    } catch (err) {
+      lastResult = {
+        ok: false, reason: 'activation_failed', detail: String(err?.message ?? err),
+        peerDeviceId, handoffId: msg.handoff_id, at: iso(),
+      }
+      return deny('activation_failed', peerDeviceId, msg.handoff_id)
+    }
+    lastResult = null
     allow('host.handoff.activated', peerDeviceId, msg.handoff_id)
     return { ok: true, reply: { type: 'DONE', handoff_id: msg.handoff_id }, relaunch: true }
   }

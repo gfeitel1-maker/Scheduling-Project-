@@ -19,6 +19,7 @@ export default function HostHandoffConfirm() {
   const selfInline = status.selfName || 'this computer'
   const peerName = status.peerName || 'the other computer'
   const waiting = handoff.state === 'accepted' || handoff.state === 'stored'
+  const activationFailed = handoff.state === 'stored' && status.lastResult?.ok === false && status.lastResult.reason === 'activation_failed'
 
   async function accept() {
     setBusy(true)
@@ -43,7 +44,11 @@ export default function HostHandoffConfirm() {
     <div style={{ ...S.overlay, ...enterStyle }}>
       <div style={styles.panel} role="dialog" aria-modal="true" aria-label="Move hosting to this computer">
         <div style={styles.title}>{`${selfName} becomes the host for ${status.campName || 'this camp'}`}</div>
-        {waiting ? (
+        {waiting && activationFailed ? (
+          <div role="status" style={styles.body}>
+            {`This computer could not finish taking over (${status.lastResult.detail || 'the change could not be saved'}). The hosting key is kept on this computer and it tries again on its own. Keep both computers open and on this network; if it keeps failing, restart this computer.`}
+          </div>
+        ) : waiting ? (
           <div role="status" style={styles.body}>
             {`Waiting for ${peerName} to finish. Keep both computers open and on this network; this computer restarts when it is done.`}
           </div>

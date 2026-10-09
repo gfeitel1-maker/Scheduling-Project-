@@ -67,6 +67,20 @@ describe('HostHandoffControl', () => {
     expect(screen.queryByRole('status')).toBeNull()
   })
 
+  it('after this computer committed, a successor that could not activate is reported on the control, even though this computer is no longer the host', () => {
+    const status = {
+      isHost: false, eligibleDeviceIds: [],
+      handoff: { role: 'giver', peerDeviceId: 'dev-s', state: 'committed' },
+      lastResult: { ok: false, reason: 'activation_failed', peerDeviceId: 'dev-s' },
+    }
+    render(<HostHandoffControl device={device} status={status} onStart={vi.fn()} />)
+    const text = screen.getByRole('status').textContent
+    expect(text).toContain('Office iMac received hosting but could not finish setting it up')
+    expect(text).toContain('Keep both computers open')
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByRole('button')).toBeNull()
+  })
+
   it('is never an alert banner and never a disabled placeholder', () => {
     render(<HostHandoffControl device={device} status={{ ...idle, lastResult: { ok: false, reason: 'x', peerDeviceId: 'dev-s' } }} onStart={vi.fn()} />)
     expect(screen.queryByRole('alert')).toBeNull()

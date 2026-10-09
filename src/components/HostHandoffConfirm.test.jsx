@@ -82,6 +82,20 @@ describe('HostHandoffConfirm', () => {
     expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull()
   })
 
+  it('in stored, a failed activation says why and that the key is kept, inline, with no choice to throw it away', async () => {
+    localClient.handoffStatus.mockResolvedValue({
+      ...offered,
+      handoff: { role: 'taker', peerDeviceId: 'dev-h', state: 'stored' },
+      lastResult: { ok: false, reason: 'activation_failed', detail: 'disk I/O error', peerDeviceId: 'dev-h' },
+    })
+    render(<HostHandoffConfirm />)
+    const text = (await screen.findByRole('status')).textContent
+    expect(text).toContain('could not finish taking over (disk I/O error)')
+    expect(text).toContain('hosting key is kept on this computer')
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull()
+  })
+
   it('re-reads the status when the main process says the handoff changed', async () => {
     localClient.handoffStatus.mockResolvedValue({ isHost: true, eligibleDeviceIds: [], handoff: null, lastResult: null })
     const { container } = render(<HostHandoffConfirm />)

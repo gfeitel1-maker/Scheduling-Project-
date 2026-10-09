@@ -30,10 +30,26 @@ function progressText(state, name) {
 
 export default function HostHandoffControl({ device, status, onStart }) {
   const reducedMotion = usePrefersReducedMotion()
+  const name = device.name || 'this device'
+  const handoff = status?.handoff
+
+  // Past the decision point this computer is no longer the host, but the handoff it gave is still
+  // its to report: the successor could not finish, holds the key, and retries while both stay open.
+  if (handoff?.role === 'giver' && handoff.state === 'committed' && handoff.peerDeviceId === device.id) {
+    const r = status.lastResult
+    if (r && r.ok === false && r.reason === 'activation_failed' && r.peerDeviceId === device.id) {
+      return (
+        <div style={styles.wrap}>
+          <div role="status" style={styles.result}>
+            {`${name} received hosting but could not finish setting it up. It keeps the hosting key and tries again on its own. Keep both computers open and on this network; if it keeps failing, restart ${name}.`}
+          </div>
+        </div>
+      )
+    }
+  }
+
   if (!status?.isHost || !status.eligibleDeviceIds?.includes(device.id)) return null
 
-  const name = device.name || 'this device'
-  const handoff = status.handoff
   if (handoff && handoff.role === 'giver') {
     if (handoff.peerDeviceId !== device.id) return null
     return (

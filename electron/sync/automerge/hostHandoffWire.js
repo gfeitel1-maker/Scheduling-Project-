@@ -58,6 +58,10 @@ export function createHandoffWire({ db, service, sendHandoff, isPeerOnLan, listA
       if (!result.ok) {
         service.abandon(out.handoff_id, result.reason)
         notify()
+        // Tell the peer why, so its control can say so too (best effort: the peer may be gone).
+        try { await sendHandoff(peerId, { type: 'ERROR', handoff_id: reply?.handoff_id ?? out.handoff_id, reason: result.reason }) } catch { /* unreachable */ }
+        // A successor still in `stored` (e.g. its activation write failed) keeps asking.
+        scheduleRetry()
         return { ok: false, reason: result.reason }
       }
       if (result.relaunch) relaunch = true

@@ -262,6 +262,29 @@ describe('interruption', () => {
     expect(S.relaunches.length).toBe(1)
   })
 
+  it('S failing to activate after H committed is reported on both sides, keeps the pending key, and S activates once it can', async () => {
+    const { H, S } = await twoNodes()
+    S.db.exec("CREATE TRIGGER fail_alias BEFORE INSERT ON source_aliases BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END")
+    await H.node.handoff.start(S.deviceId)
+    await waitFor(() => S.node.handoff.status().handoff?.state === 'offered')
+    const result = await S.node.handoff.accept()
+    expect(result).toMatchObject({ ok: false, reason: 'activation_failed' })
+    expect(handoffRow(H).state).toBe('committed')
+    expect(handoffRow(S).state).toBe('stored')
+    expect(pending(S)).toBeDefined()
+    expect(isHostDevice(S.db)).toBe(false)
+    expect(S.node.handoff.status().lastResult).toMatchObject({ ok: false, reason: 'activation_failed', peerDeviceId: H.deviceId })
+    // S tells H, so H's control can say so too.
+    await waitFor(() => H.node.handoff.status().lastResult?.reason === 'activation_failed')
+    expect(H.node.handoff.status().lastResult).toMatchObject({ peerDeviceId: S.deviceId })
+
+    // S keeps retrying on its own; once the write can succeed it activates.
+    S.db.exec('DROP TRIGGER fail_alias')
+    await waitFor(() => isHostDevice(S.db))
+    expect(liveKeys(H, S)).toBe(1)
+    expect(pending(S)).toBeUndefined()
+  })
+
   it('S never discards its pending key on a timeout: it keeps asking STATUS, and deletes only when H says not committed', async () => {
     // H's reply to STORED is dropped BEFORE H's service sees it (the STORED never lands).
     let dropStored = true
