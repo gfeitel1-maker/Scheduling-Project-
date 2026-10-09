@@ -81,7 +81,7 @@ One singleton table per device, `host_handoff` (never synced, same exclusion cla
 | 6 | S on `COMMIT` | One S transaction: move pending to live (key and host-only rows), set `done`, then relaunch automatically. H also relaunches automatically after step 5. See Relaunch. |
 | 7 | S to H `DONE` | H clears its row. |
 
-The safety property: **at most one live key exists at any instant**, and zero only in the committed-to-COMMIT window. H deletes before S activates, so two live hosts is impossible.
+The safety property: **at most one live key exists at any instant**, and zero only in the committed-to-COMMIT window. H deletes before S activates, so the handoff itself cannot produce two live hosts. (Restoring a pre-handoff backup with T352 can: restoring old H resurrects its key row; restoring S gives zero hosts. The guide warns against restoring across a handoff.)
 
 ### Relaunch
 
@@ -89,12 +89,12 @@ The safety property: **at most one live key exists at any instant**, and zero on
 
 ### Failure rules (no banner; the result is shown on the control)
 
-- Any failure, refusal, disconnect or timeout before step 5: H stays host untouched; S deletes any pending key and its handoff row; the "Hand hosting to <device>" control shows "Handoff did not complete. <device> was not changed; this computer is still the host." Retry is a fresh `handoff_id`.
+- Any failure, refusal, disconnect or timeout before step 5: H stays host untouched. S cannot tell from its side whether step 5 happened, so **once S has sent `STORED` it never discards the pending key on its own timeout or disconnect**: it keeps the pending key and asks `STATUS` on every reconnect, deleting it (and its handoff row) only when H answers "not committed", and activating when H answers "committed". Before S has sent `STORED`, S simply discards. On H the control shows the "Hand hosting to <device>" control shows "Handoff did not complete. <device> was not changed; this computer is still the host." Retry is a fresh `handoff_id`.
 - Restart recovery, by persisted state:
   - H `offered`/`sent` at start: clear row, stay host (nothing was decided).
   - S `accepted`/`stored` at start (crashed before COMMIT seen): S keeps the pending key and **asks H** `STATUS{handoff_id}` on next contact. H answers `committed` (S activates, step 6) or `unknown`/not committed (S discards pending). S never activates without H's `committed`.
   - H `committed` at start (crashed after deleting the key): H is a client; it re-sends `COMMIT` whenever S next connects (S `STATUS` also triggers it).
-- **Bound, stated plainly:** between step 5 and S receiving `COMMIT` the camp has zero live hosts, and that lasts until H and S next reach each other. The pending key is not lost (it sits on S), so this is a delay, not data loss. If H is turned in right after committing, S has no way to learn `COMMIT`. **Chosen: the guide path, not a local override.** An override ("the old computer confirmed") would let a director activate S on their own say-so; if they were wrong, H still holds its key and there are two hosts, which this design promises cannot happen. So S2's guide says: keep the old computer open and on the LAN until the new one shows the camp code; if the old computer is already gone, use the unplanned path below. Two live hosts cannot occur.
+- **Bound, stated plainly:** between step 5 and S receiving `COMMIT` the camp has zero live hosts, and that lasts until H and S next reach each other. The pending key is not lost (it sits on S), so this is a delay, not data loss. If H is turned in right after committing, S has no way to learn `COMMIT`. **Chosen: the guide path, not a local override.** An override ("the old computer confirmed") would let a director activate S on their own say-so; if they were wrong, H still holds its key and there are two hosts, which this design promises cannot happen. So S2's guide says: keep the old computer open and on the LAN until the new one shows the camp code; if the old computer is already gone, use the unplanned path below. The handoff cannot produce two live hosts. The confirm on S warns that both apps restart.
 
 ### UI (DESIGN_STANDARD §5, §8)
 
@@ -121,3 +121,11 @@ One new protocol, one new singleton table pair, one role flip with an automatic 
 ## Open items for the keeper
 
 None blocking. Confidence medium-high; the zero-host window and the relaunch on flip are the two judgments a Red Hat pass should attack.
+
+## Review notes folded in (honest-failure review, round 2)
+
+- S keeps the pending key across in-process disconnects/timeouts after `STORED` (red-first: drop the stream right after H's step-5 transaction → S still holds the pending key and activates on a later `STATUS`=committed).
+- `COMMIT` and `DONE` are flushed before `app.exit()` or are recovered by the `STATUS` resend (test both).
+- A host whose key row is lost now becomes a non-host instead of minting; that change is surfaced on the Devices screen, not silent. S0 asserts `bootstrapCamp` is the only minting caller.
+- A guard test fails when a new host-only table is added without being added to the handoff payload.
+- Guide: do not close, turn in, or restore-from-backup the old computer until the new one shows the camp code.
