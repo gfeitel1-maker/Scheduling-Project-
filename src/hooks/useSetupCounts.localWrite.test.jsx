@@ -69,6 +69,20 @@ describe('useSetupCounts — refresh channels', () => {
     } finally { vi.useRealTimers() }
   })
 
+  it('a caution right after an ok backup is not cleared by the ok backup\'s pending reset', async () => {
+    vi.useFakeTimers()
+    try {
+      const { result } = renderHook(() => useSetupCounts('camp-1'))
+      await act(async () => { await result.current.handleBackupNow() })
+      expect(result.current.backupStatus).toBe('ok')
+      localClient.backupProject.mockResolvedValueOnce({ backupPath: '/b', docBackupError: 'no_camp_document' })
+      await act(async () => { vi.advanceTimersByTime(1000) })
+      await act(async () => { await result.current.handleBackupNow() })
+      await act(async () => { vi.advanceTimersByTime(60000) })
+      expect(result.current.backupStatus).toBe('caution')
+    } finally { vi.useRealTimers() }
+  })
+
   it('still reports ok for a clean backup reply', async () => {
     const { result } = renderHook(() => useSetupCounts('camp-1'))
     await act(async () => { await result.current.handleBackupNow() })

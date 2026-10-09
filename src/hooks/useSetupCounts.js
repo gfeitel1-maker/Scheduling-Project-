@@ -23,7 +23,7 @@ export function useSetupCounts(campId) {
   const [buildLabel, setBuildLabel] = useState(null)
   const [backupStatus, setBackupStatus] = useState(null)
   const [backupRevealable, setBackupRevealable] = useState(false)
-  const { start: startBackupStatusReset } = useLatestTimeout()
+  const { start: startBackupStatusReset, cancel: cancelBackupStatusReset } = useLatestTimeout()
   const [counts, setCounts] = useState(null)
   const [syncStatus, setSyncStatus] = useState(null)
   const [offerShown, setOfferShown] = useState(false)
@@ -104,6 +104,8 @@ export function useSetupCounts(campId) {
   }, [campId])
 
   const handleBackupNow = useCallback(async () => {
+    // A reset armed by an earlier ok/error backup must not clear a caution that follows it.
+    cancelBackupStatusReset()
     setBackupStatus('running')
     let status
     try {
@@ -115,7 +117,7 @@ export function useSetupCounts(campId) {
     }
     setBackupStatus(status)
     if (status !== 'caution') startBackupStatusReset(() => setBackupStatus(null), 3000)
-  }, [])
+  }, [startBackupStatusReset, cancelBackupStatusReset])
 
   const handleShowBackup = useCallback(async () => {
     try {
