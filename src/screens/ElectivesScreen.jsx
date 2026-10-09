@@ -25,6 +25,7 @@ import SetupScreenShell from '../components/setup/SetupScreenShell'
 import InlineAddRow from '../components/setup/InlineAddRow'
 import DuplicateNameDot from '../components/setup/DuplicateNameDot'
 import { duplicateSiblingsByIdFor } from './duplicateSiblings.js'
+import { runCamperDownload } from '../utils/downloadCampers.js'
 
 const repository = createSetupCrudRepository({ localClient })
 const setScopeFilter = (row, campId) => row.camp_id === campId
@@ -111,6 +112,8 @@ export default function ElectivesScreen({ campId, role, onNavigate, weekId, week
   const [purging, setPurging] = useState(false)
   const [purgeResult, setPurgeResult] = useState(null)
   const [scopeChoice, setScopeChoice] = useState(null)
+  const [exporting, setExporting] = useState(false)
+  const [exportCount, setExportCount] = useState(null)
   const currentWeek = weeks.find((w) => w.id === weekId)
   const scope = (scopeChoice ?? (currentWeek ? 'week' : 'season')) === 'week' && currentWeek ? 'week' : 'season'
   const scopeName = scope === 'week' ? currentWeek.name : 'the whole season'
@@ -139,6 +142,18 @@ export default function ElectivesScreen({ campId, role, onNavigate, weekId, week
     } finally {
       setDeleting(false)
       setPendingDelete(null)
+    }
+  }
+
+  async function downloadCampers() {
+    setExporting(true)
+    setExportCount(null)
+    try {
+      setExportCount(await runCamperDownload())
+    } catch (err) {
+      setError(describeWriteFailure(err, 'The camper file could not be downloaded.'))
+    } finally {
+      setExporting(false)
     }
   }
 
@@ -219,6 +234,9 @@ export default function ElectivesScreen({ campId, role, onNavigate, weekId, week
             The whole season
           </label>
         </div>
+        <button className="press-97" onClick={downloadCampers} disabled={exporting} style={{ ...S.btnSecondary, marginRight: 8 }}>
+          {exporting ? 'Downloading…' : 'Download campers'}
+        </button>
         <button
           onClick={() => setConfirmingPurge(true)}
           disabled={role !== 'admin'}
@@ -228,6 +246,12 @@ export default function ElectivesScreen({ campId, role, onNavigate, weekId, week
           {scope === 'week' ? 'Clear this week\u2019s elective choices' : 'Clear season\u2019s elective choices'}
         </button>
       </div>
+
+      {exportCount === 0 && (
+        <div role="status" style={{ ...S.emptyStateBody, textAlign: 'right', marginBottom: 16 }}>
+          No camper choices to download.
+        </div>
+      )}
 
       {purgeResult !== null && (
         <div role="status" style={{ ...S.emptyStateBody, textAlign: 'right', marginBottom: 16 }}>

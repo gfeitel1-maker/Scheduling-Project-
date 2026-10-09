@@ -169,4 +169,21 @@ describe('ElectivesScreen', () => {
     expect(screen.getByLabelText('This week (no week selected)').disabled).toBe(true)
     expect(screen.getByLabelText('The whole season').checked).toBe(true)
   })
+
+  // T353 — the camper export surfaces a failed read instead of failing silently.
+  it('surfaces a failed camper download', async () => {
+    localClient.list.mockImplementation((entity) => entity === 'elective_preferences'
+      ? Promise.reject(new Error('boom'))
+      : Promise.resolve([]))
+    render(<ElectivesScreen campId={CAMP_ID} role="admin" />)
+    fireEvent.click(await screen.findByText('Download campers'))
+    await waitFor(() => expect(screen.queryByText(/The camper file could not be downloaded/)).not.toBeNull())
+  })
+
+  it('says so when there are no camper choices to download', async () => {
+    localClient.list.mockImplementation(byEntity({}))
+    render(<ElectivesScreen campId={CAMP_ID} role="admin" />)
+    fireEvent.click(await screen.findByText('Download campers'))
+    await waitFor(() => expect(screen.queryByText('No camper choices to download.')).not.toBeNull())
+  })
 })
