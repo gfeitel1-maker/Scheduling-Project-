@@ -3655,12 +3655,15 @@ if (isElectronEntryPoint()) {
             held: true,
             commit: () => { db = newDb; deviceId = newDeviceId },
             revert: () => { db = oldDb; deviceId = oldDeviceId },
-            build: () => makeHandlers(newDb, newDeviceId, {
-              getMainWindow: () => mainWindow,
-              dbPath,
-              userDataPath,
-              ...syncStarterHolder.handlerOptions(),
-            }),
+            build: () => {
+              const restoreHandlers = makeHandlers(newDb, newDeviceId, {
+                getMainWindow: () => mainWindow,
+                dbPath,
+                userDataPath,
+                ...syncStarterHolder.handlerOptions(),
+              })
+              return restoreHandlers
+            },
           })
           discardLiveDoc(oldDb)
           disposeCampDataRecordThenCloseDb(liveHandlers, oldDb)
