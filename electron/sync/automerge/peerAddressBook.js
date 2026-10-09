@@ -64,12 +64,13 @@ export function rememberPeerAddress(db, peerId, multiaddr, now = () => new Date(
   ).run(peerId, peerId, PEER_LAST_ADDRESSES_MAX_PER_PEER)
 }
 
-// Deletes every remembered address for a peer. Wired into main.js's revokeDevice path — a revoked
+// Deletes every remembered address for a peer; returns how many rows it removed. Wired into main.js's revokeDevice path — a revoked
 // peer's addresses must not survive to be redialed on a later startup.
 export function forgetPeerAddress(db, peerId) {
-  if (typeof peerId !== 'string' || peerId.length === 0) return
-  db.prepare('DELETE FROM peer_last_addresses WHERE peer_id = ?').run(peerId)
-  db.prepare('DELETE FROM peer_punch_memory WHERE peer_id = ?').run(peerId)
+  if (typeof peerId !== 'string' || peerId.length === 0) return 0
+  const addresses = db.prepare('DELETE FROM peer_last_addresses WHERE peer_id = ?').run(peerId).changes
+  const memory = db.prepare('DELETE FROM peer_punch_memory WHERE peer_id = ?').run(peerId).changes
+  return addresses + memory
 }
 
 // T348 (Rung 1): the punched session a peer left behind - OUR role, the peer's last SDP and its

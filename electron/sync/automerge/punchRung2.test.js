@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url'
 import { multiaddr } from '@multiformats/multiaddr'
 import { peerIdFromString } from '@libp2p/peer-id'
 import { signMessageWithDeviceKey } from '../../automerge/authorityLogSignature.js'
-import { makeDevice, registerAll, revokeOn, makeGatedNode, authenticateTo, freshCampDoc, cleanupDevices, CAMP_ID } from '../../../test/punchRung2Support.js'
+import { tmpHighWater, makeDevice, registerAll, revokeOn, makeGatedNode, authenticateTo, freshCampDoc, cleanupDevices, CAMP_ID } from '../../../test/punchRung2Support.js'
 import { createPunchSignaling } from './punchSignaling.js'
 import { publishReflexive, readReflexive, deviceRegistryFromDb } from './punchGossip.js'
 import { EVENTS } from './connectivityEvents.js'
@@ -93,7 +93,7 @@ describe('attemptRung2', () => {
 
     const result = await attemptRung2({
       peerDeviceId: 'device-b',
-      readEntries: entriesFor(a, doc), highWater: new Map(),
+      readEntries: entriesFor(a, doc), highWater: tmpHighWater(),
       signaling: sa, bindChannel,
       dial: (addr) => na.node.dial(multiaddr(addr)),
     })
@@ -112,7 +112,7 @@ describe('attemptRung2', () => {
   it('with no verified gossip entry for the peer: { ok: false, reason: no-gossip-entry }', async () => {
     const { a, sa, bindChannel } = await buildCamp()
     const doc = freshCampDoc()
-    const r = await attemptRung2({ peerDeviceId: 'device-b', readEntries: entriesFor(a, doc), highWater: new Map(), signaling: sa, bindChannel, dial: async () => { throw new Error('must not dial') } })
+    const r = await attemptRung2({ peerDeviceId: 'device-b', readEntries: entriesFor(a, doc), highWater: tmpHighWater(), signaling: sa, bindChannel, dial: async () => { throw new Error('must not dial') } })
     expect(r).toEqual({ ok: false, reason: 'no-gossip-entry' })
   }, 30000)
 
@@ -121,7 +121,7 @@ describe('attemptRung2', () => {
     const doc = pub(freshCampDoc(), b, [CANDIDATE])
     revokeOn(a.db, 'device-b')
     let dialed = 0
-    const r = await attemptRung2({ peerDeviceId: 'device-b', readEntries: entriesFor(a, doc), highWater: new Map(), signaling: sa, bindChannel, dial: async () => { dialed++ } })
+    const r = await attemptRung2({ peerDeviceId: 'device-b', readEntries: entriesFor(a, doc), highWater: tmpHighWater(), signaling: sa, bindChannel, dial: async () => { dialed++ } })
     expect(r).toEqual({ ok: false, reason: 'no-gossip-entry' })
     expect(dialed).toBe(0)
   }, 30000)
@@ -131,7 +131,7 @@ describe('attemptRung2', () => {
     const doc = pub(freshCampDoc(), b, [CANDIDATE])
     for (const p of na.node.getPeers()) await na.node.hangUp(p)
     let dialed = 0
-    const r = await attemptRung2({ peerDeviceId: 'device-b', readEntries: entriesFor(a, doc), highWater: new Map(), signaling: sa, bindChannel, dial: async () => { dialed++ } })
+    const r = await attemptRung2({ peerDeviceId: 'device-b', readEntries: entriesFor(a, doc), highWater: tmpHighWater(), signaling: sa, bindChannel, dial: async () => { dialed++ } })
     expect(r).toEqual({ ok: false, reason: 'no-signal-route' })
     expect(dialed).toBe(0)
   }, 30000)
@@ -140,7 +140,7 @@ describe('attemptRung2', () => {
     const { a, b, sa, bindChannel } = await buildCamp()
     const doc = pub(freshCampDoc(), b, [CANDIDATE, '/ip4/127.0.0.1/udp/10'])
     const tried = []
-    const r = await attemptRung2({ peerDeviceId: 'device-b', readEntries: entriesFor(a, doc), highWater: new Map(), signaling: sa, bindChannel, dial: async (addr) => { tried.push(addr); throw new Error('unreachable') } })
+    const r = await attemptRung2({ peerDeviceId: 'device-b', readEntries: entriesFor(a, doc), highWater: tmpHighWater(), signaling: sa, bindChannel, dial: async (addr) => { tried.push(addr); throw new Error('unreachable') } })
     expect(r).toEqual({ ok: false, reason: 'dial-failed' })
     expect(tried).toHaveLength(2)
   }, 30000)
@@ -151,9 +151,23 @@ describe('attemptRung2 requires a highWater store', () => {
     const { a, b, sa, bindChannel } = await buildCamp()
     const doc = pub(freshCampDoc(), b, [CANDIDATE])
     let read = 0
-    const r = await attemptRung2({ peerDeviceId: 'device-b', readEntries: () => { read++; return entriesFor(a, doc)(new Map()) }, signaling: sa, bindChannel, dial: async () => { throw new Error('must not dial') } })
+    const r = await attemptRung2({ peerDeviceId: 'device-b', readEntries: () => { read++; return entriesFor(a, doc)(tmpHighWater()) }, signaling: sa, bindChannel, dial: async () => { throw new Error('must not dial') } })
     expect(r).toEqual({ ok: false, reason: 'no-high-water-store' })
     expect(read).toBe(0)
+  })
+
+  it('a plain Map is not a highWater store either (no read, no dial)', async () => {
+    let read = 0
+    const r = await attemptRung2({ peerDeviceId: 'device-b', readEntries: () => { read++; return new Map() }, highWater: new Map(), signaling: {}, bindChannel() {}, dial: async () => { throw new Error('must not dial') } })
+    expect(r).toEqual({ ok: false, reason: 'no-high-water-store' })
+    expect(read).toBe(0)
+  })
+
+  it('a store the reader found corrupt refuses the attempt (no dial) with a distinct reason', async () => {
+    const entries = new Map([['device-b', { deviceId: 'device-b', peerId: 'p', candidates: ['/ip4/34.1.1.1/udp/1'], ts: 1 }]])
+    entries.refused = new Error('corrupt')
+    const r = await attemptRung2({ peerDeviceId: 'device-b', readEntries: () => entries, highWater: tmpHighWater(), signaling: {}, bindChannel() {}, dial: async () => { throw new Error('must not dial') } })
+    expect(r).toEqual({ ok: false, reason: 'high-water-unavailable' })
   })
 })
 
@@ -163,14 +177,14 @@ describe('attemptRung2 signals and routes for real', () => {
     const doc = pub(freshCampDoc(), b, [CANDIDATE])
     const order = []
     const r = await attemptRung2({
-      peerDeviceId: 'device-b', readEntries: entriesFor(a, doc), highWater: new Map(), signaling: sa,
+      peerDeviceId: 'device-b', readEntries: entriesFor(a, doc), highWater: tmpHighWater(), signaling: sa,
       bindChannel: (ch) => { order.push('bind'); expect(typeof ch.sendSignal).toBe('function'); bindChannel(ch) },
       dial: async () => { order.push('dial') },
     })
     expect(r.ok).toBe(true)
     expect(order).toEqual(['bind', 'dial'])
     let dialed = 0
-    const bare = await attemptRung2({ peerDeviceId: 'device-b', readEntries: entriesFor(a, doc), highWater: new Map(), signaling: sa, dial: async () => { dialed++ } })
+    const bare = await attemptRung2({ peerDeviceId: 'device-b', readEntries: entriesFor(a, doc), highWater: tmpHighWater(), signaling: sa, dial: async () => { dialed++ } })
     expect(bare).toEqual({ ok: false, reason: 'no-signal-channel' })
     expect(dialed).toBe(0)
   }, 30000)
@@ -182,7 +196,7 @@ describe('attemptRung2 signals and routes for real', () => {
     expect(await sa.hasRoute('device-b')).toBe(false)
     const doc = pub(freshCampDoc(), b, [CANDIDATE])
     let dialed = 0
-    const r = await attemptRung2({ peerDeviceId: 'device-b', readEntries: entriesFor(a, doc), highWater: new Map(), signaling: sa, bindChannel, dial: async () => { dialed++ } })
+    const r = await attemptRung2({ peerDeviceId: 'device-b', readEntries: entriesFor(a, doc), highWater: tmpHighWater(), signaling: sa, bindChannel, dial: async () => { dialed++ } })
     expect(r).toEqual({ ok: false, reason: 'no-signal-route' })
     expect(dialed).toBe(0)
   }, 30000)
@@ -191,7 +205,7 @@ describe('attemptRung2 signals and routes for real', () => {
     const { a, b, sa, bindChannel } = await buildCamp()
     const doc = publishReflexive(freshCampDoc(), b.db, { campId: CAMP_ID, deviceId: 'device-b', peerId: b.peerId, candidates: [CANDIDATE], allowPrivateCandidates: true, now: () => Date.now() + 3600_000 })
     const events = []
-    const r = await attemptRung2({ peerDeviceId: 'device-b', readEntries: entriesFor(a, doc), highWater: new Map(), signaling: sa, bindChannel, dial: async () => { throw new Error('must not dial') }, emit: (n, f) => events.push([n, f]) })
+    const r = await attemptRung2({ peerDeviceId: 'device-b', readEntries: entriesFor(a, doc), highWater: tmpHighWater(), signaling: sa, bindChannel, dial: async () => { throw new Error('must not dial') }, emit: (n, f) => events.push([n, f]) })
     expect(r).toEqual({ ok: false, reason: 'clock-skew' })
     expect(events).toHaveLength(1)
     expect(events[0][0]).toBe(EVENTS.CLOCK_SKEW)

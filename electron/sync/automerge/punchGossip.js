@@ -17,12 +17,12 @@
 // and anything over the size bounds - before decrypting an oversize value, and before trusting a
 // decrypted one.
 import crypto from 'node:crypto'
-import fs from 'node:fs'
 import net from 'node:net'
 import * as A from '@automerge/automerge'
 import { recordKey, readRecord } from '../../automerge/campDocument.js'
 import { signMessageWithDeviceKey, verifyMessageWithPeerId } from '../../automerge/authorityLogSignature.js'
 import { deviceTrustStatus } from '../../auth/deviceTrust.js'
+import { loadPairs, savePairs, warnLoadFailure } from './punchFileStore.js'
 import { mintRendezvousAddressKey, readRendezvousAddressKey } from './rendezvousAddressKey.js'
 
 export const GOSSIP_FIELD_PREFIX = 'punchGossip_'
@@ -56,7 +56,8 @@ function v4Public(a, b, c) {
   if (a === 169 && b === 254) return false
   if (a === 172 && b >= 16 && b <= 31) return false
   if (a === 192 && b === 168) return false
-  if (a === 192 && b === 0 && c === 2) return false
+  if (a === 192 && b === 0 && (c === 0 || c === 2)) return false
+  if (a === 192 && b === 88 && c === 99) return false
   if (a === 198 && b === 51 && c === 100) return false
   if (a === 203 && b === 0 && c === 113) return false
   if (a === 198 && (b === 18 || b === 19)) return false
@@ -110,6 +111,12 @@ export function isPublicAddress(version, ip) {
   // 6to4 2002::/16: rejected outright - the embedded IPv4 is sender-chosen and the prefix has no
   // legitimate use as a camp peer's reflexive address.
   if (g0 === 0x2002) return false
+  // Teredo 2001::/32, documentation 2001:db8::/32, ORCHID 2001:10::/28 and ORCHIDv2 2001:20::/28
+  if (g0 === 0x2001 && (g1 === 0 || g1 === 0xdb8 || (g1 & 0xfff0) === 0x10 || (g1 & 0xfff0) === 0x20)) return false
+  // discard-only 100::/64
+  if (g0 === 0x100 && g1 === 0 && g2 === 0 && g3 === 0) return false
+  // site-local fec0::/10 (deprecated, still non-public)
+  if ((g0 & 0xffc0) === 0xfec0) return false
   if ((g0 & 0xffc0) === 0xfe80 || (g0 & 0xfe00) === 0xfc00 || (g0 & 0xff00) === 0xff00) return false
   return true
 }
@@ -198,48 +205,64 @@ const HIGH_WATER_MAX = 256
 
 /**
  * The reader's persisted memory of the newest verified ts per device (rollback check). Bounded at
- * `max` devices (oldest-inserted evicted); with a filePath it is rewritten on every raise so a
- * restart cannot re-accept a rolled-back entry. A missing or corrupt file starts empty.
+ * `max` devices (oldest-inserted evicted) and rewritten (fsynced) on every raise so a restart cannot
+ * re-accept a rolled-back entry. filePath is REQUIRED. A missing file is a first run; an unreadable
+ * or corrupt one is reported (warning + `.failed`) and readReflexive then refuses every entry rather
+ * than starting empty. A failed write is warned, returned from set(), and kept in `.lastWriteError`;
+ * the in-memory mark still holds.
  */
-export function createHighWaterStore({ filePath, max = HIGH_WATER_MAX } = {}) {
+export function createHighWaterStore({ filePath, max = HIGH_WATER_MAX, onError = () => {} } = {}) {
+  if (typeof filePath !== 'string' || filePath.length === 0) throw new Error('punchGossip: createHighWaterStore requires a filePath')
   const m = new Map()
-  if (filePath) {
-    try {
-      for (const [k, v] of JSON.parse(fs.readFileSync(filePath, 'utf8'))) if (typeof k === 'string' && Number.isFinite(v)) m.set(k, v)
-    } catch { /* first run or unreadable: start empty */ }
+  const loaded = loadPairs(filePath)
+  for (const [k, v] of loaded.pairs) m.set(k, v)
+  if (loaded.error) {
+    warnLoadFailure(filePath, loaded.error)
+    onError(loaded.error)
   }
-  return {
+  const store = {
+    persistent: true,
+    failed: loaded.error,
+    lastWriteError: null,
     get: (k) => m.get(k),
     set(k, v) {
       m.delete(k)
       m.set(k, v)
       while (m.size > max) m.delete(m.keys().next().value)
-      if (filePath) {
-        try {
-          fs.writeFileSync(`${filePath}.tmp`, JSON.stringify([...m]))
-          fs.renameSync(`${filePath}.tmp`, filePath)
-        } catch { /* best-effort; the in-memory mark still holds */ }
-      }
+      const err = savePairs(filePath, [...m])
+      store.lastWriteError = err
+      if (err) onError(err)
+      return err
     },
   }
+  return store
+}
+
+export function isHighWaterStore(s) {
+  return !!s && s.persistent === true && typeof s.get === 'function' && typeof s.set === 'function'
 }
 
 /**
  * Map<deviceId, {deviceId, peerId, candidates, ts}> of every entry that passed every check. The
  * returned map carries `.skewed`: Map<deviceId, skewMs> of correctly signed entries refused only
  * because they are dated beyond the future-skew bound - the sender's clock disagrees with ours, and
- * the caller must surface that rather than treat it as "no entry".
+ * the caller must surface that rather than treat it as "no entry". `.refused` is the store's load
+ * error when the store is corrupt: every entry is then refused (fail closed). `.storeErrors` lists
+ * highWater write failures during this read.
  *
- * highWater (REQUIRED; a Map or createHighWaterStore) is the reader's memory of the newest verified
+ * highWater (REQUIRED; a createHighWaterStore - a plain Map is refused) is the reader's memory of the newest verified
  * ts per device: an entry older than it is a rolled-back document value and is refused.
  * allowPrivateCandidates is for loopback test fixtures only.
  */
 export function readReflexive(doc, { campId, registry, now = Date.now, highWater, allowPrivateCandidates = false }) {
-  if (!highWater || typeof highWater.get !== 'function' || typeof highWater.set !== 'function') {
+  if (!isHighWaterStore(highWater)) {
     throw new Error('punchGossip: readReflexive requires a highWater store (rollback protection is not optional)')
   }
   const out = new Map()
   out.skewed = new Map()
+  out.refused = highWater.failed ?? null
+  out.storeErrors = []
+  if (out.refused) return out
   const addressKey = readRendezvousAddressKey(doc, campId)
   const row = readRecord(doc, 'camps', campId)
   if (!addressKey || !row) return out
@@ -263,7 +286,10 @@ export function readReflexive(doc, { campId, registry, now = Date.now, highWater
     if (at - entry.ts > GOSSIP_TTL_MS) continue
     const mark = highWater.get(deviceId) ?? -Infinity
     if (entry.ts < mark) continue
-    if (entry.ts > mark) highWater.set(deviceId, entry.ts)
+    if (entry.ts > mark) {
+      const err = highWater.set(deviceId, entry.ts)
+      if (err) out.storeErrors.push(err)
+    }
     out.set(deviceId, { deviceId, peerId: boundPeerId, candidates: entry.candidates, ts: entry.ts })
   }
   return out

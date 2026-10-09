@@ -196,4 +196,18 @@ describe('forgetRevokedPeer', () => {
     expect(after.icePwd).not.toBe(before.icePwd)
     expect(after.reflexiveCandidates).toEqual([])
   })
+
+  it('rotates ONCE per revocation: repeat calls, and a peer we hold nothing for, leave the identity alone', () => {
+    const db = freshDb()
+    ensurePunchIdentity(db)
+    const p = createPunchPersistence(db)
+    p.onEstablished(established('peer-x'))
+    p.onPeerAdmitted('peer-x')
+    forgetRevokedPeer(db, 'peer-x')
+    const rotated = ensurePunchIdentity(db)
+    forgetRevokedPeer(db, 'peer-x')
+    forgetRevokedPeer(db, 'peer-x')
+    forgetRevokedPeer(db, 'never-seen')
+    expect(ensurePunchIdentity(db).fingerprint).toBe(rotated.fingerprint)
+  })
 })
