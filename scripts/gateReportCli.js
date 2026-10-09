@@ -41,6 +41,11 @@ export function defaultFetchRun(id) {
  */
 export function confirmCiRun(ciRun, fetchRun) {
   if (!ciRun || ciRun.id == null || ciRun.id === '') return { run: null, reason: 'ciRun has no id' }
+  // The id becomes a gh argv element. execFile rules out shell injection but not ARGUMENT
+  // injection: '--repo=other/fork' would let a caller confirm a run from a repo they control.
+  if ((typeof ciRun.id !== 'number' && typeof ciRun.id !== 'string') || !/^[0-9]+$/.test(String(ciRun.id))) {
+    return { run: null, reason: `ciRun id ${JSON.stringify(ciRun.id)} is not a numeric run id` }
+  }
   let fetched
   try {
     fetched = JSON.parse(fetchRun(ciRun.id))
@@ -61,8 +66,22 @@ export function confirmCiRun(ciRun, fetchRun) {
   return { run: { id: ciRun.id, headSha: fetched.headSha, status: fetched.status, conclusion: fetched.conclusion }, reason: null }
 }
 
-function isExistingFile(p) {
-  try { return statSync(p).isFile() } catch { return false }
+// A local evidence file counts only if it IS green gate results bound to the commit under review —
+// an arbitrary existing file (package.json, a test file) proves nothing.
+function isGreenGateResultsFor(p, commit) {
+  if (typeof commit !== 'string' || commit === '') return false
+  let text
+  try {
+    if (!statSync(p).isFile()) return false
+    text = readFileSync(p, 'utf8')
+  } catch { return false }
+  return buildVerifierReport({ text, evidenceRef: p, expectedSha: commit }).verdict === 'PASS'
+}
+
+// Same predicate as the reducer's ciRunPass: completed, success, on exactly the head under review.
+function ciRunPasses(run, commit) {
+  return Boolean(run && typeof commit === 'string' && commit !== '' && run.headSha === commit &&
+    run.status === 'completed' && run.conclusion === 'success')
 }
 
 // Does evidenceRef name the confirmed run (bare id, `runs/<id>`, or a URL ending in it)?
@@ -211,14 +230,14 @@ export function runGateReportCli(inputPath, { runsDir, fetchRun = defaultFetchRu
   }
 
   // A hand-written verifier PASS is a claim too. It counts only if its evidence_ref resolves to a
-  // local file that exists or to the run just confirmed; otherwise it is downgraded to UNVERIFIED.
+  // green gate-results file stamped with `commit`, or to the run just confirmed AND passing on `commit`; otherwise it is downgraded to UNVERIFIED.
   // (A derived report from gateResults already carries its file as evidence and is exempt.)
   if (input.gateResults === undefined) {
     reports = reports.map((r) => {
       if (r?.gate_name !== 'verifier' || r.verdict !== 'PASS') return r
       const ref = typeof r.evidence_ref === 'string' ? r.evidence_ref : ''
-      if (ref !== '' && (isExistingFile(ref) || (ciRun && citesRun(ref, ciRun.id)))) return r
-      const why = `hand-written verifier PASS cites evidence_ref "${ref}" which is neither an existing local file nor the confirmed ciRun`
+      if (ref !== '' && (isGreenGateResultsFor(ref, input.commit) || (ciRunPasses(ciRun, input.commit) && citesRun(ref, ciRun.id)))) return r
+      const why = `hand-written verifier PASS cites evidence_ref "${ref}" which is neither a green gate-results file stamped with commit ${input.commit} nor a confirmed, successful gate.yml run on that commit`
       console.error(`verifier downgraded to UNVERIFIED — ${why}`)
       return { ...r, verdict: 'UNVERIFIED', findings: [...(r.findings || []), { severity: 'HIGH', ref: ref || 'evidence', summary: why }] }
     })

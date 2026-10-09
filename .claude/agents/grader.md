@@ -122,10 +122,10 @@ in the GateReport as `verifier_ci_run`. The CLI does not trust the typed fields:
 run with `gh run view <id> --json headSha,status,conclusion,workflowName,path` and counts it only
 if the fetched run is `.github/workflows/gate.yml` and every typed field matches what GitHub
 returns. If `gh` is unavailable, errors, or returns unparseable output, the run is not counted
-(fail closed) and the reason is printed to stderr.
+(fail closed) and the reason is printed to stderr. The run id must be purely numeric; anything else is refused before `gh` is called.
 
 A hand-written `verifier` PASS (one not derived from `gateResults`) counts only if its
-`evidence_ref` is an existing local file or cites the confirmed `ciRun` (its id or run URL);
+`evidence_ref` is a green gate-results file stamped with `commit`, or cites the confirmed `ciRun` (its id or run URL) when that run is completed, successful, and on exactly `commit`;
 otherwise the CLI downgrades it to `UNVERIFIED`.
 
 **If the Verifier's report names no such path** (it ran UNVERIFIED, or could not run the gate),
