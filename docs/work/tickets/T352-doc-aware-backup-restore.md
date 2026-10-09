@@ -18,7 +18,7 @@ related_tickets: []
 
 `shoresh:restore-project` swaps only the SQLite file. The Automerge document is the source of truth
 and SQLite is its projection, so on the next sync start `projectAll`'s delete-reconcile
-(`electron/sync/automerge/syncStarter.js`, around lines 214-230) re-projects the document over the
+(`electron/sync/automerge/syncStarter.js`, the comments at lines 214-226 and 319) re-projects the document over the
 restored db. The restore is silently undone.
 
 No UI calls `restoreProject` today (a grep of `src` finds only `localClient.js` and its mock). The
@@ -30,6 +30,15 @@ Backups now include the camp document: `writeUserBackup` (`electron/db/projectMa
 `<userData>/automerge/*.automerge` to `backups/shoresh-<ts>.automerge/` with the same timestamp as
 the `.db`, bytes as-is (still encrypted at rest), 0600/0700, and rotation removes the pair together.
 The backup call sites in `electron/main.js` flush pending debounced document writes first.
+
+## Known limits of the backup pair
+
+- The db and document copies are not atomic, and the flush covers only the current in-memory
+  document, so a pair can be slightly out of step.
+- A failed document copy removes its partial dir and is reported (`docBackupError` from
+  `shoresh:backup-project`); orphaned `.automerge` dirs whose `.db` was rotated away by other means
+  are not rotated.
+- The pre-restore document copy is unused until this ticket builds the doc-aware restore.
 
 ## Open owner question
 
