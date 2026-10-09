@@ -1,5 +1,9 @@
 import { S } from '../../styles/shared'
 
+// One width for every setup screen (design inventory 2026-10-08, D1). Only
+// Activities, with eight columns, passes a wider maxWidth.
+export const SETUP_MAX_WIDTH = 760
+
 // The frame every germination (setup) screen renders inside.
 //
 // Download Template / Import from Excel / Delete All used to occupy the top
@@ -16,7 +20,7 @@ import { S } from '../../styles/shared'
 // see that it exists.
 export default function SetupScreenShell({
   countLabel, role, actions = {}, fileInputRef, onFileChange,
-  nextLabel, onNext, error, cohortPicker, children, maxWidth = 680,
+  nextLabel, onNext, error, cohortPicker, children, maxWidth = SETUP_MAX_WIDTH,
 }) {
   const { onDownloadTemplate, onImport, onDeleteAll, deleteAllDisabled = false } = actions
   const deleteBlocked = deleteAllDisabled || role !== 'admin'
@@ -34,7 +38,7 @@ export default function SetupScreenShell({
         <div style={S.sectionCount}>{countLabel}</div>
       </div>
       {children}
-      <div style={{
+      {(hasUtilities || onNext) && <div style={{
         marginTop: 28,
         paddingTop: 20,
         borderTop: '1px solid var(--border)',
@@ -59,8 +63,8 @@ export default function SetupScreenShell({
             </>
           )}
         </div>
-        <button className="press-97" onClick={onNext} style={{ ...S.btnPrimary, marginLeft: hasUtilities ? 0 : 'auto' }}>{nextLabel}</button>
-      </div>
+        {onNext && <button className="press-97" onClick={onNext} style={{ ...S.btnPrimary, marginLeft: hasUtilities ? 0 : 'auto' }}>{nextLabel}</button>}
+      </div>}
     </div>
   )
 }

@@ -443,7 +443,6 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
       actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll, deleteAllDisabled: !activeCohort }}
       fileInputRef={fileRef}
       onFileChange={onFileChange}
-      maxWidth={780}
       nextLabel="Activities →"
       onNext={() => onNavigate('activities')}
       error={error}

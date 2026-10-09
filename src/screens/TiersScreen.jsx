@@ -421,7 +421,6 @@ export default function TiersScreen({ campId, role, onNavigate }) {
       actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll, deleteAllDisabled: !activeCohort }}
       fileInputRef={fileRef}
       onFileChange={onFileChange}
-      maxWidth={700}
       nextLabel="Groups →"
       onNext={() => onNavigate('groups')}
       error={error}

@@ -21,6 +21,7 @@ import { whitespaceInsensitiveName } from '../ingest/preview'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { S } from '../styles/shared'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
+import SetupScreenShell from '../components/setup/SetupScreenShell'
 import InlineAddRow from '../components/setup/InlineAddRow'
 import DuplicateNameDot from '../components/setup/DuplicateNameDot'
 import { duplicateSiblingsByIdFor } from './duplicateSiblings.js'
@@ -157,8 +158,10 @@ export default function ElectivesScreen({ campId, role, onNavigate, weekId, week
   }
 
   return (
-    <div style={{ maxWidth: 720 }}>
-      {error && <div style={S.errorBanner}>{error}</div>}
+    <SetupScreenShell
+      countLabel={`${sets.length} elective set${sets.length !== 1 ? 's' : ''}`}
+      error={error}
+    >
 
       {loading ? (
         <div style={S.stateLoading}>Loading…</div>
@@ -257,7 +260,6 @@ export default function ElectivesScreen({ campId, role, onNavigate, weekId, week
           onCancel={() => setPendingDelete(null)}
         />
       )}
-    </div>
+    </SetupScreenShell>
   )
 }
-

@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { createRef } from 'react'
-import SetupScreenShell from './SetupScreenShell'
+import SetupScreenShell, { SETUP_MAX_WIDTH } from './SetupScreenShell'
 
 const base = {
   countLabel: '5 days', role: 'admin', fileInputRef: createRef(),
@@ -39,9 +39,17 @@ describe('SetupScreenShell', () => {
     expect(screen.queryByText('PICKER')).not.toBeNull()
   })
 
-  it('applies the default maxWidth of 680 when none is passed', () => {
+  it('applies the shared setup width (760) when none is passed', () => {
     const { container } = render(<SetupScreenShell {...base} actions={{}}><div /></SetupScreenShell>)
-    expect(container.firstChild.style.maxWidth).toBe('680px')
+    expect(SETUP_MAX_WIDTH).toBe(760)
+    expect(container.firstChild.style.maxWidth).toBe('760px')
+  })
+
+  it('renders no footer when there is neither a Next nor a utility', () => {
+    const { container } = render(<SetupScreenShell countLabel="2 sets" error={null}><div>BODY</div></SetupScreenShell>)
+    expect(screen.queryByText('2 sets')).not.toBeNull()
+    expect(container.firstChild.lastChild.textContent).toBe('BODY')
+    expect(screen.queryByRole('button')).toBeNull()
   })
 
   it('applies a custom maxWidth when passed', () => {
