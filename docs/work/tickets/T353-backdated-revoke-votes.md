@@ -103,3 +103,27 @@ causally-earliest admin) always wins a standoff, so a junior admin cannot remove
 2-admin camp; and in a full cross-voting split everyone but the most senior in the standoff is
 removed (harsh: the senior's own side members who were also voted against go too). Open: whether
 to narrow that to only those the winner voted against.
+
+## Part A: keeper-approved defaults applied to the seniority variant (2026-10-09)
+
+Applied in `todayRule(entries, { tieBreak: 'seniority' })`: (1) a standoff removes only the members
+the winner voted against (if none, the round stops: nobody removed, never zero); (2) a tie between
+causally incomparable members is broken by sha256 of (current grant ids + camp id), not device id;
+(3) seniority is read from each device's CURRENT grants (grants no other grant of that device
+descends from), so an old pre-removal grant does not make a re-granted device senior.
+
+| check (500 seeds + 209 + 6 attacks) | result |
+|---|---|
+| unique + order independent (6 array permutations each) | 0 failures |
+| never zero admins (incl. appended backdated votes) | 0 failures |
+| 2 admins, M counters backdated / after revoke | `[A]` / `[A]` |
+| genuine simultaneous mutual revoke; junior revokes founder | `[A]`; `[A]` |
+| k-v-k (2v2, 3v3) | `[A,B]`, `[A,B,C]` (was: only `[A]`) |
+| differential vs todayRule, 207 uncontested seeds | 0 differ |
+| `earlier()` strict partial order | 1504 transitive triples, 0 failures |
+| senior pick order-independent (1674 device subsets x 6 orders) | 0 failures; 102 needed the hash tie-break |
+
+Caveat: the hash reads entry ids, so order independence is over array order (entry ids are content
+hashes in production). Relabelling ids changed 0 outcomes in the corpus, but random histories hit
+the hash tie-break 0 times; only the targeted subset test exercises it. A device whose old and new
+grants are causally concurrent keeps both as "current" (conservative approximation).

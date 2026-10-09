@@ -11,6 +11,9 @@ import {
   mulberry32,
   withoutSignerEntries,
   quorumThreshold,
+  seniority,
+  currentGrants,
+  indexHistory,
 } from './authorityModel.testkit.js'
 
 const sorted = (s) => [...s].sort()
@@ -494,16 +497,21 @@ describe.each([['concurrent'], ['seniority']])('T353 keeper ruling variant: tieB
 
   it('unique + order independent (500 seeds + 209, 6 perms each)', () => {
     const bad = []
+    let relabelDiffs = 0
     const check1 = (label, base, seed) => {
       const want = ad(base)
       const rnd = mulberry32(seed * 104729)
       for (let k = 0; k < 6; k++) {
-        const got = ad(relabel(base, rnd))
+        // seniority hashes entry ids (concurrent-grant tie), so ids are content: permute ARRAY ORDER only
+        const perm = [...base].sort(() => rnd() - 0.5)
+        const got = ad(perm)
         if (JSON.stringify(got) !== JSON.stringify(want)) bad.push(`${label} perm ${k}: ${got} != ${want}`)
+        if (JSON.stringify(ad(relabel(base, rnd))) !== JSON.stringify(want)) relabelDiffs++
       }
     }
     for (const s of seeds) check1('seed ' + s, randomHistory(s), s)
     attackHistories().forEach((e, i) => check1('attack ' + i, e, 7000 + i))
+    console.log(`T353 ${tieBreak} id-relabel outcome differences (hash tie-break on ids; informational): ${relabelDiffs}`)
     check('order-independence', bad)
   })
 
@@ -576,5 +584,193 @@ describe.each([['concurrent'], ['seniority']])('T353 keeper ruling variant: tieB
     }
     console.log(`T353 ${tieBreak} differential: compared ${same} uncontested seeds`)
     check('differential', bad)
+  })
+})
+
+describe('T353 Part A: seniority from CURRENT grants, partial order, tie-break hash', () => {
+  const seeds = [...Array.from({ length: 500 }, (_, i) => i + 1), 209]
+
+  it('standoff removes only those the winner voted against: B, whom A never voted on, stays', () => {
+    const { h, last } = camp('B', 'M', 'D')
+    // 2v2: A,B vote M,D; M,D vote A,B. Everyone is in the standoff; the founder wins.
+    ;[['A', 'M'], ['A', 'D'], ['B', 'M'], ['B', 'D'], ['M', 'A'], ['M', 'B'], ['D', 'A'], ['D', 'B']].forEach(([s, t], i) => h.revoke('x' + i, s, t, [last]))
+    const got = sorted(todayRule(h.entries, { tieBreak: 'seniority' }).admins)
+    console.log('T353 A.1 2v2 standoff:', got)
+    expect(got).toEqual(['A', 'B'])
+  })
+
+  it('current grant, not an older one: a removed-and-re-granted device is junior to one granted in between', () => {
+    // A founder; A grants B, M; B,A remove M... use: C granted early, removed, re-granted late; D granted mid.
+    const h = history().genesis('g0', 'A')
+    h.grant('gC1', 'A', 'C', ['g0']).grant('gD', 'A', 'D', ['gC1'])
+    h.revoke('r1', 'A', 'C', ['gD']).revoke('r2', 'D', 'C', ['gD'])
+    h.grant('gC2', 'A', 'C', ['r1', 'r2'])
+    const ix = indexHistory(h.entries)
+    const cur = (d) => currentGrants(ix, h.entries.filter((e) => e.kind === 'grant' && e.target === d).map((e) => e.id))
+    expect(cur('C')).toEqual(['gC2'])
+    const { earlier } = seniority(ix, cur)
+    expect(earlier('D', 'C')).toBe(true)
+    expect(earlier('C', 'D')).toBe(false)
+  })
+
+  it('earlier() is a strict partial order (irreflexive, asymmetric, transitive) over random histories', () => {
+    let triples = 0
+    const bad = []
+    for (const seed of seeds) {
+      const e = randomHistory(seed)
+      const ix = indexHistory(e)
+      const devs = [...new Set(e.filter((x) => x.kind !== 'revoke').map((x) => x.target))]
+      const cur = (d) => currentGrants(ix, e.filter((x) => x.kind !== 'revoke' && x.target === d).map((x) => x.id))
+      const { earlier } = seniority(ix, cur)
+      for (const a of devs) {
+        if (earlier(a, a)) bad.push(`${seed} irreflexive ${a}`)
+        for (const b of devs) {
+          if (earlier(a, b) && earlier(b, a)) bad.push(`${seed} asym ${a} ${b}`)
+          for (const c of devs) {
+            if (earlier(a, b) && earlier(b, c)) {
+              triples++
+              if (!earlier(a, c)) bad.push(`${seed} trans ${a}<${b}<${c}`)
+            }
+          }
+        }
+      }
+    }
+    console.log(`T353 A.3 partial-order: ${triples} transitive triples checked, ${bad.length} failures`, bad.slice(0, 3).join(';'))
+    expect(bad).toEqual([])
+  })
+
+  it('senior pick is order-independent over random device subsets (orders of devices and of entries)', () => {
+    let picks = 0
+    let ties = 0
+    const bad = []
+    for (const seed of seeds) {
+      const e = randomHistory(seed)
+      const rnd = mulberry32(seed * 31)
+      const devs = [...new Set(e.filter((x) => x.kind !== 'revoke').map((x) => x.target))]
+      for (let k = 0; k < 4 && devs.length > 1; k++) {
+        const subset = devs.filter(() => rnd() < 0.7)
+        if (subset.length < 2) continue
+        const results = new Set()
+        for (let p = 0; p < 6; p++) {
+          const ent = [...e].sort(() => rnd() - 0.5)
+          const ix = indexHistory(ent)
+          const cur = (d) => currentGrants(ix, ent.filter((x) => x.kind !== 'revoke' && x.target === d).map((x) => x.id))
+          const stats = {}
+          results.add(seniority(ix, cur).pick([...subset].sort(() => rnd() - 0.5), 'camp', stats))
+          if (stats.hashTies && p === 0) ties++
+        }
+        picks++
+        if (results.size !== 1) bad.push(`seed ${seed} subset ${subset}: ${[...results]}`)
+      }
+    }
+    console.log(`T353 A.3 senior-pick: ${picks} subsets x6 orders, ${ties} used the hash tie-break, ${bad.length} failures`, bad.slice(0, 3).join(';'))
+    expect(bad).toEqual([])
+  })
+
+  it('concurrent grants: tie-break depends on (grant ids + camp id), not device ids', () => {
+    const h = history().genesis('g0', 'A').grant('gB', 'A', 'B', ['g0']).grant('gC', 'A', 'C', ['g0'])
+    const ix = indexHistory(h.entries)
+    const cur = (d) => currentGrants(ix, h.entries.filter((e) => e.kind === 'grant' && e.target === d).map((e) => e.id))
+    const { pick } = seniority(ix, cur)
+    const stats = {}
+    const w1 = pick(['B', 'C'], 'camp-1', stats)
+    const w2 = pick(['C', 'B'], 'camp-1', stats)
+    expect(w1).toBe(w2)
+    expect(stats.hashTies).toBe(2)
+    const seen = new Set(Array.from({ length: 30 }, (_, i) => pick(['B', 'C'], 'camp-' + i)))
+    expect(seen.size).toBe(2)
+  })
+
+  it('seniority tie-break stats over random corpus', () => {
+    const stats = {}
+    for (const s of seeds) todayRule(randomHistory(s), { tieBreak: 'seniority', stats })
+    console.log('T353 A random corpus hash tie-breaks used:', stats.hashTies || 0)
+  })
+})
+
+// ---------------------------------------------------------------------------------------------
+// T354 Part B: sock-puppet grants
+// ---------------------------------------------------------------------------------------------
+describe.each([['plain', {}], ['seniority', { tieBreak: 'seniority' }]])('T354 sock-puppet candidate (%s)', (_n, base) => {
+  const seeds = [...Array.from({ length: 500 }, (_, i) => i + 1), 209]
+  const withSock = (e) => todayRule(e, { ...base, sockFilter: true })
+  const sad = (e) => sorted(withSock(e).admins)
+
+  // 4-admin camp A,B,M then S: A founder grants B, M; M grants S AFTER A's revoke vote against M.
+  const probe = (sockBeforeVote) => {
+    const { h, last } = camp('B', 'M')
+    if (sockBeforeVote) {
+      h.grant('gS', 'M', 'S', [last])
+      h.revoke('vA', 'A', 'M', ['gS'])
+      h.revoke('bM', 'M', 'B', ['gS']).revoke('bS', 'S', 'B', ['gS'])
+    } else {
+      h.revoke('vA', 'A', 'M', [last])
+      h.grant('gS', 'M', 'S', ['vA'])
+      h.revoke('bM', 'M', 'B', ['gS']).revoke('bS', 'S', 'B', ['gS'])
+    }
+    h.revoke('aM2', 'A', 'M', ['bM', 'bS']).revoke('aS', 'A', 'S', ['bM', 'bS'])
+    return h.entries
+  }
+
+  it('probe: M grants S after A voted against M; M+S revoke B -> honest B survives (no filter: B removed)', () => {
+    const e = probe(false)
+    const without = sorted(todayRule(e, base).admins)
+    const withF = sad(e)
+    console.log(`T354 probe(${_n}) post-vote sock: without filter [${without}], with filter [${withF}]`)
+    expect(without).not.toContain('B')
+    expect(withF).toContain('B')
+    expect(withF).toContain('A')
+  })
+
+  it('RESIDUAL: sock granted BEFORE any vote against M still defeats the filter', () => {
+    const e = probe(true)
+    const withF = sad(e)
+    console.log(`T354 residual(${_n}) pre-vote sock: with filter [${withF}]`)
+    expect(withF).not.toContain('B')
+  })
+
+  it('unique + order independent (500 seeds + 209, 6 perms each)', () => {
+    let bad = 0
+    for (const s of seeds) {
+      const b = randomHistory(s)
+      const want = JSON.stringify(sad(b))
+      const rnd = mulberry32(s * 7)
+      for (let k = 0; k < 6; k++) if (JSON.stringify(sad([...b].sort(() => rnd() - 0.5))) !== want) bad++
+    }
+    console.log(`T354 order-independence(${_n}): ${bad} failures over ${seeds.length * 6} runs`)
+    expect(bad).toBe(0)
+  })
+
+  it('never zero admins (500 seeds + 209)', () => {
+    const bad = seeds.filter((s) => sad(randomHistory(s)).length === 0)
+    const baseline = seeds.filter((s) => sorted(todayRule(randomHistory(s), base).admins).length === 0)
+    console.log(`T354 never-zero(${_n}): ${bad.length} failures (same rule without sockFilter: ${baseline.length})`, bad.slice(0, 5))
+    expect(bad.filter((s) => !baseline.includes(s))).toEqual([])
+    if (base.tieBreak) expect(bad).toEqual([])
+  })
+
+  it('differential: equal to the unfiltered rule on histories with no grant after a vote against its signer', () => {
+    let same = 0
+    let diff = 0
+    let skipped = 0
+    const bad = []
+    for (const s of seeds) {
+      const e = randomHistory(s)
+      const ix = indexHistory(e)
+      const tainted = e.some(
+        (g) =>
+          g.kind === 'grant' &&
+          [...ix.anc(g.id)].some((v) => ix.byId.get(v).kind === 'revoke' && ix.byId.get(v).target === g.signer)
+      )
+      if (tainted) {
+        skipped++
+        continue
+      }
+      same++
+      if (JSON.stringify(sad(e)) !== JSON.stringify(sorted(todayRule(e, base).admins))) bad.push(s)
+    }
+    for (const s of seeds) if (JSON.stringify(sad(randomHistory(s))) !== JSON.stringify(sorted(todayRule(randomHistory(s), base).admins))) diff++
+    console.log(`T354 differential(${_n}): ${same} untainted seeds compared, ${bad.length} differ; ${skipped} tainted skipped; overall ${diff} seeds differ`)
+    expect(bad).toEqual([])
   })
 })

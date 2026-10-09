@@ -5,6 +5,7 @@
 // History: entries { id, kind: 'genesis'|'grant'|'revoke', signer, target, deps: [ids] } forming a
 // DAG (Automerge-like causal order; every entry's ancestors are the transitive closure of deps).
 // Signatures are assumed already verified. A genesis entry has signer null and target = founder.
+import { createHash } from 'node:crypto'
 import { quorumThreshold } from './authorityReplay.js'
 
 export { quorumThreshold }
@@ -38,11 +39,64 @@ export function indexHistory(entries) {
 //   - fixed point: target removed when distinct surviving voters >= quorumThreshold(|granted|)
 //     with |granted| read at the evaluated point (heads), including the target
 // ---------------------------------------------------------------------------------------------
-export function todayRule(entries, { filterVotes: fv = false, tieBreak = null } = {}) {
+export const tieHash = (grantIds, campId) =>
+  createHash('sha256').update([...grantIds].sort().join('|') + '#' + campId).digest('hex')
+
+// A device's CURRENT grants: its grants that no other grant of the same device descends from
+// (the grant(s) in effect at heads, not an older one from before a removal and re-grant).
+export function currentGrants(ix, allGrantIds) {
+  return allGrantIds.filter((g) => !allGrantIds.some((h) => h !== g && ix.anc(h).has(g)))
+}
+
+// earlier(a,b): a strictly more senior than b. Founder first; else every current grant of b has a
+// current grant of a in its ancestry. A strict partial order (transitive: ancestry composes).
+export function seniority(ix, curGrants) {
+  const earlier = (a, b) => {
+    if (a === ix.founder) return b !== ix.founder
+    if (b === ix.founder) return false
+    const ga = curGrants(a)
+    const gb = curGrants(b)
+    return gb.every((x) => ga.some((y) => ix.anc(x).has(y)))
+  }
+  const pick = (devices, campId, stats) => {
+    const ds = [...devices]
+    const minimal = ds.filter((d) => !ds.some((e) => e !== d && earlier(e, d)))
+    if (minimal.length === 1) return minimal[0]
+    if (stats) stats.hashTies = (stats.hashTies || 0) + 1
+    const h = (d) => tieHash(d === ix.founder ? ['founder'] : curGrants(d), campId)
+    return minimal.sort((a, b) => (h(a) < h(b) ? -1 : h(a) > h(b) ? 1 : 0))[0]
+  }
+  return { earlier, pick }
+}
+
+export function todayRule(entries, { filterVotes: fv = false, tieBreak = null, campId = 'camp', sockFilter = false, stats = null } = {}) {
   const filterVotes = fv || tieBreak != null
   const ix = indexHistory(entries)
   const memo = new Map()
   const ALL = '\u0000heads'
+  const taintMemo = new Map()
+  // sockFilter: a grant is tainted when its signer had an outstanding revoke vote against it in the
+  // grant's ancestry, or when the signer itself only holds tainted grants (sock grants sock).
+  function tainted(id) {
+    if (taintMemo.has(id)) return taintMemo.get(id)
+    const e = ix.byId.get(id)
+    const s = e.signer
+    const past = ix.anc(id)
+    const validGrantsOf = (t) =>
+      [...past].filter((g) => {
+        const x = ix.byId.get(g)
+        return x.kind === 'grant' && x.target === t && x.signer !== t && stateAt(g).granted.has(x.signer)
+      })
+    const sGrants = validGrantsOf(s)
+    const outstanding = [...past].some((v) => {
+      const x = ix.byId.get(v)
+      if (x.kind !== 'revoke' || x.target !== s || x.signer === s || !stateAt(v).granted.has(x.signer)) return false
+      return !sGrants.some((g) => ix.anc(g).has(v))
+    })
+    const out = outstanding || (s !== ix.founder && sGrants.length > 0 && sGrants.every(tainted))
+    taintMemo.set(id, out)
+    return out
+  }
 
   function stateAt(key) {
     if (memo.has(key)) return memo.get(key)
@@ -84,6 +138,11 @@ export function todayRule(entries, { filterVotes: fv = false, tieBreak = null } 
         votes.get(target).add(signer)
       }
     }
+    const sock = new Set()
+    if (sockFilter) {
+      for (const [t, gs] of grantIds) if (t !== ix.founder && [...gs].every(tainted)) sock.add(t)
+    }
+    const nEff = () => [...granted].filter((d) => !sock.has(d)).length
     if (filterVotes) {
       // Sticky rounds. C = targets that reach the threshold when every remaining signer's vote counts.
       // A target in C may itself be a signer of votes that only exist because it is being removed
@@ -91,8 +150,8 @@ export function todayRule(entries, { filterVotes: fv = false, tieBreak = null } 
       // votes by members of C are dropped. If C is non-empty but nothing survives that test the round
       // removes nothing (a deadlock: safe, deterministic, label-free). No iteration order is consulted.
       const reach = (t, excluded) => {
-        const th = quorumThreshold(granted.size)
-        return [...votes.get(t)].filter((s) => granted.has(s) && !excluded.has(s)).length >= th
+        const th = quorumThreshold(nEff())
+        return [...votes.get(t)].filter((s) => granted.has(s) && !excluded.has(s) && !sock.has(s)).length >= th
       }
       for (;;) {
         const C = new Set([...votes.keys()].filter((t) => granted.has(t) && reach(t, new Set())))
@@ -101,22 +160,11 @@ export function todayRule(entries, { filterVotes: fv = false, tieBreak = null } 
           if (tieBreak !== 'seniority' || C.size === 0) break
           // variant (i): in a symmetric standoff the causally-senior admin prevails (founder, then
           // grant causally earliest, concurrent grants by lowest device id); the rest of C go.
-          const gOf = (d) => (d === ix.founder ? null : [...(grantIds.get(d) || [])])
-          const earlier = (a, b) => {
-            if (a === ix.founder) return b !== ix.founder
-            if (b === ix.founder) return false
-            const ga = gOf(a)
-            const gb = gOf(b)
-            return gb.every((x) => ga.some((y) => ix.anc(x).has(y)))
-          }
-          const ordered = [...C].sort()
-          const winner = ordered.reduce((w, d) => {
-            const dw = earlier(d, w)
-            const wd = earlier(w, d)
-            if (dw && !wd) return d
-            return w
-          })
-          for (const t of C) if (t !== winner) granted.delete(t)
+          const curGrants = (d) => currentGrants(ix, [...(grantIds.get(d) || [])])
+          const winner = seniority(ix, curGrants).pick(C, campId, stats)
+          const losers = [...C].filter((t) => t !== winner && votes.get(t).has(winner))
+          if (losers.length === 0) break
+          for (const t of losers) granted.delete(t)
           continue
         }
         for (const t of dead) granted.delete(t)
@@ -127,7 +175,7 @@ export function todayRule(entries, { filterVotes: fv = false, tieBreak = null } 
         changed = false
         for (const [target, voters] of votes) {
           if (!granted.has(target)) continue
-          if (voters.size >= quorumThreshold(granted.size)) {
+          if ([...voters].filter((v) => !sock.has(v)).length >= quorumThreshold(nEff())) {
             granted.delete(target)
             changed = true
           }
