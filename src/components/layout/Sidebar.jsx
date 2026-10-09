@@ -369,7 +369,10 @@ export default function Sidebar({
         padding: '10px 20px', borderTop: '1px solid var(--border)', flexShrink: 0,
         fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)',
       }}>
-        {(syncStatus?.state === 'host-not-syncing' || syncStatus?.state === 'sync-blocked') && (
+        {/* A12: with no other paired device there is nothing to sync with, so a
+            node that is not running is not a failure — say nothing. */}
+        {syncStatus?.otherDeviceCount > 0 &&
+          (syncStatus.state === 'host-not-syncing' || syncStatus.state === 'sync-blocked') && (
           <SyncNotRunningRow
             syncStatus={syncStatus}
             retrying={retrying}
@@ -504,25 +507,22 @@ function SyncNotRunningRow({ syncStatus, retrying, onRetrySync, onNavigate }) {
       title={title}
       onClick={handleClick}
       style={{
-        display: 'flex', alignItems: 'center', gap: 6, width: '100%',
+        display: 'flex', alignItems: 'baseline', gap: 6, width: '100%',
         padding: '4px 0 8px', border: 'none', background: 'none', cursor: 'pointer',
-        textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        textAlign: 'left',
         ...transition,
       }}
     >
       <span style={{ flexShrink: 0, fontSize: 8, color: 'var(--danger)' }}>●</span>
-      <span style={{
-        fontFamily: 'var(--font-mono)', fontSize: 11, overflow: 'hidden',
-        textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-      }}>
+      {/* Wraps rather than ellipsizes: the action word is the point of the flag. */}
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>
         {/* Deliberately NOT syncStatusLabel(syncStatus).text — that yields the gear-menu's
             'not sharing'/'not syncing' wording. This footer's visible copy is the owner-mandated
             'sync not running' phrasing (T277); only the .title tooltip is shared with the gear menu.
             Do not "unify" this into lan.text — the divergence is intentional. */}
         <span style={{ color: 'var(--danger)' }}>sync not running</span>
-        {isHostNotSyncing && (
-          <>
-            {' · '}
+        {' · '}
+        {isHostNotSyncing ? (
             <span
               style={{
                 display: 'inline-block', minWidth: '4.2em',
@@ -534,7 +534,8 @@ function SyncNotRunningRow({ syncStatus, retrying, onRetrySync, onNavigate }) {
               onMouseEnter={e => { if (!retrying) e.currentTarget.style.textDecoration = 'underline' }}
               onMouseLeave={e => { e.currentTarget.style.textDecoration = 'none' }}
             >{retrying ? 'trying…' : 'try again'}</span>
-          </>
+        ) : (
+          <span style={{ color: 'var(--text-secondary)' }}>open Devices</span>
         )}
       </span>
     </button>

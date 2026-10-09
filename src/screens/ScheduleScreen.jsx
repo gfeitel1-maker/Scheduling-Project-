@@ -39,7 +39,7 @@ import DeleteWeekDialog from '../components/schedule/DeleteWeekDialog'
 import { useGeneration } from './schedule/useGeneration'
 import { useSlotMutations } from './schedule/useSlotMutations'
 import { ROUTES, useRouteState } from './schedule/useRouteState'
-import { useScheduleData, recalcStats as recalcStatsPure, recalcFindings as recalcFindingsPure } from './schedule/useScheduleData'
+import { useScheduleData, recalcStats as recalcStatsPure, recalcFindings as recalcFindingsPure, unfillableSlots as unfillableSlotsPure } from './schedule/useScheduleData'
 import { findingDismissKey } from './schedule/findingKey'
 import { useFlagChangeAck } from './schedule/useFlagChangeAck'
 import { useContentRaceFlag } from './schedule/useContentRaceFlag'
@@ -602,9 +602,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   //
   // OVERLAP is no longer the mirror of that (T159): it derives on both routes,
   // like WEEK_CLOSED, because a merge can produce a clash on either one.
-  const unfillableSlots = isManual
-    ? []
-    : flagSlots.filter(s => s.flags?.UNFILLABLE && !s.flags?.UNFILLABLE_dismissed)
+  const unfillableSlots = unfillableSlotsPure(flagSlots, route)
   const overlapSlots = flagSlots.filter(s => s.flags?.OVERLAP)
   // WEEK_CLOSED is derived on both routes (see the `slots` memo), so its rail
   // rows and cell markers are not gated to the manual route.
@@ -1468,12 +1466,10 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
 
       {exportChoosing && (
         <ExportChooserModal
-          options={ROUTES.map(r => ({
-            key: r,
-            title: ROUTE_COPY[r].label,
-            filled: slotsByRoute[r].filter(x => x.is_fixed_event === false && x.activity_id).length,
-            total: slotsByRoute[r].filter(x => x.is_fixed_event === false).length,
-          }))}
+          options={ROUTES.map(r => {
+            const { filled, open } = recalcStatsPure(slotsByRoute[r], replacedDayIds)
+            return { key: r, title: ROUTE_COPY[r].label, filled, total: open }
+          })}
           formatLabel={exportFormat === 'json' ? 'a data file (JSON)' : 'Excel'}
           onChoose={r => { setExportChoosing(false); exportRoute(r, exportFormat) }}
           onCancel={() => setExportChoosing(false)}
