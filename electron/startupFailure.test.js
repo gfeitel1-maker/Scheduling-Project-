@@ -19,8 +19,9 @@ describe('describeStartupFailure', () => {
   it('gives the director an action, not only a diagnosis', () => {
     // They are completely stuck: the app will not open. A message that only
     // names the fault leaves them exactly where they were.
-    const { message } = describeStartupFailure(ABI_ERROR, null)
-    expect(message).toMatch(/reinstall/i)
+    const { message } = describeStartupFailure(ABI_ERROR, '/tmp/startup-error.log')
+    expect(message).toMatch(/send this file to whoever set up shoresh/i)
+    expect(message).not.toMatch(/normal fix|reopen|reinstall/i)
   })
 
   it('names the schedule file rather than the database, for a database failure', () => {
