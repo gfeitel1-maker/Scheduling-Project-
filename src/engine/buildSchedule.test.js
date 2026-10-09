@@ -13,7 +13,7 @@ function minimal(overrides = {}) {
     timeBlocks: [baseBlock],
     activities: [],
     fixedEvents: [],
-    campId: 'test',
+    campId: 'test', replacedDayIds: [],
     ...overrides,
   }
 }
@@ -513,7 +513,7 @@ describe('computeFindings (placement-free recompute from persisted slots)', () =
     const slots = [
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'a1', is_fixed_event: false, flags: {} },
     ]
-    const findings = computeFindings({ slots, groups, activities: [act], days })
+    const findings = computeFindings({ replacedDayIds: [],  slots, groups, activities: [act], days })
     expect(findings).toHaveLength(1)
     expect(findings[0].kind).toBe('UNDERSERVED')
     expect(findings[0].groupId).toBe('g1')
@@ -527,7 +527,7 @@ describe('computeFindings (placement-free recompute from persisted slots)', () =
     const slots = [
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'a1', is_fixed_event: false, flags: {} },
     ]
-    expect(computeFindings({ slots, groups, activities: [act], days })).toHaveLength(0)
+    expect(computeFindings({ replacedDayIds: [],  slots, groups, activities: [act], days })).toHaveLength(0)
   })
 
   it('emits DISTRIBUTION when persisted placements land after the prefer_before_day target', () => {
@@ -537,7 +537,7 @@ describe('computeFindings (placement-free recompute from persisted slots)', () =
     const slots = [
       { group_id: 'g1', day_id: 'd2', time_block_id: 'b1', activity_id: 'a1', is_fixed_event: false, flags: {} },
     ]
-    const findings = computeFindings({ slots, groups, activities: [act], days: [baseDay, day2] })
+    const findings = computeFindings({ replacedDayIds: [],  slots, groups, activities: [act], days: [baseDay, day2] })
     expect(findings.filter(f => f.kind === 'DISTRIBUTION')).toHaveLength(1)
   })
 
@@ -547,7 +547,7 @@ describe('computeFindings (placement-free recompute from persisted slots)', () =
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'a1', is_fixed_event: true, flags: {} },
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null, is_fixed_event: false, flags: {} },
     ]
-    const findings = computeFindings({ slots, groups, activities: [act], days })
+    const findings = computeFindings({ replacedDayIds: [],  slots, groups, activities: [act], days })
     expect(findings.filter(f => f.kind === 'UNDERSERVED')).toHaveLength(1)
     expect(findings[0].got).toBe(0)
   })
@@ -566,7 +566,7 @@ describe('computeFindings (placement-free recompute from persisted slots)', () =
       { group_id: 'g1', day_id: 'd2', time_block_id: 'b1', activity_id: 'a1', is_fixed_event: false, is_span_head: true, flags: {} },
       { group_id: 'g1', day_id: 'd2', time_block_id: 'b2', activity_id: 'a1', is_fixed_event: false, is_span_head: false, flags: {} },
     ]
-    const findings = computeFindings({ slots, groups, activities: [act], days: [baseDay, day2] })
+    const findings = computeFindings({ replacedDayIds: [],  slots, groups, activities: [act], days: [baseDay, day2] })
     const underserved = findings.filter(f => f.kind === 'UNDERSERVED')
     expect(underserved).toHaveLength(1)
     expect(underserved[0].got).toBe(2)
@@ -579,7 +579,7 @@ describe('computeFindings (placement-free recompute from persisted slots)', () =
     const slots = [
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'a1', is_fixed_event: false, flags: {} },
     ]
-    const findings = computeFindings({ slots, groups, activities: [act], days })
+    const findings = computeFindings({ replacedDayIds: [],  slots, groups, activities: [act], days })
     expect(findings[0].got).toBe(1)
   })
 
@@ -591,12 +591,12 @@ describe('computeFindings (placement-free recompute from persisted slots)', () =
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'a1', is_fixed_event: false, is_span_head: true, flags: {} },
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'a1', is_fixed_event: false, is_span_head: false, flags: {} },
     ]
-    const findings = computeFindings({ slots, groups, activities: [act], days: [baseDay, day2] })
+    const findings = computeFindings({ replacedDayIds: [],  slots, groups, activities: [act], days: [baseDay, day2] })
     expect(findings.filter(f => f.kind === 'DISTRIBUTION')).toHaveLength(1)
   })
 
   it('returns [] when required inputs are missing rather than throwing', () => {
-    expect(computeFindings({})).toEqual([])
+    expect(computeFindings({ replacedDayIds: [], })).toEqual([])
   })
 })
 
@@ -617,7 +617,7 @@ describe('computeFindings FIXED_EVENT_DUPLICATE (T182 stale anchor/regular dupli
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'anchor-slot', is_fixed_event: true, flags: {} },
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'lunch', is_fixed_event: false, flags: {} },
     ]
-    const findings = computeFindings({ slots, groups, activities: [lunch], days, fixedEvents: [anchor], weekId: null })
+    const findings = computeFindings({ replacedDayIds: [],  slots, groups, activities: [lunch], days, fixedEvents: [anchor], weekId: null })
     const dup = findings.filter(f => f.kind === 'FIXED_EVENT_DUPLICATE')
     expect(dup).toHaveLength(1)
     expect(dup[0]).toMatchObject({ kind: 'FIXED_EVENT_DUPLICATE', groupId: 'g1', activityId: 'lunch', severity: 'caution' })
@@ -640,7 +640,7 @@ describe('computeFindings FIXED_EVENT_DUPLICATE (T182 stale anchor/regular dupli
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'anchor-slot', is_fixed_event: true, flags: {} },
       { group_id: 'g1', day_id: 'd2', time_block_id: 'b1', activity_id: 'swim', is_fixed_event: false, flags: {} },
     ]
-    const findings = computeFindings({ slots, groups, activities: [swim], days: [baseDay, day2], fixedEvents: [anchor], weekId: null })
+    const findings = computeFindings({ replacedDayIds: [],  slots, groups, activities: [swim], days: [baseDay, day2], fixedEvents: [anchor], weekId: null })
     expect(findings.filter(f => f.kind === 'FIXED_EVENT_DUPLICATE')).toHaveLength(0)
   })
 
@@ -652,7 +652,7 @@ describe('computeFindings FIXED_EVENT_DUPLICATE (T182 stale anchor/regular dupli
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'anchor-slot', is_fixed_event: true, flags: {} },
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'swim', is_fixed_event: false, flags: {} },
     ]
-    const findings = computeFindings({ slots, groups, activities: [swim], days: [baseDay, day2], fixedEvents: [anchor], weekId: null })
+    const findings = computeFindings({ replacedDayIds: [],  slots, groups, activities: [swim], days: [baseDay, day2], fixedEvents: [anchor], weekId: null })
     expect(findings.filter(f => f.kind === 'FIXED_EVENT_DUPLICATE')).toHaveLength(1)
   })
 
@@ -661,7 +661,7 @@ describe('computeFindings FIXED_EVENT_DUPLICATE (T182 stale anchor/regular dupli
     const slots = [
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, is_fixed_event: true, flags: {} },
     ]
-    const findings = computeFindings({ slots, groups, activities: [lunch], days, fixedEvents: [anchor], weekId: null })
+    const findings = computeFindings({ replacedDayIds: [],  slots, groups, activities: [lunch], days, fixedEvents: [anchor], weekId: null })
     expect(findings.filter(f => f.kind === 'FIXED_EVENT_DUPLICATE')).toHaveLength(0)
   })
 
@@ -690,7 +690,7 @@ describe('computeFindings FIXED_EVENT_DUPLICATE (T182 stale anchor/regular dupli
     // schedule on screen is unchanged (still holds the regular Lunch slot).
     const linkedAnchor = { ...staleAnchor, activity_id: 'lunch' }
     const dbSlots = slots.map(s => ({ group_id: s.groupId, day_id: s.dayId, time_block_id: s.blockId, activity_id: s.activityId, is_fixed_event: s.type === 'fixed_event', is_span_head: s.is_span_head, flags: {} }))
-    const findings = computeFindings({ slots: dbSlots, groups, activities: [lunch], days, fixedEvents: [linkedAnchor], weekId: null })
+    const findings = computeFindings({ replacedDayIds: [],  slots: dbSlots, groups, activities: [lunch], days, fixedEvents: [linkedAnchor], weekId: null })
     const dup = findings.filter(f => f.kind === 'FIXED_EVENT_DUPLICATE')
     expect(dup).toHaveLength(1)
     expect(dup[0]).toMatchObject({ groupId: 'g1', activityId: 'lunch' })
@@ -705,7 +705,7 @@ describe('computeFindings FIXED_EVENT_DUPLICATE (T182 stale anchor/regular dupli
     expect(regularLunch).toHaveLength(0)
 
     const dbSlots = slots.map(s => ({ group_id: s.groupId, day_id: s.dayId, time_block_id: s.blockId, activity_id: s.activityId, is_fixed_event: s.type === 'fixed_event', is_span_head: s.is_span_head, flags: {} }))
-    const findings = computeFindings({ slots: dbSlots, groups, activities: [lunch], days, fixedEvents: [inSyncAnchor], weekId: null })
+    const findings = computeFindings({ replacedDayIds: [],  slots: dbSlots, groups, activities: [lunch], days, fixedEvents: [inSyncAnchor], weekId: null })
     expect(findings.filter(f => f.kind === 'FIXED_EVENT_DUPLICATE')).toHaveLength(0)
   })
 
@@ -716,7 +716,7 @@ describe('computeFindings FIXED_EVENT_DUPLICATE (T182 stale anchor/regular dupli
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'anchor-slot', is_fixed_event: true, flags: {} },
       { group_id: 'g2', day_id: 'd1', time_block_id: 'b2', activity_id: 'lunch', is_fixed_event: false, flags: {} },
     ]
-    const findings = computeFindings({ slots, groups: [baseGroup, g2], activities: [lunch], days, fixedEvents: [anchor], weekId: null })
+    const findings = computeFindings({ replacedDayIds: [],  slots, groups: [baseGroup, g2], activities: [lunch], days, fixedEvents: [anchor], weekId: null })
     expect(findings.filter(f => f.kind === 'FIXED_EVENT_DUPLICATE')).toHaveLength(0)
   })
 
@@ -724,7 +724,7 @@ describe('computeFindings FIXED_EVENT_DUPLICATE (T182 stale anchor/regular dupli
     const slots = [
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'lunch', is_fixed_event: false, flags: {} },
     ]
-    const findings = computeFindings({ slots, groups, activities: [lunch], days })
+    const findings = computeFindings({ replacedDayIds: [],  slots, groups, activities: [lunch], days })
     expect(findings.filter(f => f.kind === 'FIXED_EVENT_DUPLICATE')).toHaveLength(0)
   })
 
@@ -741,7 +741,7 @@ describe('computeFindings FIXED_EVENT_DUPLICATE (T182 stale anchor/regular dupli
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'swim', is_fixed_event: false, flags: {} },
     ]
     const activityExclusions = [{ week_id: 'week-1', activity_id: 'swim' }]
-    const findings = computeFindings({
+    const findings = computeFindings({ replacedDayIds: [], 
       slots, groups, activities: [swim], days, fixedEvents: [anchor], weekId: 'week-1',
       activityExclusions, groupExclusions: [], locationExclusions: [],
     })
@@ -754,7 +754,7 @@ describe('computeFindings FIXED_EVENT_DUPLICATE (T182 stale anchor/regular dupli
     const slots = [
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'swim', is_fixed_event: false, flags: {} },
     ]
-    const findings = computeFindings({
+    const findings = computeFindings({ replacedDayIds: [], 
       slots, groups, activities: [swim], days, fixedEvents: [anchor], weekId: 'week-1',
       activityExclusions: [], groupExclusions: [], locationExclusions: [],
     })
@@ -858,7 +858,7 @@ describe('preplacedSlots (locking)', () => {
       timeBlocks: [baseBlock],
       activities: [pool],
       fixedEvents: [],
-      campId: 'test',
+      campId: 'test', replacedDayIds: [],
       preplacedSlots: preplaced,
     })
     // g1 is preplaced at d1/b1. g2 should also get pool there (capacity=2). g3 should NOT.
@@ -886,7 +886,7 @@ describe('place capacity keyed by location_id (M2)', () => {
   function run({ activities, locations = [], groups, tiers = [{ id: 't1', name: 'Junior' }] }) {
     return buildSchedule({
       groups, tiers, days: [mDay], timeBlocks: [mBlock],
-      activities, fixedEvents: [], campId: 'test', locations,
+      activities, fixedEvents: [], campId: 'test', replacedDayIds: [], locations,
     })
   }
 
@@ -1002,7 +1002,7 @@ describe('capacity-lookup robustness (M3a round-2)', () => {
   function run({ activities, locations = [], groups, tiers = [{ id: 't1', name: 'Junior' }] }) {
     return buildSchedule({
       groups, tiers, days: [mDay], timeBlocks: [mBlock],
-      activities, fixedEvents: [], campId: 'test', locations,
+      activities, fixedEvents: [], campId: 'test', replacedDayIds: [], locations,
     })
   }
 
@@ -1080,7 +1080,7 @@ describe('span-tail place capacity (M2 round-2)', () => {
   function run({ activities, locations = [], groups, tiers = [{ id: 't1', name: 'Junior' }], preplacedSlots = [] }) {
     return buildSchedule({
       groups, tiers, days: [d1], timeBlocks: [b1, b2],
-      activities, fixedEvents: [], campId: 'test', locations, preplacedSlots,
+      activities, fixedEvents: [], campId: 'test', replacedDayIds: [], locations, preplacedSlots,
     })
   }
 
@@ -1170,7 +1170,7 @@ describe('overlay location contention (Slice 4)', () => {
       groups: over.groups, tiers: over.tiers || [{ id: 't1', name: 'Junior' }],
       days: over.days || [oDay], timeBlocks: over.timeBlocks || [oBlock],
       activities: over.activities || [], fixedEvents: over.fixedEvents || [],
-      campId: 'test', locations: over.locations || [],
+      campId: 'test', replacedDayIds: [], locations: over.locations || [],
       preplacedSlots: over.preplacedSlots || [],
       electiveSetActivities: over.electiveSetActivities || [],
       events: over.events || [],
@@ -1405,7 +1405,7 @@ function cohortInput(overrides = {}) {
     }],
     days: [{ id: 'd1', label: 'Monday', day_of_week: 1, sort_order: 0 }],
     activities: [baseAct],
-    campId: 'test',
+    campId: 'test', replacedDayIds: [],
     ...overrides,
   }
 }
@@ -1421,7 +1421,7 @@ describe('cohorts array signature', () => {
       timeBlocks: [blockA],
       activities: [{ ...baseAct }],
       fixedEvents: [],
-      campId: 'test',
+      campId: 'test', replacedDayIds: [],
       preplacedSlots: [],
     })
 
@@ -1436,7 +1436,7 @@ describe('cohorts array signature', () => {
       }],
       days: [{ id: 'd1', label: 'Monday', day_of_week: 1, sort_order: 0 }],
       activities: [{ ...baseAct }],
-      campId: 'test',
+      campId: 'test', replacedDayIds: [],
     })
 
     // Same slots shape (modulo cohort_id field which is new)
@@ -1571,7 +1571,7 @@ describe('anchor unit_id scope', () => {
       timeBlocks: [blockA],
       activities: [],
       fixedEvents: [anchor],
-      campId: 'test',
+      campId: 'test', replacedDayIds: [],
     })
     const anchorSlots = result.slots.filter(s => s.type === 'fixed_event')
     expect(anchorSlots.map(s => s.groupId).sort()).toEqual(['g1', 'g2'].sort())
@@ -1587,7 +1587,7 @@ describe('anchor unit_id scope', () => {
       timeBlocks: [blockA],
       activities: [],
       fixedEvents: [anchor],
-      campId: 'test',
+      campId: 'test', replacedDayIds: [],
     })
     const anchorSlots = result.slots.filter(s => s.type === 'fixed_event')
     expect(anchorSlots.map(s => s.groupId).sort()).toEqual(['g1', 'g2'].sort())
@@ -1609,7 +1609,7 @@ describe('anchor unit_ids scope', () => {
   function run(anchor, groups) {
     return buildSchedule({
       groups, tiers, days: [baseDay], timeBlocks: [blockA],
-      activities: [], fixedEvents: [anchor], campId: 'test',
+      activities: [], fixedEvents: [anchor], campId: 'test', replacedDayIds: [],
     })
   }
 
@@ -1660,7 +1660,7 @@ describe('anchor group_ids scope', () => {
       timeBlocks: [blockA],
       activities: [],
       fixedEvents: [anchor],
-      campId: 'test',
+      campId: 'test', replacedDayIds: [],
     })
     const anchorSlots = result.slots.filter(s => s.type === 'fixed_event')
     expect(anchorSlots.map(s => s.groupId).sort()).toEqual(['g1', 'g3'])
@@ -1682,7 +1682,7 @@ describe('anchor span_blocks', () => {
       timeBlocks: [blockA, blockB],
       activities: [],
       fixedEvents: [anchor],
-      campId: 'test',
+      campId: 'test', replacedDayIds: [],
     })
     const anchorSlots = result.slots.filter(s => s.type === 'fixed_event')
     expect(anchorSlots).toHaveLength(2)
@@ -1698,7 +1698,7 @@ describe('anchor span_blocks', () => {
       timeBlocks: [blockA, blockB],
       activities: [],
       fixedEvents: [anchor],
-      campId: 'test',
+      campId: 'test', replacedDayIds: [],
     })
     const anchorSlots = result.slots.filter(s => s.type === 'fixed_event')
     const head = anchorSlots.find(s => s.blockId === 'bA')
@@ -1716,7 +1716,7 @@ describe('anchor span_blocks', () => {
       timeBlocks: [blockA, blockB, blockC],
       activities: [],
       fixedEvents: [anchor],
-      campId: 'test',
+      campId: 'test', replacedDayIds: [],
     })
     const anchorSlots = result.slots.filter(s => s.type === 'fixed_event')
     expect(anchorSlots).toHaveLength(3)
@@ -1731,7 +1731,7 @@ describe('anchor span_blocks', () => {
       timeBlocks: [blockA, blockB],
       activities: [],
       fixedEvents: [anchor],
-      campId: 'test',
+      campId: 'test', replacedDayIds: [],
     })
     const anchorSlots = result.slots.filter(s => s.type === 'fixed_event')
     expect(anchorSlots).toHaveLength(2)  // span=3, only 2 blocks available → 2 slots
@@ -1749,7 +1749,7 @@ describe('anchor span_blocks', () => {
       timeBlocks: [blockA, blockB, blockC],
       activities: [act],
       fixedEvents: [anchor],
-      campId: 'test',
+      campId: 'test', replacedDayIds: [],
     })
     const dramaSlots = result.slots.filter(s => s.activityId === 'a1')
     expect(dramaSlots.every(s => s.blockId === 'bC')).toBe(true)
@@ -1766,7 +1766,7 @@ describe('anchor scope edge cases', () => {
       timeBlocks: [blockA],
       activities: [],
       fixedEvents: [anchor],
-      campId: 'test',
+      campId: 'test', replacedDayIds: [],
     })
     const anchorSlots = result.slots.filter(s => s.type === 'fixed_event')
     expect(anchorSlots).toHaveLength(0)
@@ -1784,7 +1784,7 @@ describe('anchor scope edge cases', () => {
       timeBlocks: [blockA, blockB],
       activities: [],
       fixedEvents: [anchor],
-      campId: 'test',
+      campId: 'test', replacedDayIds: [],
     })
     const anchorSlots = result.slots.filter(s => s.type === 'fixed_event')
     // g1 and g2 each get 2 anchor slots (bA + bB), g3 gets none
@@ -1824,7 +1824,7 @@ describe('session counting (span = one session)', () => {
       timeBlocks: [blockA, blockB],
       activities: [spanAct],
       fixedEvents: [],
-      campId: 'test',
+      campId: 'test', replacedDayIds: [],
     })
   }
 
@@ -1850,7 +1850,7 @@ describe('session counting (span = one session)', () => {
         activity_id: s.activityId, is_fixed_event: false, is_span_head: s.is_span_head,
       }))
 
-    const recomputed = computeFindings({
+    const recomputed = computeFindings({ replacedDayIds: [], 
       slots: persisted, groups: [group], activities: [spanAct], days: [dayMon, dayTue],
     })
 
@@ -1885,7 +1885,7 @@ describe('activity eligible_group_ids as a raw array (T69)', () => {
       timeBlocks: [blockA, blockB],
       activities: activities.map(a => ({ ...a, max_groups_per_slot: null })),
       fixedEvents: [],
-      campId: 'test',
+      campId: 'test', replacedDayIds: [],
     })
   }
 
@@ -1957,7 +1957,7 @@ describe('computeFindings eligible_group_ids as a raw array (T69)', () => {
       eligible_tier_ids: [], eligible_group_ids: ['g1', 'g3'],
       prefer_before_day: null, prefer_before_day_min: null,
     }
-    const findings = computeFindings({ slots: [], groups, activities: [act], days })
+    const findings = computeFindings({ replacedDayIds: [],  slots: [], groups, activities: [act], days })
     expect(findings.map(f => f.groupId).sort()).toEqual(['g1', 'g3'])
   })
 
@@ -1967,7 +1967,7 @@ describe('computeFindings eligible_group_ids as a raw array (T69)', () => {
       eligible_tier_ids: [], eligible_group_ids: [],
       prefer_before_day: null, prefer_before_day_min: null,
     }
-    const findings = computeFindings({ slots: [], groups, activities: [act], days })
+    const findings = computeFindings({ replacedDayIds: [],  slots: [], groups, activities: [act], days })
     expect(findings.map(f => f.groupId).sort()).toEqual(['g1', 'g2', 'g3'])
   })
 
@@ -1979,7 +1979,7 @@ describe('computeFindings eligible_group_ids as a raw array (T69)', () => {
       eligible_tier_ids: null, eligible_group_ids: null,
       prefer_before_day: null, prefer_before_day_min: null,
     }
-    const findings = computeFindings({ slots: [], groups, activities: [act], days })
+    const findings = computeFindings({ replacedDayIds: [],  slots: [], groups, activities: [act], days })
     expect(findings.map(f => f.groupId).sort()).toEqual(['g1', 'g2', 'g3'])
   })
 
@@ -1988,7 +1988,7 @@ describe('computeFindings eligible_group_ids as a raw array (T69)', () => {
       id: 'a1', name: 'Archery', min_per_week: 2,
       prefer_before_day: null, prefer_before_day_min: null,
     }
-    const findings = computeFindings({ slots: [], groups, activities: [act], days })
+    const findings = computeFindings({ replacedDayIds: [],  slots: [], groups, activities: [act], days })
     expect(findings.map(f => f.groupId).sort()).toEqual(['g1', 'g2', 'g3'])
   })
 
@@ -1999,7 +1999,7 @@ describe('computeFindings eligible_group_ids as a raw array (T69)', () => {
       eligible_tier_ids: [], eligible_group_ids: ['g2'],
       prefer_before_day: 2, prefer_before_day_min: 1,
     }
-    const findings = computeFindings({ slots: [], groups, activities: [act], days: [baseDay, day2] })
+    const findings = computeFindings({ replacedDayIds: [],  slots: [], groups, activities: [act], days: [baseDay, day2] })
     expect(findings.filter(f => f.kind === 'DISTRIBUTION').map(f => f.groupId)).toEqual(['g2'])
   })
 })
@@ -2147,7 +2147,7 @@ describe('cross-cohort route conflicts', () => {
       ],
       days: [day],
       activities,
-      campId: 'test',
+      campId: 'test', replacedDayIds: [],
       locations,
       electiveSetActivities,
       events,

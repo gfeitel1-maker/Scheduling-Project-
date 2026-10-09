@@ -64,7 +64,7 @@ describe('resolvePriorityForGeneration + buildSchedule determinism', () => {
     ])
     return buildSchedule({
       groups: [baseGroup], tiers: [{ id: 't1', name: 'Junior' }], days: [baseDay],
-      timeBlocks: [baseBlock], activities, fixedEvents: [], campId: 'test',
+      timeBlocks: [baseBlock], activities, fixedEvents: [], campId: 'test', replacedDayIds: [],
     })
   }
 

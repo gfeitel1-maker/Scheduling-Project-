@@ -59,6 +59,7 @@ function setup(overrides = {}) {
     timeBlocks: [{ id: 'b1' }, { id: 'b2' }],
     fixedEvents: [{ id: 'anc-1' }],
     weekId: 'week-1',
+    replacedDayIds: [],
     ...rest,
   }
   const hook = renderHook((props) => useSnapshots(props), { initialProps: p })

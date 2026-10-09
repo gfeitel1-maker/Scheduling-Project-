@@ -323,7 +323,7 @@ function scheduleFromDb() {
   // pre-assembled cohort ENTRIES ({ cohort, timeBlocks, tiers, groups, ... }),
   // which the screen builds and the raw rows are not.
   const { cohorts: _cohorts, ...flat } = input
-  const result = buildSchedule({ ...flat, campId })
+  const result = buildSchedule({ ...flat, campId, replacedDayIds: [] })
   expect(result.slots.length).toBeGreaterThan(0)
   return result
 }

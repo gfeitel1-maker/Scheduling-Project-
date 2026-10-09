@@ -44,6 +44,7 @@ function buildInput() {
     fixedEvents: [fixedEventLunch, fixedEventGap],
     locations: [{ id: 'pool', name: 'Pool', capacity: 1 }],
     campId: 'det-pin-camp',
+    replacedDayIds: [],
   }
 }
 

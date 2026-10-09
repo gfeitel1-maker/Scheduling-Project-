@@ -99,7 +99,7 @@ describe('T267 PR2 — ingest writes fixed_events.activity_id', () => {
         groups, tiers: [], days, timeBlocks,
         activities: liveActivitiesMinusLunch.map(a => ({ ...a, eligible_tier_ids: [], eligible_group_ids: [] })),
         fixedEvents: [lunchAnchor],
-        campId,
+        campId, replacedDayIds: [],
       })
       const gap = result.findings.filter(f => f.kind === 'FIXED_EVENT_IDENTITY_GAP')
       expect(gap.length).toBeGreaterThan(0)
@@ -121,7 +121,7 @@ describe('T267 PR2 — ingest writes fixed_events.activity_id', () => {
       const allActivities = db.prepare('SELECT * FROM activities WHERE camp_id = ?').all(campId).map(a => ({ ...a, eligible_tier_ids: [], eligible_group_ids: [] }))
 
       const result = buildSchedule({
-        groups, tiers: [], days, timeBlocks, activities: allActivities, fixedEvents: [lunchAnchor], campId,
+        groups, tiers: [], days, timeBlocks, activities: allActivities, fixedEvents: [lunchAnchor], campId, replacedDayIds: [],
       })
       expect(result.findings.filter(f => f.kind === 'FIXED_EVENT_IDENTITY_GAP')).toHaveLength(0)
       // Non-vacuous: zero gap findings is also true when no fixed events were placed at all

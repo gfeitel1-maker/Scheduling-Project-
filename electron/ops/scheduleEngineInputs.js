@@ -27,8 +27,13 @@ import {
   SCHEDULE_INPUT_ENTITIES,
   normalizeScheduleInputs,
 } from './scheduleInputNormalization.js'
+import { resolveEffectiveDays } from '../../src/engine/effectiveDays.js'
 
-export function assembleScheduleEngineInputs(db, campId) {
+// `weekId` is explicit (null = no week): replaced days (T350, ADR 2026-10-09
+// D4) are a fact about a week, so without one nothing is replaced. `days` is
+// returned whole; buildSchedule/computeFindings apply `replacedDayIds` themselves.
+export function assembleScheduleEngineInputs(db, campId, weekId) {
+  if (weekId === undefined) throw new Error('assembleScheduleEngineInputs: weekId is required (null = no week)')
   // Fetch list DERIVED from the normalizer's own declared inputs, never
   // hand-listed here — that is what makes "a new setup list was added" a
   // one-place edit instead of a two-place one that compiles either way.
@@ -49,5 +54,13 @@ export function assembleScheduleEngineInputs(db, campId) {
     electiveSetActivities, events,
   } = normalizeScheduleInputs(rowsByEntity, campId)
 
-  return { groups, tiers, days, timeBlocks, activities, fixedEvents, locations, electiveSetActivities, events }
+  const { replacedDayIds } = weekId == null
+    ? { replacedDayIds: [] }
+    : resolveEffectiveDays({
+        days, weekId,
+        placements: listEntities(db, 'special_day_placements').filter(p => p.week_id === weekId),
+        specialDays: listEntities(db, 'special_days'),
+      })
+
+  return { groups, tiers, days, replacedDayIds, timeBlocks, activities, fixedEvents, locations, electiveSetActivities, events }
 }

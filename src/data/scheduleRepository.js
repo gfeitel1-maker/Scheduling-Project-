@@ -183,6 +183,10 @@ export function createScheduleRepository({
       return (await localClient.list('schedule_weeks')) || []
     },
 
+    async loadSpecialDays() {
+      return (await localClient.list('special_days')) || []
+    },
+
     async loadWeekExclusions(weekId) {
       const [activityExclusions, groupExclusions, locationExclusions] = await Promise.all([
         localClient.listByScope('week_activity_exclusions', weekId ?? null),

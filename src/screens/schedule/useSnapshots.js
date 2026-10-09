@@ -12,6 +12,25 @@ import { routeSetter } from './useRouteState'
 // (for the route-explicit saveSnapshot), and the current-route
 // setSnapshots/setSlots/setFindings/setDismissedFindingKeys. It
 // calls the repo and reports failures via the injected setActionError.
+// Restore-time reference guard (Red Hat HIGH, T117 slice 2): drops stored
+// rows (snake_case) whose group, day, time block, fixed event or activity no
+// longer exists, so they are never written back dangling. Also guards
+// generate()'s carry-forward of replaced-day rows (T350, ADR D4.6).
+export function dropDeadReferences(slots, { groups, days, timeBlocks, activities, fixedEvents }) {
+  const groupIds = new Set(groups.map(g => g.id))
+  const dayIds = new Set(days.map(d => d.id))
+  const timeBlockIds = new Set((timeBlocks || []).map(b => b.id))
+  const activityIds = new Set(activities.map(a => a.id))
+  const fixedEventIds = new Set((fixedEvents || []).map(a => a.id))
+  return slots.filter(s =>
+    groupIds.has(s.group_id) &&
+    dayIds.has(s.day_id) &&
+    timeBlockIds.has(s.time_block_id) &&
+    !(s.is_fixed_event && s.fixed_event_id && !fixedEventIds.has(s.fixed_event_id)) &&
+    !(!s.is_fixed_event && s.activity_id && !activityIds.has(s.activity_id))
+  )
+}
+
 export function useSnapshots({
   routeState,
   repo,
@@ -24,6 +43,7 @@ export function useSnapshots({
   timeBlocks,
   fixedEvents,
   weekId,
+  replacedDayIds,
   activityExclusions,
   groupExclusions,
   locationExclusions,
@@ -139,22 +159,8 @@ export function useSnapshots({
     // producing a silently-broken/blank grid. Product decision: keep the
     // versions, but skip any dead cell non-destructively and tell the
     // director how many were skipped.
-    const groupIds = new Set(groups.map(g => g.id))
-    const dayIds = new Set(days.map(d => d.id))
-    const timeBlockIds = new Set((timeBlocks || []).map(b => b.id))
-    const activityIds = new Set(activities.map(a => a.id))
-    const fixedEventIds = new Set((fixedEvents || []).map(a => a.id))
-    let droppedCount = 0
-    const survivingSlots = fullSnap.slots.filter(s => {
-      const dead =
-        !groupIds.has(s.group_id) ||
-        !dayIds.has(s.day_id) ||
-        !timeBlockIds.has(s.time_block_id) ||
-        (s.is_fixed_event && s.fixed_event_id && !fixedEventIds.has(s.fixed_event_id)) ||
-        (!s.is_fixed_event && s.activity_id && !activityIds.has(s.activity_id))
-      if (dead) droppedCount += 1
-      return !dead
-    })
+    const survivingSlots = dropDeadReferences(fullSnap.slots, { groups, days, timeBlocks, activities, fixedEvents })
+    const droppedCount = fullSnap.slots.length - survivingSlots.length
 
     setActionError(null)
     try {
@@ -175,8 +181,8 @@ export function useSnapshots({
     // FIXED_EVENT_DUPLICATE is generated-route only — see useScheduleData's route
     // loop for the same gate and reasoning.
     setFindings(computeFindings(route === 'generated'
-      ? { slots: freshSlots, groups, activities, days, fixedEvents, weekId, activityExclusions, groupExclusions, locationExclusions }
-      : { slots: freshSlots, groups, activities, days }))
+      ? { slots: freshSlots, groups, activities, days, replacedDayIds, fixedEvents, weekId, activityExclusions, groupExclusions, locationExclusions }
+      : { slots: freshSlots, groups, activities, days, replacedDayIds }))
     setDismissedFindingKeys(new Set())
 
     if (droppedCount > 0) {

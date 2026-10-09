@@ -387,7 +387,7 @@ export function scheduleStateTool(args, { dbPath, dbKey }) {
       listEntities(db, 'template_slots').filter((s) => s.template_id === template.id)
     )
 
-    const inputs = assembleScheduleEngineInputs(db, camp.id)
+    const inputs = assembleScheduleEngineInputs(db, camp.id, weekId)
     // Reconstructing STORED state (unlike useGeneration.js's lockedPreplaced,
     // which filters to locked activities because it is about to regenerate),
     // so the activity family keeps its original predicate verbatim. Only the
