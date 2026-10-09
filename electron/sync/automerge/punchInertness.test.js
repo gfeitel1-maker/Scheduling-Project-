@@ -115,3 +115,26 @@ describe('T347 — SHORESH_PUNCH_ENABLED gate (default off, strict literal)', ()
     await expect(starter.shutdownPunch()).resolves.toBeUndefined()
   })
 })
+
+describe('T359 slice 1 — pinned TCP listen port is behind the same flag', () => {
+  for (const [label, value] of [['unset', undefined], ["'TRUE'", 'TRUE'], ["'1'", '1'], ["'false'", 'false']]) {
+    it(`SHORESH_PUNCH_ENABLED ${label}: listen is exactly the ephemeral /tcp/0 and no port file is written`, async () => {
+      if (value === undefined) delete process.env.SHORESH_PUNCH_ENABLED
+      else process.env.SHORESH_PUNCH_ENABLED = value
+      const { args } = await startWith()
+      expect(args.listen).toEqual(['/ip4/0.0.0.0/tcp/0'])
+      expect(fs.existsSync(path.join(userDataPath, 'tcp-listen-port.json'))).toBe(false)
+    })
+  }
+
+  it("non-vacuity: the literal 'true' pins a persisted TCP port that is the same on the next start", async () => {
+    process.env.SHORESH_PUNCH_ENABLED = 'true'
+    const first = await startWith()
+    const pinned = first.args.listen.find((a) => /\/tcp\/\d+$/.test(a) && !a.endsWith('/tcp/0'))
+    expect(pinned).toMatch(/^\/ip4\/0\.0\.0\.0\/tcp\/(49[1-9]\d\d|[5-6]\d{4})$/)
+    await first.starter.shutdownPunch()
+    const second = await startWith()
+    expect(second.args.listen).toContain(pinned)
+    await second.starter.shutdownPunch()
+  })
+})
