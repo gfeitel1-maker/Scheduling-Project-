@@ -41,7 +41,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // campers.division_label/is_unattributed and elective_preferences.rank_kind/
 // coordinate_day_label/coordinate_period_label) all land in this file; 79 is the
 // current version.
-export const CURRENT_SCHEMA_VERSION = 92
+export const CURRENT_SCHEMA_VERSION = 93
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -4362,6 +4362,43 @@ const DEVICE_HEALTH_EVENTS_DDL = `
   if (getSchemaVersion(db) >= 91 && getSchemaVersion(db) < 92) {
     db.exec(SPECIAL_DAY_PLACEMENTS_DDL)
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (92, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v93 (T348, docs/adr/2026-10-08-relayless-cross-network-reconnect.md, Rung 1) - punch_identity
+  // and peer_punch_memory. schema.sql already creates both; this block is for a database upgrading
+  // from an earlier version. No back-fill: both are learned only from a live punched session.
+  //
+  // Guard `>= 91 && < 93` never a bare `< 91` (this repo's standing gotcha).
+  if (getSchemaVersion(db) >= 91 && getSchemaVersion(db) < 93) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS punch_identity (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        cert_pem TEXT NOT NULL,
+        key_pem TEXT NOT NULL,
+        fingerprint TEXT NOT NULL,
+        ice_ufrag TEXT NOT NULL,
+        ice_pwd TEXT NOT NULL,
+        local_port INTEGER NOT NULL,
+        reflexive_candidates TEXT NOT NULL DEFAULT '[]',
+        reflexive_learned_at TEXT,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS peer_punch_memory (
+        peer_id TEXT PRIMARY KEY,
+        role TEXT NOT NULL CHECK (role IN ('offerer', 'answerer')),
+        remote_sdp_type TEXT NOT NULL CHECK (remote_sdp_type IN ('offer', 'answer')),
+        remote_sdp TEXT NOT NULL,
+        remote_fingerprint TEXT NOT NULL,
+        remote_ufrag TEXT NOT NULL,
+        remote_pwd TEXT NOT NULL,
+        candidates TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL
+      );
+    `)
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (93, ?)').run(
       new Date().toISOString()
     )
   }

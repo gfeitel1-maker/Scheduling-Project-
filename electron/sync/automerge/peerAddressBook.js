@@ -69,6 +69,48 @@ export function rememberPeerAddress(db, peerId, multiaddr, now = () => new Date(
 export function forgetPeerAddress(db, peerId) {
   if (typeof peerId !== 'string' || peerId.length === 0) return
   db.prepare('DELETE FROM peer_last_addresses WHERE peer_id = ?').run(peerId)
+  db.prepare('DELETE FROM peer_punch_memory WHERE peer_id = ?').run(peerId)
+}
+
+// T348 (Rung 1): the punched session a peer left behind - OUR role, the peer's last SDP and its
+// candidates - so a later redial needs zero signaling. Same discipline as rememberPeerAddress:
+// called only for an authenticated peer, device-local, never synced. A description without a DTLS
+// fingerprint and ICE credentials cannot be replayed, so it is not stored.
+export function rememberPunchMemory(db, peerId, { role, remoteSdpType, remoteSdp, candidates }, now = () => new Date().toISOString()) {
+  if (typeof peerId !== 'string' || peerId.length === 0) return
+  const fingerprint = /^a=fingerprint:\S+ (\S+)/m.exec(remoteSdp)?.[1]
+  const ufrag = /^a=ice-ufrag:(\S+)/m.exec(remoteSdp)?.[1]
+  const pwd = /^a=ice-pwd:(\S+)/m.exec(remoteSdp)?.[1]
+  if (!fingerprint || !ufrag || !pwd) return
+  db.prepare(
+    'INSERT INTO peer_punch_memory (peer_id, role, remote_sdp_type, remote_sdp, remote_fingerprint, remote_ufrag, remote_pwd, candidates, last_seen_at) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(peer_id) DO UPDATE SET role = excluded.role, remote_sdp_type = excluded.remote_sdp_type, ' +
+      'remote_sdp = excluded.remote_sdp, remote_fingerprint = excluded.remote_fingerprint, remote_ufrag = excluded.remote_ufrag, ' +
+      'remote_pwd = excluded.remote_pwd, candidates = excluded.candidates, last_seen_at = excluded.last_seen_at'
+  ).run(peerId, role, remoteSdpType, remoteSdp, fingerprint, ufrag, pwd, JSON.stringify(candidates), now())
+}
+
+// The remembered punch session for `peerId`, or null - including when the peer is not currently
+// trusted (revoked or unknown). Trust is queried fresh on every call, like listTrustedRememberedAddresses.
+export function loadTrustedPunchMemory(db, peerId, { isPeerTrusted } = {}) {
+  const checkTrust = isPeerTrusted ?? createBoundPeerTrust(db)
+  if (!checkTrust(peerId)) return null
+  const row = db.prepare('SELECT * FROM peer_punch_memory WHERE peer_id = ?').get(peerId)
+  if (!row) return null
+  let candidates
+  try { candidates = JSON.parse(row.candidates) } catch { return null }
+  if (!Array.isArray(candidates)) return null
+  return {
+    peerId: row.peer_id,
+    role: row.role,
+    remoteSdpType: row.remote_sdp_type,
+    remoteSdp: row.remote_sdp,
+    remoteFingerprint: row.remote_fingerprint,
+    remoteUfrag: row.remote_ufrag,
+    remotePwd: row.remote_pwd,
+    candidates,
+    lastSeenAt: row.last_seen_at,
+  }
 }
 
 // Every (peerId, multiaddr) pair for a trusted (authorized, not revoked) peer with at least one

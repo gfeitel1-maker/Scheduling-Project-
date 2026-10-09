@@ -1,0 +1,71 @@
+// T348 (docs/adr/2026-10-08-relayless-cross-network-reconnect.md, Rung 1): redial a peer's remembered
+// public reflexive candidate(s) with ZERO signaling messages - pinned DTLS cert, ICE ufrag/pwd and port,
+// preserved roles, disableAutoNegotiation (all inherited from punchTransport.connectFromMemory). It is
+// best-effort by the ADR's own finding: a NAT may have remapped the port since the memory was written.
+// The result tells the S4 coordinator whether to escalate to rung 2; this module never contacts
+// rung 3 or any signaling channel, and never throws.
+//
+// Imports nothing from punchTransport.js (the T347 guard keeps syncStarter.js its sole importer), so the
+// transport's ICE-failure error is recognised by name.
+//
+// INERT: nothing imports this unless something outside tests wires it; punchTransport itself is only
+// built behind syncStarter.js's strict SHORESH_PUNCH_ENABLED === 'true' gate.
+import { isIPv4, isIPv6 } from 'node:net'
+import { TimeoutError } from '@libp2p/interface'
+import { loadTrustedPunchMemory } from './peerAddressBook.js'
+import { createBoundPeerTrust } from './peerIdentity.js'
+
+export const RUNG1_DEFAULT_TIMEOUT_MS = 8_000
+// NAT mappings do not survive long idle; past this a redial only probes whoever now owns the address.
+export const RUNG1_MEMORY_MAX_AGE_MS = 12 * 60 * 60 * 1000
+
+const V4_NON_PUBLIC = [['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.168.0.0', 16], ['198.18.0.0', 15], ['224.0.0.0', 3]]
+const v4Int = (a) => a.split('.').reduce((n, o) => n * 256 + Number(o), 0)
+function isPublicAddress(addr) {
+  if (isIPv4(addr)) {
+    const n = v4Int(addr)
+    return !V4_NON_PUBLIC.some(([net, bits]) => Math.floor(n / 2 ** (32 - bits)) === Math.floor(v4Int(net) / 2 ** (32 - bits)))
+  }
+  if (isIPv6(addr)) return (parseInt(addr.split(':')[0] || '0', 16) & 0xe000) === 0x2000
+  return false
+}
+
+function publicSrflx(candidates) {
+  return candidates.filter((c) => {
+    const parts = typeof c?.candidate === 'string' ? c.candidate.split(' ') : []
+    return parts[6] === 'typ' && parts[7] === 'srflx' && isPublicAddress(parts[4])
+  })
+}
+
+// peer: { peerId }. deps: { db, transport, upgrader, timeoutMs?, signal?, isPeerTrusted?, maxAgeMs?,
+// allowNonPublicCandidates? (loopback tests only) }.
+// -> { ok: true, connection } | { ok: false, reason: 'no-memory' | 'mapping-moved' | 'timeout' | 'revoked' | 'error' }
+// A revoked, unknown, stale or unusable memory reports 'no-memory' and is never probed. Trust is
+// checked again after the upgrade: a peer revoked mid-dial gets its connection closed and 'revoked'.
+export async function attemptRung1(peer, { db, transport, upgrader, timeoutMs = RUNG1_DEFAULT_TIMEOUT_MS, signal, isPeerTrusted, isPeerRevoked, maxAgeMs = RUNG1_MEMORY_MAX_AGE_MS, allowNonPublicCandidates = false }) {
+  try {
+    const checkTrust = isPeerTrusted ?? createBoundPeerTrust(db)
+    let memory = loadTrustedPunchMemory(db, peer?.peerId, { isPeerTrusted: checkTrust })
+    if (!memory) return { ok: false, reason: 'no-memory' }
+    if (!(Date.now() - Date.parse(memory.lastSeenAt) <= maxAgeMs)) return { ok: false, reason: 'no-memory' }
+    if (!allowNonPublicCandidates) {
+      const candidates = publicSrflx(memory.candidates)
+      if (candidates.length === 0) return { ok: false, reason: 'no-memory' }
+      memory = { ...memory, candidates, remoteSdp: memory.remoteSdp.replace(/^a=candidate:.*\r?\n?/gm, '') }
+    }
+    const connection = await transport.connectFromMemory(memory, { upgrader, signal, timeoutMs })
+    if (connection?.remotePeer?.toString() !== peer.peerId) {
+      try { await connection?.close?.() } catch { /* already closing */ }
+      return { ok: false, reason: 'mapping-moved' }
+    }
+    if (!checkTrust(peer.peerId) || isPeerRevoked?.(peer.peerId)) {
+      try { await connection.close() } catch { /* already closing */ }
+      return { ok: false, reason: 'revoked' }
+    }
+    return { ok: true, connection }
+  } catch (err) {
+    if (err?.name === 'PunchConnectionFailedError') return { ok: false, reason: 'mapping-moved' }
+    if (err instanceof TimeoutError) return { ok: false, reason: 'timeout' }
+    return { ok: false, reason: 'error' }
+  }
+}
