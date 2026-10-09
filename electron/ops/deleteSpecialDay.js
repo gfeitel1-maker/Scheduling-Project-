@@ -44,6 +44,16 @@ export function deleteSpecialDay(db, { specialDayId }, { author_user_id, device_
       .all(specialDayId)
     for (const p of placements) ops.push(del('special_day_placements', p.id))
 
+    // A cross-device special_day_id clash on a deleted placement must not outlive it — same
+    // conflict closure as deleteWeek's step 6.
+    const placementIds = new Set(placements.map((p) => p.id))
+    if (placementIds.size > 0) {
+      const pending = db.prepare('SELECT id, entity_id FROM conflicts WHERE resolved_at IS NULL').all()
+      for (const c of pending) {
+        if (placementIds.has(c.entity_id)) ops.push(del('conflicts', c.id))
+      }
+    }
+
     const slots = db
       .prepare('SELECT id FROM special_day_slots WHERE special_day_id = ?')
       .all(specialDayId)

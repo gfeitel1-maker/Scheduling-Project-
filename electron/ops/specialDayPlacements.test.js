@@ -74,6 +74,15 @@ describe('bindSpecialDay', () => {
     expect(db.prepare('SELECT COUNT(*) c FROM operations').get().c - before).toBe(3)
   })
 
+  it('is atomic: if the third field write throws, no placement row and no op survive', () => {
+    db.exec(`CREATE TEMP TRIGGER fail_third BEFORE INSERT ON operations
+      WHEN NEW.entity = 'special_day_placements' AND NEW.field = 'special_day_id'
+      BEGIN SELECT RAISE(ABORT, 'planted failure'); END;`)
+    expect(() => bind()).toThrow(/planted failure/)
+    expect(placements()).toEqual([])
+    expect(db.prepare("SELECT COUNT(*) c FROM operations WHERE entity = 'special_day_placements'").get().c).toBe(0)
+  })
+
   it('refuses an unknown week, an unknown day, and an unknown or foreign-camp special day (D9)', () => {
     db.prepare("INSERT INTO camps (id, name) VALUES ('camp-2', 'Other')").run()
     db.prepare("INSERT INTO special_days (id, camp_id, name) VALUES ('sd-foreign', 'camp-2', 'Theirs')").run()
@@ -126,6 +135,17 @@ describe('cascades', () => {
     bind({ dayId: 'day-wed', specialDayId: 'sd-vd' })
     expect(deleteSpecialDay(db, { specialDayId: 'sd-cw' }, actor).ok).toBe(true)
     expect(placements().map((p) => p.special_day_id)).toEqual(['sd-vd'])
+  })
+
+  it('deleteSpecialDay closes an unresolved special_day_id conflict on a placement it deletes', () => {
+    bind()
+    const insertConflict = db.prepare(
+      'INSERT INTO conflicts (id, entity, entity_id, field, incoming_op, existing_op, existing_op_id, created_at, resolved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)'
+    )
+    insertConflict.run('c-sdp', 'special_day_placements', pid(), 'special_day_id', '{}', '{}', 'op-other-device', new Date().toISOString())
+    insertConflict.run('c-unrelated', 'special_days', 'sd-vd', 'name', '{}', '{}', 'op-x', new Date().toISOString())
+    expect(deleteSpecialDay(db, { specialDayId: 'sd-cw' }, actor).ok).toBe(true)
+    expect(db.prepare('SELECT id FROM conflicts WHERE resolved_at IS NULL').all()).toEqual([{ id: 'c-unrelated' }])
   })
 
   it('duplicateWeek copies placements under the DERIVED id of the new week, all three fields', () => {

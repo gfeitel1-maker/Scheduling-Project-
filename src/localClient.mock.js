@@ -771,6 +771,10 @@ export const mockShoresh = {
     if (entity === 'users' && (field === 'pin_hash' || field === 'pin_salt' || field === 'role')) {
       throw new Error(`mockShoresh.write: users.${field} cannot be changed via write() — credential fields are Host-signed; use createUser or promoteToAdmin`)
     }
+    // Mirrors main.js write() (T350): placements are written only by bindSpecialDay/unbindSpecialDay.
+    if (entity === 'special_day_placements') {
+      throw new Error('mockShoresh.write: special_day_placements cannot be written via write() — use the bind/unbind special day path')
+    }
 
     // Enforcement is stricter than the real path, deliberately. The real path
     // is asymmetric: appendOp (electron/ops/operations.js) THROWS for a
