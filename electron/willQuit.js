@@ -20,3 +20,27 @@ export function createWillQuitHandler({ app, cleanup, timeoutMs = 5000 }) {
     })
   }
 }
+
+// The one synchronous flush every exit path runs (will-quit, OS session end). Each step is
+// isolated so a failing flush can never skip the next one or block quit.
+export function createQuitFlush(steps) {
+  return () => {
+    for (const [name, fn] of steps) {
+      try { fn() } catch (err) { console.error(`${name}: flush on exit failed (non-fatal):`, err?.message ?? err) }
+    }
+  }
+}
+
+// An OS session end (Windows log-off/shutdown, macOS shutdown/logout) may give only seconds, and
+// the async will-quit teardown may never finish. So flush synchronously FIRST, then attempt the
+// graceful quit. query-session-end is not vetoed: the director asked the OS to shut down. Every
+// BrowserWindow is wired, because any open window (e.g. Licenses) keeps the process alive.
+export function wireSessionEndFlush({ app, powerMonitor, flush }) {
+  const flushThenQuit = () => { flush(); app.quit() }
+  powerMonitor.on('shutdown', flushThenQuit)
+  app.on('browser-window-created', (_event, win) => {
+    if (win.isDestroyed()) return
+    win.on('query-session-end', () => flush())
+    win.on('session-end', flushThenQuit)
+  })
+}

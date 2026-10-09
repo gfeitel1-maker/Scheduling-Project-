@@ -46,4 +46,5 @@ export const safeStorage = {
   decryptString: () => { throw new Error('safeStorage is unavailable outside Electron') },
 }
 export const Menu = { setApplicationMenu: noop, buildFromTemplate: () => ({}) }
-export default { app, BrowserWindow, ipcMain, contextBridge, ipcRenderer, dialog, shell, safeStorage, Menu }
+export const powerMonitor = { on: noop }
+export default { app, BrowserWindow, ipcMain, contextBridge, ipcRenderer, dialog, shell, safeStorage, Menu, powerMonitor }

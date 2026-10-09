@@ -1,5 +1,5 @@
-import { app, BrowserWindow, ipcMain, dialog, safeStorage, Menu, shell } from 'electron'
-import { createWillQuitHandler } from './willQuit.js'
+import { app, BrowserWindow, ipcMain, dialog, safeStorage, Menu, shell, powerMonitor } from 'electron'
+import { createWillQuitHandler, createQuitFlush, wireSessionEndFlush } from './willQuit.js'
 import path from 'node:path'
 import os from 'node:os'
 import fs from 'node:fs'
@@ -3790,6 +3790,12 @@ if (isElectronEntryPoint()) {
   // implementation" shape as getMainWindow above.
   // Set by registerHandlers; see its comment.
   let liveHandlers = null
+  // Stage 5e item 3 + T292 round 2 FIX 3: the debounced Automerge doc save and camp-data record
+  // write, flushed by every exit path (will-quit and OS session end) so neither loses an edit.
+  const quitFlush = createQuitFlush([
+    ['automerge sync', () => flushAutomergeDoc()],
+    ['campDataRecord', () => flushCampDataRecordOnQuit(liveHandlers)],
+  ])
   // T276 — the starter (extracted to electron/sync/automerge/syncStarter.js
   // so its behaviour is executed under Vitest, not just asserted on AST
   // shape) holds its own closure state: the persistent node handle, the
@@ -3932,6 +3938,7 @@ if (isElectronEntryPoint()) {
   }
 
   app.whenReady().then(() => {
+    wireSessionEndFlush({ app, powerMonitor, flush: quitFlush })
     try {
       installAppMenuAndAboutPanel()
     } catch (err) {
@@ -3950,18 +3957,7 @@ if (isElectronEntryPoint()) {
     if (process.platform !== 'darwin') app.quit()
   })
   app.on('will-quit', createWillQuitHandler({ app, cleanup: async () => {
-    // Stage 5e item 3: flush any debounced Automerge doc save before the process exits, so a
-    // deliberate quit never loses a write to the durability window liveDoc.js's scheduleSave
-    // documents (up to SAVE_DEBOUNCE_MS of in-memory-only writes otherwise). A no-op when nothing
-    // is pending (flag off, or nothing written since the last flush).
-    try {
-      flushAutomergeDoc()
-    } catch (err) {
-      console.error('automerge sync: flush on quit failed (non-fatal):', err?.message ?? err)
-    }
-    // T292 round 2 FIX 3 — flush any still-pending debounced camp data
-    // document write before the process exits. See flushCampDataRecordOnQuit.
-    flushCampDataRecordOnQuit(liveHandlers)
+    quitFlush()
     // T347 (S1): a no-op unless SHORESH_PUNCH_ENABLED wired the punch transport. Started BEFORE the
     // awaited node stop because Electron does not await this handler: its synchronous prefix closes
     // every open pc immediately, and libdatachannel's cleanup() (without which the process cannot
