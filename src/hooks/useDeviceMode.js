@@ -149,7 +149,11 @@ export function useDeviceMode() {
         }
 
         if (mode === 'host' && c) {
-          await localClient.chooseMode({ mode: 'host', campName: c.name, port: DEFAULT_HOST_PORT })
+          const chosen = await localClient.chooseMode({ mode: 'host', campName: c.name, port: DEFAULT_HOST_PORT })
+          if (chosen?.mode === 'client') {
+            localStorage.setItem(MODE_KEY, 'client')
+            if (active) setMode('client')
+          }
         } else if (mode === 'client') {
           // Only a LOCALLY-VERIFIED token is handed to the transport layer —
           // never the raw localStorage value — so a token this device's own

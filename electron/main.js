@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import { randomUUID, randomBytes } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { openLocalDb, getOrCreateDeviceId, CURRENT_SCHEMA_VERSION, getSchemaVersion } from './db/localDb.js'
-import { createUser, verifySessionToken, attemptLogin, ensureHostSigningKey, issueDeviceToken } from './auth/localAuth.js'
+import { createUser, verifySessionToken, attemptLogin, ensureHostSigningKey, isHostDevice, issueDeviceToken } from './auth/localAuth.js'
 import { promoteToAdmin } from './ops/promoteToAdmin.js'
 import { createLocalWriteClient } from './sync/localWriteClient.js'
 import { listPendingConflicts, latestOpSeq } from './ops/operations.js'
@@ -955,7 +955,16 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       throw new Error('mode already chosen for this session')
     }
 
+    // The stored mode is a renderer claim; the role is whether this device holds the camp's key.
+    // A camp that already published a key but whose key is not here makes this device a client.
+    // No camp yet (bootstrap) or a camp with no key yet (pre-key legacy) still means host.
+    let effectiveMode = requestedMode
     if (requestedMode === 'host') {
+      const camp = db.prepare('SELECT signing_public_key FROM camps LIMIT 1').get()
+      if (camp?.signing_public_key && !isHostDevice(db)) effectiveMode = 'client'
+    }
+
+    if (effectiveMode === 'host') {
       // Stage 6c: no WebSocket server, and no separate mDNS advertisement. The
       // libp2p node does its own camp-scoped discovery
       // (electron/sync/automerge/discovery.js), so a Host no longer runs a
@@ -1005,10 +1014,10 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       }
     }
 
-    mode = requestedMode
+    mode = effectiveMode
     modeChosen = true
 
-    return { mode: requestedMode }
+    return { mode: effectiveMode }
   }
 
   async function login({ name, pin } = {}) {

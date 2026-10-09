@@ -286,6 +286,12 @@ export function ensureHostSigningKey(db) {
     return existing
   }
 
+  // Minting replaces the camp's trust root: every credential tuple, tombstone and token signed by
+  // the real key stops verifying. It happens only at bootstrap, when the camp has no public key
+  // yet. A camp that already has one but no key row here means this device is not the host.
+  const camp = db.prepare('SELECT signing_public_key FROM camps LIMIT 1').get()
+  if (camp?.signing_public_key) return null
+
   const { publicKey, privateKey } = generateKeyPairSync('ed25519', {
     publicKeyEncoding: { type: 'spki', format: 'der' },
     privateKeyEncoding: { type: 'pkcs8', format: 'der' },
@@ -303,6 +309,13 @@ export function ensureHostSigningKey(db) {
   // camp tokens without needing access to host_signing_key.
   db.prepare('UPDATE camps SET signing_public_key = ?').run(row.public_key)
   return row
+}
+
+// Host role is key presence: a private key whose public half is the camp's published key.
+export function isHostDevice(db) {
+  const key = getHostSigningKey(db)
+  const camp = db.prepare('SELECT signing_public_key FROM camps LIMIT 1').get()
+  return Boolean(key && camp?.signing_public_key && key.public_key === camp.signing_public_key)
 }
 
 // Whether THIS device is the Host — i.e. holds the private key locally.

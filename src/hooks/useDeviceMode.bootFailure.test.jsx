@@ -42,4 +42,14 @@ describe('useDeviceMode boot failure', () => {
     await waitFor(() => expect(result.current.phase).toBe('mode-select'))
     expect(result.current.bootFailure).toBeNull()
   })
+
+  it('reconciles stored host mode to client when main reports the role it actually holds', async () => {
+    localStorage.setItem('shoresh-mode', 'host')
+    mockLocalClient.getBootFailure.mockResolvedValue(null)
+    mockLocalClient.getCamp.mockResolvedValue({ id: 'c1', name: 'Camp' })
+    mockLocalClient.chooseMode.mockResolvedValue({ mode: 'client' })
+    const { result } = renderHook(() => useDeviceMode())
+    await waitFor(() => expect(result.current.mode).toBe('client'))
+    expect(localStorage.getItem('shoresh-mode')).toBe('client')
+  })
 })
