@@ -1655,7 +1655,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
             className="press-97"
             disabled={!specialDayPlan.ready || buildingSpecialDay}
             onClick={buildSpecialDay}
-            style={specialDayPlan.ready ? S.primaryBtn : { ...S.primaryBtn, opacity: 0.5, cursor: 'not-allowed' }}
+            style={specialDayPlan.ready ? S.btnPrimary : { ...S.btnPrimary, opacity: 0.5, cursor: 'not-allowed' }}
           >{buildingSpecialDay ? 'Building…' : 'Build this special day'}</button>
         </div>
       )}

@@ -69,7 +69,7 @@ export default function DeleteWeekDialog({ week, campId, localClient, repo, onCo
 
   if (!counts) {
     return (
-      <div style={{ ...overlayStyle, ...enterStyle }}>
+      <div style={{ ...S.overlay, ...enterStyle }}>
         <div style={dialogStyle}>
           <p style={{ color: 'var(--text-secondary)', fontSize: 14 }}>Loading…</p>
         </div>
@@ -96,7 +96,7 @@ export default function DeleteWeekDialog({ week, campId, localClient, repo, onCo
     : `Deleting it removes all of that permanently — this cannot be undone.`
 
   return (
-    <div style={{ ...overlayStyle, ...enterStyle }}>
+    <div style={{ ...S.overlay, ...enterStyle }}>
       <div style={dialogStyle}>
         <h3 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>
           Permanently delete "{week.name}"?
@@ -106,7 +106,7 @@ export default function DeleteWeekDialog({ week, campId, localClient, repo, onCo
             {detailSentence}
           </p>
         )}
-        <p style={{ margin: '0 0 20px', fontSize: 14, fontWeight: 700, color: 'var(--warning)' }}>
+        <p style={{ margin: '0 0 20px', fontSize: 14, fontWeight: 700, color: 'var(--danger)' }}>
           There is no way to get this week back.
         </p>
         {deleteError && (
@@ -139,12 +139,6 @@ function joinClauses(clauses) {
   if (clauses.length === 1) return clauses[0]
   if (clauses.length === 2) return `${clauses[0]} and ${clauses[1]}`
   return `${clauses.slice(0, -1).join(', ')}, and ${clauses[clauses.length - 1]}`
-}
-
-const overlayStyle = {
-  position: 'fixed', inset: 0, zIndex: 1000,
-  background: 'rgba(0,0,0,0.45)',
-  display: 'flex', alignItems: 'center', justifyContent: 'center',
 }
 
 const dialogStyle = {

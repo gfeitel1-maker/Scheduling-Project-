@@ -483,7 +483,7 @@ export default function EventGridEditor({ campId, eventId, onBack, onDeletedElse
 
       {error && <div style={S.errorBanner}>{error}</div>}
       {importUnmapped && importUnmapped.length > 0 && (
-        <div style={{ ...S.errorBanner, background: 'var(--surface-warning, #fff8e1)', color: 'var(--text-primary)' }}>
+        <div style={S.cautionBanner}>
           {importUnmapped.length} cell{importUnmapped.length !== 1 ? 's' : ''} couldn’t be fully matched — you can fill those in below.
         </div>
       )}

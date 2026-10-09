@@ -509,7 +509,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
         confirmLabel={`Import ${readyRows.length} age division${readyRows.length !== 1 ? 's' : ''}`}
         doneSkippedSuffix=" (invalid)"
         renderCell={(r, c) => {
-          if (c.key === 'name') return r.name || <span style={{ color: 'var(--warning)' }}>—</span>
+          if (c.key === 'name') return r.name || <span style={{ color: 'var(--accent)' }}>—</span>
         }}
       />
 

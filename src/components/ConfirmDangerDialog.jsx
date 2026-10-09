@@ -39,7 +39,7 @@ export default function ConfirmDangerDialog({ title, body, recovery, confirmLabe
   }
 
   return (
-    <div style={{ ...overlay, ...enterStyle }} onClick={() => !busy && onCancel()}>
+    <div style={{ ...S.overlay, ...enterStyle }} onClick={() => !busy && onCancel()}>
       <div style={panel} onClick={e => e.stopPropagation()}>
         <div style={titleStyle}>{title}</div>
         {body && <p style={bodyStyle}>{body}</p>}
@@ -53,17 +53,6 @@ export default function ConfirmDangerDialog({ title, body, recovery, confirmLabe
       </div>
     </div>
   )
-}
-
-const overlay = {
-  position: 'fixed',
-  inset: 0,
-  background: 'rgba(0,0,0,0.45)',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  zIndex: 1000,
-  padding: '24px 16px',
 }
 
 const panel = {

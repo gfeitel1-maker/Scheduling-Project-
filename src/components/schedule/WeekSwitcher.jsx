@@ -173,7 +173,7 @@ export default function WeekSwitcher({ weeks, weekId, onSelect, onCreate, onRena
                     <button
                       onClick={() => { setIsOpen(false); onDelete(w) }}
                       title="Permanently delete this week"
-                      style={{ fontSize: 10, color: 'var(--warning)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', fontFamily: 'inherit' }}
+                      style={{ fontSize: 10, color: 'var(--danger)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', fontFamily: 'inherit' }}
                     >
                       Delete permanently
                     </button>

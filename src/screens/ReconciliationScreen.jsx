@@ -949,8 +949,8 @@ const styles = {
     fontFamily: 'inherit',
   },
   errorBanner: {
-    background: 'color-mix(in srgb, var(--warning) 8%, var(--surface))',
-    border: '1px solid var(--warning)',
+    background: 'color-mix(in srgb, var(--danger) 8%, var(--surface))',
+    border: '1px solid var(--danger)',
     borderRadius: 8,
     padding: '10px 14px',
     marginBottom: 16,

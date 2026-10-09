@@ -22,7 +22,7 @@ export default function SetupScreenShell({
   const deleteBlocked = deleteAllDisabled || role !== 'admin'
   const deleteStyle = deleteBlocked
     ? { ...S.btnUtility, color: 'var(--text-secondary)', ...S.buttonDisabled }
-    : { ...S.btnUtility, color: 'var(--warning)' }
+    : { ...S.btnUtility, color: 'var(--danger)' }
 
   const hasUtilities = Boolean(onDownloadTemplate || onImport || onDeleteAll)
 
