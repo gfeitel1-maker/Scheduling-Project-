@@ -50,7 +50,7 @@ describe('ScheduleElectivesScreen — empty state', () => {
     const onNavigate = vi.fn()
     render(<ScheduleElectivesScreen campId={CAMP_ID} role="admin" onNavigate={onNavigate} />)
 
-    await waitFor(() => expect(screen.getByText(/No elective sets yet/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('None yet')).toBeTruthy())
     fireEvent.click(screen.getByText('Go to Electives'))
     expect(onNavigate).toHaveBeenCalledWith('electives')
   })
