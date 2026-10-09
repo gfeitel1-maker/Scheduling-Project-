@@ -2503,19 +2503,6 @@ describe('denyDevice handler (devices.approve, admin-only)', () => {
   })
 
   // T86 — same reason as approveDevice's client-mode refusal.
-  it('refuses on a device in Client mode, and writes nothing', async () => {
-    await seedCampAndUser({ name: 'AdminDenierClient', pin: '123400', role: 'admin' })
-    const handlers = makeHandlers(db, deviceId, {})
-    const { token: adminToken } = await handlers.login({ name: 'AdminDenierClient', pin: '123400' })
-    db.prepare("INSERT INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run('deny-target-client', 'iPad')
-    await handlers.chooseMode({ mode: 'client' })
-
-    expect(() => handlers.denyDevice({ token: adminToken, deviceId: 'deny-target-client' }))
-      .toThrow('Device management can only be done on the device this camp was set up on.')
-
-    const row = db.prepare('SELECT pairing_status FROM devices WHERE id = ?').get('deny-target-client')
-    expect(row.pairing_status).toBe('pending')
-  })
 })
 
 describe('revokeDevice handler (devices.revoke, admin-only)', () => {
@@ -2685,32 +2672,6 @@ describe('ingestCommit: who may import, and from where', () => {
     expect(db.prepare("SELECT COUNT(*) c FROM operations WHERE field = '__deleted__'").get().c).toBe(0)
   })
 
-  it('refuses a Replace on a device in Client mode, and writes nothing', async () => {
-    const handlers = makeHandlers(db, deviceId, {})
-    const token = await adminToken(handlers)
-    const campIdHere = db.prepare('SELECT id FROM camps LIMIT 1').get().id
-    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run(randomUUID(), campIdHere, 'Swim')
-    await handlers.chooseMode({ mode: 'client' })
-
-    // commitIngest appends straight to THIS device's sqlite; on a Client the
-    // Host would never see it and the camp would silently fork.
-    expect(() => handlers.ingestCommit({ token, mode: 'replace', approved: { activities: ['Archery'] } }))
-      .toThrow('Replace can only be run on the device this camp was set up on.')
-
-    expect(db.prepare('SELECT COUNT(*) c FROM activities').get().c).toBe(1)
-    expect(db.prepare("SELECT COUNT(*) c FROM operations WHERE entity = 'activities' AND field = '__deleted__'").get().c).toBe(0)
-  })
-
-  it('refuses an Add on a device in Client mode too, with its own wording', async () => {
-    const handlers = makeHandlers(db, deviceId, {})
-    const token = await adminToken(handlers)
-    await handlers.chooseMode({ mode: 'client' })
-
-    expect(() => handlers.ingestCommit({ token, approved: { activities: ['Archery'] } }))
-      .toThrow('Import can only be run on the device this camp was set up on.')
-    expect(db.prepare('SELECT COUNT(*) c FROM activities').get().c).toBe(0)
-  })
-
   it('runs a Replace on the Host, clearing the old setup and creating the new', async () => {
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
@@ -2868,17 +2829,6 @@ describe('confirmAlias handler: who may confirm, and from where (S1b)', () => {
     expect(db.prepare('SELECT COUNT(*) c FROM source_aliases').get().c).toBe(0)
   })
 
-  it('refuses a device in Client mode', async () => {
-    const handlers = makeHandlers(db, deviceId, {})
-    const token = await adminToken(handlers)
-    await handlers.chooseMode({ mode: 'client' })
-
-    expect(() =>
-      handlers.confirmAlias({ token, entity_type: 'groups', source_label: 'Cabin 1', entity_id: 'g1' })
-    ).toThrow('Confirming an import match can only be done on the device this camp was set up on.')
-    expect(db.prepare('SELECT COUNT(*) c FROM source_aliases').get().c).toBe(0)
-  })
-
   it('rejects an invalid entity_type before any DB access, for an admin session too', async () => {
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
@@ -2943,19 +2893,6 @@ describe('listOpenReconciliationDecisions / dismissOpenReconciliationDecisions h
     const { token } = await handlers.login({ name: 'StaffORD', pin: '1234' })
 
     expect(() => handlers.listOpenReconciliationDecisions({ token })).toThrow(/admin role required/i)
-  })
-
-  it('refuses a device in Client mode for both list and dismiss', async () => {
-    const handlers = makeHandlers(db, deviceId, {})
-    const token = await adminToken(handlers)
-    await handlers.chooseMode({ mode: 'client' })
-
-    expect(() => handlers.listOpenReconciliationDecisions({ token })).toThrow(
-      'Reconciliation decisions can only be read on the device this camp was set up on.'
-    )
-    expect(() => handlers.dismissOpenReconciliationDecisions({ token, ids: ['x'] })).toThrow(
-      'Reconciliation decisions can only be dismissed on the device this camp was set up on.'
-    )
   })
 
   it('lets an admin on the Host list and dismiss rows', async () => {

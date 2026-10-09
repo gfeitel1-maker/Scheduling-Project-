@@ -16,15 +16,10 @@ import { unitDisplayName } from '../ingest/fieldUpdate.js'
 const displayTo = (field, delta) => (field === 'unit' ? unitDisplayName(delta?.to) : delta?.to) ?? null
 
 // Held is NOT an error (a held return wrote nothing), so it never reaches
-// here — this only maps a real thrown commit failure. The main-process
-// host-only refusal (T61, "can only be run on the main computer") already
-// says the one thing the director can act on; passed through rather than
-// mapped, or describeWriteFailure's honest "not something the app
-// recognised" fallback would bury it.
+// here — this only maps a real thrown commit failure.
 export function mapCommitError(err) {
   const message = err?.message ?? ''
   return /admin role required/i.test(message) ? 'Admins only — nothing was imported.'
-    : /can only be run on the device this camp was set up on/i.test(message) ? `${message} Nothing was imported.`
     : describeWriteFailure(err, 'Nothing was imported. Your camp is exactly as it was.')
 }
 

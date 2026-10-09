@@ -148,9 +148,9 @@ export const PERMISSIONS = {
     // (not admin-only) on the Host device: "creating a camp's whole
     // structure in one action" is still a different blast radius than a
     // per-record write, but the owner confirmed staff on the main computer
-    // is enough (2026-08-28). The mode==='client' device gate on
-    // ingestCommit (electron/main.js) is UNCHANGED — this loosens only the
-    // role check, not the data-integrity guard.
+    // is enough (2026-08-28). T351 (owner ruling 2026-10-09) then removed the
+    // mode==='client' device gate on ingestCommit, so this permission now applies
+    // on ANY trusted, non-revoked device — staff included unless the owner narrows it.
     'groups.import',
     // T304 — the participant domain's ONE staff-readable exception, owner
     // ruling 2026-09-29 amending ADR D9: "administrative staff are the staff in

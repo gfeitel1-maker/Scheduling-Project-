@@ -232,19 +232,4 @@ describe('T332 — client-mode admin minting', () => {
     expect(db.prepare('SELECT * FROM host_signing_key').get()).toEqual(hostKeyBefore)
     expect(db.prepare('SELECT signing_public_key FROM camps LIMIT 1').get().signing_public_key).toBe(signingPubBefore)
   })
-
-  it('denyDevice is unchanged — still refuses in client mode (regression guard)', async () => {
-    const { campId } = await seedFounderCamp()
-    const admin2DeviceId = 'device-admin2-deny'
-    await grantAdmin({ campId, name: 'Admin2Deny', pin: '246813', deviceId: admin2DeviceId })
-    const pendingDeviceId = 'device-pending-deny'
-    insertDevice(pendingDeviceId, { authorized: false })
-
-    const handlers2 = makeHandlers(db, admin2DeviceId, { getAutomergeSyncNode: () => null })
-    await handlers2.chooseMode({ mode: 'client' })
-    const { token: admin2Token } = await handlers2.login({ name: 'Admin2Deny', pin: '246813' })
-
-    expect(() => handlers2.denyDevice({ token: admin2Token, deviceId: pendingDeviceId }))
-      .toThrow('Device management can only be done on the device this camp was set up on.')
-  })
 })

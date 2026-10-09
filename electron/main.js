@@ -473,13 +473,10 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // There is no session to derive a role from at this point in the flow —
   // same category as login/verify-session, per the ADR's open question,
   // resolved here by reading the actual call sites rather than
-  // T16 — commit an import the director approved in the preview. Admin only:
-  // it creates setup records in bulk, which is the same authority the setup
-  // screens already require.
-  // `mode` is renamed on the way in. The closure already has a `mode` — this
-  // device's sync mode — and the guard below reads it; a shadowing parameter
-  // would silently turn the Host check into a comparison against the import
-  // mode instead.
+  // T16 — commit an import the director approved in the preview. It creates
+  // setup records in bulk, gated by 'groups.import'.
+  // `mode` is renamed on the way in: the closure already has a `mode` (this
+  // device's sync mode), and a shadowing parameter would silently swap them.
   // NOT declared async: every existing caller (and test) calls this
   // synchronously and reads the outcome off the return value directly. When
   // `placements` is present this returns a Promise instead (ipcMain.handle
@@ -488,40 +485,12 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // keeps getting the outcome object back synchronously, unchanged.
   function ingestCommit({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, placements, compoundCellDecisions, divisionSupport } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
-    // Admin only. Staff may edit setup records one at a time; creating a
-    // camp's whole structure in one action is a different kind of authority,
-    // and 'groups.import' is deliberately absent from the staff permission
-    // list so admin: ['*'] is what grants it.
     const session = requireAuthorized(db, { token, action: 'groups.import' })
-    // HOST ONLY, both modes (T61). commitIngest appends every op straight to
-    // THIS device's SQLite rather than routing through syncClient.write (the
-    // localWriteClient instance — the variable name predates Stage 6c and no
-    // longer refers to a WebSocket client).
-    //
-    // ⚠️ _Prior, and the stated RATIONALE is now doubtful rather than merely
-    // re-worded: the gate was justified because "an import run on a Client is
-    // invisible to the Host and every peer — under Replace that silently forks
-    // the whole camp while showing a success banner", and because "a Client
-    // cannot express a multi-op atomic transaction over submit_op". submit_op was
-    // deleted at the Stage 6c cutover. More importantly, the invisibility premise
-    // no longer holds: appendOp mirrors each write into the Automerge document,
-    // so an import committed on a join-mode device WOULD now replicate. The gate
-    // does still have an independent live justification — ingest reads and writes
-    // host-local tables that are deliberately never replicated (source_aliases,
-    // compound_cell_decisions, location_word_decisions, declined_two_row_splits)
-    // — but that is not the reason recorded here. Restating the gate's rationale,
-    // or deciding whether it should still be host-only at all, is a product
-    // judgement and NOT something a comment sweep should settle; T311 records it._
-    // Refused outright
-    // rather than routed to the Host — a Client→Host requestReplace is a
-    // separate decision, not something to invent here.
-    if (mode === 'client') {
-      throw new Error(
-        ingestMode === 'replace'
-          ? 'Replace can only be run on the device this camp was set up on.'
-          : 'Import can only be run on the device this camp was set up on.'
-      )
-    }
+    // T351 — any device holding 'groups.import' may run this, on a trusted, non-revoked device
+    // (requireAuthorized above re-checks role and device trust on every call). The T311 setup-device
+    // gate is lifted. Known caveat: ingest also reads and writes tables that are never replicated
+    // (source_aliases, compound_cell_decisions, location_word_decisions, declined_two_row_splits),
+    // so what an import decides on this device is not seen on the camp's other devices.
     const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
     if (!camp) throw new Error('no camp on this device')
     const outcome = commitIngest(db, {
@@ -685,17 +654,10 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // U1 (docs/adr/2026-08-17-onescreen-reconciliation-undo.md) — reverts the
   // field-update half of an import the director just committed. Same
   // authority as ingestCommit (an undo is itself a set of writes to the camp's
-  // setup) and the SAME Host-only gate for the SAME reason: it writes straight to
-  // this device's SQLite via appendOp, never through syncClient.write. _Prior:
-  // "so on a Client it would be invisible to the Host and every peer" — see the
-  // ⚠️ note on ingestCommit above; that premise no longer holds under the CRDT
-  // path, and the gate's live justification is the host-local tables instead._
+  // setup), on any trusted device (T351).
   function ingestUndoHandler({ token, invertibleOps, createdEntityIds, client_write_id } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const session = requireAuthorized(db, { token, action: 'groups.import' })
-    if (mode === 'client') {
-      throw new Error('Undo can only be run on the device this camp was set up on.')
-    }
     if (!isNonEmptyString(client_write_id)) throw new Error('client_write_id is required')
     return ingestUndo(db, {
       invertibleOps: Array.isArray(invertibleOps) ? invertibleOps : [],
@@ -711,15 +673,12 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // (docs/adr/2026-08-09-s1b-host-local-aliases.md §2). Admin-only via
   // 'source_aliases.confirm', deliberately absent from the staff permission
   // list (permissions.js) — the same omission pattern as 'groups.import'.
-  // HOST ONLY, same reasoning as ingestCommit above: confirmAlias writes
-  // straight to THIS device's SQLite via direct SQL (no op-log), so running
-  // it on a Client would be invisible to the Host and every peer.
+  // T351: any admin on a trusted device. confirmAlias writes to THIS device's
+  // SQLite only (direct SQL, no op-log; source_aliases is never replicated), so
+  // a match confirmed here is not seen on the camp's other devices.
   function confirmAliasHandler({ token, entity_type, cohort_id, source_label, entity_id } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const session = requireAuthorized(db, { token, action: 'source_aliases.confirm' })
-    if (mode === 'client') {
-      throw new Error('Confirming an import match can only be done on the device this camp was set up on.')
-    }
     const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
     if (!camp) throw new Error('no camp on this device')
     try {
@@ -742,14 +701,11 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // 'declined_two_row_splits.record' is granted to staff (electron/auth/
   // permissions.js) alongside admin — staff already hold 'activities.write'
   // and can execute a Split themselves, so their decline must not silently
-  // fail (Slice 2b Red Hat HIGH #2). HOST ONLY (direct SQL, no op-log — see
-  // confirmAliasHandler's comment).
+  // fail (Slice 2b Red Hat HIGH #2). T351: any trusted device; direct SQL, no
+  // op-log, so the decline stays on this device (see confirmAliasHandler).
   function recordDeclinedSplitHandler({ token, activityName } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     requireAuthorized(db, { token, action: 'declined_two_row_splits.record' })
-    if (mode === 'client') {
-      throw new Error('Declining a split suggestion can only be done on the device this camp was set up on.')
-    }
     const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
     if (!camp) throw new Error('no camp on this device')
     recordDeclinedSplit(db, { campId: camp.id, activityName })
@@ -1509,10 +1465,8 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   function denyDevice({ token, deviceId: targetDeviceId } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const { userId } = requireAuthorized(db, { token, action: 'devices.approve' })
-    // T86 — same reason as approveDevice above.
-    if (mode === 'client') {
-      throw new Error('Device management can only be done on the device this camp was set up on.')
-    }
+    // T351 — mode-agnostic like approveDevice/revokeDevice (T332): the permission and device trust
+    // above are the rule, and nothing here needs the Host signing key.
     if (!isNonEmptyString(targetDeviceId)) throw new Error('deviceId is required')
 
     // CodeReview: write pairing_status='denied' so denied devices don't
@@ -2154,21 +2108,13 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return dismissMigrationReviews(db, ids)
   }
 
-  // docs/adr/2026-08-28-persisted-reconciliation-decisions.md §4b. HOST
-  // ONLY, same reasoning as confirmAliasHandler above: open_reconciliation_
-  // decisions is a host-local table, only ever written by commitPlan on the
-  // Host device (import is host-only) — a Client's own copy of this table
-  // is always empty by construction, so routing this through IPC to the
-  // Host rather than reading the calling device's own (always-empty) db
-  // would be the honest behavior; until that's needed, this reads the
-  // calling device's own db directly and is gated host-only so a Client
-  // never mistakes an always-empty read for "nothing to review".
+  // docs/adr/2026-08-28-persisted-reconciliation-decisions.md §4b. T351: any admin on a
+  // trusted device. open_reconciliation_decisions is a device-local table, never replicated, and
+  // commitPlan writes it on the device that ran the import — so this device lists only the
+  // decisions its own imports left, not those from another device.
   function listOpenReconciliationDecisionsHandler({ token } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     requireAuthorized(db, { token, action: 'open_reconciliation_decisions.read' })
-    if (mode === 'client') {
-      throw new Error('Reconciliation decisions can only be read on the device this camp was set up on.')
-    }
     const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
     if (!camp) return []
     return listOpenReconciliationDecisions(db, camp.id)
@@ -2176,14 +2122,10 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
 
   // Dismiss = a plain DELETE ... WHERE id = ? (§4b) — a LOCAL WRITE, never
   // an op, never routed to the Host or broadcast, same posture as
-  // dismissMigrationReviewsHandler. HOST ONLY for the same reason as the
-  // list handler above.
+  // dismissMigrationReviewsHandler. Any admin on a trusted device (T351), like the list handler.
   function dismissOpenReconciliationDecisionsHandler({ token, ids } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     requireAuthorized(db, { token, action: 'open_reconciliation_decisions.dismiss' })
-    if (mode === 'client') {
-      throw new Error('Reconciliation decisions can only be dismissed on the device this camp was set up on.')
-    }
     return dismissOpenReconciliationDecisions(db, ids)
   }
 

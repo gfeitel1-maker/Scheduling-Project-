@@ -59,10 +59,11 @@ const ERASURE_COPY = {
 const JOINER_GONE_COPY = 'The device disconnected before approval — ask it to request again'
 
 export default function DeviceManagerScreen({ campId, role, deviceMode }) {
-  // T86, narrowed by the T332 fold-in (Code Reviewer HIGH): `denyDevice` still writes straight
-  // to this device's local, never-synced `devices` table with no distributed backstop, and the
-  // "Add a device" listening window is inherently Host-only (there is no code to show on a
-  // Client). Both of THOSE stay gated on `canManage`. `revokeDevice`/the admin-only Revoke and
+  // T86, narrowed by T332 and T351: the "Add a device" window and the pending-request Approve/Deny
+  // buttons stay gated on `canManage` here, because a join hosted by a device without the setup
+  // device's signing key cannot finish (the joiner is given a token the network refuses; see
+  // electron/sync/automerge/clientHostedJoin.test.js). The denyDevice handler itself no longer
+  // refuses client-mode devices. `revokeDevice`/the admin-only Revoke and
   // Confirm-removal actions below are NOT gated on it any more — their backend gate
   // (authorize()'s role check) has been mode-agnostic since T332's base change, so a client-mode
   // admin gets the identical affordance a host-mode admin does; see deriveDeviceRowState.js.
@@ -303,7 +304,7 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
                       // unconditional Revoke/Confirm-removal in the table below, so a blanket
                       // "View only from this device — use the main computer" here would
                       // contradict that on the same screen. Pairing approval specifically IS
-                      // still Host-only (denyDevice has no distributed backstop), so this says
+                      // still setup-device-only in this UI (see canManage above), so this says
                       // nothing rather than claim something false — never a message implying
                       // this device can manage nothing.
                       null
