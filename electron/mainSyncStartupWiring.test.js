@@ -148,7 +148,7 @@ function invokesStarter(value) {
   walk(value, (n) => {
     if (
       n.type === 'CallExpression' &&
-      ((n.callee?.type === 'Identifier' && n.callee.name === STARTER_NAME) ||
+      ((n.callee?.type === 'Identifier' && (n.callee.name === STARTER_NAME || n.callee.name === 'start')) ||
         (n.callee?.type === 'MemberExpression' &&
           n.callee.object?.name === 'starter' &&
           n.callee.property?.name === 'start'))

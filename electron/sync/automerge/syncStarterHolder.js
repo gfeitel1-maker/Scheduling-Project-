@@ -24,25 +24,45 @@ export function createSyncStarterHolder(makeStarter) {
   }
 
   // A start in flight on the old db would land a second node after this returns, so it settles first.
+  // Re-checked in a loop: a start kicked off while waiting must settle too.
   async function replace() {
-    try { await starting } catch { /* start() reports its own failures */ }
+    while (starting) {
+      try { await starting } catch { /* start() reports its own failures */ }
+    }
     await shutdown()
     starter.releaseBroadcaster()
     starter = makeStarter()
     start()
   }
 
+  // One project switch at a time: a second would interleave its node stop/start and db close with the first.
+  let switching = false
+  function acquireSwitch() {
+    if (switching) {
+      throw Object.assign(new Error('Another project switch is already in progress.'), { code: 'project_switch_in_progress' })
+    }
+    switching = true
+    return () => { switching = false }
+  }
+
   // commit() repoints the caller's db/deviceId; revert() undoes it. A throw from build() leaves the
-  // caller on the old project with its node running again.
-  async function swap({ commit, revert, build }) {
-    commit()
+  // caller on the old project with its node running again. `held` means the caller already holds the switch lock.
+  async function swap({ commit, revert, build, held = false }) {
+    const release = held ? () => {} : acquireSwitch()
     try {
-      await replace()
-      return build()
-    } catch (err) {
-      revert()
-      await replace()
-      throw err
+      commit()
+      try {
+        await replace()
+        return await build()
+      } catch (err) {
+        revert()
+        try { await replace() } catch (rollbackErr) {
+          console.error(`automerge sync: restarting the node after a failed switch failed: ${rollbackErr?.message ?? rollbackErr}`)
+        }
+        throw err
+      }
+    } finally {
+      release()
     }
   }
 
@@ -52,13 +72,14 @@ export function createSyncStarterHolder(makeStarter) {
     shutdown,
     replace,
     swap,
+    acquireSwitch,
     handlerOptions: () => ({
       getAutomergeSyncNode: () => starter.getNode(),
       getAutomergeStartupAttempted: () => starter.getStartupAttempted(),
       getRelayReservationRefused: () => starter.getRelayReservationRefused(),
-      onCampBootstrapped: () => starter.start(),
-      onCampJoined: () => starter.start(),
-      retrySync: () => starter.start(),
+      onCampBootstrapped: () => start(),
+      onCampJoined: () => start(),
+      retrySync: () => start(),
     }),
   }
 }
