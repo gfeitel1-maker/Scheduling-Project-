@@ -2,7 +2,7 @@
 ticket: T339
 document_type: ticket
 title: Make joinCode.test.js's KDF-cost assertion work-factor-based, not single-sample wall-clock
-status: open
+status: completed
 created: 2026-10-03
 archive_when: "electron/sync/joinCode.test.js's KDF-cost test no longer fails on fast/variable CI hardware — it asserts the scrypt WORK FACTOR / parameters (as the companion test already does) and/or averages N derivations or uses a widened floor, rather than asserting a single-sample wall-clock derivation exceeds a tight 50ms floor"
 task_class: test-infrastructure
@@ -44,3 +44,7 @@ already pins. Make the cost assertion robust rather than single-sample wall-cloc
 ## Not in scope
 
 No change to `joinCode.js` or the scrypt parameters themselves — they are correct. Test-only change.
+
+## Resolution (2026-10-08)
+
+The wall-clock floor (>50ms) is replaced by a work-factor ratio: the median real derivation vs a same-machine scrypt baseline at N=1024 must exceed 8x (theoretical 32x). Runner speed and load cancel out. Red-first: planting N=1024 drops the ratio to ~0.5 and fails.

@@ -7,6 +7,7 @@
 // would be pinning a bug. These are property tests instead: random/unique,
 // round-trips through the scrypt tag, and the proof/normalize invariants
 // carried over unchanged from the pre-T286 suite.
+import crypto from 'node:crypto'
 import { describe, it, expect } from 'vitest'
 import {
   mintJoinSecret,
@@ -143,19 +144,27 @@ describe('joinDiscoveryTag', () => {
 // typo, a Node/libuv change) would erode the whole margin without this test
 // ever noticing via any other means.
 describe('join-tag KDF cost — measured, not assumed', () => {
-  it('costs a bounded, non-trivial amount of time per derivation (defends the offline-brute-force argument)', () => {
+  it('costs a bounded, non-trivial amount of work per derivation (defends the offline-brute-force argument)', () => {
+    // T339: a wall-clock floor (was >50ms) flaked on fast or loaded CI runners
+    // (45-47ms measured). Assert the WORK FACTOR instead: time the real
+    // derivation against a same-machine scrypt baseline at N=1024 (32x less
+    // work at the same r/p), so runner speed and load cancel out. scrypt is
+    // linear in N, so the real derivation must cost well over the baseline; a
+    // params regression that made it cheap (N=1024, or a bare hash) collapses
+    // the ratio to ~1 and fails. Median of several runs absorbs scheduler noise.
+    const median = (fn, reps) => {
+      const xs = []
+      for (let i = 0; i < reps; i++) {
+        const t0 = process.hrtime.bigint()
+        fn()
+        xs.push(Number(process.hrtime.bigint() - t0))
+      }
+      return xs.sort((x, y) => x - y)[Math.floor(reps / 2)]
+    }
     const secret = mintJoinSecret()
-    const t0 = process.hrtime.bigint()
-    joinDiscoveryTag(secret)
-    const elapsedMs = Number(process.hrtime.bigint() - t0) / 1e6
-    // Measured on the reference dev machine (see joinCode.js's own comment):
-    // mean 112.7ms over 7 runs (range 103.6-128.8ms) for N=32768/r=8/p=1. This
-    // asserts a wide band (50-600ms) rather than pinning the exact figure —
-    // CI hardware varies — while still catching an order-of-magnitude
-    // regression (a params change that made this ~1ms, which would gut the
-    // 2^50-guesses/~3.5M-CPU-year argument entirely).
-    expect(elapsedMs).toBeGreaterThan(50)
-    expect(elapsedMs).toBeLessThan(600)
+    const baseline = median(() => crypto.scryptSync(secret, 'baseline', 32, { N: 1024, r: 8, p: 1 }), 15)
+    const real = median(() => joinDiscoveryTag(secret), 5)
+    expect(real / baseline).toBeGreaterThan(8)
   })
 
   it('the chosen parameters are recorded, not silently changeable', () => {
