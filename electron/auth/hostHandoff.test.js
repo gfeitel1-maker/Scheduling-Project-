@@ -317,6 +317,20 @@ describe('host handoff: a KEY too large to send', () => {
   })
 })
 
+describe('host handoff: a decrypted KEY payload that is not an object', () => {
+  it('is refused as malformed_payload, writes nothing, and does not throw', async () => {
+    const keyMsg = await toKey()
+    const { seal, buildAad } = await import('./hostHandoffSeal.js')
+    const eph = s.svc.ephemeralForTest(keyMsg.handoff_id)
+    const ids = { handoffId: keyMsg.handoff_id, campId: pair.campId, giverDeviceId: h.deviceId, takerDeviceId: s.deviceId }
+    const sealed = seal({ takerEphemeralPublic: eph.publicKey, plaintext: Buffer.from('null'), aad: buildAad(ids) })
+    const result = await send(h, s, { type: 'KEY', handoff_id: keyMsg.handoff_id, sealed })
+    expect(result).toMatchObject({ ok: false, reason: 'malformed_payload' })
+    expect(pendingKey(s)).toBeUndefined()
+    expect(isHostDevice(s.db)).toBe(false)
+  })
+})
+
 describe('host handoff: relaunch seam', () => {
   it('reports relaunch on the result and calls the injected relaunch only from afterReplyFlushed', async () => {
     const keyMsg = await toKey()

@@ -302,6 +302,7 @@ export function createHostHandoff({ db, deviceId, getDeviceIdentity, now = Date.
     } catch {
       return rejectKey(row, 'bad_ciphertext', peerDeviceId)
     }
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return rejectKey(row, 'malformed_payload', peerDeviceId)
 
     if (!camp.signing_public_key || payload.public_key !== camp.signing_public_key) return rejectKey(row, 'wrong_camp_key', peerDeviceId)
     try {
