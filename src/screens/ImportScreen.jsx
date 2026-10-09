@@ -135,7 +135,7 @@ function computeSplitPreview(name, suffix, proposalActivityNames, existingActivi
   return { degenerate: false, collision: collidesExisting || collidesProposal, newName }
 }
 
-export default function ImportScreen({ campId, onNavigate, deviceMode }) {
+export default function ImportScreen({ campId, onNavigate }) {
   // Units and time blocks are scoped to a Program; an import files them under
   // the active one so the setup screens will show them (T33).
   const { activeCohort } = useCohorts(campId)
@@ -1557,25 +1557,6 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
         // unsure about.
         allCampOverrides={allCampOverridesRef.current}
       />
-    )
-  }
-
-  // T93 — import is host-only, enforced at the IPC layer (electron/main.js:
-  // "Import can only be run on the main computer."). Without this early
-  // signal a Client-mode director could upload, parse, edit the whole
-  // proposal, and stage the reconciliation ledger only to fail at the final
-  // commit. This is UI guidance only — the IPC-layer check stays exactly as
-  // it is, the real security boundary.
-  if (deviceMode === 'client') {
-    return (
-      <div style={{ ...S.importFrame, ...enterStyle }}>
-        <div style={{
-          background: 'var(--surface)', border: '1px solid var(--border)',
-          borderRadius: 10, padding: '16px', fontSize: 13, lineHeight: 1.6, color: 'var(--text)',
-        }}>
-          Import runs only on the device this camp was set up on.
-        </div>
-      </div>
     )
   }
 

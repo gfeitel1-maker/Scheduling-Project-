@@ -343,11 +343,6 @@ describe('isDecisionResolvedFor', () => {
 })
 
 describe('mapCommitError', () => {
-  it('passes the host-only refusal through with the safety reassurance appended', () => {
-    expect(mapCommitError(new Error('Import can only be run on the device this camp was set up on.')))
-      .toBe('Import can only be run on the device this camp was set up on. Nothing was imported.')
-  })
-
   it('maps an admin-role refusal to plain language', () => {
     expect(mapCommitError(new Error('admin role required'))).toBe('Admins only — nothing was imported.')
   })

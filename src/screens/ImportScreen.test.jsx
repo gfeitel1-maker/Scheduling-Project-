@@ -312,16 +312,6 @@ describe('ImportScreen — inferred activity rules (T35)', () => {
     expect(localClient.deleteEntity).not.toHaveBeenCalled()
   })
 
-  it('tells the director to use the device this camp was set up on when the handler refuses on a Client', async () => {
-    // The refusal names the one thing they can do about it; the generic
-    // "not something the app recognised" fallback would bury that.
-    localClient.ingestCommit.mockRejectedValue(new Error('Import can only be run on the device this camp was set up on.'))
-    await uploadFile()
-    await goToCommit()
-    await waitFor(() => expect(screen.getByText(/device this camp was set up on/)).toBeTruthy())
-    expect(screen.getByText(/Nothing was imported/)).toBeTruthy()
-  })
-
   // Round 2 (Red Hat HIGH) — replaceScope (electron/ops/ingest.js) tears down
   // WHERE camp_id = ? with no cohort filter, but the confirmation used to be
   // computed from a Program-filtered set (T33 duplicate detection). On a
@@ -665,27 +655,13 @@ describe('ImportScreen — a partial split failure is surfaced (not silently dro
   })
 })
 
-// T93 — Import is host-only, enforced today only at the IPC layer
-// (electron/main.js throws "Import can only be run on the device this camp was set up on."
-// when mode === 'client'). Without an early UI gate, a Client-mode director
-// can upload/parse/edit/reconcile a whole import and only discover the
-// constraint at the final commit. deviceMode is the same signal T86 already
-// threads into every screen via App.jsx's screenProps (deviceMode: mode).
-describe('ImportScreen — host-only gate on Client-mode devices (T93)', () => {
-  it('shows host-only guidance and no live upload control when deviceMode is client', () => {
+// T351 — Import is not tied to the setup device: App.jsx still passes deviceMode to every screen,
+// and a client-mode device gets the same upload control as any other.
+describe('ImportScreen — available on a client-mode device (T351)', () => {
+  it('presents the live upload control when deviceMode is client', () => {
     render(<ImportScreen campId="camp-1" onNavigate={() => {}} deviceMode="client" />)
-    expect(screen.getByText(/device this camp was set up on/i)).toBeTruthy()
-    expect(document.querySelector('input[type="file"]')).toBeNull()
-  })
-
-  it('still presents the live upload control when deviceMode is host', () => {
-    render(<ImportScreen campId="camp-1" onNavigate={() => {}} deviceMode="host" />)
     expect(document.querySelector('input[type="file"]')).toBeTruthy()
-  })
-
-  it('still presents the live upload control when deviceMode is not passed (default/undefined behaves as host)', () => {
-    render(<ImportScreen campId="camp-1" onNavigate={() => {}} />)
-    expect(document.querySelector('input[type="file"]')).toBeTruthy()
+    expect(screen.queryByText(/set up on/i)).toBeNull()
   })
 })
 
