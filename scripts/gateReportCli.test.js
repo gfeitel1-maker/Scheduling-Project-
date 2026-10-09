@@ -2,7 +2,17 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { runGateReportCli, CliUsageError } from './gateReportCli.js'
+import { fileURLToPath } from 'node:url'
+import { runGateReportCli, confirmCiRun, CliUsageError } from './gateReportCli.js'
+
+// A hand-written verifier PASS must cite evidence that resolves to a green gate-results file
+// stamped with the commit under review — not merely any existing file.
+const VALID_SHA = '1234567890abcdef1234567890abcdef12345678'
+const greenResults = (sha) => [`# gate run against ${sha} dirty=0`, 'STEP lint | rc=0 | ok', 'STEP tests-1 | rc=0 | Tests 9 passed (9)', 'DONE'].join('\n')
+const EVIDENCE_DIR = mkdtempSync(join(tmpdir(), 'gate-report-evidence-'))
+const REAL_EVIDENCE = join(EVIDENCE_DIR, 'gate-results.txt')
+writeFileSync(REAL_EVIDENCE, greenResults(VALID_SHA))
+
 
 let scratch
 
@@ -20,7 +30,7 @@ const writeInput = (name, data) => {
   return path
 }
 
-const verifier = { gate_name: 'verifier', verdict: 'PASS', score: null, na_reason: null, findings: [], evidence_ref: 'x' }
+const verifier = { gate_name: 'verifier', verdict: 'PASS', score: null, na_reason: null, findings: [], evidence_ref: REAL_EVIDENCE }
 const opinion = (gate_name, score) => ({ gate_name, verdict: 'PASS', score, na_reason: null, findings: [], evidence_ref: null })
 
 // T171 fixtures: a session transcript in which all four opinion gates were genuinely dispatched
@@ -55,7 +65,7 @@ const writeTranscript = (name, text) => {
 }
 
 const validInput = {
-  taskId: 'T200', round: 1, expectedOpinionGates: ['security', 'red_hat', 'tester', 'code_reviewer'],
+  taskId: 'T200', round: 1, commit: VALID_SHA, expectedOpinionGates: ['security', 'red_hat', 'tester', 'code_reviewer'],
   reports: [verifier, opinion('security', 4), opinion('red_hat', 4), opinion('tester', 4), opinion('code_reviewer', 4)],
 }
 
@@ -239,7 +249,7 @@ describe('opinion report dispatch provenance (T171)', () => {
     const transcript = writeTranscript('wrongtype.jsonl', ALL_BOUND_TRANSCRIPT + '\n' + boundDispatch('toolu_maker', 'agent-maker', 'maker'))
     // Only 3 of 4 opinion gates are expected/dispatched; a 4th, fabricated one is added by hand.
     const input = {
-      taskId: 'T-WRONG', round: 1, expectedOpinionGates: ['security', 'red_hat', 'tester', 'code_reviewer'],
+      taskId: 'T-WRONG', round: 1, commit: VALID_SHA, expectedOpinionGates: ['security', 'red_hat', 'tester', 'code_reviewer'],
       reports: [verifier, opinion('security', 4), opinion('red_hat', 4), opinion('tester', 4), opinion('code_reviewer', 4)],
       sessionTranscript: transcript,
     }
@@ -256,18 +266,115 @@ describe('runGateReportCli — ciRun binds Verifier to a CI run (no local gate r
   const SHA = '5ba82017aaaabbbbccccddddeeeeffff00001111'
   const opinions = [opinion('security', 4), opinion('red_hat', 4), opinion('tester', 4), opinion('code_reviewer', 4)]
   const base = { taskId: 'T201', round: 1, expectedOpinionGates: ['security', 'red_hat', 'tester', 'code_reviewer'], reports: opinions, commit: SHA }
+  // The CLI never trusts typed ciRun fields: it re-fetches the run. Tests stub the fetch; no gh/network.
+  const gateRun = (over = {}) => ({ headSha: SHA, status: 'completed', conclusion: 'success', workflowName: 'gate', path: '.github/workflows/gate.yml', ...over })
+  const stub = (run) => () => JSON.stringify(run)
+  const run = (name, input, fetchRun) => runGateReportCli(writeInput(name, withBoundTranscript(input)), { runsDir: scratch, fetchRun })
 
-  it('completed/success CI run on the commit -> verifier_pass, run recorded in the persisted report', () => {
+  it('completed/success gate.yml run on the commit, confirmed by fetch -> verifier_pass, run recorded', () => {
     const ciRun = { id: 18234567890, headSha: SHA, status: 'completed', conclusion: 'success' }
-    const result = runGateReportCli(writeInput('ci.json', withBoundTranscript({ ...base, ciRun })), { runsDir: scratch })
+    const result = run('ci.json', { ...base, ciRun }, stub(gateRun()))
     expect(result.verifier_pass).toBe(true)
     const persisted = JSON.parse(readFileSync(result.gate_report_ref, 'utf8'))
     expect(persisted.verifier_ci_run).toEqual({ id: 18234567890, head_sha: SHA, status: 'completed', conclusion: 'success' })
   })
 
+  it('passes the run id to the fetcher', () => {
+    let seen
+    run('ci-id.json', { ...base, ciRun: { id: 42, headSha: SHA, status: 'completed', conclusion: 'success' } }, (id) => { seen = id; return JSON.stringify(gateRun()) })
+    expect(String(seen)).toBe('42')
+  })
+
   it('CI run on a different SHA than commit -> not pass', () => {
     const ciRun = { id: 1, headSha: 'f'.repeat(40), status: 'completed', conclusion: 'success' }
-    const result = runGateReportCli(writeInput('ci2.json', withBoundTranscript({ ...base, ciRun })), { runsDir: scratch })
-    expect(result.verifier_pass).toBe(false)
+    expect(run('ci2.json', { ...base, ciRun }, stub(gateRun({ headSha: 'f'.repeat(40) }))).verifier_pass).toBe(false)
+  })
+
+  describe('ciRun.id must be numeric before gh is ever invoked (argument injection)', () => {
+    for (const id of ['--repo=other/fork', '-R other/repo 123', '-123', '123 --repo x', '12a', ' 42', 42.5, true]) {
+      it(`id ${JSON.stringify(id)} -> fetcher never called, not counted`, () => {
+        let called = false
+        const fetchRun = () => { called = true; return JSON.stringify(gateRun()) }
+        expect(confirmCiRun({ id }, fetchRun).run).toBeNull()
+        expect(called).toBe(false)
+        const r = run(`inj-${String(id).length}.json`, { ...base, ciRun: { id, headSha: SHA, status: 'completed', conclusion: 'success' } }, fetchRun)
+        expect(r.verifier_pass).toBe(false)
+        expect(called).toBe(false)
+      })
+    }
+  })
+
+  const typed = { id: 7, headSha: SHA, status: 'completed', conclusion: 'success' }
+  it('gh missing / erroring -> fails closed, not pass', () => {
+    expect(run('e1.json', { ...base, ciRun: typed }, () => { throw new Error('spawn gh ENOENT') }).verifier_pass).toBe(false)
+  })
+  it('gh returns unparseable output -> not pass', () => {
+    expect(run('e2.json', { ...base, ciRun: typed }, () => 'not json').verifier_pass).toBe(false)
+  })
+  it('typed values say success but the fetched SHA is a different commit -> not pass', () => {
+    expect(run('e3.json', { ...base, ciRun: typed }, stub(gateRun({ headSha: 'a'.repeat(40) }))).verifier_pass).toBe(false)
+  })
+  it('typed values say completed/success but the fetched run is in_progress -> not pass', () => {
+    expect(run('e4.json', { ...base, ciRun: typed }, stub(gateRun({ status: 'in_progress', conclusion: '' }))).verifier_pass).toBe(false)
+  })
+  it('fetched run concluded failure -> not pass', () => {
+    expect(run('e5.json', { ...base, ciRun: typed }, stub(gateRun({ conclusion: 'failure' }))).verifier_pass).toBe(false)
+  })
+  it('a successful run of a workflow other than gate.yml -> not pass', () => {
+    expect(run('e6.json', { ...base, ciRun: typed }, stub(gateRun({ workflowName: 'gate', path: '.github/workflows/lint.yml' }))).verifier_pass).toBe(false)
+  })
+  it('typed status disagrees with the fetched (successful) run -> not pass', () => {
+    expect(run('e7.json', { ...base, ciRun: { ...typed, status: 'queued' } }, stub(gateRun())).verifier_pass).toBe(false)
+  })
+
+  describe('hand-written verifier PASS must cite evidence that resolves', () => {
+    const hw = (evidence_ref) => ({ gate_name: 'verifier', verdict: 'PASS', score: null, na_reason: null, findings: [], evidence_ref })
+    const noFetch = () => { throw new Error('fetch must not be needed') }
+    it('no evidence_ref -> UNVERIFIED (verifier_pass false)', () => {
+      expect(run('h1.json', { ...base, reports: [hw(null), ...opinions] }, noFetch).verifier_pass).toBe(false)
+    })
+    it('evidence_ref naming a file that does not exist -> verifier_pass false', () => {
+      expect(run('h2.json', { ...base, reports: [hw(join(scratch, 'nope.txt')), ...opinions] }, noFetch).verifier_pass).toBe(false)
+    })
+    it('evidence_ref naming a green gate-results file stamped with the commit -> pass', () => {
+      const f = join(scratch, 'gate-results.txt'); writeFileSync(f, greenResults(SHA))
+      expect(run('h3.json', { ...base, reports: [hw(f), ...opinions] }, noFetch).verifier_pass).toBe(true)
+    })
+    it('evidence_ref naming an arbitrary existing file (not gate results) -> verifier_pass false', () => {
+      expect(run('h3b.json', { ...base, reports: [hw('package.json'), ...opinions] }, noFetch).verifier_pass).toBe(false)
+      expect(run('h3c.json', { ...base, reports: [hw(fileURLToPath(import.meta.url)), ...opinions] }, noFetch).verifier_pass).toBe(false)
+    })
+    it('evidence_ref naming gate results for a DIFFERENT commit -> verifier_pass false', () => {
+      const f = join(scratch, 'other.txt'); writeFileSync(f, greenResults('f'.repeat(40)))
+      expect(run('h3d.json', { ...base, reports: [hw(f), ...opinions] }, noFetch).verifier_pass).toBe(false)
+    })
+    it('evidence_ref naming a FAILING gate-results file -> verifier_pass false', () => {
+      const f = join(scratch, 'red.txt'); writeFileSync(f, greenResults(SHA).replace('rc=0 | ok', 'rc=1 | boom'))
+      expect(run('h3e.json', { ...base, reports: [hw(f), ...opinions] }, noFetch).verifier_pass).toBe(false)
+    })
+    it('evidence_ref citing the confirmed ciRun URL -> pass', () => {
+      const ref = 'https://github.com/o/r/actions/runs/18234567890'
+      const r = run('h4.json', { ...base, reports: [hw(ref), ...opinions], ciRun: { id: 18234567890, headSha: SHA, status: 'completed', conclusion: 'success' } }, stub(gateRun()))
+      expect(r.verifier_pass).toBe(true)
+    })
+    it('evidence_ref citing a run id that is NOT the confirmed run -> verifier_pass false', () => {
+      // the typed ciRun fails confirmation (failure), and the cited run is a different id anyway
+      const r = run('h5.json', { ...base, reports: [hw('ci run 999'), ...opinions], ciRun: { id: 18234567890, headSha: SHA, status: 'completed', conclusion: 'success' } }, stub(gateRun({ conclusion: 'failure' })))
+      expect(r.verifier_pass).toBe(false)
+    })
+    it('evidence_ref citing a confirmed gate.yml run that FAILED -> verifier_pass false', () => {
+      const r = run('h7.json', { ...base, reports: [hw('https://github.com/o/r/actions/runs/999'), ...opinions], ciRun: { id: 999 } },
+        stub(gateRun({ conclusion: 'failure' })))
+      expect(r.verifier_pass).toBe(false)
+    })
+    it('evidence_ref citing a confirmed successful gate.yml run on a DIFFERENT SHA -> verifier_pass false', () => {
+      const r = run('h8.json', { ...base, reports: [hw('https://github.com/o/r/actions/runs/999'), ...opinions], ciRun: { id: 999 } },
+        stub(gateRun({ headSha: 'b'.repeat(40) })))
+      expect(r.verifier_pass).toBe(false)
+    })
+    it('evidence_ref citing an UNconfirmed ciRun id -> verifier_pass false', () => {
+      const r = run('h6.json', { ...base, reports: [hw('runs/18234567890'), ...opinions], ciRun: { id: 18234567890, headSha: SHA, status: 'completed', conclusion: 'success' } }, stub(gateRun({ path: '.github/workflows/other.yml' })))
+      expect(r.verifier_pass).toBe(false)
+    })
   })
 })
