@@ -543,7 +543,7 @@ export function RequiredGapCard({ decision, dismissed, onDismiss, onUndismiss, o
   )
 }
 
-export function RequiredGapSummaryCard({ decisions, dismissedGaps, onDismiss, onUndismiss, onNavigate, isFirstImport = false }) {
+export function RequiredGapSummaryCard({ decisions, dismissedGaps, onDismiss, onUndismiss, onNavigate }) {
   const labels = decisions.map((d) => d.label).join(', ')
 
   return (
