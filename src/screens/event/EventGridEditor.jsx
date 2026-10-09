@@ -20,8 +20,7 @@ import { describeWriteFailure } from '../../utils/writeErrorMessage'
 import { S, useEnterTransition } from '../../styles/shared'
 import { ArrowIcon, CloseIcon } from '../../components/icons'
 import { createActivity } from '../schedule/createActivityHelper'
-import { buildRowTracks, columnTracks } from '../schedule/gridTracks'
-import { placeCell, placeRowHeader } from '../schedule/gridPlacement'
+import { placeCell } from '../schedule/gridPlacement'
 import { blockNamesForSpan } from '../../components/schedule/cellLabel'
 import { parseTextGrid } from '../../ingest/textGrid'
 import { workbookToPages } from '../../ingest/sheetGrid'
@@ -29,7 +28,7 @@ import { parseGridSchedule } from '../../ingest/parseGridSchedule'
 import { populateEventGrid } from '../../ingest/eventGridPopulate'
 import { assertImportFileSize, readWorkbookSafely, unescapeRow } from '../../utils/exportSanitize.js'
 import EventCell from './EventCell'
-import '../../components/schedule/scheduleGrid.css'
+import GridEditorFrame, { InlineName } from '../../components/schedule/GridEditorFrame'
 
 const LABELS = {
   backLink: '← Special Schedules',
@@ -467,35 +466,35 @@ export default function EventGridEditor({ campId, eventId, onBack, onDeletedElse
   if (loading) return <div style={S.stateLoading}>Loading…</div>
   if (!event) return null
 
-  const rowTracks = buildRowTracks({ timeBlocks })
-  const gridTemplateColumns = columnTracks(eventGroups.length)
-
   return (
-    <div style={enterStyle}>
-      <div className="back-row" style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16 }}>
-        <button className="press-97" onClick={onBack} style={S.backBar}>{LABELS.backLink}</button>
+    <GridEditorFrame
+      enterStyle={enterStyle}
+      onBack={onBack}
+      backLabel={LABELS.backLink}
+      title={(
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 18 }}>
           {event.name} — Internal schedule
         </div>
-      </div>
-
-      {error && <div style={S.errorBanner}>{error}</div>}
-      {importUnmapped && importUnmapped.length > 0 && (
-        <div style={S.cautionBanner}>
-          {importUnmapped.length} cell{importUnmapped.length !== 1 ? 's' : ''} couldn’t be fully matched — you can fill those in below.
-        </div>
       )}
-
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".xlsx,.xlsm,.xls,.txt"
-        style={{ display: 'none' }}
-        onChange={(e) => runImport(e.target.files?.[0])}
-      />
-
-      <div className="grid-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, gap: 10, flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+      banners={(
+        <>
+          {error && <div style={S.errorBanner}>{error}</div>}
+          {importUnmapped && importUnmapped.length > 0 && (
+            <div style={S.cautionBanner}>
+              {importUnmapped.length} cell{importUnmapped.length !== 1 ? 's' : ''} couldn’t be fully matched — you can fill those in below.
+            </div>
+          )}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xlsm,.xls,.txt"
+            style={{ display: 'none' }}
+            onChange={(e) => runImport(e.target.files?.[0])}
+          />
+        </>
+      )}
+      toolbarActions={(
+        <>
           <button className="press-97" onClick={addBlock} style={S.btnSecondary}>{LABELS.addBlock}</button>
           <button className="press-97" onClick={addEventGroup} style={S.btnSecondary}>{LABELS.addGroup}</button>
           {(timeBlocks.length > 0 || eventGroups.length > 0) && (
@@ -511,13 +510,13 @@ export default function EventGridEditor({ campId, eventId, onBack, onDeletedElse
               {importing ? 'Importing…' : LABELS.importAction}
             </button>
           )}
-        </div>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>
-          {eventGroups.length} group{eventGroups.length !== 1 ? 's' : ''} × {timeBlocks.length} block{timeBlocks.length !== 1 ? 's' : ''} — {filledCount} / {totalCells} filled
-        </div>
-      </div>
-
-      {timeBlocks.length === 0 || eventGroups.length === 0 ? (
+        </>
+      )}
+      groups={eventGroups}
+      timeBlocks={timeBlocks}
+      filledCount={filledCount}
+      totalCells={totalCells}
+      empty={timeBlocks.length === 0 || eventGroups.length === 0 ? (
         <div style={S.emptyState}>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
             <button className="press-97" onClick={addBlock} style={S.btnPrimary}>{LABELS.addBlock}</button>
@@ -527,145 +526,48 @@ export default function EventGridEditor({ campId, eventId, onBack, onDeletedElse
             </button>
           </div>
         </div>
-      ) : (
-        <div style={{ overflowX: 'auto' }}>
-          <div role="grid" className="schedule-grid-frame" aria-rowcount={timeBlocks.length + 1} aria-colcount={eventGroups.length + 1}>
-            <div role="rowgroup" className="schedule-grid schedule-grid--header" style={{ gridTemplateColumns }}>
-              <div role="row" style={{ display: 'contents' }}>
-                <div role="columnheader" className="cell row-header" aria-colindex={1} style={placeRowHeader({ blockIndex: 0 })}>Block</div>
-                {eventGroups.map((g, groupIndex) => (
-                  <div key={g.id} role="columnheader" className="cell" aria-colindex={groupIndex + 2}
-                    style={placeCell({ blockIndex: 0, columnIndex: groupIndex })}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%' }}>
-                      <EventGroupName group={g} onRename={(name) => renameEventGroup(g.id, name)} />
-                      <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <button type="button" className="cell-action" title="Move left" onClick={() => moveEventGroup(g.id, -1)} disabled={groupIndex === 0}><ArrowIcon direction="left" /></button>
-                        <button type="button" className="cell-action" title="Move right" onClick={() => moveEventGroup(g.id, 1)} disabled={groupIndex === eventGroups.length - 1}><ArrowIcon direction="right" /></button>
-                      </div>
-                      <button type="button" className="cell-action" title="Remove group" onClick={() => removeEventGroup(g.id)} style={{ color: 'var(--danger)' }}><CloseIcon size={10} /></button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div role="rowgroup" className="schedule-grid schedule-grid--body" style={{ gridTemplateColumns, '--grid-rows': rowTracks }}>
-              {timeBlocks.map((block, blockIndex) => (
-                <div key={block.id} role="row" style={{ display: 'contents' }}>
-                  <div role="rowheader" className="cell row-header" aria-colindex={1} style={placeRowHeader({ blockIndex })}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, width: '100%' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <div style={{ display: 'flex', flexDirection: 'column' }}>
-                          <button type="button" className="cell-action" title="Move up" onClick={() => moveBlock(block.id, -1)} disabled={blockIndex === 0}><ArrowIcon direction="up" /></button>
-                          <button type="button" className="cell-action" title="Move down" onClick={() => moveBlock(block.id, 1)} disabled={blockIndex === timeBlocks.length - 1}><ArrowIcon direction="down" /></button>
-                        </div>
-                        <BlockName block={block} onRename={(name) => renameBlock(block.id, name)} />
-                        <button type="button" className="cell-action" title="Remove block" onClick={() => removeBlock(block.id)} style={{ color: 'var(--danger)' }}><CloseIcon size={10} /></button>
-                      </div>
-                    </div>
-                  </div>
-                  {eventGroups.map((g, groupIndex) => {
-                    const slotRow = slotFor(g.id, block.id)
-                    return (
-                      <EventCell
-                        key={g.id}
-                        slotRow={slotRow}
-                        activity={slotRow?.activity_id ? activityMap.get(slotRow.activity_id) ?? null : null}
-                        location={slotRow?.location_id ? locationMap.get(slotRow.location_id) ?? null : null}
-                        eventGroupId={g.id}
-                        blockId={block.id}
-                        eventId={eventId}
-                        ariaColIndex={groupIndex + 2}
-                        blockNames={blockNamesForSpan(timeBlocks, blockIndex)}
-                        column={g.name}
-                        /* T266 (site 6 of 7) — this sub-grid is a free-choice menu like the
-                           main one; a pinned event is not pickable here either. No
-                           eligibility filtering is added or removed. */
-                        eligibleActivities={freeChoiceActivities}
-                        locations={locations}
-                        onPlace={(_slot, activityId) => placeActivity(g.id, block.id, activityId)}
-                        onCreateNew={(_slot, name) => createAndPlace(g.id, block.id, name)}
-                        onLocationChange={changeLocation}
-                        {...placeCell({ blockIndex, columnIndex: groupIndex })}
-                      />
-                    )
-                  })}
-                </div>
-              ))}
-            </div>
+      ) : null}
+      renderColumnHeader={(g, groupIndex) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%' }}>
+          <InlineName name={g.name} onRename={(name) => renameEventGroup(g.id, name)} />
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <button type="button" className="cell-action" title="Move left" onClick={() => moveEventGroup(g.id, -1)} disabled={groupIndex === 0}><ArrowIcon direction="left" /></button>
+            <button type="button" className="cell-action" title="Move right" onClick={() => moveEventGroup(g.id, 1)} disabled={groupIndex === eventGroups.length - 1}><ArrowIcon direction="right" /></button>
           </div>
+          <button type="button" className="cell-action" title="Remove group" onClick={() => removeEventGroup(g.id)} style={{ color: 'var(--danger)' }}><CloseIcon size={10} /></button>
         </div>
       )}
-
-      <div style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
-        <button className="press-97" onClick={doPrint} style={S.btnSecondary}>{LABELS.printAction}</button>
-      </div>
-    </div>
-  )
-}
-
-function BlockName({ block, onRename }) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(block.name)
-
-  function startEditing() {
-    setDraft(block.name)
-    setEditing(true)
-  }
-
-  if (editing) {
-    return (
-      <input
-        autoFocus
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => { setEditing(false); onRename(draft) }}
-        onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
-        style={{ ...S.input, fontSize: 12, padding: '2px 6px', flex: 1 }}
-      />
-    )
-  }
-  return (
-    <span
-      className="block-name"
-      onClick={startEditing}
-      style={{ cursor: 'text', flex: 1, borderBottom: '1px dotted var(--border)' }}
-    >
-      {block.name}
-    </span>
-  )
-}
-
-// Sibling to BlockName above, editing an event_groups' name (the column
-// header) instead of an event_time_blocks' name (the row header).
-function EventGroupName({ group, onRename }) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(group.name)
-
-  function startEditing() {
-    setDraft(group.name)
-    setEditing(true)
-  }
-
-  if (editing) {
-    return (
-      <input
-        autoFocus
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => { setEditing(false); onRename(draft) }}
-        onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
-        style={{ ...S.input, fontSize: 12, padding: '2px 6px', flex: 1 }}
-      />
-    )
-  }
-  return (
-    <span
-      className="block-name"
-      onClick={startEditing}
-      style={{ cursor: 'text', flex: 1, borderBottom: '1px dotted var(--border)' }}
-    >
-      {group.name}
-    </span>
+      onMoveBlock={moveBlock}
+      onRenameBlock={renameBlock}
+      onRemoveBlock={removeBlock}
+      renderCell={(g, block, groupIndex, blockIndex) => {
+        const slotRow = slotFor(g.id, block.id)
+        return (
+          <EventCell
+            key={g.id}
+            slotRow={slotRow}
+            activity={slotRow?.activity_id ? activityMap.get(slotRow.activity_id) ?? null : null}
+            location={slotRow?.location_id ? locationMap.get(slotRow.location_id) ?? null : null}
+            eventGroupId={g.id}
+            blockId={block.id}
+            eventId={eventId}
+            ariaColIndex={groupIndex + 2}
+            blockNames={blockNamesForSpan(timeBlocks, blockIndex)}
+            column={g.name}
+            /* T266 (site 6 of 7) — this sub-grid is a free-choice menu like the
+               main one; a pinned event is not pickable here either. No
+               eligibility filtering is added or removed. */
+            eligibleActivities={freeChoiceActivities}
+            locations={locations}
+            onPlace={(_slot, activityId) => placeActivity(g.id, block.id, activityId)}
+            onCreateNew={(_slot, name) => createAndPlace(g.id, block.id, name)}
+            onLocationChange={changeLocation}
+            {...placeCell({ blockIndex, columnIndex: groupIndex })}
+          />
+        )
+      }}
+      onPrint={doPrint}
+      printLabel={LABELS.printAction}
+    />
   )
 }
