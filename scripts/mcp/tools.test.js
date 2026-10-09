@@ -510,7 +510,7 @@ describe('scripts/mcp/tools.js', () => {
 
       expect(result.ok).toBe(true)
       const e = result.export
-      expect(e.format_version).toBe(1)
+      expect(e.format_version).toBe(2)
       expect(e.route).toBe('generated')
       expect(e.week).toEqual({ id: weekId, name: 'Week 1' })
       expect(e.groups.length).toBeGreaterThan(0)
@@ -518,6 +518,47 @@ describe('scripts/mcp/tools.js', () => {
       expect(e.time_blocks.length).toBeGreaterThan(0)
       const placed = e.cells.find((c) => c.group_id === group.id && c.day_id === day.id && c.time_block_id === block.id)
       expect(placed).toEqual({ group_id: group.id, day_id: day.id, time_block_id: block.id, kind: 'activity', ref_id: activity.id, name: activity.name })
+    })
+
+    // T350 slice 6 (ADR 2026-10-09 D7): the MCP export goes through the same
+    // builder, so a bound special day replaces that day in its output too.
+    it('prints a replaced day as the special day grid and notes', () => {
+      const dir = makeTmpDir()
+      dirs.push(dir)
+      const { dbPath, campId, userId } = bootstrapDb(dir)
+      ingestCommitTool({ file_path: SAMPLE }, { dbPath, allowWrite: true, authorUserId: userId })
+
+      const db = openLocalDb(dbPath)
+      const weekId = randomUUID()
+      db.prepare('INSERT INTO schedule_weeks (id, camp_id, name, sort_order) VALUES (?, ?, ?, ?)').run(weekId, campId, 'Week 1', 0)
+      const templateId = randomUUID()
+      db.prepare('INSERT INTO schedule_templates (id, camp_id, kind, name, week_id) VALUES (?, ?, ?, ?, ?)')
+        .run(templateId, campId, 'generated', 'Week 1', weekId)
+      const group = db.prepare('SELECT id FROM groups LIMIT 1').get()
+      const activity = db.prepare('SELECT id, name FROM activities LIMIT 1').get()
+      const day = db.prepare('SELECT id, label FROM days_of_operation LIMIT 1').get()
+      const block = db.prepare('SELECT id FROM time_blocks LIMIT 1').get()
+      db.prepare(
+        'INSERT INTO template_slots (id, template_id, group_id, activity_id, day_id, time_block_id) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run(randomUUID(), templateId, group.id, activity.id, day.id, block.id)
+      db.prepare('INSERT INTO special_days (id, camp_id, name, sort_order, notes) VALUES (?, ?, ?, ?, ?)').run('sd1', campId, 'Color War', 0, 'Bring shirts')
+      db.prepare('INSERT INTO special_day_time_blocks (id, special_day_id, name, sort_order, start_time, end_time) VALUES (?, ?, ?, ?, ?, ?)')
+        .run('sb1', 'sd1', 'Opening', 0, '09:00:00', '09:30:00')
+      db.prepare('INSERT INTO special_day_slots (id, special_day_id, group_id, time_block_id, activity_id) VALUES (?, ?, ?, ?, ?)')
+        .run('ss1', 'sd1', group.id, 'sb1', activity.id)
+      db.prepare('INSERT INTO special_day_placements (id, week_id, day_id, special_day_id) VALUES (?, ?, ?, ?)')
+        .run('p1', weekId, day.id, 'sd1')
+      db.close()
+
+      const e = exportScheduleTool({ route: 'generated' }, { dbPath }).export
+      expect(e.cells.some((c) => c.day_id === day.id)).toBe(false)
+      const replaced = e.days.find((d) => d.id === day.id).replaced
+      expect(replaced.label).toBe(`Week 1 – ${day.label}`)
+      expect(replaced.name).toBe('Color War')
+      expect(replaced.notes).toBe('Bring shirts')
+      expect(replaced.blocks.map((b) => b.name)).toEqual(['Opening'])
+      expect(replaced.blocks[0].cells.find((c) => c.group_id === group.id)).toEqual({ group_id: group.id, name: activity.name, activity_id: activity.id })
+      expect(e.days.filter((d) => d.replaced)).toHaveLength(1)
     })
 
     // T195 (offering-grid import) load boundary — a 'potential' offering

@@ -94,7 +94,7 @@ describe('export round-trip — Layer 1 backbone', () => {
   })
 
   it('full envelope is correct and versioned', () => {
-    expect(out.format_version).toBe(1)
+    expect(out.format_version).toBe(2)
     expect(out.camp).toEqual({ id: 'camp-1', name: 'Camp Test' })
     expect(out.week).toEqual({ id: 'w1', name: 'Week 1' })
     expect(out.route).toBe('generated')
@@ -134,8 +134,47 @@ describe('export round-trip — Layer 1 backbone', () => {
 
   it('an empty schedule is still a valid, versioned export with zero cells', () => {
     const empty = buildScheduleExport({ slots: [], groups, days, timeBlocks })
-    expect(empty.format_version).toBe(1)
+    expect(empty.format_version).toBe(2)
     expect(empty.cells).toEqual([])
     expect(empty.groups).toHaveLength(3)
+  })
+})
+
+// T350 slice 6 (ADR 2026-10-09 D7): a replaced day is printed as the special
+// day's grid and notes in place of the normal day's cells.
+describe('export round-trip — replaced day', () => {
+  const replacement = {
+    dayId: 'd2', specialDayId: 'sd1', name: 'Color War', notes: 'Wear team colours',
+    blocks: [{ id: 'sb1', name: 'Opening', start_time: '09:00:00', end_time: '09:30:00', sort_order: 0 }],
+    slots: [{ special_day_id: 'sd1', group_id: 'g1', time_block_id: 'sb1', activity_id: 'act-2' }],
+  }
+  const out = buildScheduleExport({ ...fixture, replacements: new Map([['d2', replacement]]) })
+
+  it('the replaced day carries the special grid and notes, labelled Week N – Day', () => {
+    expect(out.days.find(d => d.id === 'd2').replaced).toEqual({
+      label: 'Week 1 – Tuesday',
+      special_day_id: 'sd1',
+      name: 'Color War',
+      notes: 'Wear team colours',
+      blocks: [{
+        id: 'sb1', name: 'Opening', start_time: '09:00:00', end_time: '09:30:00',
+        cells: [
+          { group_id: 'g1', name: 'Kayaking', activity_id: 'act-2' },
+          { group_id: 'g2', name: '', activity_id: null },
+          { group_id: 'g3', name: '', activity_id: null },
+        ],
+      }],
+    })
+    expect(out.days.find(d => d.id === 'd1').replaced).toBeUndefined()
+  })
+
+  it('drops the hidden normal cells of the replaced day and survives JSON', () => {
+    expect(out.cells.some(c => c.day_id === 'd2')).toBe(false)
+    expect(out.cells).toEqual(EXPECTED_CELLS.filter(c => c.day_id !== 'd2'))
+    expect(JSON.parse(JSON.stringify(out))).toEqual(out)
+  })
+
+  it('with no replaced day the export is unchanged', () => {
+    expect(buildScheduleExport({ ...fixture, replacements: new Map() })).toEqual(buildScheduleExport(fixture))
   })
 })

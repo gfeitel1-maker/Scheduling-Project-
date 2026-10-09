@@ -142,3 +142,52 @@ describe('exportToExcel — multi-period span (T248 leftover)', () => {
     ])
   })
 })
+
+// T350 slice 6 (ADR 2026-10-09 D7): a replaced day prints the special day's
+// own grid and notes in place of the normal day, labelled "Week N – Day".
+describe('exportToExcel — replaced day', () => {
+  const twoDays = [{ id: 'd1', label: 'Monday' }, { id: 'd2', label: 'Tuesday' }]
+  const week = { id: 'w1', name: 'Week 1' }
+  const replacement = {
+    dayId: 'd2', specialDayId: 'sd1', name: 'Color War', notes: 'Wear team colours',
+    blocks: [{ id: 'sb1', name: 'Opening', start_time: '09:00:00', end_time: '09:30:00', sort_order: 0 }],
+    slots: [{ special_day_id: 'sd1', group_id: 'g1', time_block_id: 'sb1', activity_id: 'act-2' }],
+  }
+  const slots = [
+    { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1' },
+    { group_id: 'g1', day_id: 'd2', time_block_id: 'b1', activity_id: 'act-1' },
+  ]
+  const base = { slots, activities, fixedEvents, groups, days: twoDays, timeBlocks }
+
+  it('prints the special day grid and notes on the replaced day sheet, labelled Week N – Day', () => {
+    const wb = capturedWorkbook({ ...base, week, replacements: new Map([['d2', replacement]]) })
+    expect(sheetRows(wb, 'Tuesday')).toEqual([
+      ['Week 1 – Tuesday – Color War', ''],
+      ['Time Block', 'Bunk 1'],
+      ['Opening (09:00–09:30)', 'Kayaking'],
+      ['Notes', 'Wear team colours'],
+    ])
+    const master = sheetRows(wb, 'All Groups')
+    expect(master).toContainEqual(['Bunk 1', 'Tuesday', 'Opening', 'Kayaking'])
+    expect(master).not.toContainEqual(['Bunk 1', 'Tuesday', 'Period 1', 'Swimming'])
+  })
+
+  it('an empty special day prints its name, a single dash line, and notes', () => {
+    const empty = { ...replacement, blocks: [], slots: [] }
+    const wb = capturedWorkbook({ ...base, week, replacements: new Map([['d2', empty]]) })
+    expect(sheetRows(wb, 'Tuesday')).toEqual([
+      ['Week 1 – Tuesday – Color War', ''],
+      ['Time Block', 'Bunk 1'],
+      ['—', ''],
+      ['Notes', 'Wear team colours'],
+    ])
+  })
+
+  it('with no replaced day the workbook is unchanged', () => {
+    const plain = capturedWorkbook(base)
+    XLSX.writeFile.mockClear()
+    const withEmptyMap = capturedWorkbook({ ...base, week, replacements: new Map() })
+    for (const name of plain.SheetNames) expect(sheetRows(withEmptyMap, name)).toEqual(sheetRows(plain, name))
+    expect(sheetRows(plain, 'Tuesday')).toEqual([['Time Block', 'Bunk 1'], ['Period 1 (09:00–10:00)', 'Swimming']])
+  })
+})

@@ -22,7 +22,7 @@ function base(slots) {
 describe('buildScheduleExport — versioned JSON schedule export', () => {
   it('carries format_version 1 and the camp/week/route envelope', () => {
     const out = buildScheduleExport(base([]))
-    expect(out.format_version).toBe(1)
+    expect(out.format_version).toBe(2)
     expect(out.camp).toEqual({ id: 'camp-1', name: 'Camp Shoresh' })
     expect(out.week).toEqual({ id: 'w1', name: 'Week 1' })
     expect(out.route).toBe('generated')

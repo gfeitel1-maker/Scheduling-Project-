@@ -224,3 +224,22 @@ describe('buildCampDataWorkbook', () => {
     expect(CAMP_DATA_SHEETS.length).toBe(14)
   })
 })
+
+// T350 slice 6 (ADR 2026-10-09 D7/D10): read-only "Placed on" column.
+describe('buildCampDataWorkbook — Special Days "Placed on"', () => {
+  it('lists each placement as "Week – Day"', () => {
+    const entities = baseEntities({
+      days_of_operation: [{ id: 'd1', label: 'Monday', sort_order: 0 }, { id: 'd2', label: 'Tuesday', sort_order: 1 }],
+      schedule_weeks: [{ id: 'w1', name: 'Week 1', sort_order: 0 }, { id: 'w2', name: 'Week 2', sort_order: 1 }],
+      special_days: [{ id: 'sd1', name: 'Color War', notes: 'n' }, { id: 'sd2', name: 'Visiting Day' }],
+      special_day_placements: [
+        { id: 'p2', week_id: 'w2', day_id: 'd1', special_day_id: 'sd1' },
+        { id: 'p1', week_id: 'w1', day_id: 'd2', special_day_id: 'sd1' },
+      ],
+    })
+    const aoa = sheetToAoa(buildCampDataWorkbook({ entities, campName: 'Kinneret', asOf: new Date() }), 'Special Days')
+    expect(aoa[1]).toEqual(['Name', 'Notes', 'Placed on'])
+    expect(aoa[2]).toEqual(['Color War', 'n', 'Week 1 – Tuesday, Week 2 – Monday'])
+    expect(aoa[3]).toEqual(['Visiting Day', '', ''])
+  })
+})

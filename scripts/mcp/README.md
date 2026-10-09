@@ -62,7 +62,7 @@ whatever `.shoresh` path was chosen. Point `--db` at the exact file you want to 
 | `list_entities` | no | Rows of one setup entity (Age Divisions, Programs, Groups, Locations, Activities, Days, Time Blocks, Weeks). |
 | `setup_summary` | no | Row counts across every setup entity — a quick health check. |
 | `schedule_state` | no | Read **and validate** one candidate schedule (Manual/Generated) for one week: template, placed slots, and **engine-computed findings/conflicts** (re-runs the pure engine over the stored placement, moving nothing). |
-| `export_schedule` | no | One candidate schedule as a stable, versioned JSON document (`format_version` 1) — the portable "move it anywhere" format: camp/week/route, the group/day/time-block axes, and one record per occupied cell. |
+| `export_schedule` | no | One candidate schedule as a stable, versioned JSON document (`format_version` 2; a day replaced by a special day carries a `replaced` record) — the portable "move it anywhere" format: camp/week/route, the group/day/time-block axes, and one record per occupied cell. |
 | `check_projection_health` | no | List this device's unresolved projection failures — an op-log write that logged durably but whose effect never materialized into a local table. Support/debugging use. |
 | `repair_projection_entity` | **yes** (`--allow-write`) | Re-derive one entity's row from its full op-log history, clearing an unresolved projection failure once the blocking condition is gone. Support/debugging use. |
 | `rebuild_projection_from_document` | **yes** (`--allow-write`) | Delete this device's SQLite projection and rebuild it from the synced Automerge document — the recovery procedure for a corrupted or suspect local database. Takes a pre-rebuild backup first. |
