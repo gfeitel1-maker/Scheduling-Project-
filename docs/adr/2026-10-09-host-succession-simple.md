@@ -2,10 +2,10 @@
 title: "Host succession (simple): planned handoff of the existing host key to another admin device"
 document_type: adr
 authority: normative
-status: proposed
+status: accepted
 implementation_state: not-started
 date: 2026-10-09
-decided: ""
+decided: "2026-10-09 — accepted by the board keeper under owner delegation"
 deciders: [product-owner]
 program: security-hardening
 governing_docs:
