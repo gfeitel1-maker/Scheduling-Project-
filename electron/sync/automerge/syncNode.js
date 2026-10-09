@@ -21,6 +21,7 @@ import { createConnectivityEmitter } from './connectivityEvents.js'
 import { ensureDeviceIdentity } from '../../auth/deviceIdentity.js'
 import { createBoundPeerTrust } from './peerIdentity.js'
 import { rememberPeerAddress, redialTrustedPeers } from './peerAddressBook.js'
+import { forgetRevokedPeer } from './punchIdentity.js'
 import { getCurrentDoc, setCurrentDoc } from './liveDoc.js'
 import { sharesGenesis } from '../../automerge/campDocument.js'
 import { joinProof, verifyJoinProof } from '../joinCode.js'
@@ -78,7 +79,7 @@ export function isSyncCompatible(incomingVersion, localVersion) {
 // installed builds in one process: overriding this alone lets a test node ANNOUNCE a version other
 // than this checkout's real CURRENT_SCHEMA_VERSION, to construct a genuine peer-version mismatch
 // without needing a second codebase.
-export async function startSyncNode({ deviceId, db, doc, onProjected, onProjectionError, onCrossCampRejected, onRemoteOps, onPairingRequest, onPairingDecision, isJoinWindowOpen, getJoinSecret, peerDiscovery, onAuthRejected, isPeerTrusted, listen, now, localSchemaVersion = CURRENT_SCHEMA_VERSION, handshakeSchemaVersion = localSchemaVersion, relayServerFactory, relayTransportFactory, directUpgradeServiceFactory, punchTransportFactory, onRelayReservationRefused } = {}) {
+export async function startSyncNode({ deviceId, db, doc, onProjected, onProjectionError, onCrossCampRejected, onRemoteOps, onPairingRequest, onPairingDecision, isJoinWindowOpen, getJoinSecret, peerDiscovery, onAuthRejected, isPeerTrusted, listen, now, localSchemaVersion = CURRENT_SCHEMA_VERSION, handshakeSchemaVersion = localSchemaVersion, relayServerFactory, relayTransportFactory, directUpgradeServiceFactory, punchTransportFactory, onPunchPeerAdmitted, onRelayReservationRefused } = {}) {
   const getLocalSchemaVersion = () =>
     typeof localSchemaVersion === 'function' ? localSchemaVersion() : localSchemaVersion
   const getHandshakeSchemaVersion = () =>
@@ -159,6 +160,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
       const status = db.prepare('SELECT status FROM authority_cache WHERE device_id = ?').get(deviceId)?.status
       if (status === 'revoked') {
         transport.revokePeer(peerId)
+        try { forgetRevokedPeer(db, peerId) } catch (err) { console.error(`syncNode: failed to clear punch state for revoked ${peerId}: ${err?.message ?? err}`) }
       }
     }
   }
@@ -681,6 +683,12 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
         if (addr) rememberPeerAddress(db, peerId, addr)
       } catch (err) {
         console.error(`syncNode: failed to remember peer address for ${peerId} (non-fatal): ${err?.message ?? err}`)
+      }
+      // T348: the punched session that led to this admission, if any, is remembered only now.
+      try {
+        onPunchPeerAdmitted?.(peerId)
+      } catch (err) {
+        console.error(`syncNode: failed to remember punch session for ${peerId} (non-fatal): ${err?.message ?? err}`)
       }
     },
     onAuthenticate,

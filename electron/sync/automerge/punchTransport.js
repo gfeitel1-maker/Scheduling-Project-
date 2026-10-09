@@ -31,6 +31,7 @@ const DATA_CHANNEL_LABEL = 'shoresh'
 const MAX_SDP_CHARS = 16 * 1024
 const MAX_CANDIDATE_CHARS = 512
 const MAX_QUEUED_CANDIDATES = 32
+const MAX_RECORDED_CANDIDATES = 32
 // Well under every SCTP stack's max message size; AbstractMessageStream chunks writes to this.
 const MAX_MESSAGE_BYTES = 16 * 1024
 const BUFFER_HIGH_WATER = 256 * 1024
@@ -38,6 +39,11 @@ const BUFFER_LOW_WATER = 64 * 1024
 const DEFAULT_CONNECT_TIMEOUT_MS = 15_000
 const DEFAULT_MAX_PENDING_INBOUND = 4
 const CLOSE_SETTLE_TIMEOUT_MS = 1_000
+// libdatachannel releases a pinned UDP port a little AFTER pc.close() reports 'closed'; binding it
+// again inside that window throws a C++ exception ("Failed to gather local ICE candidates") that
+// aborts the whole process. Rung 1 pins one port per device, so a new session on that port waits.
+const PINNED_PORT_SETTLE_MS = 750
+const PORT_QUEUE_POLL_MS = 10
 const SID_RE = /^[0-9a-f]{32}$/
 const STUN_RE = /^stun:[A-Za-z0-9.-]+(:\d{1,5})?$/
 const PUNCH_ADDR_RE = /^\/ip[46]\/[^/]+\/udp\/\d+(\/p2p\/[^/]+)?$/
@@ -63,6 +69,17 @@ export async function shutdownPunchNative() {
   if (liveSessions.size === 0 && cleanupNdc) {
     try { cleanupNdc() } catch { /* shutting down; nothing useful to do with a native cleanup error */ }
   }
+}
+
+// Backstop only: sessionOnFreePort serializes pinned-port use, so this means a caller bypassed it.
+export class PunchPortBusyError extends Error {
+  name = 'PunchPortBusyError'
+}
+
+// Thrown when ICE/DTLS fails or closes before the data channel opened: the remote did not answer at
+// the address(es) we tried. attemptRung1 reads it as "the mapping moved".
+export class PunchConnectionFailedError extends Error {
+  name = 'PunchConnectionFailedError'
 }
 
 function invalid(message) {
@@ -101,8 +118,9 @@ function validateFile(value, label) {
 
 function validateOptions(opts) {
   if (opts == null || typeof opts !== 'object') throw invalid('options are required')
-  const { signaling, role, iceServers = [], portRange, certificatePemFile, keyPemFile, ice, connectTimeoutMs = DEFAULT_CONNECT_TIMEOUT_MS, maxPendingInbound = DEFAULT_MAX_PENDING_INBOUND } = opts
+  const { signaling, role, onEstablished, iceServers = [], portRange, certificatePemFile, keyPemFile, ice, connectTimeoutMs = DEFAULT_CONNECT_TIMEOUT_MS, maxPendingInbound = DEFAULT_MAX_PENDING_INBOUND } = opts
   if (!signaling || typeof signaling.sendSignal !== 'function' || typeof signaling.onSignal !== 'function') throw invalid('signaling must provide sendSignal(msg) and onSignal(cb)')
+  if (onEstablished != null && typeof onEstablished !== 'function') throw invalid('onEstablished must be a function')
   if (role != null && role !== 'offerer' && role !== 'answerer') throw invalid("role must be 'offerer' or 'answerer'")
   if (!Array.isArray(iceServers) || iceServers.some((s) => typeof s !== 'string' || !STUN_RE.test(s))) throw invalid('iceServers may only be stun: URLs (TURN is never used)')
   if (portRange != null) {
@@ -117,7 +135,7 @@ function validateOptions(opts) {
   validateIceCredentials(ice)
   if (!Number.isInteger(connectTimeoutMs) || connectTimeoutMs <= 0) throw invalid('connectTimeoutMs must be a positive integer')
   if (!Number.isInteger(maxPendingInbound) || maxPendingInbound <= 0) throw invalid('maxPendingInbound must be a positive integer')
-  return { signaling, role, iceServers, portRange, certificatePemFile, keyPemFile, ice, connectTimeoutMs, maxPendingInbound }
+  return { signaling, role, onEstablished, iceServers, portRange, certificatePemFile, keyPemFile, ice, connectTimeoutMs, maxPendingInbound }
 }
 
 function rtcConfigFrom(opts) {
@@ -184,7 +202,7 @@ function remoteAddrFromPair(pc) {
 // checks `phase`, so a node-datachannel call that is only legal in a given phase is unreachable in
 // any other.
 class PunchSession {
-  constructor({ ndc, name, rtcConfig, ice, role, sid, sendSignal, log, direction, remoteAddr, onClosed }) {
+  constructor({ ndc, name, rtcConfig, ice, role, sid, sendSignal, log, direction, remoteAddr, onClosed, silent = false }) {
     this.sid = sid
     this.role = role
     this.log = log
@@ -193,6 +211,8 @@ class PunchSession {
     this.ice = ice
     this.sendSignal = sendSignal
     this.onClosed = onClosed
+    this.silent = silent
+    this.remoteDescription = null
     this.phase = 'new'
     this.closed = false
     this.dc = null
@@ -212,18 +232,20 @@ class PunchSession {
       this.emit({ type, sdp })
     })
     pc.onLocalCandidate((candidate, mid) => {
-      if (!this.closed) this.emit({ type: 'candidate', candidate, mid })
+      if (this.closed) return
+      this.emit({ type: 'candidate', candidate, mid })
     })
     pc.onStateChange((state) => {
       if (state === 'closed') this.markClosed()
       if (state === 'failed' || state === 'closed' || state === 'disconnected') {
-        this.opened.reject(new Error(`punch: connection ${state} before the data channel opened`))
+        this.opened.reject(new PunchConnectionFailedError(`punch: connection ${state} before the data channel opened`))
         this.close()
       }
     })
   }
 
   emit(msg) {
+    if (this.silent) return
     try {
       const sent = this.sendSignal({ ...msg, sid: this.sid })
       if (sent && typeof sent.catch === 'function') sent.catch((err) => this.log.error('signal send failed - %e', err))
@@ -264,6 +286,7 @@ class PunchSession {
     validateSdp(sdp, 'offer')
     this.assertLive(['new'])
     this.phase = 'answered'
+    this.remoteDescription = { type: 'offer', sdp }
     this.pc.onDataChannel((dc) => {
       if (this.dc || this.closed) {
         try { dc.close() } catch { /* a second channel is refused */ }
@@ -281,6 +304,7 @@ class PunchSession {
     validateSdp(sdp, 'answer')
     this.assertLive(['offered'])
     this.phase = 'established'
+    this.remoteDescription = { type: 'answer', sdp }
     this.pc.setRemoteDescription(sdp, 'answer')
     this.remoteDescriptionSet = true
     this.flushCandidates()
@@ -302,6 +326,36 @@ class PunchSession {
     this.queuedCandidates = []
     for (const [candidate, mid] of queued) {
       try { this.pc.addRemoteCandidate(candidate, mid) } catch (err) { this.log.error('queued candidate rejected - %e', err) }
+    }
+  }
+
+  // Zero-signaling start from a remembered session: replays the peer's last description and
+  // candidates through the same guarded methods a signaled session uses, in the role we had.
+  startFromMemory(memory) {
+    if (memory.role === 'offerer') {
+      this.startOffer()
+      this.acceptAnswer(memory.remoteSdp)
+    } else {
+      this.acceptOffer(memory.remoteSdp)
+    }
+    for (const { candidate, mid } of memory.candidates) this.addCandidate(candidate, mid)
+  }
+
+  // What a later zero-signaling redial needs: only the candidate pair ICE actually selected. The
+  // peer's side is stored as its candidate line; ours is reported only when it is a srflx address
+  // (the address rung 2 can later gossip). Null when ICE selected nothing.
+  memorySnapshot() {
+    if (!this.remoteDescription) return null
+    let pair
+    try { pair = this.pc.getSelectedCandidatePair() } catch { return null }
+    if (!pair?.remote?.candidate) return null
+    const line = (c) => String(c.candidate).replace(/^a=/, '')
+    return {
+      role: this.role,
+      remoteSdpType: this.remoteDescription.type,
+      remoteSdp: this.remoteDescription.sdp,
+      candidates: [{ candidate: line(pair.remote), mid: pair.remote.mid }],
+      localCandidates: pair.local?.type === 'srflx' ? [line(pair.local)] : [],
     }
   }
 
@@ -361,16 +415,24 @@ class PunchListener extends EventTarget {
 
   updateAnnounceAddrs() {}
 
-  onOffer(sid, sdp) {
+  admits(sid) {
     if (this.transport.sessions.has(sid)) {
       this.transport.log('dropping offer %s: session id already in use', sid)
-      return
+      return false
     }
     if (this.pending.size >= this.transport.opts.maxPendingInbound) {
       this.transport.log('dropping offer %s: too many pending inbound sessions', sid)
-      return
+      return false
     }
-    const session = this.transport.newSession({ role: 'answerer', sid, direction: 'inbound' })
+    return true
+  }
+
+  // `session` is supplied when the transport already claimed the pinned port for this offer.
+  onOffer(sid, sdp, session) {
+    if (!session) {
+      if (!this.admits(sid)) return
+      session = this.transport.newSession({ role: 'answerer', sid, direction: 'inbound' })
+    }
     this.inbound.add(session)
     this.pending.add(session)
     try {
@@ -383,7 +445,10 @@ class PunchListener extends EventTarget {
     session.waitOpen({ timeoutMs: this.transport.opts.connectTimeoutMs, signal: this.shutdown.signal })
       .then((maConn) => {
         this.pending.delete(session)
-        return this.upgrader.upgradeInbound(maConn, { signal: this.shutdown.signal }).catch((err) => maConn.abort(err))
+        return this.upgrader.upgradeInbound(maConn, { signal: this.shutdown.signal }).then(
+          (conn) => this.transport.reportEstablished(session, conn),
+          (err) => maConn.abort(err)
+        )
       })
       .catch((err) => {
         this.transport.log.error('inbound punch failed - %e', err)
@@ -417,6 +482,9 @@ class PunchTransport {
     this.listener = null
     this.unsubscribe = null
     this.started = false
+    this.lastCloseAt = 0
+    this.portWaiters = []
+    this.waitingOffers = 0
   }
 
   async start() {
@@ -439,7 +507,36 @@ class PunchTransport {
     if (--activeTransports === 0) await shutdownPunchNative()
   }
 
-  newSession({ role, sid, direction, remoteAddr }) {
+  // One live session per pinned port: libdatachannel aborts the process when a second PeerConnection
+  // binds a port that is still held, so every session start on a pinned port goes through here. The
+  // free-check and newSession() run in the same synchronous step, so concurrent callers cannot both
+  // pass it. Callers are served in arrival order (a timer race between waiters once let a later caller take the port). Waits (bounded by timeoutMs / signal) for the live session to close, then for the
+  // release window to pass.
+  async sessionOnFreePort(args, { timeoutMs, signal } = {}) {
+    if (!this.opts.portRange) return this.newSession(args)
+    const deadline = Date.now() + timeoutMs
+    const ticket = {}
+    this.portWaiters.push(ticket)
+    try {
+      for (;;) {
+        signal?.throwIfAborted()
+        const settle = this.lastCloseAt + PINNED_PORT_SETTLE_MS - Date.now()
+        const first = this.portWaiters[0] === ticket
+        if (first && this.sessions.size === 0 && settle <= 0) return this.newSession(args)
+        const remaining = deadline - Date.now()
+        if (remaining <= 0) throw new TimeoutError(`punch: pinned port stayed busy for ${timeoutMs}ms`)
+        let timer
+        const idleWait = settle > 0 ? settle : PORT_QUEUE_POLL_MS
+        const waits = [new Promise((resolve) => { timer = setTimeout(resolve, this.sessions.size === 0 ? Math.min(idleWait, remaining) : remaining) }), ...[...this.sessions.values()].map((s) => s.whenClosed)]
+        await Promise.race(waits).finally(() => clearTimeout(timer))
+      }
+    } finally {
+      this.portWaiters.splice(this.portWaiters.indexOf(ticket), 1)
+    }
+  }
+
+  newSession({ role, sid, direction, remoteAddr, silent }) {
+    if (this.opts.portRange && this.sessions.size > 0) throw new PunchPortBusyError('pinned punch port already has a live session')
     const session = new PunchSession({
       ndc: this.ndc,
       name: `shoresh-punch-${role}`,
@@ -451,7 +548,9 @@ class PunchTransport {
       log: this.log,
       direction,
       remoteAddr,
+      silent,
       onClosed: (s) => {
+        this.lastCloseAt = Date.now()
         this.sessions.delete(s.sid)
         this.listener?.inbound.delete(s)
         this.listener?.pending.delete(s)
@@ -465,7 +564,19 @@ class PunchTransport {
     try {
       if (!msg || typeof msg !== 'object' || !SID_RE.test(msg.sid)) return
       if (msg.type === 'offer') {
-        if (this.started) this.listener?.onOffer(msg.sid, msg.sdp)
+        const listener = this.listener
+        if (!this.started || !listener || !listener.admits(msg.sid)) return
+        if (this.waitingOffers >= this.opts.maxPendingInbound) {
+          this.log('dropping offer %s: too many offers waiting for the pinned port', msg.sid)
+          return
+        }
+        this.waitingOffers++
+        this.sessionOnFreePort({ role: 'answerer', sid: msg.sid, direction: 'inbound' }, { timeoutMs: this.opts.connectTimeoutMs })
+          .then((session) => {
+            if (this.started) listener.onOffer(msg.sid, msg.sdp, session)
+            else session.close()
+          }, (err) => this.log('dropping offer %s: %s', msg.sid, err.message))
+          .finally(() => { this.waitingOffers-- })
         return
       }
       const session = this.sessions.get(msg.sid)
@@ -481,7 +592,7 @@ class PunchTransport {
     if (!this.started) throw new NotStartedError('punch transport is not started')
     if (this.opts.role === 'answerer') throw invalid("a transport with role 'answerer' cannot dial")
     options.signal?.throwIfAborted()
-    const session = this.newSession({ role: 'offerer', sid: randomBytes(16).toString('hex'), direction: 'outbound', remoteAddr: ma })
+    const session = await this.sessionOnFreePort({ role: 'offerer', sid: randomBytes(16).toString('hex'), direction: 'outbound', remoteAddr: ma }, { timeoutMs: this.opts.connectTimeoutMs, signal: options.signal })
     let maConn
     try {
       session.startOffer()
@@ -491,7 +602,51 @@ class PunchTransport {
       throw err
     }
     try {
-      return await options.upgrader.upgradeOutbound(maConn, options)
+      const conn = await options.upgrader.upgradeOutbound(maConn, options)
+      this.reportEstablished(session, conn)
+      return conn
+    } catch (err) {
+      maConn.abort(err)
+      throw err
+    }
+  }
+
+  // Tells the owner (onEstablished) what a now-upgraded session learned, so it can remember it.
+  // A failing hook must never take down the connection it observes.
+  reportEstablished(session, connection) {
+    const peerId = connection?.remotePeer?.toString()
+    const memory = session.memorySnapshot()
+    if (!this.opts.onEstablished || !peerId || !memory) return connection
+    try {
+      this.opts.onEstablished({ peerId, ...memory })
+    } catch (err) {
+      this.log.error('onEstablished failed - %e', err)
+    }
+    return connection
+  }
+
+  // Rung 1: reconnect from a remembered session with ZERO signaling messages. `upgrader` is the
+  // libp2p upgrader (outbound for the offerer role, inbound for the answerer). Both ends must call
+  // this at about the same time (S4's coordinator); a silent session never touches opts.signaling.
+  async connectFromMemory(memory, { upgrader, signal, timeoutMs = this.opts.connectTimeoutMs } = {}) {
+    if (!this.started) throw new NotStartedError('punch transport is not started')
+    if (memory?.role !== 'offerer' && memory?.role !== 'answerer') throw invalid("memory role must be 'offerer' or 'answerer'")
+    if (memory.remoteSdpType !== (memory.role === 'offerer' ? 'answer' : 'offer')) throw invalid('memory description type does not match its role')
+    if (!Array.isArray(memory.candidates) || memory.candidates.length > MAX_RECORDED_CANDIDATES) throw invalid('memory candidates must be a bounded array')
+    const outbound = memory.role === 'offerer'
+    const session = await this.sessionOnFreePort({ role: memory.role, sid: randomBytes(16).toString('hex'), direction: outbound ? 'outbound' : 'inbound', silent: true }, { timeoutMs, signal })
+    let maConn
+    try {
+      session.startFromMemory(memory)
+      maConn = await session.waitOpen({ timeoutMs, signal })
+    } catch (err) {
+      session.close()
+      throw err
+    }
+    try {
+      const conn = outbound ? await upgrader.upgradeOutbound(maConn, { signal }) : await upgrader.upgradeInbound(maConn, { signal })
+      this.reportEstablished(session, conn)
+      return conn
     } catch (err) {
       maConn.abort(err)
       throw err

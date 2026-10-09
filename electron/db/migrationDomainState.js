@@ -337,6 +337,10 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // special_day_placements table. Schema-only: no appendOp, no backfill — no camp has a binding
   // before this version, so what an existing camp MEANS is unaffected.
   92,
+  // v93 (T348, docs/adr/2026-10-08-relayless-cross-network-reconnect.md) creates punch_identity and
+  // peer_punch_memory, both empty device-local caches learned only from a live punched session.
+  // Schema-only: no appendOp, no backfill, never modeled into the document.
+  93,
 ])
 
 /** True if applying `version` can change what the camp means. */
