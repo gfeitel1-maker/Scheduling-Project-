@@ -12,8 +12,8 @@ the code.
 
 ## What this Worker does
 
-- `POST /v1/register` — stores an opaque, already-signed record blob for a peer id inside that
-  namespace's Durable Object, with a ~2h TTL.
+- `POST /v1/register` — stores an opaque, already-signed record blob for a peer id in the
+  single store, with a ~2h TTL.
 - `GET /v1/peers/<namespace>` — returns the (unordered, capped) list of record blobs currently
   live under a namespace.
 
@@ -22,21 +22,36 @@ of `worker.js`. All trust decisions happen client-side, in code that is not part
 
 ## What the code defends against, and what it does not
 
-`worker.js`'s file header spells this out in detail. Storage is one SQLite-backed Durable Object
-per namespace (`env.NAMESPACE_DO.idFromName(namespace)`), per
-`docs/adr/2026-10-09-rendezvous-worker-durable-object-storage.md`.
+`worker.js`'s file header spells this out in detail. Owner ruling, 2026-10-09: **"i do not want each camp
+getting their own storage. this is a tiny relay service"**. So: **one Worker, one store, nothing per camp.**
+Storage is ONE SQLite-backed Durable Object for the whole service
+(`env.RENDEZVOUS_DO.idFromName("rendezvous")`, a constant), holding every namespace as rows, per
+`docs/adr/2026-10-09-rendezvous-worker-durable-object-storage.md` (Amendment 2026-10-09 (owner): single store).
 
-- **Exact, per namespace** (held in the DO, serialized): at most `MAX_PEERS_PER_NAMESPACE = 200`
+- **Exact, per namespace** (held in the store, serialized): at most `MAX_PEERS_PER_NAMESPACE = 200`
   unexpired distinct peers, and at most `WRITES_PER_WINDOW = 30` accepted registers per rolling 60s.
-  Over either: 429. Refused requests do not consume budget. No IP or IP-derived value is stored.
+  Over either: 429. No IP or IP-derived value is stored.
+- **Exact, whole service**: at most `GLOBAL_WRITES_PER_DAY = 7000` accepted registers per UTC day, one counter
+  row. Over it: 429 with `service write budget exhausted` (the per-namespace error is `namespace write budget
+  exhausted`). Refused requests consume no budget and perform no write.
 - **Best-effort only**: the per-IP throttle (`REGISTER_LIMITER`, `PEERS_LIMITER`). Per-location and
-  approximate, so it has no guaranteed bound; it runs before DO dispatch. Missing binding: 503.
+  approximate, so it has no guaranteed bound; it runs before dispatch. Missing binding: 503.
 - **Cheap rejects before dispatch**: method, path, namespace/peer-id shape, body size and shape. A GET
-  for a never-written namespace creates no storage and returns an empty list.
-- **Accepted residual, pending the owner's call**: the Free-plan Durable Object limits (100k
-  requests/day, 100k rows written/day) are account-wide, so requests with fresh random namespaces can
-  exhaust them; rung 3 (this last-resort rendezvous) is then down until 00:00 UTC. Paid plan or an
-  authenticated register would close it.
+  for a namespace with no rows performs zero writes and returns an empty list.
+- **Accepted residual (owner posture call 2026-10-09: stay on the Free plan)**: the global budget bounds the
+  exhaustion attack but the IP throttle is best-effort, so a stranger can still spend the whole global budget
+  with fresh namespaces. Rung 3 (this last-resort rendezvous) is then down for **every** camp until 00:00 UTC.
+  That is the honest residual; a paid plan or an authenticated register would close it.
+
+### Sizing the budgets from the Free limit
+
+The Free plan allows 100k rows written/day account-wide. Worst-case rows written per accepted register,
+counted conservatively: `peers` upsert 1 + secondary index 2 = 3; `writes` log insert 1 + index 1 = 2, and its
+later delete 2; global counter update 1; eventual delete of the peer row 3. **11 rows.**
+`7000 x 11 = 77,000` rows/day, plus the once-a-day sweep (rows already counted above) and one old counter row,
+so at or below ~80,000: a 20% margin. `N_global = 7000`. `N_ns = 30` is far under half of that (3,500). One
+namespace at 30/min would need about 233 minutes to spend the day's budget. After S4c the client reaches
+rung 3 only while rungs 1-2 fail, with backoff (60s doubling, capped near 30 min), so real load is small.
 
 It does not, and cannot, control Cloudflare's own edge request logging.
 
@@ -61,16 +76,18 @@ lowering the cap does not — see the fuller note in `worker.js`'s file header.
    Cloudflare plan allows, and do not enable Logpush or any other logging integration for this
    route without re-checking that decision against the privacy finding in
    `docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md` §2.3.
-3. **Durable Object binding.** Nothing to create by hand. In the owner's words, "i am not making
-   stores for every camp uniquely": one `wrangler deploy` ships the Worker, the `NAMESPACE_DO` binding
-   and the `[[migrations]]` tag `v1` (`new_sqlite_classes`); per-camp instances appear on first use.
+3. **Durable Object binding.** Nothing to create by hand. "i do not want each camp getting their own
+   storage": one `wrangler deploy` ships the Worker, the `RENDEZVOUS_DO` binding and the `[[migrations]]` tag
+   `v1` (`new_sqlite_classes = ["RendezvousStore"]`). The tag is safe to reuse because the earlier
+   per-namespace design (#824) was never deployed. Deploy order: `npx wrangler deploy --dry-run`, then
+   `npx wrangler deploy`, then the acceptance checks in the ADR.
 4. **Domain.** The spec names `rendezvous.shoresh.org` as the intended host; registering and
    routing that domain to this Worker is the owner's to do, not this ticket's.
 
 ## Testing
 
 `worker.test.js` runs under this repository's existing Vitest (`npm run test`), against an
-in-memory fake Durable Object namespace (`fakeDurableObject.js`, real SQLite via `better-sqlite3`) with a faked `Date` — no `wrangler`, no
+in-memory fake Durable Object binding (`fakeDurableObject.js`, real SQLite via `better-sqlite3`) with a faked `Date` — no `wrangler`, no
 `miniflare`, no network call, and no new dependency. It calls the handler's exported
 `fetch(request, env)` function (via `handleRequest`) directly, so what it proves is a
 handler-level round-trip — two independent calls into the same in-process handler, one crossing

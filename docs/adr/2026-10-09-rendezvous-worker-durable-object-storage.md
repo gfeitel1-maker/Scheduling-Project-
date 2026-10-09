@@ -1,5 +1,5 @@
 ---
-title: "Rendezvous Worker storage moves from Workers KV to one SQLite-backed Durable Object per namespace"
+title: "Rendezvous Worker storage moves from Workers KV to one SQLite-backed Durable Object for the whole service"
 document_type: adr
 authority: normative
 status: accepted
@@ -14,11 +14,29 @@ amends: []
 implements: []
 ---
 
-# Rendezvous Worker storage: one SQLite-backed Durable Object per namespace
+# Rendezvous Worker storage: one SQLite-backed Durable Object for the whole service
 
 ## Status
 
 ACCEPTED by the keeper under owner delegation. Implementation is a follow-up slice.
+
+## Amendment 2026-10-09 (owner): single store
+
+Owner ruling, verbatim: **"i do not want each camp getting their own storage. this is a tiny relay
+service"**. This supersedes the one-instance-per-namespace design first accepted above (merged as #824,
+never deployed). The amended design, in the owner's spirit: **one Worker, one store, nothing per camp.**
+
+- **One Durable Object instance for the whole service**: `env.RENDEZVOUS_DO.idFromName("rendezvous")`,
+  a constant never derived from the namespace. Its SQLite holds every namespace as rows.
+- **Migration.** `wrangler.toml` keeps `[[migrations]]` tag `"v1"` with `new_sqlite_classes` and the new class
+  name (`RendezvousStore`). Reusing the tag is safe because #824 was never deployed: no live Worker has a `v1`
+  with the old class (`RendezvousNamespace`) to conflict with.
+- **A global write budget** is added (below), because fresh namespaces now share one store and one quota.
+- **Owner posture call (2026-10-09, relayed by the board keeper): stay on the Free plan, and accept the
+  stranger-outage of rung 3 until 00:00 UTC as a residual.** The global budget bounds that outage; it does not
+  prevent it (Residuals).
+
+Sections Decision, Residuals and Acceptance checks below are written for the amended design.
 
 ## Context
 
@@ -45,35 +63,47 @@ documented evidence shows both are the wrong primitive on the Cloudflare Free pl
 
 ## Decision
 
-The Worker keeps its HTTP surface and moves storage to ONE SQLite-backed Durable Object class, with one
-instance per namespace (`env.NAMESPACE_DO.idFromName(namespace)`).
+The Worker keeps its HTTP surface and moves storage to ONE SQLite-backed Durable Object class with exactly
+ONE instance for the whole service (`env.RENDEZVOUS_DO.idFromName("rendezvous")`).
 
-**Owner constraint (verbatim): "i am not making stores for every camp uniquely".** Therefore: ONE Worker,
-ONE `wrangler deploy`, ZERO per-camp manual setup. Per-namespace DO instances are created on demand by
-`idFromName(namespace)` inside the single Worker; the DO class migration ships in that same deploy; nothing
-per camp is ever done in the Cloudflare dashboard.
+**Owner ruling (verbatim): "i do not want each camp getting their own storage. this is a tiny relay
+service".** Therefore: one Worker, one store, nothing per camp. ONE `wrangler deploy`, ZERO per-camp setup;
+a new camp is just a new `namespace` value in existing rows.
 
-- **Schema.** Per-DO table `(peerId TEXT PRIMARY KEY, record TEXT /* opaque base64 */, expiresAt INTEGER)`.
-- **Register** is one serialized request: check the budget; count UNEXPIRED distinct peers; refuse a NEW
-  peer beyond 200 with 429 (re-registering an existing peer is exempt, as today); upsert. The cap is EXACT.
-- **Write budget: N = 30 register writes per rolling minute per namespace**, held in the DO, with no IP or
-  IP-derived key. A 20-device camp is about 20/min while rung 3 is in use, and S4b makes rung 3 polling rare
-  with backoff. **Refused requests do NOT count against the budget** (only accepted writes do), so a
-  flooder cannot extend their own lockout by continuing to hammer.
-- **Peers listing** is one query filtered by `expiresAt > now`.
-- **Purge:** the `expiresAt` filter at query time, plus opportunistic deletion of expired rows on register.
-  No DO alarm: fewer moving parts, and an idle namespace costs nothing and needs no scheduled work.
-- **Unknown namespaces.** A GET for a namespace whose DO holds nothing never creates storage and is
-  answered from an empty read. Everything the Worker can validate cheaply (method, path, namespace and
-  peer-id shape, record size) is rejected BEFORE DO dispatch.
+- **Schema.** `peers (namespace, peerId, record /* opaque base64 */, expiresAt)` with `PRIMARY KEY
+  (namespace, peerId)` (`WITHOUT ROWID`) and an index on `(namespace, expiresAt)`; `writes (namespace, at)`
+  with an index on `(namespace, at)` as the rolling per-namespace log; `budget (day, n)` holding one counter
+  row per UTC day for the global budget.
+- **Register** is one serialized request with no `await` between check and write: check the global budget,
+  check the per-namespace budget, count UNEXPIRED distinct peers in the namespace; refuse a NEW peer beyond
+  200 with 429 (re-registering an existing peer is exempt); then purge, log and upsert. The cap is EXACT.
+  Every refusal returns before any write.
+- **Per-namespace write budget: N_ns = 30 accepted registers per exact rolling 60s**, held in the store with
+  no IP or IP-derived key. Error string `namespace write budget exhausted`.
+- **Global write budget: N_global = 7,000 accepted registers per UTC day** for the whole service, one counter
+  row updated in place, exact. Error string `service write budget exhausted` (429). It resets at 00:00 UTC.
+  Refused requests do NOT count against either budget, so a flooder cannot extend their own lockout.
+- **Sizing from the Free limit (100k rows written/day, account-wide).** Conservative worst-case rows written
+  per accepted register: upsert into `peers` 1 + secondary index 2 = 3; `writes` insert 1 + index 1 = 2 and its
+  later deletion 2; global counter update 1; eventual deletion of the peer row 3. Total 3 + 2 + 2 + 1 + 3 = 11.
+  7,000 x 11 = 77,000 rows/day, plus the once-a-day sweep (bounded by rows already counted) and one old-day
+  counter delete: at or below 80,000 (20% margin on 100,000). N_ns = 30 is far under half of N_global (3,500).
+  A single namespace sustaining 30/min would take about 233 minutes to spend the global budget; that
+  is the namespace-holder residual below, not something a per-minute window can prevent.
+- **Peers listing** is one query filtered by `namespace` and `expiresAt > now`; no writes.
+- **Purge:** the `expiresAt` filter at query time, plus opportunistic deletion of the written namespace's expired
+  rows on each accepted register, plus one service-wide sweep on the first accepted write of each UTC day (a
+  full scan once a day, not per write). No DO alarm.
+- **Unknown namespaces.** A GET for a namespace with no rows performs zero writes and returns an empty list.
+  Everything the Worker can validate cheaply (method, path, namespace and peer-id shape, record size) is
+  rejected BEFORE dispatch, and the dispatch to the store is header-less.
 - **Untrusted opaque cache, unchanged.** The Worker never decodes, orders, or applies "latest wins"; the
   client's `(epoch, seq)` watermark still arbitrates (2026-09-18 ADR).
 - **`[[ratelimits]]` stays as BEST-EFFORT only**, no guaranteed bound, and it is the only in-line control
-  that runs before dispatch. The overclaiming wording in the `worker.js` header and
-  `workers/rendezvous/README.md` is corrected to say so.
-- **Deploy.** `wrangler.toml` gains a `[[durable_objects]]` binding and a `[[migrations]]` entry with
-  `new_sqlite_classes`; the KV binding is removed. Existing KV records are NOT migrated (TTL about 2h; no app
-  points at the Worker yet).
+  that runs before dispatch. A missing or failing binding fails closed (503).
+- **Deploy.** `wrangler.toml` has one `[[durable_objects.bindings]]` entry (`RENDEZVOUS_DO`, class
+  `RendezvousStore`) and `[[migrations]]` tag `v1`; the KV binding is gone. Existing KV records are NOT
+  migrated (TTL about 2h; no app points at the Worker yet).
 - **Privacy unchanged.** No IP, namespace, or peer id is logged; no IP is stored anywhere.
 
 ### Related decision (implemented in slice S4b)
@@ -90,18 +120,17 @@ contract is unchanged, so clients are unaffected.
 
 ## Residuals (stated honestly)
 
-1. **Account-global exhaustion (availability, ACCEPTED pending an owner posture call).** The Free DO limits
-   (100k requests/day, 100k rows written/day) are account-wide. An attacker who knows NO camp can send
-   requests with fresh random 64-hex namespaces; each dispatches to a new DO, so the per-namespace budget
-   and cap never apply. The only in-line mitigation is the best-effort IP throttle before dispatch, plus
-   the cheap pre-dispatch rejects and no-storage-on-unknown-GET above. Impact: rung 3, the LAST-RESORT
-   fallback, is unavailable until 00:00 UTC. LAN and rungs 1-2 keep working and no camp data is exposed.
-   This is an availability residual of an unauthenticated public endpoint on the Free plan. Future options:
-   the paid plan, or an authenticated register.
-2. **Holder write volume.** One namespace-holder at budget N=30 writes about 30 x 1,440 = 43,200 rows/day
-   (about 43% of the 100k row limit). Purge deletes count as rows written per the DO pricing, so worst-case
-   sustained load is higher still (up to roughly double); two or three such holders can exhaust the day.
-3. **Budget lockout.** A namespace-holder who holds the budget at N makes honest refreshes get 429, so
+1. **Stranger-outage of rung 3 until 00:00 UTC (availability, ACCEPTED by the owner's posture call: stay on
+   the Free plan).** The per-IP throttle is best-effort, so a stranger who knows NO camp can still spend the
+   GLOBAL budget with requests on fresh random 64-hex namespaces. The global budget bounds the damage (it keeps
+   the service under the Free quota and stops the attack from costing anything) but does not prevent it: once
+   the 7,000 accepted writes are gone, rung 3, the LAST-RESORT fallback, is down for EVERY camp until 00:00 UTC.
+   LAN and rungs 1-2 keep working and no camp data is exposed. Future options: the paid plan, or an
+   authenticated register.
+2. **Holder write volume.** One namespace-holder at N_ns = 30 can spend the whole global budget in about
+   233 minutes (7,000 / 30), denying the other camps the same way. Realistic load is far lower: after S4c the
+   client reaches rung 3 only while rungs 1-2 fail, with backoff (60s doubling, capped near 30 min).
+3. **Budget lockout.** A namespace-holder who holds the budget at N_ns makes honest refreshes get 429, so
    honest peers lapse after the 2h TTL. The cap likewise remains a lockout primitive. T210 namespace
    rotation is the fix for both.
 
@@ -112,3 +141,10 @@ contract is unchanged, so clients are unaffected.
 - **(b) Cap:** register 200 distinct peers spread across enough minutes to stay under N; peer 201 gets 429;
   an existing peer's refresh is still accepted. The cap counts UNEXPIRED rows only.
 - **(c) No setup:** a brand-new, never-seen namespace registers and lists with no prior setup of any kind.
+- **(d) Unknown GET:** `GET /v1/peers/<never-used namespace>` returns `{"peers":[]}` and does not move the
+  rows-written counter.
+- **(e) Global budget, counted by error string:** from fresh namespaces, exactly 7,000 registers are accepted
+  in a UTC day; every further one is 429 with `service write budget exhausted` (not
+  `namespace write budget exhausted`). Do NOT run this against the deployed Worker without owner say-so: it
+  spends the day's budget and takes rung 3 down until 00:00 UTC. The in-repo test (f) is the evidence.
+- **(f) One store:** the Cloudflare dashboard shows exactly one Durable Object instance for the class.

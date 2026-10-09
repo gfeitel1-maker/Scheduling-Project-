@@ -13,7 +13,9 @@ import {
   NAMESPACE_RE,
   MAX_PEERS_PER_NAMESPACE,
   WRITES_PER_WINDOW,
-  RendezvousNamespace,
+  GLOBAL_WRITES_PER_DAY,
+  STORE_NAME,
+  RendezvousStore,
 } from './worker.js'
 import { FakeDurableObjectNamespace } from './fakeDurableObject.js'
 
@@ -57,11 +59,11 @@ function fakeLimiter(max) {
 function makeEnv(overrides = {}) {
   let clockMs = overrides.startMs ?? 0
   vi.setSystemTime(clockMs)
-  const doNamespace = overrides.doNamespace ?? new FakeDurableObjectNamespace(RendezvousNamespace)
+  const doNamespace = overrides.doNamespace ?? new FakeDurableObjectNamespace(RendezvousStore)
   return {
     doNamespace,
     env: {
-      NAMESPACE_DO: doNamespace,
+      RENDEZVOUS_DO: doNamespace,
       REGISTER_LIMITER: overrides.registerLimiter ?? allowAll(),
       PEERS_LIMITER: overrides.peersLimiter ?? allowAll(),
     },
@@ -412,25 +414,30 @@ describe('caller rate limiting (Workers Rate Limiting binding)', () => {
   })
 })
 
-describe('per-namespace write budget and peer cap (Durable Object, exact)', () => {
+describe('single store: per-namespace budget, peer cap and global budget (exact)', () => {
   const peer = (i) => `peer-${i}-${'x'.repeat(10)}`
+  const freshNs = (i) => i.toString(16).padStart(64, '0')
   const register = (env, peerId, namespace = VALID_NAMESPACE) =>
     handleRequest(registerRequest({ namespace, peerId }), env)
-  const seedFull = (storage, expiresAt) => {
-    storage.db.exec('CREATE TABLE peers (peerId TEXT PRIMARY KEY, record TEXT, expiresAt INTEGER)')
-    storage.db.exec('CREATE TABLE writes (at INTEGER)')
-    const ins = storage.db.prepare('INSERT INTO peers VALUES (?, ?, ?)')
-    return (n) => {
-      for (let i = 0; i < n; i++) ins.run(peer(i), RECORD_A, expiresAt)
-    }
+  const store = (doNamespace) => doNamespace.storageFor(STORE_NAME)
+  const count = (doNamespace, table) => store(doNamespace).db.prepare(`SELECT COUNT(*) n FROM ${table}`).get().n
+  const globalN = (doNamespace) => store(doNamespace).db.prepare('SELECT n FROM budget').get().n
+  const seedFull = (storage, namespace, expiresAt, n) => {
+    const ins = storage.db.prepare('INSERT INTO peers VALUES (?, ?, ?, ?)')
+    for (let i = 0; i < n; i++) ins.run(namespace, peer(i), RECORD_A, expiresAt)
   }
 
   it('(a) a burst of 300 registers to one namespace within 60s accepts exactly 30 and refuses 270', async () => {
     const { env } = makeEnv()
-    const statuses = []
-    for (let i = 0; i < 300; i++) statuses.push((await register(env, peer(i))).status)
-    expect(statuses.filter((s) => s === 200)).toHaveLength(WRITES_PER_WINDOW)
-    expect(statuses.filter((s) => s === 429)).toHaveLength(300 - WRITES_PER_WINDOW)
+    const bodies = []
+    for (let i = 0; i < 300; i++) {
+      const res = await register(env, peer(i))
+      bodies.push([res.status, (await res.json()).error])
+    }
+    expect(bodies.filter(([s]) => s === 200)).toHaveLength(WRITES_PER_WINDOW)
+    const refused = bodies.filter(([s]) => s === 429)
+    expect(refused).toHaveLength(300 - WRITES_PER_WINDOW)
+    expect(new Set(refused.map(([, e]) => e))).toEqual(new Set(['namespace write budget exhausted']))
   })
 
   it('(a) the budget is rolling: capacity returns once accepted writes age past 60s', async () => {
@@ -447,8 +454,18 @@ describe('per-namespace write budget and peer cap (Durable Object, exact)', () =
       expect((await register(env, peer(i))).status, `peer ${i}`).toBe(200)
       if (i % 25 === 24) advance(MINUTE + 1)
     }
-    expect((await register(env, peer(MAX_PEERS_PER_NAMESPACE))).status).toBe(429)
+    const over = await register(env, peer(MAX_PEERS_PER_NAMESPACE))
+    expect(over.status).toBe(429)
+    expect((await over.json()).error).toBe('namespace is at capacity')
     expect((await register(env, peer(0))).status).toBe(200)
+  })
+
+  it('(b) the cap is per namespace: a full namespace does not block another', async () => {
+    const { env, doNamespace } = makeEnv()
+    await register(env, PEER_A)
+    seedFull(store(doNamespace), VALID_NAMESPACE, Date.now() + 60 * MINUTE, MAX_PEERS_PER_NAMESPACE)
+    expect((await register(env, peer(900))).status).toBe(429)
+    expect((await register(env, peer(900), OTHER_NAMESPACE)).status).toBe(200)
   })
 
   it('(b) expired rows do not count toward the cap', async () => {
@@ -472,22 +489,28 @@ describe('per-namespace write budget and peer cap (Durable Object, exact)', () =
     expect(body.peers).toEqual([RECORD_A])
   })
 
-  it('(d) a GET on an unknown namespace performs zero writes, creates no tables, and returns an empty list', async () => {
+  it('(d) a GET on an unknown namespace performs zero writes, before and after the store has data', async () => {
     const { env, doNamespace } = makeEnv()
     const res = await handleRequest(peersRequest(OTHER_NAMESPACE), env)
     expect(await res.json()).toEqual({ peers: [] })
-    const storage = doNamespace.storageFor(OTHER_NAMESPACE)
-    expect(storage.rowsWritten).toBe(0)
-    expect(storage.db.prepare('SELECT name FROM sqlite_master').all()).toEqual([])
+    expect(store(doNamespace).rowsWritten).toBe(0)
+    expect(store(doNamespace).db.prepare('SELECT name FROM sqlite_master').all()).toEqual([])
+
+    await register(env, PEER_A)
+    const before = store(doNamespace).rowsWritten
+    const res2 = await handleRequest(peersRequest(OTHER_NAMESPACE), env)
+    expect(await res2.json()).toEqual({ peers: [] })
+    expect(store(doNamespace).rowsWritten).toBe(before)
   })
 
-  it('(e) a refused request does not consume budget', async () => {
+  it('(e) a refused request does not consume budget (namespace budget)', async () => {
     const { env, doNamespace } = makeEnv()
     for (let i = 0; i < 30; i++) await register(env, peer(i))
-    const count = () => doNamespace.storageFor(VALID_NAMESPACE).db.prepare('SELECT COUNT(*) n FROM writes').get().n
-    const before = count()
+    const before = [count(doNamespace, 'writes'), globalN(doNamespace)]
+    const rowsBefore = store(doNamespace).rowsWritten
     for (let i = 0; i < 50; i++) expect((await register(env, peer(100 + i))).status).toBe(429)
-    expect(count()).toBe(before)
+    expect([count(doNamespace, 'writes'), globalN(doNamespace)]).toEqual(before)
+    expect(store(doNamespace).rowsWritten).toBe(rowsBefore)
     // The lockout ends when the ORIGINAL 30 age out, not 60s after the last refused hammer.
     vi.setSystemTime(Date.now() + MINUTE - 1000)
     expect((await register(env, peer(200))).status).toBe(429)
@@ -495,21 +518,54 @@ describe('per-namespace write budget and peer cap (Durable Object, exact)', () =
     expect((await register(env, peer(200))).status).toBe(200)
   })
 
-  it('(e) a cap refusal does not consume budget', async () => {
+  it('(e) a cap refusal consumes neither the namespace nor the global budget', async () => {
     const { env, doNamespace } = makeEnv()
-    const storage = doNamespace.storageFor(VALID_NAMESPACE)
-    seedFull(storage, Date.now() + MINUTE)(MAX_PEERS_PER_NAMESPACE)
+    await register(env, PEER_A)
+    seedFull(store(doNamespace), VALID_NAMESPACE, Date.now() + MINUTE, MAX_PEERS_PER_NAMESPACE)
+    const writesBefore = count(doNamespace, 'writes')
     for (let i = 0; i < 10; i++) expect((await register(env, peer(500 + i))).status).toBe(429)
-    expect(storage.db.prepare('SELECT COUNT(*) n FROM writes').get().n).toBe(0)
+    expect(count(doNamespace, 'writes')).toBe(writesBefore)
+    expect(globalN(doNamespace)).toBe(1)
   })
+
+  it('(f) many fresh namespaces in one window are admitted exactly GLOBAL_WRITES_PER_DAY times in total', async () => {
+    const { env, doNamespace } = makeEnv()
+    let ok = 0
+    const errors = new Set()
+    for (let i = 0; i < GLOBAL_WRITES_PER_DAY + 50; i++) {
+      const res = await register(env, PEER_A, freshNs(i))
+      if (res.status === 200) ok++
+      else {
+        expect(res.status).toBe(429)
+        errors.add((await res.json()).error)
+      }
+    }
+    expect(ok).toBe(GLOBAL_WRITES_PER_DAY)
+    expect(errors).toEqual(new Set(['service write budget exhausted']))
+    expect(globalN(doNamespace)).toBe(GLOBAL_WRITES_PER_DAY)
+    // Refusals consumed nothing, and a refresh in an existing namespace is refused too.
+    expect((await register(env, PEER_A, freshNs(0))).status).toBe(429)
+    expect(globalN(doNamespace)).toBe(GLOBAL_WRITES_PER_DAY)
+    expect(count(doNamespace, 'peers')).toBe(GLOBAL_WRITES_PER_DAY)
+  }, 60_000)
+
+  it('(f) the global budget resets at 00:00 UTC and the next day sweeps stale rows', async () => {
+    const { env, doNamespace, advance } = makeEnv({ startMs: 0 })
+    for (let i = 0; i < GLOBAL_WRITES_PER_DAY; i++) await register(env, PEER_A, freshNs(i))
+    expect((await register(env, PEER_A, freshNs(99999))).status).toBe(429)
+    advance(24 * 60 * MINUTE)
+    expect((await register(env, PEER_A, freshNs(99999))).status).toBe(200)
+    expect(count(doNamespace, 'budget')).toBe(1)
+    expect(count(doNamespace, 'peers')).toBe(1)
+  }, 60_000)
 
   it('(f) concurrent registers past the cap cannot over-admit', async () => {
     const { env, doNamespace } = makeEnv()
-    const storage = doNamespace.storageFor(VALID_NAMESPACE)
-    seedFull(storage, Date.now() + 60 * MINUTE)(MAX_PEERS_PER_NAMESPACE - 1)
+    await register(env, 'seed-peer')
+    seedFull(store(doNamespace), VALID_NAMESPACE, Date.now() + 60 * MINUTE, MAX_PEERS_PER_NAMESPACE - 2)
     const results = await Promise.all(Array.from({ length: 20 }, (_, i) => register(env, peer(1000 + i))))
     expect(results.filter((r) => r.status === 200)).toHaveLength(1)
-    expect(storage.db.prepare('SELECT COUNT(*) n FROM peers').get().n).toBe(MAX_PEERS_PER_NAMESPACE)
+    expect(count(doNamespace, 'peers')).toBe(MAX_PEERS_PER_NAMESPACE)
   })
 
   it('(f) concurrent registers past the budget cannot over-admit', async () => {
@@ -522,7 +578,7 @@ describe('per-namespace write budget and peer cap (Durable Object, exact)', () =
     const { env, doNamespace } = makeEnv()
     await handleRequest(registerRequest({ ip: '198.51.100.7' }), env)
     await handleRequest(registerRequest({ ip: '2001:db8:1:2::a', peerId: PEER_B }), env)
-    const storage = doNamespace.storageFor(VALID_NAMESPACE)
+    const storage = store(doNamespace)
     const dump = JSON.stringify(
       storage.db
         .prepare("SELECT name FROM sqlite_master WHERE type='table'")
@@ -533,6 +589,17 @@ describe('per-namespace write budget and peer cap (Durable Object, exact)', () =
     expect(dump).not.toContain('198.51.100.7')
     expect(dump).not.toContain('2001:db8')
     expect(dump).not.toContain('/64')
+  })
+
+  it('(h) every request for every namespace goes to the SAME DO id, a constant', async () => {
+    const { env, doNamespace } = makeEnv()
+    const spy = vi.spyOn(doNamespace, 'idFromName')
+    for (let i = 0; i < 5; i++) await register(env, PEER_A, freshNs(i))
+    for (let i = 0; i < 5; i++) await handleRequest(peersRequest(freshNs(i)), env)
+    expect(spy).toHaveBeenCalledTimes(10)
+    expect(new Set(spy.mock.calls.map((c) => c[0]))).toEqual(new Set(['rendezvous']))
+    expect(STORE_NAME).toBe('rendezvous')
+    expect(doNamespace._instances.size).toBe(1)
   })
 
   it('rejects malformed requests before any DO is dispatched', async () => {
@@ -548,7 +615,7 @@ describe('per-namespace write budget and peer cap (Durable Object, exact)', () =
 
   it('fails closed with 503 when the DO binding is missing', async () => {
     const { env } = makeEnv()
-    delete env.NAMESPACE_DO
+    delete env.RENDEZVOUS_DO
     expect((await register(env, PEER_A)).status).toBe(503)
     expect((await handleRequest(peersRequest(VALID_NAMESPACE), env)).status).toBe(503)
   })

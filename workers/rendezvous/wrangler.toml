@@ -10,17 +10,20 @@ name = "shoresh-rendezvous"
 main = "worker.js"
 compatibility_date = "2026-09-17"
 
-# Storage: ONE SQLite-backed Durable Object class, one instance per namespace, created on demand by
-# env.NAMESPACE_DO.idFromName(namespace). Owner constraint: "i am not making stores for every camp
-# uniquely" -- one Worker, one `wrangler deploy`, zero per-camp setup; the migration below ships in
-# that same deploy. See docs/adr/2026-10-09-rendezvous-worker-durable-object-storage.md.
+# Storage: ONE SQLite-backed Durable Object class with exactly ONE instance for the whole service
+# (worker.js always calls idFromName("rendezvous")). Every camp's namespace is rows in that one store.
+# Owner ruling, 2026-10-09: "i do not want each camp getting their own storage. this is a tiny relay
+# service". One Worker, one store, nothing per camp.
+# The migration tag "v1" is reused for the new class name because the earlier per-namespace design
+# (#824) was never deployed, so no deployed Worker has a "v1" to conflict with.
+# See docs/adr/2026-10-09-rendezvous-worker-durable-object-storage.md.
 [[durable_objects.bindings]]
-name = "NAMESPACE_DO"
-class_name = "RendezvousNamespace"
+name = "RENDEZVOUS_DO"
+class_name = "RendezvousStore"
 
 [[migrations]]
 tag = "v1"
-new_sqlite_classes = ["RendezvousNamespace"]
+new_sqlite_classes = ["RendezvousStore"]
 
 # Per-caller rate limiting (Workers Rate Limiting binding; a workers.dev route has no zone, so no
 # WAF rule can front it). worker.js keys both on the caller IP and fails CLOSED (503) if a binding
