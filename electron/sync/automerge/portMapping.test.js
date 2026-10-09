@@ -197,6 +197,12 @@ describe('refresh, unmap and logging', () => {
 })
 
 describe('fetchCapped', () => {
+  it('does not follow redirects', async () => {
+    let init
+    await fetchCapped('http://192.168.1.1/d.xml', { fetchImpl: async (_u, i) => { init = i; return res('<a/>') } })
+    expect(init.redirect).toBe('manual')
+  })
+
   const res = (body, extra = {}) => ({ ok: true, headers: new Map([['content-type', 'text/xml']]), text: async () => body, ...extra })
   it('returns a body under the cap', async () => {
     expect(await fetchCapped('http://192.168.1.1/d.xml', { maxBytes: 100, fetchImpl: async () => res('<a/>') })).toBe('<a/>')
@@ -218,5 +224,45 @@ describe('re-map and library deps', () => {
     const { createLibraryDeps } = await import('./portMapping.js')
     const deps = await createLibraryDeps()
     for (const k of ['lanInterfaces', 'ssdpSearch', 'openUpnp', 'openPmp', 'defaultGatewayIp', 'schedule', 'cancel']) expect(typeof deps[k]).toBe('function')
+  })
+})
+
+describe('remembered grant: startup cleanup removes a mapping whose external port differs', () => {
+  const memoryStore = () => {
+    let rec = null
+    return { load: () => rec, save: (r) => { rec = r }, clear: () => { rec = null }, peek: () => rec }
+  }
+
+  it('a crash after the router granted a different external port leaves nothing behind on the next start', async () => {
+    const gateway = fakeGateway({ grantPort: 61000 })
+    const store = memoryStore()
+    const first = world({ gateway })
+    const crashed = createPortMapper({ localPort: 50123, deps: first.deps, discoveryMs: 50, grantStore: store })
+    expect(await crashed.map()).toMatchObject({ status: 'mapped', externalPort: 61000 })
+    expect(store.peek()).toEqual({ externalPort: 61000 })
+    // no unmap: the process died. A fresh mapper on the next start shares only the store.
+    const next = createPortMapper({ localPort: 50123, deps: first.deps, discoveryMs: 50, grantStore: store })
+    await next.cleanupStale()
+    expect(gateway.table.has(61000)).toBe(false)
+    expect(store.peek()).toBe(null)
+  })
+
+  it('a permanent-lease grant is remembered and removed by startup cleanup', async () => {
+    const gateway = fakeGateway({ mode: 'permanent-only', grantPort: 61001 })
+    const store = memoryStore()
+    const w = world({ gateway })
+    const crashed = createPortMapper({ localPort: 50123, deps: w.deps, discoveryMs: 50, grantStore: store })
+    expect(await crashed.map()).toMatchObject({ status: 'permanent-lease', reason: PERMANENT_LEASE_REASON })
+    await createPortMapper({ localPort: 50123, deps: w.deps, discoveryMs: 50, grantStore: store }).cleanupStale()
+    expect(gateway.table.size).toBe(0)
+  })
+
+  it('a clean unmap forgets the remembered grant', async () => {
+    const store = memoryStore()
+    const w = world()
+    const m = createPortMapper({ localPort: 50123, deps: w.deps, discoveryMs: 50, grantStore: store })
+    await m.map()
+    await m.unmap()
+    expect(store.peek()).toBe(null)
   })
 })

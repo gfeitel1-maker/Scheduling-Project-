@@ -10,10 +10,17 @@ let dir
 beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pinport-')) })
 afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }) })
 
-const occupy = (port = 0) => new Promise((resolve) => {
-  const s = net.createServer()
-  s.listen(port, '0.0.0.0', () => resolve(s))
-})
+const occupyInRange = async () => {
+  for (;;) {
+    const port = 49152 + Math.floor(Math.random() * (65536 - 49152))
+    const s = net.createServer()
+    const ok = await new Promise((resolve) => {
+      s.once('error', () => resolve(false))
+      s.listen(port, '0.0.0.0', () => resolve(true))
+    })
+    if (ok) return s
+  }
+}
 
 describe('resolveTcpListenAddr', () => {
   it('picks a port in the dynamic range on first run and returns the same one next time', async () => {
@@ -27,7 +34,7 @@ describe('resolveTcpListenAddr', () => {
   })
 
   it('falls back to an ephemeral port on a bind conflict, reports port-in-use, keeps the persisted port', async () => {
-    const server = await occupy()
+    const server = await occupyInRange()
     const taken = server.address().port
     fs.writeFileSync(path.join(dir, TCP_PORT_FILE), JSON.stringify({ port: taken }))
     try {

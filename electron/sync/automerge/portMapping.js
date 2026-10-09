@@ -38,7 +38,7 @@ const withTimeout = (promise, ms) => {
 }
 
 export async function fetchCapped(url, { maxBytes = MAX_XML_BYTES, signal, fetchImpl = fetch } = {}) {
-  const res = await fetchImpl(url, { signal })
+  const res = await fetchImpl(url, { signal, redirect: 'manual' })
   if (!res.ok) throw new Error(`descriptor fetch failed (${res.status ?? 'error'})`)
   if (Number(res.headers.get('content-length')) > maxBytes) throw new Error('descriptor too large')
   const reader = res.body?.getReader?.()
@@ -59,11 +59,19 @@ export async function fetchCapped(url, { maxBytes = MAX_XML_BYTES, signal, fetch
   return Buffer.concat(chunks).toString('utf8')
 }
 
-export function createPortMapper({ localPort, portInUse = false, deps, log = () => {}, discoveryMs = DISCOVERY_MS, callMs = CALL_MS, onChange = () => {} }) {
+// grantStore remembers the external port the router actually granted, so a later start can delete a
+// mapping left by a crash even when the router chose a port other than the one requested (and a
+// permanent-lease mapping, which never expires on its own). Device-local; never synced.
+const NO_STORE = { load: () => null, save: () => {}, clear: () => {} }
+
+export function createPortMapper({ localPort, portInUse = false, deps, log = () => {}, discoveryMs = DISCOVERY_MS, callMs = CALL_MS, onChange = () => {}, grantStore = NO_STORE }) {
   let current = null
   let refreshTimer = null
 
   const result = (status, extra = {}) => ({ status, lease: null, ...extra })
+  const safeLoad = () => { try { return grantStore.load() } catch { return null } }
+  const remember = (externalPort) => { try { grantStore.save({ externalPort }) } catch { log('portMapping: could not remember the granted port') } }
+  const forget = () => { try { grantStore.clear() } catch { log('portMapping: could not forget the granted port') } }
 
   async function findUpnp(interfaces) {
     const signal = AbortSignal.timeout(discoveryMs)
@@ -129,6 +137,7 @@ export function createPortMapper({ localPort, portInUse = false, deps, log = () 
         const { externalPort } = await withTimeout(current.gateway.addMapping({ internalPort: localPort, internalHost: current.lan.address, externalPort: current.externalPort, leaseSeconds: TIMED_LEASE_SECONDS }), callMs)
         if (externalPort !== current.externalPort) {
           current.externalPort = externalPort
+          remember(externalPort)
           onChange(result('mapped', { externalIp: current.externalIp, externalPort, lease: TIMED_LEASE_SECONDS }))
         }
         scheduleRefresh()
@@ -156,6 +165,7 @@ export function createPortMapper({ localPort, portInUse = false, deps, log = () 
         return result(err?.code === 'REFUSED' ? 'refused' : 'error')
       }
       current = { gateway: found.gateway, lan: found.lan, externalIp, externalPort: granted.externalPort }
+      remember(granted.externalPort)
       if (granted.lease === 0) return result('permanent-lease', { externalIp, externalPort: granted.externalPort, lease: 0, reason: PERMANENT_LEASE_REASON })
       scheduleRefresh()
       return result('mapped', { externalIp, externalPort: granted.externalPort, lease: granted.lease })
@@ -171,6 +181,7 @@ export function createPortMapper({ localPort, portInUse = false, deps, log = () 
     if (!mapping) return
     try {
       await withTimeout(mapping.gateway.deleteMapping({ internalPort: localPort, externalPort: mapping.externalPort }), callMs)
+      forget()
     } catch {
       log('portMapping: unmap did not complete')
     }
@@ -181,11 +192,19 @@ export function createPortMapper({ localPort, portInUse = false, deps, log = () 
     try {
       const found = await discover()
       if (!found) return
-      try {
-        await withTimeout(found.gateway.deleteMapping({ internalPort: localPort, externalPort: localPort }), callMs)
-      } catch {
-        log('portMapping: no stale mapping removed')
+      const ports = new Set([localPort])
+      const remembered = safeLoad()?.externalPort
+      if (Number.isInteger(remembered) && remembered > 0 && remembered < 65536) ports.add(remembered)
+      let allRemoved = true
+      for (const externalPort of ports) {
+        try {
+          await withTimeout(found.gateway.deleteMapping({ internalPort: localPort, externalPort }), callMs)
+        } catch {
+          allRemoved = false
+          log('portMapping: no stale mapping removed')
+        }
       }
+      if (allRemoved) forget()
       await found.gateway.close?.()
     } catch { /* never throws */ }
   }
