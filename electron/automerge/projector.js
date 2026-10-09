@@ -905,6 +905,9 @@ export function rebuildFromDoc(db, doc, entity) {
       // remove the device's own singleton identity row, and PROJECTIONS.camps.ensureExists
       // refuses to ever re-create it (by design — see projections.js), permanently breaking every
       // `SELECT ... FROM camps LIMIT 1` lookup in the app.
+      // T233 S3 — upsertEntity gates on the SQLite `tombstones` table, so refresh it first from the
+      // doc's VERIFIED tombstones (never raw ids) or a not-yet-projected erasure is re-inserted.
+      if (TOMBSTONE_DENYLISTED_ENTITIES[entity]) upsertTombstonesEntity(db, doc)
       if (entity !== 'camps' && entity !== 'camp_authority_log') db.prepare(`DELETE FROM ${entity}`).run()
       projectEntity(db, doc, entity)
     })
