@@ -14,7 +14,11 @@ let scratch
 beforeEach(() => { scratch = mkdtempSync(join(tmpdir(), 'gate-report-wf-')) })
 afterEach(() => { rmSync(scratch, { recursive: true, force: true }) })
 
-const verifier = { gate_name: 'verifier', verdict: 'PASS', score: null, na_reason: null, findings: [], evidence_ref: fileURLToPath(import.meta.url) }
+// Hand-written verifier PASS must cite real green gate results stamped for the commit under review.
+const VALID_SHA = '1234567890abcdef1234567890abcdef12345678'
+const EVIDENCE = join(mkdtempSync(join(tmpdir(), 'gate-report-wf-evidence-')), 'gate-results.txt')
+writeFileSync(EVIDENCE, [`# gate run against ${VALID_SHA} dirty=0`, 'STEP lint | rc=0 | ok', 'STEP tests-1 | rc=0 | Tests 9 passed (9)', 'DONE'].join('\n'))
+const verifier = { gate_name: 'verifier', verdict: 'PASS', score: null, na_reason: null, findings: [], evidence_ref: EVIDENCE }
 const opinion = (gate_name, summary, extra = {}) => ({
   gate_name, verdict: 'PASS', score: 4, na_reason: null, evidence_ref: null,
   findings: [{ severity: 'LOW', summary }], ...extra,
@@ -26,7 +30,7 @@ const CR = "audit outcome is 'deny' with reason 'joiner_disconnected'"
 const run = (reports, workflowDir = FIXTURE, taskId = 'T346') => {
   const inputPath = join(scratch, 'in.json')
   writeFileSync(inputPath, JSON.stringify({
-    taskId, round: 1, expectedOpinionGates: ['security', 'red_hat', 'code_reviewer'],
+    taskId, round: 1, commit: VALID_SHA, expectedOpinionGates: ['security', 'red_hat', 'code_reviewer'],
     reports: [verifier, ...reports], workflowDir,
   }))
   return runGateReportCli(inputPath, { runsDir: scratch })
