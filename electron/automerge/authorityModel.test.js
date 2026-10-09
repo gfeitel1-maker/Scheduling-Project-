@@ -1,0 +1,305 @@
+// Pure-model evidence for docs/adr/2026-10-09-host-succession-by-remint.md section 2.1 / 8.1:
+// todayRule replicates T331 as shipped (attacks succeed); effectiveSet is the proposed
+// least-fixed-point effective-grant rule with the keeper's voters'-joint-past denominator.
+import { describe, it, expect } from 'vitest'
+import {
+  todayRule,
+  effectiveSet,
+  history,
+  randomHistory,
+  relabel,
+  mulberry32,
+  withoutSignerEntries,
+  quorumThreshold,
+} from './authorityModel.testkit.js'
+
+const sorted = (s) => [...s].sort()
+const today = (h) => sorted(todayRule(h.entries).admins)
+const eff = (h) => sorted(effectiveSet(h.entries).admins)
+
+// A (founder), B, C granted by A in a chain; deps are the previous grant.
+function camp(...members) {
+  const h = history().genesis('g0', 'A')
+  let prev = 'g0'
+  for (const m of members) {
+    h.grant('g' + m, 'A', m, [prev])
+    prev = 'g' + m
+  }
+  return { h, last: prev }
+}
+
+describe('fixed attack cases', () => {
+  it('challenge-3: quorum-removed pair M,T backdate a stand-in X who re-grants both', () => {
+    const { h, last } = camp('B', 'M', 'T') // n=4, threshold 2
+    h.revoke('vM1', 'A', 'M', [last]).revoke('vM2', 'B', 'M', [last])
+    h.revoke('vT1', 'A', 'T', ['vM1', 'vM2']).revoke('vT2', 'B', 'T', ['vM1', 'vM2'])
+    h.grant('gX', 'M', 'X', [last]) // backdated onto pre-removal heads
+    h.grant('gM2', 'X', 'M', ['gX', 'vM1', 'vM2', 'vT1', 'vT2'])
+    h.grant('gT2', 'X', 'T', ['gX', 'vM1', 'vM2', 'vT1', 'vT2'])
+    expect(today(h)).toEqual(['A', 'B', 'M', 'T', 'X']) // attack succeeds today
+    expect(eff(h)).toEqual(['A', 'B'])
+  })
+
+  it('challenge-4/5: one-hop stand-in X (M removed, backdated grant(X), X revokes B)', () => {
+    const { h, last } = camp('B', 'M')
+    h.revoke('v1', 'A', 'M', [last]).revoke('v2', 'B', 'M', [last])
+    h.grant('gX', 'M', 'X', [last])
+    h.revoke('vX', 'X', 'B', ['gX'])
+    h.revoke('vM', 'M', 'B', [last]) // M's own backdated vote (counts at M's causal point, as in ADR 2.1)
+    expect(today(h)).toEqual(['A', 'X']) // B removed by M + X at heads size 3 / threshold 2
+    expect(eff(h)).toEqual(['A', 'B']) // X not admin; M's lone vote (n_W=3, threshold 2) is not a quorum
+  })
+
+  it('challenge-4/5 variant: stand-in X alone cannot revoke B (today also refuses; model must too)', () => {
+    const { h, last } = camp('B', 'M')
+    h.revoke('v1', 'A', 'M', [last]).revoke('v2', 'B', 'M', [last])
+    h.grant('gX', 'M', 'X', [last])
+    h.revoke('vX', 'X', 'B', ['gX'])
+    expect(today(h)).toEqual(['A', 'B', 'X'])
+    expect(eff(h)).toEqual(['A', 'B'])
+  })
+
+  it('two-hop M -> X -> Y: Y is not an admin and its vote does not count', () => {
+    const { h, last } = camp('B', 'M')
+    h.revoke('v1', 'A', 'M', [last]).revoke('v2', 'B', 'M', [last])
+    h.grant('gX', 'M', 'X', [last])
+    h.grant('gY', 'X', 'Y', ['gX'])
+    h.revoke('vY', 'Y', 'B', ['gY'])
+    h.revoke('vM', 'M', 'B', [last])
+    expect(today(h)).toEqual(expect.arrayContaining(['X', 'Y'])) // attack gains two admins (and un-removes M via the heads denominator)
+    expect(eff(h)).toEqual(['A', 'B'])
+  })
+
+  it('challenge-6: self-supporting cycle (X re-grants M after the votes) leaves M removed, X not admin', () => {
+    const { h, last } = camp('B', 'M')
+    h.revoke('v1', 'A', 'M', [last]).revoke('v2', 'B', 'M', [last])
+    h.grant('gX', 'M', 'X', [last])
+    h.grant('gM2', 'X', 'M', ['gX', 'v1', 'v2'])
+    expect(today(h)).toEqual(['A', 'B', 'M', 'X']) // M readmitted today
+    expect(eff(h)).toEqual(['A', 'B'])
+    const m = effectiveSet(h.entries)
+    expect(m.effective.has('gX')).toBe(false)
+    expect(m.effective.has('gM2')).toBe(false)
+  })
+})
+
+describe('denominators: stand-ins never change n or the outcome', () => {
+  it('2 admins: after M is removed, A alone (threshold 1) removes B despite two backdated stand-ins', () => {
+    const { h, last } = camp('B', 'M')
+    h.revoke('v1', 'A', 'M', [last]).revoke('v2', 'B', 'M', [last])
+    h.grant('gX1', 'M', 'X1', [last]).grant('gX2', 'M', 'X2', [last])
+    h.revoke('vB', 'A', 'B', ['v1', 'v2'])
+    expect(quorumThreshold(2)).toBe(1)
+    expect(eff(h)).toEqual(['A'])
+    // today's heads denominator (A,B,M,X1,X2 = 5, threshold 3) leaves M un-removed
+    expect(today(h)).toContain('M')
+  })
+
+  it('3 admins: two votes remove C, one does not, with a stand-in present and voting', () => {
+    const { h, last } = camp('B', 'C', 'M')
+    h.revoke('v1', 'A', 'M', [last]).revoke('v2', 'B', 'M', [last])
+    h.grant('gX', 'M', 'X', [last])
+    const after = ['v1', 'v2']
+    const two = history()
+    two.entries.push(...h.entries)
+    two.revoke('cA', 'A', 'C', after).revoke('cB', 'B', 'C', after)
+    expect(eff(two)).toEqual(['A', 'B'])
+
+    const one = history()
+    one.entries.push(...h.entries)
+    one.revoke('cA', 'A', 'C', after).revoke('cX', 'X', 'C', ['gX'])
+    expect(eff(one)).toEqual(['A', 'B', 'C'])
+  })
+})
+
+describe('legitimate paths still work', () => {
+  it('2-device revoke of the founder by the remaining admin', () => {
+    const { h, last } = camp('B')
+    h.revoke('v', 'B', 'A', [last])
+    expect(eff(h)).toEqual(['B'])
+    expect(today(h)).toEqual(['B'])
+  })
+
+  it('blind vote (author saw no grant of the target) does not count; today removes', () => {
+    const { h } = camp('B', 'C')
+    h.grant('gT', 'C', 'T', ['gC'])
+    h.revoke('vA', 'A', 'T', ['gC'])
+    h.revoke('vB', 'B', 'T', ['gC'])
+    expect(today(h)).toEqual(['A', 'B', 'C'])
+    expect(eff(h)).toEqual(['A', 'B', 'C', 'T'])
+  })
+
+  it('honest admin granted by a signer later removed by voters who had not seen it loses status; a re-grant restores it', () => {
+    const { h, last } = camp('B', 'M')
+    h.grant('gH', 'M', 'H', [last])
+    h.revoke('v1', 'A', 'M', [last]).revoke('v2', 'B', 'M', [last])
+    expect(today(h)).toEqual(['A', 'B', 'H'])
+    expect(eff(h)).toEqual(['A', 'B'])
+    h.grant('gH2', 'A', 'H', ['gH', 'v1', 'v2'])
+    expect(eff(h)).toEqual(['A', 'B', 'H'])
+  })
+
+  it('a grant the removing voters HAD seen survives its signer removal', () => {
+    const { h, last } = camp('B', 'M')
+    h.grant('gH', 'M', 'H', [last])
+    h.revoke('v1', 'A', 'M', ['gH']).revoke('v2', 'B', 'M', ['gH'])
+    expect(eff(h)).toEqual(['A', 'B', 'H'])
+  })
+
+  it('documented semantics: a stand-in the voters saw (granted by M before removal) may re-grant M, like any current admin', () => {
+    const { h, last } = camp('B', 'M')
+    h.grant('gX', 'M', 'X', [last])
+    h.revoke('v1', 'A', 'M', ['gX']).revoke('v2', 'B', 'M', ['gX'])
+    h.grant('gM2', 'X', 'M', ['v1', 'v2'])
+    expect(eff(h)).toEqual(['A', 'B', 'M', 'X'])
+  })
+})
+
+describe('property: random causal histories (seeded)', () => {
+  const SEEDS = 500
+  const fail = (seed, entries, msg) =>
+    new Error(`seed ${seed}: ${msg}\n${JSON.stringify(entries)}`)
+
+  it('order independence: array order and id labels do not change the admin set', () => {
+    for (let seed = 1; seed <= SEEDS; seed++) {
+      const base = randomHistory(seed)
+      const want = sorted(effectiveSet(base).admins)
+      const rnd = mulberry32(seed * 7919)
+      for (let k = 0; k < 4; k++) {
+        const got = sorted(effectiveSet(relabel(base, rnd)).admins)
+        if (JSON.stringify(got) !== JSON.stringify(want)) throw fail(seed, base, `perm ${k}: ${got} != ${want}`)
+      }
+    }
+  })
+
+  it('well-founded: every admin is reachable from the founder through effective grants', () => {
+    for (let seed = 1; seed <= SEEDS; seed++) {
+      const entries = randomHistory(seed)
+      const m = effectiveSet(entries)
+      const byId = new Map(entries.map((e) => [e.id, e]))
+      const reached = new Set(['D0'])
+      for (let grew = true; grew; ) {
+        grew = false
+        for (const g of m.effective) {
+          const e = byId.get(g)
+          if (e.kind === 'genesis') continue
+          if (reached.has(e.signer) && !reached.has(e.target)) {
+            reached.add(e.target)
+            grew = true
+          }
+        }
+      }
+      for (const a of m.admins) if (!reached.has(a)) throw fail(seed, entries, `${a} admin without a grounded chain`)
+    }
+  })
+
+  it('no-readmission: an admin with a historic removal quorum was re-granted by a grant admitted without the voters-unseen entries of that device', () => {
+    let exercised = 0
+    for (let seed = 1; seed <= SEEDS; seed++) {
+      const entries = randomHistory(seed)
+      const m = effectiveSet(entries)
+      for (const t of m.admins) {
+        for (const W of m.historicQuorums(t)) {
+          exercised++
+          const ok = W.some((w) => {
+            const seen = m.ix.anc(w.id)
+            const keep = new Set([...seen])
+            const reduced = effectiveSet(withoutSignerEntries(entries, t, keep))
+            return [...m.effective].some((g) => {
+              const e = m.ix.byId.get(g)
+              return e.target === t && e.signer !== t && m.ix.anc(g).has(w.id) && reduced.effective.has(g)
+            })
+          })
+          if (!ok) throw fail(seed, entries, `${t} is admin despite a historic removal quorum with no independent re-grant`)
+        }
+      }
+    }
+    expect(exercised).toBeGreaterThan(0)
+  })
+
+  it('no stand-in gain: appending a backdated grant by a removed device never adds an admin', () => {
+    let exercised = 0
+    for (let seed = 1; seed <= SEEDS; seed++) {
+      const entries = randomHistory(seed)
+      const m = effectiveSet(entries)
+      const removed = [...m.removed]
+      if (removed.length === 0) continue
+      const rnd = mulberry32(seed * 104729)
+      const M = removed[Math.floor(rnd() * removed.length)]
+      const ownGrant = entries.find((e) => e.kind === 'grant' && e.target === M && m.effective.has(e.id))
+      if (!ownGrant) continue
+      exercised++
+      const withStand = [
+        ...entries,
+        { id: 'zX', kind: 'grant', signer: M, target: 'ZZ', deps: [ownGrant.id] },
+        { id: 'zY', kind: 'grant', signer: 'ZZ', target: 'ZY', deps: ['zX'] },
+        { id: 'zV', kind: 'revoke', signer: 'ZY', target: 'D0', deps: ['zY'] },
+      ]
+      const after = effectiveSet(withStand)
+      for (const a of after.admins) {
+        if (a === 'ZZ' || a === 'ZY') throw fail(seed, withStand, `stand-in ${a} became admin`)
+      }
+    }
+    expect(exercised).toBeGreaterThan(0)
+  })
+})
+
+const KNOWN_UNSTABLE_SEEDS = [209, 467]
+
+describe('construction: fixed point stability', () => {
+  it('KNOWN GAP: the bottom-up iteration is not monotone in general (a grant admitted early can be dropped once more votes become countable), but still lands on the right set', () => {
+    // D0 (founder) grants D2; D0 revokes D1; D2 revokes the founder; D0 then grants D1 on pre-removal deps.
+    const h = history().genesis('e0', 'D0')
+      .grant('e1', 'D0', 'D2', ['e0'])
+      .revoke('e2', 'D0', 'D1', ['e1'])
+      .revoke('e3', 'D2', 'D0', ['e2'])
+      .grant('e4', 'D0', 'D1', ['e3'])
+    const m = effectiveSet(h.entries)
+    expect(m.monotone).toBe(false)
+    expect(m.stable).toBe(true)
+    expect(sorted(m.admins)).toEqual(['D2'])
+  })
+
+  const unstable = () => {
+    const out = []
+    for (let seed = 1; seed <= 500; seed++) if (!effectiveSet(randomHistory(seed)).stable) out.push(seed)
+    return out
+  }
+
+  // KNOWN FAILURE (not weakened): the bottom-up iteration can enter a 2-cycle instead of reaching a
+  // fixed point. The model then returns the intersection of the cycle (conservative). Seed 209's
+  // 20-entry history is the smallest found; printed by the pinned test below.
+  it.fails('the final effective set is a stable fixed point (F(E) = E) on every random history', () => {
+    expect(unstable()).toEqual([])
+  })
+
+  it('pins the seeds that currently end on a cycle (update deliberately when the model changes)', () => {
+    expect(unstable()).toEqual(KNOWN_UNSTABLE_SEEDS)
+  })
+})
+
+describe('differential vs todayRule on linear (concurrency-free) chains', () => {
+  it('reports divergences instead of assuming agreement', () => {
+    const diffs = []
+    for (let seed = 1; seed <= 300; seed++) {
+      const rnd = mulberry32(seed)
+      const pick = (n) => Math.floor(rnd() * n)
+      const devs = ['D0', 'D1', 'D2', 'D3', 'D4']
+      const entries = [{ id: 'c0', kind: 'genesis', signer: null, target: 'D0', deps: [] }]
+      let admins = ['D0']
+      for (let i = 1; i < 10; i++) {
+        const signer = admins[pick(admins.length)]
+        let target = devs[pick(devs.length)]
+        if (target === signer) continue
+        const kind = rnd() < 0.5 ? 'grant' : 'revoke'
+        entries.push({ id: 'c' + entries.length, kind, signer, target, deps: ['c' + (entries.length - 1)] })
+        admins = [...todayRule(entries).admins]
+      }
+      const a = sorted(todayRule(entries).admins)
+      const b = sorted(effectiveSet(entries).admins)
+      if (JSON.stringify(a) !== JSON.stringify(b)) diffs.push({ seed, today: a, eff: b })
+    }
+    expect(diffs.length).toBeLessThan(300)
+    if (diffs.length) console.log('chain divergences', diffs.length, JSON.stringify(diffs[0]))
+  })
+})
