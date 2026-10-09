@@ -61,10 +61,10 @@ export default function ScheduleActivityView({
                 {place && <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>{place}</div>}
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                   {act.priority === 'high' && (
-                    <span style={S.chip('var(--accent)', true, { fontSize: 10, borderRadius: 3, padding: '1px 6px', border: 'none', cursor: 'default' })}>HIGH</span>
+                    <span style={S.chip('var(--text-secondary)', false, { fontSize: 10, borderRadius: 3, padding: '1px 6px', cursor: 'default' })}>HIGH</span>
                   )}
                   {act.is_outdoor && (
-                    <span style={{ fontSize: 10, color: 'var(--accent)', fontWeight: 600 }}>OUTDOOR</span>
+                    <span style={{ fontSize: 10, color: 'var(--text-secondary)', fontWeight: 600 }}>OUTDOOR</span>
                   )}
                 </div>
                 <div style={{ marginTop: 8, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)' }}>
@@ -90,8 +90,8 @@ export default function ScheduleActivityView({
                 >← All Activities</button>
                 <span style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 18, color: 'var(--text)' }}>{act?.name}</span>
                 {place && <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{place}</span>}
-                {act?.priority === 'high' && <span style={S.chip('var(--accent)', true, { fontSize: 11, borderRadius: 3, padding: '2px 8px', border: 'none', cursor: 'default' })}>HIGH PRIORITY</span>}
-                {act?.is_outdoor && <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 600 }}>OUTDOOR</span>}
+                {act?.priority === 'high' && <span style={S.chip('var(--text-secondary)', false, { fontSize: 11, borderRadius: 3, padding: '2px 8px', cursor: 'default' })}>HIGH PRIORITY</span>}
+                {act?.is_outdoor && <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 600 }}>OUTDOOR</span>}
               </div>
 
               <div style={{ overflowX: 'auto' }}>
