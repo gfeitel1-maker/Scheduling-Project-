@@ -6,6 +6,7 @@ import { isFreeChoiceActivity } from './freeChoiceActivities.js'
 import { resolveElectiveOfferingLocations } from './electiveOccupancy.js'
 import { findRouteConflicts } from './routeConflicts.js'
 import { resolveWeekCatalog } from './weekCatalog.js'
+import { overlappingBlockPeers } from './blockOverlap.js'
 import { dropReplacedPreplaced, requireReplacedDayIds, replacedTargetFinding } from './effectiveDays.js'
 
 // Pure function — zero React dependencies, zero Supabase calls.
@@ -220,6 +221,7 @@ const UNFILLABLE_TAGS = {
   place: 'Place full',
   span: 'No room for full length',
   activity: 'Activity at capacity',
+  overlap: 'Group busy at an overlapping time',
 }
 
 function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, locationCapById, locationNameById, electiveSetActivities, events, fixedEventsOnly = false, weekId = null }) {
@@ -229,6 +231,7 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
   // Sort time blocks by sort_order so span_blocks consecutive logic is stable
   const timeBlocksSorted = [...timeBlocks].sort((a, b) => a.sort_order - b.sort_order)
   const blockOrder = new Map(timeBlocksSorted.map((b, i) => [b.id, i]))
+  const blockPeers = overlappingBlockPeers(timeBlocksSorted)
 
   // ── Pass 0: resolve eligibility ──────────────────────────────────────────
   const eligibility = new Map() // activityId → Set<groupId>
@@ -539,6 +542,7 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
     const group = groupMap.get(groupId)
     if (placeBlocked(act, group, dayId, blockId)) return 'place'
 
+    const ownBlocks = [blockId]
     const spanCount = act.span_blocks || 1
     if (spanCount > 1) {
       const blockIdx = blockOrder.get(blockId)
@@ -559,6 +563,18 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
         // Tail block occupies the place too — same capacity + same_tier_only
         // guard as the head.
         if (placeBlocked(act, group, dayId, nextBlock.id)) return 'place'
+        ownBlocks.push(nextBlock.id)
+      }
+    }
+
+    // A group holds at most one placement across time-overlapping blocks
+    // (audit A6), whether the other one is an activity, span tail, fixed
+    // event, event, or elective.
+    for (const own of ownBlocks) {
+      for (const peer of blockPeers.get(own) || []) {
+        if (ownBlocks.includes(peer.id)) continue
+        const k = `${groupId}|${dayId}|${peer.id}`
+        if (assigned.has(k) || fixedEventLookup.has(k) || eventLookup.has(k) || electiveLookup.has(k)) return 'overlap'
       }
     }
 
