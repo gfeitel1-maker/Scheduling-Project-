@@ -8,7 +8,7 @@ import { provenanceDotStyles } from './provenanceDotStyles.js'
 // primitive. Reference-aware merge across these entities is a stated
 // non-goal, so this wrapper has NO actions footer at all: ProvenanceDot
 // omits the footer entirely when `actions` is falsy.
-export default function DuplicateNameDot({ row, siblings, entityLabel }) {
+export default function DuplicateNameDot({ row, siblings }) {
   const other = siblings[0]
   return (
     <ProvenanceDot
@@ -19,9 +19,8 @@ export default function DuplicateNameDot({ row, siblings, entityLabel }) {
     >
       <div style={provenanceDotStyles.rowSentence}>
         {siblings.length === 1
-          ? `This looks like the same ${entityLabel} as "${other.name}".`
-          : `This looks like the same ${entityLabel} as ${siblings.length} others (e.g. "${other.name}").`}
-        {' '}Rename or delete one here to clear this.
+          ? `Same as "${other.name}"`
+          : `Same as "${other.name}" +${siblings.length - 1}`}
       </div>
     </ProvenanceDot>
   )

@@ -49,7 +49,6 @@ export default function CampBootstrapScreen({ onBack, onSubmit }) {
         />
 
         <div style={S.authRolePill}>
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--primary)' }} />
           HOSTING ON THIS DEVICE
         </div>
 

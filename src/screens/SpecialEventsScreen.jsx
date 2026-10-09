@@ -32,10 +32,10 @@ const TYPE_OPTIONS = [
 
 const LABELS = {
   emptyMessage: 'No special events yet.',
-  namePlaceholder: 'Name a special day or event…',
-  seedPrompt: 'Special Day created. Start with your camp’s regular time blocks (you can edit them after), or start empty?',
-  seedFromBlocks: 'Seed from Time Blocks',
-  startEmpty: 'Start Empty',
+  namePlaceholder: 'Color War',
+  seedPrompt: 'Start from your time blocks?',
+  seedFromBlocks: 'Copy time blocks',
+  startEmpty: 'Empty',
   createdHint: (name) => `"${name}" created — build it from Special Schedules under Schedule.`,
 }
 
@@ -111,7 +111,7 @@ export function EventDetail({ event, role, locations, onBack, onSave, onDelete, 
           onBlur={() => notes !== (event.notes ?? '') && commit({ notes: notes.trim() || null })}
           rows={4}
           style={{ ...S.input, resize: 'vertical', fontFamily: 'inherit' }}
-          placeholder="Teams, points, staffing, run-of-show — recorded and printed, never parsed."
+          placeholder="Notes"
         />
         <label style={fieldLabel}>Location (optional)</label>
         <LocationPicker value={locationId} locations={locations} onChange={changeLocation} onCreate={onCreateLocation} onUpdateCapacity={onUpdateLocationCapacity} />
@@ -185,7 +185,7 @@ function SpecialDayDetail({ day, role, onBack, onSave, onDelete, onNavigate }) {
           onBlur={() => notes !== (day.notes ?? '') && commit({ notes: notes.trim() || null })}
           rows={4}
           style={{ ...S.input, resize: 'vertical', fontFamily: 'inherit' }}
-          placeholder="Run-of-show, staffing, anything worth recording — never parsed."
+          placeholder="Notes"
         />
         {saving && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 6 }}>Saving…</div>}
       </div>
@@ -427,8 +427,7 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
         {pendingDelete && (
           <ConfirmDangerDialog
             title={`Delete "${pendingDelete.entity.name}"?`}
-            body="This event and its placement on the schedule will be removed."
-            recovery={`"${pendingDelete.entity.name}" goes to Trash, and you can put it back from there.`}
+            recovery="Recoverable from Trash."
             confirmLabel="Delete Event"
             busy={deleting}
             onConfirm={confirmDelete}
@@ -453,8 +452,8 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
         {pendingDelete && (
           <ConfirmDangerDialog
             title={`Delete "${pendingDelete.entity.name}"?`}
-            body="This special day and its time blocks and filled slots will be removed."
-            recovery={`"${pendingDelete.entity.name}" goes to Trash, and you can put it back from there.`}
+            body="Removes its time blocks and slots."
+            recovery="Recoverable from Trash."
             confirmLabel="Delete Special Day"
             busy={deleting}
             onConfirm={confirmDelete}
@@ -491,7 +490,6 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
               {rows.length === 0 ? (
                 <tr><td colSpan={3} style={S.emptyState}>
                   <div style={S.emptyStateTitle}>{LABELS.emptyMessage}</div>
-                  <div style={S.emptyStateBody}>Type a name below and pick a type to add your first one.</div>
                 </td></tr>
               ) : (
                 rows.map((r) => (

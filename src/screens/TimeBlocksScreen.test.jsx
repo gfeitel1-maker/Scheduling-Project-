@@ -77,7 +77,7 @@ describe('TimeBlocksScreen delete confirmation', () => {
     expect(window.confirm).not.toHaveBeenCalled()
     expect(localClient.deleteEntity).not.toHaveBeenCalled()
     await waitFor(() => expect(screen.queryByText('Delete "Block 1"?')).not.toBeNull())
-    expect(screen.queryByText(/will no longer appear on the grid or in exports/)).not.toBeNull()
+    expect(screen.queryByText(/Placed activities leave the grid/)).not.toBeNull()
 
     fireEvent.click(screen.getByText('Delete Time Block'))
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'time_blocks', 'block-1'))
@@ -151,9 +151,9 @@ describe('TimeBlocksScreen — add', () => {
       return Promise.resolve([])
     })
     render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await screen.findByPlaceholderText('Name (e.g. Block 1)')
+    await screen.findByPlaceholderText('Block 1')
 
-    fireEvent.change(screen.getByPlaceholderText('Name (e.g. Block 1)'), { target: { value: 'Block 1' } })
+    fireEvent.change(screen.getByPlaceholderText('Block 1'), { target: { value: 'Block 1' } })
     const timeInputs = document.querySelectorAll('input[type="time"]')
     fireEvent.change(timeInputs[0], { target: { value: '09:00' } })
     fireEvent.change(timeInputs[1], { target: { value: '10:00' } })
@@ -192,11 +192,11 @@ describe('TimeBlocksScreen — add', () => {
       return Promise.resolve([])
     })
     render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await screen.findByPlaceholderText('Name (e.g. Block 1)')
+    await screen.findByPlaceholderText('Block 1')
 
     // Enter "10:00" first, then "09:00" — a director typing blocks in the
     // wrong order must still get chronological sort_order values.
-    fireEvent.change(screen.getByPlaceholderText('Name (e.g. Block 1)'), { target: { value: 'Late Block' } })
+    fireEvent.change(screen.getByPlaceholderText('Block 1'), { target: { value: 'Late Block' } })
     let timeInputs = document.querySelectorAll('input[type="time"]')
     fireEvent.change(timeInputs[0], { target: { value: '10:00' } })
     fireEvent.change(timeInputs[1], { target: { value: '10:40' } })
@@ -206,7 +206,7 @@ describe('TimeBlocksScreen — add', () => {
     expect(sortCall[4]).toBe(600)
 
     localClient.write.mockClear()
-    fireEvent.change(screen.getByPlaceholderText('Name (e.g. Block 1)'), { target: { value: 'Early Block' } })
+    fireEvent.change(screen.getByPlaceholderText('Block 1'), { target: { value: 'Early Block' } })
     timeInputs = document.querySelectorAll('input[type="time"]')
     fireEvent.change(timeInputs[0], { target: { value: '09:00' } })
     fireEvent.change(timeInputs[1], { target: { value: '09:40' } })
@@ -227,9 +227,9 @@ describe('TimeBlocksScreen — add', () => {
       return Promise.resolve({ status: 'applied' })
     })
     render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await screen.findByPlaceholderText('Name (e.g. Block 1)')
+    await screen.findByPlaceholderText('Block 1')
 
-    fireEvent.change(screen.getByPlaceholderText('Name (e.g. Block 1)'), { target: { value: 'Block 1' } })
+    fireEvent.change(screen.getByPlaceholderText('Block 1'), { target: { value: 'Block 1' } })
     const timeInputs = document.querySelectorAll('input[type="time"]')
     fireEvent.change(timeInputs[0], { target: { value: '09:00' } })
     fireEvent.change(timeInputs[1], { target: { value: '10:00' } })
@@ -246,9 +246,9 @@ describe('TimeBlocksScreen — add', () => {
       return Promise.resolve([])
     })
     render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await screen.findByPlaceholderText('Name (e.g. Block 1)')
+    await screen.findByPlaceholderText('Block 1')
 
-    fireEvent.change(screen.getByPlaceholderText('Name (e.g. Block 1)'), { target: { value: 'Block 1' } })
+    fireEvent.change(screen.getByPlaceholderText('Block 1'), { target: { value: 'Block 1' } })
     const timeInputs = document.querySelectorAll('input[type="time"]')
     fireEvent.change(timeInputs[0], { target: { value: '09:00' } })
     fireEvent.change(timeInputs[1], { target: { value: '10:00' } })
@@ -264,10 +264,10 @@ describe('TimeBlocksScreen — add', () => {
       return Promise.resolve([])
     })
     render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await screen.findByPlaceholderText('Name (e.g. Block 1)')
+    await screen.findByPlaceholderText('Block 1')
 
-    fireEvent.change(screen.getByPlaceholderText('Name (e.g. Block 1)'), { target: { value: 'Block 1' } })
-    fireEvent.keyDown(screen.getByPlaceholderText('Name (e.g. Block 1)'), { key: 'Enter' })
+    fireEvent.change(screen.getByPlaceholderText('Block 1'), { target: { value: 'Block 1' } })
+    fireEvent.keyDown(screen.getByPlaceholderText('Block 1'), { key: 'Enter' })
 
     expect(localClient.write).not.toHaveBeenCalled()
   })
@@ -285,9 +285,9 @@ describe('TimeBlocksScreen — add', () => {
       return Promise.resolve({ status: 'applied' })
     })
     render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await screen.findByPlaceholderText('Name (e.g. Block 1)')
+    await screen.findByPlaceholderText('Block 1')
 
-    fireEvent.change(screen.getByPlaceholderText('Name (e.g. Block 1)'), { target: { value: 'Block 1' } })
+    fireEvent.change(screen.getByPlaceholderText('Block 1'), { target: { value: 'Block 1' } })
     const timeInputs = document.querySelectorAll('input[type="time"]')
     fireEvent.change(timeInputs[0], { target: { value: '09:00' } })
     fireEvent.change(timeInputs[1], { target: { value: '10:00' } })

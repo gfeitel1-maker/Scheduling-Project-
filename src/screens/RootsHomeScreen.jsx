@@ -8,7 +8,6 @@ import { buildAttentionList, buildStructureIssues } from '../ingest/attentionLis
 import { dedupeChipItems } from './rootsChips'
 import { runWorksheetDownload } from '../utils/downloadWorksheet.js'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
-import { ACTIVITY_COLORS } from '../components/schedule/slotCellConstants.js'
 import { ScheduleDoor } from '../components/ScheduleDoor'
 import { SIDEBAR_WIDTH_PX } from '../components/layout/Sidebar.jsx'
 import { screenForAttentionRow, subjectIdFromRow } from './attentionRowDestination.js'
@@ -147,9 +146,6 @@ function ChipRow({ card, collections }) {
     <div style={styles.chipRow}>
       {shown.map((item, i) => (
         <span key={item.id ?? item.name ?? i} style={styles.chip}>
-          {card.key === 'activities' && (
-            <span style={{ ...styles.chipDot, background: ACTIVITY_COLORS[i % ACTIVITY_COLORS.length] }} />
-          )}
           {item.name}
         </span>
       ))}
@@ -544,12 +540,6 @@ const styles = {
     fontSize: 11.5,
     fontWeight: 500,
     color: 'var(--text-secondary)',
-  },
-  chipDot: {
-    width: 6,
-    height: 6,
-    borderRadius: '50%',
-    flex: 'none',
   },
   overflowChip: {
     display: 'inline-flex',

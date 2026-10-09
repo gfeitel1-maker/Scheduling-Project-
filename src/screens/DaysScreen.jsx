@@ -304,7 +304,7 @@ export default function DaysScreen({ campId, role, onNavigate }) {
       actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll }}
       fileInputRef={fileRef}
       onFileChange={onFileChange}
-      nextLabel="Next: Time Blocks →"
+      nextLabel="Time Blocks →"
       onNext={() => onNavigate('timeblocks')}
       error={error}
     >
@@ -325,7 +325,6 @@ export default function DaysScreen({ campId, role, onNavigate }) {
                   {days.length === 0 && (
                     <tr><td colSpan={3} style={S.emptyState}>
                       <div style={S.emptyStateTitle}>No days yet</div>
-                      <div style={S.emptyStateBody}>Type a day below to add your first one.</div>
                     </td></tr>
                   )}
                   {days.map(day => (
@@ -337,7 +336,7 @@ export default function DaysScreen({ campId, role, onNavigate }) {
                       screens (Groups/Tiers/TimeBlocks/Electives). */}
                   <InlineAddRow
                     fields={[
-                      { key: 'label', type: 'text', placeholder: 'Day (e.g. Monday)', required: true },
+                      { key: 'label', type: 'text', placeholder: 'Monday', required: true },
                       { key: 'day_of_week', type: 'select', default: 1, options: DOW.map((d, i) => ({ value: i, label: d })) },
                     ]}
                     onAdd={addDay}

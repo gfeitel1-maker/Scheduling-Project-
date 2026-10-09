@@ -102,7 +102,6 @@ export default function InlineAddRow({ fields, onAdd, adding, trailingCells = nu
           className="press-97"
           onClick={commit}
           disabled={!canAdd}
-          title="Add"
           style={canAdd ? { ...S.btnSecondary } : { ...S.btnSecondary, ...S.buttonDisabled }}
         >{adding ? 'Adding…' : '+ Add'}</button>
       </td>

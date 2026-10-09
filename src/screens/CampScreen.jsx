@@ -63,10 +63,6 @@ export default function CampScreen({ campId }) {
     <div style={{ maxWidth: 560, ...enterStyle }}>
       {error && <div style={{ ...S.errorBanner, marginBottom: 16 }}>{error}</div>}
 
-      <p style={{ margin: '0 0 18px', fontSize: 13, lineHeight: 1.6, color: 'var(--text-secondary)' }}>
-        What this camp is called. It appears above the sidebar and on anything you export.
-      </p>
-
       <div style={{
         background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10,
         padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12,
