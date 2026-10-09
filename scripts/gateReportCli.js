@@ -9,7 +9,8 @@
 // structurally valid input — the latter is the reducer's job (§5.1), not
 // the CLI's.
 
-import { readFileSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { reduceGateReport } from './gateReportReduce.js'
 import { buildVerifierReport } from './verifierReport.js'
@@ -22,13 +23,61 @@ const REQUIRED_FIELDS = ['taskId', 'round', 'expectedOpinionGates', 'reports']
 
 export class CliUsageError extends Error {}
 
+// The only workflow whose run is the gate of record. Matched by path: a workflow's display name is
+// free text any other workflow can reuse, its path is not.
+export const GATE_WORKFLOW_PATH = '.github/workflows/gate.yml'
+
+/** Default run fetcher: asks GitHub, never the caller, what the run actually was. */
+export function defaultFetchRun(id) {
+  return execFileSync('gh', ['run', 'view', String(id), '--json', 'headSha,status,conclusion,workflowName,path'], {
+    encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+  })
+}
+
+/**
+ * Confirm a typed ciRun against GitHub. Returns the FETCHED values, or null (with a reason) when
+ * the run cannot be confirmed: fetch failed/unparseable, not gate.yml, or a typed field disagrees.
+ * Fails closed — an unconfirmable run is simply not counted.
+ */
+export function confirmCiRun(ciRun, fetchRun) {
+  if (!ciRun || ciRun.id == null || ciRun.id === '') return { run: null, reason: 'ciRun has no id' }
+  let fetched
+  try {
+    fetched = JSON.parse(fetchRun(ciRun.id))
+  } catch (e) {
+    return { run: null, reason: `could not confirm run ${ciRun.id} via gh (${e.message})` }
+  }
+  if (!fetched || typeof fetched !== 'object') return { run: null, reason: `gh returned no run object for ${ciRun.id}` }
+  // gh reports `path` relative to the repo, sometimes with an @ref suffix.
+  const path = typeof fetched.path === 'string' ? fetched.path.split('@')[0] : ''
+  if (path !== GATE_WORKFLOW_PATH) {
+    return { run: null, reason: `run ${ciRun.id} is workflow "${fetched.workflowName}" (${fetched.path}), not the gate (${GATE_WORKFLOW_PATH})` }
+  }
+  for (const k of ['headSha', 'status', 'conclusion']) {
+    if (ciRun[k] !== undefined && ciRun[k] !== fetched[k]) {
+      return { run: null, reason: `run ${ciRun.id}: typed ${k} "${ciRun[k]}" does not match GitHub's "${fetched[k]}"` }
+    }
+  }
+  return { run: { id: ciRun.id, headSha: fetched.headSha, status: fetched.status, conclusion: fetched.conclusion }, reason: null }
+}
+
+function isExistingFile(p) {
+  try { return statSync(p).isFile() } catch { return false }
+}
+
+// Does evidenceRef name the confirmed run (bare id, `runs/<id>`, or a URL ending in it)?
+function citesRun(evidenceRef, runId) {
+  const id = String(runId).replace(/[^0-9A-Za-z]/g, '')
+  return id !== '' && new RegExp(`(^|[^0-9A-Za-z])${id}($|[^0-9A-Za-z])`).test(evidenceRef)
+}
+
 /**
  * @param {string} inputPath - path to the input JSON file
  * @param {object} opts
  * @param {string} opts.runsDir
  * @returns {object} the GateReport, with gate_report_ref added
  */
-export function runGateReportCli(inputPath, { runsDir }) {
+export function runGateReportCli(inputPath, { runsDir, fetchRun = defaultFetchRun }) {
   let raw
   try {
     raw = readFileSync(inputPath, 'utf8')
@@ -153,6 +202,28 @@ export function runGateReportCli(inputPath, { runsDir }) {
     )
   }
 
+  // A typed ciRun is a claim; GitHub is the evidence. Count only the fetched, gate.yml run.
+  let ciRun
+  if (input.ciRun !== undefined && input.ciRun !== null) {
+    const confirmed = confirmCiRun(input.ciRun, fetchRun)
+    if (confirmed.run) ciRun = confirmed.run
+    else console.error(`ciRun NOT counted — ${confirmed.reason}`)
+  }
+
+  // A hand-written verifier PASS is a claim too. It counts only if its evidence_ref resolves to a
+  // local file that exists or to the run just confirmed; otherwise it is downgraded to UNVERIFIED.
+  // (A derived report from gateResults already carries its file as evidence and is exempt.)
+  if (input.gateResults === undefined) {
+    reports = reports.map((r) => {
+      if (r?.gate_name !== 'verifier' || r.verdict !== 'PASS') return r
+      const ref = typeof r.evidence_ref === 'string' ? r.evidence_ref : ''
+      if (ref !== '' && (isExistingFile(ref) || (ciRun && citesRun(ref, ciRun.id)))) return r
+      const why = `hand-written verifier PASS cites evidence_ref "${ref}" which is neither an existing local file nor the confirmed ciRun`
+      console.error(`verifier downgraded to UNVERIFIED — ${why}`)
+      return { ...r, verdict: 'UNVERIFIED', findings: [...(r.findings || []), { severity: 'HIGH', ref: ref || 'evidence', summary: why }] }
+    })
+  }
+
   const gateReport = reduceGateReport({
     taskId: input.taskId,
     round: input.round,
@@ -160,7 +231,7 @@ export function runGateReportCli(inputPath, { runsDir }) {
     reports,
     // CI is the gate of record: a completed, successful run on `commit` satisfies verifier_pass
     // without a local results file. The reducer checks the binding and records the run.
-    ciRun: input.ciRun,
+    ciRun,
     headSha: input.commit,
   })
 

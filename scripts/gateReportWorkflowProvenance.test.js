@@ -14,7 +14,7 @@ let scratch
 beforeEach(() => { scratch = mkdtempSync(join(tmpdir(), 'gate-report-wf-')) })
 afterEach(() => { rmSync(scratch, { recursive: true, force: true }) })
 
-const verifier = { gate_name: 'verifier', verdict: 'PASS', score: null, na_reason: null, findings: [], evidence_ref: 'x' }
+const verifier = { gate_name: 'verifier', verdict: 'PASS', score: null, na_reason: null, findings: [], evidence_ref: fileURLToPath(import.meta.url) }
 const opinion = (gate_name, summary, extra = {}) => ({
   gate_name, verdict: 'PASS', score: 4, na_reason: null, evidence_ref: null,
   findings: [{ severity: 'LOW', summary }], ...extra,
