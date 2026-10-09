@@ -4,6 +4,7 @@ import { CircleCheckIcon, LockIcon } from '../components/icons'
 import { usePendingConflicts } from '../hooks/usePendingConflicts'
 import { noticeForStatus } from './conflictsNotice'
 import { DOW } from './setup/setupHelpers'
+import { SETUP_MAX_WIDTH } from '../components/setup/SetupScreenShell'
 
 // App.jsx passes a single shared `pendingConflicts` instance so the Sidebar
 // badge and this screen's list can never disagree. When the prop is absent
@@ -319,7 +320,7 @@ export default function ConflictsScreen({ pendingConflicts, onNavigate }) {
   const enterStyle = useEnterTransition('liftFade')
 
   return (
-    <div style={{ maxWidth: 760, ...enterStyle }}>
+    <div style={{ maxWidth: SETUP_MAX_WIDTH, ...enterStyle }}>
       {loading ? (
         <div style={S.stateLoading}>Loading…</div>
       ) : conflicts.length === 0 ? (
