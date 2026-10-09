@@ -6,7 +6,7 @@ status: accepted
 implementation_state: not-started
 date: 2026-10-09
 decided: "2026-10-09 — owner GO, 'Build it (Recommended)', accepting the exposure recorded below"
-deciders: [product-owner]
+deciders: ["product-owner (via board keeper)"]
 program: security-hardening
 governing_docs:
   - docs/governance/constitution/CONSTITUTION.md
@@ -40,6 +40,7 @@ Consequence: **no STUN of any kind, and no third party** on rungs 1 and 2. A dev
 ## Context (verified against the code, 2026-10-09)
 
 - `punchTransport` takes `iceServers` defaulting to `[]` (`electron/sync/automerge/punchTransport.js`, option destructuring) and `syncStarter.js` passes none. With no STUN, libjuice gathers no `srflx` candidate, and `rememberOwnReflexive` (`punchIdentity.js`) keeps only `typ srflx` lines from the selected pair, so this device has **no public candidate to publish**. The existing rung-1 design assumed STUN; this ADR replaces that source.
+- **There is no STUN on main.** `electron/sync/automerge/punchTransport.js` line 121 defaults `iceServers = []`; no production call site passes `iceServers` (the only other STUN reference is the `STUN_RE` validator). Production rung 1 therefore has **no public candidate outside a LAN today**: its filter keeps only public `srflx`, and `srflx` cannot exist without STUN. **The router-mapped address becomes the ONLY public candidate, and it is what makes rung 1 work at all.**
 - The punch UDP port is already pinned: `materializePunchIdentity` returns `portRange: { begin: localPort, end: localPort }` from `punch_identity.local_port`, and the transport validates 1024..65535. A router mapping to that port stays meaningful across restarts.
 - `punchTransport.sessionOnFreePort` allows one live session per pinned port (`PunchPortBusyError`).
 - `attemptRung1` (`punchRung1.js`) redials `peer_punch_memory` through `connectFromMemory`, keeps only **public `typ srflx`** candidates, and treats memory older than 12 h as `no-memory`.
@@ -60,6 +61,15 @@ The pinned punch UDP port. Request external port == local port; **record the ext
 - Candidates are presented to `connectFromMemory` as `typ srflx` lines (a type `punchTransport` and `publicSrflx` already accept). The word "mapped" is a **status and ordering concept, not a new candidate type**: no new wire kind, no signature-context change, no unknown-field risk for older peers.
 - Dial order in rung 1: mapped-sourced candidates first, then any other remembered public srflx.
 
+### 3a. How the roamer is found with no STUN (peer-reflexive)
+The roaming laptop dials the office's remembered mapped `addr:port` with the office's pinned ufrag/pwd/cert, using **zero signaling**. The office learns the roamer's address as a **peer-reflexive (`prflx`) candidate** from the incoming ICE checks (`punchTransport` already accepts `host|srflx|prflx`), so neither side needs STUN. Two unmapped laptops at two new spots cannot connect (same network required); that residual is the owner's own framing.
+
+### 3b. Pinned no-STUN invariant
+Production ICE servers stay `[]`. Slice 2 adds a pinned test asserting that the production start path passes no `iceServers`, so STUN cannot quietly return. Rung 2 gossip and the rung-3 rendezvous record carry the mapped candidate (via the same published entry); a device with no mapping publishes no public candidate.
+
+### 3c. Supersession
+Rung 1's "learn reflexive via STUN-from-socket" text in `2026-10-08-relayless-cross-network-reconnect.md` is **superseded** by this section.
+
 ### 4. Memory age
 `RUNG1_MEMORY_MAX_AGE_MS` is 12 h. A laptop away over a weekend would report `no-memory` and never try the office. Recommendation: a mapped-sourced candidate carries its own age limit of 7 days (the office keeps the same external port in practice and a wrong guess costs one 8 s timeout). Confidence: medium; it is a tuning value, settled in slice 2 with a test, and the hardware session shows whether it is enough.
 
@@ -74,8 +84,9 @@ Closed set: `mapped | refused | no-gateway | double-nat | permanent-lease | erro
 
 ### 8. Accepted limits (documented, not built)
 - **One peer at a time per pinned port** (the `sessionOnFreePort` ceiling). One office plus one roaming laptop works; a second simultaneous punched peer is refused until the first closes. No port range, no ICE UDP mux for now.
+- Later options for more than one punched peer, not built: ICE UDP mux (`enableIceUdpMux`) or a small pinned port range.
 - Both ends at never-seen spots remains out of scope (owner).
-- Success depends on the office router: the report estimates 50 to 75 percent for consumer or ISP routers, near zero for managed networks or CGNAT. That is a judgement from sources, not a measurement; the status flag tells the director which case they are in.
+- Success depends on the office router (the owner's hardware check settles it per camp): the report estimates 50 to 75 percent for consumer or ISP routers, near zero for managed networks or CGNAT. That is a judgement from sources, not a measurement; the status flag tells the director which case they are in.
 
 ## Exposure (plain)
 
