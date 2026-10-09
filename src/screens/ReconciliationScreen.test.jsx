@@ -24,6 +24,7 @@ vi.mock('../localClient', () => ({
 }))
 
 import ReconciliationScreen from './ReconciliationScreen.jsx'
+import { S } from '../styles/shared'
 import { localClient } from '../localClient'
 
 const baseInputs = { approved: { activities: ['Art'] }, cohort_id: null, mode: 'add' }
@@ -635,5 +636,19 @@ describe('import-only screen (mode="inspect" retired)', () => {
     localClient.ingestReconcile.mockResolvedValue(understoodOnlyResult())
     render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
     await waitFor(() => expect(localClient.ingestReconcile).toHaveBeenCalled())
+  })
+})
+
+// Design batch F5 — Import and Reconciliation are two steps of one task, so
+// they share one frame: the same width, left-aligned like the setup screens
+// (ImportScreen renders inside S.importFrame too).
+describe('shared import frame (design F5)', () => {
+  it('renders inside the import frame width, left-aligned, not centred at 920', async () => {
+    localClient.ingestReconcile.mockResolvedValue(understoodOnlyResult())
+    const { container } = render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText(/0 of 0 question/)).toBeTruthy())
+    const frame = container.firstElementChild
+    expect(frame.style.maxWidth).toBe(`${S.importFrame.maxWidth}px`)
+    expect(frame.style.margin).toBe('')
   })
 })
