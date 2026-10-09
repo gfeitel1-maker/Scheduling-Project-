@@ -932,3 +932,11 @@ causal ancestors contain a valid grant of that target (or the target is the foun
 not count; a concurrent or backdated grant cannot void a vote whose author saw an earlier grant; the
 staleness rule above (a grant that has the vote as an ancestor supersedes it) is unchanged. The
 no-readmission argument and the backdated-grant test (11b) are in the succession ADR.
+
+**Tightening, same amendment (owner ruling 2026-10-09).** Admin grants that feed a `host_claim` or that
+count toward the quorum for a **host** removal are effective only if their signer is a valid admin at
+heads, or the grant is a causal ancestor of the signer's removal (the same rule the succession ADR
+section 7 uses for `device_approval`). The base residual above, a removed admin backdating a grant,
+**remains for ordinary admin power outside host succession** but cannot reach the host role or keys.
+Also clarified: a "valid grant" for vote counting is valid at the grant's own causal point. Red-first
+test 13 in the succession ADR pins the attack.

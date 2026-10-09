@@ -184,6 +184,21 @@ same `stateAt(claimChange)` ancestor query T331 already uses, so it is merge-ord
    head; the next admin claims with `parent_epoch_id` = the revoked claimant's epoch, which clause 4
    satisfies).
 
+**Host-feeding grants are held to the section 7 effectiveness rule (owner ruling 2026-10-09, "tighten").**
+In clauses 2 and 5, the claimant's admin status counts only through grants that are *effective for
+host purposes*, and the same restriction applies to every admin grant that counts toward the quorum for
+a **host** removal (the voters' own admin status, and the grant of the host target): a grant is
+effective iff its **signer is a valid admin at the current heads, OR the grant is a causal ancestor of
+the signer's removal**. This is exactly the rule section 7 already applies to `device_approval`; the
+two are made consistent on purpose, because both answer the same question (can a power-holder who has
+since been removed still mint authority that reaches the host keys?) and one answer is easier to
+audit than two. It closes this attack: a quorum-removed admin M backdates `grant(X)` for a stand-in X
+onto pre-removal heads and relays it; X revokes host B (`quorumThreshold(2) = 1`) and claims. M's
+grant is not an ancestor of M's removal and M is not valid at heads, so it is not effective for host
+purposes: X is not a claimant (clause 2/5 fail) and X's vote does not count toward removing B. The
+T331 base residual (a backdated grant by a removed admin restores that admin's ordinary power) **remains
+for ordinary admin power outside host succession**; it cannot reach the host role or its keys.
+
 **Who may claim and the small-camp rule are already decided, not open.** Claimant = any currently
 valid **admin device** (clause 2); there is no separate "name the successor" vote because the
 removal quorum already acted. The quorum is the one already accepted in
@@ -476,6 +491,13 @@ vote-staleness step (the predicate is **inverted** from the first revision of th
 > backdated onto earlier dependencies) never supersedes and never voids V. Revokes of non-admin devices
 > are not quorum votes (they are immediate, section 7.2) and are unchanged.
 
+**"Valid grant" is evaluated at the grant's own causal point.** For vote counting, a grant of T
+counts as valid iff its signer was a valid admin at that grant's own causal point (the existing
+`isValidSignerAt`), not at heads and not at V's point; this is what keeps the predicate a function of
+V's ancestor set alone. Separately, for votes that count toward a **host** removal, and for claims, the
+section 2 host-feeding rule (signer valid at heads, or the grant is an ancestor of the signer's removal)
+is applied on top; it only ever removes grants from consideration, never adds one.
+
 The predicate reads only V's own ancestor set and the grant's own ancestor set, so it stays a pure
 function of causal history (the primitive `isValidSignerAt` and the old rule use) and is merge-order
 independent. Nothing a third party adds to the document later can change whether V counts, except a
@@ -592,7 +614,10 @@ denied:
   re-login (`onAuthRejected`; the build verifies this assumption, risk list); (2) they re-log in to the
   new host by the **identity-key login of section 7.1** (no shared secret needed) and are admitted.
   **Post-admission, on an OK login/authenticate reply only,** the new host returns its `host_claim`
-  chain entries (the signed entries, nothing else; never to a denied peer, so the pre-admission surface
+  chain entries together with the **minimal verification set** for them (the claimant's grant chain and,
+  for a quorum-path claim, the revoke votes and grants that establish the quorum; signed entries,
+  nothing else, and this set is required: without it a stale island device could not verify and would
+  fail closed; never to a denied peer, so the pre-admission surface
   is unchanged). The receiving device verifies the chain from genesis (`createVerifiedEntryTrust` plus
   `currentHostEpoch`, the same functions the projector uses) **before** it changes
   `camps.signing_public_key`, so it does not need to wait for, or depend on, the old host or a full
@@ -722,7 +747,10 @@ nodes, real sqlite, no mocked `authorize()`). Each is written and seen failing f
    login reply B returns its `host_claim` chain entries; K verifies them from genesis
    (`createVerifiedEntryTrust` + `currentHostEpoch`) before changing `camps.signing_public_key`, and
    the test asserts the column is unchanged if the returned chain is truncated, re-parented or signed by
-   a non-admin. Then K syncs and closes any window. Nothing is sent to a denied peer (see 9a). A is denied `4404`; `isCurrentHost` becomes false after its projection shows the
+   a non-admin. The returned chain MUST include the claimant's grant chain and the revoke votes needed
+   to verify a quorum-path claim (the minimal verification set: the claim, the claimant's effective
+   grants, and the quorum votes with their grants); test 9 asserts K verifies a quorum-path claim from
+   exactly this set and that omitting any member makes K fail closed (key unchanged). Then K syncs and closes any window. Nothing is sent to a denied peer (see 9a). A is denied `4404`; `isCurrentHost` becomes false after its projection shows the
    later epoch and host-only handlers return `not_current_host`; a device A approved on the island is
    denied until re-approved.
 9a. **Pre-admission negative (blocker 3).** A corroborated-revoked peer and a never-approved peer each
@@ -751,9 +779,18 @@ nodes, real sqlite, no mocked `authorize()`). Each is written and seen failing f
     B stays host, in both orders. (ii) A valid admin M releases a re-grant that has the removal votes
     as ancestors: the epoch reverts, B's staged key is shredded, H re-attests, identical on every peer
     in both orders, and nothing signed in the window is accepted afterwards.
-13. **Re-attestation** is audited as one privileged bulk event, is resumable after a kill, and a fresh
+13. **Backdated grant cannot reach the host (owner "tighten" ruling; red first).** 2-admin camp
+    (host B, admin M); M is quorum-removed. M injects a backdated `grant(X)` for a stand-in X onto
+    pre-removal heads through an admitted relay. X revokes B (threshold 1) and claims. Assert: the claim
+    is refused AND X's vote does not count toward removing B (B stays a valid admin and host), in
+    **every merge order** (all permutations of M's removal, the injected grant, X's revoke and X's
+    claim). Companion: a grant that is a causal ancestor of its signer's removal, or whose signer is a
+    valid admin at heads, remains effective; ordinary-admin behaviour of the backdated grant outside
+    host succession is unchanged (T331 base residual, pinned so it is not mistaken for fixed).
+
+14. **Re-attestation** is audited as one privileged bulk event, is resumable after a kill, and a fresh
     joiner projects every user.
-14. **Epoch 0 unchanged and purge/rebuild.** A camp with no claims behaves exactly as today (existing
+15. **Epoch 0 unchanged and purge/rebuild.** A camp with no claims behaves exactly as today (existing
     suites green); `ensureHostSigningKey` refuses to mint on a non-founder; a purged-and-restored
     device does not regain host status from a superseded key.
 
@@ -773,6 +810,10 @@ nodes, real sqlite, no mocked `authorize()`). Each is written and seen failing f
   re-confirm no-readmission, including the backdated-grant attack (tests 11 and 11b).
 - **Identity-bound login** depends on `target_peer_id` being bound at approval; devices without it stay on
   the legacy secret path and are re-approved in person after a succession.
+- **T331 base residual, narrowed (not fixed).** A backdated grant by a removed admin still restores
+  that admin's/stand-in's ordinary admin power outside host succession. Since the 2026-10-09 tighten
+  ruling it cannot count for a host claim or for a quorum removing a host (section 2, test 13), so it
+  cannot reach host authority or keys.
 - **Claim by a malicious admin** gains credential and join power until the quorum revokes it; same
   exposure T331 already accepts. The tie-break is grindable and is not a control (section 4).
 - **Claimed key the claimant does not hold:** availability fault; repair is revoke-and-reclaim.
