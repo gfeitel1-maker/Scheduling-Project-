@@ -26,6 +26,7 @@ describe('createWillQuitHandler', () => {
 
     release()
     await flush()
+    await flush()
     expect(order).toEqual(['cleanup-done', 'quit'])
 
     const e2 = { preventDefault: vi.fn() }
@@ -60,6 +61,32 @@ describe('createWillQuitHandler', () => {
     const handler = createWillQuitHandler({ app, cleanup: async () => { throw new Error('boom') } })
     handler({ preventDefault: vi.fn() })
     await flush()
+    await flush()
     expect(app.quit).toHaveBeenCalledTimes(1)
+  })
+
+  // Electron's Browser::NotifyAndShutdown emits will-quit, and only AFTER the JS callback returns
+  // (microtasks included) does a vetoed quit reset is_quitting_. A quit() issued inside that window
+  // is a silent no-op, so a cleanup that settles at once (punch off) left the app running forever:
+  // SIGTERM and app.quit() both hung the packaged app. The fake reproduces that ordering.
+  it('re-quits after the vetoed dispatch has unwound, so an instant cleanup still exits', async () => {
+    let quitting = false
+    let exited = false
+    let handler
+    const app = {
+      quit() {
+        if (quitting) return
+        quitting = true
+        const e = { prevented: false, preventDefault() { this.prevented = true } }
+        handler(e)
+        if (e.prevented) setImmediate(() => { quitting = false })
+        else exited = true
+      },
+    }
+    handler = createWillQuitHandler({ app, cleanup: async () => {} })
+    app.quit()
+    await flush()
+    await flush()
+    expect(exited).toBe(true)
   })
 })

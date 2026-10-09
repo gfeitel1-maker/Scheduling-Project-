@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { checkPackagedDriver, checkPackagedDatachannel, interpretLoadProbe, findPackagedApp, checkLockfilePlatforms } from './verifyPackagedApp.js'
+import { checkPackagedDriver, checkPackagedDatachannel, interpretLoadProbe, findPackagedApp, checkLockfilePlatforms, waitForExit } from './verifyPackagedApp.js'
+import { EventEmitter } from 'node:events'
 
 let tmp
 beforeEach(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pkgapp-')) })
@@ -106,5 +107,26 @@ describe('findPackagedApp', () => {
     const app = path.join(tmp, 'release/mac-arm64/Shoresh.app')
     fs.mkdirSync(app, { recursive: true })
     expect(findPackagedApp(tmp)).toBe(app)
+  })
+})
+
+describe('waitForExit', () => {
+  it('resolves true when the child exits inside the bound', async () => {
+    const child = new EventEmitter()
+    child.exitCode = null
+    setTimeout(() => child.emit('exit', 0), 5)
+    expect(await waitForExit(child, 1000)).toBe(true)
+  })
+
+  it('resolves false (never hangs) when the child does not exit inside the bound', async () => {
+    const child = new EventEmitter()
+    child.exitCode = null
+    expect(await waitForExit(child, 20)).toBe(false)
+  })
+
+  it('a child that already exited counts as exited', async () => {
+    const child = new EventEmitter()
+    child.exitCode = 0
+    expect(await waitForExit(child, 20)).toBe(true)
   })
 })

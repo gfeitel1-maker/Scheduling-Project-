@@ -11,7 +11,8 @@
 //      binary ships in a per-platform @node-datachannel/* package, which electron-builder
 //      copies but never rebuilds (no binding.gyp), so the probe constructs a PeerConnection
 //   4. with --launch: the packaged app boots against a throwaway userData dir and
-//      reaches the renderer heartbeat (the same marker scripts/deploy-local.sh waits for)
+//      reaches the renderer heartbeat (the same marker scripts/deploy-local.sh waits for), then
+//      exits within 10s of SIGTERM and, in a second launch, of its own app.quit()
 //
 // Runs as `postelectron:build`, so `npm run electron:build` cannot succeed without it.
 
@@ -25,6 +26,7 @@ import { fileURLToPath } from 'node:url'
 const DRIVER = 'better-sqlite3-multiple-ciphers'
 const SENTINEL = 'DRIVER_OK'
 const DATACHANNEL = 'node-datachannel'
+const QUIT_BOUND_MS = 10_000
 // The release targets (mac arm64/x64, win x64). npm installs only the host's prebuilt,
 // so the lockfile is where a dropped platform would show.
 const DATACHANNEL_PLATFORMS = ['darwin-arm64', 'darwin-x64', 'win32-x64-msvc']
@@ -99,26 +101,44 @@ function datachannelProbe(executable, appDir) {
   return interpretLoadProbe({ status: r.status, stdout: r.stdout, stderr: r.error ? String(r.error) : r.stderr }, DATACHANNEL)
 }
 
-async function launchSmoke(executable, timeoutS) {
+export function waitForExit(child, ms) {
+  if (child.exitCode !== null || child.signalCode) return Promise.resolve(true)
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), ms)
+    child.once('exit', () => { clearTimeout(timer); resolve(true) })
+  })
+}
+
+// Boots the app to the heartbeat, then asks it to quit — by SIGTERM, or (quitVia 'app') by the
+// app calling app.quit() itself on SHORESH_SMOKE_QUIT — and fails unless it exits within the bound.
+// A quit that hangs is a failure, never a wait: the child is SIGKILLed either way.
+async function launchSmoke(executable, timeoutS, quitVia) {
   const nonce = crypto.randomUUID()
   const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-pkg-smoke-'))
   const marker = path.join(userData, 'deploy-smoke-marker.json')
-  const child = spawn(executable, [], { env: { ...process.env, SHORESH_SMOKE_NONCE: nonce, SHORESH_SMOKE_USERDATA: userData }, stdio: 'ignore' })
-  let exited = false
-  child.on('exit', () => { exited = true })
+  const env = { ...process.env, SHORESH_SMOKE_NONCE: nonce, SHORESH_SMOKE_USERDATA: userData }
+  if (quitVia === 'app') env.SHORESH_SMOKE_QUIT = '1'
+  const child = spawn(executable, [], { env, stdio: 'ignore' })
   try {
-    for (let s = 0; s < timeoutS; s++) {
+    let booted = false
+    for (let s = 0; s < timeoutS && !booted; s++) {
       if (fs.existsSync(marker)) {
         try {
-          if (JSON.parse(fs.readFileSync(marker, 'utf8')).nonce === nonce) return { ok: true }
+          booted = JSON.parse(fs.readFileSync(marker, 'utf8')).nonce === nonce
         } catch { /* partial write; keep polling */ }
       }
-      if (exited) return { ok: false, message: 'packaged app exited before reaching the smoke heartbeat' }
+      if (booted) break
+      if (child.exitCode !== null) return { ok: false, message: 'packaged app exited before reaching the smoke heartbeat' }
       await new Promise((r) => setTimeout(r, 1000))
     }
-    return { ok: false, message: `no smoke heartbeat within ${timeoutS}s` }
+    if (!booted) return { ok: false, message: `no smoke heartbeat within ${timeoutS}s` }
+    if (quitVia === 'sigterm') child.kill('SIGTERM')
+    if (!(await waitForExit(child, QUIT_BOUND_MS))) {
+      return { ok: false, message: `packaged app did not exit within ${QUIT_BOUND_MS / 1000}s of ${quitVia === 'sigterm' ? 'SIGTERM' : 'app.quit()'}` }
+    }
+    return { ok: true }
   } finally {
-    child.kill()
+    if (child.exitCode === null && !child.signalCode) child.kill('SIGKILL')
     fs.rmSync(userData, { recursive: true, force: true })
   }
 }
@@ -152,9 +172,12 @@ async function main() {
   console.log(`verify:packaged: ${DATACHANNEL} loads and constructs a PeerConnection under the packaged Electron`)
 
   if (process.argv.includes('--launch')) {
-    const smoke = await launchSmoke(executable, Number(process.env.SHORESH_SMOKE_TIMEOUT_S) || 180)
-    if (!smoke.ok) fail(smoke.message)
-    console.log('verify:packaged: packaged app booted to the renderer heartbeat')
+    const timeoutS = Number(process.env.SHORESH_SMOKE_TIMEOUT_S) || 180
+    for (const quitVia of ['sigterm', 'app']) {
+      const smoke = await launchSmoke(executable, timeoutS, quitVia)
+      if (!smoke.ok) fail(smoke.message)
+      console.log(`verify:packaged: packaged app booted to the renderer heartbeat and exited within ${QUIT_BOUND_MS / 1000}s of ${quitVia === 'sigterm' ? 'SIGTERM' : 'app.quit()'}`)
+    }
   }
 }
 
