@@ -90,14 +90,15 @@ contract is unchanged, so clients are unaffected.
 
 ## Residuals (stated honestly)
 
-1. **Account-global exhaustion (availability, ACCEPTED pending an owner posture call).** The Free DO limits
+1. **Account-global exhaustion (availability, ACCEPTED by the owner, 2026-10-09: stay on the Free plan).** The Free DO limits
    (100k requests/day, 100k rows written/day) are account-wide. An attacker who knows NO camp can send
    requests with fresh random 64-hex namespaces; each dispatches to a new DO, so the per-namespace budget
    and cap never apply. The only in-line mitigation is the best-effort IP throttle before dispatch, plus
    the cheap pre-dispatch rejects and no-storage-on-unknown-GET above. Impact: rung 3, the LAST-RESORT
    fallback, is unavailable until 00:00 UTC. LAN and rungs 1-2 keep working and no camp data is exposed.
-   This is an availability residual of an unauthenticated public endpoint on the Free plan. Future options:
-   the paid plan, or an authenticated register.
+   This is an availability residual of an unauthenticated public endpoint on the Free plan. Owner posture
+   call, 2026-10-09 (relayed by the board keeper): stay on the Free plan and accept this residual. Options if
+   it is ever revisited: the paid plan, or an authenticated register.
 2. **Holder write volume.** One namespace-holder at budget N=30 writes about 30 x 1,440 = 43,200 rows/day
    (about 43% of the 100k row limit). Purge deletes count as rows written per the DO pricing, so worst-case
    sustained load is higher still (up to roughly double); two or three such holders can exhaust the day.

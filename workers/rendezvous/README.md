@@ -33,10 +33,10 @@ per namespace (`env.NAMESPACE_DO.idFromName(namespace)`), per
   approximate, so it has no guaranteed bound; it runs before DO dispatch. Missing binding: 503.
 - **Cheap rejects before dispatch**: method, path, namespace/peer-id shape, body size and shape. A GET
   for a never-written namespace creates no storage and returns an empty list.
-- **Accepted residual, pending the owner's call**: the Free-plan Durable Object limits (100k
+- **Accepted residual (owner decision 2026-10-09: stay on the Free plan)**: the Free-plan Durable Object limits (100k
   requests/day, 100k rows written/day) are account-wide, so requests with fresh random namespaces can
-  exhaust them; rung 3 (this last-resort rendezvous) is then down until 00:00 UTC. Paid plan or an
-  authenticated register would close it.
+  exhaust them; rung 3 (this last-resort rendezvous) is then down until 00:00 UTC. The owner accepted
+  this rather than pay; the paid plan or an authenticated register would close it if ever revisited.
 
 It does not, and cannot, control Cloudflare's own edge request logging.
 

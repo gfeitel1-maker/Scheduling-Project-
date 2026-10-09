@@ -32,7 +32,7 @@
 //     the binding as permissive, eventually consistent and counted per location, so it has NO
 //     guaranteed bound. It is the only control that runs before DO dispatch. A missing or failing
 //     binding fails CLOSED (503). The IP is the limiter key only and is never logged or stored.
-//   - NOT DEFENDED (accepted residual, pending the owner's posture call): the Free-plan DO limits are
+//   - NOT DEFENDED (accepted residual; owner decision 2026-10-09: stay on the Free plan): the Free-plan DO limits are
 //     account-global. Requests with fresh random 64-hex namespaces each dispatch to a new DO, so the
 //     per-namespace budget never applies; the best-effort IP throttle and the cheap pre-dispatch
 //     rejects are the only mitigation. Impact is availability of this last-resort rendezvous only.
