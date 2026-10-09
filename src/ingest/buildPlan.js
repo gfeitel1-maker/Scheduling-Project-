@@ -15,6 +15,7 @@
 import { INGESTIBLE_ENTITIES } from './extractEntities.js'
 import { normalizeName, recognitionKey } from './preview.js'
 import { dbFieldFor } from './fieldUpdate.js'
+import { startMinutesForOrdering } from './orderTimeBlocks.js'
 import { UNIQUE_FIRST_FIELD, UNIQUE_FIELD_EXTRA_SCOPE_COLUMNS } from '../data/setupCrudRepository.js'
 
 // ADR 2026-08-17-onescreen-reconciliation-merge.md §1 — moved here (not
@@ -114,11 +115,18 @@ function sameNameSet(proposed, live) {
 
 // "08:40–09:00" / "9:15-9:40" -> { start_time, end_time }. Returns nulls when
 // the label is not a range, which is normal — a period may be named "Block 2".
+// Packaged audit #7 — a 12-hour label with no AM/PM ("12:55-01:35") is
+// resolved by the SAME camp-day rule the block ORDER already uses
+// (orderTimeBlocks.js: 1:00-6:59 is afternoon), so the stored times agree
+// with where the block sorts instead of saving 01:35 as the small hours.
 function parseTimeRange(label) {
   const match = String(label ?? '').match(/(\d{1,2})[:.](\d{2})\s*[-–—]\s*(\d{1,2})[:.](\d{2})/)
   if (!match) return { start_time: null, end_time: null }
-  const pad = (h, m) => `${String(h).padStart(2, '0')}:${m}`
-  return { start_time: pad(match[1], match[2]), end_time: pad(match[3], match[4]) }
+  const at = (h, m) => {
+    const minutes = startMinutesForOrdering(`${h}:${m}`)
+    return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${m}`
+  }
+  return { start_time: at(match[1], match[2]), end_time: at(match[3], match[4]) }
 }
 
 // The fields each entity needs beyond its name, derived rather than guessed.
@@ -304,9 +312,16 @@ export function buildElectiveCandidates(source, existing) {
     return !liveActivityKeys.has(recognitionKey('activities', f.sourceExcerpt))
   })
 
+  // Packaged audit #11 — a name pass 1/2 claimed as a fixed/recurring event
+  // ("Carpool") is an event, never an elective candidate.
+  const claimedEventKeys = new Set(
+    (Array.isArray(source?.pinOnlyActivityNames) ? source.pinOnlyActivityNames : []).map((n) => normalizeName(n))
+  )
+
   const shapeFindings = []
   for (const name of proposedActivityNames) {
     const key = normalizeName(name)
+    if (claimedEventKeys.has(key)) continue
     const flags = activityPeriods[key]
     if (!Array.isArray(flags) || flags.length === 0) continue
     // Header-flagged in EVERY occurrence -> already fully explained by a

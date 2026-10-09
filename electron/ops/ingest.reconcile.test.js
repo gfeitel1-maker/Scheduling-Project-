@@ -252,7 +252,9 @@ describe('D1 — commit behavior is byte-identical when dryRun is omitted', () =
     expect(outcome.held).toBe(false)
     expect(outcome.dryRun).toBeUndefined()
     expect(outcome.total).toBeGreaterThan(0)
-    expect(db.prepare('SELECT COUNT(*) c FROM activities WHERE camp_id = ?').get(campId).c).toBe(2)
+    // 2 approved + 1 pinned_event minted for Mifkad (packaged audit #14/#16:
+    // every committed fixed event links to an activity).
+    expect(db.prepare('SELECT COUNT(*) c FROM activities WHERE camp_id = ?').get(campId).c).toBe(3)
     expect(db.prepare('SELECT COUNT(*) c FROM fixed_events WHERE camp_id = ?').get(campId).c).toBe(1)
   })
 })

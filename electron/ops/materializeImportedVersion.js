@@ -53,10 +53,15 @@ export async function materializeImportedVersion(db, syncClient, { campId, autho
   const week = db
     .prepare('SELECT id FROM schedule_weeks WHERE camp_id = ? AND is_archived = 0 ORDER BY sort_order ASC LIMIT 1')
     .get(campId)
-  if (!week) {
-    return { created: false, snapshotId: null, unresolvedCount: placements.length, unresolvedNames: placements.map((p) => p.activityName) }
+  // Packaged audit #12: a fresh camp has no week until the Schedule screen first
+  // opens. Create it here with the SAME id and fields that screen's lazy
+  // creation uses (useScheduleData.js / scheduleRepository.createWeek), so the
+  // two paths converge on one "Week 1" rather than duplicating it.
+  let weekId = week?.id
+  if (!weekId) {
+    weekId = `schedule-week:${campId}:1`
+    await writeFields(syncClient, 'schedule_weeks', weekId, { camp_id: campId, name: 'Week 1', sort_order: '0', is_archived: '0' }, authorUserId)
   }
-  const weekId = week.id
 
   let template = db.prepare("SELECT id FROM schedule_templates WHERE week_id = ? AND kind = 'manual'").get(weekId)
   let templateId = template?.id

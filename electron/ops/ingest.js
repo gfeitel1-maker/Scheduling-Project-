@@ -2495,12 +2495,24 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         // T267 PR2 — the catalog activity commitPlan proposes for this same
         // source cell (see plan.activities' pinOnlyActivityNames handling),
         // resolved by the same normalized name key every other name->id map
-        // in this file uses. A fixed event whose name matches no catalog
-        // activity at all (a real event like "Mifkad", not a pinned
-        // activity) legitimately resolves to null here — buildSchedule.js's
-        // FIXED_EVENT_IDENTITY_GAP finding is scoped to rows the app expects to
-        // carry a link, not to every fixed_events row unconditionally.
-        const linkedActivityId = activityIdByName.get(normalizeName(fe.name)) ?? null
+        // in this file uses.
+        // Packaged audit #14/#16: every committed event MUST carry a link —
+        // buildSchedule refuses Generate and Manual on any unlinked row. A name
+        // with no activity (a real event like "Mifkad", or a claimed name whose
+        // low-confidence card went unanswered and was held back) gets one minted
+        // here as a pinned_event, so it never enters the free-choice catalogue.
+        let linkedActivityId = activityIdByName.get(normalizeName(fe.name)) ?? null
+        if (!linkedActivityId && String(fe.name ?? '').trim()) {
+          linkedActivityId = randomUUID()
+          for (const [field, value] of Object.entries({ camp_id, name: String(fe.name).trim(), catalog_role: 'pinned_event' })) {
+            write(db, {
+              entity: 'activities', entity_id: linkedActivityId, field, value,
+              author_user_id: author_user_id ?? null, device_id, parent_op_id: null,
+              client_write_id: randomUUID(), source: IMPORT_SOURCE,
+            })
+          }
+          activityIdByName.set(normalizeName(fe.name), linkedActivityId)
+        }
         const fields = {
           camp_id,
           cohort_id,
