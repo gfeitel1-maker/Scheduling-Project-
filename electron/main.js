@@ -1663,8 +1663,9 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       try {
         try { flushAutomergeDoc() } catch (err) { console.error('backup: automerge flush failed (non-fatal):', err?.message ?? err) }
         writeUserBackup(dbPath, handlersUserDataPath, readCampIdSafely(db), (err) => console.error('backup: camp document copy failed (non-fatal):', err?.message ?? err), null, db)
-      } catch {
-        /* snapshot failure is non-fatal */
+      } catch (err) {
+        // Non-fatal by design, but never silent: the replace proceeds without a safety snapshot.
+        console.error('backup: pre-bulk-replace snapshot failed (non-fatal, replace proceeds without one):', err?.message ?? err)
       }
     }
     return syncClient.writeBulkReplace({ entity, scope_id, rows, author_user_id: userId })
