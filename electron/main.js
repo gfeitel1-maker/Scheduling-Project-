@@ -3846,6 +3846,8 @@ if (isElectronEntryPoint()) {
   }
   ipcMain.handle('shoresh:smoke-ready', () => {
     writeSmokeMarker()
+    // verify:packaged's quit check: the app's own quit path must exit, not just SIGTERM.
+    if (process.env.SHORESH_SMOKE_NONCE && process.env.SHORESH_SMOKE_QUIT === '1') setImmediate(() => app.quit())
     return { ok: true }
   })
 
@@ -3965,6 +3967,12 @@ if (isElectronEntryPoint()) {
     // every open pc immediately, and libdatachannel's cleanup() (without which the process cannot
     // exit) follows. Never throws into the quit path.
     await syncStarterHolder.shutdown()
+    // A peer merge can land while the node stops: flush once more so it reaches disk.
+    try {
+      flushAutomergeDoc()
+    } catch (err) {
+      console.error('automerge sync: post-shutdown flush failed (non-fatal):', err?.message ?? err)
+    }
   } }))
   } catch (err) {
     reportStartupFailure(err)
