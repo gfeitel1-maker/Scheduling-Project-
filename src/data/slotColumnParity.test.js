@@ -82,7 +82,7 @@ function renderSnapshots({ events = [{ id: 'ev-1' }], electiveSets = [{ id: 'es-
     routeState, repo, setActionError, recalcStats: vi.fn(), resetUndoRedo: vi.fn(),
     groups: [{ id: 'g1' }], activities: [{ id: 'swim' }], days: [{ id: 'd1' }],
     timeBlocks: ['b1', 'b2', 'b3'].map(id => ({ id })), fixedEvents: [{ id: 'fe-1' }],
-    events, electiveSets, weekId: WEEK,
+    events, electiveSets, weekId: WEEK, replacedDayIds: [],
   }))
   return { result, setActionError }
 }
@@ -97,7 +97,7 @@ describe('Generate / regenerate keep authored cells (both routes)', () => {
     const preplacedSlots = derivePreplacedSlots(normalizeSlots(rowsFor(templateId)), [swim])
     return buildSchedule({
       groups: [group], tiers: [{ id: 't1', name: 'T' }], days: [day], timeBlocks: blocks, activities: [swim], fixedEvents: [],
-      campId: 'camp-1', preplacedSlots,
+      campId: 'camp-1', preplacedSlots, replacedDayIds: [],
       electiveSetActivities: [{ id: 'm1', elective_set_id: 'es-1', activity_id: 'swim' }],
       events: [{ id: 'ev-1', name: 'Show', location_id: null }],
     }).slots
