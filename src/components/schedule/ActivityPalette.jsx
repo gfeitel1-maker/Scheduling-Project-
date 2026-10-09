@@ -61,7 +61,7 @@ function DraggablePaletteItem({ activity, scheduledCount, atMax, draggable, show
           }}>{scheduledCount} of {target} this week</span>
         )}
       </span>
-      <span title={activity.max_per_week == null ? 'No weekly maximum' : `At most ${activity.max_per_week} per week`} style={{
+      <span style={{
         fontFamily: 'var(--font-mono)',
         fontSize: 10,
         color: atMax ? 'var(--danger)' : 'var(--text-secondary)',

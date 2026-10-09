@@ -53,7 +53,7 @@ export function applyTrayState({ totalCount = 0, doneCount = 0, confirmedCount =
   // for, and the label says exactly what pressing it does with the remainder.
   if (confirmedCount === 0) {
     return {
-      label: isFirstImport ? 'Add what Shoresh found in your file' : 'Use what Shoresh understood',
+      label: isFirstImport ? 'Add to camp' : 'Use what Shoresh understood',
       mode: 'confirmedOnly',
       disabled: false,
       hint: `${pending} open — kept for later`,

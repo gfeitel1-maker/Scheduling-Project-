@@ -28,7 +28,7 @@ describe('applyTrayState', () => {
 
   it('on a first import, says the file is being added rather than that questions are open', () => {
     const state = applyTrayState({ totalCount: 71, doneCount: 0, confirmedCount: 0, isFirstImport: true })
-    expect(state.label).toBe('Add what Shoresh found in your file')
+    expect(state.label).toBe('Add to camp')
     expect(state.hint).toMatch(/^71 open — kept for later$/)
   })
 
