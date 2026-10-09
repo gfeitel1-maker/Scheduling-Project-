@@ -56,9 +56,7 @@ export function applyTrayState({ totalCount = 0, doneCount = 0, confirmedCount =
       label: isFirstImport ? 'Add what Shoresh found in your file' : 'Use what Shoresh understood',
       mode: 'confirmedOnly',
       disabled: false,
-      hint: isFirstImport
-        ? `Your file's data is added now. ${pending} ${pending === 1 ? 'question can' : 'questions can'} wait — they stay here for later.`
-        : `${pending} ${pending === 1 ? 'question is' : 'questions are'} still open — they stay here for later.`,
+      hint: `${pending} open — kept for later`,
     }
   }
 
@@ -66,7 +64,7 @@ export function applyTrayState({ totalCount = 0, doneCount = 0, confirmedCount =
     label: `Apply ${confirmedCount} ${confirmedCount === 1 ? 'decision' : 'decisions'}`,
     mode: 'confirmedOnly',
     disabled: false,
-    hint: `${pending} ${pending === 1 ? 'question stays' : 'questions stay'} here for later.`,
+    hint: `${pending} open — kept for later`,
   }
 }
 

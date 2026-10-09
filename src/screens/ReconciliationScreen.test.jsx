@@ -121,7 +121,7 @@ describe('resolving a decision', () => {
     expect(localClient.ingestCommit).not.toHaveBeenCalled()
 
     // And it says what it will do with the question nobody answered.
-    expect(screen.getByText(/1 question is still open/)).toBeTruthy()
+    expect(screen.getByText(/1 open — kept for later/)).toBeTruthy()
 
     await userEvent.click(exit)
     await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalledTimes(1))
@@ -389,7 +389,7 @@ describe('held-identity: skip this row', () => {
     // still describes the question as open rather than treating a skip as an
     // answer. Nothing is written until the director presses it.
     await waitFor(() => expect(screen.getByText(/0 of 1 question/)).toBeTruthy())
-    expect(screen.getByText(/1 question is still open/)).toBeTruthy()
+    expect(screen.getByText(/1 open — kept for later/)).toBeTruthy()
     expect(localClient.ingestCommit).not.toHaveBeenCalled()
   })
 })

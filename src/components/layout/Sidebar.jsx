@@ -397,23 +397,21 @@ export default function Sidebar({
         )}
         {projectPath && isDevDb && (
           <div
-            title={isDevDb ? `Development database — not the installed app's data\n${projectPath}` : projectPath}
+            title={`Development database — not the installed app's data\n${projectPath}`}
             style={{
               display: 'flex', alignItems: 'center', gap: 6,
               marginBottom: 6, cursor: 'default',
               color: 'var(--text-secondary)',
             }}
           >
-            {isDevDb && (
-              <span style={{
-                flexShrink: 0, fontSize: 9, fontWeight: 700, letterSpacing: '0.04em',
-                color: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 12%, transparent)',
-                border: '1px solid color-mix(in srgb, var(--accent) 35%, transparent)',
-                padding: '1px 4px', borderRadius: 4,
-              }}>
-                DEV
-              </span>
-            )}
+            <span style={{
+              flexShrink: 0, fontSize: 9, fontWeight: 700, letterSpacing: '0.04em',
+              color: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 12%, transparent)',
+              border: '1px solid color-mix(in srgb, var(--accent) 35%, transparent)',
+              padding: '1px 4px', borderRadius: 4,
+            }}>
+              DEV
+            </span>
           </div>
         )}
         {buildLabel && (
