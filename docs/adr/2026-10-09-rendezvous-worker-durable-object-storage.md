@@ -3,7 +3,7 @@ title: "Rendezvous Worker storage moves from Workers KV to one SQLite-backed Dur
 document_type: adr
 authority: normative
 status: accepted
-implementation_state: not-started
+implementation_state: implemented
 date: 2026-10-09
 decided: 2026-10-09
 deciders: [keeper (owner delegation)]
@@ -18,7 +18,7 @@ implements: []
 
 ## Status
 
-ACCEPTED by the keeper under owner delegation. Implementation is a follow-up slice.
+ACCEPTED by the keeper under owner delegation. IMPLEMENTED in T355 and T356 (the Worker code, undeployed; deploying it is the owner's step).
 
 ## Amendment 2026-10-09 (owner): single store
 
@@ -133,6 +133,12 @@ contract is unchanged, so clients are unaffected.
 3. **Budget lockout.** A namespace-holder who holds the budget at N_ns makes honest refreshes get 429, so
    honest peers lapse after the 2h TTL. The cap likewise remains a lockout primitive. T210 namespace
    rotation is the fix for both.
+
+4. **Request-quota exhaustion by cheap GETs (availability, same ACCEPTED posture).** GETs and refused
+   requests write no rows, so they do not touch the row budget, but each one still costs a Durable Object
+   and a Worker REQUEST, and the Free plan gives 100k requests/day. A stranger can exhaust that request quota
+   with cheap GETs. The impact is the same as residual 1: rung 3 is down for every camp until 00:00 UTC, while
+   LAN and rungs 1-2 are unaffected and no camp data is exposed.
 
 ## Acceptance checks (post-deploy, run by the keeper)
 

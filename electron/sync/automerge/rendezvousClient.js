@@ -21,6 +21,8 @@
 // signal (the Worker is an untrusted cache; an empty list proves nothing about the peer).
 import { readRendezvousNamespace } from './rendezvousNamespace.js'
 import { readRendezvousAddressKey } from './rendezvousAddressKey.js'
+import { isPublicAddress } from './punchGossip.js'
+import { backoffMs } from './punchBackoff.js'
 
 export function readRendezvousConfig(env) {
   const baseUrl = env?.SHORESH_RENDEZVOUS_URL
@@ -105,6 +107,69 @@ export async function fetchPeers({ baseUrl, namespace, fetchImpl = fetch }) {
   return { ok: true, peers }
 }
 
+const UDP_MULTIADDR_RE = /^\/(ip4|ip6)\/([^/]+)\/udp\/(\d{1,5})$/
+
+// This device's own signed address list: public udp multiaddrs only, the same filter punch gossip
+// uses. Anything private, LAN, loopback or malformed is dropped and never published.
+export function publicRecordAddresses(candidates) {
+  return (candidates ?? []).filter((c) => {
+    const m = typeof c === 'string' ? UDP_MULTIADDR_RE.exec(c) : null
+    return m !== null && isPublicAddress(m[1], m[2])
+  })
+}
+
+/**
+ * Rung 3 of the reconnect ladder: the same publish/discover tick, but driven by DEMAND instead of a
+ * fixed interval. Nothing is published or fetched while no peer is requested. The first request
+ * ticks at once, then re-ticks on a jittered exponential backoff (60s doubling to a ~30 min cap);
+ * the last release stops it. The coordinator calls request(peerId) only for a peer that rungs 1-2
+ * could not reach and release(peerId) once that peer is connected.
+ */
+export function startDemandRendezvousClient({ minMs, capMs, random, setTimer = setTimeout, clearTimer = clearTimeout, ...clientOpts }) {
+  const client = startRendezvousClient({ ...clientOpts, intervalMs: 0 })
+  const wanted = new Set()
+  let timer = null
+  let attempt = 0
+
+  function arm() {
+    timer = setTimer(() => {
+      timer = null
+      if (wanted.size === 0) return
+      client.tick().catch(() => {}).finally(() => {
+        if (wanted.size === 0) return
+        attempt += 1
+        arm()
+      })
+    }, backoffMs(attempt, { baseMs: minMs, capMs, random }))
+    timer.unref?.()
+  }
+
+  return {
+    request(peerId) {
+      const first = wanted.size === 0
+      wanted.add(peerId)
+      if (!first) return
+      attempt = 0
+      client.tick().catch(() => {})
+      arm()
+    },
+    release(peerId) {
+      wanted.delete(peerId)
+      if (wanted.size === 0 && timer) {
+        clearTimer(timer)
+        timer = null
+      }
+    },
+    demand: () => wanted.size,
+    stop() {
+      wanted.clear()
+      if (timer) clearTimer(timer)
+      timer = null
+      client.stop()
+    },
+  }
+}
+
 /**
  * Drive a publish/discover loop. `doc` is a LIVE accessor (e.g. liveDoc.js's getDocIfLoaded),
  * called fresh on every tick — never captured once. A null namespace/address key (rendezvous not
@@ -129,6 +194,7 @@ export function startRendezvousClient({
   fetchImpl = fetch,
   intervalMs = 60_000,
   nextSequence,
+  getAddresses,
 }) {
   let stopped = false
   let inFlight = false
@@ -154,7 +220,7 @@ export function startRendezvousClient({
         seq: localSeq,
         issuedAt: now,
         expiresAt: now + 2 * 60 * 60 * 1000,
-        addresses: [], // no local transport address list available in this ticket's scope
+        addresses: publicRecordAddresses(getAddresses?.()),
       }
       const recordBytes = signRecord(record, privateKey, addressKey)
       await registerRecord({ baseUrl, namespace: namespaceInfo.namespace, peerId, recordBytes, fetchImpl })
@@ -206,19 +272,37 @@ export function startRendezvousClient({
  * this data comes from an untrusted cache) is dropped rather than thrown, same discipline as the
  * rest of this file's untrusted-input handling.
  */
-export function createRendezvousDiscovery({ campId, baseUrl, doc, getPrivateKey, peerId, nextSequence, intervalMs, fetchImpl } = {}) {
+// The discovery's demand handle only exists once discovery start() has run. A request made before
+// that is held and replayed on attach rather than dropped.
+export function createQueuedDemand() {
+  let handle = null
+  const pending = new Set()
+  return {
+    request: (id) => { if (handle) handle.request(id); else pending.add(id) },
+    release: (id) => { if (handle) handle.release(id); else pending.delete(id) },
+    attach: (h) => {
+      handle = h
+      for (const id of pending) h.request(id)
+      pending.clear()
+    },
+  }
+}
+
+export function createRendezvousDiscovery({ campId, baseUrl, doc, getPrivateKey, peerId, nextSequence, intervalMs, fetchImpl, getAddresses, demandDriven = false, onDemandHandle } = {}) {
   return () => {
     let handle = null
     const target = new EventTarget()
     target.start = () => {
-      handle = startRendezvousClient({
+      const start = demandDriven ? startDemandRendezvousClient : startRendezvousClient
+      handle = start({
         baseUrl,
         campId,
         doc,
         getPrivateKey,
         peerId,
         nextSequence,
-        intervalMs,
+        getAddresses,
+        ...(demandDriven ? { minMs: 60_000, capMs: 30 * 60 * 1000 } : { intervalMs }),
         ...(fetchImpl ? { fetchImpl } : {}),
         onDiscoveredPeer: async ({ id, multiaddrs }) => {
           try {
@@ -238,7 +322,8 @@ export function createRendezvousDiscovery({ campId, baseUrl, doc, getPrivateKey,
           }
         },
       })
-      handle.tick().catch(() => {})
+      if (demandDriven) onDemandHandle?.(handle)
+      else handle.tick().catch(() => {})
     }
     target.stop = () => {
       handle?.stop()

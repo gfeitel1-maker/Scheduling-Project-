@@ -834,6 +834,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
 
   return {
     peerId: transport.peerId,
+    libp2pNode: transport.libp2pNode,
     getPeers: transport.getPeers,
     getMultiaddrs: transport.getMultiaddrs,
     dial: transport.dial,

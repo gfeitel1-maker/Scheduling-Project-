@@ -93,10 +93,11 @@ describe('T347 — SHORESH_PUNCH_ENABLED gate (default off, strict literal)', ()
     })
   }
 
-  it('flag on but no signaling channel supplied (S1 has none): still not wired', async () => {
+  it('flag on and no injected channel (production, S4c): wired with the starter\'s own routed signaling channel', async () => {
     process.env.SHORESH_PUNCH_ENABLED = 'true'
-    const { args } = await startWith()
-    expect(args.punchTransportFactory).toBeUndefined()
+    const { args, starter } = await startWith()
+    expect(typeof args.punchTransportFactory).toBe('function')
+    await starter.shutdownPunch()
   })
 
   it("non-vacuity: the literal 'true' with a signaling channel DOES wire the factory — the OFF cases above are a real gate", async () => {

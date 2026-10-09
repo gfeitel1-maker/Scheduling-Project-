@@ -113,6 +113,8 @@ export function isPublicAddress(version, ip) {
   if (g0 === 0x2002) return false
   // Teredo 2001::/32, documentation 2001:db8::/32, ORCHID 2001:10::/28 and ORCHIDv2 2001:20::/28
   if (g0 === 0x2001 && (g1 === 0 || g1 === 0xdb8 || (g1 & 0xfff0) === 0x10 || (g1 & 0xfff0) === 0x20)) return false
+  // documentation 3fff::/20 (RFC 9637)
+  if (g0 === 0x3fff && (g1 & 0xf000) === 0) return false
   // discard-only 100::/64
   if (g0 === 0x100 && g1 === 0 && g2 === 0 && g3 === 0) return false
   // site-local fec0::/10 (deprecated, still non-public)

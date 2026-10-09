@@ -9,6 +9,8 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 
 const probe = vi.hoisted(() => vi.fn(() => true))
+const wiringLoaded = vi.hoisted(() => vi.fn())
+vi.mock('./punchReconnectWiring.js', async (importOriginal) => { wiringLoaded(); return importOriginal() })
 vi.mock('./punchEnablement.js', async (importOriginal) => ({ ...(await importOriginal()), punchNativeLoadable: probe }))
 
 import { createAutomergeSyncStarter } from './syncStarter.js'
@@ -29,6 +31,7 @@ beforeEach(() => {
   setDocCipher(null)
   originalFlag = process.env.SHORESH_PUNCH_ENABLED
   probe.mockClear()
+  wiringLoaded.mockClear()
   db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(randomUUID(), 'Camp Test', 'a'.repeat(64))
 })
 
@@ -60,12 +63,20 @@ describe('punchNativeLoadable short-circuit (T347)', () => {
     const [signaling] = makeSignalingPair()
     await start(signaling)
     expect(probe).not.toHaveBeenCalled()
+    expect(wiringLoaded).not.toHaveBeenCalled()
   })
 
-  it("flag 'true' + no signaling: the native probe is never called", async () => {
-    process.env.SHORESH_PUNCH_ENABLED = 'true'
+  it('flag off with no signaling: the S4c reconnect wiring module is never loaded', async () => {
+    delete process.env.SHORESH_PUNCH_ENABLED
     await start(undefined)
-    expect(probe).not.toHaveBeenCalled()
+    expect(wiringLoaded).not.toHaveBeenCalled()
+  })
+
+  it("flag 'true' + no injected signaling (production): the probe is called - the starter builds its own routed channel (S4c)", async () => {
+    process.env.SHORESH_PUNCH_ENABLED = 'true'
+    const starter = await start(undefined)
+    expect(probe).toHaveBeenCalledTimes(1)
+    await starter.shutdownPunch()
   })
 
   it("non-vacuity: flag 'true' + signaling DOES call the probe", async () => {

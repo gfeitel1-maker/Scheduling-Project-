@@ -10,6 +10,7 @@
 import { createHash, generateKeyPairSync, randomBytes, randomInt, sign, X509Certificate } from 'node:crypto'
 import { mkdtempSync, writeFileSync, rmSync, readdirSync, lstatSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import { isIPv4, isIPv6 } from 'node:net'
 import { join } from 'node:path'
 import { forgetPeerAddress, rememberPunchMemory } from './peerAddressBook.js'
 
@@ -167,4 +168,17 @@ export function rememberOwnReflexive(db, candidates, now = () => new Date().toIS
   const srflx = [...new Set(candidates.filter((c) => typeof c === 'string' && SRFLX_RE.test(c)))].slice(0, MAX_REFLEXIVE)
   if (srflx.length === 0) return
   db.prepare('UPDATE punch_identity SET reflexive_candidates = ?, reflexive_learned_at = ? WHERE id = 1').run(JSON.stringify(srflx), now())
+}
+
+// This device's remembered reflexive candidates as udp multiaddrs (/ip4/<ip>/udp/<port>), the form
+// the camp gossip entry and the rendezvous record carry. NOT filtered for public-ness: each consumer
+// applies the public-only filter itself. Empty once the mapping is older than maxAgeMs.
+export function ownReflexiveMultiaddrs(db, { maxAgeMs = 12 * 60 * 60 * 1000, now = Date.now } = {}) {
+  const { reflexiveCandidates, reflexiveLearnedAt } = ensurePunchIdentity(db)
+  if (!(now() - Date.parse(reflexiveLearnedAt) <= maxAgeMs)) return []
+  return reflexiveCandidates.flatMap((line) => {
+    const parts = line.split(' ')
+    const version = isIPv4(parts[4]) ? 'ip4' : isIPv6(parts[4]) ? 'ip6' : null
+    return version ? [`/${version}/${parts[4]}/udp/${parts[5]}`] : []
+  })
 }

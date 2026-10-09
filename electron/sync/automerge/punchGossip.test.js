@@ -126,7 +126,7 @@ describe('punchGossip', () => {
     '/ip6/::ffff:c0a8:101/udp/4000', '/ip6/0:0:0:0:0:ffff:c0a8:101/udp/4000', '/ip6/0:0:0:0:0:0:0:1/udp/4000',
     '/ip6/::ffff:192.168.1.1/udp/4000', '/ip4/34.120.1.7/udp/0',
     '/ip6/2001:0:4136:e378:8000:63bf:3fff:fdd2/udp/4000', '/ip6/2001:db8::7/udp/4000', '/ip6/fec0::1/udp/4000', '/ip6/100::1/udp/4000',
-    '/ip6/2001:10::1/udp/4000', '/ip6/2001:1f::1/udp/4000', '/ip6/2001:20::1/udp/4000', '/ip6/2001:2f::1/udp/4000',
+    '/ip6/3fff::1/udp/4000', '/ip6/3fff:fff:ffff::1/udp/4000', '/ip6/2001:10::1/udp/4000', '/ip6/2001:1f::1/udp/4000', '/ip6/2001:20::1/udp/4000', '/ip6/2001:2f::1/udp/4000',
     '/ip4/192.0.0.9/udp/4000', '/ip4/192.88.99.1/udp/4000',
   ]
 
@@ -188,6 +188,8 @@ describe('punchGossip', () => {
   it('public neighbours of the blocked ranges still pass', () => {
     for (const ip of ['198.17.255.1', '198.20.0.1', '192.0.3.1', '203.0.114.1', '198.51.101.1']) expect(isPublicAddress('ip4', ip)).toBe(true)
     expect(isPublicAddress('ip6', '2606:4700::1111')).toBe(true)
+    expect(isPublicAddress('ip6', '3fff:1000::1')).toBe(true)
+    expect(isPublicAddress('ip6', '3ffe::1')).toBe(true)
   })
 
   it('readReflexive refuses to run without a highWater store', () => {

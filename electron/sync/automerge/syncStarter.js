@@ -34,7 +34,7 @@ import { resolveStartupDoc, dispatchRemoteOps, REMOTE_OPS_COALESCE_THRESHOLD } f
 import { createMdnsDiscovery, rotatingServiceTag } from './discovery.js'
 import { mintRendezvousNamespace } from './rendezvousNamespace.js'
 import { createVerifiedEntryTrust } from '../../automerge/authorityReplay.js'
-import { readRendezvousConfig, createRendezvousDiscovery } from './rendezvousClient.js'
+import { readRendezvousConfig, createRendezvousDiscovery, createQueuedDemand } from './rendezvousClient.js'
 import { nextSequence } from './rendezvousSequence.js'
 // NAMING WARNING (gate-fix round 3, Code Reviewer MEDIUM): do not rename either import below to
 // name the hole-punch capability's own package/marker strings — transportBoundary.guard.test.js
@@ -79,12 +79,14 @@ export function createAutomergeSyncStarter({
   startSyncNodeImpl,
   punchSignaling,
   relaunch,
+  punchEmit,
 }) {
   // T347 (S1): set only when the punch transport was actually wired, so quit can tear down its
   // native state and an unwired build never loads the module.
   let punchModule = null
   let punchIdentityHandle = null
   let punchPersistence = null
+  let punchWiring = null
   // Declared here (ahead of automergeSyncNode's own definition further down)
   // so makeHandlers' chooseMode/login closures can reach whatever node is
   // running by the time THEY run, without makeHandlers needing to know
@@ -342,8 +344,23 @@ export function createAutomergeSyncStarter({
       }
       const rendezvousConfig = readRendezvousConfig(process.env)
       const peerDiscovery = [createMdnsDiscovery({ serviceTag: computeRotatingServiceTag(doc, campId) })]
+      // S4c: with the punch ladder on, the rendezvous is rung 3 - demand-driven (it publishes and polls
+      // only while the coordinator has a peer rungs 1-2 could not reach) and it signs this device's
+      // public reflexive addresses into its record. With the flag off this is the T288 fixed-interval
+      // client, byte-identical to before.
+      const punchEnabled = process.env.SHORESH_PUNCH_ENABLED === 'true'
+      let rendezvousDemand = null
       if (rendezvousConfig.enabled) {
         const { peerId: rendezvousPeerId, privateKey: rendezvousPrivateKey } = await ensureDeviceIdentity(db)
+        const queuedDemand = createQueuedDemand()
+        const punchRendezvous = punchEnabled
+          ? {
+              demandDriven: true,
+              getAddresses: (await import('./punchIdentity.js')).ownReflexiveMultiaddrs.bind(null, db),
+              onDemandHandle: queuedDemand.attach,
+            }
+          : {}
+        if (punchEnabled) rendezvousDemand = queuedDemand
         peerDiscovery.push(
           createRendezvousDiscovery({
             campId,
@@ -352,6 +369,7 @@ export function createAutomergeSyncStarter({
             getPrivateKey: async () => rendezvousPrivateKey,
             peerId: rendezvousPeerId,
             nextSequence: () => nextSequence(db),
+            ...punchRendezvous,
           })
         )
       }
@@ -433,21 +451,38 @@ export function createAutomergeSyncStarter({
       // capability row's signoff stays null until S5's T327 gate.
       let punchTransportFactory
       const listenAddrs = ['/ip4/0.0.0.0/tcp/0']
-      const punchEnabled = process.env.SHORESH_PUNCH_ENABLED === 'true'
-      if (punchRuntimeEligible({ punchEnabled, nativeLoadable: punchEnabled && punchSignaling != null && punchNativeLoadable() })) {
+      // S4c: with no injected channel (production) the transport gets a routed channel whose target
+      // the reconnect wiring binds per dial; an injected one (tests) is used as-is and no ladder runs.
+      let routedChannel = null
+      let punchInstance = null
+      let punchUpgrader = null
+      if (punchRuntimeEligible({ punchEnabled, nativeLoadable: punchEnabled && punchNativeLoadable() })) {
         punchModule = await import('./punchTransport.js')
         const { materializePunchIdentity, createPunchPersistence } = await import('./punchIdentity.js')
+        if (!punchSignaling) {
+          const { createRoutedSignalChannel } = await import('./punchReconnectWiring.js')
+          routedChannel = createRoutedSignalChannel()
+        }
         punchIdentityHandle?.cleanup()
         punchIdentityHandle = materializePunchIdentity(db)
         punchPersistence = createPunchPersistence(db)
-        punchTransportFactory = punchModule.punchTransport({
-          signaling: punchSignaling,
+        const buildPunchTransport = punchModule.punchTransport({
+          signaling: punchSignaling ?? routedChannel,
           certificatePemFile: punchIdentityHandle.certificatePemFile,
           keyPemFile: punchIdentityHandle.keyPemFile,
           ice: punchIdentityHandle.ice,
           portRange: punchIdentityHandle.portRange,
           onEstablished: punchPersistence.onEstablished,
         })
+        punchTransportFactory = (components) => {
+          punchInstance = buildPunchTransport(components)
+          const createListener = punchInstance.createListener.bind(punchInstance)
+          punchInstance.createListener = (options) => {
+            punchUpgrader = options.upgrader
+            return createListener(options)
+          }
+          return punchInstance
+        }
         listenAddrs.push('/ip4/0.0.0.0/udp/0')
       }
 
@@ -606,6 +641,26 @@ export function createAutomergeSyncStarter({
       // Stage 6c: the sidebar's connection copy now follows the libp2p peer
       // set. Pushed on change rather than polled, matching what the WebSocket
       // client's onConnectionChange used to do.
+      if (routedChannel && punchInstance) {
+        try {
+          const [{ wirePunchReconnect }, { createConnectivityEmitter }] = await Promise.all([import('./punchReconnectWiring.js'), import('./connectivityEvents.js')])
+          const connectivity = punchEmit ?? createConnectivityEmitter().emit
+          punchWiring = await wirePunchReconnect({
+            db, deviceId, campId, userDataPath,
+            node: automergeSyncNode,
+            channel: routedChannel,
+            getTransport: () => punchInstance,
+            getUpgrader: () => punchUpgrader,
+            rendezvous: rendezvousDemand,
+            emit: (name, fields) => connectivity(name, { source: 'punch', ...fields }),
+            getDoc: () => getDocIfLoaded(db),
+            setDoc: (next) => setCurrentAutomergeDoc(db, next),
+          })
+        } catch (err) {
+          console.error(`automerge sync: punch reconnect ladder failed to start (non-fatal, LAN sync continues): ${err?.message ?? err}`)
+        }
+      }
+
       automergeSyncNode.onPeersChanged?.(() => {
         try { getLiveHandlers()?.pushSyncStatus?.() } catch { /* never break sync over a UI notice */ }
       })
@@ -656,6 +711,8 @@ export function createAutomergeSyncStarter({
     start,
     getNode: () => automergeSyncNode,
     shutdownPunch: async () => {
+      await punchWiring?.stop()
+      punchWiring = null
       await punchModule?.shutdownPunchNative()
       punchIdentityHandle?.cleanup()
       punchIdentityHandle = null
