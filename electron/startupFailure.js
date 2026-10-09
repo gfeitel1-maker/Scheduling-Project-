@@ -38,7 +38,7 @@ export function describeStartupFailure(err, logPath) {
     ? [
       'Shoresh could not open this camp’s schedule file, so it cannot start.',
       '',
-      'Your data has not been changed. Close and reopen Shoresh to try again. If it still will not start, send the details file named below to whoever set up Shoresh for you; reinstalling the app does not usually fix this, and your camp’s data stays on this computer either way.',
+      'Your data has not been changed.',
     ]
     : [
       'Shoresh could not start.',
@@ -47,7 +47,7 @@ export function describeStartupFailure(err, logPath) {
     ]
 
   if (logPath) {
-    body.push('', `Details were saved to:\n${logPath}`)
+    body.push('', `Send this file to whoever set up Shoresh for you:\n${logPath}`)
   }
   body.push('', `Technical detail:\n${detail}`)
 
