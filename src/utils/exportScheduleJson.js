@@ -11,8 +11,8 @@ import { replacedCellLabel, replacedDayLabel, replacedLaneNotes } from '../scree
 // via scheduleCells.js, so the two formats cannot drift.
 // A replaced day (T350, `replacements` from buildReplacements) keeps its entry
 // in `days`, gaining an optional `replaced` record with the special day's grid
-// and notes (additive, so format_version stays 1); its hidden normal cells are
-// not emitted.
+// and notes, and its hidden normal cells are not emitted (format_version 2;
+// version 1 had no replaced days).
 export function buildScheduleExport({
   slots = [],
   activities = [],
@@ -48,7 +48,7 @@ export function buildScheduleExport({
     cells.push(record)
   }
   return {
-    format_version: 1,
+    format_version: 2,
     camp: camp ? { id: camp.id, name: camp.name } : null,
     week: week ? { id: week.id, name: week.name ?? null } : null,
     route: route ?? null,

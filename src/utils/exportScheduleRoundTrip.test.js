@@ -94,7 +94,7 @@ describe('export round-trip — Layer 1 backbone', () => {
   })
 
   it('full envelope is correct and versioned', () => {
-    expect(out.format_version).toBe(1)
+    expect(out.format_version).toBe(2)
     expect(out.camp).toEqual({ id: 'camp-1', name: 'Camp Test' })
     expect(out.week).toEqual({ id: 'w1', name: 'Week 1' })
     expect(out.route).toBe('generated')
@@ -134,7 +134,7 @@ describe('export round-trip — Layer 1 backbone', () => {
 
   it('an empty schedule is still a valid, versioned export with zero cells', () => {
     const empty = buildScheduleExport({ slots: [], groups, days, timeBlocks })
-    expect(empty.format_version).toBe(1)
+    expect(empty.format_version).toBe(2)
     expect(empty.cells).toEqual([])
     expect(empty.groups).toHaveLength(3)
   })

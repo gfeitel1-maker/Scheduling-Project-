@@ -510,7 +510,7 @@ describe('scripts/mcp/tools.js', () => {
 
       expect(result.ok).toBe(true)
       const e = result.export
-      expect(e.format_version).toBe(1)
+      expect(e.format_version).toBe(2)
       expect(e.route).toBe('generated')
       expect(e.week).toEqual({ id: weekId, name: 'Week 1' })
       expect(e.groups.length).toBeGreaterThan(0)
