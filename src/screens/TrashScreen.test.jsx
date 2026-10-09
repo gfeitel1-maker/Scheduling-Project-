@@ -74,7 +74,7 @@ describe('TrashScreen', () => {
 
     fireEvent.click(await screen.findByText('Restore'))
 
-    expect(await screen.findByText(/Waiting for the main computer/)).toBeTruthy()
+    expect(await screen.findByText(/Waiting for the device this camp was set up on/)).toBeTruthy()
   })
 
   it('offers deleted children as a second, explicit action and does not act on its own', async () => {
@@ -199,7 +199,7 @@ describe('restoring says what did not come back with the record', () => {
     render(<TrashScreen role="admin" />)
     fireEvent.click(await screen.findByRole('button', { name: 'Restore' }))
 
-    const notice = await screen.findByText(/Waiting for the main computer/)
+    const notice = await screen.findByText(/Waiting for the device this camp was set up on/)
     expect(notice.textContent).toMatch(/Its week did not come back with it/)
   })
 

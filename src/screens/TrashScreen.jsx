@@ -16,7 +16,7 @@ import { entityLabel, formatMoment, restoreCaveat } from './recordLabels'
 // person who asked.
 const OUTCOME_COPY = {
   'not-restorable': 'This kind of record is not restorable here.',
-  'no-history': 'The main computer does not hold enough of this record’s history to rebuild it.',
+  'no-history': 'The device this camp was set up on does not hold enough of this record’s history to rebuild it.',
   'not-deleted': 'This record is already back.',
   forbidden: 'Only an admin can restore records.',
   // Unlike every refusal above, this one is deterministic and permanent: the
@@ -105,7 +105,7 @@ export default function TrashScreen({ role }) {
         const caveat = restoreCaveat(row.entity)
         setNotice({
           tone: 'text-secondary',
-          text: `Waiting for the main computer to bring ${row.name || 'this record'} back. It will happen as soon as this device reaches it — you can close the app in the meantime.${caveat ? ` ${caveat}` : ''}`,
+          text: `Waiting for the device this camp was set up on to bring ${row.name || 'this record'} back. It will happen as soon as this device reaches it — you can close the app in the meantime.${caveat ? ` ${caveat}` : ''}`,
         })
       } else if (result?.ok) {
         setNotice({ tone: 'success', text: restoredMessage(row) })

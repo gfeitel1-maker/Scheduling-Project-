@@ -5,8 +5,8 @@ import { join, relative } from 'node:path'
 const RETIRED = /master schedule|Shoresh Host|Host this camp|main office computer|without reinstalling/i
 const MAIN_COMPUTER = /main computer/i
 const SRC = join(__dirname, '..')
-// Owned by open PRs #772 / #769 at the time of the sweep; remove once they land.
-const MAIN_COMPUTER_PENDING = new Set(['screens/TrashScreen.jsx', 'screens/DeviceManagerScreen.jsx'])
+// Owned by open PR #769 at the time of the sweep; remove once they land.
+const MAIN_COMPUTER_PENDING = new Set(['screens/DeviceManagerScreen.jsx'])
 
 const isComment = line => /^\s*(\/\/|\*|\/\*)/.test(line)
 
@@ -50,7 +50,7 @@ describe('retired host-model copy', () => {
   it('the "main computer" scan catches a planted string and skips comments and the pending allowlist', () => {
     const planted = {
       [join(SRC, 'screens/Planted.jsx')]: "  // main computer in a comment\n  <div>Approve it on the main computer.</div>",
-      [join(SRC, 'screens/TrashScreen.jsx')]: "<div>Waiting on the main computer</div>",
+      [join(SRC, 'screens/DeviceManagerScreen.jsx')]: "<div>Waiting on the main computer</div>",
     }
     expect(mainComputerOffenders(Object.keys(planted), f => planted[f])).toEqual(['screens/Planted.jsx:2'])
   })
