@@ -69,7 +69,7 @@ import { resolveConflictInDoc } from './automerge/reconcile.js'
 import { ensureDeviceIdentity } from './auth/deviceIdentity.js'
 import { mintGenesisEntry, mintGrantEntry, mintRevokeEntry } from './automerge/authorityLog.js'
 import { syncRefusalForDomainMigration } from './db/migrationDomainState.js'
-import { getDocIfLoaded, getCurrentDoc, setUserDataDirGetter as setAutomergeUserDataDirGetter, setDocCipher as setAutomergeDocCipher, flushPendingWrites as flushAutomergeDoc } from './sync/automerge/liveDoc.js'
+import { getDocIfLoaded, getCurrentDoc, setUserDataDirGetter as setAutomergeUserDataDirGetter, setDocCipher as setAutomergeDocCipher, flushPendingWrites as flushAutomergeDoc, discardLiveDoc } from './sync/automerge/liveDoc.js'
 import { projectEntity } from './automerge/projector.js'
 import { AUTHORITY_LOG_ENTITY, currentAuthorityState, quorumThreshold } from './automerge/authorityReplay.js'
 import * as Automerge from '@automerge/automerge'
@@ -3651,11 +3651,17 @@ if (isElectronEntryPoint()) {
       let pair
       try {
         pair = validateBackupPair(sourcePath, { db, cipher: docCipher })
+        // Stop the node first: a remote merge or local write after this would re-save the old
+        // in-memory doc over the document file applyBackupFiles is about to replace.
+        await syncStarterHolder.shutdown()
+        discardLiveDoc(db)
         applyBackupFiles({ backupDbPath: sourcePath, dbPath, userDataPath, campId: pair.campId, docSrc: pair.docSrc })
       } catch (err) {
+        syncStarterHolder.start().catch(() => {})
         if (err instanceof RestoreRefusal) return { error: err.code, message: err.message }
         return { error: 'restore_failed', message: err.message }
       }
+      discardLiveDoc(db)
 
       let newDb
       try {
@@ -3687,8 +3693,10 @@ if (isElectronEntryPoint()) {
         })
       } catch (err) {
         try { newDb.close() } catch { /* already unusable */ }
+        discardLiveDoc(oldDb)
         return { error: 'restore_incomplete', message: err.message }
       }
+      discardLiveDoc(oldDb)
       disposeCampDataRecordThenCloseDb(liveHandlers, oldDb)
       registerHandlers(swappedHandlers, db)
       if (mainWindow) mainWindow.webContents.reload()
