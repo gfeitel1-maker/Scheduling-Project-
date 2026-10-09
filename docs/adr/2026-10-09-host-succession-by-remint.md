@@ -15,6 +15,7 @@ governing_docs:
 supersedes: []
 amends:
   - docs/adr/2026-07-25-device-trust-revocation.md
+  - docs/adr/2026-10-02-distributed-revocation-authority.md
 related_adrs:
   - docs/adr/2026-10-02-distributed-revocation-authority.md
   - docs/adr/2026-09-14-device-identity-and-token-binding.md
@@ -184,20 +185,16 @@ same `stateAt(claimChange)` ancestor query T331 already uses, so it is merge-ord
    head; the next admin claims with `parent_epoch_id` = the revoked claimant's epoch, which clause 4
    satisfies).
 
-**Host-feeding grants are held to the section 7 effectiveness rule (owner ruling 2026-10-09, "tighten").**
-In clauses 2 and 5, the claimant's admin status counts only through grants that are *effective for
-host purposes*, and the same restriction applies to every admin grant that counts toward the quorum for
-a **host** removal (the voters' own admin status, and the grant of the host target): a grant is
-effective iff its **signer is a valid admin at the current heads, OR the grant is a causal ancestor of
-the signer's removal**. This is exactly the rule section 7 already applies to `device_approval`; the
-two are made consistent on purpose, because both answer the same question (can a power-holder who has
-since been removed still mint authority that reaches the host keys?) and one answer is easier to
-audit than two. It closes this attack: a quorum-removed admin M backdates `grant(X)` for a stand-in X
-onto pre-removal heads and relays it; X revokes host B (`quorumThreshold(2) = 1`) and claims. M's
-grant is not an ancestor of M's removal and M is not valid at heads, so it is not effective for host
-purposes: X is not a claimant (clause 2/5 fail) and X's vote does not count toward removing B. The
-T331 base residual (a backdated grant by a removed admin restores that admin's ordinary power) **remains
-for ordinary admin power outside host succession**; it cannot reach the host role or its keys.
+**Admin status here means the effective-grant set of section 2.1.** In clauses 2 and 5, and for every
+vote and denominator behind clause 4, "valid admin" means a member of `Admins(heads)` as computed by
+the single effective-grant fixed point of section 2.1. There is **no host-only filter**: the owner's
+first "tighten" ruling (2026-10-09), which held only host-feeding grants to an effectiveness rule, is
+superseded by the keeper's option (A) decision the same day, which fixes the weakness at its root for
+every authority computation, host or not. The attack that motivated it (a quorum-removed admin M
+backdates `grant(X)` for a stand-in X onto pre-removal heads; X revokes host B at `quorumThreshold(2) = 1`
+and claims) is refused because M's backdated grant is not effective, so X is not an admin, X's vote
+does not count, and X cannot claim (tests 13a to 13c). The T331 base residual ("a removed admin can
+backdate a grant and regain admin") is **closed by this amendment, pending acceptance** (section 2.1).
 
 **Who may claim and the small-camp rule are already decided, not open.** Claimant = any currently
 valid **admin device** (clause 2); there is no separate "name the successor" vote because the
@@ -235,6 +232,123 @@ automatic (rejects E).
 **LOST host.** "Lost" is not observable; it is the case where the host cannot sign a release. Path:
 revoke the lost device through the ordinary T331 quorum, then one admin claims (with the delay
 above). Single-admin camps: out of scope (non-goals).
+
+### 2.1 The effective-grant fixed point (one rule for grants, votes and the denominator)
+
+**This AMENDS T331 grant validity** (`docs/adr/2026-10-02-distributed-revocation-authority.md`,
+amendment note there, proposed pending acceptance). T331's `stateAt` accepts a grant iff its signer was
+a valid admin *at the grant's own causal point*. That is why a removed admin can backdate: the signer
+genuinely was valid at the point the grant claims to descend from. The replacement is one definition,
+used by `grantedSet` (who is an admin), by the vote tally (whose votes count) and by `n` in
+`quorumThreshold(n)`, for every removal, host or not.
+
+**Terms.** `G` is the set of signature-verified `genesis`/`grant` entries; `<` is the causal-ancestor
+relation of the Automerge document. A *counted vote* against admin `s` is a `revoke` vote whose author
+holds an effective grant that is a causal ancestor of the vote (or is the founder) and, per section 8.1,
+whose own ancestors contain an effective grant of `s` (or `s` is the founder). A *removal quorum*
+`Q(W)` holds for a set `W` of counted votes by distinct voters iff `|W| >= quorumThreshold(n_W)`, where
+`n_W` is the number of admins in the effective set evaluated on the **joint causal past of `W`** (the
+union of the ancestors of its votes, excluding the votes themselves). The removal of `s` *takes effect*
+iff some `W` of counted votes against `s` satisfies `Q(W)` and no later grant of `s` that has the votes
+as ancestors supersedes them (the unchanged T331 staleness rule). `C_s` is the set of counted votes of
+the removal in force at heads.
+
+**Grant effectiveness.** A grant `g` (signer `s`, target `t`) is **effective** iff the genesis entry,
+or one of:
+
+1. **Alive signer.** `s` is an admin at heads: `s` is the founder, or holds an effective grant, and the
+   removal of `s` has not taken effect. Position in the causal graph is irrelevant here: an admin who is
+   current and effective could simply mint the same grant today, so backdating gains nothing.
+2. **Pre-removal grant of a removed signer.** The removal of `s` has taken effect, `s` held an effective
+   grant (or is the founder) that is a causal ancestor of `g` (the old `isValidSignerAt` condition, kept
+   for this branch), and the removal does not need a vote that has not seen `g`: there is no `W` among
+   the counted votes in `C_s` that lack `g` as an ancestor with `Q(W)`. Equivalently: `g` precedes the
+   removal iff the quorum could not have been reached by voters who had never seen `g`. A backdated
+   grant fails this test, because the voters who removed `s` did not have it. This is the branch that
+   section 7 applies to `device_approval` ("the grant is a causal ancestor of the signer's removal");
+   section 7's rule is this rule, with an approval in place of a grant.
+
+`Admins(P)` for a causally closed set `P` is the set of devices that hold an effective grant in `P`,
+less those whose removal has taken effect in `P`. `Admins(heads)` is the one set every consumer reads:
+`grantedSet`, `authority_cache` (`admin` and `revoked`), Gate A and Gate B, the three verifiers, host
+claim clauses 2, 4 and 5, vote counting, and every `n`.
+
+**The fixed point.** Effectiveness and removals depend on each other (a grant is effective depending on
+a removal; a removal depends on which votes count and on `n`, which depend on which grants are
+effective). The set is defined as the limit of a descending iteration:
+
+1. `E_0` := every grant in `G` that is valid under today's T331 rule (signer valid at the grant's own
+   causal point). Today's behaviour is the starting state.
+2. `E_{k+1}` := `E_k` restricted to grants that satisfy the effectiveness rule above when voters,
+   counted votes and `n` are all computed from `E_k`. Nothing is ever added back.
+3. Stop when `E_{k+1} = E_k`. The result `E` is stable (every member satisfies the rule against `E`).
+
+*Termination.* `E_k` is a subset of a finite set and never grows, so the loop stops within `|G|` rounds.
+A two-hop chain (M to X to Y, test 13b) needs two rounds: X's grant falls in round 1, and Y's falls in
+round 2 because its signer X is no longer an admin.
+
+*Uniqueness and merge-order independence.* Every step is a pure function of the **set** of signed
+entries and their ancestor relation. No step reads delivery order, arrival time, or a local cache, so
+every device holding the same entries computes the same `E`; with different entries it computes a
+possibly different `E`, which is ordinary eventual consistency, converging once the entries are
+shared. The operator is **not monotone** (dropping a grant lowers `n` and also removes votes), so no
+lattice theorem is claimed; the uniqueness is by construction of the descending iteration, and the
+build must prove it empirically: a property test that runs every permutation of delivery for each
+fixture in section 13 and 16 and a brute-force oracle for `Q`, comparing `E` across permutations.
+*Stickiness is deliberate and fail-safe*: a grant dropped in round k is not readmitted in a later
+round even if a later round would have accepted it, which can only withhold authority, never grant it.
+
+**Why the denominator is read on the voters' joint past, not at heads (deviation to flag, keeper
+decision needed).** The accepted T331 text recomputes `n` at heads on every evaluation (its case (c)).
+Under the effective-grant rule that is unsound by itself: M, quorum-removed by honest A and B at
+`n = 3` (threshold 2), later has backdated stand-in grants X1 and X2 delivered. A heads denominator
+becomes 5 (threshold 3), A and B no longer reach quorum, M is *not removed*, and M's backdated grants
+survive the alive-signer branch. The attack un-removes M through the denominator alone, with the
+iteration never getting a chance to drop X1 and X2. Reading `n_W` on the joint causal past of the voting
+set makes a removal that took effect a function of what its voters had seen, so grants arriving later
+cannot raise the bar for it. The consequence: **a concurrent legitimate admin the voters had not seen
+no longer raises the bar for a removal already carried** (T331 case (c) narrowed in that one respect);
+ordinary growth of the admin set by genuine grants the voters had seen still raises it exactly as today.
+This is the only part of this amendment I am not able to take straight from the keeper instruction.
+
+**Why removals of non-host admins cannot shrink `n` illegitimately.** `n` is only ever shrunk by a
+removal that took effect, which needs `Q(W)` over counted votes by effective admins at the quorum
+`n_W` they saw: the same majority of the other admins as today, for host and non-host admins alike. A
+stand-in or a removed admin's backdated grantee is not effective, so it neither votes nor sits in `n`;
+it therefore can neither supply a missing vote nor inflate `n` to block a genuine one (test 13c). The
+one other way `n` falls is the liveness cost below (an honest admin's grant dropped because its signer
+was removed by voters who had not seen it); that requires a genuine quorum to have removed the signer
+and is the same shrink the quorum has already authorised, never one a minority can cause.
+
+**Liveness cost (named, accepted by the keeper's decision).** An honest admin H granted by signer S
+loses effective admin status if S is later removed by voters who had not synced that grant. H must be
+re-granted by a current admin. Fail-safe by design: the same observable fact (a grant the removing
+quorum never saw) is exactly what a backdated attack looks like.
+
+**Required visible re-grant path (keeper condition): a flag on the device's row in LAN & Devices.**
+
+- *When it shows:* on every current admin's `devices` screen (`src/screens/`, sidebar entry `devices`,
+  label "LAN & Devices"), on the row of any device that holds a verified grant that is **not**
+  effective because its signer's removal took effect, and that has not been revoked or re-granted.
+  Derived from replay (the grant exists in `G`, is not in `E`, and its signer is in a taken-effect
+  removal), never from a local flag, so it appears on every admin device in the same projection and
+  clears everywhere once the re-grant syncs. A device whose grant was dropped by the chain rule (its
+  signer was itself ineffective) shows the same flag; a director who does not recognise the device
+  simply does not re-grant it.
+- *Flag copy:* label "Admin access lapsed"; detail "<Signer name> made this device an admin, then was
+  removed before every admin had seen it. Until a current admin approves it again, it can't act as an
+  admin." Action "Make admin again".
+- *What the action does:* it mints an ordinary `grant` through the existing admin-mint path (T332), signed
+  by the acting current admin, which is the alive-signer branch and therefore always effective. On
+  completion the flag clears, `n` is restored, and the device regains host eligibility (it may claim, and
+  counts in quorums). It uses no new IPC, `authorize()` capability or entry kind.
+- *The affected device itself* shows the same flag on its own row ("Ask a current admin to approve this
+  device as an admin again"), with no action button, because it cannot act.
+- *Design standard:* `DESIGN_STANDARD.md` §5 (states) and §8 (transitions) apply. The action has pending
+  (button busy, disabled), success (flag removed, row updated) and failure (inline error, flag stays)
+  states; the flag appearing or clearing is a text and colour-token change with a 150 ms fade, and under
+  reduced motion it is an instant change plus the same text change, never no feedback. No banner; the
+  flag uses the existing flag treatment (`--warning` family, not `--danger`, since this is recoverable).
 
 ### 3. How host signing authority moves: re-mint, not transfer
 
@@ -369,9 +483,9 @@ that needs the old host (impossible when it is lost), and no local column promot
   `devices.authorized_at` check for `approved` exactly as they do for `admin`, while the existing
   unconditional `revoked` deny still wins. A `revoke` of the target (immediate for a non-admin)
   supersedes an approval unless the approval is causally later than that revoke (re-approval).
-- **Effectiveness (stricter than grants, on purpose).** An approval is effective iff its signer was a
-  valid admin at the approval's causal point **and** is a valid admin at the current heads, **or** the
-  approval is a causal ancestor of the signer's removal. An approval signed concurrently with, or
+- **Effectiveness (the same rule as grants, section 2.1).** An approval is effective iff its signer is
+  in `Admins(heads)`, **or** its signer's removal took effect and the approval precedes it (the
+  section 2.1 pre-removal test with an approval in place of a grant). An approval signed concurrently with, or
   after, the signer's revocation (the island case, section 9) is void. Fail-safe cost: a device
   approved by an admin whose removal was never synced with that approval must be re-approved by a
   current admin.
@@ -491,16 +605,14 @@ vote-staleness step (the predicate is **inverted** from the first revision of th
 > backdated onto earlier dependencies) never supersedes and never voids V. Revokes of non-admin devices
 > are not quorum votes (they are immediate, section 7.2) and are unchanged.
 
-**"Valid grant" is evaluated at the grant's own causal point.** For vote counting, a grant of T
-counts as valid iff its signer was a valid admin at that grant's own causal point (the existing
-`isValidSignerAt`), not at heads and not at V's point; this is what keeps the predicate a function of
-V's ancestor set alone. Separately, for votes that count toward a **host** removal, and for claims, the
-section 2 host-feeding rule (signer valid at heads, or the grant is an ancestor of the signer's removal)
-is applied on top; it only ever removes grants from consideration, never adds one.
+**"Valid grant" now means an effective grant (section 2.1).** For the saw-grant clause, a grant of T
+counts iff it is a member of the effective set `E`; the old test (signer valid at the grant's own
+causal point) is `E_0`, the first iteration of the fixed point, and is no longer sufficient alone.
+Because the effective set is a descending limit that only removes grants, the section 2.1 fixed point
+can only remove a grant from consideration, never add one.
 
-The predicate reads only V's own ancestor set and the grant's own ancestor set, so it stays a pure
-function of causal history (the primitive `isValidSignerAt` and the old rule use) and is merge-order
-independent. Nothing a third party adds to the document later can change whether V counts, except a
+The predicate reads the entry set and ancestor relation only, so it is a pure function of the
+signed entries and is merge-order independent (the section 2.1 argument). Nothing a third party adds to the document later can change whether V counts, except a
 grant that already has V as an ancestor (an author who saw V).
 
 **Why inverted.** The first revision counted V only if every valid grant of T in the evaluated
@@ -614,8 +726,10 @@ denied:
   re-login (`onAuthRejected`; the build verifies this assumption, risk list); (2) they re-log in to the
   new host by the **identity-key login of section 7.1** (no shared secret needed) and are admitted.
   **Post-admission, on an OK login/authenticate reply only,** the new host returns its `host_claim`
-  chain entries together with the **minimal verification set** for them (the claimant's grant chain and,
-  for a quorum-path claim, the revoke votes and grants that establish the quorum; signed entries,
+  chain entries together with the **minimal verification set** for them (the claimant's grant chain to genesis; for a quorum-path
+  claim the counted removal votes with their authors' grant chains to genesis; and, for **every signer
+  on those chains whose removal took effect, the removal's counted votes**, because the receiving device
+  needs them to run the section 2.1 pre-removal test on that signer's grants; signed entries,
   nothing else, and this set is required: without it a stale island device could not verify and would
   fail closed; never to a denied peer, so the pre-admission surface
   is unchanged). The receiving device verifies the chain from genesis (`createVerifiedEntryTrust` plus
@@ -674,7 +788,9 @@ denied:
     (take that predicate, so B redials and coordinates with K without a `devices` row);
     `electron/sync/automerge/mutualAuth.js` `wireMutualAuth` (its `isPeerTrusted` must be the widened
     predicate in both directions). One predicate, three callers.
-11a. `electron/automerge/authorityReplay.js` `stateAt`: the T331 vote-counting amendment of section 8.1
+11a. `electron/automerge/authorityReplay.js` `stateAt`: the section 2.1 effective-grant fixed point (one
+    descending-iteration pass over the entry set; `grantedSet`, vote counting and every `n` read its result,
+    and `n` is evaluated on the voters' joint causal past) and the T331 vote-counting amendment of section 8.1
     (inverted predicate: a vote against a granted target counts iff its own ancestors contain a valid
     grant of the target, or the target is the founder; the staleness rule is unchanged); `docs/adr/2026-10-02-distributed-revocation-authority.md` gets an amendment note.
 11b. `electron/automerge/projector.js` / `authorityReplay.js` `currentRevokedDeviceIds`: target set from
@@ -682,6 +798,9 @@ denied:
     `peer_id` and the `approved` status (migration + rollback + `schema:check`).
 12. `electron/main.js` `approveDevice`: mint `device_approval`; backfill job; PIN-reauth
     (`attemptLogin`) in `acceptHostRole` / `releaseHostTo`; LOST-path delay and confirm.
+12b. UI: `src/screens/` devices screen ("LAN & Devices") gains the "Admin access lapsed" flag and the
+    "Make admin again" action (section 2.1), derived from replay output (`currentRevokedDeviceIds` sibling:
+    grants in `G` not in `E`), reusing the T332 admin-mint path.
 13. `SECURITY.md` ("Ed25519 Host-only token minting") and `docs/current/KEY_RECOVERY_STORY.md` ("Host
     signing key" row) updated in the build PR, not here.
 
@@ -739,6 +858,10 @@ nodes, real sqlite, no mocked `authorize()`). Each is written and seen failing f
    peer elects the same winner; the loser deletes its staged key.
 8. **Stale, wrong-parent, non-admin, swapped-key claims** are each ignored; a claim without the PIN
    re-auth, or in the LOST path without delay and confirm, writes nothing.
+2a. **Test 2 under the fixed point.** The 2-device revoke and lost cases of test 2 are re-run with the
+    section 2.1 rules in force: the remaining admin is in `Admins(heads)` through the founder or an
+    alive-signer grant, its single vote is a counted vote, `n_W` is 2, the quorum holds, and it claims. No
+    case in test 2 may need a grant from a removed signer.
 9. **Partition / island.** A (revoked) and client K on an island, B and C on the current epoch. While
    partitioned A keeps issuing (assert the bound). On reconnect: K's old token gets plain `4401
    invalid_token` (assert the reply is byte-identical to a tampered token's: no epoch oracle); K re-logs
@@ -748,9 +871,11 @@ nodes, real sqlite, no mocked `authorize()`). Each is written and seen failing f
    (`createVerifiedEntryTrust` + `currentHostEpoch`) before changing `camps.signing_public_key`, and
    the test asserts the column is unchanged if the returned chain is truncated, re-parented or signed by
    a non-admin. The returned chain MUST include the claimant's grant chain and the revoke votes needed
-   to verify a quorum-path claim (the minimal verification set: the claim, the claimant's effective
-   grants, and the quorum votes with their grants); test 9 asserts K verifies a quorum-path claim from
-   exactly this set and that omitting any member makes K fail closed (key unchanged). Then K syncs and closes any window. Nothing is sent to a denied peer (see 9a). A is denied `4404`; `isCurrentHost` becomes false after its projection shows the
+   to verify a quorum-path claim (the minimal verification set: the claim, the claimant's grant chain to genesis, the
+   counted quorum votes with their authors' grant chains to genesis, and for every signer on any of those
+   chains whose removal took effect, that removal's counted votes with their grant chains, since K needs
+   them to evaluate the section 2.1 pre-removal branch); test 9 asserts K verifies a quorum-path claim from
+   exactly this set and that omitting any member, including the removal votes behind a pre-removal branch, makes K fail closed (key unchanged). Then K syncs and closes any window. Nothing is sent to a denied peer (see 9a). A is denied `4404`; `isCurrentHost` becomes false after its projection shows the
    later epoch and host-only handlers return `not_current_host`; a device A approved on the island is
    denied until re-approved.
 9a. **Pre-admission negative (blocker 3).** A corroborated-revoked peer and a never-approved peer each
@@ -772,22 +897,47 @@ nodes, real sqlite, no mocked `authorize()`). Each is written and seen failing f
     (all permutations of the removal votes, the original grant and the injected grant), on every peer,
     and Gate A still denies T. Companion: a grant that does have the votes as ancestors, signed by a
     valid admin, does readmit (the authorized act).
-12. **Composition, 2-device.** (a) Founder host A, B revokes A: B claims and is host, A out, no revert.
+12. **Composition, 2-device.** (a) Founder host A, B revokes A: B claims and is host, A out, no revert (**12a** also covers the live handoff `host_release` then `host_claim`, which must still work under the fixed point with no grant from a removed signer).
     (b) Non-founder host H blind-revoked by B: the vote does not count, clause 4 fails, `host_claim` is
     refused `host_still_valid`. (c) Withheld-then-released: B claims after a genuine quorum removal of
     H. (i) M releases a re-grant of H pinned to pre-removal dependencies: no revert, H stays removed,
     B stays host, in both orders. (ii) A valid admin M releases a re-grant that has the removal votes
     as ancestors: the epoch reverts, B's staged key is shredded, H re-attests, identical on every peer
     in both orders, and nothing signed in the window is accepted afterwards.
-13. **Backdated grant cannot reach the host (owner "tighten" ruling; red first).** 2-admin camp
-    (host B, admin M); M is quorum-removed. M injects a backdated `grant(X)` for a stand-in X onto
-    pre-removal heads through an admitted relay. X revokes B (threshold 1) and claims. Assert: the claim
-    is refused AND X's vote does not count toward removing B (B stays a valid admin and host), in
-    **every merge order** (all permutations of M's removal, the injected grant, X's revoke and X's
-    claim). Companion: a grant that is a causal ancestor of its signer's removal, or whose signer is a
-    valid admin at heads, remains effective; ordinary-admin behaviour of the backdated grant outside
-    host succession is unchanged (T331 base residual, pinned so it is not mistaken for fixed).
+13. **Backdated grants cannot reach authority (fixed point, red first, every merge order).** All
+    sub-tests assert the result for **every permutation** of delivery of the entries involved, on every
+    peer, and that `E` is identical across permutations.
+    - **13a one-hop.** 2-admin camp (host B, admin M); M is quorum-removed. M injects a backdated
+      `grant(X)` onto pre-removal heads through an admitted relay. X revokes B and claims. Assert: the
+      claim is refused (`host_still_valid` / not an admin), X is not in `Admins(heads)`, X's vote does not
+      count, B stays a valid admin and host.
+    - **13b two-hop.** M backdates `grant(X)`; X (ineffective) grants Y; Y revokes B and claims. Assert:
+      refused; Y is not an admin; both grants are dropped (two iteration rounds; the test asserts the
+      round count is at most the chain length).
+    - **13c three-admin denominator.** Admins A, B (host), M; M quorum-removed by A and B (threshold 2).
+      M's backdated stand-ins X1 and X2 are delivered in every order, before and after the removal
+      votes. Assert: M is removed in every order (the denominator is not inflated), and a following
+      revoke of B by A alone has the **same** threshold and outcome as a control run without the
+      backdated grants, so the stand-ins neither block nor enable it. Companion: the same stand-ins
+      granted by M *while M is still a valid admin and seen by the voters* are effective, raise `n`
+      exactly as today, and are pinned so the alive-signer branch is not mistaken for fixed.
+    - **13d companions.** A grant whose signer is an admin at heads is effective regardless of its
+      causal position; a grant that precedes its signer's removal (the quorum could not be reached
+      without a voter who saw it) is effective; a grant that is not in the signer's causal future of its
+      own grant is dropped.
+    The T331 base residual is marked closed in the amendment; 13a to 13c are its regression pin.
 
+16. **Liveness: an honest admin loses status and the flag restores it.** Admins A, S, H; S grants H and
+    is quorum-removed by A and one more voter who has not synced S's grant of H. Assert: H is not in
+    `Admins(heads)`, H is not host-eligible (claim refused), the "Admin access lapsed" flag appears on
+    H's row on A's `devices` screen and on H's own, with the copy of section 2.1; A uses "Make admin
+    again": the grant is minted and effective, the flag clears on both devices once synced, `n` is
+    restored, H counts in quorums again and its claim is accepted. Failure of the mint leaves the flag in
+    place and shows an inline error. Under reduced motion the flag still appears and clears with the text
+    change. Same result in every merge order.
+17. **Minimal verification set includes the fixed point's inputs.** Extension of test 9: K verifies a
+    claim whose chain relies on the pre-removal branch from exactly the set in section 9, and fails
+    closed (key unchanged) when the removal votes behind that branch are omitted.
 14. **Re-attestation** is audited as one privileged bulk event, is resumable after a kill, and a fresh
     joiner projects every user.
 15. **Epoch 0 unchanged and purge/rebuild.** A camp with no claims behaves exactly as today (existing
@@ -807,13 +957,20 @@ nodes, real sqlite, no mocked `authorize()`). Each is written and seen failing f
   peer. Accepted limitation, not claimed fixed.
 - **Vote-counting amendment** changes T331 semantics (a vote counts only if its author saw a valid
   grant of its target; blind votes no longer count); no new admin power, but Security and Red Hat must
-  re-confirm no-readmission, including the backdated-grant attack (tests 11 and 11b).
+  re-confirm no-readmission, including the backdated-grant attack (tests 11 and 11b) and the fixed point (tests 13a to 13c, 16).
 - **Identity-bound login** depends on `target_peer_id` being bound at approval; devices without it stay on
   the legacy secret path and are re-approved in person after a succession.
-- **T331 base residual, narrowed (not fixed).** A backdated grant by a removed admin still restores
-  that admin's/stand-in's ordinary admin power outside host succession. Since the 2026-10-09 tighten
-  ruling it cannot count for a host claim or for a quorum removing a host (section 2, test 13), so it
-  cannot reach host authority or keys.
+- **T331 base residual CLOSED by this amendment (pending acceptance).** A removed admin can no longer
+  backdate a grant and regain admin or reach host authority: section 2.1 makes such a grant ineffective
+  everywhere, for every removal. Tests 13a to 13c pin it. What remains of the any-admin-signs model is
+  the alive-signer branch: a *current* admin can mint grants, and a quorum can remove them.
+- **Liveness cost of the fixed point.** An honest admin granted by a signer later removed by voters who
+  had not synced the grant loses effective admin status and must be re-granted by a current admin
+  (visible flag and action, section 2.1, test 16). A shrink of `n` for the camp until that happens.
+- **Fixed-point assurance.** The operator is not monotone; uniqueness is by construction of a descending
+  iteration over the entry set, with sticky drops. Security and Red Hat must try to break it (mutual
+  removal between two admins, chains through a removed signer, and delivery-order permutation).
+- **Denominator on the voters' joint past** narrows T331 case (c) (section 2.1). Flagged for the keeper.
 - **Claim by a malicious admin** gains credential and join power until the quorum revokes it; same
   exposure T331 already accepts. The tie-break is grindable and is not a control (section 4).
 - **Claimed key the claimant does not hold:** availability fault; repair is revoke-and-reclaim.
@@ -829,7 +986,7 @@ nodes, real sqlite, no mocked `authorize()`). Each is written and seen failing f
 **Reused unchanged:** the authority log and its signing key (`device_identity_key`), the causal replay
 and tie-break primitives, the quorum, `authority_cache`, the three verifiers and the
 `camps.signing_public_key` column they read, token and credential formats, join proof, LAN pairing.
-**New:** two entry kinds (plus `device_approval`), one vote-counting amendment, an identity-bound login branch, one replay function, one derived single-row table, one key-staging and
+**New:** the section 2.1 effective-grant fixed point (replacing the host-only filter), two entry kinds (plus `device_approval`), one vote-counting amendment, an identity-bound login branch, one replay function, one derived single-row table, one key-staging and
 re-attestation pass, `isCurrentHost`, and three small IPCs.
 
 ## Confidence
@@ -847,3 +1004,10 @@ code facts cited above; deterministic evidence is the tests, not this document.
 None for the owner. Who may claim and the small-camp quorum are decided (section 2, citing the
 2026-10-02 ADR); single-admin camps are out of scope by ruling. Tunables left to the build: the LOST-path
 delay length (default 5 minutes) and the push-channel caps.
+
+**For the keeper (technical, answered here, one deviation to confirm).** (1) Do removals of non-host
+admins shrink `n` illegitimately? No, with reasoning in section 2.1. (2) The instruction asked for the
+same effective set in `n`; doing exactly that with `n` read at heads is unsound (a removed admin's
+backdated stand-ins inflate the denominator and un-remove it before the iteration can drop them), so
+section 2.1 reads `n` on the voters' joint causal past. Confirm that narrowing of T331 case (c), or
+direct otherwise.

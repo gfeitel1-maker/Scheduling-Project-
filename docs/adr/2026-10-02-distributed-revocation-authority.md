@@ -277,6 +277,8 @@ without a quorum or a clock:
   itself valid (the rogue grant's target was never causally protected from a later legitimate
   revocation).
 
+_Amended 2026-10-09 (proposed, pending acceptance): the backdating part of this residual (a removed admin regaining admin through a grant placed on pre-removal dependencies) is CLOSED by the effective-grant fixed point; see "Amendment 2026-10-09" below. The offline-race part (a not-yet-removed admin acting concurrently) is unchanged._
+
 **This residual is not fully closable under the owner's own constraint (any-admin-signs, no quorum,
 no central clock) — only bounded.** The two mechanisms that *would* fully close it — a quorum/co-sign
 requirement before a revocation takes effect, or a wall-clock grace window — are exactly the two
@@ -933,10 +935,19 @@ not count; a concurrent or backdated grant cannot void a vote whose author saw a
 staleness rule above (a grant that has the vote as an ancestor supersedes it) is unchanged. The
 no-readmission argument and the backdated-grant test (11b) are in the succession ADR.
 
-**Tightening, same amendment (owner ruling 2026-10-09).** Admin grants that feed a `host_claim` or that
-count toward the quorum for a **host** removal are effective only if their signer is a valid admin at
-heads, or the grant is a causal ancestor of the signer's removal (the same rule the succession ADR
-section 7 uses for `device_approval`). The base residual above, a removed admin backdating a grant,
-**remains for ordinary admin power outside host succession** but cannot reach the host role or keys.
-Also clarified: a "valid grant" for vote counting is valid at the grant's own causal point. Red-first
-test 13 in the succession ADR pins the attack.
+**Grant validity amended at the root (keeper decision under owner delegation 2026-10-09, option A;
+supersedes the earlier host-only tightening).** This AMENDS T331 grant validity. A grant is no longer
+accepted because its signer was valid at the grant's own causal point. One *effective-grant fixed point*
+(`docs/adr/2026-10-09-host-succession-by-remint.md` section 2.1) now decides it, and the same set feeds
+`grantedSet`, the vote tally and the `n` in `quorumThreshold(n)` for every removal, host or not: a grant is
+effective iff its signer is an admin at heads, or the signer's removal took effect and the removing
+quorum could not have been reached by voters who had not seen the grant. `n` is read on the voters'
+joint causal past, so grants delivered after a removal cannot raise its bar. It is computed as the limit
+of a descending iteration over the signed entries, so it is merge-order independent. **Residual closed
+(pending acceptance):** the accepted base residual "a removed admin can backdate a grant and regain
+admin" (the offline-race discussion above) is closed by this amendment, not merely narrowed; it stays
+in force as written until the succession ADR is accepted and the code lands. **Liveness cost:** an honest
+admin granted by a signer later removed by voters who had not synced that grant loses effective admin
+status until a current admin re-grants it; the device row in LAN & Devices carries a visible "Admin
+access lapsed" flag with a "Make admin again" action (succession ADR section 2.1, test 16). Red-first
+tests 13a to 13c in the succession ADR pin the attack.
