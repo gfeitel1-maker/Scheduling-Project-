@@ -507,17 +507,15 @@ function SyncNotRunningRow({ syncStatus, retrying, onRetrySync, onNavigate }) {
       title={title}
       onClick={handleClick}
       style={{
-        display: 'flex', alignItems: 'center', gap: 6, width: '100%',
+        display: 'flex', alignItems: 'baseline', gap: 6, width: '100%',
         padding: '4px 0 8px', border: 'none', background: 'none', cursor: 'pointer',
-        textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        textAlign: 'left',
         ...transition,
       }}
     >
       <span style={{ flexShrink: 0, fontSize: 8, color: 'var(--danger)' }}>●</span>
-      <span style={{
-        fontFamily: 'var(--font-mono)', fontSize: 11, overflow: 'hidden',
-        textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-      }}>
+      {/* Wraps rather than ellipsizes: the action word is the point of the flag. */}
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>
         {/* Deliberately NOT syncStatusLabel(syncStatus).text — that yields the gear-menu's
             'not sharing'/'not syncing' wording. This footer's visible copy is the owner-mandated
             'sync not running' phrasing (T277); only the .title tooltip is shared with the gear menu.
