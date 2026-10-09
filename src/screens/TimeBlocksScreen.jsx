@@ -15,6 +15,8 @@ import ImportPreviewSubtitle from '../components/setup/ImportPreviewSubtitle.jsx
 import SetupScreenShell from '../components/setup/SetupScreenShell'
 import InlineAddRow from '../components/setup/InlineAddRow'
 import { minutesFromMidnight } from './setup/setupHelpers'
+import { isBackwardsBlock, partOfDayForStart } from '../utils/timeBlockRange.js'
+import { overlappingBlockPeers } from '../engine/blockOverlap.js'
 import { ENTITY_FIELD_CATALOGS, inferEntityMapping, applyEntityMapping, describeMappingIssue } from '../ingest/entityColumnMapping.js'
 import { resolveRowAction } from '../ingest/resolveRowAction.js'
 import { resolveRowCohort, describeCohortNote } from '../ingest/resolveRowCohort.js'
@@ -45,16 +47,20 @@ const POD_OPTIONS = [
   { value: 'evening', label: 'Evening' },
 ]
 
-function BlockRow({ block, role, onSave, onDelete, duplicateSiblings }) {
+const BACKWARDS_FLAG = 'Ends before start'
+const overlapFlagStyle = { ...S.fieldFlag, color: 'var(--text-secondary)' }
+
+function BlockRow({ block, role, onSave, onDelete, duplicateSiblings, overlaps }) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(block.name)
   const [start, setStart] = useState(block.start_time)
   const [end, setEnd] = useState(block.end_time)
   const [pod, setPod] = useState(block.part_of_day)
   const [saving, setSaving] = useState(false)
+  const draftBackwards = isBackwardsBlock({ start_time: start, end_time: end })
 
   async function save() {
-    if (!name.trim()) return
+    if (!name.trim() || draftBackwards) return
     setSaving(true)
     try {
       await onSave(block.id, { name: name.trim(), start_time: start, end_time: end, part_of_day: pod, sort_order: minutesFromMidnight(start) })
@@ -71,7 +77,7 @@ function BlockRow({ block, role, onSave, onDelete, duplicateSiblings }) {
       <tr style={{ background: 'var(--surface-elevated)' }}>
         <td style={S.td}><input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={S.input} /></td>
         <td style={S.td}><input type="time" value={start} onChange={e => setStart(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={{ ...S.input, width: 110 }} /></td>
-        <td style={S.td}><input type="time" value={end} onChange={e => setEnd(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={{ ...S.input, width: 110 }} /></td>
+        <td style={S.td}><input type="time" value={end} onChange={e => setEnd(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={{ ...S.input, width: 110 }} />{draftBackwards && <div style={S.fieldFlag}>{BACKWARDS_FLAG}</div>}</td>
         <td style={S.td}>
           <select value={pod} onChange={e => setPod(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={{ ...S.input, width: 120 }}>
             {POD_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -79,7 +85,7 @@ function BlockRow({ block, role, onSave, onDelete, duplicateSiblings }) {
         </td>
         <td style={{ ...S.td, textAlign: 'right' }}>
           <div style={rowActionsFlex}>
-            <button className="press-97" onClick={save} disabled={saving} style={{ ...S.btnPrimary, whiteSpace: 'nowrap' }}>{saving ? 'Saving…' : 'Save'}</button>
+            <button className="press-97" onClick={save} disabled={saving || draftBackwards} style={draftBackwards ? { ...S.btnPrimary, ...S.buttonDisabled, whiteSpace: 'nowrap' } : { ...S.btnPrimary, whiteSpace: 'nowrap' }}>{saving ? 'Saving…' : 'Save'}</button>
             <button className="press-97" onClick={() => { setName(block.name); setStart(block.start_time); setEnd(block.end_time); setPod(block.part_of_day); setEditing(false) }} style={{ ...S.btnSecondary, whiteSpace: 'nowrap' }}>Cancel</button>
           </div>
         </td>
@@ -111,9 +117,10 @@ function BlockRow({ block, role, onSave, onDelete, duplicateSiblings }) {
           style={{ cursor: 'pointer' }}
         >{block.name}</span>
         {duplicateSiblings?.length > 0 && <DuplicateNameDot row={block} siblings={duplicateSiblings} entityLabel="time block" />}
+        {overlaps?.map(o => <div key={o.id} style={overlapFlagStyle}>Overlaps {o.name}</div>)}
       </td>
       <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{fmt(block.start_time)}</td>
-      <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{fmt(block.end_time)}</td>
+      <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{fmt(block.end_time)}{isBackwardsBlock(block) && <div style={{ ...S.fieldFlag, fontFamily: 'var(--font-sans)' }}>{BACKWARDS_FLAG}</div>}</td>
       <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>{POD_OPTIONS.find(o => o.value === block.part_of_day)?.label ?? '—'}</td>
       <td style={{ ...S.td, textAlign: 'right' }}>
         <button
@@ -131,6 +138,7 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
   const emptyEnter = useEnterTransition('liftFade')
   const [blocks, setBlocks] = useState([])
   const duplicateBlockSiblings = useMemo(() => duplicateSiblingsByIdFor(blocks), [blocks])
+  const blockOverlaps = useMemo(() => overlappingBlockPeers(blocks), [blocks])
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState(false)
   const [importStep, setImportStep] = useState(null)
@@ -350,6 +358,7 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
         let warning = null
         if (!name) warning = 'Missing name'
         else if (typeof start_time !== 'string' || !start_time || typeof end_time !== 'string' || !end_time) warning = 'Missing time'
+        else if (isBackwardsBlock({ start_time, end_time })) warning = BACKWARDS_FLAG
         else if (!pod) {
           // Never derived from the time — owner ruling, no guessed cutoff (board
           // q-export-columns-do-not-round-trip, B2b).
@@ -475,7 +484,7 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
                   </div>
                 </td></tr>
               ) : blocks.map(b => (
-                <BlockRow key={b.id} block={b} role={role} onSave={saveBlock} onDelete={deleteBlock} duplicateSiblings={duplicateBlockSiblings.get(b.id)} />
+                <BlockRow key={b.id} block={b} role={role} onSave={saveBlock} onDelete={deleteBlock} duplicateSiblings={duplicateBlockSiblings.get(b.id)} overlaps={blockOverlaps.get(b.id)} />
               ))}
               {/* The always-present blank "type here to add" row — lives as the
                   last row of the time blocks table (Excel-like inline add). */}
@@ -487,6 +496,8 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
                   { key: 'part_of_day', type: 'select', default: 'morning', width: 120, options: POD_OPTIONS },
                 ]}
                 onAdd={addBlock}
+                validate={v => (isBackwardsBlock(v) ? { end_time: BACKWARDS_FLAG } : {})}
+                deriveValues={(v, key) => (key === 'start_time' && v.start_time ? { ...v, part_of_day: partOfDayForStart(v.start_time) } : v)}
                 adding={adding}
                 disabled={!activeCohort}
               />

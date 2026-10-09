@@ -320,6 +320,14 @@ export const S = {
     fontFamily: 'var(--font-mono)',
     fontSize: 12,
   },
+  // Short field-level flag under an input or value cell (e.g. "Ends before start").
+  fieldFlag: {
+    color: 'var(--danger)',
+    fontSize: 11,
+    fontWeight: 600,
+    marginTop: 3,
+    whiteSpace: 'nowrap',
+  },
   errorBanner: {
     background: 'color-mix(in srgb, var(--danger) 8%, var(--surface))',
     border: '1px solid color-mix(in srgb, var(--danger) 35%, var(--border))',

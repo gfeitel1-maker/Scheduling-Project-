@@ -329,6 +329,8 @@ describe('TimeBlocksScreen — save', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Edit Block 1' }))
     timeInputs = document.querySelectorAll('input[type="time"]')
     fireEvent.change(timeInputs[0], { target: { value: '10:00' } })
+    // end must stay after start — a 10:00–10:00 block is now refused (audit A4)
+    fireEvent.change(timeInputs[1], { target: { value: '11:00' } })
     fireEvent.click(screen.getByText('Save'))
 
     await waitFor(() =>
@@ -509,5 +511,82 @@ describe('TimeBlocksScreen — row-click to edit', () => {
 
     await waitFor(() => expect(screen.queryByText('Delete "Block 1"?')).not.toBeNull())
     expect(screen.queryByDisplayValue('Block 1')).toBeNull()
+  })
+})
+
+describe('TimeBlocksScreen — backwards and overlapping blocks (audit A4/A5/A7)', () => {
+  function withBlocks(list) {
+    localClient.list.mockReset().mockImplementation(entity => {
+      if (entity === 'cohorts') return Promise.resolve([cohort()])
+      if (entity === 'time_blocks') return Promise.resolve(list)
+      return Promise.resolve([])
+    })
+  }
+
+  it('disables + Add and flags the end time when the end is before the start', async () => {
+    withBlocks([])
+    render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await screen.findByPlaceholderText('Block 1')
+    fireEvent.change(screen.getByPlaceholderText('Block 1'), { target: { value: 'Late' } })
+    const timeInputs = document.querySelectorAll('input[type="time"]')
+    fireEvent.change(timeInputs[0], { target: { value: '16:00' } })
+    fireEvent.change(timeInputs[1], { target: { value: '15:00' } })
+
+    expect(screen.getByText('+ Add').disabled).toBe(true)
+    expect(screen.getByText('Ends before start')).not.toBeNull()
+    fireEvent.keyDown(timeInputs[1], { key: 'Enter' })
+    expect(localClient.write).not.toHaveBeenCalled()
+  })
+
+  it('defaults part of day from the start time on the add row', async () => {
+    withBlocks([])
+    render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await screen.findByPlaceholderText('Block 1')
+    const timeInputs = document.querySelectorAll('input[type="time"]')
+    fireEvent.change(timeInputs[0], { target: { value: '16:00' } })
+    expect(screen.getByDisplayValue('Afternoon')).not.toBeNull()
+    fireEvent.change(timeInputs[0], { target: { value: '18:30' } })
+    expect(screen.getByDisplayValue('Evening')).not.toBeNull()
+  })
+
+  it('disables Save and flags the end time when an edit makes the block backwards', async () => {
+    render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Block 1')).not.toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Block 1' }))
+    fireEvent.change(screen.getByDisplayValue('10:00'), { target: { value: '08:00' } })
+
+    expect(screen.getByText('Save').disabled).toBe(true)
+    expect(screen.getByText('Ends before start')).not.toBeNull()
+  })
+
+  it('flags an existing backwards row on the list', async () => {
+    withBlocks([block({ start_time: '16:00', end_time: '15:00' })])
+    render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Block 1')).not.toBeNull())
+    expect(screen.getByText('Ends before start')).not.toBeNull()
+  })
+
+  it('flags each overlapping row naming the other block', async () => {
+    withBlocks([
+      block({ id: 'a', name: 'Swim A', start_time: '09:00', end_time: '10:00' }),
+      block({ id: 'b', name: 'Swim B', start_time: '09:30', end_time: '10:30', sort_order: 2 }),
+      block({ id: 'c', name: 'Lunch', start_time: '12:00', end_time: '13:00', sort_order: 3 }),
+    ])
+    render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Swim A')).not.toBeNull())
+    expect(screen.getByText('Overlaps Swim B')).not.toBeNull()
+    expect(screen.getByText('Overlaps Swim A')).not.toBeNull()
+    expect(screen.queryByText(/Overlaps Lunch/)).toBeNull()
+  })
+
+  it('marks a backwards row in an import file instead of importing it', async () => {
+    render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Block 1')).not.toBeNull())
+    XLSX.utils.sheet_to_json.mockReturnValue([
+      { name: 'Late', start_time: '16:00', end_time: '15:00', part_of_day: 'afternoon' },
+    ])
+    XLSX.read.mockReturnValue({ SheetNames: ['Time Blocks'], Sheets: { 'Time Blocks': {} } })
+    await userEvent.upload(document.querySelector('input[type="file"]'), new File(['x'], 't.xlsx'))
+    await waitFor(() => expect(screen.queryByText('Ends before start')).not.toBeNull())
   })
 })
