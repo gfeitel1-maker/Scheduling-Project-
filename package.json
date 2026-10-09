@@ -48,6 +48,7 @@
     "gate": "zsh scripts/gate.sh"
   },
   "dependencies": {
+    "@achingbrain/nat-port-mapper": "4.0.5",
     "@automerge/automerge": "^3.4.1",
     "@chainsafe/libp2p-noise": "^17.0.0",
     "@chainsafe/libp2p-yamux": "^8.0.1",

@@ -460,6 +460,14 @@ export function createAutomergeSyncStarter({
       // capability row's signoff stays null until S5's T327 gate.
       let punchTransportFactory
       const listenAddrs = ['/ip4/0.0.0.0/tcp/0']
+      // T359 slice 1: with the flag on, the TCP listener sits on a persisted per-device port so a router
+      // can later be asked to map it. Flag off leaves the ephemeral '/tcp/0' above untouched.
+      if (punchEnabled) {
+        const { resolveTcpListenAddr } = await import('./pinnedListenPort.js')
+        const pinned = await resolveTcpListenAddr({ userDataPath })
+        listenAddrs[0] = pinned.listenAddr
+        if (pinned.status === 'port-in-use') console.warn('sync: the pinned TCP port is in use; listening on an ephemeral port this run')
+      }
       // S4c: with no injected channel (production) the transport gets a routed channel whose target
       // the reconnect wiring binds per dial; an injected one (tests) is used as-is and no ladder runs.
       let routedChannel = null

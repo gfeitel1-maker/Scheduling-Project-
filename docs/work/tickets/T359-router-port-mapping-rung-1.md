@@ -31,3 +31,10 @@ Library: `@achingbrain/nat-port-mapper` directly. Not `@libp2p/upnp-nat`. Each s
 5. **Egress gate + docs + hardware check.** `dgram` pattern in `internetRendezvousScan.js`, a `portMapping` row in `transportCapabilities.js` with an explicit allowlist (SSDP multicast, HTTP to the gateway, NAT-PMP UDP 5351) and `signoff: null`, a planted-defect test; a limiter test: hold 16 public-source pending connections and assert the outcome of a legitimate dial (scanner DoS on the reconnect path, LAN exempt); update `SECURITY.md` (the exposure: TCP port open to the internet, TCP accept, Noise, `authGate`, T340 bounds, scanners expected) and `docs/current/**`. Hardware check on one consumer router and one phone hotspot, done in the owner's two-laptop session (not by an agent); record the result.
 
 Full `npm run verify` on every slice that touches `electron/sync/**`; slice 1 may add a column for the pinned TCP port; if so `npm run schema:check` applies to that PR.
+
+## Slice 1 notes (2026-10-09, round 2)
+
+- `createPortMapper` takes an injected `grantStore` that remembers the external port the router actually granted. `cleanupStale()` deletes both the local-port mapping and the remembered one, so a crash cannot leave a mapping behind when the router granted a different port. Covers permanent leases too, per the keeper's lease ruling. Slice 3 wires a device-local file store into the production lifecycle; in slice 1 nothing in production imports the mapper.
+- SSDP descriptor fetches no longer follow redirects (`redirect: 'manual'`).
+- Honest limit: `@achingbrain/nat-port-mapper` speaks IGD:2 only, so in production a lease-0-only (IGDv1) router cannot currently produce `permanent-lease`; the path is exercised against the fake gateway only. The owner's hardware check will show whether IGDv1 routers matter.
+- The pinned-port test now occupies a deterministic in-range port (49152-65535). It was shown red with the bind-conflict check disabled.
