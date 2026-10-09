@@ -92,6 +92,26 @@ function rotateBackups(backupDir, max) {
   while (files.length >= max) {
     const oldest = files.shift()
     try { fs.unlinkSync(oldest.fullPath) } catch { /* ignore — disk race */ }
+    try { fs.rmSync(oldest.fullPath.replace(/\.db$/, '.automerge'), { recursive: true, force: true }) } catch { /* ignore */ }
+  }
+}
+
+// The Automerge document is the source of truth; the db is only its projection. Bytes are copied
+// as-is, so a document encrypted at rest stays encrypted. No document yet -> nothing to copy.
+function copyCampDocuments(userDataPath, destDir) {
+  const srcDir = path.join(userDataPath, 'automerge')
+  let docs
+  try {
+    docs = fs.readdirSync(srcDir).filter((f) => f.endsWith('.automerge'))
+  } catch {
+    return
+  }
+  if (docs.length === 0) return
+  fs.mkdirSync(destDir, { recursive: true, mode: 0o700 })
+  for (const f of docs) {
+    const dest = path.join(destDir, f)
+    fs.copyFileSync(path.join(srcDir, f), dest)
+    try { fs.chmodSync(dest, 0o600) } catch { /* non-fatal on Windows */ }
   }
 }
 
@@ -111,6 +131,7 @@ export function writeUserBackup(dbPath, userDataPath) {
   fs.copyFileSync(dbPath, backupPath)
   // Restrict backup file permissions so it's not world-readable.
   try { fs.chmodSync(backupPath, 0o600) } catch { /* non-fatal on Windows */ }
+  copyCampDocuments(userDataPath, backupPath.replace(/\.db$/, '.automerge'))
   return backupPath
 }
 

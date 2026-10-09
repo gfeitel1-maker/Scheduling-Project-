@@ -1658,6 +1658,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     // Best-effort — backup failure must not block the operation itself.
     if (dbPath && handlersUserDataPath) {
       try {
+        flushAutomergeDoc()
         writeUserBackup(dbPath, handlersUserDataPath)
       } catch {
         /* snapshot failure is non-fatal */
@@ -3520,6 +3521,7 @@ if (isElectronEntryPoint()) {
   let lastBackupPath = null
   ipcMain.handle('shoresh:backup-project', () => {
     try {
+      flushAutomergeDoc()
       const backupPath = writeUserBackup(dbPath, userDataPath)
       lastBackupPath = backupPath
       return { backupPath }
@@ -3579,6 +3581,7 @@ if (isElectronEntryPoint()) {
     try {
       // Back up current DB before overwriting.
       try {
+        flushAutomergeDoc()
         writeUserBackup(dbPath, userDataPath)
       } catch {
         /* non-fatal — proceed with restore */

@@ -139,6 +139,51 @@ describe('writeUserBackup', () => {
   })
 })
 
+describe('writeUserBackup — camp document', () => {
+  const mkDoc = (name, bytes) => {
+    fs.mkdirSync(path.join(tmpDir, 'automerge'), { recursive: true })
+    fs.writeFileSync(path.join(tmpDir, 'automerge', name), bytes)
+  }
+
+  it('copies the camp document alongside the db with the same timestamp', () => {
+    const dbFile = path.join(tmpDir, 'shoresh.db')
+    fs.writeFileSync(dbFile, 'data')
+    mkDoc('camp1.automerge', Buffer.from([1, 2, 3]))
+    const backupPath = writeUserBackup(dbFile, tmpDir)
+    const docDir = backupPath.replace(/\.db$/, '.automerge')
+    const copy = path.join(docDir, 'camp1.automerge')
+    expect([...fs.readFileSync(copy)]).toEqual([1, 2, 3])
+    expect(fs.statSync(copy).mode & 0o777).toBe(0o600)
+    expect(fs.statSync(docDir).mode & 0o777).toBe(0o700)
+  })
+
+  it('rotation removes the doc copy together with its db', () => {
+    const dbFile = path.join(tmpDir, 'shoresh.db')
+    const backupDir = path.join(tmpDir, 'backups')
+    fs.mkdirSync(backupDir)
+    for (let i = 0; i < 10; i++) {
+      const base = path.join(backupDir, `shoresh-2024-01-${String(i + 1).padStart(2, '0')}`)
+      fs.writeFileSync(`${base}.db`, 'x')
+      fs.mkdirSync(`${base}.automerge`)
+      const mtime = new Date(2024, 0, i + 1)
+      fs.utimesSync(`${base}.db`, mtime, mtime)
+    }
+    fs.writeFileSync(dbFile, 'latest')
+    writeUserBackup(dbFile, tmpDir)
+    expect(fs.existsSync(path.join(backupDir, 'shoresh-2024-01-01.db'))).toBe(false)
+    expect(fs.existsSync(path.join(backupDir, 'shoresh-2024-01-01.automerge'))).toBe(false)
+    expect(fs.existsSync(path.join(backupDir, 'shoresh-2024-01-02.automerge'))).toBe(true)
+  })
+
+  it('a camp with no document yet still backs up the db', () => {
+    const dbFile = path.join(tmpDir, 'shoresh.db')
+    fs.writeFileSync(dbFile, 'data')
+    const backupPath = writeUserBackup(dbFile, tmpDir)
+    expect(fs.existsSync(backupPath)).toBe(true)
+    expect(fs.existsSync(backupPath.replace(/\.db$/, '.automerge'))).toBe(false)
+  })
+})
+
 // ---------------------------------------------------------------------------
 // writePreMigrationBackup
 // ---------------------------------------------------------------------------
