@@ -439,7 +439,7 @@ export async function buildAcceptanceCamp(db, { handlers, token, campId, deviceI
   for (const name of [M.sharedLocation, 'Field', 'Studio']) {
     const id = randomUUID()
     // CAPACITY IS EXPLICIT, and the shared location's value is load-bearing.
-    // `locations.capacity` defaults to 1 (electron/db/schema.sql:953), and
+    // `locations.capacity` defaults to 1 (electron/db/schema.sql:903), and
     // findRouteConflicts counts one occupant per GROUP whose cell could use the
     // location — so at the Monday elective period the three groups still
     // carrying the set already exceed a capacity of 1 on their own, and the

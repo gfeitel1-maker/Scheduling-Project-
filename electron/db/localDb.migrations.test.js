@@ -291,22 +291,21 @@ describe('Task 10 round-4 Fix 3: devices.last_synced_seq (schema version 7)', ()
   })
 })
 
-describe('Task 10 round-5 Fix 1/3: pending_writes table + operations.client_write_id (schema version 8)', () => {
-  it('a fresh install has both the pending_writes table and operations.client_write_id, at version 8', () => {
+describe('Task 10 round-5 Fix 1/3: operations.client_write_id (schema version 8; pending_writes dropped in v91, T311)', () => {
+  it('a fresh install has operations.client_write_id and no pending_writes table', () => {
     const db = freshDb()
     const table = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='pending_writes'")
       .get()
-    expect(table).toBeDefined()
+    expect(table).toBeUndefined()
     const col = db.pragma('table_info(operations)').find((c) => c.name === 'client_write_id')
     expect(col).toBeDefined()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
     db.close()
   })
 
-  it('adds both to a pre-migration db missing them, via the guarded ALTER', () => {
+  it('adds client_write_id to a pre-migration db missing it, via the guarded ALTER', () => {
     const db = freshDb()
-    db.exec('DROP TABLE pending_writes')
     db.exec('ALTER TABLE operations RENAME TO operations_tmp')
     db.exec(`
       CREATE TABLE operations (
@@ -331,19 +330,11 @@ describe('Task 10 round-5 Fix 1/3: pending_writes table + operations.client_writ
 
     let col = db.pragma('table_info(operations)').find((c) => c.name === 'client_write_id')
     expect(col).toBeUndefined()
-    let table = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='pending_writes'")
-      .get()
-    expect(table).toBeUndefined()
 
     initSchema(db)
 
     col = db.pragma('table_info(operations)').find((c) => c.name === 'client_write_id')
     expect(col).toBeDefined()
-    table = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='pending_writes'")
-      .get()
-    expect(table).toBeDefined()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
     db.close()
   })

@@ -27,8 +27,7 @@
 //     it is never in flight — it lands in this device's database immediately
 //     and converges whenever a peer is next reachable. The `pending_writes`
 //     table and the `{ status: 'queued' }` reply belonged to the transport that
-//     was retired at the Stage 6c cutover; the table is still created by
-//     localDb.js's migration but nothing reads or writes it.
+//     was retired at the Stage 6c cutover; the table was dropped in schema v91 (T311).
 //   - No remote rejection. There is no Host left to reject a write, which is
 //     also why role enforcement is now device-side — an accepted tradeoff,
 //     recorded in SECURITY.md and docs/current/CRDT_SECURITY_GAPS.md.

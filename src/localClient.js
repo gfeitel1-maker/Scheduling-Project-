@@ -198,7 +198,6 @@ export const localClient = {
     shoresh.resolveConflict({ token, entity, entity_id, field, chosen_op_id, parent_op_id }),
   listPendingConflicts: () => shoresh.listPendingConflicts(currentToken()),
   listDeleted: () => shoresh.listDeleted(currentToken()),
-  listPendingRestores: () => shoresh.listPendingRestores(currentToken()),
   getEntityHistory: (entity, entity_id) =>
     shoresh.getEntityHistory({ token: currentToken(), entity, entity_id }),
   // Announcing, like write/deleteEntity above: these three are mutations too,

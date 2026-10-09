@@ -194,8 +194,8 @@ describe('restoring rebuilds the record from its last-known field values', () =>
     // The second call finds a live record and declines, so restoring twice is
     // idempotent. _Prior: the reason given was "what makes a double drain safe
     // (see the drain path in syncClient)". That drainer was syncClient.js,
-    // deleted at the Stage 6 cutover; nothing enqueues or drains pending_restores
-    // now (T311 finding 3), so the double-drain motivation is void. The
+    // deleted at the Stage 6 cutover; pending_restores was dropped in
+    // schema v91 (T311), so the double-drain motivation is void. The
     // idempotence is still worth pinning on its own merits — a director can click
     // Restore twice._
     expect(restoreEntity(db, { entity: 'groups', entity_id: 'g1', ...session })).toEqual({ error: 'not-deleted' })

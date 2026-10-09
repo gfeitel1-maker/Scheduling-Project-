@@ -329,6 +329,10 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // table is ever modeled into the document (no PROJECTIONS entry, no MODELED_ENTITIES
   // membership) — what an existing camp MEANS is entirely unaffected.
   90,
+  // v91 (T311) drops pending_writes/pending_restores, vestigial host-local offline queues that
+  // nothing has read or written since the Stage 6c cutover. Schema-only: neither table was ever
+  // modeled into the document, so what an existing camp MEANS is unaffected.
+  91,
 ])
 
 /** True if applying `version` can change what the camp means. */

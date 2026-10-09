@@ -17,7 +17,7 @@ const isConfirmed = (sa) => (sa.status ?? 'confirmed') === 'confirmed'
 export function buildOfferings({ occurrences = [], setActivities = [], activities = [] } = {}) {
   const activityById = new Map(activities.map((a) => [a.id, a]))
   // H5 — defensive defaults matching schema.sql's own DEFAULTs ('confirmed' /
-  // 'unlimited', schema.sql:1087-1099). The real electron path always
+  // 'unlimited', schema.sql:1037-1049). The real electron path always
   // populates these (SQLite materialises the NOT NULL DEFAULT at INSERT —
   // see electron/ops/projections.js's elective_set_activities ensureExists),
   // so this is not compensating for a projection gap there. It tolerates a

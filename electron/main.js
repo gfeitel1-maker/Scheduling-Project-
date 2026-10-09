@@ -58,7 +58,6 @@ import { setElectivePreference, removeElectivePreference } from './ops/setElecti
 import { getElectiveRun } from './ops/getElectiveRun.js'
 import { getElectiveRunOuterSchedule } from './ops/getElectiveRunOuterSchedule.js'
 import { campHasSetupData } from './ops/campHasSetupData.js'
-import { listPendingRestores } from './sync/pendingRestores.js'
 import { PROJECTIONS } from './ops/projections.js'
 import { createCampDataRecordWriter } from './campDataRecord.js'
 import { isAutomergeEngine } from './sync/automerge/syncEngineFlag.js'
@@ -1926,16 +1925,6 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return listDeleted(db)
   }
 
-  // Restore requests this device has recorded but not yet delivered. Read
-  // straight from the local table rather than from syncClient, so it answers
-  // correctly before a mode is chosen and on a Host (where it is always
-  // empty — a Host performs a restore directly, there is no hop to fail).
-  function listPendingRestoresHandler(token) {
-    if (!isNonEmptyString(token)) throw new Error('token is required')
-    requireAuthorized(db, { token, action: 'trash.read' })
-    return listPendingRestores(db)
-  }
-
   function getEntityHistoryHandler({ token, entity, entity_id } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     if (!isNonEmptyString(entity) || !PROJECTIONS[entity]) throw new Error('Invalid entity')
@@ -2983,7 +2972,6 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     listDivisionEvidence: listDivisionEvidenceHandler,
     locationCapacityProvenance: locationCapacityProvenanceHandler,
     listDeleted: listDeletedHandler,
-    listPendingRestores: listPendingRestoresHandler,
     getEntityHistory: getEntityHistoryHandler,
     restoreEntity: restoreEntityHandler,
     login,
@@ -3252,7 +3240,6 @@ if (isElectronEntryPoint()) {
     'shoresh:resolve-conflict',
     'shoresh:list-conflicts',
     'shoresh:list-deleted',
-    'shoresh:list-pending-restores',
     'shoresh:get-entity-history',
     'shoresh:restore-entity',
     'shoresh:preview-delete',
@@ -3345,7 +3332,6 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:resolve-conflict', (_event, args) => handlers.resolveConflict(args))
     ipcMain.handle('shoresh:list-conflicts', (_event, args) => handlers.listPendingConflicts(args && args.token))
     ipcMain.handle('shoresh:list-deleted', (_event, args) => handlers.listDeleted(args && args.token))
-    ipcMain.handle('shoresh:list-pending-restores', (_event, args) => handlers.listPendingRestores(args && args.token))
     ipcMain.handle('shoresh:get-entity-history', (_event, args) => handlers.getEntityHistory(args))
     ipcMain.handle('shoresh:restore-entity', (_event, args) => handlers.restoreEntity(args))
     ipcMain.handle('shoresh:preview-delete', (_event, args) => handlers.previewDelete(args))

@@ -264,7 +264,7 @@ function deletedChildrenOf(db, entity, entity_id) {
 // not every device can restore every record. What changed is that there is no
 // longer any way to ask another device to do it for you; every device now runs
 // this same function against its own log. The `pending_restores` table and
-// electron/sync/pendingRestores.js survive as a vestige with no live writer._
+// electron/sync/pendingRestores.js were dropped/deleted in schema v91 (T311)._
 //
 // Returns { ok, restored_fields, deleted_children, ops } or { error }. The ops
 // are returned rather than broadcast here so the caller can broadcast AFTER

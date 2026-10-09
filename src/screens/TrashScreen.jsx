@@ -16,15 +16,14 @@ import { entityLabel, formatMoment, restoreCaveat } from './recordLabels'
 // person who asked.
 const OUTCOME_COPY = {
   'not-restorable': 'This kind of record is not restorable here.',
-  'no-history': 'The main computer does not hold enough of this record’s history to rebuild it.',
+  'no-history': 'The device this camp was set up on does not hold enough of this record’s history to rebuild it.',
   'not-deleted': 'This record is already back.',
   forbidden: 'Only an admin can restore records.',
   // Unlike every refusal above, this one is deterministic and permanent: the
   // colliding name still belongs to a different, live record, so retrying
   // does nothing until that record is renamed or removed. "Try again" would
   // be a lie here — this is the generic form, used when the colliding
-  // record's name isn't available (e.g. the queued-restore list, which has
-  // no `existing` detail); outcomeMessage names it when it can.
+  // record's name isn't available; outcomeMessage names it when it can.
   unique_field: 'A record with that name already exists, so this can’t be restored. Rename or remove the existing one first.',
 }
 
@@ -64,7 +63,6 @@ function Notice({ tone, children }) {
 export default function TrashScreen({ role }) {
   const emptyEnter = useEnterTransition('liftFade')
   const [rows, setRows] = useState([])
-  const [waiting, setWaiting] = useState([])
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState(null)
   const [notice, setNotice] = useState(null)
@@ -81,12 +79,8 @@ export default function TrashScreen({ role }) {
   // is already on screen and the director just acted on it.
   async function load() {
     try {
-      const [deleted, pending] = await Promise.all([
-        localClient.listDeleted(),
-        localClient.listPendingRestores(),
-      ])
+      const deleted = await localClient.listDeleted()
       setRows(Array.isArray(deleted) ? deleted : [])
-      setWaiting(Array.isArray(pending) ? pending : [])
     } catch {
       setNotice({ tone: 'danger', text: 'The deleted records could not be read just now.' })
     } finally {
@@ -111,7 +105,7 @@ export default function TrashScreen({ role }) {
         const caveat = restoreCaveat(row.entity)
         setNotice({
           tone: 'text-secondary',
-          text: `Waiting for the main computer to bring ${row.name || 'this record'} back. It will happen as soon as this device reaches it — you can close the app in the meantime.${caveat ? ` ${caveat}` : ''}`,
+          text: `Waiting for the device this camp was set up on to bring ${row.name || 'this record'} back. It will happen as soon as this device reaches it — you can close the app in the meantime.${caveat ? ` ${caveat}` : ''}`,
         })
       } else if (result?.ok) {
         setNotice({ tone: 'success', text: restoredMessage(row) })
@@ -188,28 +182,6 @@ export default function TrashScreen({ role }) {
           </button>{' '}
           <button className="press-97" style={S.btnSecondary} onClick={() => setChildOffer(null)}>Leave them</button>
         </Notice>
-      )}
-
-      {waiting.length > 0 && (
-        <div style={{ marginBottom: 20 }}>
-          <div style={trashStyles.sectionTitle}>Waiting on the main computer</div>
-          {waiting.map((item) => (
-            <div key={item.pendingId} style={trashStyles.waitingRow}>
-              <span style={{ color: 'var(--text)' }}>
-                {/* T18: this rendered the raw entity_id — "Group · 8f3c1a02-…",
-                    which tells a director nothing about which group it is and
-                    makes the row unactionable. The name is what identifies a
-                    record to them; when it is genuinely unknown, say so. */}
-                {entityLabel(item.entity)} · {item.name || 'name not known on this device'}
-              </span>
-              <span style={S.mergeMeta}>
-                {item.last_error
-                  ? outcomeMessage(item.last_error)
-                  : 'Will be restored as soon as this device reaches the main computer.'}
-              </span>
-            </div>
-          ))}
-        </div>
       )}
 
       {loading ? (
@@ -291,9 +263,5 @@ const trashStyles = {
     fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 12,
     textTransform: 'uppercase', letterSpacing: '0.08em',
     color: 'var(--text-secondary)', marginBottom: 6,
-  },
-  waitingRow: {
-    display: 'flex', justifyContent: 'space-between', gap: 12,
-    padding: '8px 0', borderBottom: '1px solid var(--border)', fontSize: 13,
   },
 }

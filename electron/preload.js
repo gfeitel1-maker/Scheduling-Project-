@@ -50,7 +50,6 @@ contextBridge.exposeInMainWorld('shoresh', {
   resolveConflict: (args) => ipcRenderer.invoke('shoresh:resolve-conflict', args),
   listPendingConflicts: (token) => ipcRenderer.invoke('shoresh:list-conflicts', { token }),
   listDeleted: (token) => ipcRenderer.invoke('shoresh:list-deleted', { token }),
-  listPendingRestores: (token) => ipcRenderer.invoke('shoresh:list-pending-restores', { token }),
   getEntityHistory: (args) => ipcRenderer.invoke('shoresh:get-entity-history', args),
   restoreEntity: (args) => ipcRenderer.invoke('shoresh:restore-entity', args),
   previewDelete: (args) => ipcRenderer.invoke('shoresh:preview-delete', args),

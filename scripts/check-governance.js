@@ -748,50 +748,123 @@ export function checkWritableEntitiesCanSync(projections, modeled) {
 export const DESCRIPTIVE_DOC_PATHS = ['CLAUDE.md', 'README.md', 'SECURITY.md']
 export const DESCRIPTIVE_DOC_DIRS = ['docs/current/']
 
-/** Paths a descriptive doc names in order to say they are GONE. Reason required. */
+const CLAUDE_MD = 'CLAUDE.md'
+const SECURITY_MD = 'SECURITY.md'
+const PLATFORM_STATE_MD = 'docs/current/PLATFORM_STATE.md'
+const CRDT_GAPS_MD = 'docs/current/CRDT_SECURITY_GAPS.md'
+
+/**
+ * Paths a descriptive doc names in order to say they are GONE. Reason required.
+ *
+ * Each entry is scoped to the docs allowed to name it (`docs`). The exemption used to be
+ * global, so an entry written for one doc's "this was deleted" sentence also exempted every
+ * live, non-historical sentence in any other descriptive doc that named the same path — the
+ * blind spot a stale claim would hide in. In a doc not listed, the name is checked like any other
+ * and reported as `doc-names-missing-file`. Do not widen `docs` to silence a finding: correct the
+ * sentence or mark it historical.
+ */
 export const DELIBERATELY_ABSENT = new Map([
-  ['src/hooks/useSession.js',
-    'removed when the Supabase path was retired; CLAUDE.md names it precisely to record that it no longer exists'],
-  ['src/supabase.js',
-    'moved to legacy/supabase/supabase.js; CLAUDE.md names the old path to document where it went'],
-  ['syncServer.js',
-    'the WebSocket sync layer deleted in the Stage 6 cutover; SECURITY.md and PLATFORM_STATE.md both name it to record that it is gone'],
-  ['syncClient.js',
-    'the WebSocket sync layer deleted in the Stage 6 cutover; SECURITY.md and PLATFORM_STATE.md both name it to record that it is gone'],
-  ['electron/sync/syncServer.js',
-    'same deletion, named by full path in PLATFORM_STATE.md\'s "Removed / Replaced" section'],
-  ['electron/sync/syncClient.js',
-    'same deletion, named by full path in PLATFORM_STATE.md\'s "Removed / Replaced" section'],
-  ['provenance.s2a.test.js',
-    'retired with the WebSocket transport; CRDT_SECURITY_GAPS.md names it to record which test went away and why'],
+  ['src/hooks/useSession.js', {
+    reason:
+      'removed when the Supabase path was retired; CLAUDE.md names it precisely to record that it no longer exists',
+    docs: [CLAUDE_MD],
+  }],
+  ['src/supabase.js', {
+    reason:
+      'moved to legacy/supabase/supabase.js; CLAUDE.md names the old path to document where it went',
+    docs: [CLAUDE_MD],
+  }],
+  ['syncServer.js', {
+    reason:
+      'the WebSocket sync layer deleted in the Stage 6 cutover; SECURITY.md and PLATFORM_STATE.md both name it to record that it is gone',
+    docs: [SECURITY_MD, PLATFORM_STATE_MD],
+  }],
+  ['syncClient.js', {
+    reason:
+      'the WebSocket sync layer deleted in the Stage 6 cutover; SECURITY.md and PLATFORM_STATE.md both name it to record that it is gone',
+    docs: [SECURITY_MD, PLATFORM_STATE_MD],
+  }],
+  ['electron/sync/syncServer.js', {
+    reason:
+      'same deletion, named by full path in PLATFORM_STATE.md\'s "Removed / Replaced" section',
+    docs: [PLATFORM_STATE_MD],
+  }],
+  ['electron/sync/syncClient.js', {
+    reason:
+      'same deletion, named by full path in PLATFORM_STATE.md\'s "Removed / Replaced" section',
+    docs: [PLATFORM_STATE_MD],
+  }],
+  ['provenance.s2a.test.js', {
+    reason:
+      'retired with the WebSocket transport; CRDT_SECURITY_GAPS.md names it to record which test went away and why',
+    docs: [CRDT_GAPS_MD],
+  }],
 
   // Named inside a LIVE section of PLATFORM_STATE.md — a row or sentence whose
   // job is to say what the current thing replaced. Each is a one-line "X, which
   // replaced Y" note, which is why it is not inside a historical region marker.
-  ['JoinScreen.jsx',
-    'replaced by JoinByCodeScreen.jsx at Stage 6; the Screens table names it so the row explains what changed'],
-  ['ReconciliationQueue.jsx',
-    'folded into ReconciliationScreen.jsx (R2\'b); named to record which components it replaced'],
-  ['ReconciliationSummary.jsx', 'same R2\'b rebuild — named to record what it replaced'],
-  ['ReconciliationLedger.jsx', 'same R2\'b rebuild — named to record what it replaced'],
-  ['SpecialDaysScreen.jsx',
-    'merged into SpecialEventsScreen.jsx (ADR 2026-08-29); named to record the merge'],
-  ['rootsBanner.jsx',
-    'deleted at T240 — an orphaned pre-RootsHomeScreen dashboard-verdict banner with zero non-test ' +
-    'importers; PLATFORM_STATE.md names it to record that it is gone'],
-  ['CalmEmptyState.jsx',
-    'the never-imported empty-state component, named in the imagery section precisely to record that it was removed unused'],
-  ['src/data/deriveOccupancy.js',
-    'deleted with the spatial layer (PR #201); named by full path where the removal is explained'],
-  ['run.js',
-    'the integration runner before Stage 6, now run.automerge.js; the Test Coverage section names the old name to explain the rename'],
-  ['electron/sync/scheduleE2E.sync.test.js',
-    'the WS-transport end-to-end test, retired at Stage 6; named in a historical FIXED note about applyRemoteOp'],
-  ['postImportBanner.jsx',
-    'deleted at T253 — the grace-window undo it carried moved into ReconciliationScreen\'s own post-commit ' +
-    'exit tray (commitTrayState/CommittedTray); PLATFORM_STATE.md names it to record what replaced it'],
-  ['src/components/reconciliation/postImportBanner.jsx',
-    'same T253 deletion, named by full path in the Screens/imagery sections'],
+  ['JoinScreen.jsx', {
+    reason:
+      'replaced by JoinByCodeScreen.jsx at Stage 6; the Screens table names it so the row explains what changed',
+    docs: [PLATFORM_STATE_MD],
+  }],
+  ['ReconciliationQueue.jsx', {
+    reason:
+      'folded into ReconciliationScreen.jsx (R2\'b); named to record which components it replaced',
+    docs: [PLATFORM_STATE_MD],
+  }],
+  ['ReconciliationSummary.jsx', {
+    reason:
+      'same R2\'b rebuild — named to record what it replaced',
+    docs: [PLATFORM_STATE_MD],
+  }],
+  ['ReconciliationLedger.jsx', {
+    reason:
+      'same R2\'b rebuild — named to record what it replaced',
+    docs: [PLATFORM_STATE_MD],
+  }],
+  ['SpecialDaysScreen.jsx', {
+    reason:
+      'merged into SpecialEventsScreen.jsx (ADR 2026-08-29); named to record the merge',
+    docs: [PLATFORM_STATE_MD],
+  }],
+  ['rootsBanner.jsx', {
+    reason:
+      'deleted at T240 — an orphaned pre-RootsHomeScreen dashboard-verdict banner with zero non-test ' +
+      'importers; PLATFORM_STATE.md names it to record that it is gone',
+    docs: [PLATFORM_STATE_MD],
+  }],
+  ['CalmEmptyState.jsx', {
+    reason:
+      'the never-imported empty-state component, named in the imagery section precisely to record that it was removed unused',
+    docs: [PLATFORM_STATE_MD],
+  }],
+  ['src/data/deriveOccupancy.js', {
+    reason:
+      'deleted with the spatial layer (PR #201); named by full path where the removal is explained',
+    docs: [PLATFORM_STATE_MD],
+  }],
+  ['run.js', {
+    reason:
+      'the integration runner before Stage 6, now run.automerge.js; the Test Coverage section names the old name to explain the rename',
+    docs: [PLATFORM_STATE_MD],
+  }],
+  ['electron/sync/scheduleE2E.sync.test.js', {
+    reason:
+      'the WS-transport end-to-end test, retired at Stage 6; named in a historical FIXED note about applyRemoteOp',
+    docs: [PLATFORM_STATE_MD],
+  }],
+  ['postImportBanner.jsx', {
+    reason:
+      'deleted at T253 — the grace-window undo it carried moved into ReconciliationScreen\'s own post-commit ' +
+      'exit tray (commitTrayState/CommittedTray); PLATFORM_STATE.md names it to record what replaced it',
+    docs: [PLATFORM_STATE_MD],
+  }],
+  ['src/components/reconciliation/postImportBanner.jsx', {
+    reason:
+      'same T253 deletion, named by full path in the Screens/imagery sections',
+    docs: [PLATFORM_STATE_MD],
+  }],
 ])
 
 // --- reference extraction ---------------------------------------------------
@@ -932,13 +1005,14 @@ export function checkDocFileRefs(docs, resolve, topLevel = DEFAULT_TOP_LEVEL) {
       // exempting a name — and would go on absorbing every future claim about
       // whatever now lives there. An exemption that outlives its reason is the
       // shape T184's v13 misclassification had, so it expires loudly.
-      if (DELIBERATELY_ABSENT.has(token)) {
+      const allowed = DELIBERATELY_ABSENT.get(token)
+      if (allowed) {
         if (resolve(token)) {
           findings.push(finding('doc-absence-allowlist-stale',
             `\`${token}\` is listed in DELIBERATELY_ABSENT but exists again. Remove the entry — ` +
             'while it stands, every claim any descriptive doc makes about that path is unchecked.'))
         }
-        continue
+        if (allowed.docs.includes(path)) continue
       }
       if (resolve(token)) continue
       findings.push(finding('doc-names-missing-file',

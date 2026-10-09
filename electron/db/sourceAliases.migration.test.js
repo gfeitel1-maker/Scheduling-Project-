@@ -4,7 +4,7 @@
 // this existing entity" memory.
 // docs/adr/2026-08-09-s1b-host-local-aliases.md
 //
-// Same shape as pendingRestores.migration.test.js (v25): fresh-vs-migrated
+// Same shape as the v25 pending_restores migration test (since retired, T311): fresh-vs-migrated
 // schema equivalence, an exercised rollback, and the LOCAL-ONLY guarantee
 // this whole design rests on.
 import { describe, it, expect, afterEach } from 'vitest'
