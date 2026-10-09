@@ -126,7 +126,7 @@ describe('ActivitiesScreen quick-add', () => {
     render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
     await waitFor(() => expect(screen.queryByText('0 activities')).not.toBeNull())
 
-    fireEvent.change(screen.getByPlaceholderText('Activity name (e.g. Archery)'), { target: { value: 'Archery' } })
+    fireEvent.change(screen.getByPlaceholderText('Archery'), { target: { value: 'Archery' } })
     fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() => expect(localClient.write).toHaveBeenCalled())
@@ -166,7 +166,7 @@ describe('ActivitiesScreen quick-add', () => {
     render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
     await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
 
-    fireEvent.change(screen.getByPlaceholderText('Activity name (e.g. Archery)'), { target: { value: 'archery' } })
+    fireEvent.change(screen.getByPlaceholderText('Archery'), { target: { value: 'archery' } })
     fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() =>
@@ -187,7 +187,7 @@ describe('ActivitiesScreen quick-add', () => {
     render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
     await waitFor(() => expect(screen.queryByText('0 activities')).not.toBeNull())
 
-    fireEvent.change(screen.getByPlaceholderText('Activity name (e.g. Archery)'), { target: { value: 'Archery' } })
+    fireEvent.change(screen.getByPlaceholderText('Archery'), { target: { value: 'Archery' } })
     fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'activities', 'new-activity-id'))
@@ -208,7 +208,7 @@ describe('ActivitiesScreen — delete all', () => {
     expect(window.confirm).not.toHaveBeenCalled()
     expect(localClient.deleteEntity).not.toHaveBeenCalled()
     await waitFor(() => expect(screen.queryByText('Delete all activities?')).not.toBeNull())
-    expect(screen.queryByText('They can be restored from Trash.')).not.toBeNull()
+    expect(screen.queryByText('Recoverable from Trash.')).not.toBeNull()
 
     fireEvent.click(screen.getByText('Delete All Activities'))
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'activities', 'a1'))

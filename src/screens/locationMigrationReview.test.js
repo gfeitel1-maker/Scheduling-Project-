@@ -6,7 +6,6 @@ import {
   defaultWinner,
   capacityDisagreementCopy,
   wasUnlimitedCopy,
-  variantList,
 } from './locationMigrationReview'
 
 const CAMP_ID = 'camp-1'
@@ -144,15 +143,5 @@ describe('wasUnlimitedCopy', () => {
     expect(wasUnlimitedCopy({ seededCapacity: 1 })).toBe(
       'had no limit set and is now 1 group at a time. That may change a generated week or two — take a look before you regenerate.'
     )
-  })
-})
-
-describe('variantList', () => {
-  it('joins two names with "and"', () => {
-    expect(variantList(['Pool', 'pool'])).toBe('“Pool” and “pool”')
-  })
-
-  it('joins three names with commas and a final "and"', () => {
-    expect(variantList(['Gym', 'gym', 'GYM'])).toBe('“Gym”, “gym” and “GYM”')
   })
 })

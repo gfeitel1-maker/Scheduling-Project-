@@ -27,7 +27,6 @@ import {
   defaultWinner,
   capacityDisagreementCopy,
   wasUnlimitedCopy,
-  variantList,
 } from './locationMigrationReview'
 import { duplicateSiblingsById } from './locationDuplicates.js'
 import { useLatestTimeout } from '../hooks/useLatestTimeout'
@@ -86,15 +85,9 @@ function NearDuplicateGate({ group, remaining, onMerge, onKeepSeparate, busy, er
       <div style={{ ...gateStyles.card, ...enter }}>
         <div style={gateStyles.top}>
           <div style={gateStyles.eyebrow}>
-            Before you start
             <span style={gateStyles.prog}>{remaining} location{remaining === 1 ? '' : 's'} left to review</span>
           </div>
-          <div style={gateStyles.title}>These look like the same location</div>
-          <p style={gateStyles.lede}>
-            Your old schedule used {variantList(group.variants)}. Shoresh kept them separate so it wouldn’t change
-            your data without asking — but that splits how many groups fit. Merge them into one location, or say
-            they’re genuinely different. The activities from both locations will move onto the name you keep.
-          </p>
+          <div style={gateStyles.title}>Same location?</div>
         </div>
         <div style={gateStyles.variants}>
           {group.variantRows.map((v) => (
@@ -117,8 +110,7 @@ function NearDuplicateGate({ group, remaining, onMerge, onKeepSeparate, busy, er
           ))}
         </div>
         <div style={gateStyles.capRow}>
-          Room for <CapacityStepper value={capacity} onChange={setCapacity} disabled={busy} /> groups at once after
-          merging.
+          Groups at once: <CapacityStepper value={capacity} onChange={setCapacity} disabled={busy} />
         </div>
         {error && <div style={gateStyles.error}>{error}</div>}
         <div style={gateStyles.actions}>
@@ -128,7 +120,7 @@ function NearDuplicateGate({ group, remaining, onMerge, onKeepSeparate, busy, er
             onClick={() => onMerge({ group, winner, capacity })}
             style={{ ...gateStyles.merge, ...(busy ? S.buttonDisabled : {}) }}
           >
-            {busy ? 'Merging…' : 'Merge into one location'}
+            {busy ? 'Merging…' : 'Merge'}
           </button>
           <button
             className="press-97"
@@ -136,7 +128,7 @@ function NearDuplicateGate({ group, remaining, onMerge, onKeepSeparate, busy, er
             onClick={() => onKeepSeparate(group)}
             style={{ ...gateStyles.keep, ...(busy ? S.buttonDisabled : {}) }}
           >
-            No — these are different locations
+            Keep separate
           </button>
           <div style={gateStyles.undo}>You can undo this. The merged location stays in Trash if you change your mind.</div>
         </div>
@@ -869,7 +861,6 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
                       <tr><td colSpan={weekId ? 6 : 5} style={S.emptyState}>
                         <div style={enter}>
                           <div style={S.emptyStateTitle}>No locations yet</div>
-                          <div style={S.emptyStateBody}>Add a location below to add your first one.</div>
                         </div>
                       </td></tr>
                     ) : locations.map((location) => (
@@ -904,7 +895,7 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
                         field here — an empty trailing cell keeps the columns aligned. */}
                     <InlineAddRow
                       fields={[
-                        { key: 'name', type: 'text', placeholder: 'e.g. Pool, Gym, Beit Midrash', required: true },
+                        { key: 'name', type: 'text', placeholder: 'Pool', required: true },
                         { key: 'capacity', type: 'number', default: 1, width: 90 },
                         { key: 'kind', type: 'select', default: '', options: [
                           { value: '', label: '— none —' },
@@ -942,7 +933,7 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
 
       <div style={{ marginTop: 12, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <button className="press-97" onClick={() => onNavigate('activities')} style={S.backBar}>← Back to Activities</button>
-        <button className="press-97" onClick={() => onNavigate('recurringevents')} style={S.btnPrimary}>Next: Recurring Events →</button>
+        <button className="press-97" onClick={() => onNavigate('recurringevents')} style={S.btnPrimary}>Recurring Events →</button>
       </div>
 
       {pendingDelete && (
@@ -956,7 +947,7 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
       {pendingDeleteAll && (
         <ConfirmDangerDialog
           title="Delete all locations?"
-          recovery="They can be restored from Trash."
+          recovery="Recoverable from Trash."
           confirmLabel="Delete All Locations"
           busy={deletingAll}
           onConfirm={confirmDeleteAll}
@@ -1052,7 +1043,6 @@ const gateStyles = {
   },
   prog: { marginLeft: 'auto', color: 'var(--text-secondary)' },
   title: { fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 19, margin: '12px 0 4px', letterSpacing: '-0.2px' },
-  lede: { fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.55, margin: 0 },
   variants: { padding: '16px 24px 4px', display: 'flex', flexDirection: 'column', gap: 10 },
   vrow: {
     display: 'flex',

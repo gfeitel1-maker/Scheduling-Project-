@@ -18,22 +18,26 @@ const repository = createSetupCrudRepository({ localClient })
 
 const FIXED_EVENT_MODELS = [
   { value: 'none',     label: 'None' },
-  { value: 'fixed',    label: 'Fixed' },
-  { value: 'floating', label: 'Floating — recurring events can move within the day (coming soon)' },
+  { value: 'fixed',    label: 'Fixed', isDefault: true },
 ]
 
 const CAPACITY_SOURCES = [
-  { value: 'groups_per_slot',  label: 'Groups per period' },
-  { value: 'camper_headcount', label: 'Camper headcount (coming soon)' },
+  { value: 'groups_per_slot',  label: 'Groups per period', isDefault: true },
 ]
+
+// 'floating' and 'camper_headcount' were offered as coming-soon options and may
+// still be saved on a program; they read as the default rather than blank.
+function knownValue(options, value) {
+  return options.some(o => o.value === value) ? value : options.find(o => o.isDefault).value
+}
 
 function CohortRow({ cohort, onSave, onDelete, duplicateSiblings }) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(cohort.name)
   const [weekStart, setWeekStart] = useState(cohort.session_week_start)
   const [weekEnd, setWeekEnd] = useState(cohort.session_week_end)
-  const [fixedEventModel, setFixedEventModel] = useState(cohort.fixed_event_model)
-  const [capacitySource, setCapacitySource] = useState(cohort.capacity_source)
+  const [fixedEventModel, setFixedEventModel] = useState(knownValue(FIXED_EVENT_MODELS, cohort.fixed_event_model))
+  const [capacitySource, setCapacitySource] = useState(knownValue(CAPACITY_SOURCES, cohort.capacity_source))
   const [sortOrder, setSortOrder] = useState(cohort.sort_order)
   const [saving, setSaving] = useState(false)
 
@@ -63,8 +67,8 @@ function CohortRow({ cohort, onSave, onDelete, duplicateSiblings }) {
     setName(cohort.name)
     setWeekStart(cohort.session_week_start)
     setWeekEnd(cohort.session_week_end)
-    setFixedEventModel(cohort.fixed_event_model)
-    setCapacitySource(cohort.capacity_source)
+    setFixedEventModel(knownValue(FIXED_EVENT_MODELS, cohort.fixed_event_model))
+    setCapacitySource(knownValue(CAPACITY_SOURCES, cohort.capacity_source))
     setSortOrder(cohort.sort_order)
     setEditing(false)
   }
@@ -121,10 +125,10 @@ function CohortRow({ cohort, onSave, onDelete, duplicateSiblings }) {
         {cohort.session_week_start}–{cohort.session_week_end}
       </td>
       <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>
-        {FIXED_EVENT_MODELS.find(o => o.value === cohort.fixed_event_model)?.label ?? '—'}
+        {FIXED_EVENT_MODELS.find(o => o.value === knownValue(FIXED_EVENT_MODELS, cohort.fixed_event_model)).label}
       </td>
       <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>
-        {CAPACITY_SOURCES.find(o => o.value === cohort.capacity_source)?.label ?? '—'}
+        {CAPACITY_SOURCES.find(o => o.value === knownValue(CAPACITY_SOURCES, cohort.capacity_source)).label}
       </td>
       <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{cohort.sort_order}</td>
       <td style={{ ...S.td, textAlign: 'right' }}>

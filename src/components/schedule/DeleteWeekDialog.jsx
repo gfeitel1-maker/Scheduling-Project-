@@ -52,18 +52,17 @@ export default function DeleteWeekDialog({ week, campId, localClient, repo, onCo
         if (result.error === 'has-elective-runs') {
           const names = (result.runs ?? []).map((r) => r.name || 'Untitled run')
           setDeleteError(
-            `This week can't be deleted while it has elective assignment runs: ${names.join(', ')}. ` +
-              'Delete those runs first — doing it here would destroy their rosters and imported preferences too.'
+            `Delete its elective runs first: ${names.join(', ')}.`
           )
           return
         }
-        setDeleteError('Week could not be deleted. Please try again, or restart the app if this keeps happening.')
+        setDeleteError("Couldn't delete the week.")
         return
       }
       onConfirm(week.id)
     } catch {
       setConfirming(false)
-      setDeleteError('Week could not be deleted. Please try again, or restart the app if this keeps happening.')
+      setDeleteError("Couldn't delete the week.")
     }
   }
 
@@ -91,9 +90,7 @@ export default function DeleteWeekDialog({ week, campId, localClient, repo, onCo
     clauses.push(`${snapshotCount} saved ${snapshotCount === 1 ? 'version' : 'versions'}`)
   }
 
-  const detailSentence = clauses.length > 0
-    ? `Week ${week.name} has ${joinClauses(clauses)}. Deleting it removes all of that permanently — this cannot be undone.`
-    : `Deleting it removes all of that permanently — this cannot be undone.`
+  const detailSentence = `Deletes ${joinClauses(clauses)}.`
 
   return (
     <div style={{ ...S.overlay, ...enterStyle }}>
@@ -107,7 +104,7 @@ export default function DeleteWeekDialog({ week, campId, localClient, repo, onCo
           </p>
         )}
         <p style={{ margin: '0 0 20px', fontSize: 14, fontWeight: 700, color: 'var(--danger)' }}>
-          There is no way to get this week back.
+          Can't be undone.
         </p>
         {deleteError && (
           <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--danger)', lineHeight: 1.5 }}>

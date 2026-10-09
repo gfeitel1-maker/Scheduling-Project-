@@ -123,7 +123,7 @@ describe('GroupsScreen', () => {
       )
     )
 
-    fireEvent.change(screen.getByPlaceholderText('Group name'), { target: { value: 'New Group' } })
+    fireEvent.change(screen.getByPlaceholderText('Bunk 1'), { target: { value: 'New Group' } })
     fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() => expect(screen.queryByText('New Group')).not.toBeNull())
@@ -264,7 +264,7 @@ describe('GroupsScreen', () => {
     expect(window.confirm).not.toHaveBeenCalled()
     expect(localClient.deleteEntity).not.toHaveBeenCalled()
     await waitFor(() => expect(screen.queryByText('Delete all groups?')).not.toBeNull())
-    expect(screen.queryByText('They can be restored from Trash.')).not.toBeNull()
+    expect(screen.queryByText('Recoverable from Trash.')).not.toBeNull()
 
     fireEvent.click(screen.getByText('Delete All Groups'))
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'groups', 'g1'))
@@ -339,7 +339,7 @@ describe('GroupsScreen', () => {
       return Promise.reject(new Error('disk failure'))
     })
 
-    fireEvent.change(screen.getByPlaceholderText('Group name'), { target: { value: 'New Group' } })
+    fireEvent.change(screen.getByPlaceholderText('Bunk 1'), { target: { value: 'New Group' } })
     fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() =>
@@ -359,7 +359,7 @@ describe('GroupsScreen', () => {
 
     localClient.write.mockRejectedValue(new Error('UNIQUE constraint failed: groups.camp_id, groups.name'))
 
-    fireEvent.change(screen.getByPlaceholderText('Group name'), { target: { value: 'Dup' } })
+    fireEvent.change(screen.getByPlaceholderText('Bunk 1'), { target: { value: 'Dup' } })
     fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() =>
