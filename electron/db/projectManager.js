@@ -92,15 +92,33 @@ function rotateBackups(backupDir, max) {
   while (files.length >= max) {
     const oldest = files.shift()
     try { fs.unlinkSync(oldest.fullPath) } catch { /* ignore — disk race */ }
+    try { fs.rmSync(oldest.fullPath.replace(/\.db$/, '.automerge'), { recursive: true, force: true }) } catch { /* ignore */ }
   }
+}
+
+// The Automerge document is the source of truth; the db is only its projection. Only the backed-up
+// camp's document is copied, never another camp's. Bytes are copied as-is, so a document encrypted
+// at rest stays encrypted. No document yet -> nothing to copy.
+function copyCampDocument(userDataPath, campId, destDir) {
+  const src = path.join(userDataPath, 'automerge', `${campId}.automerge`)
+  if (!fs.existsSync(src)) return
+  fs.mkdirSync(destDir, { recursive: true, mode: 0o700 })
+  const dest = path.join(destDir, path.basename(src))
+  fs.copyFileSync(src, dest)
+  try { fs.chmodSync(dest, 0o600) } catch { /* non-fatal on Windows */ }
 }
 
 /**
  * Write a dated backup of dbPath into {userData}/backups/.
  * Rotates to keep at most MAX_BACKUPS files.
- * Returns the backup file path.
+ * With campId, also copies that camp's Automerge document; a failure there is reported to
+ * onDocError and never fails the db backup. Returns the backup file path.
  */
-export function writeUserBackup(dbPath, userDataPath) {
+export function readCampIdSafely(db) {
+  try { return db.prepare('SELECT id FROM camps LIMIT 1').get()?.id } catch { return undefined }
+}
+
+export function writeUserBackup(dbPath, userDataPath, campId, onDocError) {
   const backupDir = path.join(userDataPath, BACKUP_DIR_NAME)
   if (!fs.existsSync(backupDir)) {
     fs.mkdirSync(backupDir, { recursive: true, mode: 0o700 })
@@ -111,6 +129,15 @@ export function writeUserBackup(dbPath, userDataPath) {
   fs.copyFileSync(dbPath, backupPath)
   // Restrict backup file permissions so it's not world-readable.
   try { fs.chmodSync(backupPath, 0o600) } catch { /* non-fatal on Windows */ }
+  if (campId) {
+    const docDir = backupPath.replace(/\.db$/, '.automerge')
+    try {
+      copyCampDocument(userDataPath, campId, docDir)
+    } catch (err) {
+      try { fs.rmSync(docDir, { recursive: true, force: true }) } catch { /* ignore */ }
+      onDocError?.(err)
+    }
+  }
   return backupPath
 }
 

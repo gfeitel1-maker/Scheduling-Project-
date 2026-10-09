@@ -85,6 +85,7 @@ import {
   readRecentProjects,
   addRecentProject,
   writeUserBackup,
+  readCampIdSafely,
   rotatePreResolveBackups,
 } from './db/projectManager.js'
 
@@ -1658,7 +1659,8 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     // Best-effort — backup failure must not block the operation itself.
     if (dbPath && handlersUserDataPath) {
       try {
-        writeUserBackup(dbPath, handlersUserDataPath)
+        try { flushAutomergeDoc() } catch (err) { console.error('backup: automerge flush failed (non-fatal):', err?.message ?? err) }
+        writeUserBackup(dbPath, handlersUserDataPath, readCampIdSafely(db), (err) => console.error('backup: camp document copy failed (non-fatal):', err?.message ?? err))
       } catch {
         /* snapshot failure is non-fatal */
       }
@@ -3520,9 +3522,11 @@ if (isElectronEntryPoint()) {
   let lastBackupPath = null
   ipcMain.handle('shoresh:backup-project', () => {
     try {
-      const backupPath = writeUserBackup(dbPath, userDataPath)
+      try { flushAutomergeDoc() } catch (err) { console.error('backup: automerge flush failed (non-fatal):', err?.message ?? err) }
+      let docBackupError
+      const backupPath = writeUserBackup(dbPath, userDataPath, readCampIdSafely(db), (err) => { docBackupError = err.message })
       lastBackupPath = backupPath
-      return { backupPath }
+      return docBackupError ? { backupPath, docBackupError } : { backupPath }
     } catch (err) {
       return { error: 'backup_failed', message: err.message }
     }
@@ -3579,7 +3583,8 @@ if (isElectronEntryPoint()) {
     try {
       // Back up current DB before overwriting.
       try {
-        writeUserBackup(dbPath, userDataPath)
+        try { flushAutomergeDoc() } catch (err) { console.error('backup: automerge flush failed (non-fatal):', err?.message ?? err) }
+        writeUserBackup(dbPath, userDataPath, readCampIdSafely(db), (err) => console.error('backup: camp document copy failed (non-fatal):', err?.message ?? err))
       } catch {
         /* non-fatal — proceed with restore */
       }

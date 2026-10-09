@@ -13,6 +13,7 @@ import {
   writePreMigrationBackup,
 } from './projectManager.js'
 import { openLocalDb, CURRENT_SCHEMA_VERSION, getSchemaVersion } from './localDb.js'
+import { readCampIdSafely } from './projectManager.js'
 
 let tmpDir
 
@@ -139,6 +140,71 @@ describe('writeUserBackup', () => {
   })
 })
 
+describe('writeUserBackup — camp document', () => {
+  const mkDoc = (name, bytes) => {
+    fs.mkdirSync(path.join(tmpDir, 'automerge'), { recursive: true })
+    fs.writeFileSync(path.join(tmpDir, 'automerge', name), bytes)
+  }
+
+  it('copies the camp document alongside the db with the same timestamp', () => {
+    const dbFile = path.join(tmpDir, 'shoresh.db')
+    fs.writeFileSync(dbFile, 'data')
+    mkDoc('camp1.automerge', Buffer.from([1, 2, 3]))
+    const backupPath = writeUserBackup(dbFile, tmpDir, 'camp1')
+    const docDir = backupPath.replace(/\.db$/, '.automerge')
+    const copy = path.join(docDir, 'camp1.automerge')
+    expect([...fs.readFileSync(copy)]).toEqual([1, 2, 3])
+    expect(fs.statSync(copy).mode & 0o777).toBe(0o600)
+    expect(fs.statSync(docDir).mode & 0o777).toBe(0o700)
+  })
+
+  it('rotation removes the doc copy together with its db', () => {
+    const dbFile = path.join(tmpDir, 'shoresh.db')
+    const backupDir = path.join(tmpDir, 'backups')
+    fs.mkdirSync(backupDir)
+    for (let i = 0; i < 10; i++) {
+      const base = path.join(backupDir, `shoresh-2024-01-${String(i + 1).padStart(2, '0')}`)
+      fs.writeFileSync(`${base}.db`, 'x')
+      fs.mkdirSync(`${base}.automerge`)
+      const mtime = new Date(2024, 0, i + 1)
+      fs.utimesSync(`${base}.db`, mtime, mtime)
+    }
+    fs.writeFileSync(dbFile, 'latest')
+    writeUserBackup(dbFile, tmpDir, 'camp1')
+    expect(fs.existsSync(path.join(backupDir, 'shoresh-2024-01-01.db'))).toBe(false)
+    expect(fs.existsSync(path.join(backupDir, 'shoresh-2024-01-01.automerge'))).toBe(false)
+    expect(fs.existsSync(path.join(backupDir, 'shoresh-2024-01-02.automerge'))).toBe(true)
+  })
+
+  it('a camp with no document yet still backs up the db', () => {
+    const dbFile = path.join(tmpDir, 'shoresh.db')
+    fs.writeFileSync(dbFile, 'data')
+    const backupPath = writeUserBackup(dbFile, tmpDir, 'camp1')
+    expect(fs.existsSync(backupPath)).toBe(true)
+    expect(fs.existsSync(backupPath.replace(/\.db$/, '.automerge'))).toBe(false)
+  })
+
+  it('copies only the backed-up camp document, never another camp\'s', () => {
+    const dbFile = path.join(tmpDir, 'shoresh.db')
+    fs.writeFileSync(dbFile, 'data')
+    mkDoc('camp1.automerge', Buffer.from([1]))
+    mkDoc('camp2.automerge', Buffer.from([2]))
+    const backupPath = writeUserBackup(dbFile, tmpDir, 'camp1')
+    expect(fs.readdirSync(backupPath.replace(/\.db$/, '.automerge'))).toEqual(['camp1.automerge'])
+  })
+
+  it('a doc copy failure keeps the db backup, removes the partial dir, and reports the failure', () => {
+    const dbFile = path.join(tmpDir, 'shoresh.db')
+    fs.writeFileSync(dbFile, 'data')
+    fs.mkdirSync(path.join(tmpDir, 'automerge', 'camp1.automerge'), { recursive: true })
+    const errors = []
+    const backupPath = writeUserBackup(dbFile, tmpDir, 'camp1', (e) => errors.push(e))
+    expect(fs.existsSync(backupPath)).toBe(true)
+    expect(fs.existsSync(backupPath.replace(/\.db$/, '.automerge'))).toBe(false)
+    expect(errors).toHaveLength(1)
+  })
+})
+
 // ---------------------------------------------------------------------------
 // writePreMigrationBackup
 // ---------------------------------------------------------------------------
@@ -198,5 +264,16 @@ describe('schema_too_new guard', () => {
 
     const baks = fs.readdirSync(tmpDir).filter(f => f.endsWith('.bak'))
     expect(baks.length).toBeGreaterThanOrEqual(1)
+  })
+})
+
+describe('readCampIdSafely', () => {
+  it('returns the camp id', () => {
+    const db = { prepare: () => ({ get: () => ({ id: 'c1' }) }) }
+    expect(readCampIdSafely(db)).toBe('c1')
+  })
+  it('returns undefined when the db throws, so the db backup is never skipped', () => {
+    const db = { prepare: () => { throw new Error('boom') } }
+    expect(readCampIdSafely(db)).toBeUndefined()
   })
 })

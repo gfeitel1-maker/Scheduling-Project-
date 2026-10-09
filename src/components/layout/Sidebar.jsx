@@ -447,7 +447,9 @@ export default function Sidebar({
               fontSize: 11, fontFamily: 'var(--font-mono)',
               color: backupStatus === 'ok'
                 ? 'var(--success, #22c55e)'
-                : backupStatus === 'error'
+                : backupStatus === 'caution'
+                  ? 'var(--accent)'
+                  : backupStatus === 'error'
                   ? 'var(--danger, #ef4444)'
                   : 'var(--text-secondary)',
               cursor: backupStatus === 'running' ? 'wait' : 'pointer',
@@ -456,6 +458,7 @@ export default function Sidebar({
           >
             {backupStatus === 'running' ? 'Backing up…'
               : backupStatus === 'ok' ? 'Backup saved'
+              : backupStatus === 'caution' ? 'Backup saved — camp document not included'
               : backupStatus === 'error' ? 'Backup failed'
               : 'Backup now'}
           </button>

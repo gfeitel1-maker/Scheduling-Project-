@@ -107,7 +107,7 @@ export function useSetupCounts(campId) {
     setBackupStatus('running')
     try {
       const result = await localClient.backupProject()
-      setBackupStatus(result?.error ? 'error' : 'ok')
+      setBackupStatus(result?.error ? 'error' : result?.docBackupError ? 'caution' : 'ok')
       if (!result?.error) setBackupRevealable(true)
     } catch {
       setBackupStatus('error')

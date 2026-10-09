@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { renderHook, waitFor } from '@testing-library/react'
+import { renderHook, waitFor, act } from '@testing-library/react'
 
 // T123 — the sidebar's counts must follow a write made on THIS device, not only
 // an op arriving from another one.
@@ -10,6 +10,7 @@ vi.mock('../localClient', () => {
     localClient: {
       __listeners: listeners,
       list: vi.fn(async () => []),
+      backupProject: vi.fn(async () => ({ backupPath: '/b' })),
       getCamp: vi.fn(async () => ({ name: 'Camp Kinneret' })),
       onOpApplied: (cb) => { listeners.opApplied.push(cb); return () => {} },
       onLocalWrite: (cb) => { listeners.localWrite.push(cb); return () => {} },
@@ -44,5 +45,18 @@ describe('useSetupCounts — refresh channels', () => {
     localClient.__listeners.localWrite.forEach((cb) => cb())
 
     await waitFor(() => expect(localClient.list.mock.calls.length).toBeGreaterThan(before))
+  })
+
+  it('reports a caution status when the backup saved but the camp document was not included', async () => {
+    const { result } = renderHook(() => useSetupCounts('camp-1'))
+    localClient.backupProject.mockResolvedValueOnce({ backupPath: '/b', docBackupError: 'disk full' })
+    await act(async () => { await result.current.handleBackupNow() })
+    expect(result.current.backupStatus).toBe('caution')
+  })
+
+  it('still reports ok for a clean backup reply', async () => {
+    const { result } = renderHook(() => useSetupCounts('camp-1'))
+    await act(async () => { await result.current.handleBackupNow() })
+    expect(result.current.backupStatus).toBe('ok')
   })
 })

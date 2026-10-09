@@ -279,9 +279,11 @@ This is a one-time copy. Later changes to your time blocks won't follow.
 2. Wait for **Backup saved**.
 3. Click **Show in Finder** to see the file.
 
-Backups go to `~/Library/Application Support/shoresh/backups/` on your Mac. Shoresh keeps the newest 10.
+Backups go to `~/Library/Application Support/shoresh/backups/` on your Mac. Shoresh keeps the newest 10. Each backup includes the camp document as well as the database.
 
-There is no restore button in the app. Your best protection is a second computer joined to the camp — it keeps a full copy all the time.
+If you see **Backup saved — camp document not included**, the database was backed up but the camp document could not be copied. Click **Backup now** again; if the message keeps appearing, do not rely on that backup alone.
+
+There is no restore button in the app yet. Restoring needs support from us (T352 is open for it). Your best protection is a second computer joined to the camp — it keeps a full copy all the time.
 
 ---
 
@@ -322,7 +324,7 @@ If it says **No camp answered that code**, check the code, check **Add a device*
 3. If both schedules are started, **Export which?** asks you to pick one. (It asks every time.)
 4. The file downloads with one sheet per day and an **All Groups** sheet.
 
-> TODO: there is no end-of-season purge via export/overwrite in the app today. For now, export your final schedule to keep a copy, then use [End of season](#11-end-of-season-clear-elective-choices) to clear elective choices.
+Before the season ends, export your final schedule to keep a copy (steps above). Then continue to [End of season](#11-end-of-season-clear-elective-choices).
 
 ---
 
@@ -335,3 +337,7 @@ If it says **No camp answered that code**, check the code, check **Add a device*
 5. Click **Clear Season**.
 
 This clears campers' choices and assignments only. Your elective sets and offerings stay.
+
+Campers themselves stay in the app — there is no way to remove a camper. Before you leave for the season, export a final copy (section 10) so you have everything in Excel.
+
+> **Careful:** **Re-import last year** (Settings gear) brings in camp *setup*, not campers. If your camp already has data and you choose **Replace them**, it clears your Age Divisions, Groups, Days, Time Blocks and Activities first.
