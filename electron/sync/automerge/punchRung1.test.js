@@ -95,8 +95,11 @@ describe('Rung 1 - remembered-candidate redial', () => {
     expect(row.remote_fingerprint).toBe(b.identity.fingerprint)
     expect(row.remote_ufrag).toBe(b.identity.iceUfrag)
     expect(row.remote_pwd).toBe(b.identity.icePwd)
-    expect(JSON.parse(row.candidates).length).toBeGreaterThan(0)
-    expect(a.established[0].localCandidates.length).toBeGreaterThan(0)
+    const stored = JSON.parse(row.candidates)
+    expect(stored).toHaveLength(1)
+    expect(stored[0].candidate).toMatch(/^candidate:/)
+    expect(a.established[0].candidates).toEqual(stored)
+    expect(a.established[0].localCandidates).toEqual([])
     expect(b.db.prepare('SELECT role FROM peer_punch_memory WHERE peer_id = ?').get('peer-a').role).toBe('answerer')
   })
 
