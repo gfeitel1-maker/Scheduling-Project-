@@ -943,7 +943,6 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
                   onBlur={e => e.currentTarget.style.background = ''}
                 >
                   <td style={{ ...S.td, fontWeight: 500 }}>
-                    <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'var(--anchor)', marginRight: 8 }} />
                     <span
                       role="button"
                       tabIndex={0}

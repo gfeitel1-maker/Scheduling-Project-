@@ -355,8 +355,8 @@ function Outcome({ title, body, actionLabel, onAction }) {
 function Spinner() {
   return (
     <div style={{
-      width: 18, height: 18, borderRadius: '50%',
-      border: '2.5px solid var(--border)', borderTopColor: 'var(--primary)',
+      width: 16, height: 16, borderRadius: '50%',
+      border: '2px solid var(--border)', borderTopColor: 'var(--primary)',
       animation: 'shoresh-spin 0.8s linear infinite',
     }}>
       <style>{'@keyframes shoresh-spin { to { transform: rotate(360deg); } }'}</style>

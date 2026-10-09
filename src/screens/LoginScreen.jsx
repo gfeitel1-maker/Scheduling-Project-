@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import { S, useEnterTransition } from '../styles/shared'
 import { WarningTriangleIcon, InfoIcon, ClockIcon } from '../components/icons'
 import treeArt from '../assets/brand/tree-full-wide-login.png'
-import { useLatestTimeout } from '../hooks/useLatestTimeout'
 
 function formatMMSS(ms) {
   const totalSec = Math.max(0, Math.ceil(ms / 1000))
@@ -15,8 +14,6 @@ export default function LoginScreen({ campName, onSubmit, notice }) {
   const [name, setName] = useState('')
   const [pin, setPin] = useState('')
   const [status, setStatus] = useState('default') // default | submitting | error | locked | connection-error
-  const [flash, setFlash] = useState(false)
-  const { start: startFlash } = useLatestTimeout()
   const [retryAt, setRetryAt] = useState(null)
   const [remainingMs, setRemainingMs] = useState(0)
   const pinRef = useRef(null)
@@ -62,8 +59,6 @@ export default function LoginScreen({ campName, onSubmit, notice }) {
     if (!result) {
       setPin('')
       setStatus('error')
-      setFlash(true)
-      startFlash(() => setFlash(false), 350)
       return
     }
     // success — parent swaps to Shell once its session state updates
@@ -76,7 +71,6 @@ export default function LoginScreen({ campName, onSubmit, notice }) {
   return (
     <div style={loginStyles.page}>
       <style>{
-        '@keyframes shoresh-pin-shake { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }' +
         '@media (max-width: 860px) { .shoresh-login-hero { display: none !important; } }'
       }</style>
 
@@ -153,9 +147,8 @@ export default function LoginScreen({ campName, onSubmit, notice }) {
                   key={i}
                   style={{
                     width: 14, height: 14, borderRadius: '50%',
-                    border: '1.5px solid var(--warning)',
-                    background: 'var(--warning)',
-                    animation: flash ? 'shoresh-pin-shake 0.35s' : 'none',
+                    border: '1.5px solid var(--primary)',
+                    background: 'var(--primary)',
                   }}
                 />
               ))}
