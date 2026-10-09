@@ -57,18 +57,23 @@ const ERASURE_COPY = {
   },
 }
 
+const DENIED_LOCAL_COPY = 'Denied on this device only — other devices are not told.'
 const JOINER_GONE_COPY = 'The device disconnected before approval — ask it to request again'
 
 export default function DeviceManagerScreen({ campId, role, deviceMode }) {
-  // T86, narrowed by T332 and T351: the "Add a device" window and the pending-request Approve/Deny
-  // buttons stay gated on `canManage` here, because a join hosted by a device without the setup
-  // device's signing key cannot finish (the joiner is given a token the network refuses; see
-  // electron/sync/automerge/clientHostedJoin.test.js). The denyDevice handler itself no longer
-  // refuses client-mode devices. `revokeDevice`/the admin-only Revoke and
+  // T86, narrowed by T332 and T351: only the "Add a device" window stays gated on `canManage`,
+  // because a join hosted by a device without the setup device's signing key cannot finish (the
+  // joiner is given a token the network refuses; see
+  // electron/sync/automerge/clientHostedJoin.test.js). Pending-request Approve/Deny follow the
+  // admin lift (`canDecide`); a deny writes only this device's local `devices` table, so its
+  // result says so. `revokeDevice`/the admin-only Revoke and
   // Confirm-removal actions below are NOT gated on it any more — their backend gate
   // (authorize()'s role check) has been mode-agnostic since T332's base change, so a client-mode
   // admin gets the identical affordance a host-mode admin does; see deriveDeviceRowState.js.
   const canManage = deviceMode !== 'client'
+  // Server-side, approve/deny need devices.approve (admin-only); hide the controls from staff on any device.
+  const canDecide = role === 'admin'
+  const [deniedNote, setDeniedNote] = useState(false)
   const [pending, setPending] = useState([])
   const [allDevices, setAllDevices] = useState([])
   // T322 S3b — per-peer erasure state for the purge-tombstone badge. Read-only,
@@ -144,6 +149,7 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
     setBusy((b) => ({ ...b, [deviceId]: true }))
     clearGone(deviceId)
     try {
+      setDeniedNote(false)
       const result = await localClient.approveDevice(deviceId)
       if (result?.authorized === false && result.reason === 'joiner_disconnected') {
         setGone((g) => ({ ...g, [deviceId]: true }))
@@ -161,6 +167,7 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
     clearGone(deviceId)
     try {
       await localClient.denyDevice(deviceId)
+      setDeniedNote(true)
       load()
     } catch (err) {
       setError(err?.message || 'Failed to deny device')
@@ -265,6 +272,7 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
 
       <section style={styles.section}>
         <h2 style={styles.sectionTitle}>Pending Pairing Requests</h2>
+        {deniedNote && <div><span style={styles.flagMuted}>{DENIED_LOCAL_COPY}</span></div>}
         {pending.length === 0 ? (
           <div style={styles.empty}>No pending pairing requests.</div>
         ) : (
@@ -282,7 +290,7 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
                   <td style={S.td}>{device.name || '—'}</td>
                   <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 11 }}>{device.id.slice(0, 8)}</td>
                   <td style={S.td}>
-                    {canManage ? (
+                    {canDecide ? (
                       <div style={styles.actions}>
                         <button className="press-97"
                           style={busy[device.id] ? { ...S.btnPrimary, ...S.buttonDisabled } : S.btnPrimary}
@@ -300,15 +308,6 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
                         </button>
                         {gone[device.id] && <span style={styles.flagMuted}>{JOINER_GONE_COPY}</span>}
                       </div>
-                    ) : role === 'admin' ? (
-                      // Tester finding (T332 fold-in, round 3): a client-mode admin has full,
-                      // unconditional Revoke/Confirm-removal in the table below, so a blanket
-                      // "View only from this device — use the main computer" here would
-                      // contradict that on the same screen. Pairing approval specifically IS
-                      // still setup-device-only in this UI (see canManage above), so this says
-                      // nothing rather than claim something false — never a message implying
-                      // this device can manage nothing.
-                      null
                     ) : (
                       <span style={styles.revokedLabel}>View only from this device</span>
                     )}

@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
 //
-// T86, narrowed by the T332 fold-in (Code Reviewer HIGH) — denyDevice still writes straight to
-// this device's local, never-synced `devices` table with no distributed backstop, and the
-// pending-pairing Approve/Deny controls + the "Add a device" listening window stay Host-only.
+// T86, narrowed by T332 and T351 — the "Add a device" listening window stays Host-only;
+// pending-pairing Approve/Deny show on any admin device, and a deny says it is this-device-only.
 // revokeDevice (and the Confirm-removal vote affordance) do NOT: their backend gate
 // (authorize()'s role check) has been mode-agnostic since T332's base change, so a Client admin
 // now gets the identical Revoke control a Host admin does.
@@ -68,28 +67,28 @@ describe('DeviceManagerScreen — write controls gated by device mode', () => {
     expect(screen.getByText('Revoke')).toBeTruthy()
   })
 
-  it('hides Approve/Deny for a pending pairing request on a Client, but shows Revoke for an authorized device', async () => {
+  it('shows Approve/Deny/Revoke on a non-founding (client-mode) admin device (T351)', async () => {
     localClient.listPendingPairingRequests.mockResolvedValue([pendingDevice()])
     localClient.listDevices.mockResolvedValue([authorizedDevice()])
 
     render(<DeviceManagerScreen campId="c1" role="admin" deviceMode="client" />)
 
-    // Read-only: the device/pairing status is still visible.
     expect(await screen.findByText('iPad')).toBeTruthy()
-    expect(screen.getByText('MacBook')).toBeTruthy()
-
-    // Pairing approval stays Host-only (denyDevice has no distributed backstop).
-    expect(screen.queryByText('Approve')).toBeNull()
-    expect(screen.queryByText('Deny')).toBeNull()
-
-    // T332 fold-in — Revoke no longer depends on deviceMode: a Client admin reaches the
-    // identical control a Host admin does, because the backend gate is role-only.
+    expect(screen.getByText('Approve')).toBeTruthy()
+    expect(screen.getByText('Deny')).toBeTruthy()
     expect(screen.getByText('Revoke')).toBeTruthy()
-
-    // Tester finding (round 3): a client-mode admin has full Revoke/Confirm-removal, so no
-    // "use the main computer" copy may appear ANYWHERE on this screen for them — it would
-    // contradict the working control right next to it.
     expect(screen.queryByText(/main computer/i)).toBeNull()
+  })
+
+  it('says plainly, inline, that a deny applies to this device only (T351)', async () => {
+    const user = userEvent.setup()
+    localClient.listPendingPairingRequests.mockResolvedValueOnce([pendingDevice()]).mockResolvedValue([])
+    localClient.denyDevice.mockResolvedValue({ deviceId: 'pending-1', denied: true })
+
+    render(<DeviceManagerScreen campId="c1" role="admin" deviceMode="client" />)
+    await user.click(await screen.findByText('Deny'))
+
+    expect(await screen.findByText('Denied on this device only — other devices are not told.')).toBeTruthy()
   })
 
   it('a Client STAFF (non-admin) still gets no Revoke control, and an accurate (non-misleading) note instead', async () => {
