@@ -176,10 +176,10 @@ same `stateAt(claimChange)` ancestor query T331 already uses, so it is merge-ord
    - **Quorum-only (host removed or lost):** the parent epoch's host device is **not a valid admin
      at the document's current heads** (full replay), i.e. it was removed by the existing T331 revoke
      (immediate for a non-admin target, majority of the **other** admins for an admin or founder).
-     Evaluated at heads, not at the claim's own causal point, deliberately: a claim made on a
-     device that had not yet synced the host's grant (a blind revoke, T333) must stop being
-     effective if the grant later arrives and the replay reclassifies the host as a valid admin.
-     Evaluating at the claim's own causal point would make a claim made in ignorance permanent.
+     Evaluated at heads, not at the claim's own causal point, deliberately: if a valid admin later
+     re-grants the removed host (section 8.3), the claim must stop being effective. A blind revoke made
+     without the host's grant never reaches this clause, because under the section 8.1 amendment that
+     vote does not count.
 5. The claimant is also still a valid admin at heads (a claimant revoked later leaves a host-less
    head; the next admin claims with `parent_epoch_id` = the revoked claimant's epoch, which clause 4
    satisfies).
@@ -261,6 +261,9 @@ key indefinitely, which breaks "revoked old host cannot issue."
 Devices learn it the way they learn who is revoked: from the **replayed authority log** carried by
 the already-authenticated sync. No new network surface, no new transport message, no discovery
 change (so T340 and the WAN ladder are untouched).
+**Pre-admission surface is unchanged:** no authority entry, epoch or key is ever sent to a peer that is
+not admitted; a denied peer receives only the existing typed denial (section 9). Authority entries
+reach a device only over an admitted, authenticated sync.
 
 - `authorityReplay.js` gains a pure `currentHostEpoch(ctx)` beside `currentAuthorityState`. It walks
   the chain from epoch 0: among the effective claims whose `parent_epoch_id` is the current epoch it
@@ -306,7 +309,7 @@ revoke a bad host. The loser's device sees it lost,
 | Artifact | Rule | Mechanism |
 |---|---|---|
 | `camp` / `device` tokens (24 h TTL) signed by the old key | **Rejected as soon as a device adopts the new epoch.** Validity is keyed to the epoch by construction: the verifier holds one key. | `verifySessionToken` unchanged; the column changed. |
-| Already-admitted **devices** | **Keep working, for non-admin devices only because of section 7.** Admin devices are admitted by `authority_cache`. Non-admin devices are admitted by the replicated `device_approval` record, **not** by the local `devices.authorized_at` (which only the approving host holds). Only the 24 h *token* lapses; the device re-logs-in against the new host. | `evaluateAuthenticate` / `evaluateLogin` consult the approval-derived status (section 7). Test 3. |
+| Already-admitted **devices** | **Keep working, for non-admin devices only because of section 7.** Admin devices are admitted by `authority_cache`. Non-admin devices are admitted by the replicated `device_approval` record, **not** by the local `devices.authorized_at` (which only the approving host holds). Only the 24 h *token* lapses; the device re-logs-in against the new host by identity-key login (section 7.1), with no host-held secret. | `evaluateAuthenticate` / `evaluateLogin` consult the approval-derived status (section 7). Test 3. |
 | **Pending join code / open Add-a-device window** on the old host | **Hygiene on an honest old host, not enforcement against a malicious one.** An honest old host closes its window on observing the next epoch. A malicious or island old host ignores that, so the real controls are elsewhere: its tokens fail verification on every current-epoch device, its device is revoked at Gate A/B, and any device it approves afterwards produces a `device_approval` entry that is void (section 7). A joiner paired through it reaches only its island and is not trusted by the camp. | `getJoinSecret` / `setJoinWindow` gate in `main.js` (honest-host hygiene only). |
 | `users.auth_sig`, tombstone signatures | Replaced by the successor's re-attestation (section 3). | `reattest` job. |
 | Anything the old host signs **after** the epoch changed | **Rejected** (wrong key); a changed credential from the old key is audited as a denied `users.credential_change` exactly as a forged one is today. | existing `recordAuditEvent` path. |
@@ -366,70 +369,219 @@ that needs the old host (impossible when it is lost), and no local column promot
 - `devices.authorized_at` remains the local, host-side record and idempotent re-delivery source; the
   approval record is what makes trust survive a host change.
 
-## 8. Two-device deadlock (T333) in scope: receive-only authority-entry channel, derived marker
+### 7.1 Login across epochs: bind to the device identity key, not a host-held secret (B1b)
+
+**The second defect in B1 (confirmed from code).** `evaluateLogin` (`electron/auth/connectionAuth.js`)
+requires a local `devices` row and compares `device_secret_identifier`, an HMAC secret minted by the
+approving host (`approveDevice` in `electron/main.js`) and re-delivered from the same row by
+`evaluatePairingRequest`. `devices` is not projected (no entity in `projector.js` / `campDocument.js`).
+So a client K approved by old host A has no row and no secret on new host B: `not_paired` /
+`bad_secret` regardless of `authority_cache`. Section 7's `approved` status alone does not let K log in.
+`evaluateAuthenticate` has the same dependency on a row (it self-inserts a pending one).
+
+**Decision: for authority-recorded devices, network login is bound to the libp2p peer id, which is the
+public identity of the device's `device_identity_key` and is authenticated by the Noise handshake
+before `evaluateLogin` runs.** No host-held secret is needed, so nothing has to carry across epochs.
+(Rejected alternative: a rebind-on-first-contact proof signed with the identity key. It adds a message
+and a challenge for the same guarantee Noise already gives; kept only as the fallback if the Noise
+peer id is unavailable on some transport, which it is not on libp2p.)
+
+- `device_approval` and `grant` already carry `target_peer_id`; for the identity path it becomes
+  **required for `device_approval`** (signed, inside the v3 canonical message). `approveDevice` takes it
+  from `devices.libp2p_peer_id`, which was bound at the Noise-authenticated pairing request. If the
+  peer id is not yet bound, `approveDevice` completes the legacy local approval but **surfaces** that the
+  device will not survive a succession (no silent success), and mints the record on the device's next
+  contact.
+- Replay resolves, per device, the effective peer id (`resolveAuthorityPeerIds` extended to the
+  `device_approval` kind, same causally-latest tie-break) and the projector writes it to a new nullable
+  `authority_cache.peer_id` column (derived, never synced; the `status` CHECK gains `'approved'`).
+- **`evaluateLogin`**: status `revoked` denies, unchanged. If status is `admin` or `approved`, a
+  `peerId` is presented, and `peerId === authority_cache.peer_id`, the device is **identity-bound**: skip
+  the `devices` row, the `trust.authorized` check and the secret comparison entirely, then run
+  `attemptLogin` (PIN/lockout, unchanged). Otherwise (no peer id recorded, no peer id presented, or a
+  different one) fall through to today's row-and-secret path, so same-host logins and pre-upgrade devices
+  behave as before. A mismatch is not a new code: it simply fails the legacy path with the existing
+  generic `not_paired` / `bad_secret`.
+- **`evaluateAuthenticate`**: same condition; for an identity-bound device it **skips the pending
+  `INSERT OR IGNORE INTO devices`** and skips `bindOrVerifyPeerIdentity` (equality with the signed peer
+  id is stronger than trust-on-first-use), still verifying the token and `verified.deviceId === device_id`.
+  Everything after (`persistAppliedTombstones`, which has a `devices` foreign key, see the build check)
+  must tolerate a missing row: the build either guards that insert for identity-bound devices or writes
+  the report row only when a `devices` row exists. Flagged as a seam, not assumed.
+- Why this is no weaker: the old secret was a bearer value that anyone holding the device's disk could
+  replay from another machine; the peer id requires the private identity key (already the T162 binding
+  rationale). A copied token or copied secret does not authenticate; a copied identity key was already
+  the accepted compromise (T162).
+- **Migration.** Schema: `authority_cache.peer_id` nullable plus the widened status CHECK (forward
+  migration, `electron/db/rollback/vNN_down.js`, `npm run schema:check`). Data: existing devices keep
+  working on the legacy path until the section 7 backfill writes their `device_approval` (which now
+  includes `target_peer_id`). A device whose peer id was never bound has no identity path and is
+  re-approved in person, the already-stated residual.
+- **Test (red first, real handlers, real sqlite):** K is approved by A; B is a different host that has
+  synced the authority log; assert `SELECT COUNT(*) FROM devices WHERE id = K` is **0** on B (and
+  `authorized_at` / `device_secret_identifier` absent), then K, presenting A's old peer-bound identity
+  over a real Noise connection, passes `evaluateAuthenticate` and `evaluateLogin` on B and syncs, still
+  with **no `devices` row for K afterwards**. Red against today's code: `not_paired`. Negative: the same
+  login from a different peer id, or after K is revoked, is denied with the existing generic reasons.
+
+### 7.2 Non-blocking items folded in
+
+- **`currentRevokedDeviceIds` and the projector's target set (re-approval after a non-admin revoke).**
+  Today both treat any device named by any entry as "ever targeted" and mark it `revoked` unless
+  granted (`projector.js` `everyTargetDeviceId`; `authorityReplay.js` `currentRevokedDeviceIds`, also
+  consumed by the rotating discovery tag). A `device_approval` target would therefore project as
+  `revoked`, and a non-admin re-approved after an earlier revoke would stay revoked forever. Change: the
+  target set is built only from `grant` / `revoke` kinds; `approved` is computed separately; a revoke is
+  superseded by an effective approval that is causally later (section 7), and `currentRevokedDeviceIds`
+  must exclude such a device so discovery does not treat it as revoked. Test: revoke a non-admin, then
+  re-approve it; it is `approved` in `authority_cache`, absent from `currentRevokedDeviceIds`, and admitted.
+- **Fail-safe de-trust cost, pinned.** An approval signed by an admin whose removal reached a device
+  before the approval did (or concurrent with it) is void, so devices approved by a not-yet-synced admin
+  need a current admin's re-approval. Deliberately fail-safe; test: approval by M concurrent with M's
+  removal is void, a causally earlier one is not, and the de-trusted device is re-admitted after
+  re-approval by a current admin.
+- **Capability.** `device_approval` is written only through `approveDevice`, which is `devices.approve`
+  (admin) and, after T351, available to an admin on any trusted non-revoked device, not only the setup
+  device. The mint is therefore admin-only and mode-agnostic; a staff-role write of the kind is
+  untrusted by the replay (signer must be a valid admin at the entry's causal point).
+
+## 8. Two-device deadlock (T333) in scope: amend T331 vote counting, no new channel
 
 Source: `docs/work/tickets/T333-two-device-revocation-recovery.md` and the "Known limitation (v1)"
-section plus Amendment 2026-10-03 of `docs/adr/2026-10-02-distributed-revocation-authority.md`. In a
-strict 2-device camp a **blind** revoke (the revoker has not synced the target's grant) projects the
-target `revoked`; Gate A then denies the only connection over which the correcting grant could
-arrive. Resolution here, which settles the T333 design (and amends that ADR, to be confirmed by
-Security and Red Hat as T333 requires):
+section plus Amendment 2026-10-03 of `docs/adr/2026-10-02-distributed-revocation-authority.md`.
 
-1. **The marker is derived, never stored.** On every projection the replay computes, per `revoked`
-   target, `revocation_basis` in `authority_cache`: `corroborated` iff some effective revoke entry
-   for the target has the target's genesis/grant entry as a causal ancestor (the revoker knew what
-   it was removing); otherwise `uncorroborated`. Because it is recomputed from the document each
-   time, **it has no lifecycle to get wrong**: when the grant arrives the replay reclassifies the
-   target (to `admin`) or, when a genuine quorum arrived, to `revoked`/`corroborated`. There is no
-   sticky flag a later quorum could leave stale.
-2. **Gate A consults the basis, but only to open a receive-only channel, never admission.** For a
-   `revoked`/`uncorroborated` peer, Gate A still denies admission and sync (unchanged), but replies
-   with `uncorroborated_revoke` and accepts one narrow inbound message type on the existing
-   authority-gated protocol (`electron/sync/automerge/authGate.js`): `authority_entries_push`, an array of raw
-   signed authority-log entries. The receiver sends nothing back beyond the typed reply, verifies each
-   entry with the same `createVerifiedEntryTrust` signature check the projector uses (a document or
-   peer writer without a valid admin signature changes nothing), ingests the valid ones idempotently
-   (by entry `id`), caps count and bytes, rate-limits per peer, and audits.
-   Whole-document Automerge sync is **not** opened to the revoked peer, so its edits do not merge.
-3. **Admission comes only from the replay.** If the pushed grant makes the replay say `admin`, normal
-   admission resumes (that is the self-heal). **No-readmission guarantee:** the channel itself
-   never admits anything and the marker is derived, so a device genuinely quorum-revoked (including
-   the blind-revoke-then-genuine-quorum sequence: first revoke uncorroborated, later quorum entries
-   whose causal ancestry contains the grant) is `revoked`/`corroborated`, the channel is closed to it,
-   and nothing a revoked peer pushes can reverse a quorum (replay is the sole authority).
-4. **Composition with succession in a 2-device camp.** A and B; B blind-revokes the host A (B never
-   synced A's grant), then claims (clause 4 holds at B's heads). If A is genuinely gone, nothing
-   else happens: B is host. If A is merely lagging, A pushes its grant over the channel; the replay
-   at B's heads reclassifies A as a valid admin, B's quorum-only claim is no longer effective
-   (clause 4 is evaluated at heads), the epoch reverts, B shreds its staged key, A is host again and
-   its re-attestation re-runs (keyed on the epoch id). If A and B had instead completed a genuine
-   quorum revoke, A stays `revoked`/`corroborated` and cannot return.
-5. Cost accepted: a genuinely revoked non-admin device is `uncorroborated` by definition (no grant
-   exists to be an ancestor), so it also keeps the receive-only push channel. It can only submit
-   signed entries it holds, nothing is sent to it, and everything is capped and audited.
+**What the first draft got wrong (confirmed from `stateAt` in `electron/automerge/authorityReplay.js`).**
+`stateAt` drops a revoke vote as stale only when the target's grant has the vote as a causal
+ancestor (the vote predates a re-grant). A vote that is **concurrent** with the grant (the revoker had
+not seen it: a blind vote) stands, and `quorumThreshold(2) = 1`, so at N=2 one blind vote does remove
+the target when the grant arrives. The first draft's self-heal ("the replay reclassifies the target to
+`admin` when the grant arrives") was therefore false, and the receive-only channel built on it only
+let a locked-out peer deliver a grant that the replay would still not honour. That channel is
+**dropped** (section 9, Decision 3 below).
 
-## 9. Partitioned (island) devices (B2)
+### 8.1 Decision: a revoke vote counts only if it is causally after every grant of its target
+
+**This is a deliberate amendment to `docs/adr/2026-10-02-distributed-revocation-authority.md`**
+(its vote-counting rule and its "Known limitation (v1)" section; that ADR gets an amendment note in
+the build PR and T333 closes against this one). Rule, in `stateAt`'s vote-staleness step:
+
+> A revoke vote V against target T counts toward quorum at an evaluated point iff **every valid
+> `grant` entry for T present among that point's causal ancestors is itself a causal ancestor of V**
+> (the revoker had seen everything that made T an admin). `genesis` is axiomatic and excluded, exactly
+> as the existing loop already skips it, so a vote against the founder always counts when its signer is
+> valid. A vote against a target that has no grant in the evaluated ancestors (an ordinary non-admin
+> device) is unchanged: it counts.
+
+This strictly subsumes today's staleness rule (a grant that has V as an ancestor cannot itself be an
+ancestor of V), so every vote the old rule dropped is still dropped. The only new effect is that a vote
+**concurrent with** a grant is dropped too. It is still a pure function of the ancestor set (the same
+primitive `isValidSignerAt` and the old rule use), so it stays merge-order independent.
+
+**Consequences, stated plainly.**
+
+- At N=2 a blind revoke no longer removes the target when its grant is known to the replay: the
+  target stays `admin`, Gate A never denies it, and nothing needs to "heal". No `revocation_basis`
+  marker, no `uncorroborated_revoke` reply, no `authority_entries_push` channel exist in this design.
+- **The founder cannot be blind-revoked.** Every device holds genesis, so a revoke of the epoch-0
+  founder is always a counted vote. A 2-device camp whose host is the founder A therefore has no
+  blind case at all: B revoking A is a deliberate, effective act (threshold 1), and A stays removed.
+  Likewise A revoking B is never blind, because A authored B's grant. In a strict 2-device camp each
+  admin holds the other's grant by construction (admin status is derived from it), so the T333 lockout
+  as ticketed cannot be reached; the amendment closes the residual window in which a grant is in
+  flight.
+- **Residual (said plainly, not hidden).** A revoker that has never seen a target's grant sees "a
+  device with no grant" and the vote counts under the unchanged non-admin rule, so Gate A on that
+  revoker denies it until the grant arrives. In a 3+ device camp the grant arrives via any third peer
+  (unchanged, already self-healing). In a strict 2-device camp it cannot occur (above). It can still
+  occur in a camp that *was* larger: admin T was granted by a since-removed third admin C, and the
+  remaining admin has not synced that grant while T is its only reachable peer. That is not a 2-device
+  camp by history and is **out of T333's stated scope**; it is recorded as a residual risk and stays an
+  accepted limitation, not claimed fixed.
+- **Re-grant power is not widened.** A valid admin re-granting T now voids earlier *concurrent* votes as
+  well as earlier causally-preceding ones. An admin who saw the votes could already void them by granting
+  after them; granting is an existing admin power, so no new capability arises.
+
+### 8.2 No-readmission argument (and why it holds)
+
+Claim: a device that has been genuinely quorum-revoked is never readmitted by a blind vote, by delivery
+order, or by any peer-pushed message.
+
+1. Admission is decided only by the replay over the document. There is no marker, no sticky flag and no
+   channel that admits anything, so there is no lifecycle for a later quorum to leave stale.
+2. A blind vote V_b (concurrent with grant G of T) never counts, at any evaluated point that contains G.
+   So the sequence "blind revoke, then genuine quorum" is decided by the genuine votes alone: the
+   genuine voters each have G as an ancestor, count, and remove T once they reach
+   `quorumThreshold(grantedSet.size)`. V_b contributes nothing before or after, so its presence cannot
+   reduce or delay that outcome in any merge order.
+3. Counting is per distinct signer over a pure ancestor-set function, and removals only lower other
+   targets' thresholds (the existing monotone fixed point). Nothing in the amendment adds a path that
+   adds an admin; the only way T returns is a new `grant` by a valid admin, which is the existing,
+   authorized readmission act.
+
+If a reviewer finds a sequence that violates point 2 the amendment fails; the red-first tests below are
+the deterministic evidence, not this argument. **Confidence in the amendment: 78%** (the rule is small
+and subsumes the old one; the risk is an interaction with the existing round-4 multi-vote handling and
+tie-break paths that only the permuted-merge-order test will expose).
+
+### 8.3 Composition with succession (replaces the first draft's 8.4)
+
+`host_claim` clause 4 (section 2) is evaluated at heads against the amended replay.
+
+- **Founder host A, 2 devices.** B's revoke of A counts (genesis), clause 4 holds, B claims and is host.
+  If A was merely lagging, that was still a deliberate revoke by a human on B; A is out. There is no
+  self-heal and none is claimed. (Reverses the first draft's "A merely lagging reverts the epoch".)
+- **Non-founder host H, blind revoke.** B revokes H without having H's grant: the vote does not count,
+  H stays a valid admin at B's heads, clause 4 fails, and B cannot claim (`host_still_valid`). When H's
+  grant syncs nothing changes. There is nothing to revert.
+- **Epoch revert is now only the authorized re-grant case.** A claim that was effective can stop being
+  effective only if a valid admin later re-grants the removed host (the authorized readmission act) or
+  the quorum membership changes at heads. Then the epoch reverts, the claimant shreds its staged key
+  and re-attestation re-runs, as before (section 3, `reattested_epoch_id`). A **withheld-then-released**
+  signed entry is the Red Hat concern here: a valid admin M holds a signed re-grant of H, lets B claim,
+  then releases it and forces a revert. Bound: M is a valid admin and could instead claim host itself or
+  quorum-revoke B, so it gains no new power; the cost is one revert plus one re-attestation, and the
+  outcome is deterministic and convergent (identical on every peer from the document). Test 12c pins
+  convergence and that no token or credential signed during the window is accepted after the revert.
+
+### 8.4 What is removed from the first draft
+
+`revocation_basis` column, `uncorroborated_revoke` Gate A reply, `authority_entries_push` message type,
+its caps and rate limit, and test 10/11 as written. Nothing here adds a pre-admission surface.
+
+## 9. Partitioned (island) devices (B2) and the pre-admission surface
 
 **The bound, stated plainly.** Revoking a host cuts off its ability to issue **only on devices that
 have adopted the new epoch**. A revoked host on a LAN island with some of the camp's devices keeps a
 working camp there: its `isCurrentHost` stays true locally, it never sees `host_claim`, and it can
 mint tokens that island devices accept. Nothing in this design can reach a device that is not
-reachable. Peers on the current epoch deny the island host (its tokens do not verify against the new
-key, and its device is `revoked` at Gate A/B). What the design guarantees is the **path back**:
+reachable. What the design guarantees is the **path back**, with no new disclosure to anyone who is
+denied:
 
-- **Denial path when an island device later meets a current peer.** The current peer rejects the
-  island device's old-epoch token with a typed code `stale_host_epoch` (distinct from
-  `invalid_token`) and, to peers whose Noise peer id is bound to a known device row, returns the
-  signed authority entries (a small, bounded set). The island device verifies them with the same
-  signature check, ingests them, and its replay derives the new epoch. It then: drops its stale
-  `isCurrentHost`, closes any join window, deletes a superseded host key if it held one, and (as a
-  client) re-logs in to the new host. Heal requires no trust in the denier, only in the signatures.
-- **A revoked island host that meets a current peer** is denied by Gate A (revoked); with an
-  `uncorroborated` basis it falls under section 8's receive-only channel; with a corroborated one it
-  gets only the typed denial and the entries, so it learns it was removed.
+- **Pre-admission surface (makes section 4's statement true).** Gate A and Gate B reply to a denied
+  peer with the **existing typed denial only** (`4401 invalid_token`, `4403 device_not_authorized`,
+  `4404 device_revoked_by_authority`, `4405 peer_identity_mismatch`). Nothing else is sent: **no
+  authority-log entry, no epoch, no host key, no new code.** In particular there is **no
+  `stale_host_epoch` code**: an island device's old-epoch token fails `verifySessionToken` and returns
+  the same `4401 invalid_token` as any bad token, so the response distinguishes nothing about epochs
+  or about whether the host changed. A genuinely revoked peer gets the existing `4404` and nothing
+  else. No inbound push message is accepted from a denied peer either; the only messages a
+  not-yet-admitted peer can send are the ones that already exist (authenticate, login, pairing
+  request), each already rate-limited in `authGate.js`.
+- **Island devices that are not revoked** (clients and admins) learn the new epoch **after
+  admission**, in two ordinary steps: (1) their stale token is rejected `4401`, which already triggers
+  re-login (`onAuthRejected`; the build verifies this assumption, risk list); (2) they re-log in to the
+  new host by the **identity-key login of section 7.1** (no shared secret needed), are admitted, and
+  receive the authority log through the normal authenticated sync. Their projector then derives the new
+  epoch and moves `camps.signing_public_key` to the verified chain head. The login reply's `camp` block
+  is **ignored for key adoption** by an already-paired device (only first pairing trusts it, section 4);
+  the verified chain head is the only source of the key on a device that already has one.
+- **A revoked island host that meets a current peer** gets `4404` and nothing more. It learns it was
+  removed from that denial plus, if it later meets any admitted device, from ordinary sync it is no
+  longer admitted to; an honest one closes its join window and drops `isCurrentHost` on the first
+  projection that shows a later epoch (section 4), which needs no outbound disclosure.
 - **Island-approved devices.** Devices the island host approved after its removal are void by the
-  section 7 effectiveness rule once the logs merge; they are denied on the current epoch until a
-  current admin re-approves them.
+  section 7 effectiveness rule once the logs merge; they are denied on the current epoch until a current
+  admin re-approves them.
 - **Island-written data.** Edits made by a revoked island host do not merge (Gate A), by design.
   Island clients that are not revoked re-login to the new host and merge normally.
 
@@ -460,8 +612,15 @@ key, and its device is `revoked` at Gate A/B). What the design guarantees is the
     success and failure feedback; reduced motion is never no feedback). Failures surface; no banners
     (use flags).
 11. `electron/auth/connectionAuth.js`, `electron/sync/automerge/authGate.js`: `approved` status in
-    `evaluateAuthenticate` / `evaluateLogin`; `stale_host_epoch` and `uncorroborated_revoke` replies;
-    `authority_entries_push` handler.
+    `evaluateAuthenticate` / `evaluateLogin`: identity-bound path (section 7.1: skip the `devices` row and
+    secret when the Noise peer id equals `authority_cache.peer_id`; skip the pending-row insert and the TOFU
+    bind; guard the `persistAppliedTombstones` foreign key). **No new reply, code or message type** (section 9).
+11a. `electron/automerge/authorityReplay.js` `stateAt`: the T331 vote-counting amendment of section 8.1
+    (a vote counts only if every valid grant of its target in the evaluated ancestors is an ancestor of
+    it); `docs/adr/2026-10-02-distributed-revocation-authority.md` gets an amendment note.
+11b. `electron/automerge/projector.js` / `authorityReplay.js` `currentRevokedDeviceIds`: target set from
+    `grant` / `revoke` only, `approved` computed separately (section 7.2); `authority_cache` gains
+    `peer_id` and the `approved` status (migration + rollback + `schema:check`).
 12. `electron/main.js` `approveDevice`: mint `device_approval`; backfill job; PIN-reauth
     (`attemptLogin`) in `acceptHostRole` / `releaseHostTo`; LOST-path delay and confirm.
 13. `SECURITY.md` ("Ed25519 Host-only token minting") and `docs/current/KEY_RECOVERY_STORY.md` ("Host
@@ -498,11 +657,15 @@ nodes, real sqlite, no mocked `authorize()`). Each is written and seen failing f
    alone cannot claim while A is valid; B and C quorum-revoke A; B claims after the delay and typed
    confirm; effective. **N=2: the single other admin revokes (threshold 1) and claims and ends as host
    holding the keys**, for both "A revoked" and "A lost".
-3. **Non-admin client approved only by the old host is admitted by the new host.** Client K is a
-   non-admin approved by A only (A writes `device_approval`); K's `devices.authorized_at` on the new
-   host's database is NULL (assert it, so the pass cannot come from the local column). After B becomes
-   host, K re-logs in to B and is admitted and syncs. Red first against today's code: K is denied
-   `device_not_authorized`. Also: an approval by A concurrent with A's removal is void.
+3. **Non-admin client approved only by the old host is admitted by the new host with no `devices` row
+   (section 7.1).** K is a non-admin approved by A only (A writes `device_approval` with
+   `target_peer_id`). On B assert `SELECT COUNT(*) FROM devices WHERE id = K` is 0 before **and after** K
+   authenticates and logs in over a real Noise connection, so the pass cannot come from any local
+   column or secret. K is admitted and syncs. Red first against today's code: `not_paired`. Negatives:
+   a different peer id, and K after revocation, get the existing generic denials. Also: an approval by A
+   concurrent with A's removal is void; a non-admin revoked and then re-approved is `approved`, absent
+   from `currentRevokedDeviceIds`, and admitted; a device approved by a not-yet-synced admin is
+   de-trusted until a current admin re-approves it.
 4. **Old tokens rejected, admitted devices keep trust.** A client with an A-signed `camp` token gets
    `invalid_token` after adopting the epoch, re-logs in to B and syncs; its approval status and
    `authority_cache` are unchanged.
@@ -516,20 +679,31 @@ nodes, real sqlite, no mocked `authorize()`). Each is written and seen failing f
 8. **Stale, wrong-parent, non-admin, swapped-key claims** are each ignored; a claim without the PIN
    re-auth, or in the LOST path without delay and confirm, writes nothing.
 9. **Partition / island.** A (revoked) and client K on an island, B and C on the current epoch. While
-   partitioned A keeps issuing (assert the bound). On reconnect: K's old token gets `stale_host_epoch`
-   plus the entries, K verifies them, flips to the new epoch, closes any window, re-logs in; A is
-   denied, learns its removal, `isCurrentHost` becomes false, host-only handlers return
-   `not_current_host`; a device A approved on the island is denied until re-approved.
-10. **T333 recovery, strict 2-device camp.** B blind-revokes A (A's grant unsynced). A connects: Gate A
-    replies `uncorroborated_revoke`, accepts only `authority_entries_push`, A pushes its grant, B's
-    replay reclassifies A as `admin`, admission resumes; A's edits did not merge before that.
-11. **T333 no readmission.** Blind-revoke-then-genuine-quorum: B blind-revokes A, then a genuine quorum
-    revoke syncs in; A is `revoked`/`corroborated`, the push channel is closed, and A is never
-    readmitted by any push, replay order, or stale marker (permuted merge orders). Security and Red Hat
-    re-confirm this one, as T333 requires.
-12. **Composition, 2-device.** B blind-revokes host A and claims; A's grant arrives; the claim stops
-    being effective at heads, the epoch reverts, B's staged key is shredded, A re-attests and is host;
-    and the same sequence with a genuine quorum leaves B host and A out.
+   partitioned A keeps issuing (assert the bound). On reconnect: K's old token gets plain `4401
+   invalid_token` (assert the reply is byte-identical to a tampered token's: no epoch oracle); K re-logs
+   in to B by identity-key login, is admitted, syncs, derives the new epoch from the authority log and
+   closes any window. A is denied `4404`; `isCurrentHost` becomes false after its projection shows the
+   later epoch and host-only handlers return `not_current_host`; a device A approved on the island is
+   denied until re-approved.
+9a. **Pre-admission negative (blocker 3).** A corroborated-revoked peer and a never-approved peer each
+    connect to B: the only bytes B sends are the existing typed denial. Assert no authority-log entry,
+    epoch, key or new code is present in anything B sends, and that an `authority_entries_push`-style
+    message from a denied peer is not parsed (unknown type, no state change).
+10. **T333 blind vote does not count (amendment, red first).** Replay unit test on `stateAt`: admin T
+    granted by G; admin V casts a revoke concurrent with G (V has not seen G); N=2 so threshold 1.
+    Today T is removed (red); after the amendment T stays `admin` and Gate A admits it. Also: the
+    founder cannot be blind-revoked (a vote against the founder counts).
+11. **T333 no readmission (Security and Red Hat re-confirm, as T333 requires).** Blind revoke, then a
+    genuine quorum revoke (voters have G as ancestor): T is removed, in **every permutation** of merge
+    order and delivery, and never readmitted by any later delivery of the blind vote, of G, or of any
+    peer message. A genuine causally-later revoke still removes. A valid admin's later re-grant is the
+    only way back.
+12. **Composition, 2-device.** (a) Founder host A, B revokes A: B claims and is host, A out, no revert.
+    (b) Non-founder host H blind-revoked by B: the vote does not count, clause 4 fails, `host_claim` is
+    refused `host_still_valid`. (c) Withheld-then-released: B claims after a genuine quorum removal of
+    H; a valid admin M then releases a pre-signed re-grant of H; the epoch reverts, B's staged key is
+    shredded, H re-attests, identical on every peer in both orders, and nothing signed in the window is
+    accepted afterwards.
 13. **Re-attestation** is audited as one privileged bulk event, is resumable after a kill, and a fresh
     joiner projects every user.
 14. **Epoch 0 unchanged and purge/rebuild.** A camp with no claims behaves exactly as today (existing
@@ -543,12 +717,18 @@ nodes, real sqlite, no mocked `authorize()`). Each is written and seen failing f
   approvals are specified and tested.
 - **Existing camps whose host is lost before running the upgraded build** have no `device_approval`
   records for non-admin devices; those devices are re-approved in person.
-- **Receive-only channel** is a new pre-admission surface (capped, rate-limited, signature-verified,
-  audited); a revoked non-admin device keeps it. Needs Security sign-off.
+- **T333 residual.** A revoker that has never seen a target's grant treats the target as a non-admin and
+  denies it until the grant arrives (section 8.1). Cannot occur in a strict 2-device camp by history;
+  can occur if the grant came from a since-removed third admin and the target is the only reachable
+  peer. Accepted limitation, not claimed fixed.
+- **Vote-counting amendment** changes T331 semantics (a concurrent re-grant now voids concurrent
+  votes); no new admin power, but Security and Red Hat must re-confirm no-readmission (test 11).
+- **Identity-bound login** depends on `target_peer_id` being bound at approval; devices without it stay on
+  the legacy secret path and are re-approved in person after a succession.
 - **Claim by a malicious admin** gains credential and join power until the quorum revokes it; same
   exposure T331 already accepts. The tie-break is grindable and is not a control (section 4).
 - **Claimed key the claimant does not hold:** availability fault; repair is revoke-and-reclaim.
-- **Epoch revert** (section 8.4) re-runs re-attestation and discards a staged key; brief window where
+- **Epoch revert** (section 8.3, authorized re-grant only) re-runs re-attestation and discards a staged key; brief window where
   two devices each believe they are host is bounded by sync.
 - **24 h token turnover:** every device re-signs in once; test 4 fails if `onAuthRejected` does not
   already behave that way (assumption, not verified here).
@@ -560,17 +740,18 @@ nodes, real sqlite, no mocked `authorize()`). Each is written and seen failing f
 **Reused unchanged:** the authority log and its signing key (`device_identity_key`), the causal replay
 and tie-break primitives, the quorum, `authority_cache`, the three verifiers and the
 `camps.signing_public_key` column they read, token and credential formats, join proof, LAN pairing.
-**New:** two entry kinds, one replay function, one derived single-row table, one key-staging and
+**New:** two entry kinds (plus `device_approval`), one vote-counting amendment, an identity-bound login branch, one replay function, one derived single-row table, one key-staging and
 re-attestation pass, `isCurrentHost`, and three small IPCs.
 
 ## Confidence
 
 Re-mint with log-authorized claim: **80%**. Replicated `device_approval` record for B1: **80%**
-(directly fixes the confirmed local-column defect; the backfill residual is real). Receive-only
-authority-entry channel for T333 with a derived marker: **70%** (new pre-admission surface; the
-no-readmission argument rests on admission being decided only by replay, to be re-confirmed red-first
-by Security and Red Hat). Evidence: the code facts cited above; deterministic evidence is the tests,
-not this document.
+(directly fixes the confirmed local-column defect; the backfill residual is real). T333 vote-counting
+amendment with no new channel: **78%** (small rule that subsumes the old one; no-readmission argument in
+section 8.2 rests on admission being decided only by the replay, to be re-confirmed red-first by Security
+and Red Hat). Identity-key login across epochs (B1b): **80%** (reuses the Noise-authenticated peer id and
+the T162 binding; the `persistAppliedTombstones` foreign-key seam is the unverified part). Evidence: the
+code facts cited above; deterministic evidence is the tests, not this document.
 
 ## Open questions
 
