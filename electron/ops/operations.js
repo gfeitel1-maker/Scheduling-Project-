@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { Buffer } from 'node:buffer'
 import { PROJECTIONS, applyProjection, sanitizeMutuallyExclusiveRow } from './projections.js'
 import { getStmt } from './stmtCache.js'
+import { exceedsMaxFieldLength } from './fieldLengthCap.js'
 import { recordDocumentWriteFailure } from './documentWriteFailures.js'
 import { DOCUMENT_OUTCOME } from './documentOutcome.js'
 import { MODELED_ENTITIES, BULK_REPLACE_MODELED_ENTITIES } from '../automerge/campDocument.js'
@@ -154,12 +155,11 @@ export function coerceOpValue(value) {
 // remote Client's WS submission) go through, so a compromised or buggy paired
 // device cannot bypass it by skipping the renderer-side downscale." The remote
 // path no longer passes through appendOp (see the retired-mechanism note at the
-// top of this file), and MAX_FIELD_VALUE_LENGTH has no other reader — appendOp
-// below is the only place it is enforced. An oversized camp_maps.image_data
-// arriving inside a merged document is projected by
-// electron/automerge/projector.js without this check. Restoring a cap on the
-// document-replay path is a BEHAVIOUR change and is deliberately not done here;
-// T311 was a comment-only sweep and records the gap rather than closing it._
+// top of this file). _Prior also said MAX_FIELD_VALUE_LENGTH had no other reader and that a
+// merged oversized camp_maps.image_data projected unchecked; that gap is closed — the cap
+// is enforced in appendOp (throws) AND in applyProjection (projections.js), the one sink
+// every SQLite write passes through, which refuses the field and warns rather than throw,
+// so one peer cannot block projection of the whole camp._
 // Same shape as MAX_BULK_REPLACE_ROWS above — a
 // registry of hard caps, not a generic limit applied to every field (every
 // other field this codebase writes is small by construction).
@@ -168,9 +168,7 @@ export function coerceOpValue(value) {
 // The vocabulary and the reasoning live there.
 export { DOCUMENT_OUTCOME } from './documentOutcome.js'
 
-export const MAX_FIELD_VALUE_LENGTH = {
-  camp_maps: { image_data: 1_400_000 }, // chars; ~1MB base64 + slack, never truncated, hard reject
-}
+export { MAX_FIELD_VALUE_LENGTH } from './fieldLengthCap.js'
 
 // How many runAtomic frames are open on this db handle (T309). Read by
 // appendOp to decide whether it must own rollback for its own op or whether a
@@ -262,8 +260,7 @@ export function appendOp(db, { entity, entity_id, field, value, author_user_id, 
   }
 
   const storedValue = coerceOpValue(value)
-  const maxLength = MAX_FIELD_VALUE_LENGTH[entity]?.[field]
-  if (maxLength && typeof storedValue === 'string' && storedValue.length > maxLength) {
+  if (exceedsMaxFieldLength(entity, field, storedValue)) {
     throw new Error('value exceeds MAX_FIELD_VALUE_LENGTH for entity/field')
   }
 

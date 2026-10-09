@@ -1,5 +1,6 @@
 import { getStmt } from './stmtCache.js'
 import { parseDayOfWeek } from './dayId.js'
+import { exceedsMaxFieldLength } from './fieldLengthCap.js'
 
 // Shared ensureExists for the week_*_exclusions join tables. Each is
 // (id, week_id, <second>) where BOTH week_id AND the second column are NOT NULL
@@ -409,8 +410,8 @@ export const PROJECTIONS = {
   // camp-scoped singleton (id = camp_id); now up to two rows per camp keyed by
   // (camp_id, kind). ensureExists still stamps only id + camp_id — `kind` and the
   // image fields arrive as ordinary field-level ops. image_data is size-capped by
-  // MAX_FIELD_VALUE_LENGTH in operations.js (D2), enforced in appendOp
-  // itself, before this projection ever runs.
+  // MAX_FIELD_VALUE_LENGTH (fieldLengthCap.js, D2), enforced in appendOp (throws) and in
+  // applyProjection (refuses the field) so merged-document values are capped too.
   camp_maps: {
     table: 'camp_maps',
     key: 'id',
@@ -1381,6 +1382,13 @@ export function applyProjection(db, op) {
   }
 
   if (!projection.fields.includes(op.field)) return
+
+  if (exceedsMaxFieldLength(op.entity, op.field, op.value)) {
+    console.warn(
+      `applyProjection: refused over-length ${op.entity}.${op.field} for ${op.entity_id} (${op.value.length} chars exceeds cap); existing value kept`
+    )
+    return false
+  }
 
   if (op.field === 'camp_id') {
     const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
