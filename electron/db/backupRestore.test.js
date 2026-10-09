@@ -235,4 +235,26 @@ describe('restoreFromBackup (WAL, rotation, rollback)', () => {
     expect(fs.existsSync(prev)).toBe(false)
     installed[0].close()
   })
+
+  it('a refused restore does not write a safety backup or rotate anything', async () => {
+    const { dbPath, db, backupDbPath } = setup()
+    fs.rmSync(backupDbPath.replace(/\.db$/, '.automerge'), { recursive: true, force: true })
+    const dir = path.dirname(backupDbPath)
+    const before = fs.readdirSync(dir).sort()
+    const r = await restoreFromBackup({ sourcePath: backupDbPath, db, ...deps(dbPath, []) })
+    expect(r.error).toBe('backup_no_document')
+    expect(fs.readdirSync(dir).sort()).toEqual(before)
+  })
+
+  it('reports restore_incomplete, not restore_failed, when reopening after an early failure also fails', async () => {
+    const { dbPath, db, backupDbPath } = setup()
+    const target = docPath(tmp, campId)
+    fs.mkdirSync(`${target}.tmp`)
+    const r = await restoreFromBackup({
+      sourcePath: backupDbPath, db,
+      ...deps(dbPath, [], { openDb: () => { throw new Error('cannot reopen') } }),
+    })
+    expect(r.error).toBe('restore_incomplete')
+    expect(r.rolledBack).toBe(false)
+  })
 })

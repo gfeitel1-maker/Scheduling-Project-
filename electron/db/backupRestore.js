@@ -90,15 +90,7 @@ export async function restoreFromBackup({
   flushDoc, stopSync, startSync, discardDoc, openDb, installDb,
 }) {
   let safetyDbPath
-  try {
-    try { flushDoc() } catch (err) { console.error('backup: automerge flush failed (non-fatal):', err?.message ?? err) }
-    checkpoint(db)
-    let docCopyError
-    safetyDbPath = writeUserBackup(dbPath, userDataPath, readCampIdSafely(db), (err) => { docCopyError = err }, sourcePath)
-    if (docCopyError) throw docCopyError
-  } catch (err) {
-    return { error: 'backup_failed', message: err.message }
-  }
+  try { flushDoc() } catch (err) { console.error('backup: automerge flush failed (non-fatal):', err?.message ?? err) }
 
   const campId = readCampIdSafely(db)
   const reinstall = async () => {
@@ -114,6 +106,14 @@ export async function restoreFromBackup({
     return { error: 'restore_failed', message: err.message }
   }
 
+  try {
+    let docCopyError
+    safetyDbPath = writeUserBackup(dbPath, userDataPath, campId, (err) => { docCopyError = err }, sourcePath, db)
+    if (docCopyError) throw docCopyError
+  } catch (err) {
+    return { error: 'backup_failed', message: err.message }
+  }
+
   let closed = false
   try {
     await stopSync()
@@ -124,7 +124,9 @@ export async function restoreFromBackup({
     applyBackupFiles({ backupDbPath: sourcePath, dbPath, userDataPath, campId: pair.campId, docSrc: pair.docSrc })
   } catch (err) {
     // Nothing was replaced (applyBackupFiles undoes its own partial work); resume on the current files.
-    try { if (closed) await reinstall(); else startSync() } catch { /* the typed error below still reports the original failure */ }
+    try { if (closed) await reinstall(); else startSync() } catch (resumeErr) {
+      return { error: 'restore_incomplete', message: `${err.message}; could not resume: ${resumeErr.message}`, rolledBack: false }
+    }
     if (err instanceof RestoreRefusal) return { error: err.code, message: err.message }
     return { error: 'restore_failed', message: err.message }
   }

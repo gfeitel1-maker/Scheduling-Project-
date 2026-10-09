@@ -1662,7 +1662,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     if (dbPath && handlersUserDataPath) {
       try {
         try { flushAutomergeDoc() } catch (err) { console.error('backup: automerge flush failed (non-fatal):', err?.message ?? err) }
-        writeUserBackup(dbPath, handlersUserDataPath, readCampIdSafely(db), (err) => console.error('backup: camp document copy failed (non-fatal):', err?.message ?? err))
+        writeUserBackup(dbPath, handlersUserDataPath, readCampIdSafely(db), (err) => console.error('backup: camp document copy failed (non-fatal):', err?.message ?? err), null, db)
       } catch {
         /* snapshot failure is non-fatal */
       }
@@ -3560,7 +3560,7 @@ if (isElectronEntryPoint()) {
     try {
       try { flushAutomergeDoc() } catch (err) { console.error('backup: automerge flush failed (non-fatal):', err?.message ?? err) }
       let docBackupError
-      const backupPath = writeUserBackup(dbPath, userDataPath, readCampIdSafely(db), (err) => { docBackupError = err.message })
+      const backupPath = writeUserBackup(dbPath, userDataPath, readCampIdSafely(db), (err) => { docBackupError = err.message }, null, db)
       lastBackupPath = backupPath
       return docBackupError ? { backupPath, docBackupError } : { backupPath }
     } catch (err) {

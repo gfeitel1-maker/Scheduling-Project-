@@ -76,12 +76,15 @@ export function addRecentProject(userDataPath, { path: dbPath, campName }) {
  * Rotate backups in backupDir: delete oldest shoresh-*.db files until fewer
  * than `max` exist (making room for the one we're about to write).
  */
+const canonical = (p) => { try { return fs.realpathSync(p) } catch { return path.resolve(p) } }
+
 function rotateBackups(backupDir, max, keepPath = null) {
+  const keep = keepPath && canonical(keepPath)
   let files
   try {
     files = fs.readdirSync(backupDir)
       .filter((f) => /^shoresh-.*\.db$/.test(f))
-      .filter((f) => !keepPath || path.join(backupDir, f) !== keepPath)
+      .filter((f) => !keep || canonical(path.join(backupDir, f)) !== keep)
       .map((f) => {
         const fullPath = path.join(backupDir, f)
         return { name: f, mtime: fs.statSync(fullPath).mtimeMs, fullPath }
@@ -122,7 +125,12 @@ export function readCampIdSafely(db) {
 }
 
 // keepPath: a backup a restore is about to read; rotation must not delete it.
-export function writeUserBackup(dbPath, userDataPath, campId, onDocError, keepPath = null) {
+export function writeUserBackup(dbPath, userDataPath, campId, onDocError, keepPath = null, db = null) {
+  // Committed rows may sit in <db>-wal; copying the main file alone would silently miss them.
+  if (db) {
+    const [res] = db.pragma('wal_checkpoint(TRUNCATE)')
+    if (res && res.busy) throw new Error('backup_incomplete: database is busy, committed data is not yet in the main file')
+  }
   const backupDir = path.join(userDataPath, BACKUP_DIR_NAME)
   if (!fs.existsSync(backupDir)) {
     fs.mkdirSync(backupDir, { recursive: true, mode: 0o700 })
