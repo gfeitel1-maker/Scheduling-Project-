@@ -37,6 +37,18 @@ describe('evaluatePairingRequest: pair again', () => {
     expect(db.prepare('SELECT id FROM devices WHERE id = ?').get('stranger')).toBeUndefined()
   })
 
+  it('the same camp, but a device that never approved this one: "not known here" (R3)', () => {
+    expect(evaluatePairingRequest(db, { device_id: 'stranger', device_name: 'X', rejoin: true, sameCamp: true }))
+      .toEqual({ ok: false, reason: 'not_known_here' })
+  })
+
+  it('a schema gap is refused before a director is asked, and nothing is marked pending (R4c)', () => {
+    authorized('dev-b')
+    expect(evaluatePairingRequest(db, { device_id: 'dev-b', device_name: 'Laptop B', rejoin: true, schemaCompatible: false }))
+      .toEqual({ ok: false, reason: 'schema_mismatch' })
+    expect(db.prepare('SELECT pairing_status FROM devices WHERE id = ?').get('dev-b').pairing_status).toBe('authorized')
+  })
+
   it('a device revoked on this Host is refused, re-pair or fresh join', () => {
     authorized('dev-c')
     db.prepare('UPDATE devices SET revoked_at = ? WHERE id = ?').run(new Date().toISOString(), 'dev-c')

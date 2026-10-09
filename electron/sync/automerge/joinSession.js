@@ -25,7 +25,9 @@ import * as A from '@automerge/automerge'
 import { recordLibp2pPeerId } from './peerIdentity.js'
 
 import { createEmptyDoc } from '../../automerge/campDocument.js'
-import { joinDiscoveryTag, normalizeJoinCode, newJoinNonce, joinProof, verifyJoinProof } from '../joinCode.js'
+import { joinDiscoveryTag, normalizeJoinCode, newJoinNonce, joinProof, verifyJoinProof, rejoinCampProof } from '../joinCode.js'
+import { verifyTombstones, applyTombstonesToDoc } from '../../automerge/tombstoneApply.js'
+import { getCurrentDoc, setCurrentDoc } from './liveDoc.js'
 import { createMdnsDiscovery } from './discovery.js'
 import { startSyncNode } from './syncNode.js'
 import { CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
@@ -250,7 +252,7 @@ export async function startJoinSession({
         // mDNS tag cannot produce it, so it never reaches the director.
         join_nonce: nonce,
         join_proof: joinProof(normalizedCode, nonce, 'joiner'),
-        ...(rejoin ? { rejoin: true } : {}),
+        ...(rejoin ? { rejoin: true, camp_proof: rejoinCampProof(normalizedCode, ownCamp.id), schema_version: CURRENT_SCHEMA_VERSION } : {}),
       })
       // The Host's half. Checked on BOTH pairing replies, because either can be
       // the last thing we hear before we would otherwise send a PIN.
@@ -262,6 +264,11 @@ export async function startJoinSession({
       }
       // A Host that has never admitted this device: on Pair again, that is a different camp's code.
       if (reply?.type === 'pairing_denied' && reply.reason === 'not_a_member') return { status: 'not_this_camp' }
+      // Same camp, but the answering device never approved this one: pair through the device that did.
+      if (reply?.type === 'pairing_denied' && reply.reason === 'not_known_here') return { status: 'not_known_here' }
+      if (reply?.type === 'pairing_denied' && reply.reason === 'schema_mismatch') {
+        return { status: 'update_needed', hostSchemaVersion: reply.host_schema_version ?? null, localSchemaVersion: CURRENT_SCHEMA_VERSION }
+      }
       if (reply?.type === 'pairing_denied') return { status: 'denied', ...(reply.reason ? { reason: reply.reason } : {}) }
       return { status: 'pending' }
     },
@@ -302,6 +309,16 @@ export async function startJoinSession({
       // Pair again must land in the SAME camp. Checked before the token is used or anything is
       // written or admitted, so a mismatch leaves this device exactly as it was.
       if (rejoin && reply.camp?.id !== ownCamp.id) return { status: 'not_this_camp' }
+      // Pair again, step one: the camp's signed purge tombstones are applied to this device's own
+      // document BEFORE anything merges, so a camper erased while it was away is not carried back.
+      // Verified against this camp's signing key exactly as projection does; any failure refuses.
+      if (rejoin) {
+        const tombstones = reply.tombstones ?? []
+        const pub = db.prepare('SELECT signing_public_key FROM camps LIMIT 1').get()?.signing_public_key
+        if (tombstones.length > 0 && !verifyTombstones(pub, tombstones)) return { status: 'tombstones_unverified' }
+        const cleaned = applyTombstonesToDoc(getCurrentDoc(db), tombstones)
+        setCurrentDoc(db, cleaned)
+      }
       // Hand the token to the node so its ordinary mutual-auth path can run.
       // Then authenticate immediately rather than waiting for mDNS to
       // re-announce this Host: wireMutualAuth leaves a peer un-dialed while

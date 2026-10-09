@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import AuthWatermark from '../components/AuthWatermark'
 import { S, useEnterTransition } from '../styles/shared'
 import { localClient } from '../localClient'
@@ -31,6 +31,9 @@ const STEP = {
   notFound: 'notFound',
   wrongCamp: 'wrongCamp',
   notThisCamp: 'notThisCamp',
+  notKnownHere: 'notKnownHere',
+  updateNeeded: 'updateNeeded',
+  erasureFailed: 'erasureFailed',
   waitingForApproval: 'waitingForApproval',
   denied: 'denied',
   signIn: 'signIn',
@@ -54,6 +57,7 @@ export default function JoinByCodeScreen({ onBack, onJoined, rejoin = false }) {
   const [error, setError] = useState(null)
   const [camp, setCamp] = useState(null)
   const [deniedReason, setDeniedReason] = useState(null)
+  const [versions, setVersions] = useState(null)
   const busyRef = useRef(false)
   // Held from the approval so login can present it; never rendered.
   const secretRef = useRef(null)
@@ -78,6 +82,16 @@ export default function JoinByCodeScreen({ onBack, onJoined, rejoin = false }) {
     } catch {
       // Still best-effort against a genuine throw (e.g. no join in
       // progress) — nothing to surface for that case.
+    }
+  }, [])
+
+  // Leaving mid-attempt (navigating away, the screen unmounting) must not strand a join: main
+  // stops it, which after Pair again also restarts this device's sync.
+  const stepRef = useRef(step)
+  useEffect(() => { stepRef.current = step }, [step])
+  useEffect(() => () => {
+    if (stepRef.current !== STEP.code && stepRef.current !== STEP.joined) {
+      localClient.joinCancel().catch(() => {})
     }
   }, [])
 
@@ -145,6 +159,15 @@ export default function JoinByCodeScreen({ onBack, onJoined, rejoin = false }) {
         setStep(STEP.notThisCamp)
         return
       }
+      if (pairing.status === 'not_known_here') {
+        setStep(STEP.notKnownHere)
+        return
+      }
+      if (pairing.status === 'update_needed') {
+        setVersions(pairing)
+        setStep(STEP.updateNeeded)
+        return
+      }
       if (pairing.status === 'denied') {
         setDeniedReason(pairing.reason)
         setStep(STEP.denied)
@@ -178,6 +201,10 @@ export default function JoinByCodeScreen({ onBack, onJoined, rejoin = false }) {
       })
       if (login.status === 'not_this_camp') {
         setStep(STEP.notThisCamp)
+        return
+      }
+      if (login.status === 'tombstones_unverified') {
+        setStep(STEP.erasureFailed)
         return
       }
       if (login.status !== 'ok') {
@@ -265,6 +292,33 @@ export default function JoinByCodeScreen({ onBack, onJoined, rejoin = false }) {
             body={<>This device can only pair again with its own camp. Get the code from a device in that camp.</>}
             actionLabel="Start over"
             onAction={startOver}
+          />
+        )}
+
+        {step === STEP.notKnownHere && (
+          <Outcome
+            title="That device doesn't know this one yet"
+            body={<>This device can only pair again through a camp device that approved it before. Read the code off that device, or ask a director.</>}
+            actionLabel="Start over"
+            onAction={startOver}
+          />
+        )}
+
+        {step === STEP.updateNeeded && (
+          <Outcome
+            title={versions?.hostSchemaVersion > versions?.localSchemaVersion ? 'Update Shoresh on this device first' : 'Update Shoresh on the camp device first'}
+            body={<>The two devices run different versions of Shoresh and can't share changes until they match. Update, then pair again. Nothing was approved.</>}
+            actionLabel="Start over"
+            onAction={startOver}
+          />
+        )}
+
+        {step === STEP.erasureFailed && (
+          <Outcome
+            title="Couldn't apply the camp's erasures"
+            body={<>The camp erased records while this device was away, and this device couldn't confirm those erasures came from the camp. Nothing was merged. Ask a director to remove this device and add it as a new one.</>}
+            actionLabel="Back to devices"
+            onAction={goBack}
           />
         )}
 

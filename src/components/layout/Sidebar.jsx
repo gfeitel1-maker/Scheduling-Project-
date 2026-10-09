@@ -371,7 +371,7 @@ export default function Sidebar({
       }}>
         {/* A12: with no other paired device there is nothing to sync with, so a
             node that is not running is not a failure — say nothing. */}
-        {syncStatus?.otherDeviceCount > 0 &&
+        {syncStatus?.otherDeviceCount > 0 && !syncStatus.pairingAgain &&
           (syncStatus.state === 'host-not-syncing' || syncStatus.state === 'sync-blocked') && (
           <SyncNotRunningRow
             syncStatus={syncStatus}
@@ -613,7 +613,7 @@ const GearMenu = forwardRef(function GearMenu({ items, current, badges, onSelect
         // ruling: a retry affordance is fine, anything that reads as "this
         // device is blocked" is not).
         const lan = item.key === 'devices' && syncStatus ? syncStatusLabel(syncStatus) : null
-        const isHostNotSyncing = item.key === 'devices' && syncStatus?.state === 'host-not-syncing'
+        const isHostNotSyncing = item.key === 'devices' && syncStatus?.state === 'host-not-syncing' && !syncStatus.pairingAgain
         return (
           <button
             key={item.key}

@@ -17,9 +17,15 @@ import { ensureHostSigningKey } from '../../auth/localAuth.js'
 import { signAuthFields } from '../../auth/authSignature.js'
 import { startSyncNode } from './syncNode.js'
 import { startJoinSession } from './joinSession.js'
-import { getCurrentDoc, setCurrentDoc } from './liveDoc.js'
-import { mintRendezvousSecrets, rotateRendezvousSecrets, readRendezvousSecrets } from './rendezvousNamespace.js'
+import { getCurrentDoc, setCurrentDoc, setUserDataDirGetter } from './liveDoc.js'
+import { mintRendezvousSecrets, readRendezvousSecrets } from './rendezvousNamespace.js'
 import { mintJoinSecret } from '../joinCode.js'
+import { mintGenesisEntry, mintRevokeEntry } from '../../automerge/authorityLog.js'
+import { projectEntity } from '../../automerge/projector.js'
+import { runRendezvousRotation } from './rendezvousRotation.js'
+import { signTombstone } from '../../automerge/tombstoneSignature.js'
+import { CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
+import { ensureDeviceIdentity } from '../../auth/deviceIdentity.js'
 
 const CAMP_ID = 'camp-pair-again'
 const CODE = mintJoinSecret()
@@ -30,7 +36,7 @@ const later = () => { clock += 60 * 60 * 1000 }
 let files = []
 let nodes = []
 let sessions = []
-let aDb, bDb
+let aDb, bDb, dDb
 function freshDb(tag) {
   const f = path.join(os.tmpdir(), `shoresh-pairagain-${tag}-${Date.now()}-${Math.random()}.sqlite`)
   files.push(f)
@@ -41,7 +47,8 @@ beforeEach(() => {
   aDb = freshDb('a')
   bDb = freshDb('b')
   aDb.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(CAMP_ID, 'Camp Kinneret')
-  ensureHostSigningKey(aDb)
+  const hostKey = ensureHostSigningKey(aDb)
+  aDb.prepare('UPDATE camps SET signing_public_key = ? WHERE id = ?').run(hostKey.public_key, CAMP_ID)
   const salt = randomBytes(16).toString('hex')
   const pin_hash = scryptSync('1234', salt, 64).toString('hex')
   const id = randomUUID()
@@ -54,19 +61,21 @@ afterEach(async () => {
   await Promise.all(nodes.map((n) => n.stop().catch(() => {})))
   sessions = []
   nodes = []
-  for (const db of [aDb, bDb]) { try { db.close() } catch { /* closed */ } }
+  for (const db of [aDb, bDb, dDb]) { try { db?.close() } catch { /* closed */ } }
+  dDb = null
   for (const f of files) if (fs.existsSync(f)) fs.unlinkSync(f)
   files = []
 })
 
-async function startA() {
-  const seeded = seedAllFromSqlite(aDb, A.clone(createEmptyDoc()))
+async function startA({ doc, localSchemaVersion } = {}) {
+  const seeded = doc ?? mintRendezvousSecrets(seedAllFromSqlite(aDb, A.clone(createEmptyDoc())), CAMP_ID).doc
   const a = await startSyncNode({
     deviceId: 'device-a', db: aDb,
-    doc: mintRendezvousSecrets(seeded, CAMP_ID).doc,
+    doc: seeded,
     onPairingRequest: () => {},
     getJoinSecret: () => CODE,
     now: () => clock,
+    ...(localSchemaVersion ? { localSchemaVersion } : {}),
   })
   nodes.push(a)
   return a
@@ -116,6 +125,12 @@ async function eventually(fn, ms = 10_000) {
 describe('Pair again: two devices', () => {
   it('a stale device re-pairs with a director\'s approval, its offline edit merges in, and it ends with the current secrets', async () => {
     const a = await startA()
+    // The authority log is written through appendOp, which mirrors into the live document only
+    // once a userData directory is configured (as main.js does at startup).
+    const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-pairagain-ud-'))
+    setUserDataDirGetter(() => userData)
+    aDb.prepare("INSERT OR IGNORE INTO devices (id, name, authorized_at, pairing_status) VALUES ('device-a', 'A', ?, 'authorized')").run(new Date().toISOString())
+    mintGenesisEntry(aDb, { founderDeviceId: 'device-a', founderPeerId: (await ensureDeviceIdentity(aDb)).peerId })
     const oldSecret = await pairB(a)
     const bSecretsBefore = readRendezvousSecrets(getCurrentDoc(bDb), CAMP_ID)
     expect(bSecretsBefore.namespace).toBe(readRendezvousSecrets(a.getDoc(), CAMP_ID).namespace)
@@ -123,11 +138,15 @@ describe('Pair again: two devices', () => {
     // B is offline. It edits locally.
     setCurrentDoc(bDb, applyWrite(getCurrentDoc(bDb), { entity: 'activities', entity_id: 'act-offline', field: 'name', value: 'Pottery' }), { persist: false })
 
-    // Meanwhile on A: device C is revoked, and the camp's rendezvous secrets rotate (the elected
-    // rotator's write; its trigger is pinned by rendezvousRotation.test.js).
+    // Meanwhile on A: device C is revoked through the real path (what revokeDevice does: a signed
+    // revoke entry, projected, then the elected rotator rotates the rendezvous secrets).
     aDb.prepare("INSERT INTO devices (id, name, authorized_at, revoked_at, pairing_status) VALUES ('device-c', 'C', ?, ?, 'revoked')")
       .run(new Date().toISOString(), new Date().toISOString())
-    await a.applyLocal(rotateRendezvousSecrets(a.getDoc(), CAMP_ID).doc)
+    mintRevokeEntry(aDb, { targetDeviceId: 'device-c', signerDeviceId: 'device-a' })
+    projectEntity(aDb, getCurrentDoc(aDb), 'camp_authority_log')
+    expect(runRendezvousRotation(aDb, { deviceId: 'device-a', broadcast: null }).reason).toBe('rotated')
+    setUserDataDirGetter(null)
+    fs.rmSync(userData, { recursive: true, force: true })
     const current = readRendezvousSecrets(a.getDoc(), CAMP_ID)
     expect(current.namespace).not.toBe(bSecretsBefore.namespace)
 
@@ -173,6 +192,69 @@ describe('Pair again: two devices', () => {
     expect(await s.requestPairing()).toEqual({ status: 'not_this_camp' })
     expect(aDb.prepare('SELECT id FROM devices WHERE id = ?').get('device-b')).toBeUndefined()
     expect(bDb.prepare('SELECT id FROM camps').all()).toEqual([{ id: 'camp-elsewhere' }])
+  })
+
+  // Red Hat #844 R3: the code was read off a camp device that never approved B. Same camp, so
+  // the answer is not "different camp".
+  it('a camp device that never approved this one answers "not known here", not "different camp"', async () => {
+    const a = await startA()
+    await pairB(a)
+    dDb = freshDb('d')
+    dDb.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(CAMP_ID, 'Camp Kinneret')
+    const d = await startSyncNode({ deviceId: 'device-d', db: dDb, doc: A.clone(createEmptyDoc()), onPairingRequest: () => {}, getJoinSecret: () => CODE })
+    nodes.push(d)
+    const started = await startJoinSession({ db: bDb, deviceId: 'device-b', deviceName: 'Laptop B', code: CODE, knownHost: d.getMultiaddrs()[0], rejoin: true, doc: getCurrentDoc(bDb) })
+    sessions.push(started.session)
+    await started.session.findHost()
+    expect(await started.session.requestPairing()).toEqual({ status: 'not_known_here' })
+  })
+
+  // Red Hat #844 R4c: a schema gap is caught before any director is asked.
+  it('a schema gap is refused before approval, with both versions, and nothing is pending', async () => {
+    let a = await startA()
+    await pairB(a)
+    await a.stop()
+    a = await startA({ doc: getCurrentDoc(aDb), localSchemaVersion: CURRENT_SCHEMA_VERSION + 1 })
+    const s = await join(a, { rejoin: true })
+    await s.findHost()
+    expect(await s.requestPairing()).toEqual({ status: 'update_needed', hostSchemaVersion: CURRENT_SCHEMA_VERSION + 1, localSchemaVersion: CURRENT_SCHEMA_VERSION })
+    expect(aDb.prepare('SELECT pairing_status FROM devices WHERE id = ?').get('device-b').pairing_status).toBe('authorized')
+  })
+
+  // Keeper ruling on #844 R4a: the camp's signed tombstones are applied to the stranded device's
+  // own document FIRST, then it merges. A camper purged while B was away stays purged everywhere.
+  it('a camper purged while the device was away is not resurrected; its other offline edits still merge', async () => {
+    aDb.prepare("INSERT INTO campers (id, camp_id, display_name, is_active) VALUES ('camper-x', ?, 'Purged Child', 1)").run(CAMP_ID)
+    let a = await startA()
+    await pairB(a)
+    expect(readRecord(getCurrentDoc(bDb), 'campers', 'camper-x')?.display_name).toBe('Purged Child')
+
+    // B goes offline and edits something unrelated.
+    setCurrentDoc(bDb, applyWrite(getCurrentDoc(bDb), { entity: 'activities', entity_id: 'act-offline', field: 'name', value: 'Pottery' }), { persist: false })
+
+    // On A, the purge (what purgeCamperRecord does): delete the rows, mint the signed tombstone,
+    // regenerate the document from SQLite, and come back up on it.
+    await a.stop()
+    aDb.prepare("DELETE FROM campers WHERE id = 'camper-x'").run()
+    const sig = signTombstone(aDb, { id: 'camper-x', entity: 'campers', version: 1 })
+    aDb.prepare("INSERT INTO tombstones (id, entity, version, sig, created_at) VALUES ('camper-x', 'campers', 1, ?, ?)").run(sig, new Date().toISOString())
+    a = await startA({ doc: mintRendezvousSecrets(seedAllFromSqlite(aDb, A.clone(createEmptyDoc())), CAMP_ID).doc })
+    expect(readRecord(a.getDoc(), 'campers', 'camper-x')).toBeNull()
+
+    const s = await join(a, { rejoin: true })
+    await s.findHost()
+    expect((await s.requestPairing()).status).toBe('pending')
+    const decision = s.waitForPairingDecision()
+    const secret = await approve(a, 'device-b')
+    await decision
+    expect((await s.login({ name: 'Director', pin: '1234', deviceSecretIdentifier: secret })).status).toBe('ok')
+    expect(await s.waitForCamp()).not.toBeNull()
+
+    expect(await eventually(() => aDb.prepare('SELECT name FROM activities WHERE id = ?').get('act-offline')?.name === 'Pottery')).toBe(true)
+    expect(readRecord(a.getDoc(), 'campers', 'camper-x')).toBeNull()
+    expect(readRecord(getCurrentDoc(bDb), 'campers', 'camper-x')).toBeNull()
+    expect(aDb.prepare("SELECT id FROM campers WHERE id = 'camper-x'").get()).toBeUndefined()
+    expect(await eventually(() => !bDb.prepare("SELECT id FROM campers WHERE id = 'camper-x'").get())).toBe(true)
   })
 
   it('pair again needs a device that already has a camp', async () => {

@@ -103,9 +103,9 @@ describe('the Add-a-device window', () => {
     expect(prompted).toBe('New iPad')
   })
 
-  // The gate must not touch the path every already-paired device uses on every
-  // launch — those requests carry no join nonce and never had a code.
-  it('does not apply to an already-paired device reconnecting', async () => {
+  // Security #844 S1: a pairing request without a code proof is refused outright (no real client
+  // sends one; an already-paired device reconnects with `authenticate`, not pairing_request).
+  it('a nonce-less pairing request is refused, window or not', async () => {
     let prompted = false
     const host = await hostWithWindow(() => false, () => { prompted = true })
     const joiner = await startSyncNode({
@@ -121,8 +121,8 @@ describe('the Add-a-device window', () => {
       device_id: 'returning-device',
       device_name: 'Returning',
     })
-    expect(reply.type).toBe('pairing_pending')
-    expect(prompted).toBe(true)
+    expect(reply.type).toBe('pairing_denied')
+    expect(prompted).toBe(false)
   })
 
   // Fail-open at the module level is deliberate: a caller with no such window

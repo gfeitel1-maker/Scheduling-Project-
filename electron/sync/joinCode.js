@@ -240,3 +240,11 @@ export function verifyJoinProof(code, nonce, role, provided) {
 export function newJoinNonce() {
   return crypto.randomBytes(16).toString('hex')
 }
+
+/** Pair again: proves which camp the re-pairing device belongs to without putting the camp id on
+ * the wire. Keyed by the window-scoped code, so only a holder of the code can compute or check it. */
+export function rejoinCampProof(code, campId) {
+  const normalized = normalizeJoinCode(code)
+  if (normalized === null) throw new Error('rejoinCampProof requires a valid join code')
+  return crypto.createHmac('sha256', normalized).update(`rejoin-camp|${campId}`).digest('hex')
+}

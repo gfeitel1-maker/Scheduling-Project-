@@ -93,6 +93,8 @@ import {
   rotatePreResolveBackups,
 } from './db/projectManager.js'
 
+// Pair again: a re-pair request lapses after a day.
+const REJOIN_REQUEST_TTL_MS = 24 * 60 * 60 * 1000
 const HOST_PATTERN = /^[a-zA-Z0-9.\-:]+$/
 
 // IPC_PIN_FIELDS lives in ./ops/pinFields.js so this push boundary and the
@@ -813,10 +815,18 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // this return value would risk telling the director something the next
   // real getSyncStatus push contradicts.
   function retrySyncHandler() {
+    // While any join runs, its temporary node holds this device's peer identity; a second,
+    // persistent node now would be the same identity live twice. The join's own exit restarts sync.
+    if (activeJoin) return { ok: false, reason: 'pairing_in_progress' }
     retrySyncFn()
     return { ok: true }
   }
   function getSyncStatus() {
+    const status = computeSyncStatus()
+    // During Pair again the persistent node is stopped on purpose: the footer must not offer a retry.
+    return activeJoin && activeJoinIsRejoin ? { ...status, pairingAgain: true } : status
+  }
+  function computeSyncStatus() {
     // The disk filling up, noticed while there is still room to act (T160).
     // Throttled inside the monitor — getSyncStatus is called on mount and on
     // every push, and free space does not change meaningfully in a second.
@@ -1218,9 +1228,31 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     // stops the device from re-appearing on the next poll (CodeReview fix).
     // A Pair-again request (pairing_status 'rejoin_pending') is listed too, marked, so the
     // director approves a returning device knowingly.
-    return db.prepare(
+    const rows = db.prepare(
       "SELECT id, name, pairing_status = 'rejoin_pending' AS rejoin FROM devices WHERE revoked_at IS NULL AND ((authorized_at IS NULL AND (pairing_status IS NULL OR pairing_status = 'pending')) OR pairing_status = 'rejoin_pending')"
-    ).all().map((d) => ({ ...d, rejoin: d.rejoin === 1 }))
+    ).all()
+    const out = []
+    for (const d of rows) {
+      if (d.rejoin !== 1) { out.push({ id: d.id, name: d.name, rejoin: false }); continue }
+      // A Pair-again request lapses after a day; the device stays allowed in as it was.
+      if (rejoinRequestExpired(d.id)) {
+        db.prepare("UPDATE devices SET pairing_status = 'authorized' WHERE id = ? AND pairing_status = 'rejoin_pending'").run(d.id)
+        continue
+      }
+      out.push({ id: d.id, name: d.name, rejoin: true, requestedAt: rejoinRequestedAt(d.id) })
+    }
+    return out
+  }
+
+  function rejoinRequestedAt(targetDeviceId) {
+    return db.prepare(
+      "SELECT MAX(occurred_at) AS at FROM audit_events WHERE device_id = ? AND action = 'device.rejoin_request' AND outcome = 'allow'"
+    ).get(targetDeviceId)?.at ?? null
+  }
+
+  function rejoinRequestExpired(targetDeviceId) {
+    const at = rejoinRequestedAt(targetDeviceId)
+    return !at || Date.now() - Date.parse(at) > REJOIN_REQUEST_TTL_MS
   }
 
   function listDevices({ token } = {}) {
@@ -1431,6 +1463,16 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       'SELECT authorized_at, authorized_by_user_id, pairing_status, device_secret_identifier, revoked_at, revoked_by_user_id, revocation_reason FROM devices WHERE id = ?'
     ).get(targetDeviceId)
     if (!existing) throw new Error('device not found')
+    // A revoked device is never re-admitted by an approval; a removed machine returns as a new device.
+    const authorityRevoked = db.prepare('SELECT status FROM authority_cache WHERE device_id = ?').get(targetDeviceId)?.status === 'revoked'
+    if (existing.revoked_at || authorityRevoked) {
+      recordAuditEvent(db, { actorUserId: userId, deviceId: targetDeviceId, action: 'device.approve', outcome: 'deny', reason: 'device_revoked' })
+      throw new Error('This device was removed from the camp and cannot be approved again. Add it as a new device.')
+    }
+    if (existing.pairing_status === 'rejoin_pending' && rejoinRequestExpired(targetDeviceId)) {
+      db.prepare("UPDATE devices SET pairing_status = 'authorized' WHERE id = ?").run(targetDeviceId)
+      throw new Error('That Pair-again request is more than a day old. Ask the device to pair again.')
+    }
 
     const secret = randomBytes(32).toString('hex')
     const now = new Date().toISOString()
@@ -2886,9 +2928,9 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     }
     const testOnly = Boolean(process.env.VITEST)
     const isRejoin = rejoin === true
-    if (isRejoin) await stopSyncFn()
     let started
     try {
+      if (isRejoin) await stopSyncFn()
       started = await startJoinSession({
         db,
         deviceId,
@@ -3036,7 +3078,16 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return { status: 'cancelled' }
   }
 
+  // The renderer that drove a join went away (reload, crash, window closed): nobody can finish it,
+  // so stop it, which also restarts sync after a Pair-again attempt.
+  async function onRendererGone() {
+    if (activeJoin) await joinCancel()
+  }
+
   return {
+    onRendererGone,
+    // A db swap / project switch builds new handlers; the old ones' timers must not outlive them.
+    dispose: () => peerReachability.stop(),
     // Stage 6c: called by the libp2p node when its peer set changes, so the
     // sidebar reflects reachability instead of showing whatever was true at
     // mount. Not an IPC channel — it is invoked in-process (see
@@ -3392,6 +3443,7 @@ if (isElectronEntryPoint()) {
     // has to ask the LIVE handlers whether the director's Add-a-device window
     // is open — reading a captured `initialHandlers` would silently consult a
     // stale set after a switch.
+    if (liveHandlers && liveHandlers !== handlers) liveHandlers.dispose?.()
     liveHandlers = handlers
     // Remove existing registrations before re-registering (project switch).
     for (const ch of HANDLER_CHANNELS) ipcMain.removeHandler(ch)
@@ -3912,6 +3964,12 @@ if (isElectronEntryPoint()) {
 
   function createWindow() {
     mainWindow = openMainWindow()
+    // A reload, or a renderer that crashed or closed, abandons any join it was driving; stopping it
+    // also restarts sync after a Pair-again attempt.
+    const abandonJoin = () => { Promise.resolve(liveHandlers?.onRendererGone?.()).catch(() => {}) }
+    mainWindow.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => { if (isMainFrame && !isInPlace) abandonJoin() })
+    mainWindow.webContents.on('render-process-gone', abandonJoin)
+    mainWindow.webContents.on('destroyed', abandonJoin)
   }
 
   ipcMain.handle('shoresh:get-boot-failure', () => null)

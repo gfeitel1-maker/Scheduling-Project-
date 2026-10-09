@@ -27,7 +27,10 @@ export function createPeerReachabilityTracker({ now = Date.now, setTimer = setTi
       }
       if (since === null) {
         since = now()
-        timer = setTimer(() => { timer = null; onThresholdCrossed?.() }, thresholdMs)
+        timer = setTimer(() => {
+          timer = null
+          try { onThresholdCrossed?.() } catch (err) { console.error(`peer reachability: status push failed: ${err?.message ?? err}`) }
+        }, thresholdMs)
         timer?.unref?.()
       }
       return now() - since >= thresholdMs

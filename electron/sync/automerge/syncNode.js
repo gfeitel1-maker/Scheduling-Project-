@@ -24,7 +24,7 @@ import { rememberPeerAddress, redialTrustedPeers } from './peerAddressBook.js'
 import { forgetRevokedPeer } from './punchIdentity.js'
 import { getCurrentDoc, setCurrentDoc } from './liveDoc.js'
 import { sharesGenesis } from '../../automerge/campDocument.js'
-import { joinProof, verifyJoinProof } from '../joinCode.js'
+import { joinProof, verifyJoinProof, rejoinCampProof } from '../joinCode.js'
 import { createHostHandoff } from '../../auth/hostHandoff.js'
 import { createHandoffWire } from './hostHandoffWire.js'
 import { CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
@@ -585,11 +585,14 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     // thing separating the real joining device from anyone who mirrored the
     // tag. Verified BEFORE evaluatePairingRequest so a mirrored-tag peer never
     // reaches the director's screen at all.
-    //
-    // A request WITHOUT a nonce is an already-paired device reconnecting (the
-    // camp-scoped path), which never had a code and is unchanged.
+
+    // Every real pairing request carries a code proof (joinSession.js always sends one). A
+    // nonce-less request is refused outright: it would otherwise reach evaluatePairingRequest
+    // without proving anything, and learn from the answer whether a device id is known, revoked,
+    // or already approved (the stored secret was re-delivered to it).
+    if (typeof msg.join_nonce !== 'string') return { ok: false, reason: 'code_proof_required' }
     let joinConfirm = null
-    if (typeof msg.join_nonce === 'string') {
+    {
       // The director's Add-a-device window. This is a CONSENT boundary, not
       // the security boundary — the join-code proof below is what actually
       // separates the real joining device from a peer that mirrored the
@@ -618,8 +621,17 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     }
 
     // Pair again rides only on a code-proven request: a reconnecting peer cannot claim it.
-    const rejoin = joinConfirm !== null && msg.rejoin === true
-    const result = evaluatePairingRequest(db, { device_id: msg.device_id, device_name: msg.device_name, rejoin })
+    const rejoin = msg.rejoin === true
+    const ownCampId = rejoin ? db.prepare('SELECT id FROM camps LIMIT 1').get()?.id : null
+    const sameCamp = Boolean(ownCampId && typeof msg.camp_proof === 'string' && msg.camp_proof === rejoinCampProof(getJoinSecret(), ownCampId))
+    const result = evaluatePairingRequest(db, {
+      device_id: msg.device_id,
+      device_name: msg.device_name,
+      rejoin,
+      sameCamp,
+      schemaCompatible: !rejoin || isSyncCompatible(msg.schema_version, localSchemaVersion),
+    })
+    if (result.reason === 'schema_mismatch') return { ...result, joinConfirm, hostSchemaVersion: localSchemaVersion }
     if (result.ok && !result.alreadyApproved && typeof onPairingRequest === 'function') {
       onPairingRequest(msg.device_id, msg.device_name)
     }
@@ -660,7 +672,10 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     // document — carrying its signing key — has arrived), so onAuthenticate's normal
     // peerSchemaVersions recording never runs for this direction. joinSession.js records this value
     // manually (node.recordPeerSchemaVersion) at the same point it calls admitPeer.
-    return result.ok ? { ...result, hostDeviceId: deviceId, hostSchemaVersion: getHandshakeSchemaVersion() } : result
+    // The camp's verified purge tombstones travel with the login reply, so a device re-pairing after
+    // being offline through a purge can apply them to its own document BEFORE it merges (Pair again).
+    const tombstones = result.ok ? db.prepare('SELECT id, entity, version, sig FROM tombstones').all() : []
+    return result.ok ? { ...result, hostDeviceId: deviceId, hostSchemaVersion: getHandshakeSchemaVersion(), tombstones } : result
   }
 
   // The planned host handoff (docs/adr/2026-10-09-host-succession-simple.md). `transport` is assigned

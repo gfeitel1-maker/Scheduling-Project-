@@ -79,4 +79,48 @@ describe('Pair again screen', () => {
     await user.click(screen.getByRole('button', { name: /continue/i }))
     expect(onNavigate).toHaveBeenCalledWith('roots')
   })
+
+  // Red Hat #844 R2: leaving the screen mid-attempt must not strand the join.
+  it('leaving the screen mid-attempt cancels the join; leaving from the code step does not', async () => {
+    localClient.joinAwaitPairingDecision.mockReturnValue(new Promise(() => {}))
+    const user = userEvent.setup()
+    const { unmount } = render(<PairAgainScreen onNavigate={() => {}} />)
+    await enterCode(user)
+    await screen.findByText('Waiting for approval')
+    unmount()
+    expect(localClient.joinCancel).toHaveBeenCalled()
+
+    vi.clearAllMocks()
+    localClient.joinCancel.mockResolvedValue({ status: 'cancelled' })
+    render(<PairAgainScreen onNavigate={() => {}} />).unmount()
+    expect(localClient.joinCancel).not.toHaveBeenCalled()
+  })
+
+  it('a camp device that never approved this one gets a neutral answer, not "different camp" (R3)', async () => {
+    localClient.joinRequestPairing.mockResolvedValue({ status: 'not_known_here' })
+    const user = userEvent.setup()
+    render(<PairAgainScreen onNavigate={() => {}} />)
+    await enterCode(user)
+    expect(await screen.findByText("That device doesn't know this one yet")).toBeTruthy()
+    expect(screen.getByText(/device that approved it before/)).toBeTruthy()
+  })
+
+  it('a version gap says which device to update, before anything is approved (R4c)', async () => {
+    localClient.joinRequestPairing.mockResolvedValue({ status: 'update_needed', hostSchemaVersion: 91, localSchemaVersion: 90 })
+    const user = userEvent.setup()
+    render(<PairAgainScreen onNavigate={() => {}} />)
+    await enterCode(user)
+    expect(await screen.findByText('Update Shoresh on this device first')).toBeTruthy()
+  })
+
+  it('erasures that cannot be verified stop the merge with a plain reason (R4a)', async () => {
+    localClient.joinLogin.mockResolvedValue({ status: 'tombstones_unverified' })
+    const user = userEvent.setup()
+    render(<PairAgainScreen onNavigate={() => {}} />)
+    await enterCode(user)
+    await user.type(await screen.findByLabelText(/your name/i), 'Sarah')
+    await user.type(screen.getByLabelText(/pin/i), '1234')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+    expect(await screen.findByText("Couldn't apply the camp's erasures")).toBeTruthy()
+  })
 })

@@ -212,7 +212,7 @@ export function evaluateAuthenticate(db, { token, device_id, peerId, appliedTomb
 //   { ok: true, alreadyApproved: true, device_secret_identifier }             — RedHat FM3/5/6 idempotent re-delivery
 //   { ok: true, alreadyApproved: false }                                      — fresh/pending device; caller must
 //                                                                                still invoke onPairingRequest itself
-export function evaluatePairingRequest(db, { device_id, device_name, rejoin = false }) {
+export function evaluatePairingRequest(db, { device_id, device_name, rejoin = false, sameCamp = false, schemaCompatible = true }) {
   if (!isNonEmptyString(device_id) || !isNonEmptyString(device_name)) {
     return { ok: false, reason: 'invalid_request' }
   }
@@ -235,7 +235,12 @@ export function evaluatePairingRequest(db, { device_id, device_name, rejoin = fa
   // never seen it), and it waits for a director exactly like a first join — no idempotent
   // re-delivery of the old secret. Approval issues a new one.
   if (rejoin) {
-    if (!existingDevice?.authorized_at) return { ok: false, reason: 'not_a_member' }
+    // `sameCamp`: the requester proved it belongs to THIS camp but this device never approved it
+    // (it pairs through whichever device approved it). Otherwise it is a different camp's device.
+    if (!existingDevice?.authorized_at) return { ok: false, reason: sameCamp ? 'not_known_here' : 'not_a_member' }
+    // Refused before a director is asked: an approval across a schema gap would admit a device
+    // that every sync exchange then refuses.
+    if (!schemaCompatible) return { ok: false, reason: 'schema_mismatch' }
     db.prepare("UPDATE devices SET pairing_status = 'rejoin_pending' WHERE id = ?").run(device_id)
     recordAuditEvent(db, { deviceId: device_id, actorUserId: null, action: 'device.rejoin_request', outcome: 'allow' })
     return { ok: true, alreadyApproved: false }

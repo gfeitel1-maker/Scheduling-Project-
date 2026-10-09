@@ -18,6 +18,14 @@ const PAIRING_STATUS_LABEL = {
   revoked: 'No longer allowed',
 }
 
+// A Pair-again request lapses after a day (main.js); its age tells the director how fresh it is.
+function requestAge(iso, now = Date.now()) {
+  const minutes = Math.max(0, Math.round((now - Date.parse(iso)) / 60000))
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes} min ago`
+  return `${Math.round(minutes / 60)} h ago`
+}
+
 function pairingStatusLabel(status) {
   return PAIRING_STATUS_LABEL[status] ?? 'Not set up yet'
 }
@@ -304,7 +312,7 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
                 <tr key={device.id}>
                   <td style={S.td}>
                     {device.name || '—'}
-                    {device.rejoin && <span style={styles.flagMuted}> · already in this camp, pairing again</span>}
+                    {device.rejoin && <span style={styles.flagMuted}> · already in this camp, pairing again{device.requestedAt ? `, asked ${requestAge(device.requestedAt)}` : ''}</span>}
                   </td>
                   <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 11 }}>{device.id.slice(0, 8)}</td>
                   <td style={S.td}>

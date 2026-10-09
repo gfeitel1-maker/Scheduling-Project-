@@ -60,4 +60,16 @@ describe('peer reachability flag (device offline through a revoke cannot find it
     timers[0].fn()
     expect(crossed).toHaveLength(1)
   })
+
+  it('a throwing status push is contained; it never escapes the timer', () => {
+    const timers = []
+    const tr = createPeerReachabilityTracker({
+      now: () => 0,
+      setTimer: (fn) => { timers.push(fn); return 1 },
+      clearTimer: () => {},
+      onThresholdCrossed: () => { throw new Error('window gone') },
+    })
+    tr.update(ALONE)
+    expect(() => timers[0]()).not.toThrow()
+  })
 })

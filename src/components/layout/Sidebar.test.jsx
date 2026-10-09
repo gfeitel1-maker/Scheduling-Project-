@@ -388,6 +388,14 @@ describe('Sidebar: host-not-syncing retry affordance (T275)', () => {
     fireEvent.click(screen.getByTitle('Settings'))
   }
 
+  // Red Hat #844 R1: during Pair again the node is stopped on purpose; a retry would start a second
+  // node on the same identity, so the row is not offered.
+  it('offers no "try again" while this device is pairing again', () => {
+    renderSidebar({ syncStatus: { ...HOST_NOT_SYNCING, pairingAgain: true } })
+    openGear()
+    expect(screen.queryByRole('button', { name: 'try again' })).toBeNull()
+  })
+
   it('renders "try again" as a real clickable control for host-not-syncing', () => {
     renderSidebar({ syncStatus: HOST_NOT_SYNCING })
     openGear()
