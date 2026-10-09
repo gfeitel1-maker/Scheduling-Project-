@@ -184,6 +184,22 @@ describe('writeUserBackup — camp document', () => {
     expect(fs.existsSync(backupPath.replace(/\.db$/, '.automerge'))).toBe(false)
   })
 
+  it('reports no_camp_document when the camp has no document file yet', () => {
+    const dbFile = path.join(tmpDir, 'shoresh.db')
+    fs.writeFileSync(dbFile, 'data')
+    const errors = []
+    writeUserBackup(dbFile, tmpDir, 'camp1', (e) => errors.push(e.message))
+    expect(errors).toEqual(['no_camp_document'])
+  })
+
+  it('reports camp_id_unavailable when the camp id could not be read', () => {
+    const dbFile = path.join(tmpDir, 'shoresh.db')
+    fs.writeFileSync(dbFile, 'data')
+    const errors = []
+    writeUserBackup(dbFile, tmpDir, undefined, (e) => errors.push(e.message))
+    expect(errors).toEqual(['camp_id_unavailable'])
+  })
+
   it('copies only the backed-up camp document, never another camp\'s', () => {
     const dbFile = path.join(tmpDir, 'shoresh.db')
     fs.writeFileSync(dbFile, 'data')

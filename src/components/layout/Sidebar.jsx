@@ -441,8 +441,10 @@ export default function Sidebar({
           <button
             onClick={handleBackupNow}
             disabled={backupStatus === 'running'}
+            title={backupStatus === 'caution' ? 'Backup saved — camp document not included' : undefined}
             style={{
               display: 'block', width: '100%', textAlign: 'left',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               padding: '4px 0', border: 'none', background: 'none',
               fontSize: 11, fontFamily: 'var(--font-mono)',
               color: backupStatus === 'ok'

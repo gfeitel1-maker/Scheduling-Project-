@@ -98,14 +98,15 @@ function rotateBackups(backupDir, max) {
 
 // The Automerge document is the source of truth; the db is only its projection. Only the backed-up
 // camp's document is copied, never another camp's. Bytes are copied as-is, so a document encrypted
-// at rest stays encrypted. No document yet -> nothing to copy.
+// at rest stays encrypted. Returns false when there is no document file to copy.
 function copyCampDocument(userDataPath, campId, destDir) {
   const src = path.join(userDataPath, 'automerge', `${campId}.automerge`)
-  if (!fs.existsSync(src)) return
+  if (!fs.existsSync(src)) return false
   fs.mkdirSync(destDir, { recursive: true, mode: 0o700 })
   const dest = path.join(destDir, path.basename(src))
   fs.copyFileSync(src, dest)
   try { fs.chmodSync(dest, 0o600) } catch { /* non-fatal on Windows */ }
+  return true
 }
 
 /**
@@ -132,11 +133,13 @@ export function writeUserBackup(dbPath, userDataPath, campId, onDocError) {
   if (campId) {
     const docDir = backupPath.replace(/\.db$/, '.automerge')
     try {
-      copyCampDocument(userDataPath, campId, docDir)
+      if (!copyCampDocument(userDataPath, campId, docDir)) onDocError?.(new Error('no_camp_document'))
     } catch (err) {
       try { fs.rmSync(docDir, { recursive: true, force: true }) } catch { /* ignore */ }
       onDocError?.(err)
     }
+  } else {
+    onDocError?.(new Error('camp_id_unavailable'))
   }
   return backupPath
 }

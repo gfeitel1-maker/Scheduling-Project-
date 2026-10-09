@@ -105,14 +105,16 @@ export function useSetupCounts(campId) {
 
   const handleBackupNow = useCallback(async () => {
     setBackupStatus('running')
+    let status
     try {
       const result = await localClient.backupProject()
-      setBackupStatus(result?.error ? 'error' : result?.docBackupError ? 'caution' : 'ok')
+      status = result?.error ? 'error' : result?.docBackupError ? 'caution' : 'ok'
       if (!result?.error) setBackupRevealable(true)
     } catch {
-      setBackupStatus('error')
+      status = 'error'
     }
-    startBackupStatusReset(() => setBackupStatus(null), 3000)
+    setBackupStatus(status)
+    if (status !== 'caution') startBackupStatusReset(() => setBackupStatus(null), 3000)
   }, [])
 
   const handleShowBackup = useCallback(async () => {
