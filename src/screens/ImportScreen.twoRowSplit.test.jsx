@@ -142,7 +142,7 @@ async function uploadFile(onNavigate = () => {}) {
 // HIGH #1's commit-time apply seam (handleReconciliationCommitted ->
 // applyStagedSplits) actually runs.
 async function goToCommit() {
-  await userEvent.click(screen.getByText(/Add \d+ record/))
+  await userEvent.click(screen.getByText(/Review \d+ record/))
   await userEvent.click(await screen.findByText('Commit (test)'))
 }
 
@@ -267,7 +267,7 @@ describe('ImportScreen — two-rows split suggestion (Slice 2b)', () => {
     await userEvent.click(await screen.findByText('Split'))
     expect(await screen.findByText('Split into Ceramics + Ceramics (rec).')).toBeTruthy()
 
-    await userEvent.click(screen.getByText(/Add \d+ record/))
+    await userEvent.click(screen.getByText(/Review \d+ record/))
     await userEvent.click(await screen.findByText('Discard (test)'))
 
     expect(emitTwoRowSplitMock).not.toHaveBeenCalled()

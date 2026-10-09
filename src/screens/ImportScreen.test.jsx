@@ -128,8 +128,8 @@ async function uploadFile() {
 // reachable, and its label now carries the state, so the helper matches any of
 // the three rather than the one label the old always-disabled primary used.
 async function goToCommit() {
-  await userEvent.click(screen.getByText(/Add \d+ record/))
-  await waitFor(() => expect(screen.getByText(/Use this setup|Use what Shoresh understood|Apply \d+ decision/)).toBeTruthy())
+  await userEvent.click(screen.getByText(/Review \d+ record/))
+  await waitFor(() => expect(screen.getByText(/Use this setup|Use what Shoresh understood|Add what Shoresh found in your file|Apply \d+ decision/)).toBeTruthy())
   // H1 (docs/work/specs/2026-08-19-roots-reconciliation-audit.md §12 Slice 1)
   // — the default panel view now scopes to unresolved decisions, so
   // dismissing one required_gap removes it from the on-screen list (rather
@@ -142,7 +142,7 @@ async function goToCommit() {
     await userEvent.click(skipButtons[0])
     skipButtons = screen.queryAllByText(/^Skip .* for now/)
   }
-  await userEvent.click(await screen.findByText(/Use this setup|Use what Shoresh understood|Apply \d+ decision/))
+  await userEvent.click(await screen.findByText(/Use this setup|Use what Shoresh understood|Add what Shoresh found in your file|Apply \d+ decision/))
 }
 
 describe('ImportScreen — residual report (T36)', () => {
@@ -155,7 +155,7 @@ describe('ImportScreen — residual report (T36)', () => {
     expect(screen.getByText(/not recognised/i)).toBeTruthy()
     expect(screen.getByText(textNode(/Block 2.*3.*cells/))).toBeTruthy()
     // Non-blocking: the commit action is still present and enabled.
-    expect(screen.getByText(/Add \d+ record/)).toBeTruthy()
+    expect(screen.getByText(/Review \d+ record/)).toBeTruthy()
   })
 
   it('renders no residual section when nothing was left unmatched', async () => {
@@ -375,7 +375,7 @@ describe('ImportScreen — inferred activity rules (T35)', () => {
     await uploadFile()
     await userEvent.click(screen.getByText(/Replace them/))
     expect(screen.getByText(/Replace with/)).toBeTruthy()
-    expect(screen.queryByText(/Add \d+ record/)).toBeNull()
+    expect(screen.queryByText(/Review \d+ record/)).toBeNull()
   })
 
   // T61 round 3 (Red Hat) — replaceScope wipes template_slots/overlays for
@@ -907,6 +907,6 @@ describe('ImportScreen — something moved for a day', () => {
     // No buttons, no pills: the owner asked to be told and to move past it.
     expect(screen.queryByText(/Not sure — ask me later/)).toBeNull()
     // And it never blocks the commit.
-    expect(screen.getByText(/Add \d+ record/)).toBeTruthy()
+    expect(screen.getByText(/Review \d+ record/)).toBeTruthy()
   })
 })

@@ -395,7 +395,7 @@ export default function Sidebar({
             onNavigate={onNavigate}
           />
         )}
-        {projectPath && (
+        {projectPath && isDevDb && (
           <div
             title={isDevDb ? `Development database — not the installed app's data\n${projectPath}` : projectPath}
             style={{
@@ -414,9 +414,6 @@ export default function Sidebar({
                 DEV
               </span>
             )}
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {projectPath.split(/[\\/]/).pop()}
-            </span>
           </div>
         )}
         {buildLabel && (

@@ -543,14 +543,14 @@ export function RequiredGapCard({ decision, dismissed, onDismiss, onUndismiss, o
   )
 }
 
-export function RequiredGapSummaryCard({ decisions, dismissedGaps, onDismiss, onUndismiss, onNavigate }) {
+export function RequiredGapSummaryCard({ decisions, dismissedGaps, onDismiss, onUndismiss, onNavigate, isFirstImport = false }) {
   const labels = decisions.map((d) => d.label).join(', ')
 
   return (
     <div style={{ ...cardStyles.cardHold, position: 'relative' }}>
       <div style={cardStyles.readyToBuildTab}>READY TO BUILD?</div>
       <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>
-        {`Your camp still needs: ${labels}`}
+        {isFirstImport ? `Found in your file, ready to add: ${labels}` : `Your camp still needs: ${labels}`}
       </div>
 
       <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>

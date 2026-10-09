@@ -62,8 +62,9 @@ export default function CampBootstrapScreen({ onBack, onSubmit }) {
         {error && <div style={S.authErrorBox}><WarningTriangleIcon style={{ marginTop: 2 }} /><span>{error}</span></div>}
 
         <form onSubmit={handleSubmit}>
-          <label style={{ ...S.authLabel, marginTop: 0 }}>Camp name</label>
+          <label htmlFor="bootstrap-camp-name" style={{ ...S.authLabel, marginTop: 0 }}>Camp name</label>
           <input
+            id="bootstrap-camp-name"
             style={S.authField}
             type="text"
             placeholder="e.g. Camp Willowbrook"
@@ -72,8 +73,9 @@ export default function CampBootstrapScreen({ onBack, onSubmit }) {
             autoFocus
           />
 
-          <label style={S.authLabel}>Your name</label>
+          <label htmlFor="bootstrap-admin-name" style={S.authLabel}>Your name</label>
           <input
+            id="bootstrap-admin-name"
             style={S.authField}
             type="text"
             placeholder="e.g. Sarah Cohen"
@@ -81,8 +83,9 @@ export default function CampBootstrapScreen({ onBack, onSubmit }) {
             onChange={e => setAdminName(e.target.value)}
           />
 
-          <label style={S.authLabel}>Create a PIN</label>
+          <label htmlFor="bootstrap-admin-pin" style={S.authLabel}>Create a PIN</label>
           <input
+            id="bootstrap-admin-pin"
             style={S.authField}
             type="password"
             inputMode="numeric"

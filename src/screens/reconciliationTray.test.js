@@ -26,6 +26,12 @@ describe('applyTrayState', () => {
     expect(state.hint).toMatch(/79 questions are still open/)
   })
 
+  it('on a first import, says the file is being added rather than that questions are open', () => {
+    const state = applyTrayState({ totalCount: 71, doneCount: 0, confirmedCount: 0, isFirstImport: true })
+    expect(state.label).toBe('Add what Shoresh found in your file')
+    expect(state.hint).toMatch(/71 questions can wait/)
+  })
+
   it('says how many decisions it is about to apply, and what it leaves behind', () => {
     const state = applyTrayState({ totalCount: 79, doneCount: 12, confirmedCount: 12 })
     expect(state.label).toBe('Apply 12 decisions')
