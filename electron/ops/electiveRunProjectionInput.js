@@ -33,6 +33,14 @@ export function buildElectiveRunProjectionInput(db, { runId }) {
   const ui = getElectiveRun(db, { runId })
   const outer = getElectiveRunOuterSchedule(db, { runId })
 
+  // T233 S3 — erasure filter at the choke point. Guarantees the export is clean whenever the
+  // `tombstones` TABLE holds the camper, even if projectAll's sweep has not yet deleted dependent
+  // rows. It does NOT filter at document level: this module is given a SQLite handle, so a
+  // tombstone that exists only in the Automerge doc and has not been projected yet is still
+  // invisible here.
+  const erased = new Set(db.prepare("SELECT id FROM tombstones WHERE entity = 'campers'").all().map((r) => r.id))
+  const live = (camperId) => !erased.has(camperId)
+
   return {
     ok: true,
     input: {
@@ -42,18 +50,18 @@ export function buildElectiveRunProjectionInput(db, { runId }) {
         expectedSnapshotRows: ui.expectedSnapshotRows,
         heldSnapshotRows: ui.heldSnapshotRows,
       },
-      campers: listEntities(db, 'campers'),
+      campers: listEntities(db, 'campers').filter((c) => live(c.id)),
       groups: listEntities(db, 'groups'),
       days: listEntities(db, 'days_of_operation').map((d) => ({ ...d, name: d.label })),
       timeBlocks: listEntities(db, 'time_blocks'),
-      outerRows: outer.rows,
-      preferences: ui.preferences,
-      assignments: ui.rows,
+      outerRows: outer.rows.filter((r) => live(r.camperId)),
+      preferences: ui.preferences.filter((p) => live(p.camper_id)),
+      assignments: ui.rows.filter((a) => live(a.camper_id)),
       occurrences: ui.occurrences,
       offeringOccurrencesByChoiceId: ui.offeringOccurrencesByChoiceId,
       staleCount: ui.staleCount,
       capacityRows: ui.overCapacityOccurrences,
-      eligibilityFindings: ui.eligibilityFindings,
+      eligibilityFindings: ui.eligibilityFindings.filter((f) => live(f.camper_id)),
       resourceConflicts: ui.resourceConflicts,
     },
   }

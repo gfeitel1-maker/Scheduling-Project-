@@ -135,4 +135,54 @@ describe('buildElectiveRunProjectionInput', () => {
     expect(exported.error).toBe('SNAPSHOT_INCOMPLETE')
     db.close()
   })
+  // T233 S3 — erasure residual. The tombstone has landed in `tombstones` but projectAll's sweep has
+  // not yet deleted the dependent rows (projection lag). The export must not carry the camper.
+  function seedErasedCamper(db, campId, runStatus) {
+    const runId = randomUUID()
+    db.prepare(
+      "INSERT INTO elective_assignment_runs (id, camp_id, name, status, solver_generation, snapshot_expected_rows, snapshot_digest) VALUES (?, ?, 'Run 1', ?, 'gen-1', 2, 'deadbeef')"
+    ).run(runId, campId, runStatus)
+    for (const [id, name] of [['cam-X', 'Erased Kid'], ['cam-Y', 'Kept Kid']]) {
+      db.prepare('INSERT INTO campers (id, camp_id, display_name) VALUES (?, ?, ?)').run(id, campId, name)
+      db.prepare('INSERT INTO elective_preferences (id, run_id, camper_id, occurrence_id, rank) VALUES (?, ?, ?, ?, 1)').run(`pref-${id}`, runId, id, 'occ-1')
+      db.prepare("INSERT INTO elective_assignments (id, run_id, occurrence_id, camper_id, activity_id, solver_generation) VALUES (?, ?, ?, ?, 'act-1', 'gen-1')").run(`asg-${id}`, runId, 'occ-1', id)
+      db.prepare("INSERT INTO elective_run_findings (id, run_id, solver_generation, kind, camper_id, message) VALUES (?, ?, 'gen-1', 'SOME_KIND', ?, 'm')").run(`fnd-${id}`, runId, id)
+      db.prepare('INSERT INTO elective_run_outer_snapshots (id, run_id, camper_id, day_id, time_block_id, activity_id, solver_generation) VALUES (?, ?, ?, ?, ?, ?, ?)').run(`snap-${id}`, runId, id, 'day-1', 'tb-1', 'act-1', 'gen-1')
+    }
+    db.prepare("INSERT INTO tombstones (id, entity, version, sig) VALUES ('cam-X', 'campers', 1, 'sig')").run()
+    return runId
+  }
+
+  it('T233 S3: a tombstoned camper appears nowhere in the input while the sweep has not run', () => {
+    const dir = makeTmpDir()
+    dirs.push(dir)
+    const { db, campId } = bootstrapDb(dir)
+    const runId = seedErasedCamper(db, campId, 'final')
+
+    const { input } = buildElectiveRunProjectionInput(db, { runId })
+
+    expect(input.campers.map((c) => c.id)).toEqual(['cam-Y'])
+    expect(input.preferences.map((p) => p.camper_id)).toEqual(['cam-Y'])
+    expect(input.assignments.map((a) => a.camper_id)).toEqual(['cam-Y'])
+    expect(input.outerRows.map((r) => r.camperId)).toEqual(['cam-Y'])
+    expect(input.eligibilityFindings.map((f) => f.camper_id)).toEqual(['cam-Y'])
+    expect(JSON.stringify(input)).not.toContain('cam-X')
+    expect(JSON.stringify(input)).not.toContain('Erased Kid')
+    db.close()
+  })
+
+  it('T233 S3: the export the MCP tools return carries no tombstoned camper', () => {
+    const dir = makeTmpDir()
+    dirs.push(dir)
+    const { db, campId } = bootstrapDb(dir)
+    const runId = seedErasedCamper(db, campId, 'draft')
+
+    const exported = buildElectiveRunProjectionExport(buildElectiveRunProjectionInput(db, { runId }).input)
+
+    expect(exported.format_version).toBe(3)
+    expect(JSON.stringify(exported)).not.toContain('cam-X')
+    expect(JSON.stringify(exported)).not.toContain('Erased Kid')
+    expect(JSON.stringify(exported)).toContain('Kept Kid')
+    db.close()
+  })
 })

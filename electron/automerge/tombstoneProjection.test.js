@@ -11,7 +11,7 @@ import path from 'node:path'
 import { generateKeyPairSync } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
 import { createEmptyDoc, applyWrite, BULK_REPLACE_MODELED_ENTITIES } from './campDocument.js'
-import { projectAll, TOMBSTONE_DENYLISTED_ENTITIES } from './projector.js'
+import { projectAll, rebuildFromDoc, TOMBSTONE_DENYLISTED_ENTITIES } from './projector.js'
 import { signTombstone } from './tombstoneSignature.js'
 
 let files = []
@@ -274,5 +274,48 @@ describe('projector — tombstone admission gate (T233)', () => {
     for (const entity of Object.keys(TOMBSTONE_DENYLISTED_ENTITIES)) {
       expect(BULK_REPLACE_MODELED_ENTITIES.has(entity)).toBe(false)
     }
+  })
+
+  describe('rebuildFromDoc(db, doc, entity) — single-entity rebuild honours verified doc tombstones (T233 S3)', () => {
+    function docWithErasedCamper(camperId) {
+      let doc = createEmptyDoc()
+      doc = putCamper(doc, camperId)
+      doc = applyWrite(doc, { entity: 'elective_assignments', entity_id: 'asg-x', field: 'run_id', value: 'run-1' })
+      doc = applyWrite(doc, { entity: 'elective_assignments', entity_id: 'asg-x', field: 'camper_id', value: camperId })
+      return doc
+    }
+
+    it('a signed doc tombstone not yet in SQLite still keeps the camper out of a campers rebuild', () => {
+      installHostKey(db)
+      const doc = tombstoneDoc(docWithErasedCamper('camper-x'), db, { id: 'camper-x', entity: 'campers', version: 1 })
+      expect(db.prepare('SELECT * FROM tombstones WHERE id = ?').get('camper-x')).toBeUndefined()
+
+      rebuildFromDoc(db, doc, 'campers')
+
+      expect(db.prepare('SELECT * FROM campers WHERE id = ?').get('camper-x')).toBeUndefined()
+    })
+
+    it('the same holds for a dependent entity (elective_assignments)', () => {
+      installHostKey(db)
+      const doc = tombstoneDoc(docWithErasedCamper('camper-x'), db, { id: 'camper-x', entity: 'campers', version: 1 })
+
+      rebuildFromDoc(db, doc, 'elective_assignments')
+
+      expect(db.prepare('SELECT * FROM elective_assignments WHERE id = ?').get('asg-x')).toBeUndefined()
+    })
+
+    it('a forged doc tombstone does not erase the camper, and its rejection is still audited', () => {
+      installHostKey(db)
+      let doc = putCamper(createEmptyDoc(), 'camper-y')
+      doc = applyWrite(doc, { entity: 'tombstones', entity_id: 'camper-y', field: 'entity', value: 'campers' })
+      doc = applyWrite(doc, { entity: 'tombstones', entity_id: 'camper-y', field: 'version', value: 1 })
+      doc = applyWrite(doc, { entity: 'tombstones', entity_id: 'camper-y', field: 'sig', value: 'forged-signature-not-base64url-valid' })
+
+      rebuildFromDoc(db, doc, 'campers')
+
+      expect(db.prepare('SELECT * FROM campers WHERE id = ?').get('camper-y')).toBeTruthy()
+      expect(db.prepare('SELECT * FROM tombstones WHERE id = ?').get('camper-y')).toBeUndefined()
+      expect(db.prepare("SELECT * FROM audit_events WHERE target_id = ? AND outcome = 'deny'").get('camper-y')).toBeTruthy()
+    })
   })
 })
