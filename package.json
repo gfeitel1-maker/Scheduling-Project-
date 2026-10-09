@@ -21,6 +21,8 @@
     "electron:dev": "concurrently -k \"vite\" \"cross-env VITE_DEV_SERVER_URL=http://localhost:5200 electron electron/main.js\"",
     "electron:dev:fresh": "pkill -x Electron; sleep 1 && npm run electron:dev",
     "electron:build": "node scripts/write-build-info.js && vite build && electron-builder",
+    "postelectron:build": "node scripts/verifyPackagedApp.js --launch",
+    "verify:packaged": "node scripts/verifyPackagedApp.js --launch",
     "unlock-key": "electron electron/unlockDbKey.js",
     "presmoke:purge-abi": "node scripts/ensure-abi.js electron",
     "smoke:purge-abi": "SHORESH_AT_REST_ENCRYPTION=off electron electron/automerge/purgeAbiSmoke.js",
@@ -55,6 +57,7 @@
     "@libp2p/utils": "^7.4.1",
     "@multiformats/multiaddr": "^13.0.3",
     "better-sqlite3": "^12.11.1",
+    "better-sqlite3-multiple-ciphers": "12.11.1",
     "bonjour-service": "^1.4.3",
     "it-length-prefixed": "^9.1.1",
     "libp2p": "^3.3.11",
@@ -64,9 +67,6 @@
     "react-dom": "^19.2.5",
     "ws": "^8.21.1",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
-  },
-  "optionalDependencies": {
-    "better-sqlite3-multiple-ciphers": "12.11.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",

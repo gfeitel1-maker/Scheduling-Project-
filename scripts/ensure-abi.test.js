@@ -77,10 +77,15 @@ describe('decideFork', () => {
     expect(r.reason).toBe('not-electron')
   })
 
-  it('does nothing when the optional fork is not installed', () => {
+  it('is fatal when the fork is not installed — it is a required dependency, and packaging without it ships an app that cannot start', () => {
     const r = decideFork({ target: 'electron', forkInstalled: false, forkBinaryClass: 'missing' })
     expect(r.rebuild).toBe(false)
+    expect(r.fatal).toBe(true)
     expect(r.reason).toBe('not-installed')
+  })
+
+  it('is not fatal for the node target even when the fork is absent', () => {
+    expect(decideFork({ target: 'node', forkInstalled: false, forkBinaryClass: 'missing' }).fatal).toBeFalsy()
   })
 
   it('skips when the fork binary is already the Electron ABI', () => {

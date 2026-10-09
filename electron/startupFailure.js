@@ -34,7 +34,15 @@ export function describeStartupFailure(err, logPath) {
   // themselves, and it is the likeliest one, so it gets its own wording.
   const isDbFailure = /Failed to open local database|SQLITE|database/i.test(detail)
 
-  const body = isDbFailure
+  const isMissingDriver = err && err.code === 'encrypting_driver_missing'
+
+  const body = isMissingDriver
+    ? [
+      'Shoresh could not start because this build is missing a required component.',
+      '',
+      'Your data has not been changed. Installing this same build again will not fix it — a new build of Shoresh is needed. Please contact whoever installed or built the app for you.',
+    ]
+    : isDbFailure
     ? [
       'Shoresh could not open this camp’s schedule file, so it cannot start.',
       '',
