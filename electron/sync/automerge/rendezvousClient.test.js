@@ -24,6 +24,13 @@ import {
 import { openLocalDb } from '../../db/localDb.js'
 import { nextSequence } from './rendezvousSequence.js'
 
+// The worker fails closed (503) without its rate-limit bindings, so the in-process env supplies
+// allow-all stand-ins for them; the limiter itself is covered in workers/rendezvous/worker.test.js.
+const allowAll = { limit: async () => ({ success: true }) }
+function workerEnv(kv) {
+  return { RENDEZVOUS_KV: kv, REGISTER_LIMITER: allowAll, PEERS_LIMITER: allowAll }
+}
+
 // In-memory KV mock matching the Cloudflare KV surface worker.js actually calls: get/put/list.
 function makeKvMock() {
   const store = new Map()
@@ -49,7 +56,7 @@ function makeKvMock() {
 function makeWorkerFetch(kv) {
   return async (url, init = {}) => {
     const request = new Request(url, init)
-    const response = await handleRequest(request, { RENDEZVOUS_KV: kv })
+    const response = await handleRequest(request, workerEnv(kv))
     return response
   }
 }
@@ -123,7 +130,7 @@ describe('registerRecord / fetchPeers — round-trip against the REAL worker han
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ recordBase64: Buffer.from(bytes).toString('base64'), peerId, namespace }),
       })
-      return handleRequest(request, { RENDEZVOUS_KV: kv })
+      return handleRequest(request, workerEnv(kv))
     }
     const result = await registerRecord({
       baseUrl: 'https://rendezvous.example',
