@@ -22,6 +22,7 @@ export function useSetupCounts(campId) {
   const [isDevDb, setIsDevDb] = useState(false)
   const [buildLabel, setBuildLabel] = useState(null)
   const [backupStatus, setBackupStatus] = useState(null)
+  const [backupRevealable, setBackupRevealable] = useState(false)
   const { start: startBackupStatusReset } = useLatestTimeout()
   const [counts, setCounts] = useState(null)
   const [syncStatus, setSyncStatus] = useState(null)
@@ -107,10 +108,20 @@ export function useSetupCounts(campId) {
     try {
       const result = await localClient.backupProject()
       setBackupStatus(result?.error ? 'error' : 'ok')
+      if (!result?.error) setBackupRevealable(true)
     } catch {
       setBackupStatus('error')
     }
     startBackupStatusReset(() => setBackupStatus(null), 3000)
+  }, [])
+
+  const handleShowBackup = useCallback(async () => {
+    try {
+      const result = await localClient.showBackupInFolder()
+      if (result?.error) setBackupStatus('error')
+    } catch {
+      setBackupStatus('error')
+    }
   }, [])
 
   return {
@@ -122,6 +133,8 @@ export function useSetupCounts(campId) {
     buildLabel,
     backupStatus,
     handleBackupNow,
+    backupRevealable,
+    handleShowBackup,
     offerShown,
     setOfferShown,
   }

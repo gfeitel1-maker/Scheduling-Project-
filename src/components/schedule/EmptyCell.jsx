@@ -28,6 +28,7 @@ export default function EmptyCell({
   // onCreateElective above: eligibleEvents is CellInlineEditor's typeahead
   // source, onPlaceEvent its commit path for an exact-name match.
   eligibleEvents = [], onPlaceEvent,
+  electiveSetsAll = [],
   // Stamp mode (field-trip overlay tool, generated route only) wins over
   // opening the editor — mirrors SlotCell's onCellClick-before-setEditing
   // gating. ManualBuildView never passes this (no stamp mode there).
@@ -91,6 +92,7 @@ export default function EmptyCell({
         <CellInlineEditor
           eligibleActivities={eligibleActivities}
           eligibleEvents={eligibleEvents}
+          electiveSets={electiveSetsAll}
           currentActivityName={null}
           onPlace={(activityId) => { setEditing(false); onPlace?.(slot, activityId) }}
           onCreateNew={(name) => { setEditing(false); onCreateNew?.(slot, name) }}

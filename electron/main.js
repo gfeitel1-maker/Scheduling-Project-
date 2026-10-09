@@ -3556,13 +3556,23 @@ if (isElectronEntryPoint()) {
   })
 
   // Write a dated backup to {userData}/backups/ with rotation (max 10).
+  let lastBackupPath = null
   ipcMain.handle('shoresh:backup-project', () => {
     try {
       const backupPath = writeUserBackup(dbPath, userDataPath)
+      lastBackupPath = backupPath
       return { backupPath }
     } catch (err) {
       return { error: 'backup_failed', message: err.message }
     }
+  })
+
+  // Project lifecycle — trusted local-device operation, exempt from camp session auth.
+  // Reveals only the file this process last wrote; the renderer never supplies a path.
+  ipcMain.handle('shoresh:show-backup-in-folder', () => {
+    if (!lastBackupPath) return { error: 'no_backup' }
+    shell.showItemInFolder(lastBackupPath)
+    return { shown: true }
   })
 
   // Show an open-file dialog, back up the current DB first, then copy the

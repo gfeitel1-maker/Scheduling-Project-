@@ -129,6 +129,7 @@ contextBridge.exposeInMainWorld('shoresh', {
   openProject: () => ipcRenderer.invoke('shoresh:open-project'),
   exportProject: () => ipcRenderer.invoke('shoresh:export-project'),
   backupProject: () => ipcRenderer.invoke('shoresh:backup-project'),
+  showBackupInFolder: () => ipcRenderer.invoke('shoresh:show-backup-in-folder'),
   restoreProject: () => ipcRenderer.invoke('shoresh:restore-project'),
   listRecentProjects: () => ipcRenderer.invoke('shoresh:list-recent-projects'),
   openRecentProject: (targetPath) => ipcRenderer.invoke('shoresh:open-recent-project', { path: targetPath }),

@@ -257,6 +257,7 @@ describe('project-lifecycle wrappers stay token-free (ADR exemption)', () => {
     'openProject',
     'exportProject',
     'backupProject',
+    'showBackupInFolder',
     'restoreProject',
     'listRecentProjects',
     'openRecentProject',
