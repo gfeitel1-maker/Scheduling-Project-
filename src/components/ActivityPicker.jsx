@@ -13,6 +13,37 @@ import { useLatestTimeout } from '../hooks/useLatestTimeout'
 
 const ACTIVITY_QUERY_MAXLENGTH = 60
 
+function editDistance(a, b) {
+  const row = Array.from({ length: b.length + 1 }, (_, j) => j)
+  for (let i = 1; i <= a.length; i++) {
+    let prev = row[0]
+    row[0] = i
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = row[j]
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1))
+      prev = tmp
+    }
+  }
+  return row[b.length]
+}
+
+// A typo ("Arceryh") must surface the existing activity rather than leave
+// "Create" as the only option — a silently minted activity carries a weekly
+// target into Manual's "Still needed".
+function findMatches(activities, q) {
+  const lq = q.toLowerCase()
+  const substring = activities.filter((a) => a.name.toLowerCase().includes(lq))
+  if (lq.length < 3) return substring
+  const limit = Math.ceil(lq.length / 3)
+  const near = activities
+    .filter((a) => !substring.includes(a))
+    .map((a) => ({ a, d: editDistance(lq, a.name.toLowerCase()) }))
+    .filter(({ d }) => d <= limit)
+    .sort((x, y) => x.d - y.d)
+    .map(({ a }) => a)
+  return [...substring, ...near]
+}
+
 // Split out for the same reason LocationPickerPopover is split out: so
 // useEnterTransition('popFade') runs its mount effect when the popover
 // itself mounts, not when the always-mounted picker does.
@@ -57,9 +88,10 @@ export default function ActivityPicker({ activities, catalogHasAny, disabled, on
   const [active, setActive] = useState(0)
   const [focused, setFocused] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [navigated, setNavigated] = useState(false)
 
   const q = query.trim()
-  const matches = activities.filter((a) => a.name.toLowerCase().includes(q.toLowerCase()))
+  const matches = findMatches(activities, q)
   const exactMatch = activities.some((a) => a.name.toLowerCase() === q.toLowerCase())
   const showCreateRow = q.length > 0 && !exactMatch
   const hintText = matches.length === 0 && !q && catalogHasAny
@@ -97,16 +129,17 @@ export default function ActivityPicker({ activities, catalogHasAny, disabled, on
           value={query}
           maxLength={ACTIVITY_QUERY_MAXLENGTH}
           disabled={disabled}
-          onChange={(e) => { setQuery(e.target.value); setOpen(true); setActive(0) }}
+          onChange={(e) => { setQuery(e.target.value); setOpen(true); setActive(0); setNavigated(false) }}
           onFocus={() => { setFocused(true); setOpen(true) }}
           onBlur={() => { setFocused(false); startClose(() => setOpen(false), 120) }}
           onKeyDown={(e) => {
-            if (e.key === 'ArrowDown') { setActive((a) => Math.min(a + 1, optionCount - 1)); e.preventDefault() }
-            else if (e.key === 'ArrowUp') { setActive((a) => Math.max(a - 1, 0)); e.preventDefault() }
+            if (e.key === 'ArrowDown') { setNavigated(true); setActive((a) => Math.min(a + 1, optionCount - 1)); e.preventDefault() }
+            else if (e.key === 'ArrowUp') { setNavigated(true); setActive((a) => Math.max(a - 1, 0)); e.preventDefault() }
             else if (e.key === 'Enter') {
               e.preventDefault()
+              // Creating needs an explicit choice: a click, or arrowing onto the row.
               if (matches[active]) selectMatch(matches[active])
-              else if (showCreateRow) handleCreate()
+              else if (showCreateRow && navigated) handleCreate()
             } else if (e.key === 'Escape') { setOpen(false) }
           }}
           placeholder="Search or add an activity…"

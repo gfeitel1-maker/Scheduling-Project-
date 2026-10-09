@@ -135,13 +135,11 @@ function useAtRestEncryptionStatus() {
 const disclosureStyles = {
   // Shared by the 'checking' and 'encrypted' states: both are informational,
   // neither is a caution, so neither takes the bronze caution fill.
+  // Same bare-line shape as `flag` below: a standing status, not banner chrome.
   neutral: {
-    background: 'var(--surface)',
-    border: '1px solid var(--border)',
-    borderRadius: 6,
-    padding: '10px 14px',
     marginBottom: 16,
-    fontSize: 13,
+    fontSize: 12,
+    lineHeight: 1.4,
     color: 'var(--text-secondary)',
     transition: 'opacity var(--motion-fast) var(--ease-out)',
   },

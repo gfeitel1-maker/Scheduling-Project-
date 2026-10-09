@@ -326,6 +326,10 @@ describe('T249 -- and once encryption is actually on, it stops warning without o
     expect(row.textContent).toMatch(/peer device/i)
     // Still nothing to click, in this state either.
     expect(within(row).queryAllByRole('button')).toHaveLength(0)
+    // A standing status line, not banner chrome (owner: no banners).
+    expect(row.style.background).toBe('')
+    expect(row.style.border).toBe('')
+    expect(row.style.padding).toBe('')
   })
 })
 

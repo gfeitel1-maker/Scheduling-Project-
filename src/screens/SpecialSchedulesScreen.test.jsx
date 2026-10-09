@@ -54,14 +54,14 @@ beforeEach(() => {
 })
 
 describe('SpecialSchedulesScreen — empty state', () => {
-  it('shows a single-line message and a link back to Roots when nothing is authored', async () => {
+  it('shows a single-line message and a link to its authoring screen when nothing is authored', async () => {
     localClient.list.mockImplementation(byEntity(BASE))
     const onNavigate = vi.fn()
     render(<SpecialSchedulesScreen campId={CAMP_ID} role="admin" onNavigate={onNavigate} />)
 
     await waitFor(() => expect(screen.getByText(/No special days or events yet/)).toBeTruthy())
-    fireEvent.click(screen.getByText('Go to Roots'))
-    expect(onNavigate).toHaveBeenCalledWith('roots')
+    fireEvent.click(screen.getByText('Go to Special Events'))
+    expect(onNavigate).toHaveBeenCalledWith('specialevents')
   })
 })
 

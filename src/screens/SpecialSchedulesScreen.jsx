@@ -190,10 +190,10 @@ export default function SpecialSchedulesScreen({ campId, onNavigate, initialSele
             {LABELS.emptyMessage}{' '}
             <button
               className="press-97"
-              onClick={() => onNavigate?.('roots')}
+              onClick={() => onNavigate?.('specialevents')}
               style={styles.linkButton}
             >
-              Go to Roots
+              Go to Special Events
             </button>
           </div>
         </div>
