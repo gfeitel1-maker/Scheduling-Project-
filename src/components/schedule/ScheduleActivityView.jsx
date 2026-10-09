@@ -52,14 +52,14 @@ export default function ScheduleActivityView({
                   // by its NAME; colour carried no fact the card doesn't state.
                   '--activity-color': 'var(--primary)',
                   background: 'var(--surface)', border: `1px solid var(--border)`,
-                  borderRadius: 8, padding: '14px 16px', textAlign: 'left',
+                  borderRadius: 8, padding: '14px 16px', textAlign: 'center',
                   cursor: 'pointer', transition: 'border-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out)',
                   borderTop: '4px solid var(--border)',
                 }}
               >
                 <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)', marginBottom: 6, lineHeight: 1.3 }}>{act.name}</div>
                 {place && <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>{place}</div>}
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                <div style={{ ...S.centeredRow, gap: 6, alignItems: 'center' }}>
                   {act.priority === 'high' && (
                     <span style={S.chip('var(--text-secondary)', false, { fontSize: 10, borderRadius: 3, padding: '1px 6px', cursor: 'default' })}>HIGH</span>
                   )}

@@ -913,6 +913,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       <div key={r} style={{
         background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10,
         padding: '18px 20px', width: 280, display: 'flex', flexDirection: 'column', gap: 8,
+        alignItems: 'center', textAlign: 'center',
       }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 15, color: 'var(--text)' }}>{copy.offerTitle}</div>
         <button className="press-97"
@@ -921,7 +922,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
           title={role !== 'admin' ? 'Admin only' : undefined}
           style={{
             ...(r === 'generated' ? S.btnPrimary : S.btnSecondary),
-            marginTop: 6, alignSelf: 'flex-start',
+            marginTop: 6,
             ...(generating || role !== 'admin' ? S.buttonDisabled : {}),
           }}
         >{copy.offerAction}</button>
@@ -1099,7 +1100,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
           state of the thing you are looking at, so it reads directly under
           the view switcher rather than below the grid. */}
       {hasSchedule && stats && (
-        <div style={{ marginBottom: 20 }}>
+        <div style={{ ...S.centeredRow, marginBottom: 20 }}>
         <div style={{ position: 'relative', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           {/* T18: one concept, one name. "Placed" is a plain progress count on
               both routes — not a concern, so it never toggles anything. */}
@@ -1218,10 +1219,10 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 entry (no initialRoute), present both so they can pick. */}
             {!anyRouteStarted && !generating && (
               initialRoute ? (
-                <div style={{ display: 'flex', marginBottom: 8 }}>{routeOffer(route)}</div>
+                <div style={{ ...S.centeredRow, marginBottom: 8 }}>{routeOffer(route)}</div>
               ) : (
                 <div style={{ padding: '60px 16px', textAlign: 'center' }}>
-                  <div style={{ display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap', textAlign: 'left' }}>
+                  <div style={{ ...S.centeredRow, gap: 16 }}>
                     {routeOffer('manual')}
                     {routeOffer('generated')}
                   </div>
@@ -1232,7 +1233,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
             {/* The other route has work, this one does not: the same offer,
                 inline. No warning, no confirmation — nothing is at risk. */}
             {anyRouteStarted && !hasSchedule && !generating && (
-              <div style={{ display: 'flex', marginBottom: 8 }}>{routeOffer(route)}</div>
+              <div style={{ ...S.centeredRow, marginBottom: 8 }}>{routeOffer(route)}</div>
             )}
 
 
@@ -1445,7 +1446,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
           undocumented (legend.test.js). When shown there, legendEntriesFor
           documents every mark the generated grid can carry. */}
       {hasSchedule && (isManual || weekClosedSlots.length > 0 || overlapSlots.length > 0) && (
-        <div style={{ display: 'flex', gap: 16, marginTop: 16, flexWrap: 'wrap', fontSize: 11, color: 'var(--text-secondary)' }}>
+        <div style={{ ...S.centeredRow, gap: 16, marginTop: 16, fontSize: 11, color: 'var(--text-secondary)' }}>
           {legendEntriesFor(route).map(entry => (
             <span key={entry.label} title={entry.description} style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'default' }}>
               <span
