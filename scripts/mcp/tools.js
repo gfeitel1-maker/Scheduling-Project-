@@ -23,6 +23,7 @@ import { assembleScheduleEngineInputs } from '../../electron/ops/scheduleEngineI
 import { normalizeSlots } from '../../src/utils/normalizeSlots.js'
 import buildSchedule from '../../src/engine/buildSchedule.js'
 import { buildScheduleExport } from '../../src/utils/exportScheduleJson.js'
+import { buildReplacements } from '../../src/screens/schedule/replacedLane.js'
 import { PROJECTIONS } from '../../electron/ops/projections.js'
 import { repairProjectionForEntity, checkProjectionHealth } from '../../electron/ops/projectionRepair.js'
 import { listDocumentWriteFailures } from '../../electron/ops/documentWriteFailures.js'
@@ -453,12 +454,22 @@ export function exportScheduleTool(args, { dbPath, dbKey }) {
       ? normalizeSlots(listEntities(db, 'template_slots').filter((s) => s.template_id === template.id))
       : []
 
+    const days = listEntities(db, 'days_of_operation')
+    const replacements = buildReplacements({
+      days,
+      weekId,
+      placements: listEntities(db, 'special_day_placements'),
+      specialDays: listEntities(db, 'special_days'),
+      specialBlocks: listEntities(db, 'special_day_time_blocks'),
+      specialSlots: listEntities(db, 'special_day_slots'),
+    })
     const out = buildScheduleExport({
       slots,
+      replacements,
       activities: listEntities(db, 'activities'),
       fixedEvents: listEntities(db, 'fixed_events'),
       groups: listEntities(db, 'groups'),
-      days: listEntities(db, 'days_of_operation'),
+      days,
       timeBlocks: listEntities(db, 'time_blocks'),
       electiveSets: listEntities(db, 'elective_sets'),
       // T195 (offering-grid import) load-boundary filter: a 'potential'

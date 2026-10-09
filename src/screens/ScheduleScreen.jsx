@@ -880,13 +880,13 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const startRoute = { manual: placeFixedEvents, generated: generate }
 
   function exportRoute(r, format = 'excel') {
-    const bundle = { slots: slotsByRoute[r], activities, fixedEvents, groups, days, timeBlocks, electiveSets: electiveSetsAll, electiveSetActivities, events: eventsAll }
+    const week = weeks.find(w => w.id === weekId) || null
+    const bundle = { slots: slotsByRoute[r], activities, fixedEvents, groups, days, timeBlocks, electiveSets: electiveSetsAll, electiveSetActivities, events: eventsAll, week, replacements }
     if (format === 'json') {
       // The portable machine-readable format (M2, Premise §14). Same non-canonical
       // rule as Excel: this exports the ONE route the director just chose, and the
       // app remembers nothing.
-      const week = weeks.find(w => w.id === weekId) || null
-      const data = buildScheduleExport({ ...bundle, camp: { id: campId }, week, route: r })
+      const data = buildScheduleExport({ ...bundle, camp: { id: campId }, route: r })
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')

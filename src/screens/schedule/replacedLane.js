@@ -52,6 +52,12 @@ export function replacedLaneRows({ replacement, groupId, actMap }) {
   }))
 }
 
+// Printed label of a replaced day: week name and weekday, never a calendar date
+// (owner ruling, T350 slice 6).
+export function replacedDayLabel(week, day) {
+  return week?.name ? `${week.name} – ${day.label}` : day.label
+}
+
 export function replacedLaneNotes(replacement) {
   return (replacement.notes || '').trim()
 }

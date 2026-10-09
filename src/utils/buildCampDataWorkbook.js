@@ -279,9 +279,17 @@ export const CAMP_DATA_SHEETS = Object.freeze([
     sheet: 'Special Days',
     entity: 'special_days',
     ordered: true,
-    build(rows) {
-      const header = ['Name', 'Notes']
-      const dataRows = sortEntities(rows, { ordered: true }).map((r) => [r.name ?? '', r.notes ?? ''])
+    // "Placed on" (T350, ADR 2026-10-09 D7) is read-only and part of no round
+    // trip: "Week – Day" per placement, in week then day order.
+    build(rows, maps) {
+      const header = ['Name', 'Notes', 'Placed on']
+      const placedOn = (id) => maps.placements
+        .filter((p) => p.special_day_id === id && maps.weekNameById.has(p.week_id) && maps.dayNameById.has(p.day_id))
+        .sort((a, b) => (maps.weekSortById.get(a.week_id) - maps.weekSortById.get(b.week_id))
+          || (maps.daySortById.get(a.day_id) - maps.daySortById.get(b.day_id)))
+        .map((p) => `${maps.weekNameById.get(p.week_id)} – ${maps.dayNameById.get(p.day_id)}`)
+        .join(', ')
+      const dataRows = sortEntities(rows, { ordered: true }).map((r) => [r.name ?? '', r.notes ?? '', placedOn(r.id)])
       return { header, dataRows }
     },
   },
@@ -357,6 +365,8 @@ export function buildCampDataWorkbook({ entities = {}, campName = '', asOf = new
     timeBlockNameById: new Map(timeBlocks.map((t) => [t.id, t.name])),
     timeBlockSortById: new Map(timeBlocks.map((t) => [t.id, t.sort_order ?? 0])),
     weekNameById: new Map(scheduleWeeks.map((w) => [w.id, w.name])),
+    weekSortById: new Map(scheduleWeeks.map((w) => [w.id, w.sort_order ?? 0])),
+    placements: notDeleted(entities.special_day_placements),
     activityNameById: new Map(activities.map((a) => [a.id, a.name])),
   }
 
