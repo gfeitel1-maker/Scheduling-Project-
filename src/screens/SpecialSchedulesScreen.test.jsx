@@ -59,7 +59,7 @@ describe('SpecialSchedulesScreen — empty state', () => {
     const onNavigate = vi.fn()
     render(<SpecialSchedulesScreen campId={CAMP_ID} role="admin" onNavigate={onNavigate} />)
 
-    await waitFor(() => expect(screen.getByText(/No special days or events yet/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('None yet')).toBeTruthy())
     fireEvent.click(screen.getByText('Go to Special Events'))
     expect(onNavigate).toHaveBeenCalledWith('specialevents')
   })
@@ -85,9 +85,8 @@ describe('SpecialSchedulesScreen — list, grouped', () => {
     const names = screen.getAllByText(/Color War|Zeta Day|Banquet/).map((el) => el.textContent)
     expect(names.indexOf('Color War')).toBeLessThan(names.indexOf('Zeta Day'))
 
-    // Not-started status for entities with no time blocks yet — never a
-    // count badge (per resolved OQ1, no urgency marker).
-    expect(screen.getAllByText('Not started').length).toBeGreaterThan(0)
+    // Fill shown as filled/total, neutral text — no urgency marker (OQ1).
+    expect(screen.getAllByText('0/0')).toHaveLength(3)
   })
 
   it('shows completeness derived from slot fill state, reusing the same filled/total shape as the grid editors', async () => {
@@ -100,7 +99,8 @@ describe('SpecialSchedulesScreen — list, grouped', () => {
     }))
     render(<SpecialSchedulesScreen campId={CAMP_ID} role="admin" />)
 
-    await waitFor(() => expect(screen.getByText('Complete')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('1/1')).toBeTruthy())
+    expect(screen.getByText('1/1').style.color).toBe('var(--text-secondary)')
   })
 })
 

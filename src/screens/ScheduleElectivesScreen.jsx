@@ -8,45 +8,11 @@
 import { useEffect, useState } from 'react'
 import { localClient } from '../localClient'
 import { S } from '../styles/shared'
+import SchedulePickerList, { Crossfade } from '../components/schedule/SchedulePickerList'
 import ElectiveSetDetail from './elective/ElectiveSetDetail'
 
 const LABELS = {
   heading: 'Elective Sets',
-  emptyMessage: 'No elective sets yet.',
-}
-
-// 150ms opacity-only crossfade, dropped to 0ms under prefers-reduced-motion —
-// identical to SpecialSchedulesScreen's useCrossfade, reused verbatim rather
-// than reauthored (spec's Animation table).
-function useCrossfade() {
-  const reduced = typeof window !== 'undefined' && Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
-  const [entered, setEntered] = useState(false)
-  useEffect(() => {
-    const id = requestAnimationFrame(() => setEntered(true))
-    return () => cancelAnimationFrame(id)
-  }, [])
-  return {
-    opacity: entered ? 1 : 0,
-    transition: `opacity ${reduced ? '0ms' : '150ms'} var(--ease-out)`,
-  }
-}
-
-function Card({ name, sublabel, onClick }) {
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={onClick}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClick() }}
-      className="press-97"
-      style={styles.card}
-      onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg)')}
-      onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--surface)')}
-    >
-      <div style={styles.cardName}>{name}</div>
-      <div style={styles.cardSublabel}>{sublabel}</div>
-    </div>
-  )
 }
 
 export default function ScheduleElectivesScreen({ campId, role, onNavigate, initialElectiveSetId = null }) {
@@ -65,7 +31,6 @@ export default function ScheduleElectivesScreen({ campId, role, onNavigate, init
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [selectedId, setSelectedId] = useState(initialElectiveSetId)
-  const crossfade = useCrossfade()
 
   async function load() {
     setLoading(true)
@@ -122,7 +87,7 @@ export default function ScheduleElectivesScreen({ campId, role, onNavigate, init
 
   if (selectedSet) {
     return (
-      <div style={crossfade}>
+      <Crossfade>
         <ElectiveSetDetail
           set={selectedSet}
           role={role}
@@ -140,7 +105,7 @@ export default function ScheduleElectivesScreen({ campId, role, onNavigate, init
           onBack={() => { setSelectedId(null); load() }}
           onNavigate={onNavigate}
         />
-      </div>
+      </Crossfade>
     )
   }
 
@@ -149,64 +114,23 @@ export default function ScheduleElectivesScreen({ campId, role, onNavigate, init
   const sortedSets = [...sets].sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? '')))
 
   return (
-    <div style={{ maxWidth: 760, ...crossfade }}>
-      {error && <div style={S.errorBanner}>{error}</div>}
-
-      {sortedSets.length === 0 ? (
-        <div style={S.emptyState}>
-          <div style={S.emptyStateBody}>
-            {LABELS.emptyMessage}{' '}
-            <button
-              className="press-97"
-              onClick={() => onNavigate?.('electives')}
-              style={styles.linkButton}
-            >
-              Go to Electives
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div>
-          <div style={styles.heading}>{LABELS.heading}</div>
-          <div style={styles.list}>
-            {sortedSets.map((set) => {
-              const count = offerings.filter((o) => o.elective_set_id === set.id).length
-              return (
-                <Card
-                  key={set.id}
-                  name={set.name || '(untitled set)'}
-                  sublabel={`${count} offering${count === 1 ? '' : 's'}`}
-                  onClick={() => setSelectedId(set.id)}
-                />
-              )
-            })}
-          </div>
-        </div>
-      )}
-    </div>
+    <SchedulePickerList
+      error={error}
+      emptyAction="Go to Electives"
+      onEmptyAction={() => onNavigate?.('electives')}
+      sections={[{
+        key: 'sets',
+        heading: LABELS.heading,
+        rows: sortedSets.map((set) => {
+          const count = offerings.filter((o) => o.elective_set_id === set.id).length
+          return {
+            key: set.id,
+            name: set.name || '(untitled set)',
+            meta: `${count} offering${count === 1 ? '' : 's'}`,
+            onClick: () => setSelectedId(set.id),
+          }
+        }),
+      }]}
+    />
   )
-}
-
-const styles = {
-  heading: {
-    fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13,
-    color: 'var(--text-secondary)', textTransform: 'uppercase',
-    letterSpacing: '0.05em', marginBottom: 10,
-  },
-  list: {
-    background: 'var(--surface)', border: '1px solid var(--border)',
-    borderRadius: 12, overflow: 'hidden',
-  },
-  card: {
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    padding: '12px 16px', borderBottom: '1px solid var(--border)',
-    cursor: 'pointer', background: 'var(--surface)',
-  },
-  cardName: { fontSize: 14, fontWeight: 500 },
-  cardSublabel: { fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' },
-  linkButton: {
-    background: 'none', border: 'none', padding: 0, color: 'var(--primary)',
-    fontWeight: 600, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
-    textDecoration: 'underline',
-  },
 }
