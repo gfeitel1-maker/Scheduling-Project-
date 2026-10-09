@@ -45,13 +45,13 @@ beforeEach(() => {
 })
 
 describe('ScheduleElectivesScreen — empty state', () => {
-  it('shows a single-line message and a link back to Roots when nothing is authored', async () => {
+  it('shows a single-line message and a link to its authoring screen when nothing is authored', async () => {
     localClient.list.mockImplementation(byEntity(BASE))
     const onNavigate = vi.fn()
     render(<ScheduleElectivesScreen campId={CAMP_ID} role="admin" onNavigate={onNavigate} />)
 
     await waitFor(() => expect(screen.getByText(/No elective sets yet/)).toBeTruthy())
-    fireEvent.click(screen.getByText('Go to Roots'))
+    fireEvent.click(screen.getByText('Go to Electives'))
     expect(onNavigate).toHaveBeenCalledWith('electives')
   })
 })

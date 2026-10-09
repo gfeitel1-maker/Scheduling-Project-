@@ -361,6 +361,37 @@ describe('ElectiveSetDetail — Add Offering (manual create-any-activity, electi
     expect(screen.queryByText(/Create "ceramics" as a new activity/)).toBeNull()
   })
 
+  it('Enter on an unmatched name does not create a new activity', async () => {
+    localClient.list.mockImplementation(byEntity({ elective_set_activities: [] }))
+    renderDetail({ activities: [activity({ id: 'act-1', name: 'Pottery' })] })
+    await waitFor(() => expect(screen.queryByText('No offerings yet')).not.toBeNull())
+
+    const input = screen.getByLabelText('Search or add an activity')
+    fireEvent.change(input, { target: { value: 'Zzyzx' } })
+    await waitFor(() => expect(screen.getByText(/Create "Zzyzx" as a new activity/)).toBeTruthy())
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await new Promise((r) => setTimeout(r, 50))
+    expect(localClient.write.mock.calls.some((c) => c[1] === 'activities' && c[3] === 'name')).toBe(false)
+    expect(localClient.write.mock.calls.some((c) => c[1] === 'elective_set_activities')).toBe(false)
+  })
+
+  it('suggests the closest existing activity for a typo, and Enter adds that one instead of minting', async () => {
+    localClient.list.mockImplementation(byEntity({ elective_set_activities: [] }))
+    renderDetail({ activities: [activity({ id: 'act-arch', name: 'Archery' })] })
+    await waitFor(() => expect(screen.queryByText('No offerings yet')).not.toBeNull())
+
+    const input = screen.getByLabelText('Search or add an activity')
+    fireEvent.change(input, { target: { value: 'Arceryh' } })
+    await waitFor(() => expect(screen.getByText('Archery')).toBeTruthy())
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => expect(localClient.write).toHaveBeenCalled())
+    const calls = localClient.write.mock.calls
+    expect(calls.some((c) => c[3] === 'activity_id' && c[4] === 'act-arch')).toBe(true)
+    expect(calls.some((c) => c[1] === 'activities' && c[3] === 'name')).toBe(false)
+  })
+
   it('shows the reworded hint once every catalog activity is already offered', async () => {
     localClient.list.mockImplementation(byEntity({ elective_set_activities: [offering()] }))
     renderDetail({ activities: [activity()] })

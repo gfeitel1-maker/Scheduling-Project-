@@ -161,7 +161,7 @@ export default function ScheduleElectivesScreen({ campId, role, onNavigate, init
               onClick={() => onNavigate?.('electives')}
               style={styles.linkButton}
             >
-              Go to Roots
+              Go to Electives
             </button>
           </div>
         </div>
