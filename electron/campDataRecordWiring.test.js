@@ -267,7 +267,7 @@ describe('wiring call sites route through the exported helpers', () => {
 
   it('reinitialize disposes-then-closes via disposeCampDataRecordThenCloseDb', () => {
     const reinit = region(/function reinitialize\s*\(/, /ipcMain\.handle\(\s*['"]shoresh:get-current-project['"]/)
-    expect(reinit).toContain('disposeCampDataRecordThenCloseDb(liveHandlers, db)')
+    expect(reinit).toContain('disposeCampDataRecordThenCloseDb(liveHandlers, oldDb)')
   })
 
   it('restore-project disposes-then-closes via disposeCampDataRecordThenCloseDb', () => {
@@ -275,7 +275,7 @@ describe('wiring call sites route through the exported helpers', () => {
       /ipcMain\.handle\(\s*['"]shoresh:restore-project['"]/,
       /ipcMain\.handle\(\s*['"]shoresh:list-recent-projects['"]/
     )
-    expect(restore).toContain('disposeCampDataRecordThenCloseDb(liveHandlers, db)')
+    expect(restore).toContain('disposeCampDataRecordThenCloseDb(liveHandlers, oldDb)')
   })
 })
 
