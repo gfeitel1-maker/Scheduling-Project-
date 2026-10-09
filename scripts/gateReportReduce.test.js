@@ -363,3 +363,50 @@ describe('reduceGateReport', () => {
     expect(JSON.stringify(out2)).toBe(JSON.stringify(out3))
   })
 })
+
+// CI is the gate of record and a full local verify is forbidden on the owner's machine, so a
+// completed, successful CI run on the exact head SHA must satisfy verifier_pass on its own.
+describe('verifier_pass via a bound CI run', () => {
+  const SHA = '5ba82017aaaabbbbccccddddeeeeffff00001111'
+  const opinions = () => [opinion('security', 4), opinion('red_hat', 4), opinion('tester', 4), opinion('code_reviewer', 4)]
+  const unverified = () => verifier({ verdict: 'UNVERIFIED', evidence_ref: 'no local gate results file' })
+  const run = (o = {}) => ({ id: 18234567890, headSha: SHA, status: 'completed', conclusion: 'success', ...o })
+  const reduce = (reports, ciRun, headSha = SHA) =>
+    reduceGateReport({ taskId: 'T1', round: 1, expectedOpinionGates: EXPECTED, reports, ciRun, headSha })
+
+  it('no local file + bound CI run on the exact SHA, completed/success -> pass, recorded', () => {
+    const out = reduce([unverified(), ...opinions()], run())
+    expect(out.verifier_pass).toBe(true)
+    expect(out.decision_eligibility).toBe('PASS_ELIGIBLE')
+    expect(out.verifier_ci_run).toEqual({ id: 18234567890, head_sha: SHA, status: 'completed', conclusion: 'success' })
+  })
+
+  it('no verifier report at all + bound CI run -> pass', () => {
+    expect(reduce(opinions(), run()).verifier_pass).toBe(true)
+  })
+
+  it('local file pass still passes with no CI run', () => {
+    const out = reduce([verifier(), ...opinions()], undefined)
+    expect(out.verifier_pass).toBe(true)
+    expect(out.verifier_ci_run).toBeNull()
+  })
+
+  it.each([
+    ['different SHA', run({ headSha: 'deadbeef'.repeat(5) })],
+    ['in_progress', run({ status: 'in_progress', conclusion: null })],
+    ['queued', run({ status: 'queued', conclusion: null })],
+    ['in_progress even with conclusion success', run({ status: 'in_progress' })],
+    ['completed/failure', run({ conclusion: 'failure' })],
+    ['completed/cancelled', run({ conclusion: 'cancelled' })],
+    ['missing run id', run({ id: undefined })],
+    ['missing run sha', run({ headSha: undefined })],
+  ])('CI run %s -> not pass', (_label, ciRun) => {
+    const out = reduce([unverified(), ...opinions()], ciRun)
+    expect(out.verifier_pass).toBe(false)
+    expect(out.decision_eligibility).toBe('BLOCK')
+  })
+
+  it('CI run with no report headSha to bind against -> not pass', () => {
+    expect(reduce([unverified(), ...opinions()], run(), null).verifier_pass).toBe(false)
+  })
+})

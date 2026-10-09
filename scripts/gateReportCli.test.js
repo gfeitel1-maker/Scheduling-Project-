@@ -251,3 +251,23 @@ describe('opinion report dispatch provenance (T171)', () => {
     expect(result.decision_eligibility).toBe('PASS_ELIGIBLE')
   })
 })
+
+describe('runGateReportCli — ciRun binds Verifier to a CI run (no local gate results file)', () => {
+  const SHA = '5ba82017aaaabbbbccccddddeeeeffff00001111'
+  const opinions = [opinion('security', 4), opinion('red_hat', 4), opinion('tester', 4), opinion('code_reviewer', 4)]
+  const base = { taskId: 'T201', round: 1, expectedOpinionGates: ['security', 'red_hat', 'tester', 'code_reviewer'], reports: opinions, commit: SHA }
+
+  it('completed/success CI run on the commit -> verifier_pass, run recorded in the persisted report', () => {
+    const ciRun = { id: 18234567890, headSha: SHA, status: 'completed', conclusion: 'success' }
+    const result = runGateReportCli(writeInput('ci.json', withBoundTranscript({ ...base, ciRun })), { runsDir: scratch })
+    expect(result.verifier_pass).toBe(true)
+    const persisted = JSON.parse(readFileSync(result.gate_report_ref, 'utf8'))
+    expect(persisted.verifier_ci_run).toEqual({ id: 18234567890, head_sha: SHA, status: 'completed', conclusion: 'success' })
+  })
+
+  it('CI run on a different SHA than commit -> not pass', () => {
+    const ciRun = { id: 1, headSha: 'f'.repeat(40), status: 'completed', conclusion: 'success' }
+    const result = runGateReportCli(writeInput('ci2.json', withBoundTranscript({ ...base, ciRun })), { runsDir: scratch })
+    expect(result.verifier_pass).toBe(false)
+  })
+})

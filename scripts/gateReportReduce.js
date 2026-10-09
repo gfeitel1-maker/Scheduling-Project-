@@ -14,9 +14,12 @@ import { validatePerGateReport, OPINION_GATE_NAMES } from './gateReportSchema.js
  *   declared for this task before dispatch (selected_agents minus verifier).
  * @param {object[]} input.reports - the PerGateReport objects actually
  *   received this round (some gates may be absent).
+ * @param {object} [input.ciRun] - a CI run bound as Verifier evidence: {id, headSha, status,
+ *   conclusion}. CI is the gate of record; a local full verify may be impossible.
+ * @param {string} [input.headSha] - the head SHA this report is FOR; a ciRun counts only on it.
  * @returns {object} GateReport per spec §4
  */
-export function reduceGateReport({ taskId, round, expectedOpinionGates, reports }) {
+export function reduceGateReport({ taskId, round, expectedOpinionGates, reports, ciRun, headSha }) {
   // --- §5.1 validate shape first ---------------------------------------
   const malformed = []
   const byGate = new Map() // gate_name -> well-formed report (or absent if malformed/duplicate)
@@ -72,7 +75,15 @@ export function reduceGateReport({ taskId, round, expectedOpinionGates, reports 
 
   // --- §5.2 verifier_pass ------------------------------------------------
   const verifierReport = byGate.get('verifier')
-  const verifierPass = verifierReport !== undefined && verifierReport.verdict === 'PASS'
+  // Either a local gate-results PASS, or a COMPLETED, SUCCESSFUL CI run with a run id whose head
+  // SHA is exactly the head under review. Anything less (other SHA, still running, failed,
+  // cancelled, no id) proves nothing about this diff and does not count.
+  const ciRunPass = Boolean(
+    ciRun && ciRun.id != null && ciRun.id !== '' &&
+    typeof headSha === 'string' && headSha !== '' && ciRun.headSha === headSha &&
+    ciRun.status === 'completed' && ciRun.conclusion === 'success',
+  )
+  const verifierPass = (verifierReport !== undefined && verifierReport.verdict === 'PASS') || ciRunPass
 
   // --- §5.3 opinion aggregate ---------------------------------------------
   const gateScores = { security: null, red_hat: null, tester: null, code_reviewer: null }
@@ -160,6 +171,9 @@ export function reduceGateReport({ taskId, round, expectedOpinionGates, reports 
     task_id: taskId,
     round,
     verifier_pass: verifierPass,
+    verifier_ci_run: ciRun
+      ? { id: ciRun.id ?? null, head_sha: ciRun.headSha ?? null, status: ciRun.status ?? null, conclusion: ciRun.conclusion ?? null }
+      : null,
     gate_scores: gateScores,
     overall_score: overallScore,
     lowest_dimension: lowestDimension,

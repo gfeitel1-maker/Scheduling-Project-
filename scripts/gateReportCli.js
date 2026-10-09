@@ -158,6 +158,10 @@ export function runGateReportCli(inputPath, { runsDir }) {
     round: input.round,
     expectedOpinionGates: input.expectedOpinionGates,
     reports,
+    // CI is the gate of record: a completed, successful run on `commit` satisfies verifier_pass
+    // without a local results file. The reducer checks the binding and records the run.
+    ciRun: input.ciRun,
+    headSha: input.commit,
   })
 
   const gateReportRef = writeGateReport(gateReport, { runsDir })
