@@ -227,9 +227,15 @@ The data path itself stays inside Noise plus mutual auth plus authorize().
   "namespace write budget exhausted"; the 200-device cap holds (peer 201 refused "namespace is at capacity",
   a refresh from an existing peer accepted). **The per-IP limiter binding is best-effort and did NOT enforce on the
   burst**, so the per-namespace and global budgets are the effective limits; F3's residual stands.
-- **STUN (open question → ruled):** Cloudflare's public STUN (`stun.cloudflare.com:3478`) ONLY, as a single config
-  constant used only when the punch flag is on. No new third party (Cloudflare is already accepted for the
-  rendezvous), and it keeps rungs 1–2 primary. No Google or other STUN.
+- **STUN (open question → ruled, then REVERSED by the owner):** a Cloudflare-STUN ruling was withdrawn. Owner,
+  verbatim: "no. i do not accept this. you know that i believe that laptops can find one another on dfferent wifis.
+  let's assume for the moment that it's not available if you are two places you have never been. but if one f you
+  is in a spot that is known, then it should be possible if the other is in a new spot". **No STUN of any kind.**
+  Requirement: a device at a KNOWN spot (e.g. the camp office) must be reachable by a device at a NEW spot with no
+  third party; both at never-seen spots is out of scope for now. Direction under feasibility study: each device asks
+  its own router for its public address and an inbound mapping (UPnP-IGD / NAT-PMP / PCP), publishes the mapped
+  address in the signed record peers already exchange (rung 1), refreshes it while connected, and removes it on quit
+  and on revoke; if the router refuses, the director sees a plain status and the ladder falls to rungs 2/3.
 - **Condition 2 (two-NAT hardware proof)** is scheduled as the owner's two-laptop test, after conditions 1 and 5
   land and a packaged build exists; **condition 4** (punch sign-off) follows it.
 
