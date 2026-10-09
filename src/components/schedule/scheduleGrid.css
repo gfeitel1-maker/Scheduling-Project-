@@ -815,10 +815,27 @@
   padding: 6px 8px;
 }
 
+/* Audit-2 A10: portalled to <body> and fixed-positioned under the editor
+   (top/left/width are computed inline), so no cell or grid overflow clips it. */
 .cell-inline-editor-suggestions {
-  max-height: 140px;
+  z-index: 1000;
+  max-height: 240px;
   overflow-y: auto;
-  border-top: 1px solid var(--border);
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--text) 18%, transparent);
+  padding: 2px 0;
+}
+
+.cell-inline-editor-suggestions-heading {
+  padding: 6px 8px 2px;
+  font-family: var(--font-condensed);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
 }
 
 .cell-inline-editor-suggestion {
@@ -828,7 +845,8 @@
   cursor: pointer;
 }
 
-.cell-inline-editor-suggestion:hover {
+.cell-inline-editor-suggestion:hover,
+.cell-inline-editor-suggestion[aria-selected="true"] {
   background: var(--surface);
 }
 

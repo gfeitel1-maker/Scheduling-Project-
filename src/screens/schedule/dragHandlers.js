@@ -9,7 +9,7 @@
 // `over.data.current.slot` shape used to reject.
 export function makeDragHandlers({
   slots, getSlot,
-  placeActivityManual, replaceSlot,
+  placeActivityManual, replaceSlot, placeElective,
 }) {
   function commit(active, hit, gestureId) {
     if (!active || !hit) return
@@ -45,6 +45,16 @@ export function makeDragHandlers({
         // `undefined` there and the gesture id as the 6th.
         placeActivityManual(data.paletteActivity.id, groupId, dayId, blockId, undefined, gestureId)
       }
+      return
+    }
+
+    // Audit-2 A9: a reusable elective set dragged from the rail. It places by
+    // name through the same path as picking it in the cell editor, which
+    // resolves to the existing durable set.
+    if (data.paletteElective) {
+      if (!groupId || !dayId || !blockId) return
+      if (getSlot(slots, groupId, dayId, blockId)?.is_fixed_event) return
+      placeElective(data.paletteElective.name, { groupId, dayId, blockId })
       return
     }
 

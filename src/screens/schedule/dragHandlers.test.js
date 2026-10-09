@@ -210,3 +210,21 @@ describe('ScheduleScreen call-site wiring', () => {
     ).toEqual([])
   })
 })
+
+describe('makeDragHandlers.commit — elective set from the rail (audit-2 A9)', () => {
+  const active = { data: { current: { paletteElective: { id: 'es-1', name: 'Afternoon Electives' } } } }
+
+  it('dropping a rail elective set on a cell places that set there', () => {
+    const placeElective = vi.fn()
+    const { commit } = makeDragHandlers(baseDeps({ placeElective, getSlot: vi.fn(() => filledTarget) }))
+    commit(active, hit('g1', 'd1', 'b2'))
+    expect(placeElective).toHaveBeenCalledWith('Afternoon Electives', { groupId: 'g1', dayId: 'd1', blockId: 'b2' })
+  })
+
+  it('never drops a set onto a fixed event', () => {
+    const placeElective = vi.fn()
+    const { commit } = makeDragHandlers(baseDeps({ placeElective, getSlot: vi.fn(() => ({ is_fixed_event: true })) }))
+    commit(active, hit('g1', 'd1', 'b2'))
+    expect(placeElective).not.toHaveBeenCalled()
+  })
+})

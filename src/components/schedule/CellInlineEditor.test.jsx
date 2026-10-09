@@ -130,6 +130,57 @@ describe('CellInlineEditor', () => {
   })
 })
 
+describe('CellInlineEditor — audit-2 A9/A10: sets findable without typing, list as an unclipped popover', () => {
+  const sets = [
+    { id: 'es-1', name: 'Afternoon Chugim', is_reusable: 1 },
+    { id: 'es-2', name: 'Chugim one-off', is_reusable: 0 },
+  ]
+  const renderEditor = (props = {}) => render(
+    <div className="cell" style={{ overflow: 'hidden' }}>
+      <CellInlineEditor eligibleActivities={eligible} electiveSets={sets} currentActivityName={null} onPlace={vi.fn()} onCreateNew={vi.fn()} onCreateElective={vi.fn()} onCancel={vi.fn()} {...props} />
+    </div>
+  )
+
+  it('lists the reusable elective sets as soon as the editor opens, before anything is typed', () => {
+    renderEditor()
+    expect(screen.getByText('Afternoon Chugim').closest('.cell-inline-editor-suggestion')).toBeTruthy()
+    expect(screen.queryByText('Chugim one-off')).toBeNull()
+  })
+
+  it('keeps the set visible when its full name is typed, so the match is seen before Enter', () => {
+    renderEditor()
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Afternoon Chugim' } })
+    expect(screen.getByText('Afternoon Chugim').closest('.cell-inline-editor-suggestion')).toBeTruthy()
+  })
+
+  it('renders the suggestion list outside the cell, fixed-positioned, so the cell cannot clip it', () => {
+    const { container } = renderEditor()
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 's' } })
+    const list = document.querySelector('.cell-inline-editor-suggestions')
+    expect(list).toBeTruthy()
+    expect(container.contains(list)).toBe(false)
+    expect(list.style.position).toBe('fixed')
+  })
+
+  it('ArrowDown/ArrowUp move the highlight and Enter commits the highlighted option', () => {
+    const onPlace = vi.fn()
+    const onCreateElective = vi.fn()
+    renderEditor({ onPlace, onCreateElective })
+    const input = screen.getByRole('textbox')
+    // "i" matches Swimming (activity) then Afternoon Chugim (set), in that order.
+    fireEvent.change(input, { target: { value: 'i' } })
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    expect(document.querySelector('[aria-selected="true"]').textContent).toContain('Afternoon Chugim')
+    fireEvent.keyDown(input, { key: 'ArrowUp' })
+    expect(document.querySelector('[aria-selected="true"]').textContent).toBe('Swimming')
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onCreateElective).toHaveBeenCalledWith('Afternoon Chugim', [], 'Afternoon Chugim')
+    expect(onPlace).not.toHaveBeenCalled()
+  })
+})
+
 describe('CellInlineEditor — elective sets as suggestions (packaged audit #26)', () => {
   const sets = [
     { id: 'es-1', name: 'Afternoon Chugim', is_reusable: 1 },

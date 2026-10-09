@@ -584,8 +584,13 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     clearSelection()
   }
 
-  // Always count flags camp-wide so badges don't change value when switching views
-  const flagSlots = slots
+  // Always count flags camp-wide so badges don't change value when switching views.
+  // Rows stored on a day replaced by a special day are hidden, not part of the
+  // week, so no count — flags or the rail's weekly counter — may include them.
+  const flagSlots = useMemo(() => {
+    const replaced = new Set(replacedDayIds)
+    return slots.filter(s => !replaced.has(s.day_id))
+  }, [slots, replacedDayIds])
 
   // Findings rail rows: UNFILLABLE (per-slot, unchanged) + UNDERSERVED/
   // DISTRIBUTION (aggregate findings from the last buildSchedule() run) —
@@ -753,7 +758,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // replace is unconditional now, not a product-decision toggle. Merge/extend
   // (formerly expand-drag) moved to a click affordance in T92 and no longer
   // rides through the drag FSM.
-  const dragDeps = { timeBlocks, days, slots, actMap, getSlot, placeActivityManual, replaceSlot }
+  const placeElective = (setName, target) => createElectiveFromCell(setName, [], target)
+  const dragDeps = { timeBlocks, days, slots, actMap, getSlot, placeActivityManual, replaceSlot, placeElective }
   const groupHandlers = makeDragHandlers(dragDeps)
   const dayHandlers = makeDragHandlers(dragDeps)
 
@@ -762,6 +768,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   function describeDrag(active) {
     const data = active?.data?.current || {}
     if (data.paletteActivity) return actMap.get(data.paletteActivity.id)?.name || 'Activity'
+    if (data.paletteElective) return data.paletteElective.name
     if (data.slot) return actMap.get(data.slot.activity_id)?.name || 'Empty slot'
     return 'Item'
   }
@@ -1143,7 +1150,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
         const sidebar = (
           <ActivityPalette
             activities={filterFreeChoiceActivities(activities)}
-            slots={slots}
+            slots={flagSlots}
+            electiveSets={electiveSetsAll}
             groupId={paletteGroupId}
             groups={groups}
             draggable={view === 'group' || view === 'day'}

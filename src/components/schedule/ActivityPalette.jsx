@@ -63,6 +63,57 @@ function DraggablePaletteItem({ activity, scheduledCount, target, cap, atMax, dr
   )
 }
 
+// Audit-2 A9: a reusable elective set as a rail chip. Dropped on a cell it
+// places the set there (dragHandlers.js, `paletteElective`). Its count is the
+// cells of the week it holds; a set has no weekly target to measure against.
+function DraggableElectiveItem({ set, count, draggable }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `palette-elective-${set.id}`,
+    data: { paletteElective: { id: set.id, name: set.name } },
+    disabled: !draggable,
+  })
+  return (
+    <div
+      ref={setNodeRef}
+      data-palette-elective={set.id}
+      {...(draggable ? listeners : {})}
+      {...(draggable ? attributes : {})}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: '8px 10px',
+        borderRadius: 8,
+        border: '1.5px solid color-mix(in srgb, var(--secondary) 35%, var(--border))',
+        background: isDragging ? 'var(--surface-elevated)' : 'var(--surface)',
+        cursor: !draggable ? 'default' : isDragging ? 'grabbing' : 'grab',
+        opacity: isDragging ? 0.6 : 1,
+        userSelect: 'none',
+        touchAction: draggable ? 'none' : undefined,
+        transition: 'opacity var(--motion-fast) var(--ease-out)',
+      }}
+    >
+      <span title={set.name} style={{
+        flex: 1,
+        minWidth: 0,
+        fontFamily: 'var(--font-sans)',
+        fontSize: 12,
+        fontWeight: 600,
+        color: 'var(--text)',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+      }}>{set.name}</span>
+      <span data-testid={`palette-elective-count-${set.id}`} style={{
+        fontFamily: 'var(--font-mono)',
+        fontSize: 10,
+        color: 'var(--text-secondary)',
+        flexShrink: 0,
+      }}>{count} wk</span>
+    </div>
+  )
+}
+
 // slots: the whole week. groupId scopes the count to one group; null counts
 // the camp, against each weekly bound multiplied by the number of groups
 // eligible for that activity (the engine's UNDERSERVED scope). A span counts
@@ -74,6 +125,7 @@ export default function ActivityPalette({
   slots,
   groupId = null,
   groups = [],
+  electiveSets = [],
   draggable = true,
   collapsed = false,
   onToggleCollapse,
@@ -85,6 +137,7 @@ export default function ActivityPalette({
     ? groups.filter(g => isActivityEligibleForGroup(activity, g)).length
     : 1
   const [filter, setFilter] = useState('')
+  const durableSets = electiveSets.filter(s => Number(s.is_reusable) !== 0)
 
   if (collapsed) {
     return (
@@ -141,14 +194,7 @@ export default function ActivityPalette({
         borderBottom: '1px solid var(--border)',
         flexShrink: 0,
       }}>
-        <span style={{
-          fontFamily: 'var(--font-condensed)',
-          fontWeight: 700,
-          fontSize: 11,
-          color: 'var(--text-secondary)',
-          letterSpacing: '0.06em',
-          textTransform: 'uppercase',
-        }}>Activities</span>
+        <span style={SECTION_LABEL}>Activities</span>
         {onToggleCollapse && (
           <button
             onClick={onToggleCollapse}
@@ -218,6 +264,19 @@ export default function ActivityPalette({
             scaleFor={scaleFor}
           />
         </>
+      )}
+      {durableSets.length > 0 && (
+        <div data-testid="palette-zone-electives" style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6, paddingTop: 8, borderTop: '1px solid var(--border)', flexShrink: 0 }}>
+          <span style={SECTION_LABEL}>Elective sets</span>
+          {durableSets.map(set => (
+            <DraggableElectiveItem
+              key={set.id}
+              set={set}
+              count={nonFixedEventSlots.filter(s => s.elective_set_id === set.id).length}
+              draggable={draggable}
+            />
+          ))}
+        </div>
       )}
     </div>
   )
@@ -302,4 +361,13 @@ function PaletteLedger({ activities, filter, nonFixedEventSlots, draggable, scal
       )}
     </>
   )
+}
+
+const SECTION_LABEL = {
+  fontFamily: 'var(--font-condensed)',
+  fontWeight: 700,
+  fontSize: 11,
+  color: 'var(--text-secondary)',
+  letterSpacing: '0.06em',
+  textTransform: 'uppercase',
 }

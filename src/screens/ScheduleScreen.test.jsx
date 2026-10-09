@@ -1675,3 +1675,32 @@ describe('ScheduleScreen — mount transition (coherence Wave 2)', () => {
     expect(root.style.transition).toMatch(/opacity/)
   })
 })
+
+// Audit-2 A8: a day replaced by a special day is not part of the week, so no
+// count may include its stored rows — not the Unfillable box, not the rail's
+// weekly counter.
+describe('a day replaced by a special day is excluded from every count (A8)', () => {
+  it('the Unfillable box and the activity rail counter ignore the replaced day', async () => {
+    const placements = [{ id: 'p1', week_id: CAMP_ID, day_id: 'd3', special_day_id: 'sd1' }]
+    mockList({
+      days_of_operation: [day(), day({ id: 'd3', day_of_week: 3, sort_order: 3, label: 'Wednesday' })],
+      time_blocks: [timeBlock(), timeBlock({ id: 'b2', name: 'Afternoon', sort_order: 2, start_time: '10:00:00', end_time: '11:00:00' })],
+      template_slots: [
+        slotRow({ id: 'mon', day_id: 'd1', activity_id: 'act-1' }),
+        slotRow({ id: 'wed-filled', day_id: 'd3', activity_id: 'act-1' }),
+        slotRow({ id: 'wed-unfillable', day_id: 'd3', time_block_id: 'b2', activity_id: null, flags: JSON.stringify({ UNFILLABLE: true }) }),
+      ],
+      special_days: [{ id: 'sd1', camp_id: CAMP_ID, name: 'Color War' }],
+    })
+    const listSlots = localClient.listByScope.getMockImplementation()
+    localClient.listByScope.mockImplementation((entity, scopeId) => entity === 'special_day_placements'
+      ? Promise.resolve(placements.filter(p => p.week_id === scopeId))
+      : listSlots(entity, scopeId))
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+
+    await waitFor(() => expect(document.querySelector('[data-replaced]')).toBeTruthy())
+    expect(screen.getByTestId('palette-count-act-1').textContent).toMatch(/^1 \//)
+    const unfillableBox = screen.getAllByText(/Unfillable/).map(el => el.closest('button')).find(Boolean)
+    expect(unfillableBox.textContent).toContain('0')
+  })
+})
