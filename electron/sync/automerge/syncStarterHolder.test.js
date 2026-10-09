@@ -7,13 +7,14 @@ function deferred() {
   return { promise, resolve }
 }
 
-function fakeFactory(startGate) {
+function fakeFactory(startGate, stopGate) {
   const made = []
   const make = () => {
-    const s = { id: made.length, node: null, stops: 0, boundTo: made.length }
+    const s = { id: made.length, node: null, stops: 0, startCalls: 0 }
     s.start = async () => {
+      s.startCalls++
       if (startGate) await startGate.promise
-      s.node = { stop: async () => { s.stops++ } }
+      s.node = { stop: async () => { if (stopGate && s.id === 0 && s.startCalls === 1) await stopGate.promise; s.stops++; s.node = null } }
     }
     s.getNode = () => s.node
     s.shutdownPunch = async () => {}
@@ -64,6 +65,25 @@ describe('syncStarterHolder switch serialization', () => {
     expect(live).toHaveLength(1)
     expect(live[0]).toBe(f.made[1])
     expect(f.made[0].stops).toBe(1)
+  })
+
+  it('a start landing while replace() awaits the old node stop does not start the old starter', async () => {
+    const stopGate = deferred()
+    const f = fakeFactory(null, stopGate)
+    const holder = createSyncStarterHolder(f.make)
+    await holder.start()
+    const r = holder.replace()
+    await new Promise((res) => setTimeout(res, 10))
+    const late = holder.handlerOptions().retrySync()
+    await new Promise((res) => setTimeout(res, 10))
+    stopGate.resolve()
+    await r
+    await late
+    await new Promise((res) => setTimeout(res, 10))
+    expect(f.made[0].startCalls).toBe(1)
+    expect(f.made[0].node).toBe(null)
+    expect(f.made[1].node).not.toBe(null)
+    expect(f.made.filter((s) => s.node)).toHaveLength(1)
   })
 
   it('swap rethrows the original build error even when the rollback replace() throws', async () => {
