@@ -73,6 +73,7 @@ import { getDocIfLoaded, getCurrentDoc, setUserDataDirGetter as setAutomergeUser
 import { projectEntity } from './automerge/projector.js'
 import { AUTHORITY_LOG_ENTITY, currentAuthorityState, quorumThreshold } from './automerge/authorityReplay.js'
 import * as Automerge from '@automerge/automerge'
+import { validateBackupPair, applyBackupFiles, RestoreRefusal } from './db/backupRestore.js'
 import { docPath as automergeDocPath } from './sync/automerge/docStore.js'
 import { acquireDocCipher, acquireDbKey, isAtRestEncryptionEnabled, latchEncryptionIfKeyPresent } from './db/atRestEncryption.js'
 import { unsharedWriteCount } from './ops/documentWriteFailures.js'
@@ -3617,6 +3618,13 @@ if (isElectronEntryPoint()) {
       return { error: 'invalid_file', message: 'The selected file could not be read as a Shoresh database.' }
     }
 
+    try {
+      validateBackupPair(sourcePath, { db, cipher: docCipher })
+    } catch (err) {
+      if (err instanceof RestoreRefusal) return { error: err.code, message: err.message }
+      throw err
+    }
+
     pickedRestorePath = sourcePath
     return { backupDate: stat.mtime.toISOString() }
   })
@@ -3633,40 +3641,19 @@ if (isElectronEntryPoint()) {
       // Back up current DB before overwriting.
       try {
         try { flushAutomergeDoc() } catch (err) { console.error('backup: automerge flush failed (non-fatal):', err?.message ?? err) }
-        writeUserBackup(dbPath, userDataPath, readCampIdSafely(db), (err) => console.error('backup: camp document copy failed (non-fatal):', err?.message ?? err))
+        let docCopyError
+        writeUserBackup(dbPath, userDataPath, readCampIdSafely(db), (err) => { docCopyError = err })
+        if (docCopyError) throw docCopyError
       } catch (err) {
         return { error: 'backup_failed', message: err.message }
       }
 
-      // Copy source to a temp path first, then atomically rename to the target.
-      // This closes the corruption window where a mid-write failure (disk full,
-      // etc.) would leave the target partially written — rename(2) is atomic for
-      // same-volume moves on macOS/Linux/Windows (NTFS). The temp file is
-      // cleaned up in the finally block if anything goes wrong before the rename.
-      // Open the new file BEFORE closing the old connection — same open-before-
-      // close pattern as reinitialize(): if anything fails, the old db is still
-      // usable.
-      const tmpPath = `${dbPath}.tmp`
+      let pair
       try {
-        fs.copyFileSync(sourcePath, tmpPath)
-        try {
-          fs.renameSync(tmpPath, dbPath)
-        } catch (renameErr) {
-          if (renameErr.code === 'EXDEV') {
-            // Cross-device move: tmp and target are on different filesystems.
-            // Fall back to copy+delete — not atomic, but the pre-restore backup
-            // above already guards against a mid-write failure here.
-            fs.copyFileSync(tmpPath, dbPath)
-            // Do not let a cleanup failure here propagate as a restore failure —
-            // dbPath already has the correct content at this point.
-            try { fs.unlinkSync(tmpPath) } catch { /* stale .tmp; harmless */ }
-          } else {
-            try { fs.unlinkSync(tmpPath) } catch { /* ignore */ }
-            throw renameErr
-          }
-        }
+        pair = validateBackupPair(sourcePath, { db, cipher: docCipher })
+        applyBackupFiles({ backupDbPath: sourcePath, dbPath, userDataPath, campId: pair.campId, docSrc: pair.docSrc })
       } catch (err) {
-        try { fs.unlinkSync(tmpPath) } catch { /* ignore — may not exist */ }
+        if (err instanceof RestoreRefusal) return { error: err.code, message: err.message }
         return { error: 'restore_failed', message: err.message }
       }
 

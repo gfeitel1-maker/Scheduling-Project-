@@ -105,4 +105,27 @@ describe('RestoreControl', () => {
     await screen.findByText(/newer version of Shoresh/)
     expect(localClient.restoreProject).not.toHaveBeenCalled()
   })
+
+  it('says what restore does on this computer versus other devices, in the confirm', async () => {
+    await pick()
+    expect(screen.getByText("Restores this computer's copy; changes other devices still hold will sync back.")).toBeTruthy()
+  })
+
+  it('shows the refusal for a backup from before backups held the camp document', async () => {
+    const message = 'This backup is from before backups included the camp document, so restoring it would be undone at the next sync.'
+    localClient.pickRestoreBackup.mockResolvedValue({ error: 'backup_no_document', message })
+    render(<RestoreControl />)
+    fireEvent.click(screen.getByRole('button', { name: 'Restore from backup…' }))
+    await screen.findByText(message)
+    expect(localClient.restoreProject).not.toHaveBeenCalled()
+  })
+
+  it('says current data is unchanged when the camp document could not be restored', async () => {
+    localClient.restoreProject.mockResolvedValue({ error: 'restore_document_failed', message: 'disk full' })
+    await pick()
+    fireEvent.click(screen.getByRole('button', { name: 'Restore' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toMatch(/camp document could not be restored/)
+    expect(alert.textContent).toMatch(/current data was not changed/)
+  })
 })

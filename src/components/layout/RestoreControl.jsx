@@ -17,6 +17,9 @@ function failureText(result) {
   if (result.error === 'restore_incomplete') {
     return `Restore did not finish — ${result.message || 'the backup could not be opened'}. Restart Shoresh before doing anything else. A copy of your previous data is in the backups folder.`
   }
+  if (result.error === 'restore_document_failed') {
+    return `Restore failed — the camp document could not be restored (${result.message || 'unknown error'}). Your current data was not changed.`
+  }
   if (result.error === 'restore_failed') {
     return `Restore failed — ${result.message || 'the backup could not be applied'}. Your current data was not changed.`
   }
@@ -76,6 +79,7 @@ export default function RestoreControl() {
       {backupDate && (
         <div role="alertdialog" aria-label="Confirm restore" style={{ fontSize: 11, margin: '2px 0 6px', color: 'var(--text)' }}>
           <div>Replaces this camp's data with the backup from {formatDate(backupDate)}.</div>
+          <div>Restores this computer's copy; changes other devices still hold will sync back.</div>
           <div style={{ display: 'flex', gap: 12, marginTop: 4 }}>
             <button type="button" onClick={handleConfirm} style={{ ...linkButton, width: 'auto', color: 'var(--danger, #ef4444)' }}>Restore</button>
             <button type="button" onClick={() => setBackupDate(null)} style={{ ...linkButton, width: 'auto' }}>Cancel</button>
