@@ -12,7 +12,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { generateKeyPair } from '@libp2p/crypto/keys'
 import { peerIdFromPrivateKey } from '@libp2p/peer-id'
-import { handleRequest, RendezvousNamespace } from '../../../workers/rendezvous/worker.js'
+import { handleRequest, RendezvousStore } from '../../../workers/rendezvous/worker.js'
 import { FakeDurableObjectNamespace } from '../../../workers/rendezvous/fakeDurableObject.js'
 import { signRecord, verify } from './rendezvousRecord.js'
 import {
@@ -29,11 +29,11 @@ import { nextSequence } from './rendezvousSequence.js'
 // allow-all stand-ins for them; the limiter itself is covered in workers/rendezvous/worker.test.js.
 const allowAll = { limit: async () => ({ success: true }) }
 function workerEnv(doNamespace) {
-  return { NAMESPACE_DO: doNamespace, REGISTER_LIMITER: allowAll, PEERS_LIMITER: allowAll }
+  return { RENDEZVOUS_DO: doNamespace, REGISTER_LIMITER: allowAll, PEERS_LIMITER: allowAll }
 }
 
 function makeKvMock() {
-  return new FakeDurableObjectNamespace(RendezvousNamespace)
+  return new FakeDurableObjectNamespace(RendezvousStore)
 }
 
 // A fetch stub that routes to the real worker handler in-process, so the client's requests are

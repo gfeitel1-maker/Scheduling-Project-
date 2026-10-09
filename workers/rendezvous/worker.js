@@ -17,29 +17,34 @@
 // client's (epoch, seq) watermark does that (see the ADR's "Verifier-side watermark"). Ordering is
 // not this Worker's job. Do not add sorting, deduping, or "latest wins" logic here later.
 //
-// STORAGE: one SQLite-backed Durable Object per namespace (RendezvousNamespace, bound as
-// NAMESPACE_DO, addressed by idFromName(namespace)). See
-// docs/adr/2026-10-09-rendezvous-worker-durable-object-storage.md. The owner's constraint is "i am
-// not making stores for every camp uniquely": ONE Worker, ONE deploy, ZERO per-camp setup — an
-// instance exists the moment idFromName(namespace) is first dispatched to.
+// STORAGE: ONE Durable Object instance for the whole service (RendezvousStore, bound as
+// RENDEZVOUS_DO, always addressed by idFromName(STORE_NAME) -- a constant, never derived from the
+// namespace). Every namespace is rows in that one SQLite database. Owner ruling, 2026-10-09: "i do
+// not want each camp getting their own storage. this is a tiny relay service". One Worker, one
+// store, nothing per camp. See docs/adr/2026-10-09-rendezvous-worker-durable-object-storage.md
+// (Amendment 2026-10-09 (owner): single store).
 //
 // WHAT HOLDS, AND WHAT DOES NOT:
 //   - EXACT, per namespace: MAX_PEERS_PER_NAMESPACE (200 unexpired distinct peers) and
-//     WRITES_PER_WINDOW (30 accepted registers per rolling 60s). Both are enforced inside the DO,
-//     whose SQL section runs without yielding, so concurrent registers cannot over-admit. Refused
-//     requests do not count against the budget. No IP and no IP-derived value is stored anywhere.
+//     WRITES_PER_WINDOW (30 accepted registers per rolling 60s).
+//   - EXACT, whole service: GLOBAL_WRITES_PER_DAY accepted registers per UTC day, one counter row
+//     updated in place. Sized from the Free plan's 100k rows-written/day (see the README).
+//   - All three are enforced inside the single DO, whose SQL section runs without yielding, so
+//     concurrent registers cannot over-admit. Refused requests do not count against any budget and
+//     perform no write. No IP and no IP-derived value is stored anywhere.
 //   - BEST-EFFORT only: the per-IP throttle (REGISTER_LIMITER / PEERS_LIMITER). Cloudflare documents
 //     the binding as permissive, eventually consistent and counted per location, so it has NO
-//     guaranteed bound. It is the only control that runs before DO dispatch. A missing or failing
-//     binding fails CLOSED (503). The IP is the limiter key only and is never logged or stored.
-//   - NOT DEFENDED (accepted residual, pending the owner's posture call): the Free-plan DO limits are
-//     account-global. Requests with fresh random 64-hex namespaces each dispatch to a new DO, so the
-//     per-namespace budget never applies; the best-effort IP throttle and the cheap pre-dispatch
-//     rejects are the only mitigation. Impact is availability of this last-resort rendezvous only.
+//     guaranteed bound. It runs before dispatch. A missing or failing binding fails CLOSED (503).
+//     The IP is the limiter key only and is never logged or stored.
+//   - ACCEPTED RESIDUAL (owner posture call 2026-10-09: stay on the Free plan): because the IP
+//     throttle is best-effort, a stranger can exhaust the GLOBAL budget, and rung 3 is then down for
+//     EVERY camp until 00:00 UTC. The global budget bounds the damage to that window (and to the
+//     Free-plan quota); it does not prevent it. Impact is availability of this last-resort
+//     rendezvous only.
 //
 // ALSO NOT DEFENDED, AND WHAT THE OWNER MUST CONFIGURE AT DEPLOY TIME (an owner action outside
 // this ticket — see workers/rendezvous/README.md):
-//   - Write-amplification / DoS on the unauthenticated endpoints: bounded per namespace as above;
+//   - Write-amplification / DoS on the unauthenticated endpoints: bounded per namespace and per service as above;
 //     the cross-namespace case is the accepted residual above.
 //   - Namespace enumeration. The namespace is a 256-bit value minted at trusted setup and is
 //     unguessable by construction (see the ADR); this Worker deliberately exposes no endpoint that
@@ -50,7 +55,7 @@
 //     ids per namespace, and it is a lockout primitive, not just an abuse bound: anyone who knows
 //     the namespace can register up to the cap in fabricated peer ids. Already-registered peers
 //     keep refreshing without limit (re-registering an existing peer id is exempt from the cap —
-//     see RendezvousNamespace.register), but a NEW legitimate device (e.g. a re-imaged staff laptop) that has
+//     see RendezvousStore.register), but a NEW legitimate device (e.g. a re-imaged staff laptop) that has
 //     not registered yet is then permanently refused with 429 until the owner rotates the
 //     namespace (T210) or an existing entry's TTL expires and frees a slot. Namespace rotation
 //     (T210 Decision 3) closes this by invalidating the attacker's knowledge of the namespace;
@@ -83,6 +88,11 @@ const TTL_SECONDS = 2 * 60 * 60 // ~2h, per the ticket and spec
 const MAX_RECORD_B64_BYTES = 8 * 1024 // generous headroom over a real signed record (~600 bytes)
 export const MAX_PEERS_PER_NAMESPACE = 200 // abuse bound: caps both write-amplification and GET response size
 export const WRITES_PER_WINDOW = 30 // accepted registers per namespace per rolling WRITE_WINDOW_MS
+// Whole-service accepted registers per UTC day. Worst case 11 rows written per accepted register
+// (README "Sizing"): 7000 x 11 = 77,000 rows/day, under ~80k of the Free plan's 100k.
+export const GLOBAL_WRITES_PER_DAY = 7000
+export const STORE_NAME = 'rendezvous'
+const DAY_MS = 24 * 60 * 60 * 1000
 const WRITE_WINDOW_MS = 60 * 1000
 // Headroom over MAX_RECORD_B64_BYTES for the surrounding JSON structure (namespace, peerId,
 // field names, quoting). This is the cap the register endpoint enforces BEFORE parsing the
@@ -168,16 +178,16 @@ async function handleRegister(request, env) {
     return json(400, { error: 'record must be base64-encoded' })
   }
 
-  return dispatch(env, namespace, 'POST', 'register', { peerId, record })
+  return dispatch(env, 'register', 'POST', { namespace, peerId, record })
 }
 
-function dispatch(env, namespace, method, op, payload) {
-  const binding = env.NAMESPACE_DO
+function dispatch(env, op, method, payload) {
+  const binding = env.RENDEZVOUS_DO
   if (!binding || typeof binding.idFromName !== 'function') return json(503, { error: 'unavailable' })
-  const stub = binding.get(binding.idFromName(namespace))
+  const stub = binding.get(binding.idFromName(STORE_NAME))
   // A fresh Request carrying only the validated fields: no headers, so no IP can reach the DO.
   return stub.fetch(
-    new Request(`https://namespace.internal/${op}`, {
+    new Request(`https://rendezvous.internal/${op}`, {
       method,
       body: payload ? JSON.stringify(payload) : undefined,
     })
@@ -188,12 +198,13 @@ function handlePeers(namespace, env) {
   if (!NAMESPACE_RE.test(namespace)) {
     return json(400, { error: 'namespace must be exactly 64 lowercase hex characters' })
   }
-  return dispatch(env, namespace, 'GET', 'peers')
+  return dispatch(env, `peers/${namespace}`, 'GET')
 }
 
-// One instance per namespace. Every statement below that decides admission runs synchronously
-// (ctx.storage.sql.exec does not yield), so there is no await between the count and the upsert.
-export class RendezvousNamespace {
+// The single store. Every statement that decides admission runs synchronously
+// (ctx.storage.sql.exec does not yield), so there is no await between a check and its write.
+// Refused requests return before any write.
+export class RendezvousStore {
   constructor(ctx) {
     this.sql = ctx.storage.sql
     this.ready = false
@@ -202,48 +213,76 @@ export class RendezvousNamespace {
   async fetch(request) {
     const { pathname } = new URL(request.url)
     if (pathname === '/register') return this.register(await request.json())
-    return this.peers()
+    return this.peers(pathname.slice('/peers/'.length))
   }
 
-  register({ peerId, record }) {
-    const now = Date.now()
+  init() {
+    if (this.ready) return
     const sql = this.sql
-    if (!this.ready) {
-      sql.exec('CREATE TABLE IF NOT EXISTS peers (peerId TEXT PRIMARY KEY, record TEXT NOT NULL, expiresAt INTEGER NOT NULL)')
-      sql.exec('CREATE TABLE IF NOT EXISTS writes (at INTEGER NOT NULL)')
-      this.ready = true
-    }
-    sql.exec('DELETE FROM peers WHERE expiresAt <= ?', now)
-    sql.exec('DELETE FROM writes WHERE at <= ?', now - WRITE_WINDOW_MS)
+    sql.exec(
+      'CREATE TABLE IF NOT EXISTS peers (namespace TEXT NOT NULL, peerId TEXT NOT NULL, record TEXT NOT NULL, expiresAt INTEGER NOT NULL, PRIMARY KEY (namespace, peerId)) WITHOUT ROWID'
+    )
+    sql.exec('CREATE INDEX IF NOT EXISTS peers_expiry ON peers (namespace, expiresAt)')
+    sql.exec('CREATE TABLE IF NOT EXISTS writes (namespace TEXT NOT NULL, at INTEGER NOT NULL)')
+    sql.exec('CREATE INDEX IF NOT EXISTS writes_at ON writes (namespace, at)')
+    sql.exec('CREATE TABLE IF NOT EXISTS budget (day INTEGER PRIMARY KEY, n INTEGER NOT NULL)')
+    this.ready = true
+  }
 
-    if (sql.exec('SELECT COUNT(*) AS n FROM writes').toArray()[0].n >= WRITES_PER_WINDOW) {
+  register({ namespace, peerId, record }) {
+    this.init()
+    const now = Date.now()
+    const day = Math.floor(now / DAY_MS)
+    const sql = this.sql
+
+    const today = sql.exec('SELECT n FROM budget WHERE day = ?', day).toArray()[0]
+    if ((today?.n ?? 0) >= GLOBAL_WRITES_PER_DAY) {
+      return json(429, { error: 'service write budget exhausted' })
+    }
+    const recent = sql
+      .exec('SELECT COUNT(*) AS n FROM writes WHERE namespace = ? AND at > ?', namespace, now - WRITE_WINDOW_MS)
+      .toArray()[0].n
+    if (recent >= WRITES_PER_WINDOW) {
       return json(429, { error: 'namespace write budget exhausted' })
     }
-    // Only a NEW peer id counts against the cap — a peer refreshing its own TTL must not be
+    // Only a NEW peer id counts against the cap -- a peer refreshing its own TTL must not be
     // blocked by the cap it already fits inside of.
-    const known = sql.exec('SELECT 1 AS k FROM peers WHERE peerId = ?', peerId).toArray().length > 0
-    if (!known && sql.exec('SELECT COUNT(*) AS n FROM peers').toArray()[0].n >= MAX_PEERS_PER_NAMESPACE) {
-      return json(429, { error: 'namespace is at capacity' })
+    const known = sql.exec('SELECT 1 AS k FROM peers WHERE namespace = ? AND peerId = ? AND expiresAt > ?', namespace, peerId, now).toArray().length > 0
+    if (!known) {
+      const live = sql.exec('SELECT COUNT(*) AS n FROM peers WHERE namespace = ? AND expiresAt > ?', namespace, now).toArray()[0].n
+      if (live >= MAX_PEERS_PER_NAMESPACE) return json(429, { error: 'namespace is at capacity' })
     }
 
-    sql.exec('INSERT INTO writes (at) VALUES (?)', now)
+    if (!today) {
+      // First accepted write of a UTC day: one full sweep of everything stale, service-wide.
+      sql.exec('DELETE FROM peers WHERE expiresAt <= ?', now)
+      sql.exec('DELETE FROM writes WHERE at <= ?', now - WRITE_WINDOW_MS)
+      sql.exec('DELETE FROM budget WHERE day < ?', day)
+    }
+    sql.exec('DELETE FROM peers WHERE namespace = ? AND expiresAt <= ?', namespace, now)
+    sql.exec('DELETE FROM writes WHERE namespace = ? AND at <= ?', namespace, now - WRITE_WINDOW_MS)
+    sql.exec('INSERT INTO writes (namespace, at) VALUES (?, ?)', namespace, now)
     sql.exec(
-      'INSERT INTO peers (peerId, record, expiresAt) VALUES (?, ?, ?) ON CONFLICT(peerId) DO UPDATE SET record = excluded.record, expiresAt = excluded.expiresAt',
+      'INSERT INTO peers (namespace, peerId, record, expiresAt) VALUES (?, ?, ?, ?) ON CONFLICT(namespace, peerId) DO UPDATE SET record = excluded.record, expiresAt = excluded.expiresAt',
+      namespace,
       peerId,
       record,
       now + TTL_SECONDS * 1000
     )
+    sql.exec('INSERT INTO budget (day, n) VALUES (?, 1) ON CONFLICT(day) DO UPDATE SET n = n + 1', day)
     return json(200, { ok: true })
   }
 
-  peers() {
+  peers(namespace) {
     const sql = this.sql
-    // A namespace nobody has written to has no tables; answering from this read creates nothing.
+    // A store nobody has written to has no tables; answering from this read creates nothing.
     if (sql.exec("SELECT 1 AS k FROM sqlite_master WHERE type = 'table' AND name = 'peers'").toArray().length === 0) {
       return json(200, { peers: [] })
     }
-    // No ordering, no dedup, no "latest wins" — see the file-level comment.
-    const rows = sql.exec('SELECT record FROM peers WHERE expiresAt > ? LIMIT ?', Date.now(), MAX_PEERS_PER_NAMESPACE).toArray()
+    // No ordering, no dedup, no "latest wins" -- see the file-level comment.
+    const rows = sql
+      .exec('SELECT record FROM peers WHERE namespace = ? AND expiresAt > ? LIMIT ?', namespace, Date.now(), MAX_PEERS_PER_NAMESPACE)
+      .toArray()
     return json(200, { peers: rows.map((r) => r.record) })
   }
 }

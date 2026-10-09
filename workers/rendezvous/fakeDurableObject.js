@@ -1,9 +1,9 @@
 // Test stand-in for a Durable Object namespace binding (env.X): idFromName / get(id).fetch(request),
-// one lazily-built instance per name. Each instance gets a real in-memory SQLite database behind the
+// one lazily-built instance per id (the Worker only ever asks for "rendezvous"). Each instance gets a real in-memory SQLite database behind the
 // `ctx.storage.sql.exec(query, ...bindings)` surface (cursor: toArray(), rowsWritten), so the SQL the
 // class runs is executed by a real engine rather than interpreted by a mock.
 //
-// Faithful: per-name isolated storage; positional bindings; a name nobody wrote to has no tables.
+// Faithful: per-id isolated storage; positional bindings; an id nobody wrote to has no tables.
 // Not faithful: fetches are NOT serialized here (JS runs the class's synchronous SQL section
 // atomically, and leaving interleaving on is the conservative model for any await in the class).
 import Database from 'better-sqlite3'
