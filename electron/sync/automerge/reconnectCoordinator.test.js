@@ -299,4 +299,56 @@ describe('sweeps', () => {
     expect(rendezvous.release).toHaveBeenCalledWith('peer-b')
     expect(events).toEqual([])
   })
+
+  it('a peer revoked during rungs 1-2 is never handed to the rendezvous', async () => {
+    let peers = [PEER]
+    const events = []
+    const rendezvous = { request: vi.fn(), release: vi.fn() }
+    const coord = createReconnectCoordinator({
+      listPeers: () => peers, isConnected: () => false, lanGraceMs: 0, rendezvous,
+      attemptLan: async () => false, attemptRung1: async () => false,
+      attemptRung2: async () => { peers = []; return false },
+      emit: (n, f) => events.push([n, f]),
+    })
+    expect(await coord.reconnect(PEER)).toEqual({ ok: false, reason: 'cancelled' })
+    expect(rendezvous.request).not.toHaveBeenCalled()
+    expect(events).toEqual([])
+  })
+})
+
+describe('consecutive rung errors (keeper ruling: 3 in a row count as failed)', () => {
+  function errSetup(rung1) {
+    const events = []
+    const timers = []
+    const rendezvous = { request: vi.fn(), release: vi.fn() }
+    // A rung-3 wait times out as soon as it starts, so every ladder run settles.
+    const coord = createReconnectCoordinator({
+      listPeers: () => [PEER], isConnected: () => false, lanGraceMs: 0, rendezvous,
+      attemptLan: async () => false,
+      attemptRung1: async () => rung1(),
+      attemptRung2: async () => ({ ok: false }),
+      emit: (n, f) => events.push([n, f]),
+      setTimer: (fn, ms) => { const t = { fn, ms, unref() {} }; timers.push(t); queueMicrotask(fn); return t }, clearTimer: () => {},
+    })
+    return { events, rendezvous, run: () => coord.reconnect(PEER) }
+  }
+
+  it('the third consecutive error lets the ladder reach rung 3, and every error is still emitted', async () => {
+    const { events, rendezvous, run } = errSetup(() => { throw new Error('x') })
+    expect(await run()).toEqual({ ok: false, reason: 'rung-error' })
+    expect(await run()).toEqual({ ok: false, reason: 'rung-error' })
+    expect(rendezvous.request).not.toHaveBeenCalled()
+    expect(await run()).toEqual({ ok: false, reason: 'same-network-required' })
+    expect(rendezvous.request).toHaveBeenCalledTimes(1)
+    expect(events.filter((e) => e[0] === EVENTS.PUNCH_RUNG_ERROR)).toEqual(Array(3).fill([EVENTS.PUNCH_RUNG_ERROR, { peerId: 'peer-b', rung: 1 }]))
+  })
+
+  it('a non-error outcome resets the count: error, error, fail, error, error never escalates on an error', async () => {
+    const seq = ['err', 'err', 'fail', 'err', 'err']
+    const { rendezvous, run } = errSetup(() => { if (seq.shift() === 'err') throw new Error('x'); return { ok: false } })
+    const reasons = []
+    for (let i = 0; i < 5; i++) reasons.push((await run()).reason)
+    expect(reasons).toEqual(['rung-error', 'rung-error', 'same-network-required', 'rung-error', 'rung-error'])
+    expect(rendezvous.request).toHaveBeenCalledTimes(1)
+  })
 })
