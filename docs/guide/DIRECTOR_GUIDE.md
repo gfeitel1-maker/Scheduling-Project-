@@ -291,7 +291,9 @@ If you see **Backup saved — camp document not included**, the database was bac
 
 Restoring rebuilds *this computer* from the backup, then syncs. If other computers in the camp hold newer changes, those changes sync back to this computer. A restore does not roll back the other computers.
 
-Backups made before backups included the camp document cannot be restored. Shoresh will say so, because the restore would be undone at the next sync. If a restore says it did not finish, restart Shoresh before doing anything else; a copy of your previous data is in the backups folder.
+Backups made before backups included the camp document cannot be restored. Shoresh will say so, because the restore would be undone at the next sync. If a restore says it did not finish, your previous data was put back and nothing changed; if it also says to restart Shoresh, do that before anything else, because a copy of your previous data is in the backups folder.
+
+Records you erased after the backup was made may reappear until the other computers sync.
 
 Your best protection is still a second computer joined to the camp — it keeps a full copy all the time.
 

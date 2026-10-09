@@ -76,11 +76,12 @@ export function addRecentProject(userDataPath, { path: dbPath, campName }) {
  * Rotate backups in backupDir: delete oldest shoresh-*.db files until fewer
  * than `max` exist (making room for the one we're about to write).
  */
-function rotateBackups(backupDir, max) {
+function rotateBackups(backupDir, max, keepPath = null) {
   let files
   try {
     files = fs.readdirSync(backupDir)
       .filter((f) => /^shoresh-.*\.db$/.test(f))
+      .filter((f) => !keepPath || path.join(backupDir, f) !== keepPath)
       .map((f) => {
         const fullPath = path.join(backupDir, f)
         return { name: f, mtime: fs.statSync(fullPath).mtimeMs, fullPath }
@@ -89,7 +90,8 @@ function rotateBackups(backupDir, max) {
   } catch {
     return
   }
-  while (files.length >= max) {
+  const reserved = keepPath ? 1 : 0
+  while (files.length + reserved >= max) {
     const oldest = files.shift()
     try { fs.unlinkSync(oldest.fullPath) } catch { /* ignore — disk race */ }
     try { fs.rmSync(oldest.fullPath.replace(/\.db$/, '.automerge'), { recursive: true, force: true }) } catch { /* ignore */ }
@@ -119,12 +121,13 @@ export function readCampIdSafely(db) {
   try { return db.prepare('SELECT id FROM camps LIMIT 1').get()?.id } catch { return undefined }
 }
 
-export function writeUserBackup(dbPath, userDataPath, campId, onDocError) {
+// keepPath: a backup a restore is about to read; rotation must not delete it.
+export function writeUserBackup(dbPath, userDataPath, campId, onDocError, keepPath = null) {
   const backupDir = path.join(userDataPath, BACKUP_DIR_NAME)
   if (!fs.existsSync(backupDir)) {
     fs.mkdirSync(backupDir, { recursive: true, mode: 0o700 })
   }
-  rotateBackups(backupDir, MAX_BACKUPS)
+  rotateBackups(backupDir, MAX_BACKUPS, keepPath)
   const ts = new Date().toISOString().replace(/[:.]/g, '-')
   const backupPath = path.join(backupDir, `shoresh-${ts}.db`)
   fs.copyFileSync(dbPath, backupPath)

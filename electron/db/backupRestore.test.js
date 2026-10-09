@@ -7,7 +7,7 @@ import { randomUUID, randomBytes } from 'node:crypto'
 import { openLocalDb } from './localDb.js'
 import { makeDocCipher } from './docCipher.js'
 import { writeUserBackup } from './projectManager.js'
-import { validateBackupPair, applyBackupFiles, RestoreRefusal } from './backupRestore.js'
+import { validateBackupPair, applyBackupFiles, restoreFromBackup, RestoreRefusal } from './backupRestore.js'
 import { appendOp } from '../ops/operations.js'
 import { seedAllFromSqlite } from '../automerge/seed.js'
 import { saveDoc, loadDoc, docPath } from '../sync/automerge/docStore.js'
@@ -150,5 +150,89 @@ describe('doc-aware restore', () => {
       backupDbPath: dbPath, dbPath, userDataPath: tmp, campId, docSrc: path.join(tmp, 'missing.automerge'),
     })).toThrow(expect.objectContaining({ code: 'restore_document_failed' }))
     expect(fs.readFileSync(docPath(tmp, campId))).toEqual(docBefore)
+  })
+})
+
+describe('restoreFromBackup (WAL, rotation, rollback)', () => {
+  function setup() {
+    const dbPath = path.join(tmp, 'live.sqlite')
+    const db = newCampDb(dbPath)
+    db.pragma('journal_mode = WAL')
+    addLocation(db, 'Lake')
+    persistDoc(db, tmp)
+    db.pragma('wal_checkpoint(TRUNCATE)')
+    const backupDbPath = writeUserBackup(dbPath, tmp, campId)
+    addLocation(db, 'Pool')
+    persistDoc(db, tmp)
+    return { dbPath, db, backupDbPath }
+  }
+  const deps = (dbPath, installed, extra = {}) => ({
+    dbPath, userDataPath: tmp, cipher,
+    flushDoc() {}, stopSync: async () => {}, startSync() {}, discardDoc() {},
+    openDb: () => openLocalDb(dbPath),
+    installDb: async (d) => { installed.push(d) },
+    ...extra,
+  })
+
+  it('a WAL-mode old connection with uncheckpointed rows does not leak into the restored db', async () => {
+    const { dbPath, db, backupDbPath } = setup()
+    const installed = []
+    const r = await restoreFromBackup({ sourcePath: backupDbPath, db, ...deps(dbPath, installed) })
+    expect(r).toEqual({ restored: true })
+    expect(names(installed[0])).toEqual(['Lake'])
+    installed[0].close()
+  })
+
+  it('applyBackupFiles removes stale -wal/-shm sidecars', () => {
+    const { dbPath, db, backupDbPath } = setup()
+    const { docSrc } = validateBackupPair(backupDbPath, { db, cipher })
+    expect(fs.existsSync(`${dbPath}-wal`)).toBe(true)
+    applyBackupFiles({ backupDbPath, dbPath, userDataPath: tmp, campId, docSrc })
+    expect(fs.existsSync(`${dbPath}-wal`)).toBe(false)
+    expect(fs.existsSync(`${dbPath}-shm`)).toBe(false)
+  })
+
+  it('restoring the oldest kept backup does not delete it', async () => {
+    const { dbPath, db, backupDbPath } = setup()
+    const dir = path.dirname(backupDbPath)
+    fs.utimesSync(backupDbPath, 1, 1)
+    for (let i = 0; i < 9; i++) {
+      const f = path.join(dir, `shoresh-2099-01-0${i + 1}.db`)
+      fs.writeFileSync(f, 'x')
+    }
+    const installed = []
+    const r = await restoreFromBackup({ sourcePath: backupDbPath, db, ...deps(dbPath, installed) })
+    expect(r).toEqual({ restored: true })
+    expect(fs.existsSync(backupDbPath)).toBe(true)
+    expect(fs.existsSync(backupDbPath.replace(/\.db$/, '.automerge'))).toBe(true)
+    installed[0].close()
+  })
+
+  it('a failure after the files are replaced puts the pre-restore db and document back and reinstalls', async () => {
+    const { dbPath, db, backupDbPath } = setup()
+    const docBefore = fs.readFileSync(docPath(tmp, campId))
+    const installed = []
+    let calls = 0
+    const r = await restoreFromBackup({
+      sourcePath: backupDbPath, db,
+      ...deps(dbPath, installed, {
+        installDb: async (d) => { calls++; if (calls === 1) { d.close(); throw new Error('swap failed') } installed.push(d) },
+      }),
+    })
+    expect(r.error).toBe('restore_incomplete')
+    expect(installed).toHaveLength(1)
+    expect(names(installed[0])).toEqual(['Lake', 'Pool'])
+    expect(fs.readFileSync(docPath(tmp, campId))).toEqual(docBefore)
+    installed[0].close()
+  })
+
+  it('clears a stale .restore-prev and leaves none after success', async () => {
+    const { dbPath, db, backupDbPath } = setup()
+    const prev = `${docPath(tmp, campId)}.restore-prev`
+    fs.writeFileSync(prev, 'stale')
+    const installed = []
+    await restoreFromBackup({ sourcePath: backupDbPath, db, ...deps(dbPath, installed) })
+    expect(fs.existsSync(prev)).toBe(false)
+    installed[0].close()
   })
 })

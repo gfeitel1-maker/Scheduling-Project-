@@ -73,7 +73,7 @@ import { getDocIfLoaded, getCurrentDoc, setUserDataDirGetter as setAutomergeUser
 import { projectEntity } from './automerge/projector.js'
 import { AUTHORITY_LOG_ENTITY, currentAuthorityState, quorumThreshold } from './automerge/authorityReplay.js'
 import * as Automerge from '@automerge/automerge'
-import { validateBackupPair, applyBackupFiles, RestoreRefusal } from './db/backupRestore.js'
+import { validateBackupPair, restoreFromBackup, RestoreRefusal } from './db/backupRestore.js'
 import { docPath as automergeDocPath } from './sync/automerge/docStore.js'
 import { acquireDocCipher, acquireDbKey, isAtRestEncryptionEnabled, latchEncryptionIfKeyPresent } from './db/atRestEncryption.js'
 import { unsharedWriteCount } from './ops/documentWriteFailures.js'
@@ -3638,69 +3638,35 @@ if (isElectronEntryPoint()) {
     let releaseSwitch
     try { releaseSwitch = syncStarterHolder.acquireSwitch() } catch (err) { return { error: err.code, message: err.message } }
     try {
-      // Back up current DB before overwriting.
-      try {
-        try { flushAutomergeDoc() } catch (err) { console.error('backup: automerge flush failed (non-fatal):', err?.message ?? err) }
-        let docCopyError
-        writeUserBackup(dbPath, userDataPath, readCampIdSafely(db), (err) => { docCopyError = err })
-        if (docCopyError) throw docCopyError
-      } catch (err) {
-        return { error: 'backup_failed', message: err.message }
-      }
-
-      let pair
-      try {
-        pair = validateBackupPair(sourcePath, { db, cipher: docCipher })
-        // Stop the node first: a remote merge or local write after this would re-save the old
-        // in-memory doc over the document file applyBackupFiles is about to replace.
-        await syncStarterHolder.shutdown()
-        discardLiveDoc(db)
-        applyBackupFiles({ backupDbPath: sourcePath, dbPath, userDataPath, campId: pair.campId, docSrc: pair.docSrc })
-      } catch (err) {
-        syncStarterHolder.start().catch(() => {})
-        if (err instanceof RestoreRefusal) return { error: err.code, message: err.message }
-        return { error: 'restore_failed', message: err.message }
-      }
-      discardLiveDoc(db)
-
-      let newDb
-      try {
+      return await restoreFromBackup({
+        sourcePath, dbPath, userDataPath, db, cipher: docCipher,
+        flushDoc: flushAutomergeDoc,
+        stopSync: () => syncStarterHolder.shutdown(),
+        startSync: () => { syncStarterHolder.start().catch(() => {}) },
+        discardDoc: discardLiveDoc,
         // Keyed when encryption is on: a restored plaintext backup is migrated to encrypted on open.
-        newDb = openLocalDb(dbPath, { key: dbKey })
-      } catch (err) {
-        return { error: 'restore_incomplete', message: err.message }
-      }
-
-      // T292 round 2 FIX 5 — same reasoning as reinitialize() above.
-      const oldDb = db
-      const oldDeviceId = deviceId
-      let swappedHandlers
-      try {
-        const newDeviceId = getOrCreateDeviceId(newDb)
-        swappedHandlers = await syncStarterHolder.swap({
+        openDb: () => openLocalDb(dbPath, { key: dbKey }),
+        installDb: async (newDb) => {
+          const oldDb = db
+          const oldDeviceId = deviceId
+          const newDeviceId = getOrCreateDeviceId(newDb)
+          const swappedHandlers = await syncStarterHolder.swap({
             held: true,
-          commit: () => { db = newDb; deviceId = newDeviceId },
-          revert: () => { db = oldDb; deviceId = oldDeviceId },
-          build: () => {
-            const restoreHandlers = makeHandlers(newDb, newDeviceId, {
+            commit: () => { db = newDb; deviceId = newDeviceId },
+            revert: () => { db = oldDb; deviceId = oldDeviceId },
+            build: () => makeHandlers(newDb, newDeviceId, {
               getMainWindow: () => mainWindow,
               dbPath,
               userDataPath,
               ...syncStarterHolder.handlerOptions(),
-            })
-            return restoreHandlers
-          },
-        })
-      } catch (err) {
-        try { newDb.close() } catch { /* already unusable */ }
-        discardLiveDoc(oldDb)
-        return { error: 'restore_incomplete', message: err.message }
-      }
-      discardLiveDoc(oldDb)
-      disposeCampDataRecordThenCloseDb(liveHandlers, oldDb)
-      registerHandlers(swappedHandlers, db)
-      if (mainWindow) mainWindow.webContents.reload()
-      return { restored: true }
+            }),
+          })
+          discardLiveDoc(oldDb)
+          disposeCampDataRecordThenCloseDb(liveHandlers, oldDb)
+          registerHandlers(swappedHandlers, db)
+          if (mainWindow) mainWindow.webContents.reload()
+        },
+      })
     } finally {
       releaseSwitch()
     }

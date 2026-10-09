@@ -80,13 +80,27 @@ describe('RestoreControl', () => {
     await screen.findByText(/Your current data was not changed/)
   })
 
-  it('tells the director the prior data is in the backups folder when the restore failed after replacing it', async () => {
-    localClient.restoreProject.mockResolvedValue({ error: 'restore_incomplete', message: 'bad file' })
+  it('says the restore did not finish and nothing changed after a rolled-back failure', async () => {
+    localClient.restoreProject.mockResolvedValue({ error: 'restore_incomplete', message: 'bad file', rolledBack: true })
     await pick()
     fireEvent.click(screen.getByRole('button', { name: 'Restore' }))
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).not.toMatch(/not changed/)
+    expect(alert.textContent).toMatch(/did not finish/)
+    expect(alert.textContent).toMatch(/Nothing was changed/)
+  })
+
+  it('points to the backups folder when the rollback itself failed', async () => {
+    localClient.restoreProject.mockResolvedValue({ error: 'restore_incomplete', message: 'bad file', rolledBack: false })
+    await pick()
+    fireEvent.click(screen.getByRole('button', { name: 'Restore' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).not.toMatch(/Nothing was changed/)
     expect(alert.textContent).toMatch(/backups folder/)
+  })
+
+  it('warns in the confirm that erased records may reappear until devices sync', async () => {
+    await pick()
+    expect(screen.getByText(/Anything erased since then may reappear until other devices sync\./)).toBeTruthy()
   })
 
   it('says nothing was restored when the safety copy could not be written', async () => {
@@ -108,7 +122,7 @@ describe('RestoreControl', () => {
 
   it('says what restore does on this computer versus other devices, in the confirm', async () => {
     await pick()
-    expect(screen.getByText("Restores this computer's copy; changes other devices still hold will sync back.")).toBeTruthy()
+    expect(screen.getByText(/Restores this computer's copy; changes other devices still hold will sync back\./)).toBeTruthy()
   })
 
   it('shows the refusal for a backup from before backups held the camp document', async () => {
