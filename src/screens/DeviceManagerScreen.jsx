@@ -243,7 +243,7 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
           {joinInfo.open ? (
             <>
               <div style={styles.joinInstruction}>
-                On the new device, choose <strong>Join a camp</strong> and enter this code.
+                On the new device, choose <strong>Join with a camp code</strong> and enter this code.
               </div>
               <div style={styles.joinCode}>{joinInfo.formatted}</div>
               {/* The code is the same every time, so a director can write it
