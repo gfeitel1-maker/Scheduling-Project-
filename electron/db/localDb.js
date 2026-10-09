@@ -4370,8 +4370,8 @@ const DEVICE_HEALTH_EVENTS_DDL = `
   // and peer_punch_memory. schema.sql already creates both; this block is for a database upgrading
   // from an earlier version. No back-fill: both are learned only from a live punched session.
   //
-  // Guard `>= 91 && < 93` never a bare `< 91` (this repo's standing gotcha).
-  if (getSchemaVersion(db) >= 91 && getSchemaVersion(db) < 93) {
+  // Guard `>= 92 && < 93` never a bare `< 91` (this repo's standing gotcha).
+  if (getSchemaVersion(db) >= 92 && getSchemaVersion(db) < 93) {
     db.exec(`
       CREATE TABLE IF NOT EXISTS punch_identity (
         id INTEGER PRIMARY KEY CHECK (id = 1),

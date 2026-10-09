@@ -2,7 +2,7 @@
 //
 // T348: the device's stable punch identity (DTLS cert/key + ICE credentials + pinned port) lives in
 // the SQLCipher-covered database, never as a standing file.
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -97,6 +97,28 @@ describe('stale key directories', () => {
     expect(fs.lstatSync(link).isSymbolicLink()).toBe(true)
     expect(fs.existsSync(target)).toBe(true)
     expect(fs.existsSync(live.keyPemFile)).toBe(true)
+  })
+})
+
+describe('stale key directory removal failure', () => {
+  it('is surfaced as a warning that names the path class only and never aborts materializePunchIdentity', () => {
+    const tmp = os.tmpdir()
+    const stuck = fs.mkdtempSync(path.join(tmp, 'shoresh-punch-999999997-'))
+    const inner = path.join(stuck, 'inner')
+    fs.mkdirSync(inner)
+    fs.writeFileSync(path.join(inner, 'key.pem'), 'SECRET-KEY-MATERIAL')
+    fs.chmodSync(inner, 0o500)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    cleanups.push(() => { warn.mockRestore(); fs.chmodSync(inner, 0o700); fs.rmSync(stuck, { recursive: true, force: true }) })
+    let live
+    expect(() => { live = materializePunchIdentity(freshDb()) }).not.toThrow()
+    cleanups.push(live.cleanup)
+    expect(fs.existsSync(live.keyPemFile)).toBe(true)
+    expect(warn).toHaveBeenCalledTimes(1)
+    const text = warn.mock.calls[0].join(' ')
+    expect(text).toContain('stale punch key directory')
+    expect(text).not.toContain('SECRET')
+    expect(text).not.toContain(stuck)
   })
 })
 

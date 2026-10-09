@@ -137,7 +137,9 @@ export function sweepStalePunchDirs() {
     const full = join(tmpdir(), name)
     try { if (!lstatSync(full).isDirectory()) continue } catch { continue }
     try { process.kill(pid, 0); continue } catch (err) { if (err.code === 'EPERM') continue }
-    rmSync(full, { recursive: true, force: true })
+    try { rmSync(full, { recursive: true, force: true }) } catch (err) {
+      console.warn(`punch: could not remove a stale punch key directory (${err.code ?? 'error'}); it stays in the temp directory`)
+    }
   }
 }
 

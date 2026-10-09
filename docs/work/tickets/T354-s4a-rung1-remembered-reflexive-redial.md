@@ -1,9 +1,9 @@
 ---
-ticket: T348
+ticket: T354
 document_type: ticket
-title: S2 — rung 1, remembered public reflexive candidate redialled with zero signaling, inert behind SHORESH_PUNCH_ENABLED
+title: S4a — rung 1 (absorbs parked T348; PR #762 closed), remembered public reflexive candidate redialled with zero signaling, inert behind SHORESH_PUNCH_ENABLED
 status: open
-created: 2026-10-08
+created: 2026-10-09
 archive_when: "attemptRung1 redials a peer's remembered punch memory with zero signaling messages and reports mapping-moved, timeout or no-memory so a coordinator can escalate; the device's stable DTLS cert/key and ICE credentials live in the SQLCipher-covered database (never a plaintext file at rest); a revoked peer's memory is not redialled; schema v93 and its rollback pass; nothing activates without SHORESH_PUNCH_ENABLED"
 task_class: security-auth
 parent: T347
@@ -12,7 +12,13 @@ related_prs: []
 related_tickets: [docs/work/tickets/T347-s1-punch-transport-inert-build.md]
 ---
 
-# T348 — S2: rung 1 remembered-candidate redial
+# T354 — S4a: rung 1 remembered-candidate redial (absorbs T348)
+
+T348 (PR #762, closed unmerged) was parked and its work re-applied onto current main as this ticket;
+branch `claude/s2-rung1` at 6e667c10 is the source. Differences from the T348 text below: the schema is
+**v93** on top of main's v92 (the migration guard is `>= 92 && < 93`), the rollback is
+`electron/db/rollback/v93_down.js`, and the notes below that say "v91" or `>= 91 && < 93` describe the
+parked branch, not this one.
 
 ## Context
 
@@ -65,3 +71,28 @@ the caller of `attemptRung1` (the S4 coordinator), rung 3 (never contacted here)
 - `sweepStalePunchDirs` only considers real directories (lstat; files and symlinks skipped) named exactly `shoresh-punch-<pid>-<6 alphanumerics>`, the shape `mkdtempSync` produces in `materializePunchIdentity`; the "predates the naming" case is dropped. Test temp files and dirs under `electron/sync/automerge/*.test.js` no longer use the `shoresh-punch-` prefix, so a parallel worker's `shoresh-punch-wiring-*` dir or `shoresh-punch-mem-*.sqlite` file can no longer be swept.
 - Root cause of the CI `ra.ok` false in "two peers redialled concurrently on one pinned port": the sweep does NOT explain it. The rung1 test's db files are `shoresh-rung1-*` and its key dir is `shoresh-punch-<live pid>-*`, which the old sweep kept. The real defect is ordering in `sessionOnFreePort`: after the previous test's close both waiters (pa and the later pc, same transport) sleep until `lastCloseAt + settle` with independently computed millisecond timers, so the later caller's timer can fire first and it takes the port. pc then holds the port (or dials b with the copied memory) and pa never gets a clean slot. Fix: waiters are served in arrival order via a per-transport queue; no timeout or settle value changed.
 - Confidence: medium. This is established by reading the code; the CI failure was not reproduced locally (a 4x parallel loop was too heavy for this machine and was stopped), and no deterministic test pins the queue.
+
+## S4a keeper conditions
+
+1. **Sweep removal failure is surfaced, not fatal.** `sweepStalePunchDirs` wraps `rmSync` in try/catch
+   and logs one `console.warn` naming only the path class ("a stale punch key directory") and the error
+   code - never the path, never key material. `materializePunchIdentity` carries on. Red-first test in
+   `electron/sync/automerge/punchIdentity.test.js` ("stale key directory removal failure"): a dead-pid
+   directory holding a read-only subdirectory makes `rmSync` throw EACCES; before the fix
+   `materializePunchIdentity` threw, after it warns once.
+2. **FIFO pinned-port queue is kept, with a deterministic repro.** `electron/sync/automerge/punchPortQueue.test.js`
+   drives `sessionOnFreePort` with a manual clock and manual timers. Two waiters released by the same
+   close compute timers to the same instant; the test fires the LATER arrival's timer first (the order
+   Node's per-duration timer lists permit when timers expire together). Against the pre-round-4 loop
+   (restored from c3bbcb21 for the check) the later arrival takes the port (`expected ['B'] to deeply equal []`);
+   against the queue, the earlier arrival is served first. No timeout, settle value or sleep was changed.
+3. **`punchTransport.sync` "a peer revoked mid-connection is cut off" - flake, cause NOT established.**
+   It failed once under parallel load; the failure text was not captured. Evidence gathered: 3 sequential
+   isolated runs of the file all passed (that test 4.5-5.0s, the file 13-15s idle). The test has no pinned
+   port (`portRange` unset), so `sessionOnFreePort` is bypassed entirely and neither T348's queue nor its
+   sweep is on its path. Its only failing shapes are the positive `waitFor`s (15s each) or the 30s test
+   budget, both wall-clock bound around two real WebRTC ICE gatherings, which a loaded 4-core runner can
+   stretch; the negative `expect(...).toBeUndefined()` after a fixed 500ms cannot fail by slowness, only by a
+   revoked write actually landing. That last shape is the one that would be a real bug, and it has not been
+   ruled out. Next step: if it recurs, capture the assertion message from the CI log first (a `waitFor: timed out`
+   is load; a `revoked-write` row present is a revocation gap in the `isPeerRevoked` path).
