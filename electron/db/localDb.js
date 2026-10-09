@@ -41,7 +41,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // campers.division_label/is_unattributed and elective_preferences.rank_kind/
 // coordinate_day_label/coordinate_period_label) all land in this file; 79 is the
 // current version.
-export const CURRENT_SCHEMA_VERSION = 92
+export const CURRENT_SCHEMA_VERSION = 91
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -1117,7 +1117,7 @@ export function initSchema(db) {
   // The statement text must stay byte-identical to schema.sql's copy —
   // sqlite_master stores the original CREATE TABLE text, so a fresh database
   // and a migrated one would otherwise differ in a way no column check
-  // catches. pendingQueues.dropped.migration.test.js now asserts the v92 drop.
+  // catches. pendingQueues.dropped.migration.test.js now asserts the v91 drop.
   if (getSchemaVersion(db) < 25) {
     db.transaction(() => {
       db.exec(PENDING_RESTORES_DDL)
@@ -4340,18 +4340,18 @@ const DEVICE_HEALTH_EVENTS_DDL = `
     )
   }
 
-  // v92 (T311) — drop pending_writes and pending_restores, the Client's offline write/restore
+  // v91 (T311) — drop pending_writes and pending_restores, the Client's offline write/restore
   // queues. Vestigial since the Stage 6c cutover: syncClient.js, pendingWrites.js and the
   // restore drainer were deleted and nothing reads or writes either table. DROP IF EXISTS, so it
   // is a no-op on a database that never held them. Their v8/v25 creation blocks above stay: a
   // pre-v8 database still passes through them and is dropped here. Rollback recreates both empty
-  // (electron/db/rollback/v92_down.js).
+  // (electron/db/rollback/v91_down.js).
   //
-  // Guard `>= 90 && < 92` (v91 is reserved by claude/s2-rung1, the v67 precedent), never a bare `< 92` (this repo's standing gotcha).
-  if (getSchemaVersion(db) >= 90 && getSchemaVersion(db) < 92) {
+  // Guard `>= 90 && < 91` (the v67 precedent), never a bare `< 91` (this repo's standing gotcha).
+  if (getSchemaVersion(db) >= 90 && getSchemaVersion(db) < 91) {
     db.exec('DROP TABLE IF EXISTS pending_writes; DROP TABLE IF EXISTS pending_restores;')
 
-    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (92, ?)').run(
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (91, ?)').run(
       new Date().toISOString()
     )
   }

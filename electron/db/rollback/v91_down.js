@@ -1,4 +1,4 @@
-// Inverse of migration v92 (electron/db/localDb.js) — T311: recreates pending_writes and
+// Inverse of migration v91 (electron/db/localDb.js) — T311: recreates pending_writes and
 // pending_restores, EMPTY, exactly as schema.sql declared them at v90.
 //
 //   1. Both were device-local offline queues, vestigial since the Stage 6c cutover (nothing read
@@ -7,10 +7,10 @@
 //      PENDING_RESTORES_DDL in localDb.js).
 //   2. No registry membership to restore: neither was ever in PROJECTIONS, DIRECT_CAMP_ENTITIES,
 //      PARENT_SCOPED_ENTITIES or MODELED_ENTITIES.
-//   3. Reopening this build re-applies v92 and drops them again — a rollback only sticks
-//      alongside a downgrade to a pre-v92 binary. Harmless either way: nothing uses the tables.
+//   3. Reopening this build re-applies v91 and drops them again — a rollback only sticks
+//      alongside a downgrade to a pre-v91 binary. Harmless either way: nothing uses the tables.
 //
-// Usage:  node electron/db/rollback/v92_down.js <path-to-shoresh.sqlite>
+// Usage:  node electron/db/rollback/v91_down.js <path-to-shoresh.sqlite>
 
 import { assertHighestApplied } from './assertHighestApplied.js'
 
@@ -35,31 +35,31 @@ const PENDING_RESTORES_DDL = `CREATE TABLE IF NOT EXISTS pending_restores (
   UNIQUE (entity, entity_id)
 )`
 
-export function rollbackV92(db) {
+export function rollbackV91(db) {
   db.transaction(() => {
     db.exec(PENDING_WRITES_DDL)
     db.exec(PENDING_RESTORES_DDL)
-    // `>= 92`, never `= 92` (bareEqualityRollback.guard.test.js's class).
-    db.prepare('DELETE FROM schema_migrations WHERE version >= 92').run()
+    // `>= 91`, never `= 91` (bareEqualityRollback.guard.test.js's class).
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 91').run()
   })()
   return { ok: true }
 }
 
-// Direct invocation (node electron/db/rollback/v92_down.js <file>).
-if (process.argv[1] && process.argv[1].endsWith('v92_down.js')) {
+// Direct invocation (node electron/db/rollback/v91_down.js <file>).
+if (process.argv[1] && process.argv[1].endsWith('v91_down.js')) {
   const file = process.argv[2]
   if (!file) {
-    console.error('usage: node electron/db/rollback/v92_down.js <path-to-shoresh.sqlite>')
+    console.error('usage: node electron/db/rollback/v91_down.js <path-to-shoresh.sqlite>')
     process.exit(1)
   }
   const { default: Database } = await import('better-sqlite3')
   const db = new Database(file)
   db.pragma('foreign_keys = ON')
-  assertHighestApplied(db, 92)
-  rollbackV92(db)
+  assertHighestApplied(db, 91)
+  rollbackV91(db)
   db.close()
   console.log(
-    'v92 rolled back: pending_writes and pending_restores recreated empty. NOTE: this app build ' +
-    'still declares schema version 92: reopening it drops both tables again.'
+    'v91 rolled back: pending_writes and pending_restores recreated empty. NOTE: this app build ' +
+    'still declares schema version 91: reopening it drops both tables again.'
   )
 }

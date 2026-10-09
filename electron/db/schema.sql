@@ -615,7 +615,7 @@ CREATE TABLE IF NOT EXISTS device_identity (
 );
 
 -- pending_writes and pending_restores (the Client's offline write/restore queues) were dropped in
--- schema v92 (T311): vestigial since the Stage 6c cutover, nothing read or wrote them.
+-- schema v91 (T311): vestigial since the Stage 6c cutover, nothing read or wrote them.
 
 -- Renderer Supabase->local-first migration, Sub-plan A (schema version 10).
 -- New tables required by cohorts/time-blocks/anchors/schedule-template

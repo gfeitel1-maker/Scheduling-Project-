@@ -291,7 +291,7 @@ describe('Task 10 round-4 Fix 3: devices.last_synced_seq (schema version 7)', ()
   })
 })
 
-describe('Task 10 round-5 Fix 1/3: operations.client_write_id (schema version 8; pending_writes dropped in v92, T311)', () => {
+describe('Task 10 round-5 Fix 1/3: operations.client_write_id (schema version 8; pending_writes dropped in v91, T311)', () => {
   it('a fresh install has operations.client_write_id and no pending_writes table', () => {
     const db = freshDb()
     const table = db
