@@ -21,6 +21,7 @@ import { openTemplatedDb, cleanupTemplatedDbs } from './db/testDbTemplate.js'
 import { getOrCreateDeviceId } from './db/localDb.js'
 import { makeHandlers } from './main.js'
 import { createAutomergeSyncStarter } from './sync/automerge/syncStarter.js'
+import { createSyncStarterHolder } from './sync/automerge/syncStarterHolder.js'
 import { setUserDataDirGetter, setDocCipher, resetForTests } from './sync/automerge/liveDoc.js'
 
 let db, dbFile, deviceId, userDataPath, starter, handlers
@@ -90,5 +91,41 @@ describe('sync after a fresh bootstrap (audit #22)', () => {
     await starter.getNode() // noop; the real starter may be starting in the background
     await failing.start()
     expect(err).toHaveBeenCalledWith(expect.stringContaining('EADDRINUSE'))
+  })
+})
+
+describe('sync after a project switch / restore (db swap)', () => {
+  it('a camp bootstrapped on the NEW db after a swap is listening without restart, and the old node is stopped', async () => {
+    const mk = (d, id) => () => createAutomergeSyncStarter({
+      deviceId: id, db: d, userDataPath, docCipher: null,
+      getMainWindow: () => null,
+      getLiveHandlers: () => null,
+    })
+    let curDb = db
+    let curId = deviceId
+    const holder = createSyncStarterHolder(() => mk(curDb, curId)())
+    const h1 = makeHandlers(db, deviceId, holder.handlerOptions())
+    await h1.chooseMode({ mode: 'host', campName: 'Camp One' })
+    await h1.bootstrapCamp({ campName: 'Camp One', adminName: 'Root', adminPin: '999999' })
+    const oldNode = await waitFor(() => holder.getNode())
+    const oldStop = vi.spyOn(oldNode, 'stop')
+
+    const t2 = openTemplatedDb()
+    curDb = t2.db
+    curId = getOrCreateDeviceId(t2.db)
+    await holder.replace()
+    expect(oldStop).toHaveBeenCalled()
+    expect(holder.getNode()).toBeNull()
+
+    const h2 = makeHandlers(curDb, curId, holder.handlerOptions())
+    await h2.chooseMode({ mode: 'host', campName: 'Camp Two' })
+    await h2.bootstrapCamp({ campName: 'Camp Two', adminName: 'Root', adminPin: '999999' })
+    const node2 = await waitFor(() => holder.getNode())
+    expect(node2).not.toBe(oldNode)
+    expect(node2.getMultiaddrs().length).toBeGreaterThan(0)
+
+    await node2.stop()
+    t2.db.close()
+    if (fs.existsSync(t2.file)) fs.unlinkSync(t2.file)
   })
 })
