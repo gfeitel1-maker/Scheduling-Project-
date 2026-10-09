@@ -85,6 +85,7 @@ import {
   readRecentProjects,
   addRecentProject,
   writeUserBackup,
+  readCampIdSafely,
   rotatePreResolveBackups,
 } from './db/projectManager.js'
 
@@ -1659,7 +1660,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     if (dbPath && handlersUserDataPath) {
       try {
         try { flushAutomergeDoc() } catch (err) { console.error('backup: automerge flush failed (non-fatal):', err?.message ?? err) }
-        writeUserBackup(dbPath, handlersUserDataPath, db.prepare('SELECT id FROM camps LIMIT 1').get()?.id, (err) => console.error('backup: camp document copy failed (non-fatal):', err?.message ?? err))
+        writeUserBackup(dbPath, handlersUserDataPath, readCampIdSafely(db), (err) => console.error('backup: camp document copy failed (non-fatal):', err?.message ?? err))
       } catch {
         /* snapshot failure is non-fatal */
       }
@@ -3523,7 +3524,7 @@ if (isElectronEntryPoint()) {
     try {
       try { flushAutomergeDoc() } catch (err) { console.error('backup: automerge flush failed (non-fatal):', err?.message ?? err) }
       let docBackupError
-      const backupPath = writeUserBackup(dbPath, userDataPath, db.prepare('SELECT id FROM camps LIMIT 1').get()?.id, (err) => { docBackupError = err.message })
+      const backupPath = writeUserBackup(dbPath, userDataPath, readCampIdSafely(db), (err) => { docBackupError = err.message })
       lastBackupPath = backupPath
       return docBackupError ? { backupPath, docBackupError } : { backupPath }
     } catch (err) {
@@ -3583,7 +3584,7 @@ if (isElectronEntryPoint()) {
       // Back up current DB before overwriting.
       try {
         try { flushAutomergeDoc() } catch (err) { console.error('backup: automerge flush failed (non-fatal):', err?.message ?? err) }
-        writeUserBackup(dbPath, userDataPath, db.prepare('SELECT id FROM camps LIMIT 1').get()?.id, (err) => console.error('backup: camp document copy failed (non-fatal):', err?.message ?? err))
+        writeUserBackup(dbPath, userDataPath, readCampIdSafely(db), (err) => console.error('backup: camp document copy failed (non-fatal):', err?.message ?? err))
       } catch {
         /* non-fatal — proceed with restore */
       }

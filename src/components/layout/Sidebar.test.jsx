@@ -597,3 +597,17 @@ describe('Sidebar: packaged audit #32/#33/#34', () => {
     expect(onNavigate).toHaveBeenCalledWith('devices')
   })
 })
+
+describe('Sidebar: Backup Now footer states', () => {
+  it('shows the caution text, not the plain success, when the camp document was not included', () => {
+    renderSidebar({ backupStatus: 'caution' })
+    const btn = screen.getByText('Backup saved — camp document not included')
+    expect(btn.style.color).toBe('var(--accent)')
+    expect(screen.queryByText('Backup saved')).toBeNull()
+  })
+
+  it('still shows plain success for a clean backup', () => {
+    renderSidebar({ backupStatus: 'ok' })
+    expect(screen.getByText('Backup saved')).toBeTruthy()
+  })
+})

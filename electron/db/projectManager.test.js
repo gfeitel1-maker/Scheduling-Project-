@@ -13,6 +13,7 @@ import {
   writePreMigrationBackup,
 } from './projectManager.js'
 import { openLocalDb, CURRENT_SCHEMA_VERSION, getSchemaVersion } from './localDb.js'
+import { readCampIdSafely } from './projectManager.js'
 
 let tmpDir
 
@@ -263,5 +264,16 @@ describe('schema_too_new guard', () => {
 
     const baks = fs.readdirSync(tmpDir).filter(f => f.endsWith('.bak'))
     expect(baks.length).toBeGreaterThanOrEqual(1)
+  })
+})
+
+describe('readCampIdSafely', () => {
+  it('returns the camp id', () => {
+    const db = { prepare: () => ({ get: () => ({ id: 'c1' }) }) }
+    expect(readCampIdSafely(db)).toBe('c1')
+  })
+  it('returns undefined when the db throws, so the db backup is never skipped', () => {
+    const db = { prepare: () => { throw new Error('boom') } }
+    expect(readCampIdSafely(db)).toBeUndefined()
   })
 })

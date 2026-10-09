@@ -114,6 +114,10 @@ function copyCampDocument(userDataPath, campId, destDir) {
  * With campId, also copies that camp's Automerge document; a failure there is reported to
  * onDocError and never fails the db backup. Returns the backup file path.
  */
+export function readCampIdSafely(db) {
+  try { return db.prepare('SELECT id FROM camps LIMIT 1').get()?.id } catch { return undefined }
+}
+
 export function writeUserBackup(dbPath, userDataPath, campId, onDocError) {
   const backupDir = path.join(userDataPath, BACKUP_DIR_NAME)
   if (!fs.existsSync(backupDir)) {
