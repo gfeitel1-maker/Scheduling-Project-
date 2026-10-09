@@ -24,8 +24,11 @@ of `worker.js`. All trust decisions happen client-side, in code that is not part
 
 `worker.js`'s file header spells this out in detail; in short, the code bounds per-request work,
 validates namespace/peer-id shape strictly (so they cannot be used to forge or collide KV keys),
-caps the record size, and caps entries per namespace. It does **not** rate-limit by caller, and it
-does not, and cannot, control Cloudflare's own edge request logging.
+caps the record size, caps entries per namespace, and throttles each caller IP through two Workers
+Rate Limiting bindings (`REGISTER_LIMITER`, `PEERS_LIMITER` in `wrangler.toml`; 429 over the limit,
+and 503 — fail closed — if a binding is missing). Those counters are per Cloudflare location and
+approximate, so they bound abuse rather than enforce an exact quota. It does not, and cannot,
+control Cloudflare's own edge request logging.
 
 **The per-namespace cap is a lockout primitive, not just an abuse bound.** Anyone who knows a
 namespace can register up to `MAX_PEERS_PER_NAMESPACE` fabricated peer ids in it. Already-registered
@@ -36,10 +39,11 @@ lowering the cap does not — see the fuller note in `worker.js`'s file header.
 
 ## What the owner must configure before or at deploy time
 
-1. **Rate limiting / WAF.** `POST /v1/register` is unauthenticated by design (any previously
-   paired peer can publish). Configure a Cloudflare Rate Limiting rule (or a WAF custom rule) on
-   this route — this is an account/dashboard setting, not something expressible in `wrangler.toml`
-   or Worker source.
+1. **Rate limiting.** Both routes are unauthenticated by design (any previously paired peer can
+   publish). Per-caller throttling ships in code via the `[[ratelimits]]` bindings in
+   `wrangler.toml` (a `workers.dev` route has no zone, so no WAF rule can front it); `wrangler
+   deploy` creates them. Re-deploy after changing the limits. If the Worker ever moves to a custom
+   domain with a zone, a WAF rate-limiting rule can be added in front as a second layer.
 2. **Log retention.** This board is a live register of the public IP addresses of staff laptops at
    children's camps. The Worker itself never logs a request body, IP, namespace, or peer id (there
    is no logging call in `worker.js`), but Cloudflare's own edge request logs are outside the

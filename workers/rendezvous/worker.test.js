@@ -18,27 +18,54 @@ const PEER_B = 'peerBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB'
 const RECORD_A = Buffer.from('opaque-signed-record-for-peer-a').toString('base64')
 const RECORD_B = Buffer.from('opaque-signed-record-for-peer-b').toString('base64')
 
+// A stand-in for a Workers Rate Limiting binding (env.X.limit({ key }) -> { success }).
+function allowAll() {
+  return { limit: async () => ({ success: true }) }
+}
+
+// Counts per key within the test; refuses once `max` calls for one key have been made.
+function fakeLimiter(max) {
+  const seen = new Map()
+  const keys = []
+  return {
+    keys,
+    async limit({ key }) {
+      keys.push(key)
+      const n = (seen.get(key) ?? 0) + 1
+      seen.set(key, n)
+      return { success: n <= max }
+    },
+  }
+}
+
 function makeEnv(overrides = {}) {
   let clockMs = overrides.startMs ?? 0
   const kv = overrides.kv ?? new FakeKvNamespace({ now: () => clockMs })
   return {
-    env: { RENDEZVOUS_KV: kv },
+    env: {
+      RENDEZVOUS_KV: kv,
+      REGISTER_LIMITER: overrides.registerLimiter ?? allowAll(),
+      PEERS_LIMITER: overrides.peersLimiter ?? allowAll(),
+    },
     advance(ms) {
       clockMs += ms
     },
   }
 }
 
-function registerRequest({ namespace = VALID_NAMESPACE, peerId = PEER_A, record = RECORD_A } = {}) {
+function registerRequest({ namespace = VALID_NAMESPACE, peerId = PEER_A, record = RECORD_A, ip } = {}) {
   return new Request('https://rendezvous.example/v1/register', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...(ip ? { 'cf-connecting-ip': ip } : {}) },
     body: JSON.stringify({ namespace, peerId, record }),
   })
 }
 
-function peersRequest(namespace) {
-  return new Request(`https://rendezvous.example/v1/peers/${namespace}`, { method: 'GET' })
+function peersRequest(namespace, { ip } = {}) {
+  return new Request(`https://rendezvous.example/v1/peers/${namespace}`, {
+    method: 'GET',
+    headers: ip ? { 'cf-connecting-ip': ip } : {},
+  })
 }
 
 describe('POST /v1/register', () => {
@@ -320,5 +347,62 @@ describe('NAMESPACE_RE (exported for the ticket-mandated 64-lowercase-hex check)
     expect(NAMESPACE_RE.test('a'.repeat(64))).toBe(true)
     expect(NAMESPACE_RE.test('A'.repeat(64))).toBe(false)
     expect(NAMESPACE_RE.test('a'.repeat(63))).toBe(false)
+  })
+})
+
+describe('caller rate limiting (Workers Rate Limiting binding)', () => {
+  it('refuses a register over the per-caller limit with 429 and does not write', async () => {
+    const kv = new FakeKvNamespace({ now: () => 0 })
+    const { env } = makeEnv({ kv, registerLimiter: fakeLimiter(2) })
+    expect((await handleRequest(registerRequest({ ip: '198.51.100.7', peerId: PEER_A }), env)).status).toBe(200)
+    expect((await handleRequest(registerRequest({ ip: '198.51.100.7', peerId: PEER_A }), env)).status).toBe(200)
+    const refused = await handleRequest(registerRequest({ ip: '198.51.100.7', peerId: PEER_B }), env)
+    expect(refused.status).toBe(429)
+    const list = await (await handleRequest(peersRequest(VALID_NAMESPACE), env)).json()
+    expect(list.peers.map((p) => p.peerId)).not.toContain(PEER_B)
+  })
+
+  it('limits per caller: another IP is unaffected', async () => {
+    const { env } = makeEnv({ registerLimiter: fakeLimiter(1) })
+    expect((await handleRequest(registerRequest({ ip: '198.51.100.7' }), env)).status).toBe(200)
+    expect((await handleRequest(registerRequest({ ip: '198.51.100.7' }), env)).status).toBe(429)
+    expect((await handleRequest(registerRequest({ ip: '203.0.113.9' }), env)).status).toBe(200)
+  })
+
+  it('refuses a peers listing over the per-caller limit with 429', async () => {
+    const { env } = makeEnv({ peersLimiter: fakeLimiter(1) })
+    expect((await handleRequest(peersRequest(VALID_NAMESPACE, { ip: '198.51.100.7' }), env)).status).toBe(200)
+    expect((await handleRequest(peersRequest(VALID_NAMESPACE, { ip: '198.51.100.7' }), env)).status).toBe(429)
+  })
+
+  it('keys the limiter on the caller IP, never on the namespace or peer id', async () => {
+    const reg = fakeLimiter(10)
+    const peers = fakeLimiter(10)
+    const { env } = makeEnv({ registerLimiter: reg, peersLimiter: peers })
+    await handleRequest(registerRequest({ ip: '198.51.100.7' }), env)
+    await handleRequest(peersRequest(VALID_NAMESPACE, { ip: '198.51.100.7' }), env)
+    expect(reg.keys).toEqual(['198.51.100.7'])
+    expect(peers.keys).toEqual(['198.51.100.7'])
+  })
+
+  it('keys an IPv6 caller on its /64, so rotating addresses inside one /64 shares a bucket', async () => {
+    const { env } = makeEnv({ registerLimiter: fakeLimiter(1) })
+    expect((await handleRequest(registerRequest({ ip: '2001:db8:1:2::a' }), env)).status).toBe(200)
+    expect((await handleRequest(registerRequest({ ip: '2001:db8:1:2:ffff::b' }), env)).status).toBe(429)
+    expect((await handleRequest(registerRequest({ ip: '2001:db8:1:3::a' }), env)).status).toBe(200)
+  })
+
+  it('fails CLOSED with 503 when a limiter binding is missing (misdeploy is never unthrottled)', async () => {
+    const { env } = makeEnv()
+    delete env.REGISTER_LIMITER
+    expect((await handleRequest(registerRequest({ ip: '198.51.100.7' }), env)).status).toBe(503)
+    const env2 = makeEnv().env
+    delete env2.PEERS_LIMITER
+    expect((await handleRequest(peersRequest(VALID_NAMESPACE, { ip: '198.51.100.7' }), env2)).status).toBe(503)
+  })
+
+  it('fails CLOSED with 503 when the limiter throws', async () => {
+    const { env } = makeEnv({ registerLimiter: { limit: async () => { throw new Error('binding down') } } })
+    expect((await handleRequest(registerRequest({ ip: '198.51.100.7' }), env)).status).toBe(503)
   })
 })

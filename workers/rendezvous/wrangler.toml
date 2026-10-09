@@ -17,6 +17,21 @@ compatibility_date = "2026-09-17"
 binding = "RENDEZVOUS_KV"
 id = ""
 
-# See ../README.md — Cloudflare-side rate limiting and log-retention configuration are owner
-# deployment decisions and are NOT expressed in this file, because they are account/dashboard
-# settings this repository's workflow has no authority over.
+# Per-caller rate limiting (Workers Rate Limiting binding; a workers.dev route has no zone, so no
+# WAF rule can front it). worker.js keys both on the caller IP and fails CLOSED (503) if a binding
+# is missing. namespace_id is an account-unique integer label, not a secret. Sizing: a device ticks
+# once a minute (one register + one peers list), and a camp may put ~20 devices behind one NAT IP,
+# so 60 registers / 120 lists per 60s per IP leaves headroom while capping a single abuser.
+[[ratelimits]]
+name = "REGISTER_LIMITER"
+namespace_id = "2091"
+simple = { limit = 60, period = 60 }
+
+[[ratelimits]]
+name = "PEERS_LIMITER"
+namespace_id = "2092"
+simple = { limit = 120, period = 60 }
+
+# See ../README.md — Cloudflare log-retention configuration is an owner deployment decision and is
+# NOT expressed in this file, because it is an account/dashboard setting this repository's
+# workflow has no authority over.
