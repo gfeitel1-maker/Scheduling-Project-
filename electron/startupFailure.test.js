@@ -50,6 +50,18 @@ describe('describeStartupFailure', () => {
     expect(message).not.toMatch(/Details were saved to/)
   })
 
+  it('does not tell the director to reinstall when the encrypting driver is missing — a reinstall of the same build cannot fix it', () => {
+    const err = Object.assign(new Error(
+      'At-rest encryption is enabled but the encrypting SQLite driver (better-sqlite3-multiple-ciphers) is not installed ' +
+      'or failed to build for this runtime (x). Refusing to open the database.'), { code: 'encrypting_driver_missing' })
+    const { message } = describeStartupFailure(err, null)
+    expect(message).not.toMatch(/reinstall/i)
+    expect(message).toMatch(/missing a required component/i)
+    expect(message).toMatch(/new build/i)
+    expect(message).toMatch(/data has not been changed/i)
+    expect(message.split('Technical detail:')[0]).not.toMatch(/sqlite|better-sqlite3/i)
+  })
+
   it('handles a non-database failure without claiming it is one', () => {
     const { message } = describeStartupFailure(new Error('EACCES: permission denied'), null)
     expect(message).toMatch(/could not start/i)

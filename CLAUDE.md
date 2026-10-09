@@ -22,7 +22,7 @@ npm run dev            # Vite dev server at http://localhost:5200
 npm run electron:dev   # Vite + Electron together (real app, local-first stack)
 npm run electron:dev:fresh  # kills a stale Electron process first, then electron:dev
 npm run build           # Production build
-npm run electron:build  # Vite build + electron-builder (packaged app)
+npm run electron:build  # Vite build + electron-builder (packaged app); its postelectron:build step (npm run verify:packaged) fails the build unless the encrypting SQLite driver is in the bundle, loads under the packaged Electron, and the app boots to the smoke heartbeat
 npm run lint            # ESLint
 npm run test             # Run all Vitest tests
 npm test -- <path/to/file.test.js>    # Run a single test file
@@ -71,6 +71,8 @@ round-trip.
 **Only one local gate runs at a time.** `npm run verify` takes a machine-wide lock
 (`scripts/gateLock.js`) keyed to the repository, so a second one waits and names the holder instead
 of both thrashing a 4-core machine. `SHORESH_VERIFY_NO_LOCK=1` bypasses it.
+
+**Release builds need a Node that can compile `better-sqlite3-multiple-ciphers`.** It is a required dependency (encryption is default ON), so `npm ci` fails loudly where it cannot build. It builds under Node 22 but not Node 25 on Intel macOS; on that machine run `npm ci` and `npm run electron:build` with `/usr/local/opt/node@22/bin` first on PATH. The bundle is unpacked (`asar: false`), so native `.node` files need no `asarUnpack`.
 
 **`electron:dev:fresh` uses `pkill -x Electron`, which kills every Electron process owned by the
 user, not just this project's** — a dev server for another Electron app will be killed too, without
