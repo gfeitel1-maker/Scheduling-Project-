@@ -1,3 +1,12 @@
+---
+title: "WAN punch/reconnect ladder, default-on go-live assessment (T327 S5)"
+document_type: reference
+authority: descriptive
+status: active
+date: 2026-10-09
+program: security-hardening
+---
+
 # SECURITY ASSESSMENT — WAN punch/reconnect ladder, default-on go-live (T327 S5)
 
 Date: 2026-10-09   Assessed against commit: `c80a0032` (origin/main), plus open PRs #836 and #837 read via `gh pr diff`
