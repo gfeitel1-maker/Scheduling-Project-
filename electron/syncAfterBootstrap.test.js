@@ -1,8 +1,9 @@
 // Audit #22 — after a FRESH camp bootstrap the sync node must be actually
 // listening in the same session. Unlike main.test.js's T273 tests (which hand
 // bootstrapCamp a stub starter), this wires the REAL makeHandlers to the REAL
-// createAutomergeSyncStarter and the REAL startSyncNode, exactly as main.js's
-// initialHandlers does.
+// createAutomergeSyncStarter and the REAL startSyncNode, as main.js's
+// initialHandlers does — except onCampBootstrapped calls starter.start() directly, not main.js's
+// startAutomergeSyncNodeIfEnabled wrapper (its engine/camp/T268 gates are pinned by mainSyncStartupWiring.test.js).
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
