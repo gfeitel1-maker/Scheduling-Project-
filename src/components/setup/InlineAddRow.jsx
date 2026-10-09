@@ -36,15 +36,22 @@ function initialValues(fields) {
 // `!activeCohort`). When true, the "+ Add" button is disabled and none of the
 // three commit paths (click / Enter / blur-out-of-row) fire — so the row can
 // never silently no-op a create when the screen isn't ready to accept one.
-export default function InlineAddRow({ fields, onAdd, adding, trailingCells = null, disabled = false }) {
+// `validate` (optional): values -> { [fieldKey]: shortFlag }. Any flag renders under
+// its field and blocks every commit path. `deriveValues` (optional): (values,
+// changedKey) -> values, for a default that follows another field.
+export default function InlineAddRow({ fields, onAdd, adding, trailingCells = null, disabled = false, validate, deriveValues }) {
   const rowRef = useRef()
   const [values, setValues] = useState(() => initialValues(fields))
 
+  const flags = validate ? validate(values) : {}
   const requiredFilled = fields.every(f => !f.required || String(values[f.key] ?? '').trim() !== '')
-  const canAdd = requiredFilled && !adding && !disabled
+  const canAdd = requiredFilled && Object.keys(flags).length === 0 && !adding && !disabled
 
   function setValue(key, value) {
-    setValues(prev => ({ ...prev, [key]: value }))
+    setValues(prev => {
+      const next = { ...prev, [key]: value }
+      return deriveValues ? deriveValues(next, key) : next
+    })
   }
 
   async function commit() {
@@ -94,6 +101,7 @@ export default function InlineAddRow({ fields, onAdd, adding, trailingCells = nu
               style={{ ...S.input, background: 'var(--surface)', ...(field.width ? { width: field.width } : {}) }}
             />
           )}
+          {flags[field.key] && <div style={S.fieldFlag}>{flags[field.key]}</div>}
         </td>
       ))}
       {trailingCells}
