@@ -89,7 +89,7 @@ export default function LoginScreen({ campName, onSubmit, notice }) {
             <div style={S.authLogoSub}>{campName || 'Camp activity scheduling'}</div>
           </div>
 
-          <div style={{ ...S.authTitle, fontSize: 19 }}>Sign in</div>
+          <div style={{ ...S.authTitle, fontSize: 19, marginBottom: 20 }}>Sign in</div>
 
         {notice && (
           <div style={S.authNoticeBox}>
@@ -108,11 +108,10 @@ export default function LoginScreen({ campName, onSubmit, notice }) {
         {status === 'connection-error' && (
           <div style={S.authErrorBox}>
             <WarningTriangleIcon style={{ marginTop: 2 }} />
-            <span>Couldn't reach the app right now. Check your connection and try again.</span>
+            <span>Can’t reach the app — try again.</span>
           </div>
         )}
 
-        {status !== 'locked' && status !== 'error' && status !== 'connection-error' && <div style={{ ...S.authSubtitle, marginBottom: 20 }}>Enter your name and PIN to continue.</div>}
 
         <form onSubmit={handleSubmit}>
           <label htmlFor="login-name" style={{ ...S.authLabel, marginTop: 0 }}>Name</label>

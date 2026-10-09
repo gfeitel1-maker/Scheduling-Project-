@@ -627,8 +627,8 @@ const GearMenu = forwardRef(function GearMenu({ items, current, badges, onSelect
               <button
                 type="button"
                 title={retrying
-                  ? 'Trying to start sharing…'
-                  : "Sharing with the other computers hasn't started on this computer yet. Click to try again."}
+                  ? 'Starting sharing…'
+                  : 'Not sharing with other computers yet — click to retry.'}
                 disabled={retrying}
                 onClick={(e) => { e.stopPropagation(); if (!retrying) onRetrySync() }}
                 style={{

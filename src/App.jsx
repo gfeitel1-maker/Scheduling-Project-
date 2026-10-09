@@ -782,10 +782,8 @@ export default function App() {
           <div style={S.authLogoBlock}>
             <div style={S.authLogo}>Shoresh</div>
           </div>
-          <div style={S.authTitle}>Something went wrong</div>
-          <div style={S.authSubtitle}>
-            {device.error || 'An unexpected error occurred while starting the app.'}
-          </div>
+          <div style={S.authTitle}>Couldn’t start</div>
+          {device.error && <div style={S.authSubtitle}>{device.error}</div>}
           <button
             style={S.authBtnPrimary}
             onClick={() => {
