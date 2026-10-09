@@ -11,6 +11,8 @@ governing_docs: [docs/adr/2026-10-08-relayless-cross-network-reconnect.md, docs/
 
 # Router port mapping (UPnP-IGD / NAT-PMP / PCP) for the known-spot laptop: feasibility
 
+> **Revision 2026-10-09.** The decision this report fed (`docs/adr/2026-10-09-router-port-mapping-on-rung-1.md`) was revised after Red Hat FAILED the original draft: the thing mapped is now the **libp2p TCP listener**, pinned to a persisted port, not the punch UDP port. Library, router-protocol and gateway-detection findings below are about asking the router for a mapping and still hold. Findings that assume the **UDP punch port** (what to map, one session per port, the libjuice exposure, peer-reflexive acceptance) do not carry over; read them against the ADR, which governs. The findings are left as written. Ticket: T359 (slices revised).
+
 ## Goal and success predicate
 
 Owner requirement: a laptop at a known spot (the camp office) can be reached by a laptop at a new
