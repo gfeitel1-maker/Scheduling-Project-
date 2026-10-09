@@ -28,6 +28,7 @@ import {
   ensureSeeded,
   getDocIfLoaded,
   flushPendingWrites,
+  discardLiveDoc,
   DOC_CHANGE_CHUNK,
 } from './liveDoc.js'
 import { listDocumentWriteFailures } from '../../ops/documentWriteFailures.js'
@@ -588,5 +589,22 @@ describe('commitDeferredDocWrites — the invariants behind the batch', () => {
       }
     }
     expect(listDocumentWriteFailures(db).map((f) => f.op_id)).toEqual([ops[DOC_CHANGE_CHUNK + 2].id])
+  })
+})
+
+describe('discardLiveDoc', () => {
+  it('drops a pending save so a replaced document file is not overwritten by the old in-memory doc', () => {
+    recordLocalWrite(db, { entity: 'groups', entity_id: 'g1', field: 'name', value: 'Old' })
+    flushPendingWrites()
+    recordLocalWrite(db, { entity: 'groups', entity_id: 'g1', field: 'name', value: 'Newer-unsaved' })
+
+    const file = docPath(userDataDir, 'camp-1')
+    const restored = Buffer.from('restored-bytes')
+    discardLiveDoc(db)
+    fs.writeFileSync(file, restored)
+    flushPendingWrites()
+
+    expect(fs.readFileSync(file).equals(restored)).toBe(true)
+    expect(getDocIfLoaded(db)).toBeFalsy()
   })
 })

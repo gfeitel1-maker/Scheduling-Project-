@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect, forwardRef } from 'react'
 
+import RestoreControl from './RestoreControl'
 import { NAV_SECTIONS, ROOTS_ITEM, ADMIN_MENU_ITEMS, ADMIN_ONLY_MENU_ITEMS } from './navSections'
 import { getSetupGaps } from '../../engine/readiness'
 import { loadSidebarState, saveSidebarState, sectionRollup, nextFoldStateAfterAnswer, syncStatusLabel } from './sidebarState'
@@ -479,6 +480,7 @@ export default function Sidebar({
             Show in Finder
           </button>
         )}
+        {role === 'admin' && <RestoreControl />}
         {/* About & Legal — a quiet footer link to the view-only surface
             (about note, version, user agreement, license, attributions). The
             version stays beside it as the plain label it has always been. */}

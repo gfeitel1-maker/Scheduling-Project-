@@ -283,7 +283,19 @@ Backups go to `~/Library/Application Support/shoresh/backups/` on your Mac. Shor
 
 If you see **Backup saved — camp document not included**, the database was backed up but the camp document could not be copied. Click **Backup now** again; if the message keeps appearing, do not rely on that backup alone.
 
-There is no restore button in the app yet. Restoring needs support from us (T352 is open for it). Your best protection is a second computer joined to the camp — it keeps a full copy all the time.
+### Restoring from a backup
+
+1. At the bottom of the sidebar, click **Restore from backup…** (directors only).
+2. Choose a backup file from the `backups` folder. Pick the `.db` file; Shoresh finds the camp document saved beside it.
+3. Check the date in the confirmation, then click **Restore**. Shoresh first saves a copy of your current data, then restores.
+
+Restoring rebuilds *this computer* from the backup, then syncs. If other computers in the camp hold newer changes, those changes sync back to this computer. A restore does not roll back the other computers.
+
+Backups made before backups included the camp document cannot be restored. Shoresh will say so, because the restore would be undone at the next sync. If a restore says it did not finish, your previous data was put back and nothing changed; if it also says to restart Shoresh, do that before anything else, because a copy of your previous data is in the backups folder.
+
+Records you erased after the backup was made may reappear until the other computers sync.
+
+Your best protection is still a second computer joined to the camp — it keeps a full copy all the time.
 
 ---
 

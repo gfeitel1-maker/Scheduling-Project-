@@ -69,10 +69,11 @@ import { resolveConflictInDoc } from './automerge/reconcile.js'
 import { ensureDeviceIdentity } from './auth/deviceIdentity.js'
 import { mintGenesisEntry, mintGrantEntry, mintRevokeEntry } from './automerge/authorityLog.js'
 import { syncRefusalForDomainMigration } from './db/migrationDomainState.js'
-import { getDocIfLoaded, getCurrentDoc, setUserDataDirGetter as setAutomergeUserDataDirGetter, setDocCipher as setAutomergeDocCipher, flushPendingWrites as flushAutomergeDoc } from './sync/automerge/liveDoc.js'
+import { getDocIfLoaded, getCurrentDoc, setUserDataDirGetter as setAutomergeUserDataDirGetter, setDocCipher as setAutomergeDocCipher, flushPendingWrites as flushAutomergeDoc, discardLiveDoc } from './sync/automerge/liveDoc.js'
 import { projectEntity } from './automerge/projector.js'
 import { AUTHORITY_LOG_ENTITY, currentAuthorityState, quorumThreshold } from './automerge/authorityReplay.js'
 import * as Automerge from '@automerge/automerge'
+import { validateBackupPair, restoreFromBackup, RestoreRefusal } from './db/backupRestore.js'
 import { docPath as automergeDocPath } from './sync/automerge/docStore.js'
 import { acquireDocCipher, acquireDbKey, isAtRestEncryptionEnabled, latchEncryptionIfKeyPresent } from './db/atRestEncryption.js'
 import { unsharedWriteCount } from './ops/documentWriteFailures.js'
@@ -1661,9 +1662,10 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     if (dbPath && handlersUserDataPath) {
       try {
         try { flushAutomergeDoc() } catch (err) { console.error('backup: automerge flush failed (non-fatal):', err?.message ?? err) }
-        writeUserBackup(dbPath, handlersUserDataPath, readCampIdSafely(db), (err) => console.error('backup: camp document copy failed (non-fatal):', err?.message ?? err))
-      } catch {
-        /* snapshot failure is non-fatal */
+        writeUserBackup(dbPath, handlersUserDataPath, readCampIdSafely(db), (err) => console.error('backup: camp document copy failed (non-fatal):', err?.message ?? err), null, db)
+      } catch (err) {
+        // Non-fatal by design, but never silent: the replace proceeds without a safety snapshot.
+        console.error('backup: pre-bulk-replace snapshot failed (non-fatal, replace proceeds without one):', err?.message ?? err)
       }
     }
     return syncClient.writeBulkReplace({ entity, scope_id, rows, author_user_id: userId })
@@ -3559,7 +3561,7 @@ if (isElectronEntryPoint()) {
     try {
       try { flushAutomergeDoc() } catch (err) { console.error('backup: automerge flush failed (non-fatal):', err?.message ?? err) }
       let docBackupError
-      const backupPath = writeUserBackup(dbPath, userDataPath, readCampIdSafely(db), (err) => { docBackupError = err.message })
+      const backupPath = writeUserBackup(dbPath, userDataPath, readCampIdSafely(db), (err) => { docBackupError = err.message }, null, db)
       lastBackupPath = backupPath
       return docBackupError ? { backupPath, docBackupError } : { backupPath }
     } catch (err) {
@@ -3575,9 +3577,12 @@ if (isElectronEntryPoint()) {
     return { shown: true }
   })
 
-  // Show an open-file dialog, back up the current DB first, then copy the
-  // chosen file over the current DB path and reopen the connection.
-  ipcMain.handle('shoresh:restore-project', async () => {
+  // Restore is two steps so the director can confirm against the backup's date:
+  // pick (dialog + validation, remembers the path here; the renderer never
+  // supplies one), then restore consumes it.
+  let pickedRestorePath = null
+  ipcMain.handle('shoresh:pick-restore-backup', async () => {
+    pickedRestorePath = null
     const result = await dialog.showOpenDialog(mainWindow, {
       title: 'Restore Shoresh Project from Backup',
       filters: [{ name: 'Shoresh Database', extensions: ['db'] }],
@@ -3588,8 +3593,9 @@ if (isElectronEntryPoint()) {
 
     // Path traversal guard.
     if (!path.isAbsolute(sourcePath)) return { error: 'invalid_path' }
+    let stat
     try {
-      const stat = fs.statSync(sourcePath)
+      stat = fs.statSync(sourcePath)
       if (!stat.isFile()) return { error: 'invalid_path' }
     } catch {
       return { error: 'file_not_found' }
@@ -3613,85 +3619,58 @@ if (isElectronEntryPoint()) {
       return { error: 'invalid_file', message: 'The selected file could not be read as a Shoresh database.' }
     }
 
+    try {
+      validateBackupPair(sourcePath, { db, cipher: docCipher })
+    } catch (err) {
+      if (err instanceof RestoreRefusal) return { error: err.code, message: err.message }
+      throw err
+    }
+
+    pickedRestorePath = sourcePath
+    return { backupDate: stat.mtime.toISOString() }
+  })
+
+  // Back up the current DB, then copy the picked file over it and reopen.
+  ipcMain.handle('shoresh:restore-project', async () => {
+    const sourcePath = pickedRestorePath
+    pickedRestorePath = null
+    if (!sourcePath) return { error: 'no_backup_selected' }
+
     let releaseSwitch
     try { releaseSwitch = syncStarterHolder.acquireSwitch() } catch (err) { return { error: err.code, message: err.message } }
     try {
-      // Back up current DB before overwriting.
-      try {
-        try { flushAutomergeDoc() } catch (err) { console.error('backup: automerge flush failed (non-fatal):', err?.message ?? err) }
-        writeUserBackup(dbPath, userDataPath, readCampIdSafely(db), (err) => console.error('backup: camp document copy failed (non-fatal):', err?.message ?? err))
-      } catch {
-        /* non-fatal — proceed with restore */
-      }
-
-      // Copy source to a temp path first, then atomically rename to the target.
-      // This closes the corruption window where a mid-write failure (disk full,
-      // etc.) would leave the target partially written — rename(2) is atomic for
-      // same-volume moves on macOS/Linux/Windows (NTFS). The temp file is
-      // cleaned up in the finally block if anything goes wrong before the rename.
-      // Open the new file BEFORE closing the old connection — same open-before-
-      // close pattern as reinitialize(): if anything fails, the old db is still
-      // usable.
-      const tmpPath = `${dbPath}.tmp`
-      try {
-        fs.copyFileSync(sourcePath, tmpPath)
-        try {
-          fs.renameSync(tmpPath, dbPath)
-        } catch (renameErr) {
-          if (renameErr.code === 'EXDEV') {
-            // Cross-device move: tmp and target are on different filesystems.
-            // Fall back to copy+delete — not atomic, but the pre-restore backup
-            // above already guards against a mid-write failure here.
-            fs.copyFileSync(tmpPath, dbPath)
-            // Do not let a cleanup failure here propagate as a restore failure —
-            // dbPath already has the correct content at this point.
-            try { fs.unlinkSync(tmpPath) } catch { /* stale .tmp; harmless */ }
-          } else {
-            try { fs.unlinkSync(tmpPath) } catch { /* ignore */ }
-            throw renameErr
-          }
-        }
-      } catch (err) {
-        try { fs.unlinkSync(tmpPath) } catch { /* ignore — may not exist */ }
-        return { error: 'restore_failed', message: err.message }
-      }
-
-      let newDb
-      try {
+      return await restoreFromBackup({
+        sourcePath, dbPath, userDataPath, db, cipher: docCipher,
+        flushDoc: flushAutomergeDoc,
+        stopSync: () => syncStarterHolder.shutdown(),
+        startSync: () => { syncStarterHolder.start().catch(() => {}) },
+        discardDoc: discardLiveDoc,
         // Keyed when encryption is on: a restored plaintext backup is migrated to encrypted on open.
-        newDb = openLocalDb(dbPath, { key: dbKey })
-      } catch (err) {
-        return { error: 'restore_failed', message: err.message }
-      }
-
-      // T292 round 2 FIX 5 — same reasoning as reinitialize() above.
-      const oldDb = db
-      const oldDeviceId = deviceId
-      let swappedHandlers
-      try {
-        const newDeviceId = getOrCreateDeviceId(newDb)
-        swappedHandlers = await syncStarterHolder.swap({
+        openDb: () => openLocalDb(dbPath, { key: dbKey }),
+        installDb: async (newDb) => {
+          const oldDb = db
+          const oldDeviceId = deviceId
+          const newDeviceId = getOrCreateDeviceId(newDb)
+          const swappedHandlers = await syncStarterHolder.swap({
             held: true,
-          commit: () => { db = newDb; deviceId = newDeviceId },
-          revert: () => { db = oldDb; deviceId = oldDeviceId },
-          build: () => {
-            const restoreHandlers = makeHandlers(newDb, newDeviceId, {
-              getMainWindow: () => mainWindow,
-              dbPath,
-              userDataPath,
-              ...syncStarterHolder.handlerOptions(),
-            })
-            return restoreHandlers
-          },
-        })
-      } catch (err) {
-        try { newDb.close() } catch { /* already unusable */ }
-        return { error: 'restore_failed', message: err.message }
-      }
-      disposeCampDataRecordThenCloseDb(liveHandlers, oldDb)
-      registerHandlers(swappedHandlers, db)
-      if (mainWindow) mainWindow.webContents.reload()
-      return { restored: true }
+            commit: () => { db = newDb; deviceId = newDeviceId },
+            revert: () => { db = oldDb; deviceId = oldDeviceId },
+            build: () => {
+              const restoreHandlers = makeHandlers(newDb, newDeviceId, {
+                getMainWindow: () => mainWindow,
+                dbPath,
+                userDataPath,
+                ...syncStarterHolder.handlerOptions(),
+              })
+              return restoreHandlers
+            },
+          })
+          discardLiveDoc(oldDb)
+          disposeCampDataRecordThenCloseDb(liveHandlers, oldDb)
+          registerHandlers(swappedHandlers, db)
+          if (mainWindow) mainWindow.webContents.reload()
+        },
+      })
     } finally {
       releaseSwitch()
     }

@@ -564,6 +564,8 @@ reconnects), and a paired peer running modified code that ignores the denylist (
 partial-trust limit). Minting the tombstone requires the Host's signing key, so a purge run on a
 non-Host device is refused rather than silently erasing only itself.
 
+Restoring a backup made before a purge or delete puts those records back on the restoring device until it syncs with peers that hold the erasure; the restore confirmation says so.
+
 ### A camp token is a bearer credential (T155)
 
 `evaluateAuthenticate` binds a token to the `device_id` carried **inside** the token, **and** — as

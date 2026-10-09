@@ -140,6 +140,38 @@ describe('writeUserBackup', () => {
   })
 })
 
+describe('writeUserBackup — WAL and keepPath', () => {
+  it('a backup taken with the db handle contains rows still sitting in the WAL', () => {
+    const dbFile = path.join(tmpDir, 'wal.db')
+    const db = new Database(dbFile)
+    db.pragma('journal_mode = WAL')
+    db.pragma('wal_autocheckpoint = 0')
+    db.exec('CREATE TABLE t (v TEXT)')
+    db.prepare('INSERT INTO t VALUES (?)').run('newest')
+    expect(fs.statSync(`${dbFile}-wal`).size).toBeGreaterThan(0)
+    const backupPath = writeUserBackup(dbFile, tmpDir, undefined, undefined, null, db)
+    const alone = new Database(backupPath, { readonly: true })
+    expect(alone.prepare('SELECT v FROM t').all()).toEqual([{ v: 'newest' }])
+    alone.close()
+    db.close()
+  })
+
+  it('keepPath matches the kept backup even when spelled differently', () => {
+    const dbFile = path.join(tmpDir, 'shoresh.db')
+    fs.writeFileSync(dbFile, 'x')
+    const backupDir = path.join(tmpDir, 'backups')
+    fs.mkdirSync(backupDir)
+    for (let i = 0; i < 10; i++) {
+      const f = path.join(backupDir, `shoresh-2024-01-${String(i + 1).padStart(2, '0')}.db`)
+      fs.writeFileSync(f, `b${i}`)
+      fs.utimesSync(f, new Date(2024, 0, i + 1), new Date(2024, 0, i + 1))
+    }
+    const kept = path.join(backupDir, 'shoresh-2024-01-01.db')
+    writeUserBackup(dbFile, tmpDir, undefined, undefined, `${backupDir}/../backups/shoresh-2024-01-01.db`)
+    expect(fs.existsSync(kept)).toBe(true)
+  })
+})
+
 describe('writeUserBackup — camp document', () => {
   const mkDoc = (name, bytes) => {
     fs.mkdirSync(path.join(tmpDir, 'automerge'), { recursive: true })

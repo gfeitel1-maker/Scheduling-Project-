@@ -151,6 +151,16 @@ export function resetForTests() {
   deferStates = new WeakMap()
 }
 
+// A backup restore replaces the document file under this db. Anything still pending for it would
+// be saved from the OLD in-memory doc over the restored file, so drop both; the next reader reloads
+// from disk.
+export function discardLiveDoc(db) {
+  for (const [campId, entry] of pendingSaves) {
+    if (entry.db === db) pendingSaves.delete(campId)
+  }
+  docRegistry.delete(db)
+}
+
 function getCampId(db) {
   return db.prepare('SELECT id FROM camps LIMIT 1').get()?.id ?? null
 }

@@ -2,13 +2,13 @@
 ticket: T352
 document_type: ticket
 title: Doc-aware backup restore - restoring the SQLite backup alone is silently undone by the Automerge document
-status: open
+status: in-progress
 created: 2026-10-09
 archive_when: "doc-aware restore designed and built, or explicitly declined by the owner"
 task_class: database-sync
 parent: ""
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/current/WHERE_DATA_LIVES.md]
-related_prs: []
+related_prs: [808]
 related_tickets: []
 ---
 
@@ -40,7 +40,19 @@ The backup call sites in `electron/main.js` flush pending debounced document wri
   are not rotated.
 - The pre-restore document copy is unused until this ticket builds the doc-aware restore.
 
-## Open owner question
+## Ruling (keeper, owner delegation 2026-10-09)
+
+Restore rebuilds THIS device from the backup, then re-syncs; older data merges with peers' newer data (CRDT) and does not override what other devices hold.
+
+## Acceptance
+
+- Restore puts back the backup's `.db` and `<campId>.automerge` (bytes as-is, still encrypted); sync restarts on the restored document through the existing `syncStarterHolder` swap, and the projection follows from it.
+- Refused with plain copy, nothing changed on disk: a backup with no document copy, a backup of a different camp, a document that cannot be decrypted.
+- A document step failure leaves db and document untouched; a db step failure puts the document back.
+- The confirm states that this computer's copy is restored and that other devices' changes sync back.
+- Tests: `electron/db/backupRestore.test.js`, `src/components/layout/RestoreControl.test.jsx`.
+
+## Open owner question (resolved above)
 
 Relayed by the keeper: what does restore mean in a multi-device camp? CRDT merge means an old
 document merges with peers' newer state rather than winning. Candidate meaning: "rebuild this device
@@ -48,6 +60,4 @@ from the backup, then re-sync". Needs an owner ruling before any build.
 
 ## Remaining
 
-- Owner ruling on restore semantics.
-- Restore swaps db and document together (using the backup pair), then re-syncs.
-- Wire a Restore control only after the above.
+Nothing; built. Not covered: fleet-wide rollback, restoring another camp's backup, an atomic db+document snapshot.
