@@ -33,11 +33,6 @@ export default function FindingsRail({ rows, onDismiss, onLocate, onClose, intro
       ) : (
         rows.map(row => (
           <div key={row.key} style={S.findingsRailRow(SEVERITY_BAR_COLOR[row.severity])}>
-            <span style={{
-              width: 8, height: 8, borderRadius: '50%', marginTop: 3, flexShrink: 0,
-              background: row.severity === 'danger' ? SEVERITY_BAR_COLOR.danger : 'transparent',
-              border: row.severity === 'danger' ? 'none' : `1.5px solid ${SEVERITY_BAR_COLOR[row.severity]}`,
-            }} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13, color: 'var(--text)', cursor: onLocate && row.groupId != null ? 'pointer' : 'default' }}
                 onClick={() => row.groupId != null && onLocate?.(row)}

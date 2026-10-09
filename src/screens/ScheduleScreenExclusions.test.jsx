@@ -274,7 +274,7 @@ describe('generated route also surfaces week exclusions as a WEEK_CLOSED marker'
     // The generated grid is normally legend-free (kept calm), but once it
     // carries a WEEK_CLOSED mark the legend must appear to document it —
     // a mark on the grid is never left unexplained.
-    expect(container.textContent).toContain('Closed this week')
+    expect(container.textContent).toContain('Check this cell')
   })
 
   it('leaves the generated grid legend-free when nothing is closed (control)', async () => {
@@ -286,7 +286,7 @@ describe('generated route also surfaces week exclusions as a WEEK_CLOSED marker'
 
     await waitFor(() => expect(container.querySelector('[data-cell-key="g1|d1|b1"]')?.textContent).toContain('Archery'))
     expect(container.querySelector('.flag--week-closed')).toBeNull()
-    expect(container.textContent).not.toContain('Closed this week')
+    expect(container.textContent).not.toContain('Check this cell')
   })
 })
 

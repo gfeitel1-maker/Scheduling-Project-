@@ -249,8 +249,8 @@
 }
 
 /* Top-LEFT corner, clear of the top-right cluster (overlap/unfillable/outdoor):
-   WEEK_CLOSED can co-occur with OVERLAP on the manual route, so it must not
-   share a corner. Slate dot vs OVERLAP's bronze keeps them apart by hue too. */
+   WEEK_CLOSED can co-occur with OVERLAP, so it must not share a corner: the
+   two are the same bronze and are told apart by position and tooltip. */
 .flag--week-closed {
   top: 6px;
   left: 6px;
@@ -278,7 +278,7 @@
 
 /* T105 §5 — CONTENT_RACE: bottom-left corner, clear of the top clusters
    above (overlap/week-closed top-left, unfillable/outdoor top-right). A
-   dismissible notice, not a hard failure — same dot shape as OVERLAP/
+   dismissible notice, not a hard failure — same bronze dot as OVERLAP/
    WEEK_CLOSED but a distinct corner so all three can co-occur legibly. */
 .flag--content-race {
   bottom: 6px;
