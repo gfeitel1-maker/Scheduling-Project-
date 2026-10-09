@@ -16,6 +16,8 @@ implements: []
 
 # Relay-less cross-network reconnect — 3-rung no-middleman ladder (owner-directed)
 
+> **Amended 2026-10-09** by `docs/adr/2026-10-09-router-port-mapping-on-rung-1.md` (owner reversal: no STUN of any kind). Rung 1's public candidate now comes from the device's own router (UPnP-IGD / NAT-PMP port mapping of the pinned punch UDP port), not from STUN. Text below that says STUN is superseded; the 'no permanent public listening port, no port-forward' exposure line is amended by the accepted mapping.
+
 ## Status
 
 ACCEPTED. The 3-rung LADDER is the owner's intent and stands; the punch transport mechanism is now

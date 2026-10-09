@@ -33,6 +33,8 @@ amended: 2026-10-03
 
 # WAN discovery/transport ladder — DHT-first, Cloudflare last
 
+> **Amended 2026-10-09** by `docs/adr/2026-10-09-router-port-mapping-on-rung-1.md` (owner reversal: no STUN of any kind). Rung 1's public candidate now comes from the device's own router (UPnP-IGD / NAT-PMP port mapping of the pinned punch UDP port), not from STUN. Text below that says STUN is superseded; the 'no permanent public listening port, no port-forward' exposure line is amended by the accepted mapping.
+
 **Ticket:** T327. **Status: accepted (owner, 2026-10-02).**
 
 ## Acceptance (owner, 2026-10-02)
