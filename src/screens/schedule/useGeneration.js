@@ -1,6 +1,7 @@
 import buildSchedule, { computeFindings } from '../../engine/buildSchedule'
 import { describeWriteFailure } from '../../utils/writeErrorMessage'
 import { routeSetter } from './useRouteState'
+import { derivePreplacedSlots } from './preplacedSlots'
 import { resolveWeekCatalog } from '../../engine/weekCatalog'
 import { resolvePriorityForGeneration } from '../../ingest/resolvePriorityForGeneration'
 import { resolveFixedEventActivityIds } from '../../engine/fixedEventActivityLink'
@@ -115,26 +116,7 @@ export function useGeneration({
       locationExclusions: locationExclusions || [],
     })
 
-    const lockedActIds = new Set(effActivities.filter(a => a.is_locked).map(a => a.id))
-    const lockedPreplaced = slotsByRoute.generated
-      .filter(s => s.activity_id && lockedActIds.has(s.activity_id) && !s.is_released && !s.is_fixed_event)
-      .map(s => ({ groupId: s.group_id, dayId: s.day_id, blockId: s.time_block_id, activityId: s.activity_id }))
-    // T41 slice 1 (docs/work/specs/2026-08-20-group-electives-design.md): an
-    // authored elective cell is pre-placed/do-not-fill, exactly like a locked
-    // activity above — threaded into preplacedSlots via electiveSetId so
-    // buildSchedule's engine-skip exclusion picks it up. No author UI writes
-    // elective_set_id yet (that is slice 3), so this is a no-op today and
-    // becomes load-bearing once that slice lands.
-    const electivePreplaced = slotsByRoute.generated
-      .filter(s => s.elective_set_id)
-      .map(s => ({ groupId: s.group_id, dayId: s.day_id, blockId: s.time_block_id, electiveSetId: s.elective_set_id }))
-    // Events overlay placement Slice 1 (docs/adr/2026-08-22-events-overlay-
-    // placement.md §6): same posture as electivePreplaced above — an
-    // authored event cell is pre-placed/do-not-fill.
-    const eventPreplaced = slotsByRoute.generated
-      .filter(s => s.event_id)
-      .map(s => ({ groupId: s.group_id, dayId: s.day_id, blockId: s.time_block_id, eventId: s.event_id }))
-    const preplacedSlots = [...lockedPreplaced, ...electivePreplaced, ...eventPreplaced]
+    const preplacedSlots = derivePreplacedSlots(slotsByRoute.generated, effActivities)
 
     const result = buildSchedule({ groups: effGroups, tiers, days, timeBlocks, activities: resolvePriorityForGeneration(effActivities), fixedEvents: effFixedEvents, campId, preplacedSlots, locations, electiveSetActivities, events, weekId, replacedDayIds })
     setGenFindings(result.findings || [])

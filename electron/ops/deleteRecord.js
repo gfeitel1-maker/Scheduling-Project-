@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { appendOp, DELETE_FIELD, runAtomic } from './operations.js'
 import { nameFieldFor } from './restore.js'
 import { clearSlotOccupant } from './slotOccupants.js'
+import { toSnapshotSlot } from '../../src/utils/snapshotSlot.js'
 
 // Deleting a setup record that a schedule uses.
 // docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md
@@ -278,20 +279,9 @@ export function previewDelete(db, { entity, entity_id }) {
 function writeRouteSnapshot(db, { template_id, name, author_user_id, device_id }) {
   const id = randomUUID()
   const slots = db
-    .prepare(
-      `SELECT group_id, day_id, time_block_id, activity_id, fixed_event_id, is_fixed_event, flags
-         FROM template_slots WHERE template_id = ?`
-    )
+    .prepare('SELECT * FROM template_slots WHERE template_id = ?')
     .all(template_id)
-    .map((s) => ({
-      group_id: s.group_id,
-      day_id: s.day_id,
-      time_block_id: s.time_block_id,
-      activity_id: s.activity_id,
-      fixed_event_id: s.fixed_event_id,
-      is_fixed_event: s.is_fixed_event,
-      flags: s.flags ? JSON.parse(s.flags) : {},
-    }))
+    .map((s) => toSnapshotSlot({ ...s, flags: s.flags ? JSON.parse(s.flags) : {} }))
 
   const ops = []
   const push = (field, value) =>

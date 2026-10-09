@@ -384,7 +384,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const { saveSnapshot, deleteSnapshot, restoreSnapshot, renameSnapshot } = useSnapshots({
     routeState, repo, setActionError,
     recalcStats, resetUndoRedo,
-    groups, activities, days, timeBlocks, fixedEvents, weekId, replacedDayIds,
+    groups, activities, days, timeBlocks, fixedEvents, events: eventsAll, electiveSets: electiveSetsAll, weekId, replacedDayIds,
     activityExclusions, groupExclusions, locationExclusions,
   })
 
