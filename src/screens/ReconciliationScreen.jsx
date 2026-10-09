@@ -497,7 +497,6 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
             onNavigate={onNavigate}
             onClearSelection={clearSelection}
             locations={censusSnapshot.locations}
-            isFirstImport={isFirstImport}
           />
         </div>
       </div>
