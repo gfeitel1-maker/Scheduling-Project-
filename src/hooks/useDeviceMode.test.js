@@ -273,3 +273,31 @@ describe('useDeviceMode: campIsEmpty (stage-aware landing, ADR Decision 1)', () 
     expect(result.current.campIsEmpty).toBe(false)
   })
 })
+
+describe('useDeviceMode: host demotion', () => {
+  function seedHostDevice() {
+    localStorage.setItem(MODE_KEY, 'host')
+    localStorage.setItem(TOKEN_KEY, 'stored-token')
+    mockLocalClient.getCamp.mockResolvedValue({ id: 'camp-1', name: 'Camp Kinneret' })
+    mockLocalClient.verifySession.mockResolvedValue({ valid: true, role: 'director' })
+  }
+
+  it('does not persist the demotion: the global stored mode stays host', async () => {
+    seedHostDevice()
+    mockLocalClient.chooseMode.mockResolvedValue({ mode: 'client' })
+    const { result } = renderHook(() => useDeviceMode())
+    await waitFor(() => expect(result.current.phase).not.toBe('loading'))
+
+    expect(localStorage.getItem(MODE_KEY)).toBe('host')
+    expect(result.current.mode).toBe('client')
+  })
+
+  it('hands the verified token to chooseMode on the host branch so a demotion can authenticate', async () => {
+    seedHostDevice()
+    mockLocalClient.chooseMode.mockResolvedValue({ mode: 'host' })
+    const { result } = renderHook(() => useDeviceMode())
+    await waitFor(() => expect(result.current.phase).not.toBe('loading'))
+
+    expect(mockLocalClient.chooseMode).toHaveBeenCalledWith(expect.objectContaining({ mode: 'host', token: 'stored-token' }))
+  })
+})

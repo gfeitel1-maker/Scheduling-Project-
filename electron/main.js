@@ -961,7 +961,11 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     let effectiveMode = requestedMode
     if (requestedMode === 'host') {
       const camp = db.prepare('SELECT signing_public_key FROM camps LIMIT 1').get()
-      if (camp?.signing_public_key && !isHostDevice(db)) effectiveMode = 'client'
+      if (camp?.signing_public_key && !isHostDevice(db)) {
+        effectiveMode = 'client'
+        const hasKeyRow = !!db.prepare('SELECT 1 FROM host_signing_key LIMIT 1').get()
+        console.warn(`[chooseMode] stored mode is host but this device runs as client: ${hasKeyRow ? 'host signing key does not match the camp public key' : 'no host signing key on this device'}`)
+      }
     }
 
     if (effectiveMode === 'host') {
