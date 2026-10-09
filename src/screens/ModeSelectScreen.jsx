@@ -16,8 +16,8 @@ export default function ModeSelectScreen({ onChooseHost, onChooseJoin }) {
         <div style={S.authEyebrow}>First launch on this computer</div>
         <div style={S.authTitle}>How is this device being used?</div>
         <div style={S.authSubtitle}>
-          Shoresh needs one computer to hold the master schedule. Choose how this one participates —
-          you can't change this later without reinstalling.
+          Every device running Shoresh holds an equal copy of the camp, so the camp survives any
+          one computer or person leaving. Choose how this device gets its copy.
         </div>
 
         <button
@@ -28,11 +28,10 @@ export default function ModeSelectScreen({ onChooseHost, onChooseJoin }) {
         >
           <div style={S.authChoiceIcon}><StarIcon /></div>
           <div style={{ flex: 1 }}>
-            <div style={S.authChoiceTitle}>Host this camp's schedule</div>
+            <div style={S.authChoiceTitle}>Start a new camp</div>
             <div style={S.authChoiceDesc}>
-              This computer starts the camp. Other staff devices on your network join it, and every
-              device keeps its own full copy. Choose this on the camp office computer, or the one
-              that stays on.
+              Set up a brand-new camp on this device. Add other devices to it afterwards with a
+              camp code.
             </div>
           </div>
           <div style={S.authChoiceChevron}><ChevronIcon size={14} style={{ transform: 'rotate(-90deg)' }} /></div>
@@ -46,10 +45,10 @@ export default function ModeSelectScreen({ onChooseHost, onChooseJoin }) {
         >
           <div style={S.authChoiceIcon}><SyncIcon /></div>
           <div style={{ flex: 1 }}>
-            <div style={S.authChoiceTitle}>Join a camp already set up</div>
+            <div style={S.authChoiceTitle}>Join a camp with a camp code</div>
             <div style={S.authChoiceDesc}>
-              Connect to a Shoresh Host already running on your network — for staff laptops,
-              counselor stations, or anything besides the main office computer.
+              Enter the camp code from a device that already has the camp, and this device gets its
+              own full copy.
             </div>
           </div>
           <div style={S.authChoiceChevron}><ChevronIcon size={14} style={{ transform: 'rotate(-90deg)' }} /></div>
