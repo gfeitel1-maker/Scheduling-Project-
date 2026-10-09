@@ -108,6 +108,19 @@ cite the path it reported.
 point, not that it verified *this* work; with `commit` supplied, a file produced against a
 different tree — or against a dirty one — is refused rather than accepted.
 
+**If the gate ran in CI instead** (CI is the gate of record; a full local verify is not expected),
+bind the run with a `ciRun` field alongside `commit`:
+
+```json
+{ "commit": "<head sha>", "ciRun": { "id": <run id>, "headSha": "<run head sha>", "status": "completed", "conclusion": "success" } }
+```
+
+`verifier_pass` is true when a local `gateResults` file passes **or** that CI run has a run id, its
+`headSha` equals `commit` exactly, `status` is `completed` and `conclusion` is `success`. Any other
+run (other SHA, queued/in_progress, failure/cancelled, no id) does not count. The run is recorded
+in the GateReport as `verifier_ci_run`. Copy the fields from `gh run view <id> --json
+databaseId,headSha,status,conclusion`; never type them from memory.
+
 **If the Verifier's report names no such path** (it ran UNVERIFIED, or could not run the gate),
 `gateResults` has nothing to point at. In that case, and only that case, write the `verifier`
 `PerGateReport` by hand instead: `verdict: "UNVERIFIED"`, and `evidence_ref` set to a short pointer
