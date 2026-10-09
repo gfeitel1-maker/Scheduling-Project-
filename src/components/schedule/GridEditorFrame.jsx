@@ -12,7 +12,7 @@ import { timeRangeLabel } from '../../utils/timeBlockLabel'
 import './scheduleGrid.css'
 
 export default function GridEditorFrame({
-  enterStyle, onBack, backLabel, title, banners,
+  enterStyle, onBack, backLabel, title, meta, banners,
   toolbarActions, groups, timeBlocks, filledCount, totalCells,
   empty, renderColumnHeader, renderCell,
   onMoveBlock, onRenameBlock, onRemoveBlock,
@@ -27,6 +27,8 @@ export default function GridEditorFrame({
         <button className="press-97" onClick={onBack} style={S.backBar}>{backLabel}</button>
         {title}
       </div>
+
+      {meta}
 
       {banners}
 

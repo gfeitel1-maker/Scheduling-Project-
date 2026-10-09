@@ -66,8 +66,9 @@ Amended 2026-10-09 after Red Hat's accuracy review; see the ADR's revision note 
    link; empty-lane state for a special day with no blocks; unresolved-conflict marker. Visual evidence
    required (distinguishing frame, both routes).
 5. **Binding UI.** Week + weekday picker on the special day editor, list of its placements with unbind,
-   occupied-slot replace prompt that names its undo (ADR D11), per-week indicator of replaced days. Every
-   write failure surfaced.
+   occupied-slot replace prompt that names its undo (ADR D11). Which days of a week are replaced is shown
+   by slice 4's surfaces (slate header name, replaced lane, day-pill name) and by the picker's Taken
+   cells; no separate per-week indicator. Every write failure surfaced.
 6. **Exports.** `exportToExcel` (exportSchedule.js) and `buildScheduleExport` (exportScheduleJson.js) and the MCP `exportScheduleTool` print
    the special day grid and notes, with round-trip tests; `buildCampDataWorkbook` gains a read-only
    "Placed on" column. `exportWorkbook` is deliberately unchanged (ADR D7).

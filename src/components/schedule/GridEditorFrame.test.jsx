@@ -38,6 +38,19 @@ describe('GridEditorFrame', () => {
     expect(h.onBack).toHaveBeenCalled()
   })
 
+  it('renders meta between the back row and the banners, and nothing when omitted', () => {
+    renderFrame({ meta: <div data-testid="meta">Placed on</div>, banners: <div data-testid="banner">b</div> })
+    const meta = screen.getByTestId('meta')
+    expect(screen.getByText('Color War').compareDocumentPosition(meta) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(meta.compareDocumentPosition(screen.getByTestId('banner')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('without meta the frame is unchanged (EventGridEditor)', () => {
+    renderFrame()
+    expect(screen.queryByTestId('meta')).toBeNull()
+    expect(screen.queryByText('Placed on')).toBeNull()
+  })
+
   it('shows the empty node instead of the grid when given one', () => {
     renderFrame({ empty: <div>Nothing here</div> })
     expect(screen.getByText('Nothing here')).toBeTruthy()

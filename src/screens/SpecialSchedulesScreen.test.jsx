@@ -65,6 +65,38 @@ describe('SpecialSchedulesScreen — empty state', () => {
   })
 })
 
+describe('SpecialSchedulesScreen — T350 slice 5 placed sublabel', () => {
+  it('shows nothing, one placed day, or a count — the Events row form', async () => {
+    localClient.list.mockImplementation(byEntity({
+      ...BASE,
+      special_days: [
+        { id: 'a', camp_id: CAMP_ID, name: 'Alpha' },
+        { id: 'b', camp_id: CAMP_ID, name: 'Bravo' },
+        { id: 'c', camp_id: CAMP_ID, name: 'Charlie' },
+      ],
+      schedule_weeks: [
+        { id: 'w1', camp_id: CAMP_ID, name: 'Week 1', sort_order: 0 },
+        { id: 'w2', camp_id: CAMP_ID, name: 'Week 2', sort_order: 1 },
+      ],
+      days_of_operation: [
+        { id: 'mon', camp_id: CAMP_ID, label: 'Monday', sort_order: 0 },
+        { id: 'tue', camp_id: CAMP_ID, label: 'Tuesday', sort_order: 1 },
+      ],
+      special_day_placements: [
+        { id: 'p1', week_id: 'w2', day_id: 'tue', special_day_id: 'b' },
+        { id: 'p2', week_id: 'w1', day_id: 'mon', special_day_id: 'c' },
+        { id: 'p3', week_id: 'w1', day_id: 'tue', special_day_id: 'c' },
+        { id: 'p4', week_id: 'w2', day_id: 'mon', special_day_id: 'c' },
+        { id: 'p5', week_id: 'gone', day_id: 'mon', special_day_id: 'a' },
+      ],
+    }))
+    render(<SpecialSchedulesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Placed Week 2 Tue')).toBeTruthy())
+    expect(screen.getByText('Placed 3 days')).toBeTruthy()
+    expect(screen.queryAllByText(/^Placed/)).toHaveLength(2)
+  })
+})
+
 describe('SpecialSchedulesScreen — list, grouped', () => {
   it('lists special days and events in two sub-groups, sorted by name, with no badge/urgency marker', async () => {
     localClient.list.mockImplementation(byEntity({
