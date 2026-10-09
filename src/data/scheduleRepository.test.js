@@ -174,7 +174,7 @@ describe('the single slot->row mapper — one mapper, three call-site shapes', (
     expect(rows[0]).toEqual({
       id: 'uuid-1', template_id: 'tid',
       group_id: 'g1', day_id: 'd1', time_block_id: 'b1',
-      activity_id: 'act-1', fixed_event_id: null,
+      activity_id: 'act-1', fixed_event_id: null, elective_set_id: null, event_id: null,
       is_fixed_event: '0', is_span_head: '1',
       flags: JSON.stringify({ UNFILLABLE: true }),
     })
@@ -183,7 +183,7 @@ describe('the single slot->row mapper — one mapper, three call-site shapes', (
     expect(rows[1]).toEqual({
       id: 'uuid-2', template_id: 'tid',
       group_id: 'g1', day_id: 'd2', time_block_id: 'b2',
-      activity_id: null, fixed_event_id: 'anc-1',
+      activity_id: null, fixed_event_id: 'anc-1', elective_set_id: null, event_id: null,
       is_fixed_event: '1', is_span_head: '0',
       flags: JSON.stringify({}),
     })
@@ -212,7 +212,7 @@ describe('the single slot->row mapper — one mapper, three call-site shapes', (
     expect(client.calls.bulkReplace[0][3][0].is_span_head).toBe('1')
   })
 
-  it('restoreSnapshotRows: maps snapshot slots WITHOUT is_span_head (column default preserved)', async () => {
+  it('restoreSnapshotRows: a legacy snapshot slot WITHOUT is_span_head leaves the column NULL', async () => {
     const client = makeFakeClient()
     const repo = createScheduleRepository({ localClient: client, getToken })
     const snapSlot = { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-r', fixed_event_id: null, is_fixed_event: false, flags: {} }
@@ -224,12 +224,12 @@ describe('the single slot->row mapper — one mapper, three call-site shapes', (
 
     const slotRows = client.calls.bulkReplace[0][3]
     // The span-head field must be ABSENT so the DB column keeps its default —
-    // this is the byte-for-byte drift guard (generate emits it, restore omits it).
+    // a pre-fix snapshot never recorded it, and NULL means "never written".
     expect(slotRows[0]).not.toHaveProperty('is_span_head')
     expect(slotRows[0]).toEqual({
       id: 'uuid-1', template_id: 'tid',
       group_id: 'g1', day_id: 'd1', time_block_id: 'b1',
-      activity_id: 'act-r', fixed_event_id: null,
+      activity_id: 'act-r', fixed_event_id: null, elective_set_id: null, event_id: null,
       is_fixed_event: '0', flags: JSON.stringify({}),
     })
     // is_fixed_event derived from the truthy snapshot value.

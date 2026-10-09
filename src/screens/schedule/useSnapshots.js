@@ -2,6 +2,7 @@ import { describeWriteFailure } from '../../utils/writeErrorMessage'
 import { computeFindings } from '../../engine/buildSchedule'
 import { parseSnapshotPayload, unrestorableMessage } from '../snapshotRestore'
 import { routeSetter } from './useRouteState'
+import { toSnapshotSlot } from '../../utils/snapshotSlot'
 
 // Snapshots / versions CRUD + restore, over the T28 repository.
 //
@@ -16,18 +17,24 @@ import { routeSetter } from './useRouteState'
 // rows (snake_case) whose group, day, time block, fixed event or activity no
 // longer exists, so they are never written back dangling. Also guards
 // generate()'s carry-forward of replaced-day rows (T350, ADR D4.6).
-export function dropDeadReferences(slots, { groups, days, timeBlocks, activities, fixedEvents }) {
+export function dropDeadReferences(slots, { groups, days, timeBlocks, activities, fixedEvents, events, electiveSets }) {
   const groupIds = new Set(groups.map(g => g.id))
   const dayIds = new Set(days.map(d => d.id))
   const timeBlockIds = new Set((timeBlocks || []).map(b => b.id))
   const activityIds = new Set(activities.map(a => a.id))
   const fixedEventIds = new Set((fixedEvents || []).map(a => a.id))
+  // events / electiveSets are checked only when the caller supplies them
+  // (restore does; carry-forward does not need to).
+  const eventIds = events ? new Set(events.map(e => e.id)) : null
+  const electiveSetIds = electiveSets ? new Set(electiveSets.map(e => e.id)) : null
   return slots.filter(s =>
     groupIds.has(s.group_id) &&
     dayIds.has(s.day_id) &&
     timeBlockIds.has(s.time_block_id) &&
     !(s.is_fixed_event && s.fixed_event_id && !fixedEventIds.has(s.fixed_event_id)) &&
-    !(!s.is_fixed_event && s.activity_id && !activityIds.has(s.activity_id))
+    !(!s.is_fixed_event && s.activity_id && !activityIds.has(s.activity_id)) &&
+    !(eventIds && s.event_id && !eventIds.has(s.event_id)) &&
+    !(electiveSetIds && s.elective_set_id && !electiveSetIds.has(s.elective_set_id))
   )
 }
 
@@ -42,6 +49,8 @@ export function useSnapshots({
   days,
   timeBlocks,
   fixedEvents,
+  events,
+  electiveSets,
   weekId,
   replacedDayIds,
   activityExclusions,
@@ -68,15 +77,7 @@ export function useSnapshots({
     if (!existingTemplates[routeName]) return
     const tid = templateIdFor(routeName)
     const setRouteSnapshots = routeSetter(setSnapshotsByRoute, routeName)
-    const snapSlots = slotsByRoute[routeName].map(s => ({
-      group_id: s.group_id,
-      day_id: s.day_id,
-      time_block_id: s.time_block_id,
-      activity_id: s.activity_id,
-      fixed_event_id: s.fixed_event_id,
-      is_fixed_event: s.is_fixed_event,
-      flags: s.flags || {},
-    }))
+    const snapSlots = slotsByRoute[routeName].map(toSnapshotSlot)
     const id = crypto.randomUUID()
     const createdAt = new Date().toISOString()
     setActionError(null)
@@ -159,7 +160,7 @@ export function useSnapshots({
     // producing a silently-broken/blank grid. Product decision: keep the
     // versions, but skip any dead cell non-destructively and tell the
     // director how many were skipped.
-    const survivingSlots = dropDeadReferences(fullSnap.slots, { groups, days, timeBlocks, activities, fixedEvents })
+    const survivingSlots = dropDeadReferences(fullSnap.slots, { groups, days, timeBlocks, activities, fixedEvents, events, electiveSets })
     const droppedCount = fullSnap.slots.length - survivingSlots.length
 
     setActionError(null)

@@ -745,18 +745,14 @@ describe('bulkReplace call sites are covered by BULK_REPLACE_ROW_SOURCES', () =>
 // BULK_REPLACE_ENTITIES) must not drift apart. The true relationship,
 // verified by reading both registries: BULK_REPLACE_ENTITIES[entity].columns
 // minus 'id' is a SUBSET of PROJECTIONS[entity].fields, not an equal set —
-// PROJECTIONS is allowed extra field-level-only columns (e.g.
-// template_slots.is_released, written only via writeFields, never via
-// bulkReplace). That asymmetry is real and is captured explicitly below
-// rather than by loosening the assertion to "sets may differ arbitrarily".
+// PROJECTIONS is allowed extra field-level-only columns, each listed
+// explicitly below rather than by loosening the assertion to "sets may differ
+// arbitrarily".
 // ---------------------------------------------------------------------------
-const PROJECTIONS_ONLY_FIELDS = {
-  // is_released is written via writeSlotFields()/writeFields('template_slots',
-  // ...) only — never appears in a bulkReplace row (mapSlotToRow does not set
-  // it) — so it is legitimately in PROJECTIONS.template_slots.fields but
-  // absent from BULK_REPLACE_ENTITIES.template_slots.columns.
-  template_slots: ['is_released'],
-}
+// template_slots.is_released used to sit here. It was not a legitimate
+// asymmetry: leaving it out of bulk_replace made every version restore and
+// duplicateWeek drop released state (src/data/slotColumnParity.test.js).
+const PROJECTIONS_ONLY_FIELDS = {}
 
 describe('PROJECTIONS and BULK_REPLACE_ENTITIES stay in sync', () => {
   let db

@@ -377,6 +377,9 @@ export const BULK_REPLACE_ENTITIES = {
       // includes an event_id value is rejected by validateBulkReplaceRows
       // before it reaches the DB.
       'event_id',
+      // Without it every version restore and duplicateWeek silently re-locked
+      // released cells (src/data/slotColumnParity.test.js).
+      'is_released',
     ],
     requiredColumns: ['id', 'template_id'],
   },
