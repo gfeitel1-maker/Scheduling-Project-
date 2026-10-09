@@ -1830,6 +1830,41 @@ CREATE TABLE IF NOT EXISTS peer_last_addresses (
   PRIMARY KEY (peer_id, multiaddr)
 );
 
+-- punch_identity / peer_punch_memory (v93, T348 - docs/adr/2026-10-08-relayless-cross-network-reconnect.md,
+-- Rung 1). Device-local, NEVER-SYNCED, same exclusion class as device_identity_key/
+-- peer_last_addresses: never in PROJECTIONS, campScopedEntities.js or MODELED_ENTITIES. `punch_identity`
+-- is this device's stable punch identity (self-signed DTLS cert + PKCS8 key, ICE ufrag/pwd, a pinned UDP
+-- port, and the own server-reflexive candidates last learned). The private key lives here, in the
+-- SQLCipher-covered database, exactly like device_identity_key - it is never a standing plaintext file.
+-- `peer_punch_memory` is what a punched session leaves behind for a zero-signaling redial: one row per
+-- peer holding OUR role, the peer's last SDP (its fingerprint/ufrag/pwd are mirrored into columns) and
+-- its candidates. It extends the peer_last_addresses mechanism: peerAddressBook.js writes it, forgets it
+-- with forgetPeerAddress, and only lists it for a trusted peer.
+CREATE TABLE IF NOT EXISTS punch_identity (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  cert_pem TEXT NOT NULL,
+  key_pem TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  ice_ufrag TEXT NOT NULL,
+  ice_pwd TEXT NOT NULL,
+  local_port INTEGER NOT NULL,
+  reflexive_candidates TEXT NOT NULL DEFAULT '[]',
+  reflexive_learned_at TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS peer_punch_memory (
+  peer_id TEXT PRIMARY KEY,
+  role TEXT NOT NULL CHECK (role IN ('offerer', 'answerer')),
+  remote_sdp_type TEXT NOT NULL CHECK (remote_sdp_type IN ('offer', 'answer')),
+  remote_sdp TEXT NOT NULL,
+  remote_fingerprint TEXT NOT NULL,
+  remote_ufrag TEXT NOT NULL,
+  remote_pwd TEXT NOT NULL,
+  candidates TEXT NOT NULL,
+  last_seen_at TEXT NOT NULL
+);
+
 -- applied_authority_log / authority_cache (v90, T331 — docs/adr/2026-10-02-distributed-
 -- revocation-authority.md). Device-local, NEVER-SYNCED mirror of the genesis-registered
 -- `camp_authority_log` Automerge collection, same exclusion class as device_identity_key/

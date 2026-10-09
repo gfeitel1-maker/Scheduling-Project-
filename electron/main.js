@@ -64,7 +64,7 @@ import { createCampDataRecordWriter } from './campDataRecord.js'
 import { isAutomergeEngine } from './sync/automerge/syncEngineFlag.js'
 import { createAutomergeSyncStarter } from './sync/automerge/syncStarter.js'
 import { createSyncStarterHolder } from './sync/automerge/syncStarterHolder.js'
-import { forgetPeerAddress } from './sync/automerge/peerAddressBook.js'
+import { forgetRevokedPeer } from './sync/automerge/punchIdentity.js'
 import { resolveConflictInDoc } from './automerge/reconcile.js'
 import { ensureDeviceIdentity } from './auth/deviceIdentity.js'
 import { mintGenesisEntry, mintGrantEntry, mintRevokeEntry } from './automerge/authorityLog.js'
@@ -1583,7 +1583,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     // revocation itself.
     try {
       const peerId = db.prepare('SELECT libp2p_peer_id FROM devices WHERE id = ?').get(targetDeviceId)?.libp2p_peer_id
-      if (peerId) forgetPeerAddress(db, peerId)
+      if (peerId) forgetRevokedPeer(db, peerId)
     } catch (err) {
       console.error(`revokeDevice: failed to forget remembered address for ${targetDeviceId}: ${err?.message ?? err}`)
     }

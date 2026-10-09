@@ -242,6 +242,9 @@ const ACCEPTED_NON_REFERENCES = [
   // same identifier devices.libp2p_peer_id already carries (a routing convenience, never a trust
   // signal), looked up by equality, never undo-deleted as a side effect of deleting anything.
   { table: 'peer_last_addresses', column: 'peer_id', reason: 'a plain libp2p peer-id string (mirrors devices.libp2p_peer_id), not a FK to a U2-deletable entity — written only from an authenticated connection' },
+  // peer_punch_memory (T348, Rung 1): peer_id is the same plain libp2p peer-id string as
+  // peer_last_addresses above, written only for an authenticated peer, never undo-deleted.
+  { table: 'peer_punch_memory', column: 'peer_id', reason: 'a plain libp2p peer-id string (mirrors devices.libp2p_peer_id), not a FK to a U2-deletable entity — written only for an authenticated peer' },
   // applied_authority_log / authority_cache (T331, docs/adr/2026-10-02-distributed-revocation-
   // authority.md): device-local caches derived by replaying the camp_authority_log Automerge
   // collection (electron/automerge/authorityReplay.js). Neither column is a FK to a U2-deletable

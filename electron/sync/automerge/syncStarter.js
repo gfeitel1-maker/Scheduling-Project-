@@ -82,6 +82,8 @@ export function createAutomergeSyncStarter({
   // T347 (S1): set only when the punch transport was actually wired, so quit can tear down its
   // native state and an unwired build never loads the module.
   let punchModule = null
+  let punchIdentityHandle = null
+  let punchPersistence = null
   // Declared here (ahead of automergeSyncNode's own definition further down)
   // so makeHandlers' chooseMode/login closures can reach whatever node is
   // running by the time THEY run, without makeHandlers needing to know
@@ -433,7 +435,18 @@ export function createAutomergeSyncStarter({
       const punchEnabled = process.env.SHORESH_PUNCH_ENABLED === 'true'
       if (punchRuntimeEligible({ punchEnabled, nativeLoadable: punchEnabled && punchSignaling != null && punchNativeLoadable() })) {
         punchModule = await import('./punchTransport.js')
-        punchTransportFactory = punchModule.punchTransport({ signaling: punchSignaling })
+        const { materializePunchIdentity, createPunchPersistence } = await import('./punchIdentity.js')
+        punchIdentityHandle?.cleanup()
+        punchIdentityHandle = materializePunchIdentity(db)
+        punchPersistence = createPunchPersistence(db)
+        punchTransportFactory = punchModule.punchTransport({
+          signaling: punchSignaling,
+          certificatePemFile: punchIdentityHandle.certificatePemFile,
+          keyPemFile: punchIdentityHandle.keyPemFile,
+          ice: punchIdentityHandle.ice,
+          portRange: punchIdentityHandle.portRange,
+          onEstablished: punchPersistence.onEstablished,
+        })
         listenAddrs.push('/ip4/0.0.0.0/udp/0')
       }
 
@@ -446,6 +459,7 @@ export function createAutomergeSyncStarter({
         directUpgradeServiceFactory,
         relayTransportFactory,
         punchTransportFactory,
+        onPunchPeerAdmitted: punchPersistence?.onPeerAdmitted,
         // Stage 5f, found on a real two-machine run: transport.js's DEFAULT_LISTEN is
         // '/ip4/127.0.0.1/tcp/0' — LOOPBACK ONLY. That default is correct for the in-process tests
         // it was written for (Stage 4 dialed over loopback deliberately), but it means a production
@@ -632,7 +646,11 @@ export function createAutomergeSyncStarter({
   return {
     start,
     getNode: () => automergeSyncNode,
-    shutdownPunch: async () => { await punchModule?.shutdownPunchNative() },
+    shutdownPunch: async () => {
+      await punchModule?.shutdownPunchNative()
+      punchIdentityHandle?.cleanup()
+      punchIdentityHandle = null
+    },
     releaseBroadcaster: () => setAutomergeLocalWriteBroadcaster(db, null),
     getStartupAttempted: () => automergeStartupAttempted,
     getRelayReservationRefused: () => relayReservationRefused,

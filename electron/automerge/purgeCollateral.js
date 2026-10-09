@@ -122,6 +122,12 @@ export const PURGE_INFRASTRUCTURE_TABLES = [
   // purge that drops it only means the next startup falls through to discovery (mDNS/rendezvous)
   // sooner — the pre-Slice-1 behavior.
   'peer_last_addresses',
+  // punch_identity / peer_punch_memory (T348, Rung 1): device-local punch identity and the per-peer
+  // remembered session. Same bucket as peer_last_addresses: nothing replicates or preserves them, and
+  // a purge only costs the next reconnect its zero-signaling shortcut (a fresh identity is minted and
+  // peers re-learn it on the next punched session).
+  'punch_identity',
+  'peer_punch_memory',
 ]
 
 // The complete accounting: every non-modeled table falls into exactly one bucket. The test asserts
