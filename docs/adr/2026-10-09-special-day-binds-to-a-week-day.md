@@ -70,7 +70,7 @@ questions and B answers them structurally rather than with a tie-break.
 
 ### D1 - Shape: `special_day_placements`
 
-New table (schema **v91**, additive `CREATE TABLE IF NOT EXISTS`, no ALTER of any existing table):
+New table (schema **vN** — the next free version at implementation time; see D3, additive `CREATE TABLE IF NOT EXISTS`, no ALTER of any existing table):
 
 | column | notes |
 |---|---|
@@ -94,18 +94,18 @@ existing projector. It is **not** SQLite-only and not host-local. Hard-FK parent
 `ensureExists` following the "reconstruct then insert once all fields are known" pattern used by
 `ensureWeekJoinRow` (electron/ops/projections.js).
 
-### D3 - Migration (v91, guard form, schema:check family)
+### D3 - Migration (vN, guard form, schema:check family)
 
-- `localDb.js`: `CURRENT_SCHEMA_VERSION` 90 -> 91; block guarded **`getSchemaVersion(db) >= 90 && < 91`**,
-  never a bare `< 91` (standing guard-form gotcha). Executes the same DDL text as schema.sql via a
+- `localDb.js`: `CURRENT_SCHEMA_VERSION` (N-1) -> N; block guarded **`getSchemaVersion(db) >= N-1 && < N`**,
+  never a bare `< N` (standing guard-form gotcha). Executes the same DDL text as schema.sql via a
   `SPECIAL_DAY_PLACEMENTS_DDL` constant; schema.sql and the constant are asserted byte-identical by a
   `specialDayPlacements.migration.test.js` (precedent: specialDays.migration.test.js).
-- `electron/db/rollback/v91_down.js` (+ test): `DROP TABLE special_day_placements`. Lossless for every
+- `electron/db/rollback/vN_down.js` (+ test): `DROP TABLE special_day_placements`. Lossless for every
   other table; loses only bindings, which is stated in the file header. Descending-order guard applies.
 - Any change under electron/db/** requires `npm run schema:check` before push. Also bump the doc-fact
   markers (schema version, entity count 36 -> 37 in WHERE_DATA_LIVES) in the same PR.
 - A freshly-created column order question does not arise (new table, free order, fixed in the DDL).
-- **Version collision risk:** another in-flight ticket may claim v91. Re-check `origin/main`'s
+- **Version collision risk:** v91 is already claimed twice (#772 / T311 pending-tables drop; #762 / T348). N is chosen only when slice 1 starts, after #772 lands (expected v92), re-checked against #762 and every local worktree. Re-check `origin/main`'s
   `CURRENT_SCHEMA_VERSION` and open PRs at Slice 1 start; renumber the guard if it moved.
 
 ### D4 - Engine interaction: one choke point, `resolveWeekCatalog`
@@ -206,7 +206,7 @@ children-before-parents rule.
   projector, permissions, mock client, undoReferences, restore, cascades, recordLabels) and the schema:check
   family. A replaced day changes goal arithmetic (D4.3). Group view must display a column whose rows are a
   different time-block structure than its neighbours, which is the one genuinely hard UI problem.
-- **Reversibility.** Additive table, lossless rollback of everything else (v91_down). The semantic choice
+- **Reversibility.** Additive table, lossless rollback of everything else (vN_down). The semantic choice
   (week, day) over calendar dates is the part that is expensive to reverse; see confidence.
 - **Not a canonical-schedule decision.** The binding names no route. Nothing here picks a schedule.
 

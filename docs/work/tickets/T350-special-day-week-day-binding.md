@@ -32,9 +32,9 @@ designation of a canonical route; changing buildSchedule itself.
 
 ## Slices (one PR each, in order; each leaves main green)
 
-1. **Schema + registration (schema first).** Pick the schema version at start (expected v91; re-check main).
+1. **Schema + registration (schema first).** Pick the schema version at start (NOT v91 — claimed by #772/T311 and #762/T348; take the next free number after #772 merges, likely v92, re-check #762, run `npm run schema:check` on rebase).
    `special_day_placements` DDL in electron/db/schema.sql + `SPECIAL_DAY_PLACEMENTS_DDL` constant + migration
-   (guard `>= 90 && < 91`) + `v91_down.js` + `deriveSpecialDayPlacementId` (opaque/join convention) +
+   (guard `>= N-1 && < N`) + `vN_down.js` + `deriveSpecialDayPlacementId` (opaque/join convention) +
    registration in projections.js, campScopedEntities.js (parent schedule_weeks/week_id), campDocument.js,
    projector.js, permissions.js, localClient.mock.js, recordLabels. Test first: byte-identical DDL,
    migration + rollback, PROJECTIONS-vs-MODELED_ENTITIES parity, and the **two-document concurrent-create
