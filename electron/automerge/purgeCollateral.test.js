@@ -68,10 +68,10 @@ describe('purge collateral accounting is the single source of truth for the wipe
     for (const t of ALL_NON_MODELED_TABLES) expect(MODELED_ENTITIES.has(t)).toBe(false)
   })
 
-  it('the preserved set is exactly the two device-identity key tables (5b)', () => {
+  it('the preserved set is the two device-identity key tables (5b) plus the in-flight host handoff', () => {
     // camps.signing_public_key is a COLUMN on the modeled `camps` table, not its own table, so it is
     // correctly absent from this table-level partition even though 5b preserves it.
-    expect([...PURGE_PRESERVED_TABLES].sort()).toEqual(['device_identity_key', 'host_signing_key'])
+    expect([...PURGE_PRESERVED_TABLES].sort()).toEqual(['device_identity_key', 'host_handoff', 'host_signing_key', 'host_signing_key_pending'])
   })
 
   it('schedule_snapshots is MODELED and therefore never listed as purge collateral', () => {

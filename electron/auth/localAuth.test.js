@@ -450,6 +450,12 @@ describe('issueCampToken / issueLocalToken / verifySessionToken', () => {
     fs.unlinkSync(otherFile)
   })
 
+  it('issueDeviceToken refuses on a device that is not the Host even when a key row is still present (key presence alone is not the role)', () => {
+    db.prepare('UPDATE camps SET signing_public_key = ?').run('ab'.repeat(40))
+    expect(isHostDevice(db)).toBe(false)
+    expect(() => issueDeviceToken(db, 'device-1')).toThrow(/not the Host/)
+  })
+
   it('a device token is verified with the SAME Host signing key as a camp token (Ed25519, not HMAC)', () => {
     const token = issueDeviceToken(db, 'device-1')
     const [payloadB64, signature] = token.split('.')

@@ -301,3 +301,27 @@ describe('useDeviceMode: host demotion', () => {
     expect(mockLocalClient.chooseMode).toHaveBeenCalledWith(expect.objectContaining({ mode: 'host', token: 'stored-token' }))
   })
 })
+
+describe('useDeviceMode: role follows the key (host handoff successor)', () => {
+  it('a device remembered as client that main reports as host (it holds the camp key) runs as host', async () => {
+    seedClientDevice({ token: 'stored-token' })
+    mockLocalClient.verifySession.mockResolvedValue({ valid: true, role: 'admin' })
+    mockLocalClient.chooseMode.mockResolvedValue({ mode: 'host' })
+
+    const { result } = renderHook(() => useDeviceMode())
+    await waitFor(() => expect(result.current.phase).not.toBe('loading'))
+
+    expect(result.current.mode).toBe('host')
+  })
+
+  it('a client that main confirms as client stays client', async () => {
+    seedClientDevice({ token: 'stored-token' })
+    mockLocalClient.verifySession.mockResolvedValue({ valid: true, role: 'admin' })
+    mockLocalClient.chooseMode.mockResolvedValue({ mode: 'client' })
+
+    const { result } = renderHook(() => useDeviceMode())
+    await waitFor(() => expect(result.current.phase).not.toBe('loading'))
+
+    expect(result.current.mode).toBe('client')
+  })
+})

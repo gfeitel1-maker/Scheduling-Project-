@@ -48,7 +48,12 @@ export const PURGE_LEDGER_TABLES = ['operations']
 // device-identity artifacts. See hostKeyPreservation.js for the full rationale. (camps.signing_secret
 // and camps.signing_public_key are COLUMNS on the modeled `camps` table, not their own tables, so
 // they are not in this table-level partition — the notice/SECURITY.md speak to them directly.)
-export const PURGE_PRESERVED_TABLES = ['host_signing_key', 'device_identity_key']
+//
+// host_handoff / host_signing_key_pending (v94, docs/adr/2026-10-09-host-succession-simple.md) are
+// preserved CONDITIONALLY: only a handoff past its decision point (successor `stored`, giver
+// `committed`) is carried across the rebuild (readInFlightHandoff / writeInFlightHandoffInto) — the
+// pending key is then the camp's only key. A pre-decision handoff is cleared, as a restart clears it.
+export const PURGE_PRESERVED_TABLES = ['host_signing_key', 'device_identity_key', 'host_handoff', 'host_signing_key_pending']
 
 // Non-modeled but NOT lost camp state: recreated by the schema on rebuild, self-re-establishing, or
 // stub-seeded on receipt. `devices` is stub-seeded per the device-FK-seeding ADR; `locks`,

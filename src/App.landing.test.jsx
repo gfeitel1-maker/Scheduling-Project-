@@ -8,6 +8,9 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 
+// The handoff confirm has its own tests; this file mocks a minimal localClient with no handoff surface.
+vi.mock('./components/HostHandoffConfirm', () => ({ default: () => null }))
+
 vi.mock('./localClient', () => ({
   localClient: {
     list: vi.fn(() => Promise.resolve([])),

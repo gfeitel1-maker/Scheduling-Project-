@@ -22,6 +22,9 @@ vi.mock('../localClient', () => ({
     listToolAuthorizations: vi.fn().mockResolvedValue([]),
     grantToolAuthorization: vi.fn(),
     revokeToolAuthorization: vi.fn(),
+    handoffStatus: vi.fn(),
+    handoffStart: vi.fn(),
+    onHandoffChanged: vi.fn(() => () => {}),
   },
 }))
 
@@ -53,6 +56,8 @@ beforeEach(() => {
     code: 'K4P72MRQ', formatted: 'K4P7-2MRQ', campName: 'Camp Kinneret', open: false,
   })
   localClient.setJoinWindow.mockImplementation(async (open) => ({ open }))
+  localClient.handoffStatus.mockResolvedValue({ isHost: true, eligibleDeviceIds: [], handoff: null, lastResult: null })
+  localClient.handoffStart.mockResolvedValue({ ok: true })
 })
 
 describe('DeviceManagerScreen — write controls gated by device mode', () => {
@@ -313,5 +318,36 @@ describe('DeviceManagerScreen — empty device list copy (audit #22)', () => {
     render(<DeviceManagerScreen campId="c1" role="admin" deviceMode="host" />)
     expect(await screen.findByText('No other devices have paired yet.')).toBeTruthy()
     expect(screen.queryByText(/connected yet/)).toBeNull()
+  })
+})
+
+describe('DeviceManagerScreen — host handoff control', () => {
+  it('shows "Hand hosting to <device>" only on rows the host reports as eligible, and starts the handoff', async () => {
+    localClient.listDevices.mockResolvedValue([
+      authorizedDevice(),
+      authorizedDevice({ id: 'authorized-2', name: 'Front Desk iPad' }),
+    ])
+    localClient.handoffStatus.mockResolvedValue({ isHost: true, eligibleDeviceIds: ['authorized-1'], handoff: null, lastResult: null })
+    render(<DeviceManagerScreen campId="c1" role="admin" deviceMode="host" />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Hand hosting to MacBook' }))
+    expect(localClient.handoffStart).toHaveBeenCalledWith('authorized-1')
+    expect(screen.queryByRole('button', { name: 'Hand hosting to Front Desk iPad' })).toBeNull()
+  })
+
+  it('shows nothing when this computer is not the host', async () => {
+    localClient.listDevices.mockResolvedValue([authorizedDevice()])
+    localClient.handoffStatus.mockResolvedValue({ isHost: false, eligibleDeviceIds: [], handoff: null, lastResult: null })
+    render(<DeviceManagerScreen campId="c1" role="admin" deviceMode="client" />)
+    expect(await screen.findByText('MacBook')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /Hand hosting to/ })).toBeNull()
+  })
+
+  it('a staff user never sees the control, even if the host reports the device eligible', async () => {
+    localClient.listDevices.mockResolvedValue([authorizedDevice()])
+    localClient.handoffStatus.mockResolvedValue({ isHost: true, eligibleDeviceIds: ['authorized-1'], handoff: null, lastResult: null })
+    render(<DeviceManagerScreen campId="c1" role="staff" deviceMode="host" />)
+    expect(await screen.findByText('MacBook')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /Hand hosting to/ })).toBeNull()
   })
 })

@@ -266,6 +266,13 @@ const ACCEPTED_NON_REFERENCES = [
   // ("never read or written") was false and would have laundered forward as fact.
   { table: 'fixed_events', column: 'unit_id', reason: 'legacy single-division column, read-only: resolved by src/engine/fixedEventScope.js as the pre-v65 fallback, never written by any code path (v65 backfills out of it into unit_ids)' },
 
+  // -- host handoff (v94, docs/adr/2026-10-09-host-succession-simple.md): device-local, never-synced
+  //    state of one in-flight handoff. The ids name a handoff (a uuid minted by the giver) and a
+  //    device, not a camp entity; neither is read as a live reference by the undo/schedule layer. --
+  { table: 'host_handoff', column: 'handoff_id', reason: 'identifies one handoff attempt (a uuid), not a camp entity; device-local, never synced' },
+  { table: 'host_handoff', column: 'peer_device_id', reason: 'the other device in an in-flight handoff; device-local, never synced, cleared when the handoff ends' },
+  { table: 'host_signing_key_pending', column: 'handoff_id', reason: 'identifies the handoff the staged key belongs to (a uuid), not a camp entity; device-local, never synced' },
+
   // -- recomputed-on-every-device local journal: regenerated wholesale, not
   //    a live reference the undo/schedule layer reads --
   { table: 'location_migration_reviews', column: 'location_id', reason: 'local-only review journal, recomputed identically on every device (schema.sql comment), never read as a live reference' },

@@ -341,6 +341,10 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // peer_punch_memory, both empty device-local caches learned only from a live punched session.
   // Schema-only: no appendOp, no backfill, never modeled into the document.
   93,
+  // v94 (docs/adr/2026-10-09-host-succession-simple.md) creates host_handoff and
+  // host_signing_key_pending, both empty, device-local, never synced. Schema-only: no camp has a
+  // handoff in flight before this version, so what an existing camp MEANS is unaffected.
+  94,
 ])
 
 /** True if applying `version` can change what the camp means. */

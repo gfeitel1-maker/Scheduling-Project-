@@ -22,6 +22,10 @@ vi.mock('./localClient', () => ({
   },
 }))
 
+// The handoff confirm has its own tests (components/HostHandoffConfirm.test.jsx); this file mocks a
+// minimal localClient that has no handoff surface.
+vi.mock('./components/HostHandoffConfirm', () => ({ default: () => null }))
+
 vi.mock('./hooks/usePendingConflicts', () => ({
   usePendingConflicts: () => ({ conflicts: [] }),
 }))

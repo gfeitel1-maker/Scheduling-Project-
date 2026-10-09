@@ -387,8 +387,8 @@ export function issueCampToken(db, userId, deviceId) {
 // undo the ADR's deliberate separation of those two layers.
 export function issueDeviceToken(db, deviceId) {
   const hostKey = getHostSigningKey(db)
-  if (!hostKey) {
-    throw new Error('issueDeviceToken: this device has no host_signing_key row — it is not the Host')
+  if (!hostKey || !isHostDevice(db)) {
+    throw new Error('issueDeviceToken: this device holds no key that matches the camp public key — it is not the Host')
   }
 
   const iat = Date.now()

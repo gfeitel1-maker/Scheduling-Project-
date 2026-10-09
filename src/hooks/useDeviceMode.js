@@ -165,10 +165,13 @@ export function useDeviceMode() {
           // removed the address picker — so a device that joined by code
           // silently skipped chooseMode entirely and never handed its token
           // to the libp2p node on restart.
-          await localClient.chooseMode({
+          const chosen = await localClient.chooseMode({
             mode: 'client',
             token: verifiedToken || undefined,
           })
+          // A device that holds the camp's key IS the host, whatever mode was remembered (a handoff's
+          // successor, after its relaunch): main answers with the role and the renderer follows it.
+          if (chosen?.mode === 'host' && active) setMode('host')
         }
 
         if (active) setLoading(false)

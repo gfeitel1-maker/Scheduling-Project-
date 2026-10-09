@@ -99,3 +99,12 @@ export async function receiveFramed(stream, onPayload, { maxDataLength = MAX_FRA
     onPayload(chunk.subarray())
   }
 }
+
+// The planned host handoff (docs/adr/2026-10-09-host-succession-simple.md): one request frame, one
+// reply frame per stream. LAN-only and admin-only; the handler enforces both. The frame ceiling is
+// generous because the sealed payload carries the seven host-only tables as one document. Measured:
+// 5,000 fat import_evidence rows (~330 B each) seal to about 5 MB on the wire (hex doubles the size),
+// so 32 MiB covers roughly 30,000 such rows. Past that the handoff fails safe (H stays host).
+export const HANDOFF_PROTO = '/shoresh/handoff/1.0.0'
+
+export const HANDOFF_MAX_FRAME_BYTES = 32 * 1024 * 1024

@@ -3,6 +3,8 @@ import { localClient } from '../localClient'
 import { S, useEnterTransition } from '../styles/shared'
 import { deriveDeviceRowState } from './deviceRowState'
 import ConnectedToolsPanel from '../components/ConnectedToolsPanel'
+import HostHandoffControl from '../components/HostHandoffControl'
+import { useHostHandoff } from '../hooks/useHostHandoff'
 import { SETUP_MAX_WIDTH } from '../components/setup/SetupScreenShell'
 
 // T18 / CONSTITUTION Art. V. `pairing_status` is a database enum and was
@@ -84,6 +86,9 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
   const [error, setError] = useState(null)
   const [gone, setGone] = useState({})
   const [busy, setBusy] = useState({})
+  // Planned host handoff (docs/adr/2026-10-09-host-succession-simple.md): the control is per-row and
+  // hidden unless the host reports that device eligible (an admin device on the LAN).
+  const { status: handoffStatus, refresh: refreshHandoff } = useHostHandoff()
   // Add a device (docs/adr/2026-09-08-libp2p-join-flow.md §4). Only meaningful
   // on the Host — a Client has no code to show and cannot approve anyone.
   const [joinInfo, setJoinInfo] = useState(null)
@@ -185,6 +190,16 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
       setError(err?.message || 'Failed to revoke device')
     } finally {
       setBusy((b) => ({ ...b, [deviceId]: false }))
+    }
+  }
+
+  async function handleHandoffStart(deviceId) {
+    try {
+      await localClient.handoffStart(deviceId)
+    } catch (err) {
+      setError(err?.message || 'Failed to start the handoff')
+    } finally {
+      refreshHandoff()
     }
   }
 
@@ -386,6 +401,9 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
                       )}
                       {isRevoked && (
                         <span style={styles.revokedLabel}>Revoked</span>
+                      )}
+                      {role === 'admin' && isAuthorized && (
+                        <HostHandoffControl device={device} status={handoffStatus} onStart={handleHandoffStart} />
                       )}
                     </td>
                   </tr>

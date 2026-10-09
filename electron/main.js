@@ -959,6 +959,10 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     // A camp that already published a key but whose key is not here makes this device a client.
     // No camp yet (bootstrap) or a camp with no key yet (pre-key legacy) still means host.
     let effectiveMode = requestedMode
+    // The mirror of the demotion below: a device that holds the camp's key IS the host, whatever
+    // mode the renderer remembered. This is what makes a handoff's successor start host services
+    // after its relaunch without anyone passing it a mode (docs/adr/2026-10-09-host-succession-simple.md).
+    if (requestedMode === 'client' && isHostDevice(db)) effectiveMode = 'host'
     if (requestedMode === 'host') {
       const camp = db.prepare('SELECT signing_public_key FROM camps LIMIT 1').get()
       if (camp?.signing_public_key && !isHostDevice(db)) {
@@ -2729,10 +2733,60 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // `formatted` come back null and the renderer's own gating (it only ever
   // renders the code when `open` is true — DeviceManagerScreen.jsx) never
   // shows a stale or absent value as if it were real.
+  // The planned host handoff (docs/adr/2026-10-09-host-succession-simple.md). The state machine and
+  // the wire live on the sync node; these are the director-facing doors, each behind authorize().
+  const noSyncNode = { ok: false, reason: 'sync_not_running' }
+
+  function handoffStatus({ token } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    requireAuthorized(db, { token, action: 'devices.read' })
+    const handoff = getAutomergeNode()?.handoff
+    if (!handoff) return { handoff: null, lastResult: null, isHost: isHostDevice(db), eligibleDeviceIds: [] }
+    const status = handoff.status()
+    const nameOf = (id) => (id ? db.prepare('SELECT name FROM devices WHERE id = ?').get(id)?.name ?? null : null)
+    return {
+      ...status,
+      selfName: nameOf(deviceId),
+      campName: db.prepare('SELECT name FROM camps LIMIT 1').get()?.name ?? null,
+      peerName: nameOf(status.handoff?.peerDeviceId),
+    }
+  }
+
+  async function handoffStart({ token, deviceId: targetDeviceId } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    requireAuthorized(db, { token, action: 'devices.approve' })
+    if (!isNonEmptyString(targetDeviceId)) throw new Error('deviceId is required')
+    const handoff = getAutomergeNode()?.handoff
+    return handoff ? handoff.start(targetDeviceId) : noSyncNode
+  }
+
+  async function handoffAccept({ token } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    requireAuthorized(db, { token, action: 'devices.approve' })
+    const handoff = getAutomergeNode()?.handoff
+    return handoff ? handoff.accept() : noSyncNode
+  }
+
+  function handoffDecline({ token } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    requireAuthorized(db, { token, action: 'devices.approve' })
+    getAutomergeNode()?.handoff.decline()
+    return { ok: true }
+  }
+
+  // Host actions follow the key, not the mode: after a handoff's step 5 the old host has no key and
+  // must refuse immediately, before its relaunch. A camp that never published a key (pre-key legacy)
+  // is not refused on this ground.
+  function hostActionRefused() {
+    if (mode === 'client') return true
+    const camp = db.prepare('SELECT signing_public_key FROM camps LIMIT 1').get()
+    return Boolean(camp?.signing_public_key) && !isHostDevice(db)
+  }
+
   function getJoinCode({ token } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     requireAuthorized(db, { token, action: 'devices.approve' })
-    if (mode === 'client') {
+    if (hostActionRefused()) {
       throw new Error('Adding a device can only be done on the device this camp was set up on.')
     }
     const camp = db.prepare('SELECT id, name FROM camps LIMIT 1').get()
@@ -2748,7 +2802,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   function setJoinWindow({ token, open } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     requireAuthorized(db, { token, action: 'devices.approve' })
-    if (mode === 'client') {
+    if (hostActionRefused()) {
       throw new Error('Adding a device can only be done on the device this camp was set up on.')
     }
     joinWindowOpen = Boolean(open)
@@ -3012,6 +3066,10 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     getSyncEngine,
     getJoinCode,
     setJoinWindow,
+    handoffStatus,
+    handoffStart,
+    handoffAccept,
+    handoffDecline,
     joinStart,
     joinFindHost,
     joinRequestPairing,
@@ -3356,6 +3414,10 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:get-sync-engine', () => handlers.getSyncEngine())
     ipcMain.handle('shoresh:get-join-code', (_event, args) => handlers.getJoinCode(args))
     ipcMain.handle('shoresh:set-join-window', (_event, args) => handlers.setJoinWindow(args))
+    ipcMain.handle('shoresh:handoff-status', (_event, args) => handlers.handoffStatus(args))
+    ipcMain.handle('shoresh:handoff-start', (_event, args) => handlers.handoffStart(args))
+    ipcMain.handle('shoresh:handoff-accept', (_event, args) => handlers.handoffAccept(args))
+    ipcMain.handle('shoresh:handoff-decline', (_event, args) => handlers.handoffDecline(args))
     ipcMain.handle('shoresh:join-start', (_event, args) => handlers.joinStart(args))
     ipcMain.handle('shoresh:join-find-host', () => handlers.joinFindHost())
     ipcMain.handle('shoresh:join-request-pairing', () => handlers.joinRequestPairing())
@@ -3745,6 +3807,10 @@ if (isElectronEntryPoint()) {
     docCipher,
     getMainWindow: () => mainWindow,
     getLiveHandlers: () => liveHandlers,
+    relaunch: () => {
+      app.relaunch()
+      app.exit(0)
+    },
   }))
   const startAutomergeSyncNodeIfEnabled = () => syncStarterHolder.start()
   const initialHandlers = makeHandlers(db, deviceId, {
