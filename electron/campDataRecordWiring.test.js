@@ -260,9 +260,11 @@ describe('wiring call sites route through the exported helpers', () => {
     return source.slice(start, end)
   }
 
-  it('will-quit flushes via flushCampDataRecordOnQuit', () => {
+  it('will-quit flushes via flushCampDataRecordOnQuit, through the shared quitFlush', () => {
+    const quitFlush = region(/const quitFlush = createQuitFlush\(\[/, /\]\)/)
+    expect(quitFlush).toContain('flushCampDataRecordOnQuit(liveHandlers)')
     const willQuit = region(/app\.on\(\s*['"]will-quit['"]/, /app\.on\(|\n\s*\}\)\s*\n\s*\}\s*catch/)
-    expect(willQuit).toContain('flushCampDataRecordOnQuit(liveHandlers)')
+    expect(willQuit).toMatch(/\bquitFlush\(\)/)
   })
 
   it('reinitialize disposes-then-closes via disposeCampDataRecordThenCloseDb', () => {
