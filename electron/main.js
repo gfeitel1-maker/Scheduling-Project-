@@ -3575,9 +3575,12 @@ if (isElectronEntryPoint()) {
     return { shown: true }
   })
 
-  // Show an open-file dialog, back up the current DB first, then copy the
-  // chosen file over the current DB path and reopen the connection.
-  ipcMain.handle('shoresh:restore-project', async () => {
+  // Restore is two steps so the director can confirm against the backup's date:
+  // pick (dialog + validation, remembers the path here; the renderer never
+  // supplies one), then restore consumes it.
+  let pickedRestorePath = null
+  ipcMain.handle('shoresh:pick-restore-backup', async () => {
+    pickedRestorePath = null
     const result = await dialog.showOpenDialog(mainWindow, {
       title: 'Restore Shoresh Project from Backup',
       filters: [{ name: 'Shoresh Database', extensions: ['db'] }],
@@ -3588,8 +3591,9 @@ if (isElectronEntryPoint()) {
 
     // Path traversal guard.
     if (!path.isAbsolute(sourcePath)) return { error: 'invalid_path' }
+    let stat
     try {
-      const stat = fs.statSync(sourcePath)
+      stat = fs.statSync(sourcePath)
       if (!stat.isFile()) return { error: 'invalid_path' }
     } catch {
       return { error: 'file_not_found' }
@@ -3612,6 +3616,16 @@ if (isElectronEntryPoint()) {
       try { probe?.close() } catch { /* ignore */ }
       return { error: 'invalid_file', message: 'The selected file could not be read as a Shoresh database.' }
     }
+
+    pickedRestorePath = sourcePath
+    return { backupDate: stat.mtime.toISOString() }
+  })
+
+  // Back up the current DB, then copy the picked file over it and reopen.
+  ipcMain.handle('shoresh:restore-project', async () => {
+    const sourcePath = pickedRestorePath
+    pickedRestorePath = null
+    if (!sourcePath) return { error: 'no_backup_selected' }
 
     let releaseSwitch
     try { releaseSwitch = syncStarterHolder.acquireSwitch() } catch (err) { return { error: err.code, message: err.message } }
