@@ -19,6 +19,7 @@ import { noise } from '@chainsafe/libp2p-noise'
 import { yamux } from '@chainsafe/libp2p-yamux'
 import { startTransport } from './transport.js'
 import { AUTH_PROTO } from './wireProtocol.js'
+import { peerIdFromString } from '@libp2p/peer-id'
 
 let cleanups = []
 afterEach(async () => {
@@ -36,6 +37,13 @@ async function waitFor(predicate, { timeout = 4000, interval = 20 } = {}) {
 }
 
 const alwaysAdmit = () => ({ ok: true })
+
+// Deadline for tests that must COMPLETE a handshake (auth or pairing_request) before it fires. A
+// 300-400ms deadline raced the dial+Noise+yamux+auth round trip under CPU load: the (correct)
+// deadline aborted the connection mid-handshake, a different test each run. The deadline is
+// behaviour under test, so it is not mocked; it is just set well above a loaded handshake.
+// Negative observations ("still open after the deadline") still need a real wait past it.
+const HANDSHAKE_SAFE_DEADLINE_MS = 1500
 
 async function startTarget(opts = {}) {
   const t = await startTransport({ deviceId: 'target', onAuthenticate: alwaysAdmit, inboundConnectionThreshold: 1000, ...opts })
@@ -60,7 +68,11 @@ async function startAttacker() {
   return node
 }
 
-const openAttackerConns = (attackers) => attackers.filter((a) => a.getConnections().length > 0).length
+// Observed on the TARGET side: the DoS guarantee is that the target frees the slot. Under CPU load the
+// attacker/joiner side was measured learning of the target's abort >3s late (instrumented: the deadline
+// timer had fired on time), so attacker-side connection status is not the property under test.
+const liveConns = (t, peerId) => t.libp2pNode.getConnections(peerIdFromString(peerId.toString())).filter((c) => c.status === 'open')
+const openAttackerConns = (target, attackers) => attackers.filter((a) => liveConns(target, a.peerId).length > 0).length
 
 async function flood(target, n) {
   const attackers = []
@@ -79,7 +91,7 @@ async function authenticate(client, target) {
 
 describe('T340 connection-manager DoS hardening', () => {
   it('1: an un-admitted flood never evicts an established admitted connection and is capped to maxConnections - reservedFloor', async () => {
-    const target = await startTarget({ maxConnections: 8, reservedFloor: 3, unadmittedDeadlineMs: 400 })
+    const target = await startTarget({ maxConnections: 8, reservedFloor: 3, unadmittedDeadlineMs: HANDSHAKE_SAFE_DEADLINE_MS })
     const camp = await startCamp('camp')
     await camp.dial(target.getMultiaddrs()[0])
     expect(await authenticate(camp, target)).toBe(true)
@@ -88,11 +100,11 @@ describe('T340 connection-manager DoS hardening', () => {
     expect(target.getPeers()).toContain(camp.peerId)
 
     const attackers = await flood(target, 12)
-    await sleep(100)
-    expect(openAttackerConns(attackers)).toBeLessThanOrEqual(5)
+    // the attacker side can see 'open' before the target's cap abort propagates; wait for it
+    await waitFor(() => openAttackerConns(target, attackers) <= 5)
     expect(target.getPeers()).toContain(camp.peerId)
 
-    await sleep(900)
+    await sleep(HANDSHAKE_SAFE_DEADLINE_MS + 500) // past the deadline: the admitted conn must survive it
     expect(target.getPeers()).toContain(camp.peerId)
     expect(target.isPeerAuthenticated(camp.peerId)).toBe(true)
   })
@@ -109,7 +121,8 @@ describe('T340 connection-manager DoS hardening', () => {
       sockets.push(s)
     }
     cleanups.push(async () => sockets.forEach((s) => s.destroy()))
-    await sleep(600)
+    await waitFor(() => closed >= 7)
+    await sleep(200) // and no further sockets close: the pending cap admits exactly 3
     expect(closed).toBe(7)
   })
 
@@ -146,7 +159,8 @@ describe('T340 connection-manager DoS hardening', () => {
 
     const start = Date.now()
     let admitted = false
-    while (!admitted && Date.now() - start < 3000) {
+    // turnover is probabilistic by design (see header); the budget is a safety net for a loaded machine
+    while (!admitted && Date.now() - start < 10_000) {
       try {
         await camp.dial(target.getMultiaddrs()[0])
         admitted = await authenticate(camp, target)
@@ -158,27 +172,28 @@ describe('T340 connection-manager DoS hardening', () => {
   })
 
   it('5: a held-open authGate stream is aborted at the deadline', async () => {
-    const target = await startTarget({ unadmittedDeadlineMs: 400 })
+    const target = await startTarget({ unadmittedDeadlineMs: HANDSHAKE_SAFE_DEADLINE_MS })
     const attacker = await startAttacker()
     const conn = await attacker.dial(target.getMultiaddrs()[0])
     const stream = await attacker.dialProtocol(target.getMultiaddrs()[0], AUTH_PROTO)
     expect(stream).toBeTruthy()
 
-    await sleep(150)
     expect(conn.status).toBe('open')
-    await waitFor(() => conn.status !== 'open', { timeout: 2000 })
-    expect(attacker.getConnections().length).toBe(0)
+    expect(liveConns(target, attacker.peerId).length).toBe(1)
+    await waitFor(() => liveConns(target, attacker.peerId).length === 0, { timeout: HANDSHAKE_SAFE_DEADLINE_MS + 3000 })
   })
 
   it('6: the un-admitted bucket cap aborts the newest connection, not an older one', async () => {
     const target = await startTarget({ maxConnections: 10, reservedFloor: 7, unadmittedDeadlineMs: 5000 })
+    let inboundOpens = 0 // registered after transport's own listener, so the cap decision has run when this fires
+    target.libp2pNode.addEventListener('connection:open', (evt) => { if (evt.detail.direction === 'inbound') inboundOpens++ })
     const first = await flood(target, 3)
-    await sleep(100)
-    expect(openAttackerConns(first)).toBe(3)
+    await waitFor(() => inboundOpens === 3)
+    expect(openAttackerConns(target, first)).toBe(3)
     const newest = await flood(target, 1)
-    await sleep(200)
-    expect(openAttackerConns(first)).toBe(3)
-    expect(openAttackerConns(newest)).toBe(0)
+    await waitFor(() => inboundOpens === 4) // non-vacuity: the target did see the newest connection
+    expect(openAttackerConns(target, newest)).toBe(0)
+    expect(openAttackerConns(target, first)).toBe(3)
   })
 
   it('7: with production defaults an immediately-authenticating pair syncs exactly as before', async () => {
@@ -195,47 +210,53 @@ describe('T340 connection-manager DoS hardening', () => {
 
   it('8: a pending pairing is not aborted by the deadline, so the director decision still lands after it', async () => {
     const decisions = []
-    const director = await startTransport({ deviceId: 'director', onAuthenticate: alwaysAdmit, onPairingRequest: () => ({ ok: true }), unadmittedDeadlineMs: 300 })
+    const director = await startTransport({ deviceId: 'director', onAuthenticate: alwaysAdmit, onPairingRequest: () => ({ ok: true }), unadmittedDeadlineMs: HANDSHAKE_SAFE_DEADLINE_MS })
     const joiner = await startTransport({ deviceId: 'joiner', listen: [], onAuthenticate: alwaysAdmit, onPairingDecision: (d) => decisions.push(d) })
     cleanups.push(() => director.stop(), () => joiner.stop())
     await joiner.dial(director.getMultiaddrs()[0])
     const reply = await joiner.authenticateWith(director.peerId, { type: 'pairing_request', device_id: 'joiner-dev', device_name: 'J' })
     expect(reply?.type).toBe('pairing_pending')
 
-    await sleep(900)
+    await sleep(HANDSHAKE_SAFE_DEADLINE_MS + 500) // past the deadline
     expect(await director.sendPairingApproved('joiner-dev', 'secret')).toBe(true)
     await waitFor(() => decisions.length === 1)
   })
 
   it('9: the exemption is keyed to the pairing connection and clears when it closes', async () => {
     const key = await generateKeyPair('Ed25519')
-    const director = await startTransport({ deviceId: 'director', onAuthenticate: alwaysAdmit, onPairingRequest: () => ({ ok: true }), unadmittedDeadlineMs: 300 })
+    const director = await startTransport({ deviceId: 'director', onAuthenticate: alwaysAdmit, onPairingRequest: () => ({ ok: true }), unadmittedDeadlineMs: HANDSHAKE_SAFE_DEADLINE_MS })
     const joiner = await startTransport({ deviceId: 'joiner', listen: [], onAuthenticate: alwaysAdmit, privateKey: key })
     const joiner2 = await startTransport({ deviceId: 'joiner2', listen: [], onAuthenticate: alwaysAdmit, privateKey: key })
     cleanups.push(() => director.stop(), () => joiner.stop(), () => joiner2.stop())
     const conn = await joiner.dial(director.getMultiaddrs()[0])
     const reply = await joiner.authenticateWith(director.peerId, { type: 'pairing_request', device_id: 'joiner-dev', device_name: 'J' })
     expect(reply?.type).toBe('pairing_pending')
-    await sleep(700)
+    await sleep(HANDSHAKE_SAFE_DEADLINE_MS + 500) // past the deadline: the pairing conn is exempt
     expect(conn.status).toBe('open')
     conn.abort(new Error('joiner left'))
-    await waitFor(() => director.getPeers().length === 0)
-    const again = await joiner2.dial(director.getMultiaddrs()[0])
-    await waitFor(() => again.status !== 'open', { timeout: 2000 })
+    // a REMOTE abort is observed late under CPU load (measured >4s); generous safety-net timeout
+    await waitFor(() => director.getPeers().length === 0, { timeout: 10_000 })
+    await joiner2.dial(director.getMultiaddrs()[0])
+    await waitFor(() => liveConns(director, joiner2.peerId).length === 1)
+    await waitFor(() => liveConns(director, joiner2.peerId).length === 0, { timeout: HANDSHAKE_SAFE_DEADLINE_MS + 3000 })
     expect(await director.sendPairingApproved('joiner-dev', 'secret')).toBe(false)
   })
 
   it('10: a SECOND connection from the same pending peer id is not exempt and is aborted at the deadline', async () => {
     const key = await generateKeyPair('Ed25519')
-    const director = await startTransport({ deviceId: 'director', onAuthenticate: alwaysAdmit, onPairingRequest: () => ({ ok: true }), unadmittedDeadlineMs: 300 })
+    const director = await startTransport({ deviceId: 'director', onAuthenticate: alwaysAdmit, onPairingRequest: () => ({ ok: true }), unadmittedDeadlineMs: HANDSHAKE_SAFE_DEADLINE_MS })
     const joiner1 = await startTransport({ deviceId: 'j1', listen: [], onAuthenticate: alwaysAdmit, privateKey: key })
     const joiner2 = await startTransport({ deviceId: 'j2', listen: [], onAuthenticate: alwaysAdmit, privateKey: key })
     cleanups.push(() => director.stop(), () => joiner1.stop(), () => joiner2.stop())
     expect(joiner1.peerId).toBe(joiner2.peerId)
     const c1 = await joiner1.dial(director.getMultiaddrs()[0])
     await joiner1.authenticateWith(director.peerId, { type: 'pairing_request', device_id: 'joiner-dev', device_name: 'J' })
-    const c2 = await joiner2.dial(director.getMultiaddrs()[0])
-    await waitFor(() => c2.status !== 'open', { timeout: 2000 })
+    await joiner2.dial(director.getMultiaddrs()[0])
+    await waitFor(() => liveConns(director, joiner1.peerId).length === 2)
+    // c2 is aborted at the deadline; the one survivor on the director is the pairing connection c1
+    await waitFor(() => liveConns(director, joiner1.peerId).length === 1, { timeout: HANDSHAKE_SAFE_DEADLINE_MS + 3000 })
+    await sleep(300)
+    expect(liveConns(director, joiner1.peerId).length).toBe(1)
     expect(c1.status).toBe('open')
   })
 })
