@@ -2,6 +2,7 @@ import { describeWriteFailure } from '../../utils/writeErrorMessage'
 import { computeFindings } from '../../engine/buildSchedule'
 import { parseSnapshotPayload, unrestorableMessage } from '../snapshotRestore'
 import { routeSetter } from './useRouteState'
+import { toSnapshotSlot } from '../../data/scheduleRepository'
 
 // Snapshots / versions CRUD + restore, over the T28 repository.
 //
@@ -68,15 +69,7 @@ export function useSnapshots({
     if (!existingTemplates[routeName]) return
     const tid = templateIdFor(routeName)
     const setRouteSnapshots = routeSetter(setSnapshotsByRoute, routeName)
-    const snapSlots = slotsByRoute[routeName].map(s => ({
-      group_id: s.group_id,
-      day_id: s.day_id,
-      time_block_id: s.time_block_id,
-      activity_id: s.activity_id,
-      fixed_event_id: s.fixed_event_id,
-      is_fixed_event: s.is_fixed_event,
-      flags: s.flags || {},
-    }))
+    const snapSlots = slotsByRoute[routeName].map(toSnapshotSlot)
     const id = crypto.randomUUID()
     const createdAt = new Date().toISOString()
     setActionError(null)

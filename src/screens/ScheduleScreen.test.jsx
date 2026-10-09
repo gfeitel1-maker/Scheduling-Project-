@@ -489,7 +489,7 @@ describe('snapshot CRUD ported to localClient', () => {
     expect(localClient.write).toHaveBeenCalledWith('token-abc', 'schedule_snapshots', 'new-id-1', 'is_auto', false)
     expect(localClient.write).toHaveBeenCalledWith(
       'token-abc', 'schedule_snapshots', 'new-id-1', 'slots',
-      JSON.stringify([{ group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', fixed_event_id: null, is_fixed_event: false, flags: { UNFILLABLE: true } }])
+      JSON.stringify([{ group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', fixed_event_id: null, is_fixed_event: false, is_span_head: true, is_released: false, elective_set_id: null, event_id: null, flags: { UNFILLABLE: true } }])
     )
 
     // Optimistic local state update — new snapshot appears in the dropdown.

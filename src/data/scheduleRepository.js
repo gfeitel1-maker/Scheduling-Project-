@@ -19,14 +19,23 @@ import { normalizeSlots } from '../utils/normalizeSlots'
 // The single engine-slot / snapshot-slot -> template_slots row mapper. The two
 // input shapes differ only in field naming (camelCase engine slots vs
 // snake_case snapshot slots) and in whether a span-head marker travels with the
-// slot; both are made explicit so each call site's persisted row is
-// byte-for-byte what it hand-wrote before.
+// slot.
 //
-// is_span_head is LOAD-BEARING: generate()/placeFixedEvents() emit it (`!== false`
-// -> '1'/'0'); restoreSnapshot() omits it entirely so the template_slots column
-// keeps its default (the column is added by ALTER TABLE with no DEFAULT, i.e.
-// NULL — electron/db/localDb.js). Emitting it on the restore path would change
-// what that site persists, so `spanHead` gates it off there.
+// It must write EVERY template_slots column: src/data/slotColumnParity.test.js
+// enumerates the real schema and fails on any column dropped here. (It once
+// dropped elective_set_id/event_id, so every Generate emptied elective and
+// event cells.)
+//
+// is_span_head: engine slots (spanHead) default to a head (`!== false`); a
+// snapshot slot carries its own value, and a NULL one stays NULL ("never
+// written" — normalizeSlots). A span tail restored as NULL rendered its head
+// activity twice. is_released is written only when the slot carries it; engine
+// slots never do.
+function boolColumn(v) {
+  if (v === null || v === undefined) return undefined
+  return v === true || v === 1 || v === '1' ? '1' : '0'
+}
+
 function mapSlotToRow(slot, templateId, { spanHead }) {
   // Read the snake_case field when the slot HAS it, else the camelCase one —
   // presence, not `??` coalescing, because a snapshot slot's `fixed_event_id` is a
@@ -41,6 +50,8 @@ function mapSlotToRow(slot, templateId, { spanHead }) {
     time_block_id: has('time_block_id') ? slot.time_block_id : slot.blockId,
     activity_id: has('activity_id') ? slot.activity_id : slot.activityId,
     fixed_event_id: has('fixed_event_id') ? slot.fixed_event_id : slot.fixedEventId,
+    elective_set_id: (has('elective_set_id') ? slot.elective_set_id : slot.electiveSetId) ?? null,
+    event_id: (has('event_id') ? slot.event_id : slot.eventId) ?? null,
     // is_fixed_event is derived per-shape, NOT as a disjunction. Engine slots (the
     // spanHead path) carry `type` ('fixed_event') and no `is_fixed_event`; snapshot slots
     // carry a boolean `is_fixed_event` and no `type`. Keying off the same
@@ -49,9 +60,30 @@ function mapSlotToRow(slot, templateId, { spanHead }) {
     // both fields (T28 review — Red Hat + Code Reviewer converged on this).
     is_fixed_event: (spanHead ? slot.type === 'fixed_event' : slot.is_fixed_event) ? '1' : '0',
   }
-  if (spanHead) row.is_span_head = slot.is_span_head !== false ? '1' : '0'
+  const spanHeadValue = spanHead ? (slot.is_span_head !== false ? '1' : '0') : boolColumn(slot.is_span_head)
+  if (spanHeadValue !== undefined) row.is_span_head = spanHeadValue
+  const released = boolColumn(slot.is_released)
+  if (released !== undefined) row.is_released = released
   row.flags = JSON.stringify(slot.flags || {})
   return row
+}
+
+// The saved-version shape of a normalized template_slots row: every content
+// column, so restoreSnapshotRows writes the cell back exactly as it was.
+export function toSnapshotSlot(s) {
+  return {
+    group_id: s.group_id,
+    day_id: s.day_id,
+    time_block_id: s.time_block_id,
+    activity_id: s.activity_id,
+    fixed_event_id: s.fixed_event_id,
+    is_fixed_event: s.is_fixed_event,
+    is_span_head: s.is_span_head,
+    is_released: s.is_released,
+    elective_set_id: s.elective_set_id ?? null,
+    event_id: s.event_id ?? null,
+    flags: s.flags || {},
+  }
 }
 
 export function createScheduleRepository({
