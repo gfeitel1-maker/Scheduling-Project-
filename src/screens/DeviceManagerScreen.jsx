@@ -70,7 +70,8 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
   // (authorize()'s role check) has been mode-agnostic since T332's base change, so a client-mode
   // admin gets the identical affordance a host-mode admin does; see deriveDeviceRowState.js.
   const canManage = deviceMode !== 'client'
-  const canDecide = canManage || role === 'admin'
+  // Server-side, approve/deny need devices.approve (admin-only); hide the controls from staff on any device.
+  const canDecide = role === 'admin'
   const [deniedNote, setDeniedNote] = useState(false)
   const [pending, setPending] = useState([])
   const [allDevices, setAllDevices] = useState([])
@@ -147,6 +148,7 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
     setBusy((b) => ({ ...b, [deviceId]: true }))
     clearGone(deviceId)
     try {
+      setDeniedNote(false)
       const result = await localClient.approveDevice(deviceId)
       if (result?.authorized === false && result.reason === 'joiner_disconnected') {
         setGone((g) => ({ ...g, [deviceId]: true }))
