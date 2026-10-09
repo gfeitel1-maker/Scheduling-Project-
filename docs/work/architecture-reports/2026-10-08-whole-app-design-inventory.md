@@ -372,7 +372,7 @@ No user-facing copy. (Checked: only parse helpers and DOW names.)
 | :54 | That name could not be saved. | SHORTEN: `Name not saved` |
 | :67 | What this camp is called. It appears above the sidebar and on anything you export. | CUT (label "Camp name" is enough; the sidebar shows it live as they type) |
 | :79 | Camp name (field label) | KEEP |
-| :91 | placeholder="Camp name" | CUT (duplicates the label); or RWA: example name e.g. "Camp Ramah" |
+| :91 | placeholder="Camp name" | CUT (duplicates the label); or RWA: a fictional example name |
 | :105 | ✓ Saved | KEEP (confirmation flash) |
 
 ## src/screens/DaysScreen.jsx
