@@ -49,6 +49,13 @@ describe('verify gate wrapper', () => {
       }
     })
 
+    it('downgrades test:sync and test:rest too (T344 split of the old test step) when slow', () => {
+      for (const step of ['test:sync', 'test:rest']) {
+        expect(verdict({ step, ms: MIN_LOAD_TIMEOUT_MS }, { oversubscribed: true }).code).toBe(2)
+        expect(verdict({ step, ms: 295 }, { oversubscribed: true }).code).toBe(1)
+      }
+    })
+
     it('downgrades test:integration too (the other load-sensitive step) when slow', () => {
       expect(verdict({ step: 'test:integration', ms: MIN_LOAD_TIMEOUT_MS }, { oversubscribed: true }).code).toBe(2)
     })
@@ -127,7 +134,8 @@ describe('verify gate wrapper', () => {
       'security',
       'test:integration',
       'lint',
-      'test',
+      'test:sync',
+      'test:rest',
     ])
   })
 
@@ -144,7 +152,8 @@ describe('verify gate wrapper', () => {
       security: 5.9,
       'test:integration': 20.6,
       lint: 131.3,
-      test: 702.1,
+      'test:sync': 702.1,
+      'test:rest': 702.1,
     }
     const costs = VERIFY_STEPS.map((s) => COST[s])
     expect(costs.every((c) => typeof c === 'number')).toBe(true)
@@ -152,7 +161,7 @@ describe('verify gate wrapper', () => {
   })
 
   // The reorder must not silently drop or add a gate: same set, different sequence.
-  it('still runs exactly the eight gates, none removed by the reorder', () => {
+  it('still runs exactly the nine gates, none removed by the reorder', () => {
     expect([...VERIFY_STEPS].sort()).toEqual([
       'agents:check',
       'build',
@@ -160,8 +169,9 @@ describe('verify gate wrapper', () => {
       'licenses:check',
       'lint',
       'security',
-      'test',
       'test:integration',
+      'test:rest',
+      'test:sync',
     ])
   })
 })

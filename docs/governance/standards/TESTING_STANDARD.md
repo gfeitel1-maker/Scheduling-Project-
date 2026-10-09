@@ -18,7 +18,7 @@ and `README.md` all derive from it rather than maintaining their own copies.
 
 ## 1. The gates
 
-**`npm run verify` is the gate.** It runs these eight steps <!-- doc-fact:verify_step_count value=8 -->, in this order, stopping at the first
+**`npm run verify` is the gate.** It runs these nine steps <!-- doc-fact:verify_step_count value=9 -->, in this order, stopping at the first
 failure, and prints a single `✅ VERIFY PASSED` / `❌ VERIFY FAILED` / `⚠️ VERIFY INCONCLUSIVE`
 verdict line. Read that line; never read the exit code of a piped or tee'd wrapper. The
 authoritative list and order is `VERIFY_STEPS` in `scripts/verify.js`; this table derives from it.
@@ -32,15 +32,16 @@ authoritative list and order is `VERIFY_STEPS` in `scripts/verify.js`; this tabl
 | 5 | `npm run security` | npm-audit, secret scan, dangerous-pattern scan |
 | 6 | `npm run test:integration` | **Multi-node** scenarios: pairing, revocation, token renewal, conflict detection, clock skew, role changes |
 | 7 | `npm run lint` | ESLint, including the ban on reintroducing `@supabase/*` imports |
-| 8 | `npm run test` | The Vitest suite |
+| 8 | `npm run test:sync` | The real-libp2p Vitest suites (`sync` project: `electron/sync/**`, `electron/**/*.integration.test.js`, the two `electron/main*` end-to-end files), alone in their process (T344) |
+| 9 | `npm run test:rest` | The rest of the Vitest suite (`isolated` + `pure` projects: jsdom/UI and everything else), run after `test:sync` so the two never compete for CPU. `npm run test` still runs all three projects together |
 
 **The order is cheapest-first and is load-bearing, not cosmetic.** Because the gate short-circuits,
 a step placed after an expensive one is not reported until that expensive one has finished. These
-eight are sorted by measured cost so a failure is reported as early as it can be. Re-measure and
+nine are sorted by measured cost so a failure is reported as early as it can be. Re-measure and
 re-sort if a step's cost changes materially; `scripts/verify.test.js` asserts the ordering property,
 not merely the literal list.
 
-The "eight" on the gate line above carries a `<!-- doc-fact:verify_step_count value=8 -->` marker.
+The "nine" on the gate line above carries a `<!-- doc-fact:verify_step_count value=9 -->` marker.
 This is the **doc-fact freshness gate** (T295, `scripts/doc-facts.js` + `checkDocFacts` in
 `scripts/check-governance.js`): a marked claim's `value=` is compared, on every `check:governance`
 run, against a value derived deterministically from source (here, the length of `VERIFY_STEPS`; for

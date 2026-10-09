@@ -48,6 +48,19 @@ export const UNISOLATED_INCLUDE = [
   'src/ingest/**/*.test.{js,jsx}',
 ]
 
+// T344 — the heavy real-libp2p suites, run as their own vitest invocation (`npm run test:sync`)
+// so they never share CPU with the jsdom/UI tests in `test:rest`. Scheduling only: same files,
+// same isolation, same timeouts. Like UNISOLATED_INCLUDE, `isolated` SUBTRACTS this list, so
+// vite.config.projects.test.js proves against disk that every test file lands in exactly one project.
+// electron/main*.test.js appear by name because they are the only files outside electron/sync that
+// start real nodes (startSyncNode); `electron/main.t332ClientAdminMinting.test.js` only mentions libp2p.
+export const SYNC_INCLUDE = [
+  'electron/sync/**/*.test.{js,jsx}',
+  'electron/**/*.integration.test.js',
+  'electron/main.test.js',
+  'electron/main.authorityEndToEnd.test.js',
+]
+
 const sharedTest = {
     environment: 'node',
     globals: true,
@@ -163,7 +176,14 @@ export default defineConfig({
         test: {
           ...sharedTest,
           name: 'isolated',
-          exclude: [...sharedTest.exclude, ...UNISOLATED_INCLUDE],
+          exclude: [...sharedTest.exclude, ...UNISOLATED_INCLUDE, ...SYNC_INCLUDE],
+        },
+      },
+      {
+        test: {
+          ...sharedTest,
+          name: 'sync',
+          include: SYNC_INCLUDE,
         },
       },
       {
