@@ -4,6 +4,7 @@ import { localClient } from '../localClient'
 import { S, useEnterTransition } from '../styles/shared'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import InlineAddRow from '../components/setup/InlineAddRow'
+import SetupScreenShell from '../components/setup/SetupScreenShell'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import DuplicateNameDot from '../components/setup/DuplicateNameDot'
 import { duplicateSiblingsByIdFor } from './duplicateSiblings.js'
@@ -270,14 +271,10 @@ export default function CohortsScreen({ campId }) {
   }
 
   return (
-    <div style={{ maxWidth: 900 }}>
-      {error && <div style={S.errorBanner}>{error}</div>}
-
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-        <div style={S.sectionCount}>
-          {cohorts.length} program{cohorts.length !== 1 ? 's' : ''}
-        </div>
-      </div>
+    <SetupScreenShell
+      countLabel={`${cohorts.length} program${cohorts.length !== 1 ? 's' : ''}`}
+      error={error}
+    >
 
       {loading ? (
         <div style={S.stateLoading}>Loading…</div>
@@ -338,6 +335,6 @@ export default function CohortsScreen({ campId }) {
           onCancel={() => setPendingDelete(null)}
         />
       )}
-    </div>
+    </SetupScreenShell>
   )
 }

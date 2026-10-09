@@ -18,6 +18,7 @@ import { LocationPicker } from '../components/LocationPicker'
 import { ScheduleDoor } from '../components/ScheduleDoor'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import InlineAddRow from '../components/setup/InlineAddRow'
+import SetupScreenShell, { SETUP_MAX_WIDTH } from '../components/setup/SetupScreenShell'
 import DuplicateNameDot from '../components/setup/DuplicateNameDot'
 import { duplicateSiblingsByIdFor } from './duplicateSiblings.js'
 import { seedFailureMessage } from './specialDay/seedFailureMessage'
@@ -87,7 +88,7 @@ export function EventDetail({ event, role, locations, onBack, onSave, onDelete, 
   }
 
   return (
-    <div style={{ maxWidth: 640 }}>
+    <div style={{ maxWidth: SETUP_MAX_WIDTH }}>
       <button className="press-97" onClick={onBack} style={{ ...S.backBar, marginBottom: 14 }}>
         ← Back to Special Events
       </button>
@@ -161,7 +162,7 @@ function SpecialDayDetail({ day, role, onBack, onSave, onDelete, onNavigate }) {
   }
 
   return (
-    <div style={{ maxWidth: 640 }}>
+    <div style={{ maxWidth: SETUP_MAX_WIDTH }}>
       <button className="press-97" onClick={onBack} style={{ ...S.backBar, marginBottom: 14 }}>
         ← Back to Special Events
       </button>
@@ -470,9 +471,11 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
   ]
 
   return (
-    <div style={{ maxWidth: 760 }}>
+    <SetupScreenShell
+      countLabel={`${rows.length} special event${rows.length !== 1 ? 's' : ''}`}
+      error={error}
+    >
       {toast && <div style={{ ...S.errorBanner, background: 'var(--surface)', marginBottom: 16 }}>{toast}</div>}
-      {error && <div style={S.errorBanner}>{error}</div>}
 
       {loading ? (
         <div style={S.stateLoading}>Loading…</div>
@@ -518,7 +521,7 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
           </div>
         </div>
       )}
-    </div>
+    </SetupScreenShell>
   )
 }
 

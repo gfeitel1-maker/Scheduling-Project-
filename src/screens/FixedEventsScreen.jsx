@@ -889,14 +889,13 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
   const warnRows = importRows.filter(r => r.warning || !r.name)
 
   return (
-    <div style={{ maxWidth: 760 }}>
+    <div>
       <SetupScreenShell
         countLabel={`${fixedEvents.length} ${kind} event${fixedEvents.length !== 1 ? 's' : ''}`}
         role={role}
         actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll }}
         fileInputRef={fileRef}
         onFileChange={onFileChange}
-        maxWidth={760}
         nextLabel="Go to Schedule"
         onNext={() => onNavigate('schedule')}
         error={error}

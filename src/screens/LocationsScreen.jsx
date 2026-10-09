@@ -17,6 +17,7 @@ import DeleteRecordDialog from '../components/DeleteRecordDialog'
 import ImportModal from '../components/setup/ImportModal'
 import ImportPreviewSubtitle from '../components/setup/ImportPreviewSubtitle.jsx'
 import InlineAddRow from '../components/setup/InlineAddRow'
+import SetupScreenShell from '../components/setup/SetupScreenShell'
 import WeekContextBar from '../components/schedule/WeekContextBar'
 import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialog'
 import { ENTITY_FIELD_CATALOGS, inferEntityMapping, applyEntityMapping, describeMappingIssue } from '../ingest/entityColumnMapping.js'
@@ -799,14 +800,18 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
   const currentWeek = weeks.find(w => w.id === weekId)
 
   return (
-    <div style={{ maxWidth: 720 }}>
-      {error && (
-        <div style={S.errorBanner}>
-          {error}
-        </div>
-      )}
-
-      <>
+    <div>
+      <button className="press-97" onClick={() => onNavigate('activities')} style={{ ...S.backBar, marginBottom: 14 }}>← Back to Activities</button>
+      <SetupScreenShell
+        countLabel={`${locations.length} location${locations.length !== 1 ? 's' : ''}`}
+        role={role}
+        actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll }}
+        fileInputRef={fileRef}
+        onFileChange={onFileChange}
+        nextLabel="Recurring Events →"
+        onNext={() => onNavigate('recurringevents')}
+        error={error}
+        cohortPicker={<>
           {weeks.length > 0 && (
             <WeekContextBar
               weekId={weekId}
@@ -817,7 +822,6 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
               entityLabel="locations"
             />
           )}
-
           {/* D-3.3 — an absent/empty journal renders no review region at all. */}
           {nearDuplicateGroups.length === 0 && advisoryItems.length > 0 && (
             <CapacityAdvisoryStrip
@@ -827,114 +831,78 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
               busyId={stripBusyId}
             />
           )}
-
-          {loading ? (
-            <div style={S.stateLoading}>Loading…</div>
-          ) : (
-            <>
-              {/* Locations builds its own frame rather than SetupScreenShell
-                  (it has a Back control the shell has no slot for), so the
-                  same demotion the shell got is applied here by hand: the
-                  count alone at the top, the file/bulk actions quiet in the
-                  footer. Keep the two in step. */}
-              <div style={{ marginBottom: 20 }}>
-                <div style={S.sectionCount}>
-                  {locations.length} location{locations.length !== 1 ? 's' : ''}
-                </div>
-                <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={onFileChange} />
-              </div>
-
-              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
-                      <th style={S.th}>Name</th>
-                      <th style={S.th}>Groups at once</th>
-                      <th style={S.th}>Kind</th>
-                      <th style={S.th}>Notes</th>
-                      {weekId && <th style={{ ...S.th, textAlign: 'center' }}>{currentWeek?.name ?? 'Week'}</th>}
-                      <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {locations.length === 0 ? (
-                      <tr><td colSpan={weekId ? 6 : 5} style={S.emptyState}>
-                        <div style={enter}>
-                          <div style={S.emptyStateTitle}>No locations yet</div>
-                        </div>
-                      </td></tr>
-                    ) : locations.map((location) => (
-                      <LocationRow
-                        key={location.id}
-                        location={location}
-                        role={role}
-                        onSave={save}
-                        onDelete={deleteLocation}
-                        capacityUnconfirmed={tierForCapacitySource(capacitySources[location.id]) === 'inferred'}
-                        onConfirmCapacity={confirmCapacity}
-                        justConfirmed={justConfirmedId === location.id}
-                        duplicateSiblings={duplicateSiblings.get(location.id)}
-                        onMergeDuplicate={handleMergeDuplicate}
-                        duplicateMergeBusy={duplicateMergeBusy}
-                        weekToggle={weekId ? (
-                          <td style={{ ...S.td, textAlign: 'center' }}>
-                            <WeekToggle
-                              on={!excludedLocationIds.has(location.id)}
-                              label={excludedLocationIds.has(location.id)
-                                ? `Off in ${currentWeek?.name ?? 'this week'}`
-                                : `Open in ${currentWeek?.name ?? 'this week'}`}
-                              onToggle={() => handleToggleExclusion(location, excludedLocationIds.has(location.id))}
-                            />
-                          </td>
-                        ) : null}
-                      />
-                    ))}
-                    {/* The always-present blank "type here to add" row — lives as
-                        the last row of the locations table (Excel-like inline add).
-                        Notes are edited in-row after creation, so they aren't a
-                        field here — an empty trailing cell keeps the columns aligned. */}
-                    <InlineAddRow
-                      fields={[
-                        { key: 'name', type: 'text', placeholder: 'Pool', required: true },
-                        { key: 'capacity', type: 'number', default: 1, width: 90 },
-                        { key: 'kind', type: 'select', default: '', options: [
-                          { value: '', label: '— none —' },
-                          ...KIND_OPTIONS.map(k => ({ value: k.value, label: k.label })),
-                        ] },
-                      ]}
-                      onAdd={handleInlineAdd}
-                      adding={adding}
-                      trailingCells={<><td style={S.td} />{weekId ? <td style={S.td} /> : null}</>}
-                    />
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
-        </>
-
-      {/* Three groups (Back, the file/bulk utilities, Next) do not fit this
-          screen's 720px column on one line — they wrapped, and Next fell to a
-          line of its own. The utilities get their own quiet row above the
-          navigation footer instead. */}
-      <div style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 2 }}>
-        <button className="press-97" onClick={downloadTemplate} style={S.btnUtility}>Download Template</button>
-        <button className="press-97" onClick={() => fileRef.current.click()} style={S.btnUtility}>Import from Excel</button>
-        <span aria-hidden="true" style={{ width: 1, height: 16, background: 'var(--border)', margin: '0 8px' }} />
-        <button
-          onClick={deleteAll}
-          disabled={role !== 'admin'}
-          title={role !== 'admin' ? 'Admin only' : undefined}
-          style={role !== 'admin'
-            ? { ...S.btnUtility, ...S.buttonDisabled }
-            : { ...S.btnUtility, color: 'var(--danger)' }}
-        >Delete All</button>
-      </div>
-
-      <div style={{ marginTop: 12, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <button className="press-97" onClick={() => onNavigate('activities')} style={S.backBar}>← Back to Activities</button>
-        <button className="press-97" onClick={() => onNavigate('recurringevents')} style={S.btnPrimary}>Recurring Events →</button>
-      </div>
+        </>}
+      >
+        {loading ? (
+          <div style={S.stateLoading}>Loading…</div>
+        ) : (
+          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
+                  <th style={S.th}>Name</th>
+                  <th style={S.th}>Groups at once</th>
+                  <th style={S.th}>Kind</th>
+                  <th style={S.th}>Notes</th>
+                  {weekId && <th style={{ ...S.th, textAlign: 'center' }}>{currentWeek?.name ?? 'Week'}</th>}
+                  <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {locations.length === 0 ? (
+                  <tr><td colSpan={weekId ? 6 : 5} style={S.emptyState}>
+                    <div style={enter}>
+                      <div style={S.emptyStateTitle}>No locations yet</div>
+                    </div>
+                  </td></tr>
+                ) : locations.map((location) => (
+                  <LocationRow
+                    key={location.id}
+                    location={location}
+                    role={role}
+                    onSave={save}
+                    onDelete={deleteLocation}
+                    capacityUnconfirmed={tierForCapacitySource(capacitySources[location.id]) === 'inferred'}
+                    onConfirmCapacity={confirmCapacity}
+                    justConfirmed={justConfirmedId === location.id}
+                    duplicateSiblings={duplicateSiblings.get(location.id)}
+                    onMergeDuplicate={handleMergeDuplicate}
+                    duplicateMergeBusy={duplicateMergeBusy}
+                    weekToggle={weekId ? (
+                      <td style={{ ...S.td, textAlign: 'center' }}>
+                        <WeekToggle
+                          on={!excludedLocationIds.has(location.id)}
+                          label={excludedLocationIds.has(location.id)
+                            ? `Off in ${currentWeek?.name ?? 'this week'}`
+                            : `Open in ${currentWeek?.name ?? 'this week'}`}
+                          onToggle={() => handleToggleExclusion(location, excludedLocationIds.has(location.id))}
+                        />
+                      </td>
+                    ) : null}
+                  />
+                ))}
+                {/* The always-present blank "type here to add" row — lives as
+                    the last row of the locations table (Excel-like inline add).
+                    Notes are edited in-row after creation, so they aren't a
+                    field here — an empty trailing cell keeps the columns aligned. */}
+                <InlineAddRow
+                  fields={[
+                    { key: 'name', type: 'text', placeholder: 'Pool', required: true },
+                    { key: 'capacity', type: 'number', default: 1, width: 90 },
+                    { key: 'kind', type: 'select', default: '', options: [
+                      { value: '', label: '— none —' },
+                      ...KIND_OPTIONS.map(k => ({ value: k.value, label: k.label })),
+                    ] },
+                  ]}
+                  onAdd={handleInlineAdd}
+                  adding={adding}
+                  trailingCells={<><td style={S.td} />{weekId ? <td style={S.td} /> : null}</>}
+                />
+              </tbody>
+            </table>
+          </div>
+        )}
+      </SetupScreenShell>
 
       {pendingDelete && (
         <DeleteRecordDialog

@@ -1178,7 +1178,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
   const currentWeek = weeks.find(w => w.id === weekId)
 
   return (
-    <div style={{ maxWidth: 820 }}>
+    <div>
       {weeks.length > 0 && (
         <WeekContextBar
           weekId={weekId}
