@@ -1573,7 +1573,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
           background: 'var(--surface)', border: '1px solid var(--border)',
           borderRadius: 10, padding: '16px', fontSize: 13, lineHeight: 1.6, color: 'var(--text)',
         }}>
-          Import runs on the main computer only.
+          Import runs only on the device this camp was set up on.
         </div>
       </div>
     )

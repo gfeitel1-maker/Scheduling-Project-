@@ -150,11 +150,11 @@ describe('loadSidebarState', () => {
 
 describe('syncStatusLabel (T27)', () => {
   it('tells a director this computer is the main one', () => {
-    expect(syncStatusLabel({ state: 'host' }).text).toBe('main')
+    expect(syncStatusLabel({ state: 'host' }).text).toBe('sharing')
     expect(syncStatusLabel({ state: 'host' }).tone).toBe('success')
   })
 
-  it('distinguishes "never joined anything" from "cannot reach the main computer"', () => {
+  it('distinguishes "never joined anything" from "cannot reach other devices"', () => {
     // The whole point. A device on its own is working correctly; a client that
     // has lost the Host is not, and conflating them hides the only case worth
     // acting on.
@@ -167,7 +167,7 @@ describe('syncStatusLabel (T27)', () => {
 
   it('reassures rather than alarms when a client is disconnected — the work is not lost', () => {
     expect(syncStatusLabel({ state: 'client-disconnected' }).title)
-      .toMatch(/saved here and will reach it/)
+      .toMatch(/saved here and will reach them/)
   })
 
   it('uses no developer vocabulary', () => {
@@ -203,13 +203,13 @@ describe('syncStatusLabel (T27)', () => {
 
     it('does not regress the existing three entries (host/client-connected/client-disconnected unchanged)', () => {
       expect(syncStatusLabel({ state: 'host' })).toEqual({
-        text: 'main', tone: 'success', title: 'This computer is the main one. The others follow what is on it.',
+        text: 'sharing', tone: 'success', title: 'Sharing is on. Changes reach the other devices in this camp whenever they can be reached.',
       })
       expect(syncStatusLabel({ state: 'client-connected' })).toEqual({
-        text: 'linked', tone: 'success', title: 'Connected to the main computer.',
+        text: 'linked', tone: 'success', title: 'Connected to other devices in this camp.',
       })
       expect(syncStatusLabel({ state: 'client-disconnected' })).toEqual({
-        text: 'alone', tone: 'danger', title: 'Cannot reach the main computer right now. Your changes are saved here and will reach it when it is back.',
+        text: 'alone', tone: 'danger', title: 'Can’t reach other devices right now — changes are saved here and will reach them when they’re back.',
       })
     })
   })
@@ -227,13 +227,13 @@ describe('syncStatusLabel (T27)', () => {
 describe('syncStatusLabel — an unshared write outranks the connection state (T153)', () => {
   it('reports the count instead of the reassuring offline copy', () => {
     const offline = syncStatusLabel({ state: 'client-disconnected', unsharedWrites: 0 })
-    expect(offline.title).toMatch(/will reach it when it is back/)
+    expect(offline.title).toMatch(/will reach them when they’re back/)
 
     const diverged = syncStatusLabel({ state: 'client-disconnected', unsharedWrites: 2 })
     expect(diverged.text).toBe('2 changes not shared')
     expect(diverged.tone).toBe('danger')
     // The specific promise that must NOT be made about these.
-    expect(diverged.title).not.toMatch(/will reach it when it is back/)
+    expect(diverged.title).not.toMatch(/will reach them when they’re back/)
     expect(diverged.title).toMatch(/will not reach the other computers/)
   })
 

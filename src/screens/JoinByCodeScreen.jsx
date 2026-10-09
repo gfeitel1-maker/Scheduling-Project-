@@ -204,7 +204,7 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
           <>
             <div style={S.authTitle}>Camp code</div>
             <div style={S.authSubtitle}>
-              On the main computer: <strong>Device Manager</strong> → <strong>Add a device</strong>.
+              On the device this camp was set up on: <strong>Device Manager</strong> → <strong>Add a device</strong>.
             </div>
             <input
               style={codeInput}
@@ -227,7 +227,7 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
         {step === STEP.notFound && (
           <Outcome
             title="No camp answered that code"
-            body={<>Check the code, that <strong>Add a device</strong> is still open on the main computer, and that both are on the same Wi-Fi.</>}
+            body={<>Check the code, that <strong>Add a device</strong> is still open on the device this camp was set up on, and that both are on the same Wi-Fi.</>}
             actionLabel="Try again"
             onAction={startOver}
           />
@@ -245,7 +245,7 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
         {step === STEP.waitingForApproval && (
           <Waiting
             title="Waiting for approval"
-            note="Approve it on the main computer. This screen moves on by itself."
+            note="Approve it on the device that showed the code. This screen moves on by itself."
             onCancel={startOver}
           />
         )}
@@ -254,8 +254,8 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
           <Outcome
             title={deniedReason === 'pairing-requires-local-network' ? "Not on the camp's network" : "This device wasn't allowed in"}
             body={deniedReason === 'pairing-requires-local-network'
-              ? <>Join the main computer's Wi-Fi/LAN. VPN, Tailscale and mobile connections can't pair.</>
-              : <>The main computer turned down the request.</>}
+              ? <>Join the same Wi-Fi/LAN as the device that showed the code. VPN, Tailscale and mobile connections can't pair.</>
+              : <>The request was turned down on the device that showed the code.</>}
             actionLabel="Try again"
             onAction={startOver}
           />
@@ -264,7 +264,7 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
         {step === STEP.signIn && (
           <>
             <div style={S.authTitle}>Sign in</div>
-            <div style={S.authSubtitle}>Use the same name and PIN you use on the main computer.</div>
+            <div style={S.authSubtitle}>Use the same name and PIN you use on your other devices in this camp.</div>
             <label htmlFor="join-name" style={{ ...S.authLabel, marginTop: 0 }}>Name</label>
             <input
               id="join-name"
@@ -298,7 +298,7 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
         {step === STEP.noData && (
           <Outcome
             title="Signed in, but nothing arrived"
-            body={<>Allowed in, but no schedule came through. Check the main computer is on and on the same Wi-Fi.</>}
+            body={<>Allowed in, but no schedule came through. Check that a device already in this camp is on and on the same Wi-Fi.</>}
             actionLabel="Try again"
             onAction={startOver}
           />

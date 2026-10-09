@@ -245,6 +245,6 @@ describe('T332 — client-mode admin minting', () => {
     const { token: admin2Token } = await handlers2.login({ name: 'Admin2Deny', pin: '246813' })
 
     expect(() => handlers2.denyDevice({ token: admin2Token, deviceId: pendingDeviceId }))
-      .toThrow('Device management can only be done on the main computer.')
+      .toThrow('Device management can only be done on the device this camp was set up on.')
   })
 })

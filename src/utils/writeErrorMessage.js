@@ -90,7 +90,7 @@ export function deleteRefusalMessage(error, { name, slot_count, ref_count, unpro
     case 'unprotected-slots':
       return `${unprotected_count} of the places ${subject} is used are in a schedule this app can no longer open, so they could not be saved first. Nothing was deleted.`
     case 'host-unreachable':
-      return 'Your main computer is not reachable, so this cannot be deleted right now. Try again when it is back on the network.'
+      return 'The other devices in this camp cannot be reached, so this cannot be deleted right now. Try again when they are back on the network.'
     case 'no-record':
       return `${subject} is already gone.`
     case 'not-clearable':

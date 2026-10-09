@@ -110,7 +110,7 @@ describe('deleteRefusalMessage', () => {
     }
   })
 
-  it('says the main computer is away only when it is', () => {
-    expect(deleteRefusalMessage('host-unreachable')).toMatch(/main computer/)
+  it('says the other devices are away only when they are', () => {
+    expect(deleteRefusalMessage('host-unreachable')).toMatch(/other devices in this camp cannot be reached/)
   })
 })
