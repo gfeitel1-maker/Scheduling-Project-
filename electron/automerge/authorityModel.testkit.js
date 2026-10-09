@@ -38,7 +38,7 @@ export function indexHistory(entries) {
 //   - fixed point: target removed when distinct surviving voters >= quorumThreshold(|granted|)
 //     with |granted| read at the evaluated point (heads), including the target
 // ---------------------------------------------------------------------------------------------
-export function todayRule(entries) {
+export function todayRule(entries, { filterVotes = false } = {}) {
   const ix = indexHistory(entries)
   const memo = new Map()
   const ALL = '\u0000heads'
@@ -75,14 +75,32 @@ export function todayRule(entries) {
         votes.get(target).add(signer)
       }
     }
-    let changed = true
-    while (changed) {
-      changed = false
-      for (const [target, voters] of votes) {
-        if (!granted.has(target)) continue
-        if (voters.size >= quorumThreshold(granted.size)) {
-          granted.delete(target)
-          changed = true
+    if (filterVotes) {
+      // Sticky rounds. C = targets that reach the threshold when every remaining signer's vote counts.
+      // A target in C may itself be a signer of votes that only exist because it is being removed
+      // (a backdated vote), so a round removes only those t in C that STILL reach the threshold when
+      // votes by members of C are dropped. If C is non-empty but nothing survives that test the round
+      // removes nothing (a deadlock: safe, deterministic, label-free). No iteration order is consulted.
+      const reach = (t, excluded) => {
+        const th = quorumThreshold(granted.size)
+        return [...votes.get(t)].filter((s) => granted.has(s) && !excluded.has(s)).length >= th
+      }
+      for (;;) {
+        const C = new Set([...votes.keys()].filter((t) => granted.has(t) && reach(t, new Set())))
+        const dead = [...C].filter((t) => reach(t, C))
+        if (dead.length === 0) break
+        for (const t of dead) granted.delete(t)
+      }
+    } else {
+      let changed = true
+      while (changed) {
+        changed = false
+        for (const [target, voters] of votes) {
+          if (!granted.has(target)) continue
+          if (voters.size >= quorumThreshold(granted.size)) {
+            granted.delete(target)
+            changed = true
+          }
         }
       }
     }
@@ -94,6 +112,9 @@ export function todayRule(entries) {
   return { admins: stateAt(ALL).granted }
 }
 
+// todayRule(entries, { filterVotes: true }) is the T353 candidate: identical to today except a vote
+// counts only while its signer is not removed (at heads, via sticky simultaneous rounds). Grant
+// semantics are untouched.
 // ---------------------------------------------------------------------------------------------
 // effectiveSet: the effective-grant rule (ADR 2.1 / 8.1) as the fixed point reached by iterating
 // UP from the genesis, so a grant is admitted only after its justification already holds.

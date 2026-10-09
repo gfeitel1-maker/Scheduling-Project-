@@ -303,3 +303,134 @@ describe('differential vs todayRule on linear (concurrency-free) chains', () => 
     if (diffs.length) console.log('chain divergences', diffs.length, JSON.stringify(diffs[0]))
   })
 })
+
+// T353: a removed admin can author a BACKDATED revoke vote (deps on pre-removal heads). T331's stateAt
+// counts it because the signer was a valid admin at the vote's own causal point.
+const variant = (entries) => todayRule(entries, { filterVotes: true })
+const vAdmins = (entries) => sorted(variant(entries).admins)
+
+describe('T353 backdated votes by removed admins (todayRule demonstrates the bug)', () => {
+  it('2 admins: A votes M out, M backdates a vote against A -> today leaves NO admins (mutual removal)', () => {
+    const { h, last } = camp('M')
+    h.revoke('vA', 'A', 'M', [last]).revoke('vM', 'M', 'A', [last])
+    expect(today(h)).toEqual([])
+    expect(sorted(todayRule([...h.entries].reverse()).admins)).toEqual([])
+  })
+
+  it('2 admins, A already acted after removing M: M still backdates and undoes A', () => {
+    const { h, last } = camp('M')
+    h.revoke('vA', 'A', 'M', [last]).revoke('vZ', 'A', 'Z', ['vA'])
+    h.revoke('vM', 'M', 'A', [last]) // deps pre-date vA and vZ
+    expect(today(h)).toEqual([])
+  })
+
+  it('4 admins: A,B remove M; M + D (backdated M vote) then remove B -> today lets the removed M decide', () => {
+    const { h, last } = camp('B', 'M', 'D')
+    h.revoke('v1', 'A', 'M', [last]).revoke('v2', 'B', 'M', [last])
+    h.revoke('b1', 'M', 'B', ['gM']).revoke('b2', 'D', 'B', [last])
+    expect(today(h)).toEqual(['A', 'D'])
+  })
+
+  it('without M\'s backdated vote the same history keeps B (the vote is what decides it)', () => {
+    const { h, last } = camp('B', 'M', 'D')
+    h.revoke('v1', 'A', 'M', [last]).revoke('v2', 'B', 'M', [last])
+    h.revoke('b2', 'D', 'B', [last])
+    expect(today(h)).toEqual(['A', 'B', 'D'])
+  })
+})
+
+describe('T353 candidate: todayRule + vote filter (no grant-semantics change)', () => {
+  it('5 admins: A,B,D remove M; M\'s backdated vote + E would remove B only after M is gone -> filtered, B survives', () => {
+    const { h, last } = camp('B', 'M', 'D', 'E')
+    h.revoke('v1', 'A', 'M', [last]).revoke('v2', 'B', 'M', [last]).revoke('v3', 'D', 'M', [last])
+    h.revoke('b1', 'M', 'B', ['gM']).revoke('b2', 'E', 'B', [last])
+    expect(today(h)).toEqual(['A', 'D', 'E'])
+    expect(vAdmins(h.entries)).toEqual(['A', 'B', 'D', 'E'])
+  })
+
+  it('n=3 lone backdated vote: M (removed by A,B) plus nobody cannot remove A', () => {
+    const { h, last } = camp('B', 'M')
+    h.revoke('v1', 'A', 'M', [last]).revoke('v2', 'B', 'M', [last])
+    h.revoke('vM', 'M', 'A', [last])
+    expect(vAdmins(h.entries)).toEqual(['A', 'B'])
+  })
+
+  it('KNOWN LIMIT: truly symmetric 2-admin mutual votes deadlock (both stay) instead of both being removed', () => {
+    const { h, last } = camp('M')
+    h.revoke('vA', 'A', 'M', [last]).revoke('vM', 'M', 'A', [last])
+    expect(vAdmins(h.entries)).toEqual(['A', 'M'])
+  })
+
+  it('KNOWN LIMIT: 4 admins split 2 v 2 (A,B vs M,D) is structurally symmetric: nobody is removed (today: attackers win)', () => {
+    const { h, last } = camp('B', 'M', 'D')
+    h.revoke('v1', 'A', 'M', [last]).revoke('v2', 'B', 'M', [last])
+    h.revoke('b1', 'M', 'B', ['gM']).revoke('b2', 'D', 'B', [last])
+    expect(vAdmins(h.entries)).toEqual(['A', 'B', 'D', 'M'])
+  })
+
+  const SEEDS = 500
+  const seeds = [...Array.from({ length: SEEDS }, (_, i) => i + 1), 209]
+
+  it('unique + order independent: array order and id labels never change the result (500 seeds + 209, 6 perms each)', () => {
+    let checked = 0
+    for (const seed of seeds) {
+      const base = randomHistory(seed)
+      const want = vAdmins(base)
+      const rnd = mulberry32(seed * 104729)
+      for (let k = 0; k < 6; k++) {
+        const got = vAdmins(relabel(base, rnd))
+        if (JSON.stringify(got) !== JSON.stringify(want)) throw new Error(`seed ${seed} perm ${k}: ${got} != ${want}`)
+        checked++
+      }
+    }
+    expect(checked).toBe(seeds.length * 6)
+  })
+
+  it('differential: where no removed admin authored a vote and no two devices voted on each other the result equals todayRule', () => {
+    let same = 0
+    let skipped = 0
+    for (const seed of seeds) {
+      const e = randomHistory(seed)
+      const t = todayRule(e).admins
+      const votes = e.filter((x) => x.kind === 'revoke' && x.signer !== x.target)
+      const authorsRemoved = votes.some((x) => !t.has(x.signer))
+      const mutual = votes.some((x) => votes.some((y) => y.signer === x.target && y.target === x.signer))
+      if (authorsRemoved || mutual) {
+        skipped++
+        continue
+      }
+      expect(vAdmins(e), `seed ${seed}`).toEqual(sorted(t))
+      same++
+    }
+    expect(same).toBeGreaterThan(50)
+    console.log('T353 differential: equal on', same, 'seeds; skipped (removed vote author or mutual voting present)', skipped)
+  })
+
+  it('appended backdated votes: a device the variant removed never changes the outcome by voting on pre-removal heads', () => {
+    let tried = 0
+    let mutual = 0
+    const moved = []
+    for (const seed of seeds) {
+      const e = randomHistory(seed)
+      const admins = variant(e).admins
+      const ever = new Set(e.filter((x) => x.kind !== 'revoke').map((x) => x.target))
+      for (const d of ever) {
+        if (admins.has(d)) continue
+        const g = e.find((x) => x.kind !== 'revoke' && x.target === d)
+        for (const t of admins) {
+          // t having voted against d makes d <-> t mutual: structurally symmetric (KNOWN LIMIT above)
+          if (e.some((x) => x.kind === 'revoke' && x.signer === t && x.target === d)) {
+            mutual++
+            continue
+          }
+          const extra = { id: 'bd', kind: 'revoke', signer: d, target: t, deps: [g.id] }
+          tried++
+          if (JSON.stringify(vAdmins([...e, extra])) !== JSON.stringify(sorted(admins))) moved.push(seed + ':' + d + '>' + t)
+        }
+      }
+    }
+    expect(tried).toBeGreaterThan(100)
+    console.log('T353 appended-backdated tried', tried, 'skipped-mutual', mutual, 'moved', moved.length, moved.slice(0, 10).join(','))
+    expect(moved).toEqual([])
+  })
+})
