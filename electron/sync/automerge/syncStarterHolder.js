@@ -8,7 +8,9 @@ export function createSyncStarterHolder(makeStarter) {
   let replacing = null
 
   function start() {
-    if (replacing) return replacing.then(() => starting)
+    // A failed replace is reported by its own caller (swap rolls back); a joined start must not
+    // turn it into a second, unhandled rejection.
+    if (replacing) return replacing.then(() => starting, () => undefined)
     const p = starter.start()
     starting = p
     const clear = () => { if (starting === p) starting = null }
