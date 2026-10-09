@@ -369,7 +369,10 @@ export default function Sidebar({
         padding: '10px 20px', borderTop: '1px solid var(--border)', flexShrink: 0,
         fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)',
       }}>
-        {(syncStatus?.state === 'host-not-syncing' || syncStatus?.state === 'sync-blocked') && (
+        {/* A12: with no other paired device there is nothing to sync with, so a
+            node that is not running is not a failure — say nothing. */}
+        {syncStatus?.otherDeviceCount > 0 &&
+          (syncStatus.state === 'host-not-syncing' || syncStatus.state === 'sync-blocked') && (
           <SyncNotRunningRow
             syncStatus={syncStatus}
             retrying={retrying}
@@ -520,9 +523,8 @@ function SyncNotRunningRow({ syncStatus, retrying, onRetrySync, onNavigate }) {
             'sync not running' phrasing (T277); only the .title tooltip is shared with the gear menu.
             Do not "unify" this into lan.text — the divergence is intentional. */}
         <span style={{ color: 'var(--danger)' }}>sync not running</span>
-        {isHostNotSyncing && (
-          <>
-            {' · '}
+        {' · '}
+        {isHostNotSyncing ? (
             <span
               style={{
                 display: 'inline-block', minWidth: '4.2em',
@@ -534,7 +536,8 @@ function SyncNotRunningRow({ syncStatus, retrying, onRetrySync, onNavigate }) {
               onMouseEnter={e => { if (!retrying) e.currentTarget.style.textDecoration = 'underline' }}
               onMouseLeave={e => { e.currentTarget.style.textDecoration = 'none' }}
             >{retrying ? 'trying…' : 'try again'}</span>
-          </>
+        ) : (
+          <span style={{ color: 'var(--text-secondary)' }}>open Devices</span>
         )}
       </span>
     </button>

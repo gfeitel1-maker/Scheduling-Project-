@@ -6,6 +6,13 @@ import { isRestorable } from '../snapshotRestore'
 import { deriveScheduleTemplateId } from '../../../electron/ops/scheduleTemplateId'
 import { buildReplacements } from './replacedLane'
 import { repairOrphanSpanTails, orphanRepairFields } from './useSlotMutations'
+import { SLOT_OCCUPANT_FIELDS } from './slotOccupant'
+
+// An activity, an elective set, or an event in the cell — any of the three
+// occupants fills it (keeper ruling: an elective-set cell IS a filled slot).
+function isOccupied(s) {
+  return SLOT_OCCUPANT_FIELDS.some(f => s[f] != null)
+}
 
 // Which row IS this camp's candidate for this route? Ask the database by
 // (camp_id, kind) — do not assume the derived id is the one on disk.
@@ -49,8 +56,18 @@ export function recalcStats(slotList, replacedDayIds) {
   const live = slotList.filter(s => !replaced.has(s.day_id))
   return {
     open: live.filter(s => s.is_fixed_event === false && s.type !== 'unavailable').length,
-    filled: live.filter(s => s.is_fixed_event === false && s.type !== 'unavailable' && s.activity_id).length,
+    filled: live.filter(s => s.is_fixed_event === false && s.type !== 'unavailable' && isOccupied(s)).length,
   }
+}
+
+// The manual route has no UNFILLABLE. An elective-set or event cell is filled,
+// so a flag left from before it was placed does not count. An activity cell
+// keeps its flag: placing an ineligible activity on the generated route sets
+// UNFILLABLE on purpose (useSlotMutations).
+export function unfillableSlots(slotList, route) {
+  if (route === 'manual') return []
+  return slotList.filter(s => s.flags?.UNFILLABLE && !s.flags?.UNFILLABLE_dismissed
+    && s.elective_set_id == null && s.event_id == null)
 }
 
 // Pure — no setState. `ctx` is exactly what computeFindings needs beyond the

@@ -553,13 +553,43 @@ describe('Sidebar: footer sync-not-running indicator (T277)', () => {
     expect(screen.queryByText('try again')).toBeNull()
   })
 
-  it('sync-blocked: shows no trailing action word, and clicking navigates to devices (not retry)', () => {
+  it('sync-blocked: offers no retry, and clicking navigates to devices', () => {
     const onNavigate = vi.fn()
     renderSidebar({ syncStatus: SYNC_BLOCKED, onNavigate })
     expect(screen.queryByText('try again')).toBeNull()
     fireEvent.click(screen.getByText('sync not running').closest('button'))
     expect(onNavigate).toHaveBeenCalledWith('devices')
     expect(retrySync).not.toHaveBeenCalled()
+  })
+
+  // A12 (keeper ruling): a camp with no other paired device has nothing to
+  // sync with, so a not-running node is not a failure and the footer is silent.
+  it('A12: no paired device — host-not-syncing shows nothing about sync', () => {
+    const { container } = renderSidebar({ syncStatus: { ...HOST_NOT_SYNCING, otherDeviceCount: 0 } })
+    expect(container.textContent).not.toMatch(/sync/i)
+  })
+
+  it('A12: no paired device — sync-blocked shows nothing about sync', () => {
+    const { container } = renderSidebar({ syncStatus: { ...SYNC_BLOCKED, otherDeviceCount: 0 } })
+    expect(container.textContent).not.toMatch(/sync/i)
+  })
+
+  it('A12: paired device count unknown — shows nothing about sync', () => {
+    const { container } = renderSidebar({ syncStatus: { ...HOST_NOT_SYNCING, otherDeviceCount: undefined } })
+    expect(container.textContent).not.toMatch(/sync/i)
+  })
+
+  it('A12: paired + sync-blocked — the flag names its action (Open Devices)', () => {
+    renderSidebar({ syncStatus: SYNC_BLOCKED })
+    expect(screen.getByText('open Devices')).toBeTruthy()
+  })
+
+  it('A12: paired and healthy — no alarm text anywhere in the footer', () => {
+    for (const s of [HOST_SYNCED, CLIENT_CONNECTED]) {
+      const { container, unmount } = renderSidebar({ syncStatus: s })
+      expect(container.textContent).not.toMatch(/sync not running|try again|open Devices/)
+      unmount()
+    }
   })
 
   it('the gear-menu T275 label still works alongside the footer indicator', () => {

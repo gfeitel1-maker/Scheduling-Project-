@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
-import { useScheduleData, recalcStats, recalcFindings } from './useScheduleData'
+import { useScheduleData, recalcStats, recalcFindings, unfillableSlots } from './useScheduleData'
 import { deriveScheduleTemplateId } from '../../../electron/ops/scheduleTemplateId'
 
 const CAMP_ID = 'camp-1'
@@ -561,6 +561,40 @@ describe('recalcStats (pure)', () => {
       slotRow({ is_fixed_event: false, activity_id: null, type: 'unavailable' }),
     ]
     expect(recalcStats(slots, [])).toEqual({ open: 1, filled: 1 })
+  })
+})
+
+describe('an elective-set or event cell is a filled slot, on both routes', () => {
+  // Generated-route rows carry engine flags; manual-route rows do not.
+  const generated = [
+    slotRow({ id: 'a', activity_id: 'act-1' }),
+    slotRow({ id: 'e', elective_set_id: 'es-1', flags: { UNFILLABLE: true } }),
+    slotRow({ id: 'v', event_id: 'ev-1' }),
+    slotRow({ id: 'x', flags: { UNFILLABLE: true } }),
+  ]
+  const manual = generated.map(s => ({ ...s, flags: {} }))
+
+  it('counts them toward Placed on the generated route', () => {
+    expect(recalcStats(generated, [])).toEqual({ open: 4, filled: 3 })
+  })
+
+  it('counts them toward Placed on the manual route', () => {
+    expect(recalcStats(manual, [])).toEqual({ open: 4, filled: 3 })
+  })
+
+  it('keeps an occupied cell out of Unfillable even if a stale flag remains', () => {
+    expect(unfillableSlots(generated, 'generated').map(s => s.id)).toEqual(['x'])
+    expect(unfillableSlots(manual, 'manual')).toEqual([])
+  })
+
+  it('an ineligible ACTIVITY placement keeps its Unfillable flag', () => {
+    const rows = [slotRow({ activity_id: 'act-1', flags: { UNFILLABLE: true } })]
+    expect(unfillableSlots(rows, 'generated')).toHaveLength(1)
+  })
+
+  it('still drops a replaced day elective cell from both counts', () => {
+    const rows = [slotRow({ elective_set_id: 'es-1', day_id: 'd-gone' })]
+    expect(recalcStats(rows, ['d-gone'])).toEqual({ open: 0, filled: 0 })
   })
 })
 
