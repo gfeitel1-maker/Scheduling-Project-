@@ -71,9 +71,7 @@ export default function FinalRunView({
       })
       if (data.ok === false) {
         setError(
-          `This run's snapshot has not fully synced to this device yet (${data.heldSnapshotRows ?? 0} of ` +
-          `${data.expectedSnapshotRows ?? '?'} rows) — export would be incomplete, so nothing was produced. ` +
-          'Wait for sync to finish, or re-finalize from a device that has it all.'
+          `Not fully synced (${data.heldSnapshotRows ?? 0} of ${data.expectedSnapshotRows ?? '?'} rows). Try again after sync.`
         )
         return
       }
@@ -123,9 +121,7 @@ export default function FinalRunView({
       const data = buildElectiveRunProjectionExport(input)
       if (data.ok === false) {
         setError(
-          `This run's snapshot has not fully synced to this device yet (${data.heldSnapshotRows ?? 0} of ` +
-          `${data.expectedSnapshotRows ?? '?'} rows) — export would be incomplete, so nothing was produced. ` +
-          'Wait for sync to finish, or re-finalize from a device that has it all.'
+          `Not fully synced (${data.heldSnapshotRows ?? 0} of ${data.expectedSnapshotRows ?? '?'} rows). Try again after sync.`
         )
         return
       }
@@ -175,9 +171,7 @@ export default function FinalRunView({
         key="snapshot-incomplete"
         testId="run-state-snapshot-incomplete"
         message={
-          `This run's snapshot has not fully synced to this device (${state.heldSnapshotRows ?? 0} of ` +
-          `${state.expectedSnapshotRows ?? '?'} rows) — export is refused until it does, to avoid ` +
-          'printing a schedule with silent gaps.'
+          `Not fully synced (${state.heldSnapshotRows ?? 0} of ${state.expectedSnapshotRows ?? '?'} rows).`
         }
         first={!stale}
       />

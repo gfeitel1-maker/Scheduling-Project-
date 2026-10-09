@@ -149,13 +149,11 @@ export default function BundleEditor({
             id={`bundle-name-${bundle.id ?? 'draft'}`}
             type="text"
             value={nameText}
-            placeholder={isDraft ? 'Pick a period below to name this bundle' : undefined}
             disabled={pendingKeys.has('name')}
             onChange={(e) => setNameText(e.target.value)}
             onBlur={commitName}
             onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
             data-saved={savedFlash ? '' : undefined}
-            aria-label="Bundle name — a camper's preference sheet must match this text"
             style={{
               ...S.input,
               boxShadow: savedFlash ? '0 0 0 2px var(--secondary)' : undefined,

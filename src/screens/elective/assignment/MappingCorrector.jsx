@@ -89,8 +89,7 @@ export default function MappingCorrector({ header, sampleRows, mapping, recalled
           that quietly decided for them. Neutral, not a caution: nothing is wrong. */}
       {recalled && (
         <div role="note" style={{ ...S.emptyStateBody, marginBottom: 12 }}>
-          Filled in from the last time you imported this form. Change anything that looks wrong —
-          what you confirm is what gets imported, and what gets remembered.
+          Filled in from your last import.
         </div>
       )}
       <FieldSelect
@@ -111,7 +110,7 @@ export default function MappingCorrector({ header, sampleRows, mapping, recalled
       />
       {stillUnmapped.includes('ranks') && (
         <div style={S.emptyStateBody}>
-          No rank columns were found. Ranks look like #1, #2, #3 in your header — add one below.
+          No rank columns. Add one.
         </div>
       )}
       {rankColumns.map((r) => (
@@ -156,8 +155,7 @@ export default function MappingCorrector({ header, sampleRows, mapping, recalled
           control that would not enable and no sentence telling them what to change. */}
       {collision && (
         <div role="alert" style={{ ...S.emptyStateBody, marginTop: 12, color: 'var(--danger)' }}>
-          {`Column ${columnLetter(collision.index)} is set as ${collision.roles.join(' and ')}. ` +
-            'Each column can only be one of them — change one before confirming.'}
+          {`Column ${columnLetter(collision.index)} is set as ${collision.roles.join(' and ')}. Pick one.`}
         </div>
       )}
 

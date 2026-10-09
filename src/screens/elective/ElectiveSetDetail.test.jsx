@@ -194,7 +194,7 @@ describe('ElectiveSetDetail — offerings table', () => {
     fireEvent.change(input, { target: { value: '0' } })
     fireEvent.blur(input)
 
-    await waitFor(() => expect(screen.queryByText(/at least 1/i)).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Minimum is 1 or more.')).not.toBeNull())
     expect(localClient.write).not.toHaveBeenCalledWith(
       'token-abc', 'elective_set_activities', 'off-1', 'min_to_run', 0
     )
@@ -417,7 +417,7 @@ describe('ElectiveSetDetail — grid-schedule import affordance (docs/adr/2026-0
     localClient.list.mockImplementation(byEntity({ elective_set_activities: [] }))
     renderDetail({ activities: [activity()] })
 
-    await waitFor(() => expect(screen.getByText(/Import from a file/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Import')).toBeTruthy())
   })
 
   it('file -> parse -> populate wiring: selecting a file runs parseTextGrid -> parseGridSchedule -> populateElectiveSet, then reloads', async () => {
@@ -433,11 +433,11 @@ describe('ElectiveSetDetail — grid-schedule import affordance (docs/adr/2026-0
     populateElectiveSet.mockResolvedValue({ ok: true })
 
     renderDetail({ activities: [activity()] })
-    await waitFor(() => expect(screen.getByText(/Import from a file/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Import')).toBeTruthy())
 
     const listCallsBefore = localClient.list.mock.calls.filter(([e]) => e === 'elective_set_activities').length
 
-    const importButton = screen.getByText(/Import from a file/)
+    const importButton = screen.getByText('Import')
     fireEvent.click(importButton)
     const file = new File(['irrelevant'], 'chugim.txt', { type: 'text/plain' })
     const input = document.querySelector('input[type="file"]')
@@ -462,15 +462,15 @@ describe('ElectiveSetDetail — grid-schedule import affordance (docs/adr/2026-0
     populateElectiveSet.mockResolvedValue({ ok: true, activities: [], vanishedOfferings: [{ activity_id: 'act-archery', name: 'Archery', status: 'potential' }] })
 
     renderDetail({ activities: [activity()] })
-    await waitFor(() => expect(screen.getByText(/Import from a file/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Import')).toBeTruthy())
 
     const input = document.querySelector('input[type="file"]')
     fireEvent.change(input, { target: { files: [new File(['x'], 'chugim.txt', { type: 'text/plain' })] } })
 
     await waitFor(() => expect(screen.getByText(/Archery/)).toBeTruthy())
     // Report-only wording: the director is told it was left alone, not removed.
-    expect(screen.getByText(/not on the sheet you just imported/)).toBeTruthy()
-    expect(screen.getByText(/nothing was removed|nothing removed/)).toBeTruthy()
+    expect(screen.getByText(/not on the sheet, kept/i)).toBeTruthy()
+    expect(screen.getByText(/kept: /)).toBeTruthy()
   })
 
   it('T195: a clean re-import (nothing vanished) shows no vanished-offering notice', async () => {
@@ -480,13 +480,13 @@ describe('ElectiveSetDetail — grid-schedule import affordance (docs/adr/2026-0
     populateElectiveSet.mockResolvedValue({ ok: true, activities: [], vanishedOfferings: [] })
 
     renderDetail({ activities: [activity()] })
-    await waitFor(() => expect(screen.getByText(/Import from a file/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Import')).toBeTruthy())
 
     const input = document.querySelector('input[type="file"]')
     fireEvent.change(input, { target: { files: [new File(['x'], 'chugim.txt', { type: 'text/plain' })] } })
 
     await waitFor(() => expect(populateElectiveSet).toHaveBeenCalledTimes(1))
-    expect(screen.queryByText(/not on the sheet you just imported/)).toBeNull()
+    expect(screen.queryByText(/not on the sheet, kept/i)).toBeNull()
   })
 
   it('T195: clears the vanished-offering notice when the viewed set changes (component reused without a key)', async () => {
@@ -496,7 +496,7 @@ describe('ElectiveSetDetail — grid-schedule import affordance (docs/adr/2026-0
     populateElectiveSet.mockResolvedValue({ ok: true, activities: [], vanishedOfferings: [{ activity_id: 'act-archery', name: 'Archery', status: 'potential' }] })
 
     const view = renderDetail({ set: electiveSet({ id: 'set-A', name: 'Set A' }) })
-    await waitFor(() => expect(screen.getByText(/Import from a file/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Import')).toBeTruthy())
     const input = document.querySelector('input[type="file"]')
     fireEvent.change(input, { target: { files: [new File(['x'], 'a.txt', { type: 'text/plain' })] } })
     await waitFor(() => expect(screen.getByText(/Archery/)).toBeTruthy())
@@ -506,7 +506,7 @@ describe('ElectiveSetDetail — grid-schedule import affordance (docs/adr/2026-0
     view.rerender(
       <ElectiveSetDetail set={electiveSet({ id: 'set-B', name: 'Set B' })} role="admin" activities={[]} locations={[]} tiers={[]} groups={[]} refreshActivities={vi.fn()} onBack={vi.fn()} />
     )
-    await waitFor(() => expect(screen.queryByText(/not on the sheet you just imported/)).toBeNull())
+    await waitFor(() => expect(screen.queryByText(/not on the sheet, kept/i)).toBeNull())
   })
 
   it('T195: surfaces a vanished offering whose activity was deleted from the catalog (null name) instead of dropping it', async () => {
@@ -516,14 +516,14 @@ describe('ElectiveSetDetail — grid-schedule import affordance (docs/adr/2026-0
     populateElectiveSet.mockResolvedValue({ ok: true, activities: [], vanishedOfferings: [{ activity_id: 'act-gone', name: null, status: 'potential' }] })
 
     renderDetail({ activities: [activity()] })
-    await waitFor(() => expect(screen.getByText(/Import from a file/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Import')).toBeTruthy())
     const input = document.querySelector('input[type="file"]')
     fireEvent.change(input, { target: { files: [new File(['x'], 'chugim.txt', { type: 'text/plain' })] } })
 
     // The only vanished offering has no name (activity deleted); the notice must
     // still appear with a fallback label, not be silently suppressed.
-    await waitFor(() => expect(screen.getByText(/no longer in your catalog/)).toBeTruthy())
-    expect(screen.getByText(/not on the sheet you just imported/)).toBeTruthy()
+    await waitFor(() => expect(screen.getByText(/a removed activity/)).toBeTruthy())
+    expect(screen.getByText(/not on the sheet, kept/i)).toBeTruthy()
   })
 
   it('refusal reason (e.g. nonempty set) is surfaced, writes nothing new', async () => {
@@ -533,7 +533,7 @@ describe('ElectiveSetDetail — grid-schedule import affordance (docs/adr/2026-0
     populateElectiveSet.mockResolvedValue({ ok: false, reason: 'This elective set already has offerings. Clear it first if you want to replace it with an import, or add to it by hand.' })
 
     renderDetail({ activities: [activity()] })
-    await waitFor(() => expect(screen.getByText(/Import from a file/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Import')).toBeTruthy())
 
     const input = document.querySelector('input[type="file"]')
     const file = new File(['irrelevant'], 'chugim.txt', { type: 'text/plain' })
@@ -552,7 +552,7 @@ describe('ElectiveSetDetail — grid-schedule import affordance (docs/adr/2026-0
     populateElectiveSet.mockRejectedValue(new Error('write failed for field "activity_id"'))
 
     renderDetail({ activities: [activity()] })
-    await waitFor(() => expect(screen.getByText(/Import from a file/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Import')).toBeTruthy())
 
     const listCallsBefore = localClient.list.mock.calls.filter(([e]) => e === 'elective_set_activities').length
 
@@ -587,7 +587,7 @@ describe('ElectiveSetDetail — Clear offerings control (Tester MEDIUM)', () => 
 
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'elective_set_activities', 'off-1'))
     await waitFor(() => expect(screen.queryByText('No offerings yet')).not.toBeNull())
-    expect(screen.queryByText(/Import from a file/)).not.toBeNull()
+    expect(screen.queryByText('Import')).not.toBeNull()
   })
 })
 
@@ -679,7 +679,7 @@ describe('ElectiveSetDetail — T301 slice 2: bundle authoring trigger', () => {
     fireEvent.click(trigger)
 
     const nameInput = await screen.findByLabelText(/Bundle name/i)
-    expect(nameInput.getAttribute('placeholder')).toBe('Pick a period below to name this bundle')
+    expect(nameInput.getAttribute('placeholder')).toBeNull()
 
     // Review round 2 — a draft (0 persisted bundles, disclosure just opened)
     // must never render as "0 bundles": that reads as a count of something

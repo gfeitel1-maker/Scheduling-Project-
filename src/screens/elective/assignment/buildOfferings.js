@@ -86,7 +86,7 @@ export function findBlankCapacities({ setActivities = [], activities = [] } = {}
       activity_id: activity.id,
       set_activity_id: sa.id,
       labelKey: electiveChoiceLabelKey(activity.name),
-      message: `"${activity.name}" is set to limited capacity but the number is blank — fill it in to run electives.`,
+      message: `"${activity.name}": capacity blank.`,
     })
   }
   return findings
@@ -112,7 +112,7 @@ export function findMismatches({ offerings = [], preferences = [] } = {}) {
     findings.push({
       kind: 'UNMATCHED_PREFERENCE_LABEL',
       labelKey,
-      message: `"${label}" was ranked by campers but does not match any offered activity.`,
+      message: `"${label}" ranked but not offered.`,
     })
   }
 
@@ -121,7 +121,7 @@ export function findMismatches({ offerings = [], preferences = [] } = {}) {
     findings.push({
       kind: 'UNRANKED_OFFERING',
       labelKey,
-      message: `An offered activity ("${labelKey}") was not ranked by any camper.`,
+      message: `"${labelKey}" offered but never ranked.`,
     })
   }
 

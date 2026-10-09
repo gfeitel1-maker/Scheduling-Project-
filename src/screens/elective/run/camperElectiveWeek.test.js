@@ -108,7 +108,7 @@ describe('buildCamperElectiveWeek', () => {
     // copy (M1/UNKNOWN_CAMPER_LABEL).
     it('falls back to the truthful degrade label, never the raw id, when the joined camper row is missing', () => {
       expect(listRunCampers([{ id: 'a1', camper_id: 'cam-x', camper_name: null, preference_rank: 1 }]))
-        .toEqual([{ camperId: 'cam-x', camperName: 'a camper who is no longer on the roster', placementCount: 1, fallbackCount: 0 }])
+        .toEqual([{ camperId: 'cam-x', camperName: 'a removed camper', placementCount: 1, fallbackCount: 0 }])
     })
   })
 })

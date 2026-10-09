@@ -29,7 +29,7 @@ describe('AssignmentPreview', () => {
   it('shows findings alongside the zero-assignment sub-state, with NO Commit button', () => {
     const findings = [{
       kind: 'INVALID_CAPACITY', activity_id: 'act-1',
-      message: '"Archery" is set to limited capacity but the number is blank — fill it in to run electives.',
+      message: '"Archery": capacity blank.',
     }]
     render(
       <AssignmentPreview
@@ -37,7 +37,7 @@ describe('AssignmentPreview', () => {
         activities={ACTIVITIES} campers={CAMPERS} role="admin" onCommit={vi.fn()} committing={false}
       />
     )
-    expect(screen.getByText(/is set to limited capacity/)).not.toBeNull()
+    expect(screen.getByText(/capacity blank/)).not.toBeNull()
     expect(screen.queryByText(/commit/i)).toBeNull()
   })
 
@@ -169,7 +169,7 @@ describe('AssignmentPreview — findings name an activity the way a director spe
 
     const assignments = [{ camper_id: 'c1', occurrence_id: 'occ-1', activity_id: SWIM.id, preference_rank: 1, flags: [] }]
     const { container } = preview({ assignments, findings, campers: [{ id: 'c1', display_name: 'C1' }] })
-    expect(container.textContent).toContain('An offered activity ("Arts & Crafts") was not ranked')
+    expect(container.textContent).toContain('"Arts & Crafts" offered but never ranked')
     expect(container.textContent).not.toContain(ARTS_KEY)
   })
 
@@ -258,7 +258,7 @@ describe('AssignmentPreview — findings name an activity the way a director spe
       // the SAME key — the one shape that could tempt a substitution.
       activities: [SWIM, { id: 'a-arch', name: 'ARCHERY  ADVANCED' }],
     })
-    expect(container.textContent).toContain('"Archery Advanced" was ranked by campers')
+    expect(container.textContent).toContain('"Archery Advanced" ranked but not offered')
     expect(container.textContent).not.toContain('ARCHERY  ADVANCED')
   })
 

@@ -92,7 +92,7 @@ const emptyStyles = {
 //      true` from the same resolution the ciphers themselves use
 //      (electron/db/atRestEncryption.js).
 const ENCRYPTION_DISCLOSURE =
-  'Camper data in this feature is not yet encrypted at rest. Do not use real camper names until this is enabled.'
+  'Camper data is not encrypted — use test names only.'
 
 // The `true` branch. The ADR allows either nothing or "a neutral confirmation"
 // here, and nothing would be an over-claim: `atRestEncryptionEnabled` is one
@@ -103,7 +103,7 @@ const ENCRYPTION_DISCLOSURE =
 // of the same document is plaintext on ITS disk. So the row stays, in a neutral
 // treatment, and says what the flag actually licenses.
 const ENCRYPTION_CONFIRMATION =
-  'At-rest encryption is on for this device. It does not cover data written before it was enabled, or a peer device syncing this camp with it off.'
+  'Encrypted on this device — not data from before it was enabled, or a peer device without it.'
 
 function useAtRestEncryptionStatus() {
   // 'checking' is a real, rendered state (DESIGN_STANDARD §5b): the read is an
@@ -179,7 +179,7 @@ function EncryptionDisclosure() {
   if (status === 'checking') {
     return (
       <div data-testid="encryption-disclosure" data-encryption-state="checking" role="status" style={disclosureStyles.neutral}>
-        Checking whether camper data is encrypted at rest on this device…
+        Checking encryption…
       </div>
     )
   }
@@ -207,10 +207,10 @@ function ReplaceDraftModal({ onConfirm, onCancel }) {
     <div style={{ ...S.overlay, ...enterStyle }}>
       <div style={{ ...S.modalLg, maxWidth: 420 }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 16, marginBottom: 8 }}>
-          Replace the sheet you're working on?
+          Replace this sheet?
         </div>
         <div style={{ fontSize: 13, color: 'var(--text)', marginBottom: 20 }}>
-          You have an in-progress import for this elective set. Choosing a new file replaces it — the rows, mapping and resolutions you have now will be lost.
+          Its rows, mapping and resolutions will be lost.
         </div>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
           <button className="press-97" onClick={onCancel} style={S.btnSecondary}>Cancel</button>
@@ -509,7 +509,7 @@ export default function AssignmentPanel({
     try {
       const fileSheets = await readSheetRows(file)
       if (!fileSheets || fileSheets.length === 0) {
-        onError?.('No rows could be read out of that file.')
+        onError?.("Couldn't read that file.")
         setPhase('empty')
         return
       }
@@ -531,7 +531,7 @@ export default function AssignmentPanel({
       // back to tab 1 keeps that message about a real sheet instead of an empty array.
       const fileRows = selection.selected?.sheet.rows ?? fileSheets[0]?.rows ?? []
       if (fileRows.length === 0) {
-        onError?.('No rows could be read out of that file.')
+        onError?.("Couldn't read that file.")
         setPhase('empty')
         return
       }
@@ -754,8 +754,7 @@ export default function AssignmentPanel({
     }
     if (!result) {
       onError?.(
-        'That file does not read as a camper preference sheet — no camper-name column and no ' +
-        'day/period grid. Nothing was changed.'
+        'Not a preference sheet.'
       )
       setPhase('mapping')
       return
@@ -996,7 +995,7 @@ export default function AssignmentPanel({
       if (blankCapacityFindings.length > 0) {
         setResult({ assignments: [], findings: blankCapacityFindings, choices: [] })
         setPhase('preview')
-        setAnnouncement('Some offerings have a blank capacity and must be fixed before this run can be solved.')
+        setAnnouncement('Fill blank capacities first.')
         return
       }
       // T301 slice 3 (ADR D10) — a director's authored bundles, expanded into
@@ -1124,8 +1123,8 @@ export default function AssignmentPanel({
         division: u.division,
         suggestion: u.suggestion,
         message: u.suggestion
-          ? `${u.camperCount} camper(s) list the division \u201C${u.division}\u201D, which is not a division on this schedule \u2014 did you mean \u201C${u.suggestion}\u201D? They were considered for every occurrence.`
-          : `${u.camperCount} camper(s) list the division \u201C${u.division}\u201D, which is not a division on this schedule. They were considered for every occurrence.`,
+          ? `${u.camperCount} camper(s): unknown division \u201C${u.division}\u201D. Did you mean \u201C${u.suggestion}\u201D?`
+          : `${u.camperCount} camper(s): unknown division \u201C${u.division}\u201D.`,
       }))
       // T255 Slice B — a division name that matches MORE THAN ONE tier on this
       // schedule (two divisions sharing a name, permitted since schema v73).
@@ -1135,7 +1134,7 @@ export default function AssignmentPanel({
       const ambiguousFindings = (ambiguous ?? []).map((a) => ({
         kind: 'AMBIGUOUS_DIVISION',
         division: a.division,
-        message: `${a.camperCount} camper(s) list the division “${a.division}”, which matches more than one division on this schedule — rename one of them to tell them apart. They were considered for every occurrence.`,
+        message: `${a.camperCount} camper(s): “${a.division}” matches several divisions.`,
       }))
       // Board item (2026-09-30), Art. V — a camper correctly identified by
       // group whose group simply isn't on this set's rotation would otherwise
@@ -1152,7 +1151,7 @@ export default function AssignmentPanel({
         return {
           kind: 'GROUP_HAS_NO_CELL',
           group_id: n.group_id,
-          message: `${n.camperCount} camper(s) in “${groupName}” were not placed — their schedule has no period for this elective set.`,
+          message: `${n.camperCount} camper(s) in “${groupName}” not placed: no period.`,
         }
       })
       // Round 3, Red Hat HIGH — the sheet's division and the camper's roster
@@ -1167,7 +1166,7 @@ export default function AssignmentPanel({
           kind: 'DIVISION_ROSTER_MISMATCH',
           division: m.division,
           group_id: m.group_id,
-          message: `${m.camperCount} camper(s) are listed on the sheet under “${m.division}”, but the camp has them in ${groupName}, which is a different division. They were not placed. Check the sheet’s division column, or the campers’ group.`,
+          message: `${m.camperCount} camper(s) listed under “${m.division}” but in ${groupName}. Not placed.`,
         }
       })
       // A coordinate that bound to NOTHING is the director's business, not a
@@ -1482,7 +1481,7 @@ export default function AssignmentPanel({
       <div style={{ marginTop: 24, ...enter }}>
         {liveRegion}
         <EncryptionDisclosure />
-        <div style={S.emptyStateBody}>This set&apos;s placement on the schedule could not be read for assignment.</div>
+        <div style={S.emptyStateBody}>Couldn&apos;t read this set&apos;s placement.</div>
       </div>
     )
   }
@@ -1570,7 +1569,6 @@ export default function AssignmentPanel({
       {phase === 'empty' && (
         <div style={{ ...emptyStyles.wrap, ...enter }}>
           <div style={emptyStyles.title}>No camper preferences yet</div>
-          <div style={emptyStyles.body}>Import a preference sheet to assign campers into this set&apos;s offerings.</div>
           <button className="press-97" onClick={() => fileInputRef.current?.click()} style={S.btnSecondary}>
             Import Camper Preferences
           </button>
@@ -1625,7 +1623,7 @@ export default function AssignmentPanel({
           />
         ) : candidateTemplateIds.length > 1 && !templateId ? (
           <div>
-            <div style={S.label}>This set is placed on more than one schedule — choose which to assign against:</div>
+            <div style={S.label}>Assign against:</div>
             {/* Board item i-declared-camper-dropped-when-all-choices-outside-catalog —
                 this route lets a director solve without ever opening ParseSummary, so
                 the finding has to be repeated here, additive to the route list below. */}

@@ -74,7 +74,7 @@ function ElectiveSetRow({ set, onBuild, onSave, onDelete, role, duplicateSibling
         {duplicateSiblings?.length > 0 && <DuplicateNameDot row={set} siblings={duplicateSiblings} entityLabel="elective set" />}
       </td>
       <td style={{ ...S.td, textAlign: 'right' }}>
-        <button className="press-97" onClick={() => onBuild(set)} style={S.btnSecondary} title="Build this set's offerings from Electives under Schedule">Open</button>
+        <button className="press-97" onClick={() => onBuild(set)} style={S.btnSecondary}>Open</button>
         <button className="press-97" onClick={() => setEditing(true)} style={{ ...S.btnSecondary, marginLeft: 6 }}>Rename</button>
         <button
           onClick={() => onDelete(set)}
@@ -121,7 +121,7 @@ export default function ElectivesScreen({ campId, role, onNavigate, weekId, week
     // Whitespace/case-insensitive so "Chugim"/"Chugim " don't split into two
     // elective sets (same regression as activities, secondary entity).
     if (sets.some((s) => whitespaceInsensitiveName(s.name) === whitespaceInsensitiveName(name))) {
-      setError('An elective set with this name already exists — choose a different name.')
+      setError('Name already used.')
       return false
     }
     return await add({ name })
@@ -148,7 +148,7 @@ export default function ElectivesScreen({ campId, role, onNavigate, weekId, week
     try {
       const result = await localClient.purgeElectiveSeason(scope === 'week' ? { scope, weekId } : { scope })
       if (!result?.ok) throw new Error(result?.error ?? 'purge-failed')
-      setPurgeResult({ count: result.runsDeleted ?? 0, scopeName })
+      setPurgeResult({ count: result.runsDeleted ?? 0 })
     } catch (err) {
       setError(describeWriteFailure(err, 'The elective choices could not be cleared.'))
     } finally {
@@ -178,7 +178,6 @@ export default function ElectivesScreen({ campId, role, onNavigate, weekId, week
               {sets.length === 0 ? (
                 <tr><td colSpan={2} style={S.emptyState}>
                   <div style={S.emptyStateTitle}>No elective sets yet</div>
-                  <div style={S.emptyStateBody}>Type a name below to add your first one.</div>
                 </td></tr>
               ) : sets.map((set) => (
                 <ElectiveSetRow
@@ -223,7 +222,7 @@ export default function ElectivesScreen({ campId, role, onNavigate, weekId, week
         <button
           onClick={() => setConfirmingPurge(true)}
           disabled={role !== 'admin'}
-          title={role !== 'admin' ? 'Admin only' : `Clear every elective choice, assignment and run for ${scopeName}`}
+          title={role !== 'admin' ? 'Admin only' : `Clear electives — ${scopeName}`}
           style={role !== 'admin' ? { ...S.btnRowDanger, ...S.buttonDisabled } : S.btnRowDanger}
         >
           {scope === 'week' ? 'Clear this week\u2019s elective choices' : 'Clear season\u2019s elective choices'}
@@ -233,16 +232,16 @@ export default function ElectivesScreen({ campId, role, onNavigate, weekId, week
       {purgeResult !== null && (
         <div role="status" style={{ ...S.emptyStateBody, textAlign: 'right', marginBottom: 16 }}>
           {purgeResult.count === 0
-            ? `No elective runs to clear for ${purgeResult.scopeName} \u2014 nothing was changed.`
-            : `Cleared ${purgeResult.count} elective ${purgeResult.count === 1 ? 'run' : 'runs'} for ${purgeResult.scopeName} and their choices and assignments.`}
+            ? 'Nothing to clear.'
+            : `Cleared ${purgeResult.count} ${purgeResult.count === 1 ? 'run' : 'runs'}.`}
         </div>
       )}
 
       {confirmingPurge && (
         <ConfirmDangerDialog
           title={scope === 'week' ? `Clear elective choices for ${scopeName}?` : 'Clear all elective choices for the season?'}
-          body={`This permanently removes ${scope === 'week' ? `only the elective runs for ${scopeName}` : 'every elective run for the whole season'}, with all camper choices and assignments in them, from this device and from every device this camp syncs with. A device that is offline will catch up when it reconnects. If another device is actively editing a run at that exact moment, it can reappear there, unnamed — clearing again finishes the job. It does not erase them from this app’s own change history, and nothing here can reach a copy already exported or taken off this computer.`}
-          recovery={`Kept: your elective sets and their offerings, campers, groups, tiers, activities, and schedules${scope === 'week' ? ', and the elective runs of other weeks' : ''}.`}
+          body={`Deletes ${scope === 'week' ? `${scopeName}’s elective runs` : 'every elective run'}, with their choices and assignments, on every device. Can’t be undone.`}
+          recovery="Still in this app’s change history and any exported copy. A device editing a run at that moment can bring it back, unnamed — clear again."
           confirmLabel={scope === 'week' ? 'Clear Week' : 'Clear Season'}
           busy={purging}
           onConfirm={confirmPurgeSeason}
@@ -253,7 +252,7 @@ export default function ElectivesScreen({ campId, role, onNavigate, weekId, week
       {pendingDelete && (
         <ConfirmDangerDialog
           title={`Delete "${pendingDelete.name || 'this elective set'}"?`}
-          recovery="Its offerings go with it. Any schedule cell pointing at it falls back to showing nothing scheduled — the same handling as any deleted reference."
+          recovery="Its offerings go with it."
           confirmLabel="Delete Elective Set"
           busy={deleting}
           onConfirm={confirmDeleteSet}
