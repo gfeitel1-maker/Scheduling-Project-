@@ -43,6 +43,7 @@ const CLOSE_SETTLE_TIMEOUT_MS = 1_000
 // again inside that window throws a C++ exception ("Failed to gather local ICE candidates") that
 // aborts the whole process. Rung 1 pins one port per device, so a new session on that port waits.
 const PINNED_PORT_SETTLE_MS = 750
+const PORT_QUEUE_POLL_MS = 10
 const SID_RE = /^[0-9a-f]{32}$/
 const STUN_RE = /^stun:[A-Za-z0-9.-]+(:\d{1,5})?$/
 const PUNCH_ADDR_RE = /^\/ip[46]\/[^/]+\/udp\/\d+(\/p2p\/[^/]+)?$/
@@ -482,6 +483,7 @@ class PunchTransport {
     this.unsubscribe = null
     this.started = false
     this.lastCloseAt = 0
+    this.portWaiters = []
     this.waitingOffers = 0
   }
 
@@ -508,20 +510,28 @@ class PunchTransport {
   // One live session per pinned port: libdatachannel aborts the process when a second PeerConnection
   // binds a port that is still held, so every session start on a pinned port goes through here. The
   // free-check and newSession() run in the same synchronous step, so concurrent callers cannot both
-  // pass it. Waits (bounded by timeoutMs / signal) for the live session to close, then for the
+  // pass it. Callers are served in arrival order (a timer race between waiters once let a later caller take the port). Waits (bounded by timeoutMs / signal) for the live session to close, then for the
   // release window to pass.
   async sessionOnFreePort(args, { timeoutMs, signal } = {}) {
     if (!this.opts.portRange) return this.newSession(args)
     const deadline = Date.now() + timeoutMs
-    for (;;) {
-      signal?.throwIfAborted()
-      const settle = this.lastCloseAt + PINNED_PORT_SETTLE_MS - Date.now()
-      if (this.sessions.size === 0 && settle <= 0) return this.newSession(args)
-      const remaining = deadline - Date.now()
-      if (remaining <= 0) throw new TimeoutError(`punch: pinned port stayed busy for ${timeoutMs}ms`)
-      let timer
-      const waits = [new Promise((resolve) => { timer = setTimeout(resolve, this.sessions.size === 0 ? Math.min(settle, remaining) : remaining) }), ...[...this.sessions.values()].map((s) => s.whenClosed)]
-      await Promise.race(waits).finally(() => clearTimeout(timer))
+    const ticket = {}
+    this.portWaiters.push(ticket)
+    try {
+      for (;;) {
+        signal?.throwIfAborted()
+        const settle = this.lastCloseAt + PINNED_PORT_SETTLE_MS - Date.now()
+        const first = this.portWaiters[0] === ticket
+        if (first && this.sessions.size === 0 && settle <= 0) return this.newSession(args)
+        const remaining = deadline - Date.now()
+        if (remaining <= 0) throw new TimeoutError(`punch: pinned port stayed busy for ${timeoutMs}ms`)
+        let timer
+        const idleWait = settle > 0 ? settle : PORT_QUEUE_POLL_MS
+        const waits = [new Promise((resolve) => { timer = setTimeout(resolve, this.sessions.size === 0 ? Math.min(idleWait, remaining) : remaining) }), ...[...this.sessions.values()].map((s) => s.whenClosed)]
+        await Promise.race(waits).finally(() => clearTimeout(timer))
+      }
+    } finally {
+      this.portWaiters.splice(this.portWaiters.indexOf(ticket), 1)
     }
   }
 

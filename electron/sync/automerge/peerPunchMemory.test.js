@@ -13,7 +13,7 @@ afterEach(() => {
   for (const f of files.splice(0)) for (const s of ['', '-wal', '-shm']) if (fs.existsSync(f + s)) fs.unlinkSync(f + s)
 })
 function freshDb() {
-  const file = path.join(os.tmpdir(), `shoresh-punch-mem-${Date.now()}-${Math.random()}.sqlite`)
+  const file = path.join(os.tmpdir(), `pt-mem-${Date.now()}-${Math.random()}.sqlite`)
   files.push(file)
   const db = new Database(file)
   db.pragma('foreign_keys = ON')

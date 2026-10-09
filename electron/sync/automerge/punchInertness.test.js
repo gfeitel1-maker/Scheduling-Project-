@@ -33,7 +33,7 @@ beforeEach(() => {
   db = templated.db
   dbFile = templated.file
   deviceId = getOrCreateDeviceId(db)
-  userDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-punch-inertness-'))
+  userDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-inertness-'))
   resetForTests()
   setUserDataDirGetter(() => userDataPath)
   setDocCipher(null)

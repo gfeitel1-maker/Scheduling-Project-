@@ -79,14 +79,23 @@ describe('rememberOwnReflexive', () => {
 })
 
 describe('stale key directories', () => {
-  it('materialize sweeps shoresh-punch dirs left by a dead process and keeps live ones', () => {
-    const dead = fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-punch-999999999-'))
+  it('materialize sweeps only dead-pid mkdtemp-shaped directories and leaves look-alike files, dirs and symlinks', () => {
+    const tmp = os.tmpdir()
+    const dead = fs.mkdtempSync(path.join(tmp, 'shoresh-punch-999999999-'))
     fs.writeFileSync(path.join(dead, 'key.pem'), 'SECRET')
-    const legacy = fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-punch-'))
+    const file = path.join(tmp, `shoresh-punch-mem-1-x${process.pid}.sqlite`)
+    fs.writeFileSync(file, 'db')
+    const wiring = fs.mkdtempSync(path.join(tmp, 'shoresh-punch-wiring-'))
+    const target = fs.mkdtempSync(path.join(tmp, 'sweep-target-'))
+    const link = path.join(tmp, 'shoresh-punch-999999998-abc123')
+    fs.symlinkSync(target, link)
     const live = materializePunchIdentity(freshDb())
-    cleanups.push(live.cleanup)
+    cleanups.push(live.cleanup, () => { fs.rmSync(file, { force: true }); fs.rmSync(wiring, { recursive: true, force: true }); fs.rmSync(link, { force: true }); fs.rmSync(target, { recursive: true, force: true }) })
     expect(fs.existsSync(dead)).toBe(false)
-    expect(fs.existsSync(legacy)).toBe(false)
+    expect(fs.existsSync(file)).toBe(true)
+    expect(fs.existsSync(wiring)).toBe(true)
+    expect(fs.lstatSync(link).isSymbolicLink()).toBe(true)
+    expect(fs.existsSync(target)).toBe(true)
     expect(fs.existsSync(live.keyPemFile)).toBe(true)
   })
 })

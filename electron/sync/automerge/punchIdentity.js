@@ -8,7 +8,7 @@
 //
 // Never synced: same exclusion class as device_identity_key (schema.sql v93).
 import { createHash, generateKeyPairSync, randomBytes, randomInt, sign, X509Certificate } from 'node:crypto'
-import { mkdtempSync, writeFileSync, rmSync, readdirSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, rmSync, readdirSync, lstatSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { forgetPeerAddress, rememberPunchMemory } from './peerAddressBook.js'
@@ -125,17 +125,19 @@ export function createPunchPersistence(db, { now = Date.now } = {}) {
 // Options for punchTransport(): the cert/key as short-lived 0600 files, plus the pinned ICE settings.
 // cleanup() removes the files; call it when the transport stops.
 // A crash or SIGKILL skips cleanup() and leaves key.pem behind. Directories are named for their owner's
-// pid, so any whose process is gone (or that predate the naming) is removed before a new one is made.
+// pid, so any real directory of exactly the mkdtemp shape whose process is gone is removed before a new one is made.
+const STALE_DIR_RE = /^shoresh-punch-(\d+)-[A-Za-z0-9]{6}$/
+
 export function sweepStalePunchDirs() {
   let names
   try { names = readdirSync(tmpdir()) } catch { return }
   for (const name of names) {
-    if (!name.startsWith('shoresh-punch-')) continue
-    const pid = Number(/^shoresh-punch-(\d+)-/.exec(name)?.[1])
-    if (pid) {
-      try { process.kill(pid, 0); continue } catch (err) { if (err.code === 'EPERM') continue }
-    }
-    rmSync(join(tmpdir(), name), { recursive: true, force: true })
+    const pid = Number(STALE_DIR_RE.exec(name)?.[1])
+    if (!pid) continue
+    const full = join(tmpdir(), name)
+    try { if (!lstatSync(full).isDirectory()) continue } catch { continue }
+    try { process.kill(pid, 0); continue } catch (err) { if (err.code === 'EPERM') continue }
+    rmSync(full, { recursive: true, force: true })
   }
 }
 

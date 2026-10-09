@@ -23,7 +23,7 @@ beforeEach(() => {
   const templated = openTemplatedDb()
   db = templated.db
   dbFile = templated.file
-  userDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-punch-probe-'))
+  userDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'pt-probe-'))
   resetForTests()
   setUserDataDirGetter(() => userDataPath)
   setDocCipher(null)
