@@ -14,5 +14,5 @@ export const SCREEN_KEYS = new Set([
   'cohorts', 'tiers', 'groups', 'days', 'timeblocks', 'activities',
   'locations', 'recurringevents', 'fixedevents', 'electives', 'specialevents',
   'schedule', 'schedule:manual', 'schedule:generated', 'schedule:special', 'schedule:electives',
-  'devices', 'about',
+  'devices', 'about', 'pairAgain',
 ])

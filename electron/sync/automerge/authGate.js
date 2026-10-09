@@ -91,6 +91,7 @@ const MAX_PENDING_PAIRING = 50
 // KNOWN ACCEPTED LIMITATION (recorded, not fixed here): peers behind one NAT/CGNAT share a source
 // IP and can be throttled together — a false-positive-adjacent cost, not a security hole,
 // analogous to the Worker's own MAX_PEERS_PER_NAMESPACE doc comment accepting a similar tradeoff.
+
 export function rateLimitKeyFor(connection) {
   const addr = connection?.remoteAddr
   if (!addr) return 'unknown'
@@ -103,6 +104,8 @@ export function rateLimitKeyFor(connection) {
   }
   return addr.toString()
 }
+
+const DISCLOSED_PAIRING_DENIALS = new Set(['device_revoked', 'not_a_member'])
 
 // Throttle keying — the central design decision here, so it is spelled out
 // once. Two Maps, keyed differently, and a frame is throttled if EITHER says
@@ -353,7 +356,9 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
             }
             await sendFramed(stream, encodeMessage({ type: 'pairing_pending', ...(result.joinConfirm ? { join_confirm: result.joinConfirm } : {}) }))
           } else {
-            await sendFramed(stream, encodeMessage({ type: 'pairing_denied' }))
+            // Only the Pair-again refusals are named to the requester; it has proved it holds the code.
+            const reason = DISCLOSED_PAIRING_DENIALS.has(result.reason) ? result.reason : undefined
+            await sendFramed(stream, encodeMessage({ type: 'pairing_denied', ...(reason ? { reason } : {}) }))
           }
         } catch {
           // Peer went away before the reply landed — the caller's own

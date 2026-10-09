@@ -29,6 +29,7 @@ import DeviceManagerScreen from './screens/DeviceManagerScreen'
 import HostHandoffConfirm from './components/HostHandoffConfirm'
 import SeedScreen from './screens/SeedScreen'
 import AboutScreen from './screens/AboutScreen'
+import { PairAgainScreen } from './screens/JoinByCodeScreen'
 import { useDeviceMode } from './hooks/useDeviceMode'
 import BootRecoveryScreen from './screens/BootRecoveryScreen'
 import { usePendingConflicts } from './hooks/usePendingConflicts'
@@ -112,6 +113,8 @@ const SCREENS = {
   // view-only surface (about note, version, user agreement, license,
   // third-party attributions); see src/screens/AboutScreen.jsx.
   about:        AboutScreen,
+  // Footer-only: the can't-reach-the-camp flag's action.
+  pairAgain:    PairAgainScreen,
 }
 
 // Which schedule route a sidebar destination stands for. Absent for the

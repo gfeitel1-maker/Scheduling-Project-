@@ -302,7 +302,10 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
             <tbody>
               {pending.map((device) => (
                 <tr key={device.id}>
-                  <td style={S.td}>{device.name || '—'}</td>
+                  <td style={S.td}>
+                    {device.name || '—'}
+                    {device.rejoin && <span style={styles.flagMuted}> · already in this camp, pairing again</span>}
+                  </td>
                   <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 11 }}>{device.id.slice(0, 8)}</td>
                   <td style={S.td}>
                     {canDecide ? (

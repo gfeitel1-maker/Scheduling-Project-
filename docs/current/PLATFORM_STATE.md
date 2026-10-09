@@ -451,6 +451,7 @@ Two token types are minted, verified, and enforced separately — see `electron/
 | `conflicts` | `src/screens/ConflictsScreen.jsx` | Write-conflict resolution with pre-resolution DB snapshot; only screen given extra props (`onNavigate`, `pendingConflicts`) beyond `campId` |
 | `devices` | `src/screens/DeviceManagerScreen.jsx` | Admin: approve pairing requests, view paired devices, revoke device access — admin-only |
 | `about` | `src/screens/AboutScreen.jsx` | View-only About & Legal surface reached from the sidebar footer: a neutral About note, the app version, the user agreement, the Apache-2.0 license notice, and a pointer to the bundled third-party attributions. No accept-gate, no stored state — pure UI. |
+| `pairAgain` | `PairAgainScreen` in `src/screens/JoinByCodeScreen.jsx` | Reached only from the sidebar footer flag "can't reach the camp · pair again on the camp's network" (no camp peer reachable for 6 hours while the camp has other devices, `electron/sync/automerge/peerReachability.js`). The join-by-code flow run by a device that already belongs to the camp: it keeps its data, a director approves the re-pair, and its document merges with the camp's. A revoked device id and a different camp's code are both refused. Rules in `SECURITY.md`. |
 
 ---
 

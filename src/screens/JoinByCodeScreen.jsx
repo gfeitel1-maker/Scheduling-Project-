@@ -30,6 +30,7 @@ const STEP = {
   searching: 'searching',
   notFound: 'notFound',
   wrongCamp: 'wrongCamp',
+  notThisCamp: 'notThisCamp',
   waitingForApproval: 'waitingForApproval',
   denied: 'denied',
   signIn: 'signIn',
@@ -38,7 +39,13 @@ const STEP = {
   joined: 'joined',
 }
 
-export default function JoinByCodeScreen({ onBack, onJoined }) {
+// Pair again: the can't-reach-the-camp flag's action. Same flow, run by a device that already
+// belongs to the camp and keeps its data (electron/sync/automerge/joinSession.js, `rejoin`).
+export function PairAgainScreen({ onNavigate }) {
+  return <JoinByCodeScreen rejoin onBack={() => onNavigate('devices')} onJoined={() => onNavigate('roots')} />
+}
+
+export default function JoinByCodeScreen({ onBack, onJoined, rejoin = false }) {
   const enter = useEnterTransition('liftFade')
   const [step, setStep] = useState(STEP.code)
   const [code, setCode] = useState('')
@@ -93,7 +100,7 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
     setError(null)
     setStep(STEP.searching)
     try {
-      const started = await localClient.joinStart({ code })
+      const started = await localClient.joinStart(rejoin ? { code, rejoin: true } : { code })
       if (started.status === 'invalid_code') {
         // A typo, reported as a typo. Deriving a search from nonsense would
         // surface as "no camps found" and send them to check their network.
@@ -134,6 +141,10 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
         setStep(STEP.wrongCamp)
         return
       }
+      if (pairing.status === 'not_this_camp') {
+        setStep(STEP.notThisCamp)
+        return
+      }
       if (pairing.status === 'denied') {
         setDeniedReason(pairing.reason)
         setStep(STEP.denied)
@@ -155,7 +166,7 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
     } finally {
       busyRef.current = false
     }
-  }, [code])
+  }, [code, rejoin])
 
   const submitSignIn = useCallback(async () => {
     if (busyRef.current) return
@@ -165,6 +176,10 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
       const login = await localClient.joinLogin({
         name, pin, deviceSecretIdentifier: secretRef.current,
       })
+      if (login.status === 'not_this_camp') {
+        setStep(STEP.notThisCamp)
+        return
+      }
       if (login.status !== 'ok') {
         setError(login.locked
           ? 'Too many tries. Wait a moment and try again.'
@@ -202,9 +217,11 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
 
         {step === STEP.code && (
           <>
-            <div style={S.authTitle}>Camp code</div>
+            <div style={S.authTitle}>{rejoin ? 'Pair again' : 'Camp code'}</div>
             <div style={S.authSubtitle}>
-              On the device this camp was set up on: <strong>Device Manager</strong> → <strong>Add a device</strong>.
+              {rejoin
+                ? <>On a camp device that is on the camp's network: <strong>Device Manager</strong> → <strong>Add a device</strong>, then type its code here. Your changes on this device are kept.</>
+                : <>On the device this camp was set up on: <strong>Device Manager</strong> → <strong>Add a device</strong>.</>}
             </div>
             <input
               style={codeInput}
@@ -242,6 +259,24 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
           />
         )}
 
+        {step === STEP.notThisCamp && (
+          <Outcome
+            title="That code is for a different camp"
+            body={<>This device can only pair again with its own camp. Get the code from a device in that camp.</>}
+            actionLabel="Start over"
+            onAction={startOver}
+          />
+        )}
+
+        {step === STEP.denied && deniedReason === 'device_revoked' && (
+          <Outcome
+            title="This device was removed from the camp"
+            body={<>A director removed it, so it can't pair again. To use it in this camp, a director adds it as a new device.</>}
+            actionLabel="Back to devices"
+            onAction={goBack}
+          />
+        )}
+
         {step === STEP.waitingForApproval && (
           <Waiting
             title="Waiting for approval"
@@ -250,7 +285,7 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
           />
         )}
 
-        {step === STEP.denied && (
+        {step === STEP.denied && deniedReason !== 'device_revoked' && (
           <Outcome
             title={deniedReason === 'pairing-requires-local-network' ? "Not on the camp's network" : "This device wasn't allowed in"}
             body={deniedReason === 'pairing-requires-local-network'
@@ -310,8 +345,8 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
                 first moment it can be, so recognition is something the director
                 CONFIRMS rather than something they took on faith from an
                 address. */}
-            <div style={S.authTitle}>Joined {camp?.name}</div>
-            <div style={S.authSubtitle}>You won't need the code again.</div>
+            <div style={S.authTitle}>{rejoin ? `Back in ${camp?.name}` : `Joined ${camp?.name}`}</div>
+            <div style={S.authSubtitle}>{rejoin ? 'Your changes from this device are merged in.' : "You won't need the code again."}</div>
             <button style={S.authBtnPrimary} onClick={() => onJoined?.(camp)}>Continue</button>
           </>
         )}

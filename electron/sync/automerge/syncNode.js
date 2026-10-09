@@ -617,7 +617,9 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
       joinConfirm = joinProof(code, msg.join_nonce, 'host')
     }
 
-    const result = evaluatePairingRequest(db, { device_id: msg.device_id, device_name: msg.device_name })
+    // Pair again rides only on a code-proven request: a reconnecting peer cannot claim it.
+    const rejoin = joinConfirm !== null && msg.rejoin === true
+    const result = evaluatePairingRequest(db, { device_id: msg.device_id, device_name: msg.device_name, rejoin })
     if (result.ok && !result.alreadyApproved && typeof onPairingRequest === 'function') {
       onPairingRequest(msg.device_id, msg.device_name)
     }
