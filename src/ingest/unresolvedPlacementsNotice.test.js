@@ -15,4 +15,10 @@ describe('unresolvedPlacementsNotice', () => {
   it('says the version was not saved when nothing matched', () => {
     expect(unresolvedPlacementsNotice({ created: false, unresolvedCount: 1, unresolvedNames: ['X'] })).toMatch(/couldn't be saved as a version/)
   })
+  it('says plainly the schedule was not saved when every week is archived', () => {
+    const msg = unresolvedPlacementsNotice({ created: false, allWeeksArchived: true, unresolvedCount: 0, unresolvedNames: [] })
+    expect(msg).toMatch(/wasn't saved/)
+    expect(msg).toMatch(/every week is archived/)
+    expect(msg).toMatch(/unarchive a week or add a new one/)
+  })
 })

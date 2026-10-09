@@ -122,11 +122,15 @@ function sameNameSet(proposed, live) {
 function parseTimeRange(label) {
   const match = String(label ?? '').match(/(\d{1,2})[:.](\d{2})\s*[-–—]\s*(\d{1,2})[:.](\d{2})/)
   if (!match) return { start_time: null, end_time: null }
-  const at = (h, m) => {
-    const minutes = startMinutesForOrdering(`${h}:${m}`)
-    return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${m}`
-  }
-  return { start_time: at(match[1], match[2]), end_time: at(match[3], match[4]) }
+  const hhmm = (minutes) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`
+  const start = startMinutesForOrdering(`${match[1]}:${match[2]}`)
+  let end = startMinutesForOrdering(`${match[3]}:${match[4]}`)
+  if (start == null || end == null) return { start_time: null, end_time: null }
+  // Each endpoint is resolved alone, so a range straddling the 7:00 cutover
+  // ("6:45-7:30") would come back 18:45 -> 07:30. A block never ends before it
+  // starts: the end is the next occurrence of its clock time after the start.
+  if (end <= start && end + 720 < 1440) end += 720
+  return { start_time: hhmm(start), end_time: hhmm(end) }
 }
 
 // The fields each entity needs beyond its name, derived rather than guessed.

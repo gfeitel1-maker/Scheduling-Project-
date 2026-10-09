@@ -1,6 +1,9 @@
 // Packaged audit #12 — the post-import notice for placements the imported
 // version could not carry: how many, which names, why, and what to do.
 export function unresolvedPlacementsNotice(version) {
+  if (version?.allWeeksArchived) {
+    return "Your imported schedule wasn't saved because every week is archived. On the Schedule screen, unarchive a week or add a new one, then import the file again."
+  }
   const count = version?.unresolvedCount ?? 0
   if (count === 0) return null
   const names = [...new Set(version.unresolvedNames ?? [])]

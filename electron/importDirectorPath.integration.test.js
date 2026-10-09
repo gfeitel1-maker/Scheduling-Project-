@@ -40,42 +40,52 @@ const userId = 'u1'
 
 let db, campId, parsed, proposal, committed
 
-beforeAll(async () => {
-  ;({ db } = openTemplatedDb())
-  campId = randomUUID()
-  db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Camp B', 'a'.repeat(64))
-  db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(deviceId, 'Test Device')
-  db.prepare("INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role) VALUES (?, ?, 'Ruth', 'h', 's', 'admin')").run(userId, campId)
-  db.prepare('INSERT INTO cohorts (id, camp_id, name, sort_order) VALUES (?, ?, ?, 0)').run(randomUUID(), campId, 'Main')
+function seedDirectorCamp() {
+  const { db: d } = openTemplatedDb()
+  const id = randomUUID()
+  d.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(id, 'Camp B', 'a'.repeat(64))
+  d.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(deviceId, 'Test Device')
+  d.prepare("INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role) VALUES (?, ?, 'Ruth', 'h', 's', 'admin')").run(userId, id)
+  d.prepare('INSERT INTO cohorts (id, camp_id, name, sort_order) VALUES (?, ?, ?, 0)').run(randomUUID(), id, 'Main')
+  return { d, id }
+}
 
-  parsed = parseTextGrid(fs.readFileSync(SAMPLE, 'utf8'))
-  proposal = extractEntities(parsed)
-  const { fixedEvents, dualUseNames = [] } = inferFixedEvents({ pages: parsed.pages }, proposal, {})
+// The director's path with every card unanswered: dry run -> report -> fold
+// with no answers -> real commit.
+function importUnanswered(d, id, text, answerFor = () => null) {
+  const p = parseTextGrid(text)
+  const prop = extractEntities(p)
+  const { fixedEvents, dualUseNames = [] } = inferFixedEvents({ pages: p.pages }, prop, {})
   const pinOnly = derivePinOnlyActivityNames(fixedEvents, dualUseNames)
   const baseInputs = {
     approved: {
-      groups: proposal.entities.groups,
-      days_of_operation: proposal.entities.days_of_operation,
-      time_blocks: proposal.entities.time_blocks,
-      activities: proposal.entities.activities,
+      groups: prop.entities.groups,
+      days_of_operation: prop.entities.days_of_operation,
+      time_blocks: prop.entities.time_blocks,
+      activities: prop.entities.activities,
     },
     fixedEvents,
     activityRules: inferActivityRules(
-      proposal.entities.activities, proposal.activityPages, proposal.seenCounts,
-      proposal.entities.days_of_operation.length, proposal.entities.groups, pinOnly,
+      prop.entities.activities, prop.activityPages, prop.seenCounts,
+      prop.entities.days_of_operation.length, prop.entities.groups, pinOnly,
     ),
     pinOnlyActivityNames: [...pinOnly],
-    seenCounts: proposal.seenCounts ?? null,
+    seenCounts: prop.seenCounts ?? null,
   }
-  const common = { camp_id: campId, cohort_id: null, author_user_id: userId, device_id: deviceId, mode: 'add' }
-
-  const dry = commitIngest(db, { ...common, ...baseInputs, dryRun: true })
+  const common = { camp_id: id, cohort_id: null, author_user_id: userId, device_id: deviceId, mode: 'add' }
+  const dry = commitIngest(d, { ...common, ...baseInputs, dryRun: true })
   const report = buildReconciliationReport({
     planItems: dry.planItems ?? [],
     fixedEventsReport: { ...dry.fixedEvents, created: dry.fixedEvents?.createdEntries ?? [], unchanged: dry.fixedEvents?.unchangedEntries ?? [] },
   })
-  const folded = foldTriageInputs(baseInputs, report.decisions, {})
-  committed = commitIngest(db, { ...common, ...baseInputs, ...folded })
+  const answers = Object.fromEntries(report.decisions.map((dec) => [dec.id, answerFor(dec)]).filter(([, a]) => a))
+  const folded = foldTriageInputs(baseInputs, report.decisions, answers)
+  return { parsed: p, proposal: prop, committed: commitIngest(d, { ...common, ...baseInputs, ...folded }) }
+}
+
+beforeAll(async () => {
+  ;({ d: db, id: campId } = seedDirectorCamp())
+  ;({ parsed, proposal, committed } = importUnanswered(db, campId, fs.readFileSync(SAMPLE, 'utf8')))
 }, 60_000)
 
 afterAll(() => { db?.close(); cleanupTemplatedDbs() })
@@ -124,5 +134,41 @@ describe('director import with every reconciliation card unanswered (campB-by-da
     const out = await materializeImportedVersion(db, writeClient, { campId, authorUserId: userId, placements })
     expect(out.created).toBe(true)
     expect(db.prepare('SELECT COUNT(*) c FROM schedule_snapshots WHERE id = ?').get(out.snapshotId).c).toBe(1)
+  })
+})
+
+// Red Hat #2 — a numbered sibling ("Specialty 4", one day, beside a daily
+// "Specialty 1..3") is admitted at low confidence so the director is ASKED.
+// Left unanswered it must be held back like every other unanswered low card:
+// no fixed_events row, and no pinned_event activity minted for it.
+describe('an unanswered numbered-sibling event is held back, not pinned', () => {
+  const pad = (s) => String(s).padEnd(20)
+  const groups = ['Bunk A', 'Bunk B', 'Bunk C']
+  const day = (name, withSibling) => [
+    `                    ${name} — All Camp`, '',
+    pad('   Time') + groups.map(pad).join(''), '',
+    pad('09:00–09:45') + groups.map((_, i) => pad(`Specialty ${i + 1}`)).join(''), '',
+    pad('10:00–10:45') + groups.map((_, i) => pad(withSibling && i === 0 ? 'Specialty 4' : ['Swim', 'Art', 'Music'][i])).join(''), '',
+    pad('11:00–11:45') + groups.map(() => pad('Lunch')).join(''),
+  ].join('\n')
+  const text = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].map((d) => day(d, d === 'Wednesday')).join('\n\n')
+
+  it('writes no fixed event and mints no activity for Specialty 4', () => {
+    const { d, id } = seedDirectorCamp()
+    const { committed: out } = importUnanswered(d, id, text)
+    expect(out.held).toBe(false)
+    expect(d.prepare("SELECT COUNT(*) c FROM fixed_events WHERE camp_id = ? AND name = 'Specialty 1'").get(id).c).toBeGreaterThan(0)
+    expect(d.prepare("SELECT COUNT(*) c FROM fixed_events WHERE camp_id = ? AND name = 'Specialty 4'").get(id).c).toBe(0)
+    expect(d.prepare("SELECT COUNT(*) c FROM activities WHERE camp_id = ? AND name = 'Specialty 4'").get(id).c).toBe(0)
+    d.close()
+  })
+
+  it('commits Specialty 4, linked, once the director confirms it (non-vacuity)', () => {
+    const { d, id } = seedDirectorCamp()
+    importUnanswered(d, id, text, (dec) => (dec.entity === 'fixed_events' && dec.entityName === 'Specialty 4' ? { action: 'looks_right' } : null))
+    const rows = d.prepare("SELECT activity_id FROM fixed_events WHERE camp_id = ? AND name = 'Specialty 4'").all(id)
+    expect(rows.length).toBeGreaterThan(0)
+    expect(rows.every((r) => r.activity_id)).toBe(true)
+    d.close()
   })
 })

@@ -2512,6 +2512,8 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
             })
           }
           activityIdByName.set(normalizeName(fe.name), linkedActivityId)
+          created.activities += 1
+          total += 1
         }
         const fields = {
           camp_id,

@@ -459,4 +459,8 @@ describe('time block times from a 12-hour label with no AM/PM', () => {
     expect(fieldsFor('time_blocks', '08:40-09:00', 'c', 0, null)).toMatchObject({ start_time: '08:40', end_time: '09:00' })
     expect(fieldsFor('time_blocks', '11:25-12:05', 'c', 0, null)).toMatchObject({ start_time: '11:25', end_time: '12:05' })
   })
+  it('never stores an end before its start when the endpoints straddle 7:00 (Red Hat #3)', () => {
+    expect(fieldsFor('time_blocks', '6:45-7:30', 'c', 0, null)).toMatchObject({ start_time: '18:45', end_time: '19:30' })
+    expect(fieldsFor('time_blocks', '07:00-07:45', 'c', 0, null)).toMatchObject({ start_time: '07:00', end_time: '07:45' })
+  })
 })
