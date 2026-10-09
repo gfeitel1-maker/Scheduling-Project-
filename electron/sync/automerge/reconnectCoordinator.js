@@ -10,13 +10,16 @@
 // Every collaborator is injected: this module imports nothing from libp2p, the transport or the
 // network, and never throws. The peer is re-checked after EVERY rung and just before rung 3: a connected peer ends
 // the ladder and releases any rendezvous demand. When every rung fails (none merely erroring) it emits
-// SAME_NETWORK_REQUIRED and retries that peer on its own backoff.
+// SAME_NETWORK_REQUIRED and retries that peer on its own backoff. A rung that errors
+// RUNG_ERROR_LIMIT times in a row for a peer counts as failed (keeper ruling), so a permanently broken
+// rung cannot hold the peer below rung 3; PUNCH_RUNG_ERROR is still emitted every time.
 import { EVENTS } from './connectivityEvents.js'
 import { backoffMs } from './punchBackoff.js'
 
 export const RUNG3_WAIT_MS = 90_000
 export const FIRST_SWEEP_DELAY_MS = 15_000
 export const LAN_GRACE_MS = 30_000
+export const RUNG_ERROR_LIMIT = 3
 
 // peer: { peerId, deviceId }. deps: listPeers() -> every trusted camp peer
 // other than this device, isConnected(peerId), attemptLan/attemptRung1/attemptRung2(peer) ->
@@ -44,6 +47,7 @@ export function createReconnectCoordinator({
   const backoff = new Map()
   const lastConnected = new Map()
   const demanded = new Set()
+  const rungErrors = new Map() // peerId -> Map(rung -> consecutive error count)
   let timer = null
   let timerDueAt = 0
   let stopped = false
@@ -108,16 +112,32 @@ export function createReconnectCoordinator({
     let rungError = false
     for (const [n, fn] of [[1, attemptRung1], [2, attemptRung2]]) {
       const r = await tryRung(fn, peer)
-      if (connectedNow(id) || r === 'ok') return r === 'ok' ? { ok: true, rung: `rung${n}` } : CONNECTED
+      if (connectedNow(id) || r === 'ok') {
+        rungErrors.delete(id)
+        return r === 'ok' ? { ok: true, rung: `rung${n}` } : CONNECTED
+      }
       if (r === 'error') {
-        rungError = true
+        // A peer dropped while this rung was in flight must not get its count back.
+        if (membership(id) !== 'absent') {
+          const counts = rungErrors.get(id) ?? new Map()
+          const count = (counts.get(n) ?? 0) + 1
+          rungErrors.set(id, counts.set(n, count))
+          if (count < RUNG_ERROR_LIMIT) rungError = true
+        } else {
+          rungError = true
+        }
         emit(EVENTS.PUNCH_RUNG_ERROR, { peerId: id, rung: n })
+      } else {
+        rungErrors.get(id)?.delete(n)
       }
     }
     if (stopped) return { ok: false, reason: 'cancelled' }
     if (rungError) return { ok: false, reason: 'rung-error' }
     if (rendezvous) {
       if (connectedNow(id)) return CONNECTED
+      const m = membership(id)
+      if (m === 'absent') return { ok: false, reason: 'cancelled' }
+      if (m === 'unknown') return { ok: false, reason: 'peers-unavailable' }
       request(id)
       const outcome = await waitConnected(id, rung3WaitMs)
       if (outcome === 'cancelled') return { ok: false, reason: 'cancelled' }
@@ -131,6 +151,12 @@ export function createReconnectCoordinator({
     return { ok: false, reason: 'same-network-required' }
   }
 
+  // Revocation can land during rungs 1-2; a removed peer must never be published to the rendezvous.
+  // 'unknown' when listPeers throws: that is an ordinary failure to back off, not a revocation.
+  function membership(peerId) {
+    try { return listPeers().some((p) => p.peerId === peerId) ? 'member' : 'absent' } catch { return 'unknown' }
+  }
+
   function reconnectPeer(peer) {
     if (!inFlight.has(peer.peerId)) {
       inFlight.set(peer.peerId, reconnect(peer).finally(() => inFlight.delete(peer.peerId)))
@@ -142,10 +168,11 @@ export function createReconnectCoordinator({
     let all = []
     try { all = listPeers() } catch { /* retry on the next sweep */ }
     const present = new Set(all.map((p) => p.peerId))
-    for (const id of new Set([...backoff.keys(), ...lastConnected.keys(), ...demanded])) {
+    for (const id of new Set([...backoff.keys(), ...lastConnected.keys(), ...demanded, ...rungErrors.keys()])) {
       if (present.has(id)) continue
       backoff.delete(id)
       lastConnected.delete(id)
+      rungErrors.delete(id)
       release(id)
       waiters.get(id)?.('cancelled')
     }
