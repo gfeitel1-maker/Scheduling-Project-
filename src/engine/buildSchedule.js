@@ -192,6 +192,23 @@ export function fixedEventActivityIdsByGroupDay(fixedEvents, activities, groups,
   return byGroupDay
 }
 
+// How many placements the repair pass may lift in a chain to fill one
+// stranded cell. Bounds its cost; deeper chains are rare and expensive.
+const REPAIR_DEPTH = 3
+// And how many lifts it may try per cell in total, so a week that genuinely
+// cannot be filled costs milliseconds, not seconds, to give up on.
+const REPAIR_LIFTS_PER_CELL = 300
+
+// Short cause tags for an UNFILLABLE cell, keyed by blockedBy()'s codes.
+const UNFILLABLE_TAGS = {
+  none: 'Nothing eligible',
+  max: 'Weekly max reached',
+  today: 'Already on today',
+  place: 'Place full',
+  span: 'No room for full length',
+  activity: 'Activity at capacity',
+}
+
 function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, locationNameById, electiveSetActivities, events, fixedEventsOnly = false, weekId = null }) {
   const { cohort, timeBlocks, tiers: _tiers, groups, preplacedSlots, activityTargets, _legacyFixedEvents } = cohortEntry
   const cohortId = cohort?.id ?? null
@@ -500,33 +517,35 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
     return false
   }
 
-  function canPlace(act, groupId, dayId, blockId) {
-    if (getCount(groupId, act.id) >= act.max_per_week) return false
-    if (placedTodayForGroup(groupId, dayId, act.id)) return false
+  // Why `act` cannot go here, or null when it can. The code names the first
+  // constraint that refuses it; Pass 3 turns the codes into the cell's reason.
+  function blockedBy(act, groupId, dayId, blockId) {
+    if (getCount(groupId, act.id) >= act.max_per_week) return 'max'
+    if (placedTodayForGroup(groupId, dayId, act.id)) return 'today'
 
     const group = groupMap.get(groupId)
-    if (placeBlocked(act, group, dayId, blockId)) return false
+    if (placeBlocked(act, group, dayId, blockId)) return 'place'
 
     const spanCount = act.span_blocks || 1
     if (spanCount > 1) {
       const blockIdx = blockOrder.get(blockId)
-      if (blockIdx === undefined) return false
+      if (blockIdx === undefined) return 'span'
       const avail = group?.availability
       for (let i = 1; i < spanCount; i++) {
         const nextBlock = timeBlocksSorted[blockIdx + i]
-        if (!nextBlock) return false  // not enough blocks remaining
+        if (!nextBlock) return 'span'  // not enough blocks remaining
         const nextKey = `${groupId}|${dayId}|${nextBlock.id}`
         // A multi-block activity must not span INTO an elective cell, same
         // as it can't span into a fixed event — otherwise place() would write
         // phantom bookkeeping (assigned/usageCount/placeUsage/activityUsage)
         // at the elective coordinate, corrupting session credit and capacity
         // even though the visible schedule still renders the elective.
-        if (assigned.has(nextKey) || fixedEventLookup.has(nextKey) || electiveLookup.has(nextKey) || eventLookup.has(nextKey)) return false
+        if (assigned.has(nextKey) || fixedEventLookup.has(nextKey) || electiveLookup.has(nextKey) || eventLookup.has(nextKey)) return 'span'
         // Tail block must also be within the group's available part of day
-        if (avail !== 'all' && avail !== nextBlock.part_of_day) return false
+        if (avail !== 'all' && avail !== nextBlock.part_of_day) return 'span'
         // Tail block occupies the place too — same capacity + same_tier_only
         // guard as the head.
-        if (placeBlocked(act, group, dayId, nextBlock.id)) return false
+        if (placeBlocked(act, group, dayId, nextBlock.id)) return 'place'
       }
     }
 
@@ -534,10 +553,14 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
     // null/0 mean "no per-activity cap" — unchanged from today, and matching
     // computeOverlaps/normalizeActivityEligibility's documented `null = no cap`.
     if (act.max_groups_per_slot > 0) {
-      if ((activityUsage.get(`${act.id}|${dayId}|${blockId}`) || 0) >= act.max_groups_per_slot) return false
+      if ((activityUsage.get(`${act.id}|${dayId}|${blockId}`) || 0) >= act.max_groups_per_slot) return 'activity'
     }
 
-    return true
+    return null
+  }
+
+  function canPlace(act, groupId, dayId, blockId) {
+    return blockedBy(act, groupId, dayId, blockId) === null
   }
 
   function occupyPlace(act, safeGroup, groupId, dayId, blockId) {
@@ -574,6 +597,25 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
     occupyPlace(act, safeGroup, groupId, dayId, blockId)
   }
 
+  // Exact inverse of place() for a single-block placement. Only the repair
+  // pass calls it, and it never lifts a span or a pre-placed slot.
+  function unplace(act, groupId, dayId, blockId) {
+    assigned.delete(`${groupId}|${dayId}|${blockId}`)
+    const k = `${groupId}|${act.id}`
+    usageCount.set(k, usageCount.get(k) - 1)
+    dailyUsage.delete(`${groupId}|${dayId}|${act.id}`)
+    const locId = act.location_id ?? null
+    if (locId != null) {
+      const list = placeUsage.get(`${locId}|${dayId}|${blockId}`)
+      const idx = list.findIndex(o => o.groupId === groupId && o.sourceLabel === null)
+      if (idx >= 0) list.splice(idx, 1)
+    }
+    const ak = `${act.id}|${dayId}|${blockId}`
+    activityUsage.set(ak, activityUsage.get(ak) - 1)
+  }
+
+  const preplacedKeys = new Set()
+
   // Pre-place locked slots (fixed events from new signature + any explicit preplacedSlots)
   // Note: place() calls incCount() which registers daily usage, so canPlace() will
   // correctly block duplicate same-day placements even for pre-placed activities.
@@ -586,7 +628,10 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
     // guard fixedEventLookup effectively gets via the openSlots exclusion above.
     if (!assigned.has(key) && !electiveLookup.has(key) && !eventLookup.has(key)) {
       const act = activities.find(a => a.id === pre.activityId)
-      if (act) place(act, pre.groupId, pre.dayId, pre.blockId)
+      if (act) {
+        place(act, pre.groupId, pre.dayId, pre.blockId)
+        preplacedKeys.add(key)
+      }
     }
   }
 
@@ -628,11 +673,70 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
     }
   }
 
+  // Greedy placement can strand a cell that a short reshuffle would fill
+  // (audit #20: a tight Latin-square week left 6 blank). tryFill fills a cell
+  // directly, or lifts one placement that is in its way (same group, or same
+  // day and block), fills the cell, and recursively refills the lifted cell,
+  // up to REPAIR_DEPTH lifts deep and REPAIR_LIFTS_PER_CELL in all. Every
+  // step that does not end filled is undone, so no filled cell ever empties,
+  // and nothing is lifted below its weekly minimum. Candidates are tried in
+  // Pass 2's preference (high before low, least-used first, then catalog
+  // order); no rand(), so the same input gives the same week.
+  const keyOf = s => `${s.groupId}|${s.dayId}|${s.blockId}`
+  const PRIORITY_RANK = { high: 0, low: 1 }
+  const fits = s => s.eligibleActs
+    .filter(a => (a.span_blocks || 1) === 1 && canPlace(a, s.groupId, s.dayId, s.blockId))
+    .sort((a, b) => (PRIORITY_RANK[a.priority] ?? 1) - (PRIORITY_RANK[b.priority] ?? 1)
+      || getCount(s.groupId, a.id) - getCount(s.groupId, b.id))
+
+  function tryFill(u, depth, locked) {
+    const direct = fits(u)[0]
+    if (direct) { place(direct, u.groupId, u.dayId, u.blockId); return true }
+    if (depth === 0) return false
+    locked.add(keyOf(u))
+    for (const s of openSlots) {
+      if (liftBudget <= 0) break
+      const key = keyOf(s)
+      if (locked.has(key) || spanTails.has(key) || preplacedKeys.has(key)) continue
+      if (s.groupId !== u.groupId && (s.dayId !== u.dayId || s.blockId !== u.blockId)) continue
+      const lifted = activityById.get(assigned.get(key))
+      if (!lifted || (lifted.span_blocks || 1) !== 1) continue
+      if (getCount(s.groupId, lifted.id) <= getMin(lifted.id)) continue
+      liftBudget--
+      unplace(lifted, s.groupId, s.dayId, s.blockId)
+      for (const a of fits(u)) {
+        place(a, u.groupId, u.dayId, u.blockId)
+        if (tryFill(s, depth - 1, locked)) { locked.delete(keyOf(u)); return true }
+        unplace(a, u.groupId, u.dayId, u.blockId)
+      }
+      place(lifted, s.groupId, s.dayId, s.blockId)
+    }
+    locked.delete(keyOf(u))
+    return false
+  }
+
+  let liftBudget = 0
+  // A later reshuffle can free room for a cell that failed earlier, so sweep
+  // until a sweep fills nothing (each productive sweep fills >= 1 cell, so this
+  // ends within openSlots.length sweeps).
+  function repair() {
+    let filled = true
+    while (filled) {
+      filled = false
+      for (const u of openSlots) {
+        if (assigned.has(keyOf(u))) continue
+        liftBudget = REPAIR_LIFTS_PER_CELL
+        if (tryFill(u, REPAIR_DEPTH, new Set())) filled = true
+      }
+    }
+  }
+
   const unfilledSlots = openSlots.filter(s => !assigned.has(`${s.groupId}|${s.dayId}|${s.blockId}`))
   if (!fixedEventsOnly) {
     runRound(unfilledSlots, 'high')
     const stillUnfilled = openSlots.filter(s => !assigned.has(`${s.groupId}|${s.dayId}|${s.blockId}`))
     runRound(stillUnfilled, 'low')
+    repair()
   }
 
   // ── Pass 3: audit ─────────────────────────────────────────────────────────
@@ -650,7 +754,10 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
 
     if (!actId && !fixedEventsOnly) {
       flags.UNFILLABLE = true
-      flags.UNFILLABLE_reason = 'No eligible activity could be placed in this slot'
+      const codes = os.eligibleActs.length > 0
+        ? [...new Set(os.eligibleActs.map(a => blockedBy(a, os.groupId, os.dayId, os.blockId)))].filter(Boolean)
+        : ['none']
+      flags.UNFILLABLE_reason = codes.map(c => UNFILLABLE_TAGS[c]).join(' · ')
       // Slice 4b (§3): if every eligible activity was blocked by a place an
       // overlay (fixed event/elective offering/event) already occupies, name that
       // overlay — otherwise a director sees a newly-blank cell with no way to
@@ -667,7 +774,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
         const blocker = occupants.find(o => o.sourceLabel)
         if (blocker) {
           const locName = locationNameById?.get(locId) || locId
-          flags.UNFILLABLE_reason = `No eligible activity could be placed — ${locName} is occupied by ${blocker.sourceLabel} at this time`
+          flags.UNFILLABLE_reason = `${locName} in use by ${blocker.sourceLabel}`
           break
         }
       }

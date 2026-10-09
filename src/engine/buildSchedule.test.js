@@ -314,7 +314,125 @@ describe('UNFILLABLE flag', () => {
     const { slots } = buildSchedule(minimal({ activities: [] }))
     const unfillable = slots.find(s => s.flags?.UNFILLABLE)
     expect(unfillable).toBeTruthy()
-    expect(unfillable.flags.UNFILLABLE_reason).toBe('No eligible activity could be placed in this slot')
+    expect(unfillable.flags.UNFILLABLE_reason).toBe('Nothing eligible')
+  })
+
+  // Packaged-app audit #20: the reason names the cause, not just the outcome.
+  const act = (id, o = {}) => ({ id, name: id, priority: 'high', min_per_week: 0, max_per_week: 5, max_groups_per_slot: null, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null, ...o })
+  const block = (i) => ({ id: `b${i}`, name: `B${i}`, start_time: `0${i}:00`, end_time: `0${i}:30`, sort_order: i, part_of_day: 'morning' })
+
+  it('names "Weekly max reached" when every candidate is at its weekly max', () => {
+    const days = [0, 1].map(i => ({ id: `d${i}`, label: `D${i}`, day_of_week: i + 1, sort_order: i }))
+    const { slots } = buildSchedule(minimal({ days, activities: [act('swim', { max_per_week: 1 })] }))
+    const u = slots.find(s => s.flags?.UNFILLABLE)
+    expect(u.flags.UNFILLABLE_reason).toBe('Weekly max reached')
+  })
+
+  it('names "Already on today" when every candidate already ran for this group today', () => {
+    const { slots } = buildSchedule(minimal({ timeBlocks: [block(1), block(2)], activities: [act('swim')] }))
+    const u = slots.find(s => s.flags?.UNFILLABLE)
+    expect(u.flags.UNFILLABLE_reason).toBe('Already on today')
+  })
+
+  it('names "Activity at capacity" when the activity is taken by another group in that block', () => {
+    const groups = [baseGroup, { ...baseGroup, id: 'g2', name: 'Bet' }]
+    const { slots } = buildSchedule(minimal({ groups, activities: [act('swim', { max_groups_per_slot: 1 })] }))
+    const u = slots.find(s => s.flags?.UNFILLABLE)
+    expect(u.flags.UNFILLABLE_reason).toBe('Activity at capacity')
+  })
+})
+
+// Packaged-app audit #20: 4 groups x 20 blocks, 4 activities each 0-5/wk and
+// one group at a time. Exactly 20 placements per group exist (a Latin square
+// each day), and the greedy pass used to leave 6 blank; the repair pass must
+// find the full fill, deterministically.
+describe('repair pass fills a tight but feasible week', () => {
+  const groups = [0, 1, 2, 3].map(i => ({ id: `g${i}`, name: `G${i}`, tier_id: 't1', availability: 'all' }))
+  const days = [0, 1, 2, 3, 4].map(i => ({ id: `d${i}`, label: `D${i}`, day_of_week: i + 1, sort_order: i }))
+  const timeBlocks = [0, 1, 2, 3].map(i => ({ id: `b${i}`, name: `B${i}`, start_time: `0${i + 1}:00`, end_time: `0${i + 1}:30`, sort_order: i, part_of_day: 'morning' }))
+  const activities = ['arts', 'boat', 'climb', 'dance'].map(id => ({ id, name: id, priority: 'high', min_per_week: 0, max_per_week: 5, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }))
+  const input = minimal({ groups, days, timeBlocks, activities })
+
+  it('leaves no cell unfillable', () => {
+    const { slots } = buildSchedule(input)
+    expect(slots.filter(s => s.flags?.UNFILLABLE)).toHaveLength(0)
+  })
+
+  it('keeps every hard constraint: weekly max, once a day, one group per activity per block', () => {
+    const placed = buildSchedule(input).slots.filter(s => s.activityId)
+    const perWeek = new Map(); const perDay = new Set(); const perBlock = new Set()
+    for (const s of placed) {
+      const w = `${s.groupId}|${s.activityId}`
+      perWeek.set(w, (perWeek.get(w) || 0) + 1)
+      const d = `${s.groupId}|${s.dayId}|${s.activityId}`
+      expect(perDay.has(d)).toBe(false); perDay.add(d)
+      const b = `${s.activityId}|${s.dayId}|${s.blockId}`
+      expect(perBlock.has(b)).toBe(false); perBlock.add(b)
+    }
+    for (const n of perWeek.values()) expect(n).toBeLessThanOrEqual(5)
+  })
+
+  it('is deterministic', () => {
+    expect(buildSchedule(input).slots).toEqual(buildSchedule(input).slots)
+  })
+
+  // Round 2 (Red Hat): repair never lifts a placement below its weekly minimum.
+  it('does not raise UNDERSERVED to fill a cell', () => {
+    const withMins = minimal({
+      groups, days, timeBlocks,
+      activities: activities.map((a, i) => ({ ...a, min_per_week: i === 0 ? 5 : 0, priority: i === 0 ? 'high' : 'low' })),
+    })
+    const under = buildSchedule(withMins).findings.filter(f => f.kind === 'UNDERSERVED')
+    expect(under).toHaveLength(0)
+  })
+
+  it('never lifts an activity below its minimum to fill another group', () => {
+    // h holds A (min 1) in the one shared place; g can only do C there. Lifting
+    // A for C and refilling h with D would fill g but underserve h.
+    const h = { id: 'h', name: 'H', tier_id: 't1', availability: 'all' }
+    const g = { id: 'g', name: 'G', tier_id: 't1', availability: 'all' }
+    const mk = (id, o) => ({ id, name: id, min_per_week: 0, max_per_week: 5, max_groups_per_slot: null, same_tier_only: false, eligible_tier_ids: [], prefer_before_day: null, prefer_before_day_min: null, ...o })
+    const input = minimal({
+      groups: [h, g],
+      locations: [{ id: 'P', name: 'Pool', capacity: 1 }],
+      activities: [
+        mk('A', { priority: 'high', min_per_week: 1, location_id: 'P', eligible_group_ids: ['h'] }),
+        mk('C', { priority: 'high', location_id: 'P', eligible_group_ids: ['g'] }),
+        mk('D', { priority: 'low', eligible_group_ids: ['h'] }),
+      ],
+    })
+    const { findings } = buildSchedule(input)
+    expect(findings.filter(f => f.kind === 'UNDERSERVED')).toHaveLength(0)
+  })
+})
+
+// Round 2 (Red Hat): every UNFILLABLE reason names at least one cause, on
+// weeks that cannot be filled, and giving up stays cheap.
+describe('infeasible weeks', () => {
+  function week(G, D, B, A, cap, max) {
+    return minimal({
+      groups: Array.from({ length: G }, (_, i) => ({ id: `g${i}`, name: `G${i}`, tier_id: 't1', availability: 'all' })),
+      days: Array.from({ length: D }, (_, i) => ({ id: `d${i}`, label: `D${i}`, day_of_week: i + 1, sort_order: i })),
+      timeBlocks: Array.from({ length: B }, (_, i) => ({ id: `b${i}`, name: `B${i}`, start_time: `${10 + i}:00`, end_time: `${10 + i}:30`, sort_order: i, part_of_day: 'morning' })),
+      activities: Array.from({ length: A }, (_, i) => ({ id: `a${i}`, name: `a${i}`, priority: i % 2 ? 'low' : 'high', min_per_week: 1, max_per_week: max, max_groups_per_slot: cap, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null })),
+    })
+  }
+
+  it('never writes an empty or dangling reason', () => {
+    for (const input of [week(10, 5, 6, 4, 1, 5), week(12, 5, 8, 10, 1, 3), week(6, 3, 5, 3, 2, 2)]) {
+      for (const s of buildSchedule(input).slots.filter(x => x.flags?.UNFILLABLE)) {
+        expect(s.flags.UNFILLABLE_reason).toMatch(/^[A-Z][^·]*[a-z]( · [A-Z][^·]*[a-z])*$/)
+      }
+    }
+  })
+
+  it('gives up on a 480-cell infeasible week within a CPU budget', () => {
+    const input = week(12, 5, 8, 10, 1, 3)
+    const before = process.cpuUsage()
+    const { slots } = buildSchedule(input)
+    const used = process.cpuUsage(before)
+    expect(slots.filter(s => s.flags?.UNFILLABLE).length).toBeGreaterThan(0)
+    expect((used.user + used.system) / 1000).toBeLessThan(3000)
   })
 })
 

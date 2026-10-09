@@ -11,7 +11,7 @@ import IndeterminateBar from '../components/schedule/IndeterminateBar'
 import ErrorBanner from '../components/schedule/ErrorBanner'
 import { legendEntriesFor, FLAG_SEVERITY, setActivityPalette } from '../components/schedule/slotCellConstants'
 import FindingsRail from '../components/schedule/FindingsRail'
-import { highlightMapForKind } from './schedule/findingHighlight'
+import { highlightMapForKind, inViewLabel, railEmptyText } from './schedule/findingHighlight'
 import ConfirmRegenModal from '../components/schedule/ConfirmRegenModal'
 import ExportChooserModal from '../components/schedule/ExportChooserModal'
 import VersionsDropdown from '../components/schedule/VersionsDropdown'
@@ -220,8 +220,11 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   useFlagChangeAck(slots, route, flagAckResync)
 
   const [view, setView] = useState('day') // 'group' | 'activity' | 'day'
-  const [selectedGroup, setSelectedGroup] = useState(null)
-  const [selectedDay, setSelectedDay] = useState(null)
+  const [pickedGroup, setSelectedGroup] = useState(null)
+  const [pickedDay, setSelectedDay] = useState(null)
+  // Group and Daily View always show one: an unset or stale pick falls to the first.
+  const selectedGroup = resolveSelection(pickedGroup, groups)
+  const selectedDay = resolveSelection(pickedDay, days)
   const [weatherMode, setWeatherMode] = useState(false)
   const [confirmRegen, setConfirmRegen] = useState(false)
   const [selectedActivity, setSelectedActivity] = useState(null)
@@ -1176,19 +1179,15 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
               onLocate={locateFindingsRow}
               onClose={() => setRailView(null)}
               intro={{ title: 'What this week still needs', sub: "Nothing here is a mistake. It's what's left to place." }}
-              emptyText="Everything on your list is placed."
+              emptyText={railEmptyText(stats)}
             />
           )}
         </div>
         {/* Off-view honesty: a concern's count is camp-wide, but the grid only
             lights the current view. Say so rather than silently showing fewer. */}
-        {highlightedKind && (view === 'group' || view === 'day') && (
+        {highlightedKind && (view === 'group' || view === 'day') && inViewLabel(visibleHighlighted, highlightedIds.length) && (
           <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 8 }}>
-            {highlightedIds.length === 0
-              ? 'Nothing to light up here — this concern is about time that isn’t placed yet. See the list.'
-              : visibleHighlighted < highlightedIds.length
-                ? `Showing ${visibleHighlighted} of ${highlightedIds.length} here — open the list to reach the rest.`
-                : `${highlightedIds.length} lit on the grid.`}
+            {inViewLabel(visibleHighlighted, highlightedIds.length)}
           </div>
         )}
         </div>
@@ -1212,10 +1211,9 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
 
       {/* === Main content: persistent sidebar + grid area === */}
       {(() => {
-        // Slots scoped for the palette count display
-        const paletteSlots = view === 'activity'
-          ? slots.filter(s => !s.is_fixed_event)
-          : slots.filter(s => s.group_id === selectedGroup && !s.is_fixed_event)
+        // The palette counts the whole week: one group in Group View, the
+        // camp in Daily/Activity View, where no single group is in focus.
+        const paletteGroupId = view === 'group' ? selectedGroup : null
 
         // T266 (site 2 of 7) — the drag palette shows free choices only. NOTE: the
         // palette deliberately does NOT filter by group eligibility and this does
@@ -1225,8 +1223,9 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
         const sidebar = (
           <ActivityPalette
             activities={filterFreeChoiceActivities(activities)}
-            slots={paletteSlots}
-            showTargets={isManual}
+            slots={slots}
+            groupId={paletteGroupId}
+            groups={groups}
             draggable={view === 'group' || view === 'day'}
             collapsed={sidebarCollapsed}
             onToggleCollapse={() => setSidebarCollapsed(c => !c)}
