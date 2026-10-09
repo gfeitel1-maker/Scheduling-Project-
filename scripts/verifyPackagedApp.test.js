@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { checkPackagedDriver, interpretLoadProbe, findPackagedApp } from './verifyPackagedApp.js'
+import { checkPackagedDriver, checkPackagedDatachannel, interpretLoadProbe, findPackagedApp, checkLockfilePlatforms } from './verifyPackagedApp.js'
 
 let tmp
 beforeEach(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pkgapp-')) })
@@ -41,7 +41,47 @@ describe('checkPackagedDriver', () => {
   })
 })
 
+describe('checkPackagedDatachannel', () => {
+  it('fails when node-datachannel is not in the bundle', () => {
+    const r = checkPackagedDatachannel(fixture(['node_modules/better-sqlite3-multiple-ciphers/build/Release/x.node']))
+    expect(r.ok).toBe(false)
+    expect(r.reason).toBe('datachannel-missing')
+  })
+
+  it('fails when node-datachannel is present but no @node-datachannel platform binary shipped', () => {
+    const r = checkPackagedDatachannel(fixture(['node_modules/node-datachannel/package.json']))
+    expect(r.ok).toBe(false)
+    expect(r.reason).toBe('no-native-binary')
+  })
+
+  it('passes and names the prebuilt platform binary', () => {
+    const rel = 'node_modules/@node-datachannel/darwin-x64/node_datachannel.node'
+    const app = fixture(['node_modules/node-datachannel/package.json', rel])
+    const r = checkPackagedDatachannel(app)
+    expect(r.ok).toBe(true)
+    expect(r.binaries).toEqual([path.join(app, rel)])
+  })
+})
+
+describe('checkLockfilePlatforms', () => {
+  const lock = (names) => ({ packages: Object.fromEntries(names.map((n) => [`node_modules/@node-datachannel/${n}`, { version: '0.33.4' }])) })
+
+  it('passes when the lockfile pins prebuilts for every shipped platform', () => {
+    expect(checkLockfilePlatforms(lock(['darwin-arm64', 'darwin-x64', 'win32-x64-msvc'])).ok).toBe(true)
+  })
+
+  it('fails and names the platform whose prebuilt is missing', () => {
+    const r = checkLockfilePlatforms(lock(['darwin-arm64', 'darwin-x64']))
+    expect(r.ok).toBe(false)
+    expect(r.message).toContain('win32-x64-msvc')
+  })
+})
+
 describe('interpretLoadProbe', () => {
+  it('names the module that failed to load', () => {
+    expect(interpretLoadProbe({ status: 1, stdout: '', stderr: 'boom' }, 'node-datachannel').message).toContain('node-datachannel')
+  })
+
   it('passes only when the packaged Electron opened an in-memory database', () => {
     expect(interpretLoadProbe({ status: 0, stdout: 'DRIVER_OK\n', stderr: '' }).ok).toBe(true)
   })
