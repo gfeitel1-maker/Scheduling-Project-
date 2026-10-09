@@ -16,6 +16,7 @@ import {
   verifySessionToken,
   attemptLogin,
   ensureHostSigningKey,
+  isHostDevice,
   hashPin,
 } from './localAuth.js'
 import { appendOp } from '../ops/operations.js'
@@ -366,6 +367,38 @@ describe('ensureHostSigningKey', () => {
 
     const rows = db.prepare('SELECT * FROM host_signing_key').all()
     expect(rows).toHaveLength(1)
+  })
+
+  it('never mints when the camp already has a public key but this device has no key row — the camp trust root is not replaced', () => {
+    const before = db.prepare('SELECT signing_public_key FROM camps').get().signing_public_key
+    db.prepare('DELETE FROM host_signing_key').run()
+
+    expect(ensureHostSigningKey(db)).toBeNull()
+
+    expect(db.prepare('SELECT COUNT(*) AS n FROM host_signing_key').get().n).toBe(0)
+    expect(db.prepare('SELECT signing_public_key FROM camps').get().signing_public_key).toBe(before)
+  })
+
+  it('still mints exactly once at bootstrap, when the camp has no public key yet', () => {
+    db.prepare('DELETE FROM host_signing_key').run()
+    db.prepare('UPDATE camps SET signing_public_key = NULL').run()
+
+    const minted = ensureHostSigningKey(db)
+    expect(minted.public_key).toEqual(expect.any(String))
+    expect(db.prepare('SELECT signing_public_key FROM camps').get().signing_public_key).toBe(minted.public_key)
+    expect(ensureHostSigningKey(db).public_key).toBe(minted.public_key)
+  })
+})
+
+describe('isHostDevice', () => {
+  it('is true only when the key row public half matches camps.signing_public_key', () => {
+    expect(isHostDevice(db)).toBe(true)
+
+    db.prepare('UPDATE camps SET signing_public_key = ?').run('ab'.repeat(40))
+    expect(isHostDevice(db)).toBe(false)
+
+    db.prepare('DELETE FROM host_signing_key').run()
+    expect(isHostDevice(db)).toBe(false)
   })
 })
 

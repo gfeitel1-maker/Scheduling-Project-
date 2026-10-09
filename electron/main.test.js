@@ -201,6 +201,64 @@ describe('chooseMode: host path', () => {
   })
 })
 
+describe('chooseMode: host role follows key presence, not the stored mode', () => {
+  function seedCamp() {
+    db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run('camp-x', 'Camp X', 'a'.repeat(64))
+    return db.prepare('SELECT signing_public_key FROM camps').get().signing_public_key
+  }
+
+  it('mode=host with no key row on a camp that has a public key: reports client, login does not mint, public key unchanged', async () => {
+    const publicKey = seedCamp()
+    db.prepare('DELETE FROM host_signing_key').run()
+    const handlers = makeHandlers(db, deviceId, {})
+
+    expect(handlers.chooseMode({ mode: 'host' })).toEqual({ mode: 'client' })
+    await handlers.login({ name: 'nobody', pin: '000000' }).catch(() => {})
+
+    expect(db.prepare('SELECT COUNT(*) AS n FROM host_signing_key').get().n).toBe(0)
+    expect(db.prepare('SELECT signing_public_key FROM camps').get().signing_public_key).toBe(publicKey)
+  })
+
+  it('a key row whose public half mismatches the camp public key is not treated as host', async () => {
+    seedCamp()
+    db.prepare('UPDATE camps SET signing_public_key = ?').run('cd'.repeat(40))
+    const handlers = makeHandlers(db, deviceId, {})
+
+    expect(handlers.chooseMode({ mode: 'host' })).toEqual({ mode: 'client' })
+  })
+
+  it('a demoted device hands the token it was given to the libp2p node', async () => {
+    seedCamp()
+    db.prepare('DELETE FROM host_signing_key').run()
+    const setAuthToken = vi.fn()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const handlers = makeHandlers(db, deviceId, {
+      getAutomergeSyncNode: () => ({ setAuthToken, getPeers: () => [], isPeerAuthenticated: () => false }),
+    })
+
+    expect(handlers.chooseMode({ mode: 'host', token: 'stored-valid' })).toEqual({ mode: 'client' })
+
+    expect(setAuthToken).toHaveBeenCalledWith('stored-valid')
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('no host signing key'))
+    warn.mockRestore()
+  })
+
+  it('warns with the mismatch reason when the key does not match the camp', async () => {
+    seedCamp()
+    db.prepare('UPDATE camps SET signing_public_key = ?').run('cd'.repeat(40))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    makeHandlers(db, deviceId, {}).chooseMode({ mode: 'host' })
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('does not match'))
+    warn.mockRestore()
+  })
+
+  it('a matching key row keeps host', async () => {
+    seedCamp()
+    const handlers = makeHandlers(db, deviceId, {})
+    expect(handlers.chooseMode({ mode: 'host' })).toEqual({ mode: 'host' })
+  })
+})
+
 describe('chooseMode: client path', () => {
   // Stage 6c: a Client is no longer a different kind of device. It gets the
   // same local write client the Host gets, because under CRDT sync a write is
