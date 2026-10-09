@@ -568,3 +568,32 @@ describe('Sidebar: footer sync-not-running indicator (T277)', () => {
     expect(screen.getByRole('button', { name: 'try again' })).toBeTruthy()
   })
 })
+
+describe('Sidebar: packaged audit #32/#33/#34', () => {
+  it('#32 offers Show in Finder once a backup has been saved, and it calls the reveal handler', () => {
+    const handleShowBackup = vi.fn()
+    const { rerender } = renderSidebar({ handleShowBackup })
+    expect(screen.queryByRole('button', { name: 'Show in Finder' })).toBeNull()
+    rerender(sidebarElement({ handleShowBackup, backupRevealable: true }))
+    fireEvent.click(screen.getByRole('button', { name: 'Show in Finder' }))
+    expect(handleShowBackup).toHaveBeenCalledTimes(1)
+  })
+
+  it('#33 the nav list can shrink and scroll on its own while the footer keeps its height', () => {
+    const { container } = renderSidebar()
+    const nav = container.querySelector('nav')
+    expect(nav.style.minHeight).toBe('0px')
+    expect(nav.style.overflowY).toBe('auto')
+    for (const sib of [...nav.parentElement.children].filter((el) => el !== nav)) {
+      expect(sib.style.flexShrink).toBe('0')
+    }
+  })
+
+  it('#34 the "only this computer" row opens LAN & Devices', () => {
+    const onNavigate = vi.fn()
+    renderSidebar({ onNavigate, syncStatus: { state: 'standalone', otherDeviceCount: 0 } })
+    fireEvent.click(screen.getByTitle('Settings'))
+    fireEvent.click(screen.getByText('only this computer'))
+    expect(onNavigate).toHaveBeenCalledWith('devices')
+  })
+})

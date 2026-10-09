@@ -129,3 +129,31 @@ describe('CellInlineEditor', () => {
     })
   })
 })
+
+describe('CellInlineEditor — elective sets as suggestions (packaged audit #26)', () => {
+  const sets = [
+    { id: 'es-1', name: 'Afternoon Chugim', is_reusable: 1 },
+    { id: 'es-2', name: 'Chugim one-off', is_reusable: 0 },
+  ]
+
+  it('lists a reusable elective set beside activities with an Elective tag, and picking it places it through the elective path', () => {
+    const onCreateElective = vi.fn()
+    render(<CellInlineEditor eligibleActivities={eligible} electiveSets={sets} currentActivityName={null} onPlace={vi.fn()} onCreateNew={vi.fn()} onCreateElective={onCreateElective} onCancel={vi.fn()} />)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'chug' } })
+    const row = screen.getByText('Afternoon Chugim').closest('.cell-inline-editor-suggestion')
+    expect(row.textContent).toContain('Elective')
+    expect(screen.queryByText('Chugim one-off')).toBeNull()
+    fireEvent.mouseDown(row)
+    expect(onCreateElective).toHaveBeenCalledWith('Afternoon Chugim', [], 'Afternoon Chugim')
+  })
+
+  it('Enter on an exact elective-set name places the set instead of minting an activity', () => {
+    const onCreateElective = vi.fn()
+    const onCreateNew = vi.fn()
+    render(<CellInlineEditor eligibleActivities={eligible} electiveSets={sets} currentActivityName={null} onPlace={vi.fn()} onCreateNew={onCreateNew} onCreateElective={onCreateElective} onCancel={vi.fn()} />)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'afternoon chugim' } })
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' })
+    expect(onCreateElective).toHaveBeenCalledWith('Afternoon Chugim', [], 'Afternoon Chugim')
+    expect(onCreateNew).not.toHaveBeenCalled()
+  })
+})

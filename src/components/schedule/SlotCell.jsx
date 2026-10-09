@@ -462,6 +462,7 @@ export default function SlotCell({
           <CellInlineEditor
             eligibleActivities={eligibleActivities}
             eligibleEvents={eventsAll}
+            electiveSets={electiveSetsAll}
             currentActivityName={activity?.name ?? electiveLabel ?? eventLabel ?? null}
             onPlace={(activityId) => { setEditing(false); onPlace?.(slot, activityId) }}
             onCreateNew={(name) => { setEditing(false); onCreateNew?.(slot, name) }}

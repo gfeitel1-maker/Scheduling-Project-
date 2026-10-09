@@ -136,6 +136,7 @@ export default function ScheduleDayView({
                             onPlace={onPlace}
                             onCreateNew={onCreateNew}
                             onCreateElective={onCreateElective}
+                            electiveSetsAll={electiveSetsAll}
                             eligibleEvents={eventsAll}
                             onPlaceEvent={onPlaceEvent}
                             {...placeCell({ blockIndex, columnIndex: groupIndex })}

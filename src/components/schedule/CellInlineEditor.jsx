@@ -24,6 +24,10 @@ export default function CellInlineEditor({
   // "create new" grammar in Slice 1 (only existing events are placeable, same
   // posture as an exact activity match) — no colon grammar, no create branch.
   eligibleEvents = [], onPlaceEvent,
+  // Packaged audit #26 — the camp's reusable elective sets, offered so a set is
+  // discoverable from the week. Picking one goes through onCreateElective with
+  // no members, which createElectiveFromCell resolves to the existing durable set.
+  electiveSets = [],
 }) {
   const [value, setValue] = useState('')
   const inputRef = useRef(null)
@@ -42,6 +46,16 @@ export default function CellInlineEditor({
     return eligibleEvents.filter(e => whitespaceInsensitiveName(e.name).includes(query))
   }, [eligibleEvents, query])
 
+  const durableSets = useMemo(
+    () => (onCreateElective ? electiveSets.filter(s => Number(s.is_reusable) !== 0) : []),
+    [electiveSets, onCreateElective]
+  )
+
+  const electiveMatches = useMemo(() => {
+    if (!query) return []
+    return durableSets.filter(s => whitespaceInsensitiveName(s.name).includes(query))
+  }, [durableSets, query])
+
   const exact = useMemo(
     () => eligibleActivities.find(a => whitespaceInsensitiveName(a.name) === query) ?? null,
     [eligibleActivities, query]
@@ -56,6 +70,16 @@ export default function CellInlineEditor({
     () => (exact ? null : eligibleEvents.find(e => whitespaceInsensitiveName(e.name) === query) ?? null),
     [eligibleEvents, query, exact]
   )
+
+  const exactElective = useMemo(
+    () => (exact || exactEvent ? null : durableSets.find(s => whitespaceInsensitiveName(s.name) === query) ?? null),
+    [durableSets, query, exact, exactEvent]
+  )
+
+  function placeElective(set) {
+    committedRef.current = true
+    onCreateElective(set.name, [], set.name)
+  }
 
   // Live-typing render only — provisional, harmless (no write). The
   // commit-time check below is what actually decides which path fires.
@@ -77,6 +101,8 @@ export default function CellInlineEditor({
     // colon in it is never misfiled as elective grammar either).
     if (exactEvent && onPlaceEvent) { committedRef.current = true; onPlaceEvent(exactEvent.id); return }
 
+    if (exactElective) { placeElective(exactElective); return }
+
     if (hasColon) {
       const parsed = parseElectiveGrammar(value)
       if (parsed && parsed.setName && onCreateElective) {
@@ -95,6 +121,7 @@ export default function CellInlineEditor({
 
     if (matches.length > 0) { committedRef.current = true; onPlace(matches[0].id); return }
     if (eventMatches.length > 0 && onPlaceEvent) { committedRef.current = true; onPlaceEvent(eventMatches[0].id); return }
+    if (electiveMatches.length > 0) { placeElective(electiveMatches[0]); return }
     committedRef.current = true
     onCreateNew(value.trim())
   }
@@ -139,7 +166,7 @@ export default function CellInlineEditor({
           })}
         </div>
       )}
-      {query && !exact && !exactEvent && !hasColon && (
+      {query && !exact && !exactEvent && !exactElective && !hasColon && (
         <div className="cell-inline-editor-suggestions">
           {matches.map(a => (
             <div
@@ -159,7 +186,18 @@ export default function CellInlineEditor({
               {e.name}
             </div>
           ))}
-          {matches.length === 0 && eventMatches.length === 0 && (
+          {electiveMatches.map(s => (
+            <div
+              key={s.id}
+              className="cell-inline-editor-suggestion"
+              onMouseDown={() => placeElective(s)}
+              style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+            >
+              <span title={s.name} style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</span>
+              <span style={ELECTIVE_TAG}>Elective</span>
+            </div>
+          ))}
+          {matches.length === 0 && eventMatches.length === 0 && electiveMatches.length === 0 && (
             <div
               className="cell-inline-editor-suggestion cell-inline-editor-suggestion--create"
               onMouseDown={() => { committedRef.current = true; onCreateNew(value.trim()) }}
@@ -171,4 +209,9 @@ export default function CellInlineEditor({
       )}
     </div>
   )
+}
+
+const ELECTIVE_TAG = {
+  fontSize: 10, fontWeight: 600, padding: '0 5px', borderRadius: 4, flexShrink: 0,
+  color: 'var(--secondary)', background: 'color-mix(in srgb, var(--secondary) 12%, transparent)',
 }

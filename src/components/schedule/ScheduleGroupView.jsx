@@ -157,6 +157,7 @@ export default function ScheduleGroupView({
                               onPlace={onPlace}
                               onCreateNew={onCreateNew}
                               onCreateElective={onCreateElective}
+                              electiveSetsAll={electiveSetsAll}
                               eligibleEvents={eventsAll}
                               onPlaceEvent={onPlaceEvent}
                               pasteMode={pasteMode}

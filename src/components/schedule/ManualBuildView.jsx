@@ -273,6 +273,7 @@ export default function ManualBuildView({
                           onPlace={onPlace}
                           onCreateNew={onCreateNew}
                           onCreateElective={onCreateElective}
+                          electiveSetsAll={electiveSetsAll}
                           eligibleEvents={eventsAll}
                           onPlaceEvent={onPlaceEvent}
                           {...placeCell({ blockIndex, columnIndex: dayIndex })}

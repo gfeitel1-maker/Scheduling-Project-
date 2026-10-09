@@ -20,6 +20,7 @@ import { createActivity } from '../schedule/createActivityHelper'
 import { buildRowTracks, columnTracks } from '../schedule/gridTracks'
 import { placeCell, placeRowHeader } from '../schedule/gridPlacement'
 import { blockNamesForSpan } from '../../components/schedule/cellLabel'
+import { timeRangeLabel } from '../../utils/timeBlockLabel'
 import SpecialDayCell from './SpecialDayCell'
 import '../../components/schedule/scheduleGrid.css'
 
@@ -457,6 +458,11 @@ function BlockName({ block, onRename }) {
   return (
     <span className="block-name" onClick={startEditing} style={{ cursor: 'text', flex: 1 }}>
       {block.name}
+      {timeRangeLabel(block) && (
+        <span style={{ display: 'block', fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>
+          {timeRangeLabel(block)}
+        </span>
+      )}
     </span>
   )
 }

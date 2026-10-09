@@ -3236,6 +3236,9 @@ export const mockShoresh = {
   async backupProject() {
     return { status: 'ok' }
   },
+  async showBackupInFolder() {
+    return { shown: true }
+  },
   async createProject() {
     return { status: 'not-supported-in-browser-dev' }
   },

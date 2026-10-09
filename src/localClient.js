@@ -362,6 +362,7 @@ export const localClient = {
   openProject: () => shoresh.openProject(),
   exportProject: () => shoresh.exportProject(),
   backupProject: () => shoresh.backupProject(),
+  showBackupInFolder: () => shoresh.showBackupInFolder(),
   restoreProject: () => shoresh.restoreProject(),
   listRecentProjects: () => shoresh.listRecentProjects(),
   openRecentProject: (targetPath) => shoresh.openRecentProject(targetPath),

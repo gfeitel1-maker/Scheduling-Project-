@@ -44,11 +44,20 @@ const BADGE_PILL = {
   lineHeight: '16px', flexShrink: 0,
 }
 
+// Bottom edge shadow that shows only while more rows sit below the fold: the
+// `local` cover scrolls with the content and hides the `scroll` shadow once the
+// end is reached. macOS overlay scrollbars otherwise give no hint the list scrolls.
+const NAV_SCROLL_SHADOW = [
+  'linear-gradient(transparent, var(--surface) 70%) 0 100% / 100% 40px no-repeat local',
+  'radial-gradient(farthest-side at 50% 100%, color-mix(in srgb, var(--text) 18%, transparent), transparent) 0 100% / 100% 12px no-repeat scroll',
+  'var(--surface)',
+].join(', ')
+
 export default function Sidebar({
   current, onNavigate, role, badges = {},
   counts, campName, syncStatus,
   projectPath, isDevDb, buildLabel,
-  backupStatus, handleBackupNow,
+  backupStatus, handleBackupNow, backupRevealable, handleShowBackup,
   offerShown, setOfferShown,
 }) {
   const [sidebar, setSidebar] = useState(() => loadSidebarState(globalThis.localStorage))
@@ -214,7 +223,7 @@ export default function Sidebar({
       borderRight: '1px solid var(--border)', display: 'flex',
       flexDirection: 'column', height: '100%',
     }}>
-      <div style={{ padding: '20px 20px 16px', borderBottom: '1px solid var(--border)' }}>
+      <div style={{ padding: '20px 20px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
         <div style={{
           fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 22,
           color: 'var(--primary)', letterSpacing: '-0.3px',
@@ -226,7 +235,7 @@ export default function Sidebar({
         )}
       </div>
 
-      <nav style={{ flex: 1, padding: '8px 0', overflowY: 'auto' }}>
+      <nav style={{ flex: 1, minHeight: 0, padding: '8px 0', overflowY: 'auto', background: NAV_SCROLL_SHADOW }}>
         {/* Roots — a fixed, chevron-less top row (docs/adr/2026-08-28-stage-
             aware-nav-landing.md Decision 3). It is no longer doing setup's
             job (lifecycle-IA spec §3/§4), so it carries no fold state and no
@@ -346,7 +355,7 @@ export default function Sidebar({
           the day-to-day sidebar is just Roots + Schedule. Pinned at the
           bottom: it's the one row a director reaches for rarely, not the one
           they scan past every time. */}
-      <div style={{ position: 'relative', padding: '6px 12px', borderTop: '1px solid var(--border)' }}>
+      <div style={{ position: 'relative', padding: '6px 12px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
         <button
           ref={gearBtnRef}
           type="button"
@@ -384,7 +393,7 @@ export default function Sidebar({
       </div>
 
       <div style={{
-        padding: '10px 20px', borderTop: '1px solid var(--border)',
+        padding: '10px 20px', borderTop: '1px solid var(--border)', flexShrink: 0,
         fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)',
       }}>
         {(syncStatus?.state === 'host-not-syncing' || syncStatus?.state === 'sync-blocked') && (
@@ -449,6 +458,20 @@ export default function Sidebar({
               : backupStatus === 'ok' ? 'Backup saved'
               : backupStatus === 'error' ? 'Backup failed'
               : 'Backup now'}
+          </button>
+        )}
+        {role === 'admin' && backupRevealable && (
+          <button
+            type="button"
+            onClick={handleShowBackup}
+            style={{
+              display: 'block', width: '100%', textAlign: 'left',
+              padding: '0 0 4px', border: 'none', background: 'none',
+              fontSize: 11, fontFamily: 'var(--font-mono)', cursor: 'pointer',
+              color: 'var(--text-secondary)', textDecoration: 'underline', textUnderlineOffset: 2,
+            }}
+          >
+            Show in Finder
           </button>
         )}
         {/* About & Legal — a quiet footer link to the view-only surface

@@ -245,3 +245,19 @@ describe('SpecialDayGridEditor — back control', () => {
     await waitFor(() => expect(screen.getAllByText('← Back to Special Schedules')[0]).toBeTruthy())
   })
 })
+
+describe('SpecialDayGridEditor — block times (packaged audit #30)', () => {
+  it('shows a seeded block’s start/end time with AM/PM beside its name', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'special_days') return Promise.resolve([{ id: SD_ID, camp_id: CAMP_ID, name: 'Color War' }])
+      if (entity === 'special_day_time_blocks') {
+        return Promise.resolve([{ id: 'tb1', special_day_id: SD_ID, name: 'Opening', sort_order: 0, start_time: '09:00', end_time: '13:15' }])
+      }
+      if (entity === 'groups') return Promise.resolve([{ id: 'g1', camp_id: CAMP_ID, name: 'Bunk A' }])
+      return Promise.resolve([])
+    })
+    render(<SpecialDayGridEditor campId={CAMP_ID} specialDayId={SD_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
+    await waitFor(() => expect(screen.getByText('9:00 AM–1:15 PM')).toBeTruthy())
+    expect(screen.getByText('9:00 AM–1:15 PM').closest('.block-name').textContent).toBe('Opening9:00 AM–1:15 PM')
+  })
+})
