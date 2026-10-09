@@ -3,9 +3,11 @@ import { placeCell, placeRowHeader } from '../../screens/schedule/gridPlacement'
 import { S } from '../../styles/shared'
 import { cellAccessibleName, blockNamesForSpan } from './cellLabel'
 import useGridKeyboardNav from './useGridKeyboardNav'
+import ReplacedLane, { ReplacedColumnHeader } from './ReplacedLane'
 import './scheduleGrid.css'
 
 const NO_COLLAPSE = new Set()
+const NO_REPLACEMENTS = new Map()
 
 // M4 §D7: the M3b interim `act.location` fallback is removed. By this point
 // every activity's location_id is either correctly bound (M1's migration
@@ -29,6 +31,10 @@ export default function ScheduleActivityView({
   // T55/T56. Collapse is per-route state, shared by every view of that route.
   collapsedBlockIds = NO_COLLAPSE,
   onToggleBlockCollapsed,
+  // T350 slice 4: a replaced day's column is a lane with the name only — the
+  // drilldown ignores it (ADR D6).
+  replacements = NO_REPLACEMENTS,
+  onOpenSpecialDay,
 }) {
   const gridNav = useGridKeyboardNav()
   const locMap = new Map(locations.map(l => [l.id, l]))
@@ -79,8 +85,11 @@ export default function ScheduleActivityView({
         (() => {
           const act = activities.find(a => a.id === selectedActivity)
           const place = placeNameFor(act, locMap)
-          const gridTemplateColumns = columnTracks(days.length)
-          const rowTracks = buildRowTracks({ timeBlocks, collapsedBlockIds })
+          const allReplaced = days.length > 0 && days.every(d => replacements.has(d.id))
+          const gridTemplateColumns = columnTracks(days.length, { rowHeader: !allReplaced })
+          const rowTracks = allReplaced ? 'minmax(200px, auto)' : buildRowTracks({ timeBlocks, collapsedBlockIds })
+          const colOffset = allReplaced ? 1 : 2
+          const placeDay = dayIndex => ({ gridRow: '1 / span 1', gridColumn: `${dayIndex + colOffset} / span 1` })
           return (
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
@@ -99,13 +108,23 @@ export default function ScheduleActivityView({
                   role="grid"
                   className="schedule-grid-frame"
                   aria-rowcount={timeBlocks.length + 1}
-                  aria-colcount={days.length + 1}
+                  aria-colcount={days.length + (allReplaced ? 0 : 1)}
+                  data-all-replaced={allReplaced ? '' : undefined}
                   {...gridNav}
                 >
                   <div role="rowgroup" className="schedule-grid schedule-grid--header" style={{ gridTemplateColumns }}>
                     <div role="row" aria-rowindex={1} style={{ display: 'contents' }}>
-                      <div role="columnheader" className="cell row-header" aria-colindex={1} style={placeRowHeader({ blockIndex: 0 })}>Block</div>
-                      {days.map((d, dayIndex) => (
+                      {!allReplaced && <div role="columnheader" className="cell row-header" aria-colindex={1} style={placeRowHeader({ blockIndex: 0 })}>Block</div>}
+                      {days.map((d, dayIndex) => replacements.has(d.id) ? (
+                        <ReplacedColumnHeader
+                          key={d.id}
+                          label={d.label}
+                          replacement={replacements.get(d.id)}
+                          ariaColIndex={dayIndex + colOffset}
+                          style={placeDay(dayIndex)}
+                          onOpenSpecialDay={onOpenSpecialDay}
+                        />
+                      ) : (
                         <div
                           key={d.id}
                           role="columnheader"
@@ -122,7 +141,19 @@ export default function ScheduleActivityView({
                     className="schedule-grid schedule-grid--body"
                     style={{ gridTemplateColumns, '--grid-rows': rowTracks }}
                   >
-                    {timeBlocks.map((block, blockIndex) => {
+                    {days.map((d, dayIndex) => replacements.has(d.id) && (
+                      <ReplacedLane
+                        key={`lane-${d.id}`}
+                        replacement={replacements.get(d.id)}
+                        subjectId={selectedActivity}
+                        groupId={null}
+                        campBlockCount={allReplaced ? 1 : timeBlocks.length}
+                        ariaColIndex={dayIndex + colOffset}
+                        style={placeDay(dayIndex)}
+                        onOpenSpecialDay={onOpenSpecialDay}
+                      />
+                    ))}
+                    {!allReplaced && timeBlocks.map((block, blockIndex) => {
                       const isCollapsed = collapsedBlockIds.has(block.id)
                       const toggle = () => onToggleBlockCollapsed?.(block.id)
                       return (
@@ -150,6 +181,7 @@ export default function ScheduleActivityView({
                             </button>
                           </div>
                           {days.map((day, dayIndex) => {
+                            if (replacements.has(day.id)) return null
                             const assigned = slots.filter(s => s.activity_id === selectedActivity && s.day_id === day.id && s.time_block_id === block.id)
                             return (
                               <div

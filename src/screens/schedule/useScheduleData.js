@@ -4,6 +4,7 @@ import { resolveEffectiveDays, requireReplacedDayIds } from '../../engine/effect
 import { normalizeScheduleInputs } from '../../../electron/ops/scheduleInputNormalization'
 import { isRestorable } from '../snapshotRestore'
 import { deriveScheduleTemplateId } from '../../../electron/ops/scheduleTemplateId'
+import { buildReplacements } from './replacedLane'
 import { repairOrphanSpanTails, orphanRepairFields } from './useSlotMutations'
 
 // Which row IS this camp's candidate for this route? Ask the database by
@@ -75,6 +76,7 @@ const EMPTY_SETUP_LISTS = {
 }
 const EMPTY_EXCLUSIONS = { activityExclusions: [], groupExclusions: [], locationExclusions: [] }
 const NO_REPLACED_DAYS = []
+const NO_REPLACEMENTS = new Map()
 // See the R2-quiescence comment on lastLoadStartedAtRef below for why this
 // is a wall-clock gate, not a load-count one.
 const REPAIR_QUIESCENCE_MS = 750
@@ -103,6 +105,7 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
   const [exclusions, setExclusions] = useState(EMPTY_EXCLUSIONS)
   const [replacedDayIds, setReplacedDayIds] = useState(NO_REPLACED_DAYS)
   const [specialDaysReadFailed, setSpecialDaysReadFailed] = useState(false)
+  const [replacements, setReplacements] = useState(NO_REPLACEMENTS)
   const [templateData, setTemplateDataState] = useState(EMPTY_TEMPLATE_DATA)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(null)
@@ -273,19 +276,29 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
     // the next Generate bulk-replace over the hidden special-day rows, so the
     // failure is flagged and generation refuses until a read succeeds.
     let replaced = NO_REPLACED_DAYS
+    let replacementMap = NO_REPLACEMENTS
     let readFailed = false
     try {
-      const [placements, specialDays] = await Promise.all([
+      const [placements, specialDays, content] = await Promise.all([
         repo.loadSpecialDayPlacements(liveWeekId),
         repo.loadSpecialDays(),
+        repo.loadSpecialDayContent(),
       ])
+      // Slice 4: the binding-conflict mark is decoration, so its read fails
+      // OPEN — a failed read draws the winner without the dot.
+      const conflicts = await repo.loadPlacementConflicts().catch(() => [])
       if (gen !== generationRef.current) return
       replaced = resolveEffectiveDays({ days: d, placements, weekId: liveWeekId, specialDays }).replacedDayIds
+      replacementMap = buildReplacements({
+        days: d, weekId: liveWeekId, placements, specialDays,
+        specialBlocks: content.blocks, specialSlots: content.slots, conflicts,
+      })
     } catch {
       if (gen !== generationRef.current) return
       readFailed = true
     }
     setReplacedDayIds(replaced)
+    setReplacements(replacementMap)
     setSpecialDaysReadFailed(readFailed)
     // Both routes are refreshed on every load. loadAll() re-runs on every
     // applied op, and a load that only refreshed the route on screen would
@@ -427,7 +440,7 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
     weekId,
     weekDeletedBanner, setWeekDeletedBanner,
     exclusions,
-    replacedDayIds, specialDaysReadFailed,
+    replacedDayIds, replacements, specialDaysReadFailed,
     templateData,
     loading, loadError, templateError,
     reload: load,

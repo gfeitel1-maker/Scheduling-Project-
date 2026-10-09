@@ -33,6 +33,8 @@ function makeRepo(overrides = {}) {
     loadDurableElectiveSets: vi.fn(async () => ([])),
     loadSpecialDayPlacements: vi.fn(async () => ([])),
     loadSpecialDays: vi.fn(async () => ([])),
+    loadSpecialDayContent: vi.fn(async () => ({ blocks: [], slots: [] })),
+    loadPlacementConflicts: vi.fn(async () => ([])),
     loadWeeks: vi.fn(async () => ([
       { id: 'week-1', camp_id: CAMP_ID, name: 'Week 1', sort_order: 0, is_archived: 0 },
     ])),
@@ -69,6 +71,40 @@ describe('useScheduleData', () => {
     expect(repo.loadSpecialDayPlacements).toHaveBeenCalledWith('week-1')
     expect(result.current.replacedDayIds).toEqual(['d1'])
     expect(result.current.templateData.statsByRoute.generated).toEqual({ open: 0, filled: 0 })
+  })
+
+  // T350 slice 4: the same load resolves what each replaced day shows.
+  it('resolves replacements (special day content and binding conflicts) for the loaded week', async () => {
+    const repo = makeRepo({
+      loadSpecialDayPlacements: vi.fn(async () => ([{ id: 'p1', week_id: 'week-1', day_id: 'd1', special_day_id: 'sd1' }])),
+      loadSpecialDays: vi.fn(async () => ([{ id: 'sd1', name: 'Visiting Day', notes: 'Parents 12-4' }])),
+      loadSpecialDayContent: vi.fn(async () => ({
+        blocks: [{ id: 'x1', special_day_id: 'sd1', name: 'Arrive', sort_order: 1, start_time: '12:00', end_time: '13:00' }],
+        slots: [],
+      })),
+      loadPlacementConflicts: vi.fn(async () => ([{ entity: 'special_day_placements', entity_id: 'p1', existingOp: { value: 'sd1' }, incomingOp: { value: 'sd1' } }])),
+    })
+    const { result } = renderHook(() =>
+      useScheduleData({ campId: CAMP_ID, weekId: 'week-1', repo, routes: ['generated'] })
+    )
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    const r = result.current.replacements.get('d1')
+    expect(r).toMatchObject({ specialDayId: 'sd1', name: 'Visiting Day', notes: 'Parents 12-4', conflictTitle: 'Visiting Day' })
+    expect(r.blocks.map(b => b.id)).toEqual(['x1'])
+  })
+
+  it('a failed conflicts read shows the replacement without a conflict mark', async () => {
+    const repo = makeRepo({
+      loadSpecialDayPlacements: vi.fn(async () => ([{ id: 'p1', week_id: 'week-1', day_id: 'd1', special_day_id: 'sd1' }])),
+      loadSpecialDays: vi.fn(async () => ([{ id: 'sd1', name: 'Visiting Day' }])),
+      loadPlacementConflicts: vi.fn(async () => { throw new Error('no') }),
+    })
+    const { result } = renderHook(() =>
+      useScheduleData({ campId: CAMP_ID, weekId: 'week-1', repo, routes: ['generated'] })
+    )
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.specialDaysReadFailed).toBe(false)
+    expect(result.current.replacements.get('d1').conflictTitle).toBeNull()
   })
 
   it('fails closed when the special-day read fails, and clears on a good reload', async () => {

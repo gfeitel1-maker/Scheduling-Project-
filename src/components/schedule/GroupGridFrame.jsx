@@ -2,10 +2,12 @@ import { buildRowTracks, columnTracks } from '../../screens/schedule/gridTracks'
 import { placeCell, placeRowHeader } from '../../screens/schedule/gridPlacement'
 import { rowFlagKind, ROW_FLAG_TITLE } from '../../screens/schedule/rowFlags'
 import useGridKeyboardNav from './useGridKeyboardNav'
+import ReplacedLane, { ReplacedColumnHeader } from './ReplacedLane'
 import { S } from '../../styles/shared'
 import './scheduleGrid.css'
 
 const NO_COLLAPSE = new Set()
+const NO_REPLACEMENTS = new Map()
 
 // Design F4. The one frame both group views draw — Generated (ScheduleGroupView)
 // and Manual (ManualBuildView): group pills, the role="grid" frame, the day
@@ -20,10 +22,18 @@ export default function GroupGridFrame({
   collapsedBlockIds = NO_COLLAPSE,
   onToggleBlockCollapsed,
   renderCell,
+  // T350 slice 4: dayId -> replacement. A replaced day is one read-only lane,
+  // the same on both routes, so the frame draws it rather than renderCell.
+  replacements = NO_REPLACEMENTS,
+  actMap,
+  onOpenSpecialDay,
 }) {
-  const rowTracks = buildRowTracks({ timeBlocks, collapsedBlockIds })
-  const rowCells = days.map(d => ({ groupId: selectedGroup, dayId: d.id }))
-  const gridTemplateColumns = columnTracks(days.length)
+  const allReplaced = days.length > 0 && days.every(d => replacements.has(d.id))
+  const rowTracks = allReplaced ? 'minmax(200px, auto)' : buildRowTracks({ timeBlocks, collapsedBlockIds })
+  const rowCells = days.filter(d => !replacements.has(d.id)).map(d => ({ groupId: selectedGroup, dayId: d.id }))
+  const gridTemplateColumns = columnTracks(days.length, { rowHeader: !allReplaced })
+  const colOffset = allReplaced ? 1 : 2
+  const place = dayIndex => ({ gridRow: '1 / span 1', gridColumn: `${dayIndex + colOffset} / span 1` })
   const gridNav = useGridKeyboardNav()
 
   return (
@@ -46,13 +56,23 @@ export default function GroupGridFrame({
             role="grid"
             className="schedule-grid-frame"
             aria-rowcount={timeBlocks.length + 1}
-            aria-colcount={days.length + 1}
+            aria-colcount={days.length + (allReplaced ? 0 : 1)}
+            data-all-replaced={allReplaced ? '' : undefined}
             {...gridNav}
           >
             <div role="rowgroup" className="schedule-grid schedule-grid--header" style={{ gridTemplateColumns }}>
               <div role="row" aria-rowindex={1} style={{ display: 'contents' }}>
-                <div role="columnheader" className="cell row-header" aria-colindex={1} style={placeRowHeader({ blockIndex: 0 })}>Block</div>
-                {days.map((d, dayIndex) => (
+                {!allReplaced && <div role="columnheader" className="cell row-header" aria-colindex={1} style={placeRowHeader({ blockIndex: 0 })}>Block</div>}
+                {days.map((d, dayIndex) => replacements.has(d.id) ? (
+                  <ReplacedColumnHeader
+                    key={d.id}
+                    label={d.label}
+                    replacement={replacements.get(d.id)}
+                    ariaColIndex={dayIndex + colOffset}
+                    style={place(dayIndex)}
+                    onOpenSpecialDay={onOpenSpecialDay}
+                  />
+                ) : (
                   <div
                     key={d.id}
                     role="columnheader"
@@ -71,7 +91,20 @@ export default function GroupGridFrame({
               className="schedule-grid schedule-grid--body"
               style={{ gridTemplateColumns, '--grid-rows': rowTracks }}
             >
-              {timeBlocks.map((block, blockIndex) => {
+              {days.map((d, dayIndex) => replacements.has(d.id) && (
+                <ReplacedLane
+                  key={`lane-${d.id}`}
+                  replacement={replacements.get(d.id)}
+                  subjectId={selectedGroup}
+                  groupId={selectedGroup}
+                  campBlockCount={allReplaced ? 1 : timeBlocks.length}
+                  ariaColIndex={dayIndex + colOffset}
+                  style={place(dayIndex)}
+                  actMap={actMap}
+                  onOpenSpecialDay={onOpenSpecialDay}
+                />
+              ))}
+              {!allReplaced && timeBlocks.map((block, blockIndex) => {
                 const isCollapsed = collapsedBlockIds.has(block.id)
                 const flagKind = rowFlagKind(geometry, rowCells, block.id)
                 const toggle = () => onToggleBlockCollapsed?.(block.id)
@@ -111,7 +144,7 @@ export default function GroupGridFrame({
                         <span className="block-time">{block.start_time?.slice(0,5)}–{block.end_time?.slice(0,5)}</span>
                       </button>
                     </div>
-                    {days.map((day, dayIndex) => renderCell({
+                    {days.map((day, dayIndex) => !replacements.has(day.id) && renderCell({
                       day, dayIndex, block, blockIndex, isCollapsed,
                       ariaColIndex: dayIndex + 2,
                       cellKey: `${selectedGroup}|${day.id}|${block.id}`,

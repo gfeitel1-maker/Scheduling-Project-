@@ -214,6 +214,20 @@ export function createScheduleRepository({
       }
     },
 
+    // T350 slice 4: what a replaced day shows — every special day's own blocks and cells.
+    async loadSpecialDayContent() {
+      const [blocks, slots] = await Promise.all([
+        localClient.list('special_day_time_blocks'),
+        localClient.list('special_day_slots'),
+      ])
+      return { blocks: blocks || [], slots: slots || [] }
+    },
+
+    // Unresolved conflicts on a special-day binding (the bronze dot).
+    async loadPlacementConflicts() {
+      return ((await localClient.listPendingConflicts()) || []).filter(c => c.entity === 'special_day_placements')
+    },
+
     // T350: the special days bound to this week's days.
     async loadSpecialDayPlacements(weekId) {
       return (await localClient.listByScope('special_day_placements', weekId ?? null)) || []
