@@ -26,6 +26,7 @@ import ScheduleScreen from './screens/ScheduleScreen'
 import ConflictsScreen from './screens/ConflictsScreen'
 import TrashScreen from './screens/TrashScreen'
 import DeviceManagerScreen from './screens/DeviceManagerScreen'
+import HostHandoffConfirm from './components/HostHandoffConfirm'
 import SeedScreen from './screens/SeedScreen'
 import AboutScreen from './screens/AboutScreen'
 import { useDeviceMode } from './hooks/useDeviceMode'
@@ -506,6 +507,7 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
       >
         <Screen {...screenProps} />
       </Shell>
+      <HostHandoffConfirm />
     </>
   )
 }
