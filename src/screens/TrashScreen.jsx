@@ -3,6 +3,7 @@ import { localClient } from '../localClient'
 import { S, useEnterTransition } from '../styles/shared'
 import RecordHistory from '../components/RecordHistory'
 import { entityLabel, formatMoment, restoreCaveat } from './recordLabels'
+import { SETUP_MAX_WIDTH } from '../components/setup/SetupScreenShell'
 
 // What was deleted, by whom, when — and a way to get it back. All of it has
 // been in the op log since the first delete; none of it was ever shown.
@@ -163,7 +164,7 @@ export default function TrashScreen({ role }) {
   }, {})
 
   return (
-    <div style={{ maxWidth: 860 }}>
+    <div style={{ maxWidth: SETUP_MAX_WIDTH }}>
       {notice && <Notice tone={notice.tone === 'text-secondary' ? 'border' : notice.tone}>{notice.text}</Notice>}
 
       {childOffer && (

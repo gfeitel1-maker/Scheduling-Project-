@@ -3,6 +3,7 @@ import { localClient } from '../localClient'
 import { S, useEnterTransition } from '../styles/shared'
 import { deriveDeviceRowState } from './deviceRowState'
 import ConnectedToolsPanel from '../components/ConnectedToolsPanel'
+import { SETUP_MAX_WIDTH } from '../components/setup/SetupScreenShell'
 
 // T18 / CONSTITUTION Art. V. `pairing_status` is a database enum and was
 // rendered raw — a director saw "authorized", "pending", "revoked", or the
@@ -427,7 +428,7 @@ const styles = {
     maxWidth: 560,
   },
   page: {
-    maxWidth: 900,
+    maxWidth: SETUP_MAX_WIDTH,
   },
   header: {
     marginBottom: 24,
