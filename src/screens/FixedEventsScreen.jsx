@@ -189,10 +189,10 @@ function FixedEventModal({ fixedEvent, kind, tiers, groups, days, timeBlocks, lo
         </div>
 
         <Field label="Name">
-          <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && save()} style={S.input} placeholder="e.g. Mifkad, Lunch, Swim" />
+          <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && save()} style={S.input} placeholder="Mifkad" />
         </Field>
 
-        <Field label={isNew ? 'Days (select all that apply)' : 'Day'}>
+        <Field label={isNew ? 'Days' : 'Day'}>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {days.map(d => (
               <label key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 5,
@@ -208,7 +208,7 @@ function FixedEventModal({ fixedEvent, kind, tiers, groups, days, timeBlocks, lo
 
         <Field label="Time Block">
           <select value={blockId} onChange={e => setBlockId(e.target.value)} style={S.input}>
-            <option value="">— Select block —</option>
+            <option value="">Block</option>
             {timeBlocks.map(b => <option key={b.id} value={b.id}>{timeBlockLabel(b)}</option>)}
           </select>
         </Field>
@@ -876,19 +876,13 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
   // resolver (src/engine/fixedEventScope.js), the same precedence the engine uses
   // for group ids — so this label can no longer drift from the schedule. The
   // resolver flags a pre-v65 group_ids-only derivation as `inferred`; that
-  // stays honest on the tooltip (fixedEventTierTitle) rather than in the visible
-  // text, which keeps reading the division it covers instead of "—".
+  // is shown in italics rather than in words, and the text keeps reading the
+  // division it covers instead of "—".
   function fixedEventTierLabel(a) {
     const { mode, unitIds } = resolveFixedEventUnitIds(a, groups)
     if (mode === 'all') return 'All age divisions'
     const names = unitIds.map(tid => tierById[tid]).filter(Boolean)
     return names.length ? names.join(', ') : '—'
-  }
-
-  function fixedEventTierTitle(a) {
-    return resolveFixedEventUnitIds(a, groups).inferred
-      ? 'Shown from the groups this event covers — not a saved division choice. Re-save it to store the divisions.'
-      : undefined
   }
 
   const readyRows = importRows.filter(r => r.name && !r.warning)
@@ -939,7 +933,6 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
               {fixedEvents.length === 0 ? (
                 <tr><td colSpan={6} style={S.emptyState}>
                   <div style={S.emptyStateTitle}>No {kind} events yet</div>
-                  <div style={S.emptyStateBody}>Add your first {kind} event below.</div>
                 </td></tr>
               ) : fixedEvents.map(a => (
                 <tr key={a.id} style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
@@ -969,7 +962,7 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
                   </td>
                   <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 13 }}>{dayMap[a.day_id] || '—'}</td>
                   <td style={{ ...S.td, fontSize: 12, fontFamily: 'var(--font-mono)' }}>{blockMap[a.time_block_id] || '—'}</td>
-                  <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }} title={fixedEventTierTitle(a)}>{fixedEventTierLabel(a)}</td>
+                  <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)', fontStyle: resolveFixedEventUnitIds(a, groups).inferred ? 'italic' : 'normal' }}>{fixedEventTierLabel(a)}</td>
                   <td style={{ ...S.td, fontSize: 12 }}>
                     <select
                       value={a.schedule_week_id || ''}
@@ -1057,8 +1050,7 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
       {pendingDelete && (
         <ConfirmDangerDialog
           title={`Delete "${pendingDelete.name}"?`}
-          body={`This ${eventLabel} will be removed from your schedules.`}
-          recovery={`"${pendingDelete.name}" goes to Trash, and you can put it back from there.`}
+          recovery="Recoverable from Trash."
           confirmLabel={`Delete ${eventLabelCap}`}
           busy={deleting}
           onConfirm={confirmFixedEventDelete}

@@ -107,11 +107,11 @@ describe('FixedEventsScreen fan-out-per-day creation', () => {
 
     fireEvent.click(screen.getByText('+ Add Fixed Event'))
 
-    fireEvent.change(screen.getByPlaceholderText('e.g. Mifkad, Lunch, Swim'), { target: { value: 'Mifkad' } })
+    fireEvent.change(screen.getByPlaceholderText('Mifkad'), { target: { value: 'Mifkad' } })
     fireEvent.click(screen.getByText('Monday'))
     fireEvent.click(screen.getByText('Tuesday'))
     fireEvent.click(screen.getByText('Wednesday'))
-    fireEvent.change(screen.getByDisplayValue('— Select block —'), { target: { value: 'block-1' } })
+    fireEvent.change(screen.getByDisplayValue('Block'), { target: { value: 'block-1' } })
 
     fireEvent.click(screen.getByText('Add Fixed Event (×3)'))
 
@@ -180,9 +180,9 @@ describe('FixedEventsScreen — T267 PR2 activity_id link on save', () => {
     await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
 
     fireEvent.click(screen.getByText('+ Add Fixed Event'))
-    fireEvent.change(screen.getByPlaceholderText('e.g. Mifkad, Lunch, Swim'), { target: { value: 'Lunch' } })
+    fireEvent.change(screen.getByPlaceholderText('Mifkad'), { target: { value: 'Lunch' } })
     fireEvent.click(screen.getByText('Monday'))
-    fireEvent.change(screen.getByDisplayValue('— Select block —'), { target: { value: 'block-1' } })
+    fireEvent.change(screen.getByDisplayValue('Block'), { target: { value: 'block-1' } })
     fireEvent.click(screen.getAllByText('Add Fixed Event').slice(-1)[0])
 
     await waitFor(() => {
@@ -211,9 +211,9 @@ describe('FixedEventsScreen — T267 PR2 activity_id link on save', () => {
     await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
 
     fireEvent.click(screen.getByText('+ Add Fixed Event'))
-    fireEvent.change(screen.getByPlaceholderText('e.g. Mifkad, Lunch, Swim'), { target: { value: 'lunch' } })
+    fireEvent.change(screen.getByPlaceholderText('Mifkad'), { target: { value: 'lunch' } })
     fireEvent.click(screen.getByText('Monday'))
-    fireEvent.change(screen.getByDisplayValue('— Select block —'), { target: { value: 'block-1' } })
+    fireEvent.change(screen.getByDisplayValue('Block'), { target: { value: 'block-1' } })
     fireEvent.click(screen.getAllByText('Add Fixed Event').slice(-1)[0])
 
     await waitFor(() => {
@@ -420,10 +420,10 @@ describe('FixedEventsScreen cleanup-failure surfacing', () => {
     await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
 
     fireEvent.click(screen.getByText('+ Add Fixed Event'))
-    fireEvent.change(screen.getByPlaceholderText('e.g. Mifkad, Lunch, Swim'), { target: { value: 'Mifkad' } })
+    fireEvent.change(screen.getByPlaceholderText('Mifkad'), { target: { value: 'Mifkad' } })
     fireEvent.click(screen.getByText('Monday'))
     fireEvent.click(screen.getByText('Tuesday'))
-    fireEvent.change(screen.getByDisplayValue('— Select block —'), { target: { value: 'block-1' } })
+    fireEvent.change(screen.getByDisplayValue('Block'), { target: { value: 'block-1' } })
 
     fireEvent.click(screen.getByText('Add Fixed Event (×2)'))
 
@@ -458,9 +458,9 @@ describe('FixedEventsScreen write serialization (characterization)', () => {
     await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
 
     fireEvent.click(screen.getByText('+ Add Fixed Event'))
-    fireEvent.change(screen.getByPlaceholderText('e.g. Mifkad, Lunch, Swim'), { target: { value: 'Mifkad' } })
+    fireEvent.change(screen.getByPlaceholderText('Mifkad'), { target: { value: 'Mifkad' } })
     fireEvent.click(screen.getByText('Monday'))
-    fireEvent.change(screen.getByDisplayValue('— Select block —'), { target: { value: 'block-1' } })
+    fireEvent.change(screen.getByDisplayValue('Block'), { target: { value: 'block-1' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add Fixed Event' }))
 
     await waitFor(() => {
@@ -612,7 +612,7 @@ describe('FixedEventsScreen delete confirmation', () => {
     expect(window.confirm).not.toHaveBeenCalled()
     expect(localClient.deleteEntity).not.toHaveBeenCalled()
     await waitFor(() => expect(screen.queryByText('Delete "Mifkad"?')).not.toBeNull())
-    expect(screen.queryByText('This fixed event will be removed from your schedules.')).not.toBeNull()
+    expect(screen.queryByText('Recoverable from Trash.')).not.toBeNull()
 
     fireEvent.click(screen.getByText('Delete Fixed Event'))
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'fixed_events', 'anchor-1'))
@@ -657,9 +657,9 @@ describe('FixedEventsScreen — caution and error banners use shared primitives'
     await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
 
     fireEvent.click(screen.getByText('+ Add Fixed Event'))
-    fireEvent.change(screen.getByPlaceholderText('e.g. Mifkad, Lunch, Swim'), { target: { value: 'Mifkad' } })
+    fireEvent.change(screen.getByPlaceholderText('Mifkad'), { target: { value: 'Mifkad' } })
     fireEvent.click(screen.getByText('Monday'))
-    fireEvent.change(screen.getByDisplayValue('— Select block —'), { target: { value: 'block-1' } })
+    fireEvent.change(screen.getByDisplayValue('Block'), { target: { value: 'block-1' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add Fixed Event' }))
 
     const banner = await waitFor(() => screen.getByText(/Your changes could not be saved/))
@@ -698,10 +698,10 @@ describe('FixedEventsScreen — recurring event division scope (T180)', () => {
     await waitFor(() => expect(screen.queryByText('No recurring events yet')).not.toBeNull())
 
     fireEvent.click(screen.getByText('+ Add Recurring Event'))
-    fireEvent.change(screen.getByPlaceholderText('e.g. Mifkad, Lunch, Swim'), { target: { value: 'Swim' } })
+    fireEvent.change(screen.getByPlaceholderText('Mifkad'), { target: { value: 'Swim' } })
     fireEvent.click(screen.getByText('Monday'))
     fireEvent.click(screen.getByText('Juniors'))
-    fireEvent.change(screen.getByDisplayValue('— Select block —'), { target: { value: 'block-1' } })
+    fireEvent.change(screen.getByDisplayValue('Block'), { target: { value: 'block-1' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add Recurring Event' }))
 
     await waitFor(() => {
@@ -738,11 +738,11 @@ describe('FixedEventsScreen — recurring event division scope (T180)', () => {
     expect(screen.queryByText('Juniors')).not.toBeNull()
   })
 
-  it('marks a legacy group_ids-derived label as inferred via a title, without changing the visible division text (T183)', async () => {
+  it('marks a legacy group_ids-derived label as inferred via italics, without changing the visible division text (T183)', async () => {
     // The backward derivation cannot tell "the whole Juniors division" from
     // "one Juniors bunk" — so the label must not silently present it as a
     // saved division choice. The visible text stays "Juniors" (a pre-v65 row
-    // must not start reading as "—"); the honesty rides on a tooltip.
+    // must not start reading as "—"); the honesty rides on italics.
     mount([{
       id: 'a1', camp_id: CAMP_ID, cohort_id: COHORT_ID, name: 'Swim',
       day_id: 'd1', time_block_id: 'block-1', is_all_groups: 0,
@@ -750,7 +750,7 @@ describe('FixedEventsScreen — recurring event division scope (T180)', () => {
     }])
     await waitFor(() => expect(screen.queryByText('Swim')).not.toBeNull())
     const cell = screen.getByText('Juniors')
-    expect(cell.getAttribute('title')).toBeTruthy()
+    expect(cell.style.fontStyle).toBe('italic')
   })
 
   it('does NOT mark a stored unit_ids label as inferred (T183)', async () => {
@@ -761,7 +761,7 @@ describe('FixedEventsScreen — recurring event division scope (T180)', () => {
     }])
     await waitFor(() => expect(screen.queryByText('Swim')).not.toBeNull())
     const cell = screen.getByText('Seniors')
-    expect(cell.getAttribute('title')).toBeFalsy()
+    expect(cell.style.fontStyle).toBe('normal')
   })
 })
 
@@ -966,9 +966,9 @@ describe('FixedEventsScreen — saving with an ambiguous catalog name is refused
     await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
 
     fireEvent.click(screen.getByText('+ Add Fixed Event'))
-    fireEvent.change(screen.getByPlaceholderText('e.g. Mifkad, Lunch, Swim'), { target: { value: 'Lunch' } })
+    fireEvent.change(screen.getByPlaceholderText('Mifkad'), { target: { value: 'Lunch' } })
     fireEvent.click(screen.getByText('Monday'))
-    fireEvent.change(screen.getByDisplayValue('— Select block —'), { target: { value: 'block-1' } })
+    fireEvent.change(screen.getByDisplayValue('Block'), { target: { value: 'block-1' } })
     fireEvent.click(screen.getAllByText('Add Fixed Event').slice(-1)[0])
 
     await waitFor(() => expect(screen.queryByText(/matches more than one activity/i)).not.toBeNull())

@@ -4,11 +4,11 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import DuplicateNameDot from './DuplicateNameDot'
 
 describe('DuplicateNameDot', () => {
-  it('names the sibling and tells the director to rename or delete', () => {
+  it('names the sibling', () => {
     render(<DuplicateNameDot row={{ id: '1', name: 'Bunks' }} siblings={[{ id: '2', name: 'bunks' }]} entityLabel="group" />)
     fireEvent.click(screen.getByRole('button'))
     expect(screen.queryByText(/"bunks"/)).not.toBeNull()
-    expect(screen.queryByText(/Rename or delete one here to clear this\./)).not.toBeNull()
+    expect(screen.queryByText('Same as "bunks"')).not.toBeNull()
   })
 
   it('has no merge action — informational only', () => {

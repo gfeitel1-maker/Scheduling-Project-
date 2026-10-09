@@ -29,7 +29,7 @@ const CAMP_ID = 'camp-1'
 
 // Fill the always-present InlineAddRow (name + type select) and commit via +Add.
 function addViaInlineRow({ name, type }) {
-  fireEvent.change(screen.getByPlaceholderText('Name a special day or event…'), { target: { value: name } })
+  fireEvent.change(screen.getByPlaceholderText('Color War'), { target: { value: name } })
   // The type select defaults to "Event"; switch it when adding a Special Day.
   fireEvent.change(screen.getByDisplayValue('Event'), { target: { value: type } })
   fireEvent.click(screen.getByText('+ Add'))
@@ -75,7 +75,7 @@ describe('SpecialEventsScreen — empty state', () => {
 
     await waitFor(() => expect(screen.queryByText('No special events yet.')).not.toBeNull())
     // The blank inline-add row is present even at zero items.
-    expect(screen.getByPlaceholderText('Name a special day or event…')).toBeTruthy()
+    expect(screen.getByPlaceholderText('Color War')).toBeTruthy()
     expect(screen.getByText('+ Add')).toBeTruthy()
   })
 })
@@ -104,7 +104,7 @@ describe('SpecialEventsScreen — create', () => {
 
     await waitFor(() => expect(localClient.write).toHaveBeenCalledWith('token-abc', 'special_days', expect.any(String), 'name', 'Visiting Day'))
     // Seed-from-time-blocks prompt still fires when a Special Day is created inline.
-    await waitFor(() => expect(screen.queryByText(/Seed from Time Blocks/)).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText(/Copy time blocks/)).not.toBeNull())
   })
 
   it('lists both kinds as table rows with correct type tags', async () => {
@@ -151,7 +151,7 @@ describe('SpecialEventsScreen — event detail', () => {
     render(<SpecialEventsScreen campId={CAMP_ID} role="admin" initialFocus={{ type: 'event', id: 'ev-1' }} />)
     await waitFor(() => expect(screen.getByText('← Back to Special Events')).toBeTruthy())
 
-    const textarea = screen.getByPlaceholderText(/Teams, points, staffing/)
+    const textarea = screen.getByPlaceholderText('Notes')
     fireEvent.change(textarea, { target: { value: 'New notes' } })
     fireEvent.blur(textarea)
 
@@ -191,7 +191,7 @@ describe('SpecialEventsScreen — special day detail', () => {
     render(<SpecialEventsScreen campId={CAMP_ID} role="admin" initialFocus={{ type: 'day', id: 'day-1' }} />)
     await waitFor(() => expect(screen.getByText('← Back to Special Events')).toBeTruthy())
 
-    const textarea = screen.getByPlaceholderText(/Run-of-show/)
+    const textarea = screen.getByPlaceholderText('Notes')
     fireEvent.change(textarea, { target: { value: 'Updated notes' } })
     fireEvent.blur(textarea)
 
@@ -260,9 +260,9 @@ describe('SpecialEventsScreen — seed from camp time blocks', () => {
     await waitFor(() => expect(screen.queryByText('No special events yet.')).not.toBeNull())
 
     addViaInlineRow({ name: 'Color War', type: 'day' })
-    await waitFor(() => expect(screen.queryByText(/Seed from Time Blocks/)).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText(/Copy time blocks/)).not.toBeNull())
 
-    fireEvent.click(screen.getByText(/Seed from Time Blocks/))
+    fireEvent.click(screen.getByText(/Copy time blocks/))
 
     await waitFor(() => {
       const calls = localClient.write.mock.calls
