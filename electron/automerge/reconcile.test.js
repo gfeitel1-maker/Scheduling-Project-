@@ -272,15 +272,24 @@ describe('rendezvous fields are never director-facing conflicts', () => {
     d.camps[recordKey('camp-1', field)] = value
   })
 
-  it('concurrent rendezvousDiscovery / rendezvousAddressKey / rendezvousRotatedFor writes are not reported', () => {
+  it('concurrent writes of the one rendezvousSecrets tuple are not reported', () => {
     const { a, b } = diverge(
       createEmptyDoc(),
-      (d) => setRaw(setRaw(setRaw(d, 'rendezvousDiscovery', `v1:2:${'a'.repeat(64)}`), 'rendezvousAddressKey', 'a'.repeat(64)), 'rendezvousRotatedFor', 'x'),
-      (d) => setRaw(setRaw(setRaw(d, 'rendezvousDiscovery', `v1:3:${'b'.repeat(64)}`), 'rendezvousAddressKey', 'b'.repeat(64)), 'rendezvousRotatedFor', 'y')
+      (d) => setRaw(d, 'rendezvousSecrets', `v2:2:${'a'.repeat(64)}:${'a'.repeat(64)}:-`),
+      (d) => setRaw(d, 'rendezvousSecrets', `v2:3:${'b'.repeat(64)}:${'b'.repeat(64)}:-`)
     )
     const merged = A.merge(A.clone(a), b)
     expect(reconcile(merged).conflicts).toEqual([])
     expect(() => assertNoUnrecordedConflicts(merged, [])).not.toThrow()
+  })
+
+  it('only that one field is excluded: a legacy rendezvous field conflict is still reported', () => {
+    const { a, b } = diverge(
+      createEmptyDoc(),
+      (d) => setRaw(d, 'rendezvousAddressKey', 'a'.repeat(64)),
+      (d) => setRaw(d, 'rendezvousAddressKey', 'b'.repeat(64))
+    )
+    expect(reconcile(A.merge(A.clone(a), b)).conflicts.map((c) => c.field)).toEqual(['rendezvousAddressKey'])
   })
 
   it('non-vacuity: an ordinary camps field conflict is still reported', () => {

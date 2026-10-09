@@ -197,6 +197,11 @@ address key (`electron/sync/automerge/rendezvousRotation.js`; amendment 2026-10-
   expires them.
 - **Stragglers keep publishing under the old namespace.** A device that was offline across the revoke
   keeps publishing under the old namespace until it syncs the rotation.
+- **The rotation waits for the elected rotator.** Only the elected device rotates: the
+  lowest-id currently granted admin. While that device is offline, nothing rotates; the revoked
+  device can keep reading rendezvous records under the old secrets until that admin comes online,
+  syncs the revocation, and rotates. A camp with no granted admin in its authority log has no
+  rotator.
 
 ### A device offline through a revoke may have to re-pair (v1, accepted; UI flag pending)
 

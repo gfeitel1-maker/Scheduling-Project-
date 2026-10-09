@@ -7,6 +7,7 @@ import {
   mintRendezvousNamespace,
   rotateRendezvousNamespace,
 } from './rendezvousNamespace.js'
+import { readRendezvousAddressKey } from './rendezvousAddressKey.js'
 
 const CAMP_ID = 'camp-1'
 
@@ -116,29 +117,42 @@ describe('concurrent rotation is atomic (namespace and epoch can never split)', 
   it('rejects a malformed stored value instead of silently parsing it', () => {
     const minted = mintRendezvousNamespace(createEmptyDoc(), CAMP_ID)
     const corrupted = A.change(minted.doc, (d) => {
-      d.camps[recordKey(CAMP_ID, 'rendezvousDiscovery')] = 'garbage'
+      d.camps[recordKey(CAMP_ID, 'rendezvousSecrets')] = 'garbage'
     })
     expect(() => readRendezvousNamespace(corrupted, CAMP_ID)).toThrow(/malformed/i)
   })
 })
 
-describe('concurrent rotations auto-resolve: highest epoch wins on read (WAN-ladder F1 round 2)', () => {
-  const set = (doc, value) => A.change(doc, (d) => {
+describe('one atomic rendezvous tuple, with a legacy fallback (WAN-ladder F1 round 2)', () => {
+  const raw = (doc, field, value) => A.change(doc, (d) => {
     if (!d.camps) d.camps = {}
-    d.camps[recordKey('camp-1', 'rendezvousDiscovery')] = value
+    d.camps[recordKey('camp-1', field)] = value
   })
-  const low = `v1:2:${'a'.repeat(64)}`
-  const high = `v1:5:${'b'.repeat(64)}`
+  const legacyNs = 'c'.repeat(64)
+  const legacyKey = 'd'.repeat(64)
+  const legacyDoc = () => raw(raw(createEmptyDoc(), 'rendezvousDiscovery', `v1:4:${legacyNs}`), 'rendezvousAddressKey', legacyKey)
 
-  it('whichever value Automerge picks, every device reads the highest epoch', () => {
-    // Fresh actors each round; Automerge's own winner is the low epoch in about half of them.
-    let lowWonRaw = 0
-    for (let i = 0; i < 24; i++) {
-      const base = createEmptyDoc()
-      const merged = A.merge(set(A.clone(base), low), set(A.clone(base), high))
-      if (merged.camps[recordKey('camp-1', 'rendezvousDiscovery')] === low) lowWonRaw++
-      expect(readRendezvousNamespace(merged, 'camp-1')).toEqual({ epoch: 5, namespace: 'b'.repeat(64) })
-    }
-    expect(lowWonRaw).toBeGreaterThan(0)
+  it('reads the legacy fields as the current tuple when the new field is absent', () => {
+    const doc = legacyDoc()
+    expect(readRendezvousNamespace(doc, 'camp-1')).toEqual({ epoch: 4, namespace: legacyNs })
+    expect(readRendezvousAddressKey(doc, 'camp-1')).toBe(legacyKey)
+    expect(mintRendezvousNamespace(doc, 'camp-1').minted).toBe(false)
+  })
+
+  it('the next rotation writes ONE new field and never touches the legacy fields', () => {
+    const doc = legacyDoc()
+    const rotated = rotateRendezvousNamespace(doc, 'camp-1').doc
+    const read = readRendezvousNamespace(rotated, 'camp-1')
+    expect(read.epoch).toBe(5)
+    expect(read.namespace).not.toBe(legacyNs)
+    expect(readRendezvousAddressKey(rotated, 'camp-1')).not.toBe(legacyKey)
+    expect(rotated.camps[recordKey('camp-1', 'rendezvousSecrets')]).toMatch(/^v2:5:[0-9a-f]{64}:[0-9a-f]{64}:/)
+    expect(rotated.camps[recordKey('camp-1', 'rendezvousDiscovery')]).toBe(`v1:4:${legacyNs}`)
+    expect(rotated.camps[recordKey('camp-1', 'rendezvousAddressKey')]).toBe(legacyKey)
+  })
+
+  it('a fresh mint writes only the new field', () => {
+    const minted = mintRendezvousNamespace(createEmptyDoc(), 'camp-1').doc
+    expect(Object.keys(minted.camps).map((k) => k.split('\u0000')[1])).toEqual(['rendezvousSecrets'])
   })
 })

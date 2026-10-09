@@ -2,7 +2,8 @@
 // namespace and address key are rotated whenever the camp's revocation set changes, by ONE
 // elected device, keyed to the same revocation digest the T335 rotating mDNS tag uses.
 //
-// - `camps.rendezvousRotatedFor` records the revocation digest the current secrets were minted
+// - The `camps.rendezvousSecrets` tuple (rendezvousNamespace.js) carries the namespace, the key,
+//   and the revocation digest the current secrets were minted
 //   for. A device whose verified view of the revocation set differs from it, and which is the
 //   elected rotator, rotates. Every device runs the check (after each projection and on doc load),
 //   so a revocation that arrives by merge (quorum, concurrent revokes) is covered the same way as
@@ -11,21 +12,18 @@
 //   device, so the camp does not churn N rotations per revocation.
 // - A camp that never enabled rendezvous (no namespace minted) is skipped: nothing to rotate.
 import * as A from '@automerge/automerge'
-import { recordKey, readRecord } from '../../automerge/campDocument.js'
 import { createAuthorityReplayContext, createVerifiedEntryTrust } from '../../automerge/authorityReplay.js'
 import { revocationDigest, encodeRevokedIds } from '../../automerge/authorityRevocationDigest.js'
 import { createHash } from 'node:crypto'
-import { readRendezvousNamespace, rotateRendezvousNamespace } from './rendezvousNamespace.js'
-import { rotateRendezvousAddressKey } from './rendezvousAddressKey.js'
+import { readRendezvousSecrets, rotateRendezvousSecrets } from './rendezvousNamespace.js'
 import { getCurrentDoc, setCurrentDoc } from './liveDoc.js'
 import { recordDeviceHealthEvent, DEVICE_HEALTH } from '../../ops/deviceHealthEvents.js'
 
-export const ROTATED_FOR_FIELD = 'rendezvousRotatedFor'
-export const RENDEZVOUS_FIELDS = Object.freeze(['rendezvousDiscovery', 'rendezvousAddressKey', ROTATED_FOR_FIELD])
 const EMPTY_REVOCATION_DIGEST = createHash('sha256').update(encodeRevokedIds([])).digest('hex')
 
+/** The revocation digest the current secrets were minted for (from the same atomic tuple). */
 export function readRotatedFor(doc, campId) {
-  return readRecord(doc, 'camps', campId)?.[ROTATED_FOR_FIELD] ?? EMPTY_REVOCATION_DIGEST
+  return readRendezvousSecrets(doc, campId)?.rotatedFor ?? EMPTY_REVOCATION_DIGEST
 }
 
 export function electedRotator(doc) {
@@ -36,14 +34,11 @@ export function electedRotator(doc) {
 
 /** Pure: returns { doc, rotated, reason }. Never writes unless this device is the elected rotator. */
 export function checkRendezvousRotation(doc, { campId, deviceId, randomBytes } = {}) {
-  if (!doc || !campId || !readRendezvousNamespace(doc, campId)) return { doc, rotated: false, reason: 'never-enabled' }
+  if (!doc || !campId || !readRendezvousSecrets(doc, campId)?.namespace) return { doc, rotated: false, reason: 'never-enabled' }
   const digest = revocationDigest(A, doc, { isEntryTrusted: createVerifiedEntryTrust(A, doc) })
   if (readRotatedFor(doc, campId) === digest) return { doc, rotated: false, reason: 'current' }
   if (electedRotator(doc) !== deviceId) return { doc, rotated: false, reason: 'not-elected' }
-  const opts = randomBytes ? { randomBytes } : {}
-  let next = rotateRendezvousNamespace(doc, campId, opts).doc
-  next = rotateRendezvousAddressKey(next, campId, opts).doc
-  next = A.change(next, (d) => { d.camps[recordKey(campId, ROTATED_FOR_FIELD)] = digest })
+  const next = rotateRendezvousSecrets(doc, campId, { rotatedFor: digest, ...(randomBytes ? { randomBytes } : {}) }).doc
   return { doc: next, rotated: true, reason: 'rotated' }
 }
 

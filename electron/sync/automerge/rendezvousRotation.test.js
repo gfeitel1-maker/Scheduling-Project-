@@ -10,7 +10,7 @@ import { signAuthorityEntry } from '../../automerge/authorityLogSignature.js'
 import { ensureDeviceIdentity } from '../../auth/deviceIdentity.js'
 import { revocationDigest } from '../../automerge/authorityRevocationDigest.js'
 import { createVerifiedEntryTrust } from '../../automerge/authorityReplay.js'
-import { mintRendezvousNamespace, readRendezvousNamespace } from './rendezvousNamespace.js'
+import { mintRendezvousNamespace, readRendezvousNamespace, rotateRendezvousNamespace } from './rendezvousNamespace.js'
 import { mintRendezvousAddressKey, readRendezvousAddressKey } from './rendezvousAddressKey.js'
 import { checkRendezvousRotation, readRotatedFor, electedRotator, runRendezvousRotation } from './rendezvousRotation.js'
 import { setCurrentDoc, getCurrentDoc, resetForTests } from './liveDoc.js'
@@ -126,5 +126,31 @@ describe('digest-keyed, elected rendezvous rotation', () => {
     expect(r).toMatchObject({ rotated: false, reason: 'failed' })
     const row = db.prepare("SELECT kind FROM device_health_events WHERE kind = 'rendezvous_rotation_failed'").get()
     expect(row).toBeTruthy()
+  })
+})
+
+// Red Hat round-2 reproduction: namespace and key must never come from different rotations.
+describe('the rotation is one atomic tuple', () => {
+  const pair = (doc) => `${readRendezvousNamespace(doc, CAMP).namespace}|${readRendezvousAddressKey(doc, CAMP)}`
+
+  it('busy side (200 edits + 1 rotation) vs quiet side (2 rotations): the merged namespace and key come from the SAME rotation', () => {
+    for (let round = 0; round < 6; round++) {
+      const base = revoke(camp(), 'dev-x', 'dev-f')
+      const produced = new Set()
+
+      let busy = A.clone(base)
+      for (let i = 0; i < 200; i++) busy = applyWrite(busy, { entity: 'activities', entity_id: `act-${i}`, field: 'name', value: `A${i}` })
+      busy = checkRendezvousRotation(busy, { campId: CAMP, deviceId: 'dev-a' }).doc
+      produced.add(pair(busy))
+
+      let quiet = checkRendezvousRotation(A.clone(base), { campId: CAMP, deviceId: 'dev-a' }).doc
+      produced.add(pair(quiet))
+      quiet = rotateRendezvousNamespace(quiet, CAMP).doc
+      produced.add(pair(quiet))
+
+      for (const merged of [A.merge(A.clone(busy), A.clone(quiet)), A.merge(A.clone(quiet), A.clone(busy))]) {
+        expect(produced.has(pair(merged))).toBe(true)
+      }
+    }
   })
 })
