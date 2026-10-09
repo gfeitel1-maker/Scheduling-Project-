@@ -28,6 +28,15 @@ function progressText(state, name) {
   return 'Restarting…'
 }
 
+const mb = (bytes) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+
+function failureText(result, name) {
+  if (result.reason === 'handoff_too_large' && result.bytes && result.limit) {
+    return `Handoff did not complete: this camp's host-only data is too large to send (${mb(result.bytes)}; the limit is ${mb(result.limit)}). ${name} was not changed; this computer is still the host.`
+  }
+  return `Handoff did not complete. ${name} was not changed; this computer is still the host.`
+}
+
 export default function HostHandoffControl({ device, status, onStart }) {
   const reducedMotion = usePrefersReducedMotion()
   const name = device.name || 'this device'
@@ -73,7 +82,7 @@ export default function HostHandoffControl({ device, status, onStart }) {
       </button>
       {failed && (
         <div role="status" style={styles.result}>
-          {`Handoff did not complete. ${name} was not changed; this computer is still the host.`}
+          {failureText(status.lastResult, name)}
         </div>
       )}
     </div>

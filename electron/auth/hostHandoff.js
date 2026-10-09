@@ -16,6 +16,7 @@ import { createPrivateKey, createPublicKey, randomUUID } from 'node:crypto'
 import { isHostDevice } from './localAuth.js'
 import { recordAuditEvent } from '../audit/auditLog.js'
 import { generateEphemeral, buildAad, signEphemeral, verifyEphemeral, seal, open } from './hostHandoffSeal.js'
+import { HANDOFF_MAX_FRAME_BYTES } from '../sync/automerge/wireProtocol.js'
 
 // The tables marked host-only in schema.sql: never synced, so they travel with hosting. Guarded by
 // hostHandoff.hostOnlyTables.guard.test.js — a new host-only table that is not listed here fails it.
@@ -40,7 +41,7 @@ export function isAdminDevice(db, deviceId) {
   return Boolean(device?.authorized_at && !device.revoked_at)
 }
 
-export function createHostHandoff({ db, deviceId, getDeviceIdentity, now = Date.now, relaunch = () => {} }) {
+export function createHostHandoff({ db, deviceId, getDeviceIdentity, now = Date.now, relaunch = () => {}, maxKeyFrameBytes = HANDOFF_MAX_FRAME_BYTES }) {
   // Ephemeral X25519 private keys live in memory only: a restart in `accepted` discards the handoff.
   const ephemerals = new Map()
   let lastResult = null
@@ -186,8 +187,16 @@ export function createHostHandoff({ db, deviceId, getDeviceIdentity, now = Date.
       plaintext: Buffer.from(JSON.stringify({ public_key: key.public_key, private_key: key.private_key, created_at: key.created_at, tables, counts })),
       aad: buildAad(ids),
     })
+    const reply = { type: 'KEY', handoff_id: msg.handoff_id, sealed }
+    // The receiver drops any frame over the ceiling without a word; refuse here instead, by name.
+    const bytes = Buffer.byteLength(JSON.stringify(reply))
+    if (bytes > maxKeyFrameBytes) {
+      lastResult = { ok: false, reason: 'handoff_too_large', bytes, limit: maxKeyFrameBytes, peerDeviceId, handoffId: msg.handoff_id, at: iso() }
+      clearRow()
+      return deny('handoff_too_large', peerDeviceId, msg.handoff_id)
+    }
     setState('sent')
-    return { ok: true, reply: { type: 'KEY', handoff_id: msg.handoff_id, sealed } }
+    return { ok: true, reply }
   }
 
   // Step 5, the decision point: one transaction deletes the live key and the host-only rows and

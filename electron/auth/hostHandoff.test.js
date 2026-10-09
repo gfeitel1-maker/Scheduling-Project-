@@ -21,8 +21,9 @@ const publicKey = (side) => side.db.prepare('SELECT signing_public_key k FROM ca
 const auditReasons = (side) =>
   side.db.prepare("SELECT reason FROM audit_events WHERE action = 'host.handoff' AND outcome = 'deny'").all().map((r) => r.reason)
 
-function build(side, label) {
+function build(side, label, extra = {}) {
   side.svc = createHostHandoff({
+    ...extra,
     db: side.db,
     deviceId: side.deviceId,
     getDeviceIdentity: async () => side.identity,
@@ -295,6 +296,24 @@ describe('host handoff: the successor cannot finish activating', () => {
     expect(isHostDevice(s.db)).toBe(true)
     expect(liveKeys()).toBe(1)
     expect(s.svc.status().lastResult).toBeNull()
+  })
+})
+
+describe('host handoff: a KEY too large to send', () => {
+  it('H refuses before sending, names the size and the limit, stays host, and changes nothing on S', async () => {
+    build(h, 'H', { maxKeyFrameBytes: 2000 })
+    const offer = h.svc.offer(s.deviceId)
+    await send(h, s, offer.msg)
+    const accept = await s.svc.accept()
+    const result = await send(s, h, accept.msg)
+    expect(result).toMatchObject({ ok: false, reason: 'handoff_too_large' })
+    const last = h.svc.status().lastResult
+    expect(last).toMatchObject({ ok: false, reason: 'handoff_too_large', peerDeviceId: s.deviceId, limit: 2000 })
+    expect(last.bytes).toBeGreaterThan(2000)
+    expect(row(h)).toBeUndefined()
+    expect(isHostDevice(h.db)).toBe(true)
+    expect(liveKeys()).toBe(1)
+    expect(pendingKey(s)).toBeUndefined()
   })
 })
 

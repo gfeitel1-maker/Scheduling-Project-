@@ -62,6 +62,14 @@ describe('HostHandoffControl', () => {
     expect(onStart).toHaveBeenCalledWith('dev-s')
   })
 
+  it('a handoff too large to send names its size and the limit on the control', () => {
+    const status = { ...idle, lastResult: { ok: false, reason: 'handoff_too_large', bytes: 40 * 1024 * 1024, limit: 32 * 1024 * 1024, peerDeviceId: 'dev-s' } }
+    render(<HostHandoffControl device={device} status={status} onStart={vi.fn()} />)
+    const text = screen.getByRole('status').textContent
+    expect(text).toContain('too large to send (40.0 MB; the limit is 32.0 MB)')
+    expect(text).toContain('this computer is still the host')
+  })
+
   it('a failure for a different device is not shown on this row', () => {
     render(<HostHandoffControl device={device} status={{ ...idle, lastResult: { ok: false, reason: 'timed_out', peerDeviceId: 'other' } }} onStart={vi.fn()} />)
     expect(screen.queryByRole('status')).toBeNull()
