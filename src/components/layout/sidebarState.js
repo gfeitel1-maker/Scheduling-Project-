@@ -145,14 +145,14 @@ export function loadSidebarState(storage) {
 // joined and cannot see the main computer is not, and conflating the two hides
 // the only case worth acting on.
 const SYNC_STATUS_COPY = {
-  host: { text: 'main', tone: 'success', title: 'This computer is the main one. The others follow what is on it.' },
-  'client-connected': { text: 'linked', tone: 'success', title: 'Connected to the main computer.' },
+  host: { text: 'sharing', tone: 'success', title: 'Sharing is on. Changes reach the other devices in this camp whenever they can be reached.' },
+  'client-connected': { text: 'linked', tone: 'success', title: 'Connected to other devices in this camp.' },
   // T87 (docs/adr/2026-08-16-client-reauth-on-restart.md, Part 4): the window
   // between the socket opening and the Host confirming (or rejecting) this
   // device's session — 'client-connected' now means authenticated, not just
   // transport-open, so this in-between moment needs its own honest state.
-  'client-connecting': { text: 'connecting', tone: 'secondary', title: 'Talking to the main computer — not yet confirmed.' },
-  'client-disconnected': { text: 'alone', tone: 'danger', title: 'Cannot reach the main computer right now. Your changes are saved here and will reach it when it is back.' },
+  'client-connecting': { text: 'connecting', tone: 'secondary', title: 'Reaching another device in this camp — not yet confirmed.' },
+  'client-disconnected': { text: 'alone', tone: 'danger', title: 'Can’t reach other devices right now — changes are saved here and will reach them when they’re back.' },
   standalone: { text: 'on its own', tone: 'secondary', title: 'This computer is not sharing with any other yet.' },
   // T268 — the sync node did not start because a domain-state migration ran
   // against a camp that already has a document (electron/db/migrationDomainState.js).

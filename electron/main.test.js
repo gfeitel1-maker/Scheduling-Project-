@@ -2511,7 +2511,7 @@ describe('denyDevice handler (devices.approve, admin-only)', () => {
     await handlers.chooseMode({ mode: 'client' })
 
     expect(() => handlers.denyDevice({ token: adminToken, deviceId: 'deny-target-client' }))
-      .toThrow('Device management can only be done on the main computer.')
+      .toThrow('Device management can only be done on the device this camp was set up on.')
 
     const row = db.prepare('SELECT pairing_status FROM devices WHERE id = ?').get('deny-target-client')
     expect(row.pairing_status).toBe('pending')
@@ -2695,7 +2695,7 @@ describe('ingestCommit: who may import, and from where', () => {
     // commitIngest appends straight to THIS device's sqlite; on a Client the
     // Host would never see it and the camp would silently fork.
     expect(() => handlers.ingestCommit({ token, mode: 'replace', approved: { activities: ['Archery'] } }))
-      .toThrow('Replace can only be run on the main computer.')
+      .toThrow('Replace can only be run on the device this camp was set up on.')
 
     expect(db.prepare('SELECT COUNT(*) c FROM activities').get().c).toBe(1)
     expect(db.prepare("SELECT COUNT(*) c FROM operations WHERE entity = 'activities' AND field = '__deleted__'").get().c).toBe(0)
@@ -2707,7 +2707,7 @@ describe('ingestCommit: who may import, and from where', () => {
     await handlers.chooseMode({ mode: 'client' })
 
     expect(() => handlers.ingestCommit({ token, approved: { activities: ['Archery'] } }))
-      .toThrow('Import can only be run on the main computer.')
+      .toThrow('Import can only be run on the device this camp was set up on.')
     expect(db.prepare('SELECT COUNT(*) c FROM activities').get().c).toBe(0)
   })
 
@@ -2875,7 +2875,7 @@ describe('confirmAlias handler: who may confirm, and from where (S1b)', () => {
 
     expect(() =>
       handlers.confirmAlias({ token, entity_type: 'groups', source_label: 'Cabin 1', entity_id: 'g1' })
-    ).toThrow('Confirming an import match can only be done on the main computer.')
+    ).toThrow('Confirming an import match can only be done on the device this camp was set up on.')
     expect(db.prepare('SELECT COUNT(*) c FROM source_aliases').get().c).toBe(0)
   })
 
@@ -2951,10 +2951,10 @@ describe('listOpenReconciliationDecisions / dismissOpenReconciliationDecisions h
     await handlers.chooseMode({ mode: 'client' })
 
     expect(() => handlers.listOpenReconciliationDecisions({ token })).toThrow(
-      'Reconciliation decisions can only be read on the main computer.'
+      'Reconciliation decisions can only be read on the device this camp was set up on.'
     )
     expect(() => handlers.dismissOpenReconciliationDecisions({ token, ids: ['x'] })).toThrow(
-      'Reconciliation decisions can only be dismissed on the main computer.'
+      'Reconciliation decisions can only be dismissed on the device this camp was set up on.'
     )
   })
 

@@ -312,13 +312,13 @@ describe('ImportScreen — inferred activity rules (T35)', () => {
     expect(localClient.deleteEntity).not.toHaveBeenCalled()
   })
 
-  it('tells the director to use the main computer when the handler refuses on a Client', async () => {
+  it('tells the director to use the device this camp was set up on when the handler refuses on a Client', async () => {
     // The refusal names the one thing they can do about it; the generic
     // "not something the app recognised" fallback would bury that.
-    localClient.ingestCommit.mockRejectedValue(new Error('Import can only be run on the main computer.'))
+    localClient.ingestCommit.mockRejectedValue(new Error('Import can only be run on the device this camp was set up on.'))
     await uploadFile()
     await goToCommit()
-    await waitFor(() => expect(screen.getByText(/main computer/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/device this camp was set up on/)).toBeTruthy())
     expect(screen.getByText(/Nothing was imported/)).toBeTruthy()
   })
 
@@ -666,7 +666,7 @@ describe('ImportScreen — a partial split failure is surfaced (not silently dro
 })
 
 // T93 — Import is host-only, enforced today only at the IPC layer
-// (electron/main.js throws "Import can only be run on the main computer."
+// (electron/main.js throws "Import can only be run on the device this camp was set up on."
 // when mode === 'client'). Without an early UI gate, a Client-mode director
 // can upload/parse/edit/reconcile a whole import and only discover the
 // constraint at the final commit. deviceMode is the same signal T86 already
@@ -674,7 +674,7 @@ describe('ImportScreen — a partial split failure is surfaced (not silently dro
 describe('ImportScreen — host-only gate on Client-mode devices (T93)', () => {
   it('shows host-only guidance and no live upload control when deviceMode is client', () => {
     render(<ImportScreen campId="camp-1" onNavigate={() => {}} deviceMode="client" />)
-    expect(screen.getByText(/main computer/i)).toBeTruthy()
+    expect(screen.getByText(/device this camp was set up on/i)).toBeTruthy()
     expect(document.querySelector('input[type="file"]')).toBeNull()
   })
 

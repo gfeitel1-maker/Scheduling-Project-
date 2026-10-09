@@ -24,7 +24,7 @@ const displayTo = (field, delta) => (field === 'unit' ? unitDisplayName(delta?.t
 export function mapCommitError(err) {
   const message = err?.message ?? ''
   return /admin role required/i.test(message) ? 'Admins only — nothing was imported.'
-    : /can only be run on the main computer/i.test(message) ? `${message} Nothing was imported.`
+    : /can only be run on the device this camp was set up on/i.test(message) ? `${message} Nothing was imported.`
     : describeWriteFailure(err, 'Nothing was imported. Your camp is exactly as it was.')
 }
 

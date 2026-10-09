@@ -518,8 +518,8 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     if (mode === 'client') {
       throw new Error(
         ingestMode === 'replace'
-          ? 'Replace can only be run on the main computer.'
-          : 'Import can only be run on the main computer.'
+          ? 'Replace can only be run on the device this camp was set up on.'
+          : 'Import can only be run on the device this camp was set up on.'
       )
     }
     const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
@@ -694,7 +694,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const session = requireAuthorized(db, { token, action: 'groups.import' })
     if (mode === 'client') {
-      throw new Error('Undo can only be run on the main computer.')
+      throw new Error('Undo can only be run on the device this camp was set up on.')
     }
     if (!isNonEmptyString(client_write_id)) throw new Error('client_write_id is required')
     return ingestUndo(db, {
@@ -718,7 +718,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const session = requireAuthorized(db, { token, action: 'source_aliases.confirm' })
     if (mode === 'client') {
-      throw new Error('Confirming an import match can only be done on the main computer.')
+      throw new Error('Confirming an import match can only be done on the device this camp was set up on.')
     }
     const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
     if (!camp) throw new Error('no camp on this device')
@@ -748,7 +748,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     if (!isNonEmptyString(token)) throw new Error('token is required')
     requireAuthorized(db, { token, action: 'declined_two_row_splits.record' })
     if (mode === 'client') {
-      throw new Error('Declining a split suggestion can only be done on the main computer.')
+      throw new Error('Declining a split suggestion can only be done on the device this camp was set up on.')
     }
     const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
     if (!camp) throw new Error('no camp on this device')
@@ -1511,7 +1511,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     const { userId } = requireAuthorized(db, { token, action: 'devices.approve' })
     // T86 — same reason as approveDevice above.
     if (mode === 'client') {
-      throw new Error('Device management can only be done on the main computer.')
+      throw new Error('Device management can only be done on the device this camp was set up on.')
     }
     if (!isNonEmptyString(targetDeviceId)) throw new Error('deviceId is required')
 
@@ -2177,7 +2177,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     if (!isNonEmptyString(token)) throw new Error('token is required')
     requireAuthorized(db, { token, action: 'open_reconciliation_decisions.read' })
     if (mode === 'client') {
-      throw new Error('Reconciliation decisions can only be read on the main computer.')
+      throw new Error('Reconciliation decisions can only be read on the device this camp was set up on.')
     }
     const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
     if (!camp) return []
@@ -2192,7 +2192,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     if (!isNonEmptyString(token)) throw new Error('token is required')
     requireAuthorized(db, { token, action: 'open_reconciliation_decisions.dismiss' })
     if (mode === 'client') {
-      throw new Error('Reconciliation decisions can only be dismissed on the main computer.')
+      throw new Error('Reconciliation decisions can only be dismissed on the device this camp was set up on.')
     }
     return dismissOpenReconciliationDecisions(db, ids)
   }
@@ -2746,7 +2746,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     if (!isNonEmptyString(token)) throw new Error('token is required')
     requireAuthorized(db, { token, action: 'devices.approve' })
     if (mode === 'client') {
-      throw new Error('Adding a device can only be done on the main computer.')
+      throw new Error('Adding a device can only be done on the device this camp was set up on.')
     }
     const camp = db.prepare('SELECT id, name FROM camps LIMIT 1').get()
     if (!camp) throw new Error('no camp on this device yet')
@@ -2762,7 +2762,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     if (!isNonEmptyString(token)) throw new Error('token is required')
     requireAuthorized(db, { token, action: 'devices.approve' })
     if (mode === 'client') {
-      throw new Error('Adding a device can only be done on the main computer.')
+      throw new Error('Adding a device can only be done on the device this camp was set up on.')
     }
     joinWindowOpen = Boolean(open)
     // A fresh secret every time the window opens — including re-opening after

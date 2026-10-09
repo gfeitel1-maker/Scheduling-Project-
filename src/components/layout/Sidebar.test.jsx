@@ -431,7 +431,7 @@ describe('Sidebar: host-not-syncing retry affordance (T275)', () => {
 
     expect(screen.queryByText('try again')).toBeNull()
     expect(screen.queryByText('trying…')).toBeNull()
-    expect(screen.getByText('main')).toBeTruthy()
+    expect(screen.getByText('sharing')).toBeTruthy()
   })
 
   it('caps "trying…" and falls back to "try again" if a later push still reports host-not-syncing', () => {
