@@ -144,7 +144,7 @@ describe('ParseSummary', () => {
           />
         )
         // FORTY rows naming one activity is ONE activity to add.
-        const buttons = screen.getAllByText('Add “Quidditch” as an activity')
+        const buttons = screen.getAllByText('Add “Quidditch”')
         expect(buttons).toHaveLength(1)
         await userEvent.click(buttons[0])
         expect(onAddActivity).toHaveBeenCalledWith('Quidditch')

@@ -36,8 +36,7 @@ import {
   groupBundleTierNotCoveredFindings, bundleTierNotCoveredGroupMessage, finalizeFindingMessage,
   sheetOnlyCampersMessage, UNKNOWN_CAMPER_LABEL,
   unresolvableCampersLabel, allCampersUnresolvableMessage,
-  REGENERATE_LABEL, REGENERATE_BUSY_LABEL, regenerateUnavailableNote, COLD_REGENERATE_NOTE,
-  FINALIZE_HINT, REGENERATE_HINT,
+  REGENERATE_LABEL, REGENERATE_BUSY_LABEL, regenerateUnavailableNote,
 } from './runStateCopy.js'
 
 // See styles.namesListScroll for why this is 20 and not 10.
@@ -221,7 +220,7 @@ function CamperNameDisclosure({ campers = [], disambiguators }) {
 function FinalizeRefusalRow({ refusal, onRegenerate, regenerating, days, timeBlocks }) {
   const { error, findings } = refusal
   const known = FINALIZE_MESSAGES[error]
-  const message = known ?? `Finalizing failed: ${error}. Nothing was changed — try again, or contact support if this keeps happening.`
+  const message = known ?? `Couldn't finalize: ${error}. Nothing changed.`
 
   if (error === 'STALE_OUTER_SCHEDULE') {
     return (
@@ -1031,7 +1030,6 @@ export default function DraftRunView({
               >
                 {finalizing ? 'Finalizing…' : 'Finalize run'}
               </button>
-              <span style={styles.actionsHint}>{FINALIZE_HINT}</span>
             </div>
             <div style={styles.actionSlot}>
               {/* The staleness offer, the preference-edit offer and a
@@ -1042,19 +1040,16 @@ export default function DraftRunView({
                   offers use: primary stays uniquely Finalize, utility stays
                   uniquely Delete. */}
               {!offerRegenerateShown && onRegenerate ? (
-                <>
-                  <button
-                    className="press-97"
-                    data-testid="run-regenerate"
-                    style={regenerating ? { ...S.btnSecondary, ...S.buttonDisabled } : S.btnSecondary}
-                    disabled={regenerating}
-                    aria-busy={regenerating || undefined}
-                    onClick={regenerateNow}
-                  >
-                    {regenerating ? REGENERATE_BUSY_LABEL : REGENERATE_LABEL}
-                  </button>
-                  <span style={styles.actionsHint}>{REGENERATE_HINT}</span>
-                </>
+                <button
+                  className="press-97"
+                  data-testid="run-regenerate"
+                  style={regenerating ? { ...S.btnSecondary, ...S.buttonDisabled } : S.btnSecondary}
+                  disabled={regenerating}
+                  aria-busy={regenerating || undefined}
+                  onClick={regenerateNow}
+                >
+                  {regenerating ? REGENERATE_BUSY_LABEL : REGENERATE_LABEL}
+                </button>
               ) : null}
               {/* The sentence stands where the control would have been, in the
                   regenerate slot — not beside the Finalize hint, where the two
@@ -1064,14 +1059,6 @@ export default function DraftRunView({
                 <div data-testid="run-regenerate-unavailable" style={styles.actionsHint}>
                   {regenerateUnavailableNote(regeneratePending, regenerateFailure)}
                 </div>
-              ) : null}
-              {/* T320 part 2 item 3 — a standing fact about what regenerating
-                  THIS run reconsiders, so it belongs in the regenerate slot
-                  whichever control is offering the regenerate. Round 1 left it
-                  below the findings block, visually attached to the placement
-                  table and to no control at all. */}
-              {coldRegenerate ? (
-                <div data-testid="run-cold-regenerate-note" style={styles.actionsHint}>{COLD_REGENERATE_NOTE}</div>
               ) : null}
             </div>
           </div>

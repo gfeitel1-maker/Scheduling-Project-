@@ -201,7 +201,7 @@ describe('T250 A1 — Finalize run', () => {
     const onRegenerate = vi.fn()
     render(<DraftRunView run={DRAFT_RUN} onFinalized={vi.fn()} onRegenerate={onRegenerate} {...catalogs()} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Finalize run' }))
-    const row = await screen.findByText(/This run's schedule changed on another device since you last regenerated/)
+    const row = await screen.findByText(/Schedule changed\. Regenerate first\./)
     const action = screen.getByRole('button', { name: /Re-derive and regenerate/i })
     fireEvent.click(action)
     expect(onRegenerate).toHaveBeenCalled()
@@ -212,7 +212,7 @@ describe('T250 A1 — Finalize run', () => {
     localClient.finalizeElectiveRun.mockResolvedValue({ ok: false, error: 'OUTER_RESOURCE_CONFLICT', findings: [{ locationId: 'loc-1' }] })
     render(<DraftRunView run={DRAFT_RUN} onFinalized={vi.fn()} {...catalogs()} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Finalize run' }))
-    const row = await screen.findByText(/A location or activity this run depends on is now double-booked/)
+    const row = await screen.findByText(/Double-booked on the schedule\. Fix it, then finalize\./)
     expect(within(row.closest('[role="alert"]')).queryByRole('button')).toBeNull()
   })
 
@@ -254,7 +254,7 @@ describe('T250 A1 — Finalize run', () => {
     localClient.finalizeElectiveRun.mockResolvedValue({ ok: false, error: 'run has no assignments' })
     render(<DraftRunView run={DRAFT_RUN} onFinalized={vi.fn()} {...catalogs()} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Finalize run' }))
-    await screen.findByText(/Finalizing failed: run has no assignments\. Nothing was changed/)
+    await screen.findByText(/Couldn't finalize: run has no assignments\. Nothing changed\./)
   })
 
   it('renders up to 3 findings as a list, collapsing the remainder behind "+N more"', async () => {
@@ -295,7 +295,7 @@ describe('T250 A1 — Finalize run', () => {
     const button = await screen.findByRole('button', { name: 'Finalize run' })
     fireEvent.click(button)
     const firstRow = await screen.findByRole('alert')
-    expect(firstRow.textContent).toMatch(/This run's schedule changed on another device/)
+    expect(firstRow.textContent).toMatch(/Schedule changed\. Regenerate first\./)
     await waitFor(() => expect(document.activeElement).toBe(firstRow))
 
     button.focus()
@@ -303,7 +303,7 @@ describe('T250 A1 — Finalize run', () => {
     fireEvent.click(button)
     await waitFor(() => {
       const row = screen.getByRole('alert')
-      expect(row.textContent).toMatch(/A location or activity this run depends on is now double-booked/)
+      expect(row.textContent).toMatch(/Double-booked on the schedule\. Fix it, then finalize\./)
       expect(document.activeElement).toBe(row)
     })
   })
@@ -338,7 +338,7 @@ describe('T250 A1 — Finalize run', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Finalize run' }))
     const firstRow = await screen.findByRole('alert')
-    expect(firstRow.textContent).toMatch(/A location or activity this run depends on is now double-booked/)
+    expect(firstRow.textContent).toMatch(/Double-booked on the schedule\. Fix it, then finalize\./)
     await waitFor(() => expect(document.activeElement).toBe(firstRow))
 
     // Move focus AWAY and CONFIRM it moved — fireEvent.click does not
@@ -356,7 +356,7 @@ describe('T250 A1 — Finalize run', () => {
 
     await waitFor(() => {
       const row = screen.getByRole('alert')
-      expect(row.textContent).toMatch(/finalized on another device while you had it open/i)
+      expect(row.textContent).toMatch(/Finalized on another device\./)
       expect(document.activeElement).toBe(row)
     })
   })
@@ -425,7 +425,7 @@ describe('T250 archive_when — Draft: overCapacityOccurrences surfaced live', (
     })
     render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
     const row = await screen.findByTestId('run-state-over-capacity-occ-1-act-1')
-    expect(row.textContent).toBe('Archery — Monday, First Period has 2 campers assigned against a capacity of 1.')
+    expect(row.textContent).toBe('Archery — Monday, First Period: 2 of 1.')
     // A pointer, not a control — the remedy is the move/lock table below.
     expect(within(row).queryByRole('button')).toBeNull()
   })
@@ -441,7 +441,7 @@ describe('T250 archive_when — Draft: overCapacityOccurrences surfaced live', (
     })
     render(<DraftRunView run={DRAFT_RUN} {...catalogs()} templateOccurrences={[]} />)
     const row = await screen.findByTestId('run-state-over-capacity-occ-1-act-1')
-    expect(row.textContent).toBe('Archery — Monday, First Period has 2 campers assigned against a capacity of 1.')
+    expect(row.textContent).toBe('Archery — Monday, First Period: 2 of 1.')
   })
 
   it('renders nothing at all in the run-state area when there is nothing to report', async () => {
@@ -474,7 +474,7 @@ describe('T250/T320 archive_when — Draft: DANGLING_MANUAL_ASSIGNMENT surfaced 
     render(<DraftRunView run={DRAFT_RUN} danglingFindings={dangling} {...catalogs()} />)
     const row = await screen.findByTestId('run-state-dangling-a3')
     expect(row.textContent).toMatch(
-      /Testcamper Charlie's locked placement no longer matches this run — regenerating removed the occurrence it pointed to\./
+      /Testcamper Charlie's lock no longer applies\./
     )
     const select = within(row).getByTestId('run-state-dangling-move-a3')
     fireEvent.change(select, { target: { value: 'occ-1' } })
@@ -517,7 +517,7 @@ describe('T250/T320 archive_when — Draft: DANGLING_MANUAL_ASSIGNMENT surfaced 
     localClient.getElectiveRun.mockResolvedValue({ ...CLEAN_RUN_STATE, danglingFindings: dangling })
     render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
     const row = await screen.findByTestId('run-state-dangling-a3')
-    expect(row.textContent).toMatch(/Testcamper Charlie's locked placement no longer matches this run/)
+    expect(row.textContent).toMatch(/Testcamper Charlie's lock no longer applies/)
   })
 })
 
@@ -551,7 +551,7 @@ describe('T250 B1 — a mixed findings array renders each kind with its own sent
     render(<DraftRunView run={DRAFT_RUN} danglingFindings={mixed} {...catalogs()} />)
 
     const danglingRow = await screen.findByTestId('run-state-dangling-a3')
-    expect(danglingRow.textContent).toMatch(/Testcamper Charlie's locked placement no longer matches this run/)
+    expect(danglingRow.textContent).toMatch(/Testcamper Charlie's lock no longer applies/)
     // T320 — the dangling row's action is now the move picker, not a button.
     expect(within(danglingRow).getByTestId('run-state-dangling-move-a3')).toBeTruthy()
 
@@ -563,7 +563,7 @@ describe('T250 B1 — a mixed findings array renders each kind with its own sent
     // with this screen's own sentence (not the finding's raw .message), and
     // the camper's name is reachable behind the disclosure.
     const bundleRow = screen.getByTestId('run-state-bundle-mismatch-Sports Bundle-tier-1')
-    expect(bundleRow.textContent).toMatch(/"Sports Bundle" does not cover Juniors — 1 camper kept their request as an ordinary choice\./)
+    expect(bundleRow.textContent).toMatch(/"Sports Bundle" does not cover Juniors: 1 camper’s request treated as ordinary\./)
     expect(within(bundleRow).queryByRole('button')).toBeNull()
     // The named camper is reachable (in the DOM, behind the disclosure) even
     // though the finding's own raw .message is no longer printed verbatim.
@@ -591,7 +591,7 @@ describe('T250 B1 — a mixed findings array renders each kind with its own sent
     const bundleRows = [...area.querySelectorAll('[data-testid^="run-state-bundle-mismatch-"]')]
     expect(bundleRows).toHaveLength(1)
     const row = bundleRows[0]
-    expect(row.textContent).toMatch(/3 campers kept their request as an ordinary choice/)
+    expect(row.textContent).toMatch(/3 campers’ requests treated as ordinary/)
     for (const name of ['Testcamper Alpha', 'Testcamper Bravo', 'Testcamper Charlie']) {
       expect(within(row).getByText(name)).toBeTruthy()
     }
@@ -614,7 +614,7 @@ describe('T250 B1 — a mixed findings array renders each kind with its own sent
     render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
 
     const bundleRow = await screen.findByTestId('run-state-bundle-mismatch-Sports Bundle-tier-1')
-    expect(bundleRow.textContent).toMatch(/"Sports Bundle" does not cover Juniors — 1 camper kept their request as an ordinary choice\./)
+    expect(bundleRow.textContent).toMatch(/"Sports Bundle" does not cover Juniors: 1 camper’s request treated as ordinary\./)
     expect(bundleRow.textContent).toContain('Testcamper Bravo')
   })
 
@@ -737,7 +737,7 @@ describe('(C)(4) sheetOnlyCampers — named, not just counted', () => {
     render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
 
     const row = await screen.findByTestId('run-state-sheet-only-campers')
-    expect(row.textContent).toMatch(/2 campers on this run's sheet have no ranked choice and no placement/)
+    expect(row.textContent).toMatch(/2 campers: no choice, not placed/)
     for (const name of ['Testcamper Alpha', 'Testcamper Bravo']) {
       expect(within(row).getByText(name)).toBeTruthy()
     }
@@ -751,7 +751,7 @@ describe('(C)(4) sheetOnlyCampers — named, not just counted', () => {
     render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
 
     const row = await screen.findByTestId('run-state-sheet-only-campers')
-    expect(row.textContent).toMatch(/1 camper on this run's sheet has no ranked choice and no placement/)
+    expect(row.textContent).toMatch(/1 camper: no choice, not placed/)
     expect(row.textContent).toContain('Testcamper Charlie')
   })
 
@@ -776,7 +776,7 @@ describe('(C)(4) sheetOnlyCampers — named, not just counted', () => {
     const row = await screen.findByTestId('run-state-sheet-only-campers')
     expect(row.textContent).toContain('Testcamper Alpha')
     expect(row.textContent).not.toContain('deleted-camper-id-ghost')
-    expect(row.textContent).toContain('a camper who is no longer on the roster')
+    expect(row.textContent).toContain('a removed camper')
   })
 })
 
@@ -1037,7 +1037,7 @@ describe('T250 round 2 FIX 4 — a cold-opened run finalized elsewhere refuses t
     await waitFor(() => expect(onFinalized).toHaveBeenCalledWith(expect.objectContaining({ id: DRAFT_RUN.id, status: 'final' })))
     const refusalRow = await screen.findByTestId('run-state-finalize-refusal')
     expect(refusalRow.textContent).toMatch(
-      /finalized on another device while you had it open.*reload it to see the final version/i
+      /^Finalized on another device\.$/
     )
     // The refusal row itself withholds a Re-derive control — no way to retry
     // straight into the same hazard from this row (in the real app, onFinalized
@@ -1165,7 +1165,7 @@ describe('T250 archive_when — Final: overCapacityOccurrences', () => {
     })
     render(<FinalRunView run={FINAL_RUN} campers={CAMPERS} {...catalogs()} />)
     const row = await screen.findByTestId('run-state-over-capacity-occ-2-act-2')
-    expect(row.textContent).toBe('Pottery — Monday, First Period has 5 campers assigned against a capacity of 2.')
+    expect(row.textContent).toBe('Pottery — Monday, First Period: 5 of 2.')
     expect(within(row).queryByRole('button')).toBeNull()
   })
 
@@ -1178,7 +1178,7 @@ describe('T250 archive_when — Final: overCapacityOccurrences', () => {
     })
     render(<FinalRunView run={FINAL_RUN} campers={CAMPERS} {...catalogs()} templateOccurrences={[]} />)
     const row = await screen.findByTestId('run-state-over-capacity-occ-2-act-2')
-    expect(row.textContent).toBe('Pottery — Monday, First Period has 5 campers assigned against a capacity of 2.')
+    expect(row.textContent).toBe('Pottery — Monday, First Period: 5 of 2.')
   })
 
   it('puts the stale-generation pairing above the over-capacity rows when both are present', async () => {
@@ -1415,7 +1415,7 @@ describe('T250 A4 — Delete run', () => {
   // real fix belongs at the shared projection choke point and needs an ADR,
   // so this pins only that the copy stays honest about it.
   it('the cost copy discloses that a concurrent peer edit can make the run briefly reappear, unnamed', () => {
-    expect(DELETE_RUN_COST_COPY).toMatch(/reappear/i)
+    expect(DELETE_RUN_COST_COPY).toMatch(/can bring it back, unnamed/i)
   })
 })
 
@@ -1595,7 +1595,7 @@ describe('T250 round 2 — Draft: staleness is stated even when regenerate is un
     localClient.getElectiveRun.mockResolvedValue({ ...CLEAN_RUN_STATE, staleCount: 3 })
     render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
     const offer = await screen.findByTestId('run-staleness-offer')
-    expect(offer.textContent).toMatch(/3 placements in this run came from an earlier version/)
+    expect(offer.textContent).toMatch(/3 placements are from an older schedule/)
     expect(within(offer).queryByRole('button')).toBeNull()
   })
 })
@@ -1663,9 +1663,9 @@ describe('a camper disclosure never repeats one identical line', () => {
     render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
     const row = await screen.findByTestId('run-state-sheet-only-campers')
     expect(row.querySelector('summary')).toBeNull()
-    expect(row.textContent).toContain('These campers are no longer on the roster.')
+    expect(row.textContent).toContain('These campers were removed.')
     // THE REGRESSION ASSERTION: two identical bullets today, zero after.
-    expect(within(row).queryAllByText('a camper who is no longer on the roster')).toHaveLength(0)
+    expect(within(row).queryAllByText('a removed camper')).toHaveLength(0)
   })
 
   it('leaves the existing ONE-ghost degrade unchanged', async () => {
@@ -1676,7 +1676,7 @@ describe('a camper disclosure never repeats one identical line', () => {
     render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
     const row = await screen.findByTestId('run-state-sheet-only-campers')
     expect(row.textContent).toContain('Testcamper Alpha')
-    expect(row.textContent).toContain('a camper who is no longer on the roster')
+    expect(row.textContent).toContain('a removed camper')
     expect(row.textContent).not.toContain('deleted-camper-id-ghost')
   })
 
@@ -1688,8 +1688,8 @@ describe('a camper disclosure never repeats one identical line', () => {
     render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
     const row = await screen.findByTestId('run-state-sheet-only-campers')
     expect(within(row).getByText('5 campers')).toBeTruthy() // the summary counts everyone
-    expect(within(row).getByText('4 campers who are no longer on the roster')).toBeTruthy()
-    expect(within(row).queryAllByText('a camper who is no longer on the roster')).toHaveLength(0)
+    expect(within(row).getByText('4 removed campers')).toBeTruthy()
+    expect(within(row).queryAllByText('a removed camper')).toHaveLength(0)
   })
 
   it('tells two campers sharing a name apart INSIDE the disclosure', async () => {
@@ -1831,14 +1831,14 @@ describe('plain Regenerate in the actions band', () => {
   it('renders NO dead control when regenerate is unavailable — a sentence instead', async () => {
     render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
     const note = await screen.findByTestId('run-regenerate-unavailable')
-    expect(note.textContent).toBe("This run can't be regenerated right now — go back to Runs and open it again.")
+    expect(note.textContent).toBe("Can't regenerate now.")
     expect(screen.queryByTestId('run-regenerate')).toBeNull()
   })
 
   it('says it is PREPARING while the panel is still hydrating the run', async () => {
     render(<DraftRunView run={DRAFT_RUN} regeneratePending {...catalogs()} />)
     const note = await screen.findByTestId('run-regenerate-unavailable')
-    expect(note.textContent).toBe('Preparing this run so it can be regenerated…')
+    expect(note.textContent).toBe('Preparing…')
   })
 })
 
@@ -1907,10 +1907,7 @@ describe('round 2 — the actions band', () => {
     resolveList([DRAFT_RUN])
   })
 
-  it('each control carries its OWN explanation, in its own slot', async () => {
-    // The band used to read "[Finalize run] [Regenerate] Locks this run…" in one
-    // row, so the sentence sat adjacent to the control whose effect is its
-    // opposite, and nothing said what Regenerate does.
+  it('each control sits in its own slot with no explanatory sentence beside it', async () => {
     render(cold())
     const band = await screen.findByTestId('run-actions-band')
     const slots = [...band.children]
@@ -1918,11 +1915,9 @@ describe('round 2 — the actions band', () => {
     const finalizeSlot = slots[0]
     const regenerateSlot = slots[1]
     expect(within(finalizeSlot).getByRole('button', { name: 'Finalize run' })).toBeTruthy()
-    expect(finalizeSlot.textContent).toContain('Locks this run.')
+    expect(finalizeSlot.textContent).toBe('Finalize run')
     expect(within(regenerateSlot).getByTestId('run-regenerate')).toBeTruthy()
-    // Regenerate's own sentence, and the Finalize sentence is NOT in its slot.
-    expect(regenerateSlot.textContent).not.toContain('Locks this run.')
-    expect(regenerateSlot.textContent).toContain('Solves this run again')
+    expect(regenerateSlot.textContent).toBe('Regenerate')
   })
 
   it('the unavailable sentence sits in the regenerate slot, not beside the finalize hint', async () => {
@@ -1935,7 +1930,7 @@ describe('round 2 — the actions band', () => {
     const [finalizeSlot, regenerateSlot] = [...band.children]
     expect(regenerateSlot.contains(note)).toBe(true)
     expect(finalizeSlot.contains(note)).toBe(false)
-    expect(finalizeSlot.textContent).toContain('Locks this run.')
+    expect(finalizeSlot.textContent).toBe('Finalize run')
   })
 
   it('the band wraps instead of squeezing a button onto two lines', async () => {

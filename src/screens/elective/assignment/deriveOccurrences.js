@@ -43,7 +43,7 @@ export function deriveOccurrences({ slots = [], groups = [], electiveSetId, runI
       findings.push({
         kind: 'UNTIERED_GROUP',
         group_id: slot.group_id,
-        message: `Group ${slot.group_id} has no division/tier -- it was skipped for assignment.`,
+        message: `Group ${slot.group_id} skipped: no division.`,
       })
       continue
     }
@@ -56,7 +56,7 @@ export function deriveOccurrences({ slots = [], groups = [], electiveSetId, runI
       findings.push({
         kind: 'INCOMPLETE_PLACEMENT',
         group_id: slot.group_id,
-        message: `A placement of this set is missing a day or time block -- it was skipped for assignment.`,
+        message: 'Placement skipped: no day or block.',
       })
       continue
     }

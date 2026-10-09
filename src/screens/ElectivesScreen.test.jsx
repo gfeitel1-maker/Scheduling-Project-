@@ -107,22 +107,22 @@ describe('ElectivesScreen', () => {
 
   it('purge confirm copy discloses history retention, exported copies, and the sync-race reappearance', async () => {
     await openPurge()
-    expect(screen.getByText(/does not erase them from this app.s own change history/)).not.toBeNull()
-    expect(screen.getByText(/already exported or taken off this computer/)).not.toBeNull()
-    expect(screen.getByText(/reappear there, unnamed — clearing again finishes the job/)).not.toBeNull()
+    expect(screen.getByText(/Still in this app.s change history and any exported copy/)).not.toBeNull()
+    expect(screen.getByText(/Can.t be undone/)).not.toBeNull()
+    expect(screen.getByText(/can bring it back, unnamed — clear again/)).not.toBeNull()
   })
 
   it('shows an inline count after a successful purge', async () => {
     await openPurge()
     fireEvent.click(screen.getByText('Clear Season'))
-    await screen.findByText('Cleared 3 elective runs for the whole season and their choices and assignments.')
+    await screen.findByText('Cleared 3 runs.')
   })
 
   it('says honestly when a purge had nothing to clear', async () => {
     localClient.purgeElectiveSeason.mockResolvedValue({ ok: true, runsDeleted: 0 })
     await openPurge()
     fireEvent.click(screen.getByText('Clear Season'))
-    await screen.findByText(/No elective runs to clear for the whole season/)
+    await screen.findByText('Nothing to clear.')
   })
 
   const WEEKS = [{ id: 'wk-1', name: 'Week 1' }, { id: 'wk-2', name: 'Week 2' }]
@@ -143,12 +143,12 @@ describe('ElectivesScreen', () => {
   it('this-week scope: confirm copy names the week, keeps the caveats, and purges by week', async () => {
     await openWeekly()
     fireEvent.click(screen.getByText(/Clear this week.s elective choices/))
-    expect(screen.getByText(/only the elective runs for Week 1/)).not.toBeNull()
-    expect(screen.getByText(/does not erase them from this app.s own change history/)).not.toBeNull()
-    expect(screen.getByText(/already exported or taken off this computer/)).not.toBeNull()
-    expect(screen.getByText(/reappear there, unnamed — clearing again finishes the job/)).not.toBeNull()
+    expect(screen.getByText(/Week 1.s elective runs/)).not.toBeNull()
+    expect(screen.getByText(/Still in this app.s change history and any exported copy/)).not.toBeNull()
+    expect(screen.getByText(/Can.t be undone/)).not.toBeNull()
+    expect(screen.getByText(/can bring it back, unnamed — clear again/)).not.toBeNull()
     fireEvent.click(screen.getByText('Clear Week'))
-    await screen.findByText('Cleared 3 elective runs for Week 1 and their choices and assignments.')
+    await screen.findByText('Cleared 3 runs.')
     expect(localClient.purgeElectiveSeason).toHaveBeenCalledWith({ scope: 'week', weekId: 'wk-1' })
   })
 
@@ -156,9 +156,9 @@ describe('ElectivesScreen', () => {
     await openWeekly()
     fireEvent.click(screen.getByLabelText('The whole season'))
     fireEvent.click(screen.getByText(/Clear season.s elective choices/))
-    expect(screen.getByText(/every elective run for the whole season/)).not.toBeNull()
+    expect(screen.getByText(/every elective run, with their choices/)).not.toBeNull()
     fireEvent.click(screen.getByText('Clear Season'))
-    await screen.findByText('Cleared 3 elective runs for the whole season and their choices and assignments.')
+    await screen.findByText('Cleared 3 runs.')
     expect(localClient.purgeElectiveSeason).toHaveBeenCalledWith({ scope: 'season' })
   })
 

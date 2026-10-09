@@ -312,17 +312,17 @@ describe('groupBundleTierNotCoveredFindings', () => {
 describe('bundleTierNotCoveredGroupMessage', () => {
   it('names the label, the tier, and the count when the tier resolved', () => {
     const message = bundleTierNotCoveredGroupMessage({ label: 'Ropes', tierName: 'Older', campers: [{ id: 'a', name: 'Ari Green' }, { id: 'b', name: 'Noa Katz' }] })
-    expect(message).toBe('"Ropes" does not cover Older — 2 campers kept their request as an ordinary choice.')
+    expect(message).toBe('"Ropes" does not cover Older: 2 campers’ requests treated as ordinary.')
   })
 
   it('uses singular "camper" for a group of one', () => {
     const message = bundleTierNotCoveredGroupMessage({ label: 'Ropes', tierName: 'Older', campers: [{ id: 'a', name: 'Ari Green' }] })
-    expect(message).toBe('"Ropes" does not cover Older — 1 camper kept their request as an ordinary choice.')
+    expect(message).toBe('"Ropes" does not cover Older: 1 camper’s request treated as ordinary.')
   })
 
   it('degrades truthfully when no tier resolved, naming no tier at all', () => {
     const message = bundleTierNotCoveredGroupMessage({ label: 'Ropes', tierName: null, campers: [{ id: 'a', name: 'Ari Green' }] })
-    expect(message).toBe('"Ropes" does not cover these campers’ division — 1 camper kept their request as an ordinary choice.')
+    expect(message).toBe('"Ropes" does not cover these campers’ division: 1 camper’s request treated as ordinary.')
   })
 
   // F2 (round 2 review) — an assignment-only mismatch persists with
@@ -448,11 +448,11 @@ describe('finalizeFindingMessage', () => {
 // (C)(4), board item 9b — sheetOnlyCampers must be named, not just counted.
 describe('sheetOnlyCampersMessage', () => {
   it('states the plural count and verb', () => {
-    expect(sheetOnlyCampersMessage(2)).toBe("2 campers on this run's sheet have no ranked choice and no placement.")
+    expect(sheetOnlyCampersMessage(2)).toBe('2 campers: no choice, not placed.')
   })
 
   it('states the singular count and verb for exactly one', () => {
-    expect(sheetOnlyCampersMessage(1)).toBe("1 camper on this run's sheet has no ranked choice and no placement.")
+    expect(sheetOnlyCampersMessage(1)).toBe('1 camper: no choice, not placed.')
   })
 })
 
@@ -466,20 +466,20 @@ describe('unresolvable-camper copy', () => {
   it('counts rather than repeats', () => {
     expect(unresolvableCampersLabel(0)).toBeNull()
     expect(unresolvableCampersLabel(1)).toBe(UNKNOWN_CAMPER_LABEL)
-    expect(unresolvableCampersLabel(4)).toBe('4 campers who are no longer on the roster')
+    expect(unresolvableCampersLabel(4)).toBe('4 removed campers')
   })
 
   it('states the fact inline when NOTHING resolves', () => {
-    expect(allCampersUnresolvableMessage(1)).toBe('This camper is no longer on the roster.')
-    expect(allCampersUnresolvableMessage(3)).toBe('These campers are no longer on the roster.')
+    expect(allCampersUnresolvableMessage(1)).toBe('This camper was removed.')
+    expect(allCampersUnresolvableMessage(3)).toBe('These campers were removed.')
   })
 })
 
 describe('regenerateUnavailableNote', () => {
   it('distinguishes preparing from genuinely unavailable', () => {
-    expect(regenerateUnavailableNote(true)).toBe('Preparing this run so it can be regenerated…')
+    expect(regenerateUnavailableNote(true)).toBe('Preparing…')
     expect(regenerateUnavailableNote(false)).toBe(
-      "This run can't be regenerated right now — go back to Runs and open it again."
+      "Can't regenerate now."
     )
   })
 })
@@ -502,7 +502,7 @@ describe('groupBundleTierNotCoveredFindings — camper entries replace the names
     // The degraded sentence fragment is now produced where it is RENDERED
     // (unresolvableCampersLabel / allCampersUnresolvableMessage), from
     // `name: null`, rather than baked into a list the producer hands out.
-    expect(UNKNOWN_CAMPER_LABEL).toBe('a camper who is no longer on the roster')
+    expect(UNKNOWN_CAMPER_LABEL).toBe('a removed camper')
     expect(group.campers).toEqual([
       { id: 'cam-1', name: 'Ari Green' },
       // A camper whose row is gone carries NO id: the id is only ever needed to

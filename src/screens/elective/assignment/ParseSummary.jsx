@@ -115,7 +115,7 @@ function ResidueRow({ group, onAddActivity, onMapToActivity, onSplitPacked, acti
                 style={A.residueAction}
                 data-testid="residue-add"
               >
-                {busy ? `Adding \u201c${label}\u201d\u2026` : `Add \u201c${label}\u201d as an activity`}
+                {busy ? `Adding \u201c${label}\u201d\u2026` : `Add \u201c${label}\u201d`}
               </button>
             )}
           </div>
@@ -127,10 +127,10 @@ function ResidueRow({ group, onAddActivity, onMapToActivity, onSplitPacked, acti
               disabled={busy}
               onChange={(e) => setPicked(e.target.value)}
               style={A.residueSelect}
-              aria-label={`Map \u201c${label}\u201d to an activity this camp has`}
+              aria-label={`Map \u201c${label}\u201d to activity`}
               data-testid="residue-map-select"
             >
-              <option value="">{'Map to an activity this camp has\u2026'}</option>
+              <option value="">{'Map to activity\u2026'}</option>
               {activityNames.map((name) => (
                 <option key={name} value={name}>{name}</option>
               ))}

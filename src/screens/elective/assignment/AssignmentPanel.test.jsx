@@ -136,7 +136,7 @@ describe('AssignmentPanel — T316 a blank limited capacity refuses the run', ()
     await waitFor(() => expect(screen.getByText(/Solve/i)).toBeTruthy())
     fireEvent.click(screen.getByText(/Solve/i))
 
-    await waitFor(() => expect(screen.getByText(/is set to limited capacity/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/capacity blank/)).toBeTruthy())
     expect(screen.queryByText(/Commit Assignments/)).toBeNull()
     expect(localClient.commitElectiveRun).not.toHaveBeenCalled()
   })
@@ -193,12 +193,12 @@ describe('AssignmentPanel — H3 commit re-entrancy', () => {
 // back into a promise while still looking implemented.
 // ---------------------------------------------------------------------------
 
-const DISCLOSURE = /not yet encrypted at rest/i
+const DISCLOSURE = /not encrypted/i
 // The exact string AssignmentPanel.jsx's ENCRYPTION_DISCLOSURE constant
 // holds, so the flag-conversion test (item 8) can assert the full copy
 // survives, not just a fragment of it.
 const ENCRYPTION_DISCLOSURE_TEXT =
-  'Camper data in this feature is not yet encrypted at rest. Do not use real camper names until this is enabled.'
+  'Camper data is not encrypted — use test names only.'
 
 async function disclosure() {
   return await screen.findByTestId('encryption-disclosure')
@@ -210,7 +210,7 @@ describe('T249 -- the encryption disclosure renders whenever encryption is not a
     const row = await disclosure()
     expect(row.getAttribute('data-encryption-state')).toBe('unencrypted')
     expect(row.textContent).toMatch(DISCLOSURE)
-    expect(row.textContent).toMatch(/Do not use real camper names/i)
+    expect(row.textContent).toMatch(/use test names only/i)
   })
 
   // board-freeze-residuals item 8 — D8's unencrypted disclosure was full
@@ -321,7 +321,7 @@ describe('T249 -- and once encryption is actually on, it stops warning without o
     render(<AssignmentPanel {...baseProps()} />)
     const row = await disclosure()
     expect(row.getAttribute('data-encryption-state')).toBe('encrypted')
-    expect(row.textContent).not.toMatch(/Do not use real camper names/i)
+    expect(row.textContent).not.toMatch(/use test names only/i)
     expect(row.textContent).toMatch(/before it was enabled/i)
     expect(row.textContent).toMatch(/peer device/i)
     // Still nothing to click, in this state either.
@@ -651,7 +651,7 @@ describe('T312 -- a mapping this camp confirmed before comes back filled in', ()
     expect(confirm.disabled).toBe(false)
     expect(screen.getByLabelText('Rank #1').value).toBe('2')
     expect(screen.getByLabelText('Rank #2').value).toBe('3')
-    expect(screen.getByText(/Filled in from the last time you imported this form/)).toBeTruthy()
+    expect(screen.getByText('Filled in from your last import.')).toBeTruthy()
   })
 
   it('imports what the remembered mapping says', async () => {
@@ -684,7 +684,7 @@ describe('T312 -- a mapping this camp confirmed before comes back filled in', ()
     const confirm = await screen.findByRole('button', { name: /Confirm Mapping/ })
     // Nothing was recalled, so this is the un-remembered state: no ranks, no note.
     expect(confirm.disabled).toBe(true)
-    expect(screen.queryByText(/Filled in from the last time/)).toBeNull()
+    expect(screen.queryByText(/Filled in from your last import/)).toBeNull()
     expect(screen.queryByLabelText('Rank #1')).toBeNull()
   })
 
@@ -726,7 +726,7 @@ describe('T312 -- a mapping this camp confirmed before comes back filled in', ()
     upload()
     const confirm = await screen.findByRole('button', { name: /Confirm Mapping/ })
     expect(confirm.disabled).toBe(true)
-    expect(screen.queryByText(/Filled in from the last time/)).toBeNull()
+    expect(screen.queryByText(/Filled in from your last import/)).toBeNull()
   })
 })
 
@@ -871,7 +871,7 @@ describe('AssignmentPanel — T250 A5: same-name refusal blocks the route choose
 
     // The refusal, not the route chooser.
     await waitFor(() => expect(screen.getByText(/This sheet can.t be assigned yet/)).toBeTruthy())
-    expect(screen.queryByText(/choose which to assign against/)).toBeNull()
+    expect(screen.queryByText('Assign against:')).toBeNull()
     expect(screen.queryByText('Generated')).toBeNull()
     expect(screen.queryByText('Manual')).toBeNull()
 
@@ -931,11 +931,6 @@ describe('AssignmentPanel — T250 A3: cold-open hydration and regenerate', () =
     // is present.
     const offer = await screen.findByTestId('run-staleness-offer')
     expect(within(offer).getByRole('button', { name: /Re-derive and regenerate/i })).toBeTruthy()
-    // T320 part 2 item 3 — the disclosure note: the roster is the SHEET's own,
-    // including a camper who ranked nothing and was placed nowhere.
-    expect(screen.getByTestId('run-cold-regenerate-note').textContent).toMatch(
-      /reconsiders every camper this run's sheet named — including anyone with no ranked choice and no placement/
-    )
   })
 
   it('a cold regenerate re-solves and commits onto the ORIGINAL runId, never a freshly minted one', async () => {
@@ -996,7 +991,7 @@ describe('AssignmentPanel — T250 A3: cold-open hydration and regenerate', () =
 
     // The route chooser must render — not a silent solve against the cold
     // run's template.
-    await waitFor(() => expect(screen.getByText(/choose which to assign against/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Assign against:')).toBeTruthy())
     expect(screen.queryByText(/^Solve/i)).toBeNull()
   })
 })
@@ -1028,7 +1023,7 @@ describe('AssignmentPanel — the camper identity resolver and the bundle catalo
     fireEvent.click(screen.getByText(/Confirm Mapping/))
     await waitFor(() => expect(screen.getByText(/Solve/i)).toBeTruthy())
     fireEvent.click(screen.getByText(/Solve/i))
-    await waitFor(() => expect(screen.getByText(/but the camp has them in/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/Not placed\./)).toBeTruthy())
   })
 
   it('a bundle-named label resolves through this door too, not only the CLI', async () => {
@@ -1081,7 +1076,7 @@ describe('AssignmentPanel — route chooser surfaces a declared camper with no r
     await waitFor(() => expect(screen.getByText(/Confirm Mapping/)).toBeTruthy())
     fireEvent.click(screen.getByText(/Confirm Mapping/))
 
-    await waitFor(() => expect(screen.getByText(/choose which to assign against/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Assign against:')).toBeTruthy())
     expect(screen.getByText(/1 camper\(s\) had no recognisable choice: Ben Stone/)).toBeTruthy()
   })
 })
@@ -1120,7 +1115,7 @@ describe('AssignmentPanel — regeneratePending while a cold-opened run hydrates
     fireEvent.click(await screen.findByTestId('run-list-row-pending-run-1'))
 
     const note = await screen.findByTestId('run-regenerate-unavailable')
-    expect(note.textContent).toBe('Preparing this run so it can be regenerated…')
+    expect(note.textContent).toBe('Preparing…')
     expect(screen.queryByTestId('run-regenerate')).toBeNull()
 
     resolveHydration(STATE)
@@ -1148,12 +1143,11 @@ describe('AssignmentPanel — regeneratePending while a cold-opened run hydrates
       render(<AssignmentPanel {...baseProps()} />)
       fireEvent.click(await screen.findByTestId('run-list-row-pending-run-1'))
       const note = await screen.findByTestId('run-regenerate-unavailable')
-      expect(note.textContent).toBe('Preparing this run so it can be regenerated…')
+      expect(note.textContent).toBe('Preparing…')
 
       await act(async () => { await vi.advanceTimersByTimeAsync(8000) })
       const text = screen.getByTestId('run-regenerate-unavailable').textContent
-      expect(text).toContain('taking longer than expected')
-      expect(text).toContain('go back to Runs and open it again')
+      expect(text).toBe('Taking too long.')
     } finally {
       vi.useRealTimers()
     }
@@ -1187,7 +1181,7 @@ describe('AssignmentPanel — regeneratePending while a cold-opened run hydrates
       // something the app recognised — try again, and if it keeps happening the
       // details are in the log." Two contradictory remedies, and a log a camp
       // director cannot open.
-      expect(note).toBe('This run could not be prepared for regenerating — go back to Runs and open it again.')
+      expect(note).toBe("Couldn't prepare this run.")
       expect(note).not.toMatch(/log/i)
       expect(note).not.toMatch(/try again/i)
       // The SAME string the error banner gets — one sentence, not two drifting
@@ -1271,7 +1265,7 @@ describe('AssignmentPanel — board item i-elective-attendance-residuals: resumi
   it('reopens at preview with the same sheet, the mismatch re-evaluated and gone once the roster is fixed, and commit still works', async () => {
     // Ari's sheet division is Juniors but grp-2 is a Seniors group — mismatch.
     const view = await reachPreview(campersWithAriIn('grp-2'))
-    expect(screen.getByText(/but the camp has them in/)).toBeTruthy()
+    expect(screen.getByText(/Not placed\./)).toBeTruthy()
     // Only Ben placed; Ari withheld pending the mismatch.
     expect(screen.getByText(/1 camper placed/)).toBeTruthy()
 
@@ -1285,7 +1279,7 @@ describe('AssignmentPanel — board item i-elective-attendance-residuals: resumi
     await waitFor(() => expect(screen.getByText(/Commit Assignments/)).toBeTruthy())
     expect(screen.queryByText(/Confirm Mapping/)).toBeNull()
     // Findings are RE-EVALUATED against the corrected roster, not restored stale.
-    expect(screen.queryByText(/but the camp has them in/)).toBeNull()
+    expect(screen.queryByText(/Not placed\./)).toBeNull()
     // Both campers now placed — the same parsed sheet re-solved, not a
     // narrower one.
     expect(screen.getByText(/2 campers placed/)).toBeTruthy()
@@ -1369,7 +1363,7 @@ describe('AssignmentPanel — picking a new file while a draft is in progress co
       const newFile = new File(['Name\t#1\nBen\tArchery'], 'sheet2.txt', { type: 'text/plain' })
       fireEvent.change(document.querySelector('input[type="file"]'), { target: { files: [newFile] } })
 
-      await waitFor(() => expect(screen.getByText(/Replace the sheet/i)).toBeTruthy())
+      await waitFor(() => expect(screen.getByText('Replace this sheet?')).toBeTruthy())
       expect(window.confirm).not.toHaveBeenCalled()
       fireEvent.click(screen.getByRole('button', { name: /Replace It/i }))
 
@@ -1387,10 +1381,10 @@ describe('AssignmentPanel — picking a new file while a draft is in progress co
     const newFile = new File(['Name\t#1\nBen\tArchery'], 'sheet2.txt', { type: 'text/plain' })
     fireEvent.change(document.querySelector('input[type="file"]'), { target: { files: [newFile] } })
 
-    await waitFor(() => expect(screen.getByText(/Replace the sheet/i)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Replace this sheet?')).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: /Cancel/i }))
 
-    expect(screen.queryByText(/Replace the sheet/i)).toBeNull()
+    expect(screen.queryByText('Replace this sheet?')).toBeNull()
     expect(screen.getByText(/Commit Assignments/)).toBeTruthy()
     expect(screen.queryByText(/Confirm Mapping/)).toBeNull()
   })
@@ -1454,6 +1448,6 @@ describe('AssignmentPanel — board item i-elective-attendance-residuals: commit
     const newFile = new File(['Name\t#1\nBen\tArchery'], 'sheet2.txt', { type: 'text/plain' })
     fireEvent.change(document.querySelector('input[type="file"]'), { target: { files: [newFile] } })
     await waitFor(() => expect(screen.getByText(/Confirm Mapping/)).toBeTruthy())
-    expect(screen.queryByText(/Replace the sheet/i)).toBeNull()
+    expect(screen.queryByText('Replace this sheet?')).toBeNull()
   })
 })

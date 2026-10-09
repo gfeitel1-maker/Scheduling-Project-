@@ -35,7 +35,7 @@ export const START_REVISION_LABEL = 'Start a new version'
 // third wording, and lets every sibling site (the placement table, the
 // dangling-placement rows, listRunCampers' picker list) share the same
 // owner-reviewed sentence rather than falling back to the raw id.
-export const UNKNOWN_CAMPER_LABEL = 'a camper who is no longer on the roster'
+export const UNKNOWN_CAMPER_LABEL = 'a removed camper'
 
 // T320 (docs/adr/2026-09-30-elective-run-durability.md item 3; Governor
 // ruling R7) — RELEASE_LOCK_LABEL/'Release lock' is REMOVED: it was the
@@ -50,28 +50,28 @@ export const UNKNOWN_CAMPER_LABEL = 'a camper who is no longer on the roster'
 // must not drift.
 export const FINALIZE_MESSAGES = {
   STALE_OUTER_SCHEDULE:
-    "This run's schedule changed on another device since you last regenerated. Finalizing now would lock in an outdated version.",
+    'Schedule changed. Regenerate first.',
   OUTER_RESOURCE_CONFLICT:
-    'A location or activity this run depends on is now double-booked on the main schedule. Fix the conflict there, then finalize again.',
-  ALREADY_FINAL: 'This run was already finalized — on this device or another. Reloading it now.',
+    'Double-booked on the schedule. Fix it, then finalize.',
+  ALREADY_FINAL: 'Already finalized.',
   // Round 2 FIX 4 (Red Hat, MEDIUM) — a cold-opened run's status is never
   // re-synced (viewRun is a snapshot from when the screen opened), so a
   // regenerate re-checks status itself before re-entering the solve/commit
   // flow. Reuses FinalizeRefusalRow's generic branch, which renders with no
   // action button — the Re-derive control is withheld by construction.
-  FINALIZED_ELSEWHERE: "This run was finalized on another device while you had it open. It can't be changed — reload it to see the final version.",
+  FINALIZED_ELSEWHERE: 'Finalized on another device.',
   // T320 part 2 item 2 — commitElectiveRun's own refusal, which is what now
   // GUARANTEES an immutable run is not written over. Sibling of ALREADY_FINAL
   // (finalizeElectiveRun's), reached from the commit path rather than the
   // finalize path.
-  RUN_IS_FINAL: "This run was finalized, so it can't be regenerated. Reload it to see the final version.",
+  RUN_IS_FINAL: 'Already final.',
 }
 
 export const DANGLING_MOVE_PLACEHOLDER = 'Move to…'
 export const REMOVE_PLACEMENT_LABEL = 'Remove placement'
 
 export const STALE_GENERATION_COPY =
-  'This run was finalized before a later change on another device synced in. It is out of date.'
+  'Out of date.'
 
 // "Name the occurrence (not just an id)" — the spec leaves the label format to
 // whatever this screen's data already supports. `overCapacityOccurrences`
@@ -103,15 +103,15 @@ export function occurrenceLabel({ occurrenceId, activityId, activities = [], occ
 }
 
 export function overCapacityMessage({ label, filled, capacity }) {
-  return `${label} has ${filled} ${filled === 1 ? 'camper' : 'campers'} assigned against a capacity of ${capacity}.`
+  return `${label}: ${filled} of ${capacity}.`
 }
 
 export function danglingMessage({ camperName }) {
-  return `${camperName}'s locked placement no longer matches this run — regenerating removed the occurrence it pointed to.`
+  return `${camperName}'s lock no longer applies.`
 }
 
 export function stalenessOfferMessage({ staleCount }) {
-  return `${staleCount} ${staleCount === 1 ? 'placement' : 'placements'} in this run came from an earlier version of this schedule.`
+  return `${staleCount} ${staleCount === 1 ? 'placement is' : 'placements are'} from an older schedule.`
 }
 
 // T250 B3 — two same-named campers need something beside the name to tell
@@ -280,10 +280,9 @@ export function groupBundleTierNotCoveredFindings({ findings = [], campers = [],
 // only at the producer.
 export function bundleTierNotCoveredGroupMessage({ label, tierName, campers = [] }) {
   const count = campers.length
-  const camperWord = count === 1 ? 'camper' : 'campers'
   const who = tierName ? `cover ${tierName}` : 'cover these campers’ division'
   const subject = label ? `"${label}" does not ${who}` : `A linked bundle does not ${who}`
-  return `${subject} — ${count} ${camperWord} kept their request as an ordinary choice.`
+  return `${subject}: ${count} ${count === 1 ? 'camper’s request' : 'campers’ requests'} treated as ordinary.`
 }
 
 // (C)(4), board item 9b — SHEET_CAMPER_WITHOUT_PREFERENCE (sheetOnlyCampers,
@@ -294,8 +293,7 @@ export function bundleTierNotCoveredGroupMessage({ label, tierName, campers = []
 // verb agreement is this function's whole job.
 export function sheetOnlyCampersMessage(count) {
   const camperWord = count === 1 ? 'camper' : 'campers'
-  const verb = count === 1 ? 'has' : 'have'
-  return `${count} ${camperWord} on this run's sheet ${verb} no ranked choice and no placement.`
+  return `${count} ${camperWord}: no choice, not placed.`
 }
 
 // board item — a disclosure that printed UNKNOWN_CAMPER_LABEL once per
@@ -305,15 +303,15 @@ export function sheetOnlyCampersMessage(count) {
 // one line instead, beside whatever campers did resolve.
 export function unresolvableCampersLabel(count) {
   if (count <= 0) return null
-  return count === 1 ? UNKNOWN_CAMPER_LABEL : `${count} campers who are no longer on the roster`
+  return count === 1 ? UNKNOWN_CAMPER_LABEL : `${count} removed campers`
 }
 
 // When NOTHING resolves there is nothing to disclose — a <details> whose only
 // content is its own summary restated. The fact goes inline instead.
 export function allCampersUnresolvableMessage(count) {
   return count === 1
-    ? 'This camper is no longer on the roster.'
-    : 'These campers are no longer on the roster.'
+    ? 'This camper was removed.'
+    : 'These campers were removed.'
 }
 
 // The plain regenerate control on a cold-opened draft run. Bare "Regenerate",
@@ -339,36 +337,17 @@ export const REGENERATE_BUSY_LABEL = 'Regenerating…'
 // paraphrase here would be a second place for the same sentence to drift.
 export function regenerateUnavailableNote(preparing, failure = null) {
   if (failure) return failure
-  return preparing
-    ? 'Preparing this run so it can be regenerated…'
-    : "This run can't be regenerated right now — go back to Runs and open it again."
+  return preparing ? 'Preparing…' : "Can't regenerate now."
 }
 
 // The fallback when the cold-open read throws without a message of its own.
-export const COLD_HYDRATION_FAILED_NOTE =
-  'This run could not be prepared for regenerating — go back to Runs and open it again.'
+export const COLD_HYDRATION_FAILED_NOTE = "Couldn't prepare this run."
 
 // A STUCK "Preparing…" IS NOT AN ANSWER. The read has no timeout of its own, so
 // if the main process is unresponsive — exactly the condition this branch exists
 // for — the note sat at "Preparing…" indefinitely, having REPLACED the
 // previously definite, actionable sentence with an indefinite one.
-export const COLD_HYDRATION_SLOW_NOTE =
-  'Preparing this run is taking longer than expected — go back to Runs and open it again.'
-
-// Each of the two controls in the actions band says what IT does, next to
-// itself. Round 1 put the Finalize sentence after the Regenerate button, where a
-// director reading left to right met "Locks this run" immediately after the
-// control whose effect is the opposite, with nothing anywhere saying what
-// Regenerate does.
-export const FINALIZE_HINT =
-  "Locks this run. You'll see it as Final, and can always start a new version later."
-export const REGENERATE_HINT = 'Solves this run again from the current schedule, keeping the seats you locked.'
-
-// T320 part 2 item 3 — authored here rather than inline in DraftRunView, which
-// is where every other director-facing string on that screen lives.
-export const COLD_REGENERATE_NOTE =
-  "Regenerating a reopened run reconsiders every camper this run's sheet named — including anyone " +
-  'with no ranked choice and no placement.'
+export const COLD_HYDRATION_SLOW_NOTE = 'Taking too long.'
 
 // C2 (board item 9b) — OUTER_RESOURCE_CONFLICT findings (findRouteConflicts,
 // src/engine/routeConflicts.js) carry no `.message`, only locationName/
@@ -410,7 +389,7 @@ export function conflictFindingMessage(finding, { days = [], timeBlocks = [] } =
   const names = [...new Set(occupants.map((o) => o.label).filter(Boolean))]
   const activities = names.length > 0 ? joinEnglishList(names) : `${occupants.length} activities`
   const where = when ? `${locationName} on ${when}` : locationName
-  return `${where} is double-booked over its capacity of ${capacity}: ${activities} are scheduled there at once.`
+  return `${where}: ${activities} double-booked (capacity ${capacity}).`
 }
 
 // The director-facing message for ONE Finalize-refusal finding, whatever kind
@@ -422,7 +401,7 @@ export function conflictFindingMessage(finding, { days = [], timeBlocks = [] } =
 export function finalizeFindingMessage(finding, catalogs = {}) {
   if (finding?.message) return finding.message
   return conflictFindingMessage(finding, catalogs)
-    ?? 'A conflict was found, but its details could not be shown.'
+    ?? 'Conflict (details unavailable).'
 }
 
 const RANK_WORDS = ['a first choice', 'a second choice', 'a third choice']

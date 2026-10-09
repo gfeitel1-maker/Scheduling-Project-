@@ -54,11 +54,11 @@ function renderEditor(props = {}) {
 }
 
 describe('BundleEditor — draft state', () => {
-  it('renders a dashed border and a real placeholder, never a written value, until a period is picked', () => {
+  it('renders a dashed border and an empty name, never a written value, until a period is picked', () => {
     renderEditor()
     const nameInput = screen.getByLabelText(/Bundle name/i)
     expect(nameInput.value).toBe('')
-    expect(nameInput.getAttribute('placeholder')).toBe('Pick a period below to name this bundle')
+    expect(nameInput.getAttribute('placeholder')).toBeNull()
   })
 
   it('clicking an unselected period cell on a draft calls onTogglePeriod so the parent can mint the bundle', async () => {

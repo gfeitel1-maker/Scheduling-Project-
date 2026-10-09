@@ -40,8 +40,8 @@ const activityRepo = { ...repository, writeActivityFields: (id, fields) => repos
 const offeringScopeFilter = (row, electiveSetId) => row.elective_set_id === electiveSetId
 
 const IMPORT_LABELS = {
-  importAction: 'Import from a file',
-  noGridFound: 'No schedule could be read out of that. It may be a scan rather than a document with text in it.',
+  importAction: 'Import',
+  noGridFound: "Couldn't read that file.",
 }
 
 // Defense-in-depth: malformed JSON in an eligible_*_ids column must not crash
@@ -150,7 +150,7 @@ function OfferingRow({
         : null
     if (trimmed === '0') {
       // Owner ruling 2026-09-25: the min could be 1, cannot be 0.
-      onSaveMinimum(offering.id, current, 'A minimum to run has to be at least 1.')
+      onSaveMinimum(offering.id, current, 'Minimum is 1 or more.')
       setMinText(current == null ? '' : String(current))
       return
     }
@@ -223,7 +223,7 @@ function OfferingRow({
             className="press-97"
             onClick={() => { setBundlesExpanded(true); setDraftActive(true) }}
             disabled={!hasSchedule}
-            title={!hasSchedule ? 'Place this set on a schedule first — bundles are built from its placed periods.' : undefined}
+            title={!hasSchedule ? 'Place this set on a schedule first' : undefined}
             style={{
               fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)',
               border: 'none', background: 'none', padding: 0, marginLeft: 8, fontFamily: 'inherit',
@@ -775,12 +775,12 @@ export default function ElectiveSetDetail({
         // An offering whose activity was deleted from the catalog has no name;
         // label it rather than drop it, so a clean re-import that silently
         // orphaned it is still reported (Red Hat).
-        const labels = vanishedNotice.offerings.map((v) => (v.name ? `“${v.name}”` : 'an offering whose activity is no longer in your catalog'))
+        const labels = vanishedNotice.offerings.map((v) => (v.name ? `“${v.name}”` : 'a removed activity'))
         return (
           <div style={S.cautionBanner}>
             {labels.length === 1
-              ? `${labels[0]} is in this set but not on the sheet you just imported. It was left as it is — nothing was removed.`
-              : `${labels.length} offerings are in this set but not on the sheet you just imported — left as they are, nothing removed: ${labels.join(', ')}.`}
+              ? `Not on the sheet, kept: ${labels[0]}`
+              : `${labels.length} not on the sheet, kept: ${labels.join(', ')}`}
           </div>
         )
       })()}
@@ -817,9 +817,9 @@ export default function ElectiveSetDetail({
               <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
                 <th style={S.th}>Activity</th>
                 <th style={S.th}>Location</th>
-                <th style={S.th}>Who can go</th>
+                <th style={S.th}>Open to</th>
                 <th style={S.th}>Capacity</th>
-                <th style={S.th}>Minimum to run</th>
+                <th style={S.th}>Minimum</th>
                 <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
@@ -868,7 +868,7 @@ export default function ElectiveSetDetail({
       {pendingDelete && (
         <ConfirmDangerDialog
           title={`Remove ${activities.find((a) => a.id === pendingDelete.activity_id)?.name ?? 'this offering'}?`}
-          recovery="It stops being one of this set's choices. The activity itself is untouched."
+          recovery="The activity is kept."
           confirmLabel="Remove Offering"
           busy={deleting}
           onConfirm={confirmDeleteOffering}
@@ -890,7 +890,7 @@ export default function ElectiveSetDetail({
       {pendingDeleteBundle && (
         <ConfirmDangerDialog
           title={`Delete "${pendingDeleteBundle.name || 'this bundle'}"?`}
-          recovery="Its periods and division scope go with it, and this can't be undone."
+          recovery="Can't be undone."
           confirmLabel="Delete Bundle"
           busy={deletingBundle}
           onConfirm={confirmDeleteBundle}

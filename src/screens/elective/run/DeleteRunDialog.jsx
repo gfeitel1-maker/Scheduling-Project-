@@ -30,11 +30,8 @@ import { describeWriteFailure } from '../../../utils/writeErrorMessage'
 // The added sentence names that honestly rather than promising completeness
 // the code cannot back.
 export const DELETE_RUN_COST_COPY =
-  'Deleting this run removes it and its camper placements from this device and from every device this camp syncs with. ' +
-  'A device that is offline will catch up when it reconnects. If another device is actively editing this run at that exact ' +
-  'moment, it can briefly reappear there, unnamed — deleting it again finishes the job. It does not erase the run from this ' +
-  'app’s own change history — doing that needs a coordinated rebuild that invalidates every device’s copy of this camp and ' +
-  'forces each one to pair again — and nothing here can reach a copy already exported or taken off this computer.'
+  'Deletes this run and its placements on every device. Can’t be undone. Still in this app’s change history and any ' +
+  'exported copy. A device editing it at that moment can bring it back, unnamed — delete again.'
 
 export default function DeleteRunDialog({ run, camperCount = 0, placementCount = 0, onCancel, onDeleted }) {
   const [working, setWorking] = useState(false)

@@ -147,9 +147,7 @@ export function resolvePreferenceCoordinates({
     if (missing.length > 0) {
       report(
         'COORDINATE_NOT_IN_CAMP',
-        `A choice was written for ${missing.join(' and ')}, which this camp does not have, so it ` +
-          'could not be placed. Nothing was guessed at — check the day and period names on the ' +
-          'sheet against the ones this camp uses.',
+        `Unknown ${missing.join(' and ')}.`,
         { dayName, periodLabel }
       )
       return p
@@ -161,10 +159,7 @@ export function resolvePreferenceCoordinates({
     if (dayId == null || blockId == null) {
       report(
         'COORDINATE_INCOMPLETE',
-        `A choice was written for ${dayName ?? 'an unnamed day'} ${periodLabel ?? '(no period given)'}, ` +
-          'which names only half of a cell — a day without a period, or a period without a day, ' +
-          'does not say which session it means, so it was left unplaced rather than assigned to a ' +
-          'guess.',
+        `Day or period missing: ${dayName ?? '(no day)'} ${periodLabel ?? '(no period)'}.`,
         { dayName, periodLabel }
       )
       return p
@@ -182,9 +177,7 @@ export function resolvePreferenceCoordinates({
       // it, which is why the template is named (§13.2).
       report(
         'COORDINATE_NOT_IN_TEMPLATE',
-        `A choice was written for ${dayName} ${periodLabel}, which is a real day and period at this ` +
-          'camp but has no elective session in the schedule being filled. That choice could not be ' +
-          'placed here — the other schedule may have that session.',
+        `No session at ${dayName} ${periodLabel} on this schedule.`,
         { dayName, periodLabel }
       )
       return p
