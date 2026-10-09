@@ -220,6 +220,19 @@ What flipping the default changes:
 
 The data path itself stays inside Noise plus mutual auth plus authorize().
 
+## Owner-side evidence and rulings (recorded 2026-10-09, relayed by the board keeper)
+
+- **Q3 / condition 6 — Worker logging and limits (deployed version `765e9d16`):** `[observability] enabled = false`;
+  no Logpush job has ever been created. Live acceptance: a 300-request burst gave exactly 30 accepted and 270
+  "namespace write budget exhausted"; the 200-device cap holds (peer 201 refused "namespace is at capacity",
+  a refresh from an existing peer accepted). **The per-IP limiter binding is best-effort and did NOT enforce on the
+  burst**, so the per-namespace and global budgets are the effective limits; F3's residual stands.
+- **STUN (open question → ruled):** Cloudflare's public STUN (`stun.cloudflare.com:3478`) ONLY, as a single config
+  constant used only when the punch flag is on. No new third party (Cloudflare is already accepted for the
+  rendezvous), and it keeps rungs 1–2 primary. No Google or other STUN.
+- **Condition 2 (two-NAT hardware proof)** is scheduled as the owner's two-laptop test, after conditions 1 and 5
+  land and a packaged build exists; **condition 4** (punch sign-off) follows it.
+
 ## Summary Score (for Grader)
 
 Security posture: 3/5. The auth and data boundary on the punch path is sound and well bounded.
