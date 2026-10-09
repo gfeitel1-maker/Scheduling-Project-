@@ -338,4 +338,6 @@ Before the season ends, export your final schedule to keep a copy (steps above).
 
 This clears campers' choices and assignments only. Your elective sets and offerings stay.
 
-To update camper details instead, re-import a preference sheet: open the **Settings** gear and choose **Re-import last year**. It updates the campers it matches and does **not** remove anyone.
+Campers themselves stay in the app — there is no way to remove a camper. Before you leave for the season, export a final copy (section 10) so you have everything in Excel.
+
+> **Careful:** **Re-import last year** (Settings gear) brings in camp *setup*, not campers. If your camp already has data and you choose **Replace them**, it clears your Age Divisions, Groups, Days, Time Blocks and Activities first.
