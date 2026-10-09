@@ -284,6 +284,18 @@ describe('buildElectiveCandidates (Slice 3a content-shape detector)', () => {
     })
   })
 
+  // Packaged audit #11 — "Carpool" is a claimed fixed event, not an elective.
+  it('does NOT fire on a name claimed as a fixed/recurring event, or a live pinned_event', () => {
+    const source = {
+      electiveHeaderFindings: [],
+      activityPeriods: { carpool: [false], mifkad: [false] },
+      approved: { activities: ['Carpool', 'Mifkad'] },
+      pinOnlyActivityNames: ['Carpool'],
+    }
+    const candidates = buildElectiveCandidates(source, { activities: [{ id: 'a1', name: 'Mifkad ', catalog_role: 'pinned_event' }] })
+    expect(candidates).toEqual([])
+  })
+
   it('does NOT fire on a token that resolves 1:1 to an existing activity (false-positive guard)', () => {
     const source = {
       electiveHeaderFindings: [],
@@ -431,5 +443,24 @@ describe('fieldsFor unique-first ordering (T115)', () => {
   it('throws if a unique-registered entity is shaped without its unique field first', () => {
     expect(() => assertUniqueFieldFirst('locations', { camp_id: 'c1', name: 'Pool' }))
       .toThrow(/name/)
+  })
+})
+
+// Packaged audit #7 — campB writes the afternoon on a 12-hour clock with no
+// meridiem ("12:55-01:35"). The camp-day rule orderTimeBlocks already sorts by
+// (1:00-6:59 is afternoon) must also decide the stored times, or the block is
+// saved as 12:55 -> 01:35 (AM) and displays as ending before it starts.
+describe('time block times from a 12-hour label with no AM/PM', () => {
+  it('reads 01:35 after 12:55 as 13:35', () => {
+    expect(fieldsFor('time_blocks', '12:55-01:35', 'c', 0, null)).toMatchObject({ start_time: '12:55', end_time: '13:35' })
+  })
+  it('reads an all-afternoon block as PM and leaves a morning block alone', () => {
+    expect(fieldsFor('time_blocks', '01:40-02:20', 'c', 0, null)).toMatchObject({ start_time: '13:40', end_time: '14:20' })
+    expect(fieldsFor('time_blocks', '08:40-09:00', 'c', 0, null)).toMatchObject({ start_time: '08:40', end_time: '09:00' })
+    expect(fieldsFor('time_blocks', '11:25-12:05', 'c', 0, null)).toMatchObject({ start_time: '11:25', end_time: '12:05' })
+  })
+  it('never stores an end before its start when the endpoints straddle 7:00 (Red Hat #3)', () => {
+    expect(fieldsFor('time_blocks', '6:45-7:30', 'c', 0, null)).toMatchObject({ start_time: '18:45', end_time: '19:30' })
+    expect(fieldsFor('time_blocks', '07:00-07:45', 'c', 0, null)).toMatchObject({ start_time: '07:00', end_time: '07:45' })
   })
 })

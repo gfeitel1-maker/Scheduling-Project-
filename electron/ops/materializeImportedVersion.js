@@ -43,7 +43,7 @@ export function nameMap(db, table, campId, nameColumn = 'name') {
  * @param {import('better-sqlite3').Database} db
  * @param {{write: Function}} syncClient
  * @param {{campId: string, authorUserId: string, placements: Array}} args
- * @returns {Promise<{created: boolean, snapshotId: string|null, unresolvedCount: number, unresolvedNames: string[]}>}
+ * @returns {Promise<{created: boolean, snapshotId: string|null, allWeeksArchived?: boolean, unresolvedCount: number, unresolvedNames: string[]}>}
  */
 export async function materializeImportedVersion(db, syncClient, { campId, authorUserId, placements }) {
   if (!placements || placements.length === 0) {
@@ -53,10 +53,22 @@ export async function materializeImportedVersion(db, syncClient, { campId, autho
   const week = db
     .prepare('SELECT id FROM schedule_weeks WHERE camp_id = ? AND is_archived = 0 ORDER BY sort_order ASC LIMIT 1')
     .get(campId)
-  if (!week) {
-    return { created: false, snapshotId: null, unresolvedCount: placements.length, unresolvedNames: placements.map((p) => p.activityName) }
+  // Packaged audit #12: a fresh camp has no week until the Schedule screen first
+  // opens. Create it here under the screen's own lazy-creation guard
+  // (useScheduleData.js fires only when the camp has NO week rows, archived
+  // included) and with the same id, so the two paths converge on one "Week 1".
+  // A camp whose weeks are all archived gets nothing created: writing
+  // schedule-week:<camp>:1 would un-archive it, or duplicate "Week 1" beside
+  // a differently-id'd archived one.
+  let weekId = week?.id
+  if (!weekId) {
+    const anyWeek = db.prepare('SELECT 1 FROM schedule_weeks WHERE camp_id = ? LIMIT 1').get(campId)
+    if (anyWeek) {
+      return { created: false, snapshotId: null, allWeeksArchived: true, unresolvedCount: 0, unresolvedNames: [] }
+    }
+    weekId = `schedule-week:${campId}:1`
+    await writeFields(syncClient, 'schedule_weeks', weekId, { camp_id: campId, name: 'Week 1', sort_order: '0', is_archived: '0' }, authorUserId)
   }
-  const weekId = week.id
 
   let template = db.prepare("SELECT id FROM schedule_templates WHERE week_id = ? AND kind = 'manual'").get(weekId)
   let templateId = template?.id

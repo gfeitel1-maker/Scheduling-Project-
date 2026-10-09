@@ -121,3 +121,16 @@ describe('robustness', () => {
     expect(findHeaderLine(['nothing', 'here'])).toBe(-1)
   })
 })
+
+// Packaged audit #8 — two adjacent cells separated by a single space
+// ("Woodworking Virtual Sports" on campB Monday 10:35) are two activities.
+describe('a run of text straddling a column boundary', () => {
+  it('splits at the space nearest the boundary instead of merging two cells', () => {
+    const text = fs.readFileSync(path.join(process.cwd(), 'docs/work/specs/samples/campB-by-day.txt'), 'utf8')
+    const page = parseTextGrid(text).pages[0]
+    const row = page.rows.find((r) => r.label.startsWith('10:35'))
+    expect(row.cells[page.columns.indexOf('Porcupine 1')]).toBe('Big Playground')
+    expect(row.cells[page.columns.indexOf('Porcupine 2')]).toBe('Woodworking')
+    expect(row.cells[page.columns.indexOf('Porcupine 3')]).toBe('Virtual Sports')
+  })
+})

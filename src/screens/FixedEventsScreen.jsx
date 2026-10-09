@@ -487,6 +487,22 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
   // specific week writes that week's id. Optimistic local update (mirrors
   // load()'s row shape) so the select reflects the change immediately rather
   // than waiting on a full reload.
+  // Packaged audit #14/#16 — repairs a row the schedule engine refuses (no
+  // live activity), through the same resolve-or-create path a save uses.
+  async function linkFixedEvent(fixedEvent) {
+    try {
+      const activityId = await resolveActivityLink(fixedEvent.name)
+      await writeFields(fixedEvent.id, { activity_id: activityId })
+      setFixedEvents(prev => prev.map(a => a.id === fixedEvent.id ? { ...a, activity_id: activityId } : a))
+    } catch (err) {
+      setError(
+        err.message?.includes('matches more than one activity')
+          ? err.message
+          : describeWriteFailure(err, `That ${eventLabel} could not be linked.`)
+      )
+    }
+  }
+
   async function changeFixedEventWeek(id, scheduleWeekId) {
     try {
       await writeFields(id, { schedule_week_id: scheduleWeekId })
@@ -941,6 +957,14 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
                       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setModal({ fixedEvent: a }) } }}
                       style={{ cursor: 'pointer' }}
                     >{a.name}</span>
+                    {!activities.some(act => act.id === a.activity_id) && (
+                      <button
+                        onClick={e => { e.stopPropagation(); linkFixedEvent(a) }}
+                        title="Not linked to an activity, so the schedule cannot place it"
+                        aria-label={`Link to activity: ${a.name}`}
+                        style={{ ...S.btnRowDanger, marginLeft: 8, padding: '2px 8px', fontSize: 12 }}
+                      >Not linked · Link to activity</button>
+                    )}
                   </td>
                   <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 13 }}>{dayMap[a.day_id] || '—'}</td>
                   <td style={{ ...S.td, fontSize: 12, fontFamily: 'var(--font-mono)' }}>{blockMap[a.time_block_id] || '—'}</td>

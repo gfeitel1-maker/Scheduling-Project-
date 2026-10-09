@@ -976,3 +976,30 @@ describe('FixedEventsScreen — saving with an ambiguous catalog name is refused
     expect(localClient.write.mock.calls.some(c => c[1] === 'fixed_events' && c[3] === 'activity_id')).toBe(false)
   })
 })
+
+// Packaged audit #14/#16 — an unlinked row is flagged, and linking it in place
+// uses the same resolve-or-create path a save does.
+describe('FixedEventsScreen unlinked-event flag', () => {
+  it('flags a row with no live activity and links it to the same-name activity', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'fixed_events') return Promise.resolve([
+        { id: 'fe-1', camp_id: CAMP_ID, cohort_id: COHORT_ID, kind: 'fixed', name: 'Mifkad', day_id: 'day-1', time_block_id: 'block-1', is_all_groups: 1, activity_id: null },
+        { id: 'fe-2', camp_id: CAMP_ID, cohort_id: COHORT_ID, kind: 'fixed', name: 'Swim', day_id: 'day-1', time_block_id: 'block-1', is_all_groups: 1, activity_id: 'act-swim' },
+      ])
+      if (entity === 'days_of_operation') return Promise.resolve([day()])
+      if (entity === 'time_blocks') return Promise.resolve([block()])
+      if (entity === 'activities') return Promise.resolve([
+        { id: 'act-mifkad', camp_id: CAMP_ID, name: 'Mifkad', catalog_role: 'pinned_event' },
+        { id: 'act-swim', camp_id: CAMP_ID, name: 'Swim', catalog_role: 'pinned_event' },
+      ])
+      return Promise.resolve([])
+    })
+
+    render(<FixedEventsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
+    const buttons = await screen.findAllByRole('button', { name: /Link to activity/ })
+    expect(buttons).toHaveLength(1)
+    fireEvent.click(buttons[0])
+    await waitFor(() => expect(localClient.write).toHaveBeenCalledWith('token-abc', 'fixed_events', 'fe-1', 'activity_id', 'act-mifkad'))
+    await waitFor(() => expect(screen.queryByRole('button', { name: /Link to activity/ })).toBeNull())
+  })
+})

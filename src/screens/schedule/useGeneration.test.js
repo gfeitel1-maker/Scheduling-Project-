@@ -251,6 +251,42 @@ describe('useGeneration', () => {
       expect(props.setGenerating).toHaveBeenLastCalledWith(false)
     })
 
+    // Packaged audit #14/#16 — the refusal names the offending events.
+    it('generate() refusal names the unlinked events', async () => {
+      buildSchedule.mockReturnValueOnce({
+        slots: [],
+        findings: [
+          { kind: 'FIXED_EVENT_IDENTITY_GAP', severity: 'error', fixedEventId: 'fe-m1', reason: 'x' },
+          { kind: 'FIXED_EVENT_IDENTITY_GAP', severity: 'error', fixedEventId: 'fe-m2', reason: 'x' },
+          { kind: 'FIXED_EVENT_IDENTITY_GAP', severity: 'error', fixedEventId: 'fe-c', reason: 'x' },
+        ],
+      })
+      const { result, props } = setup({
+        fixedEvents: [
+          { id: 'fe-m1', name: 'Mifkad', activity_id: null },
+          { id: 'fe-m2', name: 'Mifkad', activity_id: null },
+          { id: 'fe-c', name: 'Carpool', activity_id: null },
+        ],
+      })
+      await act(async () => { await result.current.generate() })
+      expect(props.setActionError).toHaveBeenCalledWith(expect.stringContaining('Mifkad, Carpool'))
+    })
+
+    // Packaged audit #16 — Manual's blank week is not blocked by an unlinked
+    // event: it places every linked event and names the ones it left out.
+    it('placeFixedEvents() places the linked events and names the unlinked ones instead of refusing', async () => {
+      const { result, props } = setup({
+        fixedEvents: [
+          { id: 'fe-ok', name: 'Swim', activity_id: 'a1' },
+          { id: 'fe-bad', name: 'Mifkad', activity_id: null },
+        ],
+      })
+      await act(async () => { await result.current.placeFixedEvents() })
+      expect(buildSchedule.mock.calls.at(-1)[0].fixedEvents.map((f) => f.id)).toEqual(['fe-ok'])
+      expect(props.repo.replaceWeek).toHaveBeenCalled()
+      expect(props.setActionError).toHaveBeenLastCalledWith(expect.stringContaining('Mifkad'))
+    })
+
     it('placeFixedEvents() DOES write the schedule when findings contain no error severity (non-vacuity)', async () => {
       buildSchedule.mockReturnValueOnce({
         slots: [{ id: 'ns-1' }],
