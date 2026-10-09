@@ -203,6 +203,19 @@ describe('gaps the review panel found in the first implementation', () => {
   })
 })
 
+describe('a DELIBERATELY_ABSENT entry exempts only the docs it names', () => {
+  const text = '`src/hooks/useSession.js` no longer exists.'
+
+  it('flags an allowlisted name in a descriptive doc the entry does not list', () => {
+    const f = checkDocFileRefs([{ path: 'docs/current/OTHER.md', text }], makeResolver(root))
+    expect(f.map((x) => x.code)).toEqual(['doc-names-missing-file'])
+  })
+
+  it('still passes the docs the entry lists', () => {
+    expect(checkDocFileRefs([{ path: 'CLAUDE.md', text }], makeResolver(root))).toEqual([])
+  })
+})
+
 describe('the descriptive corpus is the scoped one', () => {
   it('covers CLAUDE.md and does not claim to cover the historical layer', () => {
     expect(DESCRIPTIVE_DOC_PATHS).toContain('CLAUDE.md')
