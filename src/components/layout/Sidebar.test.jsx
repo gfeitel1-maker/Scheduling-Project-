@@ -606,6 +606,14 @@ describe('Sidebar: Backup Now footer states', () => {
     expect(screen.queryByText('Backup saved')).toBeNull()
   })
 
+  it('keeps the caution text on one line with the full text as a tooltip', () => {
+    renderSidebar({ backupStatus: 'caution' })
+    const btn = screen.getByText('Backup saved — camp document not included')
+    expect(btn.getAttribute('title')).toBe('Backup saved — camp document not included')
+    expect(btn.style.whiteSpace).toBe('nowrap')
+    expect(btn.style.textOverflow).toBe('ellipsis')
+  })
+
   it('still shows plain success for a clean backup', () => {
     renderSidebar({ backupStatus: 'ok' })
     expect(screen.getByText('Backup saved')).toBeTruthy()
