@@ -123,6 +123,31 @@ CREATE TABLE IF NOT EXISTS host_signing_key (
   created_at TEXT NOT NULL
 );
 
+-- Planned host handoff (v94, docs/adr/2026-10-09-host-succession-simple.md). Both tables are
+-- device-local and NEVER synced: same exclusion class as host_signing_key — never in the Automerge
+-- document, any sync registry, PROJECTIONS or any wire payload. `host_handoff` is the singleton
+-- persisted state machine on BOTH sides of a handoff (giver = the current host, taker = the
+-- successor). `host_signing_key_pending` is the taker's staging slot: the received key and the
+-- seven host-only tables as one JSON document, held until the giver confirms COMMIT. It is not a
+-- live key (isHostDevice reads host_signing_key only).
+CREATE TABLE IF NOT EXISTS host_handoff (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  handoff_id TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('giver', 'taker')),
+  peer_device_id TEXT NOT NULL,
+  state TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS host_signing_key_pending (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  handoff_id TEXT NOT NULL,
+  public_key TEXT NOT NULL,
+  private_key TEXT NOT NULL,
+  host_only_rows TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
 -- Per-device singleton, like host_signing_key but held by EVERY device (Host
 -- or Client), not just the Host. Makes this device's libp2p PeerId stable
 -- across restarts — see electron/auth/deviceIdentity.js's ensureDeviceIdentity

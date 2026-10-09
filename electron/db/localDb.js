@@ -41,7 +41,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // campers.division_label/is_unattributed and elective_preferences.rank_kind/
 // coordinate_day_label/coordinate_period_label) all land in this file; 79 is the
 // current version.
-export const CURRENT_SCHEMA_VERSION = 93
+export const CURRENT_SCHEMA_VERSION = 94
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -4399,6 +4399,16 @@ const DEVICE_HEALTH_EVENTS_DDL = `
       );
     `)
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (93, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v94 (docs/adr/2026-10-09-host-succession-simple.md) — host_handoff and host_signing_key_pending,
+  // both created by schema.sql (re-executed on every open) and empty here: no camp has a handoff in
+  // flight before this version. Stamp-only. The guard is
+  // `>= 93 && < 94`, never a bare `< 94`.
+  if (getSchemaVersion(db) >= 93 && getSchemaVersion(db) < 94) {
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (94, ?)').run(
       new Date().toISOString()
     )
   }

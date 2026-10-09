@@ -74,6 +74,15 @@ export const PURGE_INFRASTRUCTURE_TABLES = [
   // never having been purged, not from preserving these derived rows byte-identically).
   'applied_authority_log',
   'authority_cache',
+  // host_handoff / host_signing_key_pending (v94, docs/adr/2026-10-09-host-succession-simple.md):
+  // device-local, never-synced state of one in-flight host handoff. A restart already clears an
+  // unfinished handoff (hostHandoff.recoverOnStartup), so a wipe of host_handoff is the same as one.
+  // KNOWN EDGE, stated plainly: a whole-device rebuild while this device is the successor in `stored`
+  // also wipes the pending key; if the old host had already committed, nothing then holds the key
+  // (the guide path is "export the last file, start a new camp"). The window is the span between the
+  // giver's commit and the giver reaching the successor again.
+  'host_handoff',
+  'host_signing_key_pending',
   // peer_tombstone_reports (T322 S3a, docs/adr/2026-09-19-multi-device-erasure-propagation.md's
   // 2026-10-01 addendum): a peer's self-reported set of (tombstone id, version) pairs it has
   // verified-and-projected — erasure-PROPAGATION metadata (which peer applied which purge, at what
