@@ -100,7 +100,8 @@ export const TRANSPORT_CAPABILITIES = {
   // punchPresenceWithoutSignoff.guard.test.js proves the single strictly-gated door to it
   // (SHORESH_PUNCH_ENABLED === 'true' in syncStarter.js, no other importer). `sourceMarkers` is empty
   // on purpose: syncStarter.js must reference the gate, and that test, not a marker, polices it.
-  // Runtime egress (STUN) happens inside the native library, which the text egress scan cannot see.
+  // No STUN/TURN server is ever configured (punchTransport.js refuses a non-empty iceServers), so the
+  // native library has no third-party ICE egress; the text egress scan could not see it if it did.
   punch: {
     packages: ['node-datachannel'],
     sourceMarkers: [],

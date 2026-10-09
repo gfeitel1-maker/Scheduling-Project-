@@ -1015,3 +1015,42 @@ already-clean code proves nothing):
    decide it during implementation rather than needing it pinned here — flagged so Governor can
    confirm that's an acceptable amount of latitude to leave Maker, given this ADR is meant to leave
    Maker no *architectural* judgment calls, and this one is not architectural (it's file-local naming).
+
+## Amendment 2026-10-09 — revocation rotates the rendezvous secrets (elected, digest-keyed)
+
+Source: F1 of `docs/work/security/2026-10-09-wan-ladder-assessment.md`; round-2 Governor design on PR #841.
+
+- **Problem.** A revoked device keeps its copy of the camp document, including
+  `camps.rendezvousDiscovery` (namespace + epoch) and `camps.rendezvousAddressKey`. Before this
+  amendment neither changed on revocation, so a departed device could keep polling the namespace and
+  decrypting every record's address body.
+- **One atomic tuple.** All the secrets live in ONE scalar field, `camps.rendezvousSecrets` =
+  `v2:<epoch>:<namespace hex>:<address key hex>:<revocation digest | ->`. Automerge resolves a
+  concurrent write per key, so it keeps one whole tuple, and the namespace and key can never come from
+  different rotations. Red Hat reproduced exactly that mix with separate fields. Every read (namespace,
+  key, rotated-for digest) comes from the tuple. A camp minted before the tuple is read from its legacy
+  `rendezvousDiscovery` / `rendezvousAddressKey` fields until its next mint or rotation, which writes
+  only the tuple. The legacy fields are never written again, and no schema migration is needed.
+- **Mechanism** (`electron/sync/automerge/rendezvousRotation.js`). The tuple's digest is the
+  signature-verified revocation digest the T335 rotating mDNS tag uses. When a device's verified digest
+  differs from it, and the device is the **elected rotator**, it rotates the whole tuple (epoch + 1,
+  fresh namespace and key, current digest) and broadcasts. The elected rotator is the lowest device id
+  among currently granted admins; every device computes the same answer, so there is no N-way churn.
+  A camp that never minted a namespace is skipped.
+- **When the check runs.** After every projection in `syncNode.js` (remote merge and `applyLocal`),
+  on doc load (`prepareDocForSync` in `syncStarter.js`), and from `revokeDevice` after `revokePeer`
+  has evicted the target. This covers:
+  - a quorum completed only by a merge;
+  - concurrent revokes, where the merged digest differs from both sides and so is re-rotated;
+  - a revocation that landed while the doc was not loaded.
+- **Conflicts.** The one tuple field is excluded from director-facing conflicts (`reconcile.js`), so
+  no raw secret reaches ConflictsScreen. Automerge's winner is the answer.
+- **Distribution.** The new values travel only through ordinary document sync. Sync already refuses
+  revoked peers, and `stepSync` now returns early for a revoked peer, so no send path hands them the
+  new state.
+- **Failures.** A failed rotation is logged and recorded as a `rendezvous_rotation_failed`
+  device-health event.
+- **STUN.** Superseded by the owner's 2026-10-09 ruling. The punch transport refuses any
+  `iceServers` entry, and `rtcConfigFrom` hardcodes `iceServers: []`. No STUN or TURN server is ever
+  contacted.
+- **Residual limits.** Recorded in `SECURITY.md` under Known limitations.

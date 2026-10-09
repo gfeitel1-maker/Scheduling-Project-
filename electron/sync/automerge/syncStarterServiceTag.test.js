@@ -17,8 +17,8 @@ import { ensureDeviceIdentity } from '../../auth/deviceIdentity.js'
 import { setUserDataDirGetter, resetForTests, getCurrentDoc, setCurrentDoc } from './liveDoc.js'
 import { mintGenesisEntry, mintGrantEntry, mintRevokeEntry } from '../../automerge/authorityLog.js'
 import { applyWrite } from '../../automerge/campDocument.js'
-import { mintRendezvousNamespace } from './rendezvousNamespace.js'
-import { computeRotatingServiceTag } from './syncStarter.js'
+import { mintRendezvousNamespace, readRendezvousNamespace } from './rendezvousNamespace.js'
+import { computeRotatingServiceTag, prepareDocForSync } from './syncStarter.js'
 
 const CAMP_ID = 'camp-1'
 
@@ -95,5 +95,22 @@ describe('computeRotatingServiceTag — the production wiring, with the real ver
     const after = computeRotatingServiceTag(doc, CAMP_ID)
 
     expect(after).not.toBe(before)
+  })
+})
+
+describe('prepareDocForSync — WAN-ladder F1 round 2: a revoke the device missed is rotated on doc load', () => {
+  it('a revoke already in the persisted doc, never rotated for, is rotated when the elected device loads it', async () => {
+    const { peerId: founderPeerId } = await ensureDeviceIdentity(db)
+    mintGenesisEntry(db, { founderDeviceId: 'founder-1', founderPeerId })
+    mintGrantEntry(db, { targetDeviceId: 'signer-1', targetPeerId: 'peer-signer-1', signerDeviceId: 'founder-1' })
+    mintDhtSecret(db)
+    mintRevokeEntry(db, { targetDeviceId: 'signer-1', signerDeviceId: 'founder-1' })
+    const loaded = getCurrentDoc(db)
+    expect(readRendezvousNamespace(loaded, CAMP_ID).epoch).toBe(1)
+
+    const prepared = prepareDocForSync(db, loaded, { campId: CAMP_ID, deviceId: 'founder-1' })
+
+    expect(readRendezvousNamespace(prepared, CAMP_ID).epoch).toBe(2)
+    expect(readRendezvousNamespace(getCurrentDoc(db), CAMP_ID).epoch).toBe(2)
   })
 })

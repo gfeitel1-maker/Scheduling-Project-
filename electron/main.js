@@ -70,6 +70,7 @@ import { ensureDeviceIdentity } from './auth/deviceIdentity.js'
 import { mintGenesisEntry, mintGrantEntry, mintRevokeEntry } from './automerge/authorityLog.js'
 import { syncRefusalForDomainMigration } from './db/migrationDomainState.js'
 import { getDocIfLoaded, getCurrentDoc, setUserDataDirGetter as setAutomergeUserDataDirGetter, setDocCipher as setAutomergeDocCipher, flushPendingWrites as flushAutomergeDoc, discardLiveDoc } from './sync/automerge/liveDoc.js'
+import { runRendezvousRotation } from './sync/automerge/rendezvousRotation.js'
 import { projectEntity } from './automerge/projector.js'
 import { AUTHORITY_LOG_ENTITY, currentAuthorityState, quorumThreshold } from './automerge/authorityReplay.js'
 import * as Automerge from '@automerge/automerge'
@@ -1591,6 +1592,13 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     } catch (err) {
       console.error(`revokeDevice: failed to forget remembered address for ${targetDeviceId}: ${err?.message ?? err}`)
     }
+
+    // F1 (docs/work/security/2026-10-09-wan-ladder-assessment.md): the revoked device keeps its copy
+    // of the document, so it still holds the rendezvous namespace and address key. The revocation
+    // set just changed, so run the digest-keyed check (rendezvousRotation.js): it rotates only on the
+    // elected device. Runs AFTER revokePeer above so the evicted peer is never sent the new values.
+    const node = getAutomergeNode()
+    runRendezvousRotation(db, { deviceId, broadcast: node ? node.broadcastLocalDoc : null })
 
     return { deviceId: targetDeviceId, revoked: true }
   }
