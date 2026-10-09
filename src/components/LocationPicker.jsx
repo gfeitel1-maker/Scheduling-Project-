@@ -219,5 +219,5 @@ const pickerStyles = {
   },
   hint: { fontSize: 11, color: 'var(--text-secondary)', marginTop: 5 },
   // C5: a location_id bound to a place that no longer exists.
-  danglingWarning: { fontSize: 11, color: 'var(--warning)', marginBottom: 5 },
+  danglingWarning: { fontSize: 11, color: 'var(--accent)', marginBottom: 5 },
 }

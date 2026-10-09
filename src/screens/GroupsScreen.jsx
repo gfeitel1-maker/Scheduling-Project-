@@ -4,7 +4,8 @@ import * as XLSX from 'xlsx'
 import { aoaToSanitizedSheet, readEntitySheet } from '../utils/exportSanitize.js'
 import { mapWithCollisions } from '../ingest/mapWithCollisions.js'
 import { localClient } from '../localClient'
-import { S, prefersReducedMotion, useEnterTransition } from '../styles/shared'
+import { S, useEnterTransition } from '../styles/shared'
+import WeekToggle from '../components/WeekToggle'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import ImportModal from '../components/setup/ImportModal'
@@ -648,7 +649,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
         onCancel={() => { setImportStep(null); setImportRows([]); setImportMapping(null) }}
         previewSubtitle={<ImportPreviewSubtitle ready={readyRows.length} warn={warnRows.length} sheetNote={importSheetNote} mappingIssue={describeMappingIssue(importMapping)} />}
         renderCell={(r, c) => {
-          if (c.key === 'name') return r.name || <span style={{ color: 'var(--warning)' }}>—</span>
+          if (c.key === 'name') return r.name || <span style={{ color: 'var(--accent)' }}>—</span>
           if (c.key === 'tier') return r.tierName || '—'
           if (c.key === 'availability') return AVAIL_OPTIONS.find(o => o.value === r.availability)?.label ?? '—'
         }}
@@ -683,45 +684,6 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
         />
       )}
     </>
-  )
-}
-
-function WeekToggle({ on, label, onToggle }) {
-  const reduced = prefersReducedMotion()
-  const W = 32, H = 18, PAD = 2, KNOB = H - PAD * 2
-  const knobLeft = on ? W - KNOB - PAD : PAD
-  return (
-    <button
-      role="switch"
-      aria-checked={on}
-      aria-label={label}
-      onClick={e => { e.stopPropagation(); onToggle() }}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        width: W,
-        height: H,
-        borderRadius: H / 2,
-        background: on ? 'var(--primary)' : 'var(--border)',
-        border: 'none',
-        padding: 0,
-        cursor: 'pointer',
-        position: 'relative',
-        transition: reduced ? 'none' : 'background-color 120ms ease',
-        flexShrink: 0,
-      }}
-    >
-      <span style={{
-        position: 'absolute',
-        left: knobLeft,
-        top: PAD,
-        width: KNOB,
-        height: KNOB,
-        borderRadius: '50%',
-        background: 'var(--surface-elevated)',
-        transition: reduced ? 'none' : 'left 120ms ease',
-      }} />
-    </button>
   )
 }
 

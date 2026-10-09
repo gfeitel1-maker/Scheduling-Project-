@@ -11,6 +11,7 @@ import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { createScheduleRepository } from '../data/scheduleRepository'
 import { useCrudScreen } from '../hooks/useCrudScreen'
 import { S, prefersReducedMotion, useEnterTransition } from '../styles/shared'
+import WeekToggle from '../components/WeekToggle'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
 import ImportModal from '../components/setup/ImportModal'
@@ -935,7 +936,7 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
           title={role !== 'admin' ? 'Admin only' : undefined}
           style={role !== 'admin'
             ? { ...S.btnUtility, ...S.buttonDisabled }
-            : { ...S.btnUtility, color: 'var(--warning)' }}
+            : { ...S.btnUtility, color: 'var(--danger)' }}
         >Delete All</button>
       </div>
 
@@ -981,7 +982,7 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
         onCancel={() => { setImportStep(null); setImportPreviewRows([]); setImportMapping(null) }}
         previewSubtitle={<ImportPreviewSubtitle ready={importReadyRows.length} warn={importWarnRows.length} sheetNote={importSheetNote} mappingIssue={describeMappingIssue(importMapping)} />}
         renderCell={(r, c) => {
-          if (c.key === 'name') return r.name || <span style={{ color: 'var(--warning)' }}>—</span>
+          if (c.key === 'name') return r.name || <span style={{ color: 'var(--accent)' }}>—</span>
           if (c.key === 'capacity') return r.capacity
           if (c.key === 'kind') return KIND_OPTIONS.find(k => k.value === r.kind)?.label ?? '—'
         }}
@@ -1012,45 +1013,6 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
         />
       )}
     </div>
-  )
-}
-
-function WeekToggle({ on, label, onToggle }) {
-  const reduced = prefersReducedMotion()
-  const W = 32, H = 18, PAD = 2, KNOB = H - PAD * 2
-  const knobLeft = on ? W - KNOB - PAD : PAD
-  return (
-    <button
-      role="switch"
-      aria-checked={on}
-      aria-label={label}
-      onClick={onToggle}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        width: W,
-        height: H,
-        borderRadius: H / 2,
-        background: on ? 'var(--primary)' : 'var(--border)',
-        border: 'none',
-        padding: 0,
-        cursor: 'pointer',
-        position: 'relative',
-        transition: reduced ? 'none' : 'background-color 120ms ease',
-        flexShrink: 0,
-      }}
-    >
-      <span style={{
-        position: 'absolute',
-        left: knobLeft,
-        top: PAD,
-        width: KNOB,
-        height: KNOB,
-        borderRadius: '50%',
-        background: 'var(--surface-elevated)',
-        transition: reduced ? 'none' : 'left 120ms ease',
-      }} />
-    </button>
   )
 }
 

@@ -171,7 +171,7 @@ const styles = {
   },
   note: { fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, maxWidth: 620, marginTop: 0, marginBottom: 14 },
   error: {
-    color: 'var(--warning)',
+    color: 'var(--danger)',
     fontSize: 13,
     fontWeight: 600,
     marginBottom: 12,

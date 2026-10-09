@@ -228,8 +228,8 @@ export const S = {
   btnDanger: {
     padding: '7px 14px',
     background: 'none',
-    color: 'var(--warning)',
-    border: '1px solid var(--warning)',
+    color: 'var(--danger)',
+    border: '1px solid var(--danger)',
     borderRadius: 7,
     fontWeight: 600,
     fontSize: 13,
@@ -302,15 +302,15 @@ export const S = {
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 1000,
-    padding: 16,
+    padding: '24px 16px',
   },
   // Import-preview warning row — replaces the hardcoded #FFF8E7 / #F5A623
   // literals previously pasted into every setup screen's import table.
   importWarnRow: {
-    background: 'color-mix(in srgb, var(--warning) 12%, var(--surface))',
+    background: 'color-mix(in srgb, var(--danger) 12%, var(--surface))',
   },
   importWarnText: {
-    color: 'var(--warning)',
+    color: 'var(--danger)',
     fontFamily: 'var(--font-mono)',
     fontSize: 12,
   },
@@ -623,8 +623,8 @@ export const S = {
     marginBottom: 8,
   },
   pasteStatusLineError: {
-    color: 'var(--warning)',
-    borderColor: 'color-mix(in srgb, var(--warning) 35%, var(--border))',
+    color: 'var(--danger)',
+    borderColor: 'color-mix(in srgb, var(--danger) 35%, var(--border))',
   },
   // Selection moves off navy (navy is reserved for DnD drop-target chrome) —
   // elevation is a channel nothing else on the grid uses. See

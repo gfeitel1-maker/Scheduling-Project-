@@ -7,6 +7,7 @@ import { aoaToSanitizedSheet, readEntitySheet } from '../utils/exportSanitize.js
 import { localClient } from '../localClient'
 import { ChevronIcon, OutdoorIcon } from '../components/icons'
 import { S, prefersReducedMotion, useEnterTransition } from '../styles/shared'
+import WeekToggle from '../components/WeekToggle'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import ImportModal from '../components/setup/ImportModal'
@@ -318,7 +319,7 @@ function ActivityModal({ activity, tiers, groups, activities, locations, onSave,
   const otherActivities = filterFreeChoiceActivities(activities).filter(a => a.id !== activity?.id)
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 1000, padding: '24px 16px', overflowY: 'auto' }}>
+    <div style={{ ...S.overlay, alignItems: 'flex-start', overflowY: 'auto' }}>
       <div style={{ background: 'var(--surface-elevated)', borderRadius: 12, padding: 28, width: 600, maxWidth: '100%' }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 18, marginBottom: 20 }}>
           {isNew ? 'Add Activity' : `Edit: ${activity.name}`}
@@ -1407,45 +1408,6 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
         />
       )}
     </div>
-  )
-}
-
-function WeekToggle({ on, label, onToggle }) {
-  const reduced = prefersReducedMotion()
-  const W = 32, H = 18, PAD = 2, KNOB = H - PAD * 2
-  const knobLeft = on ? W - KNOB - PAD : PAD
-  return (
-    <button
-      role="switch"
-      aria-checked={on}
-      aria-label={label}
-      onClick={e => { e.stopPropagation(); onToggle() }}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        width: W,
-        height: H,
-        borderRadius: H / 2,
-        background: on ? 'var(--primary)' : 'var(--border)',
-        border: 'none',
-        padding: 0,
-        cursor: 'pointer',
-        position: 'relative',
-        transition: reduced ? 'none' : 'background-color 120ms ease',
-        flexShrink: 0,
-      }}
-    >
-      <span style={{
-        position: 'absolute',
-        left: knobLeft,
-        top: PAD,
-        width: KNOB,
-        height: KNOB,
-        borderRadius: '50%',
-        background: 'var(--surface-elevated)',
-        transition: reduced ? 'none' : 'left 120ms ease',
-      }} />
-    </button>
   )
 }
 

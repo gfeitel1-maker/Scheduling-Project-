@@ -58,7 +58,7 @@ export default function NameSubjectDialog({ subjectId, label, why, onCancel, onN
   }
 
   return (
-    <div style={overlay}>
+    <div style={S.overlay}>
       <div style={{ ...panel, ...enterStyle }} role="dialog" aria-modal="true" aria-label="Name this camper">
         <div style={title}>Whose sheet is this?</div>
 
@@ -103,17 +103,6 @@ export default function NameSubjectDialog({ subjectId, label, why, onCancel, onN
   )
 }
 
-const overlay = {
-  position: 'fixed',
-  inset: 0,
-  background: 'rgba(0,0,0,0.45)',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  zIndex: 1000,
-  padding: '24px 16px',
-}
-
 const panel = {
   background: 'var(--surface-elevated)',
   borderRadius: 12,
@@ -125,7 +114,7 @@ const panel = {
 const title = {
   fontSize: 19,
   fontWeight: 700,
-  color: 'var(--text-primary)',
+  color: 'var(--text)',
   marginBottom: 10,
 }
 
@@ -140,7 +129,7 @@ const context = {
   fontSize: 13,
   lineHeight: 1.5,
   color: 'var(--text-secondary)',
-  background: 'var(--surface-sunken, rgba(0,0,0,0.04))',
+  background: 'color-mix(in srgb, var(--text) 4%, var(--surface))',
   borderRadius: 8,
   padding: '10px 12px',
   marginBottom: 16,

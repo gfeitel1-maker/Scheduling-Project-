@@ -168,7 +168,7 @@ export default function DeleteRecordDialog({ preview, onCancel, onDeleted }) {
         : `Delete ${LABEL[preview.entity].the}`
 
   return (
-    <div style={{ ...overlay, ...enterStyle }}>
+    <div style={{ ...S.overlay, ...enterStyle }}>
       <div style={panel}>
         <div style={title}>Delete “{preview.name || 'this record'}”?</div>
 
@@ -188,17 +188,6 @@ export default function DeleteRecordDialog({ preview, onCancel, onDeleted }) {
       </div>
     </div>
   )
-}
-
-const overlay = {
-  position: 'fixed',
-  inset: 0,
-  background: 'rgba(0,0,0,0.45)',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  zIndex: 1000,
-  padding: '24px 16px',
 }
 
 const panel = {
