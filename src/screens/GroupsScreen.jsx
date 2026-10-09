@@ -547,7 +547,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
       fileInputRef={fileRef}
       onFileChange={onFileChange}
       maxWidth={720}
-      nextLabel="Next: Days →"
+      nextLabel="Days →"
       onNext={() => onNavigate('days')}
       error={error}
     >
@@ -575,7 +575,6 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
               {groups.length === 0 ? (
                 <tr><td colSpan={weekId ? 5 : 4} style={S.emptyState}>
                   <div style={S.emptyStateTitle}>No groups yet</div>
-                  <div style={S.emptyStateBody}>Type a group below to add your first one.</div>
                 </td></tr>
               ) : (
                 <>
@@ -613,7 +612,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
                   last row of the groups table (Excel-like inline add). */}
               <InlineAddRow
                 fields={[
-                  { key: 'name', type: 'text', placeholder: 'Group name', required: true },
+                  { key: 'name', type: 'text', placeholder: 'Bunk 1', required: true },
                   { key: 'tier_id', type: 'select', default: '', options: [
                     { value: '', label: '— No age division —' },
                     ...tiers.map(t => ({ value: t.id, label: t.name })),
@@ -666,7 +665,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
       {pendingDeleteAll && (
         <ConfirmDangerDialog
           title="Delete all groups?"
-          recovery="They can be restored from Trash."
+          recovery="Recoverable from Trash."
           confirmLabel="Delete All Groups"
           busy={deletingAll}
           onConfirm={confirmDeleteAll}

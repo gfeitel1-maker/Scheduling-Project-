@@ -1196,7 +1196,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
         fileInputRef={fileRef}
         onFileChange={onFileChange}
         maxWidth={820}
-        nextLabel="Next: Recurring Events →"
+        nextLabel="Recurring Events →"
         onNext={() => onNavigate('recurringevents')}
         error={error}
       >
@@ -1211,7 +1211,6 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
         <div style={{ ...S.emptyState, padding: '40px 24px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12 }}>
           <div style={emptyEnter}>
             <div style={S.emptyStateTitle}>No activities yet</div>
-            <div style={S.emptyStateBody}>Add your first activity or import from Excel.</div>
           </div>
         </div>
       ) : (
@@ -1322,7 +1321,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           <input
-            placeholder="Activity name (e.g. Archery)"
+            placeholder="Archery"
             value={quickName}
             onChange={e => setQuickName(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && addActivityQuick()}
@@ -1391,7 +1390,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
       {pendingDeleteAll && (
         <ConfirmDangerDialog
           title="Delete all activities?"
-          recovery="They can be restored from Trash."
+          recovery="Recoverable from Trash."
           confirmLabel="Delete All Activities"
           busy={deletingAll}
           onConfirm={confirmDeleteAll}

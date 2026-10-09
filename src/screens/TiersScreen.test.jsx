@@ -74,7 +74,7 @@ describe('TiersScreen delete confirmation', () => {
     expect(window.confirm).not.toHaveBeenCalled()
     expect(localClient.deleteEntity).not.toHaveBeenCalled()
     await waitFor(() => expect(screen.queryByText('Delete "Yeladim"?')).not.toBeNull())
-    expect(screen.queryByText('This age division has no groups, so nothing in your schedules is affected.')).not.toBeNull()
+    expect(screen.queryByText(/will lose their age division/)).toBeNull()
 
     fireEvent.click(screen.getByText('Delete Age Division'))
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'tiers', 'tier-1'))
@@ -120,13 +120,12 @@ describe('TiersScreen delete confirmation', () => {
 
     fireEvent.click(screen.getByText('Delete'))
     await waitFor(() => expect(screen.queryByText('Delete "Yeladim"?')).not.toBeNull())
-    expect(screen.queryByText('This age division has no groups, so nothing in your schedules is affected.')).not.toBeNull()
+    expect(screen.queryByText(/will lose their age division/)).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit Yeladim' }))
     fireEvent.click(screen.getByText('Save'))
 
-    await waitFor(() => expect(screen.queryByText(/This age division still has 1 group assigned to it/)).not.toBeNull())
-    expect(screen.queryByText('This age division has no groups, so nothing in your schedules is affected.')).toBeNull()
+    await waitFor(() => expect(screen.queryByText('1 group will lose their age division.')).not.toBeNull())
   })
 
   it('dismisses on Escape without deleting', async () => {
@@ -187,9 +186,9 @@ describe('TiersScreen — add', () => {
       return Promise.resolve([])
     })
     render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await screen.findByPlaceholderText('Age division name (e.g. Yeladim)')
+    await screen.findByPlaceholderText('Yeladim')
 
-    fireEvent.change(screen.getByPlaceholderText('Age division name (e.g. Yeladim)'), { target: { value: 'Bogrim' } })
+    fireEvent.change(screen.getByPlaceholderText('Yeladim'), { target: { value: 'Bogrim' } })
     fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() => expect(localClient.write).toHaveBeenCalled())
@@ -235,9 +234,9 @@ describe('TiersScreen — add', () => {
       return Promise.resolve([])
     })
     render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await screen.findByPlaceholderText('Age division name (e.g. Yeladim)')
+    await screen.findByPlaceholderText('Yeladim')
 
-    fireEvent.change(screen.getByPlaceholderText('Age division name (e.g. Yeladim)'), { target: { value: 'Chalutzim' } })
+    fireEvent.change(screen.getByPlaceholderText('Yeladim'), { target: { value: 'Chalutzim' } })
     fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() => expect(localClient.write).toHaveBeenCalled())
@@ -257,9 +256,9 @@ describe('TiersScreen — add', () => {
       return Promise.resolve({ status: 'applied' })
     })
     render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await screen.findByPlaceholderText('Age division name (e.g. Yeladim)')
+    await screen.findByPlaceholderText('Yeladim')
 
-    fireEvent.change(screen.getByPlaceholderText('Age division name (e.g. Yeladim)'), { target: { value: 'Bogrim' } })
+    fireEvent.change(screen.getByPlaceholderText('Yeladim'), { target: { value: 'Bogrim' } })
     fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'tiers', 'new-tier-id'))
@@ -284,9 +283,9 @@ describe('TiersScreen — add', () => {
       return Promise.resolve({ status: 'applied' })
     })
     render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await screen.findByPlaceholderText('Age division name (e.g. Yeladim)')
+    await screen.findByPlaceholderText('Yeladim')
 
-    fireEvent.change(screen.getByPlaceholderText('Age division name (e.g. Yeladim)'), { target: { value: 'Bogrim' } })
+    fireEvent.change(screen.getByPlaceholderText('Yeladim'), { target: { value: 'Bogrim' } })
     fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() => expect(screen.queryByText(/already exists/)).not.toBeNull())
@@ -319,7 +318,7 @@ describe('TiersScreen — deleteAll', () => {
     expect(window.confirm).not.toHaveBeenCalled()
     expect(localClient.deleteEntity).not.toHaveBeenCalled()
     await waitFor(() => expect(screen.queryByText('Delete all age divisions?')).not.toBeNull())
-    expect(screen.queryByText('They can be restored from Trash.')).not.toBeNull()
+    expect(screen.queryByText('Recoverable from Trash.')).not.toBeNull()
 
     fireEvent.click(screen.getByText('Delete All Age Divisions'))
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'tiers', 'tier-1'))

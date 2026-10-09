@@ -113,13 +113,13 @@ describe('LocationsScreen', () => {
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
 
     await waitFor(() => expect(screen.queryByText('No locations yet')).not.toBeNull())
-    expect(screen.queryByText(/Add a location below to add your first one/)).not.toBeNull()
+    expect(screen.queryByText(/Add a location below/)).toBeNull()
     // The table now always renders (in-table empty-row pattern), so the inline
     // add row and the Import toolbar are reachable even with no locations.
     expect(screen.queryByRole('table')).not.toBeNull()
     expect(screen.queryByText('0 locations')).not.toBeNull()
     expect(screen.queryByText('Import from Excel')).not.toBeNull()
-    expect(screen.queryByPlaceholderText('e.g. Pool, Gym, Beit Midrash')).not.toBeNull()
+    expect(screen.queryByPlaceholderText('Pool')).not.toBeNull()
     // The old calm-card "Add your first location" CTA + Add Location card are gone.
     expect(screen.queryByText('Add your first location')).toBeNull()
     expect(screen.queryByText('Add Location')).toBeNull()
@@ -148,7 +148,7 @@ describe('LocationsScreen', () => {
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('No locations yet')).not.toBeNull())
 
-    fireEvent.change(screen.getByPlaceholderText('e.g. Pool, Gym, Beit Midrash'), { target: { value: 'Gym' } })
+    fireEvent.change(screen.getByPlaceholderText('Pool'), { target: { value: 'Gym' } })
     fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() => expect(localClient.write).toHaveBeenCalled())
@@ -162,7 +162,7 @@ describe('LocationsScreen', () => {
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('No locations yet')).not.toBeNull())
 
-    fireEvent.change(screen.getByPlaceholderText('e.g. Pool, Gym, Beit Midrash'), { target: { value: 'Gym' } })
+    fireEvent.change(screen.getByPlaceholderText('Pool'), { target: { value: 'Gym' } })
     fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() => expect(localClient.write).toHaveBeenCalled())
@@ -174,7 +174,7 @@ describe('LocationsScreen', () => {
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('No locations yet')).not.toBeNull())
 
-    const nameInput = screen.getByPlaceholderText('e.g. Pool, Gym, Beit Midrash')
+    const nameInput = screen.getByPlaceholderText('Pool')
     fireEvent.change(nameInput, { target: { value: 'Pool' } })
     // The inline row's kind <select> — the only select on the empty screen.
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'pool' } })
@@ -489,7 +489,7 @@ describe('LocationsScreen', () => {
     expect(window.confirm).not.toHaveBeenCalled()
     expect(localClient.deleteEntity).not.toHaveBeenCalled()
     await waitFor(() => expect(screen.queryByText('Delete all locations?')).not.toBeNull())
-    expect(screen.queryByText('They can be restored from Trash.')).not.toBeNull()
+    expect(screen.queryByText('Recoverable from Trash.')).not.toBeNull()
 
     fireEvent.click(screen.getByText('Delete All Locations'))
 
@@ -522,7 +522,7 @@ describe('LocationsScreen', () => {
     fireEvent.click(screen.getByText('← Back to Activities'))
     expect(onNavigate).toHaveBeenCalledWith('activities')
 
-    fireEvent.click(screen.getByText('Next: Recurring Events →'))
+    fireEvent.click(screen.getByText('Recurring Events →'))
     expect(onNavigate).toHaveBeenCalledWith('recurringevents')
   })
 
@@ -552,7 +552,7 @@ describe('LocationsScreen: migration review region', () => {
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Pool', IGNORE_KIND_OPTIONS)).not.toBeNull())
 
-    expect(screen.queryByText('These look like the same location')).toBeNull()
+    expect(screen.queryByText('Same location?')).toBeNull()
     expect(screen.queryByText(/Shoresh set a few capacities/)).toBeNull()
   })
 
@@ -621,7 +621,7 @@ describe('LocationsScreen: migration review region', () => {
     ])
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
 
-    await waitFor(() => expect(screen.queryByText('These look like the same location')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Same location?')).not.toBeNull())
     expect(screen.queryByText('1 location left to review')).not.toBeNull()
     // Default winner = most bound activities — "Pool" (2) over "pool" (1).
     expect(screen.queryByText(/2 activities here/)).not.toBeNull()
@@ -629,7 +629,7 @@ describe('LocationsScreen: migration review region', () => {
     // The advisory strip must not render while the gate is up.
     expect(screen.queryByText(/Shoresh set a few capacities/)).toBeNull()
 
-    const mergeButton = screen.getByText('Merge into one location')
+    const mergeButton = screen.getByText('Merge')
     expect(mergeButton.style.background).toBe('var(--primary)')
     expect(mergeButton.style.color).toBe('rgb(255, 255, 255)')
     fireEvent.click(mergeButton)
@@ -645,7 +645,7 @@ describe('LocationsScreen: migration review region', () => {
     await waitFor(() => expect(localClient.dismissMigrationReviews).toHaveBeenCalledWith(['r1', 'r2']))
   })
 
-  it('"No — these are different locations" dismisses the group without merging', async () => {
+  it('"Keep separate" dismisses the group without merging', async () => {
     const poolId = deriveLocationId(CAMP_ID, 'Pool')
     const poolLowerId = deriveLocationId(CAMP_ID, 'pool')
     localClient.list.mockImplementation((entity) => {
@@ -660,8 +660,8 @@ describe('LocationsScreen: migration review region', () => {
     ])
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
 
-    await waitFor(() => expect(screen.queryByText('These look like the same location')).not.toBeNull())
-    fireEvent.click(screen.getByText('No — these are different locations'))
+    await waitFor(() => expect(screen.queryByText('Same location?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Keep separate'))
 
     await waitFor(() => expect(localClient.dismissMigrationReviews).toHaveBeenCalledWith(['r1', 'r2']))
     expect(localClient.mergeLocation).not.toHaveBeenCalled()
@@ -703,9 +703,9 @@ describe('LocationsScreen: migration review region', () => {
       .mockRejectedValueOnce(new Error('network blip'))
 
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('These look like the same location')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Same location?')).not.toBeNull())
 
-    fireEvent.click(screen.getByText('Merge into one location'))
+    fireEvent.click(screen.getByText('Merge'))
 
     await waitFor(() =>
       expect(localClient.mergeLocation).toHaveBeenCalledWith({
@@ -736,7 +736,7 @@ describe('LocationsScreen: migration review region', () => {
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Pool', IGNORE_KIND_OPTIONS)).not.toBeNull())
 
-    expect(screen.queryByText('These look like the same location')).toBeNull()
+    expect(screen.queryByText('Same location?')).toBeNull()
   })
 
   // FIX 1 (HIGH, safety-panel round): a 3+-variant near-duplicate group whose
@@ -795,9 +795,9 @@ describe('LocationsScreen: migration review region', () => {
     })
 
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('These look like the same location')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Same location?')).not.toBeNull())
 
-    fireEvent.click(screen.getByText('Merge into one location'))
+    fireEvent.click(screen.getByText('Merge'))
 
     await waitFor(() => expect(localClient.mergeLocation).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(screen.queryByText(/That merge could not be completed/)).not.toBeNull())
@@ -812,11 +812,11 @@ describe('LocationsScreen: migration review region', () => {
 
     // (c) "these are different locations" is not the only escape — the Merge
     // button is still present and functional.
-    expect(screen.queryByText('Merge into one location')).not.toBeNull()
+    expect(screen.queryByText('Merge')).not.toBeNull()
 
     // (b) retry: the previously-failed loser now succeeds, completing the
     // merge — it does not die re-hitting the already-deleted first loser.
-    fireEvent.click(screen.getByText('Merge into one location'))
+    fireEvent.click(screen.getByText('Merge'))
 
     await waitFor(() => expect(localClient.mergeLocation).toHaveBeenCalledTimes(3))
     await waitFor(() => expect(localClient.dismissMigrationReviews).toHaveBeenCalledWith(['r-Pool', 'r-POOL', 'r-pool']))
@@ -865,9 +865,9 @@ describe('LocationsScreen: migration review region', () => {
     })
 
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('These look like the same location')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Same location?')).not.toBeNull())
 
-    fireEvent.click(screen.getByText('Merge into one location'))
+    fireEvent.click(screen.getByText('Merge'))
 
     await waitFor(() => expect(localClient.mergeLocation).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(localClient.dismissMigrationReviews).toHaveBeenCalledWith(['r-Pool', 'r-POOL', 'r-pool']))

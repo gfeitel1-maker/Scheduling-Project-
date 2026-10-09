@@ -251,4 +251,21 @@ describe('CohortsScreen', () => {
       ).not.toBeNull()
     )
   })
+  it('offers no coming-soon options, and shows a program saved with one as the default', async () => {
+    localClient.list.mockResolvedValue([
+      cohort({ fixed_event_model: 'floating', capacity_source: 'camper_headcount' }),
+    ])
+    render(<CohortsScreen campId={CAMP_ID} />)
+
+    await waitFor(() => expect(screen.queryByText('Main')).not.toBeNull())
+    expect(screen.getByText('Fixed')).not.toBeNull()
+    expect(screen.getByText('Groups per period')).not.toBeNull()
+
+    fireEvent.click(screen.getByText('Edit'))
+    const [model, capacity] = screen.getAllByRole('combobox')
+    expect(model.value).toBe('fixed')
+    expect(capacity.value).toBe('groups_per_slot')
+    const labels = [...model.options, ...capacity.options].map(o => o.textContent)
+    expect(labels).toEqual(['None', 'Fixed', 'Groups per period'])
+  })
 })

@@ -74,13 +74,3 @@ export function wasUnlimitedCopy(detail) {
   const seeded = detail?.seededCapacity ?? 1
   return `had no limit set and is now ${seeded} group${seeded === 1 ? '' : 's'} at a time. That may change a generated week or two — take a look before you regenerate.`
 }
-
-export function variantList(names) {
-  if (names.length === 1) return `“${names[0]}”`
-  return names
-    .map((n, i) => {
-      const sep = i === 0 ? '' : i === names.length - 1 ? ' and ' : ', '
-      return `${sep}“${n}”`
-    })
-    .join('')
-}

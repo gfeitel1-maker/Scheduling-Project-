@@ -422,7 +422,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
       fileInputRef={fileRef}
       onFileChange={onFileChange}
       maxWidth={700}
-      nextLabel="Next: Groups →"
+      nextLabel="Groups →"
       onNext={() => onNavigate('groups')}
       error={error}
       cohortPicker={<CohortPicker cohorts={cohorts} activeCohort={activeCohort} onChange={setActiveCohortId} />}
@@ -433,7 +433,6 @@ export default function TiersScreen({ campId, role, onNavigate }) {
       ) : !activeCohort ? (
         <div style={{ ...S.emptyState, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, marginBottom: 16 }}>
           <div style={S.emptyStateTitle}>No programs yet</div>
-          <div style={S.emptyStateBody}>Add a Program before adding Age Divisions.</div>
         </div>
       ) : (
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
@@ -450,7 +449,6 @@ export default function TiersScreen({ campId, role, onNavigate }) {
                 <tr><td colSpan={3} style={S.emptyState}>
                   <div style={emptyEnter}>
                     <div style={S.emptyStateTitle}>No age divisions yet</div>
-                    <div style={S.emptyStateBody}>Add your first age division below or import from Excel.</div>
                   </div>
                 </td></tr>
               ) : tiers.map(tier => (
@@ -470,7 +468,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
                   the Groups column so "+ Add" sits under Actions. */}
               <InlineAddRow
                 fields={[
-                  { key: 'name', type: 'text', placeholder: 'Age division name (e.g. Yeladim)', required: true },
+                  { key: 'name', type: 'text', placeholder: 'Yeladim', required: true },
                 ]}
                 onAdd={addTier}
                 adding={adding}
@@ -518,10 +516,10 @@ export default function TiersScreen({ campId, role, onNavigate }) {
           title={`Delete "${pendingDelete.name}"?`}
           body={
             groupCounts[pendingDelete.id]
-              ? `This age division still has ${groupCounts[pendingDelete.id]} group${groupCounts[pendingDelete.id] === 1 ? '' : 's'} assigned to it. Removing it will leave ${groupCounts[pendingDelete.id] === 1 ? 'that group' : 'those groups'} without an age division.`
-              : 'This age division has no groups, so nothing in your schedules is affected.'
+              ? `${groupCounts[pendingDelete.id]} group${groupCounts[pendingDelete.id] === 1 ? '' : 's'} will lose their age division.`
+              : undefined
           }
-          recovery={`"${pendingDelete.name}" goes to Trash, and you can put it back from there.`}
+          recovery="Recoverable from Trash."
           confirmLabel="Delete Age Division"
           busy={deleting}
           onConfirm={confirmTierDelete}
@@ -532,7 +530,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
       {pendingDeleteAll && (
         <ConfirmDangerDialog
           title="Delete all age divisions?"
-          recovery="They can be restored from Trash."
+          recovery="Recoverable from Trash."
           confirmLabel="Delete All Age Divisions"
           busy={deletingAll}
           onConfirm={confirmDeleteAll}

@@ -98,7 +98,7 @@ export default function WeekSwitcher({ weeks, weekId, onSelect, onCreate, onRena
                   {!isRenaming && onRename && (
                     <button
                       onClick={() => { setRenamingId(w.id); setRenameValue(w.name) }}
-                      title="Rename this week"
+                      title="Rename"
                       style={{ fontSize: 10, color: 'var(--text-secondary)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', fontFamily: 'inherit' }}
                     >
                       rename
@@ -120,7 +120,7 @@ export default function WeekSwitcher({ weeks, weekId, onSelect, onCreate, onRena
                         }
                       }}
                       disabled={duplicatingId === w.id}
-                      title="Duplicate this week"
+                      title="Duplicate"
                       style={{ fontSize: 10, color: 'var(--text-secondary)', background: 'none', border: 'none', cursor: duplicatingId === w.id ? 'wait' : 'pointer', padding: '2px 4px', fontFamily: 'inherit' }}
                     >
                       duplicate
@@ -129,7 +129,7 @@ export default function WeekSwitcher({ weeks, weekId, onSelect, onCreate, onRena
                   {!isRenaming && onArchive && weeks.length > 1 && (
                     <button
                       onClick={() => onArchive(w.id)}
-                      title="Archive this week"
+                      title="Archive"
                       style={{ fontSize: 10, color: 'var(--text-secondary)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', fontFamily: 'inherit' }}
                     >
                       archive
@@ -163,7 +163,7 @@ export default function WeekSwitcher({ weeks, weekId, onSelect, onCreate, onRena
                   {onUnarchive && (
                     <button
                       onClick={() => onUnarchive(w.id)}
-                      title="Bring this week back"
+                      title="Restore"
                       style={{ fontSize: 10, color: 'var(--primary)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', fontFamily: 'inherit' }}
                     >
                       unarchive
@@ -172,7 +172,7 @@ export default function WeekSwitcher({ weeks, weekId, onSelect, onCreate, onRena
                   {onDelete && weeks.length > 1 && (
                     <button
                       onClick={() => { setIsOpen(false); onDelete(w) }}
-                      title="Permanently delete this week"
+                      title="Delete"
                       style={{ fontSize: 10, color: 'var(--danger)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', fontFamily: 'inherit' }}
                     >
                       Delete permanently

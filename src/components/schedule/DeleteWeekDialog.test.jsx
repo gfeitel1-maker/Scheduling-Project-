@@ -24,7 +24,7 @@ function renderDialog(localClient) {
   )
 }
 
-const ERROR_MSG = 'Week could not be deleted. Please try again, or restart the app if this keeps happening.'
+const ERROR_MSG = "Couldn't delete the week."
 
 describe('DeleteWeekDialog failure paths', () => {
   it('shows error message when deleteWeek throws', async () => {
