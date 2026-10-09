@@ -35,17 +35,17 @@ const ROUTES = {
   manual: (props) => <ManualBuildView {...props} />,
 }
 
-function renderRoute(route, extra = {}) {
+function renderRoute(route, { slots: fixtureSlots = slots, actMap: fixtureActMap = actMap, ...extra } = {}) {
   const handlers = {
     onSelectGroup: vi.fn(), onCellSelect: vi.fn(), onToggleBlockCollapsed: vi.fn(),
     onPlace: vi.fn(), onCreateNew: vi.fn(),
   }
-  const geometry = makeGridGeometry({ slots, timeBlocks, groups })
+  const geometry = makeGridGeometry({ slots: fixtureSlots, timeBlocks, groups })
   const View = ROUTES[route]
   const { container, getByText, getByRole } = render(
     <DndContext>
       {View({
-        groups, days, timeBlocks, selectedGroup: 'g1', actMap, fixedEventMap, geometry,
+        groups, days, timeBlocks, selectedGroup: 'g1', actMap: fixtureActMap, fixedEventMap, geometry,
         eligibleActivitiesFor: () => [], ...handlers, ...extra,
       })}
     </DndContext>,
@@ -149,5 +149,87 @@ describe('per-route differences that must survive the shared frame', () => {
       expect(cell.hasAttribute('data-empty')).toBe(route === 'manual')
       unmount()
     }
+  })
+})
+
+// Red Hat gap-closure on #793: each block below was plant-tested (the line it
+// guards was broken, the test went red, the line was restored).
+const swimSpan = [
+  ...slots.filter(s => s.id !== 's4'),
+  { id: 's5', group_id: 'g1', day_id: 'd2', time_block_id: 'b2', activity_id: 'a1', is_fixed_event: false, is_span_head: false },
+]
+
+describe.each(['generated', 'manual'])('%s group view — gap closure', route => {
+  it('a merged multi-block activity renders once, with no duplicate tail cell', () => {
+    const { container } = renderRoute(route, { slots: swimSpan })
+    expect(container.querySelectorAll('[data-cell-key="g1|d2|b2"]')).toHaveLength(0)
+    expect(cellByKey(container, 'g1|d2|b1').getAttribute('aria-rowspan')).toBe('2')
+    expect([...container.querySelectorAll('[data-cell-key]')].filter(c => c.textContent.includes('Swim'))).toHaveLength(1)
+  })
+
+  it('a collapsed row writes data-collapsed, a 20px track and an armed row-flag dot', () => {
+    const flagged = [...slots, { id: 'o1', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: 'a1', is_fixed_event: false, flags: { OVERLAP: true } }]
+    const { container } = renderRoute(route, { slots: flagged, collapsedBlockIds: new Set(['b2', 'b3']) })
+    expect(cellByKey(container, 'g1|d2|b3').hasAttribute('data-collapsed')).toBe(true)
+    expect(cellByKey(container, 'g1|d2|b2').hasAttribute('data-collapsed')).toBe(true)
+    expect(cellByKey(container, 'g1|d2|b1').hasAttribute('data-collapsed')).toBe(false)
+    expect(container.querySelector('.schedule-grid--body').style.getPropertyValue('--grid-rows')).toBe('minmax(48px, auto) 20px 20px')
+    const dots = container.querySelectorAll('.row-flag-dot')
+    expect(dots[2].hasAttribute('data-collapsed')).toBe(true)
+    expect(dots[2].getAttribute('data-flag')).toBe('advisory')
+    expect(dots[0].hasAttribute('data-flag')).toBe(false)
+  })
+
+  it('OVERLAP renders its marker on this route (it derives on both since T159)', () => {
+    const flagged = slots.map(s => s.id === 's3' ? { ...s, flags: { OVERLAP: true, OVERLAP_reason: 'Pool full' } } : s)
+    const { container } = renderRoute(route, { slots: flagged })
+    expect(cellByKey(container, 'g1|d2|b1').querySelector('.flag--overlap').getAttribute('title')).toBe('Pool full')
+  })
+
+  it('paste mode on a filled cell: double-click selects instead of opening the editor', () => {
+    const { container, handlers } = renderRoute(route, { pasteMode: true })
+    fireEvent.doubleClick(cellByKey(container, 'g1|d2|b1'))
+    expect(handlers.onCellSelect).toHaveBeenCalledTimes(1)
+    expect(cellByKey(container, 'g1|d2|b1').querySelector('input')).toBeNull()
+  })
+})
+
+describe('per-route differences — gap closure', () => {
+  const lockedActs = new Map([['a1', { id: 'a1', name: 'Swim', is_locked: true }], ['a2', { id: 'a2', name: 'Soccer' }]])
+
+  it('a locked activity is not a drag/drop target on generated (click releases it); manual ignores the lock', () => {
+    const releaseCell = vi.fn()
+    const gen = renderRoute('generated', { actMap: lockedActs, releaseCell })
+    const genCell = cellByKey(gen.container, 'g1|d2|b1')
+    expect(genCell.hasAttribute('data-drop-disabled')).toBe(true)
+    fireEvent.click(genCell)
+    expect(releaseCell).toHaveBeenCalledWith('s3')
+    expect(gen.handlers.onCellSelect).not.toHaveBeenCalled()
+    gen.container.remove()
+
+    const man = renderRoute('manual', { actMap: lockedActs })
+    const manCell = cellByKey(man.container, 'g1|d2|b1')
+    expect(manCell.hasAttribute('data-drop-disabled')).toBe(false)
+    fireEvent.click(manCell)
+    expect(man.handlers.onCellSelect).toHaveBeenCalledTimes(1)
+  })
+
+  it('the UNFILLABLE glyph and title render on generated', () => {
+    const withSlot = [...slots, { id: 'u1', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', is_fixed_event: false, flags: { UNFILLABLE: true } }]
+    const { container } = renderRoute('generated', { slots: withSlot })
+    const flag = cellByKey(container, 'g1|d1|b3').querySelector('.flag--unfillable')
+    expect(flag.getAttribute('title')).toBe('Unfillable')
+    expect(flag.querySelector('svg')).not.toBeNull()
+  })
+
+  it('highlightMap lights a cell with its reason on generated; manual takes no highlight', () => {
+    const highlightMap = new Map([['s3', 'Moved by Bravo']])
+    const gen = renderRoute('generated', { highlightMap })
+    expect(cellByKey(gen.container, 'g1|d2|b1').querySelector('.cell-reason').textContent).toBe('Moved by Bravo')
+    expect(cellByKey(gen.container, 'g1|d2|b3').querySelector('.cell-reason')).toBeNull()
+    gen.container.remove()
+
+    const man = renderRoute('manual', { highlightMap })
+    expect(man.container.querySelector('.cell-reason')).toBeNull()
   })
 })
