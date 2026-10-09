@@ -24,6 +24,7 @@ import { sharesGenesis, listRecordIds } from './campDocument.js'
 import { projectAll, MODELED_ORDER } from './projector.js'
 import { reconcileAndRecordConflicts } from './reconcileForProjection.js'
 import { acquireSupportCommandLock } from './supportCommandLock.js'
+import { readInFlightHandoff, writeInFlightHandoffInto } from './hostKeyPreservation.js'
 
 export class RebuildRefusalError extends Error {}
 
@@ -156,7 +157,7 @@ export function rebuildProjectionFromDocumentAtPath(args) {
 // anywhere else — use rebuildProjectionFromDocumentAtPath above, which is lock-safe.
 export function rebuildProjectionFromDocumentAtPathCore({ dbPath, userDataDir, cipher = null, key = null }) {
   const oldDb = openLocalDb(dbPath, { key })
-  let campId, campName, doc
+  let campId, campName, doc, inFlightHandoff
   try {
     const campRow = oldDb.prepare('SELECT id FROM camps LIMIT 1').get()
     const resolvedDocPath = campRow ? automergeDocPath(userDataDir, campRow.id) : null
@@ -174,6 +175,7 @@ export function rebuildProjectionFromDocumentAtPathCore({ dbPath, userDataDir, c
       doc = null
     }
     ;({ campId, campName } = validateRebuildSource(oldDb, doc))
+    inFlightHandoff = readInFlightHandoff(oldDb)
   } finally {
     oldDb.close()
   }
@@ -189,6 +191,8 @@ export function rebuildProjectionFromDocumentAtPathCore({ dbPath, userDataDir, c
   const freshDb = openLocalDb(dbPath, { key })
   try {
     const result = rebuildIntoFreshDb(freshDb, doc, campId, campName)
+    // A host handoff past its decision point holds this camp's hosting; never let a rebuild drop it.
+    writeInFlightHandoffInto(freshDb, inFlightHandoff)
     return { ...result, backupPath, docPath: automergeDocPath(userDataDir, campId) }
   } finally {
     freshDb.close()

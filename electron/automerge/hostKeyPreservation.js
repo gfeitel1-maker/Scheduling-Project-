@@ -129,3 +129,35 @@ export const PURGE_NOT_RECOVERABLE_NOTICE =
   'compromised device, use device revocation and re-pairing, not this command. Other host-only ' +
   'tables (' + PURGE_WIPED_TABLES.join(', ') + ') lose their device-local state camp-wide, as an ' +
   'ordinary rebuild does.'
+
+// Host handoff (docs/adr/2026-10-09-host-succession-simple.md). Two in-flight states hold the camp's
+// hosting and must survive a whole-device rebuild (and the purge that runs through it):
+//   - taker in `stored`: host_signing_key_pending is the ONLY copy of the key once the giver commits.
+//   - giver in `committed`: the row is what makes it answer the successor's STATUS with COMMIT; with
+//     no row it would answer NOT_COMMITTED and the successor would discard the only copy.
+// Every other state is pre-decision and is cleared, exactly as a restart clears it
+// (hostHandoff.recoverOnStartup). Returns null when there is nothing to carry.
+export function readInFlightHandoff(db) {
+  const row = db.prepare('SELECT * FROM host_handoff WHERE id = 1').get()
+  if (!row) return null
+  const keep = (row.role === 'taker' && row.state === 'stored') || (row.role === 'giver' && row.state === 'committed')
+  if (!keep) return null
+  const pending = db.prepare('SELECT * FROM host_signing_key_pending WHERE id = 1').get() || null
+  return { row, pending }
+}
+
+export function writeInFlightHandoffInto(db, carried) {
+  if (!carried) return
+  db.transaction(() => {
+    const r = carried.row
+    db.prepare(
+      'INSERT OR REPLACE INTO host_handoff (id, handoff_id, role, peer_device_id, state, updated_at) VALUES (1, ?, ?, ?, ?, ?)'
+    ).run(r.handoff_id, r.role, r.peer_device_id, r.state, r.updated_at)
+    const p = carried.pending
+    if (p) {
+      db.prepare(
+        'INSERT OR REPLACE INTO host_signing_key_pending (id, handoff_id, public_key, private_key, host_only_rows, created_at) VALUES (1, ?, ?, ?, ?, ?)'
+      ).run(p.handoff_id, p.public_key, p.private_key, p.host_only_rows, p.created_at)
+    }
+  })()
+}

@@ -209,6 +209,63 @@ describe('rebuildProjectionFromDocumentAtPath — file-path wrapper', () => {
     fs.unlinkSync(result.backupPath)
   })
 
+  // docs/adr/2026-10-09-host-succession-simple.md: a successor in `stored` holds the ONLY copy of the
+  // camp key once the old host has committed. A rebuild (and the purge that runs through it) must not
+  // drop it, or the camp ends silently hostless.
+  it('carries an in-flight successor handoff (host_handoff in `stored` + the pending key) across the rebuild', () => {
+    const { db, dbPath } = newDb('handoff-stored')
+    const campId = randomUUID()
+    buildCamp(db, campId, 'device-1')
+    db.prepare("INSERT INTO host_handoff (id, handoff_id, role, peer_device_id, state, updated_at) VALUES (1, 'h1', 'taker', 'giver-dev', 'stored', '2026-10-09T00:00:00.000Z')").run()
+    db.prepare("INSERT INTO host_signing_key_pending (id, handoff_id, public_key, private_key, host_only_rows, created_at) VALUES (1, 'h1', 'pub', 'priv', '{}', '2026-10-01T00:00:00.000Z')").run()
+    const doc = seedAllFromSqlite(db)
+    const userDataDir = newUserDataDir('handoff-stored')
+    saveDoc(userDataDir, campId, doc)
+    db.close()
+
+    const result = rebuildProjectionFromDocumentAtPath({ dbPath, userDataDir })
+
+    const verifyDb = openLocalDb(dbPath)
+    expect(verifyDb.prepare('SELECT handoff_id, role, peer_device_id, state FROM host_handoff').get())
+      .toEqual({ handoff_id: 'h1', role: 'taker', peer_device_id: 'giver-dev', state: 'stored' })
+    expect(verifyDb.prepare('SELECT handoff_id, public_key, private_key, host_only_rows, created_at FROM host_signing_key_pending').get())
+      .toEqual({ handoff_id: 'h1', public_key: 'pub', private_key: 'priv', host_only_rows: '{}', created_at: '2026-10-01T00:00:00.000Z' })
+    verifyDb.close()
+    fs.unlinkSync(result.backupPath)
+  })
+
+  it('carries a giver in `committed` across the rebuild, so it still answers the successor COMMIT, not NOT_COMMITTED', () => {
+    const { db, dbPath } = newDb('handoff-committed')
+    const campId = randomUUID()
+    buildCamp(db, campId, 'device-1')
+    db.prepare("INSERT INTO host_handoff (id, handoff_id, role, peer_device_id, state, updated_at) VALUES (1, 'h1', 'giver', 'taker-dev', 'committed', '2026-10-09T00:00:00.000Z')").run()
+    const doc = seedAllFromSqlite(db)
+    const userDataDir = newUserDataDir('handoff-committed')
+    saveDoc(userDataDir, campId, doc)
+    db.close()
+    const result = rebuildProjectionFromDocumentAtPath({ dbPath, userDataDir })
+    const verifyDb = openLocalDb(dbPath)
+    expect(verifyDb.prepare('SELECT role, state FROM host_handoff').get()).toEqual({ role: 'giver', state: 'committed' })
+    verifyDb.close()
+    fs.unlinkSync(result.backupPath)
+  })
+
+  it('does NOT carry a pre-decision handoff (offered/accepted) across the rebuild — same as a restart', () => {
+    const { db, dbPath } = newDb('handoff-offered')
+    const campId = randomUUID()
+    buildCamp(db, campId, 'device-1')
+    db.prepare("INSERT INTO host_handoff (id, handoff_id, role, peer_device_id, state, updated_at) VALUES (1, 'h1', 'taker', 'giver-dev', 'offered', '2026-10-09T00:00:00.000Z')").run()
+    const doc = seedAllFromSqlite(db)
+    const userDataDir = newUserDataDir('handoff-offered')
+    saveDoc(userDataDir, campId, doc)
+    db.close()
+    const result = rebuildProjectionFromDocumentAtPath({ dbPath, userDataDir })
+    const verifyDb = openLocalDb(dbPath)
+    expect(verifyDb.prepare('SELECT COUNT(*) c FROM host_handoff').get().c).toBe(0)
+    verifyDb.close()
+    fs.unlinkSync(result.backupPath)
+  })
+
   it('refuses without touching or backing up the database when no document file exists for this camp', () => {
     const { db, dbPath } = newDb('wrapper-no-doc')
     const campId = randomUUID()
