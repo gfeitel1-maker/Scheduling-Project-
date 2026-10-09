@@ -1,3 +1,10 @@
+---
+title: "S1 host handoff UI evidence (browser mock)"
+document_type: evidence
+status: active
+created: 2026-10-09
+archive_when: the host handoff UI changes
+---
 # S1 host handoff — UI evidence (browser mock, layout only)
 
 Captured with Playwright (Chromium) against `npm run dev` at localhost:5200, driving the browser mock
