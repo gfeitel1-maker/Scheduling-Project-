@@ -3967,6 +3967,12 @@ if (isElectronEntryPoint()) {
     // every open pc immediately, and libdatachannel's cleanup() (without which the process cannot
     // exit) follows. Never throws into the quit path.
     await syncStarterHolder.shutdown()
+    // A peer merge can land while the node stops: flush once more so it reaches disk.
+    try {
+      flushAutomergeDoc()
+    } catch (err) {
+      console.error('automerge sync: post-shutdown flush failed (non-fatal):', err?.message ?? err)
+    }
   } }))
   } catch (err) {
     reportStartupFailure(err)
