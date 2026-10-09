@@ -41,7 +41,10 @@ export const VERIFY_STEPS = [
   'security',
   'test:integration',
   'lint',
-  'test',
+  // T344: the old single `test` step, split so the real-libp2p suites never share CPU with the
+  // jsdom/UI tests. Run in sequence, one process at a time. `npm run test` remains the all-in-one.
+  'test:sync',
+  'test:rest',
 ]
 
 // T164/T178: a test run on a badly oversubscribed machine has not discovered anything about the CODE
@@ -53,13 +56,13 @@ export const VERIFY_STEPS = [
 // T178 — TWO FILTERS, because the first cut of this laundered two REAL defects into "probably fine"
 // (measured 2026-09-16: a 295ms `test` failure = a missing doc field; `check:governance` failing at
 // load 9.8 = platform-state-stale). A downgrade is only honest when BOTH hold:
-//   1. The step is LOAD-SENSITIVE. Only test/test:integration race real timers/timeouts; lint,
+//   1. The step is LOAD-SENSITIVE. Only test/test:sync/test:rest/test:integration race real timers/timeouts; lint,
 //      agents:check, security, check:governance are deterministic and load never makes them fail.
 //   2. The failure was SLOW. A genuine load timeout takes tens of seconds; a sub-2s assertion failure
 //      is a real defect, not a load artifact. Require the failing step to have run ≥ MIN_LOAD_TIMEOUT_MS.
 // The honest case both filters preserve: the libp2p convergence test failing at ~35s under load and
 // passing at ~21s quiet (same commit).
-export const LOAD_SENSITIVE_STEPS = new Set(['test', 'test:integration'])
+export const LOAD_SENSITIVE_STEPS = new Set(['test', 'test:sync', 'test:rest', 'test:integration'])
 export const MIN_LOAD_TIMEOUT_MS = 10_000
 
 // The threshold is deliberately high: normal concurrent-session load in this repo runs a few times

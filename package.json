@@ -12,6 +12,8 @@
     "preview": "vite preview",
     "pretest": "node scripts/ensure-abi.js node",
     "test": "vitest run",
+    "test:sync": "vitest run --project sync",
+    "test:rest": "vitest run --project isolated --project pure",
     "pretest:integration": "node scripts/ensure-abi.js node",
     "test:integration": "node test/integration/run.automerge.js",
     "preschema:check": "node scripts/ensure-abi.js node",

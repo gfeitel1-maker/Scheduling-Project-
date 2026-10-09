@@ -1,6 +1,6 @@
 // @vitest-environment node
 //
-// Guards the two-project split in vite.config.js (T188 §6 / F3).
+// Guards the three-project split in vite.config.js (T188 §6 / F3; `sync` added by T344).
 //
 // The `pure` project runs without per-file process isolation, which is what makes it
 // ~4.7x faster and also what makes it dangerous: test files in one worker share a
@@ -24,7 +24,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { UNISOLATED_INCLUDE } from './vite.config.js'
+import { UNISOLATED_INCLUDE, SYNC_INCLUDE } from './vite.config.js'
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url))
 
@@ -130,37 +130,49 @@ describe('vite.config.js project split', () => {
       .sort()
   }
 
-  it('the two projects partition the suite: nothing in both, nothing in neither', () => {
+  it('the three projects partition the suite: nothing in two, nothing in none', () => {
     // GROUND TRUTH COMES FROM DISK, NOT FROM VITEST. `vitest list` with no --project
-    // returns the UNION OF THE PROJECTS, so a file both projects drop also disappears
-    // from that listing — comparing it against the two projects compares them with
+    // returns the UNION OF THE PROJECTS, so a file every project drops also disappears
+    // from that listing — comparing it against the projects compares them with
     // themselves and can never fail. The first rewrite of this test did exactly that,
     // passed, and was only exposed by planting the bug it claimed to catch. The disk
     // walk is the only source here that does not depend on the config under test.
     const all = allTestFiles().sort()
-    const pure = collect('pure')
-    const isolated = collect('isolated')
+    const projects = { pure: collect('pure'), isolated: collect('isolated'), sync: collect('sync') }
 
     expect(all.length).toBeGreaterThan(100)
-    expect(pure.length).toBeGreaterThan(0)
+    expect(projects.pure.length).toBeGreaterThan(0)
+    expect(projects.sync.length).toBeGreaterThan(0)
 
-    // In BOTH — a file would run twice.
-    const inBoth = pure.filter((f) => isolated.includes(f))
-    expect(inBoth, 'these files are collected by both projects and would run twice').toEqual([])
+    // In TWO OR MORE — a file would run twice.
+    const names = Object.keys(projects)
+    const overlaps = []
+    for (const f of all) {
+      const owners = names.filter((n) => projects[n].includes(f))
+      if (owners.length > 1) overlaps.push(`${f} -> ${owners.join(', ')}`)
+    }
+    expect(overlaps, 'these files are collected by more than one project and would run twice').toEqual([])
 
-    // In NEITHER — a file silently stops being tested. This is the real incident:
+    // In NONE — a file silently stops being tested. This is the real incident:
     // src/engine/fixtureSchemaParity.test.js was excluded from the fast project and,
     // because the isolated project subtracts the fast project's includes wholesale, from
     // that one too. Collection went 443 -> 442 and no test failed, because a test that
     // does not run cannot fail.
-    const union = new Set([...pure, ...isolated])
-    const inNeither = all.filter((f) => !union.has(f))
-    expect(inNeither, 'these files are collected by NEITHER project and never run').toEqual([])
+    const union = new Set(Object.values(projects).flat())
+    const inNone = all.filter((f) => !union.has(f))
+    expect(inNone, 'these files are collected by NO project and never run').toEqual([])
 
     // Not a complement identity: `all` is an independent disk walk, so this genuinely
-    // constrains the two collections against it.
-    expect(pure.length + isolated.length).toBe(all.length)
-  }, 120000)
+    // constrains the collections against it.
+    expect(projects.pure.length + projects.isolated.length + projects.sync.length).toBe(all.length)
+  }, 600000)
+
+  it('every sync include is a positive glob under electron/', () => {
+    for (const g of SYNC_INCLUDE) {
+      expect(g, `${g} must not use negation`).not.toMatch(/^!/)
+      expect(g, `${g} must stay under electron/`).toMatch(/^electron\//)
+    }
+  })
 
   it('every file in the unisolated project is pure', () => {
     const offenders = []
