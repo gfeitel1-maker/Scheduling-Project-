@@ -9,6 +9,9 @@ import { appendOp, DELETE_FIELD, runAtomic } from './operations.js'
 // slots ... no orphaned children remain."
 //
 // Cascade order — load-bearing, do not reorder:
+//   0. special_day_placements  (soft reference, T350 — a placement of a
+//                                deleted special day would be an orphan
+//                                binding in every week it was placed in)
 //   1. special_day_slots       (no FK on group_id/activity_id/location_id,
 //                                real FK on special_day_id — must go first
 //                                regardless)
@@ -35,6 +38,11 @@ export function deleteSpecialDay(db, { specialDayId }, { author_user_id, device_
 
   const outcome = runAtomic(db, () => {
     const ops = []
+
+    const placements = db
+      .prepare('SELECT id FROM special_day_placements WHERE special_day_id = ?')
+      .all(specialDayId)
+    for (const p of placements) ops.push(del('special_day_placements', p.id))
 
     const slots = db
       .prepare('SELECT id FROM special_day_slots WHERE special_day_id = ?')

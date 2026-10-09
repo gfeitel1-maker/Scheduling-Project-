@@ -196,9 +196,19 @@ export function createScheduleRepository({
       }
     },
 
-    // T350: the special days bound to this week's days (bind/unbind land in slice 2).
+    // T350: the special days bound to this week's days.
     async loadSpecialDayPlacements(weekId) {
       return (await localClient.listByScope('special_day_placements', weekId ?? null)) || []
+    },
+
+    // Returns the IPC result as-is ({ ok:false, reason } included) so the caller surfaces the
+    // refusal; replacing an occupied day needs replace: true.
+    bindSpecialDay(weekId, dayId, specialDayId, { replace = false } = {}) {
+      return localClient.bindSpecialDay({ weekId, dayId, specialDayId, replace })
+    },
+
+    unbindSpecialDay(weekId, dayId) {
+      return localClient.unbindSpecialDay({ weekId, dayId })
     },
 
     async toggleActivityExclusion(weekId, activityId, excluded) {

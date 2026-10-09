@@ -118,6 +118,9 @@ export const PERMISSIONS = {
     // in M5 — without it, staff could CLOSE a place for a week but never
     // REOPEN it (toggle-off is a row delete, same as its two siblings above).
     'week_location_exclusions.delete',
+    // T350 (docs/adr/2026-10-09-special-day-binds-to-a-week-day.md D9): unbinding a special day
+    // is the same symmetric toggle — the role floor of editing a week's exclusions.
+    'special_day_placements.delete',
     // Trash and per-record history are read-only and available to every
     // authenticated role: hiding "who changed this" from staff serves nobody
     // (docs/adr/2026-07-30-restore-deleted-records-from-the-op-log.md §6).

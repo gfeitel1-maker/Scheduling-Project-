@@ -19,7 +19,7 @@ import { foldApprovedToRecords, enrichSnapshotRow, resolveFieldWrite, dbFieldFor
 import { deriveLocationId } from '../electron/ops/locationId.js'
 // T306 — the SAME id derivation the real attribution op uses, so the mock's rekey
 // lands a named camper on the same id the product would.
-import { deriveCamperId, mintCamperId } from '../electron/ops/electiveDerivedIds.js'
+import { deriveCamperId, mintCamperId, deriveSpecialDayPlacementId } from '../electron/ops/electiveDerivedIds.js'
 // T320 part 2 item 3 — the SAME derived id the real commitElectiveRun uses for
 // a roster finding, so browser-dev and electron:dev agree on the row.
 import { deriveElectiveRunFindingId } from '../electron/ops/deriveElectiveRunFindingId.js'
@@ -3062,6 +3062,11 @@ export const mockShoresh = {
     for (const e of state.week_location_exclusions.filter((e) => e.week_id === sourceWeekId)) {
       state.week_location_exclusions.push({ id: randomId(), week_id: newWeekId, location_id: e.location_id })
     }
+    // T350: derived id for the new week, like duplicateWeek.js.
+    state.special_day_placements = state.special_day_placements || []
+    for (const p of state.special_day_placements.filter((p) => p.week_id === sourceWeekId)) {
+      state.special_day_placements.push({ id: deriveSpecialDayPlacementId(newWeekId, p.day_id), week_id: newWeekId, day_id: p.day_id, special_day_id: p.special_day_id })
+    }
 
     state.schedule_weeks.push({
       id: newWeekId,
@@ -3095,6 +3100,7 @@ export const mockShoresh = {
     state.week_activity_exclusions = (state.week_activity_exclusions || []).filter(e => e.week_id !== weekId)
     state.week_group_exclusions = (state.week_group_exclusions || []).filter(e => e.week_id !== weekId)
     state.week_location_exclusions = (state.week_location_exclusions || []).filter(e => e.week_id !== weekId)
+    state.special_day_placements = (state.special_day_placements || []).filter(p => p.week_id !== weekId)
     state.schedule_templates = (state.schedule_templates || []).filter(t => t.week_id !== weekId)
     state.schedule_weeks = allWeeks.filter(w => w.id !== weekId)
 
@@ -3176,6 +3182,9 @@ export const mockShoresh = {
     const day = (state.special_days || []).find((d) => d.id === specialDayId)
     if (!day) return { error: 'not-found' }
 
+    state.special_day_placements = (state.special_day_placements || []).filter(
+      (p) => p.special_day_id !== specialDayId
+    )
     state.special_day_slots = (state.special_day_slots || []).filter(
       (s) => s.special_day_id !== specialDayId
     )
@@ -3186,6 +3195,33 @@ export const mockShoresh = {
 
     saveState(state)
     return { ok: true }
+  },
+
+  // T350: mirrors electron/ops/specialDayPlacements.js — same refusals, derived id, replace only
+  // with an explicit confirm. localStorage state, no op-log.
+  async bindSpecialDay({ weekId, dayId, specialDayId, replace = false } = {}) {
+    const state = loadState()
+    if (!(state.schedule_weeks || []).some((w) => w.id === weekId)) return { ok: false, reason: 'unknown-week' }
+    if (!(state.days_of_operation || []).some((d) => d.id === dayId)) return { ok: false, reason: 'unknown-day' }
+    if (!(state.special_days || []).some((d) => d.id === specialDayId)) return { ok: false, reason: 'unknown-special-day' }
+    const id = deriveSpecialDayPlacementId(weekId, dayId)
+    const rows = state.special_day_placements || []
+    const current = rows.find((p) => p.id === id)
+    if (current && current.special_day_id !== specialDayId && !replace) {
+      return { ok: false, reason: 'occupied', currentSpecialDayId: current.special_day_id }
+    }
+    state.special_day_placements = [...rows.filter((p) => p.id !== id), { id, week_id: weekId, day_id: dayId, special_day_id: specialDayId }]
+    saveState(state)
+    return { ok: true, ops_written: 3 }
+  },
+
+  async unbindSpecialDay({ weekId, dayId } = {}) {
+    const state = loadState()
+    const id = deriveSpecialDayPlacementId(weekId, dayId)
+    const rows = state.special_day_placements || []
+    state.special_day_placements = rows.filter((p) => p.id !== id)
+    saveState(state)
+    return { ok: true, ops_written: rows.length - state.special_day_placements.length }
   },
 
   // Permanently delete an event and its scoped rows, mirroring
