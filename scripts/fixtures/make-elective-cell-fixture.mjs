@@ -168,7 +168,7 @@ function cmp(a, b) { return a < b ? -1 : a > b ? 1 : 0 }
 //
 // Each choice row below carries BOTH `label` and `labelKey`, deliberately, not
 // as a pick between them: the real `elective_choices` schema column is
-// `label` (electron/db/schema.sql:1364), but src/engine/buildElectiveAssignments.js
+// `label` (electron/db/schema.sql:1314), but src/engine/buildElectiveAssignments.js
 // reads `c.labelKey` at src/engine/buildElectiveAssignments.js:126,152-171 — its
 // own JSDoc claim that `labelKey` "mirrors elective_choices" is already wrong
 // against the schema (pre-existing, out of scope to fix here). The measurement

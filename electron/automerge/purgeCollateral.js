@@ -25,8 +25,6 @@ export const PURGE_WIPED_TABLES = [
   'import_evidence',
   'import_decisions',
   'open_reconciliation_decisions',
-  'pending_writes',
-  'pending_restores',
   'device_health_events',
   'projection_failures',
   'source_aliases',

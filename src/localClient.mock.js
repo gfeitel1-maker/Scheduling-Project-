@@ -365,8 +365,8 @@ export const UNIQUE_FIELD_ENTITIES = {
 }
 
 // H5 (T229 round 2) — columns electron/db/schema.sql declares NOT NULL
-// DEFAULT (elective_set_activities.status/capacity_mode, schema.sql:1087-
-// 1099). This is a MOCK-ONLY gap, not a projection defect: the real
+// DEFAULT (elective_set_activities.status/capacity_mode, schema.sql:1037-
+// 1049). This is a MOCK-ONLY gap, not a projection defect: the real
 // electron/ops/projections.js ensureExists does
 // `INSERT OR IGNORE INTO elective_set_activities (id, elective_set_id,
 // activity_id) VALUES (?, ?, ?)` (projections.js:494) and SQLite materialises
@@ -2825,9 +2825,6 @@ export const mockShoresh = {
   // Empty results keep the screens renderable for layout work at :5200 and
   // make it obvious that persistence checks belong under electron:dev.
   async listDeleted() {
-    return []
-  },
-  async listPendingRestores() {
     return []
   },
   async getEntityHistory() {

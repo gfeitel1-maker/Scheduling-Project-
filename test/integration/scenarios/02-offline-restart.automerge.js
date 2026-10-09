@@ -3,7 +3,7 @@
  * restart.
  *
  * Ported from 02-offline-restart.js. The op-log original tests
- * `pending_writes` — a durable retry queue that exists specifically because
+ * `pending_writes` (since dropped, schema v92) — a durable retry queue that exists specifically because
  * a WS write can be lost in flight. Automerge has no equivalent queue
  * because it doesn't need one: `node.applyLocal()` mutates the local
  * document (and projects into SQLite) synchronously, BEFORE any network

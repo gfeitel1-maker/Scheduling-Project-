@@ -9,7 +9,6 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 vi.mock('../localClient', () => ({
   localClient: {
     listDeleted: vi.fn(),
-    listPendingRestores: vi.fn(),
     restoreEntity: vi.fn(),
     getEntityHistory: vi.fn(),
     list: vi.fn(),
@@ -35,7 +34,6 @@ function deletedGroup(overrides = {}) {
 beforeEach(() => {
   vi.clearAllMocks()
   localClient.listDeleted.mockResolvedValue([])
-  localClient.listPendingRestores.mockResolvedValue([])
   localClient.list.mockResolvedValue([])
   localClient.getEntityHistory.mockResolvedValue([])
 })
@@ -141,27 +139,6 @@ describe('TrashScreen', () => {
 
     const notice = await screen.findByText(/already exists/)
     expect(notice.textContent).not.toMatch(/try again/i)
-  })
-
-  it('surfaces a queued restore\'s unique_field failure with the same honest, permanent copy', async () => {
-    localClient.listPendingRestores.mockResolvedValue([
-      { pendingId: 'p1', entity: 'locations', entity_id: 'loc1', name: 'Pool (deleted)', last_error: 'unique_field' },
-    ])
-    render(<TrashScreen role="admin" />)
-
-    const notice = await screen.findByText(/already exists/)
-    expect(notice.textContent).not.toMatch(/try again/i)
-  })
-
-  it('shows a restore still waiting on the main computer, and one that has failed', async () => {
-    localClient.listPendingRestores.mockResolvedValue([
-      { pendingId: 'p1', entity: 'groups', entity_id: 'g1', last_error: null },
-      { pendingId: 'p2', entity: 'tiers', entity_id: 't1', last_error: 'not-restorable' },
-    ])
-    render(<TrashScreen role="admin" />)
-
-    expect(await screen.findByText(/Will be restored as soon as this device reaches/)).toBeTruthy()
-    expect(screen.getByText('This kind of record is not restorable here.')).toBeTruthy()
   })
 
   it('opens the record\'s history without needing it to be restored first', async () => {
