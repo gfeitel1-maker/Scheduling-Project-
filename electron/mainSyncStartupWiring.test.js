@@ -9,14 +9,10 @@
 // fourth, or flipping one, goes red and forces a human decision.
 //
 // Does NOT prove:
-//   - That sync starts after a db swap. `reinitialize()` (main.js:2677) and the
-//     backup-restore path (main.js:2917) build handlers WITHOUT the sync
-//     getters or `onCampBootstrapped`, deliberately and with the owner's
-//     knowledge. A camp bootstrapped after a project switch or a restore still
-//     will not sync until the app is restarted. Wiring those correctly also
-//     requires stopping and nulling `automergeSyncNode` across the swap, which
-//     is the sync-lifecycle redesign T273 explicitly rules out; it is a
-//     separate ticket.
+//   - That a db swap stops the old node and starts a new one. That is executed (not parsed) in
+//     syncAfterBootstrap.test.js against createSyncStarterHolder. This file only pins that all three
+//     makeHandlers call sites (initial, reinitialize, restore) take their sync options from the
+//     holder's handlerOptions(), so they cannot drift apart again.
 //   - That the starter works, or runs at all — from THIS file. The
 //     `startAutomergeSyncNodeIfEnabled` name in main.js is now a one-line
 //     wrapper (`() => syncStarter.start()`) still declared inside
@@ -56,24 +52,15 @@ const STARTER_NAME = 'startAutomergeSyncNodeIfEnabled'
 const OPTION_NAME_JOINED = 'onCampJoined'
 
 // Every `makeHandlers(...)` call site in main.js, and whether it is expected to
-// hand the sync starter to bootstrapCamp. `newHandlers` (main.js:2677, the
-// reinitialize db swap) and `restoreHandlers` (main.js:2917, backup restore)
-// are DELIBERATELY unwired — see the header comment; that gap is owner-recorded
-// and belongs to a follow-up ticket, not to T273.
+// take its sync options from the starter holder: the initial site, the
+// reinitialize db swap (`newHandlers`) and backup restore (`restoreHandlers`).
 const EXPECTED_CALL_SITES = {
   initialHandlers: true,
-  newHandlers: false,
-  restoreHandlers: false,
+  newHandlers: true,
+  restoreHandlers: true,
 }
-// T274 — the same set of call sites, for the join-path hook. Identical
-// expectations to EXPECTED_CALL_SITES: only the one true startup site wires
-// it, and the two db-swap sites stay unwired for the same reason (T274 is
-// explicitly out of scope for the db-swap lifecycle redesign).
-const EXPECTED_CALL_SITES_JOINED = {
-  initialHandlers: true,
-  newHandlers: false,
-  restoreHandlers: false,
-}
+// T274 — the same set of call sites, for the join-path hook.
+const EXPECTED_CALL_SITES_JOINED = EXPECTED_CALL_SITES
 
 function parseMain() {
   return acorn.parse(fs.readFileSync(MAIN_JS, 'utf8'), {
@@ -121,12 +108,33 @@ function findMakeHandlersCallSites(ast) {
 function optionProp(call, optionName) {
   const options = call.arguments[2]
   if (options?.type !== 'ObjectExpression') return null
-  return (
-    options.properties.find(
-      (p) => p.type === 'Property' && !p.computed && p.key?.name === optionName
-    ) ?? null
+  const direct = options.properties.find(
+    (p) => p.type === 'Property' && !p.computed && p.key?.name === optionName
   )
+  if (direct) return direct
+  const spreadsHolder = options.properties.some(
+    (p) =>
+      p.type === 'SpreadElement' &&
+      p.argument?.type === 'CallExpression' &&
+      p.argument.callee?.object?.name === 'syncStarterHolder' &&
+      p.argument.callee?.property?.name === 'handlerOptions'
+  )
+  return spreadsHolder ? HOLDER_OPTIONS[optionName] ?? null : null
 }
+
+// handlerOptions() in syncStarterHolder.js, parsed: option name -> the property node, so a
+// spread of it is checked against what it really contains.
+const HOLDER_OPTIONS = (() => {
+  const ast = acorn.parse(
+    fs.readFileSync(path.join(path.dirname(MAIN_JS), 'sync/automerge/syncStarterHolder.js'), 'utf8'),
+    { ecmaVersion: 2023, sourceType: 'module' }
+  )
+  const out = {}
+  walk(ast, (n) => {
+    if (n.type === 'Property' && !n.computed && n.key?.name) out[n.key.name] = n
+  })
+  return out
+})()
 
 /**
  * True when `value` actually INVOKES the starter, or is the starter itself
@@ -140,8 +148,10 @@ function invokesStarter(value) {
   walk(value, (n) => {
     if (
       n.type === 'CallExpression' &&
-      n.callee?.type === 'Identifier' &&
-      n.callee.name === STARTER_NAME
+      ((n.callee?.type === 'Identifier' && (n.callee.name === STARTER_NAME || n.callee.name === 'start')) ||
+        (n.callee?.type === 'MemberExpression' &&
+          n.callee.object?.name === 'starter' &&
+          n.callee.property?.name === 'start'))
     ) {
       called = true
     }
@@ -206,7 +216,7 @@ describe('T273 wiring: the real sync starter reaches bootstrapCamp', () => {
         'The set of makeHandlers(...) call sites in main.js, or which of them start sync, has changed.',
         'Decide deliberately, do not just update this expectation:',
         `  - A NEW call site: does a camp bootstrapped through it need to start syncing? If yes it needs \`${OPTION_NAME}\`; if no, say why here.`,
-        `  - \`newHandlers\` (main.js:2677) or \`restoreHandlers\` (main.js:2917) now WIRED: those are db-swap paths. Wiring them is only correct alongside stopping and nulling \`automergeSyncNode\` across the swap — otherwise the old camp's node keeps running. That is the follow-up ticket, not T273.`,
+        `  - \`newHandlers\` (reinitialize) or \`restoreHandlers\` (restore) now UNWIRED: a camp bootstrapped after a project switch or restore will not sync until restart.`,
         `  - \`${HANDLERS_VAR}\` now UNWIRED: that is the T273 regression this file exists to catch.`,
       ].join('\n')
     ).toEqual(EXPECTED_CALL_SITES)
@@ -283,7 +293,7 @@ describe('T274 wiring: the real sync starter reaches joinAwaitData', () => {
         'The set of makeHandlers(...) call sites in main.js, or which of them start sync on join, has changed.',
         'Decide deliberately, do not just update this expectation:',
         `  - A NEW call site: does a camp joined through it need to start syncing? If yes it needs \`${OPTION_NAME_JOINED}\`; if no, say why here.`,
-        `  - \`newHandlers\` (main.js:2677) or \`restoreHandlers\` (main.js:2917) now WIRED: those are db-swap paths, deliberately excluded by T274 too — see the header comment.`,
+        `  - \`newHandlers\` (reinitialize) or \`restoreHandlers\` (restore) now UNWIRED: a camp joined after a project switch or restore will not sync until restart.`,
         `  - \`${HANDLERS_VAR}\` now UNWIRED: that is the T274 regression this file exists to catch.`,
       ].join('\n')
     ).toEqual(EXPECTED_CALL_SITES_JOINED)

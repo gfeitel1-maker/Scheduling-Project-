@@ -63,6 +63,7 @@ import { PROJECTIONS } from './ops/projections.js'
 import { createCampDataRecordWriter } from './campDataRecord.js'
 import { isAutomergeEngine } from './sync/automerge/syncEngineFlag.js'
 import { createAutomergeSyncStarter } from './sync/automerge/syncStarter.js'
+import { createSyncStarterHolder } from './sync/automerge/syncStarterHolder.js'
 import { forgetPeerAddress } from './sync/automerge/peerAddressBook.js'
 import { resolveConflictInDoc } from './automerge/reconcile.js'
 import { ensureDeviceIdentity } from './auth/deviceIdentity.js'
@@ -3406,29 +3407,52 @@ if (isElectronEntryPoint()) {
    * if the new open fails — the app remains functional rather than left with
    * no working database connection.
    */
-  function reinitialize(newPath) {
-    // Open new db FIRST — if it throws (schema_too_new, corrupt file, etc.)
-    // the old db is still open and all existing handlers remain valid.
-    const newDb = openLocalDb(newPath, { key: dbKey }) // throws schema_too_new if applicable; keyed when encryption is on
-    const newDeviceId = getOrCreateDeviceId(newDb)
-    const newHandlers = makeHandlers(newDb, newDeviceId, {
-      getMainWindow: () => mainWindow,
-      dbPath: newPath,
-      userDataPath,
-    })
+  async function reinitialize(newPath) {
+    const releaseSwitch = syncStarterHolder.acquireSwitch()
+    try {
+      // Open new db FIRST — if it throws (schema_too_new, corrupt file, etc.)
+      // the old db is still open and all existing handlers remain valid.
+      const newDb = openLocalDb(newPath, { key: dbKey }) // throws schema_too_new if applicable; keyed when encryption is on
+      const newDeviceId = getOrCreateDeviceId(newDb)
 
-    // New db is open and handlers built — safe to swap. T292 round 2 FIX 5:
-    // dispose the OLD writer first — its pending debounced timer reads from
-    // `db`, so it must not still be armed once that handle closes.
-    disposeCampDataRecordThenCloseDb(liveHandlers, db)
-    db = newDb
-    dbPath = newPath
-    deviceId = newDeviceId
-    registerHandlers(newHandlers, db)
-    setCurrentProjectPath(userDataPath, newPath)
-    const camp = db.prepare('SELECT name FROM camps LIMIT 1').get()
-    addRecentProject(userDataPath, { path: newPath, campName: camp?.name ?? null })
-    if (mainWindow) mainWindow.webContents.reload()
+      // New db is open — safe to swap. The old sync node reads the old db, so it
+      // is stopped (old db still open) and the starter rebuilt for the new one
+      // before the old handle closes. T292 round 2 FIX 5: dispose the OLD writer
+      // first — its pending debounced timer reads from `db`, so it must not
+      // still be armed once that handle closes.
+      const oldDb = db
+      const oldPath = dbPath
+      const oldDeviceId = deviceId
+      let swappedHandlers
+      try {
+        swappedHandlers = await syncStarterHolder.swap({
+          held: true,
+          commit: () => { db = newDb; dbPath = newPath; deviceId = newDeviceId },
+          revert: () => { db = oldDb; dbPath = oldPath; deviceId = oldDeviceId },
+          build: () => {
+            const newHandlers = makeHandlers(newDb, newDeviceId, {
+              getMainWindow: () => mainWindow,
+              dbPath: newPath,
+              userDataPath,
+              ...syncStarterHolder.handlerOptions(),
+            })
+            return newHandlers
+          },
+        })
+      } catch (err) {
+        try { newDb.close() } catch { /* already unusable */ }
+        throw err
+      }
+      disposeCampDataRecordThenCloseDb(liveHandlers, oldDb)
+      registerHandlers(swappedHandlers, db)
+      setCurrentProjectPath(userDataPath, newPath)
+      const camp = db.prepare('SELECT name FROM camps LIMIT 1').get()
+      addRecentProject(userDataPath, { path: newPath, campName: camp?.name ?? null })
+      if (mainWindow) mainWindow.webContents.reload()
+  
+    } finally {
+      releaseSwitch()
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -3474,9 +3498,10 @@ if (isElectronEntryPoint()) {
     if (result.canceled || !result.filePath) return { canceled: true }
     const newPath = result.filePath
     try {
-      reinitialize(newPath)
+      await reinitialize(newPath)
       return { path: newPath }
     } catch (err) {
+      if (err.code === 'project_switch_in_progress') return { error: err.code, message: err.message }
       return { error: 'create_failed', message: err.message }
     }
   })
@@ -3525,10 +3550,11 @@ if (isElectronEntryPoint()) {
     }
 
     try {
-      reinitialize(resolved)
+      await reinitialize(resolved)
       const camp = db.prepare('SELECT name FROM camps LIMIT 1').get()
       return { path: resolved, campName: camp?.name ?? null }
     } catch (err) {
+      if (err.code === 'project_switch_in_progress') return { error: err.code, message: err.message }
       return { error: 'open_failed', message: err.message }
     }
   })
@@ -3613,61 +3639,87 @@ if (isElectronEntryPoint()) {
       return { error: 'invalid_file', message: 'The selected file could not be read as a Shoresh database.' }
     }
 
-    // Back up current DB before overwriting.
+    let releaseSwitch
+    try { releaseSwitch = syncStarterHolder.acquireSwitch() } catch (err) { return { error: err.code, message: err.message } }
     try {
-      writeUserBackup(dbPath, userDataPath)
-    } catch {
-      /* non-fatal — proceed with restore */
-    }
-
-    // Copy source to a temp path first, then atomically rename to the target.
-    // This closes the corruption window where a mid-write failure (disk full,
-    // etc.) would leave the target partially written — rename(2) is atomic for
-    // same-volume moves on macOS/Linux/Windows (NTFS). The temp file is
-    // cleaned up in the finally block if anything goes wrong before the rename.
-    // Open the new file BEFORE closing the old connection — same open-before-
-    // close pattern as reinitialize(): if anything fails, the old db is still
-    // usable.
-    const tmpPath = `${dbPath}.tmp`
-    try {
-      fs.copyFileSync(sourcePath, tmpPath)
+      // Back up current DB before overwriting.
       try {
-        fs.renameSync(tmpPath, dbPath)
-      } catch (renameErr) {
-        if (renameErr.code === 'EXDEV') {
-          // Cross-device move: tmp and target are on different filesystems.
-          // Fall back to copy+delete — not atomic, but the pre-restore backup
-          // above already guards against a mid-write failure here.
-          fs.copyFileSync(tmpPath, dbPath)
-          // Do not let a cleanup failure here propagate as a restore failure —
-          // dbPath already has the correct content at this point.
-          try { fs.unlinkSync(tmpPath) } catch { /* stale .tmp; harmless */ }
-        } else {
-          try { fs.unlinkSync(tmpPath) } catch { /* ignore */ }
-          throw renameErr
-        }
+        writeUserBackup(dbPath, userDataPath)
+      } catch {
+        /* non-fatal — proceed with restore */
       }
-    } catch (err) {
-      try { fs.unlinkSync(tmpPath) } catch { /* ignore — may not exist */ }
-      return { error: 'restore_failed', message: err.message }
-    }
 
-    let newDb
-    try {
-      // Keyed when encryption is on: a restored plaintext backup is migrated to encrypted on open.
-      newDb = openLocalDb(dbPath, { key: dbKey })
-    } catch (err) {
-      return { error: 'restore_failed', message: err.message }
-    }
+      // Copy source to a temp path first, then atomically rename to the target.
+      // This closes the corruption window where a mid-write failure (disk full,
+      // etc.) would leave the target partially written — rename(2) is atomic for
+      // same-volume moves on macOS/Linux/Windows (NTFS). The temp file is
+      // cleaned up in the finally block if anything goes wrong before the rename.
+      // Open the new file BEFORE closing the old connection — same open-before-
+      // close pattern as reinitialize(): if anything fails, the old db is still
+      // usable.
+      const tmpPath = `${dbPath}.tmp`
+      try {
+        fs.copyFileSync(sourcePath, tmpPath)
+        try {
+          fs.renameSync(tmpPath, dbPath)
+        } catch (renameErr) {
+          if (renameErr.code === 'EXDEV') {
+            // Cross-device move: tmp and target are on different filesystems.
+            // Fall back to copy+delete — not atomic, but the pre-restore backup
+            // above already guards against a mid-write failure here.
+            fs.copyFileSync(tmpPath, dbPath)
+            // Do not let a cleanup failure here propagate as a restore failure —
+            // dbPath already has the correct content at this point.
+            try { fs.unlinkSync(tmpPath) } catch { /* stale .tmp; harmless */ }
+          } else {
+            try { fs.unlinkSync(tmpPath) } catch { /* ignore */ }
+            throw renameErr
+          }
+        }
+      } catch (err) {
+        try { fs.unlinkSync(tmpPath) } catch { /* ignore — may not exist */ }
+        return { error: 'restore_failed', message: err.message }
+      }
 
-    // T292 round 2 FIX 5 — same reasoning as reinitialize() above.
-    disposeCampDataRecordThenCloseDb(liveHandlers, db)
-    db = newDb
-    deviceId = getOrCreateDeviceId(db)
-    const restoreHandlers = makeHandlers(db, deviceId, { getMainWindow: () => mainWindow, dbPath, userDataPath })
-    registerHandlers(restoreHandlers, db)
-    if (mainWindow) mainWindow.webContents.reload()
-    return { restored: true }
+      let newDb
+      try {
+        // Keyed when encryption is on: a restored plaintext backup is migrated to encrypted on open.
+        newDb = openLocalDb(dbPath, { key: dbKey })
+      } catch (err) {
+        return { error: 'restore_failed', message: err.message }
+      }
+
+      // T292 round 2 FIX 5 — same reasoning as reinitialize() above.
+      const oldDb = db
+      const oldDeviceId = deviceId
+      let swappedHandlers
+      try {
+        const newDeviceId = getOrCreateDeviceId(newDb)
+        swappedHandlers = await syncStarterHolder.swap({
+            held: true,
+          commit: () => { db = newDb; deviceId = newDeviceId },
+          revert: () => { db = oldDb; deviceId = oldDeviceId },
+          build: () => {
+            const restoreHandlers = makeHandlers(newDb, newDeviceId, {
+              getMainWindow: () => mainWindow,
+              dbPath,
+              userDataPath,
+              ...syncStarterHolder.handlerOptions(),
+            })
+            return restoreHandlers
+          },
+        })
+      } catch (err) {
+        try { newDb.close() } catch { /* already unusable */ }
+        return { error: 'restore_failed', message: err.message }
+      }
+      disposeCampDataRecordThenCloseDb(liveHandlers, oldDb)
+      registerHandlers(swappedHandlers, db)
+      if (mainWindow) mainWindow.webContents.reload()
+      return { restored: true }
+    } finally {
+      releaseSwitch()
+    }
   })
 
   // Returns last 5 recently-opened project paths from the JSON sidecar.
@@ -3687,12 +3739,12 @@ if (isElectronEntryPoint()) {
       return { error: 'file_not_found' }
     }
     try {
-      reinitialize(resolved)
+      await reinitialize(resolved)
       const camp = db.prepare('SELECT name FROM camps LIMIT 1').get()
       return { path: resolved, campName: camp?.name ?? null }
     } catch (err) {
-      if (err.code === 'schema_too_new') {
-        return { error: 'schema_too_new', message: err.message }
+      if (err.code === 'schema_too_new' || err.code === 'project_switch_in_progress') {
+        return { error: err.code, message: err.message }
       }
       return { error: 'open_failed', message: err.message }
     }
@@ -3716,36 +3768,23 @@ if (isElectronEntryPoint()) {
   // must stay a getter, not a captured value — `liveHandlers` above is
   // reassigned by registerHandlers after this factory is constructed, so a
   // captured value would be stale/null forever.
-  const syncStarter = createAutomergeSyncStarter({
+  // A db swap (project switch / backup restore) replaces the starter, so it
+  // reads db/deviceId at call time and lives in a holder every makeHandlers
+  // call site takes its sync options from.
+  const syncStarterHolder = createSyncStarterHolder(() => createAutomergeSyncStarter({
     deviceId,
     db,
     userDataPath,
     docCipher,
     getMainWindow: () => mainWindow,
     getLiveHandlers: () => liveHandlers,
-  })
-  const startAutomergeSyncNodeIfEnabled = () => syncStarter.start()
+  }))
+  const startAutomergeSyncNodeIfEnabled = () => syncStarterHolder.start()
   const initialHandlers = makeHandlers(db, deviceId, {
     getMainWindow: () => mainWindow,
     dbPath,
     userDataPath,
-    getAutomergeSyncNode: () => syncStarter.getNode(),
-    getAutomergeStartupAttempted: () => syncStarter.getStartupAttempted(),
-    getRelayReservationRefused: () => syncStarter.getRelayReservationRefused(),
-    // T273 — the only thing that starts sync on the session that creates the
-    // camp. Its own `if (automergeSyncNode) return` idempotency guard makes a
-    // second invocation (app.whenReady's, already returned by then) harmless.
-    onCampBootstrapped: () => startAutomergeSyncNodeIfEnabled(),
-    // T274 — the join-path mirror: the only thing that starts sync on the
-    // session that JOINS a camp. joinAwaitData stops the temporary join node
-    // before calling this, so there is never a second live libp2p node with
-    // this device's peer identity; startAutomergeSyncNodeIfEnabled's own
-    // idempotency guard makes any further redundant invocation harmless too.
-    onCampJoined: () => startAutomergeSyncNodeIfEnabled(),
-    // T275 — the sidebar's retry affordance for host-not-syncing. Same
-    // starter, same guards; a director tapping "try again" is no different
-    // from any other caller of startAutomergeSyncNodeIfEnabled.
-    retrySync: () => startAutomergeSyncNodeIfEnabled(),
+    ...syncStarterHolder.handlerOptions(),
   })
   registerHandlers(initialHandlers, db)
 
@@ -3892,14 +3931,7 @@ if (isElectronEntryPoint()) {
     // awaited node stop because Electron does not await this handler: its synchronous prefix closes
     // every open pc immediately, and libdatachannel's cleanup() (without which the process cannot
     // exit) follows. Never throws into the quit path.
-    const punchShutdown = syncStarter.shutdownPunch().catch(() => {})
-    const automergeSyncNode = syncStarter.getNode()
-    if (automergeSyncNode) {
-      try {
-        await automergeSyncNode.stop()
-      } catch { /* shutting down anyway */ }
-    }
-    await punchShutdown
+    await syncStarterHolder.shutdown()
   } }))
   } catch (err) {
     reportStartupFailure(err)
