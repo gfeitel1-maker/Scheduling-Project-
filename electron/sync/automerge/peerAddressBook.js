@@ -32,11 +32,27 @@
 // still trusted when the snapshot was read.
 import { deviceTrustStatus } from '../../auth/deviceTrust.js'
 import { createBoundPeerTrust } from './peerIdentity.js'
+import { isPublicAddress } from './punchGossip.js'
 
 // Keep at most this many remembered addresses per peer — small and deliberately so: a camp LAN
 // device rarely has more than a couple of live interfaces, and this only exists to cap growth,
 // not to model every address a peer has ever been seen at.
 export const PEER_LAST_ADDRESSES_MAX_PER_PEER = 5
+
+// T359 slice 2: a router-mapped address is a PUBLIC TCP address. Rows of that shape are written only by
+// rememberMappedPeerAddress (from a verified gossip entry), at most one per peer, and are outside the LAN
+// prune below. An observed public TCP address (an inbound connection's ephemeral source port) is not a
+// listener and is never stored by rememberPeerAddress.
+export const MAPPED_ADDRESS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
+const TCP_ADDR_RE = /^\/(ip4|ip6)\/([^/]+)\/tcp\/(\d{1,5})(?:\/p2p\/([^/]+))?$/
+function parsePublicTcp(multiaddr) {
+  const m = TCP_ADDR_RE.exec(multiaddr)
+  if (!m) return null
+  const port = Number(m[3])
+  if (port < 1 || port > 65535 || !isPublicAddress(m[1], m[2])) return null
+  return { peerId: m[4] ?? null }
+}
+const isPublicTcp = (multiaddr) => parsePublicTcp(multiaddr) !== null
 
 // Remembers (or updates) an observed multiaddr for `peerId`. Called from syncNode.js's
 // onPeerAdmitted — i.e. only after a peer has completed the authenticated handshake — never from
@@ -46,22 +62,54 @@ export const PEER_LAST_ADDRESSES_MAX_PER_PEER = 5
 export function rememberPeerAddress(db, peerId, multiaddr, now = () => new Date().toISOString()) {
   if (typeof peerId !== 'string' || peerId.length === 0) return
   if (typeof multiaddr !== 'string' || multiaddr.length === 0) return
+  if (isPublicTcp(multiaddr)) return
   const lastSeenAt = typeof now === 'function' ? now() : now
   db.prepare(
     'INSERT INTO peer_last_addresses (peer_id, multiaddr, last_seen_at) VALUES (?, ?, ?) ' +
       'ON CONFLICT(peer_id, multiaddr) DO UPDATE SET last_seen_at = excluded.last_seen_at'
   ).run(peerId, multiaddr, lastSeenAt)
 
-  // Prune to the N most-recent rows for THIS peer only — every other peer's rows are untouched.
-  // `last_seen_at` ties are broken by `multiaddr` purely for determinism (SQLite's DESC/LIMIT
-  // ordering is otherwise unspecified on an exact tie); this never affects which rows survive in
-  // practice since lastSeenAt is a wall-clock ISO string.
-  db.prepare(
-    'DELETE FROM peer_last_addresses WHERE peer_id = ? AND multiaddr NOT IN (' +
-      'SELECT multiaddr FROM peer_last_addresses WHERE peer_id = ? ' +
-      'ORDER BY last_seen_at DESC, multiaddr DESC LIMIT ?' +
-      ')'
-  ).run(peerId, peerId, PEER_LAST_ADDRESSES_MAX_PER_PEER)
+  // Prune the LAN rows to the N most-recent for THIS peer only; the mapped (public TCP) row is not
+  // ranked, so LAN rows can never push it out.
+  const lan = db
+    .prepare('SELECT multiaddr FROM peer_last_addresses WHERE peer_id = ? ORDER BY last_seen_at DESC, multiaddr DESC')
+    .all(peerId)
+    .map((r) => r.multiaddr)
+    .filter((m) => !isPublicTcp(m))
+  const del = db.prepare('DELETE FROM peer_last_addresses WHERE peer_id = ? AND multiaddr = ?')
+  for (const m of lan.slice(PEER_LAST_ADDRESSES_MAX_PER_PEER)) del.run(peerId, m)
+}
+
+// T359 slice 2: remembers the router-mapped TCP address a peer published in its VERIFIED gossip entry
+// (`/ip4/<ext>/tcp/<port>/p2p/<peerId>`). `observedAtMs` is the entry's own signed timestamp. Public-
+// filtered here at the write; at most one such row per peer; it is replaced only by a strictly newer
+// entry, so republishing other ports cannot churn it and an older entry cannot roll it back.
+export function rememberMappedPeerAddress(db, peerId, multiaddr, { observedAtMs = Date.now() } = {}) {
+  if (typeof peerId !== 'string' || peerId.length === 0 || typeof multiaddr !== 'string') return false
+  const parsed = parsePublicTcp(multiaddr)
+  if (!parsed || parsed.peerId !== peerId || !Number.isFinite(observedAtMs)) return false
+  const seen = new Date(observedAtMs).toISOString()
+  return db.transaction(() => {
+    const existing = db.prepare('SELECT multiaddr, last_seen_at FROM peer_last_addresses WHERE peer_id = ?').all(peerId).filter((r) => isPublicTcp(r.multiaddr))
+    if (existing.some((r) => r.last_seen_at >= seen)) return false
+    const del = db.prepare('DELETE FROM peer_last_addresses WHERE peer_id = ? AND multiaddr = ?')
+    for (const r of existing) del.run(peerId, r.multiaddr)
+    db.prepare('INSERT INTO peer_last_addresses (peer_id, multiaddr, last_seen_at) VALUES (?, ?, ?)').run(peerId, multiaddr, seen)
+    return true
+  })()
+}
+
+// The trusted peer's remembered mapped address if it is at most 7 days old, else null. The age limit
+// belongs to the rung-1 dial path; redialTrustedPeers' startup redial does not use it. `allowNonPublic`
+// is for loopback test fixtures only.
+export function loadMappedPeerAddress(db, peerId, { isPeerTrusted, maxAgeMs = MAPPED_ADDRESS_MAX_AGE_MS, now = Date.now, allowNonPublic = false } = {}) {
+  const checkTrust = isPeerTrusted ?? createBoundPeerTrust(db)
+  if (!checkTrust(peerId)) return null
+  const rows = db.prepare('SELECT multiaddr, last_seen_at FROM peer_last_addresses WHERE peer_id = ? ORDER BY last_seen_at DESC').all(peerId)
+  const matches = allowNonPublic ? (m) => TCP_ADDR_RE.test(m) && m.startsWith('/ip4/127.') : isPublicTcp
+  const row = rows.find((r) => matches(r.multiaddr))
+  if (!row || !(now() - Date.parse(row.last_seen_at) <= maxAgeMs)) return null
+  return row.multiaddr
 }
 
 // Deletes every remembered address for a peer; returns how many rows it removed. Wired into main.js's revokeDevice path — a revoked

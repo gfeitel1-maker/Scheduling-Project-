@@ -38,3 +38,11 @@ Full `npm run verify` on every slice that touches `electron/sync/**`; slice 1 ma
 - SSDP descriptor fetches no longer follow redirects (`redirect: 'manual'`).
 - Honest limit: `@achingbrain/nat-port-mapper` speaks IGD:2 only, so in production a lease-0-only (IGDv1) router cannot currently produce `permanent-lease`; the path is exercised against the fake gateway only. The owner's hardware check will show whether IGDv1 routers matter.
 - The pinned-port test now occupies a deterministic in-range port (49152-65535). It was shown red with the bind-conflict check disabled.
+
+## Slice 2 notes (2026-10-09)
+
+- No schema change. A router-mapped row is identified by its shape (a public TCP address), written only by `rememberMappedPeerAddress` from a connected peer's verified gossip entry, at most one per peer, replaced only by a strictly newer signed entry (its `last_seen_at` is the entry's own timestamp, which is what the 7 day rung-1 age limit reads). `rememberPeerAddress` no longer stores a public TCP address (an inbound connection's ephemeral source port is not a listener) and its LAN prune does not rank the mapped row, so neither can displace it.
+- Old readers drop a whole gossip entry that contains a TCP candidate (their `CANDIDATE_RE` is UDP-only). Accepted pre-production.
+- Nothing in production supplies the mapped address until slice 3 (`getMappedAddress` defaults to null), so publishing is wired but inert; the address is never exposed to the renderer or IPC.
+- Found while testing: `transport.dial` treated every string as a peer id, so a stored multiaddr string (`redialTrustedPeers`, rung 2) could never dial. `toDialTarget` now parses a leading-`/` string as a multiaddr; pinned by the real two-node test in `mappedDialRung1.test.js`.
+- Rung 1 dials the mapped address first through the injected `dial`; a failed or mismatched dial falls through to the UDP punch. Trust is checked before the dial and again after it (with `isPeerRevoked`).
