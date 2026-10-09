@@ -183,6 +183,7 @@ describe('SpecialDayGridEditor — remove-block confirm guard (Code Reviewer + T
     fireEvent.click(screen.getByTitle('Remove block'))
 
     expect(confirmSpy).toHaveBeenCalledTimes(1)
+    expect(confirmSpy).toHaveBeenCalledWith('Remove block and its 1 cell?')
     expect(localClient.deleteEntity).not.toHaveBeenCalled()
     confirmSpy.mockRestore()
   })
@@ -239,10 +240,10 @@ describe('SpecialDayGridEditor — dangling-reference fallbacks', () => {
 })
 
 describe('SpecialDayGridEditor — back control', () => {
-  it('renders the corrected "← Back to Special Schedules" label (returns to the picker list)', async () => {
+  it('renders the corrected "← Special Schedules" label (returns to the picker list)', async () => {
     baseFixtures({})
     render(<SpecialDayGridEditor campId={CAMP_ID} specialDayId={SD_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
-    await waitFor(() => expect(screen.getAllByText('← Back to Special Schedules')[0]).toBeTruthy())
+    await waitFor(() => expect(screen.getAllByText('← Special Schedules')[0]).toBeTruthy())
   })
 })
 

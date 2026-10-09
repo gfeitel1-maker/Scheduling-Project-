@@ -282,12 +282,12 @@ describe('SpecialEventsScreen — seed from camp time blocks', () => {
 
   it('reports partial completion when seeding fails partway through (non-atomic, design-accepted)', () => {
     expect(seedFailureMessage(1, 2)).toBe(
-      'Only seeded 1 of 2 time blocks before hitting an error — the rest were not added.'
+      'Added 1 of 2 blocks.'
     )
   })
 
   it('falls back to the plain message when nothing seeded before the error', () => {
-    expect(seedFailureMessage(0, 2)).toBe('Could not seed time blocks.')
+    expect(seedFailureMessage(0, 2)).toBe("Couldn't add blocks.")
   })
 })
 
