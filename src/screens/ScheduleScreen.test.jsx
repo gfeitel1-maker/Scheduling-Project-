@@ -238,6 +238,15 @@ describe('WS5 Daily-first — default view, toggle order, and no redundant capti
     expect(colHeaders.some(t => /Monday/.test(t))).toBe(false)
   })
 
+  // Packaged-app audit: Group View lands on the first group, never an empty canvas.
+  it('Group View shows the first group without a pick', async () => {
+    mockList({ groups: [group(), group({ id: 'g2', name: 'Group B' })] })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Group View')).toBeTruthy())
+    fireEvent.click(screen.getByText('Group View'))
+    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
+  })
+
   it('orders the view toggle Daily, Group, Activity — Daily leftmost', async () => {
     mockList()
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)

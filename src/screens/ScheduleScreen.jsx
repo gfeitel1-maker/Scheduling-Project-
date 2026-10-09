@@ -220,9 +220,10 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   useFlagChangeAck(slots, route, flagAckResync)
 
   const [view, setView] = useState('day') // 'group' | 'activity' | 'day'
-  const [selectedGroup, setSelectedGroup] = useState(null)
+  const [pickedGroup, setSelectedGroup] = useState(null)
   const [pickedDay, setSelectedDay] = useState(null)
-  // Daily View always shows a day: an unset or stale pick falls to the first.
+  // Group and Daily View always show one: an unset or stale pick falls to the first.
+  const selectedGroup = resolveSelection(pickedGroup, groups)
   const selectedDay = resolveSelection(pickedDay, days)
   const [weatherMode, setWeatherMode] = useState(false)
   const [confirmRegen, setConfirmRegen] = useState(false)
