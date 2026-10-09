@@ -338,7 +338,7 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
       ? computeDomainCounts([...momentLanes.hold, ...momentLanes.standard], (d) => isDecisionResolvedFor(d, answers, dismissedGaps))
       : null
     return (
-      <div style={{ maxWidth: 920, margin: '0 auto' }}>
+      <div style={{ ...S.importFrame }}>
         <ReconstructionMoment
           settling={!!report}
           domainCounts={momentDomainCounts}
@@ -350,7 +350,7 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
 
   if (loading && !report) {
     return (
-      <div style={{ maxWidth: 920, margin: '0 auto' }}>
+      <div style={{ ...S.importFrame }}>
         <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Checking…</p>
       </div>
     )
@@ -358,7 +358,7 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
 
   if (error && !report) {
     return (
-      <div style={{ maxWidth: 920, margin: '0 auto' }}>
+      <div style={{ ...S.importFrame }}>
         <div style={styles.errorBanner}>{error}</div>
         {onDiscard && <button className="press-97" onClick={onDiscard} style={S.btnSecondary}>Back</button>}
       </div>
@@ -434,7 +434,7 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
   const rootMapPanelWrapperStyle = styles.rootMapPanelNormalFlow
 
   return (
-    <div style={{ maxWidth: 920, margin: '0 auto' }}>
+    <div style={{ ...S.importFrame }}>
       {error && <div style={styles.errorBanner}>{error}</div>}
       {rememberNotes.length > 0 && (
         <div style={styles.rememberNotesBanner}>{rememberNotes.join(' · ')}</div>
@@ -530,7 +530,7 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
 function EndState({ onNavigate }) {
   const enterStyle = useEnterTransition('liftFade')
   return (
-    <div style={{ maxWidth: 920, margin: '0 auto', padding: '60px 16px', textAlign: 'center', ...enterStyle }}>
+    <div style={{ ...S.importFrame, padding: '60px 16px', textAlign: 'center', ...enterStyle }}>
       <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>Nothing left to reconcile.</div>
       <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 8 }}>
         Your camp setup reflects this file. You're ready to build a schedule.
@@ -583,14 +583,14 @@ function OpenDecisionsDoor({ onNavigate }) {
 
   if (loading) {
     return (
-      <div style={{ maxWidth: 920, margin: '0 auto' }}>
+      <div style={{ ...S.importFrame }}>
         <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Checking open items…</p>
       </div>
     )
   }
 
   return (
-    <div style={{ maxWidth: 920, margin: '0 auto', ...enterStyle }}>
+    <div style={{ ...S.importFrame, ...enterStyle }}>
       <h1 style={doorStyles.title}>Open items</h1>
       <p style={doorStyles.subtitle}>Open each item in the screen where it's fixed, or mark it handled — that just removes it from this list, doesn't change anything in your camp, and can't be undone.</p>
       {actionError && <div style={styles.errorBanner}>{actionError}</div>}
@@ -664,7 +664,7 @@ function CommittedTray({ notices, outcome, graceWindow, onNavigate }) {
   })
 
   return (
-    <div style={{ maxWidth: 920, margin: '0 auto' }}>
+    <div style={{ ...S.importFrame }}>
       <div style={contentEnter}>
         {notices.length > 0 && (
           <div style={styles.understoodRow}>{notices.join(' ')}</div>

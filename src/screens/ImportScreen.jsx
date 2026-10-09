@@ -1568,7 +1568,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   // it is, the real security boundary.
   if (deviceMode === 'client') {
     return (
-      <div style={{ maxWidth: 760, ...enterStyle }}>
+      <div style={{ ...S.importFrame, ...enterStyle }}>
         <div style={{
           background: 'var(--surface)', border: '1px solid var(--border)',
           borderRadius: 10, padding: '16px', fontSize: 13, lineHeight: 1.6, color: 'var(--text)',
@@ -1580,7 +1580,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   }
 
   return (
-    <div style={{ maxWidth: 760, ...enterStyle }}>
+    <div style={{ ...S.importFrame, ...enterStyle }}>
       {error && <div style={{ ...S.errorBanner, marginBottom: 16 }}>{error}</div>}
 
       {specialDayResult && (
