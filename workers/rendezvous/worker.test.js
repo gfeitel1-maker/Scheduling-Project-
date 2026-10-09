@@ -1,15 +1,31 @@
 // T209 Phase A — unit tests for the rendezvous Worker's fetch(request, env) handler.
 //
-// These exercise the handler function directly against an in-memory fake KV
-// namespace (fakeKv.js), not a deployed Worker: no wrangler, no miniflare, no
-// network. The ticket's "two independent HTTP clients round-trip a record,
+// These exercise the handler function directly against an in-memory fake Durable Object
+// namespace (fakeDurableObject.js, real SQLite behind ctx.storage.sql), not a deployed Worker:
+// no wrangler, no miniflare, no network. The ticket's "two independent HTTP clients round-trip a record,
 // including across a TTL boundary" success predicate is satisfied here as two
 // independent calls into the same handler with an injectable clock, which is a
 // handler-level round-trip rather than a live network one — see the report for
 // why that is the honest reading of "in-repo, no deploy".
-import { describe, it, expect } from 'vitest'
-import { handleRequest, NAMESPACE_RE, MAX_PEERS_PER_NAMESPACE } from './worker.js'
-import { FakeKvNamespace } from './fakeKv.js'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import {
+  handleRequest,
+  NAMESPACE_RE,
+  MAX_PEERS_PER_NAMESPACE,
+  WRITES_PER_WINDOW,
+  RendezvousNamespace,
+} from './worker.js'
+import { FakeDurableObjectNamespace } from './fakeDurableObject.js'
+
+const MINUTE = 60_000
+
+// Only Date is faked: the DO reads Date.now() for TTL and the write window.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+})
+afterEach(() => {
+  vi.useRealTimers()
+})
 
 const VALID_NAMESPACE = 'a'.repeat(64)
 const OTHER_NAMESPACE = 'b'.repeat(64)
@@ -40,15 +56,18 @@ function fakeLimiter(max) {
 
 function makeEnv(overrides = {}) {
   let clockMs = overrides.startMs ?? 0
-  const kv = overrides.kv ?? new FakeKvNamespace({ now: () => clockMs })
+  vi.setSystemTime(clockMs)
+  const doNamespace = overrides.doNamespace ?? new FakeDurableObjectNamespace(RendezvousNamespace)
   return {
+    doNamespace,
     env: {
-      RENDEZVOUS_KV: kv,
+      NAMESPACE_DO: doNamespace,
       REGISTER_LIMITER: overrides.registerLimiter ?? allowAll(),
       PEERS_LIMITER: overrides.peersLimiter ?? allowAll(),
     },
     advance(ms) {
       clockMs += ms
+      vi.setSystemTime(clockMs)
     },
   }
 }
@@ -137,19 +156,6 @@ describe('POST /v1/register', () => {
     const res = await handleRequest(peersRequest(VALID_NAMESPACE), env)
     const body = await res.json()
     expect(body.peers).toEqual([RECORD_A])
-  })
-
-  it('enforces a cap on entries per namespace', async () => {
-    const { env } = makeEnv()
-    let lastStatus
-    for (let i = 0; i < MAX_PEERS_PER_NAMESPACE + 5; i++) {
-      const res = await handleRequest(
-        registerRequest({ peerId: `peer-${i}-${'x'.repeat(10)}`, namespace: OTHER_NAMESPACE }),
-        env
-      )
-      lastStatus = res.status
-    }
-    expect(lastStatus).toBe(429)
   })
 
   it('rejects a request whose declared Content-Length exceeds the cap with 413, without parsing the body', async () => {
@@ -352,8 +358,7 @@ describe('NAMESPACE_RE (exported for the ticket-mandated 64-lowercase-hex check)
 
 describe('caller rate limiting (Workers Rate Limiting binding)', () => {
   it('refuses a register over the per-caller limit with 429 and does not write', async () => {
-    const kv = new FakeKvNamespace({ now: () => 0 })
-    const { env } = makeEnv({ kv, registerLimiter: fakeLimiter(2) })
+    const { env } = makeEnv({ registerLimiter: fakeLimiter(2) })
     expect((await handleRequest(registerRequest({ ip: '198.51.100.7', peerId: PEER_A }), env)).status).toBe(200)
     expect((await handleRequest(registerRequest({ ip: '198.51.100.7', peerId: PEER_A }), env)).status).toBe(200)
     const refused = await handleRequest(registerRequest({ ip: '198.51.100.7', peerId: PEER_B }), env)
@@ -404,5 +409,147 @@ describe('caller rate limiting (Workers Rate Limiting binding)', () => {
   it('fails CLOSED with 503 when the limiter throws', async () => {
     const { env } = makeEnv({ registerLimiter: { limit: async () => { throw new Error('binding down') } } })
     expect((await handleRequest(registerRequest({ ip: '198.51.100.7' }), env)).status).toBe(503)
+  })
+})
+
+describe('per-namespace write budget and peer cap (Durable Object, exact)', () => {
+  const peer = (i) => `peer-${i}-${'x'.repeat(10)}`
+  const register = (env, peerId, namespace = VALID_NAMESPACE) =>
+    handleRequest(registerRequest({ namespace, peerId }), env)
+  const seedFull = (storage, expiresAt) => {
+    storage.db.exec('CREATE TABLE peers (peerId TEXT PRIMARY KEY, record TEXT, expiresAt INTEGER)')
+    storage.db.exec('CREATE TABLE writes (at INTEGER)')
+    const ins = storage.db.prepare('INSERT INTO peers VALUES (?, ?, ?)')
+    return (n) => {
+      for (let i = 0; i < n; i++) ins.run(peer(i), RECORD_A, expiresAt)
+    }
+  }
+
+  it('(a) a burst of 300 registers to one namespace within 60s accepts exactly 30 and refuses 270', async () => {
+    const { env } = makeEnv()
+    const statuses = []
+    for (let i = 0; i < 300; i++) statuses.push((await register(env, peer(i))).status)
+    expect(statuses.filter((s) => s === 200)).toHaveLength(WRITES_PER_WINDOW)
+    expect(statuses.filter((s) => s === 429)).toHaveLength(300 - WRITES_PER_WINDOW)
+  })
+
+  it('(a) the budget is rolling: capacity returns once accepted writes age past 60s', async () => {
+    const { env, advance } = makeEnv()
+    for (let i = 0; i < 30; i++) expect((await register(env, peer(i))).status).toBe(200)
+    expect((await register(env, peer(30))).status).toBe(429)
+    advance(MINUTE + 1)
+    expect((await register(env, peer(30))).status).toBe(200)
+  })
+
+  it('(b) 200 distinct peers across minutes fill the cap; peer 201 is refused, an existing peer refreshes', async () => {
+    const { env, advance } = makeEnv()
+    for (let i = 0; i < MAX_PEERS_PER_NAMESPACE; i++) {
+      expect((await register(env, peer(i))).status, `peer ${i}`).toBe(200)
+      if (i % 25 === 24) advance(MINUTE + 1)
+    }
+    expect((await register(env, peer(MAX_PEERS_PER_NAMESPACE))).status).toBe(429)
+    expect((await register(env, peer(0))).status).toBe(200)
+  })
+
+  it('(b) expired rows do not count toward the cap', async () => {
+    const { env, advance } = makeEnv()
+    for (let i = 0; i < MAX_PEERS_PER_NAMESPACE; i++) {
+      await register(env, peer(i))
+      if (i % 25 === 24) advance(MINUTE + 1)
+    }
+    expect((await register(env, peer(MAX_PEERS_PER_NAMESPACE))).status).toBe(429)
+    advance(2 * 60 * MINUTE)
+    expect((await register(env, peer(MAX_PEERS_PER_NAMESPACE))).status).toBe(200)
+    const body = await (await handleRequest(peersRequest(VALID_NAMESPACE), env)).json()
+    expect(body.peers).toHaveLength(1)
+  })
+
+  it('(c) a brand-new namespace registers and lists with no setup', async () => {
+    const { env } = makeEnv()
+    const fresh = 'c0ffee'.repeat(10) + 'abcd'
+    expect((await register(env, PEER_A, fresh)).status).toBe(200)
+    const body = await (await handleRequest(peersRequest(fresh), env)).json()
+    expect(body.peers).toEqual([RECORD_A])
+  })
+
+  it('(d) a GET on an unknown namespace performs zero writes, creates no tables, and returns an empty list', async () => {
+    const { env, doNamespace } = makeEnv()
+    const res = await handleRequest(peersRequest(OTHER_NAMESPACE), env)
+    expect(await res.json()).toEqual({ peers: [] })
+    const storage = doNamespace.storageFor(OTHER_NAMESPACE)
+    expect(storage.rowsWritten).toBe(0)
+    expect(storage.db.prepare('SELECT name FROM sqlite_master').all()).toEqual([])
+  })
+
+  it('(e) a refused request does not consume budget', async () => {
+    const { env, doNamespace } = makeEnv()
+    for (let i = 0; i < 30; i++) await register(env, peer(i))
+    const count = () => doNamespace.storageFor(VALID_NAMESPACE).db.prepare('SELECT COUNT(*) n FROM writes').get().n
+    const before = count()
+    for (let i = 0; i < 50; i++) expect((await register(env, peer(100 + i))).status).toBe(429)
+    expect(count()).toBe(before)
+    // The lockout ends when the ORIGINAL 30 age out, not 60s after the last refused hammer.
+    vi.setSystemTime(Date.now() + MINUTE - 1000)
+    expect((await register(env, peer(200))).status).toBe(429)
+    vi.setSystemTime(Date.now() + 2000)
+    expect((await register(env, peer(200))).status).toBe(200)
+  })
+
+  it('(e) a cap refusal does not consume budget', async () => {
+    const { env, doNamespace } = makeEnv()
+    const storage = doNamespace.storageFor(VALID_NAMESPACE)
+    seedFull(storage, Date.now() + MINUTE)(MAX_PEERS_PER_NAMESPACE)
+    for (let i = 0; i < 10; i++) expect((await register(env, peer(500 + i))).status).toBe(429)
+    expect(storage.db.prepare('SELECT COUNT(*) n FROM writes').get().n).toBe(0)
+  })
+
+  it('(f) concurrent registers past the cap cannot over-admit', async () => {
+    const { env, doNamespace } = makeEnv()
+    const storage = doNamespace.storageFor(VALID_NAMESPACE)
+    seedFull(storage, Date.now() + 60 * MINUTE)(MAX_PEERS_PER_NAMESPACE - 1)
+    const results = await Promise.all(Array.from({ length: 20 }, (_, i) => register(env, peer(1000 + i))))
+    expect(results.filter((r) => r.status === 200)).toHaveLength(1)
+    expect(storage.db.prepare('SELECT COUNT(*) n FROM peers').get().n).toBe(MAX_PEERS_PER_NAMESPACE)
+  })
+
+  it('(f) concurrent registers past the budget cannot over-admit', async () => {
+    const { env } = makeEnv()
+    const results = await Promise.all(Array.from({ length: 100 }, (_, i) => register(env, peer(i))))
+    expect(results.filter((r) => r.status === 200)).toHaveLength(WRITES_PER_WINDOW)
+  })
+
+  it('(g) no IP or IP-derived value appears in any stored row', async () => {
+    const { env, doNamespace } = makeEnv()
+    await handleRequest(registerRequest({ ip: '198.51.100.7' }), env)
+    await handleRequest(registerRequest({ ip: '2001:db8:1:2::a', peerId: PEER_B }), env)
+    const storage = doNamespace.storageFor(VALID_NAMESPACE)
+    const dump = JSON.stringify(
+      storage.db
+        .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+        .all()
+        .map(({ name }) => storage.db.prepare(`SELECT * FROM ${name}`).all())
+    )
+    expect(dump).toContain(RECORD_A)
+    expect(dump).not.toContain('198.51.100.7')
+    expect(dump).not.toContain('2001:db8')
+    expect(dump).not.toContain('/64')
+  })
+
+  it('rejects malformed requests before any DO is dispatched', async () => {
+    const { env, doNamespace } = makeEnv()
+    const spy = vi.spyOn(doNamespace, 'get')
+    await handleRequest(registerRequest({ namespace: 'short' }), env)
+    await handleRequest(registerRequest({ peerId: 'evil:peer' }), env)
+    await handleRequest(registerRequest({ record: '!!!' }), env)
+    await handleRequest(peersRequest('not-a-namespace'), env)
+    await handleRequest(new Request('https://rendezvous.example/v1/register', { method: 'GET' }), env)
+    expect(spy).not.toHaveBeenCalled()
+  })
+
+  it('fails closed with 503 when the DO binding is missing', async () => {
+    const { env } = makeEnv()
+    delete env.NAMESPACE_DO
+    expect((await register(env, PEER_A)).status).toBe(503)
+    expect((await handleRequest(peersRequest(VALID_NAMESPACE), env)).status).toBe(503)
   })
 })
