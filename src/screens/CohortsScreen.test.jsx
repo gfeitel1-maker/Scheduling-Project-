@@ -59,11 +59,11 @@ describe('CohortsScreen', () => {
   it('adding a program writes each field via localClient.write with the token and reloads', async () => {
     localClient.list.mockResolvedValue([])
     render(<CohortsScreen campId={CAMP_ID} />)
-    await screen.findByPlaceholderText('Name (e.g. Main, Specialty)')
+    await screen.findByPlaceholderText('Main')
 
     localClient.list.mockResolvedValue([cohort({ id: 'new-cohort-id', name: 'Specialty' })])
 
-    fireEvent.change(screen.getByPlaceholderText('Name (e.g. Main, Specialty)'), {
+    fireEvent.change(screen.getByPlaceholderText('Main'), {
       target: { value: 'Specialty' },
     })
     fireEvent.click(screen.getByText('+ Add'))
@@ -151,10 +151,10 @@ describe('CohortsScreen', () => {
   it('writes name before camp_id when adding a program (round 2 Finding 1: avoids an orphaned partial row on a UNIQUE collision)', async () => {
     localClient.list.mockResolvedValue([])
     render(<CohortsScreen campId={CAMP_ID} />)
-    await screen.findByPlaceholderText('Name (e.g. Main, Specialty)')
+    await screen.findByPlaceholderText('Main')
 
     localClient.list.mockResolvedValue([cohort({ id: 'new-cohort-id', name: 'Specialty' })])
-    fireEvent.change(screen.getByPlaceholderText('Name (e.g. Main, Specialty)'), {
+    fireEvent.change(screen.getByPlaceholderText('Main'), {
       target: { value: 'Specialty' },
     })
     fireEvent.click(screen.getByText('+ Add'))
@@ -171,9 +171,9 @@ describe('CohortsScreen', () => {
     localClient.list.mockResolvedValue([])
     localClient.write.mockRejectedValue(new Error('UNIQUE constraint failed: cohorts.camp_id, cohorts.name'))
     render(<CohortsScreen campId={CAMP_ID} />)
-    await screen.findByPlaceholderText('Name (e.g. Main, Specialty)')
+    await screen.findByPlaceholderText('Main')
 
-    fireEvent.change(screen.getByPlaceholderText('Name (e.g. Main, Specialty)'), {
+    fireEvent.change(screen.getByPlaceholderText('Main'), {
       target: { value: 'Main' },
     })
     fireEvent.click(screen.getByText('+ Add'))
@@ -218,9 +218,9 @@ describe('CohortsScreen', () => {
       return Promise.reject(new Error('disk failure'))
     })
     render(<CohortsScreen campId={CAMP_ID} />)
-    await screen.findByPlaceholderText('Name (e.g. Main, Specialty)')
+    await screen.findByPlaceholderText('Main')
 
-    fireEvent.change(screen.getByPlaceholderText('Name (e.g. Main, Specialty)'), {
+    fireEvent.change(screen.getByPlaceholderText('Main'), {
       target: { value: 'Specialty' },
     })
     fireEvent.click(screen.getByText('+ Add'))

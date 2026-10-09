@@ -17,13 +17,13 @@ import { duplicateSiblingsByIdFor } from './duplicateSiblings.js'
 const repository = createSetupCrudRepository({ localClient })
 
 const FIXED_EVENT_MODELS = [
-  { value: 'none',     label: 'None — no recurring events' },
-  { value: 'fixed',    label: 'Fixed — recurring events happen at the same time every day' },
+  { value: 'none',     label: 'None' },
+  { value: 'fixed',    label: 'Fixed' },
   { value: 'floating', label: 'Floating — recurring events can move within the day (coming soon)' },
 ]
 
 const CAPACITY_SOURCES = [
-  { value: 'groups_per_slot',  label: 'How many groups share a period' },
+  { value: 'groups_per_slot',  label: 'Groups per period' },
   { value: 'camper_headcount', label: 'Camper headcount (coming soon)' },
 ]
 
@@ -295,7 +295,6 @@ export default function CohortsScreen({ campId }) {
                 <tr><td colSpan={6} style={S.emptyState}>
                   <div style={emptyEnter}>
                     <div style={S.emptyStateTitle}>No programs yet</div>
-                    <div style={S.emptyStateBody}>Add your first program below.</div>
                   </div>
                 </td></tr>
               ) : cohorts.map(c => (
@@ -309,7 +308,7 @@ export default function CohortsScreen({ campId }) {
                   defaults and are edited in-row afterward. */}
               <InlineAddRow
                 fields={[
-                  { key: 'name', type: 'text', placeholder: 'Name (e.g. Main, Specialty)', required: true },
+                  { key: 'name', type: 'text', placeholder: 'Main', required: true },
                 ]}
                 onAdd={addCohort}
                 adding={adding}
@@ -319,11 +318,6 @@ export default function CohortsScreen({ campId }) {
           </table>
         </div>
       )}
-
-      <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-        A program groups age divisions, time blocks, and recurring events that share a schedule structure.
-        Most camps have one program ("Main"). Add a second for specialty programs with a different time grid.
-      </div>
 
       {/* This screen is no longer in the sidebar — every camp gets one program
           automatically — so it is not part of the setup chain and has no Next

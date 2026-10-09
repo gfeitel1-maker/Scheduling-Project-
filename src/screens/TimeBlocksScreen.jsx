@@ -444,7 +444,7 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
       fileInputRef={fileRef}
       onFileChange={onFileChange}
       maxWidth={780}
-      nextLabel="Next: Activities →"
+      nextLabel="Activities →"
       onNext={() => onNavigate('activities')}
       error={error}
       cohortPicker={<CohortPicker cohorts={cohorts} activeCohort={activeCohort} onChange={setActiveCohortId} />}
@@ -473,7 +473,6 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
                 <tr><td colSpan={5} style={S.emptyState}>
                   <div style={emptyEnter}>
                     <div style={S.emptyStateTitle}>No time blocks yet</div>
-                    <div style={S.emptyStateBody}>Add your first time block below.</div>
                   </div>
                 </td></tr>
               ) : blocks.map(b => (
@@ -483,7 +482,7 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
                   last row of the time blocks table (Excel-like inline add). */}
               <InlineAddRow
                 fields={[
-                  { key: 'name', type: 'text', placeholder: 'Name (e.g. Block 1)', required: true },
+                  { key: 'name', type: 'text', placeholder: 'Block 1', required: true },
                   { key: 'start_time', type: 'time', required: true, width: 110 },
                   { key: 'end_time', type: 'time', required: true, width: 110 },
                   { key: 'part_of_day', type: 'select', default: 'morning', width: 120, options: POD_OPTIONS },
@@ -532,8 +531,8 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
       {pendingDelete && (
         <ConfirmDangerDialog
           title={`Delete "${pendingDelete.name}"?`}
-          body="This time block will be removed from your schedules. Any activities placed in it will no longer appear on the grid or in exports."
-          recovery={`"${pendingDelete.name}" goes to Trash, and you can put it back from there.`}
+          body="Placed activities leave the grid."
+          recovery="Recoverable from Trash."
           confirmLabel="Delete Time Block"
           busy={deleting}
           onConfirm={confirmBlockDelete}
