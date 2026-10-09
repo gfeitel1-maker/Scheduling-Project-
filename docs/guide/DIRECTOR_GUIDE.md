@@ -342,6 +342,19 @@ Before the season ends, export your final schedule to keep a copy (steps above).
 
 ## 11. End of season: clear elective choices
 
+### First: update campers in Excel (optional)
+
+Do this **before** you clear choices. A camper with no choices is not in the file.
+
+1. Click **Electives** in the sidebar.
+2. At the bottom right, click **Download campers**. You get `shoresh_campers.xlsx`.
+3. Edit it in Excel — for example, fix a camper's **Division**. Keep the **Camper ID** column as it is. A camper with no Camper ID is matched by name, so don't rename those.
+4. Import it back like a camper preference sheet: open an elective set, click **Import Camper Preferences**, pick the file, then click **Commit Assignments**. The campers in the app update.
+
+No camper is added twice and none is removed.
+
+### Then: clear elective choices
+
 1. Click **Electives** in the sidebar.
 2. At the bottom right, pick **The whole season** (or **This week**).
 3. Click **Clear season's elective choices**. (Admins only.)
