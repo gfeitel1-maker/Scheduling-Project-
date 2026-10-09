@@ -102,6 +102,7 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
   const [weekDeletedBanner, setWeekDeletedBanner] = useState(null)
   const [exclusions, setExclusions] = useState(EMPTY_EXCLUSIONS)
   const [replacedDayIds, setReplacedDayIds] = useState(NO_REPLACED_DAYS)
+  const [specialDaysReadFailed, setSpecialDaysReadFailed] = useState(false)
   const [templateData, setTemplateDataState] = useState(EMPTY_TEMPLATE_DATA)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(null)
@@ -267,9 +268,12 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
       weekExclusions = EMPTY_EXCLUSIONS
       setExclusions(EMPTY_EXCLUSIONS)
     }
-    // T350: days of this week bound to a special day. Same best-effort posture
-    // as the exclusions above — a failed read replaces nothing.
+    // T350: days of this week bound to a special day. Unlike the exclusions
+    // above this read FAILS CLOSED: replacing nothing on a failed read would let
+    // the next Generate bulk-replace over the hidden special-day rows, so the
+    // failure is flagged and generation refuses until a read succeeds.
     let replaced = NO_REPLACED_DAYS
+    let readFailed = false
     try {
       const [placements, specialDays] = await Promise.all([
         repo.loadSpecialDayPlacements(liveWeekId),
@@ -279,8 +283,10 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
       replaced = resolveEffectiveDays({ days: d, placements, weekId: liveWeekId, specialDays }).replacedDayIds
     } catch {
       if (gen !== generationRef.current) return
+      readFailed = true
     }
     setReplacedDayIds(replaced)
+    setSpecialDaysReadFailed(readFailed)
     // Both routes are refreshed on every load. loadAll() re-runs on every
     // applied op, and a load that only refreshed the route on screen would
     // leave the other one showing whatever it held before the op arrived.
@@ -421,7 +427,7 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
     weekId,
     weekDeletedBanner, setWeekDeletedBanner,
     exclusions,
-    replacedDayIds,
+    replacedDayIds, specialDaysReadFailed,
     templateData,
     loading, loadError, templateError,
     reload: load,

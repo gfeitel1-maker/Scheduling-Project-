@@ -10,6 +10,7 @@ import StatBadge from '../components/schedule/StatBadge'
 import ScheduleSkeleton from '../components/schedule/ScheduleSkeleton'
 import IndeterminateBar from '../components/schedule/IndeterminateBar'
 import ErrorBanner from '../components/schedule/ErrorBanner'
+import GenerationBlockedNotice from '../components/schedule/GenerationBlockedNotice'
 import { legendEntriesFor, FLAG_SEVERITY, setActivityPalette } from '../components/schedule/slotCellConstants'
 import FindingsRail from '../components/schedule/FindingsRail'
 import { highlightMapForKind, railEmptyText } from './schedule/findingHighlight'
@@ -113,7 +114,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const hasInFlightClaimRef = useRef(() => false)
   const {
     setupLists, setActivities, weeks, setWeeks,
-    weekId, weekDeletedBanner, setWeekDeletedBanner, exclusions, replacedDayIds,
+    weekId, weekDeletedBanner, setWeekDeletedBanner, exclusions, replacedDayIds, specialDaysReadFailed,
     templateData, loading, loadError, templateError, reload,
   } = useScheduleData({
     campId, weekId: preferredWeekId, repo, routes: ROUTES,
@@ -402,7 +403,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     setConfirmRegen, setSelectedGroup, statsFor: recalcStatsPure,
     groups, tiers, days, timeBlocks, activities, fixedEvents, locations,
     electiveSetActivities, events: eventsAll,
-    weekId, replacedDayIds, activityExclusions, groupExclusions, locationExclusions,
+    weekId, replacedDayIds, specialDaysReadFailed, activityExclusions, groupExclusions, locationExclusions,
   })
   // Generation reloads slots wholesale — bump the flag-ack resync so the
   // post-generation diff reads as a reload, never the quiet edit-ack, even when
@@ -957,6 +958,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
           {actionError}
         </ErrorBanner>
       )}
+      <GenerationBlockedNotice days={days} replacedDayIds={replacedDayIds} specialDaysReadFailed={specialDaysReadFailed} />
       {/* Controls bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
         {/* Week switcher — pure navigation, not tied to whether either route

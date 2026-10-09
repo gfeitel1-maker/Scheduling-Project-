@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { renderHook, waitFor } from '@testing-library/react'
+import { renderHook, waitFor, act } from '@testing-library/react'
 import { useScheduleData, recalcStats, recalcFindings } from './useScheduleData'
 import { deriveScheduleTemplateId } from '../../../electron/ops/scheduleTemplateId'
 
@@ -31,6 +31,8 @@ function makeRepo(overrides = {}) {
       elective_set_activities: [],
     })),
     loadDurableElectiveSets: vi.fn(async () => ([])),
+    loadSpecialDayPlacements: vi.fn(async () => ([])),
+    loadSpecialDays: vi.fn(async () => ([])),
     loadWeeks: vi.fn(async () => ([
       { id: 'week-1', camp_id: CAMP_ID, name: 'Week 1', sort_order: 0, is_archived: 0 },
     ])),
@@ -67,6 +69,22 @@ describe('useScheduleData', () => {
     expect(repo.loadSpecialDayPlacements).toHaveBeenCalledWith('week-1')
     expect(result.current.replacedDayIds).toEqual(['d1'])
     expect(result.current.templateData.statsByRoute.generated).toEqual({ open: 0, filled: 0 })
+  })
+
+  it('fails closed when the special-day read fails, and clears on a good reload', async () => {
+    let fail = true
+    const repo = makeRepo({
+      loadSpecialDayPlacements: vi.fn(async () => { if (fail) throw new Error('read failed'); return [] }),
+      loadSpecialDays: vi.fn(async () => []),
+    })
+    const { result } = renderHook(() =>
+      useScheduleData({ campId: CAMP_ID, weekId: 'week-1', repo, routes: ['generated'] })
+    )
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.specialDaysReadFailed).toBe(true)
+    fail = false
+    await act(async () => { await result.current.reload() })
+    expect(result.current.specialDaysReadFailed).toBe(false)
   })
 
   it('loads setup lists, resolves weekId, and clears loading', async () => {

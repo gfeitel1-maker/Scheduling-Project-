@@ -831,7 +831,8 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
         if (!(eligibility.get(act.id) || new Set()).has(group.id)) continue
         const targetIdx = days.findIndex(d => d.day_of_week === act.prefer_before_day)
         if (targetIdx < 0) {
-          if (replacedDays.some(d => d.day_of_week === act.prefer_before_day)) findings.push(replacedTargetFinding(group, act))
+          const replacedTarget = replacedDays.find(d => d.day_of_week === act.prefer_before_day)
+          if (replacedTarget) findings.push(replacedTargetFinding(group, act, replacedTarget))
           continue
         }
         // One SESSION, not one block: a 2-block swim is a single swim. The
@@ -937,7 +938,8 @@ export function computeFindings({ slots: allSlots, groups, activities, days: all
       if (!(eligibility.get(act.id) || new Set()).has(group.id)) continue
       const targetIdx = days.findIndex(d => d.day_of_week === act.prefer_before_day)
       if (targetIdx < 0) {
-        if (replacedDays.some(d => d.day_of_week === act.prefer_before_day)) findings.push(replacedTargetFinding(group, act))
+        const replacedTarget = replacedDays.find(d => d.day_of_week === act.prefer_before_day)
+          if (replacedTarget) findings.push(replacedTargetFinding(group, act, replacedTarget))
         continue
       }
       const beforeCount = activitySlots.filter(s =>

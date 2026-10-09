@@ -5,9 +5,9 @@ import { resolveWeekCatalog } from '../../engine/weekCatalog'
 import { resolvePriorityForGeneration } from '../../ingest/resolvePriorityForGeneration'
 import { resolveFixedEventActivityIds } from '../../engine/fixedEventActivityLink'
 import { dropDeadReferences } from './useSnapshots'
+import { everyDayReplaced } from '../../engine/effectiveDays'
 
 const GENERIC_REFUSAL = "Couldn't generate: a recurring event has no activity."
-export const ALL_DAYS_REPLACED = 'Every day this week is a special day, so there is nothing to generate.'
 
 // T350 (ADR 2026-10-09 D4.6): generate() bulk-replaces the whole template, so
 // the stored rows of days replaced by a special day are carried forward into
@@ -70,6 +70,7 @@ export function useGeneration({
   events,
   weekId,
   replacedDayIds,
+  specialDaysReadFailed,
   activityExclusions,
   groupExclusions,
   locationExclusions,
@@ -81,16 +82,18 @@ export function useGeneration({
     setDismissedByRoute,
     setStatsByRoute,
   } = routeState
+  // T350: refuse, writing nothing, when the special days could not be read
+  // (fail closed — otherwise the bulk replace would overwrite hidden
+  // special-day rows) or when every day is one (ADR D11.1). Why is shown by
+  // the inline GenerationBlockedNotice, derived from the same state.
+  function generationBlocked() {
+    return specialDaysReadFailed || everyDayReplaced(days, replacedDayIds)
+  }
+
   // Writes ONLY to the generated candidate — the manual one is never read,
   // moved or cleared here.
   async function generate() {
-    // A week that is all special days has nothing to place: say so, write
-    // nothing (ADR D11.1).
-    const replacedSet = new Set(replacedDayIds)
-    if (days.length > 0 && days.every(d => replacedSet.has(d.id))) {
-      setActionError(ALL_DAYS_REPLACED)
-      return
-    }
+    if (generationBlocked()) return
     setGenerating(true)
     resetUndoRedo()
 
@@ -202,6 +205,7 @@ export function useGeneration({
   // place, every other cell empty. It writes ONLY to the manual candidate — the
   // generated one is never read, moved or cleared here.
   async function placeFixedEvents() {
+    if (generationBlocked()) return
     setGenerating(true)
     // Explicitly manual-route setters, not the current-route ones: this can be
     // invoked from the first-run choice screen, where the route on screen is

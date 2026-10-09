@@ -15,6 +15,12 @@ export function resolveEffectiveDays({ days, placements, weekId, specialDays }) 
   return { days: days.filter(d => !replaced.has(d.id)), replacedDayIds: [...replaced] }
 }
 
+// A week with days, every one of them replaced: nothing to generate (D11.1).
+export function everyDayReplaced(days, replacedDayIds) {
+  const replaced = new Set(replacedDayIds)
+  return days.length > 0 && days.every(d => replaced.has(d.id))
+}
+
 // Engine-shape pre-placements ({ dayId, ... }).
 export function dropReplacedPreplaced(preplacedSlots, replacedDayIds) {
   const replaced = new Set(replacedDayIds)
@@ -30,10 +36,11 @@ export function requireReplacedDayIds(replacedDayIds, where) {
 
 // A prefer_before_day goal whose target day is replaced cannot be judged — the
 // day it counts up to is not running. Say so instead of dropping the goal.
-export function replacedTargetFinding(group, act) {
+export function replacedTargetFinding(group, act, targetDay) {
+  const dayName = targetDay.label || `day ${act.prefer_before_day}`
   return {
     kind: 'DISTRIBUTION', groupId: group.id, activityId: act.id, severity: 'info',
-    reason: `Goal: ${act.prefer_before_day_min}× before day ${act.prefer_before_day} can't be met — that day is a special day this week (group: ${group.name}, activity: ${act.name})`,
+    reason: `Goal: ${act.prefer_before_day_min}× before ${dayName} can't be met — ${dayName} is a special day this week (group: ${group.name}, activity: ${act.name})`,
     requiredBefore: act.prefer_before_day_min, byDay: act.prefer_before_day, targetReplaced: true,
   }
 }

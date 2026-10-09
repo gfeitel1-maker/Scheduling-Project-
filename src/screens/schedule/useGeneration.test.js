@@ -10,7 +10,7 @@ vi.mock('../../engine/buildSchedule', () => ({
 }))
 
 import buildSchedule, { computeFindings } from '../../engine/buildSchedule'
-import { useGeneration, ALL_DAYS_REPLACED } from './useGeneration'
+import { useGeneration } from './useGeneration'
 
 function makeRepo(overrides = {}) {
   return {
@@ -343,14 +343,30 @@ describe('useGeneration with days replaced by a special day', () => {
     for (const call of statsFor.mock.calls) expect(call[1]).toEqual(['d2'])
   })
 
-  it('every day replaced: Generate shows the notice, writes nothing, does not throw', async () => {
-    const { result, props } = setup({ days: twoDays, replacedDayIds: ['d1', 'd2'] })
-    await act(async () => { await result.current.generate() })
-    expect(props.setActionError).toHaveBeenCalledWith(ALL_DAYS_REPLACED)
-    expect(buildSchedule).not.toHaveBeenCalled()
-    expect(props.repo.replaceWeek).not.toHaveBeenCalled()
-    expect(props.saveSnapshot).not.toHaveBeenCalled()
-  })
+  // The notice itself is the inline GenerationBlockedNotice (no banner, ADR
+  // D11.1); the hook only refuses, without writing or raising an error.
+  for (const action of ['generate', 'placeFixedEvents']) {
+    it(`every day replaced: ${action}() writes nothing, raises no banner, does not throw`, async () => {
+      const { result, props } = setup({ days: twoDays, replacedDayIds: ['d1', 'd2'] })
+      await act(async () => { await result.current[action]() })
+      expect(props.setActionError).not.toHaveBeenCalled()
+      expect(buildSchedule).not.toHaveBeenCalled()
+      expect(props.repo.replaceWeek).not.toHaveBeenCalled()
+      expect(props.saveSnapshot).not.toHaveBeenCalled()
+      expect(props.setGenerating).not.toHaveBeenCalled()
+    })
+
+    it(`special days unreadable: ${action}() fails closed and writes nothing`, async () => {
+      const { result, props } = setup({
+        days: twoDays, replacedDayIds: [], specialDaysReadFailed: true,
+        slotsByRoute: { generated: [stored()], manual: [stored()] },
+      })
+      await act(async () => { await result.current[action]() })
+      expect(buildSchedule).not.toHaveBeenCalled()
+      expect(props.repo.replaceWeek).not.toHaveBeenCalled()
+      expect(props.saveSnapshot).not.toHaveBeenCalled()
+    })
+  }
 
   it("generate() carries the replaced day's stored rows forward, through the dead-reference guard", async () => {
     const live = stored()

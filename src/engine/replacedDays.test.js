@@ -94,6 +94,8 @@ describe('findings use effective days', () => {
     expect(f).toBeTruthy()
     expect(f.severity).toBe('info')
     expect(f.reason).toMatch(/can.t be met/i)
+    expect(f.reason).toMatch(/before Tuesday/)
+    expect(f.reason).not.toMatch(/day 2/)
   })
 
   it('prefer_before_day on a replaced day yields the same finding (computeFindings, manual route: no fixedEvents/weekId)', () => {
