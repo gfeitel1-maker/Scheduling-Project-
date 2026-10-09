@@ -174,6 +174,9 @@ const MOCK_ONLY_HELPERS = [
   // be exercised without a live revoked-device handshake. Test-only; the real
   // signal arrives via preload's 'shoresh:auth-rejected' → onAuthRejected.
   '_triggerAuthRejected',
+  // Lets a dev/test session put the browser mock into any host-handoff state (progress, failure, an
+  // incoming offer): `npm run dev` has no second device, so the handoff never progresses by itself.
+  '_setHandoff',
 ]
 
 // ---------------------------------------------------------------------------

@@ -400,6 +400,11 @@ let pairingRequestListeners = []
 // Join-flow mock state (see the join* methods below).
 let mockJoinWindowOpen = false
 let mockJoinStarted = false
+// Host-handoff mock state (docs/adr/2026-10-09-host-succession-simple.md). `npm run dev` has no second
+// device, so the handoff never progresses by itself: a console/evidence session drives the states it
+// wants to look at through mockShoresh._setHandoff({ handoff, lastResult, isHost, ... }).
+let mockHandoff = { handoff: null, lastResult: null, isHost: true }
+let handoffListeners = []
 // docs/adr/2026-08-16-client-reauth-on-restart.md (T87 Part 3)
 let authRejectedListeners = []
 let opConflictListeners = []
@@ -2757,6 +2762,42 @@ export const mockShoresh = {
   async getJoinCode() {
     const state = loadState()
     return { code: 'K4P72MRQ', formatted: 'K4P7-2MRQ', campName: state.camp?.name ?? 'Demo Camp', open: mockJoinWindowOpen }
+  },
+  async handoffStatus() {
+    const devices = loadState().devices || []
+    const self = devices.find((d) => d.id === 'mock-device')
+    const eligible = mockHandoff.isHost
+      ? devices.filter((d) => d.id !== 'mock-device' && d.authorized_at && !d.revoked_at).map((d) => d.id)
+      : []
+    const peer = devices.find((d) => d.id === mockHandoff.handoff?.peerDeviceId)
+    return {
+      eligibleDeviceIds: eligible,
+      selfName: self?.name ?? 'This computer (sample)',
+      campName: loadState().camp?.name ?? 'Demo Camp',
+      peerName: peer?.name ?? null,
+      ...mockHandoff,
+    }
+  },
+  async handoffStart(deviceId) {
+    mockHandoff = { ...mockHandoff, lastResult: null, handoff: { role: 'giver', peerDeviceId: deviceId, state: 'offered' } }
+    handoffListeners.forEach((cb) => cb())
+    return { ok: true }
+  },
+  async handoffAccept() {
+    return { ok: false, reason: 'peer_unreachable' }
+  },
+  async handoffDecline() {
+    mockHandoff = { ...mockHandoff, handoff: null }
+    handoffListeners.forEach((cb) => cb())
+    return { ok: true }
+  },
+  onHandoffChanged(cb) {
+    handoffListeners.push(cb)
+    return () => { handoffListeners = handoffListeners.filter((f) => f !== cb) }
+  },
+  _setHandoff(next) {
+    mockHandoff = { handoff: null, lastResult: null, isHost: true, ...next }
+    handoffListeners.forEach((cb) => cb())
   },
   async setJoinWindow(open) {
     mockJoinWindowOpen = Boolean(open)

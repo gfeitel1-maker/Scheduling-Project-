@@ -73,6 +73,16 @@ contextBridge.exposeInMainWorld('shoresh', {
   getSyncEngine: () => ipcRenderer.invoke('shoresh:get-sync-engine'),
   getJoinCode: (args) => ipcRenderer.invoke('shoresh:get-join-code', args),
   setJoinWindow: (args) => ipcRenderer.invoke('shoresh:set-join-window', args),
+  // Planned host handoff (docs/adr/2026-10-09-host-succession-simple.md).
+  handoffStatus: (args) => ipcRenderer.invoke('shoresh:handoff-status', args),
+  handoffStart: (args) => ipcRenderer.invoke('shoresh:handoff-start', args),
+  handoffAccept: (args) => ipcRenderer.invoke('shoresh:handoff-accept', args),
+  handoffDecline: (args) => ipcRenderer.invoke('shoresh:handoff-decline', args),
+  onHandoffChanged: (cb) => {
+    const listener = () => cb()
+    ipcRenderer.on('shoresh:handoff-changed', listener)
+    return () => ipcRenderer.removeListener('shoresh:handoff-changed', listener)
+  },
   joinStart: (args) => ipcRenderer.invoke('shoresh:join-start', args),
   joinFindHost: () => ipcRenderer.invoke('shoresh:join-find-host'),
   joinRequestPairing: () => ipcRenderer.invoke('shoresh:join-request-pairing'),

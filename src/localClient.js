@@ -234,6 +234,12 @@ export const localClient = {
   getSyncEngine: () => shoresh.getSyncEngine(),
   getJoinCode: () => shoresh.getJoinCode({ token: currentToken() }),
   setJoinWindow: (open) => shoresh.setJoinWindow({ token: currentToken(), open }),
+  // Planned host handoff (docs/adr/2026-10-09-host-succession-simple.md).
+  handoffStatus: () => shoresh.handoffStatus({ token: currentToken() }),
+  handoffStart: (deviceId) => shoresh.handoffStart({ token: currentToken(), deviceId }),
+  handoffAccept: () => shoresh.handoffAccept({ token: currentToken() }),
+  handoffDecline: () => shoresh.handoffDecline({ token: currentToken() }),
+  onHandoffChanged: (cb) => shoresh.onHandoffChanged?.(cb) ?? (() => {}),
   joinStart: (args) => shoresh.joinStart(args),
   joinFindHost: () => shoresh.joinFindHost(),
   joinRequestPairing: () => shoresh.joinRequestPairing(),
