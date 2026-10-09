@@ -21,11 +21,14 @@
 //
 // WHAT THIS DESIGN DOES NOT DEFEND AGAINST, AND WHAT THE OWNER MUST CONFIGURE AT DEPLOY TIME
 // (this is an owner action outside this ticket — see workers/rendezvous/README.md):
-//   - Write-amplification / DoS on the unauthenticated POST endpoint. This file bounds per-request
-//     work (fixed-size validation, a hard cap on entries per namespace, a hard cap on record size),
-//     but it does NOT rate-limit by IP or otherwise throttle callers. The owner must configure
-//     Cloudflare-side rate limiting and/or a WAF rule in front of this route; there is no code-level
-//     substitute for that at the edge.
+//   - Write-amplification / DoS on the unauthenticated endpoints. This file bounds per-request
+//     work (fixed-size validation, a hard cap on entries per namespace, a hard cap on record size)
+//     AND throttles each caller IP through the Workers Rate Limiting bindings REGISTER_LIMITER and
+//     PEERS_LIMITER (wrangler.toml) — a workers.dev route has no zone, so no WAF rule can sit in
+//     front of it. The binding's counters are per Cloudflare location and approximate, so this
+//     bounds abuse rather than enforcing an exact quota. A missing or failing binding fails CLOSED
+//     (503): a misdeploy must never serve unthrottled. The IP is used only as the limiter key and is
+//     never logged or stored (see LOGGING POSTURE).
 //   - Namespace enumeration. The namespace is a 256-bit value minted at trusted setup and is
 //     unguessable by construction (see the ADR); this Worker deliberately exposes no endpoint that
 //     lists namespaces, and `GET /v1/peers/<namespace>` returns nothing useful without already
@@ -192,18 +195,36 @@ async function handlePeers(namespace, kv) {
 
 const PEERS_PATH_RE = /^\/v1\/peers\/([^/]+)$/
 
+// Per-caller throttle via a Workers Rate Limiting binding. Returns a refusal Response, or null to
+// proceed. Keyed on the caller IP only — never the namespace or peer id, which an attacker chooses.
+async function throttle(limiter, request) {
+  if (!limiter || typeof limiter.limit !== 'function') return json(503, { error: 'unavailable' })
+  const key = request.headers.get('cf-connecting-ip') || 'unknown'
+  let outcome
+  try {
+    outcome = await limiter.limit({ key })
+  } catch {
+    return json(503, { error: 'unavailable' })
+  }
+  return outcome?.success ? null : json(429, { error: 'rate limited' })
+}
+
 export async function handleRequest(request, env) {
   const url = new URL(request.url)
   const { pathname } = url
 
   if (pathname === '/v1/register') {
     if (request.method !== 'POST') return json(405, { error: 'method not allowed' })
+    const refused = await throttle(env.REGISTER_LIMITER, request)
+    if (refused) return refused
     return handleRegister(request, env.RENDEZVOUS_KV)
   }
 
   const peersMatch = PEERS_PATH_RE.exec(pathname)
   if (peersMatch) {
     if (request.method !== 'GET') return json(405, { error: 'method not allowed' })
+    const refused = await throttle(env.PEERS_LIMITER, request)
+    if (refused) return refused
     return handlePeers(peersMatch[1], env.RENDEZVOUS_KV)
   }
 
