@@ -25,6 +25,8 @@ import { forgetRevokedPeer } from './punchIdentity.js'
 import { getCurrentDoc, setCurrentDoc } from './liveDoc.js'
 import { sharesGenesis } from '../../automerge/campDocument.js'
 import { joinProof, verifyJoinProof } from '../joinCode.js'
+import { createHostHandoff } from '../../auth/hostHandoff.js'
+import { createHandoffWire } from './hostHandoffWire.js'
 import { CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
 
 // T271 round 3 (docs/adr/2026-09-26-schema-version-gate-before-merge.md): pure, directly-testable
@@ -79,7 +81,7 @@ export function isSyncCompatible(incomingVersion, localVersion) {
 // installed builds in one process: overriding this alone lets a test node ANNOUNCE a version other
 // than this checkout's real CURRENT_SCHEMA_VERSION, to construct a genuine peer-version mismatch
 // without needing a second codebase.
-export async function startSyncNode({ deviceId, db, doc, onProjected, onProjectionError, onCrossCampRejected, onRemoteOps, onPairingRequest, onPairingDecision, isJoinWindowOpen, getJoinSecret, peerDiscovery, onAuthRejected, isPeerTrusted, listen, now, localSchemaVersion = CURRENT_SCHEMA_VERSION, handshakeSchemaVersion = localSchemaVersion, relayServerFactory, relayTransportFactory, directUpgradeServiceFactory, punchTransportFactory, onPunchPeerAdmitted, onRelayReservationRefused } = {}) {
+export async function startSyncNode({ deviceId, db, doc, onProjected, onProjectionError, onCrossCampRejected, onRemoteOps, onPairingRequest, onPairingDecision, isJoinWindowOpen, getJoinSecret, peerDiscovery, onAuthRejected, isPeerTrusted, listen, now, localSchemaVersion = CURRENT_SCHEMA_VERSION, handshakeSchemaVersion = localSchemaVersion, relayServerFactory, relayTransportFactory, directUpgradeServiceFactory, punchTransportFactory, onPunchPeerAdmitted, onRelayReservationRefused, relaunch, onHandoffChanged, handoffRetryMs, handoffFaults } = {}) {
   const getLocalSchemaVersion = () =>
     typeof localSchemaVersion === 'function' ? localSchemaVersion() : localSchemaVersion
   const getHandshakeSchemaVersion = () =>
@@ -648,12 +650,33 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     return result.ok ? { ...result, hostDeviceId: deviceId, hostSchemaVersion: getHandshakeSchemaVersion() } : result
   }
 
+  // The planned host handoff (docs/adr/2026-10-09-host-succession-simple.md). `transport` is assigned
+  // just below; the wire only reaches it through these closures, after the node is up.
+  const handoffService = createHostHandoff({
+    db,
+    deviceId,
+    getDeviceIdentity: () => ensureDeviceIdentity(db),
+    relaunch: relaunch ?? (() => {}),
+  })
+  handoffService.recoverOnStartup()
+  const handoffWire = createHandoffWire({
+    db,
+    service: handoffService,
+    sendHandoff: (peerId, msg) => transport.sendHandoff(peerId, msg),
+    isPeerOnLan: (peerId) => transport.isPeerOnLan(peerId),
+    listAdmittedPeers: () => [...peerDeviceIds].filter(([peerId]) => transport.isPeerAuthenticated(peerId)),
+    retryMs: handoffRetryMs,
+    onChanged: onHandoffChanged,
+  })
+
   const transport = await startTransport({
     listen,
     deviceId,
     privateKey: deviceIdentityPrivateKey,
     onDocReceived: handleReceived,
     onSyncMessageReceived: handleSyncMessage,
+    onHandoffMessage: handoffWire.inbound,
+    handoffFaults,
     schemaVersion: getHandshakeSchemaVersion(),
     // Stage 5f-2: initial-sync-on-admission is back, this time built on the real sync protocol
     // (stepSync above) rather than a whole-document push. The prior attempt (Stage 5f) removed a
@@ -673,6 +696,8 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
       // incompatible peer, so there is nothing for it to be marked caught up on").
       stepSync(peerId)
       notifyPeersChanged()
+      // A handoff left half-done by a restart resumes the moment its counterpart is reachable again.
+      handoffWire.api.contactPeer(peerId).catch(() => {})
       // T328 Slice 1 (docs/adr/2026-10-02-wan-discovery-transport-ladder.md): remember this
       // peer's observed address, keyed to its (now-authenticated) peer id, for a future direct
       // reconnect attempt before discovery — see redialTrustedPeers below and
@@ -915,6 +940,11 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
         if (transport.isPeerAuthenticated(peerId)) stepSync(peerId)
       }
     },
-    stop: transport.stop,
+    handoff: handoffWire.api,
+    sendHandoff: transport.sendHandoff,
+    stop: async () => {
+      handoffWire.stop()
+      return transport.stop()
+    },
   }
 }

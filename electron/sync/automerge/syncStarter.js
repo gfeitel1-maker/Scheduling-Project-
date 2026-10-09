@@ -78,6 +78,7 @@ export function createAutomergeSyncStarter({
   getLiveHandlers,
   startSyncNodeImpl,
   punchSignaling,
+  relaunch,
 }) {
   // T347 (S1): set only when the punch transport was actually wired, so quit can tear down its
   // native state and an unwired build never loads the module.
@@ -468,6 +469,14 @@ export function createAutomergeSyncStarter({
         // line that makes LAN sync possible at all, and no in-process test could ever have caught
         // its absence, because loopback is exactly what those tests want.
         listen: listenAddrs,
+        // Planned host handoff (docs/adr/2026-10-09-host-succession-simple.md): the role flips only in
+        // a new process, so both devices relaunch themselves after their own transaction. The roles
+        // come from key presence on the next start; no mode is passed.
+        relaunch,
+        onHandoffChanged: () => {
+          const mainWindow = getMainWindow()
+          if (mainWindow) mainWindow.webContents.send('shoresh:handoff-changed')
+        },
         onRemoteOps: (events) => {
           // T292 round 2 FIX 2 — a remote merge never fires onOpApplied (that
           // listener only covers this device's OWN local write()/

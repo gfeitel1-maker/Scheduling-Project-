@@ -26,8 +26,8 @@ import { noise } from '@chainsafe/libp2p-noise'
 import { yamux } from '@chainsafe/libp2p-yamux'
 import { identify } from '@libp2p/identify'
 import { peerIdFromString } from '@libp2p/peer-id'
-import { PROTO, AUTH_PROTO, SYNC_PROTO, sendFramed, receiveFramed } from './wireProtocol.js'
-import { registerAuthGate } from './authGate.js'
+import { PROTO, AUTH_PROTO, SYNC_PROTO, HANDOFF_PROTO, HANDOFF_MAX_FRAME_BYTES, sendFramed, receiveFramed } from './wireProtocol.js'
+import { registerAuthGate, isLanMultiaddr } from './authGate.js'
 import { makeConnectionRateLimiter, ipFromMultiaddr } from './connectionRateLimiter.js'
 
 // Accept either a PeerId/Multiaddr object (as returned by getPeers()'s
@@ -94,7 +94,7 @@ const ADMITTED_TAG = 'shoresh-admitted'
 // `punchTransportFactory` is the ICE data-channel libp2p transport, injected the same way and never
 // imported here. Connections it forms enter libp2p's normal upgrader, so Noise + the auth gate
 // below apply to them unchanged; no admission is re-implemented for it.
-export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyncMessageReceived, listen, onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, onPairingDecision, peerDiscovery, now, connectionRateLimiter, privateKey, schemaVersion, relayServerFactory, relayTransportFactory, directUpgradeServiceFactory, punchTransportFactory, inboundConnectionThreshold, onRelayReservationRefused, maxConnections = MAX_CONNECTIONS, maxIncomingPendingConnections = MAX_INCOMING_PENDING_CONNECTIONS, reservedFloor = RESERVED_FLOOR, unadmittedDeadlineMs = UNADMITTED_DEADLINE_MS } = {}) {
+export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyncMessageReceived, onHandoffMessage, handoffFaults = {}, listen, onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, onPairingDecision, peerDiscovery, now, connectionRateLimiter, privateKey, schemaVersion, relayServerFactory, relayTransportFactory, directUpgradeServiceFactory, punchTransportFactory, inboundConnectionThreshold, onRelayReservationRefused, maxConnections = MAX_CONNECTIONS, maxIncomingPendingConnections = MAX_INCOMING_PENDING_CONNECTIONS, reservedFloor = RESERVED_FLOOR, unadmittedDeadlineMs = UNADMITTED_DEADLINE_MS } = {}) {
   // Per-SOURCE-IP inbound rate limiting (blocker #2 of the WAN hardening; connectionRateLimiter.js).
   // Closes the connection-churn hole authGate.js documents: a peer opening a fresh connection (fresh
   // peer id) per frame evades per-peer throttling and is otherwise bounded only by MAX_CONNECTIONS.
@@ -397,6 +397,99 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     })
   }, { runOnLimitedConnection: true }) // same reasoning as PROTO's handler above
 
+  // The planned host handoff (docs/adr/2026-10-09-host-succession-simple.md). Reachable only by a
+  // peer THIS node has admitted (so it already passed evaluateAuthenticate) over a direct LAN
+  // connection; the receiving state machine additionally requires the peer to be a recorded admin
+  // device. Deliberately NOT runOnLimitedConnection: a relayed connection is never LAN, and the
+  // handoff never travels over WAN or a relay. One request frame in, one reply frame out.
+  //
+  // `handoffFaults` (test seam, like syncNode's schema-version overrides) can drop the request before
+  // it is handled or the reply after: the only way to produce "the stream broke right after step 5"
+  // deterministically. Undefined in production.
+  async function handleHandoffFrame(stream, fromPeerId, bytes) {
+    let afterFlush
+    try {
+      let msg
+      try {
+        msg = JSON.parse(new TextDecoder().decode(bytes))
+      } catch {
+        stream.abort(new Error('malformed_handoff_frame'))
+        return
+      }
+      if (handoffFaults.dropRequest?.(msg)) {
+        stream.abort(new Error('handoff_request_dropped'))
+        return
+      }
+      let out
+      try {
+        out = await onHandoffMessage?.(msg, { fromPeerId })
+      } catch (err) {
+        console.error(`transport: onHandoffMessage rejected — isolated: ${err?.message ?? err}`)
+      }
+      const frame = out?.frame ?? { type: 'ERROR', reason: 'handoff_error' }
+      afterFlush = out?.afterFlush
+      if (handoffFaults.dropReply?.(frame)) {
+        stream.abort(new Error('handoff_reply_dropped'))
+        return
+      }
+      await sendFramed(stream, new TextEncoder().encode(JSON.stringify(frame)))
+      await stream.close().catch(() => {})
+    } catch {
+      // The peer went away mid-reply; the state machine already holds the outcome.
+    } finally {
+      try { afterFlush?.() } catch (err) { console.error(`transport: handoff afterFlush threw: ${err?.message ?? err}`) }
+    }
+  }
+
+  await node.handle(HANDOFF_PROTO, (stream, connection) => {
+    const fromPeerId = connection.remotePeer.toString()
+    if (!authenticatedPeers.has(fromPeerId) || !isLanMultiaddr(connection.remoteAddr?.toString())) {
+      stream.abort(new Error('handoff_not_permitted'))
+      return
+    }
+    let seen = false
+    receiveFramed(stream, (bytes) => {
+      if (seen) return
+      seen = true
+      handleHandoffFrame(stream, fromPeerId, bytes)
+    }, { maxDataLength: HANDOFF_MAX_FRAME_BYTES }).catch(() => {
+      // A peer closing or corrupting the stream must not crash this node.
+    })
+  })
+
+  async function sendHandoff(peerId, msg, { timeoutMs = 30_000 } = {}) {
+    const target = String(peerId)
+    if (!authenticatedPeers.has(target)) throw new Error('handoff_peer_not_admitted')
+    const signal = AbortSignal.timeout(timeoutMs)
+    const stream = await node.dialProtocol(toDialTarget(target), HANDOFF_PROTO, { signal })
+    try {
+      const reply = await new Promise((resolve, reject) => {
+        let settled = false
+        const settle = (fn, v) => { if (!settled) { settled = true; fn(v) } }
+        signal.addEventListener('abort', () => settle(reject, signal.reason ?? new Error('handoff_timeout')), { once: true })
+        receiveFramed(stream, (bytes) => {
+          try { settle(resolve, JSON.parse(new TextDecoder().decode(bytes))) } catch (err) { settle(reject, err) }
+        }, { maxDataLength: HANDOFF_MAX_FRAME_BYTES })
+          .then(() => settle(reject, new Error('handoff_no_reply')))
+          .catch((err) => settle(reject, err))
+        sendFramed(stream, new TextEncoder().encode(JSON.stringify(msg))).catch((err) => settle(reject, err))
+      })
+      await stream.close().catch(() => {})
+      return reply
+    } catch (err) {
+      try { stream.abort(err instanceof Error ? err : new Error('handoff_failed')) } catch { /* already closed */ }
+      throw err
+    }
+  }
+
+  function isPeerOnLan(peerId) {
+    try {
+      return node.getConnections(peerIdFromString(String(peerId))).some((c) => c.status === 'open' && !c.limits && isLanMultiaddr(c.remoteAddr?.toString()))
+    } catch {
+      return false
+    }
+  }
+
   async function sendDocTo(peerId, docBytes) {
     const stream = await node.dialProtocol(toDialTarget(peerId), PROTO, { runOnLimitedConnection: true })
     await sendFramed(stream, docBytes)
@@ -602,6 +695,8 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     broadcastDoc,
     sendDocTo,
     sendSyncMessage,
+    sendHandoff,
+    isPeerOnLan,
     dial,
     authenticateWith,
     isPeerAuthenticated: (peerId) => authenticatedPeers.has(peerId),
