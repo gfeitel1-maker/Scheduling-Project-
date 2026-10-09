@@ -61,8 +61,8 @@ async function bootstrapFresh() {
   expect(migrationSpanFor(db)).toEqual({ from: 0, to: CURRENT_SCHEMA_VERSION })
   const deviceId = getOrCreateDeviceId(db)
   const h = makeHandlers(db, deviceId, {})
-  await h.chooseMode({ mode: 'host', campName: 'Camp Fresh' })
-  await h.bootstrapCamp({ campName: 'Camp Fresh', adminName: 'Root', adminPin: '999999' })
+  await h.chooseMode({ mode: 'host', campName: 'Test Camp' })
+  await h.bootstrapCamp({ campName: 'Test Camp', adminName: 'Root', adminPin: '999999' })
   const campId = db.prepare('SELECT id FROM camps LIMIT 1').get().id
   return { db, deviceId, campId }
 }
