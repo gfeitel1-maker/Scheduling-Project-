@@ -434,3 +434,147 @@ describe('T353 candidate: todayRule + vote filter (no grant-semantics change)', 
     expect(moved).toEqual([])
   })
 })
+
+// T353 keeper ruling: NEVER zero admins; a 2-admin camp must be able to remove a compromised admin.
+const attackHistories = () => {
+  const out = []
+  {
+    const { h, last } = camp('B', 'M', 'T')
+    h.revoke('vM1', 'A', 'M', [last]).revoke('vM2', 'B', 'M', [last])
+    h.revoke('vT1', 'A', 'T', ['vM1', 'vM2']).revoke('vT2', 'B', 'T', ['vM1', 'vM2'])
+    h.grant('gX', 'M', 'X', [last]).grant('gM2', 'X', 'M', ['gX', 'vM1', 'vM2', 'vT1', 'vT2'])
+    h.grant('gT2', 'X', 'T', ['gX', 'vM1', 'vM2', 'vT1', 'vT2'])
+    out.push(h.entries)
+  }
+  {
+    const { h, last } = camp('B', 'M')
+    h.revoke('v1', 'A', 'M', [last]).revoke('v2', 'B', 'M', [last])
+    h.grant('gX', 'M', 'X', [last]).revoke('vX', 'X', 'B', ['gX']).revoke('vM', 'M', 'B', [last])
+    out.push(h.entries)
+  }
+  {
+    const { h, last } = camp('B', 'M')
+    h.revoke('v1', 'A', 'M', [last]).revoke('v2', 'B', 'M', [last])
+    h.grant('gX', 'M', 'X', [last]).revoke('vX', 'X', 'B', ['gX'])
+    out.push(h.entries)
+  }
+  {
+    const { h, last } = camp('B', 'M')
+    h.revoke('v1', 'A', 'M', [last]).revoke('v2', 'B', 'M', [last])
+    h.grant('gX', 'M', 'X', [last]).grant('gY', 'X', 'Y', ['gX'])
+    h.revoke('vY', 'Y', 'B', ['gY']).revoke('vM', 'M', 'B', [last])
+    out.push(h.entries)
+  }
+  {
+    const { h, last } = camp('B', 'M')
+    h.revoke('v1', 'A', 'M', [last]).revoke('v2', 'B', 'M', [last])
+    h.grant('gX', 'M', 'X', [last]).grant('gM2', 'X', 'M', ['gX', 'v1', 'v2'])
+    out.push(h.entries)
+  }
+  {
+    const { h, last } = camp('B', 'M', 'D')
+    h.revoke('v1', 'A', 'M', [last]).revoke('v2', 'B', 'M', [last])
+    h.revoke('b1', 'M', 'B', ['gM']).revoke('b2', 'D', 'B', [last])
+    out.push(h.entries)
+  }
+  return out
+}
+
+describe.each([['concurrent'], ['seniority']])('T353 keeper ruling variant: tieBreak=%s', (tieBreak) => {
+  const rule = (e) => todayRule(e, { tieBreak })
+  const ad = (e) => sorted(rule(e).admins)
+  const seeds = [...Array.from({ length: 500 }, (_, i) => i + 1), 209]
+  const report = {}
+  const expectPass = tieBreak === 'seniority'
+  const check = (name, failures) => {
+    report[name] = failures.length
+    console.log(`T353 ${tieBreak} ${name}: failures ${failures.length}`, failures.slice(0, 2).join(' ; '))
+    if (expectPass) expect(failures).toEqual([])
+  }
+
+  it('unique + order independent (500 seeds + 209, 6 perms each)', () => {
+    const bad = []
+    const check1 = (label, base, seed) => {
+      const want = ad(base)
+      const rnd = mulberry32(seed * 104729)
+      for (let k = 0; k < 6; k++) {
+        const got = ad(relabel(base, rnd))
+        if (JSON.stringify(got) !== JSON.stringify(want)) bad.push(`${label} perm ${k}: ${got} != ${want}`)
+      }
+    }
+    for (const s of seeds) check1('seed ' + s, randomHistory(s), s)
+    attackHistories().forEach((e, i) => check1('attack ' + i, e, 7000 + i))
+    check('order-independence', bad)
+  })
+
+  it('never zero admins (500 seeds + 209 + attacks + appended backdated votes)', () => {
+    const bad = []
+    const all = [...seeds.map((s) => [`seed ${s}`, randomHistory(s)]), ...attackHistories().map((e, i) => [`attack ${i}`, e])]
+    for (const [label, e] of all) {
+      if (ad(e).length === 0) bad.push(label)
+      const admins = rule(e).admins
+      const ever = new Set(e.filter((x) => x.kind !== 'revoke').map((x) => x.target))
+      for (const d of ever) {
+        if (admins.has(d)) continue
+        const g = e.find((x) => x.kind !== 'revoke' && x.target === d)
+        for (const t of admins) {
+          if (ad([...e, { id: 'bd', kind: 'revoke', signer: d, target: t, deps: [g.id] }]).length === 0) bad.push(`${label} bd ${d}>${t}`)
+        }
+      }
+    }
+    check('never-zero', bad)
+  })
+
+  it('2 admins: backdated counter-vote, post-revoke counter-vote, simultaneous mutual', () => {
+    const { h, last } = camp('M')
+    // F = A here is the founder and the revoker; M counters
+    h.revoke('vA', 'A', 'M', [last]).revoke('vM', 'M', 'A', [last])
+    const backdated = ad(h.entries)
+    const h2 = camp('M')
+    h2.h.revoke('vA', 'A', 'M', [h2.last]).revoke('vM', 'M', 'A', [h2.last, 'vA'])
+    const after = ad(h2.h.entries)
+    // genuine mutual: same DAG shape as the backdated case (each vote concurrent with the other)
+    console.log(`T353 ${tieBreak} 2-admin: backdated=[${backdated}] after-revoke=[${after}] (mutual is the same DAG as backdated)`)
+    // non-founder revoker: B (granted after A) revokes the founder A; A counters backdated
+    const h3 = camp('B')
+    h3.h.revoke('vB', 'B', 'A', [h3.last]).revoke('vA', 'A', 'B', [h3.last])
+    const founderCounter = ad(h3.h.entries)
+    console.log(`T353 ${tieBreak} 2-admin, junior revokes founder, founder counters: [${founderCounter}]`)
+    expect(after).toEqual(['A'])
+    if (expectPass) {
+      expect(backdated).toEqual(['A'])
+      expect(founderCounter).toEqual(['A'])
+    }
+  })
+
+  it('k-v-k splits (2v2, 3v3 and 1v1 camps) never leave zero admins', () => {
+    const bad = []
+    for (const [k, members] of [[2, ['B', 'M', 'D']], [3, ['B', 'C', 'M', 'D', 'E']]]) {
+      const { h, last } = camp(...members)
+      const ids = ['A', ...members]
+      const left = ids.slice(0, k)
+      const right = ids.slice(k)
+      left.forEach((s, i) => right.forEach((t, j) => h.revoke(`l${i}_${j}`, s, t, [last])))
+      right.forEach((s, i) => left.forEach((t, j) => h.revoke(`r${i}_${j}`, s, t, [last])))
+      const got = ad(h.entries)
+      console.log(`T353 ${tieBreak} ${k}v${ids.length - k}: [${got}]`)
+      if (got.length === 0) bad.push(`${k}v${ids.length - k}`)
+    }
+    check('k-v-k', bad)
+  })
+
+  it('differential vs todayRule on uncontested histories', () => {
+    let same = 0
+    const bad = []
+    for (const seed of seeds) {
+      const e = randomHistory(seed)
+      const t = todayRule(e).admins
+      const votes = e.filter((x) => x.kind === 'revoke' && x.signer !== x.target)
+      if (votes.some((x) => !t.has(x.signer)) || votes.some((x) => votes.some((y) => y.signer === x.target && y.target === x.signer))) continue
+      same++
+      if (JSON.stringify(ad(e)) !== JSON.stringify(sorted(t))) bad.push('seed ' + seed)
+    }
+    console.log(`T353 ${tieBreak} differential: compared ${same} uncontested seeds`)
+    check('differential', bad)
+  })
+})

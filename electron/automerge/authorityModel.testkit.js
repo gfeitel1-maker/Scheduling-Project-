@@ -38,7 +38,8 @@ export function indexHistory(entries) {
 //   - fixed point: target removed when distinct surviving voters >= quorumThreshold(|granted|)
 //     with |granted| read at the evaluated point (heads), including the target
 // ---------------------------------------------------------------------------------------------
-export function todayRule(entries, { filterVotes = false } = {}) {
+export function todayRule(entries, { filterVotes: fv = false, tieBreak = null } = {}) {
+  const filterVotes = fv || tieBreak != null
   const ix = indexHistory(entries)
   const memo = new Map()
   const ALL = '\u0000heads'
@@ -69,7 +70,15 @@ export function todayRule(entries, { filterVotes = false } = {}) {
     for (const [target, bySigner] of voteIds) {
       const gs = grantIds.get(target)
       for (const [signer, ids] of bySigner) {
-        const surviving = gs ? [...ids].filter((v) => ![...gs].some((g) => g !== v && ix.anc(g).has(v))) : [...ids]
+        let surviving = gs ? [...ids].filter((v) => ![...gs].some((g) => g !== v && ix.anc(g).has(v))) : [...ids]
+        if (tieBreak === 'concurrent') {
+          // variant (ii): a vote by a removal target S counts only if no vote against S is in its ancestors
+          const against = voteIds.get(signer)
+          if (against) {
+            const ag = [...against.values()].flatMap((x) => [...x])
+            surviving = surviving.filter((v) => !ag.some((u) => ix.anc(v).has(u)))
+          }
+        }
         if (surviving.length === 0) continue
         if (!votes.has(target)) votes.set(target, new Set())
         votes.get(target).add(signer)
@@ -88,7 +97,28 @@ export function todayRule(entries, { filterVotes = false } = {}) {
       for (;;) {
         const C = new Set([...votes.keys()].filter((t) => granted.has(t) && reach(t, new Set())))
         const dead = [...C].filter((t) => reach(t, C))
-        if (dead.length === 0) break
+        if (dead.length === 0) {
+          if (tieBreak !== 'seniority' || C.size === 0) break
+          // variant (i): in a symmetric standoff the causally-senior admin prevails (founder, then
+          // grant causally earliest, concurrent grants by lowest device id); the rest of C go.
+          const gOf = (d) => (d === ix.founder ? null : [...(grantIds.get(d) || [])])
+          const earlier = (a, b) => {
+            if (a === ix.founder) return b !== ix.founder
+            if (b === ix.founder) return false
+            const ga = gOf(a)
+            const gb = gOf(b)
+            return gb.every((x) => ga.some((y) => ix.anc(x).has(y)))
+          }
+          const ordered = [...C].sort()
+          const winner = ordered.reduce((w, d) => {
+            const dw = earlier(d, w)
+            const wd = earlier(w, d)
+            if (dw && !wd) return d
+            return w
+          })
+          for (const t of C) if (t !== winner) granted.delete(t)
+          continue
+        }
         for (const t of dead) granted.delete(t)
       }
     } else {

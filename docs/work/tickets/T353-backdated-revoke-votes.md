@@ -75,3 +75,31 @@ without backdated or mutual votes are unchanged; replay stays order independent.
 ## Non-goals
 
 No change to grant semantics; no change to ADR host-succession's effective-grant rule here.
+
+## Keeper ruling result (2026-10-09)
+
+Threat model: the camp ending with ZERO admins is the disaster; a compromised admin refusing
+removal is the edge case; a 2-admin camp must still be able to remove a compromised admin.
+Model: `todayRule(entries, { tieBreak })` in `authorityModel.testkit.js`, tests in
+`authorityModel.test.js` ("T353 keeper ruling variant"). 500 seeds + 209 + the 6 attack histories.
+
+| check | (ii) `concurrent` | (i) `seniority` |
+|---|---|---|
+| unique + order independent (6 perms each) | 0 failures | 0 failures |
+| never zero admins (incl. appended backdated votes) | 0 failures | 0 failures |
+| 2 admins, M counters with vote that has F's revoke in ancestors | M removed, F stays | M removed, F stays |
+| 2 admins, M counters with BACKDATED vote | FAIL: `[A, M]` (M not removed) | `[A]` |
+| genuine simultaneous mutual revoke (same DAG as backdated) | `[A, M]` deadlock | `[A]` (founder prevails) |
+| junior B revokes founder A, A counters | `[A, B]` | `[A]` (founder prevails; B cannot remove the founder) |
+| 2v2 / 3v3 full cross-voting splits | nobody removed | only the senior survives: `[A]` |
+| differential vs todayRule on 207 uncontested seeds | 4 differ (ancestor drop changes uncontested cases) | 0 differ |
+
+Minimal failing history for (ii): `genesis A; grant(A->M); revoke(A->M, deps grant); revoke(M->A,
+deps grant)`. A backdated vote is by construction causally concurrent with the genuine one, so
+"concurrent counts" cannot tell it from a genuine simultaneous vote.
+
+**Chosen: (i) seniority.** Passes every check. Consequences for the owner: the founder (or the
+causally-earliest admin) always wins a standoff, so a junior admin cannot remove the founder in a
+2-admin camp; and in a full cross-voting split everyone but the most senior in the standoff is
+removed (harsh: the senior's own side members who were also voted against go too). Open: whether
+to narrow that to only those the winner voted against.
