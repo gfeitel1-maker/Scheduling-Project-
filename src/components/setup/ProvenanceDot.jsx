@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { prefersReducedMotion } from '../../styles/shared'
-import { TIER_LABEL, tierShapeStyle } from '../../utils/ruleProvenance.js'
+import { TIER_LABEL, NEEDS_LOOK_DOT_STYLE } from '../../utils/ruleProvenance.js'
 import { provenanceDotStyles } from './provenanceDotStyles.js'
 
 // The quiet 6px dot-plus-popover a setup screen shows beside a SINGLE field
@@ -33,7 +33,7 @@ export default function ProvenanceDot({
   const btnRef = useRef(null)
   const popRef = useRef(null)
   const reduced = prefersReducedMotion()
-  const shape = tierShapeStyle(tier)
+  const shape = NEEDS_LOOK_DOT_STYLE
 
   useEffect(() => {
     if (!open) return

@@ -957,7 +957,7 @@ describe('ActivitiesScreen — rule provenance (Slice D)', () => {
     expect(screen.queryByRole('button', { name: /Provenance:/ })).toBeNull()
   })
 
-  it('shows an inferred-tier dot when a field was imported without evidence, and worst tier wins over other fields', async () => {
+  it('shows no dot when every imported field is observed or confirmed — only "needs a look" is marked (K5)', async () => {
     localClient.list.mockImplementation(entity => {
       if (entity === 'activities') return Promise.resolve([activity()])
       return Promise.resolve([])
@@ -969,15 +969,26 @@ describe('ActivitiesScreen — rule provenance (Slice D)', () => {
     render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
     await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
 
-    // observed evidence tag but source==='import' -> tier 'observed', worst present.
-    // Denominator is RULE_FIELDS.length, not a literal — this assertion existed
-    // while the label said "of 3" and RULE_FIELDS had 4 entries, and stayed
-    // green because the fixture encoded the same stale number.
-    // This fixture names no source for max_groups_per_slot, which tierForField
-    // reads as a human write -> 'confirmed', so the new 4th row does not add to
-    // the review count. Only min_per_week needs review here.
+    expect(screen.queryByRole('button', { name: /Provenance:/ })).toBeNull()
+  })
+
+  it('shows the bronze dot when any field is inferred, and the review count derives from RULE_FIELDS', async () => {
+    localClient.list.mockImplementation(entity => {
+      if (entity === 'activities') return Promise.resolve([activity()])
+      return Promise.resolve([])
+    })
+    localClient.listImportEvidence.mockResolvedValue({
+      evidence: [evidenceRow({ field: 'min_per_week', tag: 'inferred', confidence: 'low', support: {} })],
+      fieldSources: { 'act-1': { min_per_week: 'import', max_per_week: 'import', eligible_group_ids: null, location_id: null } },
+    })
+    render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
+
+    // Denominator is RULE_FIELDS.length, not a literal (it was once a stale 3).
+    // No source for max_groups_per_slot reads as a human write -> confirmed.
     expect(RULE_FIELDS).toHaveLength(4)
-    expect(screen.queryByRole('button', { name: new RegExp(`Provenance: observed, 1 of ${RULE_FIELDS.length} fields need review`) })).not.toBeNull()
+    const dot = screen.getByRole('button', { name: new RegExp(`Provenance: inferred, 1 of ${RULE_FIELDS.length} fields need review`) })
+    expect(dot.style.background).toBe('var(--accent)')
   })
 
   it('opens the popover with exactly 3 field rows, and Confirm re-writes the field then flips the row to confirmed in place', async () => {
@@ -1147,13 +1158,13 @@ describe('ActivitiesScreen — motion + depth pass (Slice E)', () => {
     }
   })
 
-  it('tier shape: confirmed is a filled dot, observed is a ring, inferred is an outlined fill', async () => {
+  it('popover rows: only the inferred field carries a dot, a plain bronze one (K5)', async () => {
     localClient.list.mockImplementation(entity => {
       if (entity === 'activities') return Promise.resolve([activity()])
       return Promise.resolve([])
     })
-    // min_per_week: source 'import' + evidence tag 'inferred' -> tier inferred.
-    // eligible_group_ids/location_id: source 'import' + evidence tag 'observed' -> tier observed.
+    // min_per_week: inferred. location_id: observed. eligible_group_ids and
+    // max_groups_per_slot: no source -> confirmed.
     localClient.listImportEvidence.mockResolvedValue({
       evidence: [
         evidenceRow({ field: 'min_per_week', tag: 'inferred', confidence: 'low', support: {} }),
@@ -1167,28 +1178,11 @@ describe('ActivitiesScreen — motion + depth pass (Slice E)', () => {
     fireEvent.click(screen.getByRole('button', { name: /Provenance:/ }))
     const dialog = await screen.findByRole('dialog')
 
-    // Locate the small tier dots (6x6) rendered before each field label.
-    const dots = dialog.querySelectorAll('span')
-    const tierDots = Array.from(dots).filter(d => d.style.width === '6px' && d.style.height === '6px')
-    // One per RULE_FIELDS row. Four since T114's follow-up added co-schedule
-    // (max_groups_per_slot/same_tier_only) as an evidence-backed field —
-    // this fixture supplies no co-schedule evidence, so that row renders the
-    // 'inferred' shape, which is what an un-reviewed field should look like.
-    expect(tierDots.length).toBe(4)
-
-    // eligible_group_ids: source null -> confirmed -> filled solid, no border/box-shadow.
-    const confirmedDot = tierDots.find(d => d.style.background === 'var(--secondary)')
-    // location_id: observed -> ring, transparent fill, --primary border.
-    const observedDot = tierDots.find(d => d.style.border && d.style.border.includes('var(--primary)'))
-    // min_per_week: inferred -> outlined fill, --accent double box-shadow.
-    const inferredDot = tierDots.find(d => d.style.boxShadow && d.style.boxShadow.includes('var(--accent)'))
-
-    expect(confirmedDot).toBeTruthy()
-    expect(observedDot).toBeTruthy()
-    expect(inferredDot).toBeTruthy()
-    expect(confirmedDot.style.borderStyle).toBe('none')
-    expect(observedDot.style.background).toBe('transparent')
-    expect(inferredDot.style.background).toBe('var(--accent)')
+    const tierDots = Array.from(dialog.querySelectorAll('span')).filter(d => d.style.width === '6px' && d.style.height === '6px')
+    expect(tierDots).toHaveLength(1)
+    expect(tierDots[0].nextSibling.textContent).toBe('Min–Max/Wk')
+    expect(tierDots[0].style.background).toBe('var(--accent)')
+    expect(tierDots[0].style.boxShadow).toBe('none')
   })
 
   it('provenance dot shows a hover ring on mouse enter, and clears it on mouse leave', async () => {

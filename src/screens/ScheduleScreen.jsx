@@ -1147,11 +1147,11 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
               <div style={{ ...S.centeredRow, marginBottom: 20 }}>
               <div style={{ position: 'relative', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                 {/* T18: one concept, one name. "Placed" is a plain progress count on
-                    both routes — not a concern, so it never toggles anything. */}
+                    both routes — not a concern, so it never toggles anything.
+                    Neutral (owner, 2026-10-09): only problems get colour. */}
                 <StatBadge
                   label="Placed"
                   value={`${stats.filled} of ${stats.open}`}
-                  color={isManual ? 'var(--text-secondary)' : 'var(--success)'}
                 />
                 {isManual ? (
                   <StatBadge
