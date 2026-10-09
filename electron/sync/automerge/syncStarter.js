@@ -600,6 +600,9 @@ export function createAutomergeSyncStarter({
         // Not the Host — no host_signing_key row. Expected for a Client;
         // its token arrives later via login()/chooseMode.
       }
+      const listenCount = automergeSyncNode.getMultiaddrs?.().length ?? 0
+      if (listenCount > 0) console.log(`automerge sync: node started, listening on ${listenCount} address(es)`)
+      else console.warn('automerge sync: node started but is listening on 0 addresses — other devices cannot reach it')
     } catch (err) {
       // A transport/libp2p startup failure (port in use, WASM/ESM load failure, etc.) must never
       // prevent the app from starting — the flag is default-off precisely so this path can fail
