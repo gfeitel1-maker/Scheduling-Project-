@@ -49,6 +49,7 @@ import { deleteElectiveRun } from './ops/deleteElectiveRun.js'
 import { purgeElectiveSeason } from './ops/purgeElectiveSeason.js'
 import { attributeElectiveSubject } from './ops/attributeElectiveSubject.js'
 import { deleteSpecialDay } from './ops/deleteSpecialDay.js'
+import { bindSpecialDay, unbindSpecialDay } from './ops/specialDayPlacements.js'
 import { deleteEvent } from './ops/deleteEvent.js'
 import { listDurableElectiveSets } from './ops/durableElectiveSets.js'
 import { commitElectiveRun } from './ops/commitElectiveRun.js'
@@ -1616,7 +1617,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     }
     // T350 (Red Hat R3): a placement must be written as all three fields at once by the bind path
     // (ADR 2026-10-09 D5), so a one-field generic write — which could leave a partial row — is
-    // refused for every role, deletes included, until the dedicated bind/unbind IPC lands.
+    // refused for every role, deletes included; bindSpecialDay/unbindSpecialDay are the only writers.
     if (writeArgs.entity === 'special_day_placements') {
       throw new Error('special_day_placements cannot be written via write() — use the bind/unbind special day path')
     }
@@ -2275,6 +2276,36 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return { ...reportable, ops_written: ops.length }
   }
 
+  // T350 slice 2 (docs/adr/2026-10-09-special-day-binds-to-a-week-day.md D9). The role floor is
+  // a week's exclusions: staff may bind ('.write') and unbind ('.delete', granted to staff in
+  // permissions.js for the same symmetric-toggle reason). Refusals RETURN { ok:false, reason } so
+  // the renderer can surface the specific one (occupied, unknown week/day/special day).
+  function bindSpecialDayHandler({ token, weekId, dayId, specialDayId, replace = false } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const { userId } = requireAuthorized(db, { token, action: 'special_day_placements.write' })
+    if (!isNonEmptyString(weekId)) throw new Error('weekId is required')
+    if (!isNonEmptyString(dayId)) throw new Error('dayId is required')
+    if (!isNonEmptyString(specialDayId)) throw new Error('specialDayId is required')
+
+    const result = bindSpecialDay(
+      db,
+      { weekId, dayId, specialDayId, replace: replace === true },
+      { author_user_id: userId, device_id: deviceId }
+    )
+    if (!result.ok) return result
+    return { ok: true, ops_written: result.ops.length }
+  }
+
+  function unbindSpecialDayHandler({ token, weekId, dayId } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const { userId } = requireAuthorized(db, { token, action: 'special_day_placements.delete' })
+    if (!isNonEmptyString(weekId)) throw new Error('weekId is required')
+    if (!isNonEmptyString(dayId)) throw new Error('dayId is required')
+
+    const result = unbindSpecialDay(db, { weekId, dayId }, { author_user_id: userId, device_id: deviceId })
+    return { ok: true, ops_written: result.ops.length }
+  }
+
   // Events internal sub-schedule Slice 2 (docs/adr/2026-08-22-event-internal-
   // subschedule.md §3): wires the deleteEvent cascade primitive
   // (electron/ops/deleteEvent.js, shipped inert in this slice) to a caller.
@@ -2907,6 +2938,8 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     deleteElectiveRun: deleteElectiveRunHandler,
     purgeElectiveSeason: purgeElectiveSeasonHandler,
     deleteSpecialDay: deleteSpecialDayHandler,
+    bindSpecialDay: bindSpecialDayHandler,
+    unbindSpecialDay: unbindSpecialDayHandler,
     deleteEvent: deleteEventHandler,
     listDurableElectiveSets: listDurableElectiveSetsHandler,
     commitElectiveRun: commitElectiveRunHandler,
@@ -3322,6 +3355,8 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:attribute-subject', (_event, args) => handlers.attributeSubject(args))
     ipcMain.handle('shoresh:delete-elective-set', (_event, args) => handlers.deleteElectiveSet(args))
     ipcMain.handle('shoresh:delete-special-day', (_event, args) => handlers.deleteSpecialDay(args))
+    ipcMain.handle('shoresh:bind-special-day', (_event, args) => handlers.bindSpecialDay(args))
+    ipcMain.handle('shoresh:unbind-special-day', (_event, args) => handlers.unbindSpecialDay(args))
     ipcMain.handle('shoresh:delete-event', (_event, args) => handlers.deleteEvent(args))
     ipcMain.handle('shoresh:list-durable-elective-sets', (_event, args) => handlers.listDurableElectiveSets(args && args.token))
     ipcMain.handle('shoresh:commit-elective-run', (_event, args) => handlers.commitElectiveRun(args))

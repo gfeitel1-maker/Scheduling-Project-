@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { appendOp, appendBulkReplaceOp, BULK_REPLACE_ENTITIES, runAtomic } from './operations.js'
 import { deriveScheduleTemplateId } from './scheduleTemplateId.js'
+import { deriveSpecialDayPlacementId } from './electiveDerivedIds.js'
 import { findFreeSuffix } from './findFreeSuffix.js'
 
 // Pick only the columns the bulk_replace entity accepts, replacing the id and
@@ -19,7 +20,8 @@ function pickBulkColumns(row, entity, newId, newScopeId) {
 
 // Duplicate a week: create a new schedule_weeks row, two new schedule_templates
 // rows (one per route), copy all template_slots via
-// appendBulkReplaceOp, and copy exclusion rows via per-row appendOp.
+// appendBulkReplaceOp, and copy exclusion and special-day placement rows via
+// per-row appendOp.
 //
 // The new week's ops are appended LAST (after all children) so a partially-
 // replayed set does not surface a selectable-but-hollow week in the switcher.
@@ -196,6 +198,23 @@ export function duplicateWeek(db, { sourceWeekId, campId }, { author_user_id, de
         author_user_id, device_id,
         client_write_id: cwid('week_location_exclusions.location_id', n),
       }))
+    })
+
+    // T350 (ADR 2026-10-09 D8): placements take the DERIVED id of the new week, never
+    // randomUUID — one row per (week, day) — and all three fields, like a bind.
+    const placements = db
+      .prepare('SELECT * FROM special_day_placements WHERE week_id = ?')
+      .all(sourceWeekId)
+    placements.forEach((p, n) => {
+      const newId = deriveSpecialDayPlacementId(newWeekId, p.day_id)
+      for (const [field, value] of [['week_id', newWeekId], ['day_id', p.day_id], ['special_day_id', p.special_day_id]]) {
+        ops.push(appendOp(db, {
+          entity: 'special_day_placements', entity_id: newId,
+          field, value,
+          author_user_id, device_id,
+          client_write_id: cwid(`special_day_placements.${field}`, n),
+        }))
+      }
     })
 
     // Append the new schedule_weeks row LAST (§3.4) so a partially-replayed

@@ -138,6 +138,8 @@ contextBridge.exposeInMainWorld('shoresh', {
   deleteElectiveRun: (args) => ipcRenderer.invoke('shoresh:delete-elective-run', args),
   purgeElectiveSeason: (args) => ipcRenderer.invoke('shoresh:purge-elective-season', args),
   deleteSpecialDay: (args) => ipcRenderer.invoke('shoresh:delete-special-day', args),
+  bindSpecialDay: (args) => ipcRenderer.invoke('shoresh:bind-special-day', args),
+  unbindSpecialDay: (args) => ipcRenderer.invoke('shoresh:unbind-special-day', args),
   deleteEvent: (args) => ipcRenderer.invoke('shoresh:delete-event', args),
   // T105: the durability read seam's first production caller
   // (electron/ops/durableElectiveSets.js, T110) — mirrors listUsers's shape.

@@ -18,6 +18,7 @@ const FAKE_SCOPE_KEYS = {
   week_activity_exclusions: 'week_id',
   week_group_exclusions: 'week_id',
   week_location_exclusions: 'week_id',
+  special_day_placements: 'week_id',
 }
 
 function makeFakeClient({ writeResult = { status: 'applied' } } = {}) {
@@ -441,6 +442,43 @@ describe('is_fixed_event derivation is shape-specific, not a disjunction', () =>
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', type: 'fixed_event', is_fixed_event: false, activity_id: 'a', fixed_event_id: null, flags: {} },
     ])
     expect(client.calls.bulkReplace[0][3][0].is_fixed_event).toBe('0')
+  })
+})
+
+describe('special-day placements (T350)', () => {
+  it('loadSpecialDayPlacements returns only the given week\'s placements via listByScope', async () => {
+    const client = makeFakeClient()
+    client.setListStore({
+      special_day_placements: [
+        { id: 'p1', week_id: 'week-1', day_id: 'd-tue', special_day_id: 'sd-1' },
+        { id: 'p2', week_id: 'week-2', day_id: 'd-tue', special_day_id: 'sd-1' },
+      ],
+    })
+    const repo = createScheduleRepository({ localClient: client, getToken })
+    expect(await repo.loadSpecialDayPlacements('week-1')).toEqual([
+      { id: 'p1', week_id: 'week-1', day_id: 'd-tue', special_day_id: 'sd-1' },
+    ])
+    expect(client.calls.listByScope).toEqual([['special_day_placements', 'week-1']])
+  })
+
+  it('bindSpecialDay forwards the explicit replace flag and returns the refusal unchanged', async () => {
+    const client = makeFakeClient()
+    client.bindSpecialDay = vi.fn(() => Promise.resolve({ ok: false, reason: 'occupied', currentSpecialDayId: 'sd-1' }))
+    const repo = createScheduleRepository({ localClient: client, getToken })
+    expect(await repo.bindSpecialDay('week-1', 'd-tue', 'sd-2')).toEqual({ ok: false, reason: 'occupied', currentSpecialDayId: 'sd-1' })
+    await repo.bindSpecialDay('week-1', 'd-tue', 'sd-2', { replace: true })
+    expect(client.bindSpecialDay.mock.calls).toEqual([
+      [{ weekId: 'week-1', dayId: 'd-tue', specialDayId: 'sd-2', replace: false }],
+      [{ weekId: 'week-1', dayId: 'd-tue', specialDayId: 'sd-2', replace: true }],
+    ])
+  })
+
+  it('unbindSpecialDay forwards the (week, day)', async () => {
+    const client = makeFakeClient()
+    client.unbindSpecialDay = vi.fn(() => Promise.resolve({ ok: true, ops_written: 1 }))
+    const repo = createScheduleRepository({ localClient: client, getToken })
+    expect(await repo.unbindSpecialDay('week-1', 'd-tue')).toEqual({ ok: true, ops_written: 1 })
+    expect(client.unbindSpecialDay.mock.calls).toEqual([[{ weekId: 'week-1', dayId: 'd-tue' }]])
   })
 })
 

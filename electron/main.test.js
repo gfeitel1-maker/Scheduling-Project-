@@ -1677,6 +1677,63 @@ describe('existing-behavior-preserved: full entity sweep (staff + admin both rea
       error: 'not-found',
     })
   })
+
+  // T350 slice 2 (docs/adr/2026-10-09-special-day-binds-to-a-week-day.md D9): bind/unbind go
+  // through authorize() with the week-exclusion role floor — staff may bind AND unbind (the unbind
+  // is a row delete, the same deliberate exception permissions.js grants the exclusions).
+  async function seedBindable(handlers, names) {
+    const sessions = await seedTwoRoleSessions(handlers, names)
+    const campId = db.prepare('SELECT id FROM camps LIMIT 1').get().id
+    db.prepare("INSERT INTO schedule_weeks (id, camp_id, name, sort_order, is_archived) VALUES ('wk-b', ?, 'Week 1', 0, 0)").run(campId)
+    db.prepare("INSERT INTO days_of_operation (id, camp_id, label, day_of_week) VALUES ('day-b', ?, 'Tuesday', 2)").run(campId)
+    db.prepare("INSERT INTO special_days (id, camp_id, name) VALUES ('sd-b', ?, 'Color War')").run(campId)
+    db.prepare("INSERT INTO special_days (id, camp_id, name) VALUES ('sd-b2', ?, 'Visiting Day')").run(campId)
+    return sessions
+  }
+
+  it('bindSpecialDay/unbindSpecialDay: staff may bind and unbind; a bad token is refused before any write', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
+    const { staffToken } = await seedBindable(handlers, { staffName: 'BindStaff', adminName: 'BindAdmin' })
+    const args = { weekId: 'wk-b', dayId: 'day-b', specialDayId: 'sd-b' }
+
+    expect(() => handlers.bindSpecialDay({ token: 'not-a-token', ...args })).toThrow()
+    expect(() => handlers.bindSpecialDay({ ...args })).toThrow('token is required')
+    expect(db.prepare('SELECT COUNT(*) c FROM special_day_placements').get().c).toBe(0)
+
+    expect(handlers.bindSpecialDay({ token: staffToken, ...args })).toEqual({ ok: true, ops_written: 3 })
+    expect(db.prepare('SELECT special_day_id FROM special_day_placements').all()).toEqual([{ special_day_id: 'sd-b' }])
+
+    expect(handlers.unbindSpecialDay({ token: staffToken, weekId: 'wk-b', dayId: 'day-b' })).toEqual({ ok: true, ops_written: 1 })
+    expect(db.prepare('SELECT COUNT(*) c FROM special_day_placements').get().c).toBe(0)
+  })
+
+  it('bindSpecialDay returns the refusal shape: occupied without confirm, replaced with confirm, unknown special day', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
+    const { adminToken } = await seedBindable(handlers, { staffName: 'BindStaff2', adminName: 'BindAdmin2' })
+    const args = { token: adminToken, weekId: 'wk-b', dayId: 'day-b' }
+
+    handlers.bindSpecialDay({ ...args, specialDayId: 'sd-b' })
+    expect(handlers.bindSpecialDay({ ...args, specialDayId: 'sd-b2' }))
+      .toEqual({ ok: false, reason: 'occupied', currentSpecialDayId: 'sd-b' })
+    expect(handlers.bindSpecialDay({ ...args, specialDayId: 'sd-b2', replace: true })).toEqual({ ok: true, ops_written: 3 })
+    expect(handlers.bindSpecialDay({ ...args, specialDayId: 'sd-other-camp' }))
+      .toEqual({ ok: false, reason: 'unknown-special-day' })
+  })
+
+  it('the generic write() refusal from slice 1 still holds once the bind path exists', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
+    const { staffToken, adminToken } = await seedBindable(handlers, { staffName: 'BindStaff3', adminName: 'BindAdmin3' })
+    handlers.bindSpecialDay({ token: adminToken, weekId: 'wk-b', dayId: 'day-b', specialDayId: 'sd-b' })
+    const id = db.prepare('SELECT id FROM special_day_placements').get().id
+    for (const token of [staffToken, adminToken]) {
+      expect(() => handlers.write({ token, entity: 'special_day_placements', entity_id: id, field: 'special_day_id', value: 'sd-b2' }))
+        .toThrow(/special_day_placements cannot be written via write\(\)/)
+    }
+    expect(db.prepare('SELECT special_day_id FROM special_day_placements').get()).toEqual({ special_day_id: 'sd-b' })
+  })
 })
 
 describe('sanitizeConflictForIpc (Round 2 Fix 1: main-process PIN filtering)', () => {

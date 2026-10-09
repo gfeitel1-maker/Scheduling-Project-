@@ -46,6 +46,8 @@ import { appendOp, DELETE_FIELD, runAtomic } from './operations.js'
 //   4. week_group_exclusions
 //   5. week_location_exclusions (no FK on location_id — see M1's deliberate
 //      no-FK convention, deleteRecord.js:40; week_id itself IS a real FK)
+//   5b. special_day_placements (real FK on week_id; T350 — the special day
+//      itself is camp-level and survives)
 //   6. conflicts               (unresolved rows pointing at entities deleted above)
 //   7. schedule_templates      (real FK ← schedule_weeks via week_id)
 //   8. schedule_weeks          (the week row itself, last)
@@ -222,6 +224,15 @@ export function deleteWeek(db, { weekId, campId }, { author_user_id, device_id }
     for (const e of locExclusions) {
       ops.push(del('week_location_exclusions', e.id))
       deletedEntityIds.add(e.id)
+    }
+
+    // Step 5b: special_day_placements (T350, ADR 2026-10-09 D8)
+    const placements = db
+      .prepare('SELECT id FROM special_day_placements WHERE week_id = ?')
+      .all(weekId)
+    for (const p of placements) {
+      ops.push(del('special_day_placements', p.id))
+      deletedEntityIds.add(p.id)
     }
 
     // S3-3: Step 6 — conflict closure.
