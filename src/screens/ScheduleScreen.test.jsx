@@ -1443,7 +1443,7 @@ describe('T18: one concept has one name on both routes', () => {
     // "not filled yet" rather than unfillable. Note the stat badge carries a
     // title only when it is clickable (count > 0), so do not key off that.
     expect(screen.getAllByText(/Unfillable/).length).toBeGreaterThan(0)
-    expect(screen.queryByText('Overlapping')).toBeNull()
+    expect(screen.queryByText('Check this cell')).toBeNull()
   })
 })
 

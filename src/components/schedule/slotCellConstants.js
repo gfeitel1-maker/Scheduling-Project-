@@ -69,23 +69,17 @@ export const ANCHOR_COLOR = 'var(--anchor)'
 // WEATHER_RISK was removed from the engine entirely
 // (docs/adr/2026-07-28-schedule-flag-findings-reshape.md).
 //
-// OVERLAP is bronze (caution), not red: a clash is a consequence someone chose
-// — or that two people chose independently and a merge combined — and can
-// resolve, not a failure.
-// Red stays reserved so it stays loud (DESIGN_STANDARD.md §4).
+// The three caution flags share bronze, the one caution hue
+// (DESIGN_STANDARD.md §4): a clash, a closed-week placement and a concurrent
+// edit all mean "look at this cell". They stay apart by corner, and the cell's
+// tooltip names the reason. Red stays reserved for UNFILLABLE so it stays loud.
 export const FLAG_COLORS = {
   UNFILLABLE: 'var(--danger)',
   OVERLAP: 'var(--accent)',
-  // Slate, distinct from OVERLAP's bronze so the two manual-route dots are told
-  // apart by hue, not position alone. Still out of the reserved red. The exact
-  // token is the director's aesthetic call (like OVERLAP's); see
-  // docs/work/specs/2026-08-16-manual-route-week-exclusions-design.md §5.
-  WEEK_CLOSED: 'var(--secondary)',
-  // T105 §5 — a concurrent-edit notice (this device's own recent write to
-  // this cell no longer matches what it now holds), derived/render-time/
-  // locally-dismissible, never persisted. Reuses WEEK_CLOSED's slate rather
-  // than adding a new token.
-  CONTENT_RACE: 'var(--secondary)',
+  WEEK_CLOSED: 'var(--accent)',
+  // T105 §5 — a concurrent-edit notice, derived/render-time/locally-
+  // dismissible, never persisted.
+  CONTENT_RACE: 'var(--accent)',
 }
 
 // Severity is a distinct lookup from FLAG_COLORS (hue) on purpose — kept
@@ -123,83 +117,60 @@ export const SEVERITY_BAR_COLOR = {
 //    each other by hue alone, which is why the legend naming them matters — it is
 //    the non-colour channel for that distinction.
 // 2. `label` is director language, not the enum key. A camp director does not
-//    read SCREAMING_SNAKE (CONSTITUTION.md Art. V). `flagKey` keeps the tie to
+//    read SCREAMING_SNAKE (CONSTITUTION.md Art. V). `flagKeys` keeps the tie to
 //    the engine's vocabulary for the entries that have one.
 //
 // UNDERSERVED and DISTRIBUTION are deliberately absent: they are aggregate
 // findings, not per-slot states, and are surfaced in the stat tiles instead
 // (ADR 2026-07-28-schedule-flag-findings-reshape).
-const OVERLAP_ENTRY = {
-  flagKey: 'OVERLAP',
-  label: 'Overlapping',
-  shape: 'dot',
-  color: FLAG_COLORS.OVERLAP,
-  description: 'Over capacity',
-}
-
 const UNFILLABLE_ENTRY = {
-  flagKey: 'UNFILLABLE',
+  flagKeys: ['UNFILLABLE'],
   label: 'Unfillable',
   shape: 'dot',
   color: FLAG_COLORS.UNFILLABLE,
   description: 'Unfillable',
 }
 
-// Both routes, like OVERLAP: the activity or its group is marked not to run
-// this week (week availability). A soft marker — the placement is kept.
-const WEEK_CLOSED_ENTRY = {
-  flagKey: 'WEEK_CLOSED',
-  label: 'Closed this week',
+// One entry for the three caution dots (both routes): over capacity, off this
+// week, changed on another device.
+const CAUTION_ENTRY = {
+  flagKeys: ['OVERLAP', 'WEEK_CLOSED', 'CONTENT_RACE'],
+  label: 'Check this cell',
   shape: 'dot',
-  color: FLAG_COLORS.WEEK_CLOSED,
-  description: 'Off this week',
-}
-
-// T105 §5, route-agnostic like WEEK_CLOSED (a concurrent edit is equally
-// possible on either route) — legend.test.js's "documents every per-slot flag
-// the engine can emit" holds CONTENT_RACE to the same bar as OVERLAP: it is
-// derived (never persisted), but it IS a real per-slot treatment a director
-// can see, so it belongs in the legend exactly like OVERLAP does.
-const CONTENT_RACE_ENTRY = {
-  flagKey: 'CONTENT_RACE',
-  label: 'Changed elsewhere',
-  shape: 'dot',
-  color: FLAG_COLORS.CONTENT_RACE,
-  description: 'Changed on another device',
+  color: 'var(--accent)',
+  description: 'Over capacity, off this week, or changed on another device',
 }
 
 export const LEGEND_ENTRIES = [
   UNFILLABLE_ENTRY,
-  OVERLAP_ENTRY,
-  WEEK_CLOSED_ENTRY,
-  CONTENT_RACE_ENTRY,
+  CAUTION_ENTRY,
   // T108 Phase 2 (Designer spec §2.6) — a director-authored diff, not an
-  // engine-emitted flag, so flagKey is null (like Locked/Recurring event below).
+  // engine-emitted flag, so flagKeys is empty (like Locked/Recurring event below).
   // Never filtered out by legendEntriesFor: an override can appear on either
   // route (design §5.4).
   {
-    flagKey: null,
+    flagKeys: [],
     label: 'Overridden today',
     shape: 'frame',
     color: 'var(--secondary)',
     description: 'This day only',
   },
   {
-    flagKey: null,
+    flagKeys: [],
     label: 'Locked',
     shape: 'bar',
     color: 'var(--accent)',
     description: 'Locked',
   },
   {
-    flagKey: null,
+    flagKeys: [],
     label: 'Recurring event',
     shape: 'bar',
     color: ANCHOR_COLOR,
     description: 'Every day',
   },
   {
-    flagKey: null,
+    flagKeys: [],
     label: 'Unavailable',
     shape: 'block',
     color: 'color-mix(in srgb, var(--text) 5%, var(--bg))',
@@ -289,6 +260,6 @@ export function legendEntriesFor(route) {
   // and a merge can now produce the second without anyone having generated it.
   // UNFILLABLE is the only route-specific entry left: it cannot occur on the
   // manual route, where an empty cell is simply not filled yet.
-  const omit = route === 'manual' ? ['UNFILLABLE'] : []
-  return LEGEND_ENTRIES.filter(e => !omit.includes(e.flagKey))
+  if (route !== 'manual') return LEGEND_ENTRIES
+  return LEGEND_ENTRIES.filter(e => !e.flagKeys.includes('UNFILLABLE'))
 }

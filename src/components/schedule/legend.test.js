@@ -12,7 +12,7 @@ import { LEGEND_ENTRIES, FLAG_COLORS, FLAG_SEVERITY, ANCHOR_COLOR, legendEntries
 
 describe('grid legend', () => {
   it('documents every per-slot flag the engine can emit', () => {
-    const documented = LEGEND_ENTRIES.map(e => e.flagKey).filter(Boolean)
+    const documented = LEGEND_ENTRIES.flatMap(e => e.flagKeys)
     for (const flag of Object.keys(FLAG_COLORS)) {
       expect(documented).toContain(flag)
     }
@@ -20,9 +20,21 @@ describe('grid legend', () => {
 
   it('uses the same colour token for a flag as the grid cell does', () => {
     for (const entry of LEGEND_ENTRIES) {
-      if (!entry.flagKey) continue
-      expect(entry.color).toBe(FLAG_COLORS[entry.flagKey])
+      for (const key of entry.flagKeys) expect(entry.color).toBe(FLAG_COLORS[key])
     }
+  })
+
+  // DESIGN_STANDARD.md §4: bronze is the one caution hue. Every caution flag
+  // shares it, so the legend says "check this cell" once, and the cell's own
+  // tooltip names the reason.
+  it('gives every caution flag the one caution colour, documented by one entry', () => {
+    const caution = Object.keys(FLAG_COLORS).filter(k => FLAG_SEVERITY[k] === 'caution')
+    expect(caution.sort()).toEqual(['CONTENT_RACE', 'OVERLAP', 'WEEK_CLOSED'])
+    for (const key of caution) expect(FLAG_COLORS[key]).toBe('var(--accent)')
+    const entries = LEGEND_ENTRIES.filter(e => e.flagKeys.some(k => caution.includes(k)))
+    expect(entries).toHaveLength(1)
+    expect(entries[0].label).toBe('Check this cell')
+    expect(entries[0].flagKeys.sort()).toEqual(caution)
   })
 
   it('documents the structural treatments that are not flags', () => {
@@ -40,8 +52,8 @@ describe('grid legend', () => {
   })
 
   it('distinguishes flags from structural chrome by shape, not colour alone', () => {
-    const flags = LEGEND_ENTRIES.filter(e => e.flagKey)
-    const structural = LEGEND_ENTRIES.filter(e => !e.flagKey)
+    const flags = LEGEND_ENTRIES.filter(e => e.flagKeys.length)
+    const structural = LEGEND_ENTRIES.filter(e => !e.flagKeys.length)
     expect(flags.every(e => e.shape === 'dot')).toBe(true)
     expect(structural.every(e => e.shape !== 'dot')).toBe(true)
   })
@@ -73,7 +85,7 @@ describe('route-aware legend', () => {
   it('omits Unfillable on the manual route', () => {
     const labels = legendEntriesFor('manual').map(e => e.label)
     expect(labels).not.toContain('Unfillable')
-    expect(labels).toContain('Overlapping')
+    expect(labels).toContain('Check this cell')
   })
 
   it('documents Overlapping on the GENERATED route too (T159)', () => {
@@ -84,14 +96,13 @@ describe('route-aware legend', () => {
     // grid must never go undocumented, so the legend follows.
     const labels = legendEntriesFor('generated').map(e => e.label)
     expect(labels).toContain('Unfillable')
-    expect(labels).toContain('Overlapping')
+    expect(labels).toContain('Check this cell')
   })
 
-  it('documents "Closed this week" and "Overlapping" on BOTH routes (both derive route-agnostically)', () => {
+  it('documents the caution dot on BOTH routes (both derive route-agnostically)', () => {
     for (const route of ['manual', 'generated']) {
       const labels = legendEntriesFor(route).map(e => e.label)
-      expect(labels, route).toContain('Closed this week')
-      expect(labels, route).toContain('Overlapping')
+      expect(labels, route).toContain('Check this cell')
     }
   })
 
