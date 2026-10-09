@@ -73,6 +73,31 @@ describe('RestoreControl', () => {
     await screen.findByText(/Restore failed — disk full/)
   })
 
+  it('only claims data is unchanged for the copy-stage failure', async () => {
+    localClient.restoreProject.mockResolvedValue({ error: 'restore_failed', message: 'disk full' })
+    await pick()
+    fireEvent.click(screen.getByRole('button', { name: 'Restore' }))
+    await screen.findByText(/Your current data was not changed/)
+  })
+
+  it('tells the director the prior data is in the backups folder when the restore failed after replacing it', async () => {
+    localClient.restoreProject.mockResolvedValue({ error: 'restore_incomplete', message: 'bad file' })
+    await pick()
+    fireEvent.click(screen.getByRole('button', { name: 'Restore' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).not.toMatch(/not changed/)
+    expect(alert.textContent).toMatch(/backups folder/)
+  })
+
+  it('says nothing was restored when the safety copy could not be written', async () => {
+    localClient.restoreProject.mockResolvedValue({ error: 'backup_failed', message: 'disk full' })
+    await pick()
+    fireEvent.click(screen.getByRole('button', { name: 'Restore' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toMatch(/copy of your current data could not be saved/)
+    expect(alert.textContent).toMatch(/nothing was restored/i)
+  })
+
   it('reports a file that cannot be used', async () => {
     localClient.pickRestoreBackup.mockResolvedValue({ error: 'schema_too_new', message: 'Backup requires a newer version of Shoresh (schema v99).' })
     render(<RestoreControl />)

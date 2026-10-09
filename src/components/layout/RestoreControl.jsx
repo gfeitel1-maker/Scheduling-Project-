@@ -11,6 +11,12 @@ const ERROR_TEXT = {
 }
 
 function failureText(result) {
+  if (result.error === 'backup_failed') {
+    return `A copy of your current data could not be saved first, so nothing was restored. ${result.message || ''}`.trim()
+  }
+  if (result.error === 'restore_incomplete') {
+    return `Restore did not finish — ${result.message || 'the backup could not be opened'}. Restart Shoresh before doing anything else. A copy of your previous data is in the backups folder.`
+  }
   if (result.error === 'restore_failed') {
     return `Restore failed — ${result.message || 'the backup could not be applied'}. Your current data was not changed.`
   }

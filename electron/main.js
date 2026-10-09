@@ -3634,8 +3634,8 @@ if (isElectronEntryPoint()) {
       try {
         try { flushAutomergeDoc() } catch (err) { console.error('backup: automerge flush failed (non-fatal):', err?.message ?? err) }
         writeUserBackup(dbPath, userDataPath, readCampIdSafely(db), (err) => console.error('backup: camp document copy failed (non-fatal):', err?.message ?? err))
-      } catch {
-        /* non-fatal — proceed with restore */
+      } catch (err) {
+        return { error: 'backup_failed', message: err.message }
       }
 
       // Copy source to a temp path first, then atomically rename to the target.
@@ -3675,7 +3675,7 @@ if (isElectronEntryPoint()) {
         // Keyed when encryption is on: a restored plaintext backup is migrated to encrypted on open.
         newDb = openLocalDb(dbPath, { key: dbKey })
       } catch (err) {
-        return { error: 'restore_failed', message: err.message }
+        return { error: 'restore_incomplete', message: err.message }
       }
 
       // T292 round 2 FIX 5 — same reasoning as reinitialize() above.
@@ -3700,7 +3700,7 @@ if (isElectronEntryPoint()) {
         })
       } catch (err) {
         try { newDb.close() } catch { /* already unusable */ }
-        return { error: 'restore_failed', message: err.message }
+        return { error: 'restore_incomplete', message: err.message }
       }
       disposeCampDataRecordThenCloseDb(liveHandlers, oldDb)
       registerHandlers(swappedHandlers, db)
