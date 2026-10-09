@@ -275,7 +275,7 @@ export const localClient = {
   deleteSpecialDay: ({ specialDayId }) =>
     shoresh.deleteSpecialDay({ token: currentToken(), specialDayId }),
   // T350: bind/unbind a special day to a (week, day). `replace` must be passed explicitly to
-  // replace a day that already holds another special day; otherwise { ok:false, reason:'occupied' }.
+  // replace a day that already holds another special day; otherwise an { ok:false } refusal whose reason is occupied.
   bindSpecialDay: ({ weekId, dayId, specialDayId, replace = false }) =>
     shoresh.bindSpecialDay({ token: currentToken(), weekId, dayId, specialDayId, replace }),
   unbindSpecialDay: ({ weekId, dayId }) =>
