@@ -182,7 +182,7 @@ describe('ScheduleDayView — merge/split/extend parity with Group view (WS5 Dai
     const head = cellAt(container, 'g1|d1|b1')
     const bar = head.querySelector('.span-extend-handle')
     expect(bar, 'merge affordance should exist on a cell with a block below it').not.toBeNull()
-    expect(bar.getAttribute('title')).toMatch(/run longer/i)
+    expect(bar.getAttribute('title')).toMatch(/^Extend$/)
   })
 
   it('calls onExpandSlot with (groupId, dayId, blockId, nextBlockId) on Shift+Down', () => {

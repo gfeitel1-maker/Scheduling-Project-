@@ -99,7 +99,7 @@ export default function ActivityPalette({
       }}>
         <button
           onClick={onToggleCollapse}
-          title="Expand activity panel"
+          title="Expand"
           style={{
             background: 'none',
             border: 'none',
@@ -152,7 +152,7 @@ export default function ActivityPalette({
         {onToggleCollapse && (
           <button
             onClick={onToggleCollapse}
-            title="Collapse activity panel"
+            title="Collapse"
             style={{
               background: 'none',
               border: 'none',

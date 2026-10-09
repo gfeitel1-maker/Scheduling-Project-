@@ -6,7 +6,7 @@ import { S, useEnterTransition } from '../../styles/shared'
 // happen, names what is NOT affected (which is what makes an always-available
 // second route feel safe), and states recovery only where it is real.
 //
-// "You can get this one back from Versions" is guarded: ScheduleScreen saves an
+// "Saved to Versions first" is guarded: ScheduleScreen saves an
 // automatic version immediately before the regenerate write. It deliberately
 // stops short of "exactly as it was" — snapshot save/restore is known to drop
 // merged-block and released markers, so no copy may promise a perfect restore.
@@ -18,13 +18,10 @@ export default function ConfirmRegenModal({ role, onConfirm, onCancel }) {
       <div style={{ ...S.modalLg, maxWidth: 420 }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 16, marginBottom: 8 }}>Rebuild this schedule?</div>
         <div style={{ fontSize: 13, color: 'var(--text)', marginBottom: 8 }}>
-          The app will propose a fresh schedule and replace the one you're looking at now, including any changes you've dragged into it.
-        </div>
-        <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>
-          Anything you built on the Manual side is not touched.
+          Replaces this schedule, including your edits.
         </div>
         <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 20 }}>
-          You can get this one back from Versions.
+          Saved to Versions first.
         </div>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
           <button className="press-97" onClick={onCancel} style={S.btnSecondary}>Cancel</button>

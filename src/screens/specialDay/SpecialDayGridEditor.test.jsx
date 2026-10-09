@@ -77,7 +77,7 @@ describe('SpecialDayGridEditor — safe degradation on stub special-day slots', 
     expect(errorSpy).not.toHaveBeenCalled()
     // No merge/split affordances (title text from SlotCell's ExpandGlyph buttons)
     expect(screen.queryByTitle('Let this activity run into the next period')).toBeNull()
-    expect(screen.queryByTitle('Split this back into two periods')).toBeNull()
+    expect(screen.queryByTitle('Split')).toBeNull()
     // No elective/flag markup
     expect(document.querySelector('.flag--overlap')).toBeNull()
     expect(document.querySelector('.flag--week-closed')).toBeNull()
@@ -95,7 +95,7 @@ describe('SpecialDayGridEditor — placement path isolation (Red Hat-relevant)',
     // Double-click to open the inline editor (WS5 Excel-style double-click-to-
     // edit — EmptyCell/SlotCell are shared, so this grid follows the same rule).
     fireEvent.doubleClick(screen.getAllByText('Open')[0])
-    const box = await screen.findByPlaceholderText('Type an activity…')
+    const box = await screen.findByPlaceholderText('Activity')
     fireEvent.change(box, { target: { value: 'Capture the Flag' } })
     fireEvent.keyDown(box, { key: 'Enter' })
 

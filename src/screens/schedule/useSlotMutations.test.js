@@ -770,7 +770,7 @@ describe('useSlotMutations — R3 undo re-read guard (no blind clobber of a repu
 
     expect(props.repo.writeSlotFields).not.toHaveBeenCalledWith('t1', expect.anything())
     expect(props.setActionError).toHaveBeenCalledWith(
-      expect.stringMatching(/changed since you extended it/i)
+      expect.stringMatching(/Undo skipped: block changed/)
     )
   })
 
@@ -787,7 +787,7 @@ describe('useSlotMutations — R3 undo re-read guard (no blind clobber of a repu
     await act(async () => { await entry.undo() })
 
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('t1', { activity_id: null, is_span_head: true, flags: {} })
-    expect(props.setActionError).not.toHaveBeenCalledWith(expect.stringMatching(/changed since you extended it/i))
+    expect(props.setActionError).not.toHaveBeenCalledWith(expect.stringMatching(/Undo skipped: block changed/))
   })
 })
 

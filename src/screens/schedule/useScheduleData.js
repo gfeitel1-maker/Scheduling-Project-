@@ -190,7 +190,7 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
       })
     } catch {
       if (gen !== generationRef.current) return
-      setLoadError('Failed to load schedule data — check your connection and refresh')
+      setLoadError("Couldn't load the schedule.")
       setLoading(false)
       return
     }
@@ -242,7 +242,7 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
       setWeekId(liveWeekId)
     } catch {
       if (gen !== generationRef.current) return
-      setLoadError('Failed to load schedule data — check your connection and refresh')
+      setLoadError("Couldn't load the schedule.")
       setLoading(false)
       return
     }
@@ -374,7 +374,7 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
         findingsByRoute: nextFindings,
       })
     } catch {
-      if (gen === generationRef.current) setTemplateError('Failed to load saved schedule — check your connection and refresh')
+      if (gen === generationRef.current) setTemplateError("Couldn't load the saved schedule.")
     }
     if (gen === generationRef.current) setLoading(false)
   }

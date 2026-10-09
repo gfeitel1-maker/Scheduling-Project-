@@ -109,7 +109,7 @@ describe('useGeneration', () => {
 
     expect(saveSnapshot).toHaveBeenCalled()
     expect(props.repo.replaceWeek).not.toHaveBeenCalled()
-    expect(props.setActionError).toHaveBeenCalledWith('Could not save undo point — regeneration cancelled')
+    expect(props.setActionError).toHaveBeenCalledWith("Couldn't save undo point. Cancelled.")
     expect(props.setGenerating).toHaveBeenLastCalledWith(false)
   })
 
@@ -119,7 +119,7 @@ describe('useGeneration', () => {
     await act(async () => { await result.current.generate() })
     expect(props.repo.replaceWeek).not.toHaveBeenCalled()
     expect(props.setActionError).toHaveBeenCalledWith(
-      'Could not open the generated schedule — nothing was changed. Try again, and tell support if it repeats.'
+      "Couldn't open it. Nothing changed."
     )
   })
 
@@ -127,7 +127,7 @@ describe('useGeneration', () => {
     const repo = makeRepo({ replaceWeek: vi.fn(async () => { throw new Error('admin role required') }) })
     const { result, props } = setup({ repo })
     await act(async () => { await result.current.generate() })
-    expect(props.setActionError).toHaveBeenCalledWith('Only an admin can regenerate the schedule')
+    expect(props.setActionError).toHaveBeenCalledWith('Admin only.')
     expect(props.setGenerating).toHaveBeenLastCalledWith(false)
   })
 
@@ -209,7 +209,7 @@ describe('useGeneration', () => {
     })
     await act(async () => { await result.current.placeFixedEvents() })
     expect(props.repo.replaceWeek).not.toHaveBeenCalled()
-    expect(props.setActionError).toHaveBeenCalledWith('Could not save undo point — regeneration cancelled')
+    expect(props.setActionError).toHaveBeenCalledWith("Couldn't save undo point. Cancelled.")
   })
 
   // T267 PR2 (ADR step 5) — refuse-to-generate gate.
@@ -223,7 +223,7 @@ describe('useGeneration', () => {
       await act(async () => { await result.current.generate() })
 
       expect(props.repo.replaceWeek).not.toHaveBeenCalled()
-      expect(props.setActionError).toHaveBeenCalledWith(expect.stringContaining('not linked to a valid activity'))
+      expect(props.setActionError).toHaveBeenCalledWith(expect.stringContaining('has no activity'))
       expect(props.setGenerating).toHaveBeenLastCalledWith(false)
     })
 
@@ -247,7 +247,7 @@ describe('useGeneration', () => {
       await act(async () => { await result.current.placeFixedEvents() })
 
       expect(props.repo.replaceWeek).not.toHaveBeenCalled()
-      expect(props.setActionError).toHaveBeenCalledWith(expect.stringContaining('not linked to a valid activity'))
+      expect(props.setActionError).toHaveBeenCalledWith(expect.stringContaining('has no activity'))
       expect(props.setGenerating).toHaveBeenLastCalledWith(false)
     })
 

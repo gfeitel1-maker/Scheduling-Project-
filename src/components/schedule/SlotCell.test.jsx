@@ -106,7 +106,7 @@ describe('shared cell components render placed gridcells (T56)', () => {
         />
       </DndContext>
     )
-    const bar = screen.getByRole('button', { name: /drag to make this activity run longer/i })
+    const bar = screen.getByRole('button', { name: 'Extend' })
     expect(bar).toBeTruthy()
     expect(bar.className).toContain('span-extend-handle')
     // and the control it replaced is really gone
@@ -127,7 +127,7 @@ describe('shared cell components render placed gridcells (T56)', () => {
         />
       </DndContext>
     )
-    const button = screen.getByRole('button', { name: /split this back into two periods/i })
+    const button = screen.getByRole('button', { name: 'Split' })
     expect(button.className).toContain('cell-action--split')
   })
 
@@ -625,7 +625,7 @@ describe('SlotCell — elective drill-in button (Slice 2)', () => {
         />
       </DndContext>
     )
-    const button = screen.getByRole('button', { name: 'Open Afternoon Chugim in Electives' })
+    const button = screen.getByRole('button', { name: 'Open Afternoon Chugim' })
     fireEvent.click(button)
     expect(onOpenElective).toHaveBeenCalledWith('set-1')
     // stopPropagation on the button's own click keeps the cell's click
@@ -649,7 +649,7 @@ describe('SlotCell — elective drill-in button (Slice 2)', () => {
         />
       </DndContext>
     )
-    expect(screen.queryByRole('button', { name: /Open .* in Electives/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Open / })).toBeNull()
   })
 
   it('renders no drill-in button on a non-elective cell', () => {
@@ -666,7 +666,7 @@ describe('SlotCell — elective drill-in button (Slice 2)', () => {
         />
       </DndContext>
     )
-    expect(screen.queryByRole('button', { name: /Open .* in Electives/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Open / })).toBeNull()
   })
 
   it('renders no drill-in button when onOpenElective is not supplied (schedule views that never wire it stay unaffected)', () => {
@@ -683,7 +683,7 @@ describe('SlotCell — elective drill-in button (Slice 2)', () => {
         />
       </DndContext>
     )
-    expect(screen.queryByRole('button', { name: /Open .* in Electives/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Open / })).toBeNull()
   })
 })
 
@@ -712,7 +712,7 @@ describe('SlotCell — event drill-in button (Slice 1)', () => {
         />
       </DndContext>
     )
-    const button = screen.getByRole('button', { name: 'Open Color War in Events' })
+    const button = screen.getByRole('button', { name: 'Open Color War' })
     fireEvent.click(button)
     expect(onOpenEvent).toHaveBeenCalledWith('ev-1')
     expect(onSelect).not.toHaveBeenCalled()
@@ -732,7 +732,7 @@ describe('SlotCell — event drill-in button (Slice 1)', () => {
         />
       </DndContext>
     )
-    expect(screen.queryByRole('button', { name: /Open .* in Events/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Open / })).toBeNull()
   })
 })
 
@@ -822,7 +822,7 @@ describe('Events overlay Slice 1 — real placement path (create -> place -> ren
     expect(screen.queryByText('Event (removed)')).toBeNull()
 
     // The drill-in affordance calls onOpenEvent with the placed event's id.
-    fireEvent.click(screen.getByRole('button', { name: 'Open Color War in Events' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open Color War' }))
     expect(onOpenEvent).toHaveBeenCalledWith('ev-color-war')
   })
 })

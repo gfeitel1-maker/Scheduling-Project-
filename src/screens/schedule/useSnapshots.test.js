@@ -119,7 +119,7 @@ describe('useSnapshots', () => {
     const repo = makeRepo({ deleteEntity: vi.fn(async () => { throw new Error('admin role required') }) })
     const { result, props } = setup({ repo })
     await act(async () => { await result.current.deleteSnapshot('snap-1') })
-    expect(props.setActionError).toHaveBeenCalledWith('Only an admin can delete a saved version')
+    expect(props.setActionError).toHaveBeenCalledWith('Admin only.')
     expect(props.setSnapshots).not.toHaveBeenCalled()
   })
 
@@ -127,7 +127,7 @@ describe('useSnapshots', () => {
     const repo = makeRepo({ deleteEntity: vi.fn(async () => ({ status: 'rejected' })) })
     const { result, props } = setup({ repo })
     await act(async () => { await result.current.deleteSnapshot('snap-1') })
-    expect(props.setActionError).toHaveBeenCalledWith('That version could not be deleted. It is still in the list.')
+    expect(props.setActionError).toHaveBeenCalledWith("Couldn't delete that version.")
     expect(props.setSnapshots).not.toHaveBeenCalled()
   })
 
@@ -192,7 +192,7 @@ describe('useSnapshots', () => {
     const { result, props } = setup({ repo })
     await act(async () => { await result.current.restoreSnapshot({ id: 'snap-1' }) })
     expect(props.setActionError).toHaveBeenCalledWith(
-      'That saved version belongs to the other schedule. Switch to it to restore this version.'
+      'Belongs to the other schedule.'
     )
     expect(repo.restoreSnapshotRows).not.toHaveBeenCalled()
   })
@@ -246,7 +246,7 @@ describe('useSnapshots', () => {
         { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', fixed_event_id: null, is_fixed_event: false, flags: {} },
       ])
       expect(props.setActionError).toHaveBeenCalledWith(
-        'Restored. 2 cell(s) referenced items that no longer exist (likely from a re-import) and were skipped.'
+        'Restored; 2 cell(s) skipped (item removed).'
       )
     })
 
@@ -264,7 +264,7 @@ describe('useSnapshots', () => {
       const restoredSlots = repo.restoreSnapshotRows.mock.calls[0][1]
       expect(restoredSlots).toHaveLength(0)
       expect(props.setActionError).toHaveBeenCalledWith(
-        'Restored. 1 cell(s) referenced items that no longer exist (likely from a re-import) and were skipped.'
+        'Restored; 1 cell(s) skipped (item removed).'
       )
     })
 

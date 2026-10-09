@@ -66,7 +66,7 @@ export function useClipboardSelection({ slots, activities, selectedGroup, placeA
 
   async function handlePasteClick(slot) {
     if (slot.is_fixed_event || slot.is_span_head === false) {
-      setPasteError('You cannot paste onto a recurring event, or onto the second half of an activity that runs across two periods.')
+      setPasteError("Can't paste there.")
       startPasteErrorReset(() => setPasteError(null), 2000)
       return
     }

@@ -376,8 +376,8 @@ export default function SlotCell({
         {isMerged && (
           <button
             className="cell-action cell-action--split"
-            title="Split this back into two periods"
-            aria-label="Split this back into two periods"
+            title="Split"
+            aria-label="Split"
             onClick={e => { e.stopPropagation(); onSplitSlot?.() }}
           ><CellSpanChevron direction="split" /></button>
         )}
@@ -401,7 +401,7 @@ export default function SlotCell({
                     top: `${bandHeight * (bandIndex - 1)}%`,
                     height: `${bandHeight}%`,
                   }}
-                  title={`Split before this block`}
+                  title="Split here"
                   // Pointer guard (Red Hat 2026-08-21): stop pointerdown before
                   // it reaches the cell's dnd-kit listeners, or a tap-with-drift
                   // (≥8px, common on touch/trackpad) on a split band activates a
@@ -427,8 +427,8 @@ export default function SlotCell({
             className="span-extend-handle"
             role="button"
             tabIndex={-1}
-            aria-label="Drag to make this activity run longer"
-            title="Drag to make this activity run longer"
+            aria-label="Extend"
+            title="Extend"
             data-span-extend-hint={showExtendHint ? '' : undefined}
             onPointerDown={e => { e.preventDefault(); e.stopPropagation(); onExtendGrab() }}
           />
@@ -444,8 +444,8 @@ export default function SlotCell({
           <button
             type="button"
             className="cell-action cell-action--elective"
-            title={`Open ${electiveSet.name} in Electives`}
-            aria-label={`Open ${electiveSet.name} in Electives`}
+            title={`Open ${electiveSet.name}`}
+            aria-label={`Open ${electiveSet.name}`}
             onClick={e => { e.stopPropagation(); onOpenElective(electiveSet.id) }}
           ><OpenElectiveIcon /></button>
         )}
@@ -453,8 +453,8 @@ export default function SlotCell({
           <button
             type="button"
             className="cell-action cell-action--elective"
-            title={`Open ${event.name} in Events`}
-            aria-label={`Open ${event.name} in Events`}
+            title={`Open ${event.name}`}
+            aria-label={`Open ${event.name}`}
             onClick={e => { e.stopPropagation(); onOpenEvent(event.id) }}
           ><OpenElectiveIcon /></button>
         )}
@@ -479,14 +479,14 @@ export default function SlotCell({
           <div
             className="flag flag--overlap"
             style={{ background: FLAG_COLORS.OVERLAP }}
-            title={flags.OVERLAP_reason || 'More groups booked in than this holds'}
+            title={flags.OVERLAP_reason || 'Over capacity'}
           />
         )}
         {isWeekClosed && (
           <div
             className="flag flag--week-closed"
             style={{ background: FLAG_COLORS.WEEK_CLOSED }}
-            title={flags.WEEK_CLOSED_reason || 'Marked not to run this week'}
+            title={flags.WEEK_CLOSED_reason || 'Off this week'}
           />
         )}
         {isUnfillable && (
@@ -499,13 +499,13 @@ export default function SlotCell({
             type="button"
             className="flag flag--content-race"
             style={{ background: FLAG_COLORS.CONTENT_RACE, border: 'none', padding: 0, cursor: 'pointer' }}
-            title="This cell was changed by another device — dismiss"
-            aria-label="This cell was changed by another device — dismiss"
+            title="Changed on another device"
+            aria-label="Changed on another device"
             onClick={e => { e.stopPropagation(); onDismissContentRace?.() }}
           />
         )}
         {showOutdoorIcon && (
-          <div className="flag flag--outdoor" title="Outdoor activity">
+          <div className="flag flag--outdoor" title="Outdoor">
             <OutdoorIcon />
           </div>
         )}

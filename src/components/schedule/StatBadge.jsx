@@ -30,7 +30,7 @@ export default function StatBadge({ label, value, color, onClick, active = false
         width: 'auto',
         transition: 'border-color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out)',
       }}
-      title={clickable ? (active ? 'Reviewing — click to stop' : 'Click to review these') : undefined}
+      title={clickable ? (active ? 'Stop reviewing' : 'Review') : undefined}
     >
       <div style={{ fontFamily: 'var(--font-condensed)', fontSize: 20, fontWeight: 600, color: color || 'var(--text)' }}>{value}</div>
       {/* T18: no textTransform. The labels are director-facing sentences now

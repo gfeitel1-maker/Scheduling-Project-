@@ -12,7 +12,7 @@ export default function WeekContextBar({
   const weekName = currentWeek?.name ?? 'this week'
 
   const summaryText = exclusionCount === 0
-    ? 'Same as every other week'
+    ? 'Default'
     : `${exclusionCount} of ${totalCount} ${entityLabel} customized for ${weekName}`
 
   return (

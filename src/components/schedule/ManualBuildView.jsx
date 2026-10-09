@@ -296,9 +296,6 @@ export default function ManualBuildView({
         </div>
       )}
 
-      <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-secondary)', fontFamily: 'var(--font-sans)' }}>
-        Drag activities from the left panel onto any open cell, or click an empty cell to type one in. An empty cell just isn’t filled yet.
-      </div>
     </div>
   )
 }

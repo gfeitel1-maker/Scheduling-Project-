@@ -134,7 +134,7 @@ const OVERLAP_ENTRY = {
   label: 'Overlapping',
   shape: 'dot',
   color: FLAG_COLORS.OVERLAP,
-  description: 'More groups booked in than this activity holds',
+  description: 'Over capacity',
 }
 
 const UNFILLABLE_ENTRY = {
@@ -142,7 +142,7 @@ const UNFILLABLE_ENTRY = {
   label: 'Unfillable',
   shape: 'dot',
   color: FLAG_COLORS.UNFILLABLE,
-  description: 'No eligible activity could be placed here',
+  description: 'Unfillable',
 }
 
 // Both routes, like OVERLAP: the activity or its group is marked not to run
@@ -152,7 +152,7 @@ const WEEK_CLOSED_ENTRY = {
   label: 'Closed this week',
   shape: 'dot',
   color: FLAG_COLORS.WEEK_CLOSED,
-  description: 'This activity or group is marked not to run this week',
+  description: 'Off this week',
 }
 
 // T105 §5, route-agnostic like WEEK_CLOSED (a concurrent edit is equally
@@ -165,7 +165,7 @@ const CONTENT_RACE_ENTRY = {
   label: 'Changed elsewhere',
   shape: 'dot',
   color: FLAG_COLORS.CONTENT_RACE,
-  description: 'Replaced by a concurrent edit on another device',
+  description: 'Changed on another device',
 }
 
 export const LEGEND_ENTRIES = [
@@ -182,28 +182,28 @@ export const LEGEND_ENTRIES = [
     label: 'Overridden today',
     shape: 'frame',
     color: 'var(--secondary)',
-    description: 'Changed for this day only — the rest of the week is unaffected',
+    description: 'This day only',
   },
   {
     flagKey: null,
     label: 'Locked',
     shape: 'bar',
     color: 'var(--accent)',
-    description: 'Held in place — regenerating will not move it',
+    description: 'Locked',
   },
   {
     flagKey: null,
     label: 'Recurring event',
     shape: 'bar',
     color: ANCHOR_COLOR,
-    description: 'Same slot every day — meals, tefillah, flagpole',
+    description: 'Every day',
   },
   {
     flagKey: null,
     label: 'Unavailable',
     shape: 'block',
     color: 'color-mix(in srgb, var(--text) 5%, var(--bg))',
-    description: 'This group is not scheduled during this block',
+    description: 'Not scheduled',
   },
 ]
 
