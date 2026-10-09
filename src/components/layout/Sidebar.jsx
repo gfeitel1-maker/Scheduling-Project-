@@ -31,7 +31,7 @@ export const SIDEBAR_WIDTH_PX = 216
 const MARK_COLOR = { '✓': 'var(--success)', '!': 'var(--danger)' }
 const TONE_COLOR = {
   danger: 'var(--danger)', success: 'var(--success)',
-  warning: 'var(--warning)', secondary: 'var(--text-secondary)',
+  warning: 'var(--accent)', secondary: 'var(--text-secondary)',
 }
 // Shared shape for every count pill in the sidebar (nav-row badges, the
 // gear button's conflicts count, gear-menu item badges) so the three stay
@@ -39,7 +39,7 @@ const TONE_COLOR = {
 const BADGE_PILL = {
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
   minWidth: 16, height: 16, padding: '0 5px', borderRadius: 99,
-  background: 'var(--warning)', color: '#fff',
+  background: 'var(--accent)', color: '#fff',
   fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-mono)',
   lineHeight: '16px', flexShrink: 0,
 }

@@ -470,7 +470,7 @@ const styles = {
   // access; a failed revoke must be impossible to scroll past, so it keeps the
   // solid high-contrast band rather than the shared tinted treatment.
   errorBanner: {
-    background: 'var(--warning)',
+    background: 'var(--danger)',
     color: '#fff',
     padding: '8px 14px',
     borderRadius: 6,
@@ -483,7 +483,7 @@ const styles = {
   },
   badgePending: {
     display: 'inline-block',
-    ...S.chip('var(--warning)', true, { padding: '2px 8px', borderRadius: 99, fontSize: 11, border: 'none', cursor: 'default' }),
+    ...S.chip('var(--accent)', true, { padding: '2px 8px', borderRadius: 99, fontSize: 11, border: 'none', cursor: 'default' }),
   },
   badgeRevoked: {
     display: 'inline-block',
@@ -533,11 +533,11 @@ const styles = {
     fontWeight: 600,
     cursor: 'default',
   },
-  // Warning-tinted, because "Not confirmed" is the state a director should not
+  // Danger-tinted, because "Not confirmed" is the state a director should not
   // read past — an unreached peer has not applied the purge.
   badgeErasureUnknown: {
     display: 'inline-block',
-    ...S.chip('var(--warning)', true, { padding: '2px 8px', borderRadius: 99, fontSize: 11, border: 'none', cursor: 'default' }),
+    ...S.chip('var(--danger)', true, { padding: '2px 8px', borderRadius: 99, fontSize: 11, border: 'none', cursor: 'default' }),
   },
   erasureLocal: {
     fontSize: 12,

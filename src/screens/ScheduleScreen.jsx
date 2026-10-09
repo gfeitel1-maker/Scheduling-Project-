@@ -996,7 +996,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
             <button
               onClick={() => setWeatherMode(w => !w)}
               aria-pressed={weatherMode}
-              style={{ padding: '6px 12px', border: `1px solid ${weatherMode ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 6, background: weatherMode ? 'color-mix(in srgb, var(--accent) 9%, var(--surface))' : 'var(--surface)', color: weatherMode ? 'var(--accent)' : 'var(--text-secondary)', fontWeight: 600, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', lineHeight: 1 }}
+              style={{ padding: '6px 12px', border: `1px solid ${weatherMode ? 'var(--primary)' : 'var(--border)'}`, borderRadius: 6, background: weatherMode ? 'color-mix(in srgb, var(--primary) 9%, var(--surface))' : 'var(--surface)', color: weatherMode ? 'var(--primary)' : 'var(--text-secondary)', fontWeight: 600, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', lineHeight: 1 }}
             >
               Weather
             </button>
@@ -1031,9 +1031,9 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                   ? { ...S.btnSecondary, ...S.buttonDisabled, padding: '5px 10px', fontSize: 12, color: 'var(--text-secondary)' }
                   : { ...S.btnSecondary, padding: '5px 10px', fontSize: 12, color: 'var(--text-secondary)', transition: 'color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out)' }}
                 onMouseEnter={role === 'admin' ? (e) => {
-                  e.currentTarget.style.color = 'var(--warning)'
-                  e.currentTarget.style.borderColor = 'var(--warning)'
-                  e.currentTarget.style.background = 'color-mix(in srgb, var(--warning) 8%, var(--surface))'
+                  e.currentTarget.style.color = 'var(--danger)'
+                  e.currentTarget.style.borderColor = 'var(--danger)'
+                  e.currentTarget.style.background = 'color-mix(in srgb, var(--danger) 8%, var(--surface))'
                 } : undefined}
                 onMouseLeave={role === 'admin' ? (e) => {
                   e.currentTarget.style.color = 'var(--text-secondary)'
@@ -1137,7 +1137,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
             <StatBadge
               label="Spread across the week"
               value={activeFindings.filter(f => f.kind === 'DISTRIBUTION').length}
-              color={activeFindings.some(f => f.kind === 'DISTRIBUTION') ? 'var(--secondary)' : 'var(--text-secondary)'}
+              color={activeFindings.some(f => f.kind === 'DISTRIBUTION') ? 'var(--accent)' : 'var(--text-secondary)'}
               active={!isManual && railView === 'DISTRIBUTION'}
               onClick={() => toggleRail(isManual ? 'ALL' : 'DISTRIBUTION')}
             />
