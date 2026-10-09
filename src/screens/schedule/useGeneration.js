@@ -3,6 +3,20 @@ import { describeWriteFailure } from '../../utils/writeErrorMessage'
 import { routeSetter } from './useRouteState'
 import { resolveWeekCatalog } from '../../engine/weekCatalog'
 import { resolvePriorityForGeneration } from '../../ingest/resolvePriorityForGeneration'
+import { resolveFixedEventActivityIds } from '../../engine/fixedEventActivityLink'
+
+const GENERIC_REFUSAL = 'This schedule could not be generated: a fixed or recurring event is not linked to a valid activity. Fix it on the Fixed/Recurring Events screen and try again.'
+
+function unlinkedEventsMessage(allNames, lead) {
+  const names = [...new Set(allNames)]
+  return `${lead}: ${names.join(', ')} ${names.length === 1 ? 'is' : 'are'} not linked to a valid activity. Link ${names.length === 1 ? 'it' : 'them'} on the Fixed/Recurring Events screen.`
+}
+
+function refusalMessage(findings, fixedEvents) {
+  const nameById = new Map((fixedEvents || []).map(fe => [fe.id, fe.name || fe.id]))
+  const names = findings.filter(f => f.kind === 'FIXED_EVENT_IDENTITY_GAP' && nameById.has(f.fixedEventId)).map(f => nameById.get(f.fixedEventId))
+  return names.length > 0 ? unlinkedEventsMessage(names, 'This schedule could not be generated') : GENERIC_REFUSAL
+}
 
 // generate / regenerate / place-fixedEvents, over the T28 repository + the pure
 // engine. This hook orchestrates: it calls buildSchedule (pure) and the repo,
@@ -105,7 +119,7 @@ export function useGeneration({
     // schedule built against a broken identity link. The finding is already
     // visible (setGenFindings above); this only stops replaceWeek.
     if ((result.findings || []).some(f => f.severity === 'error')) {
-      setActionError('This schedule could not be generated: a fixed or recurring event is not linked to a valid activity. Fix it on the Fixed/Recurring Events screen and try again.')
+      setActionError(refusalMessage(result.findings, fixedEvents))
       setGenerating(false)
       return
     }
@@ -186,14 +200,20 @@ export function useGeneration({
       locationExclusions: locationExclusions || [],
     })
 
-    const result = buildSchedule({ groups: effGroups, tiers, days, timeBlocks, activities: resolvePriorityForGeneration(effActivities), fixedEvents: effFixedEvents, campId, locations, electiveSetActivities, events, fixedEventsOnly: true, weekId })
+    // Packaged audit #16 — an unlinked event blocks Generate (it cannot be
+    // placed against an activity), but Manual's blank week only needs the
+    // events it CAN place: it lays those down and names the rest.
+    const liveIds = new Set(effActivities.map(a => a.id))
+    const isLinked = fe => resolveFixedEventActivityIds(fe).filter(id => liveIds.has(id)).length === 1
+    const unlinkedNames = effFixedEvents.filter(fe => !isLinked(fe)).map(fe => fe.name || fe.id)
+    const result = buildSchedule({ groups: effGroups, tiers, days, timeBlocks, activities: resolvePriorityForGeneration(effActivities), fixedEvents: effFixedEvents.filter(isLinked), campId, locations, electiveSetActivities, events, fixedEventsOnly: true, weekId })
     setManualFindings(result.findings || [])
     setManualDismissed(new Set())
 
     // T267 PR2 (ADR step 5) — same refuse gate as generate(): do not place
     // fixedEvents from a fixed_events row with an unresolvable activity_id.
     if ((result.findings || []).some(f => f.severity === 'error')) {
-      setActionError('This schedule could not be generated: a fixed or recurring event is not linked to a valid activity. Fix it on the Fixed/Recurring Events screen and try again.')
+      setActionError(refusalMessage(result.findings, fixedEvents))
       setGenerating(false)
       return
     }
@@ -245,6 +265,7 @@ export function useGeneration({
     setManualFindings(computeFindings({ slots: freshSlots, groups: effGroups, activities: effActivities, days }))
     setManualDismissed(new Set())
     if (groups.length > 0) setSelectedGroup(prev => prev ?? groups[0].id)
+    if (unlinkedNames.length > 0) setActionError(unlinkedEventsMessage(unlinkedNames, 'Your blank week is ready, but some events were left out'))
     setGenerating(false)
   }
 

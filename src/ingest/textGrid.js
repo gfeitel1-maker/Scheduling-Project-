@@ -168,6 +168,35 @@ function columnFor(token, columns) {
   return nearest
 }
 
+// Packaged audit #8 — two adjacent cells separated by ONE space
+// ("Woodworking Virtual Sports") arrive as a single token, because TOKEN only
+// breaks on 2+ spaces. When the token straddles a column boundary, the space
+// nearest that boundary leaves each half's centre on its own side, AND both
+// halves are cells this same file prints standalone elsewhere, AND the column
+// the second half would land in holds nothing else in this row, it is two
+// cells: split there. The standalone clause keeps a merged multi-day cell
+// ("Snack and PJ Library" centred across Mon-Thu) whole; the empty-column
+// clause keeps a run-on swim sub-schedule ("Recreational Swim") whole.
+function splitStraddler(token, columns, standalone, occupied) {
+  for (let i = 0; i < columns.length - 1; i++) {
+    const boundary = columns[i].end
+    if (!(token.start < boundary && token.end > boundary)) continue
+    let best = -1
+    for (let k = 0; k < token.text.length; k++) {
+      if (token.text[k] !== ' ') continue
+      if (best === -1 || Math.abs(token.start + k - boundary) < Math.abs(token.start + best - boundary)) best = k
+    }
+    if (best === -1) return [token]
+    const a = { text: token.text.slice(0, best), start: token.start, end: token.start + best }
+    const b = { text: token.text.slice(best + 1), start: token.start + best + 1, end: token.end }
+    if ((a.start + a.end) / 2 < boundary && (b.start + b.end) / 2 > boundary && standalone.has(a.text) && standalone.has(b.text) && !occupied.has(columnFor(b, columns))) {
+      return [a, ...splitStraddler(b, columns, standalone, occupied)]
+    }
+    return [token]
+  }
+  return [token]
+}
+
 // Columns are widened to meet their neighbours, because a header label is
 // narrower than the column it heads ("Music" heads a column that also holds
 // "Instructional Swim").
@@ -398,6 +427,7 @@ export function parseTextGrid(text) {
   const pages = []
 
   const { pages: pageSpans, banner } = splitPages(lines)
+  const standaloneTexts = new Set(lines.flatMap((l) => tokenize(l).map((t) => t.text)))
 
   for (const { title, headerIndex, endIndex } of pageSpans) {
     const headerTokens = tokenize(lines[headerIndex])
@@ -560,8 +590,10 @@ export function parseTextGrid(text) {
 
       valueRows.forEach((lineGroup, rowIndex) => {
         const cells = Array(columns.length).fill('')
+        const all = lineGroup.flat()
+        const othersOccupy = (t) => new Set(all.filter((o) => o !== t).map((o) => columnFor(o, columns)))
         for (const tokens of lineGroup) {
-          for (const token of tokens) {
+          for (const token of tokens.flatMap((t) => splitStraddler(t, columns, standaloneTexts, othersOccupy(t)))) {
             const index = columnFor(token, columns)
             if (index < 0) continue
             cells[index] = cells[index] ? `${cells[index]} ${token.text}` : token.text

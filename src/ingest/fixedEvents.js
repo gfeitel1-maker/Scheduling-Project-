@@ -295,6 +295,30 @@ export function inferFixedEvents(parsed, proposal, options = {}) {
     }
   }
 
+  // Arm 3 (numbered sibling) — packaged audit #13. A camp that staggers one
+  // event across groups numbers it ("Lunch 1".."Lunch 5"); a rarely-used
+  // number (one day, a few groups) clears neither arm above, yet it is the
+  // same event family as an admitted sibling. Admitted at 'low' so the
+  // director is asked, never silently pinned.
+  const numberedBase = (name) => {
+    const m = String(name).match(/^(.*\S)\s+\d+$/)
+    return m ? normalizeName(m[1]) : null
+  }
+  const admittedBases = new Set(filtered.map((f) => numberedBase(f.activity)).filter(Boolean))
+  for (const [key, daySet] of occupied) {
+    if (admitted.has(key)) continue
+    const [group, block, activity, period] = JSON.parse(key)
+    const base = numberedBase(activity)
+    if (!base || !admittedBases.has(base)) continue
+    admitted.add(key)
+    filtered.push({
+      group, block, activity, period,
+      days: [...daySet].sort((a, b) => dayRank(a) - dayRank(b)),
+      occ: daySet.size, operating: operatingDays.get(group)?.size ?? 0,
+      confidence: 'low', basis: 'sibling',
+    })
+  }
+
   const collapsed = new Map()
   const pushEntries = (entries, periodKey, activity, block, days) => {
     // `periodKey` (representative of this bucket, or null) is part of the
@@ -320,12 +344,13 @@ export function inferFixedEvents(parsed, proposal, options = {}) {
         // review panel can explain a 'high' that rests on group-coverage
         // rather than day-coverage. A collapsed event drawing on both arms
         // reports 'daily' — the stronger, original justification.
-        anyDaily: false,
+        anyDaily: false, anyWeekly: false,
       })
     }
     const entry = collapsed.get(collKey)
     for (const e of entries) {
       if (e.basis === 'daily') entry.anyDaily = true
+      if (e.basis === 'weekly') entry.anyWeekly = true
       entry.groups.add(e.group)
       entry.groupStats.set(e.group, { occ: e.occ, operating: e.operating })
       if (e.confidence !== 'high') entry.allHigh = false
@@ -427,7 +452,7 @@ export function inferFixedEvents(parsed, proposal, options = {}) {
         )
         return {
           days: entry.days,
-          basis: entry.anyDaily ? 'daily' : 'weekly',
+          basis: entry.anyDaily ? 'daily' : entry.anyWeekly ? 'weekly' : 'sibling',
           occupied_days: entry.maxOcc,
           operating_days: entry.pairedOperating,
           groups_in_scope: [...entry.groups].map((g) => groupSpelling.get(g) ?? g).sort((a, b) => a.localeCompare(b)),

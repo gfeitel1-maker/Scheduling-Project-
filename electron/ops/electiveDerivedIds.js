@@ -1,4 +1,5 @@
-import { randomUUID } from 'node:crypto'
+// globalThis.crypto, not node:crypto: this module is also bundled into the
+// renderer, where Vite externalizes node:crypto and the import throws at load.
 import { whitespaceInsensitiveName } from '../../src/ingest/preview.js'
 
 // Deterministic id derivation for the individual-elective participant
@@ -347,7 +348,7 @@ export function deriveCamperId(
 // scheme. This is not a parsing contract (see the prohibition at the top of this
 // file) — nothing may recover a camper by inspecting the string.
 export function mintCamperId() {
-  return `camper2:${randomUUID()}`
+  return `camper2:${globalThis.crypto.randomUUID()}`
 }
 
 // Key: (camp_id, source_sha256). FOR THE SHEET-IMPORT PATH ONLY.

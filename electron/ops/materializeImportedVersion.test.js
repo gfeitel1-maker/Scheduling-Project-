@@ -101,6 +101,21 @@ function seedCatalog(db, campId) {
 }
 
 describe('materializeImportedVersion', () => {
+  it('does not un-archive or duplicate Week 1 when every week is archived (Red Hat #1)', async () => {
+    const db = makeDb()
+    const campId = seedCamp(db)
+    seedCatalog(db, campId)
+    const archivedId = `schedule-week:${campId}:1`
+    db.prepare("INSERT INTO schedule_weeks (id, camp_id, name, sort_order, is_archived) VALUES (?, ?, 'Week 1', 0, 1)").run(archivedId, campId)
+    const placements = [{ groupName: 'Bunk 1', dayName: 'Monday', blockLabel: '09:00', activityName: 'Swim' }]
+    const result = await materializeImportedVersion(db, fakeSyncClient(db), { campId, authorUserId, placements })
+    expect(result.created).toBe(false)
+    expect(result.allWeeksArchived).toBe(true)
+    const weeks = db.prepare('SELECT id, is_archived FROM schedule_weeks WHERE camp_id = ?').all(campId)
+    expect(weeks).toEqual([{ id: archivedId, is_archived: 1 }])
+    expect(db.prepare('SELECT COUNT(*) c FROM schedule_snapshots').get().c).toBe(0)
+  })
+
   it('returns created:false with unresolvedCount when no schedule_weeks row exists', async () => {
     const db = makeDb()
     const campId = seedCamp(db)

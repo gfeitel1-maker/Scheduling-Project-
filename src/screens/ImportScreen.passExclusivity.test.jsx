@@ -114,7 +114,7 @@ async function uploadFile() {
 
 async function commitAndFetchActivities() {
   const { localClient } = await import('../localClient')
-  await userEvent.click(screen.getByText(/Add \d+ record/))
+  await userEvent.click(screen.getByText(/Review \d+ record/))
   // The pin-only mechanism forces the Lunch create to a LOW-confidence
   // ('low') tier deliberately (buildPlan.js:669-678) — a standard-lane
   // confirm_value decision, requiring the director's explicit "Use this

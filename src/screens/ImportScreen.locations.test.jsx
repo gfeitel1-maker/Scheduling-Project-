@@ -73,7 +73,7 @@ async function uploadFile() {
 }
 
 async function commit() {
-  await userEvent.click(screen.getByText(/Add \d+ record/))
+  await userEvent.click(screen.getByText(/Review \d+ record/))
   // The fixture has no tiers/groups/time_blocks set up yet, so
   // ReconciliationScreen's readiness gate (F3) surfaces required_gap cards
   // that are dismissed (Skip for now) because these tests guard the commit payload.
@@ -81,7 +81,7 @@ async function commit() {
   // helper matches any of the three rather than the one the old primary used —
   // unrelated to what this test guards (Q8 case-consistency), so dismiss
   // whatever appears rather than special-casing the fixture.
-  await waitFor(() => expect(screen.getByText(/Use this setup|Use what Shoresh understood|Apply \d+ decision/)).toBeTruthy())
+  await waitFor(() => expect(screen.getByText(/Use this setup|Use what Shoresh understood|Add to camp|Apply \d+ decision/)).toBeTruthy())
   // H1 (docs/work/specs/2026-08-19-roots-reconciliation-audit.md §12 Slice 1)
   // — the default panel view now scopes to unresolved decisions, so
   // dismissing one required_gap removes it from the on-screen list (rather
@@ -94,7 +94,7 @@ async function commit() {
     await userEvent.click(skipButtons[0])
     skipButtons = screen.queryAllByText(/^Skip .* for now/)
   }
-  await userEvent.click(await screen.findByText(/Use this setup|Use what Shoresh understood|Apply \d+ decision/))
+  await userEvent.click(await screen.findByText(/Use this setup|Use what Shoresh understood|Add to camp|Apply \d+ decision/))
   await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
   return localClient.ingestCommit.mock.calls[0][0]
 }

@@ -396,7 +396,7 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
   // high-confidence, is still an UNCOMMITTED write until one of them runs.
   // Reaching the end state any other way (decisions resolved, or nothing to
   // decide but something to commit) goes through the real apply -> Receipt.
-  const tray = applyTrayState({ totalCount, doneCount, confirmedCount })
+  const tray = applyTrayState({ totalCount, doneCount, confirmedCount, isFirstImport })
   const isGenuinelyEmpty = totalCount === 0 && understoodCount === 0 && notInSourceCount === 0 && lanes.readinessGreen
 
   // Interaction spec §1 — tile click toggles (re-clicking a selected tile

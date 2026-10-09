@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react'
+import { unresolvedPlacementsNotice } from '../ingest/unresolvedPlacementsNotice'
 import { localClient } from '../localClient'
 import { useCohorts } from '../hooks/useCohorts'
 import { S, useEnterTransition } from '../styles/shared'
@@ -1498,13 +1499,8 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
     // (created, nothing skipped) shows nothing, per the Governor-confirmed copy.
     const version = outcome?.version
     const notices = []
-    if (version && version.created && version.unresolvedCount > 0) {
-      notices.push(
-        `${version.unresolvedCount} placement${version.unresolvedCount === 1 ? '' : 's'} couldn't be matched and ${version.unresolvedCount === 1 ? 'was' : 'were'} skipped.`
-      )
-    } else if (version && !version.created && version.unresolvedCount > 0) {
-      notices.push('Your imported schedule couldn’t be saved as a version this time.')
-    }
+    const versionNotice = unresolvedPlacementsNotice(version)
+    if (versionNotice) notices.push(versionNotice)
     // T118 slice 4 (Red Hat review) — a compound-cell decision write failing
     // is rare (per-item, non-fatal, same seam as materializeImportedVersion
     // above) but must still surface: a silently-dropped decision means the
@@ -2614,7 +2610,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
             >
               {importMode === 'replace' && existingCountAll > 0
                 ? `Replace with ${approvedCount} ${approvedCount === 1 ? 'record' : 'records'}`
-                : `Add ${approvedCount} ${approvedCount === 1 ? 'record' : 'records'}`}
+                : `Review ${approvedCount} ${approvedCount === 1 ? 'record' : 'records'}`}
             </button>
             <button className="press-97" onClick={() => { setProposal(null); setFileNames([]) }} style={S.btnSecondary}>
               Cancel

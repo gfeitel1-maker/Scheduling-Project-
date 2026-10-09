@@ -54,7 +54,11 @@ export function formatBuildLabel(info, version) {
   const parts = []
   if (v) parts.push(v)
   if (info.commit) parts.push(info.commit.slice(0, 7))
-  if (info.builtAt) parts.push(info.builtAt.slice(0, 10))
+  const built = info.builtAt ? new Date(info.builtAt) : null
+  if (built && !Number.isNaN(built.getTime())) {
+    const pad = (n) => String(n).padStart(2, '0')
+    parts.push(`${built.getFullYear()}-${pad(built.getMonth() + 1)}-${pad(built.getDate())}`)
+  } else if (info.builtAt) parts.push(info.builtAt.slice(0, 10))
   return parts.join(' · ')
 }
 
