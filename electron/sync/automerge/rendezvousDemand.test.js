@@ -9,7 +9,7 @@ import { peerIdFromPrivateKey } from '@libp2p/peer-id'
 import { mintRendezvousAddressKey, readRendezvousAddressKey } from './rendezvousAddressKey.js'
 import { mintRendezvousNamespace } from './rendezvousNamespace.js'
 import { verify } from './rendezvousRecord.js'
-import { startDemandRendezvousClient, startRendezvousClient, publicRecordAddresses } from './rendezvousClient.js'
+import { startDemandRendezvousClient, startRendezvousClient, publicRecordAddresses, createQueuedDemand } from './rendezvousClient.js'
 
 function readyDoc() {
   let doc = A.change(A.from({ camps: {} }), (d) => { d.camps.id = 'camp-1' })
@@ -132,5 +132,21 @@ describe('rendezvous record addresses', () => {
     const verdict = verify(Buffer.from(JSON.parse(post[1].body).record, 'base64'), { addressKey: readRendezvousAddressKey(doc, 'camp-1'), now: Date.now() })
     expect(verdict.record.addresses).toEqual([])
     handle.stop()
+  })
+})
+
+describe('queued demand before discovery start', () => {
+  it('a request made before the handle exists is replayed on attach, not dropped', () => {
+    const demand = createQueuedDemand()
+    demand.request('peer-b')
+    demand.request('peer-c')
+    demand.release('peer-c')
+    const handle = { request: vi.fn(), release: vi.fn() }
+    demand.attach(handle)
+    expect(handle.request.mock.calls).toEqual([['peer-b']])
+    demand.request('peer-d')
+    demand.release('peer-b')
+    expect(handle.request).toHaveBeenLastCalledWith('peer-d')
+    expect(handle.release).toHaveBeenCalledWith('peer-b')
   })
 })

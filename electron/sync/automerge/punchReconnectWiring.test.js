@@ -80,6 +80,20 @@ describe('store failures are surfaced, never silent', () => {
   })
 })
 
+describe('a dependency that is not ready is a rung error, not "unreachable"', () => {
+  it('no transport/upgrader and no signaling: PUNCH_RUNG_ERROR for rungs 1 and 2, no SAME_NETWORK_REQUIRED, no rung 3', async () => {
+    const rendezvous = { request: vi.fn(), release: vi.fn() }
+    const args = base({ getTransport: () => null, getUpgrader: () => null, rendezvous, coordinatorOptions: { lanGraceMs: 0, setTimer: () => ({ unref() {} }), clearTimer: () => {} } })
+    const wiring = await wirePunchReconnect({ ...args, node: fakeNode() })
+    const result = await wiring.coordinator.reconnect({ peerId: '12D3KooWOther', deviceId: 'dev-x' })
+    expect(result).toEqual({ ok: false, reason: 'rung-error' })
+    expect(args.emit.mock.calls.filter((c) => c[0] === EVENTS.PUNCH_RUNG_ERROR).map((c) => c[1].rung)).toEqual([1, 2])
+    expect(args.emit).not.toHaveBeenCalledWith(EVENTS.SAME_NETWORK_REQUIRED, expect.anything())
+    expect(rendezvous.request).not.toHaveBeenCalled()
+    await wiring.stop()
+  })
+})
+
 describe('gossip publishing of this device\'s own reflexive candidates', () => {
   function readyDoc() {
     return A.change(A.from({ camps: {} }), (d) => { d.camps.id = 'camp-1' })

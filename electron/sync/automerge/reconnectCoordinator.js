@@ -8,73 +8,126 @@
 // reached, so a camp whose peers are all reachable makes no rendezvous call at all.
 //
 // Every collaborator is injected: this module imports nothing from libp2p, the transport or the
-// network, and never throws. When every rung fails it emits SAME_NETWORK_REQUIRED (an event for a
-// later UI) and retries the ladder on a backoff.
+// network, and never throws. The peer is re-checked after EVERY rung and just before rung 3: a connected peer ends
+// the ladder and releases any rendezvous demand. When every rung fails (none merely erroring) it emits
+// SAME_NETWORK_REQUIRED and retries that peer on its own backoff.
 import { EVENTS } from './connectivityEvents.js'
 import { backoffMs } from './punchBackoff.js'
 
 export const RUNG3_WAIT_MS = 90_000
 export const FIRST_SWEEP_DELAY_MS = 15_000
+export const LAN_GRACE_MS = 30_000
 
 // peer: { peerId, deviceId }. deps: listPeers() -> every trusted camp peer
 // other than this device, isConnected(peerId), attemptLan/attemptRung1/attemptRung2(peer) ->
-// { ok } | boolean, rendezvous: { request, release } | null, emit(name, fields).
+// { ok } | boolean, waitMdnsPass() -> Promise resolved when the next mDNS pass completes,
+// rendezvous: { request, release } | null, emit(name, fields).
 export function createReconnectCoordinator({
   listPeers,
   isConnected,
   attemptLan,
   attemptRung1,
   attemptRung2,
+  waitMdnsPass = () => new Promise(() => {}),
   rendezvous = null,
   emit = () => {},
   rung3WaitMs = RUNG3_WAIT_MS,
+  lanGraceMs = LAN_GRACE_MS,
   firstSweepDelayMs = FIRST_SWEEP_DELAY_MS,
+  now = Date.now,
   setTimer = setTimeout,
   clearTimer = clearTimeout,
   random = Math.random,
 } = {}) {
   const inFlight = new Map()
   const waiters = new Map()
+  const backoff = new Map()
+  const lastConnected = new Map()
+  const demanded = new Set()
   let timer = null
-  let attempt = 0
+  let timerDueAt = 0
   let stopped = false
 
-  const succeeded = async (fn, peer) => {
+  const CONNECTED = { ok: true, rung: 'connected' }
+
+  const tryRung = async (fn, peer) => {
     try {
       const r = await fn(peer)
-      return r === true || r?.ok === true
+      if (r === true || r?.ok === true) return 'ok'
+      return r?.reason === 'error' ? 'error' : 'fail'
     } catch {
-      return false
+      return 'error'
     }
   }
 
-  function waitConnected(peerId, ms) {
-    return new Promise((resolve) => {
-      const done = (v) => { clearTimer(t); waiters.delete(peerId); resolve(v) }
-      const t = setTimer(() => done(false), ms)
-      waiters.set(peerId, done)
-    })
+  const connectedNow = (peerId) => {
+    let c = false
+    try { c = isConnected(peerId) } catch { /* treat as not connected */ }
+    if (c) release(peerId)
+    return c
   }
 
-  // The owner of the connection calls this when a peer is admitted; it ends a rung-3 wait early.
-  function peerConnected(peerId) {
-    waiters.get(peerId)?.(true)
+  function request(peerId) {
+    demanded.add(peerId)
+    rendezvous?.request(peerId)
+  }
+
+  function release(peerId) {
+    demanded.delete(peerId)
     rendezvous?.release(peerId)
   }
 
+  // Resolves 'connected' at once if the peer already is, else 'connected' | 'timeout' | 'cancelled'.
+  // `until` (optional) is a promise that ends the wait early with 'timeout'.
+  function waitConnected(peerId, ms, until) {
+    if (connectedNow(peerId)) return Promise.resolve('connected')
+    return new Promise((resolve) => {
+      const done = (v) => { clearTimer(t); waiters.delete(peerId); resolve(v) }
+      const t = setTimer(() => done('timeout'), ms)
+      waiters.set(peerId, done)
+      until?.then(() => done('timeout'), () => done('timeout'))
+    })
+  }
+
+  // The owner of the connection calls this when a peer is admitted; it ends a wait early.
+  function peerConnected(peerId) {
+    waiters.get(peerId)?.('connected')
+    release(peerId)
+  }
+
   async function reconnect(peer) {
-    if (isConnected(peer.peerId)) { rendezvous?.release(peer.peerId); return { ok: true, rung: 'connected' } }
-    if (await succeeded(attemptLan, peer)) return { ok: true, rung: 'lan' }
-    if (await succeeded(attemptRung1, peer)) return { ok: true, rung: 'rung1' }
-    if (await succeeded(attemptRung2, peer)) return { ok: true, rung: 'rung2' }
-    if (rendezvous) {
-      rendezvous.request(peer.peerId)
-      if (await waitConnected(peer.peerId, rung3WaitMs)) {
-        rendezvous.release(peer.peerId)
-        return { ok: true, rung: 'rung3' }
+    const id = peer.peerId
+    if (connectedNow(id)) return CONNECTED
+    if (await tryRung(attemptLan, peer) === 'ok') return { ok: true, rung: 'lan' }
+    if (connectedNow(id)) return CONNECTED
+    if (lanGraceMs > 0) {
+      const outcome = await waitConnected(id, lanGraceMs, Promise.resolve().then(waitMdnsPass))
+      if (outcome === 'cancelled') return { ok: false, reason: 'cancelled' }
+      if (connectedNow(id)) return CONNECTED
+    }
+    let rungError = false
+    for (const [n, fn] of [[1, attemptRung1], [2, attemptRung2]]) {
+      const r = await tryRung(fn, peer)
+      if (connectedNow(id) || r === 'ok') return r === 'ok' ? { ok: true, rung: `rung${n}` } : CONNECTED
+      if (r === 'error') {
+        rungError = true
+        emit(EVENTS.PUNCH_RUNG_ERROR, { peerId: id, rung: n })
       }
     }
-    emit(EVENTS.SAME_NETWORK_REQUIRED, { peerId: peer.peerId, reason: rendezvous ? 'all-rungs-failed' : 'rungs-1-2-failed-no-rendezvous' })
+    if (stopped) return { ok: false, reason: 'cancelled' }
+    if (rungError) return { ok: false, reason: 'rung-error' }
+    if (rendezvous) {
+      if (connectedNow(id)) return CONNECTED
+      request(id)
+      const outcome = await waitConnected(id, rung3WaitMs)
+      if (outcome === 'cancelled') return { ok: false, reason: 'cancelled' }
+      if (outcome === 'connected' || connectedNow(id)) {
+        release(id)
+        return { ok: true, rung: 'rung3' }
+      }
+      release(id)
+    }
+    emit(EVENTS.SAME_NETWORK_REQUIRED, { peerId: id, reason: rendezvous ? 'all-rungs-failed' : 'rungs-1-2-failed-no-rendezvous' })
     return { ok: false, reason: 'same-network-required' }
   }
 
@@ -85,38 +138,78 @@ export function createReconnectCoordinator({
     return inFlight.get(peer.peerId)
   }
 
-  async function sweep() {
-    timer = null
-    if (stopped) return
+  function currentPeers() {
     let all = []
     try { all = listPeers() } catch { /* retry on the next sweep */ }
-    const results = await Promise.all(all.map(reconnectPeer))
-    if (stopped) return
-    if (results.some((r) => !r.ok)) {
-      schedule(backoffMs(attempt++, { random }))
-    } else {
-      attempt = 0
+    const present = new Set(all.map((p) => p.peerId))
+    for (const id of new Set([...backoff.keys(), ...lastConnected.keys(), ...demanded])) {
+      if (present.has(id)) continue
+      backoff.delete(id)
+      lastConnected.delete(id)
+      release(id)
+      waiters.get(id)?.('cancelled')
     }
+    return all
   }
 
+  async function sweep() {
+    if (timer) clearTimer(timer)
+    timer = null
+    if (stopped) return
+    const all = currentPeers()
+    const t = now()
+    const due = all.filter((p) => (backoff.get(p.peerId)?.nextAt ?? 0) <= t)
+    const results = await Promise.all(due.map((p) => reconnectPeer(p).then((r) => [p, r])))
+    if (stopped) return
+    const present = new Set(all.map((p) => p.peerId))
+    for (const [p, r] of results) {
+      if (!present.has(p.peerId) || r.reason === 'cancelled') continue
+      if (r.ok) { backoff.delete(p.peerId); continue }
+      const attempt = (backoff.get(p.peerId)?.attempt ?? -1) + 1
+      backoff.set(p.peerId, { attempt, nextAt: now() + backoffMs(attempt, { random }) })
+    }
+    for (const p of all) {
+      const c = connectedNow(p.peerId)
+      lastConnected.set(p.peerId, c)
+      if (c) backoff.delete(p.peerId)
+    }
+    if (backoff.size > 0) schedule(Math.max(0, Math.min(...[...backoff.values()].map((b) => b.nextAt)) - now()))
+  }
+
+  // An earlier due time replaces a pending later timer; a later one never postpones it.
   function schedule(delayMs) {
-    if (stopped || timer) return
+    if (stopped) return
+    const dueAt = now() + delayMs
+    if (timer && timerDueAt <= dueAt) return
+    if (timer) clearTimer(timer)
+    timerDueAt = dueAt
     timer = setTimer(() => { sweep().catch(() => {}) }, delayMs)
     timer.unref?.()
+  }
+
+  // A peer whose connected state changed gets a fresh backoff; the next sweep is pulled forward.
+  function notifyPeersChanged() {
+    if (stopped) return
+    for (const p of currentPeers()) {
+      const c = connectedNow(p.peerId)
+      if (lastConnected.has(p.peerId) && lastConnected.get(p.peerId) !== c) backoff.delete(p.peerId)
+      lastConnected.set(p.peerId, c)
+    }
+    schedule(firstSweepDelayMs)
   }
 
   return {
     reconnect: reconnectPeer,
     sweep,
     peerConnected,
-    // A disconnect or a fresh start: look for unreachable peers after the first-sweep delay.
     start: () => schedule(firstSweepDelayMs),
-    notifyPeersChanged: () => schedule(firstSweepDelayMs),
+    notifyPeersChanged,
     stop() {
       stopped = true
       if (timer) clearTimer(timer)
       timer = null
-      for (const w of [...waiters.values()]) w(false)
+      for (const w of [...waiters.values()]) w('cancelled')
+      for (const id of [...demanded]) release(id)
     },
   }
 }

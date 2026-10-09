@@ -31,6 +31,9 @@ export const EVENTS = Object.freeze({
   SAME_NETWORK_REQUIRED: 'SAME_NETWORK_REQUIRED',
   // S4c: a persisted punch store (kind only, never its path) is corrupt or unwritable and fails closed.
   PUNCH_STORE_FAILED: 'PUNCH_STORE_FAILED',
+  // S4c: rung 1 or 2 threw (or a dependency was not ready). Carries the rung number only. This is a
+  // defect, not "unreachable", so it never escalates to rung 3 and never claims same-network-required.
+  PUNCH_RUNG_ERROR: 'PUNCH_RUNG_ERROR',
 })
 
 // Per-event field allowlist, beyond the shared { ts, peerId, source }. This is itself a leak
@@ -54,6 +57,7 @@ export const FIELD_ALLOWLIST = Object.freeze({
   [EVENTS.CLOCK_SKEW]: ['reason', 'skewMs'],
   [EVENTS.SAME_NETWORK_REQUIRED]: ['reason'],
   [EVENTS.PUNCH_STORE_FAILED]: ['store'],
+  [EVENTS.PUNCH_RUNG_ERROR]: ['rung'],
 })
 
 const ERROR_CLASSES = Object.freeze(['timeout', 'refused', 'reset', 'unreachable', 'unknown'])

@@ -92,16 +92,24 @@ export async function wirePunchReconnect({
     listPeers,
     isConnected,
     attemptLan,
-    attemptRung1: (peer) => attemptRung1(peer, { db, transport: getTransport(), upgrader: getUpgrader() }),
-    attemptRung2: (peer) => attemptRung2({
-      peerDeviceId: peer.deviceId,
-      readEntries: (hw) => readReflexive(getDoc(), { campId, registry, highWater: hw }),
-      signaling,
-      bindChannel: (ch) => channel.bind(ch),
-      dial: (addr) => node.dial(addr),
-      highWater,
-      emit,
-    }),
+    attemptRung1: (peer) => {
+      const transport = getTransport()
+      const upgrader = getUpgrader()
+      if (!transport || !upgrader) throw new Error('punch transport not ready')
+      return attemptRung1(peer, { db, transport, upgrader })
+    },
+    attemptRung2: (peer) => {
+      if (!signaling) throw new Error('punch signaling not ready')
+      return attemptRung2({
+        peerDeviceId: peer.deviceId,
+        readEntries: (hw) => readReflexive(getDoc(), { campId, registry, highWater: hw }),
+        signaling,
+        bindChannel: (ch) => channel.bind(ch),
+        dial: (addr) => node.dial(addr),
+        highWater,
+        emit,
+      })
+    },
     rendezvous,
     emit,
     ...coordinatorOptions,

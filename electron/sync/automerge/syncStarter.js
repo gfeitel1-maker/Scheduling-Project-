@@ -34,7 +34,7 @@ import { resolveStartupDoc, dispatchRemoteOps, REMOTE_OPS_COALESCE_THRESHOLD } f
 import { createMdnsDiscovery, rotatingServiceTag } from './discovery.js'
 import { mintRendezvousNamespace } from './rendezvousNamespace.js'
 import { createVerifiedEntryTrust } from '../../automerge/authorityReplay.js'
-import { readRendezvousConfig, createRendezvousDiscovery } from './rendezvousClient.js'
+import { readRendezvousConfig, createRendezvousDiscovery, createQueuedDemand } from './rendezvousClient.js'
 import { nextSequence } from './rendezvousSequence.js'
 // NAMING WARNING (gate-fix round 3, Code Reviewer MEDIUM): do not rename either import below to
 // name the hole-punch capability's own package/marker strings — transportBoundary.guard.test.js
@@ -352,15 +352,15 @@ export function createAutomergeSyncStarter({
       let rendezvousDemand = null
       if (rendezvousConfig.enabled) {
         const { peerId: rendezvousPeerId, privateKey: rendezvousPrivateKey } = await ensureDeviceIdentity(db)
-        let demandHandle = null
+        const queuedDemand = createQueuedDemand()
         const punchRendezvous = punchEnabled
           ? {
               demandDriven: true,
               getAddresses: (await import('./punchIdentity.js')).ownReflexiveMultiaddrs.bind(null, db),
-              onDemandHandle: (h) => { demandHandle = h },
+              onDemandHandle: queuedDemand.attach,
             }
           : {}
-        if (punchEnabled) rendezvousDemand = { request: (id) => demandHandle?.request(id), release: (id) => demandHandle?.release(id) }
+        if (punchEnabled) rendezvousDemand = queuedDemand
         peerDiscovery.push(
           createRendezvousDiscovery({
             campId,

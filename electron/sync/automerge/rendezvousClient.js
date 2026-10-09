@@ -272,6 +272,22 @@ export function startRendezvousClient({
  * this data comes from an untrusted cache) is dropped rather than thrown, same discipline as the
  * rest of this file's untrusted-input handling.
  */
+// The discovery's demand handle only exists once discovery start() has run. A request made before
+// that is held and replayed on attach rather than dropped.
+export function createQueuedDemand() {
+  let handle = null
+  const pending = new Set()
+  return {
+    request: (id) => { if (handle) handle.request(id); else pending.add(id) },
+    release: (id) => { if (handle) handle.release(id); else pending.delete(id) },
+    attach: (h) => {
+      handle = h
+      for (const id of pending) h.request(id)
+      pending.clear()
+    },
+  }
+}
+
 export function createRendezvousDiscovery({ campId, baseUrl, doc, getPrivateKey, peerId, nextSequence, intervalMs, fetchImpl, getAddresses, demandDriven = false, onDemandHandle } = {}) {
   return () => {
     let handle = null
