@@ -432,9 +432,13 @@ describe('ScheduleGroupView — collapse (T55)', () => {
     for (const rule of collapsedRules) {
       expect(rule, rule).not.toMatch(/(^|[^-])opacity\s*:/)
     }
-    // And no animation: collapse is an instant track-height change.
+    // The track-height change stays instant. The one motion allowed is the
+    // folded content's opacity fade-in (it rests at full opacity, so the
+    // contrast measurement above holds) and its reduced-motion `none`.
     for (const rule of css.split('}').filter(r => /\[data-collapsed\]/.test(r))) {
-      expect(rule, rule).not.toMatch(/transition\s*:|animation\s*:/)
+      expect(rule, rule).not.toMatch(/transition\s*:/)
+      const anim = rule.match(/animation\s*:\s*([^;]+)/)
+      if (anim) expect(anim[1]).toMatch(/^(collapsed-row-in |none)/)
     }
   })
 })

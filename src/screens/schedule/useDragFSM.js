@@ -70,6 +70,8 @@ export function useDragFSM({ commit, describeDrag, describeHit, isOccupied }) {
   const activeRef = useRef(null)
   const targetRef = useRef(null)
   const pointRef = useRef(null)
+  const livePointRef = useRef(null)
+  const sourceRef = useRef(null)
   const ghostRef = useRef(null)
   const liveRef = useRef(null)
 
@@ -170,13 +172,34 @@ export function useDragFSM({ commit, describeDrag, describeHit, isOccupied }) {
     for (const effect of sideEffects) perform(effect)
   }
 
-  // Pointer coordinates: the activator event plus dnd-kit's delta. A keyboard
-  // drag has no client coordinates, so it falls back to the centre of the
-  // translated drag rect — which is the same thing the pointer path is
-  // approximating, and is what makes the keyboard sensor resolve real hits.
+  function trackPointer(e) {
+    livePointRef.current = { x: e.clientX, y: e.clientY }
+  }
+
+  function markSource(active) {
+    const el = [...document.querySelectorAll('[data-cell-key]')]
+      .find(c => c.getAttribute('data-cell-key') === active?.id) ?? null
+    el?.setAttribute('data-drag-source', '')
+    sourceRef.current = el
+  }
+
+  function endGesture() {
+    window.removeEventListener('pointermove', trackPointer, true)
+    livePointRef.current = null
+    sourceRef.current?.removeAttribute('data-drag-source')
+    sourceRef.current = null
+  }
+
+  // Pointer drags read the LIVE pointer. dnd-kit's `delta` folds in scroll
+  // adjustment, so activator + delta drifts by however far the page scrolled
+  // mid-drag and the hit lands that far from the cursor (the Tester's
+  // First Period/Monday drop that landed in Fourth/Thursday). A keyboard drag
+  // has no client coordinates, so it falls back to the centre of the
+  // translated drag rect, which cellKeyboardCoordinates steps cell by cell.
   function pointFor(event) {
     const activator = event.activatorEvent
     if (activator && typeof activator.clientX === 'number') {
+      if (livePointRef.current) return livePointRef.current
       const delta = event.delta || { x: 0, y: 0 }
       return { x: activator.clientX + delta.x, y: activator.clientY + delta.y }
     }
@@ -200,6 +223,10 @@ export function useDragFSM({ commit, describeDrag, describeHit, isOccupied }) {
 
   function onDragStart(event) {
     activeRef.current = event.active
+    if (typeof event.activatorEvent?.clientX === 'number') {
+      window.addEventListener('pointermove', trackPointer, true)
+    }
+    markSource(event.active)
     const kind = kindFromActive(event.active) ?? DRAG_KINDS.SLOT_MOVE
     if (stateRef.current.name !== POINTING || stateRef.current.context.kind !== kind) {
       dispatch({ type: 'POINTER_DOWN', kind, hit: resolveHit(pointRef.current), gestureId: crypto.randomUUID() })
@@ -215,10 +242,12 @@ export function useDragFSM({ commit, describeDrag, describeHit, isOccupied }) {
 
   function onDragEnd(event) {
     pointRef.current = pointFor(event) ?? pointRef.current
+    endGesture()
     dispatch({ type: 'POINTER_UP', hit: resolveHit(pointRef.current) })
   }
 
   function onDragCancel() {
+    endGesture()
     dispatch({ type: 'CANCEL' })
   }
 

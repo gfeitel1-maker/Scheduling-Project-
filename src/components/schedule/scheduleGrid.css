@@ -179,6 +179,37 @@
   border-radius: 4px;
 }
 
+/* The visible half of aria-expanded: points down while open, right once
+   folded. Rotated off the row header's data-collapsed, so toggling stays one
+   attribute write. */
+.row-header-toggle {
+  position: relative;
+  padding-left: 14px;
+}
+
+.row-header-chevron {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  margin-top: -5px;
+  color: var(--text-secondary);
+  transition: transform var(--motion-fast) var(--ease-standard);
+}
+
+.row-header[data-collapsed] .row-header-chevron {
+  transform: rotate(-90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row-header-chevron {
+    transition: none;
+  }
+  .cell[data-collapsed] .cell-inner,
+  .cell[data-collapsed] .cell-empty {
+    animation: none;
+  }
+}
+
 .block-name {
   font-family: var(--font-condensed);
   font-weight: 600;
@@ -472,8 +503,9 @@
    spanning ACROSS a collapsed block keeps every rule above: it simply gets
    shorter, because grid sums the tracks it covers.
 
-   No transition anywhere in this block: collapse is an instant track-height
-   change (spec §5.4, DESIGN_STANDARD §8). */
+   The track-height change itself stays instant (DESIGN_STANDARD §8 animates
+   opacity/transform only); the folded label fades in over --motion-fast, with
+   the reduced-motion fallback next to .row-header-chevron. */
 
 .cell[data-collapsed] {
   padding: 0 11px;
@@ -482,6 +514,7 @@
 
 .cell[data-collapsed] .cell-inner,
 .cell[data-collapsed] .cell-empty {
+  animation: collapsed-row-in var(--motion-fast) var(--ease-out);
   min-height: 0;
   height: 100%;
   padding: 0;
@@ -524,6 +557,17 @@
 
 .row-header[data-collapsed] {
   padding: 0 14px;
+}
+
+@keyframes collapsed-row-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Folded, each day is its own entry: a hairline between neighbours so the
+   labels read as five cells, not one run of text. */
+.cell[data-collapsed]:not(.row-header) + .cell[data-collapsed] {
+  box-shadow: inset 1px 0 0 var(--border);
 }
 
 /* One 6px dot per collapsed row when ANY cell in it is flagged: a folded row
@@ -610,6 +654,14 @@
 
 .cell[data-drag-over][data-drop-edge='bottom']::before {
   bottom: 5px;
+}
+
+/* What was picked up — stays marked while the target moves, so a keyboard
+   drag (no pointer, no ghost to follow) always shows both ends of the move. */
+.cell[data-drag-source] .cell-inner {
+  outline: 2px dashed var(--primary);
+  outline-offset: -2px;
+  opacity: 0.55;
 }
 
 /* Static ghost of the incoming activity + dimmed occupant, per spec's "no
