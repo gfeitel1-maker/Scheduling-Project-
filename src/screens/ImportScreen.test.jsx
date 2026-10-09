@@ -129,7 +129,7 @@ async function uploadFile() {
 // the three rather than the one label the old always-disabled primary used.
 async function goToCommit() {
   await userEvent.click(screen.getByText(/Review \d+ record/))
-  await waitFor(() => expect(screen.getByText(/Use this setup|Use what Shoresh understood|Add what Shoresh found in your file|Apply \d+ decision/)).toBeTruthy())
+  await waitFor(() => expect(screen.getByText(/Use this setup|Use what Shoresh understood|Add to camp|Apply \d+ decision/)).toBeTruthy())
   // H1 (docs/work/specs/2026-08-19-roots-reconciliation-audit.md §12 Slice 1)
   // — the default panel view now scopes to unresolved decisions, so
   // dismissing one required_gap removes it from the on-screen list (rather
@@ -142,7 +142,7 @@ async function goToCommit() {
     await userEvent.click(skipButtons[0])
     skipButtons = screen.queryAllByText(/^Skip .* for now/)
   }
-  await userEvent.click(await screen.findByText(/Use this setup|Use what Shoresh understood|Add what Shoresh found in your file|Apply \d+ decision/))
+  await userEvent.click(await screen.findByText(/Use this setup|Use what Shoresh understood|Add to camp|Apply \d+ decision/))
 }
 
 describe('ImportScreen — residual report (T36)', () => {
