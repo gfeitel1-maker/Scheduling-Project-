@@ -1055,6 +1055,19 @@ CREATE TABLE IF NOT EXISTS special_day_slots (
   location_id TEXT
 );
 
+-- special_day_placements (T350, docs/adr/2026-10-09-special-day-binds-to-a-week-day.md D1):
+-- one row per (week, day) a special day replaces. id is deriveSpecialDayPlacementId(week_id,
+-- day_id), so the primary key IS the one-binding-per-slot rule (no UNIQUE index). Route-agnostic
+-- by construction: no template_id, no kind. day_id and special_day_id are SOFT references (no
+-- REFERENCES): a placement whose day or special day is gone is ignored at resolution, never a
+-- projection failure. Mirrored byte-for-byte by SPECIAL_DAY_PLACEMENTS_DDL in localDb.js.
+CREATE TABLE IF NOT EXISTS special_day_placements (
+  id TEXT PRIMARY KEY,
+  week_id TEXT NOT NULL REFERENCES schedule_weeks(id),
+  day_id TEXT NOT NULL,
+  special_day_id TEXT NOT NULL
+);
+
 -- Group-level electives (schema v35, T41 slice 1, data shape + engine-skip +
 -- registration only, docs/work/specs/2026-08-20-group-electives-design.md).
 -- An elective period runs several activities at once; a group is distributed

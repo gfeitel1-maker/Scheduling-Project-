@@ -377,6 +377,11 @@ describe('migration v73: FK-dependent rows across all ten relaxed tables survive
     write('special_day_slots', 'sds-1', 'group_id', 'group-1')
     write('special_day_slots', 'sds-1', 'time_block_id', 'tb-1')
 
+    // T350: special_day_placements.week_id is an FK into schedule_weeks, a relaxed table.
+    write('special_day_placements', 'sdp-1', 'week_id', 'week-1')
+    write('special_day_placements', 'sdp-1', 'day_id', 'day-1')
+    write('special_day_placements', 'sdp-1', 'special_day_id', 'sday-1')
+
     const failures = projectAll(db, doc)
     expect(failures).toEqual([])
   }

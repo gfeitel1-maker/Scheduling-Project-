@@ -54,6 +54,9 @@ export const RESTORE_DECISIONS = Object.freeze({
   special_days: 'refused: no author UI yet (T40 slice 1 is data-shape only) — revisit with the author-UI follow-on',
   special_day_time_blocks: 'refused: rebuilt with its parent special day, not on its own',
   special_day_slots: 'refused: rebuilt with its parent special day, not on its own',
+  // T350 (docs/adr/2026-10-09-special-day-binds-to-a-week-day.md D8): a restore could resurrect a
+  // binding over a day since bound to a different special day; re-binding is one action.
+  special_day_placements: 'refused: rebuilt by binding the special day again, or by duplicating the week',
 
   // T41 slice 1 (docs/work/specs/2026-08-20-group-electives-design.md): same
   // posture as T40 above — this slice ships the data shape only, no setup CRUD

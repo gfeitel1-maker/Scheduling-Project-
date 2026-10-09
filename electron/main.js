@@ -125,6 +125,7 @@ const SCOPED_LIST_ENTITIES = new Set([
   'week_activity_exclusions',
   'week_group_exclusions',
   'week_location_exclusions',
+  'special_day_placements', // T350: listByScope('special_day_placements', weekId)
 ])
 
 function isNonEmptyString(v) {

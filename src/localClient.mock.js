@@ -426,6 +426,7 @@ export const MOCK_SCOPE_KEYS = {
   week_activity_exclusions: 'week_id',
   week_group_exclusions: 'week_id',
   week_location_exclusions: 'week_id',
+  special_day_placements: 'week_id',
 }
 
 // T102 — emulate SQLite's INTEGER affinity, which the in-memory mock otherwise
@@ -528,6 +529,7 @@ export const MOCK_WRITE_ALLOWLIST = {
   special_days: ['camp_id', 'name', 'sort_order', 'notes'],
   special_day_time_blocks: ['special_day_id', 'name', 'sort_order', 'start_time', 'end_time'],
   special_day_slots: ['special_day_id', 'group_id', 'time_block_id', 'activity_id', 'location_id'],
+  special_day_placements: ['week_id', 'day_id', 'special_day_id'],
   // T41 slice 1 (docs/work/specs/2026-08-20-group-electives-design.md) —
   // hand-transcribed mirror of PROJECTIONS.elective_sets/
   // elective_set_activities.fields, same discipline as T40 above.

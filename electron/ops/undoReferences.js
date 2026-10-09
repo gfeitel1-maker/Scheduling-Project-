@@ -78,6 +78,8 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   // REFERENCES on elective_occurrences.day_id (an occurrence is re-derived
   // from live template_slots on every generation, ADR D6), so enforced:false.
   { fromTable: 'elective_occurrences', fromColumn: 'day_id', toEntity: 'days_of_operation', kind: 'scalar', enforced: false },
+  // T350: soft (no SQL REFERENCES) — an orphan placement is ignored at resolution, never thrown.
+  { fromTable: 'special_day_placements', fromColumn: 'day_id', toEntity: 'days_of_operation', kind: 'scalar', enforced: false },
   // -- into time_blocks --
   { fromTable: 'fixed_events', fromColumn: 'time_block_id', toEntity: 'time_blocks', kind: 'scalar', enforced: false },
   { fromTable: 'template_slots', fromColumn: 'time_block_id', toEntity: 'time_blocks', kind: 'scalar', enforced: false },

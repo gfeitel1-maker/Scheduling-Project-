@@ -107,6 +107,12 @@ export const PARENT_SCOPED_ENTITIES = {
     parentTable: 'special_days',
     parentKey: 'special_day_id',
   },
+  // T350: scoped to the camp through its WEEK (special_day_id is a soft reference).
+  special_day_placements: {
+    table: 'special_day_placements',
+    parentTable: 'schedule_weeks',
+    parentKey: 'week_id',
+  },
   // T41 slice 1: elective_sets' one child, parent-scoped by elective_set_id.
   elective_set_activities: {
     table: 'elective_set_activities',
@@ -284,6 +290,7 @@ export const DOMAIN_SNAPSHOT_ORDER = [
   'special_days', // T40 slice 1; references camps.id only
   'special_day_time_blocks', // references special_days.id NOT NULL
   'special_day_slots', // references special_days.id NOT NULL; group_id/time_block_id/activity_id/location_id have no declared FK
+  'special_day_placements', // T350; references schedule_weeks.id NOT NULL; day_id/special_day_id are soft
   'camp_seedlings', // T312; references camps.id only, no children, no FK from anything else -- ordering relative to every other entry is therefore unconstrained
   'elective_sets', // T41 slice 1; references camps.id only
   'elective_set_activities', // references elective_sets.id NOT NULL; activity_id has no declared FK

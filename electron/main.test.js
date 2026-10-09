@@ -1446,6 +1446,7 @@ describe('existing-behavior-preserved: full entity sweep (staff + admin both rea
     special_days: 'name',
     special_day_time_blocks: 'name',
     special_day_slots: 'activity_id',
+    special_day_placements: 'special_day_id',
     // T108: day_overrides accumulate-then-insert-once — a single nullable
     // non-coordinate field applies to the op-log (same trick as special_day_slots).
     day_overrides: 'activity_id',

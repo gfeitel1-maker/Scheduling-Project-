@@ -41,7 +41,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // campers.division_label/is_unattributed and elective_preferences.rank_kind/
 // coordinate_day_label/coordinate_period_label) all land in this file; 79 is the
 // current version.
-export const CURRENT_SCHEMA_VERSION = 91
+export const CURRENT_SCHEMA_VERSION = 92
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -4356,6 +4356,16 @@ const DEVICE_HEALTH_EVENTS_DDL = `
     )
   }
 
+  // v92 (T350, docs/adr/2026-10-09-special-day-binds-to-a-week-day.md D3) — the new
+  // special_day_placements table. Additive, no back-fill: no camp has a binding before this.
+  // Guard `>= 91 && < 92`, never a bare `< 92`.
+  if (getSchemaVersion(db) >= 91 && getSchemaVersion(db) < 92) {
+    db.exec(SPECIAL_DAY_PLACEMENTS_DDL)
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (92, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
 }
 
 // v60 backfill helper (Q1 fix). On the HOST only (a device with a host_signing_key
@@ -4584,6 +4594,15 @@ export const SPECIAL_DAY_SLOTS_DDL = `CREATE TABLE IF NOT EXISTS special_day_slo
   time_block_id TEXT NOT NULL,
   activity_id TEXT,
   location_id TEXT
+)`
+
+// T350: byte-identical duplicate of schema.sql's special_day_placements block, asserted by
+// specialDayPlacements.migration.test.js.
+export const SPECIAL_DAY_PLACEMENTS_DDL = `CREATE TABLE IF NOT EXISTS special_day_placements (
+  id TEXT PRIMARY KEY,
+  week_id TEXT NOT NULL REFERENCES schedule_weeks(id),
+  day_id TEXT NOT NULL,
+  special_day_id TEXT NOT NULL
 )`
 
 // Byte-identical duplicates of the elective_sets / elective_set_activities

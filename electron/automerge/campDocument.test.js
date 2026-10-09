@@ -238,10 +238,11 @@ describe('campDocument — Stage 1 Automerge doc for days_of_operation', () => {
     // FOURTEENTH REGENERATION (T331, docs/adr/2026-10-02-distributed-revocation-authority.md):
     // `camp_authority_log` added to MODELED_ENTITIES/GENESIS_ENTITIES — see campDocument.js's
     // GENESIS_B64 comment. Owner-accepted regeneration (pre-production, no live camps).
+    // FIFTEENTH REGENERATION (T350): `special_day_placements` added — see campDocument.js.
     it('createEmptyDoc always clones the same frozen genesis root', () => {
       const doc = createEmptyDoc()
       expect(A.getHeads(doc)).toEqual([
-        '841a628058948a3f9d6d89674700a4d4aba04c2aa44e300bf71f92f5165143b0',
+        '001c00af79146805a237424072ad3afccf4dfb52ba6b317ab91ea42d001e0551',
       ])
       // Two independent calls must produce the SAME head every time — a genesis that varied per
       // call (e.g. one deriving fresh randomness or doing a runtime top-up) would defeat the whole
