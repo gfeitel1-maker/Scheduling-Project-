@@ -1,7 +1,17 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest'
 import { createEmptyDoc } from '../../automerge/campDocument.js'
-import { readRendezvousAddressKey, mintRendezvousAddressKey } from './rendezvousAddressKey.js'
+import { readRendezvousAddressKey, mintRendezvousAddressKey, rotateRendezvousAddressKey } from './rendezvousAddressKey.js'
+
+describe('rotateRendezvousAddressKey', () => {
+  it('replaces an existing key with a fresh one', () => {
+    const minted = mintRendezvousAddressKey(createEmptyDoc(), 'camp-rot')
+    const rotated = rotateRendezvousAddressKey(minted.doc, 'camp-rot')
+    expect(rotated.addressKey).toMatch(/^[0-9a-f]{64}$/)
+    expect(rotated.addressKey).not.toBe(minted.addressKey)
+    expect(readRendezvousAddressKey(rotated.doc, 'camp-rot')).toBe(rotated.addressKey)
+  })
+})
 
 const CAMP_ID = 'camp-1'
 

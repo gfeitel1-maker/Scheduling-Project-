@@ -58,3 +58,14 @@ export function mintRendezvousAddressKey(doc, campId, { randomBytes = nodeRandom
   const next = writeField(doc, campId, addressKey)
   return { doc: next, addressKey, minted: true }
 }
+
+/**
+ * Replace the camp's address key with a fresh one, unconditionally. Called on device revocation
+ * (F1, docs/work/security/2026-10-09-wan-ladder-assessment.md) together with
+ * rotateRendezvousNamespace: a revoked device keeps its copy of the old key, so records published
+ * after the rotation must be sealed under a key it never received.
+ */
+export function rotateRendezvousAddressKey(doc, campId, { randomBytes = nodeRandomBytes } = {}) {
+  const addressKey = randomBytes(32).toString('hex')
+  return { doc: writeField(doc, campId, addressKey), addressKey }
+}

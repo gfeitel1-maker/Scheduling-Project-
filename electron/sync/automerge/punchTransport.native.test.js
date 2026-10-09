@@ -111,6 +111,8 @@ describe('punch option validation — rejected at configuration time, before any
     'TURN server': { signaling, iceServers: ['turn:turn.example.com:3478'] },
     'turns server': { signaling, iceServers: ['turns:turn.example.com:5349'] },
     'non-string ice server': { signaling, iceServers: [{ urls: 'stun:x' }] },
+    // Owner ruling 2026-10-09: no STUN server of any kind, so no third party learns a device's IP.
+    'any STUN server': { signaling, iceServers: ['stun:stun.cloudflare.com:3478'] },
     'port range below 1024': { signaling, portRange: { begin: 80, end: 90 } },
     'inverted port range': { signaling, portRange: { begin: 5000, end: 4000 } },
     'cert without key': { signaling, certificatePemFile: '/etc/hosts' },
@@ -124,11 +126,10 @@ describe('punch option validation — rejected at configuration time, before any
     })
   }
 
-  it('accepts a STUN server, a pinned port range, fixed ICE credentials and a cert/key pair', () => {
+  it('accepts a pinned port range, fixed ICE credentials and a cert/key pair', () => {
     expect(() => punchTransport({
       signaling,
       role: 'offerer',
-      iceServers: ['stun:stun.cloudflare.com:3478'],
       portRange: { begin: 50000, end: 50000 },
       certificatePemFile: '/etc/hosts',
       keyPemFile: '/etc/hosts',

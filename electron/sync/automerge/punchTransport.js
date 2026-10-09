@@ -45,7 +45,6 @@ const CLOSE_SETTLE_TIMEOUT_MS = 1_000
 const PINNED_PORT_SETTLE_MS = 750
 const PORT_QUEUE_POLL_MS = 10
 const SID_RE = /^[0-9a-f]{32}$/
-const STUN_RE = /^stun:[A-Za-z0-9.-]+(:\d{1,5})?$/
 const PUNCH_ADDR_RE = /^\/ip[46]\/[^/]+\/udp\/\d+(\/p2p\/[^/]+)?$/
 
 let loadedNdc = null
@@ -122,7 +121,8 @@ function validateOptions(opts) {
   if (!signaling || typeof signaling.sendSignal !== 'function' || typeof signaling.onSignal !== 'function') throw invalid('signaling must provide sendSignal(msg) and onSignal(cb)')
   if (onEstablished != null && typeof onEstablished !== 'function') throw invalid('onEstablished must be a function')
   if (role != null && role !== 'offerer' && role !== 'answerer') throw invalid("role must be 'offerer' or 'answerer'")
-  if (!Array.isArray(iceServers) || iceServers.some((s) => typeof s !== 'string' || !STUN_RE.test(s))) throw invalid('iceServers may only be stun: URLs (TURN is never used)')
+  // Owner ruling 2026-10-09: no STUN or TURN server of any kind, so no third party sees a device's address.
+  if (!Array.isArray(iceServers) || iceServers.length > 0) throw invalid('iceServers must be empty (no STUN or TURN server is ever used)')
   if (portRange != null) {
     const { begin, end } = portRange
     if (!Number.isInteger(begin) || !Number.isInteger(end) || begin < 1024 || end > 65535 || begin > end) throw invalid('portRange must be integers with 1024 <= begin <= end <= 65535')
@@ -666,7 +666,7 @@ class PunchTransport {
   }
 }
 
-// opts: { signaling, role?, iceServers?, portRange?, certificatePemFile?, keyPemFile?, ice?:
+// opts: { signaling, role?, portRange?, certificatePemFile?, keyPemFile?, ice?:
 // { iceUfrag, icePwd }, connectTimeoutMs?, maxPendingInbound?, ndc? }. Invalid options throw
 // here, at configuration time, before libp2p or node-datachannel is touched.
 export function punchTransport(options) {

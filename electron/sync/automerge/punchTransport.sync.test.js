@@ -17,6 +17,7 @@ import { ensureHostSigningKey, issueCampToken } from '../../auth/localAuth.js'
 import { startSyncNode } from './syncNode.js'
 import { punchTransport } from './punchTransport.js'
 import { makeSignalingPair } from './punchTestSupport.js'
+import { signAuthorityEntry } from '../../automerge/authorityLogSignature.js'
 
 let files = []
 function freshDb(tag) {
@@ -158,5 +159,37 @@ describe('punchTransport — libp2p transport over a node-datachannel pipe', () 
 
     await a.applyLocal(applyWrite(a.getDoc(), { entity: 'activities', entity_id: 'ok-write', field: 'name', value: 'Fine' }))
     await waitFor(() => activityRow(dbB, 'ok-write')?.name === 'Fine')
+  }, 30000)
+
+  // Q2 of docs/work/security/2026-10-09-wan-ladder-assessment.md: the T331 gate C live teardown
+  // (syncNode.test.js's LAN case) must also cut off an ESTABLISHED punch connection when a real
+  // signed revocation is projected, not only refuse messages tagged revoked.
+  it('a peer revoked by a signed authority entry mid-session over a punch connection is de-admitted (gate C teardown)', async () => {
+    const { a, b, dials } = await startPunchedPair()
+    expect(dials.a).toBeGreaterThan(0)
+    const { tokenA, tokenB } = setupAuthorizedDevicePair(dbA, dbB)
+    await authenticateBothWays(a, b, tokenA, tokenB)
+    await waitFor(() => a.isPeerAuthenticated(b.peerId.toString()))
+
+    function pushEntry(doc, fields, signed) {
+      const id = `entry-${Math.random()}`
+      let d = doc
+      for (const [field, value] of Object.entries(fields)) d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field, value })
+      if (signed) {
+        const signature = signAuthorityEntry(dbA, { id, kind: fields.kind, target_device_id: fields.target_device_id, signer_device_id: fields.signer_device_id })
+        d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'signature', value: signature })
+      }
+      return d
+    }
+    await a.applyLocal(pushEntry(a.getDoc(), { kind: 'genesis', target_device_id: 'device-a', target_peer_id: a.peerId.toString() }, false))
+    await a.applyLocal(pushEntry(a.getDoc(), { kind: 'grant', target_device_id: 'device-b', target_peer_id: b.peerId.toString(), signer_device_id: 'device-a' }, true))
+    expect(a.isPeerAuthenticated(b.peerId.toString())).toBe(true)
+
+    await a.applyLocal(pushEntry(a.getDoc(), { kind: 'revoke', target_device_id: 'device-b', signer_device_id: 'device-a' }, true))
+    await waitFor(() => !a.isPeerAuthenticated(b.peerId.toString()))
+
+    await a.applyLocal(applyWrite(a.getDoc(), { entity: 'activities', entity_id: 'after-revoke', field: 'name', value: 'Not For B' }))
+    await new Promise((r) => setTimeout(r, 500))
+    expect(activityRow(dbB, 'after-revoke')).toBeUndefined()
   }, 30000)
 })

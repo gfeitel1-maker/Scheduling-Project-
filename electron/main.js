@@ -69,7 +69,9 @@ import { resolveConflictInDoc } from './automerge/reconcile.js'
 import { ensureDeviceIdentity } from './auth/deviceIdentity.js'
 import { mintGenesisEntry, mintGrantEntry, mintRevokeEntry } from './automerge/authorityLog.js'
 import { syncRefusalForDomainMigration } from './db/migrationDomainState.js'
-import { getDocIfLoaded, getCurrentDoc, setUserDataDirGetter as setAutomergeUserDataDirGetter, setDocCipher as setAutomergeDocCipher, flushPendingWrites as flushAutomergeDoc, discardLiveDoc } from './sync/automerge/liveDoc.js'
+import { getDocIfLoaded, getCurrentDoc, setUserDataDirGetter as setAutomergeUserDataDirGetter, setDocCipher as setAutomergeDocCipher, flushPendingWrites as flushAutomergeDoc, discardLiveDoc, setCurrentDoc as setCurrentAutomergeDoc } from './sync/automerge/liveDoc.js'
+import { rotateRendezvousNamespace } from './sync/automerge/rendezvousNamespace.js'
+import { rotateRendezvousAddressKey } from './sync/automerge/rendezvousAddressKey.js'
 import { projectEntity } from './automerge/projector.js'
 import { AUTHORITY_LOG_ENTITY, currentAuthorityState, quorumThreshold } from './automerge/authorityReplay.js'
 import * as Automerge from '@automerge/automerge'
@@ -1590,6 +1592,22 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       if (peerId) forgetRevokedPeer(db, peerId)
     } catch (err) {
       console.error(`revokeDevice: failed to forget remembered address for ${targetDeviceId}: ${err?.message ?? err}`)
+    }
+
+    // F1 (docs/work/security/2026-10-09-wan-ladder-assessment.md): the revoked device keeps its copy
+    // of the document, so it still holds the rendezvous namespace and address key. Rotate both and
+    // broadcast. This runs AFTER revokePeer above so the evicted peer is not sent the new values;
+    // other devices learn them through ordinary document sync, which already excludes revoked peers.
+    try {
+      const doc = getDocIfLoaded(db)
+      const campId = db.prepare('SELECT id FROM camps LIMIT 1').get()?.id
+      if (doc && campId) {
+        const rotated = rotateRendezvousAddressKey(rotateRendezvousNamespace(doc, campId).doc, campId).doc
+        setCurrentAutomergeDoc(db, rotated)
+        getAutomergeNode()?.broadcastLocalDoc?.()
+      }
+    } catch (err) {
+      console.error(`revokeDevice: failed to rotate the rendezvous namespace and address key: ${err?.message ?? err}`)
     }
 
     return { deviceId: targetDeviceId, revoked: true }
