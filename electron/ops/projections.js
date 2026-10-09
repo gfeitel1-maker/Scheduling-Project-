@@ -555,7 +555,13 @@ export const PROJECTIONS = {
     key: 'id',
     fields: ['week_id', 'day_id', 'special_day_id'],
     ensureExists: (db, id, field, value, knownRow) => {
-      const readField = makeReadField(db, 'special_day_placements', id, field, value, knownRow)
+      // Doc replay (knownRow supplied) reads ONLY the document row: falling back to the op log
+      // would complete a partial doc row from this device's bind history, so it would project a
+      // row that a fresh peer never does (Red Hat R1). The op-log lookup is for the local
+      // one-field-at-a-time write path only.
+      const readField = knownRow
+        ? (wanted) => (wanted === field ? value : knownRow[wanted] ?? null)
+        : makeReadField(db, 'special_day_placements', id, field, value, null)
       const weekId = readField('week_id')
       const dayId = readField('day_id')
       const specialDayId = readField('special_day_id')

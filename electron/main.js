@@ -1613,6 +1613,12 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     if (writeArgs.entity === 'users' && (writeArgs.field === 'pin_hash' || writeArgs.field === 'pin_salt' || writeArgs.field === 'role')) {
       throw new Error(`users.${writeArgs.field} cannot be changed via write() — credential fields are Host-signed; use createUser or promoteToAdmin`)
     }
+    // T350 (Red Hat R3): a placement must be written as all three fields at once by the bind path
+    // (ADR 2026-10-09 D5), so a one-field generic write — which could leave a partial row — is
+    // refused for every role, deletes included, until the dedicated bind/unbind IPC lands.
+    if (writeArgs.entity === 'special_day_placements') {
+      throw new Error('special_day_placements cannot be written via write() — use the bind/unbind special day path')
+    }
     // Three distinct actions dispatched from this one handler, per the ADR's
     // IPC table — matching the three distinct gates that used to be inline
     // checks here:

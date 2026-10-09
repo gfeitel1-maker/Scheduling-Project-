@@ -9,6 +9,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { openLocalDb } from '../db/localDb.js'
 import { DELETE_FIELD } from '../ops/operations.js'
+import { PROJECTIONS } from '../ops/projections.js'
 import { deriveSpecialDayPlacementId } from '../ops/electiveDerivedIds.js'
 import { createEmptyDoc, applyWrite, readRecord } from './campDocument.js'
 import { projectAll } from './projector.js'
@@ -107,6 +108,43 @@ describe('special_day_placements: two-document convergence (ADR D5)', () => {
     const { db } = project(merged)
     const rows = db.prepare("SELECT entity, entity_id, field FROM conflicts WHERE resolved_at IS NULL").all()
     expect(rows).toEqual([{ entity: 'special_day_placements', entity_id: PID, field: 'special_day_id' }])
+    db.close()
+  })
+})
+
+describe('special_day_placements: doc replay never reads the op log (Red Hat R1)', () => {
+  it('a partial doc row projects nothing even when the op log holds all three bind fields', () => {
+    const db = freshDb()
+    db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run('device-1', 'D1')
+    db.prepare("INSERT INTO schedule_weeks (id, camp_id, name) VALUES ('week-1', 'camp-1', 'Week 1')").run()
+    const op = db.prepare(
+      "INSERT INTO operations (id, entity, entity_id, field, value, device_id, timestamp) VALUES (?, 'special_day_placements', ?, ?, ?, 'device-1', '2026-10-09')"
+    )
+    op.run('op-1', PID, 'week_id', 'week-1')
+    op.run('op-2', PID, 'day_id', DAY)
+    op.run('op-3', PID, 'special_day_id', 'sd-a')
+    // The insert itself, not just the end state: delete-reconcile would also hide a bad insert.
+    PROJECTIONS.special_day_placements.ensureExists(db, PID, 'special_day_id', 'sd-b', { special_day_id: 'sd-b' })
+    expect(placements(db)).toEqual([])
+    let d = base()
+    d = unbind(d)
+    d = W(d, 'special_day_placements', PID, 'special_day_id', 'sd-b')
+    recordConflicts(db, reconcile(d).conflicts)
+    expect(projectAll(db, d)).toEqual([])
+    expect(placements(db)).toEqual([])
+    db.close()
+  })
+
+  it('a row that goes partial after it was projected is removed, not left stale', () => {
+    const { db } = project(base())
+    expect(placements(db)).toHaveLength(1)
+    let d = base()
+    d = unbind(d)
+    d = W(d, 'special_day_placements', PID, 'special_day_id', 'sd-b')
+    recordConflicts(db, reconcile(d).conflicts)
+    expect(projectAll(db, d)).toEqual([])
+    expect(placements(db)).toEqual([])
+    expect(failureRows(db)).toBe(0)
     db.close()
   })
 })

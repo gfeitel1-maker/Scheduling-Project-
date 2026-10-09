@@ -715,13 +715,17 @@ function deleteReconcileEntity(db, doc, entity) {
   // upsertCampAuthorityLogEntity below, never by the generic delete-reconcile pass.
   if (entity === 'camp_authority_log') return
   const inDoc = new Set(listRecordIds(doc, entity))
-  // T350 (ADR 2026-10-09 D2): a placement whose week is gone from the document goes with it,
+  // T350 (ADR 2026-10-09 D2/D5): a placement whose week is gone from the document goes with it,
   // before schedule_weeks' own reconcile runs — otherwise a bind concurrent with another device's
-  // week delete keeps the week alive here through the FK (a ghost week, or a failed delete).
+  // week delete keeps the week alive here through the FK (a ghost week, or a failed delete). A doc
+  // row that has gone partial (unbind-vs-rebind) is likewise not a placement, so a row projected
+  // earlier is removed rather than left stale.
   if (entity === 'special_day_placements') {
     const weeks = new Set(listRecordIds(doc, 'schedule_weeks'))
     for (const { id, week_id } of db.prepare('SELECT id, week_id FROM special_day_placements').all()) {
-      if (!weeks.has(week_id)) inDoc.delete(id)
+      const row = readRecord(doc, entity, id)
+      const complete = row && row.week_id != null && row.day_id != null && row.special_day_id != null
+      if (!complete || !weeks.has(week_id)) inDoc.delete(id)
     }
   }
   for (const { id } of db.prepare(`SELECT id FROM ${entity}`).all()) {

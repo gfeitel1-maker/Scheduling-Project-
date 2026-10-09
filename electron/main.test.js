@@ -1519,6 +1519,16 @@ describe('existing-behavior-preserved: full entity sweep (staff + admin both rea
 
     for (const entity of ENTITIES) {
       const field = WRITABLE_FIELD_BY_ENTITY[entity]
+      // T350 (Red Hat R3): placements are written only by the bind/unbind path, so a partial
+      // row can never come from the generic write() — refused for every role.
+      if (entity === 'special_day_placements') {
+        for (const token of [staffToken, adminToken]) {
+          expect(() =>
+            handlers.write({ token, entity, entity_id: 'x1', field, value: 'V' })
+          ).toThrow(/special_day_placements cannot be written via write\(\)/)
+        }
+        continue
+      }
       await expect(
         handlers.write({ token: staffToken, entity, entity_id: 'x1', field, value: 'V' }),
         `staff write ${entity}`
