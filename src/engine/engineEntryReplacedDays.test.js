@@ -30,7 +30,8 @@ const EXPECTED = {
     'src/screens/schedule/useSnapshots.js': 1,
   },
   recalcStatsPure: {
-    'src/screens/ScheduleScreen.jsx': 1,
+    // the stats wrapper, plus the export picker's "N of M placed" line (#835)
+    'src/screens/ScheduleScreen.jsx': 2,
   },
   recalcFindingsPure: {
     'src/screens/ScheduleScreen.jsx': 1,
