@@ -550,7 +550,7 @@ export function RequiredGapSummaryCard({ decisions, dismissedGaps, onDismiss, on
     <div style={{ ...cardStyles.cardHold, position: 'relative' }}>
       <div style={cardStyles.readyToBuildTab}>READY TO BUILD?</div>
       <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>
-        {`Your camp still needs: ${labels}`}
+        {`Still to set up: ${labels}`}
       </div>
 
       <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>

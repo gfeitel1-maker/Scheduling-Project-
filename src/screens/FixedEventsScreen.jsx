@@ -13,6 +13,7 @@ import ImportPreviewSubtitle from '../components/setup/ImportPreviewSubtitle.jsx
 import SetupScreenShell from '../components/setup/SetupScreenShell'
 import { LocationPicker } from '../components/LocationPicker'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
+import { timeBlockLabel } from '../utils/timeBlockLabel'
 import { parseIdList, makeSerializeFieldValue } from './setup/setupHelpers'
 import { resolveFixedEventUnitIds } from '../engine/fixedEventScope.js'
 import { whitespaceInsensitiveName } from '../ingest/preview.js'
@@ -208,7 +209,7 @@ function FixedEventModal({ fixedEvent, kind, tiers, groups, days, timeBlocks, lo
         <Field label="Time Block">
           <select value={blockId} onChange={e => setBlockId(e.target.value)} style={S.input}>
             <option value="">— Select block —</option>
-            {timeBlocks.map(b => <option key={b.id} value={b.id}>{b.name} ({b.start_time?.slice(0,5)}–{b.end_time?.slice(0,5)})</option>)}
+            {timeBlocks.map(b => <option key={b.id} value={b.id}>{timeBlockLabel(b)}</option>)}
           </select>
         </Field>
 
@@ -868,7 +869,7 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
 
   // Display helpers
   const dayMap = Object.fromEntries(days.map(d => [d.id, d.label]))
-  const blockMap = Object.fromEntries(timeBlocks.map(b => [b.id, `${b.name} (${b.start_time?.slice(0,5)}–${b.end_time?.slice(0,5)})`]))
+  const blockMap = Object.fromEntries(timeBlocks.map(b => [b.id, timeBlockLabel(b)]))
   const tierById = Object.fromEntries(tiers.map(t => [t.id, t.name]))
 
   // T183: the division projection of fixed-event scope comes from the SHARED

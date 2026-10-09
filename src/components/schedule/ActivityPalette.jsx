@@ -67,7 +67,7 @@ function DraggablePaletteItem({ activity, scheduledCount, atMax, draggable, show
         color: atMax ? 'var(--danger)' : 'var(--text-secondary)',
         flexShrink: 0,
       }}>
-        {scheduledCount}/{activity.max_per_week ?? '∞'}
+        {activity.max_per_week == null ? 'no max' : `${scheduledCount}/${activity.max_per_week} max`}
       </span>
     </div>
   )

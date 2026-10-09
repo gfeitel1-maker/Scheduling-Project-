@@ -114,7 +114,7 @@ async function uploadFile() {
 }
 
 async function commit() {
-  await userEvent.click(screen.getByText(/Add \d+ record/))
+  await userEvent.click(screen.getByText(/Review \d+ record/))
   await userEvent.click(await screen.findByText('Use this setup'))
   await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
   return localClient.ingestCommit.mock.calls[0][0]

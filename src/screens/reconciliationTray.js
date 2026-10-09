@@ -26,7 +26,7 @@
  * @param confirmedCount answers staged (resolved decisions the director acted on)
  * @returns { label, mode, disabled, hint }
  */
-export function applyTrayState({ totalCount = 0, doneCount = 0, confirmedCount = 0 } = {}) {
+export function applyTrayState({ totalCount = 0, doneCount = 0, confirmedCount = 0, isFirstImport = false } = {}) {
   const pending = Math.max(0, totalCount - doneCount)
 
   // Nothing was ever asked: the file read cleanly.
@@ -53,10 +53,10 @@ export function applyTrayState({ totalCount = 0, doneCount = 0, confirmedCount =
   // for, and the label says exactly what pressing it does with the remainder.
   if (confirmedCount === 0) {
     return {
-      label: 'Use what Shoresh understood',
+      label: isFirstImport ? 'Add to camp' : 'Use what Shoresh understood',
       mode: 'confirmedOnly',
       disabled: false,
-      hint: `${pending} ${pending === 1 ? 'question is' : 'questions are'} still open — they stay here for later.`,
+      hint: `${pending} open — kept for later`,
     }
   }
 
@@ -64,7 +64,7 @@ export function applyTrayState({ totalCount = 0, doneCount = 0, confirmedCount =
     label: `Apply ${confirmedCount} ${confirmedCount === 1 ? 'decision' : 'decisions'}`,
     mode: 'confirmedOnly',
     disabled: false,
-    hint: `${pending} ${pending === 1 ? 'question stays' : 'questions stay'} here for later.`,
+    hint: `${pending} open — kept for later`,
   }
 }
 

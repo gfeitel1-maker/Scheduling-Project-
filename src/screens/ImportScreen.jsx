@@ -2610,7 +2610,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
             >
               {importMode === 'replace' && existingCountAll > 0
                 ? `Replace with ${approvedCount} ${approvedCount === 1 ? 'record' : 'records'}`
-                : `Add ${approvedCount} ${approvedCount === 1 ? 'record' : 'records'}`}
+                : `Review ${approvedCount} ${approvedCount === 1 ? 'record' : 'records'}`}
             </button>
             <button className="press-97" onClick={() => { setProposal(null); setFileNames([]) }} style={S.btnSecondary}>
               Cancel

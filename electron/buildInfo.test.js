@@ -38,6 +38,18 @@ describe('parseBuildInfo', () => {
 })
 
 describe('formatBuildLabel', () => {
+  it('shows the build date in local time, not UTC', () => {
+    const prev = process.env.TZ
+    process.env.TZ = 'America/Los_Angeles'
+    try {
+      const label = formatBuildLabel({ commit: 'abc1234def5678', builtAt: '2026-07-29T03:00:00.000Z', isDev: false }, '0.1.0')
+      expect(label).toBe('v0.1.0 · abc1234 · 2026-07-28')
+    } finally {
+      if (prev === undefined) delete process.env.TZ
+      else process.env.TZ = prev
+    }
+  })
+
   it('shows version, short commit and date for a packaged build', () => {
     const label = formatBuildLabel({ commit: 'abc1234def5678', builtAt: '2026-07-28T14:00:00.000Z', isDev: false }, '0.1.0')
     expect(label).toBe('v0.1.0 · abc1234 · 2026-07-28')

@@ -121,8 +121,9 @@ export default function LoginScreen({ campName, onSubmit, notice }) {
         {status !== 'locked' && status !== 'error' && status !== 'connection-error' && <div style={{ ...S.authSubtitle, marginBottom: 20 }}>Enter your name and PIN to continue.</div>}
 
         <form onSubmit={handleSubmit}>
-          <label style={{ ...S.authLabel, marginTop: 0 }}>Name</label>
+          <label htmlFor="login-name" style={{ ...S.authLabel, marginTop: 0 }}>Name</label>
           <input
+            id="login-name"
             style={{ ...S.authField, opacity: disabled ? 0.6 : 1 }}
             type="text"
             placeholder="e.g. Sarah Cohen"
@@ -132,8 +133,9 @@ export default function LoginScreen({ campName, onSubmit, notice }) {
             autoFocus
           />
 
-          <label style={S.authLabel}>PIN</label>
+          <label htmlFor="login-pin" style={S.authLabel}>PIN</label>
           <input
+            id="login-pin"
             ref={pinRef}
             style={{ ...S.authField, opacity: disabled ? 0.6 : 1 }}
             type="password"

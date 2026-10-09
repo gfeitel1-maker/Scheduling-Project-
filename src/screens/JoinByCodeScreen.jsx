@@ -267,8 +267,9 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
             <div style={S.authEyebrow}>Almost there</div>
             <div style={S.authTitle}>Sign in</div>
             <div style={S.authSubtitle}>Use the same name and PIN you use on the main computer.</div>
-            <label style={{ ...S.authLabel, marginTop: 0 }}>Name</label>
+            <label htmlFor="join-name" style={{ ...S.authLabel, marginTop: 0 }}>Name</label>
             <input
+              id="join-name"
               style={S.authField}
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -276,8 +277,9 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
               aria-label="Your name"
               autoFocus
             />
-            <label style={S.authLabel}>PIN</label>
+            <label htmlFor="join-pin" style={S.authLabel}>PIN</label>
             <input
+              id="join-pin"
               style={S.authField}
               type="password"
               value={pin}

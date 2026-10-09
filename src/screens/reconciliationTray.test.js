@@ -23,13 +23,19 @@ describe('applyTrayState', () => {
     expect(state.disabled).toBe(false)
     expect(state.mode).toBe('confirmedOnly')
     expect(state.label).toBe('Use what Shoresh understood')
-    expect(state.hint).toMatch(/79 questions are still open/)
+    expect(state.hint).toMatch(/^79 open — kept for later$/)
+  })
+
+  it('on a first import, says the file is being added rather than that questions are open', () => {
+    const state = applyTrayState({ totalCount: 71, doneCount: 0, confirmedCount: 0, isFirstImport: true })
+    expect(state.label).toBe('Add to camp')
+    expect(state.hint).toMatch(/^71 open — kept for later$/)
   })
 
   it('says how many decisions it is about to apply, and what it leaves behind', () => {
     const state = applyTrayState({ totalCount: 79, doneCount: 12, confirmedCount: 12 })
     expect(state.label).toBe('Apply 12 decisions')
-    expect(state.hint).toMatch(/67 questions stay here for later/)
+    expect(state.hint).toMatch(/^67 open — kept for later$/)
   })
 
   it('applies everything once nothing is outstanding', () => {
@@ -40,11 +46,11 @@ describe('applyTrayState', () => {
 
   it('reads naturally when a file asked exactly one question', () => {
     expect(applyTrayState({ totalCount: 1, doneCount: 0, confirmedCount: 0 }).hint)
-      .toMatch(/1 question is still open/)
+      .toMatch(/^1 open — kept for later$/)
     expect(applyTrayState({ totalCount: 2, doneCount: 1, confirmedCount: 1 }).label)
       .toBe('Apply 1 decision')
     expect(applyTrayState({ totalCount: 2, doneCount: 1, confirmedCount: 1 }).hint)
-      .toMatch(/1 question stays here/)
+      .toMatch(/^1 open — kept for later$/)
   })
 
   it('handles a file that needed nothing at all', () => {
