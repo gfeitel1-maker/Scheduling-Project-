@@ -109,6 +109,15 @@ describe.each(['generated', 'manual'])('%s group view', route => {
     expect(handlers.onToggleBlockCollapsed).toHaveBeenCalledWith('b1')
     expect(handlers.onCellSelect).not.toHaveBeenCalled()
   })
+
+  it('renders the same frame chrome on both routes', () => {
+    const { container } = renderRoute(route)
+    const pills = [...container.querySelectorAll('button')].filter(b => ['Alpha', 'Bravo'].includes(b.textContent))
+    expect(pills.map(p => p.className)).toEqual(['press-98', 'press-98'])
+    expect(pills[0].parentElement.style.marginBottom).toBe('16px')
+    expect(container.firstChild.className).toBe('schedule-view-enter')
+    expect([...container.querySelectorAll('[role="columnheader"]')].map(h => h.textContent)).toEqual(['Block', 'Mon', 'Tue'])
+  })
 })
 
 describe('per-route differences that must survive the shared frame', () => {

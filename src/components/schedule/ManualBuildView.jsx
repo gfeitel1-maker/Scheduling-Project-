@@ -1,16 +1,10 @@
 import { useState } from 'react'
 import SlotCell from './SlotCell'
 import EmptyCell from './EmptyCell'
-import { buildRowTracks, columnTracks } from '../../screens/schedule/gridTracks'
-import { placeCell, placeRowHeader } from '../../screens/schedule/gridPlacement'
-import { rowFlagKind, ROW_FLAG_TITLE } from '../../screens/schedule/rowFlags'
+import { placeCell } from '../../screens/schedule/gridPlacement'
 import { blockNamesForSpan } from './cellLabel'
 import { computeSpanCellProps } from '../../screens/schedule/gridGeometry'
-import useGridKeyboardNav from './useGridKeyboardNav'
-import { S } from '../../styles/shared'
-import './scheduleGrid.css'
-
-const NO_COLLAPSE = new Set()
+import GroupGridFrame from './GroupGridFrame'
 
 // T92. Device-local UI chrome, not camp data: never routed through
 // window.shoresh/op-log/sync, per the spec's "must not become a per-device
@@ -56,8 +50,9 @@ function firstMergeableCellKey({ selectedGroup, days, timeBlocks, geometry }) {
   return null
 }
 
-// DndContext and the one grid-surface droppable live in ScheduleScreen (for
-// manual mode). This component is just the grid — group pills + slot grid.
+// DndContext and the one grid-surface droppable live in ScheduleScreen. The
+// pills, header and row chrome are GroupGridFrame, shared with the generated
+// route (ScheduleGroupView); this component supplies only the manual cells.
 export default function ManualBuildView({
   groups, days, timeBlocks,
   selectedGroup, onSelectGroup,
@@ -70,7 +65,7 @@ export default function ManualBuildView({
   // "undefined prop = feature off" convention onMergeDown already uses.
   onSpanExtendStart,
   selectedSlotKeys, pasteMode, onCellSelect,
-  collapsedBlockIds = NO_COLLAPSE,
+  collapsedBlockIds,
   onToggleBlockCollapsed,
   // T105
   electiveSetsAll = [], electiveMembersBySet, onCreateElective, onOpenElective,
@@ -78,11 +73,6 @@ export default function ManualBuildView({
   eventsAll = [], onPlaceEvent, onOpenEvent,
   isContentRaced, onDismissContentRace,
 }) {
-  const gridTemplateColumns = columnTracks(days.length)
-  const rowTracks = buildRowTracks({ timeBlocks, collapsedBlockIds })
-  const rowCells = days.map(d => ({ groupId: selectedGroup, dayId: d.id }))
-  const gridNav = useGridKeyboardNav()
-
   // T92 onboarding pulse: exactly one cell — the first mergeable one — gets
   // the hint, and only until the flag is cleared (first interaction with any
   // merge button).
@@ -96,206 +86,130 @@ export default function ManualBuildView({
     setHintSeen(true)
   }
 
+  function renderCell({ day, dayIndex, block, blockIndex, isCollapsed, ariaColIndex, cellKey }) {
+    const slot = geometry.getSlot(selectedGroup, day.id, block.id)
+
+    // The tail of a fixed event span — covered by the head's grid-row span.
+    if (slot?.is_fixed_event && geometry.isFixedEventTail(selectedGroup, day.id, block.id)) return null
+
+    // The tail of a merged activity span — covered by the head's grid-row span.
+    if (slot?.activity_id && !slot.is_fixed_event && geometry.isActivityTail(selectedGroup, day.id, block.id)) return null
+
+    if (slot?.is_fixed_event) {
+      const rowSpan = geometry.getFixedEventRowSpan(selectedGroup, day.id, block.id)
+      const fixedEvent = slot.fixed_event_id ? fixedEventMap.get(slot.fixed_event_id) : null
+      return (
+        <SlotCell
+          key={day.id}
+          rowSpan={rowSpan}
+          slot={{ ...slot, type: 'fixed_event', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id }}
+          fixedEvent={fixedEvent}
+          weatherMode={false}
+          isDndEnabled={false}
+          ariaColIndex={ariaColIndex}
+          cellKey={cellKey}
+          collapsed={isCollapsed}
+          blockNames={blockNamesForSpan(timeBlocks, blockIndex, rowSpan)}
+          column={day.label}
+          {...placeCell({ blockIndex, columnIndex: dayIndex, rowSpan })}
+        />
+      )
+    }
+
+    if (slot?.activity_id || slot?.elective_set_id || slot?.event_id) {
+      const act = slot.activity_id ? actMap.get(slot.activity_id) : null
+      const rowSpan = geometry.getActivityRowSpan(selectedGroup, day.id, block.id)
+      const isSelected = selectedSlotKeys?.has(cellKey) ?? false
+      const isMultiSelected = isSelected && (selectedSlotKeys?.size ?? 0) > 1
+      const {
+        isMerged, nextBlock, hasMergeDown, spanTailBlockIds,
+        onSplit, onSplitAt, onExtendGrab,
+      } = computeSpanCellProps({
+        geometry, selectedGroup, day, block, blockIndex, timeBlocks, rowSpan, slot,
+        onSplitSlot, onSpanExtendStart,
+      })
+      const onMergeDown = hasMergeDown && onExpandSlot ? () => {
+        clearMergeHint()
+        onExpandSlot(selectedGroup, day.id, block.id, nextBlock.id)
+      } : undefined
+      // One-time discoverability pulse. Now targets the drag bar
+      // only — the merge chevron it used to also light is gone.
+      const showExtendHintForCell = hasMergeDown && cellKey === hintTargetKey
+      return (
+        <SlotCell
+          key={day.id}
+          rowSpan={rowSpan}
+          slot={{ ...slot, type: 'activity', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id, flags: slot.flags || {} }}
+          activity={act}
+          weatherMode={false}
+          eligibleActivities={eligibleActivitiesFor?.(selectedGroup) ?? []}
+          onPlace={onPlace}
+          onCreateNew={onCreateNew}
+          onCreateElective={onCreateElective}
+          electiveSetsAll={electiveSetsAll}
+          electiveMembersBySet={electiveMembersBySet}
+          onOpenElective={onOpenElective}
+          eventsAll={eventsAll}
+          onOpenEvent={onOpenEvent}
+          onPlaceEvent={onPlaceEvent}
+          isContentRaced={isContentRaced?.(selectedGroup, day.id, block.id)}
+          onDismissContentRace={() => onDismissContentRace?.(`${selectedGroup}|${day.id}|${block.id}`)}
+          onSelect={onCellSelect}
+          isDndEnabled={true}
+          isSelected={isSelected}
+          isMultiSelected={isMultiSelected}
+          pasteMode={pasteMode}
+          hasMergeDown={hasMergeDown}
+          isMerged={isMerged}
+          onMergeDown={onMergeDown}
+          onSplitSlot={onSplit}
+          spanTailBlockIds={spanTailBlockIds}
+          onSplitAt={onSplitAt}
+          onExtendGrab={onExtendGrab}
+          showExtendHint={showExtendHintForCell}
+          ariaColIndex={ariaColIndex}
+          cellKey={cellKey}
+          collapsed={isCollapsed}
+          blockNames={blockNamesForSpan(timeBlocks, blockIndex, rowSpan)}
+          column={day.label}
+          {...placeCell({ blockIndex, columnIndex: dayIndex, rowSpan })}
+        />
+      )
+    }
+
+    return (
+      <EmptyCell
+        key={day.id}
+        groupId={selectedGroup}
+        dayId={day.id}
+        blockId={block.id}
+        ariaColIndex={ariaColIndex}
+        collapsed={isCollapsed}
+        blockNames={blockNamesForSpan(timeBlocks, blockIndex)}
+        column={day.label}
+        eligibleActivities={eligibleActivitiesFor?.(selectedGroup) ?? []}
+        onPlace={onPlace}
+        onCreateNew={onCreateNew}
+        onCreateElective={onCreateElective}
+        electiveSetsAll={electiveSetsAll}
+        eligibleEvents={eventsAll}
+        onPlaceEvent={onPlaceEvent}
+        {...placeCell({ blockIndex, columnIndex: dayIndex })}
+      />
+    )
+  }
+
   return (
-    <div style={{ flex: 1, minWidth: 0 }}>
-      {/* Group pills */}
-      <div style={{ ...S.centeredRow, gap: 8, marginBottom: 12 }}>
-        {groups.map(g => (
-          <button key={g.id} onClick={() => onSelectGroup(g.id)} style={S.chip('var(--primary)', selectedGroup === g.id, { fontSize: 12, fontFamily: 'var(--font-sans)' })}>{g.name}</button>
-        ))}
-      </div>
-
-      {selectedGroup && (
-        <div style={{ overflowX: 'auto' }}>
-          <div
-            role="grid"
-            className="schedule-grid-frame"
-            aria-rowcount={timeBlocks.length + 1}
-            aria-colcount={days.length + 1}
-            {...gridNav}
-          >
-            <div role="rowgroup" className="schedule-grid schedule-grid--header" style={{ gridTemplateColumns }}>
-              <div role="row" aria-rowindex={1} style={{ display: 'contents' }}>
-                <div role="columnheader" className="cell row-header" aria-colindex={1} style={placeRowHeader({ blockIndex: 0 })}>Block</div>
-                {days.map((d, dayIndex) => (
-                  <div
-                    key={d.id}
-                    role="columnheader"
-                    className="cell"
-                    aria-colindex={dayIndex + 2}
-                    style={placeCell({ blockIndex: 0, columnIndex: dayIndex })}
-                  >{d.label}</div>
-                ))}
-              </div>
-            </div>
-
-            <div
-              role="rowgroup"
-              className="schedule-grid schedule-grid--body"
-              style={{ gridTemplateColumns, '--grid-rows': rowTracks }}
-            >
-              {timeBlocks.map((block, blockIndex) => {
-                const isCollapsed = collapsedBlockIds.has(block.id)
-                const flagKind = rowFlagKind(geometry, rowCells, block.id)
-                const toggle = () => onToggleBlockCollapsed?.(block.id)
-                return (
-                  <div
-                    key={block.id}
-                    role="row"
-                    aria-rowindex={blockIndex + 2}
-                    style={{ display: 'contents' }}
-                    // The whole 20px strip is the re-expand target (T55): capture
-                    // phase, so a click on a folded cell re-expands instead of
-                    // opening its editor. Nothing is unmounted.
-                    onClickCapture={isCollapsed ? (e => { e.stopPropagation(); toggle() }) : undefined}
-                  >
-                    <div
-                      role="rowheader"
-                      className="cell row-header"
-                      aria-colindex={1}
-                      data-collapsed={isCollapsed ? '' : undefined}
-                      style={placeRowHeader({ blockIndex })}
-                    >
-                      <button
-                        type="button"
-                        className="row-header-toggle"
-                        aria-expanded={!isCollapsed}
-                        onClick={toggle}
-                      >
-                        <span className="block-name">{block.name}</span>
-                        <span className="block-time">{block.start_time?.slice(0,5)}–{block.end_time?.slice(0,5)}</span>
-                      </button>
-                    </div>
-                    {days.map((day, dayIndex) => {
-                      const slot = geometry.getSlot(selectedGroup, day.id, block.id)
-                      const ariaColIndex = dayIndex + 2
-                      const cellKey = `${selectedGroup}|${day.id}|${block.id}`
-
-                      // The tail of a fixed event span — covered by the head's grid-row span.
-                      if (slot?.is_fixed_event && geometry.isFixedEventTail(selectedGroup, day.id, block.id)) return null
-
-                      // The tail of a merged activity span — covered by the head's grid-row span.
-                      if (slot?.activity_id && !slot.is_fixed_event && geometry.isActivityTail(selectedGroup, day.id, block.id)) return null
-
-                      if (slot?.is_fixed_event) {
-                        const rowSpan = geometry.getFixedEventRowSpan(selectedGroup, day.id, block.id)
-                        const fixedEvent = slot.fixed_event_id ? fixedEventMap.get(slot.fixed_event_id) : null
-                        return (
-                          <SlotCell
-                            key={day.id}
-                            rowSpan={rowSpan}
-                            slot={{ ...slot, type: 'fixed_event', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id }}
-                            fixedEvent={fixedEvent}
-                            weatherMode={false}
-                            isDndEnabled={false}
-                            ariaColIndex={ariaColIndex}
-                            cellKey={cellKey}
-                            collapsed={isCollapsed}
-                            blockNames={blockNamesForSpan(timeBlocks, blockIndex, rowSpan)}
-                            column={day.label}
-                            {...placeCell({ blockIndex, columnIndex: dayIndex, rowSpan })}
-                          />
-                        )
-                      }
-
-                      if (slot?.activity_id || slot?.elective_set_id || slot?.event_id) {
-                        const act = slot.activity_id ? actMap.get(slot.activity_id) : null
-                        const rowSpan = geometry.getActivityRowSpan(selectedGroup, day.id, block.id)
-                        const isSelected = selectedSlotKeys?.has(cellKey) ?? false
-                        const isMultiSelected = isSelected && (selectedSlotKeys?.size ?? 0) > 1
-                        const {
-                          isMerged, nextBlock, hasMergeDown, spanTailBlockIds,
-                          onSplit, onSplitAt, onExtendGrab,
-                        } = computeSpanCellProps({
-                          geometry, selectedGroup, day, block, blockIndex, timeBlocks, rowSpan, slot,
-                          onSplitSlot, onSpanExtendStart,
-                        })
-                        const onMergeDown = hasMergeDown && onExpandSlot ? () => {
-                          clearMergeHint()
-                          onExpandSlot(selectedGroup, day.id, block.id, nextBlock.id)
-                        } : undefined
-                        // One-time discoverability pulse. Now targets the drag bar
-                        // only — the merge chevron it used to also light is gone.
-                        const showExtendHintForCell = hasMergeDown && cellKey === hintTargetKey
-                        return (
-                          <SlotCell
-                            key={day.id}
-                            rowSpan={rowSpan}
-                            slot={{ ...slot, type: 'activity', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id, flags: slot.flags || {} }}
-                            activity={act}
-                            weatherMode={false}
-                            eligibleActivities={eligibleActivitiesFor?.(selectedGroup) ?? []}
-                            onPlace={onPlace}
-                            onCreateNew={onCreateNew}
-                            onCreateElective={onCreateElective}
-                            electiveSetsAll={electiveSetsAll}
-                            electiveMembersBySet={electiveMembersBySet}
-                            onOpenElective={onOpenElective}
-                            eventsAll={eventsAll}
-                            onOpenEvent={onOpenEvent}
-                            onPlaceEvent={onPlaceEvent}
-                            isContentRaced={isContentRaced?.(selectedGroup, day.id, block.id)}
-                            onDismissContentRace={() => onDismissContentRace?.(`${selectedGroup}|${day.id}|${block.id}`)}
-                            onSelect={onCellSelect}
-                            isDndEnabled={true}
-                            isSelected={isSelected}
-                            isMultiSelected={isMultiSelected}
-                            pasteMode={pasteMode}
-                            hasMergeDown={hasMergeDown}
-                            isMerged={isMerged}
-                            onMergeDown={onMergeDown}
-                            onSplitSlot={onSplit}
-                            spanTailBlockIds={spanTailBlockIds}
-                            onSplitAt={onSplitAt}
-                            onExtendGrab={onExtendGrab}
-                            showExtendHint={showExtendHintForCell}
-                            ariaColIndex={ariaColIndex}
-                            cellKey={cellKey}
-                            collapsed={isCollapsed}
-                            blockNames={blockNamesForSpan(timeBlocks, blockIndex, rowSpan)}
-                            column={day.label}
-                            {...placeCell({ blockIndex, columnIndex: dayIndex, rowSpan })}
-                          />
-                        )
-                      }
-
-                      return (
-                        <EmptyCell
-                          key={day.id}
-                          groupId={selectedGroup}
-                          dayId={day.id}
-                          blockId={block.id}
-                          ariaColIndex={ariaColIndex}
-                          collapsed={isCollapsed}
-                          blockNames={blockNamesForSpan(timeBlocks, blockIndex)}
-                          column={day.label}
-                          eligibleActivities={eligibleActivitiesFor?.(selectedGroup) ?? []}
-                          onPlace={onPlace}
-                          onCreateNew={onCreateNew}
-                          onCreateElective={onCreateElective}
-                          electiveSetsAll={electiveSetsAll}
-                          eligibleEvents={eventsAll}
-                          onPlaceEvent={onPlaceEvent}
-                          {...placeCell({ blockIndex, columnIndex: dayIndex })}
-                        />
-                      )
-                    })}
-                    <div
-                      className="row-flag-dot"
-                      aria-hidden="true"
-                      data-collapsed={isCollapsed ? '' : undefined}
-                      data-flag={flagKind || undefined}
-                      title={flagKind ? ROW_FLAG_TITLE[flagKind] : undefined}
-                      style={placeCell({ blockIndex, columnIndex: days.length - 1 })}
-                    />
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        </div>
-      )}
-
-    </div>
+    <GroupGridFrame
+      groups={groups}
+      days={days}
+      timeBlocks={timeBlocks}
+      selectedGroup={selectedGroup}
+      onSelectGroup={onSelectGroup}
+      geometry={geometry}
+      collapsedBlockIds={collapsedBlockIds}
+      onToggleBlockCollapsed={onToggleBlockCollapsed}
+      renderCell={renderCell}
+    />
   )
 }
