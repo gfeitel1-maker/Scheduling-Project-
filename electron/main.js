@@ -3419,18 +3419,29 @@ if (isElectronEntryPoint()) {
     // first — its pending debounced timer reads from `db`, so it must not
     // still be armed once that handle closes.
     const oldDb = db
-    db = newDb
-    dbPath = newPath
-    deviceId = newDeviceId
-    await syncStarterHolder.replace()
-    const newHandlers = makeHandlers(newDb, newDeviceId, {
-      getMainWindow: () => mainWindow,
-      dbPath: newPath,
-      userDataPath,
-      ...syncStarterHolder.handlerOptions(),
-    })
+    const oldPath = dbPath
+    const oldDeviceId = deviceId
+    let swappedHandlers
+    try {
+      swappedHandlers = await syncStarterHolder.swap({
+        commit: () => { db = newDb; dbPath = newPath; deviceId = newDeviceId },
+        revert: () => { db = oldDb; dbPath = oldPath; deviceId = oldDeviceId },
+        build: () => {
+          const newHandlers = makeHandlers(newDb, newDeviceId, {
+            getMainWindow: () => mainWindow,
+            dbPath: newPath,
+            userDataPath,
+            ...syncStarterHolder.handlerOptions(),
+          })
+          return newHandlers
+        },
+      })
+    } catch (err) {
+      try { newDb.close() } catch { /* already unusable */ }
+      throw err
+    }
     disposeCampDataRecordThenCloseDb(liveHandlers, oldDb)
-    registerHandlers(newHandlers, db)
+    registerHandlers(swappedHandlers, db)
     setCurrentProjectPath(userDataPath, newPath)
     const camp = db.prepare('SELECT name FROM camps LIMIT 1').get()
     addRecentProject(userDataPath, { path: newPath, campName: camp?.name ?? null })
@@ -3668,17 +3679,29 @@ if (isElectronEntryPoint()) {
 
     // T292 round 2 FIX 5 — same reasoning as reinitialize() above.
     const oldDb = db
-    db = newDb
-    deviceId = getOrCreateDeviceId(db)
-    await syncStarterHolder.replace()
-    const restoreHandlers = makeHandlers(db, deviceId, {
-      getMainWindow: () => mainWindow,
-      dbPath,
-      userDataPath,
-      ...syncStarterHolder.handlerOptions(),
-    })
+    const oldDeviceId = deviceId
+    let swappedHandlers
+    try {
+      const newDeviceId = getOrCreateDeviceId(newDb)
+      swappedHandlers = await syncStarterHolder.swap({
+        commit: () => { db = newDb; deviceId = newDeviceId },
+        revert: () => { db = oldDb; deviceId = oldDeviceId },
+        build: () => {
+          const restoreHandlers = makeHandlers(newDb, newDeviceId, {
+            getMainWindow: () => mainWindow,
+            dbPath,
+            userDataPath,
+            ...syncStarterHolder.handlerOptions(),
+          })
+          return restoreHandlers
+        },
+      })
+    } catch (err) {
+      try { newDb.close() } catch { /* already unusable */ }
+      return { error: 'restore_failed', message: err.message }
+    }
     disposeCampDataRecordThenCloseDb(liveHandlers, oldDb)
-    registerHandlers(restoreHandlers, db)
+    registerHandlers(swappedHandlers, db)
     if (mainWindow) mainWindow.webContents.reload()
     return { restored: true }
   })

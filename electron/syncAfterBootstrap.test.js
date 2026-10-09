@@ -128,4 +128,97 @@ describe('sync after a project switch / restore (db swap)', () => {
     t2.db.close()
     if (fs.existsSync(t2.file)) fs.unlinkSync(t2.file)
   })
+
+  const mkStarter = (d, id, extra = {}) => createAutomergeSyncStarter({
+    deviceId: id, db: d, userDataPath, docCipher: null,
+    getMainWindow: () => null, getLiveHandlers: () => null, ...extra,
+  })
+  const withCamp = async (name) => {
+    const t = openTemplatedDb()
+    const id = getOrCreateDeviceId(t.db)
+    const h = makeHandlers(t.db, id, {})
+    await h.chooseMode({ mode: 'host', campName: name })
+    await h.bootstrapCamp({ campName: name, adminName: 'Root', adminPin: '999999' })
+    return { ...t, id }
+  }
+  const dropT = (t) => { t.db.close(); if (fs.existsSync(t.file)) fs.unlinkSync(t.file) }
+
+  it('swapping to a db that ALREADY has a camp starts the node with no bootstrap call', async () => {
+    const t2 = await withCamp('Existing Camp')
+    let curDb = db
+    let curId = deviceId
+    const holder = createSyncStarterHolder(() => mkStarter(curDb, curId))
+    curDb = t2.db
+    curId = t2.id
+    await holder.replace()
+    const node = await waitFor(() => holder.getNode())
+    expect(node.getMultiaddrs().length).toBeGreaterThan(0)
+    await node.stop()
+    dropT(t2)
+  })
+
+  it('a start in flight during replace leaves exactly one live node', async () => {
+    const t1 = await withCamp('Camp A')
+    const t2 = await withCamp('Camp B')
+    const made = []
+    let curDb = t1.db
+    let curId = t1.id
+    const impl = async () => {
+      const real = (await import('./sync/automerge/syncNode.js')).startSyncNode
+      return async (o) => {
+        const n = await real(o)
+        const stop = vi.spyOn(n, 'stop')
+        made.push({ n, stop })
+        return n
+      }
+    }
+    const holder = createSyncStarterHolder(() => mkStarter(curDb, curId, { startSyncNodeImpl: impl }))
+    holder.start()
+    curDb = t2.db
+    curId = t2.id
+    await holder.replace()
+    await waitFor(() => holder.getNode() && made.length >= 2)
+    const live = made.filter((m) => m.stop.mock.calls.length === 0)
+    expect(live).toHaveLength(1)
+    expect(live[0].n).toBe(holder.getNode())
+    await holder.getNode().stop()
+    dropT(t1)
+    dropT(t2)
+  })
+
+  it('a failure while building the swapped-in handlers leaves the old project on its node', async () => {
+    const t1 = await withCamp('Camp A')
+    const t2 = await withCamp('Camp B')
+    let curDb = t1.db
+    let curId = t1.id
+    const holder = createSyncStarterHolder(() => mkStarter(curDb, curId))
+    await holder.start()
+    const oldNode = holder.getNode()
+    expect(oldNode).toBeTruthy()
+    await expect(holder.swap({
+      commit: () => { curDb = t2.db; curId = t2.id },
+      revert: () => { curDb = t1.db; curId = t1.id },
+      build: () => { throw new Error('makeHandlers failed') },
+    })).rejects.toThrow('makeHandlers failed')
+    expect(curDb).toBe(t1.db)
+    const node = await waitFor(() => holder.getNode())
+    expect(node.getMultiaddrs().length).toBeGreaterThan(0)
+    await node.stop()
+    dropT(t1)
+    dropT(t2)
+  })
+
+  it('logs a node.stop() failure on replace instead of swallowing it', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const t1 = await withCamp('Camp A')
+    const holder = createSyncStarterHolder(() => mkStarter(t1.db, t1.id))
+    await holder.start()
+    const node = holder.getNode()
+    const realStop = node.stop.bind(node)
+    vi.spyOn(node, 'stop').mockRejectedValue(new Error('stop boom'))
+    await holder.replace()
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('stop boom'))
+    await realStop()
+    dropT(t1)
+  })
 })

@@ -633,6 +633,7 @@ export function createAutomergeSyncStarter({
     start,
     getNode: () => automergeSyncNode,
     shutdownPunch: async () => { await punchModule?.shutdownPunchNative() },
+    releaseBroadcaster: () => setAutomergeLocalWriteBroadcaster(db, null),
     getStartupAttempted: () => automergeStartupAttempted,
     getRelayReservationRefused: () => relayReservationRefused,
   }
