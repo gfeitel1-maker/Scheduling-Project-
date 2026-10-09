@@ -42,15 +42,20 @@
 // Activity cap null/0 mean "no per-activity cap", matching the engine's
 // `act.max_groups_per_slot > 0` guard and normalizeActivityEligibility.
 //
-// When one slot trips BOTH limits the two reasons are joined into a single
+// A third case (audit A6): the same GROUP booked in two blocks whose clock
+// times intersect on one day — two places at once. The movable rows are
+// flagged; a fixed event is never flagged, the same rule as above.
+//
+// When one slot trips more than one limit the two reasons are joined into a single
 // string, keeping the consumer's marker shape (one reason per slot) unchanged.
 //
 // Rows carry the persisted snake_case shape (group_id/day_id/time_block_id/
 // activity_id), the same shape computeFindings() reads.
 
 import { resolveElectiveOfferingLocations } from '../engine/electiveOccupancy.js'
+import { overlappingBlockPeers } from '../engine/blockOverlap.js'
 
-export function computeOverlaps({ slots, activities, locations, electiveSetActivities }) {
+export function computeOverlaps({ slots, activities, locations, electiveSetActivities, timeBlocks }) {
   if (!slots || !activities) return new Map()
 
   const actMap = new Map(activities.map(a => [a.id, a]))
@@ -165,6 +170,42 @@ export function computeOverlaps({ slots, activities, locations, electiveSetActiv
     for (const r of nonFixedEventRows) add(r.id, reason)
   }
 
+  const blockPeers = overlappingBlockPeers(timeBlocks)
+  if (blockPeers.size > 0) {
+    const booked = new Map() // "groupId|dayId|blockId" → [row, ...]
+    for (const s of slots) {
+      if (!(s.activity_id || s.is_fixed_event || s.elective_set_id != null || s.event_id != null)) continue
+      const k = `${s.group_id}|${s.day_id}|${s.time_block_id}`
+      if (!booked.has(k)) booked.set(k, [])
+      booked.get(k).push(s)
+    }
+    // A span continuing across its own blocks is one placement, not a double
+    // booking. Its rows are grouped the way the grid merges them
+    // (gridGeometry's getActivityRowSpan): a head plus the following
+    // is_span_head === false rows of the same activity.
+    const spanOf = new Map() // row → its span head row
+    const ordered = [...timeBlocks].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+    const runHead = new Map() // "groupId|dayId" → current head row
+    for (const b of ordered) {
+      for (const s of slots) {
+        if (s.time_block_id !== b.id || !s.activity_id || s.is_fixed_event) continue
+        const gd = `${s.group_id}|${s.day_id}`
+        const head = runHead.get(gd)
+        const continues = s.is_span_head === false && head?.activity_id === s.activity_id
+        if (!continues) runHead.set(gd, s)
+        spanOf.set(s, continues ? spanOf.get(head) : s)
+      }
+    }
+    for (const s of slots) {
+      if (s.is_fixed_event || !booked.get(`${s.group_id}|${s.day_id}|${s.time_block_id}`)?.includes(s)) continue
+      const clashes = (blockPeers.get(s.time_block_id) || [])
+        .filter(b => (booked.get(`${s.group_id}|${s.day_id}|${b.id}`) || [])
+          .some(o => !spanOf.has(o) || spanOf.get(o) !== spanOf.get(s)))
+        .map(b => b.name || 'another block')
+      if (clashes.length) add(s.id, `This group is also booked at an overlapping time (${clashes.join(', ')})`)
+    }
+  }
+
   const overlapping = new Map() // slot id → reason (both limits joined when tripped)
   for (const [id, arr] of reasons) overlapping.set(id, arr.join('; '))
   return overlapping
@@ -172,8 +213,8 @@ export function computeOverlaps({ slots, activities, locations, electiveSetActiv
 
 // Merges the derived marker into the flags each cell renders from, leaving the
 // persisted rows untouched.
-export function withOverlapFlags(slots, activities, locations, electiveSetActivities) {
-  const overlapping = computeOverlaps({ slots, activities, locations, electiveSetActivities })
+export function withOverlapFlags(slots, activities, locations, electiveSetActivities, timeBlocks) {
+  const overlapping = computeOverlaps({ slots, activities, locations, electiveSetActivities, timeBlocks })
   if (overlapping.size === 0) return slots
   return slots.map(s =>
     overlapping.has(s.id)

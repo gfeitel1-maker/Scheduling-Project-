@@ -194,13 +194,13 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       // cleanly, and nobody is told. The stance ("the engine refuses clashes
       // rather than making them") is still true of GENERATION and no longer
       // true of the route, so the marker follows the state, not the origin.
-      return withOverlapFlags(withClosures, activities, locations, electiveSetActivities)
+      return withOverlapFlags(withClosures, activities, locations, electiveSetActivities, timeBlocks)
     },
     // `route` is deliberately absent: since T159 nothing in this memo reads it
     // (OVERLAP derives on both routes), and rawSlots already changes when the
     // route does. It lingered here as a leftover of the same change that left
     // the stale comment above — flagged by react-hooks/exhaustive-deps.
-    [rawSlots, activities, locations, groups, activityExclusions, groupExclusions, locationExclusions, weekId, electiveSetActivities]
+    [rawSlots, activities, locations, groups, activityExclusions, groupExclusions, locationExclusions, weekId, electiveSetActivities, timeBlocks]
   )
   // The generated "track changes" review (docs/work/specs/2026-08-01-generated-
   // flag-review.md). One piece of state is the single source of truth for both
