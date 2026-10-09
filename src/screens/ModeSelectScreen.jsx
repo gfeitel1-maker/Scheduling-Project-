@@ -10,15 +10,9 @@ export default function ModeSelectScreen({ onChooseHost, onChooseJoin }) {
       <div style={{ ...S.authCard, position: 'relative', zIndex: 1, ...enterStyle }}>
         <div style={S.authLogoBlock}>
           <div style={S.authLogo}>Shoresh</div>
-          <div style={S.authLogoSub}>Camp activity scheduling</div>
         </div>
 
-        <div style={S.authEyebrow}>First launch on this computer</div>
-        <div style={S.authTitle}>How is this device being used?</div>
-        <div style={S.authSubtitle}>
-          Every device running Shoresh holds an equal copy of the camp, so the camp survives any
-          one computer or person leaving. Choose how this device gets its copy.
-        </div>
+        <div style={S.authTitle}>Set up this device</div>
 
         <button
           style={S.authChoiceCard}
@@ -30,8 +24,7 @@ export default function ModeSelectScreen({ onChooseHost, onChooseJoin }) {
           <div style={{ flex: 1 }}>
             <div style={S.authChoiceTitle}>Start a new camp</div>
             <div style={S.authChoiceDesc}>
-              Set up a brand-new camp on this device. Add other devices to it afterwards with a
-              camp code.
+              Add other devices later with a camp code.
             </div>
           </div>
           <div style={S.authChoiceChevron}><ChevronIcon size={14} style={{ transform: 'rotate(-90deg)' }} /></div>
@@ -45,10 +38,9 @@ export default function ModeSelectScreen({ onChooseHost, onChooseJoin }) {
         >
           <div style={S.authChoiceIcon}><SyncIcon /></div>
           <div style={{ flex: 1 }}>
-            <div style={S.authChoiceTitle}>Join a camp with a camp code</div>
+            <div style={S.authChoiceTitle}>Join with a camp code</div>
             <div style={S.authChoiceDesc}>
-              Enter the camp code from a device that already has the camp, and this device gets its
-              own full copy.
+              This device gets its own full copy.
             </div>
           </div>
           <div style={S.authChoiceChevron}><ChevronIcon size={14} style={{ transform: 'rotate(-90deg)' }} /></div>

@@ -88,7 +88,7 @@ describe('ConflictsScreen keep(): exercises every real write-status path through
     const resolveConflict = vi.fn().mockResolvedValue({ status: 'applied' })
     renderScreen({ resolveConflict })
 
-    const buttons = screen.getAllByRole('button', { name: /keep this version/i })
+    const buttons = screen.getAllByRole('button', { name: /^keep$/i })
     await user.click(buttons[0])
 
     await waitFor(() => expect(screen.queryByText(/kept someone's version/i)).not.toBeNull())
@@ -100,7 +100,7 @@ describe('ConflictsScreen keep(): exercises every real write-status path through
     const resolveConflict = vi.fn().mockResolvedValue({ status: 'queued' })
     renderScreen({ resolveConflict })
 
-    await user.click(screen.getAllByRole('button', { name: /keep this version/i })[0])
+    await user.click(screen.getAllByRole('button', { name: /^keep$/i })[0])
     // T18: was /will sync when connected/. "Sync" is developer vocabulary; the
     // copy now says what actually happens to the other computers.
     await waitFor(() => expect(screen.queryByText(/will reach the other computers/i)).not.toBeNull())
@@ -112,9 +112,9 @@ describe('ConflictsScreen keep(): exercises every real write-status path through
     const resolveConflict = vi.fn().mockResolvedValue({ status: 'conflict' })
     renderScreen({ resolveConflict })
 
-    await user.click(screen.getAllByRole('button', { name: /keep this version/i })[0])
+    await user.click(screen.getAllByRole('button', { name: /^keep$/i })[0])
     await waitFor(() => expect(screen.queryByText(/pick again below/i)).not.toBeNull())
-    expect(screen.getAllByRole('button', { name: /keep this version/i })[0].disabled).toBe(false)
+    expect(screen.getAllByRole('button', { name: /^keep$/i })[0].disabled).toBe(false)
   })
 
   it('status "timeout" shows a connectivity notice instead of silently re-enabling with no explanation', async () => {
@@ -122,7 +122,7 @@ describe('ConflictsScreen keep(): exercises every real write-status path through
     const resolveConflict = vi.fn().mockResolvedValue({ status: 'timeout' })
     renderScreen({ resolveConflict })
 
-    await user.click(screen.getAllByRole('button', { name: /keep this version/i })[0])
+    await user.click(screen.getAllByRole('button', { name: /^keep$/i })[0])
     await waitFor(() => expect(screen.queryByText(/couldn't reach the network/i)).not.toBeNull())
   })
 
@@ -131,7 +131,7 @@ describe('ConflictsScreen keep(): exercises every real write-status path through
     const resolveConflict = vi.fn().mockResolvedValue({ status: 'disconnected' })
     renderScreen({ resolveConflict })
 
-    await user.click(screen.getAllByRole('button', { name: /keep this version/i })[0])
+    await user.click(screen.getAllByRole('button', { name: /^keep$/i })[0])
     await waitFor(() => expect(screen.queryByText(/couldn't reach the network/i)).not.toBeNull())
   })
 
@@ -140,7 +140,7 @@ describe('ConflictsScreen keep(): exercises every real write-status path through
     const resolveConflict = vi.fn().mockResolvedValue({ status: 'error' })
     renderScreen({ resolveConflict })
 
-    await user.click(screen.getAllByRole('button', { name: /keep this version/i })[0])
+    await user.click(screen.getAllByRole('button', { name: /^keep$/i })[0])
     await waitFor(() => expect(screen.queryByText(/something went wrong/i)).not.toBeNull())
   })
 })
@@ -255,7 +255,7 @@ describe('ConflictsScreen camp map image conflict: thumbnails shown, raw base64 
     expect(screen.queryByText(conflict.sideB.value)).toBeNull()
   })
 
-  it('still offers "Keep this version" for each side (the resolve action is unchanged by the rendering branch)', () => {
+  it('still offers "Keep" for each side (the resolve action is unchanged by the rendering branch)', () => {
     const pendingConflicts = {
       conflicts: [makeImageConflict()],
       loading: false,
@@ -265,7 +265,7 @@ describe('ConflictsScreen camp map image conflict: thumbnails shown, raw base64 
       resolvedMeta: {},
     }
     render(<ConflictsScreen pendingConflicts={pendingConflicts} />)
-    expect(screen.getAllByText('Keep this version')).toHaveLength(2)
+    expect(screen.getAllByText('Keep')).toHaveLength(2)
   })
 })
 
@@ -280,10 +280,9 @@ describe('ConflictsScreen empty state: graceful UI when no conflicts', () => {
       resolvedMeta: {},
     }
     render(<ConflictsScreen pendingConflicts={pendingConflicts} />)
-    expect(screen.getByText(/no conflicts to resolve/i)).toBeTruthy()
-    expect(screen.getByText(/everything'?s in sync/i)).toBeTruthy()
+    expect(screen.getByText(/^no conflicts$/i)).toBeTruthy()
     // No error — no buttons, no cards
-    expect(screen.queryByRole('button', { name: /keep this version/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^keep$/i })).toBeNull()
   })
 
   it('shows a loading indicator while conflicts are being fetched', () => {
@@ -315,7 +314,7 @@ describe('ConflictCard (Fix 1): renders from resolved-state props, not a self-ow
     render(<ConflictsScreen pendingConflicts={pendingConflicts} />)
 
     expect(screen.queryByText(/kept someone's version/i)).not.toBeNull()
-    expect(screen.queryByRole('button', { name: /keep this version/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^keep$/i })).toBeNull()
   })
 })
 
@@ -344,9 +343,9 @@ function renderPending(conflicts, onNavigate) {
 }
 
 describe('ConflictCard kind: "unique" (T242) — informational, no ChoiceBox', () => {
-  it('renders no ChoiceBox / no "Keep this version" buttons for a unique conflict', () => {
+  it('renders no ChoiceBox / no "Keep" buttons for a unique conflict', () => {
     renderPending([makeUniqueConflict()])
-    expect(screen.queryByRole('button', { name: /keep this version/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^keep$/i })).toBeNull()
   })
 
   it('users: names the colliding staff member, no owning-screen line, no control', () => {
@@ -411,7 +410,7 @@ describe('ConflictCard kind: "unique" (T242) — informational, no ChoiceBox', (
     const conflict = makeConflict()
     expect(conflict.kind).toBeUndefined()
     renderPending([conflict])
-    expect(screen.queryAllByRole('button', { name: /keep this version/i }).length).toBeGreaterThan(0)
+    expect(screen.queryAllByRole('button', { name: /^keep$/i }).length).toBeGreaterThan(0)
   })
 
   // Fix 1 (Red Hat, reproduced): `UNIQUE_CONFLICT_NAV_TARGET[conflict.entity]`

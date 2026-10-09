@@ -22,7 +22,7 @@ export default function CampBootstrapScreen({ onBack, onSubmit }) {
     try {
       await onSubmit({ campName: campName.trim(), adminName: adminName.trim(), adminPin })
     } catch (err) {
-      setError(err.message || 'Something went wrong. Try again.')
+      setError(err.message || 'Couldn’t create camp.')
       setSubmitting(false)
     }
   }
@@ -48,15 +48,7 @@ export default function CampBootstrapScreen({ onBack, onSubmit }) {
           style={{ width: 64, height: 64, display: 'block', margin: '0 auto 14px', ...badgeEnter }}
         />
 
-        <div style={S.authRolePill}>
-          HOSTING ON THIS DEVICE
-        </div>
-
         <div style={S.authTitle}>Set up your camp</div>
-        <div style={S.authSubtitle}>
-          This is a one-time setup. You'll create the first director account — you can add more staff
-          once you're in.
-        </div>
 
         {error && <div style={S.authErrorBox}><WarningTriangleIcon style={{ marginTop: 2 }} /><span>{error}</span></div>}
 
@@ -102,7 +94,7 @@ export default function CampBootstrapScreen({ onBack, onSubmit }) {
             style={{ ...S.authBtnPrimary, opacity: valid && !submitting ? 1 : 0.4, cursor: valid && !submitting ? 'pointer' : 'not-allowed' }}
             disabled={!valid || submitting}
           >
-            {submitting ? 'Creating…' : 'Create camp & continue →'}
+            {submitting ? 'Creating…' : 'Create camp'}
           </button>
         </form>
       </div>

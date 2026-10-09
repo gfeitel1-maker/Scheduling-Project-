@@ -202,10 +202,9 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
 
         {step === STEP.code && (
           <>
-            <div style={S.authEyebrow}>Join a camp</div>
-            <div style={S.authTitle}>Enter the code from your camp's computer</div>
+            <div style={S.authTitle}>Camp code</div>
             <div style={S.authSubtitle}>
-              On the main computer, open <strong>Device Manager</strong> and choose <strong>Add a device</strong>. It will show you a code.
+              On the main computer: <strong>Device Manager</strong> → <strong>Add a device</strong>.
             </div>
             <input
               style={codeInput}
@@ -222,13 +221,13 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
         )}
 
         {step === STEP.searching && (
-          <Waiting title="Looking for your camp…" note="Make sure this device is on the same Wi-Fi as the main computer." />
+          <Waiting title="Looking for your camp…" />
         )}
 
         {step === STEP.notFound && (
           <Outcome
             title="No camp answered that code"
-            body={<>Check that:<br />• the code matches what the main computer is showing<br />• someone chose <strong>Add a device</strong> there, and that screen is still open<br />• both devices are on the same Wi-Fi</>}
+            body={<>Check the code, that <strong>Add a device</strong> is still open on the main computer, and that both are on the same Wi-Fi.</>}
             actionLabel="Try again"
             onAction={startOver}
           />
@@ -237,7 +236,7 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
         {step === STEP.wrongCamp && (
           <Outcome
             title="That computer couldn't confirm the code"
-            body={<>A computer answered, but it couldn't prove it belongs to this camp. Double-check the code on the main computer before trying again.</>}
+            body={<>A computer answered but couldn't prove it belongs to this camp. Check the code.</>}
             actionLabel="Start over"
             onAction={startOver}
           />
@@ -246,7 +245,7 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
         {step === STEP.waitingForApproval && (
           <Waiting
             title="Waiting for approval"
-            note="Someone at the main computer needs to allow this device in. This screen will move on by itself."
+            note="Approve it on the main computer. This screen moves on by itself."
             onCancel={startOver}
           />
         )}
@@ -255,8 +254,8 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
           <Outcome
             title={deniedReason === 'pairing-requires-local-network' ? "Not on the camp's network" : "This device wasn't allowed in"}
             body={deniedReason === 'pairing-requires-local-network'
-              ? <>Pairing must happen on the camp's local network — connect this device to the same Wi-Fi/LAN as the main computer and try again. VPN, Tailscale and mobile-carrier connections can't be used to pair.</>
-              : <>Whoever is at the main computer turned down the request. You can ask them and try again.</>}
+              ? <>Join the main computer's Wi-Fi/LAN. VPN, Tailscale and mobile connections can't pair.</>
+              : <>The main computer turned down the request.</>}
             actionLabel="Try again"
             onAction={startOver}
           />
@@ -264,7 +263,6 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
 
         {step === STEP.signIn && (
           <>
-            <div style={S.authEyebrow}>Almost there</div>
             <div style={S.authTitle}>Sign in</div>
             <div style={S.authSubtitle}>Use the same name and PIN you use on the main computer.</div>
             <label htmlFor="join-name" style={{ ...S.authLabel, marginTop: 0 }}>Name</label>
@@ -294,13 +292,13 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
         )}
 
         {step === STEP.receiving && (
-          <Waiting title="Getting your camp's schedule…" note="This usually takes a few seconds." />
+          <Waiting title="Getting your camp…" />
         )}
 
         {step === STEP.noData && (
           <Outcome
             title="Signed in, but nothing arrived"
-            body={<>This device was allowed in, but the camp's schedule didn't come through. Check that the main computer is still on and on the same Wi-Fi, then try again.</>}
+            body={<>Allowed in, but no schedule came through. Check the main computer is on and on the same Wi-Fi.</>}
             actionLabel="Try again"
             onAction={startOver}
           />
@@ -312,11 +310,8 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
                 first moment it can be, so recognition is something the director
                 CONFIRMS rather than something they took on faith from an
                 address. */}
-            <div style={S.authEyebrow}>Done</div>
-            <div style={S.authTitle}>You've joined {camp?.name}</div>
-            <div style={S.authSubtitle}>
-              This device is now part of {camp?.name}. It will find the camp on its own from now on — you won't need the code again.
-            </div>
+            <div style={S.authTitle}>Joined {camp?.name}</div>
+            <div style={S.authSubtitle}>You won't need the code again.</div>
             <button style={S.authBtnPrimary} onClick={() => onJoined?.(camp)}>Continue</button>
           </>
         )}
@@ -328,7 +323,6 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
 function Waiting({ title, note, onCancel }) {
   return (
     <>
-      <div style={S.authEyebrow}>Join a camp</div>
       <div style={S.authTitle}>{title}</div>
       {note && <div style={S.authSubtitle}>{note}</div>}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '22px 0', justifyContent: 'center' }}>
@@ -344,7 +338,6 @@ function Waiting({ title, note, onCancel }) {
 function Outcome({ title, body, actionLabel, onAction }) {
   return (
     <>
-      <div style={S.authEyebrow}>Join a camp</div>
       <div style={S.authTitle}>{title}</div>
       <div style={{ ...S.authSubtitle, lineHeight: 1.7 }}>{body}</div>
       <button style={S.authBtnPrimary} onClick={onAction}>{actionLabel}</button>

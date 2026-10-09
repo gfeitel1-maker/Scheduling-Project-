@@ -35,7 +35,7 @@ describe('LoginScreen submit rejection recovery', () => {
     })
 
     // Shows the connection-error message, not the wrong-PIN message
-    expect(screen.getByText(/Couldn't reach the app right now/)).toBeTruthy()
+    expect(screen.getByText(/Can’t reach the app/)).toBeTruthy()
     expect(screen.queryByText(/doesn't match/)).toBeNull()
 
     // PIN was not cleared since it was never actually wrong

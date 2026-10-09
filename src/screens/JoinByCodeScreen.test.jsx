@@ -72,7 +72,7 @@ describe('JoinByCodeScreen — the whole way through', () => {
     await enterCode(user)
     await signIn(user)
 
-    expect(await screen.findByText(/You've joined Camp Kinneret/)).toBeTruthy()
+    expect(await screen.findByText(/Joined Camp Kinneret/)).toBeTruthy()
     await user.click(screen.getByRole('button', { name: /continue/i }))
     expect(onJoined).toHaveBeenCalledWith({ id: 'c1', name: 'Camp Kinneret' })
   })
@@ -136,7 +136,7 @@ describe('JoinByCodeScreen — the whole way through', () => {
     expect(await screen.findByText(/wasn't allowed in/i)).toBeTruthy()
   })
 
-  const LAN_COPY = "Pairing must happen on the camp's local network — connect this device to the same Wi-Fi/LAN as the main computer and try again. VPN, Tailscale and mobile-carrier connections can't be used to pair."
+  const LAN_COPY = "Join the main computer's Wi-Fi/LAN. VPN, Tailscale and mobile connections can't pair."
 
   it('names the local-network requirement when pairing is refused for it (waiting path)', async () => {
     localClient.joinAwaitPairingDecision.mockResolvedValue({ status: 'denied', reason: 'pairing-requires-local-network' })

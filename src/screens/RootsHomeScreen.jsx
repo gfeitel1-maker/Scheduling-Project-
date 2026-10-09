@@ -378,15 +378,14 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
               means something. */}
           {couldNotCheck && (
             <div data-testid="attention-unread-notice" style={styles.unreadNotice}>
-              Some of your camp couldn’t be read just now, so this list may be incomplete.
-              Reopening Roots will try again.
+              Some data couldn’t be read — this list may be incomplete.
             </div>
           )}
           {sortedAttentionRows.length === 0 ? (
             couldNotCheck ? null : (
               <div style={{ ...styles.emptyState, ...emptyStateEnterStyle }}>
                 <CircleCheckIcon data-testid="attention-empty-check" style={styles.emptyStateIcon} />
-                <div>Nothing needs you right now.</div>
+                <div>All clear</div>
               </div>
             )
           ) : (

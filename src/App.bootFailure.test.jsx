@@ -21,7 +21,7 @@ describe('App error phase', () => {
   it('still renders the generic card with Try again otherwise', () => {
     device = { phase: 'error', error: 'kaboom', bootFailure: null, retry: vi.fn() }
     render(<App />)
-    expect(screen.getByText('Something went wrong')).toBeTruthy()
+    expect(screen.getByText('Couldn’t start')).toBeTruthy()
     expect(screen.getByText('Try again')).toBeTruthy()
   })
 })

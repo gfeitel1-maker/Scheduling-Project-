@@ -126,7 +126,7 @@ function ChoiceBox({ side, label, isPin, isImage, disabled, onKeep }) {
           cursor: disabled ? 'default' : 'pointer',
         }}
       >
-        {disabled ? 'Saving…' : 'Keep this version'}
+        {disabled ? 'Saving…' : 'Keep'}
       </button>
     </div>
   )
@@ -327,9 +327,8 @@ export default function ConflictsScreen({ pendingConflicts, onNavigate }) {
           <CircleCheckIcon size={32} style={{ display: 'block', margin: '0 auto 10px' }} />
           {/* color: 'var(--text)' intentional — success state, not an absence */}
           <div style={{ ...S.emptyStateTitle, color: 'var(--text)' }}>
-            No conflicts to resolve
+            No conflicts
           </div>
-          <div style={S.emptyStateBody}>Everything's in sync.</div>
         </div>
       ) : (
         <>
@@ -338,10 +337,10 @@ export default function ConflictsScreen({ pendingConflicts, onNavigate }) {
               fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, color: 'var(--text)',
               textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6,
             }}>
-              {conflicts.length} conflict{conflicts.length !== 1 ? 's' : ''} {conflicts.length !== 1 ? 'need' : 'needs'} your attention
+              {conflicts.length} conflict{conflicts.length !== 1 ? 's' : ''}
             </div>
             <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              These happened while two devices made changes at the same time. Pick which version to keep for each one.
+              Two devices changed the same thing at once. Keep one.
             </div>
           </div>
 

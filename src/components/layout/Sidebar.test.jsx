@@ -393,7 +393,7 @@ describe('Sidebar: host-not-syncing retry affordance (T275)', () => {
     openGear()
     const btn = screen.getByRole('button', { name: 'try again' })
     expect(btn.tagName).toBe('BUTTON')
-    expect(btn.title).toMatch(/Click to try again/)
+    expect(btn.title).toMatch(/click to retry/)
   })
 
   it('clicking calls window.shoresh.retrySync and switches immediately to "trying…"', () => {

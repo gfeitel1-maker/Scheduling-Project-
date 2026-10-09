@@ -105,7 +105,7 @@ describe('RootsHomeScreen', () => {
     localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
 
     render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Nothing needs you right now.')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('All clear')).not.toBeNull())
   })
 
   it('flags an empty required area as an attention row', async () => {
@@ -269,7 +269,7 @@ describe('RootsHomeScreen', () => {
     localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
 
     render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Nothing needs you right now.')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('All clear')).not.toBeNull())
 
     expect(screen.getByTestId('attention-empty-check')).not.toBeNull()
   })
@@ -364,11 +364,11 @@ describe('RootsHomeScreen', () => {
     localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
 
     render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Nothing needs you right now.')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('All clear')).not.toBeNull())
 
     const rail = screen.getByRole('complementary', { name: 'Needs your attention' })
     expect(rail.contains(screen.getByTestId('attention-empty-check'))).toBe(true)
-    expect(rail.contains(screen.getByText('Nothing needs you right now.'))).toBe(true)
+    expect(rail.contains(screen.getByText('All clear'))).toBe(true)
   })
 
   it('keeps the bottom actions inside rootsMain so their position follows the bento column, not the rail (round-2 fix 1)', async () => {
@@ -411,7 +411,7 @@ describe('RootsHomeScreen', () => {
     await waitFor(() => expect(screen.queryByTestId('attention-unread-notice')).not.toBeNull())
 
     // The all-clear is a claim about collections that were read. This one wasn't.
-    expect(screen.queryByText('Nothing needs you right now.')).toBeNull()
+    expect(screen.queryByText('All clear')).toBeNull()
     expect(screen.queryByTestId('attention-empty-check')).toBeNull()
   })
 
@@ -424,7 +424,7 @@ describe('RootsHomeScreen', () => {
     localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
 
     render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Nothing needs you right now.')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('All clear')).not.toBeNull())
 
     expect(screen.queryByTestId('attention-unread-notice')).toBeNull()
   })
