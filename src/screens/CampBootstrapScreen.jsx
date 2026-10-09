@@ -84,10 +84,6 @@ export default function CampBootstrapScreen({ onBack, onSubmit }) {
             value={adminPin}
             onChange={e => setAdminPin(e.target.value)}
           />
-          <div style={S.authHint}>
-            You'll use this PIN to log in on this and any connected device. As the director, your PIN
-            needs to be at least 6 digits — staff you add later can use a shorter one.
-          </div>
 
           <button
             type="submit"

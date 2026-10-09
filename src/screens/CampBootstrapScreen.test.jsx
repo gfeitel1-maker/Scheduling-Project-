@@ -16,3 +16,12 @@ describe('CampBootstrapScreen brand placement', () => {
     expect(badge.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })
+
+describe("CampBootstrapScreen PIN field", () => {
+  it("carries its guidance in the label and placeholder, with no repeating paragraph", () => {
+    render(<CampBootstrapScreen onBack={vi.fn()} onSubmit={vi.fn()} />)
+    const pin = screen.getByLabelText("Create a PIN")
+    expect(pin.getAttribute("placeholder")).toBe("6 or more digits")
+    expect(screen.queryByText(/at least 6 digits/i)).toBeNull()
+  })
+})
