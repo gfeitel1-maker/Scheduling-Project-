@@ -406,6 +406,10 @@ describe('verifier_pass via a bound CI run', () => {
     expect(out.decision_eligibility).toBe('BLOCK')
   })
 
+  it('a local gate-results FAIL wins over a successful CI run', () => {
+    expect(reduce([verifier({ verdict: 'FAIL', findings: [{ severity: 'BLOCKING', summary: '1 failing test' }] }), ...opinions()], run()).verifier_pass).toBe(false)
+  })
+
   it('CI run with no report headSha to bind against -> not pass', () => {
     expect(reduce([unverified(), ...opinions()], run(), null).verifier_pass).toBe(false)
   })

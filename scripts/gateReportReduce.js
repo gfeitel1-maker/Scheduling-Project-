@@ -83,7 +83,9 @@ export function reduceGateReport({ taskId, round, expectedOpinionGates, reports,
     typeof headSha === 'string' && headSha !== '' && ciRun.headSha === headSha &&
     ciRun.status === 'completed' && ciRun.conclusion === 'success',
   )
-  const verifierPass = (verifierReport !== undefined && verifierReport.verdict === 'PASS') || ciRunPass
+  // A local FAIL is a real red on this diff; a CI green does not override it.
+  const localFail = verifierReport !== undefined && verifierReport.verdict === 'FAIL'
+  const verifierPass = !localFail && ((verifierReport !== undefined && verifierReport.verdict === 'PASS') || ciRunPass)
 
   // --- §5.3 opinion aggregate ---------------------------------------------
   const gateScores = { security: null, red_hat: null, tester: null, code_reviewer: null }
