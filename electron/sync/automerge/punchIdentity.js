@@ -93,9 +93,10 @@ export function rotatePunchIdentity(db) {
 }
 
 // The single revocation hook: forget the peer's addresses and punch memory, then rotate our identity.
+// The hook runs on every projection that still shows the peer revoked, so rotation is keyed on there
+// having been something to forget: once per revocation, not once per pass.
 export function forgetRevokedPeer(db, peerId) {
-  forgetPeerAddress(db, peerId)
-  rotatePunchIdentity(db)
+  if (forgetPeerAddress(db, peerId) > 0) rotatePunchIdentity(db)
 }
 
 const PENDING_ADMISSION_MAX_AGE_MS = 60_000

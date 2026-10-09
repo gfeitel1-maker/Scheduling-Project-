@@ -17,8 +17,8 @@ related_tickets: [docs/work/tickets/T347-s1-punch-transport-inert-build.md]
 T348 (PR #762, closed unmerged) was parked and its work re-applied onto current main as this ticket;
 branch `claude/s2-rung1` at 6e667c10 is the source. Differences from the T348 text below: the schema is
 **v93** on top of main's v92 (the migration guard is `>= 92 && < 93`), the rollback is
-`electron/db/rollback/v93_down.js`, and the notes below that say "v91" or `>= 91 && < 93` describe the
-parked branch, not this one.
+`electron/db/rollback/v93_down.js`. Where the notes below say "v91" or `>= 91 && < 93`, read v93 and
+`>= 92 && < 93`: they describe the parked branch.
 
 ## Context
 
@@ -29,7 +29,7 @@ is still only wired behind the strict `SHORESH_PUNCH_ENABLED === 'true'` gate.
 
 ## What S2 builds
 
-- Schema v93 (renumbered from v91 after #772 took v91; v92 is #805's - the migration guard is `>= 91 && < 93` so it runs whether or not v92 has landed): `punch_identity` (device singleton: self-signed DTLS cert + key, ICE ufrag/pwd, pinned
+- Schema v93 (the migration guard is `>= 92 && < 93`): `punch_identity` (device singleton: self-signed DTLS cert + key, ICE ufrag/pwd, pinned
   UDP port, last learned own reflexive candidates) and `peer_punch_memory` (one row per peer: our role,
   the peer's last SDP, its fingerprint/ufrag/pwd, its candidates). `peer_punch_memory` extends the
   `peer_last_addresses` mechanism: written/forgotten/trust-filtered by `peerAddressBook.js`, and wiped

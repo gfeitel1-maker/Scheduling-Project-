@@ -1,4 +1,5 @@
 import { EVENTS } from './connectivityEvents.js'
+import { isHighWaterStore } from './punchGossip.js'
 
 // S3 / Rung 2 (docs/adr/2026-10-08-relayless-cross-network-reconnect.md): reconnect to a camp peer
 // whose current address is known only from camp-peer gossip. Resolves the peer's verified gossip
@@ -19,13 +20,14 @@ import { EVENTS } from './connectivityEvents.js'
 // is the libp2p dial; emit(name, fields) is the connectivity emitter.
 // Resolves { ok: true, candidate } or { ok: false, reason }; never throws.
 export async function attemptRung2({ peerDeviceId, readEntries, signaling, bindChannel, dial, highWater, emit = () => {} }) {
-  if (!highWater || typeof highWater.get !== 'function' || typeof highWater.set !== 'function') return { ok: false, reason: 'no-high-water-store' }
+  if (!isHighWaterStore(highWater)) return { ok: false, reason: 'no-high-water-store' }
   let entries
   try {
     entries = readEntries(highWater)
   } catch {
     return { ok: false, reason: 'gossip-unreadable' }
   }
+  if (entries.refused) return { ok: false, reason: 'high-water-unavailable' }
   const entry = entries.get(peerDeviceId)
   if (!entry) {
     const skewMs = entries.skewed?.get(peerDeviceId)

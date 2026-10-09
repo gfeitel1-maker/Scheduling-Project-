@@ -20,13 +20,13 @@
 // buffered), per-peer and per-ORIGIN rate limits, a relay-forward timeout, freshness window,
 // replay protection keyed on (from, id) that survives restart through a bounded file store with a
 // TTL, and a payload cap above S1's own SDP limit.
-import fs from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { decode } from 'it-length-prefixed'
 import { peerIdFromString } from '@libp2p/peer-id'
 import { verifyMessageWithPeerId } from '../../automerge/authorityLogSignature.js'
 import { sendFramed, receiveFramed } from './wireProtocol.js'
 import { EVENTS } from './connectivityEvents.js'
+import { loadPairs, savePairs, warnLoadFailure } from './punchFileStore.js'
 
 export const PUNCH_SIGNAL_PROTO = '/shoresh/punch-signal/1'
 export const MAX_FRAME_BYTES = 32 * 1024
@@ -49,34 +49,39 @@ function withTimeout(promise, ms) {
 
 /**
  * Replay memory keyed on (from, id), each entry living only until its envelope can no longer pass
- * the freshness window (ts + MAX_SKEW_MS), bounded at `max`. With a filePath it is rewritten on every
- * accepted id so a restart cannot reopen the window; a missing or corrupt file starts empty.
+ * the freshness window (ts + MAX_SKEW_MS), bounded at `max`. With a filePath it is rewritten (fsynced)
+ * on every accepted id so a restart cannot reopen the window. A missing file is a first run; an
+ * unreadable or corrupt one is warned, kept on `.failed`, and the store then FAILS CLOSED
+ * (remember() returns false for everything). A failed write is warned and kept on `.lastWriteError`;
+ * the in-memory window still holds.
  */
 export function createReplayStore({ filePath, max = DEFAULT_LIMITS.seenMax, now = Date.now } = {}) {
   const seen = new Map()
+  let failed = null
   if (filePath) {
-    try {
-      for (const [k, exp] of JSON.parse(fs.readFileSync(filePath, 'utf8'))) if (typeof k === 'string' && Number.isFinite(exp)) seen.set(k, exp)
-    } catch { /* first run or unreadable: start empty */ }
+    const loaded = loadPairs(filePath)
+    for (const [k, exp] of loaded.pairs) seen.set(k, exp)
+    if (loaded.error) {
+      failed = loaded.error
+      warnLoadFailure(filePath, failed)
+    }
   }
   const prune = () => {
     const at = now()
     for (const [k, exp] of seen) if (exp <= at) seen.delete(k)
     while (seen.size > max) seen.delete(seen.keys().next().value)
   }
-  return {
+  const store = {
+    failed,
+    lastWriteError: null,
     remember(from, id, ts) {
+      if (store.failed) return false
       prune()
       const key = JSON.stringify([from, id])
       if (seen.has(key)) return false
       seen.set(key, ts + MAX_SKEW_MS)
       prune()
-      if (filePath) {
-        try {
-          fs.writeFileSync(`${filePath}.tmp`, JSON.stringify([...seen]))
-          fs.renameSync(`${filePath}.tmp`, filePath)
-        } catch { /* persistence is best-effort; the in-memory window still holds */ }
-      }
+      if (filePath) store.lastWriteError = savePairs(filePath, [...seen])
       return true
     },
     size() {
@@ -84,6 +89,7 @@ export function createReplayStore({ filePath, max = DEFAULT_LIMITS.seenMax, now 
       return seen.size
     },
   }
+  return store
 }
 
 const str = (v, max) => typeof v === 'string' && v.length > 0 && v.length <= max
@@ -196,16 +202,20 @@ export function createPunchSignaling({ node, selfDeviceId, isAdmitted, registry,
     }
     const { relayed, env } = frame
     const senderDeviceId = registry.deviceIdForPeer(senderPeerId)
-    if (!fresh(env)) {
-      if (env.to === selfDeviceId && verified(env)) emit(EVENTS.CLOCK_SKEW, { peerId: senderPeerId, source: 'punch-signal', reason: 'stale-or-future-signal', skewMs: now() - env.ts })
-      return
-    }
     if (env.to === selfDeviceId) {
       if (!relayed && env.from !== senderDeviceId) return
-      if (!verified(env) || overRate(`origin:${env.from}`, lim.originRateMax) || !replay.remember(env.from, env.id, env.ts)) return
+      // Replay is checked before the origin budget and the skew event: a replayed envelope must
+      // neither burn the origin's rate budget nor raise a second CLOCK_SKEW.
+      if (!verified(env) || !replay.remember(env.from, env.id, env.ts)) return
+      if (!fresh(env)) {
+        emit(EVENTS.CLOCK_SKEW, { peerId: senderPeerId, source: 'punch-signal', reason: 'stale-or-future-signal', skewMs: now() - env.ts })
+        return
+      }
+      if (overRate(`origin:${env.from}`, lim.originRateMax)) return
       deliver(env)
       return
     }
+    if (!fresh(env)) return
     if (relayed || env.from !== senderDeviceId || env.to === env.from) return
     const toPeerId = registry.peerIdForDevice(env.to)
     if (!toPeerId || !eligible(toPeerId) || !connected(toPeerId) || !verified(env) || overRate(`origin:${env.from}`, lim.originRateMax)) return

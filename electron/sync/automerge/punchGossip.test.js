@@ -1,11 +1,11 @@
 // @vitest-environment node
 // S3 / Rung 2 (docs/adr/2026-10-08-relayless-cross-network-reconnect.md): the signed,
 // camp-encrypted reflexive-address entry each device publishes into the camp document.
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import * as A from '@automerge/automerge'
 import { recordKey } from '../../automerge/campDocument.js'
 import { readRendezvousAddressKey } from './rendezvousAddressKey.js'
-import { makeDevice, registerAll, revokeOn, freshCampDoc, cleanupDevices, CAMP_ID } from '../../../test/punchRung2Support.js'
+import { tmpHighWater, makeDevice, registerAll, revokeOn, freshCampDoc, cleanupDevices, CAMP_ID } from '../../../test/punchRung2Support.js'
 import {
   publishReflexive, readReflexive, sealGossipEntry, deviceRegistryFromDb, GOSSIP_TTL_MS, MAX_CANDIDATES, GOSSIP_FIELD_PREFIX, createHighWaterStore, isPublicAddress,
 } from './punchGossip.js'
@@ -27,7 +27,7 @@ function publish(dev, candidates = CANDS, ts = NOW, into = doc, extra = {}) {
   return publishReflexive(into, dev.db, { campId: CAMP_ID, deviceId: dev.deviceId, peerId: dev.peerId, candidates, now: () => ts, ...extra })
 }
 function read(reader = a, d = doc, now = NOW + 1000, extra = {}) {
-  return readReflexive(d, { campId: CAMP_ID, registry: deviceRegistryFromDb(reader.db), now: () => now, highWater: new Map(), ...extra })
+  return readReflexive(d, { campId: CAMP_ID, registry: deviceRegistryFromDb(reader.db), now: () => now, highWater: tmpHighWater(), ...extra })
 }
 
 describe('punchGossip', () => {
@@ -125,6 +125,9 @@ describe('punchGossip', () => {
     '/ip4/192.0.2.5/udp/4000', '/ip4/198.51.100.5/udp/4000', '/ip4/203.0.113.5/udp/4000', '/ip4/198.18.0.1/udp/4000', '/ip4/198.19.255.254/udp/4000',
     '/ip6/::ffff:c0a8:101/udp/4000', '/ip6/0:0:0:0:0:ffff:c0a8:101/udp/4000', '/ip6/0:0:0:0:0:0:0:1/udp/4000',
     '/ip6/::ffff:192.168.1.1/udp/4000', '/ip4/34.120.1.7/udp/0',
+    '/ip6/2001:0:4136:e378:8000:63bf:3fff:fdd2/udp/4000', '/ip6/2001:db8::7/udp/4000', '/ip6/fec0::1/udp/4000', '/ip6/100::1/udp/4000',
+    '/ip6/2001:10::1/udp/4000', '/ip6/2001:1f::1/udp/4000', '/ip6/2001:20::1/udp/4000', '/ip6/2001:2f::1/udp/4000',
+    '/ip4/192.0.0.9/udp/4000', '/ip4/192.88.99.1/udp/4000',
   ]
 
   it.each(NON_PUBLIC)('READ drops a correctly-signed entry carrying non-public candidate %s', (candidate) => {
@@ -139,7 +142,7 @@ describe('punchGossip', () => {
   })
 
   it('public IPv6 and IPv4 candidates pass the filter', () => {
-    doc = publish(b, ['/ip6/2001:db8::7/udp/4000', '/ip4/8.8.4.4/udp/4000'])
+    doc = publish(b, ['/ip6/2606:4700::7/udp/4000', '/ip4/8.8.4.4/udp/4000'])
     expect(read().get('device-b').candidates).toHaveLength(2)
   })
 
@@ -157,7 +160,7 @@ describe('punchGossip', () => {
   })
 
   it('REJECTS a rolled-back entry older than the highest verified ts seen for that device', () => {
-    const highWater = new Map()
+    const highWater = tmpHighWater()
     doc = publish(a)
     const newer = publish(b, ['/ip4/34.120.1.50/udp/1'], NOW + 5000, A.clone(doc))
     expect(read(a, newer, NOW + 6000, { highWater }).has('device-b')).toBe(true)
@@ -211,20 +214,119 @@ describe('punchGossip', () => {
     }
   })
 
-  it('the highWater store is bounded and survives a corrupt file', async () => {
+  it('the highWater store is bounded and persists', async () => {
     const fs = await import('node:fs')
     const os = await import('node:os')
     const path = await import('node:path')
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hw-'))
     const filePath = path.join(dir, 'hw.json')
     try {
-      fs.writeFileSync(filePath, '{not json')
       const store = createHighWaterStore({ filePath, max: 2 })
+      expect(store.failed).toBeNull()
       store.set('x', 1); store.set('y', 2); store.set('z', 3)
       expect(store.get('x')).toBeUndefined()
       expect(createHighWaterStore({ filePath, max: 2 }).get('z')).toBe(3)
     } finally {
       fs.rmSync(dir, { recursive: true, force: true })
     }
+  })
+
+  it('a plain Map no longer satisfies the highWater requirement', () => {
+    doc = publish(b)
+    expect(() => read(a, doc, NOW + 1000, { highWater: new Map() })).toThrow(/highWater/)
+  })
+
+  it('createHighWaterStore requires a real filePath', () => {
+    expect(() => createHighWaterStore()).toThrow(/filePath/)
+    expect(() => createHighWaterStore({ filePath: '' })).toThrow(/filePath/)
+  })
+
+  it('a missing store file is a normal first run: no warning, not failed', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const store = tmpHighWater()
+      expect(store.failed).toBeNull()
+      expect(warn).not.toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('a CORRUPT store is reported and readReflexive FAILS CLOSED instead of starting empty', async () => {
+    const fs = await import('node:fs')
+    const os = await import('node:os')
+    const path = await import('node:path')
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hw-'))
+    const filePath = path.join(dir, 'hw.json')
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const seen = []
+    try {
+      fs.writeFileSync(filePath, '{not json')
+      const store = createHighWaterStore({ filePath, onError: (e) => seen.push(e) })
+      expect(store.failed).toBeInstanceOf(Error)
+      expect(seen).toHaveLength(1)
+      expect(warn).toHaveBeenCalled()
+      doc = publish(b)
+      const entries = read(a, doc, NOW + 1000, { highWater: store })
+      expect(entries.has('device-b')).toBe(false)
+      expect(entries.refused).toBeInstanceOf(Error)
+    } finally {
+      warn.mockRestore()
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('an UNREADABLE store (a directory at the path) is reported and fails closed', async () => {
+    const fs = await import('node:fs')
+    const os = await import('node:os')
+    const path = await import('node:path')
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hw-'))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const store = createHighWaterStore({ filePath: dir })
+      expect(store.failed).toBeInstanceOf(Error)
+    } finally {
+      warn.mockRestore()
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('a failed WRITE is surfaced: warned, returned from set(), on lastWriteError, and listed in storeErrors', async () => {
+    const fs = await import('node:fs')
+    const os = await import('node:os')
+    const path = await import('node:path')
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hw-'))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const seen = []
+    try {
+      const store = createHighWaterStore({ filePath: path.join(dir, 'no-such-dir', 'hw.json'), onError: (e) => seen.push(e) })
+      expect(store.failed).toBeNull()
+      doc = publish(b)
+      const entries = read(a, doc, NOW + 1000, { highWater: store })
+      expect(entries.has('device-b')).toBe(true)
+      expect(entries.storeErrors).toHaveLength(1)
+      expect(store.lastWriteError).toBeInstanceOf(Error)
+      expect(seen).toHaveLength(1)
+      expect(warn).toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('the store write fsyncs the temp file before renaming it into place', async () => {
+    const fs = await import('node:fs')
+    const order = []
+    const realFsync = fs.default.fsyncSync
+    const realRename = fs.default.renameSync
+    const fsync = vi.spyOn(fs.default, 'fsyncSync').mockImplementation((...a) => { order.push('fsync'); return realFsync(...a) })
+    const rename = vi.spyOn(fs.default, 'renameSync').mockImplementation((...a) => { order.push('rename'); return realRename(...a) })
+    try {
+      tmpHighWater().set('x', 1)
+    } finally {
+      fsync.mockRestore()
+      rename.mockRestore()
+    }
+    expect(order).toEqual(['fsync', 'rename'])
   })
 })

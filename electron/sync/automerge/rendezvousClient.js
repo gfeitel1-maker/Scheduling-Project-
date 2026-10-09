@@ -18,7 +18,7 @@
 // This client base64-decodes each GET /v1/peers entry and hands the raw bytes straight to the
 // caller (who passes them to rendezvousRecord.verify(), the only place trust is established) — it
 // never pre-validates or filters on content, and never treats peers.length===0 vs >0 as a trust
-// signal (KV is only eventually consistent).
+// signal (the Worker is an untrusted cache; an empty list proves nothing about the peer).
 import { readRendezvousNamespace } from './rendezvousNamespace.js'
 import { readRendezvousAddressKey } from './rendezvousAddressKey.js'
 
@@ -45,7 +45,7 @@ function classifyHttpStatus(status) {
 /**
  * POST a signed record (already-produced wire bytes from rendezvousRecord.signRecord) to the
  * Worker. Idempotent: re-publishing the same or a fresher record simply overwrites the Worker's
- * KV entry for (namespace, peerId) — see the addendum's org-interface-contracts note.
+ * Durable Object entry for (namespace, peerId) — see the addendum's org-interface-contracts note.
  */
 export async function registerRecord({ baseUrl, namespace, peerId, recordBytes, fetchImpl = fetch }) {
   let response

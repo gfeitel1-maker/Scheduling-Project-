@@ -2,7 +2,7 @@
 // S3 / Rung 2 signaling (docs/adr/2026-10-08-relayless-cross-network-reconnect.md): SDP/candidate
 // exchange over /shoresh/punch-signal/1, direct or forwarded by one admitted camp peer, with the
 // envelope signed by the origin device and verified at the destination.
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { peerIdFromString } from '@libp2p/peer-id'
 import { signMessageWithDeviceKey } from '../../automerge/authorityLogSignature.js'
 import { decode } from 'it-length-prefixed'
@@ -345,6 +345,35 @@ describe('punchSignaling: bounds and replay', () => {
     }
   }, 30000)
 
+  it('a REPLAYED envelope does not burn the origin budget: later distinct signals still get through', async () => {
+    await startSignaling('device-a')
+    await startSignaling('device-b', { rateMax: 1000, originRateMax: 3, rateWindowMs: 60_000 })
+    const got = listen('device-b', 'device-a')
+    const frame = { v: 1, relayed: false, env: signedEnv('device-a', 'device-b', OFFER) }
+    for (let i = 0; i < 8; i++) await rawFrame('device-a', 'device-b', frame)
+    await waitFor(() => got.length === 1)
+    for (let i = 0; i < 2; i++) await rawFrame('device-a', 'device-b', { v: 1, relayed: false, env: signedEnv('device-a', 'device-b', { type: 'candidate', sid: SID, candidate: `c${i}`, mid: '0' }) })
+    await settle(600)
+    expect(got.length).toBe(3)
+  }, 30000)
+
+  it('a REPLAYED future-dated envelope raises the CLOCK_SKEW event once, not once per replay', async () => {
+    const events = []
+    const n = nodes['device-b']
+    const sig = createPunchSignaling({
+      node: n.node, selfDeviceId: 'device-b', isAdmitted: (p) => n.admitted.has(p),
+      registry: deviceRegistryFromDb(n.device.db), sign: (m) => signMessageWithDeviceKey(n.device.db, m),
+      emit: (name, f) => events.push([name, f]),
+    })
+    await sig.start()
+    sigs['device-b'] = sig
+    const frame = { v: 1, relayed: false, env: signedEnv('device-a', 'device-b', OFFER, { ts: Date.now() + 10 * 60 * 1000 }) }
+    for (let i = 0; i < 4; i++) await rawFrame('device-a', 'device-b', frame)
+    await waitFor(() => events.length >= 1)
+    await settle(600)
+    expect(events).toHaveLength(1)
+  }, 30000)
+
   it('a verified stale signal is refused AND surfaced as a CLOCK_SKEW event', async () => {
     const events = []
     const n = nodes['device-b']
@@ -377,13 +406,43 @@ describe('createReplayStore', () => {
     expect(store.size()).toBe(3)
   })
 
-  it('starts empty from a corrupt file', () => {
+  it('a missing file is a normal first run: remembers, no warning', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const file = path.join(os.tmpdir(), `punchreplay-none-${Date.now()}-${Math.random()}.json`)
+      expect(createReplayStore({ filePath: file }).remember('a', 'x', Date.now())).toBe(true)
+      fs.rmSync(file, { force: true })
+      expect(warn).not.toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('a CORRUPT file is reported and the store FAILS CLOSED: nothing is remembered as new', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const file = path.join(os.tmpdir(), `punchreplay-bad-${Date.now()}.json`)
     fs.writeFileSync(file, '{not json')
     try {
-      expect(createReplayStore({ filePath: file }).remember('a', 'x', Date.now())).toBe(true)
+      const store = createReplayStore({ filePath: file })
+      expect(store.failed).toBeInstanceOf(Error)
+      expect(warn).toHaveBeenCalled()
+      expect(store.remember('a', 'x', Date.now())).toBe(false)
     } finally {
+      warn.mockRestore()
       fs.rmSync(file, { force: true })
+    }
+  })
+
+  it('a failed WRITE is warned and visible on lastWriteError; the in-memory window still holds', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const store = createReplayStore({ filePath: path.join(os.tmpdir(), 'no-such-dir-replay', 'r.json') })
+      expect(store.remember('a', 'x', Date.now())).toBe(true)
+      expect(store.lastWriteError).toBeInstanceOf(Error)
+      expect(warn).toHaveBeenCalled()
+      expect(store.remember('a', 'x', Date.now())).toBe(false)
+    } finally {
+      warn.mockRestore()
     }
   })
 })

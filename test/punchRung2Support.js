@@ -14,9 +14,18 @@ import { ensureDeviceIdentity } from '../electron/auth/deviceIdentity.js'
 import { createEmptyDoc } from '../electron/automerge/campDocument.js'
 import { registerAuthGate } from '../electron/sync/automerge/authGate.js'
 import { AUTH_PROTO, sendFramed } from '../electron/sync/automerge/wireProtocol.js'
+import { createHighWaterStore } from '../electron/sync/automerge/punchGossip.js'
 
 export const CAMP_ID = 'camp-1'
 const files = []
+const dirs = []
+
+// A real, file-backed highWater store in a temp dir (a plain Map no longer satisfies readReflexive).
+export function tmpHighWater(opts = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hw-'))
+  dirs.push(dir)
+  return createHighWaterStore({ filePath: path.join(dir, 'hw.json'), ...opts })
+}
 
 export async function makeDevice(deviceId) {
   const f = path.join(os.tmpdir(), `shoresh-rung2-${deviceId}-${Date.now()}-${Math.random()}.sqlite`)
@@ -83,4 +92,5 @@ export function cleanupDevices(devices) {
     try { d.db.close() } catch { /* already closed */ }
   }
   for (const f of files.splice(0)) if (fs.existsSync(f)) fs.unlinkSync(f)
+  for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true })
 }

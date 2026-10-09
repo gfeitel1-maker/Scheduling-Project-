@@ -5,7 +5,7 @@
 // mutualAuth + isPeerRevoked + Yamux + Automerge run UNCHANGED over it. These tests drive the real
 // startSyncNode (real evaluateAuthenticate, real SQLite) with the punch transport as the ONLY path
 // between the two nodes — the dial address is /udp/, which the tcp transport cannot match.
-import { describe, it, expect, afterEach, beforeEach } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -137,8 +137,16 @@ describe('punchTransport — libp2p transport over a node-datachannel pipe', () 
 
     dbA.prepare('INSERT INTO authority_cache (device_id, status, updated_at) VALUES (?, ?, ?)').run('device-b', 'revoked', new Date().toISOString())
 
-    await b.applyLocal(applyWrite(b.getDoc(), { entity: 'activities', entity_id: 'revoked-write', field: 'name', value: 'Should Not Land' }))
-    await new Promise((r) => setTimeout(r, 500))
+    // Event-driven, not a fixed sleep: wait until A's production sync path REPORTS it refused B's
+    // message, so the "nothing landed" assertion below cannot pass merely because B's write had not
+    // arrived yet.
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      await b.applyLocal(applyWrite(b.getDoc(), { entity: 'activities', entity_id: 'revoked-write', field: 'name', value: 'Should Not Land' }))
+      await waitFor(() => errors.mock.calls.some((c) => String(c[0]).includes(`refused a sync message from ${b.peerId}`) && String(c[0]).includes('revoked')))
+    } finally {
+      errors.mockRestore()
+    }
     expect(activityRow(dbA, 'revoked-write')).toBeUndefined()
 
     await a.applyLocal(applyWrite(a.getDoc(), { entity: 'activities', entity_id: 'ok-write', field: 'name', value: 'Fine' }))
