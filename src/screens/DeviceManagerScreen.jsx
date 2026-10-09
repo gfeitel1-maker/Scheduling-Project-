@@ -321,7 +321,7 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
       <section style={styles.section}>
         <h2 style={styles.sectionTitle}>All Devices</h2>
         {allDevices.length === 0 ? (
-          <div style={styles.empty}>No devices connected yet.</div>
+          <div style={styles.empty}>No other devices have paired yet.</div>
         ) : (
           <table style={styles.table}>
             <thead>

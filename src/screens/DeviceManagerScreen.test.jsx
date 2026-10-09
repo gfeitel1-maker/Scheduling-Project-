@@ -308,3 +308,11 @@ describe('DeviceManagerScreen — approve when the joiner is gone (T346)', () =>
     await vi.waitFor(() => expect(screen.queryByText(COPY)).toBeNull())
   })
 })
+
+describe('DeviceManagerScreen — empty device list copy (audit #22)', () => {
+  it('says no other devices have paired yet, not "connected" (a paired-device list is not a live-connection list)', async () => {
+    render(<DeviceManagerScreen campId="c1" role="admin" deviceMode="host" />)
+    expect(await screen.findByText('No other devices have paired yet.')).toBeTruthy()
+    expect(screen.queryByText(/connected yet/)).toBeNull()
+  })
+})
