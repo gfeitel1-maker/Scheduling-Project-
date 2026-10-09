@@ -921,3 +921,14 @@ marker to allow reconnection, **plus** a marker lifecycle that clears on corrobo
 blind-revoke-then-genuine-quorum sequence cannot become a readmission hole) re-touches the admission
 gate's readmission guarantee and is deferred to **fast-follow ticket T333**, where Security must
 re-confirm the no-readmission sequence. Until then this limitation stands as accepted for v1.
+
+## Amendment 2026-10-09 (PROPOSED, pending acceptance of the succession ADR) - T333 vote counting
+
+Proposed by `docs/adr/2026-10-09-host-succession-by-remint.md` section 8.1; **not in force** until
+that ADR is accepted, and the vote rule in `electron/automerge/authorityReplay.js` is unchanged until
+then. The proposal replaces the "Known limitation (v1)" remedy deferred to T333 (marker plus push
+channel) with one counting rule: a revoke vote against a granted target counts iff the voter's own
+causal ancestors contain a valid grant of that target (or the target is the founder). A blind vote does
+not count; a concurrent or backdated grant cannot void a vote whose author saw an earlier grant; the
+staleness rule above (a grant that has the vote as an ancestor supersedes it) is unchanged. The
+no-readmission argument and the backdated-grant test (11b) are in the succession ADR.

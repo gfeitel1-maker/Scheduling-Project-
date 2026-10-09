@@ -179,7 +179,7 @@ same `stateAt(claimChange)` ancestor query T331 already uses, so it is merge-ord
      Evaluated at heads, not at the claim's own causal point, deliberately: if a valid admin later
      re-grants the removed host (section 8.3), the claim must stop being effective. A blind revoke made
      without the host's grant never reaches this clause, because under the section 8.1 amendment that
-     vote does not count.
+     vote does not count (its author saw no valid grant of the host).
 5. The claimant is also still a valid admin at heads (a claimant revoked later leaves a host-less
    head; the next admin claims with `parent_epoch_id` = the revoked claimant's epoch, which clause 4
    satisfies).
@@ -459,69 +459,84 @@ the target when the grant arrives. The first draft's self-heal ("the replay recl
 let a locked-out peer deliver a grant that the replay would still not honour. That channel is
 **dropped** (section 9, Decision 3 below).
 
-### 8.1 Decision: a revoke vote counts only if it is causally after every grant of its target
+### 8.1 Decision: a revoke vote counts only if its author had seen a valid grant of its target
 
 **This is a deliberate amendment to `docs/adr/2026-10-02-distributed-revocation-authority.md`**
-(its vote-counting rule and its "Known limitation (v1)" section; that ADR gets an amendment note in
-the build PR and T333 closes against this one). Rule, in `stateAt`'s vote-staleness step:
+(its vote-counting rule and its "Known limitation (v1)" section; that ADR carries a short amendment
+note, marked proposed and pending acceptance of this ADR, and T333 closes against this one). The
+current rule in `authorityReplay.js` stays untouched until this ADR is accepted. Rule, in `stateAt`'s
+vote-staleness step (the predicate is **inverted** from the first revision of this section):
 
-> A revoke vote V against target T counts toward quorum at an evaluated point iff **every valid
-> `grant` entry for T present among that point's causal ancestors is itself a causal ancestor of V**
-> (the revoker had seen everything that made T an admin). `genesis` is axiomatic and excluded, exactly
-> as the existing loop already skips it, so a vote against the founder always counts when its signer is
-> valid. A vote against a target that has no grant in the evaluated ancestors (an ordinary non-admin
-> device) is unchanged: it counts.
+> A revoke vote V against a **granted** target T (an admin in the evaluated granted set) counts toward
+> quorum at an evaluated point iff **V's own causal ancestors contain at least one valid `grant` of T**
+> (validity per the existing `isValidSignerAt`, unchanged), **or T is the epoch-0 founder** (admin via
+> `genesis`, which every device holds). A vote whose author had seen no valid grant of T (a blind vote)
+> does not count. The existing staleness rule is **kept unchanged**: a `grant` of T that has V as a
+> causal ancestor supersedes V. A grant that does not have V as an ancestor (concurrent with V, or
+> backdated onto earlier dependencies) never supersedes and never voids V. Revokes of non-admin devices
+> are not quorum votes (they are immediate, section 7.2) and are unchanged.
 
-This strictly subsumes today's staleness rule (a grant that has V as an ancestor cannot itself be an
-ancestor of V), so every vote the old rule dropped is still dropped. The only new effect is that a vote
-**concurrent with** a grant is dropped too. It is still a pure function of the ancestor set (the same
-primitive `isValidSignerAt` and the old rule use), so it stays merge-order independent.
+The predicate reads only V's own ancestor set and the grant's own ancestor set, so it stays a pure
+function of causal history (the primitive `isValidSignerAt` and the old rule use) and is merge-order
+independent. Nothing a third party adds to the document later can change whether V counts, except a
+grant that already has V as an ancestor (an author who saw V).
+
+**Why inverted.** The first revision counted V only if every valid grant of T in the evaluated
+ancestors was an ancestor of V. That makes V's validity depend on grants V's author never saw, so any
+admin able to author a `grant(T)` on pre-vote dependencies could void a legitimate quorum after the
+fact (section 8.2, backdated-grant attack). The inverted predicate makes validity depend only on what
+the voter saw.
 
 **Consequences, stated plainly.**
 
-- At N=2 a blind revoke no longer removes the target when its grant is known to the replay: the
-  target stays `admin`, Gate A never denies it, and nothing needs to "heal". No `revocation_basis`
-  marker, no `uncorroborated_revoke` reply, no `authority_entries_push` channel exist in this design.
-- **The founder cannot be blind-revoked.** Every device holds genesis, so a revoke of the epoch-0
-  founder is always a counted vote. A 2-device camp whose host is the founder A therefore has no
-  blind case at all: B revoking A is a deliberate, effective act (threshold 1), and A stays removed.
-  Likewise A revoking B is never blind, because A authored B's grant. In a strict 2-device camp each
-  admin holds the other's grant by construction (admin status is derived from it), so the T333 lockout
-  as ticketed cannot be reached; the amendment closes the residual window in which a grant is in
-  flight.
-- **Residual (said plainly, not hidden).** A revoker that has never seen a target's grant sees "a
-  device with no grant" and the vote counts under the unchanged non-admin rule, so Gate A on that
-  revoker denies it until the grant arrives. In a 3+ device camp the grant arrives via any third peer
-  (unchanged, already self-healing). In a strict 2-device camp it cannot occur (above). It can still
-  occur in a camp that *was* larger: admin T was granted by a since-removed third admin C, and the
-  remaining admin has not synced that grant while T is its only reachable peer. That is not a 2-device
-  camp by history and is **out of T333's stated scope**; it is recorded as a residual risk and stays an
-  accepted limitation, not claimed fixed.
-- **Re-grant power is not widened.** A valid admin re-granting T now voids earlier *concurrent* votes as
-  well as earlier causally-preceding ones. An admin who saw the votes could already void them by granting
-  after them; granting is an existing admin power, so no new capability arises.
+- At N=2 a blind revoke (author saw no grant of T) does not remove T: the target stays `admin`, Gate A
+  never denies it, and nothing needs to "heal". No `revocation_basis` marker, no
+  `uncorroborated_revoke` reply, no `authority_entries_push` channel exist in this design.
+- **The founder cannot be blind-revoked, and a vote against it always counts.** In a strict 2-device
+  camp each admin holds the other's grant by construction, so the T333 lockout as ticketed cannot be
+  reached; the amendment closes the residual window in which a grant is in flight.
+- **Residual (said plainly).** A revoker that has never seen a target's grant sees "a device with no
+  grant" and revokes it on the non-admin immediate path; once the grant arrives that vote does not
+  count. Until then Gate A on that revoker denies the target. In a 3+ device camp the grant arrives via
+  any third peer. In a strict 2-device camp it cannot occur. It can occur in a camp that *was* larger
+  (admin T granted by a since-removed third admin C, and the remaining admin has not synced that grant
+  while T is its only reachable peer); that is **out of T333's stated scope**, recorded as a residual
+  risk and an accepted limitation, not claimed fixed.
+- **Re-grant power is not widened, and is in one respect narrower than today's draft.** Only a grant
+  whose author saw V (V is its ancestor) supersedes V, exactly as now. A concurrent or backdated grant
+  does not.
 
 ### 8.2 No-readmission argument (and why it holds)
 
-Claim: a device that has been genuinely quorum-revoked is never readmitted by a blind vote, by delivery
-order, or by any peer-pushed message.
+Claim: a device that has been genuinely quorum-revoked is never readmitted by a blind vote, by a
+backdated or concurrent grant, by delivery order, or by any peer-pushed message.
 
 1. Admission is decided only by the replay over the document. There is no marker, no sticky flag and no
    channel that admits anything, so there is no lifecycle for a later quorum to leave stale.
-2. A blind vote V_b (concurrent with grant G of T) never counts, at any evaluated point that contains G.
-   So the sequence "blind revoke, then genuine quorum" is decided by the genuine votes alone: the
-   genuine voters each have G as an ancestor, count, and remove T once they reach
-   `quorumThreshold(grantedSet.size)`. V_b contributes nothing before or after, so its presence cannot
-   reduce or delay that outcome in any merge order.
-3. Counting is per distinct signer over a pure ancestor-set function, and removals only lower other
+2. A blind vote V_b (its ancestors contain no valid grant of T) never counts at any evaluated point.
+   The sequence "blind revoke, then genuine quorum" is decided by the genuine votes alone: each genuine
+   voter has a valid grant of T among its own ancestors, counts, and removes T once
+   `quorumThreshold(grantedSet.size)` is reached. V_b contributes nothing before or after.
+3. **Backdated-grant attack.** Admins M and T are removed by a genuine quorum, or M is itself removed
+   and T is the target. M (no longer a valid admin at heads, but valid at an earlier causal point)
+   authors `grant(T)` with dependencies chosen to be the pre-vote heads and relays it through any
+   admitted peer; any merge order delivers it. Under the inverted predicate: (a) each genuine vote V
+   has a valid grant of T among its **own** ancestors (the original one), so V still counts;
+   whether the backdated grant exists, or arrives first or last, changes nothing about V's ancestors;
+   (b) the backdated grant does not have V as an ancestor, so the unchanged staleness rule does not
+   supersede V; (c) the grant adds no new admin, because T was already granted and T's removal is
+   decided by the votes, not by how many grants exist. T stays removed in every merge order. The
+   relaying peer is irrelevant: authorship and causal position are inside the signed entry, not
+   properties of the carrier. The first revision failed exactly here, which is why it was inverted.
+4. Counting is per distinct signer over a pure ancestor-set function, and removals only lower other
    targets' thresholds (the existing monotone fixed point). Nothing in the amendment adds a path that
-   adds an admin; the only way T returns is a new `grant` by a valid admin, which is the existing,
-   authorized readmission act.
+   adds an admin; the only way T returns is a new `grant` by a valid admin **who saw the votes** (V is
+   its ancestor), the existing authorized readmission act.
 
-If a reviewer finds a sequence that violates point 2 the amendment fails; the red-first tests below are
-the deterministic evidence, not this argument. **Confidence in the amendment: 78%** (the rule is small
-and subsumes the old one; the risk is an interaction with the existing round-4 multi-vote handling and
-tie-break paths that only the permuted-merge-order test will expose).
+If a reviewer finds a sequence that violates point 2 or 3 the amendment fails; the red-first tests
+(10, 11, 11b) are the deterministic evidence, not this argument. **Confidence in the amendment: 78%**
+(the rule is small and keeps the old staleness rule; the risk is an interaction with the existing
+round-4 multi-vote handling and tie-break paths that only the permuted-merge-order tests will expose).
 
 ### 8.3 Composition with succession (replaces the first draft's 8.4)
 
@@ -529,19 +544,24 @@ tie-break paths that only the permuted-merge-order test will expose).
 
 - **Founder host A, 2 devices.** B's revoke of A counts (genesis), clause 4 holds, B claims and is host.
   If A was merely lagging, that was still a deliberate revoke by a human on B; A is out. There is no
-  self-heal and none is claimed. (Reverses the first draft's "A merely lagging reverts the epoch".)
+  self-heal and none is claimed.
 - **Non-founder host H, blind revoke.** B revokes H without having H's grant: the vote does not count,
   H stays a valid admin at B's heads, clause 4 fails, and B cannot claim (`host_still_valid`). When H's
   grant syncs nothing changes. There is nothing to revert.
-- **Epoch revert is now only the authorized re-grant case.** A claim that was effective can stop being
-  effective only if a valid admin later re-grants the removed host (the authorized readmission act) or
-  the quorum membership changes at heads. Then the epoch reverts, the claimant shreds its staged key
-  and re-attestation re-runs, as before (section 3, `reattested_epoch_id`). A **withheld-then-released**
-  signed entry is the Red Hat concern here: a valid admin M holds a signed re-grant of H, lets B claim,
-  then releases it and forces a revert. Bound: M is a valid admin and could instead claim host itself or
-  quorum-revoke B, so it gains no new power; the cost is one revert plus one re-attestation, and the
-  outcome is deterministic and convergent (identical on every peer from the document). Test 12c pins
-  convergence and that no token or credential signed during the window is accepted after the revert.
+- **Epoch revert is only the authorized re-grant case.** A claim that was effective can stop being
+  effective only if a valid admin later re-grants the removed host **with the removal votes as causal
+  ancestors** (the authorized readmission act) or the quorum membership changes at heads. Then the
+  epoch reverts, the claimant shreds its staged key and re-attestation re-runs (section 3,
+  `reattested_epoch_id`). **Withheld-then-released** (Red Hat concern): a valid admin M holds a
+  pre-signed re-grant of H, lets B claim, then releases it. Bound, restated for the inverted predicate:
+  the entry's validity is evaluated at the causal point M signed it chose, and M can choose a point
+  but cannot choose both. A re-grant pinned to **pre-removal** dependencies does not have the removal
+  votes as ancestors, so it supersedes nothing and voids nothing: H stays removed and no revert occurs.
+  A re-grant that does supersede the votes must have them as ancestors, so M must have seen them and
+  must be a valid admin at that later point, which is an ordinary authorized re-grant by a current
+  admin (no new power: M could equally claim host or quorum-revoke B). The cost of that case is one
+  revert plus one re-attestation, deterministic and identical on every peer. Test 12c pins both halves
+  and that no token or credential signed during the window is accepted after a revert.
 
 ### 8.4 What is removed from the first draft
 
@@ -570,11 +590,17 @@ denied:
 - **Island devices that are not revoked** (clients and admins) learn the new epoch **after
   admission**, in two ordinary steps: (1) their stale token is rejected `4401`, which already triggers
   re-login (`onAuthRejected`; the build verifies this assumption, risk list); (2) they re-log in to the
-  new host by the **identity-key login of section 7.1** (no shared secret needed), are admitted, and
-  receive the authority log through the normal authenticated sync. Their projector then derives the new
-  epoch and moves `camps.signing_public_key` to the verified chain head. The login reply's `camp` block
-  is **ignored for key adoption** by an already-paired device (only first pairing trusts it, section 4);
-  the verified chain head is the only source of the key on a device that already has one.
+  new host by the **identity-key login of section 7.1** (no shared secret needed) and are admitted.
+  **Post-admission, on an OK login/authenticate reply only,** the new host returns its `host_claim`
+  chain entries (the signed entries, nothing else; never to a denied peer, so the pre-admission surface
+  is unchanged). The receiving device verifies the chain from genesis (`createVerifiedEntryTrust` plus
+  `currentHostEpoch`, the same functions the projector uses) **before** it changes
+  `camps.signing_public_key`, so it does not need to wait for, or depend on, the old host or a full
+  sync to learn the key it must trust to read the new host's tokens. It then receives the rest of the
+  authority log through normal authenticated sync, and its projector confirms the same head. The login
+  reply's `camp` block is still **ignored for key adoption** by an already-paired device (only first
+  pairing trusts it, section 4); a chain that fails verification changes nothing. The verified chain
+  head is the only source of the key on a device that already has one.
 - **A revoked island host that meets a current peer** gets `4404` and nothing more. It learns it was
   removed from that denial plus, if it later meets any admitted device, from ordinary sync it is no
   longer admitted to; an honest one closes its join window and drops `isCurrentHost` on the first
@@ -615,9 +641,17 @@ denied:
     `evaluateAuthenticate` / `evaluateLogin`: identity-bound path (section 7.1: skip the `devices` row and
     secret when the Noise peer id equals `authority_cache.peer_id`; skip the pending-row insert and the TOFU
     bind; guard the `persistAppliedTombstones` foreign key). **No new reply, code or message type** (section 9).
+11c. Peer-trust seams the `authority_cache.peer_id` branch must reach, or the admitted device is
+    still dropped before `evaluateAuthenticate` runs: `electron/sync/automerge/peerIdentity.js`
+    `createBoundPeerTrust` (today trusts by a bound `devices` row; the trust predicate gains
+    `authority_cache.peer_id` for status `admin` or `approved`, and not `revoked`);
+    `electron/sync/automerge/peerAddressBook.js` `redialTrustedPeers` / `selectCoordinationCandidates`
+    (take that predicate, so B redials and coordinates with K without a `devices` row);
+    `electron/sync/automerge/mutualAuth.js` `wireMutualAuth` (its `isPeerTrusted` must be the widened
+    predicate in both directions). One predicate, three callers.
 11a. `electron/automerge/authorityReplay.js` `stateAt`: the T331 vote-counting amendment of section 8.1
-    (a vote counts only if every valid grant of its target in the evaluated ancestors is an ancestor of
-    it); `docs/adr/2026-10-02-distributed-revocation-authority.md` gets an amendment note.
+    (inverted predicate: a vote against a granted target counts iff its own ancestors contain a valid
+    grant of the target, or the target is the founder; the staleness rule is unchanged); `docs/adr/2026-10-02-distributed-revocation-authority.md` gets an amendment note.
 11b. `electron/automerge/projector.js` / `authorityReplay.js` `currentRevokedDeviceIds`: target set from
     `grant` / `revoke` only, `approved` computed separately (section 7.2); `authority_cache` gains
     `peer_id` and the `approved` status (migration + rollback + `schema:check`).
@@ -661,7 +695,9 @@ nodes, real sqlite, no mocked `authorize()`). Each is written and seen failing f
    (section 7.1).** K is a non-admin approved by A only (A writes `device_approval` with
    `target_peer_id`). On B assert `SELECT COUNT(*) FROM devices WHERE id = K` is 0 before **and after** K
    authenticates and logs in over a real Noise connection, so the pass cannot come from any local
-   column or secret. K is admitted and syncs. Red first against today's code: `not_paired`. Negatives:
+   column or secret. K is admitted and **syncs in both directions** (B->K and K->B), with zero `devices` rows for K on B
+   at the end (so the redial, coordination and mutual-auth paths of seam 11c are exercised, not just
+   the login handlers). Red first against today's code: `not_paired`. Negatives:
    a different peer id, and K after revocation, get the existing generic denials. Also: an approval by A
    concurrent with A's removal is void; a non-admin revoked and then re-approved is `approved`, absent
    from `currentRevokedDeviceIds`, and admitted; a device approved by a not-yet-synced admin is
@@ -681,8 +717,12 @@ nodes, real sqlite, no mocked `authorize()`). Each is written and seen failing f
 9. **Partition / island.** A (revoked) and client K on an island, B and C on the current epoch. While
    partitioned A keeps issuing (assert the bound). On reconnect: K's old token gets plain `4401
    invalid_token` (assert the reply is byte-identical to a tampered token's: no epoch oracle); K re-logs
-   in to B by identity-key login, is admitted, syncs, derives the new epoch from the authority log and
-   closes any window. A is denied `4404`; `isCurrentHost` becomes false after its projection shows the
+   in to B by identity-key login and is admitted. **A is OFFLINE for the whole claim**: no message of any
+   kind reaches or comes from A, so K's adoption cannot depend on A or on the old host's key. On the OK
+   login reply B returns its `host_claim` chain entries; K verifies them from genesis
+   (`createVerifiedEntryTrust` + `currentHostEpoch`) before changing `camps.signing_public_key`, and
+   the test asserts the column is unchanged if the returned chain is truncated, re-parented or signed by
+   a non-admin. Then K syncs and closes any window. Nothing is sent to a denied peer (see 9a). A is denied `4404`; `isCurrentHost` becomes false after its projection shows the
    later epoch and host-only handlers return `not_current_host`; a device A approved on the island is
    denied until re-approved.
 9a. **Pre-admission negative (blocker 3).** A corroborated-revoked peer and a never-approved peer each
@@ -696,14 +736,21 @@ nodes, real sqlite, no mocked `authorize()`). Each is written and seen failing f
 11. **T333 no readmission (Security and Red Hat re-confirm, as T333 requires).** Blind revoke, then a
     genuine quorum revoke (voters have G as ancestor): T is removed, in **every permutation** of merge
     order and delivery, and never readmitted by any later delivery of the blind vote, of G, or of any
-    peer message. A genuine causally-later revoke still removes. A valid admin's later re-grant is the
-    only way back.
+    peer message. A genuine causally-later revoke still removes. A valid admin's later re-grant (with
+    the votes as ancestors) is the only way back.
+11b. **Backdated grant cannot void a quorum (red first, against the first revision's predicate).**
+    Admins M and T are quorum-removed. M then injects `grant(T)` with dependencies set to the
+    pre-vote heads, delivered through an admitted relay peer. T stays removed in **every merge order**
+    (all permutations of the removal votes, the original grant and the injected grant), on every peer,
+    and Gate A still denies T. Companion: a grant that does have the votes as ancestors, signed by a
+    valid admin, does readmit (the authorized act).
 12. **Composition, 2-device.** (a) Founder host A, B revokes A: B claims and is host, A out, no revert.
     (b) Non-founder host H blind-revoked by B: the vote does not count, clause 4 fails, `host_claim` is
     refused `host_still_valid`. (c) Withheld-then-released: B claims after a genuine quorum removal of
-    H; a valid admin M then releases a pre-signed re-grant of H; the epoch reverts, B's staged key is
-    shredded, H re-attests, identical on every peer in both orders, and nothing signed in the window is
-    accepted afterwards.
+    H. (i) M releases a re-grant of H pinned to pre-removal dependencies: no revert, H stays removed,
+    B stays host, in both orders. (ii) A valid admin M releases a re-grant that has the removal votes
+    as ancestors: the epoch reverts, B's staged key is shredded, H re-attests, identical on every peer
+    in both orders, and nothing signed in the window is accepted afterwards.
 13. **Re-attestation** is audited as one privileged bulk event, is resumable after a kill, and a fresh
     joiner projects every user.
 14. **Epoch 0 unchanged and purge/rebuild.** A camp with no claims behaves exactly as today (existing
@@ -721,8 +768,9 @@ nodes, real sqlite, no mocked `authorize()`). Each is written and seen failing f
   denies it until the grant arrives (section 8.1). Cannot occur in a strict 2-device camp by history;
   can occur if the grant came from a since-removed third admin and the target is the only reachable
   peer. Accepted limitation, not claimed fixed.
-- **Vote-counting amendment** changes T331 semantics (a concurrent re-grant now voids concurrent
-  votes); no new admin power, but Security and Red Hat must re-confirm no-readmission (test 11).
+- **Vote-counting amendment** changes T331 semantics (a vote counts only if its author saw a valid
+  grant of its target; blind votes no longer count); no new admin power, but Security and Red Hat must
+  re-confirm no-readmission, including the backdated-grant attack (tests 11 and 11b).
 - **Identity-bound login** depends on `target_peer_id` being bound at approval; devices without it stay on
   the legacy secret path and are re-approved in person after a succession.
 - **Claim by a malicious admin** gains credential and join power until the quorum revokes it; same
