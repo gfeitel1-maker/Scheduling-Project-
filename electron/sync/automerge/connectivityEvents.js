@@ -25,6 +25,8 @@ export const EVENTS = Object.freeze({
   // emits this today, and nothing under electron/sync/automerge/rendezvous*.js is imported here.
   RENDEZVOUS_UNAVAILABLE: 'RENDEZVOUS_UNAVAILABLE',
   NO_TOKEN: 'NO_TOKEN',
+  // Rung 2: a signed signal or gossip entry was refused because the sender's clock disagrees with ours.
+  CLOCK_SKEW: 'CLOCK_SKEW',
 })
 
 // Per-event field allowlist, beyond the shared { ts, peerId, source }. This is itself a leak
@@ -45,6 +47,7 @@ export const FIELD_ALLOWLIST = Object.freeze({
   [EVENTS.AUTH_OK]: ['attemptId'],
   [EVENTS.RENDEZVOUS_UNAVAILABLE]: ['reason'],
   [EVENTS.NO_TOKEN]: ['attemptId'],
+  [EVENTS.CLOCK_SKEW]: ['reason', 'skewMs'],
 })
 
 const ERROR_CLASSES = Object.freeze(['timeout', 'refused', 'reset', 'unreachable', 'unknown'])
