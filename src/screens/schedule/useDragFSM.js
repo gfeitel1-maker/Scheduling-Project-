@@ -53,14 +53,14 @@ export function resolveHit(point) {
 // authoritative, so a wrong guess here self-corrects.
 function kindFromTarget(target) {
   if (!target?.closest) return null
-  if (target.closest('[data-palette-activity]')) return DRAG_KINDS.PALETTE_DROP
+  if (target.closest('[data-palette-activity], [data-palette-elective]')) return DRAG_KINDS.PALETTE_DROP
   if (target.closest('[data-cell-key]')) return DRAG_KINDS.SLOT_MOVE
   return null
 }
 
 function kindFromActive(active) {
   const data = active?.data?.current || {}
-  if (data.paletteActivity) return DRAG_KINDS.PALETTE_DROP
+  if (data.paletteActivity || data.paletteElective) return DRAG_KINDS.PALETTE_DROP
   if (data.slot) return DRAG_KINDS.SLOT_MOVE
   return null
 }

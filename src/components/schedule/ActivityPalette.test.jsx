@@ -145,3 +145,29 @@ describe('ActivityPalette — weekly counter', () => {
     expect(screen.queryByText(/this week/)).toBeNull()
   })
 })
+
+describe('ActivityPalette — Elective sets section (audit-2 A9)', () => {
+  const electiveSets = [
+    { id: 'es-1', name: 'Afternoon Electives', is_reusable: 1 },
+    { id: 'es-2', name: 'Imported one-off', is_reusable: 0 },
+  ]
+
+  it('lists the reusable elective sets under their own heading, each a draggable chip', () => {
+    renderPalette({ electiveSets })
+    const section = screen.getByTestId('palette-zone-electives')
+    expect(within(section).getByText('Elective sets')).toBeTruthy()
+    const chip = within(section).getByText('Afternoon Electives').closest('[data-palette-elective]')
+    expect(chip.getAttribute('data-palette-elective')).toBe('es-1')
+    expect(within(section).queryByText('Imported one-off')).toBeNull()
+  })
+
+  it('counts how many cells of the week each set holds', () => {
+    renderPalette({ electiveSets, slots: [...slots, { elective_set_id: 'es-1', is_fixed_event: false }, { elective_set_id: 'es-1', is_fixed_event: false }] })
+    expect(screen.getByTestId('palette-elective-count-es-1').textContent).toBe('2 wk')
+  })
+
+  it('renders no section when the camp has no reusable sets', () => {
+    renderPalette({ electiveSets: [electiveSets[1]] })
+    expect(screen.queryByTestId('palette-zone-electives')).toBeNull()
+  })
+})

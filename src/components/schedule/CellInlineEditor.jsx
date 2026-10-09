@@ -1,4 +1,5 @@
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useState, useMemo, useRef, useEffect, useLayoutEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { whitespaceInsensitiveName } from '../../ingest/preview.js'
 
 // T105 §1 — colon-delimiter grammar: `<set name>: <member 1>, <member 2>`.
@@ -30,10 +31,30 @@ export default function CellInlineEditor({
   electiveSets = [],
 }) {
   const [value, setValue] = useState('')
+  const [activeIndex, setActiveIndex] = useState(-1)
+  const [anchor, setAnchor] = useState(null)
+  const rootRef = useRef(null)
   const inputRef = useRef(null)
   const committedRef = useRef(false)
 
   useEffect(() => { inputRef.current?.focus() }, [])
+
+  // Audit-2 A10: the suggestion list is portalled to <body> and fixed-positioned
+  // under the editor, so neither the cell nor the grid's overflow can clip it.
+  // Re-anchored on any scroll (capture) or resize while the editor is open.
+  useLayoutEffect(() => {
+    function place() {
+      const r = rootRef.current?.getBoundingClientRect()
+      if (r) setAnchor({ top: r.bottom + 2, left: r.left, width: Math.max(r.width, 220) })
+    }
+    place()
+    window.addEventListener('scroll', place, true)
+    window.addEventListener('resize', place)
+    return () => {
+      window.removeEventListener('scroll', place, true)
+      window.removeEventListener('resize', place)
+    }
+  }, [])
 
   const query = whitespaceInsensitiveName(value)
   const matches = useMemo(() => {
@@ -126,13 +147,48 @@ export default function CellInlineEditor({
     onCreateNew(value.trim())
   }
 
+  // One ordered list drives both the rendered rows and arrow-key navigation.
+  // With nothing typed it offers the camp's reusable elective sets, so a set is
+  // findable from the cell without knowing its name (audit-2 A9).
+  const options = useMemo(() => {
+    if (hasColon || exact || exactEvent) return []
+    const sets = list => list.map(set => ({ key: `es-${set.id}`, label: set.name, kind: 'elective', item: set }))
+    if (!query) return sets(durableSets)
+    const rows = [
+      ...matches.map(a => ({ key: `a-${a.id}`, label: a.name, kind: 'activity', item: a })),
+      ...(onPlaceEvent ? eventMatches.map(ev => ({ key: `e-${ev.id}`, label: ev.name, kind: 'event', item: ev })) : []),
+      ...sets(electiveMatches),
+    ]
+    return rows.length > 0 ? rows : [{ key: 'create', label: `Create "${value.trim()}"`, kind: 'create' }]
+  }, [hasColon, exact, exactEvent, query, durableSets, matches, eventMatches, electiveMatches, onPlaceEvent, value])
+
+  function pick(option) {
+    if (option.kind === 'elective') { placeElective(option.item); return }
+    committedRef.current = true
+    if (option.kind === 'activity') onPlace(option.item.id)
+    else if (option.kind === 'event') onPlaceEvent(option.item.id)
+    else onCreateNew(value.trim())
+  }
+
   function handleKeyDown(e) {
     // Defense-in-depth: the primary fix is useGridKeyboardNav's own
     // '.cell-inline-editor' guard, but stopping propagation here means no
     // future ancestor keydown listener (grid nav or otherwise) can reach into
     // an open editor and act on a key this component didn't itself handle.
     e.stopPropagation()
-    if (e.key === 'Enter') { e.preventDefault(); commitTop(); return }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      if (options.length === 0) return
+      const step = e.key === 'ArrowDown' ? 1 : -1
+      setActiveIndex(i => (i + step + options.length) % options.length)
+      return
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      if (options[activeIndex]) { pick(options[activeIndex]); return }
+      commitTop()
+      return
+    }
     if (e.key === 'Escape') { e.preventDefault(); committedRef.current = true; onCancel(); return }
   }
 
@@ -142,7 +198,7 @@ export default function CellInlineEditor({
   }
 
   return (
-    <div className="cell-inline-editor" onClick={e => e.stopPropagation()}>
+    <div ref={rootRef} className="cell-inline-editor" onClick={e => e.stopPropagation()}>
       <input
         ref={inputRef}
         role="textbox"
@@ -150,7 +206,8 @@ export default function CellInlineEditor({
         className="cell-inline-editor-input"
         value={value}
         placeholder={currentActivityName || 'Activity'}
-        onChange={e => setValue(e.target.value)}
+        aria-expanded={options.length > 0}
+        onChange={e => { setValue(e.target.value); setActiveIndex(-1) }}
         onKeyDown={handleKeyDown}
         onBlur={handleBlur}
       />
@@ -166,46 +223,36 @@ export default function CellInlineEditor({
           })}
         </div>
       )}
-      {query && !exact && !exactEvent && !exactElective && !hasColon && (
-        <div className="cell-inline-editor-suggestions">
-          {matches.map(a => (
+      {options.length > 0 && anchor && createPortal(
+        <div
+          className="cell-inline-editor-suggestions"
+          role="listbox"
+          // A portal still bubbles React events to the cell; keep a press here
+          // from reaching the cell's drag listeners or click handler.
+          onPointerDown={e => e.stopPropagation()}
+          onClick={e => e.stopPropagation()}
+          style={{ position: 'fixed', top: anchor.top, left: anchor.left, width: anchor.width }}
+        >
+          {!query && <div className="cell-inline-editor-suggestions-heading">Elective sets</div>}
+          {options.map((o, i) => (
             <div
-              key={a.id}
-              className="cell-inline-editor-suggestion"
-              onMouseDown={() => { committedRef.current = true; onPlace(a.id) }}
+              key={o.key}
+              role="option"
+              aria-selected={i === activeIndex}
+              className={o.kind === 'create' ? 'cell-inline-editor-suggestion cell-inline-editor-suggestion--create' : 'cell-inline-editor-suggestion'}
+              onMouseDown={e => { e.preventDefault(); pick(o) }}
+              style={o.kind === 'elective' ? { display: 'flex', alignItems: 'center', gap: 6 } : undefined}
             >
-              {a.name}
+              {o.kind === 'elective' ? (
+                <>
+                  <span title={o.label} style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.label}</span>
+                  <span style={ELECTIVE_TAG}>Elective</span>
+                </>
+              ) : o.label}
             </div>
           ))}
-          {onPlaceEvent && eventMatches.map(e => (
-            <div
-              key={e.id}
-              className="cell-inline-editor-suggestion"
-              onMouseDown={() => { committedRef.current = true; onPlaceEvent(e.id) }}
-            >
-              {e.name}
-            </div>
-          ))}
-          {electiveMatches.map(s => (
-            <div
-              key={s.id}
-              className="cell-inline-editor-suggestion"
-              onMouseDown={() => placeElective(s)}
-              style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-            >
-              <span title={s.name} style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</span>
-              <span style={ELECTIVE_TAG}>Elective</span>
-            </div>
-          ))}
-          {matches.length === 0 && eventMatches.length === 0 && electiveMatches.length === 0 && (
-            <div
-              className="cell-inline-editor-suggestion cell-inline-editor-suggestion--create"
-              onMouseDown={() => { committedRef.current = true; onCreateNew(value.trim()) }}
-            >
-              Create "{value.trim()}"
-            </div>
-          )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )
