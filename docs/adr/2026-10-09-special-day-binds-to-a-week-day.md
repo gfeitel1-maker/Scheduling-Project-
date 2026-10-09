@@ -3,7 +3,7 @@ title: "A special day binds to a (week, day) through a placement row and replace
 document_type: adr
 authority: normative
 status: accepted
-implementation_state: not-started
+implementation_state: implemented
 date: 2026-10-09
 decided: 2026-10-09
 deciders: [product-owner]
