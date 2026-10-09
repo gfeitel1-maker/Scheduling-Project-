@@ -1,6 +1,6 @@
 # Rendezvous Worker (T209, Phase A) — undeployed
 
-This directory holds the source and tests for a Cloudflare Worker + Workers KV "bulletin board"
+This directory holds the source and tests for a Cloudflare Worker + SQLite-backed Durable Object "bulletin board"
 described in `docs/work/tickets/T209-rendezvous-worker-phase-a.md` and
 `docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md`. **Nothing here is deployed, and
 nothing in this repository's automated workflow deploys it.** It is not wired into the Shoresh
@@ -12,8 +12,8 @@ the code.
 
 ## What this Worker does
 
-- `POST /v1/register` — stores an opaque, already-signed record blob under a KV key scoped to a
-  namespace and peer id, with a ~2h TTL.
+- `POST /v1/register` — stores an opaque, already-signed record blob for a peer id inside that
+  namespace's Durable Object, with a ~2h TTL.
 - `GET /v1/peers/<namespace>` — returns the (unordered, capped) list of record blobs currently
   live under a namespace.
 
@@ -22,13 +22,23 @@ of `worker.js`. All trust decisions happen client-side, in code that is not part
 
 ## What the code defends against, and what it does not
 
-`worker.js`'s file header spells this out in detail; in short, the code bounds per-request work,
-validates namespace/peer-id shape strictly (so they cannot be used to forge or collide KV keys),
-caps the record size, caps entries per namespace, and throttles each caller IP through two Workers
-Rate Limiting bindings (`REGISTER_LIMITER`, `PEERS_LIMITER` in `wrangler.toml`; 429 over the limit,
-and 503 — fail closed — if a binding is missing). Those counters are per Cloudflare location and
-approximate, so they bound abuse rather than enforce an exact quota. It does not, and cannot,
-control Cloudflare's own edge request logging.
+`worker.js`'s file header spells this out in detail. Storage is one SQLite-backed Durable Object
+per namespace (`env.NAMESPACE_DO.idFromName(namespace)`), per
+`docs/adr/2026-10-09-rendezvous-worker-durable-object-storage.md`.
+
+- **Exact, per namespace** (held in the DO, serialized): at most `MAX_PEERS_PER_NAMESPACE = 200`
+  unexpired distinct peers, and at most `WRITES_PER_WINDOW = 30` accepted registers per rolling 60s.
+  Over either: 429. Refused requests do not consume budget. No IP or IP-derived value is stored.
+- **Best-effort only**: the per-IP throttle (`REGISTER_LIMITER`, `PEERS_LIMITER`). Per-location and
+  approximate, so it has no guaranteed bound; it runs before DO dispatch. Missing binding: 503.
+- **Cheap rejects before dispatch**: method, path, namespace/peer-id shape, body size and shape. A GET
+  for a never-written namespace creates no storage and returns an empty list.
+- **Accepted residual, pending the owner's call**: the Free-plan Durable Object limits (100k
+  requests/day, 100k rows written/day) are account-wide, so requests with fresh random namespaces can
+  exhaust them; rung 3 (this last-resort rendezvous) is then down until 00:00 UTC. Paid plan or an
+  authenticated register would close it.
+
+It does not, and cannot, control Cloudflare's own edge request logging.
 
 **The per-namespace cap is a lockout primitive, not just an abuse bound.** Anyone who knows a
 namespace can register up to `MAX_PEERS_PER_NAMESPACE` fabricated peer ids in it. Already-registered
@@ -51,16 +61,16 @@ lowering the cap does not — see the fuller note in `worker.js`'s file header.
    Cloudflare plan allows, and do not enable Logpush or any other logging integration for this
    route without re-checking that decision against the privacy finding in
    `docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md` §2.3.
-3. **KV namespace binding.** Create the KV namespace (`wrangler kv namespace create
-   RENDEZVOUS_KV`) and fill in its id in `wrangler.toml`, which is left blank in this repository on
-   purpose.
+3. **Durable Object binding.** Nothing to create by hand. In the owner's words, "i am not making
+   stores for every camp uniquely": one `wrangler deploy` ships the Worker, the `NAMESPACE_DO` binding
+   and the `[[migrations]]` tag `v1` (`new_sqlite_classes`); per-camp instances appear on first use.
 4. **Domain.** The spec names `rendezvous.shoresh.org` as the intended host; registering and
    routing that domain to this Worker is the owner's to do, not this ticket's.
 
 ## Testing
 
 `worker.test.js` runs under this repository's existing Vitest (`npm run test`), against an
-in-memory fake KV namespace (`fakeKv.js`) with an injectable clock — no `wrangler`, no
+in-memory fake Durable Object namespace (`fakeDurableObject.js`, real SQLite via `better-sqlite3`) with a faked `Date` — no `wrangler`, no
 `miniflare`, no network call, and no new dependency. It calls the handler's exported
 `fetch(request, env)` function (via `handleRequest`) directly, so what it proves is a
 handler-level round-trip — two independent calls into the same in-process handler, one crossing

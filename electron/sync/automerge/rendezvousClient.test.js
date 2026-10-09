@@ -12,7 +12,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { generateKeyPair } from '@libp2p/crypto/keys'
 import { peerIdFromPrivateKey } from '@libp2p/peer-id'
-import { handleRequest } from '../../../workers/rendezvous/worker.js'
+import { handleRequest, RendezvousNamespace } from '../../../workers/rendezvous/worker.js'
+import { FakeDurableObjectNamespace } from '../../../workers/rendezvous/fakeDurableObject.js'
 import { signRecord, verify } from './rendezvousRecord.js'
 import {
   readRendezvousConfig,
@@ -27,28 +28,12 @@ import { nextSequence } from './rendezvousSequence.js'
 // The worker fails closed (503) without its rate-limit bindings, so the in-process env supplies
 // allow-all stand-ins for them; the limiter itself is covered in workers/rendezvous/worker.test.js.
 const allowAll = { limit: async () => ({ success: true }) }
-function workerEnv(kv) {
-  return { RENDEZVOUS_KV: kv, REGISTER_LIMITER: allowAll, PEERS_LIMITER: allowAll }
+function workerEnv(doNamespace) {
+  return { NAMESPACE_DO: doNamespace, REGISTER_LIMITER: allowAll, PEERS_LIMITER: allowAll }
 }
 
-// In-memory KV mock matching the Cloudflare KV surface worker.js actually calls: get/put/list.
 function makeKvMock() {
-  const store = new Map()
-  return {
-    async get(key) {
-      return store.has(key) ? store.get(key) : null
-    },
-    async put(key, value) {
-      store.set(key, value)
-    },
-    async list({ prefix, limit }) {
-      const keys = [...store.keys()]
-        .filter((k) => k.startsWith(prefix))
-        .slice(0, limit)
-        .map((name) => ({ name }))
-      return { keys }
-    },
-  }
+  return new FakeDurableObjectNamespace(RendezvousNamespace)
 }
 
 // A fetch stub that routes to the real worker handler in-process, so the client's requests are

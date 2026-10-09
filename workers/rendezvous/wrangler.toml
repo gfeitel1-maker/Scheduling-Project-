@@ -10,16 +10,21 @@ name = "shoresh-rendezvous"
 main = "worker.js"
 compatibility_date = "2026-09-17"
 
-# The owner creates this KV namespace once (`wrangler kv namespace create RENDEZVOUS_KV`) and
-# fills in the id below. Left blank here on purpose — a committed namespace id would be either a
-# placeholder nobody catches or a real one that should not be in git history.
-[[kv_namespaces]]
-binding = "RENDEZVOUS_KV"
-id = ""
+# Storage: ONE SQLite-backed Durable Object class, one instance per namespace, created on demand by
+# env.NAMESPACE_DO.idFromName(namespace). Owner constraint: "i am not making stores for every camp
+# uniquely" -- one Worker, one `wrangler deploy`, zero per-camp setup; the migration below ships in
+# that same deploy. See docs/adr/2026-10-09-rendezvous-worker-durable-object-storage.md.
+[[durable_objects.bindings]]
+name = "NAMESPACE_DO"
+class_name = "RendezvousNamespace"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RendezvousNamespace"]
 
 # Per-caller rate limiting (Workers Rate Limiting binding; a workers.dev route has no zone, so no
 # WAF rule can front it). worker.js keys both on the caller IP and fails CLOSED (503) if a binding
-# is missing. namespace_id is an account-unique integer label, not a secret. Sizing: a device ticks
+# is missing. BEST-EFFORT only (no guaranteed bound); the exact per-namespace bounds live in the DO. namespace_id is an account-unique integer label, not a secret. Sizing: a device ticks
 # once a minute (one register + one peers list), and a camp may put ~20 devices behind one NAT IP,
 # so 60 registers / 120 lists per 60s per IP leaves headroom while capping a single abuser.
 [[ratelimits]]
