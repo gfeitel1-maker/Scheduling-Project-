@@ -1,3 +1,12 @@
+---
+title: "Whole-app design inventory — copy, colour, centring, screen families"
+document_type: architecture-report
+status: current
+created: 2026-10-08
+task_class: design
+governing_docs: [docs/governance/standards/DESIGN_STANDARD.md]
+---
+
 # Whole-app design inventory, 2026-10-08
 
 Read-only sweep of `src/screens`, `src/components`, `src/App.jsx`, `src/styles/shared.js` and `scheduleGrid.css` at base `origin/main` (worktree `jovial-shaw-4145e6`). No build, test, or browser run was done (machine overloaded), so every claim below is from reading source. Where a finding rests on a layout inference, it says so. Governing standard: `docs/governance/standards/DESIGN_STANDARD.md` (personality: Professional. Grounded. Warm. Quiet. Precise. Never playful; the grid is the visual focus).
