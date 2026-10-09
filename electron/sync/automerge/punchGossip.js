@@ -17,6 +17,7 @@
 // and anything over the size bounds - before decrypting an oversize value, and before trusting a
 // decrypted one.
 import crypto from 'node:crypto'
+import net from 'node:net'
 import * as A from '@automerge/automerge'
 import { recordKey, readRecord } from '../../automerge/campDocument.js'
 import { signMessageWithDeviceKey, verifyMessageWithPeerId } from '../../automerge/authorityLogSignature.js'
@@ -32,7 +33,7 @@ export const MAX_VALUE_CHARS = 4096
 const MAX_ENTRIES_READ = 64
 const GOSSIP_SIG_CONTEXT = 'shoresh-punch-gossip-sig-v1'
 const GOSSIP_KEY_INFO = 'shoresh-punch-gossip-v1'
-const CANDIDATE_RE = /^\/ip[46]\/[^/]+\/udp\/\d{1,5}$/
+const CANDIDATE_RE = /^\/(ip4|ip6)\/([^/]+)\/udp\/(\d{1,5})$/
 const NONCE_BYTES = 12
 const TAG_BYTES = 16
 
@@ -44,12 +45,49 @@ function canonicalMessage({ deviceId, peerId, ts, candidates }) {
   return `${GOSSIP_SIG_CONTEXT}\n${JSON.stringify([deviceId, peerId, ts, candidates])}`
 }
 
-function validCandidates(candidates) {
-  return (
-    Array.isArray(candidates) &&
-    candidates.length <= MAX_CANDIDATES &&
-    candidates.every((c) => typeof c === 'string' && c.length <= MAX_CANDIDATE_CHARS && CANDIDATE_RE.test(c))
-  )
+// Public unicast only: a gossip candidate is dialled by every camp peer, so a private, loopback,
+// link-local, CGNAT, multicast, unspecified or IPv4-mapped address would aim the dial at the
+// reader's own network (a hostile-but-valid peer's SSRF-style probe).
+export function isPublicAddress(version, ip) {
+  if (version === 'ip4') {
+    if (net.isIPv4(ip) === false) return false
+    const [a, b] = ip.split('.').map(Number)
+    if (a === 0 || a === 10 || a === 127 || a >= 224) return false
+    if (a === 100 && b >= 64 && b <= 127) return false
+    if (a === 169 && b === 254) return false
+    if (a === 172 && b >= 16 && b <= 31) return false
+    if (a === 192 && b === 168) return false
+    return true
+  }
+  if (!net.isIPv6(ip)) return false
+  let host
+  try {
+    host = new URL(`http://[${ip}]`).hostname.slice(1, -1)
+  } catch {
+    return false
+  }
+  const groups = host.split(':')
+  if (host.startsWith('::ffff:')) return false
+  const first = parseInt(groups[0] || '0', 16)
+  if (host.startsWith('::')) {
+    const rest = groups.filter(Boolean)
+    if (rest.length <= 2) return false
+  }
+  if ((first & 0xffc0) === 0xfe80 || (first & 0xfe00) === 0xfc00 || (first & 0xff00) === 0xff00) return false
+  return true
+}
+
+function validCandidate(c, allowPrivate) {
+  if (typeof c !== 'string' || c.length > MAX_CANDIDATE_CHARS) return false
+  const m = CANDIDATE_RE.exec(c)
+  if (!m) return false
+  const port = Number(m[3])
+  if (port < 1 || port > 65535) return false
+  return allowPrivate || isPublicAddress(m[1], m[2])
+}
+
+function validCandidates(candidates, allowPrivate = false) {
+  return Array.isArray(candidates) && candidates.length <= MAX_CANDIDATES && candidates.every((c) => validCandidate(c, allowPrivate))
 }
 
 // Signs and encrypts WITHOUT validating bounds; publishReflexive validates first. Exported so a
@@ -107,9 +145,9 @@ export function deviceRegistryFromDb(db) {
  * Returns the document with this device's entry written (minting the camp key if the camp has none
  * yet). Throws on an out-of-bounds candidate list: a device must never publish what readers drop.
  */
-export function publishReflexive(doc, db, { campId, deviceId, peerId, candidates, now = Date.now, signMessage }) {
-  if (!validCandidates(candidates)) {
-    throw new Error(`punchGossip: candidates must be at most ${MAX_CANDIDATES} udp multiaddrs of at most ${MAX_CANDIDATE_CHARS} chars (bad candidate list)`)
+export function publishReflexive(doc, db, { campId, deviceId, peerId, candidates, now = Date.now, signMessage, allowPrivateCandidates = false }) {
+  if (!validCandidates(candidates, allowPrivateCandidates)) {
+    throw new Error(`punchGossip: candidates must be at most ${MAX_CANDIDATES} public udp multiaddrs of at most ${MAX_CANDIDATE_CHARS} chars (bad candidate list)`)
   }
   const { doc: keyed, addressKey } = mintRendezvousAddressKey(doc, campId)
   const value = sealGossipEntry(db, { addressKey, deviceId, peerId, candidates, ts: now(), signMessage })
@@ -119,9 +157,19 @@ export function publishReflexive(doc, db, { campId, deviceId, peerId, candidates
   })
 }
 
-/** Map<deviceId, {deviceId, peerId, candidates, ts}> of every entry that passed every check. */
-export function readReflexive(doc, { campId, registry, now = Date.now }) {
+/**
+ * Map<deviceId, {deviceId, peerId, candidates, ts}> of every entry that passed every check. The
+ * returned map carries `.skewed`: Map<deviceId, skewMs> of correctly signed entries refused only
+ * because they are dated beyond the future-skew bound - the sender's clock disagrees with ours, and
+ * the caller must surface that rather than treat it as "no entry".
+ *
+ * highWater (optional Map<deviceId, ts>) is the reader's memory of the newest verified ts per
+ * device: an entry older than it is a rolled-back document value and is refused.
+ * allowPrivateCandidates is for loopback test fixtures only.
+ */
+export function readReflexive(doc, { campId, registry, now = Date.now, highWater, allowPrivateCandidates = false }) {
   const out = new Map()
+  out.skewed = new Map()
   const addressKey = readRendezvousAddressKey(doc, campId)
   const row = readRecord(doc, 'camps', campId)
   if (!addressKey || !row) return out
@@ -134,11 +182,19 @@ export function readReflexive(doc, { campId, registry, now = Date.now }) {
     const entry = openGossipValue(row[field], addressKey)
     if (!entry || entry.deviceId !== deviceId) continue
     if (typeof entry.ts !== 'number' || !Number.isFinite(entry.ts)) continue
-    if (at - entry.ts > GOSSIP_TTL_MS || entry.ts - at > MAX_FUTURE_SKEW_MS) continue
-    if (!validCandidates(entry.candidates)) continue
+    if (!validCandidates(entry.candidates, allowPrivateCandidates)) continue
     const boundPeerId = registry.peerIdForDevice(deviceId)
     if (!boundPeerId || entry.peerId !== boundPeerId) continue
     if (!verifyMessageWithPeerId(boundPeerId, canonicalMessage(entry), entry.sig)) continue
+    if (entry.ts - at > MAX_FUTURE_SKEW_MS) {
+      out.skewed.set(deviceId, entry.ts - at)
+      continue
+    }
+    if (at - entry.ts > GOSSIP_TTL_MS) continue
+    if (highWater) {
+      if (entry.ts < (highWater.get(deviceId) ?? -Infinity)) continue
+      highWater.set(deviceId, entry.ts)
+    }
     out.set(deviceId, { deviceId, peerId: boundPeerId, candidates: entry.candidates, ts: entry.ts })
   }
   return out

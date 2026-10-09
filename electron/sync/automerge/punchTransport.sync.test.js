@@ -20,7 +20,7 @@ import { makeSignalingPair } from './punchTestSupport.js'
 
 let files = []
 function freshDb(tag) {
-  const f = path.join(os.tmpdir(), `shoresh-punch-${tag}-${Date.now()}-${Math.random()}.sqlite`)
+  const f = path.join(os.tmpdir(), `punchsync-${tag}-${Date.now()}-${Math.random()}.sqlite`)
   files.push(f)
   const db = openLocalDb(f)
   db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-1', 'Camp One')

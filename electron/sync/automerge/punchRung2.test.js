@@ -13,6 +13,7 @@ import { signMessageWithDeviceKey } from '../../automerge/authorityLogSignature.
 import { makeDevice, registerAll, revokeOn, makeGatedNode, authenticateTo, freshCampDoc, cleanupDevices, CAMP_ID } from '../../../test/punchRung2Support.js'
 import { createPunchSignaling } from './punchSignaling.js'
 import { publishReflexive, readReflexive, deviceRegistryFromDb } from './punchGossip.js'
+import { EVENTS } from './connectivityEvents.js'
 import { attemptRung2 } from './punchRung2.js'
 import { punchTransport } from './punchTransport.js'
 
@@ -77,23 +78,23 @@ async function buildCamp() {
   }
   const [sa, sb] = [await mk(na), await mk(nb)]
   await mk(nc)
-  chanToB.bind(sa.channelTo('device-b'))
   chanToA.bind(sb.channelTo('device-a'))
-  return { a, b, c, na, nb, nc, sa, sb }
+  return { a, b, c, na, nb, nc, sa, sb, bindChannel: (ch) => chanToB.bind(ch) }
 }
 
-const entriesFor = (dev, doc) => () => readReflexive(doc, { campId: CAMP_ID, registry: deviceRegistryFromDb(dev.db) })
+const entriesFor = (dev, doc) => () => readReflexive(doc, { campId: CAMP_ID, registry: deviceRegistryFromDb(dev.db), allowPrivateCandidates: true })
+const pub = (doc, dev, candidates) => publishReflexive(doc, dev.db, { campId: CAMP_ID, deviceId: dev.deviceId, peerId: dev.peerId, candidates, allowPrivateCandidates: true })
 
 describe('attemptRung2', () => {
   it('A and B, sharing only an admitted C, complete a real punch over loopback', async () => {
-    const { a, b, na, nb, sa } = await buildCamp()
+    const { a, b, na, nb, sa, bindChannel } = await buildCamp()
     expect(na.node.getPeers().map(String)).not.toContain(b.peerId)
-    const doc = publishReflexive(freshCampDoc(), b.db, { campId: CAMP_ID, deviceId: 'device-b', peerId: b.peerId, candidates: [CANDIDATE] })
+    const doc = pub(freshCampDoc(), b, [CANDIDATE])
 
     const result = await attemptRung2({
       peerDeviceId: 'device-b',
       readEntries: entriesFor(a, doc),
-      signaling: sa,
+      signaling: sa, bindChannel,
       dial: (addr) => na.node.dial(multiaddr(addr)),
     })
 
@@ -109,39 +110,81 @@ describe('attemptRung2', () => {
   }, 60000)
 
   it('with no verified gossip entry for the peer: { ok: false, reason: no-gossip-entry }', async () => {
-    const { a, sa } = await buildCamp()
+    const { a, sa, bindChannel } = await buildCamp()
     const doc = freshCampDoc()
-    const r = await attemptRung2({ peerDeviceId: 'device-b', readEntries: entriesFor(a, doc), signaling: sa, dial: async () => { throw new Error('must not dial') } })
+    const r = await attemptRung2({ peerDeviceId: 'device-b', readEntries: entriesFor(a, doc), signaling: sa, bindChannel, dial: async () => { throw new Error('must not dial') } })
     expect(r).toEqual({ ok: false, reason: 'no-gossip-entry' })
   }, 30000)
 
   it('a revoked device\'s gossip is ignored: no dial is attempted', async () => {
-    const { a, b, sa } = await buildCamp()
-    const doc = publishReflexive(freshCampDoc(), b.db, { campId: CAMP_ID, deviceId: 'device-b', peerId: b.peerId, candidates: [CANDIDATE] })
+    const { a, b, sa, bindChannel } = await buildCamp()
+    const doc = pub(freshCampDoc(), b, [CANDIDATE])
     revokeOn(a.db, 'device-b')
     let dialed = 0
-    const r = await attemptRung2({ peerDeviceId: 'device-b', readEntries: entriesFor(a, doc), signaling: sa, dial: async () => { dialed++ } })
+    const r = await attemptRung2({ peerDeviceId: 'device-b', readEntries: entriesFor(a, doc), signaling: sa, bindChannel, dial: async () => { dialed++ } })
     expect(r).toEqual({ ok: false, reason: 'no-gossip-entry' })
     expect(dialed).toBe(0)
   }, 30000)
 
   it('with gossip but no signalling route: { ok: false, reason: no-signal-route }', async () => {
-    const { a, b, na, sa } = await buildCamp()
-    const doc = publishReflexive(freshCampDoc(), b.db, { campId: CAMP_ID, deviceId: 'device-b', peerId: b.peerId, candidates: [CANDIDATE] })
+    const { a, b, na, sa, bindChannel } = await buildCamp()
+    const doc = pub(freshCampDoc(), b, [CANDIDATE])
     for (const p of na.node.getPeers()) await na.node.hangUp(p)
     let dialed = 0
-    const r = await attemptRung2({ peerDeviceId: 'device-b', readEntries: entriesFor(a, doc), signaling: sa, dial: async () => { dialed++ } })
+    const r = await attemptRung2({ peerDeviceId: 'device-b', readEntries: entriesFor(a, doc), signaling: sa, bindChannel, dial: async () => { dialed++ } })
     expect(r).toEqual({ ok: false, reason: 'no-signal-route' })
     expect(dialed).toBe(0)
   }, 30000)
 
   it('when every candidate fails to dial: { ok: false, reason: dial-failed }', async () => {
-    const { a, b, sa } = await buildCamp()
-    const doc = publishReflexive(freshCampDoc(), b.db, { campId: CAMP_ID, deviceId: 'device-b', peerId: b.peerId, candidates: [CANDIDATE, '/ip4/127.0.0.1/udp/10'] })
+    const { a, b, sa, bindChannel } = await buildCamp()
+    const doc = pub(freshCampDoc(), b, [CANDIDATE, '/ip4/127.0.0.1/udp/10'])
     const tried = []
-    const r = await attemptRung2({ peerDeviceId: 'device-b', readEntries: entriesFor(a, doc), signaling: sa, dial: async (addr) => { tried.push(addr); throw new Error('unreachable') } })
+    const r = await attemptRung2({ peerDeviceId: 'device-b', readEntries: entriesFor(a, doc), signaling: sa, bindChannel, dial: async (addr) => { tried.push(addr); throw new Error('unreachable') } })
     expect(r).toEqual({ ok: false, reason: 'dial-failed' })
     expect(tried).toHaveLength(2)
+  }, 30000)
+})
+
+describe('attemptRung2 signals and routes for real', () => {
+  it('binds the signalling channel to the target BEFORE dialling, and never dials without one', async () => {
+    const { a, b, sa, bindChannel } = await buildCamp()
+    const doc = pub(freshCampDoc(), b, [CANDIDATE])
+    const order = []
+    const r = await attemptRung2({
+      peerDeviceId: 'device-b', readEntries: entriesFor(a, doc), signaling: sa,
+      bindChannel: (ch) => { order.push('bind'); expect(typeof ch.sendSignal).toBe('function'); bindChannel(ch) },
+      dial: async () => { order.push('dial') },
+    })
+    expect(r.ok).toBe(true)
+    expect(order).toEqual(['bind', 'dial'])
+    let dialed = 0
+    const bare = await attemptRung2({ peerDeviceId: 'device-b', readEntries: entriesFor(a, doc), signaling: sa, dial: async () => { dialed++ } })
+    expect(bare).toEqual({ ok: false, reason: 'no-signal-channel' })
+    expect(dialed).toBe(0)
+  }, 30000)
+
+  it('a relay that is NOT connected to the destination is no route (hasRoute and attemptRung2)', async () => {
+    const { a, b, nc, sa, bindChannel } = await buildCamp()
+    for (const p of nc.node.getPeers()) if (String(p) === b.peerId) await nc.node.hangUp(p)
+    expect(nc.node.getPeers().map(String)).not.toContain(b.peerId)
+    expect(await sa.hasRoute('device-b')).toBe(false)
+    const doc = pub(freshCampDoc(), b, [CANDIDATE])
+    let dialed = 0
+    const r = await attemptRung2({ peerDeviceId: 'device-b', readEntries: entriesFor(a, doc), signaling: sa, bindChannel, dial: async () => { dialed++ } })
+    expect(r).toEqual({ ok: false, reason: 'no-signal-route' })
+    expect(dialed).toBe(0)
+  }, 30000)
+
+  it('a verified future-dated gossip entry yields clock-skew and a CLOCK_SKEW event, not no-gossip-entry', async () => {
+    const { a, b, sa, bindChannel } = await buildCamp()
+    const doc = publishReflexive(freshCampDoc(), b.db, { campId: CAMP_ID, deviceId: 'device-b', peerId: b.peerId, candidates: [CANDIDATE], allowPrivateCandidates: true, now: () => Date.now() + 3600_000 })
+    const events = []
+    const r = await attemptRung2({ peerDeviceId: 'device-b', readEntries: entriesFor(a, doc), signaling: sa, bindChannel, dial: async () => { throw new Error('must not dial') }, emit: (n, f) => events.push([n, f]) })
+    expect(r).toEqual({ ok: false, reason: 'clock-skew' })
+    expect(events).toHaveLength(1)
+    expect(events[0][0]).toBe(EVENTS.CLOCK_SKEW)
+    expect(events[0][1].skewMs).toBeGreaterThan(30 * 60 * 1000)
   }, 30000)
 })
 

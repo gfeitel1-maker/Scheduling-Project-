@@ -12,7 +12,7 @@ import {
 
 let a, b, mallory, doc
 const NOW = 1_800_000_000_000
-const CANDS = ['/ip4/203.0.113.7/udp/40001', '/ip4/192.168.1.20/udp/40001']
+const CANDS = ['/ip4/203.0.113.7/udp/40001', '/ip4/198.51.100.20/udp/40001']
 
 beforeEach(async () => {
   a = await makeDevice('device-a')
@@ -26,8 +26,8 @@ afterEach(() => cleanupDevices([a, b, mallory]))
 function publish(dev, candidates = CANDS, ts = NOW, into = doc, extra = {}) {
   return publishReflexive(into, dev.db, { campId: CAMP_ID, deviceId: dev.deviceId, peerId: dev.peerId, candidates, now: () => ts, ...extra })
 }
-function read(reader = a, d = doc, now = NOW + 1000) {
-  return readReflexive(d, { campId: CAMP_ID, registry: deviceRegistryFromDb(reader.db), now: () => now })
+function read(reader = a, d = doc, now = NOW + 1000, extra = {}) {
+  return readReflexive(d, { campId: CAMP_ID, registry: deviceRegistryFromDb(reader.db), now: () => now, ...extra })
 }
 
 describe('punchGossip', () => {
@@ -115,6 +115,52 @@ describe('punchGossip', () => {
     doc = publish(a)
     const huge = A.change(doc, (d) => { d.camps[recordKey(CAMP_ID, `${GOSSIP_FIELD_PREFIX}device-b`)] = 'A'.repeat(100_000) })
     expect(read(a, huge).has('device-b')).toBe(false)
+  })
+
+  const NON_PUBLIC = [
+    '/ip4/10.1.2.3/udp/4000', '/ip4/172.20.0.5/udp/4000', '/ip4/192.168.1.20/udp/4000', '/ip4/127.0.0.1/udp/4000',
+    '/ip4/169.254.9.9/udp/4000', '/ip4/100.64.0.9/udp/4000', '/ip4/224.0.0.251/udp/4000', '/ip4/0.0.0.0/udp/4000',
+    '/ip6/::1/udp/4000', '/ip6/::/udp/4000', '/ip6/fe80::1/udp/4000', '/ip6/fd00::1/udp/4000', '/ip6/ff02::1/udp/4000',
+    '/ip6/::ffff:192.168.1.1/udp/4000', '/ip4/203.0.113.7/udp/0',
+  ]
+
+  it.each(NON_PUBLIC)('READ drops a correctly-signed entry carrying non-public candidate %s', (candidate) => {
+    doc = publish(a)
+    const value = sealGossipEntry(b.db, { addressKey: readRendezvousAddressKey(doc, CAMP_ID), deviceId: 'device-b', peerId: b.peerId, candidates: [CANDS[0], candidate], ts: NOW })
+    const hostile = A.change(doc, (d) => { d.camps[recordKey(CAMP_ID, `${GOSSIP_FIELD_PREFIX}device-b`)] = value })
+    expect(read(a, hostile).has('device-b')).toBe(false)
+  })
+
+  it.each(NON_PUBLIC)('publish refuses non-public candidate %s', (candidate) => {
+    expect(() => publish(b, [candidate])).toThrow(/candidate/)
+  })
+
+  it('public IPv6 and IPv4 candidates pass the filter', () => {
+    doc = publish(b, ['/ip6/2001:db8::7/udp/4000', '/ip4/8.8.4.4/udp/4000'])
+    expect(read().get('device-b').candidates).toHaveLength(2)
+  })
+
+  it('a future-dated but correctly signed entry is reported in .skewed, not silently absent', () => {
+    doc = publish(b, CANDS, NOW + 60 * 60 * 1000)
+    const entries = read()
+    expect(entries.has('device-b')).toBe(false)
+    expect(entries.skewed.get('device-b')).toBeGreaterThan(30 * 60 * 1000)
+  })
+
+  it('a FORGED future-dated entry is not reported as skew', () => {
+    doc = publish(a)
+    const forged = publish({ ...mallory, deviceId: 'device-b' }, CANDS, NOW + 60 * 60 * 1000)
+    expect(read(a, forged).skewed.has('device-b')).toBe(false)
+  })
+
+  it('REJECTS a rolled-back entry older than the highest verified ts seen for that device', () => {
+    const highWater = new Map()
+    doc = publish(a)
+    const newer = publish(b, ['/ip4/203.0.113.50/udp/1'], NOW + 5000, A.clone(doc))
+    expect(read(a, newer, NOW + 6000, { highWater }).has('device-b')).toBe(true)
+    const rolledBack = publish(b, ['/ip4/203.0.113.51/udp/1'], NOW + 1000, A.clone(doc))
+    expect(read(a, rolledBack, NOW + 6000, { highWater }).has('device-b')).toBe(false)
+    expect(read(a, newer, NOW + 6000, { highWater }).has('device-b')).toBe(true)
   })
 
   it('a later publish by the same device replaces its entry (one entry per device)', () => {
