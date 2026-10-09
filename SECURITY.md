@@ -198,15 +198,12 @@ address key (`electron/sync/automerge/rendezvousRotation.js`; amendment 2026-10-
 - **Stragglers keep publishing under the old namespace.** A device that was offline across the revoke
   keeps publishing under the old namespace until it syncs the rotation.
 
-### A device offline through a revoke may have to re-pair (v1, accepted; flagged in the UI)
+### A device offline through a revoke may have to re-pair (v1, accepted; UI flag pending)
 
 A revoke changes both the LAN discovery tag and the rendezvous namespace. A device that was offline
 through it still holds the old tag and namespace. Once its peers restart with the new LAN tag, it
-cannot find them by LAN or rendezvous and must pair again on the camp's network. The device shows a
-footer flag, "can't reach the camp · pair again on the camp's network", once no camp peer has been
-reachable for 6 hours while the camp has other paired devices
-(`electron/sync/automerge/peerReachability.js`). The signal is conservative. The device cannot tell
-stale secrets apart from every other device being switched off, so the bound is long.
+cannot find them by LAN or rendezvous and must pair again on the camp's network. Today nothing on
+that device says so. A flag with a "Pair again" action is planned for the PR that adds that flow.
 
 ### LAN discovery-tag rotation is restart-bounded for a running process (v1, accepted; live rotation required in T334/DHT)
 

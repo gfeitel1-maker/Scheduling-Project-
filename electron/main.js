@@ -71,7 +71,6 @@ import { mintGenesisEntry, mintGrantEntry, mintRevokeEntry } from './automerge/a
 import { syncRefusalForDomainMigration } from './db/migrationDomainState.js'
 import { getDocIfLoaded, getCurrentDoc, setUserDataDirGetter as setAutomergeUserDataDirGetter, setDocCipher as setAutomergeDocCipher, flushPendingWrites as flushAutomergeDoc, discardLiveDoc } from './sync/automerge/liveDoc.js'
 import { runRendezvousRotation } from './sync/automerge/rendezvousRotation.js'
-import { createPeerReachabilityTracker } from './sync/automerge/peerReachability.js'
 import { projectEntity } from './automerge/projector.js'
 import { AUTHORITY_LOG_ENTITY, currentAuthorityState, quorumThreshold } from './automerge/authorityReplay.js'
 import * as Automerge from '@automerge/automerge'
@@ -326,7 +325,6 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // pass them (there are many) is unaffected — Stage 5d-2b additions only,
   // never a behavior change for a caller that stays silent about them.
   const getAutomergeNode = getAutomergeSyncNode || (() => null)
-  const peerReachability = createPeerReachabilityTracker({ onThresholdCrossed: () => pushSyncStatus() })
   // T268 — "has a startup attempt finished" (see startAutomergeSyncNodeIfEnabled
   // in main.js's top-level app.whenReady() flow). Defaults to false ("not yet
   // attempted") so a caller that never wires this — every existing test, and
@@ -863,14 +861,6 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     // connectivity state, and a camp near its relay cap is just as true whether this device is
     // the Host or a Client.
     const relayReservationRefused = Boolean(getRelayReservationRefusedFn())
-    // WAN-ladder round 2: a device offline through a revoke cannot find peers that rotated their
-    // discovery secrets. Conservative signal and bound: see peerReachability.js.
-    const reachNode = getAutomergeNode()
-    const peersUnreachable = peerReachability.update({
-      nodeRunning: reachNode != null,
-      otherDeviceCount,
-      peerReachable: reachNode ? reachNode.getPeers().some((p) => reachNode.isPeerAuthenticated(p)) : false,
-    })
     const atRestEncryptionEnabled = isAtRestEncryptionEnabled()
 
     // T268 — a refused sync (electron/db/migrationDomainState.js) is checked
@@ -920,7 +910,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
         // last case exists to avoid a boot flicker: the node starts
         // asynchronously after app.whenReady(), so "not yet attempted" must
         // read the same as it always has, not as a false alarm.
-        return { mode: 'host', connected: true, state: 'host', unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused, atRestEncryptionEnabled, peersUnreachable }
+        return { mode: 'host', connected: true, state: 'host', unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused, atRestEncryptionEnabled }
       }
       return { mode: 'host', connected: false, state: 'host-not-syncing', unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused, atRestEncryptionEnabled }
     }
@@ -936,7 +926,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     const connected = peers.length > 0
     const authed = peers.some((peerId) => node.isPeerAuthenticated(peerId))
     const state = !connected ? 'client-disconnected' : (authed ? 'client-connected' : 'client-connecting')
-    return { mode: 'client', connected, authenticated: authed, state, unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused, atRestEncryptionEnabled, peersUnreachable }
+    return { mode: 'client', connected, authenticated: authed, state, unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused, atRestEncryptionEnabled }
   }
 
   // T27 — push the status when it changes, rather than leaving the renderer to
