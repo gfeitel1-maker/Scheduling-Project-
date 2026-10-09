@@ -174,7 +174,7 @@ describe('ImportScreen — oversized text-file guard (F4)', () => {
     // file.size, so overriding it exercises the same code path a huge file hits.
     Object.defineProperty(file, 'size', { value: IMPORT_LIMITS.maxBytes + 1 })
     await userEvent.upload(input, file)
-    await waitFor(() => expect(screen.getByText(/could not be read/i)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/File not readable/)).toBeTruthy())
     // Fails closed: the bytes never reach parseTextGrid.
     expect(parseTextGrid).not.toHaveBeenCalled()
   })
@@ -193,9 +193,9 @@ describe('ImportScreen — declines a non-schedule workbook (T146)', () => {
     const input = document.querySelector('input[type="file"]')
     const file = new File(['irrelevant, parseTextGrid is mocked'], 'Shoresh-Campus-Map-Template.txt', { type: 'text/plain' })
     await userEvent.upload(input, file)
-    await waitFor(() => expect(screen.getByText(/doesn't look like a schedule/i)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/no day columns or time rows found/i)).toBeTruthy())
     expect(screen.getAllByText(/Shoresh-Campus-Map-Template\.txt/).length).toBeGreaterThan(0)
-    expect(screen.getByText(/expected day columns.*or time-of-day rows/i)).toBeTruthy()
+    expect(screen.getByText(/Nothing was imported/)).toBeTruthy()
     // Never a partial extraction — extractEntities is never even reached.
     expect(extractEntities).not.toHaveBeenCalled()
   })
@@ -209,7 +209,7 @@ describe('ImportScreen — declines a non-schedule workbook (T146)', () => {
       }],
     })
     await uploadFile()
-    expect(screen.queryByText(/doesn't look like a schedule/i)).toBeNull()
+    expect(screen.queryByText(/no day columns or time rows found/i)).toBeNull()
     expect(extractEntities).toHaveBeenCalled()
   })
 })
@@ -237,11 +237,11 @@ describe('ImportScreen — inferred activity rules (T35)', () => {
       activityPages: {},
     })
     await uploadFile()
-    const worthChecking = screen.getByText(/Worth checking — groups unclear/)
+    const worthChecking = screen.getByText('Groups unclear')
     expect(worthChecking).toBeTruthy()
     expect(worthChecking.style.color).toBe('var(--text)')
     // Not clicked Adjust — the full editor's own sentence must not be present yet.
-    expect(screen.queryByText(/Shoresh couldn.t tell from this file.s layout/)).toBeNull()
+    expect(screen.queryByText(/Groups unclear — left open/)).toBeNull()
   })
 
   // Round 2 — a rule-less activity (never inferred, e.g. it never appeared
@@ -350,10 +350,10 @@ describe('ImportScreen — inferred activity rules (T35)', () => {
     await uploadFile()
     // Program-scoped total would be 1 (one tier, no time blocks); camp-wide
     // total is 5. The confirmation must say 5, never 1.
-    expect(screen.getByText(/Your camp already has/).textContent).toContain('5')
-    expect(screen.queryByText(/Your camp already has\s*1\s/)).toBeNull()
+    expect(screen.getByText(/already set up, camp-wide/).textContent).toContain('5')
+    expect(screen.queryByText(/^\s*1\s+item/)).toBeNull()
     await userEvent.click(screen.getByText(/Replace them/))
-    expect(screen.getByText(/across the entire camp — every Program/).textContent).toContain('5')
+    expect(screen.getByText(/in every Program/).textContent).toContain('5')
   })
 
   // Round 2 (second reviewer) — the commit button label was still gated on
@@ -413,7 +413,7 @@ describe('ImportScreen — inferred activity rules (T35)', () => {
     })
     await uploadFile()
     await userEvent.click(screen.getByText(/Replace them/))
-    const replaceSentence = screen.getByText(/This will replace all/)
+    const replaceSentence = screen.getByText(/Clears \d+ items? first/)
     for (const name of ['Age Divisions', 'Groups', 'Days', 'Time Blocks', 'Activities']) {
       expect(replaceSentence.textContent).toContain(name)
     }
@@ -430,7 +430,7 @@ describe('ImportScreen — inferred activity rules (T35)', () => {
     })
     await uploadFile()
     await userEvent.click(screen.getByText(/Replace them/))
-    const replaceSentence = screen.getByText(/This will replace all/)
+    const replaceSentence = screen.getByText(/Clears \d+ items? first/)
     expect(replaceSentence.textContent).not.toContain('Trash')
     expect(replaceSentence.textContent).toContain('every Program')
     expect(replaceSentence.textContent).toContain(String(1))
@@ -455,8 +455,8 @@ describe('ImportScreen — Replace warning names Recurring Events and separates 
     await userEvent.upload(input, file)
     await waitFor(() => expect(screen.getAllByText(/Swim/).length).toBeGreaterThan(0))
     await userEvent.click(screen.getByText(/Replace them/))
-    expect(screen.getByText(textNode(/Your\s*3\s*Recurring Events will/))).toBeTruthy()
-    expect(screen.getByText(/They are recoverable from Trash/)).toBeTruthy()
+    expect(screen.getByText(textNode(/3\s*Recurring Events cleared/))).toBeTruthy()
+    expect(screen.getByText(/Recurring Events cleared,\s*recoverable from Trash/)).toBeTruthy()
     expect(container.textContent).not.toMatch(/anchor/i)
   })
 
@@ -478,9 +478,9 @@ describe('ImportScreen — Replace warning names Recurring Events and separates 
     })
     await uploadFile()
     await userEvent.click(screen.getByText(/Replace them/))
-    expect(screen.getByText(textNode(/Your\s*1\s*Recurring Event will/))).toBeTruthy()
-    expect(screen.getByText(/It is recoverable from Trash/)).toBeTruthy()
-    expect(screen.queryByText(/Recurring Events will/)).toBeNull()
+    expect(screen.getByText(textNode(/1\s*Recurring Event cleared/))).toBeTruthy()
+    expect(screen.getByText(/Recurring Event cleared,\s*recoverable from Trash/)).toBeTruthy()
+    expect(screen.queryByText(/Recurring Events cleared/)).toBeNull()
   })
 
   it('renders the recoverable and irreversible warnings in two separate bordered containers', async () => {
@@ -505,7 +505,7 @@ describe('ImportScreen — Replace warning names Recurring Events and separates 
     expect(dangerContainer.textContent).toMatch(/saved schedule version/)
     expect(dangerContainer.textContent).not.toMatch(/Recurring Event/)
 
-    const fixedEventsLine = screen.getByText(/Recurring Event will/)
+    const fixedEventsLine = screen.getByText(/Recurring Events? cleared/)
     let accentContainer = fixedEventsLine.parentElement
     while (accentContainer && !/color-mix\(in srgb, var\(--accent\)/.test(accentContainer.getAttribute('style') || '')) {
       accentContainer = accentContainer.parentElement
@@ -701,7 +701,7 @@ describe('ImportScreen — mount transition (coherence Wave 2)', () => {
   })
 })
 
-// T118 slice 4 — "Cells We Weren't Sure About"
+// T118 slice 4 — 'Unclear cells'
 // (docs/adr/2026-09-03-compound-cell-interpretation.md). detectCompoundCellPatterns
 // itself is real (unmocked, its own unit tests cover the classifier); these
 // tests are about the SCREEN's wiring — the card renders, a "wrapper" verdict
@@ -741,7 +741,7 @@ describe('ImportScreen — compound-cell interpretation (T118 slice 4)', () => {
 
   it('renders no section at all when the file has zero compound-cell patterns', async () => {
     await uploadFile()
-    expect(screen.queryByText("Cells We Weren't Sure About")).toBeNull()
+    expect(screen.queryByText('Unclear cells')).toBeNull()
   })
 
   it('shows a card for a detected pattern; picking "wrapper" then committing folds it upstream and writes the decision', async () => {
@@ -756,8 +756,8 @@ describe('ImportScreen — compound-cell interpretation (T118 slice 4)', () => {
 
     // A card left untouched (Swim + Leave) must ship nothing extra — verified
     // implicitly below via the compoundCellDecisions array length.
-    await userEvent.click(screen.getByRole('button', { name: '"Leave" is a wrapper around "Lunch"' }))
-    await waitFor(() => expect(screen.getByText(/won.t become its own activity/)).toBeTruthy())
+    await userEvent.click(screen.getByRole('button', { name: '"Leave" wraps "Lunch"' }))
+    await waitFor(() => expect(screen.getByText(/"Leave" is a wrapper, not an activity/)).toBeTruthy())
 
     extractEntities.mockReturnValueOnce(proposalAfterWrapperFold) // buildCommitInputs' re-parse at commit
     await goToCommit()
@@ -824,9 +824,9 @@ describe('ImportScreen — compound-cell interpretation (T118 slice 4)', () => {
     // neither ordering of the two real words should appear as a button. Both
     // "Change/Snack" and "Change/Ga Ga" render as separate cards, so the
     // shared pills legitimately appear twice — assert presence, not count.
-    expect(screen.queryByRole('button', { name: /is a wrapper around/ })).toBeNull()
-    expect(screen.getAllByRole('button', { name: 'One thing, as written' }).length).toBeGreaterThan(0)
-    expect(screen.getAllByRole('button', { name: 'These are alternatives — either one' }).length).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: /wraps/ })).toBeNull()
+    expect(screen.getAllByRole('button', { name: 'As written' }).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('button', { name: 'Either one' }).length).toBeGreaterThan(0)
     expect(screen.getAllByRole('button', { name: 'Not sure — ask me later' }).length).toBeGreaterThan(0)
   })
 })
@@ -841,7 +841,7 @@ describe('ImportScreen — word-form name variants (T144)', () => {
 
   it('renders no section when the file has no variant pairs', async () => {
     await uploadFile()
-    expect(screen.queryByText('Names That Look Like Typos')).toBeNull()
+    expect(screen.queryByText('Similar names')).toBeNull()
   })
 
   it('asks about a variant pair, showing each spelling with how often it was seen', async () => {
@@ -849,10 +849,10 @@ describe('ImportScreen — word-form name variants (T144)', () => {
     render(<ImportScreen campId="camp-1" onNavigate={() => {}} />)
     const input = document.querySelector('input[type="file"]')
     await userEvent.upload(input, new File(['x'], 'schedule.txt', { type: 'text/plain' }))
-    await waitFor(() => expect(screen.getByText('Names That Look Like Typos')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Similar names')).toBeTruthy())
     expect(screen.getByText(textNode(/"Swim Return".*17 times.*"Swim Returning".*1 time/))).toBeTruthy()
-    expect(screen.getByText(/Same thing — call it "Swim Return"/)).toBeTruthy()
-    expect(screen.getByText(/Different things — keep both/)).toBeTruthy()
+    expect(screen.getByText(/Same — call it "Swim Return"/)).toBeTruthy()
+    expect(screen.getByText(/^Keep both$/)).toBeTruthy()
   })
 
   it('confirms the merge and reports it back', async () => {
@@ -860,9 +860,9 @@ describe('ImportScreen — word-form name variants (T144)', () => {
     render(<ImportScreen campId="camp-1" onNavigate={() => {}} />)
     const input = document.querySelector('input[type="file"]')
     await userEvent.upload(input, new File(['x'], 'schedule.txt', { type: 'text/plain' }))
-    await waitFor(() => expect(screen.getByText('Names That Look Like Typos')).toBeTruthy())
-    await userEvent.click(screen.getByText(/Same thing — call it "Swim Return"/))
-    expect(screen.getByText('✓ "Swim Returning" will be read as "Swim Return"')).toBeTruthy()
+    await waitFor(() => expect(screen.getByText('Similar names')).toBeTruthy())
+    await userEvent.click(screen.getByText(/Same — call it "Swim Return"/))
+    expect(screen.getByText('✓ "Swim Returning" → "Swim Return"')).toBeTruthy()
   })
 
   it('lets the director keep both, and says so', async () => {
@@ -870,8 +870,8 @@ describe('ImportScreen — word-form name variants (T144)', () => {
     render(<ImportScreen campId="camp-1" onNavigate={() => {}} />)
     const input = document.querySelector('input[type="file"]')
     await userEvent.upload(input, new File(['x'], 'schedule.txt', { type: 'text/plain' }))
-    await waitFor(() => expect(screen.getByText('Names That Look Like Typos')).toBeTruthy())
-    await userEvent.click(screen.getByText(/Different things — keep both/))
+    await waitFor(() => expect(screen.getByText('Similar names')).toBeTruthy())
+    await userEvent.click(screen.getByText(/^Keep both$/))
     expect(screen.getByText(/Kept apart/)).toBeTruthy()
   })
 })
@@ -887,7 +887,7 @@ describe('ImportScreen — something moved for a day', () => {
 
   it('renders no section when nothing moved', async () => {
     await uploadFile()
-    expect(screen.queryByText('Something moved for a day')).toBeNull()
+    expect(screen.queryByText('Moved on one day')).toBeNull()
   })
 
   it('tells the director what moved, and attaches no decision to it', async () => {
@@ -902,8 +902,8 @@ describe('ImportScreen — something moved for a day', () => {
     render(<ImportScreen campId="camp-1" onNavigate={() => {}} />)
     const input = document.querySelector('input[type="file"]')
     await userEvent.upload(input, new File(['x'], 'schedule.txt', { type: 'text/plain' }))
-    await waitFor(() => expect(screen.getByText('Something moved for a day')).toBeTruthy())
-    expect(screen.getByText(textNode(/Lunch.*moved to.*Late Lunch.*Wednesday/))).toBeTruthy()
+    await waitFor(() => expect(screen.getByText('Moved on one day')).toBeTruthy())
+    expect(screen.getByText(textNode(/Lunch.*→.*Late Lunch.*Wednesday/))).toBeTruthy()
     // No buttons, no pills: the owner asked to be told and to move past it.
     expect(screen.queryByText(/Not sure — ask me later/)).toBeNull()
     // And it never blocks the commit.

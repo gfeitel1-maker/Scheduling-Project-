@@ -349,7 +349,7 @@ describe('mapCommitError', () => {
   })
 
   it('maps an admin-role refusal to plain language', () => {
-    expect(mapCommitError(new Error('admin role required'))).toBe('Only an admin can import a schedule.')
+    expect(mapCommitError(new Error('admin role required'))).toBe('Admins only — nothing was imported.')
   })
 
   it('falls back to describeWriteFailure for anything else', () => {

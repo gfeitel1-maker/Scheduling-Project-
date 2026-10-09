@@ -3,6 +3,7 @@ import { prefersReducedMotion } from '../../styles/shared'
 import { DOMAIN_OF, REQUIRED_GAP_DOMAIN } from './domainRollup.js'
 import { isDecisionResolvedFor } from '../../screens/reconciliationTriage.js'
 import { normalizeWordKey } from '../../utils/normalizeWordKey.js'
+import { fieldLabel } from '../../screens/recordLabels.js'
 
 // Extracted from ReconciliationScreen.jsx (root-map port,
 // docs/adr/2026-08-18-rootmap-screen-port.md §1/"Files affected") so both
@@ -15,10 +16,10 @@ import { normalizeWordKey } from '../../utils/normalizeWordKey.js'
 // "Information layer").
 // eslint-disable-next-line react-refresh/only-export-components -- shared copy map, not a component
 export const CONFIDENCE_COPY = {
-  high: 'clearly stated in the file',
-  medium: 'inferred from context',
-  low: 'a guess — worth a second look',
-  conflict: 'in conflict with what Shoresh already has',
+  high: 'stated in the file',
+  medium: 'inferred',
+  low: 'a guess',
+  conflict: 'conflicts with your camp',
 }
 
 function formatFieldValue(value) {
@@ -171,7 +172,8 @@ function questionFor(decision) {
     // The generic fallback: no bespoke copy per reason (ADR §4) — names what's
     // stuck and what field, rather than a bare reason enum.
     if (decision._held && decision._heldKind === 'generic_fallback') {
-      return `Shoresh needs an answer about "${name}"'s ${decision.field?.[0] ?? 'field'} before it can finish this import.`
+      const label = fieldLabel(decision.field?.[0])
+      return `Pick ${label === 'something' ? 'a value' : label.toLowerCase()} for "${name}" to finish this import.`
     }
     return decision._held && decision._heldKind === 'stale'
       ? `Keep the current value for "${name}"'s ${decision.field?.[0]} or use the file's value?`
@@ -457,7 +459,7 @@ export function DecisionCard({ decision, rank, answer, onAnswer, expanded, onTog
         // Said plainly rather than as a badge: it changes what answering DOES,
         // so it belongs in the sentence the director is reading, not in chrome.
         <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
-          This came up {repeatCount} times. Answering here answers all {repeatCount}.
+          Came up {repeatCount} times — one answer covers all {repeatCount}.
         </div>
       )}
       <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>

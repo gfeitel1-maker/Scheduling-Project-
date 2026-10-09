@@ -109,12 +109,12 @@ describe('ImportScreen — the file control', () => {
 
   it('says which file types it takes, instead of leaving the director to guess', async () => {
     renderScreen()
-    expect(await screen.findByText(/Excel, CSV or a plain text schedule/)).toBeTruthy()
+    expect(await screen.findByText(/\.xlsx · \.csv · \.txt/)).toBeTruthy()
   })
 
   it('invites a drop rather than only a click', async () => {
     renderScreen()
-    expect(await screen.findByText(/Drop last year's schedule here/)).toBeTruthy()
+    expect(await screen.findByText(/Drop schedule here/)).toBeTruthy()
   })
 
   it('still opens the OS picker through a real file input, so it stays keyboard-reachable', async () => {
@@ -129,7 +129,7 @@ describe('ImportScreen — the file control', () => {
 
   it('reads a dropped file the same way it reads a chosen one', async () => {
     renderScreen()
-    const zone = (await screen.findByText(/Drop last year's schedule here/)).parentElement
+    const zone = (await screen.findByText(/Drop schedule here/)).parentElement
     const file = new File(['grid'], 'lastyear.txt', { type: 'text/plain' })
 
     fireEvent.drop(zone, { dataTransfer: { files: [file] } })
@@ -140,14 +140,14 @@ describe('ImportScreen — the file control', () => {
 
   it('names the dropped file back to the director', async () => {
     renderScreen()
-    const zone = (await screen.findByText(/Drop last year's schedule here/)).parentElement
+    const zone = (await screen.findByText(/Drop schedule here/)).parentElement
     fireEvent.drop(zone, { dataTransfer: { files: [new File(['g'], 'lastyear.txt', { type: 'text/plain' })] } })
     await waitFor(() => expect(screen.getByText(/lastyear\.txt/)).toBeTruthy())
   })
 
   it('ignores a drop carrying no files rather than throwing mid-render', async () => {
     renderScreen()
-    const zone = (await screen.findByText(/Drop last year's schedule here/)).parentElement
+    const zone = (await screen.findByText(/Drop schedule here/)).parentElement
     expect(() => fireEvent.drop(zone, { dataTransfer: { files: [] } })).not.toThrow()
   })
 })
