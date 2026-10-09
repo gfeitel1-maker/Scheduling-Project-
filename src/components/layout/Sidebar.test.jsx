@@ -103,9 +103,9 @@ describe('Sidebar: Roots — fixed, chevron-less top row (ADR Decision 3)', () =
 
   it('marks a missing required area as needed, never as a count of zero', () => {
     renderSidebar({ counts: { ...DEFAULT_COUNTS, days: 0 } })
-    expect(screen.getByText('needed')).toBeTruthy()
+    expect(screen.queryByText('needed')).toBeNull()
     const daysRow = screen.getByText('Days').closest('button')
-    expect(within(daysRow).getByText('!')).toBeTruthy()
+    expect(within(daysRow).getByText('!').getAttribute('aria-label')).toBe('Needed')
     expect(within(daysRow).queryByText('0')).toBeNull()
   })
 

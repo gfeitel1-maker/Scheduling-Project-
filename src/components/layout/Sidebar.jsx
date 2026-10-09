@@ -9,8 +9,8 @@ import { ChevronIcon, GearIcon } from '../icons'
 
 // Marks are fixed-width whether or not one is present, so labels stay aligned
 // as ticks appear. Colour is never the only carrier: `!` is a distinct glyph
-// AND carries the word "needed"; `✓` carries a count. A row that is neither
-// blocking nor filled carries nothing — see the `meta` note in renderItem.
+// AND carries an accessible label ("Needed"); `✓` is labelled "Done". A row
+// that is neither blocking nor filled carries nothing — see renderItem.
 // Counts are keyed by area; getSetupGaps wants collections and only inspects
 // length, so a count becomes an array of that length.
 function countGaps(counts) {
@@ -147,33 +147,11 @@ export default function Sidebar({
     // saying (T129).
     const mark = !item.area ? null : isBlocking ? '!' : (count > 0 ? '✓' : null)
     const markColor = mark ? MARK_COLOR[mark] : null
-    // An empty row says "needed" or nothing at all. A populated row says
-    // nothing — it carries `✓` and stops there.
-    //
-    // "attention" and "optional" went first (owner, 2026-09-11): they were
-    // claims the app could not actually make. Fixed Events, Recurring Events,
-    // Electives, Special Events and Locations are each legitimately empty for
-    // plenty of real camps, so "optional" was not necessarily true and
-    // "attention" was not necessarily warranted.
-    //
-    // The COUNT went next (owner, 2026-09-12), for the same reason one step
-    // further on: "Groups 3" does not tell a director to do anything. It was
-    // the last element on the rail with no decision attached to it, and a
-    // column of numbers is noise beside the one word that does ask for
-    // something. `✓` already carries "there is something in here"; how much is
-    // what the screen itself is for.
-    //
-    // "needed" survives because it IS actionable — it marks the irreducible
-    // structure (Age Divisions, Groups, Days, Time Blocks, Activities) a camp
-    // cannot schedule without. `isBlocking`/`!` is unchanged and still carries
-    // the blocking case.
-    //
-    // The counts are still COMPUTED — `✓`, `!`, "needed", the gap detection
-    // and the collapsed-section summary all read the same `counts` object.
-    // This hides a derived string; it does not remove the data.
-    const meta = !item.area || count > 0 || item.expected || item.optional
-      ? null
-      : 'needed'
+    // The mark stands alone: `!` for a missing required area, `✓` for a
+    // populated one, nothing otherwise. The word "needed" is gone (audit 2);
+    // the label lives on the mark itself. Counts are still computed for the
+    // gap detection and the collapsed-section summary.
+    const markLabel = mark === '!' ? 'Needed' : mark === '✓' ? 'Done' : undefined
 
     return (
       <button
@@ -199,16 +177,10 @@ export default function Sidebar({
         <span style={{
           width: 13, flexShrink: 0, fontSize: 11, fontWeight: 700,
           color: mark ? markColor : 'transparent',
-        }}>{mark ?? ''}</span>
+        }} title={markLabel} aria-label={markLabel} role={markLabel ? 'img' : undefined}>{mark ?? ''}</span>
         <span style={{ flex: 1, minWidth: 0, marginLeft: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {item.label}
         </span>
-        {meta && (
-          <span style={{
-            fontFamily: 'var(--font-mono)', fontSize: 10, flexShrink: 0,
-            color: isBlocking ? 'var(--danger)' : 'var(--text-secondary)',
-          }}>{meta}</span>
-        )}
         {Boolean(badges[item.key]) && (
           <span style={{ ...BADGE_PILL, marginLeft: 6 }}>
             {badges[item.key]}

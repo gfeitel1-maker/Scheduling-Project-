@@ -197,8 +197,7 @@ const DISCLOSURE = /not encrypted/i
 // The exact string AssignmentPanel.jsx's ENCRYPTION_DISCLOSURE constant
 // holds, so the flag-conversion test (item 8) can assert the full copy
 // survives, not just a fragment of it.
-const ENCRYPTION_DISCLOSURE_TEXT =
-  'Camper data is not encrypted — use test names only.'
+const ENCRYPTION_DISCLOSURE_TEXT = 'Not encrypted on this device.'
 
 async function disclosure() {
   return await screen.findByTestId('encryption-disclosure')
@@ -210,7 +209,6 @@ describe('T249 -- the encryption disclosure renders whenever encryption is not a
     const row = await disclosure()
     expect(row.getAttribute('data-encryption-state')).toBe('unencrypted')
     expect(row.textContent).toMatch(DISCLOSURE)
-    expect(row.textContent).toMatch(/use test names only/i)
   })
 
   // board-freeze-residuals item 8 — D8's unencrypted disclosure was full
@@ -321,9 +319,8 @@ describe('T249 -- and once encryption is actually on, it stops warning without o
     render(<AssignmentPanel {...baseProps()} />)
     const row = await disclosure()
     expect(row.getAttribute('data-encryption-state')).toBe('encrypted')
-    expect(row.textContent).not.toMatch(/use test names only/i)
-    expect(row.textContent).toMatch(/before it was enabled/i)
-    expect(row.textContent).toMatch(/peer device/i)
+    expect(row.textContent).toBe('Encrypted on this device.')
+    expect(row.textContent).not.toMatch(DISCLOSURE)
     // Still nothing to click, in this state either.
     expect(within(row).queryAllByRole('button')).toHaveLength(0)
     // A standing status line, not banner chrome (owner: no banners).

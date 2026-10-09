@@ -92,7 +92,7 @@ const emptyStyles = {
 //      true` from the same resolution the ciphers themselves use
 //      (electron/db/atRestEncryption.js).
 const ENCRYPTION_DISCLOSURE =
-  'Camper data is not encrypted — use test names only.'
+  'Not encrypted on this device.'
 
 // The `true` branch. The ADR allows either nothing or "a neutral confirmation"
 // here, and nothing would be an over-claim: `atRestEncryptionEnabled` is one
@@ -103,7 +103,7 @@ const ENCRYPTION_DISCLOSURE =
 // of the same document is plaintext on ITS disk. So the row stays, in a neutral
 // treatment, and says what the flag actually licenses.
 const ENCRYPTION_CONFIRMATION =
-  'Encrypted on this device — not data from before it was enabled, or a peer device without it.'
+  'Encrypted on this device.'
 
 function useAtRestEncryptionStatus() {
   // 'checking' is a real, rendered state (DESIGN_STANDARD §5b): the read is an
