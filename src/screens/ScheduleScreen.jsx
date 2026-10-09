@@ -1224,7 +1224,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
             activities={filterFreeChoiceActivities(activities)}
             slots={slots}
             groupId={paletteGroupId}
-            groupCount={groups.length}
+            groups={groups}
             draggable={view === 'group' || view === 'day'}
             collapsed={sidebarCollapsed}
             onToggleCollapse={() => setSidebarCollapsed(c => !c)}

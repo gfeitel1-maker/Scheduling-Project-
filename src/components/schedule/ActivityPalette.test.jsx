@@ -27,7 +27,7 @@ function renderPalette(extraProps = {}) {
     <ActivityPalette
       activities={activities}
       slots={slots}
-      showTargets
+      groups={[{ id: 'g1', tier_id: 't1' }]}
       draggable
       {...extraProps}
     />
@@ -111,20 +111,37 @@ describe('ActivityPalette — weekly counter', () => {
     { group_id: 'g1', day_id: day, activity_id: 'a1', is_fixed_event: 0 },
     { group_id: 'g2', day_id: day, activity_id: 'a1', is_fixed_event: 0 },
   ])
+  const twoGroups = [{ id: 'g1', tier_id: 't1' }, { id: 'g2', tier_id: 't1' }]
   const counter = () => screen.getByTestId('palette-count-a1').textContent
 
   it('counts the selected group across the whole week, not one day', () => {
-    render(<ActivityPalette activities={swim} slots={week} groupId="g1" groupCount={2} showTargets />)
+    render(<ActivityPalette activities={swim} slots={week} groupId="g1" groups={twoGroups} />)
     expect(counter()).toBe('5 / 3–5 wk')
   })
 
   it('counts the whole camp against the camp-wide range with no group', () => {
-    render(<ActivityPalette activities={swim} slots={week} groupId={null} groupCount={2} />)
+    render(<ActivityPalette activities={swim} slots={week} groupId={null} groups={twoGroups} />)
     expect(counter()).toBe('10 / 6–10 wk')
   })
 
+  it('scales the camp-wide range by the groups ELIGIBLE for the activity', () => {
+    const eight = Array.from({ length: 8 }, (_, i) => ({ id: `g${i}`, tier_id: 't1' }))
+    const narrow = [{ ...swim[0], eligible_group_ids: ['g1', 'g2'] }]
+    render(<ActivityPalette activities={narrow} slots={week} groupId={null} groups={eight} />)
+    expect(counter()).toBe('10 / 6–10 wk')
+  })
+
+  it('counts a double block once — span heads only', () => {
+    const double = [
+      { group_id: 'g1', day_id: 'd1', activity_id: 'a1', is_fixed_event: 0, is_span_head: 1 },
+      { group_id: 'g1', day_id: 'd1', activity_id: 'a1', is_fixed_event: 0, is_span_head: 0 },
+    ]
+    render(<ActivityPalette activities={swim} slots={double} groupId="g1" groups={twoGroups} />)
+    expect(counter()).toBe('1 / 3–5 wk')
+  })
+
   it('one counter, no second target line', () => {
-    render(<ActivityPalette activities={swim} slots={week} groupId="g1" groupCount={2} showTargets />)
+    render(<ActivityPalette activities={swim} slots={week} groupId="g1" groups={twoGroups} />)
     expect(screen.queryByText(/this week/)).toBeNull()
   })
 })

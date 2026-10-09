@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useDraggable } from '@dnd-kit/core'
 import { SearchIcon } from '../icons'
+import { isActivityEligibleForGroup } from '../../engine/eligibility'
 
 function DraggablePaletteItem({ activity, scheduledCount, target, cap, atMax, draggable }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
@@ -63,21 +64,26 @@ function DraggablePaletteItem({ activity, scheduledCount, target, cap, atMax, dr
 }
 
 // slots: the whole week. groupId scopes the count to one group; null counts
-// the camp, against each weekly bound multiplied by groupCount.
+// the camp, against each weekly bound multiplied by the number of groups
+// eligible for that activity (the engine's UNDERSERVED scope). A span counts
+// once, at its head.
 // draggable: whether chips can be dragged (false in non-manual views)
 // collapsed / onToggleCollapse: sidebar collapse state
 export default function ActivityPalette({
   activities,
   slots,
   groupId = null,
-  groupCount = 1,
+  groups = [],
   draggable = true,
   collapsed = false,
   onToggleCollapse,
 }) {
   const nonFixedEventSlots = (slots || [])
-    .filter(s => !s.is_fixed_event && (groupId == null || s.group_id === groupId))
-  const scale = groupId == null ? groupCount : 1
+    .filter(s => !s.is_fixed_event && s.is_span_head !== 0 && s.is_span_head !== false)
+    .filter(s => groupId == null || s.group_id === groupId)
+  const scaleFor = activity => groupId == null
+    ? groups.filter(g => isActivityEligibleForGroup(activity, g)).length
+    : 1
   const [filter, setFilter] = useState('')
 
   if (collapsed) {
@@ -209,7 +215,7 @@ export default function ActivityPalette({
             filter={filter}
             nonFixedEventSlots={nonFixedEventSlots}
             draggable={draggable}
-            scale={scale}
+            scaleFor={scaleFor}
           />
         </>
       )}
@@ -217,7 +223,7 @@ export default function ActivityPalette({
   )
 }
 
-function PaletteLedger({ activities, filter, nonFixedEventSlots, draggable, scale }) {
+function PaletteLedger({ activities, filter, nonFixedEventSlots, draggable, scaleFor }) {
   const needle = filter.trim().toLowerCase()
   const matched = needle
     ? activities.filter(a => a.name.toLowerCase().includes(needle))
@@ -239,6 +245,7 @@ function PaletteLedger({ activities, filter, nonFixedEventSlots, draggable, scal
 
   const withCounts = matched.map(activity => {
     const scheduledCount = nonFixedEventSlots.filter(s => s.activity_id === activity.id).length
+    const scale = scaleFor(activity)
     const target = (activity.min_per_week ?? 0) * scale
     const cap = activity.max_per_week == null ? null : activity.max_per_week * scale
     return {

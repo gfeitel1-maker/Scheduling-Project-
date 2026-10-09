@@ -607,7 +607,8 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
     const locId = act.location_id ?? null
     if (locId != null) {
       const list = placeUsage.get(`${locId}|${dayId}|${blockId}`)
-      list.splice(list.findIndex(o => o.groupId === groupId && o.sourceLabel === null), 1)
+      const idx = list.findIndex(o => o.groupId === groupId && o.sourceLabel === null)
+      if (idx >= 0) list.splice(idx, 1)
     }
     const ak = `${act.id}|${dayId}|${blockId}`
     activityUsage.set(ak, activityUsage.get(ak) - 1)
@@ -676,11 +677,17 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
   // (audit #20: a tight Latin-square week left 6 blank). tryFill fills a cell
   // directly, or lifts one placement that is in its way (same group, or same
   // day and block), fills the cell, and recursively refills the lifted cell,
-  // up to REPAIR_DEPTH lifts deep and REPAIR_LIFTS_PER_CELL in all. Every step that does not end filled is undone,
-  // so no filled cell ever empties. Fixed iteration order and no rand(): same
-  // input, same week.
+  // up to REPAIR_DEPTH lifts deep and REPAIR_LIFTS_PER_CELL in all. Every
+  // step that does not end filled is undone, so no filled cell ever empties,
+  // and nothing is lifted below its weekly minimum. Candidates are tried in
+  // Pass 2's preference (high before low, least-used first, then catalog
+  // order); no rand(), so the same input gives the same week.
   const keyOf = s => `${s.groupId}|${s.dayId}|${s.blockId}`
-  const fits = s => s.eligibleActs.filter(a => (a.span_blocks || 1) === 1 && canPlace(a, s.groupId, s.dayId, s.blockId))
+  const PRIORITY_RANK = { high: 0, low: 1 }
+  const fits = s => s.eligibleActs
+    .filter(a => (a.span_blocks || 1) === 1 && canPlace(a, s.groupId, s.dayId, s.blockId))
+    .sort((a, b) => (PRIORITY_RANK[a.priority] ?? 1) - (PRIORITY_RANK[b.priority] ?? 1)
+      || getCount(s.groupId, a.id) - getCount(s.groupId, b.id))
 
   function tryFill(u, depth, locked) {
     const direct = fits(u)[0]
@@ -688,11 +695,14 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
     if (depth === 0) return false
     locked.add(keyOf(u))
     for (const s of openSlots) {
+      if (liftBudget <= 0) break
       const key = keyOf(s)
       if (locked.has(key) || spanTails.has(key) || preplacedKeys.has(key)) continue
       if (s.groupId !== u.groupId && (s.dayId !== u.dayId || s.blockId !== u.blockId)) continue
-      const lifted = activities.find(a => a.id === assigned.get(key))
-      if (!lifted || (lifted.span_blocks || 1) !== 1 || liftBudget-- <= 0) continue
+      const lifted = activityById.get(assigned.get(key))
+      if (!lifted || (lifted.span_blocks || 1) !== 1) continue
+      if (getCount(s.groupId, lifted.id) <= getMin(lifted.id)) continue
+      liftBudget--
       unplace(lifted, s.groupId, s.dayId, s.blockId)
       for (const a of fits(u)) {
         place(a, u.groupId, u.dayId, u.blockId)
@@ -706,10 +716,18 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
   }
 
   let liftBudget = 0
+  // A later reshuffle can free room for a cell that failed earlier, so sweep
+  // until a sweep fills nothing (each productive sweep fills >= 1 cell, so this
+  // ends within openSlots.length sweeps).
   function repair() {
-    for (const u of openSlots) {
-      liftBudget = REPAIR_LIFTS_PER_CELL
-      if (!assigned.has(keyOf(u))) tryFill(u, REPAIR_DEPTH, new Set())
+    let filled = true
+    while (filled) {
+      filled = false
+      for (const u of openSlots) {
+        if (assigned.has(keyOf(u))) continue
+        liftBudget = REPAIR_LIFTS_PER_CELL
+        if (tryFill(u, REPAIR_DEPTH, new Set())) filled = true
+      }
     }
   }
 
@@ -737,7 +755,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
     if (!actId && !fixedEventsOnly) {
       flags.UNFILLABLE = true
       const codes = os.eligibleActs.length > 0
-        ? [...new Set(os.eligibleActs.map(a => blockedBy(a, os.groupId, os.dayId, os.blockId)))]
+        ? [...new Set(os.eligibleActs.map(a => blockedBy(a, os.groupId, os.dayId, os.blockId)))].filter(Boolean)
         : ['none']
       flags.UNFILLABLE_reason = codes.map(c => UNFILLABLE_TAGS[c]).join(' · ')
       // Slice 4b (§3): if every eligible activity was blocked by a place an
