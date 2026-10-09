@@ -1,6 +1,7 @@
 // Time blocks whose clock ranges intersect (audit A6): a group can hold at most
 // one placement across such blocks on a day. Touching ranges (10:00 end, 10:00
-// start) do not intersect. A block missing either time overlaps nothing.
+// start) do not intersect. A block with a missing or unparseable time, or an
+// overnight one (end <= start), overlaps nothing.
 // Shared by buildSchedule (refuses the clash) and computeOverlaps (flags one).
 
 function minutes(t) {
@@ -13,7 +14,7 @@ function minutes(t) {
 export function overlappingBlockPeers(timeBlocks) {
   const ranged = (timeBlocks || [])
     .map(b => ({ b, start: minutes(b.start_time), end: minutes(b.end_time) }))
-    .filter(r => r.start != null && r.end != null)
+    .filter(r => r.start != null && r.end != null && r.end > r.start)
   const peers = new Map()
   for (const x of ranged) {
     for (const y of ranged) {
