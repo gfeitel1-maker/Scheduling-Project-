@@ -385,6 +385,13 @@ describe('caller rate limiting (Workers Rate Limiting binding)', () => {
     expect(peers.keys).toEqual(['198.51.100.7'])
   })
 
+  it('keys an IPv6 caller on its /64, so rotating addresses inside one /64 shares a bucket', async () => {
+    const { env } = makeEnv({ registerLimiter: fakeLimiter(1) })
+    expect((await handleRequest(registerRequest({ ip: '2001:db8:1:2::a' }), env)).status).toBe(200)
+    expect((await handleRequest(registerRequest({ ip: '2001:db8:1:2:ffff::b' }), env)).status).toBe(429)
+    expect((await handleRequest(registerRequest({ ip: '2001:db8:1:3::a' }), env)).status).toBe(200)
+  })
+
   it('fails CLOSED with 503 when a limiter binding is missing (misdeploy is never unthrottled)', async () => {
     const { env } = makeEnv()
     delete env.REGISTER_LIMITER

@@ -195,11 +195,25 @@ async function handlePeers(namespace, kv) {
 
 const PEERS_PATH_RE = /^\/v1\/peers\/([^/]+)$/
 
+// The limiter key for a caller IP. IPv4 is used as-is. IPv6 is reduced to its /64 — one subscriber
+// is normally handed a whole /64, so keying on the full address would let a caller rotate into a
+// fresh bucket per request. Anything unparseable falls back to the raw string (shares a bucket with
+// nobody else, and never widens the limit).
+export function limiterKey(ip) {
+  if (!ip.includes(':')) return ip
+  const [head, tail = ''] = ip.toLowerCase().split('::')
+  const h = head ? head.split(':') : []
+  const t = tail ? tail.split(':') : []
+  const groups = ip.includes('::') ? [...h, ...Array(Math.max(0, 8 - h.length - t.length)).fill('0'), ...t] : h
+  if (groups.length !== 8 || !groups.every((g) => /^[0-9a-f]{1,4}$/.test(g))) return ip
+  return groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, '')).join(':') + '::/64'
+}
+
 // Per-caller throttle via a Workers Rate Limiting binding. Returns a refusal Response, or null to
 // proceed. Keyed on the caller IP only — never the namespace or peer id, which an attacker chooses.
 async function throttle(limiter, request) {
   if (!limiter || typeof limiter.limit !== 'function') return json(503, { error: 'unavailable' })
-  const key = request.headers.get('cf-connecting-ip') || 'unknown'
+  const key = limiterKey(request.headers.get('cf-connecting-ip') || 'unknown')
   let outcome
   try {
     outcome = await limiter.limit({ key })
