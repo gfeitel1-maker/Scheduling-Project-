@@ -3,7 +3,7 @@
 // S4c: the ladder order and the rung-3 invariants. Rung 3 is observed through a network spy
 // (rendezvous.request is the only way the coordinator can reach it).
 import { describe, it, expect, vi } from 'vitest'
-import { createReconnectCoordinator } from './reconnectCoordinator.js'
+import { createReconnectCoordinator, RUNG3_WAIT_MS } from './reconnectCoordinator.js'
 import { EVENTS, createConnectivityEmitter } from './connectivityEvents.js'
 
 const PEER = { peerId: 'peer-b', deviceId: 'dev-b' }
@@ -328,7 +328,7 @@ describe('consecutive rung errors (keeper ruling: 3 in a row count as failed)', 
       attemptRung1: async () => rung1(),
       attemptRung2: async () => ({ ok: false }),
       emit: (n, f) => events.push([n, f]),
-      setTimer: (fn, ms) => { const t = { fn, ms, unref() {} }; timers.push(t); queueMicrotask(fn); return t }, clearTimer: () => {},
+      setTimer: (fn, ms) => { const t = { fn, ms, unref() {} }; timers.push(t); if (ms === RUNG3_WAIT_MS) queueMicrotask(fn); return t }, clearTimer: () => {},
     })
     return { events, rendezvous, run: () => coord.reconnect(PEER) }
   }
@@ -350,5 +350,102 @@ describe('consecutive rung errors (keeper ruling: 3 in a row count as failed)', 
     for (let i = 0; i < 5; i++) reasons.push((await run()).reason)
     expect(reasons).toEqual(['rung-error', 'rung-error', 'same-network-required', 'rung-error', 'rung-error'])
     expect(rendezvous.request).toHaveBeenCalledTimes(1)
+  })
+
+  it('an ok rung resets the count: error, error, ok, error does not escalate', async () => {
+    const seq = ['err', 'err', 'ok', 'err']
+    const { rendezvous, run } = errSetup(() => { if (seq.shift() === 'err') throw new Error('x'); return { ok: true } })
+    const reasons = []
+    for (let i = 0; i < 4; i++) reasons.push((await run()).reason ?? 'ok')
+    expect(reasons).toEqual(['rung-error', 'rung-error', 'ok', 'rung-error'])
+    expect(rendezvous.request).not.toHaveBeenCalled()
+  })
+
+  it('rung 2 has its own counter: three rung-2 errors escalate while rung 1 plainly fails', async () => {
+    const events = []
+    const rendezvous = { request: vi.fn(), release: vi.fn() }
+    const coord = createReconnectCoordinator({
+      listPeers: () => [PEER], isConnected: () => false, lanGraceMs: 0, rendezvous,
+      attemptLan: async () => false, attemptRung1: async () => ({ ok: false }),
+      attemptRung2: async () => ({ ok: false, reason: 'error' }),
+      emit: (n, f) => events.push([n, f]),
+      setTimer: (fn, ms) => { if (ms === RUNG3_WAIT_MS) queueMicrotask(fn); return { unref() {} } }, clearTimer: () => {},
+    })
+    const reasons = []
+    for (let i = 0; i < 3; i++) reasons.push((await coord.reconnect(PEER)).reason)
+    expect(reasons).toEqual(['rung-error', 'rung-error', 'same-network-required'])
+    expect(events.filter((e) => e[0] === EVENTS.PUNCH_RUNG_ERROR)).toEqual(Array(3).fill([EVENTS.PUNCH_RUNG_ERROR, { peerId: 'peer-b', rung: 2 }]))
+  })
+
+  function membershipSetup(rung1) {
+    let peers = [PEER]
+    const rendezvous = { request: vi.fn(), release: vi.fn() }
+    const coord = createReconnectCoordinator({
+      listPeers: () => peers, isConnected: () => false, lanGraceMs: 0, rendezvous,
+      attemptLan: async () => false, attemptRung1: async () => rung1(), attemptRung2: async () => ({ ok: false }),
+      setTimer: (fn, ms) => { if (ms === RUNG3_WAIT_MS) queueMicrotask(fn); return { unref() {} } }, clearTimer: () => {},
+    })
+    return { coord, rendezvous, setPeers: (p) => { peers = p } }
+  }
+
+  it('a peer dropped from listPeers loses its error count', async () => {
+    const { coord, rendezvous, setPeers } = membershipSetup(() => { throw new Error('x') })
+    await coord.reconnect(PEER)
+    await coord.reconnect(PEER)
+    setPeers([])
+    coord.notifyPeersChanged()
+    setPeers([PEER])
+    expect(await coord.reconnect(PEER)).toEqual({ ok: false, reason: 'rung-error' })
+    expect(rendezvous.request).not.toHaveBeenCalled()
+  })
+
+  it('a rung error landing after the peer was dropped does not revive its count', async () => {
+    let fail
+    const { coord, rendezvous, setPeers } = membershipSetup(() => new Promise((_, rej) => { fail = rej }))
+    const p = coord.reconnect(PEER)
+    await vi.waitFor(() => expect(fail).toBeDefined())
+    setPeers([])
+    coord.notifyPeersChanged()
+    fail(new Error('late'))
+    await p
+    setPeers([PEER])
+    for (let i = 0; i < 2; i++) {
+      fail = undefined
+      const q = coord.reconnect(PEER)
+      await vi.waitFor(() => expect(fail).toBeDefined())
+      fail(new Error('x'))
+      expect(await q).toEqual({ ok: false, reason: 'rung-error' })
+    }
+    expect(rendezvous.request).not.toHaveBeenCalled()
+  })
+})
+
+describe('membership re-check failure is not a revocation', () => {
+  function gateSetup(listPeers) {
+    const rendezvous = { request: vi.fn(), release: vi.fn() }
+    const timers = []
+    const coord = createReconnectCoordinator({
+      listPeers, isConnected: () => false, lanGraceMs: 0, rendezvous,
+      attemptLan: async () => false, attemptRung1: async () => false, attemptRung2: async () => false,
+      setTimer: (fn, ms) => { const t = { fn, ms, unref() {} }; timers.push(t); return t }, clearTimer: () => {},
+    })
+    return { coord, rendezvous, timers }
+  }
+
+  it('listPeers throwing at the rung-3 gate is an ordinary failure that is backed off, not cancelled', async () => {
+    let calls = 0
+    const { coord, rendezvous, timers } = gateSetup(() => { calls++; if (calls > 1) throw new Error('db busy'); return [PEER] })
+    // Call 1 is the sweep's own listPeers; call 2 is the rung-3 membership gate.
+    await coord.sweep()
+    expect(rendezvous.request).not.toHaveBeenCalled()
+    expect(timers.length).toBeGreaterThan(0)
+  })
+
+  it('listPeers succeeding without the peer is cancelled, with no backoff', async () => {
+    let calls = 0
+    const { coord, rendezvous, timers } = gateSetup(() => { calls++; return calls > 1 ? [] : [PEER] })
+    await coord.sweep()
+    expect(rendezvous.request).not.toHaveBeenCalled()
+    expect(timers).toEqual([])
   })
 })

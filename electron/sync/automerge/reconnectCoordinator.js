@@ -47,7 +47,7 @@ export function createReconnectCoordinator({
   const backoff = new Map()
   const lastConnected = new Map()
   const demanded = new Set()
-  const rungErrors = new Map()
+  const rungErrors = new Map() // peerId -> Map(rung -> consecutive error count)
   let timer = null
   let timerDueAt = 0
   let stopped = false
@@ -112,22 +112,32 @@ export function createReconnectCoordinator({
     let rungError = false
     for (const [n, fn] of [[1, attemptRung1], [2, attemptRung2]]) {
       const r = await tryRung(fn, peer)
-      if (connectedNow(id) || r === 'ok') return r === 'ok' ? { ok: true, rung: `rung${n}` } : CONNECTED
-      const key = `${id}:${n}`
+      if (connectedNow(id) || r === 'ok') {
+        rungErrors.delete(id)
+        return r === 'ok' ? { ok: true, rung: `rung${n}` } : CONNECTED
+      }
       if (r === 'error') {
-        const count = (rungErrors.get(key) ?? 0) + 1
-        rungErrors.set(key, count)
-        if (count < RUNG_ERROR_LIMIT) rungError = true
+        // A peer dropped while this rung was in flight must not get its count back.
+        if (membership(id) !== 'absent') {
+          const counts = rungErrors.get(id) ?? new Map()
+          const count = (counts.get(n) ?? 0) + 1
+          rungErrors.set(id, counts.set(n, count))
+          if (count < RUNG_ERROR_LIMIT) rungError = true
+        } else {
+          rungError = true
+        }
         emit(EVENTS.PUNCH_RUNG_ERROR, { peerId: id, rung: n })
       } else {
-        rungErrors.delete(key)
+        rungErrors.get(id)?.delete(n)
       }
     }
     if (stopped) return { ok: false, reason: 'cancelled' }
     if (rungError) return { ok: false, reason: 'rung-error' }
     if (rendezvous) {
       if (connectedNow(id)) return CONNECTED
-      if (!isCampPeer(id)) return { ok: false, reason: 'cancelled' }
+      const m = membership(id)
+      if (m === 'absent') return { ok: false, reason: 'cancelled' }
+      if (m === 'unknown') return { ok: false, reason: 'peers-unavailable' }
       request(id)
       const outcome = await waitConnected(id, rung3WaitMs)
       if (outcome === 'cancelled') return { ok: false, reason: 'cancelled' }
@@ -142,8 +152,9 @@ export function createReconnectCoordinator({
   }
 
   // Revocation can land during rungs 1-2; a removed peer must never be published to the rendezvous.
-  function isCampPeer(peerId) {
-    try { return listPeers().some((p) => p.peerId === peerId) } catch { return false }
+  // 'unknown' when listPeers throws: that is an ordinary failure to back off, not a revocation.
+  function membership(peerId) {
+    try { return listPeers().some((p) => p.peerId === peerId) ? 'member' : 'absent' } catch { return 'unknown' }
   }
 
   function reconnectPeer(peer) {
@@ -157,12 +168,11 @@ export function createReconnectCoordinator({
     let all = []
     try { all = listPeers() } catch { /* retry on the next sweep */ }
     const present = new Set(all.map((p) => p.peerId))
-    for (const id of new Set([...backoff.keys(), ...lastConnected.keys(), ...demanded])) {
+    for (const id of new Set([...backoff.keys(), ...lastConnected.keys(), ...demanded, ...rungErrors.keys()])) {
       if (present.has(id)) continue
       backoff.delete(id)
       lastConnected.delete(id)
-      rungErrors.delete(`${id}:1`)
-      rungErrors.delete(`${id}:2`)
+      rungErrors.delete(id)
       release(id)
       waiters.get(id)?.('cancelled')
     }
