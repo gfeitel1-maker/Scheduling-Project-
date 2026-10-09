@@ -2,13 +2,13 @@
 ticket: T350
 document_type: ticket
 title: Bind a special day to a (week, day) and replace that day's schedule on both routes
-status: open
+status: completed
 created: 2026-10-09
 archive_when: "a director can place a special day on a week and weekday, both Generated and Manual views and every export show it in place of that day, the engine generates nothing on it, a clash between devices is a conflicts row, and unbinding restores the original day; full gate green"
 task_class: database-sync
 parent: ""
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-10-09-special-day-binds-to-a-week-day.md, docs/governance/standards/DESIGN_STANDARD.md]
-related_prs: []
+related_prs: ["#805", "#807", "#810", "#815", "#818", "#817", "#812"]
 related_tickets: [docs/work/tickets/T145-remove-day-overrides.md, docs/work/tickets/T106-special-day-author-ui.md]
 ---
 
@@ -72,7 +72,16 @@ Amended 2026-10-09 after Red Hat's accuracy review; see the ADR's revision note 
 6. **Exports.** `exportToExcel` (exportSchedule.js) and `buildScheduleExport` (exportScheduleJson.js) and the MCP `exportScheduleTool` print
    the special day grid and notes, with round-trip tests; `buildCampDataWorkbook` gains a read-only
    "Placed on" column. `exportWorkbook` is deliberately unchanged (ADR D7).
-7. **Docs.** WHERE_DATA_LIVES, PLATFORM_STATE, CLAUDE.md pointers; mark the amended ADRs; flip this ticket.
+7. **Docs (landed).** WHERE_DATA_LIVES, PLATFORM_STATE, CLAUDE.md pointers; mark the amended ADRs; flip this ticket.
 
 Independent reviewers per slice: Red Hat on 1, 2 and 3 (stored shape, sync, genesis, cascades); Security on
 2 (IPC + authorize); Tester on 4 and 5.
+
+## Outcome
+
+Slices 1-7 landed in #805, #807, #810, #815, #818, #817 (slice PRs, in order of the list above by
+number, not by slice); #812 is related (slot-column data loss on Generate/restore/duplicate, found
+while building slice 4).
+
+**Deferred:** binding from the day pill. Binding happens only from the special day's editor (week x
+weekday picker); the day pill shows a replaced day's name but offers no bind action.
