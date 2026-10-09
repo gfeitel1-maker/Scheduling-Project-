@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { localClient } from '../localClient'
+import { cellKeyboardCoordinates } from './schedule/cellKeyboardCoordinates'
 import { UndoIcon } from '../components/icons'
 import { createScheduleRepository } from '../data/scheduleRepository'
 import { getSetupGaps, describeSetupGaps } from '../engine/readiness'
@@ -240,7 +241,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // ADR rejected raw setPointerCapture because it would mean reimplementing it.
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: cellKeyboardCoordinates }),
   )
   const localDeviceIdRef = useRef(null)
 
