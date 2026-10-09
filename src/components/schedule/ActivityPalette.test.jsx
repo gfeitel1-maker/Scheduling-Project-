@@ -102,3 +102,29 @@ describe('ActivityPalette — Ledger + Filter', () => {
     expect(screen.queryByTestId('palette-zone-placed')).toBeNull()
   })
 })
+
+// Packaged-app audit #24: the counter is the WEEK's count against the weekly
+// range, scoped to the selected group, or the whole camp with no group.
+describe('ActivityPalette — weekly counter', () => {
+  const swim = [{ id: 'a1', name: 'Swimming', min_per_week: 3, max_per_week: 5 }]
+  const week = ['d1', 'd2', 'd3', 'd4', 'd5'].flatMap(day => [
+    { group_id: 'g1', day_id: day, activity_id: 'a1', is_fixed_event: 0 },
+    { group_id: 'g2', day_id: day, activity_id: 'a1', is_fixed_event: 0 },
+  ])
+  const counter = () => screen.getByTestId('palette-count-a1').textContent
+
+  it('counts the selected group across the whole week, not one day', () => {
+    render(<ActivityPalette activities={swim} slots={week} groupId="g1" groupCount={2} showTargets />)
+    expect(counter()).toBe('5 / 3–5 wk')
+  })
+
+  it('counts the whole camp against the camp-wide range with no group', () => {
+    render(<ActivityPalette activities={swim} slots={week} groupId={null} groupCount={2} />)
+    expect(counter()).toBe('10 / 6–10 wk')
+  })
+
+  it('one counter, no second target line', () => {
+    render(<ActivityPalette activities={swim} slots={week} groupId="g1" groupCount={2} showTargets />)
+    expect(screen.queryByText(/this week/)).toBeNull()
+  })
+})

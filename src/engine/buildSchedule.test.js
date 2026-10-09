@@ -314,7 +314,66 @@ describe('UNFILLABLE flag', () => {
     const { slots } = buildSchedule(minimal({ activities: [] }))
     const unfillable = slots.find(s => s.flags?.UNFILLABLE)
     expect(unfillable).toBeTruthy()
-    expect(unfillable.flags.UNFILLABLE_reason).toBe('No eligible activity could be placed in this slot')
+    expect(unfillable.flags.UNFILLABLE_reason).toBe('Nothing eligible')
+  })
+
+  // Packaged-app audit #20: the reason names the cause, not just the outcome.
+  const act = (id, o = {}) => ({ id, name: id, priority: 'high', min_per_week: 0, max_per_week: 5, max_groups_per_slot: null, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null, ...o })
+  const block = (i) => ({ id: `b${i}`, name: `B${i}`, start_time: `0${i}:00`, end_time: `0${i}:30`, sort_order: i, part_of_day: 'morning' })
+
+  it('names "Weekly max reached" when every candidate is at its weekly max', () => {
+    const days = [0, 1].map(i => ({ id: `d${i}`, label: `D${i}`, day_of_week: i + 1, sort_order: i }))
+    const { slots } = buildSchedule(minimal({ days, activities: [act('swim', { max_per_week: 1 })] }))
+    const u = slots.find(s => s.flags?.UNFILLABLE)
+    expect(u.flags.UNFILLABLE_reason).toBe('Weekly max reached')
+  })
+
+  it('names "Already on today" when every candidate already ran for this group today', () => {
+    const { slots } = buildSchedule(minimal({ timeBlocks: [block(1), block(2)], activities: [act('swim')] }))
+    const u = slots.find(s => s.flags?.UNFILLABLE)
+    expect(u.flags.UNFILLABLE_reason).toBe('Already on today')
+  })
+
+  it('names "Activity at capacity" when the activity is taken by another group in that block', () => {
+    const groups = [baseGroup, { ...baseGroup, id: 'g2', name: 'Bet' }]
+    const { slots } = buildSchedule(minimal({ groups, activities: [act('swim', { max_groups_per_slot: 1 })] }))
+    const u = slots.find(s => s.flags?.UNFILLABLE)
+    expect(u.flags.UNFILLABLE_reason).toBe('Activity at capacity')
+  })
+})
+
+// Packaged-app audit #20: 4 groups x 20 blocks, 4 activities each 0-5/wk and
+// one group at a time. Exactly 20 placements per group exist (a Latin square
+// each day), and the greedy pass used to leave 6 blank; the repair pass must
+// find the full fill, deterministically.
+describe('repair pass fills a tight but feasible week', () => {
+  const groups = [0, 1, 2, 3].map(i => ({ id: `g${i}`, name: `G${i}`, tier_id: 't1', availability: 'all' }))
+  const days = [0, 1, 2, 3, 4].map(i => ({ id: `d${i}`, label: `D${i}`, day_of_week: i + 1, sort_order: i }))
+  const timeBlocks = [0, 1, 2, 3].map(i => ({ id: `b${i}`, name: `B${i}`, start_time: `0${i + 1}:00`, end_time: `0${i + 1}:30`, sort_order: i, part_of_day: 'morning' }))
+  const activities = ['arts', 'boat', 'climb', 'dance'].map(id => ({ id, name: id, priority: 'high', min_per_week: 0, max_per_week: 5, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }))
+  const input = minimal({ groups, days, timeBlocks, activities })
+
+  it('leaves no cell unfillable', () => {
+    const { slots } = buildSchedule(input)
+    expect(slots.filter(s => s.flags?.UNFILLABLE)).toHaveLength(0)
+  })
+
+  it('keeps every hard constraint: weekly max, once a day, one group per activity per block', () => {
+    const placed = buildSchedule(input).slots.filter(s => s.activityId)
+    const perWeek = new Map(); const perDay = new Set(); const perBlock = new Set()
+    for (const s of placed) {
+      const w = `${s.groupId}|${s.activityId}`
+      perWeek.set(w, (perWeek.get(w) || 0) + 1)
+      const d = `${s.groupId}|${s.dayId}|${s.activityId}`
+      expect(perDay.has(d)).toBe(false); perDay.add(d)
+      const b = `${s.activityId}|${s.dayId}|${s.blockId}`
+      expect(perBlock.has(b)).toBe(false); perBlock.add(b)
+    }
+    for (const n of perWeek.values()) expect(n).toBeLessThanOrEqual(5)
+  })
+
+  it('is deterministic', () => {
+    expect(buildSchedule(input).slots).toEqual(buildSchedule(input).slots)
   })
 })
 
