@@ -48,6 +48,10 @@ export const DEVICE_HEALTH = Object.freeze({
   // is deliberately NOT `projection_failed` — a cross-camp write is not a repairable
   // projection failure; re-projecting the same document rejects it again by design.
   CROSS_CAMP_WRITE_REJECTED: 'cross_camp_write_rejected',
+  // The elected device failed to rotate the rendezvous namespace/key after the revocation set
+  // changed (electron/sync/automerge/rendezvousRotation.js). The revoked device may still be able
+  // to read rendezvous records until a later check succeeds.
+  RENDEZVOUS_ROTATION_FAILED: 'rendezvous_rotation_failed',
 })
 
 /**

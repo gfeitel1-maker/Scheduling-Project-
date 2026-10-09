@@ -4,9 +4,8 @@
 // Pure document-layer code: operates on an in-memory Automerge `doc` object, reusing
 // electron/automerge/campDocument.js's flat per-field record shape and key scheme (`recordKey`,
 // `readRecord`) — the SAME shape every other `camps` field (e.g. `name`) uses. No SQLite, no
-// libp2p, no network egress. Not imported by electron/main.js or any production sync path; wiring
-// (including any rotation TRIGGER) is out of scope here — see the ADR's Decision 3 "Deliberately
-// not decided here" and Decision 4.
+// libp2p, no network egress. The rotation TRIGGER lives in rendezvousRotation.js (rotate when the
+// revocation set changes, on the elected admin device).
 //
 // Deliberately bypasses campDocument.js's applyWrite/PROJECTIONS.camps.fields allowlist rather
 // than registering these fields there: PROJECTIONS.camps.fields doubles as the literal column
@@ -66,11 +65,23 @@ function writeField(doc, campId, value) {
   })
 }
 
-/** Read the current namespace/epoch for a camp, or null if rendezvous was never enabled. */
+/**
+ * Read the current namespace/epoch for a camp, or null if rendezvous was never enabled.
+ *
+ * Concurrent rotations auto-resolve here, identically on every device: the highest epoch wins,
+ * and on a tie Automerge's own winner (the plain document value) stands. reconcile.js therefore
+ * never shows this field to a director.
+ */
 export function readRendezvousNamespace(doc, campId) {
   const row = readRecord(doc, ENTITY, campId)
   if (!row || row[FIELD] == null) return null
-  return parseDiscovery(row[FIELD])
+  let best = parseDiscovery(row[FIELD])
+  const conflicts = doc[ENTITY] ? A.getConflicts(doc[ENTITY], recordKey(campId, FIELD)) : null
+  for (const opId of Object.keys(conflicts ?? {}).sort()) {
+    const candidate = parseDiscovery(conflicts[opId])
+    if (candidate.epoch > best.epoch) best = candidate
+  }
+  return best
 }
 
 /**

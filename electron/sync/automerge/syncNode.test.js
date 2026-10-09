@@ -21,6 +21,9 @@ import { openLocalDb, CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
 import { createEmptyDoc, applyWrite } from '../../automerge/campDocument.js'
 import { ensureHostSigningKey, issueCampToken } from '../../auth/localAuth.js'
 import { startSyncNode } from './syncNode.js'
+import { setCurrentDoc } from './liveDoc.js'
+import { mintRendezvousNamespace, readRendezvousNamespace } from './rendezvousNamespace.js'
+import { mintRendezvousAddressKey, readRendezvousAddressKey } from './rendezvousAddressKey.js'
 import { signAuthorityEntry } from '../../automerge/authorityLogSignature.js'
 
 let files = []
@@ -286,6 +289,68 @@ describe('syncNode — Automerge merge + projector over a real transport', () =>
     // device residual. A never had to manually hang up; projecting the revocation did it
     // automatically.
     await waitFor(() => !a.isPeerAuthenticated(b.peerId.toString()))
+  })
+
+  it('WAN-ladder F1 round 2: a revoke projected on the elected device rotates the rendezvous secrets, and the revoked peer never receives them', async () => {
+    let genesis = createEmptyDoc()
+    genesis = mintRendezvousNamespace(genesis, 'camp-1').doc
+    genesis = mintRendezvousAddressKey(genesis, 'camp-1').doc
+    const a = await startSyncNode({ deviceId: 'device-a', db: dbA, doc: A.clone(genesis) })
+    const b = await startSyncNode({ deviceId: 'device-b', db: dbB, doc: A.clone(genesis) })
+    nodes.push(a, b)
+    await a.dial(b.getMultiaddrs()[0])
+    await waitFor(() => a.getPeers().length > 0)
+    const { tokenA, tokenB } = setupAuthorizedDevicePair(dbA, dbB)
+    await authenticateBothWays(a, b, tokenA, tokenB)
+
+    function pushEntry(doc, fields, signed) {
+      const id = `entry-${Math.random()}`
+      let d = doc
+      for (const [field, value] of Object.entries(fields)) d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field, value })
+      if (signed) {
+        const signature = signAuthorityEntry(dbA, { id, kind: fields.kind, target_device_id: fields.target_device_id, signer_device_id: fields.signer_device_id })
+        d = applyWrite(d, { entity: 'camp_authority_log', entity_id: id, field: 'signature', value: signature })
+      }
+      return d
+    }
+    await a.applyLocal(pushEntry(a.getDoc(), { kind: 'genesis', target_device_id: 'device-a', target_peer_id: a.peerId.toString() }, false))
+    await a.applyLocal(pushEntry(a.getDoc(), { kind: 'grant', target_device_id: 'device-b', target_peer_id: b.peerId.toString(), signer_device_id: 'device-a' }, true))
+    expect(readRendezvousNamespace(a.getDoc(), 'camp-1').epoch).toBe(1)
+    const oldKey = readRendezvousAddressKey(a.getDoc(), 'camp-1')
+
+    await a.applyLocal(pushEntry(a.getDoc(), { kind: 'revoke', target_device_id: 'device-b', signer_device_id: 'device-a' }, true))
+
+    expect(readRendezvousNamespace(a.getDoc(), 'camp-1').epoch).toBe(2)
+    expect(readRendezvousAddressKey(a.getDoc(), 'camp-1')).not.toBe(oldKey)
+    await new Promise((r) => setTimeout(r, 500))
+    expect(readRendezvousNamespace(b.getDoc(), 'camp-1').epoch).toBe(1)
+    expect(readRendezvousAddressKey(b.getDoc(), 'camp-1')).toBe(oldKey)
+  })
+
+  // WAN-ladder round 2 (Red Hat): stepSync itself refuses a revoked peer, so no send path
+  // (broadcastLocalDoc does no projection and therefore no teardown) can hand it new state.
+  it('stepSync gate: broadcastLocalDoc sends nothing to a peer revoked in authority_cache', async () => {
+    const genesis = createEmptyDoc()
+    const a = await startSyncNode({ deviceId: 'device-a', db: dbA, doc: A.clone(genesis) })
+    const b = await startSyncNode({ deviceId: 'device-b', db: dbB, doc: A.clone(genesis) })
+    nodes.push(a, b)
+    await a.dial(b.getMultiaddrs()[0])
+    await waitFor(() => a.getPeers().length > 0)
+    const { tokenA, tokenB } = setupAuthorizedDevicePair(dbA, dbB)
+    await authenticateBothWays(a, b, tokenA, tokenB)
+    await waitFor(() => a.isPeerAuthenticated(b.peerId.toString()))
+    // Settle the exchange first so A already knows B's heads: the next change then goes out in a
+    // single push with no reply needed, so gate B on the reply path cannot mask a missing gate here.
+    setCurrentDoc(dbA, applyWrite(a.getDoc(), { entity: 'camps', entity_id: 'camp-1', field: 'name', value: 'Before' }))
+    await a.broadcastLocalDoc()
+    await waitFor(() => readRecord(b.getDoc(), 'camps', 'camp-1')?.name === 'Before')
+    await new Promise((r) => setTimeout(r, 300))
+
+    dbA.prepare('INSERT INTO authority_cache (device_id, status, updated_at) VALUES (?, ?, ?)').run('device-b', 'revoked', new Date().toISOString())
+    setCurrentDoc(dbA, applyWrite(a.getDoc(), { entity: 'camps', entity_id: 'camp-1', field: 'name', value: 'Secret After Revoke' }))
+    await a.broadcastLocalDoc()
+    await new Promise((r) => setTimeout(r, 500))
+    expect(readRecord(b.getDoc(), 'camps', 'camp-1')?.name).not.toBe('Secret After Revoke')
   })
 
   it('an adversarial malformed doc payload does not crash the receiving node', async () => {

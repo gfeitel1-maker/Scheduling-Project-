@@ -33,6 +33,7 @@ import { loadDoc as loadAutomergeDoc, docPath as automergeDocPath } from './docS
 import { resolveStartupDoc, dispatchRemoteOps, REMOTE_OPS_COALESCE_THRESHOLD } from './startupGuard.js'
 import { createMdnsDiscovery, rotatingServiceTag } from './discovery.js'
 import { mintRendezvousNamespace } from './rendezvousNamespace.js'
+import { runRendezvousRotation } from './rendezvousRotation.js'
 import { createVerifiedEntryTrust } from '../../automerge/authorityReplay.js'
 import { readRendezvousConfig, createRendezvousDiscovery, createQueuedDemand } from './rendezvousClient.js'
 import { nextSequence } from './rendezvousSequence.js'
@@ -67,6 +68,18 @@ import { sanitizeOpForIpc } from '../../main.js'
 export function computeRotatingServiceTag(doc, campId) {
   const isEntryTrusted = createVerifiedEntryTrust(Automerge, doc)
   return rotatingServiceTag(Automerge, doc, campId, { isEntryTrusted })
+}
+
+// Mints the discovery secret if needed (T335), then runs the digest-keyed rendezvous rotation
+// check (rendezvousRotation.js) so a revocation that landed while this device was offline, or
+// before the doc was loaded, is rotated for on load. No broadcast: the node is not started yet,
+// and the rotated doc is what it starts syncing from.
+export function prepareDocForSync(db, doc, { campId, deviceId }) {
+  const dhtMint = mintRendezvousNamespace(doc, campId)
+  if (dhtMint.minted) setCurrentAutomergeDoc(db, dhtMint.doc)
+  else if (getDocIfLoaded(db) !== doc) setCurrentAutomergeDoc(db, doc, { persist: false })
+  const result = runRendezvousRotation(db, { deviceId, broadcast: null })
+  return result.rotated ? result.doc : dhtMint.doc
 }
 
 export function createAutomergeSyncStarter({
@@ -337,11 +350,7 @@ export function createAutomergeSyncStarter({
       // own current revocation state. `mintRendezvousNamespace` is idempotent against sequential
       // calls (its own header comment) — a camp that already minted a secret in a prior run gets
       // `minted: false` and `doc` is left untouched here.
-      const dhtMint = mintRendezvousNamespace(doc, campId)
-      if (dhtMint.minted) {
-        doc = dhtMint.doc
-        setCurrentAutomergeDoc(db, doc)
-      }
+      doc = prepareDocForSync(db, doc, { campId, deviceId })
       const rendezvousConfig = readRendezvousConfig(process.env)
       const peerDiscovery = [createMdnsDiscovery({ serviceTag: computeRotatingServiceTag(doc, campId) })]
       // S4c: with the punch ladder on, the rendezvous is rung 3 - demand-driven (it publishes and polls

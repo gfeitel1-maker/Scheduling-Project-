@@ -28,6 +28,7 @@ import { joinProof, verifyJoinProof } from '../joinCode.js'
 import { createHostHandoff } from '../../auth/hostHandoff.js'
 import { createHandoffWire } from './hostHandoffWire.js'
 import { CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
+import { runRendezvousRotation } from './rendezvousRotation.js'
 
 // T271 round 3 (docs/adr/2026-09-26-schema-version-gate-before-merge.md): pure, directly-testable
 // predicate deciding whether a PEER's schema version (learned from its own `authenticate` handshake
@@ -171,6 +172,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     try {
       const contained = projectAll(db, merged)
       tearDownRevokedConnectedPeers()
+      runRendezvousRotation(db, { deviceId, broadcast: syncAllAuthenticatedPeers })
       onProjected?.(merged)
       // Containment (round 3) made a bad row non-fatal — projectAll no longer throws for it, so
       // the app must learn about it here instead of only in projection_failures/the console
@@ -451,6 +453,9 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     // project already guards against elsewhere (mutualAuth.js's DISCOVERY_EMIT_WINDOW_MS precedent
     // for the same class of problem) — being incompatible is not a new fact each time this runs.
     if (!isPeerSyncCompatible(peerId)) return
+    // Never generate a message for a revoked peer, whatever path asked: once the authority cache
+    // says revoked, a push of settled state needs no reply, so gate B alone would not stop it.
+    if (isPeerRevoked(peerId)) return
     const state = syncStates.get(peerId) ?? A.initSyncState()
     const currentDoc = getCurrentDoc(db)
     const [nextState, msg] = A.generateSyncMessage(currentDoc, state)
@@ -459,6 +464,12 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     transport.sendSyncMessage(peerId, msg).catch((err) => {
       console.error(`syncNode: sync message send to ${peerId} failed (non-fatal, will retry on next trigger): ${err?.message ?? err}`)
     })
+  }
+
+  function syncAllAuthenticatedPeers() {
+    for (const peerId of transport.getPeers()) {
+      if (transport.isPeerAuthenticated(peerId)) stepSync(peerId)
+    }
   }
 
   async function handleSyncMessage(bytes, { fromPeerId }) {
@@ -898,6 +909,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
       try {
         projectAll(db, doc)
         tearDownRevokedConnectedPeers()
+        runRendezvousRotation(db, { deviceId, broadcast: null })
         onProjected?.(doc)
       } catch (err) {
         onProjectionError?.(err, doc, null)
@@ -921,9 +933,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
       // module uses makes the two write paths — this one and broadcastLocalDoc
       // — the same mechanism, which is the point: there is no longer a second,
       // weaker way for a local write to reach a peer.
-      for (const peerId of transport.getPeers()) {
-        if (transport.isPeerAuthenticated(peerId)) stepSync(peerId)
-      }
+      syncAllAuthenticatedPeers()
     },
     // Stage 5f item 2 (Stage 5f-2: now via the sync protocol, not a whole-doc push). The broadcast
     // half of a REAL local write. liveDoc.recordLocalWrite already applies the write to the shared
@@ -936,11 +946,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     // getCurrentDoc(db), which is the same value liveDoc just set into the registry before calling
     // this, so the two are the same document; using getCurrentDoc keeps this one code path (shared
     // with admission/receive) as the only place that decides what "the current doc" means.
-    broadcastLocalDoc: async () => {
-      for (const peerId of transport.getPeers()) {
-        if (transport.isPeerAuthenticated(peerId)) stepSync(peerId)
-      }
-    },
+    broadcastLocalDoc: async () => syncAllAuthenticatedPeers(),
     handoff: handoffWire.api,
     sendHandoff: transport.sendHandoff,
     stop: async () => {

@@ -121,3 +121,24 @@ describe('concurrent rotation is atomic (namespace and epoch can never split)', 
     expect(() => readRendezvousNamespace(corrupted, CAMP_ID)).toThrow(/malformed/i)
   })
 })
+
+describe('concurrent rotations auto-resolve: highest epoch wins on read (WAN-ladder F1 round 2)', () => {
+  const set = (doc, value) => A.change(doc, (d) => {
+    if (!d.camps) d.camps = {}
+    d.camps[recordKey('camp-1', 'rendezvousDiscovery')] = value
+  })
+  const low = `v1:2:${'a'.repeat(64)}`
+  const high = `v1:5:${'b'.repeat(64)}`
+
+  it('whichever value Automerge picks, every device reads the highest epoch', () => {
+    // Fresh actors each round; Automerge's own winner is the low epoch in about half of them.
+    let lowWonRaw = 0
+    for (let i = 0; i < 24; i++) {
+      const base = createEmptyDoc()
+      const merged = A.merge(set(A.clone(base), low), set(A.clone(base), high))
+      if (merged.camps[recordKey('camp-1', 'rendezvousDiscovery')] === low) lowWonRaw++
+      expect(readRendezvousNamespace(merged, 'camp-1')).toEqual({ epoch: 5, namespace: 'b'.repeat(64) })
+    }
+    expect(lowWonRaw).toBeGreaterThan(0)
+  })
+})

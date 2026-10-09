@@ -43,6 +43,11 @@ function sorted(keys) {
   return [...keys].sort()
 }
 
+// Machine-rotated rendezvous secrets (electron/sync/automerge/rendezvousRotation.js). Two devices
+// rotating concurrently is not a disagreement between people: it auto-resolves on read (highest
+// epoch wins, see rendezvousNamespace.js), and showing it would put raw secrets on ConflictsScreen.
+const MACHINE_RESOLVED_CAMP_FIELDS = new Set(['rendezvousDiscovery', 'rendezvousAddressKey', 'rendezvousRotatedFor'])
+
 // Automerge hands conflicting values back keyed by op id. Sorting by that key
 // gives every device the same order for the same document.
 function conflictEntries(conflicts) {
@@ -86,6 +91,7 @@ export function reconcile(doc) {
       // function no longer has a second half.
       const parsed = splitRecordKey(key)
       if (!parsed) continue
+      if (entity === 'camps' && MACHINE_RESOLVED_CAMP_FIELDS.has(parsed.field)) continue
 
       const versions = conflictEntries(A.getConflicts(collection, key))
       if (versions.length < 2) continue

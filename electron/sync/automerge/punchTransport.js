@@ -135,12 +135,12 @@ function validateOptions(opts) {
   validateIceCredentials(ice)
   if (!Number.isInteger(connectTimeoutMs) || connectTimeoutMs <= 0) throw invalid('connectTimeoutMs must be a positive integer')
   if (!Number.isInteger(maxPendingInbound) || maxPendingInbound <= 0) throw invalid('maxPendingInbound must be a positive integer')
-  return { signaling, role, onEstablished, iceServers, portRange, certificatePemFile, keyPemFile, ice, connectTimeoutMs, maxPendingInbound }
+  return { signaling, role, onEstablished, portRange, certificatePemFile, keyPemFile, ice, connectTimeoutMs, maxPendingInbound }
 }
 
 function rtcConfigFrom(opts) {
   return {
-    iceServers: opts.iceServers,
+    iceServers: [],
     disableAutoNegotiation: true,
     enableIceTcp: false,
     ...(opts.portRange ? { portRangeBegin: opts.portRange.begin, portRangeEnd: opts.portRange.end } : {}),

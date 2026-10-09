@@ -380,6 +380,9 @@ export default function Sidebar({
             onNavigate={onNavigate}
           />
         )}
+        {syncStatus?.otherDeviceCount > 0 && syncStatus.peersUnreachable && (
+          <CampUnreachableRow onNavigate={onNavigate} />
+        )}
         {projectPath && isDevDb && (
           <div
             title={`Development database — not the installed app's data\n${projectPath}`}
@@ -488,6 +491,33 @@ export default function Sidebar({
 // Devices via the same `onNavigate` prop App.jsx already threads through —
 // restarting the node does not fix a domain-state refusal, so it must never
 // offer a dead retry (T275's boundary, carried over here).
+// WAN-ladder round 2: no camp peer has been reachable for a long bound while the camp has other
+// devices (electron/sync/automerge/peerReachability.js). Most likely this device was offline
+// through a revoke and its peers have rotated their discovery secrets, so it must pair again.
+function CampUnreachableRow({ onNavigate }) {
+  const transition = useEnterTransition('slideFade', {})
+  return (
+    <button
+      type="button"
+      title="No other camp device has been reachable for hours. If one was removed while this device was away, pair again while on the camp's network."
+      onClick={() => onNavigate('devices')}
+      style={{
+        display: 'flex', alignItems: 'baseline', gap: 6, width: '100%',
+        padding: '4px 0 8px', border: 'none', background: 'none', cursor: 'pointer',
+        textAlign: 'left',
+        ...transition,
+      }}
+    >
+      <span style={{ flexShrink: 0, fontSize: 8, color: 'var(--danger)' }}>●</span>
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+        <span style={{ color: 'var(--danger)' }}>can't reach the camp</span>
+        {' · '}
+        <span style={{ color: 'var(--text-secondary)' }}>pair again on the camp's network</span>
+      </span>
+    </button>
+  )
+}
+
 function SyncNotRunningRow({ syncStatus, retrying, onRetrySync, onNavigate }) {
   const transition = useEnterTransition('slideFade', {})
   const isHostNotSyncing = syncStatus.state === 'host-not-syncing'

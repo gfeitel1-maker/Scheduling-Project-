@@ -186,6 +186,28 @@ file size, sheet count, and rows before a workbook is walked.
 
 ## Known limitations
 
+### Rendezvous secrets rotate on revocation, but old records and stragglers linger (v1, accepted)
+
+When the revocation set changes, the elected admin device rotates the rendezvous namespace and the
+address key (`electron/sync/automerge/rendezvousRotation.js`; amendment 2026-10-09 in
+`docs/adr/2026-09-27-wan-connectivity-hardening-ladder.md`). Two things the rotation cannot reach:
+
+- **Old records stay readable for a while.** Records already published under the old namespace stay
+  readable by the revoked device, which still holds the old key, until the Worker's 2-hour TTL
+  expires them.
+- **Stragglers keep publishing under the old namespace.** A device that was offline across the revoke
+  keeps publishing under the old namespace until it syncs the rotation.
+
+### A device offline through a revoke may have to re-pair (v1, accepted; flagged in the UI)
+
+A revoke changes both the LAN discovery tag and the rendezvous namespace. A device that was offline
+through it still holds the old tag and namespace. Once its peers restart with the new LAN tag, it
+cannot find them by LAN or rendezvous and must pair again on the camp's network. The device shows a
+footer flag, "can't reach the camp · pair again on the camp's network", once no camp peer has been
+reachable for 6 hours while the camp has other paired devices
+(`electron/sync/automerge/peerReachability.js`). The signal is conservative. The device cannot tell
+stale secrets apart from every other device being switched off, so the bound is long.
+
 ### LAN discovery-tag rotation is restart-bounded for a running process (v1, accepted; live rotation required in T334/DHT)
 
 The discovery tag (the key devices find each other under) is derived as a pure function of the signed T331 revocation set (T335 — `tag = HMAC(campDhtSecret, hash(revoked_device_ids))`), so it changes automatically when a device is revoked. On the **LAN/mDNS layer**, however, a device that is **already running** keeps advertising/querying under its startup tag until the process restarts: `@libp2p/mdns` captures the outgoing-query `serviceTag` by value at `start()`, and libp2p exposes no stable API to retrieve and restart the constructed mDNS instance to re-advertise under a new tag. **Why this is accepted as bounded, not an auth hole:** T331's authorization gate still **refuses a revoked device admission regardless of the tag it advertises** — a revoked device cannot sync or be admitted even if it remains findable-by-tag on the LAN until peers restart. So on the pure-LAN layer this is an **obscurity/liveness** gap (a revoked device stays discoverable-by-tag to not-yet-restarted peers), **not** an admission/authorization gap. **This is NOT the cross-network cut-off** — the brute-force-safe, cut-off-on-revocation property for the **public DHT** is where it matters, and there live rotation is a **hard requirement of T334** (the DHT slice), re-confirmed by Red Hat + Security in that slice's battle-test gate, because DHT state travels over a persistent connection rather than a one-time UDP service-tag constant.

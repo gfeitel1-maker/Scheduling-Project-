@@ -69,9 +69,9 @@ import { resolveConflictInDoc } from './automerge/reconcile.js'
 import { ensureDeviceIdentity } from './auth/deviceIdentity.js'
 import { mintGenesisEntry, mintGrantEntry, mintRevokeEntry } from './automerge/authorityLog.js'
 import { syncRefusalForDomainMigration } from './db/migrationDomainState.js'
-import { getDocIfLoaded, getCurrentDoc, setUserDataDirGetter as setAutomergeUserDataDirGetter, setDocCipher as setAutomergeDocCipher, flushPendingWrites as flushAutomergeDoc, discardLiveDoc, setCurrentDoc as setCurrentAutomergeDoc } from './sync/automerge/liveDoc.js'
-import { rotateRendezvousNamespace } from './sync/automerge/rendezvousNamespace.js'
-import { rotateRendezvousAddressKey } from './sync/automerge/rendezvousAddressKey.js'
+import { getDocIfLoaded, getCurrentDoc, setUserDataDirGetter as setAutomergeUserDataDirGetter, setDocCipher as setAutomergeDocCipher, flushPendingWrites as flushAutomergeDoc, discardLiveDoc } from './sync/automerge/liveDoc.js'
+import { runRendezvousRotation } from './sync/automerge/rendezvousRotation.js'
+import { createPeerReachabilityTracker } from './sync/automerge/peerReachability.js'
 import { projectEntity } from './automerge/projector.js'
 import { AUTHORITY_LOG_ENTITY, currentAuthorityState, quorumThreshold } from './automerge/authorityReplay.js'
 import * as Automerge from '@automerge/automerge'
@@ -326,6 +326,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // pass them (there are many) is unaffected — Stage 5d-2b additions only,
   // never a behavior change for a caller that stays silent about them.
   const getAutomergeNode = getAutomergeSyncNode || (() => null)
+  const peerReachability = createPeerReachabilityTracker({ onThresholdCrossed: () => pushSyncStatus() })
   // T268 — "has a startup attempt finished" (see startAutomergeSyncNodeIfEnabled
   // in main.js's top-level app.whenReady() flow). Defaults to false ("not yet
   // attempted") so a caller that never wires this — every existing test, and
@@ -862,6 +863,14 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     // connectivity state, and a camp near its relay cap is just as true whether this device is
     // the Host or a Client.
     const relayReservationRefused = Boolean(getRelayReservationRefusedFn())
+    // WAN-ladder round 2: a device offline through a revoke cannot find peers that rotated their
+    // discovery secrets. Conservative signal and bound: see peerReachability.js.
+    const reachNode = getAutomergeNode()
+    const peersUnreachable = peerReachability.update({
+      nodeRunning: reachNode != null,
+      otherDeviceCount,
+      peerReachable: reachNode ? reachNode.getPeers().some((p) => reachNode.isPeerAuthenticated(p)) : false,
+    })
     const atRestEncryptionEnabled = isAtRestEncryptionEnabled()
 
     // T268 — a refused sync (electron/db/migrationDomainState.js) is checked
@@ -911,7 +920,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
         // last case exists to avoid a boot flicker: the node starts
         // asynchronously after app.whenReady(), so "not yet attempted" must
         // read the same as it always has, not as a false alarm.
-        return { mode: 'host', connected: true, state: 'host', unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused, atRestEncryptionEnabled }
+        return { mode: 'host', connected: true, state: 'host', unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused, atRestEncryptionEnabled, peersUnreachable }
       }
       return { mode: 'host', connected: false, state: 'host-not-syncing', unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused, atRestEncryptionEnabled }
     }
@@ -927,7 +936,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     const connected = peers.length > 0
     const authed = peers.some((peerId) => node.isPeerAuthenticated(peerId))
     const state = !connected ? 'client-disconnected' : (authed ? 'client-connected' : 'client-connecting')
-    return { mode: 'client', connected, authenticated: authed, state, unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused, atRestEncryptionEnabled }
+    return { mode: 'client', connected, authenticated: authed, state, unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused, atRestEncryptionEnabled, peersUnreachable }
   }
 
   // T27 — push the status when it changes, rather than leaving the renderer to
@@ -1595,20 +1604,11 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     }
 
     // F1 (docs/work/security/2026-10-09-wan-ladder-assessment.md): the revoked device keeps its copy
-    // of the document, so it still holds the rendezvous namespace and address key. Rotate both and
-    // broadcast. This runs AFTER revokePeer above so the evicted peer is not sent the new values;
-    // other devices learn them through ordinary document sync, which already excludes revoked peers.
-    try {
-      const doc = getDocIfLoaded(db)
-      const campId = db.prepare('SELECT id FROM camps LIMIT 1').get()?.id
-      if (doc && campId) {
-        const rotated = rotateRendezvousAddressKey(rotateRendezvousNamespace(doc, campId).doc, campId).doc
-        setCurrentAutomergeDoc(db, rotated)
-        getAutomergeNode()?.broadcastLocalDoc?.()
-      }
-    } catch (err) {
-      console.error(`revokeDevice: failed to rotate the rendezvous namespace and address key: ${err?.message ?? err}`)
-    }
+    // of the document, so it still holds the rendezvous namespace and address key. The revocation
+    // set just changed, so run the digest-keyed check (rendezvousRotation.js): it rotates only on the
+    // elected device. Runs AFTER revokePeer above so the evicted peer is never sent the new values.
+    const node = getAutomergeNode()
+    runRendezvousRotation(db, { deviceId, broadcast: node ? node.broadcastLocalDoc : null })
 
     return { deviceId: targetDeviceId, revoked: true }
   }

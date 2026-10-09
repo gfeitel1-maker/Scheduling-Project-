@@ -21,7 +21,7 @@ import { openTemplatedDb, cleanupTemplatedDbs } from './db/testDbTemplate.js'
 import { getOrCreateDeviceId } from './db/localDb.js'
 import { createUser, ensureHostSigningKey } from './auth/localAuth.js'
 import { makeHandlers } from './main.js'
-import { mintGenesisEntry } from './automerge/authorityLog.js'
+import { mintGenesisEntry, mintGrantEntry } from './automerge/authorityLog.js'
 import { projectEntity } from './automerge/projector.js'
 import * as A from '@automerge/automerge'
 import { getCurrentDoc, setUserDataDirGetter, resetForTests as resetLiveDocForTests } from './sync/automerge/liveDoc.js'
@@ -175,10 +175,24 @@ describe('F1 (2026-10-09 WAN-ladder assessment) — revoking a device rotates th
       expect(url).not.toContain(oldNs)
     }
     expect(urls.some((u) => u.includes(newNs))).toBe(true)
-    expect(published).not.toBeNull()
-    const recordField = Object.values(published).find((v) => typeof v === 'string' && v.length > 100)
-    const bytes = Buffer.from(recordField, 'base64')
+    expect(published.namespace).toBe(newNs)
+    const bytes = Buffer.from(published.record, 'base64')
     expect(verify(bytes, { addressKey: oldKey }).addressBodyDecrypted).toBe(false)
     expect(verify(bytes, { addressKey: readRendezvousAddressKey(getCurrentDoc(db), campId) }).addressBodyDecrypted).toBe(true)
+  })
+
+  it('round 2: a revoke on an admin device that is NOT the elected rotator does not rotate locally', async () => {
+    const campId = await seedWithRendezvous()
+    const { peerId } = await ensureDeviceIdentity(db)
+    insertDevice('0-elected-admin')
+    mintGrantEntry(db, { targetDeviceId: '0-elected-admin', targetPeerId: peerId, signerDeviceId: founderDeviceId })
+    projectAuthority()
+    const before = readRendezvousNamespace(getCurrentDoc(db), campId)
+
+    const calls = []
+    await revokeOrdinary(calls)
+
+    expect(readRendezvousNamespace(getCurrentDoc(db), campId)).toEqual(before)
+    expect(calls.map((c) => c[0])).not.toContain('broadcastLocalDoc')
   })
 })

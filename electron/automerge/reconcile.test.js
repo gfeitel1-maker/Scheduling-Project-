@@ -262,3 +262,33 @@ describe('resolveConflictInDoc — a decision has to stick, without costing some
   })
 
 })
+
+// WAN-ladder F1 round 2: the rendezvous secrets are machine-rotated. Two devices rotating
+// concurrently must never become a director-facing conflict (no raw secret on ConflictsScreen);
+// they auto-resolve (highest epoch wins, see rendezvousNamespace.js's readRendezvousNamespace).
+describe('rendezvous fields are never director-facing conflicts', () => {
+  const setRaw = (doc, field, value) => A.change(doc, (d) => {
+    if (!d.camps) d.camps = {}
+    d.camps[recordKey('camp-1', field)] = value
+  })
+
+  it('concurrent rendezvousDiscovery / rendezvousAddressKey / rendezvousRotatedFor writes are not reported', () => {
+    const { a, b } = diverge(
+      createEmptyDoc(),
+      (d) => setRaw(setRaw(setRaw(d, 'rendezvousDiscovery', `v1:2:${'a'.repeat(64)}`), 'rendezvousAddressKey', 'a'.repeat(64)), 'rendezvousRotatedFor', 'x'),
+      (d) => setRaw(setRaw(setRaw(d, 'rendezvousDiscovery', `v1:3:${'b'.repeat(64)}`), 'rendezvousAddressKey', 'b'.repeat(64)), 'rendezvousRotatedFor', 'y')
+    )
+    const merged = A.merge(A.clone(a), b)
+    expect(reconcile(merged).conflicts).toEqual([])
+    expect(() => assertNoUnrecordedConflicts(merged, [])).not.toThrow()
+  })
+
+  it('non-vacuity: an ordinary camps field conflict is still reported', () => {
+    const { a, b } = diverge(
+      createEmptyDoc(),
+      (d) => setRaw(d, 'name', 'Camp A'),
+      (d) => setRaw(d, 'name', 'Camp B')
+    )
+    expect(reconcile(A.merge(A.clone(a), b)).conflicts.map((c) => c.field)).toEqual(['name'])
+  })
+})
