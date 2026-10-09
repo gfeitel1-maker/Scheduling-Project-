@@ -105,9 +105,13 @@ random-id rows turns a cross-device duplicate into a failed projection.
 An ordinary camp entity: `appendOp` -> SQLite + `operations`, then the Automerge document; SQLite is the
 projection. Registered exactly like `week_activity_exclusions` (parent-scoped: `parentTable:
 'schedule_weeks'`, `parentKey: 'week_id'`) so it reuses the flat `doc[entity][row_id]` shape and the
-existing projector. It is **not** SQLite-only and not host-local. Hard-FK parents are inserted by
-`ensureExists` following the "reconstruct then insert once all fields are known" pattern used by
-`ensureWeekJoinRow` (electron/ops/projections.js).
+existing projector. It is **not** SQLite-only and not host-local. For this entity `ensureExists` is **hand-written**, not
+`ensureWeekJoinRow` as is (electron/ops/projections.js): it inserts only when `week_id`, `day_id` and
+`special_day_id` are all known (from `knownRow`) **and the week row already exists locally**. It must NOT
+stub-seed `schedule_weeks` the way `ensureWeekJoinRow` does: a placement that syncs in for a week deleted on
+another device is skipped (no row, no failure record), never allowed to resurrect a ghost week. **Required
+test:** bind in a week that another device deleted, merge both ways, assert no `schedule_weeks` row and no
+placement row exist and nothing is in `projection_failures`.
 
 ### D3 - Migration (vN, guard form, schema:check family)
 
@@ -183,13 +187,17 @@ Consequences, each pinned by a test:
    emits a `DISTRIBUTION` finding with a distinct reason ("Goal: N before <day> cannot be met - <day> is
    replaced by <special day>"), severity `info`, so it appears in the rail. Test: goal on a replaced day
    yields that finding; goal on a normal day is unchanged.
-5. **Stats and the rail use the same filtered view.** `recalcStats(slotList)` (useScheduleData.js; ~9 call
-   sites in useSlotMutations.js, useSnapshots.js, useScheduleData.js, ScheduleScreen.jsx) counts open and
-   filled over whatever list it is handed, so retained hidden rows would inflate both. `recalcStats` and
-   `recalcFindings` take `replacedDayIds` as a required second argument, and a guard test fails on any
-   one-argument call. The dismissal rail and per-slot flags (UNFILLABLE etc.) are derived from the
-   post-filter `slots` list (D6), so hidden rows cannot appear in them; dismissal keys for a replaced day's
-   findings are inert and reappear correctly if the day is unbound.
+5. **Stats and the rail use the same filtered view.** `replacedDayIds` is threaded into the **pure**
+   functions only: `recalcStats` (exported as `recalcStatsPure` where imported), `recalcFindings`/
+   `computeFindings`, and `buildSchedule`. The ScheduleScreen closure wrappers (the local `recalcStats(slotList)`
+   at ScheduleScreen.jsx ~526 and the `statsFor: recalcStatsPure` injection at ~401) are exempt from the
+   guard because they only forward. The call sites that build stats or findings by hand and must pass it, each
+   named in the guard test: `statsFor(freshSlots)` in useGeneration.js (`setGenStats` in `generate()` and
+   `setManualStats` after a manual placement), the hand-built `ctx` objects in ScheduleScreen.jsx (~530),
+   useScheduleData.js (~345 and ~351) and useSnapshots.js (~177), and the `recalcStats(next)` calls in
+   useSlotMutations.js. The dismissal rail and per-slot flags are derived from the post-filter `slots` list
+   (D6), so hidden rows cannot appear in them; dismissal keys for a replaced day's findings are inert and
+   reappear correctly if the day is unbound.
 6. **Non-destructive.** Stored `template_slots` for a replaced day are retained, hidden at render.
    `generate()` writes a whole-template bulk replace, so it **carries forward** the existing rows of replaced
    days into its payload. Carry-forward rows pass through the same dead-reference guard
@@ -199,6 +207,16 @@ Consequences, each pinned by a test:
    ceased to exist.
 7. An orphan placement (week differs, `day_id` not in `days`, or `special_day_id` not resolving) means no
    replacement: the normal day shows and nothing throws.
+
+**`replacedDayIds` is REQUIRED, with no default, at `buildSchedule` and `computeFindings`**: absent
+(`undefined`) throws/asserts (an empty array is the explicit "nothing replaced"). A missing argument
+therefore fails loudly instead of silently generating on a replaced day. The enumerating test
+(`engineEntryReplacedDays.test.js`) allow-lists `scripts/_buildSchedule.before.mjs` (a frozen historical
+copy, not a live entry). The pre-placement filter is applied inside `normalizeInput` for **both** branches,
+the legacy flat signature and the `cohorts` branch (`cohorts[i].preplacedSlots`).
+`assembleScheduleEngineInputs(db, campId, weekId)` gains a `weekId` parameter and returns `replacedDayIds`
+beside `days` (without a week there is nothing to resolve; callers must pass one explicitly, `null` meaning
+"no week").
 
 ### D5 - Conflicts (against the real document model)
 
@@ -223,7 +241,7 @@ Rule for partial rows (defined, not left to chance):
    deliberate semantics: a director who just bound a day should not have it vanish because another device
    unbound it a moment earlier. The unbinding director sees the day become bound again.
 2. A row missing any of the three fields is **incomplete and is skipped by the projector without a
-   `projection_failures` row** (an explicit completeness check in `ensureExists`/the projector pass for this
+   `projection_failures` row** (the hand-written three-field completeness check in `ensureExists`/the projector pass for this
    entity, using the `knownRow` the projector already supplies), and the resolver ignores it (D4.7). It is
    not an error and not rendered. It can only arise from a non-bind writer or a future bug, never from the
    bind path.
@@ -266,7 +284,8 @@ Reconciled with the real files. The schedule exporters that print a week are **`
 (src/utils/exportScheduleJson.js). Both receive the resolved replacements and print the special day's grid
 (its own blocks x groups) and its notes in place of the normal day, identically for whichever route the
 director chooses at export time (the route choice is not remembered; unchanged).
-`exportScheduleRoundTrip.test.js` gains a replaced-day case. **`exportWorkbook`** (src/utils/exportWorkbook.js)
+`exportScheduleRoundTrip.test.js` gains a replaced-day case. The MCP **`exportScheduleTool`** (scripts/mcp/tools.js) builds its export through the same path and is covered
+by the same replaced-day test. **`exportWorkbook`** (src/utils/exportWorkbook.js)
 is the camp-setup worksheet used for the import round trip (`PLAN_VERSION`, `shoresh_id`), not a schedule
 export, and special days are never ingestible (2026-08-20 D3b), so it is deliberately **not** changed.
 The camp-data record, `buildCampDataWorkbook` (src/utils/buildCampDataWorkbook.js, entity list in
@@ -277,15 +296,16 @@ its (week, weekday) placements, read-only and not part of any round trip.
 
 Binding and unbinding are `appendOp` writes (bind: three field writes in one `runAtomic`; unbind: a
 delete), so they are in the device-local history ledger and entity history. **Restore decision:
-`special_day_placements` is REFUSED in `UNRESTORABLE` (electron/ops/restore.js), with the reason "refused:
+`special_day_placements` is REFUSED in `RESTORE_DECISIONS` (electron/ops/restore.js), with the reason "refused:
 rebuilt by binding the special day again, or by duplicating the week"**, matching the three
 `week_*_exclusions` entries there. Rationale: a restore of a deleted placement could resurrect a binding
 over a day someone has since bound to a different special day, and re-binding is one action. The user-facing
 undo of a replace or unbind is therefore the ledger-level history entry plus re-binding, and the prompt says
 so (D11). Cascades: `deleteWeek` removes a week's placements (children-before-parents, in its documented
-order); `deleteSpecialDay` removes its placements; the ingest teardown lists `special_day_placements` in
-`PARENT_SCOPED_DEPENDENTS` (electron/ops/ingest.js) so a week cleared by import cannot be blocked by its
-placement rows. **`duplicateWeek` copies placements using the derived id for the NEW week**
+order); `deleteSpecialDay` removes its placements; **`special_day_placements` is deliberately NOT added to `PARENT_SCOPED_DEPENDENTS`
+(electron/ops/ingest.js)**: `replaceScope` never clears weeks and day ids are deterministic, so listing it
+would delete every binding on a Replace re-import. **Required test:** a Replace re-import leaves all
+placements intact and still resolving. **`duplicateWeek` copies placements using the derived id for the NEW week**
 (`deriveSpecialDayPlacementId(newWeekId, dayId)`), never `randomUUID()` (which `duplicateWeek` uses for the
 exclusion rows it copies), and writes all three fields; otherwise the copy would carry a random id and
 break the one-row-per-slot rule. Unbinding is one action on the special day and one on the replaced lane;
@@ -313,13 +333,13 @@ electron/automerge/campDocument.js (MODELED_ENTITIES via the registry, `GENESIS_
 electron/automerge/projector.js, electron/auth/permissions.js, src/localClient.mock.js,
 electron/ops/undoReferences.js, electron/ops/restore.js (refusal, D8), electron/ops/deleteWeek.js,
 electron/ops/deleteSpecialDay.js, electron/ops/duplicateWeek.js, **electron/main.js `SCOPED_LIST_ENTITIES`**
-(so the renderer can `listByScope('special_day_placements', weekId)`), **electron/ops/ingest.js
-`PARENT_SCOPED_DEPENDENTS`**, **src/data/scheduleRepository.js** (load a week's placements beside its
+(so the renderer can `listByScope('special_day_placements', weekId)`), **src/data/scheduleRepository.js** (load a week's placements beside its
 exclusions, `bindSpecialDay`/`unbindSpecialDay`), electron/campDataRecord.js and
 src/utils/buildCampDataWorkbook.js (D7), recordLabels. **electron/ops/mergeActivity.js is checked and
 unchanged**: its list is entities that hold an `activity_id`, and a placement references a week, a day and
 a special day, not an activity. A parity test (the existing PROJECTIONS-vs-MODELED_ENTITIES diff plus an
-explicit list-membership test for `SCOPED_LIST_ENTITIES` and `PARENT_SCOPED_DEPENDENTS`) pins the list.
+explicit list-membership test for `SCOPED_LIST_ENTITIES`) pins the list. `PARENT_SCOPED_DEPENDENTS` is
+deliberately excluded (D8).
 
 ### D11 - Edge cases (each gets a defined behaviour and a test)
 
