@@ -913,6 +913,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       <div key={r} style={{
         background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10,
         padding: '18px 20px', width: 280, display: 'flex', flexDirection: 'column', gap: 8,
+        alignItems: 'center', textAlign: 'center',
       }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 15, color: 'var(--text)' }}>{copy.offerTitle}</div>
         <button className="press-97"
@@ -921,7 +922,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
           title={role !== 'admin' ? 'Admin only' : undefined}
           style={{
             ...(r === 'generated' ? S.btnPrimary : S.btnSecondary),
-            marginTop: 6, alignSelf: 'flex-start',
+            marginTop: 6,
             ...(generating || role !== 'admin' ? S.buttonDisabled : {}),
           }}
         >{copy.offerAction}</button>
@@ -1095,79 +1096,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
         {anyRouteStarted && generating && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>Generating…</span>}
       </div>
 
-      {/* Second row — the flag system. Owner, 2026-09-12: this is the
-          state of the thing you are looking at, so it reads directly under
-          the view switcher rather than below the grid. */}
-      {hasSchedule && stats && (
-        <div style={{ marginBottom: 20 }}>
-        <div style={{ position: 'relative', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          {/* T18: one concept, one name. "Placed" is a plain progress count on
-              both routes — not a concern, so it never toggles anything. */}
-          <StatBadge
-            label="Placed"
-            value={`${stats.filled} of ${stats.open}`}
-            color={isManual ? 'var(--text-secondary)' : 'var(--success)'}
-          />
-          {isManual ? (
-            <StatBadge
-              label="Overlapping"
-              value={overlapSlots.length}
-              color={overlapSlots.length > 0 ? 'var(--accent)' : 'var(--text-secondary)'}
-              onClick={() => toggleRail('ALL')}
-            />
-          ) : (
-            <StatBadge
-              label="Unfillable"
-              value={unfillableSlots.length}
-              color={unfillableSlots.length > 0 ? 'var(--danger)' : 'var(--text-secondary)'}
-              active={railView === 'UNFILLABLE'}
-              onClick={() => toggleRail('UNFILLABLE')}
-            />
-          )}
-          {hasCoverageTargets && (
-            <StatBadge
-              label="Still needed"
-              value={activeFindings.filter(f => f.kind === 'UNDERSERVED').length}
-              color={activeFindings.some(f => f.kind === 'UNDERSERVED') ? 'var(--accent)' : 'var(--text-secondary)'}
-              active={!isManual && railView === 'UNDERSERVED'}
-              onClick={() => toggleRail(isManual ? 'ALL' : 'UNDERSERVED')}
-            />
-          )}
-          {hasSpreadTargets && (
-            <StatBadge
-              label="Spread across the week"
-              value={activeFindings.filter(f => f.kind === 'DISTRIBUTION').length}
-              color={activeFindings.some(f => f.kind === 'DISTRIBUTION') ? 'var(--accent)' : 'var(--text-secondary)'}
-              active={!isManual && railView === 'DISTRIBUTION'}
-              onClick={() => toggleRail(isManual ? 'ALL' : 'DISTRIBUTION')}
-            />
-          )}
-          {/* Read the whole list without picking a concern first — opens the
-              list showing everything and leaves the grid calm. */}
-          {!isManual && findingsRows.length > 0 && (
-            <button
-              onClick={() => setRailView(v => (v === 'ALL' ? null : 'ALL'))}
-              style={{
-                background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px',
-                fontFamily: 'inherit', fontSize: 12,
-                color: railView === 'ALL' ? 'var(--text)' : 'var(--text-secondary)',
-                textDecoration: 'underline', textUnderlineOffset: 3,
-              }}
-            >{railView === 'ALL' ? 'Hide list' : 'Review all'}</button>
-          )}
-          {findingsRailOpen && (
-            <FindingsRail
-              rows={railRows}
-              onDismiss={dismissFindingsRow}
-              onLocate={locateFindingsRow}
-              onClose={() => setRailView(null)}
-              intro={{ title: 'Still to place' }}
-              emptyText={railEmptyText(stats)}
-            />
-          )}
-        </div>
-        </div>
-      )}
 
 
       {/* Paste mode status line */}
@@ -1212,16 +1140,89 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
         const gridContent = (
           <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
             {generating && <IndeterminateBar />}
+            {/* Second row — the flag system. Owner, 2026-09-12: this is the
+                state of the thing you are looking at, so it reads directly under
+                the view switcher rather than below the grid. */}
+            {hasSchedule && stats && (
+              <div style={{ ...S.centeredRow, marginBottom: 20 }}>
+              <div style={{ position: 'relative', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                {/* T18: one concept, one name. "Placed" is a plain progress count on
+                    both routes — not a concern, so it never toggles anything. */}
+                <StatBadge
+                  label="Placed"
+                  value={`${stats.filled} of ${stats.open}`}
+                  color={isManual ? 'var(--text-secondary)' : 'var(--success)'}
+                />
+                {isManual ? (
+                  <StatBadge
+                    label="Overlapping"
+                    value={overlapSlots.length}
+                    color={overlapSlots.length > 0 ? 'var(--accent)' : 'var(--text-secondary)'}
+                    onClick={() => toggleRail('ALL')}
+                  />
+                ) : (
+                  <StatBadge
+                    label="Unfillable"
+                    value={unfillableSlots.length}
+                    color={unfillableSlots.length > 0 ? 'var(--danger)' : 'var(--text-secondary)'}
+                    active={railView === 'UNFILLABLE'}
+                    onClick={() => toggleRail('UNFILLABLE')}
+                  />
+                )}
+                {hasCoverageTargets && (
+                  <StatBadge
+                    label="Still needed"
+                    value={activeFindings.filter(f => f.kind === 'UNDERSERVED').length}
+                    color={activeFindings.some(f => f.kind === 'UNDERSERVED') ? 'var(--accent)' : 'var(--text-secondary)'}
+                    active={!isManual && railView === 'UNDERSERVED'}
+                    onClick={() => toggleRail(isManual ? 'ALL' : 'UNDERSERVED')}
+                  />
+                )}
+                {hasSpreadTargets && (
+                  <StatBadge
+                    label="Spread across the week"
+                    value={activeFindings.filter(f => f.kind === 'DISTRIBUTION').length}
+                    color={activeFindings.some(f => f.kind === 'DISTRIBUTION') ? 'var(--accent)' : 'var(--text-secondary)'}
+                    active={!isManual && railView === 'DISTRIBUTION'}
+                    onClick={() => toggleRail(isManual ? 'ALL' : 'DISTRIBUTION')}
+                  />
+                )}
+                {/* Read the whole list without picking a concern first — opens the
+                    list showing everything and leaves the grid calm. */}
+                {!isManual && findingsRows.length > 0 && (
+                  <button
+                    onClick={() => setRailView(v => (v === 'ALL' ? null : 'ALL'))}
+                    style={{
+                      background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px',
+                      fontFamily: 'inherit', fontSize: 12,
+                      color: railView === 'ALL' ? 'var(--text)' : 'var(--text-secondary)',
+                      textDecoration: 'underline', textUnderlineOffset: 3,
+                    }}
+                  >{railView === 'ALL' ? 'Hide list' : 'Review all'}</button>
+                )}
+                {findingsRailOpen && (
+                  <FindingsRail
+                    rows={railRows}
+                    onDismiss={dismissFindingsRow}
+                    onLocate={locateFindingsRow}
+                    onClose={() => setRailView(null)}
+                    intro={{ title: 'Still to place' }}
+                    emptyText={railEmptyText(stats)}
+                  />
+                )}
+              </div>
+              </div>
+            )}
             {/* Neither route started. If the director arrived via a specific
                 sidebar link (initialRoute set) they already chose — show only
                 that route's offer. If they came via the neutral 'schedule'
                 entry (no initialRoute), present both so they can pick. */}
             {!anyRouteStarted && !generating && (
               initialRoute ? (
-                <div style={{ display: 'flex', marginBottom: 8 }}>{routeOffer(route)}</div>
+                <div style={{ ...S.centeredRow, marginBottom: 8 }}>{routeOffer(route)}</div>
               ) : (
                 <div style={{ padding: '60px 16px', textAlign: 'center' }}>
-                  <div style={{ display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap', textAlign: 'left' }}>
+                  <div style={{ ...S.centeredRow, gap: 16 }}>
                     {routeOffer('manual')}
                     {routeOffer('generated')}
                   </div>
@@ -1232,7 +1233,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
             {/* The other route has work, this one does not: the same offer,
                 inline. No warning, no confirmation — nothing is at risk. */}
             {anyRouteStarted && !hasSchedule && !generating && (
-              <div style={{ display: 'flex', marginBottom: 8 }}>{routeOffer(route)}</div>
+              <div style={{ ...S.centeredRow, marginBottom: 8 }}>{routeOffer(route)}</div>
             )}
 
 
@@ -1361,6 +1362,40 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
               />
             )}
 
+            {/* Grid legend — always on the manual route (overlap dots),
+                and on the generated route ONLY when it actually carries a per-cell
+                mark to explain: a WEEK_CLOSED dot. The generated grid is otherwise
+                kept calm (concerns reviewed from the boxes above —
+                docs/work/specs/2026-08-01-generated-flag-review.md), but a closed-week
+                placement can reach it (a post-generation edit, or an activity marked
+                closed after the week was built), and a mark on the grid must never go
+                undocumented (legend.test.js). When shown there, legendEntriesFor
+                documents every mark the generated grid can carry. */}
+            {hasSchedule && (isManual || weekClosedSlots.length > 0 || overlapSlots.length > 0) && (
+              <div style={{ ...S.centeredRow, gap: 16, marginTop: 16, fontSize: 11, color: 'var(--text-secondary)' }}>
+                {legendEntriesFor(route).map(entry => (
+                  <span key={entry.label} title={entry.description} style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'default' }}>
+                    <span
+                      aria-hidden="true"
+                      style={
+                        entry.shape === 'dot'
+                          ? { width: 8, height: 8, borderRadius: '50%', background: entry.color, display: 'inline-block', flexShrink: 0 }
+                          : entry.shape === 'bar'
+                            // Matches cellStructuralBar's left border, so the swatch is
+                            // the same mark the director sees on the cell.
+                            ? { width: 3, height: 12, borderRadius: 1, background: entry.color, display: 'inline-block', flexShrink: 0 }
+                            : entry.shape === 'frame'
+                              // T108 Phase 2 (Designer spec §2.6) — a small swatch with the
+                              // same dashed-border treatment as the overridden-cell marker.
+                              ? { width: 10, height: 10, borderRadius: 2, background: 'transparent', border: `1.5px dashed ${entry.color}`, display: 'inline-block', flexShrink: 0 }
+                              : { width: 10, height: 10, borderRadius: 2, background: entry.color, border: '1px solid var(--border)', display: 'inline-block', flexShrink: 0 }
+                      }
+                    />
+                    {entry.label}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         )
 
@@ -1435,40 +1470,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
           manual owns no engine concerns to review cell-by-cell, so it is left
           as it was. docs/work/specs/2026-08-01-generated-flag-review.md */}
 
-      {/* Grid legend — always on the manual route (overlap dots),
-          and on the generated route ONLY when it actually carries a per-cell
-          mark to explain: a WEEK_CLOSED dot. The generated grid is otherwise
-          kept calm (concerns reviewed from the boxes above —
-          docs/work/specs/2026-08-01-generated-flag-review.md), but a closed-week
-          placement can reach it (a post-generation edit, or an activity marked
-          closed after the week was built), and a mark on the grid must never go
-          undocumented (legend.test.js). When shown there, legendEntriesFor
-          documents every mark the generated grid can carry. */}
-      {hasSchedule && (isManual || weekClosedSlots.length > 0 || overlapSlots.length > 0) && (
-        <div style={{ display: 'flex', gap: 16, marginTop: 16, flexWrap: 'wrap', fontSize: 11, color: 'var(--text-secondary)' }}>
-          {legendEntriesFor(route).map(entry => (
-            <span key={entry.label} title={entry.description} style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'default' }}>
-              <span
-                aria-hidden="true"
-                style={
-                  entry.shape === 'dot'
-                    ? { width: 8, height: 8, borderRadius: '50%', background: entry.color, display: 'inline-block', flexShrink: 0 }
-                    : entry.shape === 'bar'
-                      // Matches cellStructuralBar's left border, so the swatch is
-                      // the same mark the director sees on the cell.
-                      ? { width: 3, height: 12, borderRadius: 1, background: entry.color, display: 'inline-block', flexShrink: 0 }
-                      : entry.shape === 'frame'
-                        // T108 Phase 2 (Designer spec §2.6) — a small swatch with the
-                        // same dashed-border treatment as the overridden-cell marker.
-                        ? { width: 10, height: 10, borderRadius: 2, background: 'transparent', border: `1.5px dashed ${entry.color}`, display: 'inline-block', flexShrink: 0 }
-                        : { width: 10, height: 10, borderRadius: 2, background: entry.color, border: '1px solid var(--border)', display: 'inline-block', flexShrink: 0 }
-                }
-              />
-              {entry.label}
-            </span>
-          ))}
-        </div>
-      )}
 
       {deletingWeek && (
         <DeleteWeekDialog

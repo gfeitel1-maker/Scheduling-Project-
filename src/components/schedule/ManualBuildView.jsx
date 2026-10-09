@@ -99,7 +99,7 @@ export default function ManualBuildView({
   return (
     <div style={{ flex: 1, minWidth: 0 }}>
       {/* Group pills */}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+      <div style={{ ...S.centeredRow, gap: 8, marginBottom: 12 }}>
         {groups.map(g => (
           <button key={g.id} onClick={() => onSelectGroup(g.id)} style={S.chip('var(--primary)', selectedGroup === g.id, { fontSize: 12, fontFamily: 'var(--font-sans)' })}>{g.name}</button>
         ))}

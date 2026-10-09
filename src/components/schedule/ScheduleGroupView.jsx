@@ -52,7 +52,7 @@ export default function ScheduleGroupView({
   return (
       <div className="schedule-view-enter">
         {/* Group pills */}
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+        <div style={{ ...S.centeredRow, gap: 8, marginBottom: 16 }}>
           {groups.map(g => (
             <button key={g.id} onClick={() => onSelectGroup(g.id)} className="press-98" style={S.chip('var(--primary)', selectedGroup === g.id, { fontSize: 12, fontFamily: 'var(--font-sans)' })}>{g.name}</button>
           ))}

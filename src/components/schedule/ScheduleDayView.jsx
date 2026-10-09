@@ -49,7 +49,7 @@ export default function ScheduleDayView({
   return (
     <div className="schedule-view-enter">
       {/* Day pills */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+      <div style={{ ...S.centeredRow, gap: 8, marginBottom: 16, alignItems: 'center' }}>
         {days.map(d => (
           <button key={d.id} onClick={() => onSelectDay(d.id)} className="press-98" style={S.chip('var(--primary)', selectedDay === d.id, { padding: '5px 16px', fontSize: 12, fontFamily: 'var(--font-sans)' })}>{d.label}</button>
         ))}

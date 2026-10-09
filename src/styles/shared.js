@@ -150,6 +150,9 @@ export function useMeasuredRowCap({ containerRef, itemCount, reservePx = 0 }) {
 }
 
 export const S = {
+  // Any row of pills, boxes or swatches above or below a schedule grid is
+  // centred, so the grid and the rows around it share one axis.
+  centeredRow: { display: 'flex', flexWrap: 'wrap', justifyContent: 'center' },
   btnPrimary: {
     padding: '7px 14px',
     background: 'var(--primary)',
