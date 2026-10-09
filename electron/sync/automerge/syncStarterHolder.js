@@ -5,8 +5,10 @@
 export function createSyncStarterHolder(makeStarter) {
   let starter = makeStarter()
   let starting = null
+  let replacing = null
 
   function start() {
+    if (replacing) return replacing.then(() => starting)
     const p = starter.start()
     starting = p
     const clear = () => { if (starting === p) starting = null }
@@ -25,13 +27,24 @@ export function createSyncStarterHolder(makeStarter) {
 
   // A start in flight on the old db would land a second node after this returns, so it settles first.
   // Re-checked in a loop: a start kicked off while waiting must settle too.
-  async function replace() {
+  // A start() arriving during the replace joins it instead of starting the old starter.
+  function replace() {
+    if (replacing) return replacing
+    const p = doReplace()
+    replacing = p
+    const clear = () => { if (replacing === p) replacing = null }
+    p.then(clear, clear)
+    return p
+  }
+
+  async function doReplace() {
     while (starting) {
       try { await starting } catch { /* start() reports its own failures */ }
     }
     await shutdown()
     starter.releaseBroadcaster()
     starter = makeStarter()
+    replacing = null
     start()
   }
 
