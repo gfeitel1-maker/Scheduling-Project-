@@ -60,7 +60,7 @@ export default function SpecialDayPlacements({ campId, specialDayId, specialDayN
       p.week_id === prev.week.id && p.day_id === prev.day.id && p.special_day_id === prev.occupantId) ? prev : null)
   }
   const reloadRef = useRef(reload)
-  reloadRef.current = reload
+  useEffect(() => { reloadRef.current = reload })
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { reload() }, [campId, specialDayId])
