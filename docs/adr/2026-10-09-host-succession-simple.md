@@ -1,5 +1,5 @@
 ---
-title: "Host succession (simple): another admin becomes the host by re-minting the host key"
+title: "Host succession (simple): planned handoff of the existing host key to another admin device"
 document_type: adr
 authority: normative
 status: proposed
@@ -11,6 +11,7 @@ program: security-hardening
 governing_docs:
   - docs/governance/constitution/CONSTITUTION.md
   - docs/governance/standards/ARCHITECTURE_STANDARD.md
+  - docs/governance/standards/DESIGN_STANDARD.md
   - SECURITY.md
 supersedes: []
 amends: []
@@ -20,64 +21,85 @@ related_adrs:
   - docs/adr/2026-10-09-setup-device-gates-lifted-to-any-admin-device.md
 related_tickets: []
 affects:
-  - electron/automerge/authorityLog.js
-  - electron/automerge/authorityReplay.js
   - electron/auth/localAuth.js
   - electron/main.js
+  - electron/sync/automerge/authGate.js
   - electron/db/schema.sql
+  - src/hooks/useDeviceMode.js
+  - docs/guide/DIRECTOR_GUIDE.md
 ---
 
 # ADR: Host succession (simple)
 
-## Owner rulings (2026-10-09, relayed verbatim by the keeper)
+## Owner rulings (2026-10-09, relayed by the keeper)
 
-> "if the founding computer or original host s removed, someone else becomes the host and then holds the keys"
+- Hosting must be movable to another admin device. A 2-device camp where one device leaves must work.
+- Threat model: honest failures only (lost laptop, a director leaving). **Out of scope: malicious admins.** A turned-in laptop still holds a copy of the key; this is noted and accepted.
+- **Unplanned loss of the host**, verbatim: "export the last file, start a new camp, and reupload it". Documented in the guide; no mechanism.
 
-- A 2-device camp where one device leaves must work.
-- Threat model is **honest failures only** (lost laptop, sync lag, a director leaving): "this is just so not worth the time ... a hostile take over of a camp ... i have never, ever, heard of that happening".
-- Fallback for any edge case: "export the last file, start a new camp, and reupload it".
-- T331 grant/vote semantics are **unchanged**. This ADR amends nothing.
-
-**Out of scope (owner ruling): malicious admins.** No design effort goes to a hostile admin backdating grants, racing claims, or seizing a camp. The fuller defence in the parked background ADR (`origin/claude/adr-host-succession`, `docs/adr/2026-10-09-host-succession-by-remint.md`, which amends T331 with an effective-grant fixed point) is background only and is not adopted.
-
-## Context
-
-The host is whichever device holds the unreplicated `host_signing_key` row. That one key signs camp/device session tokens, `users` credential tuples and purge tombstones; every device verifies against the local `camps.signing_public_key`. Admin authority is already distributed (T331 `camp_authority_log`). If the only key holder is removed or lost, nobody can sign tokens, credentials or tombstones, and the camp code and Add-a-device are founder-only.
-
-## Candidates (closed by owner ruling; recorded for the record)
-
-Re-mint (chosen) works when the old host is dead. Key transfer fails for a lost host and leaves a live copy on a removed one. Shamir shards, host-less admin signing and automatic election were dropped as heavier or as giving unchosen devices power. Full reasoning is in the background ADR.
+Background only (not adopted; they solve the unplanned case this ADR deliberately does not): `origin/claude/adr-host-succession` (re-mint with authority-log kinds) and `origin/claude/authority-model`.
 
 ## Decision
 
-1. **Two authority-log kinds**, neither changing admin membership. `host_release` (signed by the current host, names a successor admin) and `host_claim` (signed by the claimant with its device identity key; carries the new `host_public_key` and `parent_epoch_id`). Founder is epoch 0; its key is today's `camps.signing_public_key`. Devices adopt the key of the winning chain by replaying the log.
-2. **Live handoff.** Host signs `host_release`; the successor generates a new host signing key on its own device and publishes `host_claim`.
-3. **Host removed (today's T331 quorum, unchanged) or lost.** A remaining admin (admin under today's rule at heads) claims. Requires director PIN re-auth through `attemptLogin`. The lost path adds a short claimant-local delay (default 5 minutes) plus a typed confirmation; the delay is friction, not a verifier rule.
-4. **Concurrent claims**: deterministic tie-break, lowest change hash wins, so all devices converge. Honest simultaneous clicks are the only case designed for.
-5. **Staff/client devices keep working (B1).** Today a device approved by the old host is trusted via host-local state. Replace with replicated signed `device_approval` records (device id, peer id, role, signed by the approving host key). Login for a non-admin device is by device identity key bound to the authority-log peer id; no host-held secret is needed, so the new host admits devices the old host approved without a local `devices` row.
-6. **Peer trust is two-way.** `createBoundPeerTrust`, `peerAddressBook` and `mutualAuth` accept authority-recorded devices (admins from the log, others from `device_approval`), so sync works both directions with the new host.
-7. **Late adoption.** On OK login the new host returns its `host_claim` chain plus the grants needed to verify it, so a device that missed the change adopts the new key. Nothing is disclosed to a denied peer.
-8. **`isCurrentHost`** (derived from the log and the local key) replaces founding-device checks in `getJoinCode`, `setJoinWindow` and approve, so the current host shows the camp code and adds devices.
+A **planned handoff**: the current host sends its existing `host_signing_key` to a connected admin device, sealed to that device, then both sides flip role. **No rotation**: `camps.signing_public_key` is unchanged, so every token, `users` credential tuple, purge tombstone and device approval stays valid and offline devices keep verifying.
 
-## Migration
+### Where things live today (verified in code)
 
-Founder is epoch 0; a camp that never succeeds has no new entries. On the host's **first upgraded launch**, backfill a signed `device_approval` for every existing approved device. Down-migration drops nothing in the document; the new table/columns get a rollback per the usual `vNN_down` rule.
+- The key is the singleton row `host_signing_key` (`electron/db/schema.sql`), created by `ensureHostSigningKey` (`electron/auth/localAuth.js`), never synced. Custody is the SQLite file itself (SQLCipher at rest when enabled), not `safeStorage`; the successor stores it the same way, so it inherits identical custody. "Is this device the Host" is **re-derived from the row's presence** (`getHostSigningKey`, `issueTokenForThisDevice`), not passed in.
+- Device mode is `localStorage['shoresh-mode']` in the renderer (`src/hooks/useDeviceMode.js`), sent to main once per process by `chooseMode` (`electron/main.js`), which throws on a different mode in the same process ("mode already chosen"). Main's `mode` variable is process-lifetime.
+- Host-service gates keyed on `mode`: `chooseMode` host branch (start-up of host services), `login` (`mode === 'client'` offline path), `getJoinCode` and `setJoinWindow` (`mode === 'client'` throws), and the status report (`mode === 'host'`). Key presence additionally drives token issuance and verification paths in `localAuth.js`, `authSignature.js`, `tombstoneSignature.js`, `authorityLogSignature.js`, `purgeCollateral.js`.
+- Transport seam: authenticated libp2p streams under `/shoresh/auth/1.0.0` (`electron/sync/automerge/authGate.js`, Noise + admission set). The handoff is a new protocol `/shoresh/handoff/1.0.0` registered on the same node and reachable only by peers already admitted by `authGate` **and** recorded as admin. LAN only (peer must be directly connected on the LAN; the control is disabled otherwise).
 
-## Fallback
+### Sealing
 
-Any case this does not cover (no remaining admin, divergent chains, a missed handoff): export the last file, start a new camp, reupload it. This is the supported recovery, not a gap.
+Successor S sends an ephemeral X25519 public key signed by its device identity key (`electron/auth/deviceIdentity.js`); host H verifies the signature against S's known device identity, generates its own ephemeral X25519 key, derives a key by ECDH + HKDF, and encrypts the private key with AES-256-GCM. AAD binds `handoff_id`, `camp_id`, H's and S's device ids. Only S can decrypt; a recorded stream yields nothing later. S checks that the decrypted key's public half equals `camps.signing_public_key` before storing.
 
-## Consequence
+### Protocol and persisted state machine
 
-Adds two log kinds, one replicated record type and the key-adoption path. A removed host's copy of the old key is simply no longer the trusted key. Not designed to resist a malicious admin (see above).
+One singleton table per device, `host_handoff` (never synced, same exclusion class as `host_signing_key`): `handoff_id`, `role` (`giver`|`taker`), `peer_device_id`, `state`, `updated_at`. Writes are single transactions. Message ids are `handoff_id`; every message is idempotent on it (re-send is a no-op or repeats the same reply).
 
-## Slice plan (small, red-first PRs, in order)
+| # | Message | Effect |
+|---|---|---|
+| 1 | H to S `OFFER{handoff_id}` | H state `offered` (still host). S shows one confirm. |
+| 2 | S to H `ACCEPT{handoff_id, signed eph pub}` | S state `accepted`, no key yet. |
+| 3 | H to S `KEY{sealed}` | H state `sent` (still host). |
+| 4 | S to H `STORED{handoff_id}` | S, in one transaction, writes the key to a **pending** slot (`host_signing_key_pending`, not the live row) and sets `stored`. S is not a host yet. |
+| 5 | H commit | **Decision point.** One H transaction: delete the live `host_signing_key` row, set `committed`. H is now a client. H sends `COMMIT{handoff_id}`. |
+| 6 | S on `COMMIT` | One S transaction: move pending to live `host_signing_key`, set `done`. Renderer sets mode host and the app relaunches (mode is per process). H also relaunches into client mode. |
+| 7 | S to H `DONE` | H clears its row. |
 
-Interface contract (`org-interface-contracts`) per slice: idempotent by entry/record id; unknown outcome is safe to retry; denied paths write nothing and audit.
+The safety property: **the live key exists on exactly one device at all times except never-two**. H deletes before S activates, so two live hosts is impossible. The window with zero live hosts is between step 5 and step 6.
 
-- **S1 device_approval replication + identity-key login.** Red: staff device approved by old host logs in to a new host with no `devices` row; forged/unsigned approval rejected; replay of same approval is a no-op.
-- **S2 peer-trust seams.** Red: authority-recorded device is accepted by `createBoundPeerTrust`/`peerAddressBook`/`mutualAuth`; sync is two-way between new host and an old-host-approved device; unrecorded peer still denied.
-- **S3 host_release/host_claim + isCurrentHost + key re-mint.** Red: live handoff converges on all devices; concurrent claims pick lowest change hash identically in both merge orders; claim by non-admin ignored; old key tokens rejected after adoption.
-- **S4 lost-host claim UI (PIN + delay).** Red: 2-device camp, host lost, T331 quorum revokes it, remaining admin claims, becomes host and adds a device; wrong PIN writes nothing and audits; delay and typed confirm enforced locally. DESIGN_STANDARD s5/s8 states and reduced-motion equivalents apply.
-- **S5 login-reply chain adoption.** Red: a device offline during the claim adopts the new key on reconnect via the login reply; denied peer receives no chain.
-- **S6 camp-code / Add-a-device on current host + guide.** Red: `getJoinCode`/`setJoinWindow`/approve succeed on the current host and fail on a non-host; founder after losing host status fails; guide and `SECURITY.md` updated.
+### Failure rules (no banner; the result is shown on the control)
+
+- Any failure, refusal, disconnect or timeout before step 5: H stays host untouched; S deletes any pending key and its handoff row; the "Hand hosting to <device>" control shows "Handoff did not complete. <device> was not changed; this computer is still the host." Retry is a fresh `handoff_id`.
+- Restart recovery, by persisted state:
+  - H `offered`/`sent` at start: clear row, stay host (nothing was decided).
+  - S `accepted`/`stored` at start (crashed before COMMIT seen): S keeps the pending key and **asks H** `STATUS{handoff_id}` on next contact. H answers `committed` (S activates, step 6) or `unknown`/not committed (S discards pending). S never activates without H's `committed`.
+  - H `committed` at start (crashed after deleting the key): H is a client; it re-sends `COMMIT` whenever S next connects (S `STATUS` also triggers it).
+- **Bound, stated plainly:** between step 5 and S receiving `COMMIT` the camp has zero live hosts, and that lasts until H and S next reach each other. The pending key is not lost (it sits on S), so this is a delay, not data loss. If H never returns after committing, treat it as the unplanned case below. Two live hosts cannot occur.
+
+### UI (DESIGN_STANDARD §5, §8)
+
+On the current host, Devices screen: one action per eligible device row, "Hand hosting to <device>" (admin devices connected on the LAN only; hidden otherwise). Inline progress on that control (reduced motion: the same states as text, never no feedback), then a result line on the control. On the successor: one confirm, "<this computer> becomes the host for <camp>". After success the new host shows the camp code and can add devices; the old host shows as a client. No banners, no coming-soon controls.
+
+## Contract check (`org-interface-contracts`)
+
+Idempotent by `handoff_id`; unknown outcome resolved by `STATUS` before any activation; denied or malformed messages write nothing and are audited; error shape is `{ok:false, reason}`; the new handlers pass `authorize()` for `devices.approve`, and the peer must be an authenticated admin; the sealed payload and decrypted key are validated at the trust boundary (public half must match `camps.signing_public_key`).
+
+## Unplanned loss
+
+If the host is lost or broken without a handoff: export the last file, start a new camp, reupload it. Supported recovery, not a gap; no mechanism.
+
+## Consequences
+
+One new protocol, one new singleton table pair, one role flip needing a relaunch. No schema change to replicated data, no authority-log change, T331 untouched. A copy of the key on a returned laptop remains valid (accepted by the owner).
+
+## Slice plan (small, red-first)
+
+- **S1 sealed transfer + atomic flip + UI.** Red first: (a) two-device handoff succeeds: new host shows the camp code and adds a device; old device is a client and still syncs; PIN logins on all devices still verify against the unchanged public key; (b) interruption at each of steps 1-5 leaves H host and S with no key and no pending row; (c) restart recovery: S crashed after `stored`, H crashed after `committed`, S asks `STATUS`; never two live keys, zero-host window asserted bounded to non-contact; (d) tampered ciphertext, wrong-camp key, non-admin peer, replayed message all rejected.
+- **S2 guide.** `docs/guide/DIRECTOR_GUIDE.md`: handoff steps plus the unplanned fallback sentence.
+
+## Open items for the keeper
+
+None blocking. Confidence medium-high; the zero-host window and the relaunch on flip are the two judgments a Red Hat pass should attack.
