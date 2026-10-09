@@ -55,7 +55,7 @@ function withTimeout(promise, ms) {
  * (remember() returns false for everything). A failed write is warned and kept on `.lastWriteError`;
  * the in-memory window still holds.
  */
-export function createReplayStore({ filePath, max = DEFAULT_LIMITS.seenMax, now = Date.now } = {}) {
+export function createReplayStore({ filePath, max = DEFAULT_LIMITS.seenMax, now = Date.now, onError = () => {} } = {}) {
   const seen = new Map()
   let failed = null
   if (filePath) {
@@ -64,6 +64,7 @@ export function createReplayStore({ filePath, max = DEFAULT_LIMITS.seenMax, now 
     if (loaded.error) {
       failed = loaded.error
       warnLoadFailure(filePath, failed)
+      onError(failed)
     }
   }
   const prune = () => {
@@ -81,7 +82,10 @@ export function createReplayStore({ filePath, max = DEFAULT_LIMITS.seenMax, now 
       if (seen.has(key)) return false
       seen.set(key, ts + MAX_SKEW_MS)
       prune()
-      if (filePath) store.lastWriteError = savePairs(filePath, [...seen])
+      if (filePath) {
+        store.lastWriteError = savePairs(filePath, [...seen])
+        if (store.lastWriteError) onError(store.lastWriteError)
+      }
       return true
     },
     size() {

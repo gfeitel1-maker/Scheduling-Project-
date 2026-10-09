@@ -27,6 +27,10 @@ export const EVENTS = Object.freeze({
   NO_TOKEN: 'NO_TOKEN',
   // Rung 2: a signed signal or gossip entry was refused because the sender's clock disagrees with ours.
   CLOCK_SKEW: 'CLOCK_SKEW',
+  // S4c: every rung of the reconnect ladder failed for a peer (e.g. symmetric NAT or CGNAT on both ends).
+  SAME_NETWORK_REQUIRED: 'SAME_NETWORK_REQUIRED',
+  // S4c: a persisted punch store (kind only, never its path) is corrupt or unwritable and fails closed.
+  PUNCH_STORE_FAILED: 'PUNCH_STORE_FAILED',
 })
 
 // Per-event field allowlist, beyond the shared { ts, peerId, source }. This is itself a leak
@@ -48,6 +52,8 @@ export const FIELD_ALLOWLIST = Object.freeze({
   [EVENTS.RENDEZVOUS_UNAVAILABLE]: ['reason'],
   [EVENTS.NO_TOKEN]: ['attemptId'],
   [EVENTS.CLOCK_SKEW]: ['reason', 'skewMs'],
+  [EVENTS.SAME_NETWORK_REQUIRED]: ['reason'],
+  [EVENTS.PUNCH_STORE_FAILED]: ['store'],
 })
 
 const ERROR_CLASSES = Object.freeze(['timeout', 'refused', 'reset', 'unreachable', 'unknown'])

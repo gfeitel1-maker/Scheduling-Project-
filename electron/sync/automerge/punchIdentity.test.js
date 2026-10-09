@@ -8,7 +8,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { X509Certificate, createHash } from 'node:crypto'
 import { openLocalDb } from '../../db/localDb.js'
-import { ensurePunchIdentity, materializePunchIdentity, rememberOwnReflexive, rotatePunchIdentity, createPunchPersistence, forgetRevokedPeer } from './punchIdentity.js'
+import { ensurePunchIdentity, materializePunchIdentity, rememberOwnReflexive, ownReflexiveMultiaddrs, rotatePunchIdentity, createPunchPersistence, forgetRevokedPeer } from './punchIdentity.js'
 
 const cleanups = []
 afterEach(() => {
@@ -75,6 +75,27 @@ describe('rememberOwnReflexive', () => {
     const id = ensurePunchIdentity(db)
     expect(id.reflexiveCandidates).toEqual([srflx])
     expect(id.reflexiveLearnedAt).toBe('2026-10-08T00:00:00.000Z')
+  })
+})
+
+describe('ownReflexiveMultiaddrs', () => {
+  it('turns remembered srflx lines into udp multiaddrs, ip4 and ip6, and nothing when none are remembered', () => {
+    const db = freshDb()
+    ensurePunchIdentity(db)
+    expect(ownReflexiveMultiaddrs(db)).toEqual([])
+    rememberOwnReflexive(db, [
+      'candidate:1 1 UDP 1686052607 9.9.9.9 50001 typ srflx raddr 0.0.0.0 rport 0',
+      'candidate:3 1 UDP 1686052607 2606:4700::1111 50002 typ srflx',
+    ])
+    expect(ownReflexiveMultiaddrs(db)).toEqual(['/ip4/9.9.9.9/udp/50001', '/ip6/2606:4700::1111/udp/50002'])
+  })
+
+  it('returns nothing once the remembered mapping is older than maxAgeMs', () => {
+    const db = freshDb()
+    ensurePunchIdentity(db)
+    rememberOwnReflexive(db, ['candidate:1 1 UDP 1686052607 9.9.9.9 50001 typ srflx'], () => '2026-10-08T00:00:00.000Z')
+    expect(ownReflexiveMultiaddrs(db, { maxAgeMs: 1000, now: () => Date.parse('2026-10-08T00:00:00.500Z') })).toEqual(['/ip4/9.9.9.9/udp/50001'])
+    expect(ownReflexiveMultiaddrs(db, { maxAgeMs: 1000, now: () => Date.parse('2026-10-08T00:00:02.000Z') })).toEqual([])
   })
 })
 

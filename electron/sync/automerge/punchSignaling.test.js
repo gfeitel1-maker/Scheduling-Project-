@@ -433,6 +433,23 @@ describe('createReplayStore', () => {
     }
   })
 
+  it('onError fires once for a corrupt file and for a failed write, so a caller can surface it', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const file = path.join(os.tmpdir(), `punchreplay-onerror-${Date.now()}.json`)
+    fs.writeFileSync(file, '{not json')
+    try {
+      const onError = vi.fn()
+      createReplayStore({ filePath: file, onError })
+      expect(onError).toHaveBeenCalledTimes(1)
+      const writeErr = vi.fn()
+      createReplayStore({ filePath: path.join(os.tmpdir(), 'no-such-dir-replay', 'r.json'), onError: writeErr }).remember('a', 'x', Date.now())
+      expect(writeErr).toHaveBeenCalledTimes(1)
+    } finally {
+      warn.mockRestore()
+      fs.rmSync(file, { force: true })
+    }
+  })
+
   it('a failed WRITE is warned and visible on lastWriteError; the in-memory window still holds', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {

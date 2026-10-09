@@ -42,6 +42,10 @@ Storage is ONE SQLite-backed Durable Object for the whole service
   exhaustion attack but the IP throttle is best-effort, so a stranger can still spend the whole global budget
   with fresh namespaces. Rung 3 (this last-resort rendezvous) is then down for **every** camp until 00:00 UTC.
   That is the honest residual; a paid plan or an authenticated register would close it.
+- **Accepted residual, request quota**: GETs and refused requests write no rows, but each still costs a
+  Durable Object and a Worker REQUEST, and the Free plan gives 100k requests/day. A stranger can exhaust the
+  request quota with cheap GETs. The impact is the same: rung 3 is down for every camp until 00:00 UTC; LAN
+  and rungs 1-2 are unaffected.
 
 ### Sizing the budgets from the Free limit
 

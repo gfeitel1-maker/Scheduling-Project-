@@ -672,6 +672,8 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
 
   return {
     peerId: node.peerId.toString(),
+    // S4c: the raw libp2p node, for the punch reconnect wiring only (punch-signal protocol handler).
+    libp2pNode: node,
     getPeers: () => node.getPeers().map((p) => p.toString()),
     getMultiaddrs: () => node.getMultiaddrs(),
     // T328 Slice 1 (docs/adr/2026-10-02-wan-discovery-transport-ladder.md): the observed remote

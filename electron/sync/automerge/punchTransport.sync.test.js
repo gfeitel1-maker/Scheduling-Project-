@@ -137,17 +137,24 @@ describe('punchTransport — libp2p transport over a node-datachannel pipe', () 
 
     dbA.prepare('INSERT INTO authority_cache (device_id, status, updated_at) VALUES (?, ?, ?)').run('device-b', 'revoked', new Date().toISOString())
 
-    // Event-driven, not a fixed sleep: wait until A's production sync path REPORTS it refused B's
-    // message, so the "nothing landed" assertion below cannot pass merely because B's write had not
-    // arrived yet.
+    // Event-driven, not a fixed sleep. A refusal line for B may already exist for an unrelated message
+    // (an ack for the earlier write), so a bare "any refusal seen" wait can pass before the revoked
+    // write was ever offered. The wait is therefore tied to the writes themselves: count the refusals
+    // before them, send the revoked write and then a second marker write, and wait until the count has
+    // grown by at least two - one message per write - before asserting that neither landed.
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const refusals = () => errors.mock.calls.filter((c) => String(c[0]).includes(`refused a sync message from ${b.peerId}`) && String(c[0]).includes('revoked')).length
     try {
+      const before = refusals()
       await b.applyLocal(applyWrite(b.getDoc(), { entity: 'activities', entity_id: 'revoked-write', field: 'name', value: 'Should Not Land' }))
-      await waitFor(() => errors.mock.calls.some((c) => String(c[0]).includes(`refused a sync message from ${b.peerId}`) && String(c[0]).includes('revoked')))
+      await waitFor(() => refusals() >= before + 1)
+      await b.applyLocal(applyWrite(b.getDoc(), { entity: 'activities', entity_id: 'revoked-marker', field: 'name', value: 'Also Should Not Land' }))
+      await waitFor(() => refusals() >= before + 2)
     } finally {
       errors.mockRestore()
     }
     expect(activityRow(dbA, 'revoked-write')).toBeUndefined()
+    expect(activityRow(dbA, 'revoked-marker')).toBeUndefined()
 
     await a.applyLocal(applyWrite(a.getDoc(), { entity: 'activities', entity_id: 'ok-write', field: 'name', value: 'Fine' }))
     await waitFor(() => activityRow(dbB, 'ok-write')?.name === 'Fine')
