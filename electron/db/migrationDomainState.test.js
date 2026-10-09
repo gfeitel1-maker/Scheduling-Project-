@@ -53,7 +53,7 @@ describe('the span query the startup guard asks', () => {
     expect(domainStateMigrationsIn(32, CURRENT_SCHEMA_VERSION)).toEqual([70, 77, 84, 85])
   })
 
-  it('a fresh database (from 0) reports every one of them — and has no document by definition', () => {
+  it('a fresh database (from 0) reports every one of them (syncRefusalForDomainMigration ignores a from-0 span: they ran on empty tables)', () => {
     expect(domainStateMigrationsIn(0, CURRENT_SCHEMA_VERSION)).toEqual([...DOMAIN_STATE_MIGRATIONS.keys()].sort((a, b) => a - b))
   })
 

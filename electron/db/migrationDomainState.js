@@ -484,7 +484,11 @@ export function resolvePendingDomainStateMigrations(db, { device_id = null } = {
 // startup guard's own audit/log detail string was already built from, byte-for-byte.
 export function syncRefusalForDomainMigration(db, { docExists }) {
   const migrationSpan = migrationSpanFor(db)
-  const riskyThisLaunch = migrationSpan ? domainStateMigrationsIn(migrationSpan.from, migrationSpan.to) : []
+  // A span from 0 is a FRESH database: every migration in it ran against empty tables, before any
+  // camp existed, so none of them can have changed what a camp means. Counting them as risky made a
+  // brand-new camp refuse sync the moment bootstrap wrote its document (fresh-camp ship-blocker).
+  const riskyThisLaunch =
+    migrationSpan && migrationSpan.from > 0 ? domainStateMigrationsIn(migrationSpan.from, migrationSpan.to) : []
   const unresolvedMarkers = unresolvedDomainStateMigrations(db)
 
   if (!shouldRefuseSyncForDomainMigration({ docExists, riskyThisLaunch, unresolvedMarkers })) return null
