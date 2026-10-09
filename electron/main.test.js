@@ -1446,6 +1446,7 @@ describe('existing-behavior-preserved: full entity sweep (staff + admin both rea
     special_days: 'name',
     special_day_time_blocks: 'name',
     special_day_slots: 'activity_id',
+    special_day_placements: 'special_day_id',
     // T108: day_overrides accumulate-then-insert-once — a single nullable
     // non-coordinate field applies to the op-log (same trick as special_day_slots).
     day_overrides: 'activity_id',
@@ -1518,6 +1519,16 @@ describe('existing-behavior-preserved: full entity sweep (staff + admin both rea
 
     for (const entity of ENTITIES) {
       const field = WRITABLE_FIELD_BY_ENTITY[entity]
+      // T350 (Red Hat R3): placements are written only by the bind/unbind path, so a partial
+      // row can never come from the generic write() — refused for every role.
+      if (entity === 'special_day_placements') {
+        for (const token of [staffToken, adminToken]) {
+          expect(() =>
+            handlers.write({ token, entity, entity_id: 'x1', field, value: 'V' })
+          ).toThrow(/special_day_placements cannot be written via write\(\)/)
+        }
+        continue
+      }
       await expect(
         handlers.write({ token: staffToken, entity, entity_id: 'x1', field, value: 'V' }),
         `staff write ${entity}`

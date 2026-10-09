@@ -17,6 +17,7 @@ export const ENTITY_LABEL = {
   // and "Resources" are retired; "Location" is the one canonical word.
   locations: 'Location',
   camp_maps: 'Camp map',
+  special_day_placements: 'Special day placement',
 }
 
 export function entityLabel(entity) {

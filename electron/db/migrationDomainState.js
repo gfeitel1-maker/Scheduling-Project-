@@ -333,6 +333,10 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // nothing has read or written since the Stage 6c cutover. Schema-only: neither table was ever
   // modeled into the document, so what an existing camp MEANS is unaffected.
   91,
+  // v92 (T350, docs/adr/2026-10-09-special-day-binds-to-a-week-day.md) creates an empty
+  // special_day_placements table. Schema-only: no appendOp, no backfill — no camp has a binding
+  // before this version, so what an existing camp MEANS is unaffected.
+  92,
 ])
 
 /** True if applying `version` can change what the camp means. */

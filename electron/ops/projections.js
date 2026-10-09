@@ -545,6 +545,34 @@ export const PROJECTIONS = {
       ).run(id, specialDayId, groupId, timeBlockId)
     },
   },
+  // T350 (docs/adr/2026-10-09-special-day-binds-to-a-week-day.md D2/D5). Hand-written, NOT
+  // ensureWeekJoinRow: the row is created only when all three fields are known AND the week
+  // already exists locally. It never stub-seeds schedule_weeks — a placement synced in for a week
+  // deleted on another device must not resurrect a ghost week. An incomplete row (the
+  // unbind-vs-rebind partial) is skipped silently, never a projection failure.
+  special_day_placements: {
+    table: 'special_day_placements',
+    key: 'id',
+    fields: ['week_id', 'day_id', 'special_day_id'],
+    ensureExists: (db, id, field, value, knownRow) => {
+      // Doc replay (knownRow supplied) reads ONLY the document row: falling back to the op log
+      // would complete a partial doc row from this device's bind history, so it would project a
+      // row that a fresh peer never does (Red Hat R1). The op-log lookup is for the local
+      // one-field-at-a-time write path only.
+      const readField = knownRow
+        ? (wanted) => (wanted === field ? value : knownRow[wanted] ?? null)
+        : makeReadField(db, 'special_day_placements', id, field, value, null)
+      const weekId = readField('week_id')
+      const dayId = readField('day_id')
+      const specialDayId = readField('special_day_id')
+      if (weekId == null || dayId == null || specialDayId == null) return
+      if (!getStmt(db, 'SELECT 1 FROM schedule_weeks WHERE id = ?').get(weekId)) return
+      getStmt(
+        db,
+        'INSERT OR IGNORE INTO special_day_placements (id, week_id, day_id, special_day_id) VALUES (?, ?, ?, ?)'
+      ).run(id, weekId, dayId, specialDayId)
+    },
+  },
   // Group-level electives (T41 slice 1, data shape + engine-skip only,
   // docs/work/specs/2026-08-20-group-electives-design.md). Camp-scoped
   // parent, same ensureExists shape as special_days above.

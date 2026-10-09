@@ -196,6 +196,11 @@ export function createScheduleRepository({
       }
     },
 
+    // T350: the special days bound to this week's days (bind/unbind land in slice 2).
+    async loadSpecialDayPlacements(weekId) {
+      return (await localClient.listByScope('special_day_placements', weekId ?? null)) || []
+    },
+
     async toggleActivityExclusion(weekId, activityId, excluded) {
       if (excluded) {
         const id = crypto.randomUUID()

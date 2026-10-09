@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
 import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
+import { deriveDayId } from './dayId.js'
+import { deriveSpecialDayPlacementId } from './electiveDerivedIds.js'
 import { commitIngest, commitPlan, replaceScope, INGESTIBLE_ENTITIES, listImportEvidence, confirmUnknownFieldEvidence, buildUnknownFieldEvidenceMap } from './ingest.js'
 import { inferActivityRules } from '../../src/ingest/activityRules.js'
 import { buildReconciliationReport } from '../../src/ingest/reconciliationReport.js'
@@ -1688,4 +1690,29 @@ describe('recurrence_truth_status classifier write at ingest commit', () => {
 // and undo the saving, so this runs once, at the end.
 afterAll(() => {
   cleanupTemplatedDbs()
+})
+
+// T350 slice 1 (docs/adr/2026-10-09-special-day-binds-to-a-week-day.md D8): special_day_placements
+// is deliberately NOT a PARENT_SCOPED_DEPENDENTS entry. Replace never clears weeks and day ids are
+// deterministic, so a Replace re-import must leave every binding intact and still resolving.
+describe('replace mode keeps special-day placements (T350)', () => {
+  it('a Replace re-import leaves placements intact and their day still resolving', () => {
+    const seeded = seedCampWithSchedule()
+    const tuesday = deriveDayId(campId, 2)
+    db.prepare('INSERT INTO days_of_operation (id, camp_id, label, day_of_week) VALUES (?, ?, ?, ?)').run(tuesday, campId, 'Tuesday', 2)
+    db.prepare('INSERT INTO special_days (id, camp_id, name) VALUES (?, ?, ?)').run('sd-1', campId, 'Color War')
+    const pid = deriveSpecialDayPlacementId(seeded.weekId, tuesday)
+    db.prepare('INSERT INTO special_day_placements (id, week_id, day_id, special_day_id) VALUES (?, ?, ?, ?)')
+      .run(pid, seeded.weekId, tuesday, 'sd-1')
+
+    commitIngest(db, {
+      mode: 'replace',
+      approved: { days_of_operation: ['Tuesday'] },
+      camp_id: campId, cohort_id: seeded.cohortId, author_user_id: 'u1', device_id: deviceId,
+    })
+
+    expect(db.prepare('SELECT id, week_id, day_id, special_day_id FROM special_day_placements').all())
+      .toEqual([{ id: pid, week_id: seeded.weekId, day_id: tuesday, special_day_id: 'sd-1' }])
+    expect(db.prepare('SELECT id FROM days_of_operation WHERE id = ?').get(tuesday)).toEqual({ id: tuesday })
+  })
 })

@@ -122,6 +122,8 @@ const ACCEPTED_NON_REFERENCES = [
   { table: 'special_day_time_blocks', column: 'special_day_id', reason: 'points at special_days, not a U2-deletable entity' },
   { table: 'special_day_slots', column: 'special_day_id', reason: 'points at special_days, not a U2-deletable entity' },
   { table: 'special_day_slots', column: 'time_block_id', reason: 'points at special_day_time_blocks, not a U2-deletable entity' },
+  { table: 'special_day_placements', column: 'week_id', reason: 'points at schedule_weeks, not a U2-deletable entity (T350)' },
+  { table: 'special_day_placements', column: 'special_day_id', reason: 'points at special_days, not a U2-deletable entity (T350)' },
   { table: 'elective_set_activities', column: 'elective_set_id', reason: 'points at elective_sets, not a U2-deletable entity' },
   { table: 'elective_bundles', column: 'elective_set_id', reason: 'points at elective_sets, not a U2-deletable entity (T301 v81; its activity_id IS a registered reference in undoReferences.js)' },
   { table: 'elective_bundle_periods', column: 'bundle_id', reason: 'points at elective_bundles, not a U2-deletable entity (T301 v81; its day_id/time_block_id ARE registered references)' },

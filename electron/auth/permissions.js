@@ -54,6 +54,8 @@ export const ENTITIES = [
   'special_days',
   'special_day_time_blocks',
   'special_day_slots',
+  // T350 (docs/adr/2026-10-09-special-day-binds-to-a-week-day.md): same staff read/write posture.
+  'special_day_placements',
   // T41 slice 1 (docs/work/specs/2026-08-20-group-electives-design.md): same
   // posture as special_days above — staff read/write, delete/bulk_replace
   // admin-only via default-deny.

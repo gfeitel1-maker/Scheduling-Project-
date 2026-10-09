@@ -320,6 +320,7 @@ const GENESIS_ENTITIES = [
   'schedule_snapshots',
   'schedule_templates',
   'schedule_weeks',
+  'special_day_placements',
   'special_day_slots',
   'special_day_time_blocks',
   'special_days',
@@ -394,8 +395,14 @@ const GENESIS_ENTITIES = [
 // may be discarded (owner ruling, 2026-10-02: "Regenerating GENESIS_B64 IS acceptable here —
 // this is pre-production... the same move v66/v72 made when they added genesis collections"). New
 // pinned head: 841a628058948a3f9d6d89674700a4d4aba04c2aa44e300bf71f92f5165143b0
+// FIFTEENTH REGENERATION (T350, docs/adr/2026-10-09-special-day-binds-to-a-week-day.md D3):
+// `special_day_placements` added to PARENT_SCOPED_ENTITIES and so to MODELED_ENTITIES. Inserted
+// alphabetically before `special_day_slots`. An APPEND. Same recipe (confirmed to reproduce the
+// fourteenth bytes before the entry was added), same acceptance: pre-production, every paired
+// device re-pairs, existing `.automerge` files may be discarded. New pinned head:
+// 001c00af79146805a237424072ad3afccf4dfb52ba6b317ab91ea42d001e0551
 const GENESIS_B64 =
-  'hW9Kg2iUTr0A0AMBECWl3YlnQBZYZHRLlRX3P0UBhBpigFiUij+dbYlnRwCk1KugTCqkTjAL9x+S9RZRQ7AGAQIDAhMCIwZAAlYCBx3bAiECIwo0AUICVgKAAQJ/AH8Bfy9/1P6C1QZ/AH8HbZHhTgMhEIR/VaPWpjU2auJL+QSEwlyPlGMJA9V7e8Nh22vjr2O/3VtmmK9HbbI7uuzAF6OHqHTJvSSXR+Vl/zChQUeuphMB613Y87WWSMpZhFyHDxh53yAX9ct7I72kzGerRyVHpOQsuLF6pJJOSUTS2Ul4h0fVAKVJtw8DQlapBL7+0+DbGe5KsB4qIjmx3N7y7JC4vqH8OAPTizNQ0nVI1dH6pjO7XowpKSFcwZjQocHL3akE1blg68LPKyolIykGHdnL3AaR1SWD5znnEsf6GPskJfKpFfSSuWnn7AaonRdz4N1EuOwcvP0Lcd2KmOSIoIPBsnM/sKqN3rW1D17MlANfaHrY4nGReUEZQ/Q6g6sz+gYO3DDCOO1VTXnS9jYnM4XLGefqtK/9s70uFY1EcDFl+DTb8Zhl2DFLABeFSHyvIk7vNyr8GF9YzWynxmRxRtv4yfGs8QsvAH4BAhsBfmQdEAEvLwAvAC8AAA=='
+  'hW9Kg/bptLIA2wMBECWl3YlnQBZYZHRLlRX3P0UBABwAr3kUaAWiN0JAcq06/M9N+1K6azF6uR6kLQAeBVEGAQIDAhMCIwZAAlYCBx3mAiECIwo0AUICVgKAAQJ/AH8BfzB/1P6C1QZ/AH8HbZHdbiIxDIWvaNWWIkClP1Ifat8gCskZJiITRzkJ23n7VWYWCKhXE3/22Mc+f561ye7ksgO3Rg9R6ZJ7SS6PysvhaUKDjlxNLwLWu3DgWw2RlLMIuRYfMfJxhlzULx+N9JIyX60elZyQkrPgxuqRSjolEUlnJ+ETHlUDlCbdIQwIWaUS+PZLgh8XuC/BeqiI5MRyd8+zQ+L6jvLrAkwvzkBJ1yHVjdZ3mWa8GFNSQriBMaHDDK+zUwmqc8HWht83VEpGUgw6spd2DSKrqwevLecSp3qMQ5IS+TIH9JK5md/ZDVB7L+bIh4lw2Tl4+9/E9RzEJCcEHQyWnfuBVXPpw9z2yYuZfOCWpoctHleZ2wvKGKLXGVxd0F/gyHdGGKe9qi5Hrw0mmzYtniR/tKQRvmw4V+cx8z+721DRSAQXk7UvTY/nLMOeWQK4KETiZ9V2Puuo8GN8Yd1xNyWmzRs6l58P0ST+ATAAfgECGwF+ZB0RATAwADAAMAAA'
 
 function genesisDoc() {
   return A.clone(A.load(Uint8Array.from(Buffer.from(GENESIS_B64, 'base64'))))

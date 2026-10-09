@@ -402,6 +402,13 @@ export function deriveCampSeedlingId(campId, kind, matchKey) {
   ])}`
 }
 
+// T350 (docs/adr/2026-10-09-special-day-binds-to-a-week-day.md D1). Key: (week_id, day_id) —
+// the (week, day) slot is the scarce thing, so two bindings of one slot are one row and a
+// cross-device clash is a per-field conflict on special_day_id. Own prefix, not a bump of `V`.
+export function deriveSpecialDayPlacementId(weekId, dayId) {
+  return `sdp1:${join([opaque('week_id', weekId), opaque('day_id', dayId)])}`
+}
+
 // Key: (run_id, elective_set_id, day_id, time_block_id, tier_id).
 export function deriveElectiveOccurrenceId(runId, electiveSetId, dayId, timeBlockId, tierId) {
   return `eocc${V}:${join([

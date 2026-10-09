@@ -23,7 +23,7 @@ import { buildCampDataWorkbook } from '../src/utils/buildCampDataWorkbook.js'
 const ENTITY_NAMES = [
   'tiers', 'cohorts', 'groups', 'campers', 'locations', 'activities',
   'days_of_operation', 'time_blocks', 'schedule_weeks', 'fixed_events',
-  'special_days', 'events', 'elective_sets',
+  'special_days', 'special_day_placements', 'events', 'elective_sets',
 ]
 
 function sanitizeFilenamePart(name) {
