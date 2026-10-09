@@ -11,6 +11,7 @@ import { S } from '../styles/shared'
 import SchedulePickerList, { Crossfade } from '../components/schedule/SchedulePickerList'
 import SpecialDayGridEditor from './specialDay/SpecialDayGridEditor'
 import EventGridEditor from './event/EventGridEditor'
+import { placementSublabel } from './specialDay/placementDisplay'
 
 const LABELS = {
   specialDaysHeading: 'Special Days',
@@ -35,6 +36,8 @@ export default function SpecialSchedulesScreen({ campId, onNavigate, initialSele
   const [eventSlots, setEventSlots] = useState([])
   const [templateSlots, setTemplateSlots] = useState([])
   const [days, setDays] = useState([])
+  const [weeks, setWeeks] = useState([])
+  const [placements, setPlacements] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [selected, setSelected] = useState(initialSelection)
@@ -47,7 +50,7 @@ export default function SpecialSchedulesScreen({ campId, onNavigate, initialSele
       const [
         specialDaysData, sdBlocksData, sdSlotsData, groupsData,
         eventsData, eventBlocksData, eventGroupsData, eventSlotsData,
-        templateSlotsData, daysData,
+        templateSlotsData, daysData, weeksData, placementsData,
       ] = await Promise.all([
         localClient.list('special_days'),
         localClient.list('special_day_time_blocks'),
@@ -59,6 +62,8 @@ export default function SpecialSchedulesScreen({ campId, onNavigate, initialSele
         localClient.list('event_slots'),
         localClient.list('template_slots'),
         localClient.list('days_of_operation'),
+        localClient.list('schedule_weeks'),
+        localClient.list('special_day_placements'),
       ])
       setSpecialDays((specialDaysData || []).filter((d) => d.camp_id === campId))
       setSdTimeBlocks(sdBlocksData || [])
@@ -70,6 +75,8 @@ export default function SpecialSchedulesScreen({ campId, onNavigate, initialSele
       setEventSlots(eventSlotsData || [])
       setTemplateSlots((templateSlotsData || []).filter((s) => s.event_id))
       setDays((daysData || []).filter((d) => d.camp_id === campId))
+      setWeeks((weeksData || []).filter((w) => w.camp_id === campId))
+      setPlacements(placementsData || [])
     } catch {
       setError("Couldn't load camp setup.")
     } finally {
@@ -140,6 +147,7 @@ export default function SpecialSchedulesScreen({ campId, onNavigate, initialSele
             return {
               key: d.id,
               name: d.name,
+              sublabel: placementSublabel({ specialDayId: d.id, placements, weeks, days }),
               meta: `${filled}/${groups.length * blocks.length}`,
               onClick: () => setSelected({ type: 'day', id: d.id }),
             }

@@ -19,6 +19,8 @@ import { createActivity } from '../schedule/createActivityHelper'
 import { placeCell } from '../schedule/gridPlacement'
 import { blockNamesForSpan } from '../../components/schedule/cellLabel'
 import SpecialDayCell from './SpecialDayCell'
+import SpecialDayPlacements from './SpecialDayPlacements'
+import FailureLine from './FailureLine'
 import GridEditorFrame from '../../components/schedule/GridEditorFrame'
 
 const LABELS = {
@@ -316,7 +318,15 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
           {specialDay.name}
         </div>
       )}
-      banners={error && <div style={S.errorBanner}>{error}</div>}
+      meta={
+        <SpecialDayPlacements
+          campId={campId}
+          specialDayId={specialDayId}
+          specialDayName={specialDay.name}
+          onDeletedElsewhere={onDeletedElsewhere}
+        />
+      }
+      banners={error && <FailureLine message={error} />}
       toolbarActions={<button className="press-97" onClick={addBlock} style={S.btnSecondary}>{LABELS.addBlock}</button>}
       groups={groups}
       timeBlocks={timeBlocks}

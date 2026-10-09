@@ -239,6 +239,26 @@ describe('SpecialDayGridEditor — dangling-reference fallbacks', () => {
   })
 })
 
+describe('SpecialDayGridEditor — T350 slice 5', () => {
+  it('renders the Placed on strip under the title', async () => {
+    baseFixtures()
+    render(<SpecialDayGridEditor campId={CAMP_ID} specialDayId={SD_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
+    expect(await screen.findByRole('button', { name: '+ Place on a day' })).toBeTruthy()
+    expect(screen.getByText('Placed on')).toBeTruthy()
+  })
+
+  it('a failed write is an inline role="alert" line, not a filled banner', async () => {
+    baseFixtures()
+    localClient.write.mockResolvedValue({ status: 'rejected' })
+    render(<SpecialDayGridEditor campId={CAMP_ID} specialDayId={SD_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
+    fireEvent.click(await screen.findByText('+ Add Block'))
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('Could not add a time block.')
+    expect(alert.style.background).toBe('')
+    expect(alert.style.border).toBe('')
+  })
+})
+
 describe('SpecialDayGridEditor — back control', () => {
   it('renders the corrected "← Special Schedules" label (returns to the picker list)', async () => {
     baseFixtures({})
