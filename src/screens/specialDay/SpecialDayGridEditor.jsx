@@ -15,14 +15,11 @@ import { localClient } from '../../localClient'
 import { filterFreeChoiceActivities } from '../../engine/freeChoiceActivities'
 import { describeWriteFailure } from '../../utils/writeErrorMessage'
 import { S, useEnterTransition } from '../../styles/shared'
-import { ArrowIcon, CloseIcon } from '../../components/icons'
 import { createActivity } from '../schedule/createActivityHelper'
-import { buildRowTracks, columnTracks } from '../schedule/gridTracks'
-import { placeCell, placeRowHeader } from '../schedule/gridPlacement'
+import { placeCell } from '../schedule/gridPlacement'
 import { blockNamesForSpan } from '../../components/schedule/cellLabel'
-import { timeRangeLabel } from '../../utils/timeBlockLabel'
 import SpecialDayCell from './SpecialDayCell'
-import '../../components/schedule/scheduleGrid.css'
+import GridEditorFrame from '../../components/schedule/GridEditorFrame'
 
 const LABELS = {
   backLink: '← Special Schedules',
@@ -297,42 +294,35 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
   if (loading) return <div style={S.stateLoading}>Loading…</div>
   if (!specialDay) return null
 
-  const rowTracks = buildRowTracks({ timeBlocks })
-  const gridTemplateColumns = columnTracks(groups.length)
-
   return (
-    <div style={enterStyle}>
-      <div className="back-row" style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16 }}>
-        <button className="press-97" onClick={onBack} style={S.backBar}>{LABELS.backLink}</button>
-        {editingName ? (
-          <input
-            autoFocus
-            value={nameDraft}
-            onChange={(e) => setNameDraft(e.target.value)}
-            onBlur={commitName}
-            onKeyDown={(e) => e.key === 'Enter' && commitName()}
-            style={{ ...S.input, fontSize: 16, fontWeight: 700, maxWidth: 320 }}
-          />
-        ) : (
-          <div
-            onClick={() => setEditingName(true)}
-            style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 18, cursor: 'text' }}
-          >
-            {specialDay.name}
-          </div>
-        )}
-      </div>
-
-      {error && <div style={S.errorBanner}>{error}</div>}
-
-      <div className="grid-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-        <button className="press-97" onClick={addBlock} style={S.btnSecondary}>{LABELS.addBlock}</button>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>
-          {groups.length} group{groups.length !== 1 ? 's' : ''} × {timeBlocks.length} block{timeBlocks.length !== 1 ? 's' : ''} — {filledCount} / {totalCells} filled
+    <GridEditorFrame
+      enterStyle={enterStyle}
+      onBack={onBack}
+      backLabel={LABELS.backLink}
+      title={editingName ? (
+        <input
+          autoFocus
+          value={nameDraft}
+          onChange={(e) => setNameDraft(e.target.value)}
+          onBlur={commitName}
+          onKeyDown={(e) => e.key === 'Enter' && commitName()}
+          style={{ ...S.input, fontSize: 16, fontWeight: 700, maxWidth: 320 }}
+        />
+      ) : (
+        <div
+          onClick={() => setEditingName(true)}
+          style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 18, cursor: 'text' }}
+        >
+          {specialDay.name}
         </div>
-      </div>
-
-      {timeBlocks.length === 0 ? (
+      )}
+      banners={error && <div style={S.errorBanner}>{error}</div>}
+      toolbarActions={<button className="press-97" onClick={addBlock} style={S.btnSecondary}>{LABELS.addBlock}</button>}
+      groups={groups}
+      timeBlocks={timeBlocks}
+      filledCount={filledCount}
+      totalCells={totalCells}
+      empty={timeBlocks.length === 0 ? (
         <div style={S.emptyState}>
           <button className="press-97" onClick={addBlock} style={S.btnPrimary}>{LABELS.addBlock}</button>
         </div>
@@ -341,124 +331,56 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
           <div style={S.emptyStateTitle}>No groups yet.</div>
           <div style={S.emptyStateBody}>Add groups first.</div>
         </div>
-      ) : (
-        <div style={{ overflowX: 'auto' }}>
-          <div role="grid" className="schedule-grid-frame" aria-rowcount={timeBlocks.length + 1} aria-colcount={groups.length + 1}>
-            <div role="rowgroup" className="schedule-grid schedule-grid--header" style={{ gridTemplateColumns }}>
-              <div role="row" style={{ display: 'contents' }}>
-                <div role="columnheader" className="cell row-header" aria-colindex={1} style={placeRowHeader({ blockIndex: 0 })}>Block</div>
-                {groups.map((g, groupIndex) => (
-                  <div key={g.id} role="columnheader" className="cell" aria-colindex={groupIndex + 2}
-                    style={placeCell({ blockIndex: 0, columnIndex: groupIndex })}>{g.name}</div>
-                ))}
-              </div>
-            </div>
-
-            <div role="rowgroup" className="schedule-grid schedule-grid--body" style={{ gridTemplateColumns, '--grid-rows': rowTracks }}>
-              {timeBlocks.map((block, blockIndex) => (
-                <div key={block.id} role="row" style={{ display: 'contents' }}>
-                  <div role="rowheader" className="cell row-header" aria-colindex={1} style={placeRowHeader({ blockIndex })}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, width: '100%' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <div style={{ display: 'flex', flexDirection: 'column' }}>
-                          <button type="button" className="cell-action" title="Move up" onClick={() => moveBlock(block.id, -1)} disabled={blockIndex === 0}><ArrowIcon direction="up" /></button>
-                          <button type="button" className="cell-action" title="Move down" onClick={() => moveBlock(block.id, 1)} disabled={blockIndex === timeBlocks.length - 1}><ArrowIcon direction="down" /></button>
-                        </div>
-                        <BlockName block={block} onRename={(name) => renameBlock(block.id, name)} />
-                        <button type="button" className="cell-action" title="Remove block" onClick={() => removeBlock(block.id)} style={{ color: 'var(--danger)' }}><CloseIcon size={10} /></button>
-                      </div>
-                    </div>
-                  </div>
-                  {groups.map((g, groupIndex) => {
-                    const slotRow = slotFor(g.id, block.id)
-                    return (
-                      <SpecialDayCell
-                        key={g.id}
-                        slotRow={slotRow}
-                        activity={slotRow?.activity_id ? activityMap.get(slotRow.activity_id) ?? null : null}
-                        location={slotRow?.location_id ? locationMap.get(slotRow.location_id) ?? null : null}
-                        groupId={g.id}
-                        blockId={block.id}
-                        specialDayId={specialDayId}
-                        ariaColIndex={groupIndex + 2}
-                        blockNames={blockNamesForSpan(timeBlocks, blockIndex)}
-                        column={g.name}
-                        /* T266 (site 7 of 7) — this sub-grid is a free-choice menu like the
-                           main one; a pinned event is not pickable here either. No
-                           eligibility filtering is added or removed. */
-                        eligibleActivities={freeChoiceActivities}
-                        locations={locations}
-                        onPlace={(_slot, activityId) => placeActivity(g.id, block.id, activityId)}
-                        onCreateNew={(_slot, name) => createAndPlace(g.id, block.id, name)}
-                        onLocationChange={changeLocation}
-                        {...placeCell({ blockIndex, columnIndex: groupIndex })}
-                      />
-                    )
-                  })}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)' }}>
-            {LABELS.notesLabel}
-          </div>
-          <button className="press-97" onClick={doPrint} style={S.btnSecondary}>{LABELS.printAction}</button>
-        </div>
-        <textarea
-          className="notes-field"
-          value={notesDraft}
-          onChange={(e) => setNotesDraft(e.target.value)}
-          onBlur={(e) => commitNotes(e.target.value)}
-          placeholder="Notes"
-          style={{
-            width: '100%', minHeight: 140, resize: 'vertical', fontFamily: 'var(--font-sans)',
-            fontSize: 13, padding: '10px 12px', border: '1px solid var(--border)',
-            borderRadius: 8, background: 'var(--surface)',
-          }}
-        />
-        {/* Print-only mirror: a <textarea>'s scroll overflow does not print in
-            most browsers, so beforeprint copies the live value into this
-            plain read-only div (design spec §2 "Print"). */}
-        <div ref={notesPrintRef} className="notes-print-view" style={{ display: 'none' }} />
-      </div>
-    </div>
-  )
-}
-
-function BlockName({ block, onRename }) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(block.name)
-
-  function startEditing() {
-    setDraft(block.name)
-    setEditing(true)
-  }
-
-  if (editing) {
-    return (
-      <input
-        autoFocus
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => { setEditing(false); onRename(draft) }}
-        onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
-        style={{ ...S.input, fontSize: 12, padding: '2px 6px', flex: 1 }}
+      ) : null}
+      onMoveBlock={moveBlock}
+      onRenameBlock={renameBlock}
+      onRemoveBlock={removeBlock}
+      renderCell={(g, block, groupIndex, blockIndex) => {
+        const slotRow = slotFor(g.id, block.id)
+        return (
+          <SpecialDayCell
+            key={g.id}
+            slotRow={slotRow}
+            activity={slotRow?.activity_id ? activityMap.get(slotRow.activity_id) ?? null : null}
+            location={slotRow?.location_id ? locationMap.get(slotRow.location_id) ?? null : null}
+            groupId={g.id}
+            blockId={block.id}
+            specialDayId={specialDayId}
+            ariaColIndex={groupIndex + 2}
+            blockNames={blockNamesForSpan(timeBlocks, blockIndex)}
+            column={g.name}
+            /* T266 (site 7 of 7) — this sub-grid is a free-choice menu like the
+               main one; a pinned event is not pickable here either. No
+               eligibility filtering is added or removed. */
+            eligibleActivities={freeChoiceActivities}
+            locations={locations}
+            onPlace={(_slot, activityId) => placeActivity(g.id, block.id, activityId)}
+            onCreateNew={(_slot, name) => createAndPlace(g.id, block.id, name)}
+            onLocationChange={changeLocation}
+            {...placeCell({ blockIndex, columnIndex: groupIndex })}
+          />
+        )
+      }}
+      footerLabel={LABELS.notesLabel}
+      onPrint={doPrint}
+      printLabel={LABELS.printAction}
+    >
+      <textarea
+        className="notes-field"
+        value={notesDraft}
+        onChange={(e) => setNotesDraft(e.target.value)}
+        onBlur={(e) => commitNotes(e.target.value)}
+        placeholder="Notes"
+        style={{
+          width: '100%', minHeight: 140, resize: 'vertical', fontFamily: 'var(--font-sans)',
+          fontSize: 13, padding: '10px 12px', border: '1px solid var(--border)',
+          borderRadius: 8, background: 'var(--surface)',
+        }}
       />
-    )
-  }
-  return (
-    <span className="block-name" onClick={startEditing} style={{ cursor: 'text', flex: 1 }}>
-      {block.name}
-      {timeRangeLabel(block) && (
-        <span style={{ display: 'block', fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>
-          {timeRangeLabel(block)}
-        </span>
-      )}
-    </span>
+      {/* Print-only mirror: a <textarea>'s scroll overflow does not print in
+          most browsers, so beforeprint copies the live value into this
+          plain read-only div (design spec §2 "Print"). */}
+      <div ref={notesPrintRef} className="notes-print-view" style={{ display: 'none' }} />
+    </GridEditorFrame>
   )
 }
