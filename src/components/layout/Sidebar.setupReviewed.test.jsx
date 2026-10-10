@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
 
 import Sidebar from './Sidebar'
+import { resetSetupReviewedSessionForTests } from '../../hooks/useSetupReviewed'
 
 // A new camp pre-fills Monday to Friday. The sidebar must not tick Days as done
 // before the director has looked at it; a camp already in use keeps its tick.
@@ -16,6 +17,7 @@ const USED_CAMP_COUNTS = { ...NEW_CAMP_COUNTS, tiers: 4, groups: 14, timeblocks:
 let storage
 beforeEach(() => {
   cleanup()
+  resetSetupReviewedSessionForTests()
   storage = {}
   vi.stubGlobal('localStorage', {
     getItem: (k) => storage[k] ?? null,
@@ -25,10 +27,11 @@ beforeEach(() => {
 })
 
 function el(props = {}) {
+  const campId = props.campId ?? 'camp-1'
   return (
     <Sidebar
       current="roots" onNavigate={() => {}} campId="camp-1" role="admin" badges={{}}
-      counts={NEW_CAMP_COUNTS} campName="Camp Test" syncStatus={null}
+      counts={NEW_CAMP_COUNTS} countsFor={{ campId, complete: true }} campName="Camp Test" syncStatus={null}
       projectPath={null} isDevDb={false} buildLabel={null} backupStatus={null}
       handleBackupNow={() => {}} offerShown={false} setOfferShown={() => {}}
       {...props}
@@ -96,5 +99,24 @@ describe('Sidebar: a pre-filled setup step needs a look before it is ticked', ()
     expect(daysLook()).not.toBeNull()
     rerender(el({ current: 'days' }))
     expect(daysTick()).not.toBeNull()
+  })
+
+  // Code review, PR #887: the in-use decision is permanent, so it must never be
+  // made from counts that a failed read zeroed or that belong to another camp.
+  it('counts with a failed read do not decide: an in-use camp keeps its tick once they load', () => {
+    const { rerender } = render(el({ counts: { ...USED_CAMP_COUNTS, tiers: 0, groups: 0, timeblocks: 0, activities: 0 }, countsFor: { campId: 'camp-1', complete: false } }))
+    expect(daysLook()).toBeNull()
+    rerender(el({ counts: USED_CAMP_COUNTS }))
+    expect(daysTick()).not.toBeNull()
+    expect(daysLook()).toBeNull()
+  })
+
+  it("the previous camp's counts do not decide for the camp just opened", () => {
+    // Undecided reads as today's behaviour (a tick), and nothing is stored yet.
+    const { rerender } = render(el({ campId: 'camp-2', counts: USED_CAMP_COUNTS, countsFor: { campId: 'camp-1', complete: true } }))
+    expect(daysLook()).toBeNull()
+    expect(storage['shoresh-setup-reviewed:camp-2']).toBeUndefined()
+    rerender(el({ campId: 'camp-2' }))
+    expect(daysLook()).not.toBeNull()
   })
 })

@@ -26,6 +26,11 @@ export function useSetupCounts(campId) {
   const [backupRevealable, setBackupRevealable] = useState(false)
   const { start: startBackupStatusReset, cancel: cancelBackupStatusReset } = useLatestTimeout()
   const [counts, setCounts] = useState(null)
+  // Which camp the counts above were read for, and whether every list read
+  // succeeded. A failed read counts as 0, so counts that are incomplete or
+  // belong to the previous camp must not drive a one-time decision
+  // (useSetupReviewed).
+  const [countsFor, setCountsFor] = useState(null)
   const [syncStatus, setSyncStatus] = useState(null)
   const [offerShown, setOfferShown] = useState(false)
 
@@ -37,8 +42,9 @@ export function useSetupCounts(campId) {
       const entry = AREA_TABLE[area]
       return typeof entry === 'string' ? { table: entry, kind: null } : entry
     }
+    let complete = true
     const results = await Promise.all(
-      areas.map((area) => localClient.list(specFor(area).table).catch(() => []))
+      areas.map((area) => localClient.list(specFor(area).table).catch(() => { complete = false; return [] }))
     )
     const next = {}
     areas.forEach((area, i) => {
@@ -62,6 +68,7 @@ export function useSetupCounts(campId) {
       }
       return next
     })
+    setCountsFor({ campId, complete })
   }, [campId])
 
   useEffect(() => {
@@ -134,6 +141,7 @@ export function useSetupCounts(campId) {
 
   return {
     counts,
+    countsFor,
     campName,
     syncStatus,
     projectPath,

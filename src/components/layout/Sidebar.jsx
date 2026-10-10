@@ -59,7 +59,7 @@ const NAV_SCROLL_SHADOW = [
 
 export default function Sidebar({
   current, onNavigate, role, badges = {}, campId,
-  counts, campName, syncStatus,
+  counts, countsFor, campName, syncStatus,
   projectPath, isDevDb, buildLabel,
   backupStatus, handleBackupNow, backupRevealable, handleShowBackup,
   offerShown, setOfferShown,
@@ -94,7 +94,7 @@ export default function Sidebar({
   }
 
   const currentArea = NAV_SECTIONS.flatMap((s) => s.items).find((i) => i.key === current)?.area
-  const reviewedAreas = useSetupReviewed(campId, counts, currentArea)
+  const { areas: reviewedAreas, decided: reviewDecided } = useSetupReviewed(campId, counts, currentArea, countsFor)
   const gaps = counts ? countGaps(counts) : []
   const gapAreas = new Set(gaps.map((g) => g.key))
   const offerOpen = offerShown && !sidebar.offered
@@ -152,7 +152,7 @@ export default function Sidebar({
     // saying (T129).
     // A step the app filled in at camp creation is not "done" until the
     // director has looked at it (useSetupReviewed).
-    const needsLook = !isBlocking && count > 0 && PREFILLED_AREAS.includes(item.area)
+    const needsLook = reviewDecided && !isBlocking && count > 0 && PREFILLED_AREAS.includes(item.area)
       && !reviewedAreas[item.area] && current !== item.key
     const mark = !item.area || needsLook ? null : isBlocking ? '!' : (count > 0 ? '✓' : null)
     const markColor = mark ? MARK_COLOR[mark] : null
