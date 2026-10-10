@@ -30,7 +30,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version-file: .nvmrc
+          # Release builds use Node 22: the encrypting SQLite driver has no prebuilt for, and does not
+          # compile under, the pinned Node 25 (see CLAUDE.md "Release builds need a Node that can compile").
+          node-version: 22
           cache: npm
       - run: npm ci
       - name: Build and verify the packaged app
