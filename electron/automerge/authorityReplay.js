@@ -1,7 +1,7 @@
 // T331 (docs/adr/2026-10-02-distributed-revocation-authority.md) — the causal-ancestor replay
 // (`isValidAdminAt`) and quorum-threshold evaluation over `camp_authority_log`. Pure functions of
 // an Automerge document's change set: no sequencer, no wall-clock, same answer on every peer
-// regardless of merge order. org-source-verification: Automerge.getAllChanges/decodeChange
+// regardless of merge order. org-source-verification: Automerge.getAllChanges/getChangesMetaSince
 // confirmed against this repo's pinned @automerge/automerge (3.4.1) to return {hash, deps, actor,
 // seq, ops} per change, with deps as content-hash strings forming a cryptographically chained DAG.
 //
@@ -18,8 +18,7 @@
 // MODELED_ENTITIES entity uses (campDocument.js's recordKey/readRecord/listRecordIds — NOT a plain
 // array), so this module reads them the same way projector.js reads any other entity, rather than
 // assuming a bespoke array shape.
-import { decodeChange } from '@automerge/automerge'
-import { listRecordIds, readRecord } from './campDocument.js'
+import { listRecordIds, readRecord, splitRecordKey } from './campDocument.js'
 import { verifyAuthorityEntry } from './authorityLogSignature.js'
 
 export const AUTHORITY_LOG_ENTITY = 'camp_authority_log'
@@ -42,10 +41,12 @@ export function isCompleteEntry(row) {
 
 // --- change-graph plumbing ----------------------------------------------
 
-// A document snapshot is immutable, so everything derived from its change set is cached per
-// snapshot object. One rotation check alone used to decode and replay the whole history four or
-// more times (createVerifiedEntryTrust, revocationDigest, electedRotator, plus one decodeAll per
-// duplicate grant in isCausallyAtLeastAsLate); on an import-sized camp that hung startup.
+// Everything derived from a document's change set is cached per document object. One rotation
+// check alone used to decode and replay the whole history four or more times (createVerifiedEntryTrust,
+// revocationDigest, electedRotator, plus one decode per duplicate grant in isCausallyAtLeastAsLate);
+// on an imported camp that hung startup. Contract: call these on the CURRENT document. Automerge
+// keeps an outdated document object readable, but getAllChanges on it reports the newer history,
+// so a cached result for an outdated object can disagree with what it shows.
 const snapshotCache = new WeakMap()
 function cacheFor(doc) {
   let entry = snapshotCache.get(doc)
@@ -53,32 +54,44 @@ function cacheFor(doc) {
   return entry
 }
 
-function decodeAll(automerge, doc) {
+// {hash, deps, actor, seq, startOp, maxOp} per change, in getAllChanges order, WITHOUT decoding
+// ops. Imported camps store long strings as Automerge text, one op per character: the camp that
+// hung had 229 changes holding 2.9 million ops, and decoding them cost 18s of CPU per call.
+function changeMeta(automerge, doc) {
   const cache = cacheFor(doc)
-  if (!cache.changes) cache.changes = automerge.getAllChanges(doc)
-  if (!cache.decoded) cache.decoded = cache.changes.map((c) => decodeChange(c))
-  return cache.decoded
+  if (!cache.meta) cache.meta = automerge.getChangesMetaSince(doc, [])
+  return cache.meta
 }
 
 function byHashOf(automerge, doc) {
   const cache = cacheFor(doc)
-  if (!cache.byHash) cache.byHash = new Map(decodeAll(automerge, doc).map((c) => [c.hash, c]))
+  if (!cache.byHash) cache.byHash = new Map(changeMeta(automerge, doc).map((c) => [c.hash, c]))
   return cache.byHash
 }
 
-// True when the change has an op on a camp_authority_log map object (or creates one). Every
-// authority entry lives as a scalar field in that one flat map, so a change with no such op
-// cannot alter what listRecordIds/readRecord return for the entity. `authorityObjs` accumulates
-// the ids of those map objects as their creating ops are seen; changes arrive in causal order, so
-// a creating op is always seen before any op on the object it creates.
-function touchesAuthorityLog(decoded, authorityObjs) {
-  let touches = false
-  decoded.ops.forEach((op, i) => {
-    if (op.key !== AUTHORITY_LOG_ENTITY && !authorityObjs.has(op.obj)) return
-    touches = true
-    if (typeof op.action === 'string' && op.action.startsWith('make')) authorityObjs.add(`${decoded.startOp + i}@${decoded.actor}`)
-  })
-  return touches
+// Reads the camp_authority_log collection as it stood at `heads`, straight from the document's
+// backend: keys and values at historical heads, without materialising the document. Same
+// result as listRecordIds/readRecord on the document at those heads: the collection is the
+// root key's winning object, a field's text is its string, a scalar is itself, and a nested
+// object is reported as a non-string placeholder (never a complete string field).
+function authorityRowsAt(backend, heads) {
+  const root = backend.getWithType('_root', AUTHORITY_LOG_ENTITY, heads)
+  if (!root || (root[0] !== 'map' && root[0] !== 'table')) return new Map()
+  const logId = root[1]
+  const rows = new Map()
+  for (const key of backend.keys(logId, heads)) {
+    const parsed = splitRecordKey(key)
+    if (!parsed) continue
+    const value = backend.getWithType(logId, key, heads)
+    if (!value) continue
+    let field
+    if (value[0] === 'text') field = backend.text(value[1], heads)
+    else if (value[0] === 'map' || value[0] === 'list' || value[0] === 'table') field = {}
+    else field = value[1]
+    if (!rows.has(parsed.entityId)) rows.set(parsed.entityId, {})
+    rows.get(parsed.entityId)[parsed.field] = field
+  }
+  return rows
 }
 
 // BFS over `deps`, transitively, EXCLUDING changeHash itself.
@@ -119,32 +132,26 @@ function headsClosure(byHash) {
 }
 
 // Maps each COMPLETE camp_authority_log entry's stable id to the hash of the change that FIRST
-// completed it (i.e. the change after which every required field is present), by replaying changes
-// one at a time onto a scratch doc built from the SAME automerge module the caller passed in.
+// completed it (i.e. the change after which every required field is present), by reading the
+// collection after each change in turn (see the loop below).
 // Works for ANY peer's doc, not just the authoring device's — the only robust way to answer "which
 // change authored this entry" without a self-reported field.
 function buildEntryChangeIndexFrom(automerge, doc) {
   const cache = cacheFor(doc)
   if (cache.entryIndex) return cache.entryIndex
-  const { init, applyChanges } = automerge
-  decodeAll(automerge, doc)
-  const { changes, decoded } = cache
-  let scratch = init()
+  const backend = automerge.getBackend(doc)
   const index = new Map()
-  const authorityObjs = new Set()
-  // Same result as applying and checking one change at a time: changes that do not touch the
-  // authority map are applied together in one batch, and the check runs only after a change that
-  // does, because only such a change can complete an entry.
-  let pending = []
-  for (let i = 0; i < changes.length; i++) {
-    pending.push(changes[i])
-    if (!touchesAuthorityLog(decoded[i], authorityObjs)) continue
-    ;[scratch] = applyChanges(scratch, pending)
-    pending = []
-    for (const id of listRecordIds(scratch, AUTHORITY_LOG_ENTITY)) {
+  // The collection after the first i+1 changes is read at that prefix's heads: changes come in
+  // causal order, so every prefix is causally closed and its heads name exactly that prefix.
+  // Nothing is replayed or decoded. Rebuilding a scratch document cost 17s of applyChanges, and
+  // decoding every change 18s, on the imported camp that hung (229 changes, 2.9 million ops).
+  const heads = new Set()
+  for (const change of changeMeta(automerge, doc)) {
+    for (const dep of change.deps) heads.delete(dep)
+    heads.add(change.hash)
+    for (const [id, row] of authorityRowsAt(backend, [...heads])) {
       if (index.has(id)) continue
-      const row = readRecord(scratch, AUTHORITY_LOG_ENTITY, id)
-      if (isCompleteEntry(row)) index.set(id, decoded[i].hash)
+      if (isCompleteEntry(row)) index.set(id, change.hash)
     }
   }
   cache.entryIndex = index
@@ -172,7 +179,7 @@ export function isCausallyAtLeastAsLate(automerge, doc, hashA, hashB) {
 // re-deriving the whole replay context — same index `createAuthorityReplayContext` builds
 // internally.
 export function entryChangeHashIndex(automerge, doc) {
-  return buildEntryChangeIndexFrom(automerge, doc)
+  return new Map(buildEntryChangeIndexFrom(automerge, doc))
 }
 
 // --- public replay API ---------------------------------------------------

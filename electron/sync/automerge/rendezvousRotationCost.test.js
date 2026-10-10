@@ -2,7 +2,7 @@
 // Startup hang, 2026-10-10: on an import-sized camp, the rotation check run by
 // syncStarter.prepareDocForSync replayed the whole history change by change, several times over,
 // so the packaged app never reached "sync node started". The budget here counts applyChanges
-// calls, never wall clock: one rotation check may apply only the authority-log changes.
+// calls, never wall clock: a rotation check must not replay the history at all.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -61,7 +61,7 @@ describe('rotation check cost on an import-sized camp', () => {
     calls.applyChanges = 0
     const result = checkRendezvousRotation(doc, { campId: CAMP, deviceId: 'dev-f' })
     expect(result.reason).toBe('rotated')
-    // 3 entries x at most 5 field changes each; the 3000 activity changes are never applied one by one.
-    expect(calls.applyChanges).toBeLessThanOrEqual(15)
+    // The history is read through views at prefix heads, never replayed into a scratch document.
+    expect(calls.applyChanges).toBe(0)
   })
 })

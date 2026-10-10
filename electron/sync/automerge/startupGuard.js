@@ -12,8 +12,12 @@
 // already loaded-or-seeded and persisted), then the persisted file (§5). NEVER synthesize a fresh
 // empty document here — a null return means "this camp has not been seeded yet," and the caller
 // must refuse to start rather than fall back to createEmptyDoc().
-export function resolveStartupDoc({ liveDoc, persistedDoc }) {
-  return liveDoc ?? persistedDoc ?? null
+//
+// `loadPersisted` is called only when liveDoc holds nothing: loading the file is a full decrypt
+// and Automerge load, about 10s on an imported camp, and was being paid on every startup only to
+// be discarded.
+export function resolveStartupDoc({ liveDoc, loadPersisted }) {
+  return liveDoc ?? loadPersisted?.() ?? null
 }
 
 // Finding 2: a single merge from a device that's been offline can advance hundreds of fields in one

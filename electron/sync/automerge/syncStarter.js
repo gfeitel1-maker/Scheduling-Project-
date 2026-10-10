@@ -317,7 +317,7 @@ export function createAutomergeSyncStarter({
         // Same cipher liveDoc was given above — this direct read is the second of the three
         // .automerge readers (assessment finding B), and all three must agree or an encrypted file
         // fails to load. docCipher is null when encryption is off (plaintext, unchanged).
-        persistedDoc: loadAutomergeDoc(userDataPath, campId, docCipher),
+        loadPersisted: () => loadAutomergeDoc(userDataPath, campId, docCipher),
       })
       if (!doc) {
         // Defense in depth, not the expected path: ensureAutomergeDocSeeded only returns null when

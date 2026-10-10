@@ -3,11 +3,17 @@
 // time, and did so several times per check. These tests bound that work by counting the
 // automerge calls, not wall clock, and check that the faster index is identical to the
 // one-change-at-a-time replay it replaces.
-import * as Automerge from '@automerge/automerge'
-import { describe, expect, it } from 'vitest'
-import { createEmptyDoc, applyWrite } from './campDocument.js'
-import { createAuthorityReplayContext, createVerifiedEntryTrust, currentRevokedDeviceIds, entryChangeHashIndex, AUTHORITY_LOG_ENTITY, isCompleteEntry } from './authorityReplay.js'
-import { listRecordIds, readRecord } from './campDocument.js'
+import { describe, expect, it, vi } from 'vitest'
+
+const decoded = vi.hoisted(() => ({ largest: 0, calls: 0 }))
+vi.mock('@automerge/automerge', async (importOriginal) => {
+  const real = await importOriginal()
+  return { ...real, decodeChange: (bytes) => { decoded.calls++; decoded.largest = Math.max(decoded.largest, bytes.length); return real.decodeChange(bytes) } }
+})
+
+const Automerge = await import('@automerge/automerge')
+const { createEmptyDoc, applyWrite, listRecordIds, readRecord } = await import('./campDocument.js')
+const { createAuthorityReplayContext, createVerifiedEntryTrust, currentRevokedDeviceIds, entryChangeHashIndex, AUTHORITY_LOG_ENTITY, isCompleteEntry } = await import('./authorityReplay.js')
 
 function counting() {
   const calls = { applyChanges: 0, getAllChanges: 0 }
@@ -56,15 +62,14 @@ function perChangeIndex(doc) {
 
 describe('authority replay cost on an import-sized document', () => {
   const doc = importSizedDoc()
-  const authorityChanges = 4 + 4 + 4 // three entries, at most four field writes each
 
-  it('a full rotation-style check applies only authority changes and reads the history once', () => {
+  it('a full rotation-style check never replays, decodes or re-reads the history', () => {
     const { am, calls } = counting()
     const isEntryTrusted = createVerifiedEntryTrust(am, doc)
     currentRevokedDeviceIds(am, doc, { isEntryTrusted })
     createAuthorityReplayContext(am, doc, { isEntryTrusted: createVerifiedEntryTrust(am, doc) }).currentState()
-    expect(calls.applyChanges).toBeLessThanOrEqual(authorityChanges)
-    expect(calls.getAllChanges).toBe(1)
+    expect(calls.applyChanges).toBe(0)
+    expect(calls.getAllChanges).toBe(0)
   })
 
   it('the batched index is identical to the one-change-at-a-time replay', () => {
@@ -82,4 +87,54 @@ describe('authority replay cost on an import-sized document', () => {
     const merged = Automerge.merge(left, right)
     expect([...entryChangeHashIndex(Automerge, merged)].sort()).toEqual([...perChangeIndex(merged)].sort())
   })
+
+  it('an import-sized change is never decoded, and the index still matches', () => {
+    let doc = createEmptyDoc()
+    doc = entry(doc, { kind: 'genesis', target_device_id: 'FOUNDER', target_peer_id: 'pF' })
+    doc = applyWrite(doc, { entity: 'activities', entity_id: 'big', field: 'name', value: 'x'.repeat(200_000) })
+    doc = entry(doc, { kind: 'grant', target_device_id: 'A', signer_device_id: 'FOUNDER', target_peer_id: 'pA' })
+    const oracle = perChangeIndex(doc)
+    decoded.largest = 0
+    expect([...entryChangeHashIndex(Automerge, doc)].sort()).toEqual([...oracle].sort())
+    expect(decoded.largest).toBeLessThanOrEqual(16 * 1024)
+  })
 })
+
+// Shapes from the Security review of the first round: each is checked against the
+// one-change-at-a-time replay.
+describe('batched index equals the per-change replay on adversarial shapes', () => {
+  const same = (doc) => expect([...entryChangeHashIndex(Automerge, doc)].sort()).toEqual([...perChangeIndex(doc)].sort())
+  const raw = (doc, fn, opts) => Automerge.change(doc, opts ?? {}, fn)
+
+  it('a large change creates an entry and a later small change completes it', () => {
+    let doc = createEmptyDoc()
+    doc = raw(doc, (d) => {
+      if (!d[AUTHORITY_LOG_ENTITY]) d[AUTHORITY_LOG_ENTITY] = {}
+      d[AUTHORITY_LOG_ENTITY]['big\u0000kind'] = 'grant'
+      d[AUTHORITY_LOG_ENTITY]['big\u0000signer_device_id'] = 'F'
+      d[AUTHORITY_LOG_ENTITY]['big\u0000target_device_id'] = ''
+      d.padding = 'p'.repeat(40_000)
+    })
+    doc = raw(doc, (d) => { Automerge.splice(d, [AUTHORITY_LOG_ENTITY, 'big\u0000target_device_id'], 0, 0, 'T') })
+    same(doc)
+  })
+
+  it('a concurrent re-creation of the collection by another actor, merged both ways', () => {
+    const base = entry(createEmptyDoc(), { kind: 'genesis', target_device_id: 'F' })
+    let left = Automerge.clone(base, { actor: 'aa'.repeat(16) })
+    let right = Automerge.clone(base, { actor: 'ff'.repeat(16) })
+    right = raw(right, (d) => { d[AUTHORITY_LOG_ENTITY] = { 'z\u0000kind': 'genesis', 'z\u0000target_device_id': 'Z' } })
+    left = entry(left, { kind: 'grant', target_device_id: 'A', signer_device_id: 'F' })
+    same(Automerge.merge(Automerge.clone(left), right))
+    same(Automerge.merge(Automerge.clone(right), left))
+  })
+
+  it('a decoy collection key on another object, and delete then re-create of the collection', () => {
+    let doc = entry(createEmptyDoc(), { kind: 'genesis', target_device_id: 'F' })
+    doc = raw(doc, (d) => { d.decoy = { [AUTHORITY_LOG_ENTITY]: 'x' } })
+    doc = raw(doc, (d) => { delete d[AUTHORITY_LOG_ENTITY] })
+    doc = raw(doc, (d) => { d[AUTHORITY_LOG_ENTITY] = { 'n\u0000kind': 'genesis', 'n\u0000target_device_id': 'N' } })
+    same(doc)
+  })
+})
+
