@@ -49,9 +49,9 @@ const MAX_CONNECTIONS = 200
 // default for maxIncomingPendingConnections is 10 (connection-manager/constants.defaults); it bounds
 // inbound connections accepted but not yet through the whole upgrade (multistream, Noise, muxer). When
 // full, libp2p refuses new inbound outright, LAN sources included. So the limiter caps PUBLIC sources at
-// MAX_PUBLIC_PENDING_TOTAL (64) of the 256 slots, leaving LAN at least 192 however hard a scanner pushes.
+// MAX_PUBLIC_PENDING_TOTAL (32) of the 128 slots, leaving LAN at least 96 however hard a scanner pushes. Fixed sizes that fit a 256-fd soft limit (macOS GUI launch) with room.
 // Per-source pending cap is 2 and the upgrade timeout 5s (see the ticket for the fd/memory sizing).
-export const MAX_INCOMING_PENDING_CONNECTIONS = 256
+export const MAX_INCOMING_PENDING_CONNECTIONS = 128
 
 // libp2p's inboundUpgradeTimeout (default 10s) bounds how long one pending slot is held, for the whole
 // upgrade. A real WAN handshake is ~3-4 round trips (~1.2s at 300ms RTT); 5s halves a scanner's hold.

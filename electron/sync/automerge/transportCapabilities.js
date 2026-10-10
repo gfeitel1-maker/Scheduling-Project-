@@ -131,12 +131,12 @@ export const TRANSPORT_CAPABILITIES = {
     signoff: {
       date: '2026-10-10',
       owner: 'gfeitel1 (owner GO "On now" 2026-10-10, relayed by board keeper)',
-      scope: 'one router port opened for the libp2p TCP listener while the app runs; only paired devices pass Noise plus mutual auth; removed on quit and on revoke',
+      scope: 'one router port opened for the libp2p TCP listener while the app runs; only paired devices pass Noise plus mutual auth; removed on quit, sync stop and network change (kept on a peer revoke; the revoked peer is stopped by Noise, authGate and isPeerRevoked)',
       doc: 'docs/work/security/2026-10-09-wan-ladder-assessment.md#verdict-go-with-conditions-for-shoresh_punch_enabled-default-on',
       conditions: [
         'met: pre-Noise pending slots sized for internet exposure, public sources capped (PR #858, T340 precondition 5)',
         'met: egress gate, pending-slot scanner test and docs (PR #865)',
-        'met: fd-adaptive pending profile and verify:packaged fd-limit step (this PR)',
+        'met: fixed pending caps 128 total / 32 public, sized for a 256 open-file soft limit (this PR)',
         'OPEN: real independently-NATed two-device hardware proof; owner chose On now ahead of the 2-laptop test; to be recorded after the fact',
       ],
     },

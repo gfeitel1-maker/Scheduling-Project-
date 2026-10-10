@@ -12,9 +12,7 @@
 //      copies but never rebuilds (no binding.gyp), so the probe constructs a PeerConnection
 //   4. with --launch: the packaged app boots against a throwaway userData dir and
 //      reaches the renderer heartbeat (the same marker scripts/deploy-local.sh waits for), then
-//      exits within 10s of SIGTERM and, in a second launch, of its own app.quit();
-//      its own main process reports the open-file soft limit and the pending profile it selected,
-//      which are logged and checked against the rule (a low limit alone never fails)
+//      exits within 10s of SIGTERM and, in a second launch, of its own app.quit()
 //
 // Runs as `postelectron:build`, so `npm run electron:build` cannot succeed without it.
 
@@ -24,7 +22,6 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { spawn, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { resolvePendingProfile } from '../electron/sync/automerge/fdLimitProfile.js'
 
 const DRIVER = 'better-sqlite3-multiple-ciphers'
 const SENTINEL = 'DRIVER_OK'
@@ -123,21 +120,6 @@ function datachannelProbe(executable, appDir) {
   return interpretLoadProbe({ status: r.status, stdout: r.stdout, stderr: r.error ? String(r.error) : r.stderr }, DATACHANNEL)
 }
 
-// T340: the packaged app's own main process reports its open-file soft limit and the pending profile
-// it selected (in the smoke marker). A low limit is logged, never a failure; only a profile that
-// disagrees with the rule (fdLimitProfile.js, the same function the app runs) fails the build.
-export function checkFdReport(report, platform = process.platform) {
-  if (!report || !('fdLimit' in report) || typeof report.selectedProfile !== 'string') {
-    return { ok: false, message: 'the packaged app did not report {fdLimit, selectedProfile} in its smoke marker' }
-  }
-  const expected = resolvePendingProfile({ platform, readLimit: () => report.fdLimit, log: () => {} }).name
-  const summary = `open-file soft limit ${report.fdLimit ?? 'unknown'}, pending profile ${report.selectedProfile}`
-  if (report.selectedProfile !== expected) {
-    return { ok: false, message: `the packaged app reported ${summary}, but the rule selects ${expected}` }
-  }
-  return { ok: true, message: summary }
-}
-
 export function waitForExit(child, ms) {
   if (child.exitCode !== null || child.signalCode) return Promise.resolve(true)
   return new Promise((resolve) => {
@@ -158,13 +140,10 @@ async function launchSmoke(executable, timeoutS, quitVia) {
   const child = spawn(executable, [], { env, stdio: 'ignore' })
   try {
     let booted = false
-    let report = null
     for (let s = 0; s < timeoutS && !booted; s++) {
       if (fs.existsSync(marker)) {
         try {
-          const parsed = JSON.parse(fs.readFileSync(marker, 'utf8'))
-          booted = parsed.nonce === nonce
-          if (booted) report = { fdLimit: parsed.fdLimit, selectedProfile: parsed.selectedProfile }
+          booted = JSON.parse(fs.readFileSync(marker, 'utf8')).nonce === nonce
         } catch { /* partial write; keep polling */ }
       }
       if (booted) break
@@ -176,7 +155,7 @@ async function launchSmoke(executable, timeoutS, quitVia) {
     if (!(await waitForExit(child, QUIT_BOUND_MS))) {
       return { ok: false, message: `packaged app did not exit within ${QUIT_BOUND_MS / 1000}s of ${quitVia === 'sigterm' ? 'SIGTERM' : 'app.quit()'}` }
     }
-    return { ok: true, report }
+    return { ok: true }
   } finally {
     if (child.exitCode === null && !child.signalCode) child.kill('SIGKILL')
     fs.rmSync(userData, { recursive: true, force: true })
@@ -215,11 +194,6 @@ async function main() {
     for (const quitVia of quitModes()) {
       const smoke = await launchSmoke(executable, timeoutS, quitVia)
       if (!smoke.ok) fail(smoke.message)
-      if (quitVia === quitModes()[0]) {
-        const fd = checkFdReport(smoke.report)
-        if (!fd.ok) fail(fd.message)
-        console.log(`verify:packaged: packaged app main process reports ${fd.message}`)
-      }
       console.log(`verify:packaged: packaged app booted to the renderer heartbeat and exited within ${QUIT_BOUND_MS / 1000}s of ${quitVia === 'sigterm' ? 'SIGTERM' : 'app.quit()'}`)
     }
   }

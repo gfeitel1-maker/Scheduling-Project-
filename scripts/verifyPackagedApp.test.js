@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { checkPackagedDriver, checkPackagedDatachannel, interpretLoadProbe, findPackagedApp, checkLockfilePlatforms, waitForExit, resolvePackagedPaths, quitModes, checkFdReport } from './verifyPackagedApp.js'
+import { checkPackagedDriver, checkPackagedDatachannel, interpretLoadProbe, findPackagedApp, checkLockfilePlatforms, waitForExit, resolvePackagedPaths, quitModes } from './verifyPackagedApp.js'
 import { EventEmitter } from 'node:events'
 
 let tmp
@@ -149,34 +149,5 @@ describe('resolvePackagedPaths / quitModes', () => {
   it('skips SIGTERM on Windows', () => {
     expect(quitModes('win32')).toEqual(['app'])
     expect(quitModes('darwin')).toEqual(['sigterm', 'app'])
-  })
-})
-
-describe('checkFdReport (T340: the app reports its own fd limit and profile; only a rule mismatch fails)', () => {
-  const darwin = 'darwin'
-  it('passes and does not fail a low limit when the app selected the low profile', () => {
-    const r = checkFdReport({ fdLimit: 256, selectedProfile: 'low' }, darwin)
-    expect(r.ok).toBe(true)
-    expect(r.message).toContain('256')
-    expect(r.message).toContain('low')
-  })
-  it('passes 512+ on the normal profile', () => {
-    expect(checkFdReport({ fdLimit: 512, selectedProfile: 'normal' }, darwin).ok).toBe(true)
-    expect(checkFdReport({ fdLimit: 10240, selectedProfile: 'normal' }, darwin).ok).toBe(true)
-  })
-  it('fails when the selected profile does not match the rule', () => {
-    expect(checkFdReport({ fdLimit: 256, selectedProfile: 'normal' }, darwin).ok).toBe(false)
-    expect(checkFdReport({ fdLimit: 10240, selectedProfile: 'low' }, darwin).ok).toBe(false)
-  })
-  it('an unreadable or unlimited limit expects low', () => {
-    expect(checkFdReport({ fdLimit: null, selectedProfile: 'low' }, darwin).ok).toBe(true)
-    expect(checkFdReport({ fdLimit: null, selectedProfile: 'normal' }, darwin).ok).toBe(false)
-  })
-  it('win32 expects normal whatever the limit', () => {
-    expect(checkFdReport({ fdLimit: null, selectedProfile: 'normal' }, 'win32').ok).toBe(true)
-  })
-  it('a missing report is a failure, not a pass', () => {
-    expect(checkFdReport(undefined, darwin).ok).toBe(false)
-    expect(checkFdReport({}, darwin).ok).toBe(false)
   })
 })

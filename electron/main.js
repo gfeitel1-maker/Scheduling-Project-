@@ -63,7 +63,6 @@ import { PROJECTIONS } from './ops/projections.js'
 import { createCampDataRecordWriter } from './campDataRecord.js'
 import { isAutomergeEngine } from './sync/automerge/syncEngineFlag.js'
 import { createAutomergeSyncStarter } from './sync/automerge/syncStarter.js'
-import { describeFdSelection } from './sync/automerge/fdLimitProfile.js'
 import { STATUSES as PORT_MAPPING_STATUSES, PERMANENT_LEASE_REASON } from './sync/automerge/portMapping.js'
 import { createSyncStarterHolder } from './sync/automerge/syncStarterHolder.js'
 import { applyPackagedWanDefaults } from './wanDefaults.js'
@@ -3998,7 +3997,7 @@ if (isElectronEntryPoint()) {
       const buildInfo = readBuildInfo(__dirname, app.isPackaged)
       const markerPath = path.join(userDataPath, 'deploy-smoke-marker.json')
       const tmpPath = `${markerPath}.tmp`
-      fs.writeFileSync(tmpPath, JSON.stringify({ commit: buildInfo.commit, nonce, pid: process.pid, ts: Date.now(), ...describeFdSelection() }))
+      fs.writeFileSync(tmpPath, JSON.stringify({ commit: buildInfo.commit, nonce, pid: process.pid, ts: Date.now() }))
       fs.renameSync(tmpPath, markerPath)
     } catch (err) {
       console.error('deploy smoke marker write failed (non-fatal)', err)
