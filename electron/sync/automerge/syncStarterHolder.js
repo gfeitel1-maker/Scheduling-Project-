@@ -103,6 +103,7 @@ export function createSyncStarterHolder(makeStarter) {
       getAutomergeSyncNode: () => starter.getNode(),
       getAutomergeStartupAttempted: () => starter.getStartupAttempted(),
       getRelayReservationRefused: () => starter.getRelayReservationRefused(),
+      getPortMappingStatus: () => starter.getPortMappingStatus?.() ?? null,
       onCampBootstrapped: () => start(),
       onCampJoined: () => start(),
       retrySync: () => start(),

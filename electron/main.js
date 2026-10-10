@@ -63,6 +63,7 @@ import { PROJECTIONS } from './ops/projections.js'
 import { createCampDataRecordWriter } from './campDataRecord.js'
 import { isAutomergeEngine } from './sync/automerge/syncEngineFlag.js'
 import { createAutomergeSyncStarter } from './sync/automerge/syncStarter.js'
+import { STATUSES as PORT_MAPPING_STATUSES } from './sync/automerge/portMapping.js'
 import { createSyncStarterHolder } from './sync/automerge/syncStarterHolder.js'
 import { forgetRevokedPeer } from './sync/automerge/punchIdentity.js'
 import { resolveConflictInDoc } from './automerge/reconcile.js'
@@ -323,7 +324,7 @@ export function disposeCampDataRecordThenCloseDb(liveHandlers, oldDb) {
   try { liveHandlers?.disposeCampDataRecord?.() } catch { /* ignore */ }
   try { oldDb?.close?.() } catch { /* ignore — db may already be closed */ }
 }
-export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath: _userDataPath, safeStorage: injectedSafeStorage, getAutomergeSyncNode, getAutomergeStartupAttempted, getRelayReservationRefused, onCampBootstrapped, onCampJoined, retrySync, stopSync } = {}) {
+export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath: _userDataPath, safeStorage: injectedSafeStorage, getAutomergeSyncNode, getAutomergeStartupAttempted, getRelayReservationRefused, getPortMappingStatus, onCampBootstrapped, onCampJoined, retrySync, stopSync } = {}) {
   // Both default to safe no-ops so every existing caller/test that doesn't
   // pass them (there are many) is unaffected — Stage 5d-2b additions only,
   // never a behavior change for a caller that stays silent about them.
@@ -341,6 +342,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // no-op returning null so every existing test/caller that doesn't wire this sees getSyncStatus's
   // unchanged shape, same discipline as getAutomergeStartupAttemptedFn above.
   const getRelayReservationRefusedFn = getRelayReservationRefused || (() => null)
+  const getPortMappingStatusFn = getPortMappingStatus || (() => null)
   // T273 — invoked once by bootstrapCamp, after the camp exists and this
   // device has authorized itself. On a first run there is no camp at
   // app.whenReady(), so startAutomergeSyncNodeIfEnabled returns early and
@@ -821,6 +823,19 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     retrySyncFn()
     return { ok: true }
   }
+  // T359 slice 4 - the only fields the renderer may see. The mapper's own result carries the
+  // router-reported address and port; a whitelist, not a delete-list, so a field added there later
+  // stays out of the renderer by default.
+  function getPortMappingStatusHandler() {
+    let raw
+    try { raw = getPortMappingStatusFn() } catch { return null }
+    if (!raw || typeof raw !== 'object' || !PORT_MAPPING_STATUSES.includes(raw.status)) return null
+    const payload = { status: raw.status }
+    if (typeof raw.reason === 'string') payload.reason = raw.reason
+    if (Number.isFinite(raw.leaseSeconds)) payload.leaseSeconds = raw.leaseSeconds
+    return payload
+  }
+
   function getSyncStatus() {
     const status = computeSyncStatus()
     // During Pair again the persistent node is stopped on purpose: the footer must not offer a retry.
@@ -3143,6 +3158,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     bulkReplace,
     getDeviceId,
     getSyncStatus,
+    getPortMappingStatus: getPortMappingStatusHandler,
     retrySync: retrySyncHandler,
     ingestCommit,
     ingestReconcile,
@@ -3390,6 +3406,7 @@ if (isElectronEntryPoint()) {
     'shoresh:list-by-scope',
     'shoresh:get-device-id',
     'shoresh:get-sync-status',
+    'shoresh:get-port-mapping-status',
     'shoresh:retry-sync',
     'shoresh:ingest-commit',
     'shoresh:ingest-reconcile',
@@ -3480,6 +3497,7 @@ if (isElectronEntryPoint()) {
     })
     ipcMain.handle('shoresh:get-device-id', (_event, args) => handlers.getDeviceId(args && args.token))
     ipcMain.handle('shoresh:get-sync-status', () => handlers.getSyncStatus())
+    ipcMain.handle('shoresh:get-port-mapping-status', () => handlers.getPortMappingStatus())
     ipcMain.handle('shoresh:retry-sync', () => handlers.retrySync())
     ipcMain.handle('shoresh:ingest-commit', (_event, args) => handlers.ingestCommit(args))
     ipcMain.handle('shoresh:ingest-reconcile', (_event, args) => handlers.ingestReconcile(args))

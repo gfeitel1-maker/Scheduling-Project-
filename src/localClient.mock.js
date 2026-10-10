@@ -1882,6 +1882,16 @@ export const mockShoresh = {
     }
     return { mode: null, connected: false, state: 'standalone' }
   },
+  // T359 slice 4 - browser preview of the router-opening flag: ?portMapping=<status> (null otherwise,
+  // which is also what the real getter returns while SHORESH_PUNCH_ENABLED is off).
+  async getPortMappingStatus() {
+    if (typeof window === 'undefined') return null
+    const status = new URLSearchParams(window.location.search).get('portMapping')
+    if (!status) return null
+    return status === 'permanent-lease'
+      ? { status, reason: 'this router keeps the opening after Shoresh quits' }
+      : { status }
+  },
   // T275 — mock stand-in for the retry affordance. The mock's getSyncStatus
   // above is a fixed 'standalone' with no starter to re-invoke, so this is a
   // no-op ack, matching the real handler's shape when no starter is wired.

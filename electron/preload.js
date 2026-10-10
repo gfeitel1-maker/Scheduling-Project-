@@ -106,6 +106,9 @@ contextBridge.exposeInMainWorld('shoresh', {
   // T27 — read-only status, plus a push so it does not go stale. A value read
   // once at mount is wrong within minutes: a laptop closes, wifi drops.
   getSyncStatus: () => ipcRenderer.invoke('shoresh:get-sync-status'),
+  // T359 slice 4 - { status, reason?, leaseSeconds? } or null (flag off, mapper not started, unknown).
+  // Never the router-reported address or port.
+  getPortMappingStatus: () => ipcRenderer.invoke('shoresh:get-port-mapping-status'),
   // T275 — the sidebar's host-not-syncing retry affordance. A bare
   // re-invocation of the same guarded starter getSyncStatus's state already
   // comes from; the real outcome surfaces via the next getSyncStatus poll /
