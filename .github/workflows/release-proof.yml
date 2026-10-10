@@ -1,0 +1,37 @@
+# Proves the PACKAGED app on the release platforms. Deliberately separate from gate.yml and never run
+# on pull requests or branch pushes (CI minutes): only on demand or when a release tag is pushed.
+# `npm run electron:build` runs scripts/verifyPackagedApp.js --launch as its postelectron:build step,
+# which checks that the cipher driver opens a db and node-datachannel constructs a PeerConnection under
+# the packaged Electron, that the app boots to the renderer heartbeat, and that it exits within 10s
+# of its own app.quit() (and of SIGTERM where that is a real signal, i.e. not Windows).
+name: Release proof
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            builder_args: --win dir
+          - os: macos-14
+            builder_args: --mac dir --arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Build and verify the packaged app
+        run: npm run electron:build -- ${{ matrix.builder_args }}
