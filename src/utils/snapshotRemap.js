@@ -52,11 +52,13 @@ const describe = (s) => {
 export function remapSnapshotSlots(slots, { groups, days, timeBlocks, activities, fixedEvents }) {
   const group = resolver(groups, (g) => g.name)
   const day = resolver(days, (d) => d.label)
-  const block = resolver(timeBlocks || [], (b) => b.name)
+  timeBlocks = timeBlocks || []
+  const block = resolver(timeBlocks, (b) => b.name)
   const activity = resolver(activities, (a) => a.name)
   const fixed = resolver(fixedEvents || [], (f) => f.name)
 
   const out = []
+  const seen = new Set()
   const skipped = []
   for (const s of slots) {
     const n = s.names ?? {}
@@ -68,14 +70,27 @@ export function remapSnapshotSlots(slots, { groups, days, timeBlocks, activities
     const a = needsActivity ? activity(s.activity_id, n.activity) : null
     const f = isFixed ? fixed(s.fixed_event_id, n.fixed_event) : null
 
+    let blockProblem = b.problem && `${b.problem} time block`
+    if (!b.problem && b.id !== s.time_block_id && n.block_start && n.block_end) {
+      const live = timeBlocks.find((r) => r.id === b.id)
+      if (norm(live.start_time) !== norm(n.block_start) || norm(live.end_time) !== norm(n.block_end)) {
+        blockProblem = `block moved to ${live.start_time}`
+      }
+    }
     const problems = [
-      g.problem && `${g.problem} group`, d.problem && `${d.problem} day`, b.problem && `${b.problem} time block`,
+      g.problem && `${g.problem} group`, d.problem && `${d.problem} day`, blockProblem,
       a?.problem && `${a.problem} activity`, f?.problem && `${f.problem} fixed event`,
     ].filter(Boolean)
     if (problems.length) {
       skipped.push({ label: describe(s), reason: problems.join(', ') })
       continue
     }
+    const key = `${g.id}|${d.id}|${b.id}`
+    if (seen.has(key)) {
+      skipped.push({ label: describe(s), reason: 'skipped (duplicate)' })
+      continue
+    }
+    seen.add(key)
     out.push({
       ...s,
       group_id: g.id,

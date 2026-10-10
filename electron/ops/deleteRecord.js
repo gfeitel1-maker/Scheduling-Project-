@@ -277,16 +277,19 @@ export function previewDelete(db, { entity, entity_id }) {
 // inserts the row on that field, and any other field arriving first is a silent
 // no-op against zero rows. That is how the "Empty" snapshots already in the dev
 // camp were produced. Asserted by deleteRecord.test.js, not merely commented.
-export function writeRouteSnapshot(db, { template_id, name, author_user_id, device_id }) {
-  const id = randomUUID()
-  const campId = db.prepare('SELECT camp_id FROM schedule_templates WHERE id = ?').get(template_id)?.camp_id
-  const catalog = {
+export function campCatalog(db, campId) {
+  return {
     groups: db.prepare('SELECT id, name FROM groups WHERE camp_id = ?').all(campId),
     days: db.prepare('SELECT id, label FROM days_of_operation WHERE camp_id = ?').all(campId),
     timeBlocks: db.prepare('SELECT id, name, start_time, end_time FROM time_blocks WHERE camp_id = ?').all(campId),
     activities: db.prepare('SELECT id, name FROM activities WHERE camp_id = ?').all(campId),
     fixedEvents: db.prepare('SELECT id, name FROM fixed_events WHERE camp_id = ?').all(campId),
   }
+}
+
+export function writeRouteSnapshot(db, { template_id, name, author_user_id, device_id }) {
+  const id = randomUUID()
+  const catalog = campCatalog(db, db.prepare('SELECT camp_id FROM schedule_templates WHERE id = ?').get(template_id)?.camp_id)
   const slots = db
     .prepare('SELECT * FROM template_slots WHERE template_id = ?')
     .all(template_id)
