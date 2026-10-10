@@ -100,7 +100,7 @@ describe('resolving a decision', () => {
     render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
     await screen.findByText(/0 of 1 question/)
 
-    await userEvent.click(screen.getByText('Use this value'))
+    await userEvent.click(screen.getByText('Use the file’s'))
     await waitFor(() => expect(screen.getByText(/1 of 1 question/)).toBeTruthy())
     expect(screen.getByText(/All 1 decided/)).toBeTruthy()
     expect(localClient.ingestCommit).not.toHaveBeenCalled()
@@ -199,7 +199,7 @@ describe('debounced dry-run is cancelled at the commit transition (LOW 4)', () =
     expect(localClient.ingestReconcile).toHaveBeenCalledTimes(1) // the initial mount dry-run
 
     // Stages a decision, which schedules a 250ms-debounced re-run.
-    await userEvent.click(screen.getByText('Use this value'))
+    await userEvent.click(screen.getByText('Use the file’s'))
 
     // The commit transition happens before the debounce fires (real-world:
     // apply() -> onCommitted -> ImportScreen flips ledger.phase='committed'
@@ -265,7 +265,7 @@ describe('root-map selection (replaces the old chip-row filter)', () => {
     await screen.findByText(/0 of 1 question/)
 
     // Default view shows the one decision unfiltered.
-    expect(screen.getByText('Keep current')).toBeTruthy()
+    expect(screen.getByText('Keep mine')).toBeTruthy()
 
     // Census tiles are the interface (docs/adr/2026-08-27-roots-hub-tiles-
     // are-interface.md §3) — the domain grid is no longer a standing
@@ -276,16 +276,16 @@ describe('root-map selection (replaces the old chip-row filter)', () => {
     // The Facility domain node has zero decisions — selecting it clears the
     // Scheduling decision from view (single-select, node replaces node).
     await userEvent.click(screen.getByLabelText(/Facility — /))
-    expect(screen.queryByText('Keep current')).toBeNull()
+    expect(screen.queryByText('Keep mine')).toBeNull()
     expect(screen.getByText('Everything here looks right.')).toBeTruthy()
 
     // Selecting the Scheduling domain node brings it back.
     await userEvent.click(screen.getByLabelText(/Scheduling — /))
-    expect(screen.getByText('Keep current')).toBeTruthy()
+    expect(screen.getByText('Keep mine')).toBeTruthy()
 
     // "Show all" clears the selection back to the default view.
     await userEvent.click(screen.getByText('Show all'))
-    expect(screen.getByText('Keep current')).toBeTruthy()
+    expect(screen.getByText('Keep mine')).toBeTruthy()
   })
 
   it('a tile click filters the root map to that state across domains; clicking it again toggles off', async () => {
@@ -302,7 +302,7 @@ describe('root-map selection (replaces the old chip-row filter)', () => {
 
     const attentionTile = screen.getByText('Needs attention').closest('button')
     await userEvent.click(attentionTile)
-    expect(screen.getByText('Keep current')).toBeTruthy()
+    expect(screen.getByText('Keep mine')).toBeTruthy()
     expect(attentionTile.getAttribute('aria-pressed')).toBe('true')
 
     await userEvent.click(attentionTile) // toggle back off — clears the explicit tile selection
@@ -347,7 +347,7 @@ describe('last-issued-wins guard (ADR Risk #3)', () => {
       await vi.waitFor(() => expect(screen.getByText(/0 of 1 question/)).toBeTruthy())
 
       // First triage action: schedules the debounced re-issue (gen 2).
-      await userEvent.setup({ advanceTimers: vi.advanceTimersByTime }).click(screen.getByText('Use this value'))
+      await userEvent.setup({ advanceTimers: vi.advanceTimersByTime }).click(screen.getByText('Use the file’s'))
       await vi.advanceTimersByTimeAsync(250)
       // gen 2's request is now in flight (pending on gen2 promise).
 
@@ -359,7 +359,7 @@ describe('last-issued-wins guard (ADR Risk #3)', () => {
       await userEvent.setup({ advanceTimers: vi.advanceTimersByTime }).click(screen.getByText(/resolved · Show all/))
       // Second triage action before gen 2 resolves: schedules gen 3.
       await userEvent.setup({ advanceTimers: vi.advanceTimersByTime }).click(screen.getByText('Undo'))
-      await userEvent.setup({ advanceTimers: vi.advanceTimersByTime }).click(screen.getByText('Use this value'))
+      await userEvent.setup({ advanceTimers: vi.advanceTimersByTime }).click(screen.getByText('Use the file’s'))
       await vi.advanceTimersByTimeAsync(250)
       // gen 3's request is now in flight too.
 
@@ -651,5 +651,67 @@ describe('shared import frame (design F5)', () => {
     const frame = container.firstElementChild
     expect(frame.style.maxWidth).toBe(`${S.importFrame.maxWidth}px`)
     expect(frame.style.margin).toBe('')
+  })
+})
+
+describe('audit 714: "not mentioned in this file" names its items', () => {
+  it('Show them lists as many items as the line counts', async () => {
+    localClient.ingestReconcile.mockResolvedValue(understoodOnlyResult())
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
+    const line = await screen.findByText(/items? not mentioned in this file/)
+    const n = Number(line.textContent.match(/^(\d+)/)[1])
+    expect(n).toBeGreaterThan(0)
+    expect(screen.queryByTestId('not-in-source-list')).toBeNull()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Show them' }))
+    const list = screen.getByTestId('not-in-source-list')
+    expect(list.querySelectorAll('li')).toHaveLength(n)
+    for (const li of list.querySelectorAll('li')) expect(li.textContent.trim()).not.toBe('')
+  })
+})
+
+describe('audit 714: the counters agree', () => {
+  it('Needs attention counts the open questions and drops as they are answered', async () => {
+    localClient.ingestReconcile.mockResolvedValue(oneChangedResult())
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
+    await screen.findByText(/0 of 1 question/)
+    const tile = () => screen.getByText('Needs attention').closest('button').firstElementChild.textContent
+    expect(tile()).toBe('1')
+    await userEvent.click(screen.getByText('Use the file’s'))
+    await screen.findByText(/1 of 1 question/)
+    expect(tile()).toBe('0')
+  })
+})
+
+describe('audit 714: leaving the review', () => {
+  it('Cancel discards the staged import without committing anything', async () => {
+    localClient.ingestReconcile.mockResolvedValue(oneChangedResult())
+    const onDiscard = vi.fn()
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={onDiscard} onNavigate={vi.fn()} />)
+    await screen.findByText(/0 of 1 question/)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(onDiscard).toHaveBeenCalledTimes(1)
+    expect(localClient.ingestCommit).not.toHaveBeenCalled()
+  })
+
+  it('has no Cancel when the host gave nowhere to go back to', async () => {
+    localClient.ingestReconcile.mockResolvedValue(oneChangedResult())
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onNavigate={vi.fn()} />)
+    await screen.findByText(/0 of 1 question/)
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull()
+  })
+
+  it('commits the questions left open so Roots can list them', async () => {
+    localClient.ingestReconcile.mockResolvedValue(oneChangedResult())
+    localClient.ingestCommit.mockResolvedValue({ total: 1 })
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
+    await screen.findByText(/0 of 1 question/)
+
+    await userEvent.click(screen.getByRole('button', { name: /Use what Shoresh understood/ }))
+    await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
+    expect(localClient.ingestCommit.mock.calls[0][0].openDecisions).toEqual([
+      expect.objectContaining({ entity: 'activities', entityName: 'Swim', kind: 'confirm_value' }),
+    ])
   })
 })

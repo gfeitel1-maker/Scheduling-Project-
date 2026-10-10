@@ -334,6 +334,27 @@ describe('Sidebar: the tuck-away offer', () => {
     expect(screen.getByText(/Setup looks complete/)).toBeTruthy()
   })
 
+  // Audit 714: the offer sat beside a Days needs-a-look dot and 41 open import
+  // questions, claiming setup was complete.
+  it('does not claim setup is complete while Days is still unreviewed', () => {
+    storage['shoresh-setup-reviewed:camp-1'] = JSON.stringify({ decided: true, areas: {} })
+    renderSidebar({ offerShown: true })
+    expect(screen.getByRole('img', { name: 'Needs a look' })).toBeTruthy()
+    expect(screen.queryByText(/Setup looks complete/)).toBeNull()
+  })
+
+  it('does not claim setup is complete while import questions are open', () => {
+    storage['shoresh-setup-reviewed:camp-1'] = JSON.stringify({ decided: true, areas: { days: true } })
+    renderSidebar({ offerShown: true, openQuestionCount: 41 })
+    expect(screen.queryByText(/Setup looks complete/)).toBeNull()
+  })
+
+  it('offers once Days is reviewed and nothing is open', () => {
+    storage['shoresh-setup-reviewed:camp-1'] = JSON.stringify({ decided: true, areas: { days: true } })
+    renderSidebar({ offerShown: true, openQuestionCount: 0 })
+    expect(screen.getByText(/Setup looks complete/)).toBeTruthy()
+  })
+
   it('remembers "keep open" as firmly as "tuck away"', () => {
     // A director who said no must not be asked again next week. That is the
     // same silent imposition in slower motion. sidebar.offered=true means

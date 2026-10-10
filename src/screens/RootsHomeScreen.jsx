@@ -143,7 +143,28 @@ function overflowChipHover(e, on) {
 // can legitimately return null for a domain/child with no edit screen; that
 // row renders inert (a plain div, same visuals) rather than a button that
 // navigates to nothing.
-function AttentionRow({ row, onNavigate, onName, animStyle }) {
+// A question kept for later can be set aside from where it stands. Dismissing
+// removes it from this list only; nothing in the camp changes.
+function AttentionRow({ row, onNavigate, onName, animStyle, onDismiss }) {
+  const body = <AttentionRowBody row={row} onNavigate={onNavigate} onName={onName} animStyle={animStyle} />
+  if (row.sourceKind !== 'reconciliation' || !onDismiss) return body
+  return (
+    <div style={{ position: 'relative' }}>
+      {body}
+      <button
+        type="button"
+        className="press-97"
+        aria-label={`Dismiss ${row.name}`}
+        onClick={() => onDismiss(row.id)}
+        style={styles.dismissButton}
+      >
+        Dismiss
+      </button>
+    </div>
+  )
+}
+
+function AttentionRowBody({ row, onNavigate, onName, animStyle }) {
   // T306 — an unattributed-camper row is ACTED ON where it stands, not navigated
   // from. It deliberately does NOT go through screenForAttentionRow: that resolves a
   // row to a SCREEN, and adding a `Campers` entry to DOMAIN_SCREEN to make the
@@ -205,7 +226,16 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
   // 'understood' rows, so the reconciliation half was structurally empty until
   // this store existed; the hook's { model, decisionsById } carries the real
   // attention/changed rows.
-  const { model: openModel, decisionsById: openDecisionsById } = useOpenReconciliationDecisions()
+  const { model: openModel, decisionsById: openDecisionsById, dismiss } = useOpenReconciliationDecisions()
+  const [dismissError, setDismissError] = useState(null)
+  async function dismissOpenQuestion(id) {
+    setDismissError(null)
+    try {
+      await dismiss(id)
+    } catch (err) {
+      setDismissError(describeWriteFailure(err, 'Could not dismiss this question. It is still listed; nothing was lost.'))
+    }
+  }
   const [preparingWorksheet, setPreparingWorksheet] = useState(false)
   const [worksheetError, setWorksheetError] = useState(null)
   const enterStyle = useEnterTransition('liftFade')
@@ -351,6 +381,7 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
               Some data couldn’t be read — this list may be incomplete.
             </div>
           )}
+          {dismissError && <div style={S.errorBanner}>{dismissError}</div>}
           {sortedAttentionRows.length === 0 ? (
             couldNotCheck ? null : (
               <div style={{ ...styles.emptyState, ...emptyStateEnterStyle }}>
@@ -366,6 +397,7 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
                   row={row}
                   onNavigate={onNavigate}
                   onName={setNamingRow}
+                  onDismiss={dismissOpenQuestion}
                   animStyle={attentionStyleFor(index)}
                 />
               ))}
@@ -583,6 +615,18 @@ const styles = {
     background: 'color-mix(in srgb, var(--accent) 14%, var(--surface))',
     color: 'color-mix(in srgb, var(--accent) 70%, var(--text))',
     whiteSpace: 'nowrap',
+  },
+  dismissButton: {
+    position: 'absolute',
+    top: 'var(--space-2)',
+    right: 'var(--space-3)',
+    background: 'none',
+    border: 'none',
+    padding: '2px 4px',
+    fontSize: 11,
+    color: 'var(--text-secondary)',
+    textDecoration: 'underline',
+    cursor: 'pointer',
   },
   bottomActions: {
     display: 'flex',

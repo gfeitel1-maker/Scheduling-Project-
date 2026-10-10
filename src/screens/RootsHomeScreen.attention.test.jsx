@@ -96,7 +96,7 @@ describe('RootsHomeScreen attention rows — T237', () => {
     render(<RootsHomeScreen campId={CAMP_ID} onNavigate={onNavigate} />)
     await waitFor(() => expect(screen.queryByText('Waterfront')).not.toBeNull())
 
-    fireEvent.click(screen.getByRole('button', { name: /Waterfront/ }))
+    fireEvent.click(screen.getByRole('button', { name: /^Waterfront/ }))
     expect(onNavigate).toHaveBeenCalledWith('reconciliation')
   })
 
@@ -135,6 +135,38 @@ describe('RootsHomeScreen attention rows — T237', () => {
     expect(within(rail).queryByText('Age divisions')).not.toBeNull()
     expect(within(rail).queryByText('Groups')).toBeNull()
     fireEvent.click(screen.getByTestId('attention-overflow'))
+    expect(onNavigate).toHaveBeenCalledWith('reconciliation')
+  })
+
+  it('Dismiss removes a kept-for-later question from the list and calls the IPC with its id', async () => {
+    const collections = collectionsFor()
+    localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
+    localClient.listOpenReconciliationDecisions.mockResolvedValue([
+      { id: 'q1', kind: 'confirm_value', domain_key: 'Scheduling', child_key: 'Activities', entity_id: null, entity_name: 'Carpool', reason: 'Add Carpool?' },
+    ])
+    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={vi.fn()} />)
+    const rail = screen.getByRole('complementary', { name: 'Needs your attention' })
+    await waitFor(() => expect(within(rail).queryByText('Carpool')).not.toBeNull())
+
+    fireEvent.click(within(rail).getByRole('button', { name: 'Dismiss Carpool' }))
+    await waitFor(() => expect(within(rail).queryByText('Carpool')).toBeNull())
+    expect(localClient.dismissOpenReconciliationDecisions).toHaveBeenCalledWith(['q1'])
+    expect(within(rail).queryByText('All clear')).not.toBeNull()
+  })
+
+  it('lists import questions kept for later instead of saying All clear, and opens them (audit 714)', async () => {
+    const collections = collectionsFor()
+    localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
+    localClient.listOpenReconciliationDecisions.mockResolvedValue([
+      { id: 'activities:null:create:Carpool', kind: 'confirm_value', domain_key: 'Scheduling', child_key: 'Activities', entity_id: null, entity_name: 'Carpool', reason: 'Seen only once in the file.' },
+    ])
+    const onNavigate = vi.fn()
+
+    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={onNavigate} />)
+    const rail = screen.getByRole('complementary', { name: 'Needs your attention' })
+    await waitFor(() => expect(within(rail).queryByText('Carpool')).not.toBeNull())
+    expect(within(rail).queryByText('All clear')).toBeNull()
+    fireEvent.click(within(rail).getByText('Carpool').closest('button'))
     expect(onNavigate).toHaveBeenCalledWith('reconciliation')
   })
 })

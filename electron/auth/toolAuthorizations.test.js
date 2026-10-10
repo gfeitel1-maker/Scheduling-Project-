@@ -26,7 +26,7 @@ beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'toolauth-')) })
 afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }) })
 
 const grant = (over = {}) =>
-  grantToolAuthorization(dir, fakeSafeStorage, { label: "Greg's laptop MCP", scope: 'read', createdBy: 'dev-1', ...over })
+  grantToolAuthorization(dir, fakeSafeStorage, { label: "Office laptop MCP", scope: 'read', createdBy: 'dev-1', ...over })
 
 function refusal(fn) {
   try { fn() } catch (e) { return e }
@@ -37,7 +37,7 @@ describe('grant -> tool connects', () => {
   it('returns the secret once and a public record; the secret verifies', () => {
     const { authorization, secret } = grant()
     expect(typeof secret).toBe('string')
-    expect(authorization).toMatchObject({ label: "Greg's laptop MCP", scope: 'read', revoked_at: null })
+    expect(authorization).toMatchObject({ label: "Office laptop MCP", scope: 'read', revoked_at: null })
     expect(authorization.secret_hash).toBeUndefined()
     const ok = checkToolAuthorization(dir, fakeSafeStorage, secret)
     expect(ok).toMatchObject({ id: authorization.id, scope: 'read' })

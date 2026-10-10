@@ -3,7 +3,7 @@ import { useState, useCallback, useRef, useEffect, forwardRef } from 'react'
 import RestoreControl from './RestoreControl'
 import { NAV_SECTIONS, ROOTS_ITEM, ADMIN_MENU_ITEMS, ADMIN_ONLY_MENU_ITEMS } from './navSections'
 import { getSetupGaps } from '../../engine/readiness'
-import { loadSidebarState, saveSidebarState, sectionRollup, nextFoldStateAfterAnswer, syncStatusLabel } from './sidebarState'
+import { loadSidebarState, saveSidebarState, sectionRollup, nextFoldStateAfterAnswer, syncStatusLabel, setupStillOpen } from './sidebarState'
 import { useEnterTransition } from '../../styles/shared'
 import { useSetupReviewed } from '../../hooks/useSetupReviewed'
 import { PREFILLED_AREAS } from '../../utils/setupReviewed'
@@ -62,7 +62,7 @@ export default function Sidebar({
   counts, countsFor, campName, syncStatus,
   projectPath, isDevDb, buildLabel,
   backupStatus, handleBackupNow, backupRevealable, handleShowBackup,
-  offerShown, setOfferShown,
+  offerShown, setOfferShown, openQuestionCount = 0,
 }) {
   const [sidebar, setSidebar] = useState(() => loadSidebarState(globalThis.localStorage))
   const [gearOpen, setGearOpen] = useState(false)
@@ -98,6 +98,7 @@ export default function Sidebar({
   const gaps = counts ? countGaps(counts) : []
   const gapAreas = new Set(gaps.map((g) => g.key))
   const offerOpen = offerShown && !sidebar.offered
+    && !setupStillOpen({ counts, reviewedAreas, decided: reviewDecided, openQuestionCount })
   const conflictsCount = Number(badges.conflicts) || 0
   const adminMenuItems = [...ADMIN_MENU_ITEMS, ...(role === 'admin' ? ADMIN_ONLY_MENU_ITEMS : [])]
 

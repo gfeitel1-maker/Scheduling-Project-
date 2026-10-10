@@ -32,6 +32,7 @@ import { normalizeName } from '../ingest/preview'
 import { emitTwoRowSplit, pinActivityAsserted, DEFAULT_SPLIT_SUFFIX } from '../ingest/twoRowSplit'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
+import { isUntouchedSeedDays } from '../utils/seedDays'
 import { assertImportFileSize, readWorkbookSafely, unescapeRow } from '../utils/exportSanitize.js'
 import { META_SHEET } from '../utils/exportWorkbook.js'
 import { runWorksheetDownload } from '../utils/downloadWorksheet.js'
@@ -322,12 +323,19 @@ export default function ImportScreen({ campId, onNavigate }) {
   // Camp-wide count — what Replace actually deletes. This drives the
   // confirmation copy the director sees before committing.
   const existingCountAll = REPLACEABLE.reduce((n, e) => n + (existingRecordsAll[e]?.length ?? 0), 0)
+  // A new camp already holds its five weekdays; those alone are not setup the
+  // director did, so they do not earn a Keep-or-Replace question.
+  const existingCountAllButDays = existingCountAll
+    - (isUntouchedSeedDays(existingRecordsAll.days_of_operation, campId) ? existingRecordsAll.days_of_operation.length : 0)
 
   // A camp's schedule can arrive as several files — Camp B exports one
   // spreadsheet per group. They are one camp and must be read as one import,
   // or the same days and activities are proposed four times over and the
   // groups arrive in four separate passes.
-  async function readFiles(fileList) {
+  // Everything a parsed file leaves behind. Run before reading a new file and
+  // when the director cancels out of the review, so either way the next import
+  // starts from nothing.
+  function clearStagedImport() {
     setError(null)
     setLedger(null)
     setProposal(null)
@@ -376,6 +384,10 @@ export default function ImportScreen({ campId, onNavigate }) {
     fileGroupUnitsRef.current = {}
     fileActivityLocationsRef.current = {}
     confirmedCompoundDecisionsRef.current = new Map()
+  }
+
+  async function readFiles(fileList) {
+    clearStagedImport()
     const files = [...(fileList ?? [])]
     if (files.length === 0) return
     setFileNames(files.map((f) => f.name))
@@ -1539,12 +1551,8 @@ export default function ImportScreen({ campId, onNavigate }) {
   // is just dropping splitDecisions state, same as every other piece of
   // review-time state below.
   function handleReconciliationDiscard() {
-    setLedger(null)
+    clearStagedImport()
     setFileNames([])
-    setFixedEvents([])
-    setActivityRules({})
-    setGroupUnitOverrides({})
-    setSplitDecisions({})
   }
 
   // R2'b cutover — once a report exists (the director has staged an import),
@@ -2430,7 +2438,7 @@ export default function ImportScreen({ campId, onNavigate }) {
               with no cohort filter — every Program's setup, not just the
               active one's — and the director must confirm the number that
               actually gets deleted, not the Program-scoped one. */}
-          {existingCountAll > 0 && (
+          {existingCountAllButDays > 0 && (
             <div style={{
               marginTop: 20, padding: '14px 16px', background: 'var(--surface)',
               border: '1px solid var(--border)', borderRadius: 8,

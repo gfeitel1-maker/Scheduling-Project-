@@ -47,6 +47,18 @@ describe('useSetupCounts — refresh channels', () => {
     await waitFor(() => expect(localClient.list.mock.calls.length).toBeGreaterThan(before))
   })
 
+  it('tracks the open import questions, so dismissing the last one frees the "setup complete" offer', async () => {
+    localClient.listOpenReconciliationDecisions = vi.fn()
+      .mockResolvedValueOnce([{ id: 'a' }, { id: 'b' }])
+      .mockResolvedValue([])
+    const { result } = renderHook(() => useSetupCounts('camp-1'))
+    await waitFor(() => expect(result.current.openQuestionCount).toBe(2))
+
+    localClient.__listeners.localWrite.forEach((cb) => cb())
+    await waitFor(() => expect(result.current.openQuestionCount).toBe(0))
+    delete localClient.listOpenReconciliationDecisions
+  })
+
   it('reports a caution status when the backup saved but the camp document was not included', async () => {
     const { result } = renderHook(() => useSetupCounts('camp-1'))
     localClient.backupProject.mockResolvedValueOnce({ backupPath: '/b', docBackupError: 'disk full' })

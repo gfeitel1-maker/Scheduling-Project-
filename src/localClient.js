@@ -129,8 +129,8 @@ export const localClient = {
   // T118 slice 4 — compoundCellDecisions rides alongside placements: the
   // director's freshly-resolved compound-cell-pattern decisions THIS import,
   // written to the per-camp learned table once, at successful commit.
-  ingestCommit: announcing(({ approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, placements, sourceFileName, compoundCellDecisions, divisionSupport } = {}) =>
-    shoresh.ingestCommit({ token: currentToken(), approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, placements, sourceFileName, compoundCellDecisions, divisionSupport })),
+  ingestCommit: announcing(({ approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, placements, sourceFileName, compoundCellDecisions, divisionSupport, openDecisions } = {}) =>
+    shoresh.ingestCommit({ token: currentToken(), approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, placements, sourceFileName, compoundCellDecisions, divisionSupport, openDecisions })),
   // D1 — read-only dry run of the same commit pipeline, for the reconciliation
   // summary. Same argument shape as ingestCommit; never writes.
   ingestReconcile: ({ approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents, divisionSupport } = {}) =>
@@ -228,8 +228,8 @@ export const localClient = {
   dismissMigrationReviews: (ids) => shoresh.dismissMigrationReviews({ token: currentToken(), ids }),
   // docs/adr/2026-08-28-persisted-reconciliation-decisions.md §4b.
   listOpenReconciliationDecisions: () => shoresh.listOpenReconciliationDecisions(currentToken()),
-  dismissOpenReconciliationDecisions: (ids) =>
-    shoresh.dismissOpenReconciliationDecisions({ token: currentToken(), ids }),
+  dismissOpenReconciliationDecisions: announcing((ids) =>
+    shoresh.dismissOpenReconciliationDecisions({ token: currentToken(), ids })),
   getDevicePairingStatus: () => shoresh.getDevicePairingStatus(),
   listPendingPairingRequests: () => shoresh.listPendingPairingRequests(currentToken()),
   approveDevice: (deviceId) => shoresh.approveDevice({ token: currentToken(), deviceId }),

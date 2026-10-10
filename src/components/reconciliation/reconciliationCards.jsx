@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { prefersReducedMotion } from '../../styles/shared'
-import { DOMAIN_OF, REQUIRED_GAP_DOMAIN } from './domainRollup.js'
+import { REQUIRED_GAP_DOMAIN } from './domainRollup.js'
 import { isDecisionResolvedFor } from '../../screens/reconciliationTriage.js'
 import { normalizeWordKey } from '../../utils/normalizeWordKey.js'
 import { fieldLabel } from '../../screens/recordLabels.js'
+import { entityNoun } from '../../ingest/decisionTitle.js'
 
 // Extracted from ReconciliationScreen.jsx (root-map port,
 // docs/adr/2026-08-18-rootmap-screen-port.md §1/"Files affected") so both
@@ -161,7 +162,7 @@ function subtitleFor(decision) {
   if (decision.kind === 'resolve_conflict' && decision._held && decision._heldKind === 'location') {
     return namedByPhrase(decision._namingActivities?.length ? decision._namingActivities : [decision.entityName])
   }
-  return `${decision.entity} · ${decision.entityName ?? 'unnamed'} · ${DOMAIN_OF[decision.entity] ?? 'Structure'}`
+  return `${entityNoun(decision.entity)} · ${decision.entityName ?? 'unnamed'}`
 }
 
 function questionFor(decision) {
@@ -176,7 +177,7 @@ function questionFor(decision) {
       return `Pick ${label === 'something' ? 'a value' : label.toLowerCase()} for "${name}" to finish this import.`
     }
     return decision._held && decision._heldKind === 'stale'
-      ? `Keep the current value for "${name}"'s ${decision.field?.[0]} or use the file's value?`
+      ? `Keep the current value for "${name}"'s ${fieldLabel(decision.field?.[0]).toLowerCase()} or use the file's value?`
       : `Is "${name}" a new record, or one you already have?`
   }
   // NOT "was hand-edited": fieldProvenance decodes NULL as human deliberately
@@ -207,7 +208,7 @@ function questionFor(decision) {
   // they were pulled out of?"), built where the counts are known.
   if (decision.kind === 'all_camp_override') return decision.reason
   if (decision.kind === 'elective_candidates_truncated') return decision.reason
-  return `Use the file's value for "${name}"?`
+  return decision.title ?? `Use the file's value for "${name}"?`
 }
 
 function summaryOf(decision, answer) {
@@ -218,6 +219,8 @@ function summaryOf(decision, answer) {
   if (answer.choice === 'existing') return 'Using your existing record'
   if (answer.choice === 'create') return 'Adding as new'
   if (answer.choice === 'not_a_place') return 'Imported with no room — won’t be asked about this word again'
+  if (decision.kind === 'all_camp_override' && answer.choice === 'all_camp') return 'For all camp'
+  if (decision.kind === 'all_camp_override' && answer.choice === 'as_written') return 'Limited to the groups in the file'
   if (answer.choice === 'skip') return 'Skipped — nothing written for this field'
   if (decision.kind === 'elective_candidate' && answer.choice === 'confirm') return 'Empty elective set created'
   if (decision.kind === 'elective_candidate' && answer.choice === 'decline') return 'Not an elective period — left as-is'
@@ -285,10 +288,13 @@ function LocationHoldControls({ decision, onAnswer, locations }) {
 
 function ResolutionControls({ decision, onAnswer, locations }) {
   if (decision.kind === 'confirm_value') {
+    // The buttons answer the card's title: "Add X?" is yes or no, "Set X's
+    // field to V?" is the file's value or the one already in Shoresh.
+    const isChange = Array.isArray(decision.field) && decision.field.length > 0
     return (
       <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-        <button className="press-97" onClick={() => onAnswer({ action: 'looks_right' })} style={cardStyles.btnCompactPrimary}>Use this value</button>
-        <button className="press-97" onClick={() => onAnswer({ action: 'edited' })} style={cardStyles.btnCompactSecondary}>Keep current</button>
+        <button className="press-97" onClick={() => onAnswer({ action: 'looks_right' })} style={cardStyles.btnCompactPrimary}>{isChange ? 'Use the file’s' : 'Add it'}</button>
+        <button className="press-97" onClick={() => onAnswer({ action: 'edited' })} style={cardStyles.btnCompactSecondary}>{isChange ? 'Keep mine' : 'Don’t add'}</button>
       </div>
     )
   }

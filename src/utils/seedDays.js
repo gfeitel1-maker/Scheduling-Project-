@@ -43,6 +43,18 @@ const MON_FRI = [
 
 const REQUIRED_FIELDS = ['label', 'day_of_week', 'sort_order']
 
+// True only for the five weekdays this file seeded, still exactly as seeded:
+// the derived id is the provenance (a hand-made or imported row never has it),
+// and the label and order are what a director would change by editing one.
+export function isUntouchedSeedDays(days, campId) {
+  if (!Array.isArray(days) || days.length !== MON_FRI.length) return false
+  return MON_FRI.every((seed) => {
+    const row = days.find((d) => d.day_of_week === seed.day_of_week)
+    return Boolean(row) && row.id === deriveDayId(campId, seed.day_of_week)
+      && row.label === seed.label && row.sort_order === seed.sort_order
+  })
+}
+
 function isComplete(row) {
   return REQUIRED_FIELDS.every((field) => row[field] != null && row[field] !== '')
 }

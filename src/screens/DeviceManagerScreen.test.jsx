@@ -367,6 +367,31 @@ describe('DeviceManagerScreen — rename', () => {
     expect(localClient.renameDevice).toHaveBeenCalledWith('authorized-1', 'Office laptop')
   })
 
+  it('this computer’s own row says "This computer" once when it still has the default name', async () => {
+    localClient.listDevices.mockResolvedValue([authorizedDevice({ name: 'This computer', isSelf: true })])
+    render(<DeviceManagerScreen campId="c1" role="admin" deviceMode="host" />)
+    await screen.findByRole('button', { name: 'Rename This computer' })
+    expect(document.body.textContent.match(/this computer/gi).filter((t) => t === 'This computer' || t === 'this computer')).toHaveLength(
+      document.body.textContent.match(/this computer/gi).length,
+    )
+    expect(screen.queryByText(/\(this computer\)/)).toBeNull()
+    expect(document.body.textContent).not.toMatch(/This computer·|This computer · this computer/i)
+  })
+
+  it('tags a renamed own row so it can still be found', async () => {
+    localClient.listDevices.mockResolvedValue([authorizedDevice({ name: 'Office Mac', isSelf: true })])
+    render(<DeviceManagerScreen campId="c1" role="admin" deviceMode="host" />)
+    expect(await screen.findByText(/\(this computer\)/)).toBeTruthy()
+    expect(screen.getByText(/Office Mac/)).toBeTruthy()
+  })
+
+  it('does not tag another device', async () => {
+    localClient.listDevices.mockResolvedValue([authorizedDevice({ name: 'Office Mac' })])
+    render(<DeviceManagerScreen campId="c1" role="admin" deviceMode="host" />)
+    await screen.findByText('Office Mac')
+    expect(screen.queryByText(/\(this computer\)/)).toBeNull()
+  })
+
   it('shows the refusal instead of failing silently', async () => {
     localClient.listDevices.mockResolvedValue([authorizedDevice({ isSelf: true })])
     localClient.renameDevice.mockRejectedValue(new Error('A device name cannot be empty.'))

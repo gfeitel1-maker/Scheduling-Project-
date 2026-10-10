@@ -688,7 +688,7 @@ function commitElectiveCandidates(db, { confirmedElectiveSets = [], camp_id, aut
   return { created, failed }
 }
 
-export function commitIngest(db, { approved, links, clears = {}, humanEditedFields = {}, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {}, mode = 'add', resolutions = [], base_generation = 0, dryRun = false, seenCounts = null, pinOnlyActivityNames = [], captureInverse = false, electiveHeaderFindings = [], activityPeriods = {}, confirmedElectiveSets = [], multiBlockEvents = [], divisionSupport = {} }) {
+export function commitIngest(db, { approved, links, clears = {}, humanEditedFields = {}, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {}, mode = 'add', resolutions = [], base_generation = 0, dryRun = false, seenCounts = null, pinOnlyActivityNames = [], captureInverse = false, electiveHeaderFindings = [], activityPeriods = {}, confirmedElectiveSets = [], multiBlockEvents = [], divisionSupport = {}, openDecisions = [] }) {
   if (!approved || typeof approved !== 'object') throw new Error('ingest: nothing to commit')
   if (!camp_id) throw new Error('ingest: camp_id is required')
 
@@ -738,7 +738,7 @@ export function commitIngest(db, { approved, links, clears = {}, humanEditedFiel
   const import_run_id = randomUUID()
   const committed_at = new Date().toISOString()
 
-  const outcome = commitPlan(db, plan, { author_user_id: author_user_id ?? null, device_id, resolutions, import_run_id, committed_at, dryRun, captureInverse })
+  const outcome = commitPlan(db, plan, { author_user_id: author_user_id ?? null, device_id, resolutions, import_run_id, committed_at, dryRun, captureInverse, heldBack: openDecisions })
 
   // D1: these run strictly AFTER commitPlan returns — the dry-run transaction
   // has already rolled back by this point. Computing them earlier, inside the
@@ -792,7 +792,7 @@ export function commitIngest(db, { approved, links, clears = {}, humanEditedFiel
  * @param {import('../../src/ingest/buildPlan.js').ReconciliationPlan} plan
  * @param {{ author_user_id: string|null, device_id: string, import_run_id?: string, committed_at?: string, dryRun?: boolean }} actor
  */
-export function commitPlan(db, plan, { author_user_id = null, device_id, resolutions = [], import_run_id = null, committed_at = null, dryRun = false, captureInverse = false }) {
+export function commitPlan(db, plan, { author_user_id = null, device_id, resolutions = [], import_run_id = null, committed_at = null, dryRun = false, captureInverse = false, heldBack = [] }) {
   // B4: a direct commitPlan caller (tests, or any future caller that skips
   // commitIngest) still gets evidence rows minted with a run id/timestamp of
   // their own, rather than writing NOT NULL columns as null.
@@ -2711,7 +2711,17 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       // lane, never persisted as durable rows.
       const OPEN_KINDS = new Set(['confirm_value', 'confirm_change'])
       const openDecisions = openReport.decisions.filter((d) => OPEN_KINDS.has(d.kind))
-      const touchedEntityTypes = [...new Set(plan.items.map((item) => item.entity))]
+      // Questions the director left open are held out of the plan by the
+      // renderer (applyResolutions), so no plan item exists to derive them
+      // from. They arrive as decisions in this same shape.
+      const planned = new Set(openDecisions.map((d) => d.id))
+      const keptForLater = (Array.isArray(heldBack) ? heldBack : []).filter((d) =>
+        d && typeof d.id === 'string' && typeof d.entity === 'string' && typeof d.entityName === 'string' && OPEN_KINDS.has(d.kind) && !planned.has(d.id))
+      openDecisions.push(...keptForLater)
+      // A Replace deletes these records, so a question about one of them has
+      // nothing left to be about.
+      const replacedTypes = mode === 'replace' ? [...REPLACEABLE_ENTITIES, 'fixed_events'] : []
+      const touchedEntityTypes = [...new Set([...plan.items.map((item) => item.entity), ...keptForLater.map((d) => d.entity), ...replacedTypes])]
       replaceOpenDecisionsForCommit(db, {
         campId: camp_id,
         decisions: openDecisions,

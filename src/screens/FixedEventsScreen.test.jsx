@@ -779,6 +779,51 @@ describe('FixedEventsScreen — recurring event division scope (T180)', () => {
     expect(cell.style.fontStyle).toBe('italic')
   })
 
+  // Audit 714 item 5: "Sports Monday 9:45 Badger" came from Badger 2 only, and
+  // "Music Tue 12:10 Badger" beside "Water Play Tue 12:10 Badger" read as a
+  // double-booking of the same division.
+  describe('a row scoped to some groups of a division names those groups', () => {
+    const t1Groups = [
+      { id: 'g1', camp_id: CAMP_ID, name: 'Aleph 1', tier_id: 't1' },
+      { id: 'g1b', camp_id: CAMP_ID, name: 'Aleph 2', tier_id: 't1' },
+      { id: 'g2', camp_id: CAMP_ID, name: 'Bet', tier_id: 't2' },
+    ]
+    function mountPartial(group_ids) {
+      localClient.list.mockImplementation((entity) => {
+        if (entity === 'fixed_events') return Promise.resolve([{
+          id: 'a1', camp_id: CAMP_ID, cohort_id: COHORT_ID, name: 'Sports',
+          day_id: 'd1', time_block_id: 'block-1', is_all_groups: 0,
+          group_ids: JSON.stringify(group_ids), unit_ids: null, kind: 'recurring',
+        }])
+        if (entity === 'days_of_operation') return Promise.resolve(days)
+        if (entity === 'time_blocks') return Promise.resolve([block()])
+        if (entity === 'tiers') return Promise.resolve(tiers)
+        if (entity === 'groups') return Promise.resolve(t1Groups)
+        return Promise.resolve([])
+      })
+      return render(<FixedEventsScreen campId={CAMP_ID} onNavigate={() => {}} kind="recurring" />)
+    }
+
+    it('shows the group, not the whole division', async () => {
+      mountPartial(['g1b'])
+      await waitFor(() => expect(screen.queryByText('Sports')).not.toBeNull())
+      expect(screen.queryByText('Aleph 2')).not.toBeNull()
+      expect(screen.queryByText('Juniors')).toBeNull()
+    })
+
+    it('shows the division when every group of it is covered', async () => {
+      mountPartial(['g1', 'g1b'])
+      await waitFor(() => expect(screen.queryByText('Sports')).not.toBeNull())
+      expect(screen.queryByText('Juniors')).not.toBeNull()
+    })
+
+    it('names each covered division whole, and a lone group by its own name', async () => {
+      mountPartial(['g1', 'g2'])
+      await waitFor(() => expect(screen.queryByText('Sports')).not.toBeNull())
+      expect(screen.queryByText('Aleph 1, Seniors')).not.toBeNull()
+    })
+  })
+
   it('does NOT mark a stored unit_ids label as inferred (T183)', async () => {
     mount([{
       id: 'a1', camp_id: CAMP_ID, cohort_id: COHORT_ID, name: 'Swim',

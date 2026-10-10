@@ -39,8 +39,26 @@ function groupsText(names, allGroups) {
  *          file's grid says nothing about it.
  */
 export function describeAppearance(placements, name, allGroups = []) {
+  const a = summarizeAppearance(placements, name, allGroups)
+  if (!a) return name
+  return `${name} · ${a.cells} cells · ${a.when}${a.more} · ${a.groups}`
+}
+
+/**
+ * The same facts as pieces a question can carry: { groups, times } where
+ * `times` reads "8:40 AM and 3:40 PM". Null when the grid says nothing.
+ */
+export function appearancePhrase(placements, name, allGroups = []) {
+  const a = summarizeAppearance(placements, name, allGroups)
+  if (!a) return null
+  const t = a.startTimes
+  const times = t.length <= 2 ? t.join(' and ') : `${t.slice(0, -1).join(', ')} and ${t[t.length - 1]}`
+  return { groups: a.groups, times }
+}
+
+function summarizeAppearance(placements, name, allGroups) {
   const rows = (placements ?? []).filter((p) => p.activityName === name && dayIndex(p.dayName) >= 0)
-  if (rows.length === 0) return name
+  if (rows.length === 0) return null
 
   // block -> day indices it occurs on
   const daysByBlock = new Map()
@@ -66,8 +84,11 @@ export function describeAppearance(placements, name, allGroups = []) {
     if (last && last.key === key) last.times.push(t.text)
     else entries.push({ key, days: t.days, times: [t.text] })
   }
-  const when = entries.map((e) => `${daysText(e.days)} ${e.times.join(', ')}`).join(', ')
-  const more = timed.length > shown.length ? ` +${timed.length - shown.length} more` : ''
-
-  return `${name} · ${rows.length} cells · ${when}${more} · ${groupsText(groups, allGroups)}`
+  return {
+    cells: rows.length,
+    when: entries.map((e) => `${daysText(e.days)} ${e.times.join(', ')}`).join(', '),
+    more: timed.length > shown.length ? ` +${timed.length - shown.length} more` : '',
+    startTimes: [...new Set([...timed].sort((x, y) => x.minutes - y.minutes).map((t) => t.text))],
+    groups: groupsText(groups, allGroups),
+  }
 }

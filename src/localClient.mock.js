@@ -9,6 +9,7 @@
 // same side as this mock, so importing it crosses no boundary.
 import { buildPlan, CLEAR } from './ingest/buildPlan.js'
 import { INGESTIBLE_ENTITIES } from './ingest/extractEntities.js'
+import { domainOf, childOf } from './components/reconciliation/domainRollup.js'
 import { normalizeName, recognitionKey } from './ingest/preview.js'
 // S2c: the SAME pure field-update helpers the real committer uses, so the mock's
 // fold/snapshot/validation cannot drift from electron/ops/ingest.js.
@@ -984,7 +985,7 @@ export const mockShoresh = {
   // off localStorage on every call (never a live reference), so skipping the
   // final saveState() is sufficient to discard every mutation this run made —
   // CLONE-RUN-DISCARD without a second copy step.
-  async ingestCommit({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, dryRun = false, seenCounts, pinOnlyActivityNames, captureInverse = false, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, placements, compoundCellDecisions } = {}) {
+  async ingestCommit({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, dryRun = false, seenCounts, pinOnlyActivityNames, captureInverse = false, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, placements, compoundCellDecisions, openDecisions } = {}) {
     const state = loadState()
     if (!state.camp) throw new Error('ingest: no camp')
     // U1 Invariant 3 (docs/adr/2026-08-17-onescreen-reconciliation-undo.md) —
@@ -1696,7 +1697,13 @@ export const mockShoresh = {
       compoundCellDecisionsWritten = { count: written, failed: [] }
     }
 
-    if (!dryRun) saveState(state)
+    if (!dryRun) {
+      state.open_reconciliation_decisions = (openDecisions ?? []).map((d) => ({
+        id: d.id, kind: d.kind, entity_type: d.entity, entity_id: d.entityId ?? null, entity_name: d.entityName,
+        reason: d.reason ?? null, domain_key: domainOf(d), child_key: childOf(d),
+      }))
+      saveState(state)
+    }
     const outcome = { held: false, conflicts: [], created, total, updated, fixedEvents: { created: fixedCreatedIds.length, skipped: fixedSkipped, partial: fixedPartial, moved: [] } }
     if (electiveSetsCreated.length > 0) outcome.electiveSetsCreated = electiveSetsCreated
     if (replaced) outcome.replaced = replaced
@@ -3068,10 +3075,14 @@ export const mockShoresh = {
   // posture as listMigrationReviews above. Persistence is only verifiable
   // under electron:dev.
   async listOpenReconciliationDecisions() {
-    return []
+    return loadState().open_reconciliation_decisions ?? []
   },
-  async dismissOpenReconciliationDecisions() {
-    return { ok: true, dismissed: 0 }
+  async dismissOpenReconciliationDecisions(ids) {
+    const state = loadState()
+    const before = state.open_reconciliation_decisions ?? []
+    state.open_reconciliation_decisions = before.filter((r) => !(ids ?? []).includes(r.id))
+    saveState(state)
+    return { ok: true, dismissed: before.length - state.open_reconciliation_decisions.length }
   },
 
   // Duplicate a week in mock state, mirroring duplicateWeek.js's contract:
