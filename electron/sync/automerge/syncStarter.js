@@ -16,6 +16,7 @@
 // dynamic `import('./syncNode.js')` made overridable via `startSyncNodeImpl`
 // for tests.
 import fs from 'node:fs'
+import path from 'node:path'
 import { isAutomergeEngine } from './syncEngineFlag.js'
 import { migrationSpanFor } from '../../db/localDb.js'
 import {
@@ -93,6 +94,7 @@ export function createAutomergeSyncStarter({
   punchSignaling,
   relaunch,
   punchEmit,
+  portMappingDeps,
 }) {
   // T347 (S1): set only when the punch transport was actually wired, so quit can tear down its
   // native state and an unwired build never loads the module.
@@ -100,6 +102,7 @@ export function createAutomergeSyncStarter({
   let punchIdentityHandle = null
   let punchPersistence = null
   let punchWiring = null
+  let portMapping = null
   // Declared here (ahead of automergeSyncNode's own definition further down)
   // so makeHandlers' chooseMode/login closures can reach whatever node is
   // running by the time THEY run, without makeHandlers needing to know
@@ -460,12 +463,14 @@ export function createAutomergeSyncStarter({
       // capability row's signoff stays null until S5's T327 gate.
       let punchTransportFactory
       const listenAddrs = ['/ip4/0.0.0.0/tcp/0']
+      let pinnedListen = null
       // T359 slice 1: with the flag on, the TCP listener sits on a persisted per-device port so a router
       // can later be asked to map it. Flag off leaves the ephemeral '/tcp/0' above untouched.
       if (punchEnabled) {
         const { resolveTcpListenAddr } = await import('./pinnedListenPort.js')
         const pinned = await resolveTcpListenAddr({ userDataPath })
         listenAddrs[0] = pinned.listenAddr
+        pinnedListen = pinned
         if (pinned.status === 'port-in-use') console.warn('sync: the pinned TCP port is in use; listening on an ephemeral port this run')
       }
       // S4c: with no injected channel (production) the transport gets a routed channel whose target
@@ -655,6 +660,32 @@ export function createAutomergeSyncStarter({
       // shared in-memory doc; the write already reached this device's own SQLite via appendOp).
       setAutomergeLocalWriteBroadcaster(db, automergeSyncNode.broadcastLocalDoc)
 
+      // T359 slice 3: the pinned listener is bound, so ask the router to map it. Flag-off never gets here.
+      // Under Vitest the real router is never touched unless a test injects portMappingDeps.
+      const mappingDeps = portMappingDeps ?? (process.env.VITEST ? null : undefined)
+      if (punchEnabled && pinnedListen && mappingDeps !== null) {
+        try {
+          const [{ createPortMappingLifecycle }, { createFileGrantStore, GRANT_FILE }, { createLibraryDeps }] = await Promise.all([
+            import('./portMappingLifecycle.js'), import('./portMappingGrantStore.js'), import('./portMapping.js'),
+          ])
+          await portMapping?.stop()
+          portMapping = createPortMappingLifecycle({
+            localPort: pinnedListen.port,
+            portInUse: pinnedListen.status === 'port-in-use',
+            deps: mappingDeps ?? await createLibraryDeps(),
+            grantStore: createFileGrantStore(path.join(userDataPath, GRANT_FILE)),
+            log: (m) => console.warn(m),
+            onChange: () => {
+              try { getLiveHandlers()?.pushSyncStatus?.() } catch { /* UI notice only */ }
+              try { punchWiring?.publishOwnReflexive?.() } catch { /* gossip republish is best effort */ }
+            },
+          })
+          portMapping.start().catch(() => {})
+        } catch (err) {
+          console.error(`automerge sync: port mapping failed to start (non-fatal): ${err?.message ?? err}`)
+        }
+      }
+
       // Stage 6c: the sidebar's connection copy now follows the libp2p peer
       // set. Pushed on change rather than polled, matching what the WebSocket
       // client's onConnectionChange used to do.
@@ -668,6 +699,7 @@ export function createAutomergeSyncStarter({
             channel: routedChannel,
             getTransport: () => punchInstance,
             getUpgrader: () => punchUpgrader,
+            getMappedAddress: () => portMapping?.getMappedAddress() ?? null,
             rendezvous: rendezvousDemand,
             emit: (name, fields) => connectivity(name, { source: 'punch', ...fields }),
             getDoc: () => getDocIfLoaded(db),
@@ -727,12 +759,21 @@ export function createAutomergeSyncStarter({
   return {
     start,
     getNode: () => automergeSyncNode,
+    // Flag-off is null because portMapping is only ever created inside the single punchEnabled gate
+    // (T347's guard requires exactly one SHORESH_PUNCH_ENABLED read in this file).
+    getPortMappingStatus: () => portMapping?.getStatus() ?? null,
     shutdownPunch: async () => {
+      const mapping = portMapping
+      portMapping = null
+      // Start the router unmap (bounded at 3s) but never hold the punch teardown behind it: the
+      // native cleanup is what lets the process exit, and will-quit bounds the whole quit at 5s.
+      const unmapping = mapping ? mapping.stop().catch(() => {}) : null
       await punchWiring?.stop()
       punchWiring = null
       await punchModule?.shutdownPunchNative()
       punchIdentityHandle?.cleanup()
       punchIdentityHandle = null
+      await unmapping
     },
     releaseBroadcaster: () => setAutomergeLocalWriteBroadcaster(db, null),
     getStartupAttempted: () => automergeStartupAttempted,

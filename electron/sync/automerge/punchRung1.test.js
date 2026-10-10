@@ -35,7 +35,7 @@ function freshDb() {
   return db
 }
 
-const LOOP = { allowNonPublicCandidates: true }
+const LOOP = { candidateFilter: () => true }
 const upgraderFor = (remote) => ({
   upgradeOutbound: async (maConn) => ({ remotePeer: { toString: () => remote }, maConn, close: async () => { upgraderFor.closed.push(remote) } }),
   upgradeInbound: async (maConn) => ({ remotePeer: { toString: () => remote }, maConn, close: async () => { upgraderFor.closed.push(remote) } }),
@@ -173,6 +173,16 @@ describe('Rung 1 - remembered-candidate redial', () => {
     expect(calls).toHaveLength(1)
     expect(calls[0].candidates.map((c) => c.candidate)).toEqual([pub[0].candidate])
     expect(calls[0].remoteSdp).not.toMatch(/^a=candidate:/m)
+  })
+
+  it('has no loopback bypass: the retired allowNonPublicCandidates flag is ignored, and the default filter rejects loopback', async () => {
+    const calls = []
+    const row = { ...JSON.parse(a.db.prepare('SELECT candidates FROM peer_punch_memory WHERE peer_id = ?').get('peer-b').candidates)[0] }
+    const loopback = [{ ...row, candidate: 'candidate:1 1 UDP 1686052607 127.0.0.1 40000 typ srflx' }]
+    a.db.prepare('UPDATE peer_punch_memory SET candidates = ? WHERE peer_id = ?').run(JSON.stringify(loopback), 'peer-b')
+    const r = await attemptRung1({ peerId: 'peer-b' }, { db: a.db, transport: { connectFromMemory: (m) => { calls.push(m) } }, upgrader: {}, allowNonPublicCandidates: true })
+    expect(r).toEqual({ ok: false, reason: 'no-memory' })
+    expect(calls).toEqual([])
   })
 
   it('a connection that authenticates as a different peer is closed and reported as mapping-moved', async () => {

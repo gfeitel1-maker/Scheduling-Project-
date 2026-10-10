@@ -11,12 +11,13 @@ import { attemptRung1 } from './punchRung1.js'
 import { attemptRung2 } from './punchRung2.js'
 import { createPunchSignaling, createReplayStore } from './punchSignaling.js'
 import { createHighWaterStore, deviceRegistryFromDb, publishReflexive, readReflexive } from './punchGossip.js'
-import { listTrustedRememberedAddresses, rememberMappedPeerAddress } from './peerAddressBook.js'
+import { dialAndVerify, listTrustedRememberedAddresses, rememberMappedPeerAddress, redialTarget } from './peerAddressBook.js'
 import { ownReflexiveMultiaddrs } from './punchIdentity.js'
 import { publicRecordAddresses } from './rendezvousClient.js'
 
 export const GOSSIP_REPUBLISH_MS = 4 * 60 * 1000
 const LAN_WAIT_MS = 4_000
+const LAN_DIAL_MS = 5_000
 
 // The punch transport owns ONE signaling channel for its lifetime, but a signal always belongs to one
 // remote device. Outbound sends go to the explicitly bound target (rung 2 binds it before dialing);
@@ -45,6 +46,19 @@ export function createRoutedSignalChannel() {
       attached.clear()
       subs.clear()
     },
+  }
+}
+
+export function createAttemptLan({ db, node, isConnected, waitMs = LAN_WAIT_MS }) {
+  return async (peer) => {
+    const remembered = listTrustedRememberedAddresses(db).filter((r) => r.peerId === peer.peerId)
+    await Promise.allSettled(remembered.map((r) => {
+      const target = redialTarget(peer.peerId, r.multiaddr)
+      return target ? dialAndVerify((t, o) => node.dial(t, o), peer.peerId, target, { timeoutMs: LAN_DIAL_MS }) : false
+    }))
+    if (isConnected(peer.peerId)) return true
+    await new Promise((resolve) => setTimeout(resolve, remembered.length ? waitMs : 0).unref?.())
+    return isConnected(peer.peerId)
   }
 }
 
@@ -84,12 +98,7 @@ export async function wirePunchReconnect({
   }
   attachInbound()
 
-  async function attemptLan(peer) {
-    const remembered = listTrustedRememberedAddresses(db).filter((r) => r.peerId === peer.peerId)
-    await Promise.allSettled(remembered.map((r) => node.dial(r.multiaddr)))
-    await new Promise((resolve) => setTimeout(resolve, remembered.length ? LAN_WAIT_MS : 0).unref?.())
-    return isConnected(peer.peerId)
-  }
+  const attemptLan = createAttemptLan({ db, node, isConnected })
 
   const coordinator = createReconnectCoordinator({
     listPeers,
