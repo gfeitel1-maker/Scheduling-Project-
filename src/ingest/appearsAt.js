@@ -71,21 +71,3 @@ export function describeAppearance(placements, name, allGroups = []) {
 
   return `${name} · ${rows.length} cells · ${when}${more} · ${groupsText(groups, allGroups)}`
 }
-
-// A card that stands for several decisions lists every one of them.
-export function groupedCardLines(decisions) {
-  const list = decisions ?? []
-  const sameItem = new Set(list.map((d) => d.entityName)).size <= 1
-  if (sameItem && !list.some((d) => d.appearsAt)) return []
-  return [...new Set(list.map((d) => d.appearsAt ?? d.entityName).filter(Boolean))]
-}
-
-// Only when the grouped decisions are about different items is a headline that
-// names the first one untrue; otherwise the card keeps its own.
-export function groupedCardHeadline(decisions) {
-  const names = new Set((decisions ?? []).map((d) => d.entityName))
-  if (names.size <= 1) return null
-  return decisions[0]?.kind === 'elective_candidate'
-    ? `Create an empty elective set for each of these ${decisions.length} periods?`
-    : `Use the file's values for these ${decisions.length} items?`
-}

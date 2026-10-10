@@ -4,7 +4,6 @@ import { DOMAIN_OF, REQUIRED_GAP_DOMAIN } from './domainRollup.js'
 import { isDecisionResolvedFor } from '../../screens/reconciliationTriage.js'
 import { normalizeWordKey } from '../../utils/normalizeWordKey.js'
 import { fieldLabel } from '../../screens/recordLabels.js'
-import { groupedCardHeadline, groupedCardLines } from '../../ingest/appearsAt.js'
 
 // Extracted from ReconciliationScreen.jsx (root-map port,
 // docs/adr/2026-08-18-rootmap-screen-port.md §1/"Files affected") so both
@@ -446,11 +445,11 @@ function quoteValue(value) {
     : formatFieldValue(value)
 }
 
-export function DecisionCard({ decision, rank, answer, onAnswer, expanded, onToggleEvidence, locations, repeatCount = 1, members = null }) {
+export function DecisionCard({ decision, rank, answer, onAnswer, expanded, onToggleEvidence, locations, repeatCount = 1 }) {
   const resolved = isDecisionResolvedFor(decision, { [decision.id]: answer })
   const cardStyle = rank === 'hold' ? cardStyles.cardHold : cardStyles.cardStandard
-  const question = (repeatCount > 1 && groupedCardHeadline(members)) || questionFor(decision)
-  const appearances = repeatCount > 1 ? groupedCardLines(members) : (decision.appearsAt ? [decision.appearsAt] : [])
+  const question = questionFor(decision)
+  const appearances = decision.appearsAt ? [decision.appearsAt] : []
   const showRemember = resolved && isIdentityDecision(decision) && answer?.choice === 'existing'
   const contentFade = useContentCrossfade(resolved)
 

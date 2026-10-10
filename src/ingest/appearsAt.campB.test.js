@@ -5,7 +5,8 @@ import { parseTextGrid } from './textGrid.js'
 import { extractEntities } from './extractEntities.js'
 import { capturePlacements } from './capturePlacements.js'
 import { buildReconciliationReport } from './reconciliationReport.js'
-import { describeAppearance, groupedCardLines, groupedCardHeadline } from './appearsAt.js'
+import { describeAppearance } from './appearsAt.js'
+import { groupIdenticalDecisions } from '../components/reconciliation/groupIdenticalDecisions.js'
 
 // Keeper ruling: an aggregated review card lists where each item appears,
 // compactly — "Carpool · 140 cells · Mon–Fri 8:40 AM, 3:40 PM · every group".
@@ -56,15 +57,20 @@ describe('aggregated card copy', () => {
     ])
   })
 
-  it('a card standing for different items lists every one, not just the first name', () => {
-    expect(groupedCardLines(decisions)).toEqual([
-      'Carpool · 140 cells · Mon–Fri 8:40 AM, 3:40 PM · every group',
-      'Busses · 70 cells · Mon–Fri 3:20 PM · every group',
-    ])
-    expect(groupedCardHeadline(decisions)).toBe("Use the file's values for these 2 items?")
+  it('campB: every activity gets its own card, so no card covers more than one name', () => {
+    const all = proposal.entities.activities.map((n) => item(n))
+    const r = buildReconciliationReport({ planItems: all, readiness: [], placements, allGroupNames: groups })
+    const cards = groupIdenticalDecisions(r.decisions.filter((d) => d.kind === 'confirm_value'))
+    expect(cards.length).toBeGreaterThan(10)
+    const byId = new Map(r.decisions.map((d) => [d.id, d.entityName]))
+    for (const c of cards) expect(new Set(c.ids.map((id) => byId.get(id))).size).toBe(1)
   })
 
-  it('a card standing for one repeated name keeps its own headline', () => {
-    expect(groupedCardHeadline([decisions[0], decisions[0]])).toBeNull()
+  it('campB: Tue and Thu All Camp Activity overrides stay separate cards, each with its own day', () => {
+    const f = { activityName: 'All Camp Activity', block: '14:25-15:15', missingGroups: ['CIT'], insteadByGroup: {}, attendingCount: 1, totalGroups: 2, occurrences: 1 }
+    const r = buildReconciliationReport({ planItems: [], readiness: [], placements, allGroupNames: groups, allCampOverrides: [{ ...f, day: 'Tuesday' }, { ...f, day: 'Thursday' }] })
+    const cards = groupIdenticalDecisions(r.decisions.filter((d) => d.kind === 'all_camp_override'))
+    expect(cards).toHaveLength(2)
+    expect(cards.map((c) => c.decision.reason.split(' ')[0])).toEqual(['Tuesday', 'Thursday'])
   })
 })

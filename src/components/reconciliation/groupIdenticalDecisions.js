@@ -7,10 +7,11 @@
 // them apart, so a director answering the twenty-fifth could not have answered
 // it differently from the first even if they wanted to.
 //
-// Two decisions are the same QUESTION when they render the same words and the
-// same options: same kind, same entity, same reason sentence. `reason` is the
-// text the card puts in front of the director, so equal reasons means they were
-// literally being asked the same thing.
+// Two decisions are the same QUESTION when they are about the same item: same
+// kind, same entity, same item name. Different items are never merged — one
+// answer must not silently apply to sixteen different activities. A decision
+// with no item name falls back to its reason sentence, the words the card
+// puts in front of the director.
 //
 // What this deliberately does NOT do is merge the decisions themselves. Each
 // keeps its own id and its own answer is staged separately — the group is a
@@ -25,13 +26,18 @@
 // stop grouping, which is why the signature is built from the rendered text
 // rather than from the decision kind alone.
 
+// A decision pinned to a slot (day + block) is a different question per slot even
+// for the same item, so its reason sentence (which names the slot) or its
+// from/to slots stay in the key.
 function signatureOf(decision) {
-  return JSON.stringify([decision?.kind ?? null, decision?.entity ?? null, decision?.reason ?? null])
+  const slotted = decision?.kind === 'all_camp_override'
+  const who = slotted ? decision.reason : decision?.entityName ?? decision?.reason ?? null
+  return JSON.stringify([decision?.kind ?? null, decision?.entity ?? null, who, decision?.from ?? null, decision?.to ?? null])
 }
 
 /**
  * @param decisions the unanswered decisions a lane is about to render
- * @returns [{ decision, ids, members, count }] in first-appearance order — `decision` is
+ * @returns [{ decision, ids, count }] in first-appearance order — `decision` is
  *          the first member, to render; `ids` is every member, to answer.
  */
 export function groupIdenticalDecisions(decisions = []) {
@@ -39,8 +45,8 @@ export function groupIdenticalDecisions(decisions = []) {
   for (const decision of decisions) {
     const key = signatureOf(decision)
     const existing = groups.get(key)
-    if (existing) { existing.ids.push(decision.id); existing.members.push(decision) }
-    else groups.set(key, { decision, ids: [decision.id], members: [decision] })
+    if (existing) { existing.ids.push(decision.id) }
+    else groups.set(key, { decision, ids: [decision.id] })
   }
   return [...groups.values()].map((g) => ({ ...g, count: g.ids.length }))
 }
