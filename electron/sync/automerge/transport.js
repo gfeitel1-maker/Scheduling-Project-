@@ -28,7 +28,7 @@ import { identify } from '@libp2p/identify'
 import { peerIdFromString } from '@libp2p/peer-id'
 import { PROTO, AUTH_PROTO, SYNC_PROTO, HANDOFF_PROTO, HANDOFF_MAX_FRAME_BYTES, sendFramed, receiveFramed } from './wireProtocol.js'
 import { registerAuthGate, isLanMultiaddr } from './authGate.js'
-import { makeConnectionRateLimiter, ipFromMultiaddr } from './connectionRateLimiter.js'
+import { makeConnectionRateLimiter, ipFromMultiaddr, connKeyFromMultiaddr } from './connectionRateLimiter.js'
 
 // Accept either a PeerId/Multiaddr object (as returned by getPeers()'s
 // underlying node, or by getMultiaddrs()) or transport.js's own stringified
@@ -45,18 +45,23 @@ const DEFAULT_LISTEN = ['/ip4/127.0.0.1/tcp/0']
 // this ceiling is deliberately generous and only caps a flood.
 const MAX_CONNECTIONS = 200
 
-// T340 precondition 1 (docs/adr/2026-10-08-max-connections-dos-mitigation.md). libp2p's installed
+// T340 precondition 5 (docs/work/security/2026-10-09-t340-p5-pending-slot-sizing.md). libp2p 3.3.11's
 // default for maxIncomingPendingConnections is 10 (connection-manager/constants.defaults); it bounds
-// inbound connections accepted but not yet through the Noise upgrade. 16 stays a deliberate camp-scale
-// bound while leaving headroom above the default for a reconnect burst (a few dozen devices coming
-// back after a Wi-Fi blip), since a pending slot is held only for the handshake.
-const MAX_INCOMING_PENDING_CONNECTIONS = 16
+// inbound connections accepted but not yet through the whole upgrade (multistream, Noise, muxer). When
+// full, libp2p refuses new inbound outright. 64 shared slots, a 5s upgrade timeout and a per-source
+// pending cap of 2 (connectionRateLimiter.js) mean holding every slot takes ~32 concurrent sources,
+// not one IP at 1.6 connections/s as with the earlier 16 slots and 10s.
+const MAX_INCOMING_PENDING_CONNECTIONS = 64
+
+// libp2p's inboundUpgradeTimeout (default 10s) bounds how long one pending slot is held, for the whole
+// upgrade. A real WAN handshake is ~3-4 round trips (~1.2s at 300ms RTT); 5s halves a scanner's hold.
+const INBOUND_UPGRADE_TIMEOUT_MS = 5_000
 
 // Slots that an un-admitted flood can never occupy. A camp is at most a few dozen devices; 32 is
 // generous. The un-admitted ceiling is therefore MAX_CONNECTIONS - RESERVED_FLOOR = 168.
 const RESERVED_FLOOR = 32
 
-// libp2p's inboundUpgradeTimeout (10s) is pre-Noise only and nothing bounds a connection that has
+// libp2p's inboundUpgradeTimeout (INBOUND_UPGRADE_TIMEOUT_MS above) ends when the upgrade completes, and nothing bounds a connection that has
 // finished Noise but never authenticates, so this deadline is new. 10s is ample: a real
 // authenticate round-trip is tens of milliseconds on a LAN.
 const UNADMITTED_DEADLINE_MS = 10_000
@@ -94,7 +99,7 @@ const ADMITTED_TAG = 'shoresh-admitted'
 // `punchTransportFactory` is the ICE data-channel libp2p transport, injected the same way and never
 // imported here. Connections it forms enter libp2p's normal upgrader, so Noise + the auth gate
 // below apply to them unchanged; no admission is re-implemented for it.
-export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyncMessageReceived, onHandoffMessage, handoffFaults = {}, listen, onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, onPairingDecision, peerDiscovery, now, connectionRateLimiter, privateKey, schemaVersion, relayServerFactory, relayTransportFactory, directUpgradeServiceFactory, punchTransportFactory, inboundConnectionThreshold, onRelayReservationRefused, maxConnections = MAX_CONNECTIONS, maxIncomingPendingConnections = MAX_INCOMING_PENDING_CONNECTIONS, reservedFloor = RESERVED_FLOOR, unadmittedDeadlineMs = UNADMITTED_DEADLINE_MS } = {}) {
+export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyncMessageReceived, onHandoffMessage, handoffFaults = {}, listen, onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, onPairingDecision, peerDiscovery, now, connectionRateLimiter, privateKey, schemaVersion, relayServerFactory, relayTransportFactory, directUpgradeServiceFactory, punchTransportFactory, inboundConnectionThreshold, onRelayReservationRefused, maxConnections = MAX_CONNECTIONS, maxIncomingPendingConnections = MAX_INCOMING_PENDING_CONNECTIONS, inboundUpgradeTimeoutMs = INBOUND_UPGRADE_TIMEOUT_MS, reservedFloor = RESERVED_FLOOR, unadmittedDeadlineMs = UNADMITTED_DEADLINE_MS } = {}) {
   // Per-SOURCE-IP inbound rate limiting (blocker #2 of the WAN hardening; connectionRateLimiter.js).
   // Closes the connection-churn hole authGate.js documents: a peer opening a fresh connection (fresh
   // peer id) per frame evades per-peer throttling and is otherwise bounded only by MAX_CONNECTIONS.
@@ -102,7 +107,7 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
   // handshake cost of a flood. It exempts loopback + every private range, so it is INERT on the LAN
   // (all-private) and in tests (loopback) — it can only ever limit a PUBLIC source, which appears
   // only once internet transport is enabled. Injectable for tests; a real limiter by default.
-  const rateLimiter = connectionRateLimiter ?? makeConnectionRateLimiter(now ? { now } : {})
+  const rateLimiter = connectionRateLimiter ?? makeConnectionRateLimiter({ pendingTtlMs: inboundUpgradeTimeoutMs, ...(now ? { now } : {}) })
   // T337 (docs/work/specs/2026-10-03-t337-coordination-layer-design.md §A, §E): the camp-peer
   // circuit-relay-v2 coordination relay. `relayServerFactory`/`relayTransportFactory` are
   // injected factory functions (e.g. circuitRelayServer()/circuitRelayTransport() from
@@ -220,12 +225,13 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     // remote HOST — fine for a real camp LAN of distinct devices, but it refuses a test that
     // dials several real nodes from the single loopback host in quick succession). Production
     // never sets this; every existing caller omits it and gets libp2p's own default unchanged.
-    connectionManager: { maxConnections, maxIncomingPendingConnections, ...(inboundConnectionThreshold != null ? { inboundConnectionThreshold } : {}) },
+    connectionManager: { maxConnections, maxIncomingPendingConnections, inboundUpgradeTimeout: inboundUpgradeTimeoutMs, ...(inboundConnectionThreshold != null ? { inboundConnectionThreshold } : {}) },
     // Per-source-IP flood cap — see rateLimiter above. Returns true to DENY.
     connectionGater: {
       denyInboundConnection: (maConn) => {
         try {
-          return !rateLimiter.allow(ipFromMultiaddr(maConn?.remoteAddr?.toString()))
+          const addr = maConn?.remoteAddr?.toString()
+          return !rateLimiter.allow(ipFromMultiaddr(addr), connKeyFromMultiaddr(addr))
         } catch {
           return false // never let a classification error block a connection (fail open)
         }
@@ -257,6 +263,17 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
       ...(directUpgradeServiceFactory ? { dcutr: directUpgradeServiceFactory } : {}),
     },
     ...(peerDiscovery ? { peerDiscovery } : {}),
+  })
+
+  // An inbound connection that finished upgrading leaves the limiter's pending set and counts as
+  // concurrent; only such connections ever reach connection:close below, so the two stay balanced.
+  node.addEventListener('connection:open', (evt) => {
+    try {
+      if (evt.detail?.direction === 'inbound') {
+        const addr = evt.detail?.remoteAddr?.toString()
+        rateLimiter.upgraded?.(ipFromMultiaddr(addr), connKeyFromMultiaddr(addr))
+      }
+    } catch { /* must never throw into libp2p's event dispatch */ }
   })
 
   // Free a source's concurrent slot when an inbound connection closes. Only inbound connections were
