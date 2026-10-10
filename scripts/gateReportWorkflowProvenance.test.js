@@ -27,13 +27,14 @@ const SEC = 'Two overlapping approveDevice calls for the same device can leave t
 const RH = 'Concurrent double-approve: the second call snapshots'
 const CR = "audit outcome is 'deny' with reason 'joiner_disconnected'"
 
-const run = (reports, workflowDir = FIXTURE, taskId = 'T346') => {
+// The commit under review is fake; its committer time is injected (epoch 0 = older than any run).
+const run = (reports, workflowDir = FIXTURE, taskId = 'T346', commitTimeOf = () => 0) => {
   const inputPath = join(scratch, 'in.json')
   writeFileSync(inputPath, JSON.stringify({
     taskId, round: 1, commit: VALID_SHA, expectedOpinionGates: ['security', 'red_hat', 'code_reviewer'],
     reports: [verifier, ...reports], workflowDir,
   }))
-  return runGateReportCli(inputPath, { runsDir: scratch })
+  return runGateReportCli(inputPath, { runsDir: scratch, commitTimeOf })
 }
 const good = () => [opinion('security', SEC), opinion('red_hat', RH), opinion('code_reviewer', CR)]
 
@@ -124,17 +125,17 @@ describe('workflowDir provenance, task named only in the dispatched prompt', () 
   it('refuses a task that is only a secondary mention (not the first task id) in the reviewer prompt', () => {
     const sec = opinion('security', SEC347)
     for (const id of ['T340', 'T331']) {
-      expect(checkWorkflowProvenance({ ...loadWorkflowRun(FIXTURE_347), taskId: id, report: sec }).bound).toBe(false)
+      expect(checkWorkflowProvenance({ ...loadWorkflowRun(FIXTURE_347), taskId: id, report: sec, commitTime: 0 }).bound).toBe(false)
     }
-    expect(checkWorkflowProvenance({ ...loadWorkflowRun(FIXTURE_347), taskId: 'T347', report: sec }).bound).toBe(true)
+    expect(checkWorkflowProvenance({ ...loadWorkflowRun(FIXTURE_347), taskId: 'T347', report: sec, commitTime: 0 }).bound).toBe(true)
   })
 
   it('refuses a task that is only a secondary mention (not the first task id) in the reviewer prompt', () => {
     const sec = opinion('security', SEC347)
     for (const id of ['T340', 'T331']) {
-      expect(checkWorkflowProvenance({ ...loadWorkflowRun(FIXTURE_347), taskId: id, report: sec }).bound).toBe(false)
+      expect(checkWorkflowProvenance({ ...loadWorkflowRun(FIXTURE_347), taskId: id, report: sec, commitTime: 0 }).bound).toBe(false)
     }
-    expect(checkWorkflowProvenance({ ...loadWorkflowRun(FIXTURE_347), taskId: 'T347', report: sec }).bound).toBe(true)
+    expect(checkWorkflowProvenance({ ...loadWorkflowRun(FIXTURE_347), taskId: 'T347', report: sec, commitTime: 0 }).bound).toBe(true)
   })
 
   it('refuses a run whose reviewer prompts never mention the task', () => {
@@ -162,5 +163,50 @@ describe('workflowDir provenance, task named only in the dispatched prompt', () 
   it('refuses an invented finding', () => {
     const forged = [opinion('security', 'SQL injection in the pairing handler'), ...good347().slice(1)]
     expect(() => run(forged, FIXTURE_347, 'T347')).toThrow(/security/)
+  })
+})
+
+// Red Hat follow-ups on #753: (a) commit recency + run hash, (b) latest dispatch, (c) exact label.
+describe('workflowDir binding is fresh, latest and exact', () => {
+  it('(a) refuses a run whose reviewer dispatch predates the commit under review', () => {
+    expect(() => run(good(), FIXTURE, 'T346', () => Date.now() + 86_400_000)).toThrow(/older than|predates/)
+  })
+
+  it('(a) refuses when the commit time cannot be resolved', () => {
+    expect(() => run(good(), FIXTURE, 'T346', () => null)).toThrow(/commit time/)
+  })
+
+  it('(a) records the run directory and a content hash that changes with the run', () => {
+    const dir = join(scratch, 'run')
+    cpSync(FIXTURE, dir, { recursive: true })
+    const first = run(good(), dir).workflow_run_ref
+    expect(first.dir).toBe(dir)
+    expect(first.hash).toMatch(/^[0-9a-f]{64}$/)
+    writeFileSync(join(dir, 'journal.jsonl'), readFileSync(join(dir, 'journal.jsonl'), 'utf8') + '{"type":"note"}\n')
+    expect(run(good(), dir).workflow_run_ref.hash).not.toBe(first.hash)
+  })
+
+  it('(b) refuses a report that binds only an earlier dispatch of the same agentType', () => {
+    const dir = join(scratch, 'run')
+    cpSync(FIXTURE, dir, { recursive: true })
+    writeFileSync(join(dir, 'agent-later.meta.json'), JSON.stringify({ agentType: 'security' }))
+    writeFileSync(join(dir, 'journal.jsonl'), readFileSync(join(dir, 'journal.jsonl'), 'utf8') +
+      JSON.stringify({ type: 'result', agentId: 'later', result: { verdict: 'fail', blocking: ['Re-review: approveDevice still races under load'], nonblocking: [] } }) + '\n')
+    expect(() => run(good(), dir)).toThrow(/security.*latest/s)
+  })
+
+  it('(c) a stray label that mentions the task among others does not tie the run', () => {
+    const dir = join(scratch, 'run')
+    cpSync(FIXTURE, dir, { recursive: true })
+    const j = readFileSync(join(dir, 'journal.jsonl'), 'utf8').replace('"governor:t346"', '"governor:t999 see t346"')
+    writeFileSync(join(dir, 'journal.jsonl'), j)
+    expect(() => run(good(), dir, 'T346')).toThrow(/T346/)
+  })
+
+  it('(c) a directory name naming two tasks does not tie the run', () => {
+    const dir = join(scratch, 'wf_t999-vs-t346')
+    cpSync(FIXTURE, dir, { recursive: true })
+    writeFileSync(join(dir, 'journal.jsonl'), readFileSync(join(dir, 'journal.jsonl'), 'utf8').replace('"governor:t346"', '"governor"'))
+    expect(() => run(good(), dir, 'T999')).toThrow(/T999/)
   })
 })

@@ -17,7 +17,7 @@ import { buildVerifierReport } from './verifierReport.js'
 import { writeGateReport } from './gateReportPersist.js'
 import { OPINION_GATE_NAMES } from './gateReportSchema.js'
 import { checkOpinionProvenance, SUBAGENT_TYPE_BY_GATE } from './opinionReportProvenance.js'
-import { loadWorkflowRun, checkWorkflowProvenance } from './workflowDispatchProvenance.js'
+import { loadWorkflowRun, checkWorkflowProvenance, runHash } from './workflowDispatchProvenance.js'
 
 const REQUIRED_FIELDS = ['taskId', 'round', 'expectedOpinionGates', 'reports']
 
@@ -100,7 +100,17 @@ function citesRun(evidenceRef, runId) {
  * @param {string} opts.runsDir
  * @returns {object} the GateReport, with gate_report_ref added
  */
-export function runGateReportCli(inputPath, { runsDir, fetchRun = defaultFetchRun }) {
+// Committer time (ms) of the commit under review, or null when git cannot resolve it.
+export function defaultCommitTimeOf(sha) {
+  try {
+    const s = Number(execFileSync('git', ['show', '-s', '--format=%ct', String(sha)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim())
+    return Number.isFinite(s) && s > 0 ? s * 1000 : null
+  } catch {
+    return null
+  }
+}
+
+export function runGateReportCli(inputPath, { runsDir, fetchRun = defaultFetchRun, commitTimeOf = defaultCommitTimeOf }) {
   let raw
   try {
     raw = readFileSync(inputPath, 'utf8')
@@ -185,10 +195,12 @@ export function runGateReportCli(inputPath, { runsDir, fetchRun = defaultFetchRu
   }
   // A Workflow-tool run writes its reviewers to a run directory instead of the Governor transcript;
   // `workflowDir` binds against that. Either source may bind a report.
-  let workflowAgents
+  // Bound only to dispatches newer than the commit under review; the run's content hash is recorded.
+  let workflowAgents, workflowRunRef
   if (input.workflowDir !== undefined) {
     try {
-      workflowAgents = loadWorkflowRun(input.workflowDir)
+      workflowAgents = { ...loadWorkflowRun(input.workflowDir), commitTime: commitTimeOf(input.commit) }
+      workflowRunRef = { dir: input.workflowDir, hash: runHash(input.workflowDir) }
     } catch (e) {
       throw new CliUsageError(`cannot read workflowDir: ${input.workflowDir} (${e.message})`)
     }
@@ -258,9 +270,10 @@ export function runGateReportCli(inputPath, { runsDir, fetchRun = defaultFetchRu
     headSha: input.commit,
   })
 
-  const gateReportRef = writeGateReport(gateReport, { runsDir })
+  const recorded = workflowRunRef ? { ...gateReport, workflow_run_ref: workflowRunRef } : gateReport
+  const gateReportRef = writeGateReport(recorded, { runsDir })
 
-  return { ...gateReport, gate_report_ref: gateReportRef }
+  return { ...recorded, gate_report_ref: gateReportRef }
 }
 
 // --- CLI ---------------------------------------------------------------
