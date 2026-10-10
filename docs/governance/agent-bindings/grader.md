@@ -109,8 +109,8 @@ bind the run with a `ciRun` field alongside `commit`:
 `headSha` equals `commit` exactly, `status` is `completed` and `conclusion` is `success`. Any other
 run (other SHA, queued/in_progress, failure/cancelled, no id) does not count. The run is recorded
 in the GateReport as `verifier_ci_run`. The CLI does not trust the typed fields: it re-fetches the
-run with `gh run view <id> --json headSha,status,conclusion,workflowName,path` and counts it only
-if the fetched run is `.github/workflows/gate.yml` and every typed field matches what GitHub
+run with `gh run view <id> --json headSha,status,conclusion,workflowName,workflowDatabaseId` and counts it only
+if the run's workflow id is the id GitHub reports for `.github/workflows/gate.yml`, its workflow name is `gate`, and every typed field matches what GitHub
 returns. If `gh` is unavailable, errors, or returns unparseable output, the run is not counted
 (fail closed) and the reason is printed to stderr. The run id must be purely numeric; anything else is refused before `gh` is called.
 

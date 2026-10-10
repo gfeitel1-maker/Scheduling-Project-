@@ -23,15 +23,19 @@ const REQUIRED_FIELDS = ['taskId', 'round', 'expectedOpinionGates', 'reports']
 
 export class CliUsageError extends Error {}
 
-// The only workflow whose run is the gate of record. Matched by path: a workflow's display name is
-// free text any other workflow can reuse, its path is not.
+// The only workflow whose run is the gate of record. Pinned by the workflow's database id, resolved
+// from this path: a workflow's display name is free text any other workflow can reuse, its path is not.
+// (`gh run view --json` has no `path` field, so the run is matched by workflowDatabaseId instead.)
 export const GATE_WORKFLOW_PATH = '.github/workflows/gate.yml'
+export const GATE_WORKFLOW_NAME = 'gate' // gate.yml's `name:`
+
+const gh = (args) => execFileSync('gh', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
 
 /** Default run fetcher: asks GitHub, never the caller, what the run actually was. */
 export function defaultFetchRun(id) {
-  return execFileSync('gh', ['run', 'view', String(id), '--json', 'headSha,status,conclusion,workflowName,path'], {
-    encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
-  })
+  const run = JSON.parse(gh(['run', 'view', String(id), '--json', 'headSha,status,conclusion,workflowName,workflowDatabaseId']))
+  const gateWorkflow = JSON.parse(gh(['api', `repos/{owner}/{repo}/actions/workflows/${GATE_WORKFLOW_PATH.split('/').pop()}`]))
+  return JSON.stringify({ ...run, gateWorkflowId: gateWorkflow.id })
 }
 
 /**
@@ -53,10 +57,10 @@ export function confirmCiRun(ciRun, fetchRun) {
     return { run: null, reason: `could not confirm run ${ciRun.id} via gh (${e.message})` }
   }
   if (!fetched || typeof fetched !== 'object') return { run: null, reason: `gh returned no run object for ${ciRun.id}` }
-  // gh reports `path` relative to the repo, sometimes with an @ref suffix.
-  const path = typeof fetched.path === 'string' ? fetched.path.split('@')[0] : ''
-  if (path !== GATE_WORKFLOW_PATH) {
-    return { run: null, reason: `run ${ciRun.id} is workflow "${fetched.workflowName}" (${fetched.path}), not the gate (${GATE_WORKFLOW_PATH})` }
+  const isGate = fetched.gateWorkflowId != null && fetched.workflowDatabaseId === fetched.gateWorkflowId &&
+    fetched.workflowName === GATE_WORKFLOW_NAME
+  if (!isGate) {
+    return { run: null, reason: `run ${ciRun.id} is workflow "${fetched.workflowName}" (id ${fetched.workflowDatabaseId}), not the gate (${GATE_WORKFLOW_PATH}, id ${fetched.gateWorkflowId})` }
   }
   for (const k of ['headSha', 'status', 'conclusion']) {
     if (ciRun[k] !== undefined && ciRun[k] !== fetched[k]) {
