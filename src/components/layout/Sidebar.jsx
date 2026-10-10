@@ -5,6 +5,9 @@ import { NAV_SECTIONS, ROOTS_ITEM, ADMIN_MENU_ITEMS, ADMIN_ONLY_MENU_ITEMS } fro
 import { getSetupGaps } from '../../engine/readiness'
 import { loadSidebarState, saveSidebarState, sectionRollup, nextFoldStateAfterAnswer, syncStatusLabel } from './sidebarState'
 import { useEnterTransition } from '../../styles/shared'
+import { useSetupReviewed } from '../../hooks/useSetupReviewed'
+import { PREFILLED_AREAS } from '../../utils/setupReviewed'
+import { NEEDS_LOOK_DOT_STYLE } from '../../utils/ruleProvenance'
 import { ChevronIcon, GearIcon } from '../icons'
 
 // Marks are fixed-width whether or not one is present, so labels stay aligned
@@ -55,8 +58,8 @@ const NAV_SCROLL_SHADOW = [
 ].join(', ')
 
 export default function Sidebar({
-  current, onNavigate, role, badges = {},
-  counts, campName, syncStatus,
+  current, onNavigate, role, badges = {}, campId,
+  counts, countsFor, campName, syncStatus,
   projectPath, isDevDb, buildLabel,
   backupStatus, handleBackupNow, backupRevealable, handleShowBackup,
   offerShown, setOfferShown,
@@ -90,6 +93,8 @@ export default function Sidebar({
     retryCapRef.current = setTimeout(() => setRetrying(false), 5000)
   }
 
+  const currentArea = NAV_SECTIONS.flatMap((s) => s.items).find((i) => i.key === current)?.area
+  const { areas: reviewedAreas, decided: reviewDecided } = useSetupReviewed(campId, counts, currentArea, countsFor)
   const gaps = counts ? countGaps(counts) : []
   const gapAreas = new Set(gaps.map((g) => g.key))
   const offerOpen = offerShown && !sidebar.offered
@@ -145,7 +150,11 @@ export default function Sidebar({
     // what a tick or an exclamation mark means. `·` was the one a director
     // would have had to LEARN, and it said nothing the row was not already
     // saying (T129).
-    const mark = !item.area ? null : isBlocking ? '!' : (count > 0 ? '✓' : null)
+    // A step the app filled in at camp creation is not "done" until the
+    // director has looked at it (useSetupReviewed).
+    const needsLook = reviewDecided && !isBlocking && count > 0 && PREFILLED_AREAS.includes(item.area)
+      && !reviewedAreas[item.area] && current !== item.key
+    const mark = !item.area || needsLook ? null : isBlocking ? '!' : (count > 0 ? '✓' : null)
     const markColor = mark ? MARK_COLOR[mark] : null
     // The mark stands alone: `!` for a missing required area, `✓` for a
     // populated one, nothing otherwise. The word "needed" is gone (audit 2);
@@ -177,7 +186,13 @@ export default function Sidebar({
         <span style={{
           width: 13, flexShrink: 0, fontSize: 11, fontWeight: 700,
           color: mark ? markColor : 'transparent',
-        }} title={markLabel} aria-label={markLabel} role={markLabel ? 'img' : undefined}>{mark ?? ''}</span>
+        }} title={markLabel} aria-label={markLabel} role={markLabel ? 'img' : undefined}>{mark ?? ''}
+          {needsLook && (
+            <span role="img" aria-label="Needs a look" title="Needs a look" style={{
+              display: 'inline-block', width: 6, height: 6, borderRadius: '50%', marginLeft: 2, ...NEEDS_LOOK_DOT_STYLE,
+            }} />
+          )}
+        </span>
         <span style={{ flex: 1, minWidth: 0, marginLeft: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {item.label}
         </span>

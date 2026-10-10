@@ -128,7 +128,7 @@ function ProvenancePopoverRow({ row, onConfirm, onChange }) {
 // setState branch keyed off a prop toggling to false, which React flags as a
 // cascading-render effect) is what gives the fade + 4px slide-down its "from"
 // frame, same pattern as useEnterTransition (src/styles/shared.js).
-function ProvenancePopover({ activity, rows, popRef, onConfirmField, onChange }) {
+function ProvenancePopover({ activity, rows, popRef, onConfirmField, onConfirmAll, onChange }) {
   const reduced = prefersReducedMotion()
   const [entered, setEntered] = useState(false)
   useEffect(() => {
@@ -150,6 +150,11 @@ function ProvenancePopover({ activity, rows, popRef, onConfirmField, onChange })
           onChange={() => onChange(activity)}
         />
       ))}
+      {rows.some(r => r.tier !== 'confirmed') && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 8 }}>
+          <button type="button" className="press-97" onClick={() => onConfirmAll(activity, rows)} style={dotStyles.confirmBtn}>Looks right</button>
+        </div>
+      )}
     </div>
   )
 }
@@ -198,7 +203,7 @@ function DuplicateActivityDot({ activity, siblings, onMerge, busy }) {
   )
 }
 
-function RuleProvenanceDot({ activity, evidenceByField, fieldSources, onConfirmField, onChange }) {
+function RuleProvenanceDot({ activity, evidenceByField, fieldSources, onConfirmField, onConfirmAll, onChange }) {
   const [open, setOpen] = useState(false)
   const [hovered, setHovered] = useState(false)
   const btnRef = useRef(null)
@@ -250,6 +255,7 @@ function RuleProvenanceDot({ activity, evidenceByField, fieldSources, onConfirmF
           rows={rows}
           popRef={popRef}
           onConfirmField={onConfirmField}
+          onConfirmAll={onConfirmAll}
           onChange={(a) => { close(); onChange(a) }}
         />
       )}
@@ -1147,6 +1153,25 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
   // path (source defaults to null = human/confirmed, see appendOp) — no new
   // write primitive. min_per_week's row confirms BOTH min_per_week AND
   // max_per_week since they're one logical field (one evidence record).
+  // "Looks right" (matching Locations): confirms every field of this activity
+  // that still needs a look, in one write, by the same rule as a per-field
+  // Confirm (only fields that hold a value).
+  async function confirmAllProvenance(activity, rows) {
+    const pending = rows.filter(r => r.tier !== 'confirmed')
+    const fields = Object.fromEntries(
+      pending.flatMap(r => r.opFields)
+        .filter(f => activity[f] !== null && activity[f] !== undefined)
+        .map(f => [f, activity[f]])
+    )
+    if (Object.keys(fields).length === 0) return
+    try {
+      await writeFields(activity.id, fields)
+      await load()
+    } catch (err) {
+      setError(describeWriteFailure(err, 'That could not be confirmed.'))
+    }
+  }
+
   async function confirmProvenanceField(activity, row) {
     // Only fields that actually HOLD a value are confirmed. The co-schedule row
     // spans max_groups_per_slot + same_tier_only, and same_tier_only is
@@ -1280,6 +1305,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
                             evidenceByField={evidenceByActivity[a.id] || {}}
                             fieldSources={provenance.fieldSources?.[a.id] || {}}
                             onConfirmField={confirmProvenanceField}
+                            onConfirmAll={confirmAllProvenance}
                             onChange={(activity) => setModal({ activity })}
                           />
                         </td>

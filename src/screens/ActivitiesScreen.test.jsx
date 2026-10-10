@@ -1018,6 +1018,63 @@ describe('ActivitiesScreen — rule provenance (Slice D)', () => {
     await waitFor(() => expect(within(screen.getByRole('dialog')).queryAllByText('Confirmed').length).toBeGreaterThan(0))
   })
 
+  // Owner, 2026-10-10: the dots mean "needs a look", and looking at them must
+  // clear them. A dot clears when each of its fields' latest write carries no
+  // import source (backend pinned in electron/ops/provenanceClears.test.js), so
+  // each way of looking must write every field the dot was raised for.
+  describe('every way of looking writes the flagged fields', () => {
+    const flagged = () => {
+      const act1 = activity({ min_per_week: 2, max_per_week: 4, eligible_group_ids: ['g-1'], location_id: 'loc-1', max_groups_per_slot: 2 })
+      localClient.list.mockImplementation(entity => {
+        if (entity === 'activities') return Promise.resolve([act1])
+        return Promise.resolve([])
+      })
+      localClient.listImportEvidence.mockResolvedValue({
+        evidence: [
+          evidenceRow({ field: 'min_per_week' }),
+          evidenceRow({ id: 'ev-2', field: 'eligible_group_names' }),
+          evidenceRow({ id: 'ev-3', field: 'location' }),
+        ],
+        fieldSources: { 'act-1': { min_per_week: 'import', max_per_week: 'import', eligible_group_ids: 'import', location_id: 'import', max_groups_per_slot: null, same_tier_only: null } },
+      })
+    }
+    const written = () => localClient.write.mock.calls.map(c => c[3])
+
+    it('"Looks right" confirms every field that needs a look, in one go', async () => {
+      flagged()
+      render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+      await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
+      fireEvent.click(screen.getByRole('button', { name: /Provenance:/ }))
+      const dialog = await screen.findByRole('dialog')
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Looks right' }))
+      await waitFor(() => expect(written()).toEqual(expect.arrayContaining(['min_per_week', 'max_per_week', 'eligible_group_ids', 'location_id'])))
+      // An already-confirmed field (co-schedule) is not re-written.
+      expect(written()).not.toContain('max_groups_per_slot')
+    })
+
+    it('"Looks right" is not offered once nothing needs a look', async () => {
+      flagged()
+      localClient.listImportEvidence.mockResolvedValue({
+        evidence: [evidenceRow()],
+        fieldSources: { 'act-1': { min_per_week: null, max_per_week: null, eligible_group_ids: null, location_id: null, max_groups_per_slot: null, same_tier_only: null } },
+      })
+      render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+      await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
+      expect(screen.queryByRole('button', { name: /Provenance:/ })).toBeNull()
+    })
+
+    it('saving the activity from Change writes every flagged field, even ones left unchanged', async () => {
+      flagged()
+      render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+      await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
+      fireEvent.click(screen.getByRole('button', { name: /Provenance:/ }))
+      const dialog = await screen.findByRole('dialog')
+      fireEvent.click(within(dialog).getAllByRole('button', { name: 'Change' })[0])
+      fireEvent.click(screen.getByText('Save Changes'))
+      await waitFor(() => expect(written()).toEqual(expect.arrayContaining(['min_per_week', 'max_per_week', 'eligible_group_ids', 'location_id'])))
+    })
+  })
+
   it('Change opens the existing ActivityModal for that activity', async () => {
     localClient.list.mockImplementation(entity => {
       if (entity === 'activities') return Promise.resolve([activity()])
