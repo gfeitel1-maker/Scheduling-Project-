@@ -6,6 +6,7 @@ import { useCurrentStructureCounts } from '../hooks/useCurrentStructureCounts.js
 import { useOpenReconciliationDecisions } from '../hooks/useOpenReconciliationDecisions.js'
 import { buildAttentionList, buildStructureIssues } from '../ingest/attentionList.js'
 import { dedupeChipItems } from './rootsChips'
+import { rootsCardCount, cardRows } from './rootsCardCounts'
 import { runWorksheetDownload } from '../utils/downloadWorksheet.js'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { ScheduleDoor } from '../components/ScheduleDoor'
@@ -32,7 +33,7 @@ const BENTO_CARDS = [
   { key: 'groups', label: 'Groups', size: 'large' },
   { key: 'tiers', label: 'Age Divisions', size: 'small' },
   { key: 'locations', label: 'Locations', size: 'small' },
-  { key: 'days_and_blocks', label: 'Days & Blocks', size: 'small' },
+  { key: 'time_blocks', label: 'Time Blocks', size: 'small' },
   { key: 'fixed_events', label: 'Fixed Events', size: 'wide' },
 ]
 
@@ -46,7 +47,7 @@ const CARD_GRID = {
   groups: { gridColumn: '1 / span 2', gridRow: '3 / span 2' },
   tiers: { gridColumn: '3', gridRow: '1' },
   locations: { gridColumn: '3', gridRow: '2' },
-  days_and_blocks: { gridColumn: '3', gridRow: '3' },
+  time_blocks: { gridColumn: '3', gridRow: '3' },
   fixed_events: { gridColumn: '1 / span 3', gridRow: '5' },
 }
 
@@ -72,39 +73,6 @@ const GAP_PX = 24
 const MIN_BENTO_PX = 562
 export const NARROW_BREAKPOINT_PX = SIDEBAR_WIDTH_PX + MAIN_PADDING_PX + RAIL_PX + GAP_PX + MIN_BENTO_PX
 
-// T304 — which entities each card's number is made of. `days_and_blocks` sums
-// two, so EITHER being unreadable makes the sum unknown; every other card is
-// its own key. Kept as data rather than as a branch inside countFor, so the
-// "what did this number depend on" question has one answer both the count and
-// the unknown-check read.
-const CARD_ENTITIES = {
-  days_and_blocks: ['days_of_operation', 'time_blocks'],
-}
-
-function cardEntities(key) {
-  return CARD_ENTITIES[key] ?? [key]
-}
-
-// T304 — returns NULL, not 0, when the card's number could not be read.
-//
-// This used to return `0` for a collection that failed to load, so a camp with
-// forty activities rendered "0 Activities" whenever the read failed — a
-// confidently wrong number, which is worse than no number. `null` is what the
-// header renders as an em dash instead.
-//
-// `count > 0` in countStyle is already false for null, so an unknown count
-// correctly does not take the "rooted" styling — it is not a claim that the
-// card is empty, and it must not read as a claim that it is full either.
-function countFor(collections, key, failed = EMPTY_FAILED) {
-  if (!collections) return 0
-  if (cardEntities(key).some((entity) => failed.has(entity))) return null
-  if (key === 'days_and_blocks') {
-    return (collections.days_of_operation?.length ?? 0) + (collections.time_blocks?.length ?? 0)
-  }
-  return collections[key]?.length ?? 0
-}
-
-const EMPTY_FAILED = new Set()
 
 // Stagger-fade a list of items in once `active` flips true (loading resolved),
 // same rAF-then-flip recipe as useEnterTransition in src/styles/shared.js,
@@ -132,13 +100,13 @@ function useStaggerEnter(active, stepMs) {
   }
 }
 
-function ChipRow({ card, collections }) {
+function ChipRow({ card, collections, scope }) {
   const cap = CHIP_CAP[card.size]
   if (!cap) return null
   // Overflow counts distinct names too — the card's own number already says how
   // many ROWS there are, so "+106 more" beside three chips would be answering a
   // question the heading has already answered.
-  const items = dedupeChipItems(collections?.[card.key] ?? [])
+  const items = dedupeChipItems(collections ? cardRows(collections, card.key, scope) : [])
   if (items.length === 0) return null
   const shown = items.slice(0, cap)
   const overflow = items.length - shown.length
@@ -224,8 +192,10 @@ function AttentionRow({ row, onNavigate, onName, animStyle }) {
 }
 
 export default function RootsHomeScreen({ campId, onNavigate }) {
-  const { activeCohort } = useCohorts(campId)
-  const { collections, failed, loading, reload } = useCurrentStructureCounts(campId)
+  const { activeCohort, loading: cohortsLoading } = useCohorts(campId)
+  const { collections, failed, loading: countsLoading, reload } = useCurrentStructureCounts(campId)
+  const loading = countsLoading || cohortsLoading
+  const cardScope = { campId, cohortId: activeCohort?.id ?? null }
   // T306 — the row the director is naming, or null. Held here rather than in the row
   // so the dialog is a sibling of the rail and not nested inside a <button>.
   const [namingRow, setNamingRow] = useState(null)
@@ -310,7 +280,7 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
             ) : (
               <div style={styles.bentoGrid}>
                 {BENTO_CARDS.map((card, index) => {
-                  const count = countFor(collections, card.key, failed)
+                  const count = rootsCardCount(collections, card.key, cardScope, failed)
                   const hasChips = Boolean(CHIP_CAP[card.size])
                   return (
                     <div
@@ -335,7 +305,7 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
                           {count === null ? '\u2014' : count}
                         </span>
                       </div>
-                      <ChipRow card={card} collections={collections} />
+                      <ChipRow card={card} collections={collections} scope={cardScope} />
                     </div>
                   )
                 })}

@@ -10,6 +10,7 @@ import ReplacedLane, { LaneOpen, PlacementConflictDot, ReplacedDayCell } from '.
 import { replacedLaneNotes } from '../../screens/schedule/replacedLane'
 import { S } from '../../styles/shared'
 import './scheduleGrid.css'
+import BlockRowLabel from './BlockRowLabel'
 
 const NO_COLLAPSE = new Set()
 const NO_REPLACEMENTS = new Map()
@@ -141,8 +142,7 @@ export default function ScheduleDayView({
                         aria-expanded={!isCollapsed}
                         onClick={toggle}
                       >
-                        <span className="block-name">{block.name}</span>
-                        <span className="block-time">{block.start_time?.slice(0,5)}–{block.end_time?.slice(0,5)}</span>
+                        <BlockRowLabel block={block} />
                       </button>
                     </div>
                     {groups.map((group, groupIndex) => {
@@ -310,8 +310,7 @@ function ReplacedDayGrid({ groups, replacement, actMap, gridNav, onOpenSpecialDa
               {blocks.map((block, blockIndex) => (
                 <div key={block.id} role="row" aria-rowindex={blockIndex + 2} style={{ display: 'contents' }}>
                   <div role="rowheader" className="cell row-header" aria-colindex={1} style={placeRowHeader({ blockIndex })}>
-                    <span className="block-name">{block.name}</span>
-                    <span className="block-time">{block.start_time?.slice(0,5)}–{block.end_time?.slice(0,5)}</span>
+                    <BlockRowLabel block={block} />
                   </div>
                   {groups.map((group, groupIndex) => (
                     <ReplacedDayCell

@@ -5,6 +5,7 @@ import { cellAccessibleName, blockNamesForSpan } from './cellLabel'
 import useGridKeyboardNav from './useGridKeyboardNav'
 import ReplacedLane, { ReplacedColumnHeader } from './ReplacedLane'
 import './scheduleGrid.css'
+import BlockRowLabel from './BlockRowLabel'
 
 const NO_COLLAPSE = new Set()
 const NO_REPLACEMENTS = new Map()
@@ -176,8 +177,7 @@ export default function ScheduleActivityView({
                               aria-expanded={!isCollapsed}
                               onClick={toggle}
                             >
-                              <span className="block-name">{block.name}</span>
-                              <span className="block-time">{block.start_time?.slice(0,5)}–{block.end_time?.slice(0,5)}</span>
+                              <BlockRowLabel block={block} />
                             </button>
                           </div>
                           {days.map((day, dayIndex) => {

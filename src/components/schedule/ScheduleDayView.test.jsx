@@ -292,3 +292,28 @@ describe('ScheduleDayView — collapse (T56 extends T55)', () => {
     expect(renderView({ geometry }).querySelectorAll('.row-flag-dot[data-collapsed]').length).toBe(0)
   })
 })
+
+// Audit I3 — an imported block named after its times ("12:55-01:35") used to
+// head its row twice: the raw name, then "12:55–13:35" on the time line.
+describe('ScheduleDayView — row header shows a time-named block once (I3)', () => {
+  it('renders the 12-hour range once and no second time line', () => {
+    const blocks = [
+      { id: 'b1', name: '12:55-01:35', sort_order: 1, start_time: '12:55:00', end_time: '13:35:00' },
+      { id: 'b2', name: 'Swim Period', sort_order: 2, start_time: '16:00:00', end_time: '16:45:00' },
+    ]
+    const geometry = makeGridGeometry({ slots: [], timeBlocks: blocks, groups })
+    const noop = () => {}
+    const { container } = render(
+      <DndContext>
+        <ScheduleDayView groups={groups} days={days} timeBlocks={blocks} selectedDay="d1" onSelectDay={noop}
+          weatherMode={false} actMap={actMap} fixedEventMap={new Map()} releaseCell={noop} geometry={geometry}
+          eligibleActivitiesFor={() => []} onPlace={noop} onCreateNew={noop} />
+      </DndContext>
+    )
+    const headers = [...container.querySelectorAll('[role="rowheader"]')]
+    expect(headers[0].textContent).toBe('12:55–1:35 PM')
+    expect(headers[0].querySelector('.block-time')).toBeNull()
+    expect(headers[1].querySelector('.block-name').textContent).toBe('Swim Period')
+    expect(headers[1].querySelector('.block-time').textContent).toBe('4:00–4:45 PM')
+  })
+})

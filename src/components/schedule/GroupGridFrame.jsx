@@ -5,6 +5,7 @@ import useGridKeyboardNav from './useGridKeyboardNav'
 import ReplacedLane, { ReplacedColumnHeader } from './ReplacedLane'
 import { S } from '../../styles/shared'
 import './scheduleGrid.css'
+import BlockRowLabel from './BlockRowLabel'
 
 const NO_COLLAPSE = new Set()
 const NO_REPLACEMENTS = new Map()
@@ -140,8 +141,7 @@ export default function GroupGridFrame({
                         <svg className="row-header-chevron" aria-hidden="true" width="10" height="10" viewBox="0 0 10 10">
                           <path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                         </svg>
-                        <span className="block-name">{block.name}</span>
-                        <span className="block-time">{block.start_time?.slice(0,5)}–{block.end_time?.slice(0,5)}</span>
+                        <BlockRowLabel block={block} />
                       </button>
                     </div>
                     {days.map((day, dayIndex) => !replacements.has(day.id) && renderCell({

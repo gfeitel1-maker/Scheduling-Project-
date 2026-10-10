@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx'
 import { aoaToSanitizedSheet } from './exportSanitize.js'
+import { timeBlockLabel } from './timeBlockLabel.js'
 import { buildScheduleLookups, resolveSlotCell, formatCellLabel } from './scheduleCells.js'
 import { replacedCellLabel, replacedDayLabel, replacedLaneNotes } from '../screens/schedule/replacedLane.js'
 
@@ -9,7 +10,6 @@ import { replacedCellLabel, replacedDayLabel, replacedLaneNotes } from '../scree
 // A replaced day (T350) prints through replacedLane.js, the presenter the
 // schedule screen's lane uses.
 
-const timeRange = b => `${b.start_time?.slice(0,5)}–${b.end_time?.slice(0,5)}`
 
 export function exportToExcel({ slots, activities, fixedEvents, groups, days, timeBlocks, electiveSets = [], electiveSetActivities = [], events = [], week = null, replacements = new Map() }) {
   const wb = XLSX.utils.book_new()
@@ -23,7 +23,7 @@ export function exportToExcel({ slots, activities, fixedEvents, groups, days, ti
     let aoa
     if (replacement) {
       const blockRows = replacement.blocks.map(block => [
-        `${block.name} (${timeRange(block)})`,
+        timeBlockLabel(block),
         ...groups.map(g => replacedCellLabel({ replacement, groupId: g.id, blockId: block.id, actMap }).label),
       ])
       const notes = replacedLaneNotes(replacement)
@@ -35,7 +35,7 @@ export function exportToExcel({ slots, activities, fixedEvents, groups, days, ti
       ]
     } else {
       const dataRows = timeBlocks.map(block => {
-        const row = [`${block.name} (${timeRange(block)})`]
+        const row = [timeBlockLabel(block)]
         for (const group of groups) {
           const slot = slots.find(s => s.group_id === group.id && s.day_id === day.id && s.time_block_id === block.id)
           row.push(formatCellLabel(resolveSlotCell(slot, lookups)))

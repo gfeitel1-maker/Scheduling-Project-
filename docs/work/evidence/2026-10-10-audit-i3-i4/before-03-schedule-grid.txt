@@ -1,0 +1,100 @@
+Shoresh
+Demo Camp (sample)
+Roots
+GERMINATION
+✓
+Age Divisions
+✓
+Groups
+✓
+Days
+✓
+Time Blocks
+Locations
+SPROUTS
+✓
+Activities
+✓
+Fixed Events
+✓
+Recurring Events
+✓
+Electives
+Special Events
+PLANTS
+Generated Schedule
+Manual Build
+Special Schedules
+Elective Schedules
+Settings
+DEV
+Backup now
+Restore from backup…
+About & Legal · v0.1.0
+Generated Schedule
+Log out
+Week 1
+Daily View
+Group View
+Activity View
+Weather
+Rebuild
+Versions
+Export to Excel
+Export JSON
+ACTIVITIES
+«
+Archery
+14 / 6–∞ wk
+Art
+14 / 6–∞ wk
+Drama
+11 / 6–∞ wk
+Soccer
+14 / 6–∞ wk
+Swim
+14 / 6–∞ wk
+ELECTIVE SETS
+Afternoon Electives (sample)
+5 wk
+72 of 75
+Placed
+3
+Unfillable
+0
+Still needed
+Review all
+Monday
+Tuesday
+Wednesday
+Thursday
+Friday
+BLOCK
+BUNK 1
+BUNK 2
+BUNK 3
+09:00-09:45
+09:00–09:45
+Swim
+Art
+Soccer
+11:30-12:15
+11:30–12:15
+Afternoon Electives (sample) (3)
+Soccer
+Afternoon Electives (sample) (3)
+12:55-01:35
+12:55–13:35
+Soccer
+Drama
+Archery
+03:20-03:40
+15:20–15:40
+Drama
+Archery
+Swim
+Swim Period
+16:00–16:45
+Archery
+Swim
+Art

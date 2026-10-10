@@ -51,8 +51,8 @@ describe('replacedLaneRows', () => {
 
   it('one row per special block, in order, labelled for this group', () => {
     expect(replacedLaneRows({ replacement: replacement(), groupId: 'g2', actMap })).toEqual([
-      { blockId: 'x1', blockName: 'Opening', time: '09:00-09:30', label: '', activityId: null },
-      { blockId: 'x2', blockName: 'Games', time: '10:00-11:30', label: 'Swim', activityId: 'a1' },
+      { blockId: 'x1', blockName: 'Opening', time: '9:00–9:30 AM', label: '', activityId: null },
+      { blockId: 'x2', blockName: 'Games', time: '10:00–11:30 AM', label: 'Swim', activityId: 'a1' },
     ])
   })
 

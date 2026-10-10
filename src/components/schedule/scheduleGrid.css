@@ -215,6 +215,11 @@
   font-weight: 600;
   font-size: 14px;
   color: var(--text);
+  /* The row header is a fixed 140px track and nowrap; a 12-hour range that
+     spans noon ("11:30 AM–12:15 PM", audit I3) would clip, so the name line
+     may wrap. The collapsed-row rule below restores nowrap for its fixed box. */
+  white-space: normal;
+  text-wrap: balance;
 }
 
 .block-time {

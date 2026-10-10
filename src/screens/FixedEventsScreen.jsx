@@ -23,6 +23,7 @@ import { resolveRowAction } from '../ingest/resolveRowAction.js'
 import { resolveRowCohort, describeCohortNote } from '../ingest/resolveRowCohort.js'
 import { formatImportStopMessage } from '../ingest/importStopMessage.js'
 import { commitSetupImportBatch } from '../ingest/setupImportCommit.js'
+import { fixedEventsListed } from './setupListSelectors'
 
 const FIXED_EVENTS_CATALOG = ENTITY_FIELD_CATALOGS.fixed_events
 // The natural key for a fixed/recurring event row is compound: the same NAME can
@@ -324,12 +325,11 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
         localClient.list('locations'),
         localClient.list('activities'),
       ])
-      const list = (aData || [])
+      const list = fixedEventsListed(aData, { campId, cohortId: activeCohort.id, kind })
         // kind is NOT NULL post-migration (v51 CHECK, docs/adr/2026-08-28-
         // fixed-vs-recurring-events.md §3) — no `?? 'fixed'` fallback here:
         // a row with a missing/mismatched kind is a real bug to surface
         // (an unfiltered row disappearing from both lists), not to mask.
-        .filter(a => a.camp_id === campId && a.cohort_id === activeCohort.id && a.kind === kind)
         .map(normalizeFixedEvent)
         .sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? '')))
       setFixedEvents(list)

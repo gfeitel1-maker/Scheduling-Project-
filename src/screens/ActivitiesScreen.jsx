@@ -34,6 +34,7 @@ import { deriveActivityProvenance, hasAnyEvidence, worstTier, TIER_LABEL, needsL
 import { DOW, parseIdList, makeSerializeFieldValue } from './setup/setupHelpers'
 import { createLocationRecord, updateLocationCapacityRecord } from '../lib/locationDedup'
 import { useLatestTimeout } from '../hooks/useLatestTimeout'
+import { activitiesListed } from './setupListSelectors'
 
 // operations.value only accepts strings/null (better-sqlite3 throws on a raw
 // boolean/array) — every write must pre-serialize through these before
@@ -1170,7 +1171,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
   // T266 (site 4 of 7) — the free-choice catalogue the director browses and
   // picks from. `activities` itself stays whole above, so the CSV importer's
   // dedupe and every id->name lookup still see every row.
-  const catalogActivities = filterFreeChoiceActivities(activities)
+  const catalogActivities = activitiesListed(activities, { campId })
   const highPriority = catalogActivities.filter(a => a.priority === 'high')
   const lowPriority = catalogActivities.filter(a => a.priority === 'low')
   const readyRows = importRows.filter(r => r.name && !r.warning)

@@ -21,6 +21,8 @@ import { ENTITY_FIELD_CATALOGS, inferEntityMapping, applyEntityMapping, describe
 import { resolveRowAction } from '../ingest/resolveRowAction.js'
 import { resolveRowCohort, describeCohortNote } from '../ingest/resolveRowCohort.js'
 import { commitSetupImportBatch } from '../ingest/setupImportCommit.js'
+import { formatTime12 } from '../utils/timeBlockLabel'
+import { timeBlocksListed } from './setupListSelectors'
 
 const TIME_BLOCKS_CATALOG = ENTITY_FIELD_CATALOGS.time_blocks
 // part_of_day is excluded from the mapping gate: this app does NOT derive it from a time
@@ -93,12 +95,7 @@ function BlockRow({ block, role, onSave, onDelete, duplicateSiblings, overlaps }
     )
   }
 
-  function fmt(t) {
-    if (!t) return '—'
-    const [h, m] = t.split(':')
-    const hr = parseInt(h); const ampm = hr >= 12 ? 'PM' : 'AM'
-    return `${hr > 12 ? hr - 12 : hr || 12}:${m} ${ampm}`
-  }
+  const fmt = (t) => formatTime12(t) || '—'
 
   return (
     <tr style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
@@ -186,8 +183,7 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
       // would overwrite the UI with the wrong cohort's blocks
       // (last-resolver-wins race). Bail out without touching state.
       if (requestId !== loadRequestRef.current) return
-      const list = (data || [])
-        .filter(b => b.camp_id === campId && b.cohort_id === cohortIdAtStart)
+      const list = timeBlocksListed(data, { campId, cohortId: cohortIdAtStart })
         .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || String(a.start_time ?? '').localeCompare(String(b.start_time ?? '')))
       setBlocks(list)
     } catch {
