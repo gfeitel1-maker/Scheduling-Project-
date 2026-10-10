@@ -302,6 +302,36 @@ describe('useSnapshots', () => {
       )
     })
 
+    it('reports event and elective cells whose parents were deleted by name, day, time and group', async () => {
+      const names = { group: 'Bunk 2', day: 'Tue', block: 'Block 2' }
+      const payload = {
+        template_id: 'tid-generated',
+        slots: JSON.stringify([
+          { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, fixed_event_id: null, is_fixed_event: false, event_id: 'dead-event', flags: {}, names: { ...names, event: 'Color War' } },
+          { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null, fixed_event_id: null, is_fixed_event: false, elective_set_id: 'dead-set', flags: {}, names: { ...names, elective_set: 'Arts Elective' } },
+        ]),
+      }
+      const repo = makeRepo({ getSnapshot: vi.fn(async () => payload) })
+      const { result, props } = setup({ repo, events: [], electiveSets: [] })
+      await act(async () => { await result.current.restoreSnapshot({ id: 'snap-1' }) })
+
+      expect(repo.restoreSnapshotRows.mock.calls[0][1]).toHaveLength(0)
+      expect(props.setActionError).toHaveBeenCalledWith(
+        'Restored; 2 cell(s) skipped: Bunk 2 · Tue Block 2 · Color War — event no longer exists; Bunk 2 · Tue Block 2 · Arts Elective — elective set no longer exists'
+      )
+    })
+
+    it('saves the event and elective-set names with each cell', async () => {
+      const { result, props } = setup({
+        slotsByRoute: { generated: [{ group_id: 'g1', day_id: 'd1', time_block_id: 'b1', event_id: 'e1', elective_set_id: 's1', flags: {} }], manual: [] },
+        events: [{ id: 'e1', name: 'Color War' }],
+        electiveSets: [{ id: 's1', name: 'Arts Elective' }],
+      })
+      await act(async () => { await result.current.saveSnapshot('v', false) })
+      const saved = JSON.parse(props.repo.writeSnapshotFields.mock.calls[0][1].slots)
+      expect(saved[0].names).toMatchObject({ event: 'Color War', elective_set: 'Arts Elective' })
+    })
+
     it('keeps an empty cell (valid group/day/block, no activity or anchor) — not counted as dropped', async () => {
       const payload = {
         template_id: 'tid-generated',

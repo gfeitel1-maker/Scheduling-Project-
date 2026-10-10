@@ -218,6 +218,31 @@ describe('WS5 S2a/S3 — toolbar slims: Field Trips removed, route label removed
   })
 })
 
+describe('Weather toggle with no outdoor activities', () => {
+  it('shows a flag and a Mark activities action when turned on and nothing is marked outdoor', async () => {
+    mockList()
+    const onNavigate = vi.fn()
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={onNavigate} />)
+    await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
+    expect(screen.queryByText('No outdoor activities marked')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Weather' }))
+    expect(screen.getByText('No outdoor activities marked')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Mark activities' }))
+    expect(onNavigate).toHaveBeenCalledWith('activities')
+    expect(screen.getByRole('button', { name: 'Weather', pressed: true }).disabled).toBe(false)
+  })
+
+  it('shows no flag when an activity is marked outdoor', async () => {
+    mockList({ activities: [activity({ is_outdoor: 1 })] })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: 'Weather' }))
+    expect(screen.queryByText('No outdoor activities marked')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Mark activities' })).toBeNull()
+  })
+})
+
 // WS5 follow-up "Daily-first + restore Daily merge" — Daily is now the
 // default view and leftmost in the toggle, and the redundant "which route am
 // I on" caption under the toolbar is gone (route legibility already lives in
@@ -489,7 +514,7 @@ describe('snapshot CRUD ported to localClient', () => {
     expect(localClient.write).toHaveBeenCalledWith('token-abc', 'schedule_snapshots', 'new-id-1', 'is_auto', false)
     expect(localClient.write).toHaveBeenCalledWith(
       'token-abc', 'schedule_snapshots', 'new-id-1', 'slots',
-      JSON.stringify([{ group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', fixed_event_id: null, is_fixed_event: false, is_span_head: true, is_released: false, elective_set_id: null, event_id: null, flags: { UNFILLABLE: true }, names: { group: 'Group A', day: 'Monday', block: 'Morning', block_start: '09:00:00', block_end: '10:00:00', activity: 'Swim', fixed_event: null } }])
+      JSON.stringify([{ group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', fixed_event_id: null, is_fixed_event: false, is_span_head: true, is_released: false, elective_set_id: null, event_id: null, flags: { UNFILLABLE: true }, names: { group: 'Group A', day: 'Monday', block: 'Morning', block_start: '09:00:00', block_end: '10:00:00', activity: 'Swim', fixed_event: null, event: null, elective_set: null } }])
     )
 
     // Optimistic local state update — new snapshot appears in the dropdown.

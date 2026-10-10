@@ -284,6 +284,8 @@ export function campCatalog(db, campId) {
     timeBlocks: db.prepare('SELECT id, name, start_time, end_time FROM time_blocks WHERE camp_id = ?').all(campId),
     activities: db.prepare('SELECT id, name FROM activities WHERE camp_id = ?').all(campId),
     fixedEvents: db.prepare('SELECT id, name FROM fixed_events WHERE camp_id = ?').all(campId),
+    events: db.prepare('SELECT id, name FROM events WHERE camp_id = ?').all(campId),
+    electiveSets: db.prepare('SELECT id, name FROM elective_sets WHERE camp_id = ?').all(campId),
   }
 }
 
