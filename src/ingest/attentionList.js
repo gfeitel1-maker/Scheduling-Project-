@@ -14,6 +14,7 @@
 // getReadiness.
 
 import { isActivityEligibleForGroup } from '../engine/eligibility.js'
+import { normalizeActivityEligibility } from '../utils/normalizeActivityEligibility.js'
 
 function reconciliationRows(model, decisionsById) {
   const rows = []
@@ -91,7 +92,9 @@ export function buildStructureIssues(collections, unread = NOTHING_UNREAD) {
   }
 
   const groups = collections.groups ?? []
-  const activities = collections.activities ?? []
+  // Raw list() rows carry eligibility as JSON strings; the engine's callers
+  // normalize first, so this must too or '[]' reads as "restricted to nothing".
+  const activities = (collections.activities ?? []).map(normalizeActivityEligibility)
   if (activities.length > 0) {
     for (const group of groups) {
       const hasEligible = activities.some((a) => isActivityEligibleForGroup(a, group))
