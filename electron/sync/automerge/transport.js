@@ -27,7 +27,6 @@ import { yamux } from '@chainsafe/libp2p-yamux'
 import { identify } from '@libp2p/identify'
 import { peerIdFromString } from '@libp2p/peer-id'
 import { PROTO, AUTH_PROTO, SYNC_PROTO, HANDOFF_PROTO, HANDOFF_MAX_FRAME_BYTES, sendFramed, receiveFramed } from './wireProtocol.js'
-import { multiaddr } from '@multiformats/multiaddr'
 import { registerAuthGate, isLanMultiaddr } from './authGate.js'
 import { makeConnectionRateLimiter, ipFromMultiaddr } from './connectionRateLimiter.js'
 
@@ -37,9 +36,7 @@ import { makeConnectionRateLimiter, ipFromMultiaddr } from './connectionRateLimi
 // obtained from getPeers(), while dial() also accepts a raw Multiaddr object
 // for direct-dial tests (mirrors test-cr4-live.mjs's own dial pattern).
 function toDialTarget(peerIdOrMultiaddr) {
-  if (typeof peerIdOrMultiaddr !== 'string') return peerIdOrMultiaddr
-  // A remembered address is stored as text; only a peer id string lacks the leading '/'.
-  return peerIdOrMultiaddr.startsWith('/') ? multiaddr(peerIdOrMultiaddr) : peerIdFromString(peerIdOrMultiaddr)
+  return typeof peerIdOrMultiaddr === 'string' ? peerIdFromString(peerIdOrMultiaddr) : peerIdOrMultiaddr
 }
 
 const DEFAULT_LISTEN = ['/ip4/127.0.0.1/tcp/0']

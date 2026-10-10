@@ -10,6 +10,7 @@
 //
 // INERT: nothing imports this unless something outside tests wires it; punchTransport itself is only
 // built behind syncStarter.js's strict SHORESH_PUNCH_ENABLED === 'true' gate.
+import { multiaddr } from '@multiformats/multiaddr'
 import { isIPv4, isIPv6 } from 'node:net'
 import { TimeoutError } from '@libp2p/interface'
 import { loadMappedPeerAddress, loadTrustedPunchMemory } from './peerAddressBook.js'
@@ -45,7 +46,7 @@ async function attemptMappedDial(peer, { db, dial, timeoutMs, signal, checkTrust
   let connection
   try {
     const timeout = AbortSignal.timeout(timeoutMs)
-    connection = await dial(address, { signal: signal ? AbortSignal.any([signal, timeout]) : timeout })
+    connection = await dial(multiaddr(address), { signal: signal ? AbortSignal.any([signal, timeout]) : timeout })
   } catch {
     return null
   }
