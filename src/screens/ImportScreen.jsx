@@ -286,6 +286,9 @@ export default function ImportScreen({ campId, onNavigate }) {
   // in the success banner today — after it has already happened. This reads
   // it pre-confirm instead (Red Hat, T61 round 3).
   const [slotCount, setSlotCount] = useState(0)
+  // R1 — the route labels that actually hold placements; Replace saves each as
+  // a version before clearing (electron/ops/ingest.js), and the option copy says so.
+  const [placedRouteLabels, setPlacedRouteLabels] = useState([])
   // Recurring Events (fixed_events) — director-authored content with its own
   // nav screen, deleted by replaceScope step 6 because fixed events reference
   // days_of_operation, which step 8 also deletes. Recoverable from Trash,
@@ -539,7 +542,15 @@ export default function ImportScreen({ campId, onNavigate }) {
       }
       setExistingRecordsAll(existingAll)
       setSnapshotCount((await localClient.list('schedule_snapshots').catch(() => [])).length)
-      setSlotCount((await localClient.list('template_slots').catch(() => [])).length)
+      const allSlots = await localClient.list('template_slots').catch(() => [])
+      setSlotCount(allSlots.length)
+      const templates = await localClient.list('schedule_templates').catch(() => [])
+      const placedTemplateIds = new Set(allSlots.map((s) => s.template_id))
+      setPlacedRouteLabels(
+        [['manual', 'Manual Build'], ['generated', 'Generated Schedule']]
+          .filter(([kind]) => templates.some((t) => t.kind === kind && placedTemplateIds.has(t.id)))
+          .map(([, label]) => label),
+      )
       setFixedEventCount((await localClient.list('fixed_events').catch(() => [])).length)
       setImportMode('add')
       // ADR 2026-08-17-onescreen-reconciliation-merge.md §2 — no more local
@@ -2426,7 +2437,7 @@ export default function ImportScreen({ campId, onNavigate }) {
               </div>
               {[
                 { key: 'add', title: 'Keep them', sub: 'Add the import alongside.' },
-                { key: 'replace', title: 'Replace them', sub: `Clears ${existingCountAll} ${existingCountAll === 1 ? 'item' : 'items'} first: Age Divisions, Groups, Days, Time Blocks and Activities in every Program.` },
+                { key: 'replace', title: 'Replace them', sub: `Clears ${existingCountAll} ${existingCountAll === 1 ? 'item' : 'items'} first: Age Divisions, Groups, Days, Time Blocks and Activities in every Program${placedRouteLabels.length > 0 ? `, and ${placedRouteLabels.join(' and ')} (saved as a version first)` : ''}.` },
               ].map(opt => {
                 const on = importMode === opt.key
                 return (

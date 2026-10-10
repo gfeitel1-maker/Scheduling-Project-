@@ -28,6 +28,7 @@ import { activityTruthStatus } from '../../src/ingest/truthStatus.js'
 import { resolveLocationCreateId } from './locationCreate.js'
 import { deriveDayId } from './dayId.js'
 import { PROJECTIONS } from './projections.js'
+import { writeRouteSnapshot } from './deleteRecord.js'
 import { U2_DELETABLE_ENTITIES, referencesInto } from './undoReferences.js'
 import { buildReconciliationReport } from '../../src/ingest/reconciliationReport.js'
 import { replaceOpenDecisionsForCommit } from './openReconciliationDecisions.js'
@@ -1764,6 +1765,17 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     // creates, which also lets the new records reuse the old names against
     // UNIQUE(camp_id, name).
     if (mode === 'replace') {
+      // R1: replaceScope deletes every template_slots row (step 1) on both
+      // routes. Save each route that has placements as a version FIRST; a throw
+      // here rolls back the whole transaction, so a failed save clears nothing.
+      const routesWithSlots = db.prepare(
+        `SELECT t.id FROM schedule_templates t
+          WHERE t.camp_id = ? AND EXISTS (SELECT 1 FROM template_slots s WHERE s.template_id = t.id)`
+      ).all(camp_id)
+      const savedAt = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+      for (const { id } of routesWithSlots) {
+        writeRouteSnapshot(db, { template_id: id, name: `Before replace — ${savedAt}`, author_user_id, device_id })
+      }
       // T183 PR-2: snapshot division scope BEFORE the teardown erases it. Read
       // the live fixed events' unit_ids and resolve them to division NAMES against
       // the pre-teardown tiers (ids are about to change). Keyed by the

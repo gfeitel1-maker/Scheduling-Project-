@@ -276,7 +276,7 @@ export function previewDelete(db, { entity, entity_id }) {
 // inserts the row on that field, and any other field arriving first is a silent
 // no-op against zero rows. That is how the "Empty" snapshots already in the dev
 // camp were produced. Asserted by deleteRecord.test.js, not merely commented.
-function writeRouteSnapshot(db, { template_id, name, author_user_id, device_id }) {
+export function writeRouteSnapshot(db, { template_id, name, author_user_id, device_id }) {
   const id = randomUUID()
   const slots = db
     .prepare('SELECT * FROM template_slots WHERE template_id = ?')

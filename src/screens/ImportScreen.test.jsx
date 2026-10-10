@@ -385,6 +385,20 @@ describe('ImportScreen — inferred activity rules (T35)', () => {
     expect(screen.getByText(/3 slots/)).toBeTruthy()
   })
 
+  it('R1: the Replace option names only the schedules that hold placements, saved as a version first', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'tiers') return Promise.resolve([{ id: 't1', cohort_id: 'cohort-1' }])
+      if (entity === 'schedule_templates') return Promise.resolve([{ id: 'tm', kind: 'manual' }, { id: 'tg', kind: 'generated' }])
+      if (entity === 'template_slots') return Promise.resolve([{ id: 's1', template_id: 'tg' }])
+      return Promise.resolve([])
+    })
+    await uploadFile()
+    await userEvent.click(screen.getByText(/Replace them/))
+    const sentence = screen.getByText(/Clears \d+ items? first/).textContent
+    expect(sentence).toContain('Generated Schedule (saved as a version first)')
+    expect(sentence).not.toContain('Manual Build')
+  })
+
   it('does not warn about slots when the camp has none placed', async () => {
     localClient.list.mockImplementation((entity) => {
       if (entity === 'tiers') return Promise.resolve([{ id: 't1', cohort_id: 'cohort-1' }])

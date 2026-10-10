@@ -667,7 +667,8 @@ describe('replace mode tears the camp down inside the import transaction (T61)',
     // The parents of the cleared dependents survive; only their rows went.
     expect(count('schedule_templates')).toBe(1)
     expect(count('schedule_weeks')).toBe(1)
-    expect(count('schedule_snapshots')).toBe(1)
+    // The seeded version survives, plus R1's "Before replace" version of the one route that had slots.
+    expect(count('schedule_snapshots')).toBe(2)
 
     expect(result.total).toBe(5)
     expect(db.pragma('foreign_key_check')).toEqual([])
