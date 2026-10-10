@@ -27,7 +27,7 @@ import { DELETE_FIELD, applyBulkReplaceProjection } from '../ops/operations.js'
 import { DOMAIN_SNAPSHOT_ORDER, BULK_REPLACE_ENTITIES } from '../ops/campScopedEntities.js'
 import { assertNoUnrecordedConflicts } from './reconcile.js'
 import { assertNoUnrecordedUniqueConflicts } from './uniqueConflicts.js'
-import { listRecordIds, readRecord, hasAnyRecord } from './campDocument.js'
+import { listRecordIds, readRecord, hasAnyRecord, plainValue } from './campDocument.js'
 import { verifyAuthFields } from '../auth/authSignature.js'
 import { verifyTombstone } from './tombstoneSignature.js'
 import * as Automerge from '@automerge/automerge'
@@ -145,7 +145,7 @@ function upsertBulkReplaceEntity(db, doc, entity) {
   const collectionName = `${entity}_scopes`
   const scopes = doc[collectionName] ?? {}
   for (const scopeId of Object.keys(scopes)) {
-    applyBulkReplaceProjection(db, { entity, entity_id: scopeId, value: scopes[scopeId] })
+    applyBulkReplaceProjection(db, { entity, entity_id: scopeId, value: plainValue(scopes[scopeId]) })
   }
 }
 
