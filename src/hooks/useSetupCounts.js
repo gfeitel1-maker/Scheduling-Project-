@@ -4,6 +4,7 @@ import { AREA_TABLE } from '../components/layout/navSections'
 import { loadSidebarState, shouldOfferFold } from '../components/layout/sidebarState'
 import { getSetupGaps } from '../engine/readiness'
 import { useLatestTimeout } from './useLatestTimeout'
+import { activitiesListed } from '../screens/setupListSelectors.js'
 
 function countGaps(counts) {
   return getSetupGaps({
@@ -43,6 +44,9 @@ export function useSetupCounts(campId) {
     areas.forEach((area, i) => {
       const { kind } = specFor(area)
       const rows = Array.isArray(results[i]) ? results[i] : []
+      // Activities: the Activities screen's own selector, so pinned-event rows
+      // (which back fixed events) are not counted (audit follow-up to I4).
+      if (area === 'activities' && campId) { next[area] = activitiesListed(rows, { campId }).length; return }
       next[area] = rows.filter((r) =>
         (!campId || !r.camp_id || r.camp_id === campId) && (!kind || r.kind === kind)
       ).length

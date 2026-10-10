@@ -496,11 +496,36 @@ describe('FixedEventsScreen deleteAll (characterization)', () => {
 
     expect(window.confirm).not.toHaveBeenCalled()
     expect(localClient.deleteEntity).not.toHaveBeenCalled()
-    await waitFor(() => expect(screen.queryByText('Delete all fixed events?')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Delete 1 fixed event?')).not.toBeNull())
     expect(screen.queryByText('They can be restored from Trash.')).not.toBeNull()
 
     fireEvent.click(screen.getByText('Delete All Fixed Events'))
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'fixed_events', 'anchor-1'))
+  })
+
+  it('deletes ONLY the listed fixed events, never the cohort\'s recurring events; confirm names the exact count', async () => {
+    // A tiny in-memory store: list reads it, deleteEntity removes from it, so
+    // the assertion is on the rows that survive, not on which calls were made.
+    let store = [
+      existing({ id: 'f1', name: 'Mifkad' }),
+      existing({ id: 'f2', name: 'Lunch' }),
+      existing({ id: 'r1', name: 'Swim', kind: 'recurring', is_all_groups: 0, group_ids: '["g1"]' }),
+      existing({ id: 'r2', name: 'Learning', kind: 'recurring', is_all_groups: 0, group_ids: '["g1"]' }),
+    ]
+    localClient.list.mockImplementation((entity) =>
+      Promise.resolve(entity === 'fixed_events' ? store.slice() : []))
+    localClient.deleteEntity.mockImplementation((token, entity, id) => {
+      store = store.filter((r) => r.id !== id)
+      return Promise.resolve({ status: 'applied' })
+    })
+    render(<FixedEventsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} kind="fixed" />)
+    await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete All'))
+    await waitFor(() => expect(screen.queryByText('Delete 2 fixed events?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Delete All Fixed Events'))
+
+    await waitFor(() => expect(store.map((r) => r.id).sort()).toEqual(['r1', 'r2']))
   })
 
   it('cancels without deleting', async () => {
@@ -511,10 +536,10 @@ describe('FixedEventsScreen deleteAll (characterization)', () => {
     await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete All'))
-    await waitFor(() => expect(screen.queryByText('Delete all fixed events?')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Delete 1 fixed event?')).not.toBeNull())
     fireEvent.click(screen.getByText('Cancel'))
 
-    expect(screen.queryByText('Delete all fixed events?')).toBeNull()
+    expect(screen.queryByText('Delete 1 fixed event?')).toBeNull()
     expect(localClient.deleteEntity).not.toHaveBeenCalled()
   })
 
@@ -533,7 +558,7 @@ describe('FixedEventsScreen deleteAll (characterization)', () => {
         : [])
     )
     fireEvent.click(screen.getByText('Delete All'))
-    await waitFor(() => expect(screen.queryByText('Delete all fixed events?')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Delete 1 fixed event?')).not.toBeNull())
     fireEvent.click(screen.getByText('Delete All Fixed Events'))
 
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'fixed_events', 'anchor-2'))
@@ -554,7 +579,7 @@ describe('FixedEventsScreen deleteAll (characterization)', () => {
     await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete All'))
-    await waitFor(() => expect(screen.queryByText('Delete all fixed events?')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Delete 2 fixed events?')).not.toBeNull())
     fireEvent.click(screen.getByText('Delete All Fixed Events'))
 
     await waitFor(() =>
@@ -573,7 +598,7 @@ describe('FixedEventsScreen deleteAll (characterization)', () => {
     await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete All'))
-    await waitFor(() => expect(screen.queryByText('Delete all fixed events?')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Delete 2 fixed events?')).not.toBeNull())
     fireEvent.click(screen.getByText('Delete All Fixed Events'))
 
     await waitFor(() =>

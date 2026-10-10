@@ -571,8 +571,10 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
       // this click must not be silently skipped. The delete loop itself now
       // lives in the shared repository; scoping (camp + cohort) stays here.
       const freshFixedEvents = await localClient.list('fixed_events')
-      const ids = (freshFixedEvents || [])
-        .filter(a => a.camp_id === campId && a.cohort_id === activeCohort?.id)
+      // Same selector the screen lists through: only THIS screen's kind. The
+      // recurring and fixed screens share the fixed_events table, so a
+      // camp+cohort filter alone would delete the other screen's rows too.
+      const ids = fixedEventsListed(freshFixedEvents, { campId, cohortId: activeCohort?.id, kind })
         .map(a => a.id)
       const { succeeded, failed, failedDueToRole } = await repository.deleteAllRecords('fixed_events', ids)
       await load()
@@ -1058,7 +1060,7 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
 
       {pendingDeleteAll && (
         <ConfirmDangerDialog
-          title={`Delete all ${eventLabelPlural}?`}
+          title={`Delete ${fixedEvents.length} ${fixedEvents.length === 1 ? eventLabel : eventLabelPlural}?`}
           recovery="They can be restored from Trash."
           confirmLabel={`Delete All ${eventLabelPluralCap}`}
           busy={deletingAll}

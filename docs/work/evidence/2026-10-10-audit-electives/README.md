@@ -30,3 +30,6 @@ pinned in `src/ingest/preferenceHeaderVariants.test.js`.
 Note on E7: the first run listed in `E1-after-offerings-import.png` still reads "100 sheets". That name
 was stored before this change. Run names are written once, when the run is created, and are not renamed
 afterwards.
+
+Note on E5: the Not-requested reasons are preview-only by decision. "The preview is where the director
+decides; not persisted — board keeper ruling 2026-10-10."
