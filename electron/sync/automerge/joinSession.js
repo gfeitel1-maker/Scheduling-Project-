@@ -26,7 +26,7 @@ import { recordLibp2pPeerId } from './peerIdentity.js'
 
 import { createEmptyDoc } from '../../automerge/campDocument.js'
 import { joinDiscoveryTag, normalizeJoinCode, newJoinNonce, joinProof, verifyJoinProof, rejoinCampProof } from '../joinCode.js'
-import { verifyTombstones, applyTombstonesToDoc } from '../../automerge/tombstoneApply.js'
+import { verifyTombstones, applyTombstonesToDoc, settleRejoinDeletes } from '../../automerge/tombstoneApply.js'
 import { getCurrentDoc, setCurrentDoc } from './liveDoc.js'
 import { createMdnsDiscovery } from './discovery.js'
 import { startSyncNode } from './syncNode.js'
@@ -150,6 +150,9 @@ export async function startJoinSession({
   // this, because the mDNS tag the Host was found by is public (see
   // joinCode.js's proof section for the mirrored-tag attack this closes).
   let hostProvedCode = false
+  // Pair again: this device's document as it stood just before the camp's merged into it, so that
+  // after each merge a record the camp deleted can be told apart from one it did not.
+  let preMergeDoc = null
 
   const firstPeer = deferred()
   const pairingDecision = deferred()
@@ -187,7 +190,18 @@ export async function startJoinSession({
     },
     onProjected: () => {
       const camp = campRow(db)
-      if (camp) campArrived.resolve(camp)
+      if (!camp) return
+      if (!preMergeDoc) { campArrived.resolve(camp); return }
+      // Pair again, step two: the camp's delete wins over this device's offline edits to the same
+      // record (settleRejoinDeletes). Deferred a microtask because the receive path is still using
+      // the merged document when this fires; the camp is reported only once the re-delete is in.
+      // Only this session's merges are settled — ordinary peer sync is untouched.
+      queueMicrotask(() => {
+        const current = getCurrentDoc(db)
+        const settled = settleRejoinDeletes(preMergeDoc, current)
+        if (settled !== current) node.applyLocal(settled)
+        campArrived.resolve(camp)
+      })
     },
   })
 
@@ -318,6 +332,7 @@ export async function startJoinSession({
         if (tombstones.length > 0 && !verifyTombstones(pub, tombstones)) return { status: 'tombstones_unverified' }
         const cleaned = applyTombstonesToDoc(getCurrentDoc(db), tombstones)
         setCurrentDoc(db, cleaned)
+        preMergeDoc = A.clone(cleaned)
       }
       // Hand the token to the node so its ordinary mutual-auth path can run.
       // Then authenticate immediately rather than waiting for mDNS to
