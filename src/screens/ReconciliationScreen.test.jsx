@@ -475,7 +475,8 @@ describe('done state', () => {
     // end state must NOT show. Post-F3, those gaps render as required_gap
     // hold-lane cards, so the spine denominator is no longer 0 — the "0 of 0"
     // contradiction this finding fixes.
-    await waitFor(() => expect(screen.getByText(/0 of 5 question/)).toBeTruthy())
+    // baseInputs carries one activity, which the import itself will create (I5), so Activities no longer counts as a gap.
+    await waitFor(() => expect(screen.getByText(/0 of 4 question/)).toBeTruthy())
     expect(screen.queryByText('Nothing left to reconcile.')).toBeNull()
   })
 })
