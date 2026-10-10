@@ -653,6 +653,13 @@ export function createAutomergeSyncStarter({
           try { getLiveHandlers()?.pushSyncStatus?.() } catch { /* never break sync over a UI notice */ }
         },
       })
+      // A node (re)started while Add-a-device is already open picks the window's join tag up
+      // now; later opens/closes reach it through main.js's setJoinWindow.
+      if (getLiveHandlers()?.isJoinWindowOpen?.()) {
+        automergeSyncNode.setJoinCode?.(getLiveHandlers()?.getJoinSecret?.() ?? null)?.catch?.((err) => {
+          console.error(`join tag: advertising on node start failed: ${err?.message ?? err}`)
+        })
+      }
 
       // Stage 5f item 2: a local edit (appendOp -> liveDoc.recordLocalWrite) must reach connected
       // peers. liveDoc debounces its own field-write bursts (same timer as the doc save) and, for
