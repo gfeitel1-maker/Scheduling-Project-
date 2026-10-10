@@ -4,6 +4,7 @@
 // SHORESH_PUNCH_ENABLED === 'true' gate, and its address reaches the signed gossip and nothing else.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
+import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -12,6 +13,24 @@ import { setUserDataDirGetter, setDocCipher, resetForTests } from './liveDoc.js'
 import { openTemplatedDb, cleanupTemplatedDbs } from '../../db/testDbTemplate.js'
 import { getOrCreateDeviceId } from '../../db/localDb.js'
 import { makeSignalingPair } from './punchTestSupport.js'
+import { TCP_PORT_FILE } from './pinnedListenPort.js'
+
+// The starter pins a random port in 49152-65535 and reports 'port-in-use' when it cannot bind it.
+// On a Linux CI runner that range overlaps the ephemeral ports other test workers are holding, so a
+// random pick occasionally collided and a test that expects 'mapped' saw 'port-in-use'
+// (PR #878 CI, 2026-10-10). Each test instead pins a port this process just bound and released.
+async function freePinnablePort() {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const port = 49152 + Math.floor(Math.random() * (65536 - 49152))
+    const free = await new Promise((resolve) => {
+      const server = net.createServer()
+      server.once('error', () => resolve(false))
+      server.listen(port, '0.0.0.0', () => server.close(() => resolve(true)))
+    })
+    if (free) return port
+  }
+  throw new Error('no free port in 49152-65535 after 50 attempts')
+}
 
 const wired = vi.hoisted(() => ({ calls: [], publish: null, stoppedAt: null }))
 vi.mock('./punchReconnectWiring.js', async (importActual) => ({
@@ -25,12 +44,13 @@ vi.mock('./punchReconnectWiring.js', async (importActual) => ({
 const PUBLIC_IP = '93.184.216.34'
 let db, dbFile, deviceId, userDataPath, originalFlag
 
-beforeEach(() => {
+beforeEach(async () => {
   const templated = openTemplatedDb()
   db = templated.db
   dbFile = templated.file
   deviceId = getOrCreateDeviceId(db)
   userDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-wiring-'))
+  fs.writeFileSync(path.join(userDataPath, TCP_PORT_FILE), JSON.stringify({ port: await freePinnablePort() }))
   resetForTests()
   setUserDataDirGetter(() => userDataPath)
   setDocCipher(null)
