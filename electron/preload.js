@@ -95,6 +95,7 @@ contextBridge.exposeInMainWorld('shoresh', {
   listPeerErasureState: (token) => ipcRenderer.invoke('shoresh:list-peer-erasure-state', { token }),
   importSetupRows: (args) => ipcRenderer.invoke('shoresh:import-setup-rows', args),
   revokeDevice: (args) => ipcRenderer.invoke('shoresh:revoke-device', args),
+  renameDevice: (args) => ipcRenderer.invoke('shoresh:rename-device', args),
   onPairingRequest: (callback) => ipcRenderer.on('shoresh:pairing-request', (_event, data) => callback(data)),
   // T87 (docs/adr/2026-08-16-client-reauth-on-restart.md, Part 3) — forwards a
   // field off the payload rather than the payload itself; carries only the

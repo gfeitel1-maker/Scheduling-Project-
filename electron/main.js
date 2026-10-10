@@ -85,6 +85,7 @@ import { createDiskSpaceMonitor } from './db/diskSpace.js'
 import { codeForAuthRejectedReason } from './authRejectedSender.js'
 import { mintJoinSecret, formatJoinCode } from './sync/joinCode.js'
 import { startJoinSession } from './sync/automerge/joinSession.js'
+import { DEFAULT_DEVICE_NAME, normalizeDeviceName, pairingDeviceName } from './auth/deviceName.js'
 import {
   getCurrentProjectPath,
   setCurrentProjectPath,
@@ -284,8 +285,11 @@ export function sanitizeOpRejectedForIpc(msg) {
   return { ...msg, op: sanitizeOpForIpc(msg.op) }
 }
 
-function ensureDeviceRow(db, deviceId) {
-  db.prepare('INSERT OR IGNORE INTO devices (id, name) VALUES (?, ?)').run(deviceId, os.hostname())
+export function ensureDeviceRow(db, deviceId, hostname = os.hostname()) {
+  db.prepare('INSERT OR IGNORE INTO devices (id, name) VALUES (?, ?)').run(deviceId, DEFAULT_DEVICE_NAME)
+  // Earlier versions seeded this row with the computer's hostname, which pairing then sent to the
+  // approving device. Reset that one value to the default; a name the director chose is kept.
+  db.prepare('UPDATE devices SET name = ? WHERE id = ? AND name = ?').run(DEFAULT_DEVICE_NAME, deviceId, hostname)
 }
 
 // T292 round-2 follow-up (Red Hat MEDIUM test-coverage gap): the will-quit
@@ -1600,6 +1604,18 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     getAutomergeNode()?.sendPairingDenied(targetDeviceId)
 
     return { deviceId: targetDeviceId, denied: true }
+  }
+
+  // Local only: `devices` is a SQLite-only table that never replicates, so this changes what THIS
+  // device shows. Name is the only column written; trust, identity and pairing state are untouched.
+  function renameDevice({ token, deviceId: targetDeviceId, name } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    requireAuthorized(db, { token, action: 'devices.approve' })
+    if (!isNonEmptyString(targetDeviceId)) throw new Error('deviceId is required')
+    const clean = normalizeDeviceName(name)
+    const changed = db.prepare('UPDATE devices SET name = ? WHERE id = ?').run(clean, targetDeviceId).changes
+    if (changed === 0) throw new Error('device not found')
+    return { deviceId: targetDeviceId, name: clean }
   }
 
   function revokeDevice({ token, deviceId: targetDeviceId, reason } = {}) {
@@ -2975,7 +2991,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       started = await startJoinSession({
         db,
         deviceId,
-        deviceName: deviceName || db.prepare('SELECT name FROM devices WHERE id = ?').get(deviceId)?.name,
+        deviceName: deviceName || pairingDeviceName(db.prepare('SELECT name FROM devices WHERE id = ?').get(deviceId)?.name, deviceId),
         code,
         knownHost: testOnly ? knownHost : undefined,
         peerDiscovery: testOnly ? peerDiscovery : undefined,
@@ -3209,6 +3225,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     revokeToolAuthorization,
     denyDevice,
     revokeDevice,
+    renameDevice,
     getSyncEngine,
     getJoinCode,
     setJoinWindow,
@@ -3578,6 +3595,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:join-cancel', () => handlers.joinCancel())
     ipcMain.handle('shoresh:deny-device', (_event, args) => handlers.denyDevice(args))
     ipcMain.handle('shoresh:revoke-device', (_event, args) => handlers.revokeDevice(args))
+    ipcMain.handle('shoresh:rename-device', (_event, args) => handlers.renameDevice(args))
     ipcMain.handle('shoresh:duplicate-week', (_event, args) => handlers.duplicateWeek(args))
     ipcMain.handle('shoresh:delete-week', (_event, args) => handlers.deleteWeek(args))
     ipcMain.handle('shoresh:attribute-subject', (_event, args) => handlers.attributeSubject(args))
