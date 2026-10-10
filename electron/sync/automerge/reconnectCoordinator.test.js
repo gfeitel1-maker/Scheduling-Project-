@@ -62,7 +62,7 @@ describe('ladder order and strict escalation', () => {
       setTimer: (fn, ms) => ({ fn, ms, unref() {} }), clearTimer: () => {},
     })
     expect(await coord.reconnect(PEER)).toEqual({ ok: true, rung: 'rung1' })
-    expect(dial).toHaveBeenCalledWith('/ip4/34.120.1.7/tcp/50000/p2p/peer-b', expect.anything())
+    expect(dial.mock.calls[0][0].toString()).toBe('/ip4/34.120.1.7/tcp/50000/p2p/peer-b')
     expect(connectFromMemory).not.toHaveBeenCalled()
     expect(rendezvous.request).not.toHaveBeenCalled()
   })
