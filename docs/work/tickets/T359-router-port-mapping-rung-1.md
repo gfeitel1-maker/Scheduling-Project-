@@ -56,3 +56,9 @@ CI run 38005929497 (attempt 1 and its re-run, both red) failed `hostHandoffWire.
 - With `redialTrustedPeers` forced to reject, the test passes (3 of 3) on slice-2 code, which isolates the redial as the trigger. The libp2p side (a failed dial recording `LAST_DIAL_FAILURE_KEY` / stale addresses affecting the by-peer-id dial) is the likely detail; not pinned further.
 - Fix: revert the `toDialTarget` change so slice 2 does not change startup behaviour; `attemptMappedDial` wraps the address in `multiaddr()`. `reconnectCoordinator.test.js` now asserts the dialed address by its string form.
 - Found, out of scope, needs its own ticket: the T328 startup redial is dead code in production, and turning it on as-is breaks post-restart reconnect on stale addresses. Whoever makes it real must make a stale remembered address harmless to later discovery dials.
+
+## Slice 3 notes: LAN redial identity (T361 follow-ups)
+
+- `attemptLan` (`punchReconnectWiring.js`, now `createAttemptLan`) was dead for the reason T361 fixed in `redialTrustedPeers`: it dialed a `/p2p/` string, which `transport.dial` treats as a peer id. It now dials the multiaddr object with the `/p2p` component dropped (`redialTarget`), 5s abort per dial, failures isolated, identity checked on the resulting connection. Pinned by a real two-node connect (`lanRedialIdentity.test.js`).
+- `dialAndVerify` (`peerAddressBook.js`) is the one shared dial-and-verify used by both paths. A connection to anyone other than the expected peer, or with no `remotePeer`, is never a success, and is closed only when its `timeline.open` is not earlier than the moment this dial started (a missing timeline counts as opened by this dial), so an existing connection to another trusted peer is not torn down.
+- The 30 day LAN age limit is skip-only: a stale row is not dialed and is not deleted. Pinned by the 31-day-row-survives test.

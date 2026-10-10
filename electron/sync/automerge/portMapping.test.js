@@ -266,3 +266,54 @@ describe('remembered grant: startup cleanup removes a mapping whose external por
     expect(store.peek()).toBe(null)
   })
 })
+
+describe('T359 slice 3 carry items: a failing grantStore and a missing entry', () => {
+  const throwingStore = { load: () => { throw new Error('load') }, save: () => { throw new Error('save') }, clear: () => { throw new Error('clear') } }
+
+  it('a grantStore whose load, save and clear all throw never makes the mapper throw', async () => {
+    const w = world()
+    const m = createPortMapper({ localPort: 50123, deps: w.deps, discoveryMs: 50, grantStore: throwingStore })
+    await expect(m.start()).resolves.toMatchObject({ status: 'mapped' })
+    await expect(m.cleanupStale()).resolves.toBeUndefined()
+    await expect(m.unmap()).resolves.toBeUndefined()
+    await expect(m.map()).resolves.toMatchObject({ status: 'mapped' })
+  })
+
+  const noEntryGateway = () => {
+    const g = fakeGateway()
+    g.deleteMapping = async () => { throw Object.assign(new Error('Code 714 - NoSuchEntryInArray'), { code: 'NO_SUCH_ENTRY' }) }
+    return g
+  }
+  const memoryStore = () => {
+    let rec = null
+    return { load: () => rec, save: (r) => { rec = r }, clear: () => { rec = null }, peek: () => rec }
+  }
+
+  it('unmap treats "no such entry" as success: the remembered grant clears', async () => {
+    const store = memoryStore()
+    const w = world({ gateway: noEntryGateway() })
+    const m = createPortMapper({ localPort: 50123, deps: w.deps, discoveryMs: 50, grantStore: store })
+    await m.map()
+    expect(store.peek()).toEqual({ externalPort: 50123 })
+    await m.unmap()
+    expect(store.peek()).toBe(null)
+  })
+
+  it('cleanupStale treats "no such entry" as success: the remembered grant clears', async () => {
+    const store = memoryStore()
+    store.save({ externalPort: 61000 })
+    const w = world({ gateway: noEntryGateway() })
+    await createPortMapper({ localPort: 50123, deps: w.deps, discoveryMs: 50, grantStore: store }).cleanupStale()
+    expect(store.peek()).toBe(null)
+  })
+
+  it('any other delete failure keeps the remembered grant for the next start', async () => {
+    const store = memoryStore()
+    store.save({ externalPort: 61000 })
+    const g = fakeGateway()
+    g.deleteMapping = async () => { throw new Error('router unreachable') }
+    const w = world({ gateway: g })
+    await createPortMapper({ localPort: 50123, deps: w.deps, discoveryMs: 50, grantStore: store }).cleanupStale()
+    expect(store.peek()).toEqual({ externalPort: 61000 })
+  })
+})

@@ -182,8 +182,9 @@ export function createPortMapper({ localPort, portInUse = false, deps, log = () 
     try {
       await withTimeout(mapping.gateway.deleteMapping({ internalPort: localPort, externalPort: mapping.externalPort }), callMs)
       forget()
-    } catch {
-      log('portMapping: unmap did not complete')
+    } catch (err) {
+      if (err?.code === 'NO_SUCH_ENTRY') forget()
+      else log('portMapping: unmap did not complete')
     }
     try { await mapping.gateway.close?.() } catch { /* best effort */ }
   }
@@ -199,9 +200,11 @@ export function createPortMapper({ localPort, portInUse = false, deps, log = () 
       for (const externalPort of ports) {
         try {
           await withTimeout(found.gateway.deleteMapping({ internalPort: localPort, externalPort }), callMs)
-        } catch {
-          allRemoved = false
-          log('portMapping: no stale mapping removed')
+        } catch (err) {
+          if (err?.code !== 'NO_SUCH_ENTRY') {
+            allRemoved = false
+            log('portMapping: no stale mapping removed')
+          }
         }
       }
       if (allRemoved) forget()
@@ -228,9 +231,19 @@ const SSDP_PORT = 1900
 
 function codedError(err) {
   const msg = String(err?.message ?? err)
+  if (/Code 714\b|NoSuchEntry/.test(msg)) return Object.assign(err, { code: 'NO_SUCH_ENTRY' })
   if (/Code 725\b/.test(msg)) return Object.assign(err, { code: 'PERMANENT_ONLY' })
   if (err?.name === 'UPnPError' || /Not Authorized|Out of Resources|Unsupported/.test(msg)) return Object.assign(err, { code: 'REFUSED' })
   return err
+}
+
+// The library re-fetches the LOCATION itself (uncapped) and then sends SOAP to whatever controlURL that
+// descriptor names. Checked on the descriptor the library actually holds: the control endpoint must be
+// plain http on the LOCATION's own host and port, or the device is rejected.
+export function assertControlOnLocationHost(gateway, location) {
+  const base = new URL(location)
+  const control = new URL(gateway.gateway.getService(WAN_IP_CONNECTION_2).controlURL)
+  if (control.protocol !== 'http:' || control.host !== base.host) throw new Error('UPnP control URL is not on the gateway host')
 }
 
 export async function createLibraryDeps() {
@@ -282,11 +295,14 @@ export async function createLibraryDeps() {
 
     async openUpnp(location, { signal, maxBytes }) {
       await fetchCapped(location, { maxBytes, signal })
-      const g = await upnpNat({ autoRefresh: false }).getGateway(new URL(location), { signal })
+      const g = await upnpNat({ autoRefresh: false }).getGateway(new URL(location), { signal, redirect: 'manual' })
+      try { assertControlOnLocationHost(g, location) } catch (err) { await Promise.resolve(g.stop?.()).catch(() => {}); throw err }
       return wrap(g, (gw) => ({
         deleteMapping: async ({ externalPort }) => {
-          const device = await gw.getGateway({ signal })
-          await device.run(WAN_IP_CONNECTION_2, 'DeletePortMapping', [['NewRemoteHost', ''], ['NewExternalPort', externalPort], ['NewProtocol', 'TCP']], { signal })
+          try {
+            const device = await gw.getGateway({ signal })
+            await device.run(WAN_IP_CONNECTION_2, 'DeletePortMapping', [['NewRemoteHost', ''], ['NewExternalPort', externalPort], ['NewProtocol', 'TCP']], { signal })
+          } catch (err) { throw codedError(err) }
         },
       }))
     },
