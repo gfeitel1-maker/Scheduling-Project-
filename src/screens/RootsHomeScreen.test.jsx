@@ -49,9 +49,16 @@ function collectionsFor(overrides = {}) {
     locations: [{ id: 'l1', name: 'Field' }],
     activities: [{ id: 'a1', name: 'Kayak', eligible_tier_ids: [], eligible_group_ids: [] }],
     fixed_events: [{ id: 'an1', name: 'Flagpole' }],
-    cohorts: [],
+    cohorts: [{ id: 'c1', camp_id: CAMP_ID, name: 'Main' }],
   }
-  return { ...base, ...overrides }
+  // Rows carry the scope the screens filter on (camp, active cohort, fixed-event
+  // kind) — the Roots cards count through those same selectors (audit I4).
+  const merged = { ...base, ...overrides }
+  const scoped = (rows, extra) => rows.map((r) => ({ camp_id: CAMP_ID, cohort_id: 'c1', ...extra, ...r }))
+  for (const key of Object.keys(merged)) {
+    if (key !== 'cohorts' && Array.isArray(merged[key])) merged[key] = scoped(merged[key], key === 'fixed_events' ? { kind: 'fixed' } : {})
+  }
+  return merged
 }
 
 beforeEach(() => {
@@ -299,7 +306,7 @@ describe('RootsHomeScreen', () => {
       'Groups': { gridColumn: '1 / span 2', gridRow: '3 / span 2' },
       'Age Divisions': { gridColumn: '3', gridRow: '1' },
       'Locations': { gridColumn: '3', gridRow: '2' },
-      'Days & Blocks': { gridColumn: '3', gridRow: '3' },
+      'Time Blocks': { gridColumn: '3', gridRow: '3' },
       'Fixed Events': { gridColumn: '1 / span 3', gridRow: '5' },
     }
     for (const [label, coords] of Object.entries(expected)) {
@@ -465,10 +472,9 @@ describe('RootsHomeScreen', () => {
     expect(unread.getAttribute('aria-label')).toMatch(/couldn/i)
   })
 
-  // days_and_blocks sums TWO collections, so either one being unreadable makes
-  // the sum unknown. A card that quietly reported only the half it managed to
-  // read would be the same defect with better arithmetic.
-  it('treats a two-collection card as unreadable when either half fails', async () => {
+  // The Time Blocks card (formerly "Days & Blocks", audit I4) reads one
+  // collection; a failed read of it is an em dash, never a 0.
+  it('treats the Time Blocks card as unreadable when its read fails', async () => {
     const collections = collectionsFor()
     localClient.list.mockImplementation((entity) =>
       entity === 'time_blocks'
@@ -477,8 +483,26 @@ describe('RootsHomeScreen', () => {
     )
 
     render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
-    const unread = await screen.findByTestId('card-count-unread-days_and_blocks')
+    const unread = await screen.findByTestId('card-count-unread-time_blocks')
     expect(unread.textContent).toBe('\u2014')
+  })
+
+  // Audit I4 — each card counts what the screen it names lists.
+  it('counts the free-choice catalogue, fixed (not recurring) events, and time blocks', async () => {
+    const collections = collectionsFor({
+      activities: [{ id: 'a1', name: 'Kayak' }, { id: 'a2', name: 'Swim' }, { id: 'p1', name: 'Lunch', catalog_role: 'pinned_event' }],
+      fixed_events: [{ id: 'f1', name: 'Flagpole' }, { id: 'r1', name: 'Rest', kind: 'recurring' }, { id: 'r2', name: 'Rest', kind: 'recurring' }],
+      days_of_operation: [{ id: 'd1' }, { id: 'd2' }, { id: 'd3' }],
+      time_blocks: [{ id: 'b1', name: '09:00-09:45' }, { id: 'b2', name: 'Lunch' }, { id: 'bx', name: 'Other', cohort_id: 'c2' }],
+    })
+    localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
+    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Activities')).not.toBeNull())
+    const countOf = (label) => screen.getByText(label).closest('div').querySelector('span:last-child').textContent
+    expect(countOf('Activities')).toBe('2')
+    expect(countOf('Fixed Events')).toBe('1')
+    expect(countOf('Time Blocks')).toBe('2')
+    expect(screen.queryByText('Rest')).toBeNull()
   })
 
   // NON-VACUITY for the two above: the em-dash path must not be what every card
@@ -491,7 +515,7 @@ describe('RootsHomeScreen', () => {
     await waitFor(() => expect(screen.queryByText('Activities')).not.toBeNull())
 
     expect(screen.queryByTestId('card-count-unread-activities')).toBeNull()
-    expect(screen.queryByTestId('card-count-unread-days_and_blocks')).toBeNull()
+    expect(screen.queryByTestId('card-count-unread-time_blocks')).toBeNull()
   })
 
 })

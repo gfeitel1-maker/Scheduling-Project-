@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx'
 import { aoaToSanitizedSheet } from './exportSanitize.js'
+import { formatTime12 } from './timeBlockLabel.js'
 
 // T292 S1 — the read-only camp-data-document builder. Pattern-matches
 // exportWorkbook.js's structure (aoaToSanitizedSheet as the ONLY sheet
@@ -31,14 +32,8 @@ function yesBlank(value) {
 function canonicalTimeLabel(value) {
   if (value == null || value === '') return ''
   const s = String(value).trim()
-  const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(s)
-  if (!m) return s
-  let hh = parseInt(m[1], 10)
-  const mm = m[2]
-  const ampm = hh >= 12 ? 'PM' : 'AM'
-  hh = hh % 12
-  if (hh === 0) hh = 12
-  return `${hh}:${mm} ${ampm}`
+  if (!/^\d{1,2}:\d{2}(?::\d{2})?$/.test(s)) return s
+  return formatTime12(s)
 }
 
 function dateOnly(value) {

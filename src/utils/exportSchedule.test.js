@@ -130,8 +130,8 @@ describe('exportToExcel — multi-period span (T248 leftover)', () => {
     // header + one row per time block — assert the whole population, not just the row we expect.
     expect(dayRows).toEqual([
       ['Time Block', 'Bunk 1'],
-      ['Period 1 (09:00–10:00)', 'Swimming'],
-      ['Period 2 (10:00–11:00)', 'Swimming'],
+      ['Period 1 (9:00–10:00 AM)', 'Swimming'],
+      ['Period 2 (10:00–11:00 AM)', 'Swimming'],
     ])
 
     const masterRows = sheetRows(wb, 'All Groups')
@@ -164,7 +164,7 @@ describe('exportToExcel — replaced day', () => {
     expect(sheetRows(wb, 'Tuesday')).toEqual([
       ['Week 1 – Tuesday – Color War', ''],
       ['Time Block', 'Bunk 1'],
-      ['Opening (09:00–09:30)', 'Kayaking'],
+      ['Opening (9:00–9:30 AM)', 'Kayaking'],
       ['Notes', 'Wear team colours'],
     ])
     const master = sheetRows(wb, 'All Groups')
@@ -188,6 +188,20 @@ describe('exportToExcel — replaced day', () => {
     XLSX.writeFile.mockClear()
     const withEmptyMap = capturedWorkbook({ ...base, week, replacements: new Map() })
     for (const name of plain.SheetNames) expect(sheetRows(withEmptyMap, name)).toEqual(sheetRows(plain, name))
-    expect(sheetRows(plain, 'Tuesday')).toEqual([['Time Block', 'Bunk 1'], ['Period 1 (09:00–10:00)', 'Swimming']])
+    expect(sheetRows(plain, 'Tuesday')).toEqual([['Time Block', 'Bunk 1'], ['Period 1 (9:00–10:00 AM)', 'Swimming']])
+  })
+})
+
+// Audit I3 — the day sheet's Time Block column printed "12:55-01:35 (12:55–13:35)".
+describe('exportToExcel — a time-named block prints its range once (I3)', () => {
+  it('uses the shared 12-hour label', () => {
+    const wb = capturedWorkbook({
+      slots: [], activities: [], fixedEvents: [], groups: [{ id: 'g1', name: 'Bunk 1' }], days: [{ id: 'd1', label: 'Monday' }],
+      timeBlocks: [
+        { id: 'b1', name: '12:55-01:35', start_time: '12:55:00', end_time: '13:35:00' },
+        { id: 'b2', name: 'Lunch', start_time: '11:30:00', end_time: '12:15:00' },
+      ],
+    })
+    expect(sheetRows(wb, 'Monday').map(r => r[0])).toEqual(['Time Block', '12:55–1:35 PM', 'Lunch (11:30 AM–12:15 PM)'])
   })
 })
