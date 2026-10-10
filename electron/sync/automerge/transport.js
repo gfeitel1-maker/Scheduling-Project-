@@ -51,11 +51,11 @@ const MAX_CONNECTIONS = 200
 // full, libp2p refuses new inbound outright. 64 shared slots, a 5s upgrade timeout and a per-source
 // pending cap of 2 (connectionRateLimiter.js) mean holding every slot takes ~32 concurrent sources,
 // not one IP at 1.6 connections/s as with the earlier 16 slots and 10s.
-const MAX_INCOMING_PENDING_CONNECTIONS = 64
+export const MAX_INCOMING_PENDING_CONNECTIONS = 64
 
 // libp2p's inboundUpgradeTimeout (default 10s) bounds how long one pending slot is held, for the whole
 // upgrade. A real WAN handshake is ~3-4 round trips (~1.2s at 300ms RTT); 5s halves a scanner's hold.
-const INBOUND_UPGRADE_TIMEOUT_MS = 5_000
+export const INBOUND_UPGRADE_TIMEOUT_MS = 5_000
 
 // Slots that an un-admitted flood can never occupy. A camp is at most a few dozen devices; 32 is
 // generous. The un-admitted ceiling is therefore MAX_CONNECTIONS - RESERVED_FLOOR = 168.
@@ -64,7 +64,7 @@ const RESERVED_FLOOR = 32
 // libp2p's inboundUpgradeTimeout (INBOUND_UPGRADE_TIMEOUT_MS above) ends when the upgrade completes, and nothing bounds a connection that has
 // finished Noise but never authenticates, so this deadline is new. 10s is ample: a real
 // authenticate round-trip is tens of milliseconds on a LAN.
-const UNADMITTED_DEADLINE_MS = 10_000
+export const UNADMITTED_DEADLINE_MS = 10_000
 
 const ADMITTED_TAG = 'shoresh-admitted'
 

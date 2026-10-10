@@ -22,6 +22,7 @@
 // its own load; this makes that protection the floor for all ~340 waitFor call
 // sites instead of one file. If this ever needs raising again, measure first and
 // record the numbers, as here — a rising timeout is the symptom, not the fix.
+import { vi } from 'vitest'
 import { configure } from '@testing-library/dom'
 
 configure({ asyncUtilTimeout: 3000 })
@@ -29,3 +30,12 @@ configure({ asyncUtilTimeout: 3000 })
 // Existing suites use plaintext fixtures; the production default is ON (T175). Tests that exercise
 // encryption set the variable explicitly.
 process.env.SHORESH_AT_REST_ENCRYPTION ??= 'off'
+
+// T359: production code must not read VITEST to avoid the router. Instead the library collaborators are
+// replaced here with "no mapper" (null), so a test that starts the sync starter with SHORESH_PUNCH_ENABLED
+// and injects nothing never sends SSDP or touches a gateway. Tests of the real collaborators load them
+// with vi.importActual; tests of the lifecycle inject fakes through portMappingDeps.
+vi.mock('./electron/sync/automerge/portMapping.js', async (importActual) => ({
+  ...(await importActual()),
+  createLibraryDeps: async () => null,
+}))

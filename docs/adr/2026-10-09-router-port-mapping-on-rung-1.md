@@ -38,7 +38,7 @@ ACCEPTED by the owner. Build is ticket T359 (`docs/work/tickets/T359-router-port
 
 Consequence: **no STUN of any kind, and no third party** on rungs 1 and 2. A device at a KNOWN spot (the camp office) must be reachable from a device at a NEW spot. Both devices at never-seen spots is out of scope for now.
 
-**2. The GO.** On the feasibility report the owner chose "Build it (Recommended)" and **accepts the exposure**: one mapped UDP port is reachable from the internet while the app runs. _(Mechanism revised 2026-10-09: the mapped port is now the libp2p TCP listener, not a UDP punch port. The posture, one forwarded port with only paired laptops admitted and the mapping removed on quit/revoke/disable, is the same.)_ Entry still requires Noise mutual authentication and the T331 device-identity admission (`authGate`). The mapping is removed on quit, on revoke, and when punch is disabled.
+**2. The GO.** On the feasibility report the owner chose "Build it (Recommended)" and **accepts the exposure**: one mapped UDP port is reachable from the internet while the app runs. _(Mechanism revised 2026-10-09: the mapped port is now the libp2p TCP listener, not a UDP punch port. The posture, one forwarded port with only paired laptops admitted and the mapping removed on quit/revoke/disable, is the same.)_ Entry still requires Noise mutual authentication and the T331 device-identity admission (`authGate`). The mapping is removed on quit, on revoke, and when punch is disabled. _(Slice 3, 2026-10-09: "on revoke" is implemented as removing the revoked peer's remembered address, not the mapping, which is this device's own listener and serves every peer; see the lifecycle section.)_
 
 ## Context (verified against the code, 2026-10-09)
 
@@ -76,7 +76,7 @@ Production ICE servers stay `[]`. Slice 2 keeps the pinned test asserting that t
 Rung 1's "learn reflexive via STUN-from-socket" text in `2026-10-08-relayless-cross-network-reconnect.md` is **superseded** by this section.
 
 ### 4. Lifecycle
-Pin and bind the TCP listener, then map; refresh on a timer before lease expiry; re-publish gossip and re-remember when the external IP or port changes. **Unmap** on graceful quit (`will-quit` in `main.js`), on revoke, and when punch is disabled. **At startup, before mapping, delete any stale mapping for our own LAN IP and pinned port** (a crash cannot unmap; the 1 h lease bounds it, except on lease-0 routers). **On network or gateway change, unmap from the old gateway if it is still reachable, before mapping on the new one.**
+Pin and bind the TCP listener, then map; refresh on a timer before lease expiry; re-publish gossip and re-remember when the external IP or port changes. **Unmap** on graceful quit (`will-quit` in `main.js`), on sync stop, and when punch is disabled. **Revoking a peer does not unmap** (slice 3 decision): the mapped port is this device's own listener, shared by every paired peer, and nothing about the mapping is per peer, so unmapping would cut every other device off while a revoked one reaching the port is stopped by Noise, `authGate` and `isPeerRevoked` like any scanner; only the revoked peer's remembered mapped address is deleted (`forgetRevokedPeer`). **At startup, before mapping, delete any stale mapping for our own LAN IP and pinned port** (a crash cannot unmap; the 1 h lease bounds it, except on lease-0 routers). **On network or gateway change, unmap from the old gateway if it is still reachable, before mapping on the new one.**
 
 ### 5. Double NAT / CGNAT
 If the router reports an external IP that is private or in 100.64.0.0/10, the mapping is useless: do not publish it, set status `double-nat`.
@@ -96,7 +96,7 @@ The TCP port is open to **the whole internet** for as long as the app runs and t
 
 **Residual: stale mappings.** IGDv1 lease 0 is permanent, so removal on quit is the only cleanup there. A laptop that moves networks leaves a stale mapping on the old router until that router reboots or expires it. **After a DHCP reassignment, a stale mapping can forward the public port to a DIFFERENT host's LAN address** (whichever device now holds the old LAN IP), exposing that host's port 3-tuple to the internet. Identity is still enforced for our protocol, but the other host's service is reachable through our stale entry. Mitigation: on network or gateway change, unmap from the old gateway if still reachable before mapping on the new one (Decision section 4). If the old gateway is not reachable, the stale entry stays.
 
-Revocation: `forgetRevokedPeer` forgets the peer's remembered addresses; the revoked device is also refused at `isPeerRevoked`/`authGate`. We additionally unmap on revoke (slice 3). A hostile or buggy router can lie about the external IP or drop the mapping; the worst case is a failed dial, never a trust bypass, because identity is verified by the `/p2p/<peerId>` Noise check. Never follow a UPnP `LOCATION` URL that is not on the gateway's own LAN subnet (SSDP spoofing); cap XML sizes and use timeouts.
+Revocation: `forgetRevokedPeer` forgets the peer's remembered addresses; the revoked device is also refused at `isPeerRevoked`/`authGate`. The mapping itself is kept on revoke (see the lifecycle section: it is not per peer). A hostile or buggy router can lie about the external IP or drop the mapping; the worst case is a failed dial, never a trust bypass, because identity is verified by the `/p2p/<peerId>` Noise check. Never follow a UPnP `LOCATION` URL that is not on the gateway's own LAN subnet (SSDP spoofing); cap XML sizes and use timeouts.
 
 ## New egress surface (gate entry required)
 
@@ -104,7 +104,7 @@ SSDP multicast to 239.255.255.250:1900, HTTP/SOAP to the router's LAN address, a
 
 ## Interaction with in-flight revocation work
 
-Namespace and address-key rotation on revoke is a separate change (assessment F2/F3). This ADR's contribution to it: **no STUN servers anywhere**, so a revoked peer cannot learn our address from a third party, and the mapped address is only published inside the camp-encrypted gossip entry under the camp's address key. On revoke we additionally unmap (slice 3) and re-map after the next transport start. If address-key rotation lands later, the gossip entry is re-published under the new key by the existing publisher with no change here.
+Namespace and address-key rotation on revoke is a separate change (assessment F2/F3). This ADR's contribution to it: **no STUN servers anywhere**, so a revoked peer cannot learn our address from a third party, and the mapped address is only published inside the camp-encrypted gossip entry under the camp's address key. The mapping stays on a single peer's revoke (it is not per peer). If address-key rotation lands later, the gossip entry is re-published under the new key by the existing publisher with no change here.
 
 ## Interface-contract check (`org-interface-contracts`)
 

@@ -661,26 +661,29 @@ export function createAutomergeSyncStarter({
       setAutomergeLocalWriteBroadcaster(db, automergeSyncNode.broadcastLocalDoc)
 
       // T359 slice 3: the pinned listener is bound, so ask the router to map it. Flag-off never gets here.
-      // Under Vitest the real router is never touched unless a test injects portMappingDeps.
-      const mappingDeps = portMappingDeps ?? (process.env.VITEST ? null : undefined)
-      if (punchEnabled && pinnedListen && mappingDeps !== null) {
+      // Injected portMappingDeps replace the library; null means no mapper. The test harness (vitest.setup.js)
+      // makes createLibraryDeps resolve null, so no test reaches a real router unless it injects its own.
+      if (punchEnabled && pinnedListen && portMappingDeps !== null) {
         try {
           const [{ createPortMappingLifecycle }, { createFileGrantStore, GRANT_FILE }, { createLibraryDeps }] = await Promise.all([
             import('./portMappingLifecycle.js'), import('./portMappingGrantStore.js'), import('./portMapping.js'),
           ])
-          await portMapping?.stop()
-          portMapping = createPortMappingLifecycle({
-            localPort: pinnedListen.port,
-            portInUse: pinnedListen.status === 'port-in-use',
-            deps: mappingDeps ?? await createLibraryDeps(),
-            grantStore: createFileGrantStore(path.join(userDataPath, GRANT_FILE)),
-            log: (m) => console.warn(m),
-            onChange: () => {
-              try { getLiveHandlers()?.pushSyncStatus?.() } catch { /* UI notice only */ }
-              try { punchWiring?.publishOwnReflexive?.() } catch { /* gossip republish is best effort */ }
-            },
-          })
-          portMapping.start().catch(() => {})
+          const mappingDeps = portMappingDeps ?? await createLibraryDeps()
+          if (mappingDeps !== null) {
+            await portMapping?.stop()
+            portMapping = createPortMappingLifecycle({
+              localPort: pinnedListen.port,
+              portInUse: pinnedListen.status === 'port-in-use',
+              deps: mappingDeps,
+              grantStore: createFileGrantStore(path.join(userDataPath, GRANT_FILE)),
+              log: (m) => console.warn(m),
+              onChange: () => {
+                try { getLiveHandlers()?.pushSyncStatus?.() } catch { /* UI notice only */ }
+                try { punchWiring?.publishOwnReflexive?.() } catch { /* gossip republish is best effort */ }
+              },
+            })
+            portMapping.start().catch(() => {})
+          }
         } catch (err) {
           console.error(`automerge sync: port mapping failed to start (non-fatal): ${err?.message ?? err}`)
         }

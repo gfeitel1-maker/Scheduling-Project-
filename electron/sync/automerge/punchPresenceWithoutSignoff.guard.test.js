@@ -108,9 +108,9 @@ describe('punch-present-without-signoff guard (T347)', () => {
     expect(importIsInsideGate(read('electron/sync/automerge/syncStarter.js'))).toBe(true)
   })
 
-  it('inertPresence is declared on exactly the punch row (no other row may loosen the package scan)', () => {
+  it('inertPresence is declared on exactly the punch and portMapping rows (no other row may loosen the package scan)', () => {
     const declaring = Object.entries(TRANSPORT_CAPABILITIES).filter(([, c]) => c.inertPresence).map(([k]) => k)
-    expect(declaring).toEqual(['punch'])
+    expect(declaring).toEqual(['punch', 'portMapping'])
   })
 
   it('only syncStarter.js imports punchTransport.js', () => {

@@ -278,7 +278,7 @@ export async function dialAndVerify(dial, peerId, target, { timeoutMs = REDIAL_T
   } catch (err) {
     console.error(
       `dial to remembered address for ${peerId} failed (stale address, ` +
-        `peer unreachable, or peer id mismatch — no trust granted either way): ${err?.message ?? err}`
+        `peer unreachable, or peer id mismatch — no trust granted either way): ${typeof err?.code === 'string' ? err.code : (err?.name ?? 'error')}`
     )
     return false
   }
