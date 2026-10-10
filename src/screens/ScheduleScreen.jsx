@@ -1021,6 +1021,16 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
             >
               Weather
             </button>
+            {weatherMode && !activities.some(a => a.is_outdoor) && (
+              <span role="status" style={weatherFlagStyle}>
+                <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)' }} />
+                No outdoor activities marked
+                <button
+                  onClick={() => onNavigate?.('activities')}
+                  style={{ background: 'none', border: 'none', padding: 0, color: 'var(--primary)', fontWeight: 600, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'underline' }}
+                >Mark activities</button>
+              </span>
+            )}
 
             {/* Acting on the schedule: undo, redo, rebuild — one cluster, since
                 all three CHANGE the week rather than describe it. */}
@@ -1515,3 +1525,9 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   )
 }
 
+const weatherFlagStyle = {
+  display: 'inline-flex', alignItems: 'center', gap: 8,
+  padding: '4px 10px', borderRadius: 6, fontSize: 12, color: 'var(--text-secondary)',
+  background: 'color-mix(in srgb, var(--accent) 10%, var(--surface))',
+  border: '1px solid color-mix(in srgb, var(--accent) 40%, var(--border))',
+}

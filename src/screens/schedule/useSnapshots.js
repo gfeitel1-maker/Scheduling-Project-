@@ -78,7 +78,7 @@ export function useSnapshots({
     if (!existingTemplates[routeName]) return
     const tid = templateIdFor(routeName)
     const setRouteSnapshots = routeSetter(setSnapshotsByRoute, routeName)
-    const snapSlots = slotsByRoute[routeName].map(sl => attachNames(toSnapshotSlot(sl), { groups, days, timeBlocks, activities, fixedEvents }))
+    const snapSlots = slotsByRoute[routeName].map(sl => attachNames(toSnapshotSlot(sl), { groups, days, timeBlocks, activities, fixedEvents, events, electiveSets }))
     const id = crypto.randomUUID()
     const createdAt = new Date().toISOString()
     setActionError(null)
@@ -98,6 +98,8 @@ export function useSnapshots({
   }
 
   // Deleting a version is the director's call, never an automatic cleanup.
+  // Known cost, by ruling: every auto-save is about 60-70 KB with names and
+  // nothing prunes them automatically.
   // Every snapshot saved before the op-value coercion fix (af6a9d8) recorded no
   // schedule data and shows as "Empty" — this is how those get cleared, one at a
   // time, by a human who can see what they are removing.
@@ -157,7 +159,7 @@ export function useSnapshots({
     // Saved cells carry the names they had, so each dead id is re-bound to the
     // live row with the same name; a cell that cannot be matched is skipped and
     // reported by name. Old snapshots (no names) skip their dead cells.
-    const { slots: remapped, skipped } = remapSnapshotSlots(fullSnap.slots, { groups, days, timeBlocks, activities, fixedEvents })
+    const { slots: remapped, skipped } = remapSnapshotSlots(fullSnap.slots, { groups, days, timeBlocks, activities, fixedEvents, events, electiveSets })
     const survivingSlots = dropDeadReferences(remapped, { groups, days, timeBlocks, activities, fixedEvents, events, electiveSets })
     const otherDropped = remapped.length - survivingSlots.length
 

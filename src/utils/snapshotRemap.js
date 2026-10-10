@@ -10,7 +10,7 @@
 const norm = (v) => String(v ?? '').trim().toLowerCase()
 
 // catalog: { groups, days, timeBlocks, activities, fixedEvents } (snake_case rows)
-export function attachNames(slot, { groups = [], days = [], timeBlocks = [], activities = [], fixedEvents = [] }) {
+export function attachNames(slot, { groups = [], days = [], timeBlocks = [], activities = [], fixedEvents = [], events = [], electiveSets = [] }) {
   const byId = (rows, id) => rows.find((r) => r.id === id)
   const block = byId(timeBlocks, slot.time_block_id)
   return {
@@ -23,6 +23,8 @@ export function attachNames(slot, { groups = [], days = [], timeBlocks = [], act
       block_end: block?.end_time ?? null,
       activity: slot.activity_id ? byId(activities, slot.activity_id)?.name ?? null : null,
       fixed_event: slot.fixed_event_id ? byId(fixedEvents, slot.fixed_event_id)?.name ?? null : null,
+      event: slot.event_id ? byId(events, slot.event_id)?.name ?? null : null,
+      elective_set: slot.elective_set_id ? byId(electiveSets, slot.elective_set_id)?.name ?? null : null,
     },
   }
 }
@@ -40,7 +42,7 @@ function resolver(rows, nameOf) {
 
 const describe = (s) => {
   const n = s.names ?? {}
-  const where = [n.group, [n.day, n.block].filter(Boolean).join(' '), n.activity ?? n.fixed_event].filter(Boolean)
+  const where = [n.group, [n.day, n.block].filter(Boolean).join(' '), n.activity ?? n.fixed_event ?? n.event ?? n.elective_set].filter(Boolean)
   return where.length ? where.join(' · ') : 'a cell saved without names'
 }
 
@@ -49,13 +51,16 @@ const describe = (s) => {
  *   Slots with dead ids re-bound by name; cells that cannot be matched are
  *   skipped and listed by name with the reason.
  */
-export function remapSnapshotSlots(slots, { groups, days, timeBlocks, activities, fixedEvents }) {
+export function remapSnapshotSlots(slots, { groups, days, timeBlocks, activities, fixedEvents, events, electiveSets }) {
   const group = resolver(groups, (g) => g.name)
   const day = resolver(days, (d) => d.label)
   timeBlocks = timeBlocks || []
   const block = resolver(timeBlocks, (b) => b.name)
   const activity = resolver(activities, (a) => a.name)
   const fixed = resolver(fixedEvents || [], (f) => f.name)
+  // Checked only when the caller supplies them, as dropDeadReferences does.
+  const event = events ? resolver(events, (e) => e.name) : null
+  const electiveSet = electiveSets ? resolver(electiveSets, (e) => e.name) : null
 
   const out = []
   const seen = new Set()
@@ -69,6 +74,8 @@ export function remapSnapshotSlots(slots, { groups, days, timeBlocks, activities
     const needsActivity = !s.is_fixed_event && s.activity_id
     const a = needsActivity ? activity(s.activity_id, n.activity) : null
     const f = isFixed ? fixed(s.fixed_event_id, n.fixed_event) : null
+    const ev = event && s.event_id ? event(s.event_id, n.event) : null
+    const es = electiveSet && s.elective_set_id ? electiveSet(s.elective_set_id, n.elective_set) : null
 
     let blockProblem = b.problem && `${b.problem} time block`
     if (!b.problem && b.id !== s.time_block_id && n.block_start && n.block_end) {
@@ -80,6 +87,8 @@ export function remapSnapshotSlots(slots, { groups, days, timeBlocks, activities
     const problems = [
       g.problem && `${g.problem} group`, d.problem && `${d.problem} day`, blockProblem,
       a?.problem && `${a.problem} activity`, f?.problem && `${f.problem} fixed event`,
+      ev?.problem && (ev.problem === 'ambiguous' ? 'ambiguous event' : 'event no longer exists'),
+      es?.problem && (es.problem === 'ambiguous' ? 'ambiguous elective set' : 'elective set no longer exists'),
     ].filter(Boolean)
     if (problems.length) {
       skipped.push({ label: describe(s), reason: problems.join(', ') })
@@ -98,6 +107,8 @@ export function remapSnapshotSlots(slots, { groups, days, timeBlocks, activities
       time_block_id: b.id,
       ...(a ? { activity_id: a.id } : {}),
       ...(f ? { fixed_event_id: f.id } : {}),
+      ...(ev ? { event_id: ev.id } : {}),
+      ...(es ? { elective_set_id: es.id } : {}),
     })
   }
   return { slots: out, skipped }
