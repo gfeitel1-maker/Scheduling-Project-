@@ -136,7 +136,7 @@ export const TRANSPORT_CAPABILITIES = {
       conditions: [
         'met: pre-Noise pending slots sized for internet exposure, public sources capped (PR #858, T340 precondition 5)',
         'met: egress gate, pending-slot scanner test and docs (PR #865)',
-        'met: fixed pending caps 128 total / 32 public, sized for a 256 open-file soft limit (this PR)',
+        'met: fixed pending caps 128 total / 32 public (LAN keeps 96); combined fd worst case recorded in SECURITY.md (PR #868)',
         'OPEN: real independently-NATed two-device hardware proof; owner chose On now ahead of the 2-laptop test; to be recorded after the fact',
       ],
     },
