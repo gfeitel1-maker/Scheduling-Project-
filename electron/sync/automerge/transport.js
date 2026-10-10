@@ -48,10 +48,10 @@ const MAX_CONNECTIONS = 200
 // T340 precondition 5 (docs/work/security/2026-10-09-t340-p5-pending-slot-sizing.md). libp2p 3.3.11's
 // default for maxIncomingPendingConnections is 10 (connection-manager/constants.defaults); it bounds
 // inbound connections accepted but not yet through the whole upgrade (multistream, Noise, muxer). When
-// full, libp2p refuses new inbound outright. 64 shared slots, a 5s upgrade timeout and a per-source
-// pending cap of 2 (connectionRateLimiter.js) mean holding every slot takes ~32 concurrent sources,
-// not one IP at 1.6 connections/s as with the earlier 16 slots and 10s.
-export const MAX_INCOMING_PENDING_CONNECTIONS = 64
+// full, libp2p refuses new inbound outright, LAN sources included. So the limiter caps PUBLIC sources at
+// MAX_PUBLIC_PENDING_TOTAL (64) of the 256 slots, leaving LAN at least 192 however hard a scanner pushes.
+// Per-source pending cap is 2 and the upgrade timeout 5s (see the ticket for the fd/memory sizing).
+export const MAX_INCOMING_PENDING_CONNECTIONS = 256
 
 // libp2p's inboundUpgradeTimeout (default 10s) bounds how long one pending slot is held, for the whole
 // upgrade. A real WAN handshake is ~3-4 round trips (~1.2s at 300ms RTT); 5s halves a scanner's hold.

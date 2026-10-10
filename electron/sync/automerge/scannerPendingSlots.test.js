@@ -17,11 +17,10 @@
 // WHAT THE CODE REALLY DOES, recorded by the assertions below:
 //   * One public source holds at most MAX_PENDING_PER_SOURCE slots; its further connections are closed by
 //     the gater, and a second public source's legitimate dial is admitted meanwhile.
-//   * MAX_INCOMING_PENDING_CONNECTIONS distinct public sources, one slot each, saturate libp2p's global
-//     pending cap. While saturated, EVERY new inbound is refused, a legitimate public dial AND a LAN dial
-//     (libp2p's cap sits in front of the per-source limiter's LAN exemption). Both are admitted again once
-//     the upgrade timeout frees the slots. This is the scanner DoS on the reconnect path; the exemption
-//     only protects LAN dials from the per-source limits, not from a saturated global pending cap.
+//   * MAX_PUBLIC_PENDING_TOTAL distinct public sources, one slot each, fill the public sub-cap. Further
+//     public connections are refused, but LAN dials still succeed because the global cap
+//     (MAX_INCOMING_PENDING_CONNECTIONS) leaves 192+ slots no public source can take. Public dials are
+//     admitted again once the upgrade timeout frees the slots.
 import net from 'node:net'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createLibp2p } from 'libp2p'
@@ -29,7 +28,7 @@ import { tcp } from '@libp2p/tcp'
 import { noise } from '@chainsafe/libp2p-noise'
 import { yamux } from '@chainsafe/libp2p-yamux'
 import { startTransport, MAX_INCOMING_PENDING_CONNECTIONS, INBOUND_UPGRADE_TIMEOUT_MS, UNADMITTED_DEADLINE_MS } from './transport.js'
-import { makeConnectionRateLimiter, MAX_PENDING_PER_SOURCE, PENDING_TTL_MS } from './connectionRateLimiter.js'
+import { makeConnectionRateLimiter, MAX_PENDING_PER_SOURCE, MAX_PUBLIC_PENDING_TOTAL, PENDING_TTL_MS } from './connectionRateLimiter.js'
 
 let cleanups = []
 afterEach(async () => {
@@ -114,7 +113,8 @@ async function legit(t, ip, state) {
 describe('limits under test are the current ones', () => {
   it('imports the T340 p5 numbers rather than restating them', () => {
     expect(MAX_PENDING_PER_SOURCE).toBeGreaterThan(0)
-    expect(MAX_PENDING_PER_SOURCE).toBeLessThan(MAX_INCOMING_PENDING_CONNECTIONS)
+    expect(MAX_PENDING_PER_SOURCE).toBeLessThan(MAX_PUBLIC_PENDING_TOTAL)
+    expect(MAX_INCOMING_PENDING_CONNECTIONS - MAX_PUBLIC_PENDING_TOTAL).toBeGreaterThanOrEqual(192)
     expect(PENDING_TTL_MS).toBe(INBOUND_UPGRADE_TIMEOUT_MS)
     expect(INBOUND_UPGRADE_TIMEOUT_MS).toBeLessThan(UNADMITTED_DEADLINE_MS)
   })
@@ -134,20 +134,19 @@ describe('scanner vs the pre-Noise pending slots (real libp2p target, production
     expect(mine.filter((s) => !s.closed)).toHaveLength(MAX_PENDING_PER_SOURCE)
   })
 
-  it('many distinct public sources saturate the global pending cap: a legitimate dial is refused while saturated, then admitted once the upgrade timeout frees the slots', async () => {
+  it('many distinct public sources saturate only the PUBLIC sub-cap: a 65th public source is refused, the LAN still gets in, and the slots free at the upgrade timeout', async () => {
     const t = await startTarget()
-    const scanners = Array.from({ length: MAX_INCOMING_PENDING_CONNECTIONS }, (_, i) => scanner(t.port, publicIp(100 + i), t.assign, freePort()))
+    const scanners = Array.from({ length: MAX_PUBLIC_PENDING_TOTAL }, (_, i) => scanner(t.port, publicIp(100 + i), t.assign, freePort()))
     await sleep(500)
-    expect(scanners.filter((s) => s.closed)).toHaveLength(0) // all of them hold a slot: nothing was limited
+    expect(scanners.filter((s) => s.closed)).toHaveLength(0) // every one holds a slot: nothing was limited yet
 
-    // saturated: refused for a legitimate public source and, because libp2p's cap is global, for the LAN
-    expect(await legit(t.target, publicIp(9000), t.state)).toBe(false)
-    expect(await legit(t.target, LAN_IP, t.state)).toBe(false)
+    const extra = scanner(t.port, publicIp(9000), t.assign, freePort())
+    await waitFor(() => extra.closed) // the 65th public source is refused by the sub-cap
+    expect(await legit(t.target, publicIp(9001), t.state)).toBe(false)
+    expect(await legit(t.target, LAN_IP, t.state)).toBe(true) // LAN is not blocked by the scan
 
-    // the scanners are dropped by the upgrade timeout, not by us
     await waitFor(() => scanners.every((s) => s.closed), { timeout: INBOUND_UPGRADE_TIMEOUT_MS + 6000 })
-    expect(await legit(t.target, publicIp(9001), t.state)).toBe(true)
-    expect(await legit(t.target, LAN_IP, t.state)).toBe(true)
+    expect(await legit(t.target, publicIp(9002), t.state)).toBe(true)
   }, 30000)
 })
 
@@ -162,5 +161,15 @@ describe('connectionRateLimiter in isolation (deterministic, clock injected)', (
     for (let i = 0; i < 50; i++) expect(limiter.allow(LAN_IP, `lan/${i}`)).toBe(true)
     t += PENDING_TTL_MS + 1
     expect(limiter.allow(A, `${A}/y`)).toBe(true)
+  })
+
+  it('caps the TOTAL of public pending at MAX_PUBLIC_PENDING_TOTAL regardless of source, never limits the LAN, and frees at the TTL', () => {
+    let t = 0
+    const limiter = makeConnectionRateLimiter({ now: () => t })
+    for (let i = 0; i < MAX_PUBLIC_PENDING_TOTAL; i++) expect(limiter.allow(publicIp(i), `k${i}`)).toBe(true)
+    expect(limiter.allow(publicIp(5000), 'over')).toBe(false)
+    for (let i = 0; i < 300; i++) expect(limiter.allow(LAN_IP, `lan/${i}`)).toBe(true)
+    t += PENDING_TTL_MS + 1
+    expect(limiter.allow(publicIp(5000), 'after')).toBe(true)
   })
 })

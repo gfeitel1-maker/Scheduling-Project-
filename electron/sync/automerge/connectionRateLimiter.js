@@ -27,6 +27,9 @@ export const MAX_CONCURRENT_PER_SOURCE = 20
 // inboundUpgradeTimeout), because libp2p reports no event for a handshake that fails.
 export const MAX_PENDING_PER_SOURCE = 2
 export const PENDING_TTL_MS = 5_000
+// LAN-reserved pending capacity: at most this many connections from ALL public sources together may
+// sit in the shared pending slots, so private/LAN sources always keep (global cap - this) of them.
+export const MAX_PUBLIC_PENDING_TOTAL = 64
 
 // Loopback + RFC1918 private + link-local + IPv6 ULA/link-local. A LAN camp lives entirely in these
 // ranges, so an exempt source is never limited. Everything else is treated as public.
@@ -86,6 +89,7 @@ export function makeConnectionRateLimiter({
   windowMs = RATE_WINDOW_MS,
   maxConcurrentPerSource = MAX_CONCURRENT_PER_SOURCE,
   maxPendingPerSource = MAX_PENDING_PER_SOURCE,
+  maxPublicPendingTotal = MAX_PUBLIC_PENDING_TOTAL,
   pendingTtlMs = PENDING_TTL_MS,
   isExempt = isPrivateOrLoopback,
   now = Date.now,
@@ -102,6 +106,12 @@ export function makeConnectionRateLimiter({
     for (const [k, exp] of m) if (exp <= t) m.delete(k)
     if (m.size === 0) { pendingByIp.delete(key); return null }
     return m
+  }
+
+  function publicPendingTotal(t) {
+    let n = 0
+    for (const key of [...pendingByIp.keys()]) n += livePending(key, t)?.size ?? 0
+    return n
   }
 
   // Drop expired/empty per-source state so a scan of many one-shot sources cannot grow memory forever.
@@ -126,7 +136,8 @@ export function makeConnectionRateLimiter({
     if (
       recent.length >= maxNewConnectionsPerWindow ||
       (concurrentByIp.get(key) ?? 0) >= maxConcurrentPerSource ||
-      (pending?.size ?? 0) >= maxPendingPerSource
+      (pending?.size ?? 0) >= maxPendingPerSource ||
+      publicPendingTotal(t) >= maxPublicPendingTotal
     ) {
       if (recent.length) recentByIp.set(key, recent) // persist the pruned window even on denial
       else recentByIp.delete(key)
