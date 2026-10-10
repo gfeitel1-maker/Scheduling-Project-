@@ -42,8 +42,43 @@ export function isCompleteEntry(row) {
 
 // --- change-graph plumbing ----------------------------------------------
 
+// A document snapshot is immutable, so everything derived from its change set is cached per
+// snapshot object. One rotation check alone used to decode and replay the whole history four or
+// more times (createVerifiedEntryTrust, revocationDigest, electedRotator, plus one decodeAll per
+// duplicate grant in isCausallyAtLeastAsLate); on an import-sized camp that hung startup.
+const snapshotCache = new WeakMap()
+function cacheFor(doc) {
+  let entry = snapshotCache.get(doc)
+  if (!entry) { entry = {}; snapshotCache.set(doc, entry) }
+  return entry
+}
+
 function decodeAll(automerge, doc) {
-  return automerge.getAllChanges(doc).map((c) => decodeChange(c))
+  const cache = cacheFor(doc)
+  if (!cache.changes) cache.changes = automerge.getAllChanges(doc)
+  if (!cache.decoded) cache.decoded = cache.changes.map((c) => decodeChange(c))
+  return cache.decoded
+}
+
+function byHashOf(automerge, doc) {
+  const cache = cacheFor(doc)
+  if (!cache.byHash) cache.byHash = new Map(decodeAll(automerge, doc).map((c) => [c.hash, c]))
+  return cache.byHash
+}
+
+// True when the change has an op on a camp_authority_log map object (or creates one). Every
+// authority entry lives as a scalar field in that one flat map, so a change with no such op
+// cannot alter what listRecordIds/readRecord return for the entity. `authorityObjs` accumulates
+// the ids of those map objects as their creating ops are seen; changes arrive in causal order, so
+// a creating op is always seen before any op on the object it creates.
+function touchesAuthorityLog(decoded, authorityObjs) {
+  let touches = false
+  decoded.ops.forEach((op, i) => {
+    if (op.key !== AUTHORITY_LOG_ENTITY && !authorityObjs.has(op.obj)) return
+    touches = true
+    if (typeof op.action === 'string' && op.action.startsWith('make')) authorityObjs.add(`${decoded.startOp + i}@${decoded.actor}`)
+  })
+  return touches
 }
 
 // BFS over `deps`, transitively, EXCLUDING changeHash itself.
@@ -89,19 +124,30 @@ function headsClosure(byHash) {
 // Works for ANY peer's doc, not just the authoring device's — the only robust way to answer "which
 // change authored this entry" without a self-reported field.
 function buildEntryChangeIndexFrom(automerge, doc) {
+  const cache = cacheFor(doc)
+  if (cache.entryIndex) return cache.entryIndex
   const { init, applyChanges } = automerge
-  const changes = automerge.getAllChanges(doc)
+  decodeAll(automerge, doc)
+  const { changes, decoded } = cache
   let scratch = init()
   const index = new Map()
-  for (const change of changes) {
-    const decoded = decodeChange(change)
-    ;[scratch] = applyChanges(scratch, [change])
+  const authorityObjs = new Set()
+  // Same result as applying and checking one change at a time: changes that do not touch the
+  // authority map are applied together in one batch, and the check runs only after a change that
+  // does, because only such a change can complete an entry.
+  let pending = []
+  for (let i = 0; i < changes.length; i++) {
+    pending.push(changes[i])
+    if (!touchesAuthorityLog(decoded[i], authorityObjs)) continue
+    ;[scratch] = applyChanges(scratch, pending)
+    pending = []
     for (const id of listRecordIds(scratch, AUTHORITY_LOG_ENTITY)) {
       if (index.has(id)) continue
       const row = readRecord(scratch, AUTHORITY_LOG_ENTITY, id)
-      if (isCompleteEntry(row)) index.set(id, decoded.hash)
+      if (isCompleteEntry(row)) index.set(id, decoded[i].hash)
     }
   }
+  cache.entryIndex = index
   return index
 }
 
@@ -116,8 +162,7 @@ function buildEntryChangeIndexFrom(automerge, doc) {
 // other) are broken by comparing the raw hash strings, so every peer picks the identical winner.
 export function isCausallyAtLeastAsLate(automerge, doc, hashA, hashB) {
   if (hashA === hashB) return true
-  const changes = decodeAll(automerge, doc)
-  const byHash = new Map(changes.map((c) => [c.hash, c]))
+  const byHash = byHashOf(automerge, doc)
   if (ancestorsOf(hashA, byHash).has(hashB)) return true
   if (ancestorsOf(hashB, byHash).has(hashA)) return false
   return hashA >= hashB // concurrent — deterministic, merge-order-independent tie-break
@@ -155,8 +200,7 @@ const FOUNDER_MARKER = Symbol('founder')
  * exercise the causal/quorum math unsigned (see authorityReplay.test.js's header comment).
  */
 export function createAuthorityReplayContext(automerge, doc, { founderDeviceId, isEntryTrusted = () => true } = {}) {
-  const changes = decodeAll(automerge, doc)
-  const byHash = new Map(changes.map((c) => [c.hash, c]))
+  const byHash = byHashOf(automerge, doc)
   const entryChangeHash = buildEntryChangeIndexFrom(automerge, doc)
   const entriesByChangeHash = new Map()
   let resolvedFounderDeviceId = founderDeviceId ?? null
