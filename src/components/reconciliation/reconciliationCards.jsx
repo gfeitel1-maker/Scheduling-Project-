@@ -288,10 +288,13 @@ function LocationHoldControls({ decision, onAnswer, locations }) {
 
 function ResolutionControls({ decision, onAnswer, locations }) {
   if (decision.kind === 'confirm_value') {
+    // The buttons answer the card's title: "Add X?" is yes or no, "Set X's
+    // field to V?" is the file's value or the one already in Shoresh.
+    const isChange = Array.isArray(decision.field) && decision.field.length > 0
     return (
       <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-        <button className="press-97" onClick={() => onAnswer({ action: 'looks_right' })} style={cardStyles.btnCompactPrimary}>Use this value</button>
-        <button className="press-97" onClick={() => onAnswer({ action: 'edited' })} style={cardStyles.btnCompactSecondary}>Keep current</button>
+        <button className="press-97" onClick={() => onAnswer({ action: 'looks_right' })} style={cardStyles.btnCompactPrimary}>{isChange ? 'Use the file’s' : 'Add it'}</button>
+        <button className="press-97" onClick={() => onAnswer({ action: 'edited' })} style={cardStyles.btnCompactSecondary}>{isChange ? 'Keep mine' : 'Don’t add'}</button>
       </div>
     )
   }

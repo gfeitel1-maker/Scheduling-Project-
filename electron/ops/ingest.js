@@ -2718,7 +2718,10 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       const keptForLater = (Array.isArray(heldBack) ? heldBack : []).filter((d) =>
         d && typeof d.id === 'string' && typeof d.entity === 'string' && typeof d.entityName === 'string' && OPEN_KINDS.has(d.kind) && !planned.has(d.id))
       openDecisions.push(...keptForLater)
-      const touchedEntityTypes = [...new Set([...plan.items.map((item) => item.entity), ...keptForLater.map((d) => d.entity)])]
+      // A Replace deletes these records, so a question about one of them has
+      // nothing left to be about.
+      const replacedTypes = mode === 'replace' ? [...REPLACEABLE_ENTITIES, 'fixed_events'] : []
+      const touchedEntityTypes = [...new Set([...plan.items.map((item) => item.entity), ...keptForLater.map((d) => d.entity), ...replacedTypes])]
       replaceOpenDecisionsForCommit(db, {
         campId: camp_id,
         decisions: openDecisions,

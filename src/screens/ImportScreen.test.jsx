@@ -89,6 +89,7 @@ import { parseTextGrid } from '../ingest/textGrid'
 import { inferFixedEvents } from '../ingest/fixedEvents'
 import { emitTwoRowSplit } from '../ingest/twoRowSplit'
 import { IMPORT_LIMITS } from '../utils/exportSanitize'
+import { deriveDayId } from '../../electron/ops/dayId.js'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -349,16 +350,23 @@ describe('ImportScreen — inferred activity rules (T35)', () => {
   // Audit 714 — a brand-new camp already holds its five weekdays
   // (src/utils/setupReviewed.js). Offering "Keep them / Replace them" for those
   // asks a question about nothing the director set up.
-  it('does not offer Keep/Replace when the only thing set up is the default days', async () => {
-    localClient.list.mockImplementation((entity) => {
-      if (entity === 'days_of_operation') {
-        return Promise.resolve(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].map((d, i) => ({ id: `d${i}`, day_of_week: i + 1, name: d })))
-      }
-      return Promise.resolve([])
-    })
+  const seededDays = () => ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].map((label, i) => ({
+    id: deriveDayId('camp-1', i + 1), camp_id: 'camp-1', label, day_of_week: i + 1, sort_order: i + 1,
+  }))
+
+  it('does not offer Keep/Replace when the only thing set up is the seeded default days', async () => {
+    localClient.list.mockImplementation((entity) => Promise.resolve(entity === 'days_of_operation' ? seededDays() : []))
     await uploadFile()
     expect(screen.queryByText(/already set up, camp-wide/)).toBeNull()
     expect(screen.queryByText(/Replace them/)).toBeNull()
+  })
+
+  it('does offer Keep/Replace once a director has edited one of the seeded days', async () => {
+    const days = seededDays()
+    days[1] = { ...days[1], label: 'Tuesday (half day)' }
+    localClient.list.mockImplementation((entity) => Promise.resolve(entity === 'days_of_operation' ? days : []))
+    await uploadFile()
+    expect(screen.getByText(/already set up, camp-wide/).textContent).toContain('5')
   })
 
   // Round 2 (second reviewer) — the commit button label was still gated on

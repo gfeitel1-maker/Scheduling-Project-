@@ -32,6 +32,7 @@ import { normalizeName } from '../ingest/preview'
 import { emitTwoRowSplit, pinActivityAsserted, DEFAULT_SPLIT_SUFFIX } from '../ingest/twoRowSplit'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
+import { isUntouchedSeedDays } from '../utils/seedDays'
 import { assertImportFileSize, readWorkbookSafely, unescapeRow } from '../utils/exportSanitize.js'
 import { META_SHEET } from '../utils/exportWorkbook.js'
 import { runWorksheetDownload } from '../utils/downloadWorksheet.js'
@@ -324,7 +325,8 @@ export default function ImportScreen({ campId, onNavigate }) {
   const existingCountAll = REPLACEABLE.reduce((n, e) => n + (existingRecordsAll[e]?.length ?? 0), 0)
   // A new camp already holds its five weekdays; those alone are not setup the
   // director did, so they do not earn a Keep-or-Replace question.
-  const existingCountAllButDays = existingCountAll - (existingRecordsAll.days_of_operation?.length ?? 0)
+  const existingCountAllButDays = existingCountAll
+    - (isUntouchedSeedDays(existingRecordsAll.days_of_operation, campId) ? existingRecordsAll.days_of_operation.length : 0)
 
   // A camp's schedule can arrive as several files — Camp B exports one
   // spreadsheet per group. They are one camp and must be read as one import,

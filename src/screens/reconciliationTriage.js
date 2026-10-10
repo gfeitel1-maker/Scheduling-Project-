@@ -222,8 +222,20 @@ export function foldTriageInputs(baseInputs, decisions, answers) {
     if (a?.choice === 'confirm') confirmedElectiveSets.push({ name: d.entityName })
   }
 
+  // "It's for all camp": the groups the file left out become eligible too.
+  // Eligibility is per activity, not per slot, so this widens the activity's
+  // rule; "It really excludes" and an unanswered card leave the file's groups.
+  let activityRules = baseInputs.activityRules
+  for (const d of decisions) {
+    if (d.kind !== 'all_camp_override' || answers[d.id]?.choice !== 'all_camp') continue
+    const rule = activityRules?.[d.entityName]
+    if (!rule || !Array.isArray(rule.eligible_group_names)) continue
+    const names = [...new Set([...rule.eligible_group_names, ...(d.evidence?.missingGroups ?? [])])]
+    activityRules = { ...activityRules, [d.entityName]: { ...rule, eligible_group_names: names, eligibility_known: true } }
+  }
+
   return {
-    ...baseInputs, approved, fixedEvents,
+    ...baseInputs, approved, fixedEvents, activityRules,
     resolutions: [...(baseInputs.resolutions ?? []), ...resolutions],
     confirmedElectiveSets: [...(baseInputs.confirmedElectiveSets ?? []), ...confirmedElectiveSets],
   }

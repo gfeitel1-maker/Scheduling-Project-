@@ -228,8 +228,8 @@ export const localClient = {
   dismissMigrationReviews: (ids) => shoresh.dismissMigrationReviews({ token: currentToken(), ids }),
   // docs/adr/2026-08-28-persisted-reconciliation-decisions.md §4b.
   listOpenReconciliationDecisions: () => shoresh.listOpenReconciliationDecisions(currentToken()),
-  dismissOpenReconciliationDecisions: (ids) =>
-    shoresh.dismissOpenReconciliationDecisions({ token: currentToken(), ids }),
+  dismissOpenReconciliationDecisions: announcing((ids) =>
+    shoresh.dismissOpenReconciliationDecisions({ token: currentToken(), ids })),
   getDevicePairingStatus: () => shoresh.getDevicePairingStatus(),
   listPendingPairingRequests: () => shoresh.listPendingPairingRequests(currentToken()),
   approveDevice: (deviceId) => shoresh.approveDevice({ token: currentToken(), deviceId }),

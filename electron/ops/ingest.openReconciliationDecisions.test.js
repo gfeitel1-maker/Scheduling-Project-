@@ -137,6 +137,13 @@ describe('commitPlan writes open_reconciliation_decisions', () => {
       expect(openRows()).toHaveLength(0)
     })
 
+    it('a Replace leaves no open question about records it removed', () => {
+      commit({ approved: { groups: ['Bunk 1'], activities: ['Swim'] }, openDecisions: [held(), held({ id: 'fixed_events:null:x', entity: 'fixed_events', entityName: 'Mifkad' })] })
+      expect(openRows()).toHaveLength(2)
+      commit({ mode: 'replace', approved: { groups: ['Bunk 2'] } })
+      expect(openRows()).toHaveLength(0)
+    })
+
     it('ignores malformed entries rather than throwing', () => {
       commit({ approved: { groups: ['Bunk 1'] }, openDecisions: [null, { id: 5 }, { id: 'x', kind: 'resolve_conflict', entity: 'activities' }, held()] })
       expect(openRows()).toHaveLength(1)

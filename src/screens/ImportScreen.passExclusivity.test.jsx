@@ -124,7 +124,7 @@ async function commitAndFetchActivities() {
   // force, not a workaround for it. A genuinely dual-use / high-confidence
   // create (Ceramics) never raises this decision, so zero matches is valid.
   await screen.findByText('Understood', {}, { timeout: 5000 })
-  for (const btn of screen.queryAllByText('Use this value')) await userEvent.click(btn)
+  for (const btn of screen.queryAllByText('Add it')) await userEvent.click(btn)
   // ReconciliationScreen's mount-time dry run (localClient.ingestReconcile) is
   // no longer stubbed to resolve instantly — it runs the real buildPlan
   // against the real mock store — so this needs a longer findByText timeout
