@@ -3,7 +3,7 @@ title: T360-transport-connection-dos-test-flake
 document_type: ticket
 status: open
 created: 2026-10-09
-task_class: testing
+task_class: test-infrastructure
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/standards/TESTING_STANDARD.md]
 archive_when: electron/sync/automerge/transportConnectionDos.test.js passes 30 consecutive runs under load on a 4-core machine, with its timing dependency replaced by a deterministic clock or condition waits, and a planted defect still turns it red
 ---
