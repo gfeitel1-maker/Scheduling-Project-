@@ -29,7 +29,7 @@ export const MAX_PENDING_PER_SOURCE = 2
 export const PENDING_TTL_MS = 5_000
 // LAN-reserved pending capacity: at most this many connections from ALL public sources together may
 // sit in the shared pending slots, so private/LAN sources always keep (global cap - this) of them.
-export const MAX_PUBLIC_PENDING_TOTAL = 64
+export const MAX_PUBLIC_PENDING_TOTAL = 32
 
 // Loopback + RFC1918 private + link-local + IPv6 ULA/link-local. A LAN camp lives entirely in these
 // ranges, so an exempt source is never limited. Everything else is treated as public.

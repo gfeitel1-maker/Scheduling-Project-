@@ -81,9 +81,14 @@ describe('punch-present-without-signoff guard (T347)', () => {
   const lockfile = JSON.parse(read('package-lock.json'))
   const present = forbiddenPackagesPresent(lockfile.packages, ['node-datachannel'])
 
-  it('non-vacuity precondition: node-datachannel IS in the resolved tree and punch.signoff IS still null', () => {
+  // T340 switch-on (2026-10-10): the punch and portMapping signoffs are written, so the first honest
+  // branch of the invariant now holds and inertPresence is gone. The strict single gate below stays.
+  it('non-vacuity precondition: node-datachannel IS in the resolved tree and punch is signed off with exactly one open condition (the hardware proof)', () => {
     expect(present).toEqual(['node-datachannel'])
-    expect(TRANSPORT_CAPABILITIES.punch.signoff).toBeNull()
+    const { signoff } = TRANSPORT_CAPABILITIES.punch
+    expect(signoff.date).toBe('2026-10-10')
+    expect(signoff.conditions.filter((c) => c.startsWith('OPEN:'))).toHaveLength(1)
+    expect(signoff.conditions.find((c) => c.startsWith('OPEN:'))).toMatch(/two-device hardware proof/)
   })
 
   it('invariant: present => signed off, OR declared inertPresence with the gate proven below', () => {
@@ -92,12 +97,10 @@ describe('punch-present-without-signoff guard (T347)', () => {
     expect(present.length === 0 || row.signoff != null || row.inertPresence === true).toBe(true)
   })
 
-  it('the tier-4 package scan tolerates the package ONLY because the row declares inertPresence', () => {
+  it('the tier-4 package scan tolerates the package ONLY because the row is signed off', () => {
     expect(ALL_FORBIDDEN_PACKAGES()).not.toContain('node-datachannel')
-    const withoutDeclaration = { punch: { ...TRANSPORT_CAPABILITIES.punch, inertPresence: false } }
-    expect(forbiddenPackagesFor(withoutDeclaration)).toContain('node-datachannel')
-    const signedOffInstead = { punch: { ...TRANSPORT_CAPABILITIES.punch, inertPresence: false, signoff: { date: 'x' } } }
-    expect(forbiddenPackagesFor(signedOffInstead)).not.toContain('node-datachannel')
+    const unsigned = { punch: { ...TRANSPORT_CAPABILITIES.punch, signoff: null } }
+    expect(forbiddenPackagesFor(unsigned)).toContain('node-datachannel')
   })
 
   it('syncStarter.js gates on SHORESH_PUNCH_ENABLED exactly once, with strict equality to the string true', () => {
@@ -108,9 +111,10 @@ describe('punch-present-without-signoff guard (T347)', () => {
     expect(importIsInsideGate(read('electron/sync/automerge/syncStarter.js'))).toBe(true)
   })
 
-  it('inertPresence is declared on exactly the punch and portMapping rows (no other row may loosen the package scan)', () => {
+  it('no row declares inertPresence any more, and portMapping carries the same single open condition', () => {
     const declaring = Object.entries(TRANSPORT_CAPABILITIES).filter(([, c]) => c.inertPresence).map(([k]) => k)
-    expect(declaring).toEqual(['punch', 'portMapping'])
+    expect(declaring).toEqual([])
+    expect(TRANSPORT_CAPABILITIES.portMapping.signoff.conditions.filter((c) => c.startsWith('OPEN:'))).toHaveLength(1)
   })
 
   it('only syncStarter.js imports punchTransport.js', () => {

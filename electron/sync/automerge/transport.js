@@ -49,9 +49,9 @@ const MAX_CONNECTIONS = 200
 // default for maxIncomingPendingConnections is 10 (connection-manager/constants.defaults); it bounds
 // inbound connections accepted but not yet through the whole upgrade (multistream, Noise, muxer). When
 // full, libp2p refuses new inbound outright, LAN sources included. So the limiter caps PUBLIC sources at
-// MAX_PUBLIC_PENDING_TOTAL (64) of the 256 slots, leaving LAN at least 192 however hard a scanner pushes.
+// MAX_PUBLIC_PENDING_TOTAL (32) of the 128 slots, leaving LAN at least 96 however hard a scanner pushes. Fixed sizes that fit a 256-fd soft limit (macOS GUI launch) with room.
 // Per-source pending cap is 2 and the upgrade timeout 5s (see the ticket for the fd/memory sizing).
-export const MAX_INCOMING_PENDING_CONNECTIONS = 256
+export const MAX_INCOMING_PENDING_CONNECTIONS = 128
 
 // libp2p's inboundUpgradeTimeout (default 10s) bounds how long one pending slot is held, for the whole
 // upgrade. A real WAN handshake is ~3-4 round trips (~1.2s at 300ms RTT); 5s halves a scanner's hold.
@@ -99,7 +99,7 @@ const ADMITTED_TAG = 'shoresh-admitted'
 // `punchTransportFactory` is the ICE data-channel libp2p transport, injected the same way and never
 // imported here. Connections it forms enter libp2p's normal upgrader, so Noise + the auth gate
 // below apply to them unchanged; no admission is re-implemented for it.
-export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyncMessageReceived, onHandoffMessage, handoffFaults = {}, listen, onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, onPairingDecision, peerDiscovery, now, connectionRateLimiter, privateKey, schemaVersion, relayServerFactory, relayTransportFactory, directUpgradeServiceFactory, punchTransportFactory, inboundConnectionThreshold, onRelayReservationRefused, maxConnections = MAX_CONNECTIONS, maxIncomingPendingConnections = MAX_INCOMING_PENDING_CONNECTIONS, inboundUpgradeTimeoutMs = INBOUND_UPGRADE_TIMEOUT_MS, reservedFloor = RESERVED_FLOOR, unadmittedDeadlineMs = UNADMITTED_DEADLINE_MS } = {}) {
+export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyncMessageReceived, onHandoffMessage, handoffFaults = {}, listen, onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, onPairingDecision, peerDiscovery, now, connectionRateLimiter, privateKey, schemaVersion, relayServerFactory, relayTransportFactory, directUpgradeServiceFactory, punchTransportFactory, inboundConnectionThreshold, onRelayReservationRefused, maxConnections = MAX_CONNECTIONS, maxIncomingPendingConnections = MAX_INCOMING_PENDING_CONNECTIONS, maxPublicPendingTotal, inboundUpgradeTimeoutMs = INBOUND_UPGRADE_TIMEOUT_MS, reservedFloor = RESERVED_FLOOR, unadmittedDeadlineMs = UNADMITTED_DEADLINE_MS } = {}) {
   // Per-SOURCE-IP inbound rate limiting (blocker #2 of the WAN hardening; connectionRateLimiter.js).
   // Closes the connection-churn hole authGate.js documents: a peer opening a fresh connection (fresh
   // peer id) per frame evades per-peer throttling and is otherwise bounded only by MAX_CONNECTIONS.
@@ -107,7 +107,7 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
   // handshake cost of a flood. It exempts loopback + every private range, so it is INERT on the LAN
   // (all-private) and in tests (loopback) — it can only ever limit a PUBLIC source, which appears
   // only once internet transport is enabled. Injectable for tests; a real limiter by default.
-  const rateLimiter = connectionRateLimiter ?? makeConnectionRateLimiter({ pendingTtlMs: inboundUpgradeTimeoutMs, ...(now ? { now } : {}) })
+  const rateLimiter = connectionRateLimiter ?? makeConnectionRateLimiter({ pendingTtlMs: inboundUpgradeTimeoutMs, ...(maxPublicPendingTotal ? { maxPublicPendingTotal } : {}), ...(now ? { now } : {}) })
   // T337 (docs/work/specs/2026-10-03-t337-coordination-layer-design.md §A, §E): the camp-peer
   // circuit-relay-v2 coordination relay. `relayServerFactory`/`relayTransportFactory` are
   // injected factory functions (e.g. circuitRelayServer()/circuitRelayTransport() from

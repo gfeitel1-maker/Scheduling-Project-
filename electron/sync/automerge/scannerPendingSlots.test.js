@@ -114,7 +114,10 @@ describe('limits under test are the current ones', () => {
   it('imports the T340 p5 numbers rather than restating them', () => {
     expect(MAX_PENDING_PER_SOURCE).toBeGreaterThan(0)
     expect(MAX_PENDING_PER_SOURCE).toBeLessThan(MAX_PUBLIC_PENDING_TOTAL)
-    expect(MAX_INCOMING_PENDING_CONNECTIONS - MAX_PUBLIC_PENDING_TOTAL).toBeGreaterThanOrEqual(192)
+    // Fixed sizes (owner simplification 2026-10-10): LAN keeps at least 96 slots, and the global cap
+    // stays well inside a 256 open-file soft limit (the macOS Finder-launch default).
+    expect(MAX_INCOMING_PENDING_CONNECTIONS - MAX_PUBLIC_PENDING_TOTAL).toBeGreaterThanOrEqual(96)
+    expect(MAX_INCOMING_PENDING_CONNECTIONS).toBeLessThanOrEqual(128)
     expect(PENDING_TTL_MS).toBe(INBOUND_UPGRADE_TIMEOUT_MS)
     expect(INBOUND_UPGRADE_TIMEOUT_MS).toBeLessThan(UNADMITTED_DEADLINE_MS)
   })
