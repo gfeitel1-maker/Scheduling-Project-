@@ -115,7 +115,8 @@ describe('limits under test are the current ones', () => {
     expect(MAX_PENDING_PER_SOURCE).toBeGreaterThan(0)
     expect(MAX_PENDING_PER_SOURCE).toBeLessThan(MAX_PUBLIC_PENDING_TOTAL)
     // Fixed sizes (owner simplification 2026-10-10): LAN keeps at least 96 slots, and the global cap
-    // stays well inside a 256 open-file soft limit (the macOS Finder-launch default).
+    // alone stays inside a 256 open-file soft limit (the macOS Finder-launch default); the combined
+    // worst case with established connections is recorded in SECURITY.md, not claimed here.
     expect(MAX_INCOMING_PENDING_CONNECTIONS - MAX_PUBLIC_PENDING_TOTAL).toBeGreaterThanOrEqual(96)
     expect(MAX_INCOMING_PENDING_CONNECTIONS).toBeLessThanOrEqual(128)
     expect(PENDING_TTL_MS).toBe(INBOUND_UPGRADE_TIMEOUT_MS)
@@ -137,14 +138,14 @@ describe('scanner vs the pre-Noise pending slots (real libp2p target, production
     expect(mine.filter((s) => !s.closed)).toHaveLength(MAX_PENDING_PER_SOURCE)
   })
 
-  it('many distinct public sources saturate only the PUBLIC sub-cap: a 65th public source is refused, the LAN still gets in, and the slots free at the upgrade timeout', async () => {
+  it('many distinct public sources saturate only the PUBLIC sub-cap: one more public source past the sub-cap is refused, the LAN still gets in, and the slots free at the upgrade timeout', async () => {
     const t = await startTarget()
     const scanners = Array.from({ length: MAX_PUBLIC_PENDING_TOTAL }, (_, i) => scanner(t.port, publicIp(100 + i), t.assign, freePort()))
     await sleep(500)
     expect(scanners.filter((s) => s.closed)).toHaveLength(0) // every one holds a slot: nothing was limited yet
 
     const extra = scanner(t.port, publicIp(9000), t.assign, freePort())
-    await waitFor(() => extra.closed) // the 65th public source is refused by the sub-cap
+    await waitFor(() => extra.closed) // the public source past the sub-cap is refused
     expect(await legit(t.target, publicIp(9001), t.state)).toBe(false)
     expect(await legit(t.target, LAN_IP, t.state)).toBe(true) // LAN is not blocked by the scan
 

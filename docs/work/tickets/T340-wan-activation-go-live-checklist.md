@@ -68,7 +68,8 @@ tracks that decision and its hard preconditions; it is NOT a build task to start
 Owner chose "On now" over "After 2-laptop test (Recommended)" and "Not yet". The WAN ladder is ON by default in
 packaged builds (`electron/wanDefaults.js`; dev and tests stay off), the `punch` and `portMapping` signoffs are
 written in `electron/sync/automerge/transportCapabilities.js`, and the pending slots are FIXED at 128 total / 32 public (LAN keeps at least 96),
-sized for a 256 open-file soft limit. Owner simplification 2026-10-10: the fd-adaptive profile was dropped.
+the pending slots alone fit a 256 open-file soft limit; the combined worst case with established
+connections (~296 under a distributed flood) is recorded in SECURITY.md and checked in the final-build audit. Owner simplification 2026-10-10: the fd-adaptive profile was dropped.
 
 - [x] Preconditions 1, 3, 4, 5, 6 above (PRs #858, #865; evidence docs linked in each item).
 - [x] F1 namespace/address-key rotation on revoke and the punch-revoke test (PR #841); PRs #836, #837 merged.
