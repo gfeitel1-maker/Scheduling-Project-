@@ -31,11 +31,11 @@ function isPublicAddress(addr) {
   return false
 }
 
-function publicSrflx(candidates) {
-  return candidates.filter((c) => {
-    const parts = typeof c?.candidate === 'string' ? c.candidate.split(' ') : []
-    return parts[6] === 'typ' && parts[7] === 'srflx' && isPublicAddress(parts[4])
-  })
+// The production candidate filter: a server-reflexive candidate on a public address. Tests that run over
+// loopback inject their own filter; there is no flag that relaxes this one.
+export function isPublicSrflxCandidate(c) {
+  const parts = typeof c?.candidate === 'string' ? c.candidate.split(' ') : []
+  return parts[6] === 'typ' && parts[7] === 'srflx' && isPublicAddress(parts[4])
 }
 
 // T359 slice 2: before the UDP punch, dial the peer's remembered router-mapped TCP address (7 day age
@@ -62,11 +62,11 @@ async function attemptMappedDial(peer, { db, dial, timeoutMs, signal, checkTrust
 }
 
 // peer: { peerId }. deps: { db, dial? (libp2p dial; enables the mapped-address-first step), transport, upgrader, timeoutMs?, signal?, isPeerTrusted?, maxAgeMs?,
-// allowNonPublicCandidates? and mappedAddressFilter? (loopback tests only; defaults to the public-TCP filter) }.
+// candidateFilter? (UDP candidates) and mappedAddressFilter? (TCP address); injected by loopback tests only, both default to the public filters }.
 // -> { ok: true, connection } | { ok: false, reason: 'no-memory' | 'mapping-moved' | 'timeout' | 'revoked' | 'error' }
 // A revoked, unknown, stale or unusable memory reports 'no-memory' and is never probed. Trust is
 // checked again after the upgrade: a peer revoked mid-dial gets its connection closed and 'revoked'.
-export async function attemptRung1(peer, { db, transport, upgrader, timeoutMs = RUNG1_DEFAULT_TIMEOUT_MS, signal, isPeerTrusted, isPeerRevoked, maxAgeMs = RUNG1_MEMORY_MAX_AGE_MS, allowNonPublicCandidates = false, dial, mappedAddressFilter }) {
+export async function attemptRung1(peer, { db, transport, upgrader, timeoutMs = RUNG1_DEFAULT_TIMEOUT_MS, signal, isPeerTrusted, isPeerRevoked, maxAgeMs = RUNG1_MEMORY_MAX_AGE_MS, candidateFilter = isPublicSrflxCandidate, dial, mappedAddressFilter }) {
   try {
     const checkTrust = isPeerTrusted ?? createBoundPeerTrust(db)
     if (dial) {
@@ -76,11 +76,9 @@ export async function attemptRung1(peer, { db, transport, upgrader, timeoutMs = 
     let memory = loadTrustedPunchMemory(db, peer?.peerId, { isPeerTrusted: checkTrust })
     if (!memory) return { ok: false, reason: 'no-memory' }
     if (!(Date.now() - Date.parse(memory.lastSeenAt) <= maxAgeMs)) return { ok: false, reason: 'no-memory' }
-    if (!allowNonPublicCandidates) {
-      const candidates = publicSrflx(memory.candidates)
-      if (candidates.length === 0) return { ok: false, reason: 'no-memory' }
-      memory = { ...memory, candidates, remoteSdp: memory.remoteSdp.replace(/^a=candidate:.*\r?\n?/gm, '') }
-    }
+    const candidates = memory.candidates.filter(candidateFilter)
+    if (candidates.length === 0) return { ok: false, reason: 'no-memory' }
+    memory = { ...memory, candidates, remoteSdp: memory.remoteSdp.replace(/^a=candidate:.*\r?\n?/gm, '') }
     const connection = await transport.connectFromMemory(memory, { upgrader, signal, timeoutMs })
     if (connection?.remotePeer?.toString() !== peer.peerId) {
       try { await connection?.close?.() } catch { /* already closing */ }
