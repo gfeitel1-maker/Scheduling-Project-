@@ -314,13 +314,18 @@ export function flushCampDataRecordOnQuit(liveHandlers) {
 }
 
 /**
- * Dispose the camp-data writer BEFORE closing the db it reads from (T292 round 2
- * FIX 5), so its pending debounced timer can never fire against a closed handle.
- * The order is the whole point: dispose first, close second. Called by every
+ * Flush then dispose the camp-data writer BEFORE closing the db it reads from (T292 round 2
+ * FIX 5): a still-pending edit is written, not dropped, and its pending debounced timer can never fire against a closed handle.
+ * The order is the whole point: flush, dispose, then close. Called by every
  * db-swap site (reinitialize, restore-project). Both calls are individually
  * guarded so neither a dispose failure nor an already-closed db can propagate.
  */
 export function disposeCampDataRecordThenCloseDb(liveHandlers, oldDb) {
+  try {
+    liveHandlers?.flushCampDataRecord?.()
+  } catch (err) {
+    console.error('campDataRecord: flush before db swap failed (non-fatal):', err?.message ?? err)
+  }
   try { liveHandlers?.disposeCampDataRecord?.() } catch { /* ignore */ }
   try { oldDb?.close?.() } catch { /* ignore — db may already be closed */ }
 }

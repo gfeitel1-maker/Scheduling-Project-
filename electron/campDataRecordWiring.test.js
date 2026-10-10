@@ -240,6 +240,58 @@ describe('wiring 3: disposeCampDataRecordThenCloseDb', () => {
   })
 })
 
+describe('wiring 3b: a pending edit survives a db swap or restore', () => {
+  async function pendingWriter() {
+    const { createCampDataRecordWriter } = await vi.importActual('./campDataRecord.js')
+    const events = []
+    const writer = createCampDataRecordWriter({
+      db: { prepare: () => ({ get: () => ({ id: 'c', name: 'Camp' }) }) },
+      documentsDir: '/docs',
+      listEntitiesFn: () => [],
+      buildFn: () => ({}),
+      writeFn: () => Buffer.from('x'),
+      fsImpl: {
+        existsSync: () => true,
+        mkdirSync: () => {},
+        writeFileSync: () => events.push('write'),
+        renameSync: () => {},
+        unlinkSync: () => {},
+      },
+    })
+    return { writer, events }
+  }
+
+  it('writes the pending camp-data record BEFORE the old db closes', async () => {
+    const { writer, events } = await pendingWriter()
+    writer.schedule()
+    const liveHandlers = {
+      flushCampDataRecord: () => writer.flush(),
+      disposeCampDataRecord: () => writer.dispose(),
+    }
+    const oldDb = { close: vi.fn(() => events.push('close')) }
+
+    disposeCampDataRecordThenCloseDb(liveHandlers, oldDb)
+
+    expect(events).toEqual(['write', 'close'])
+  })
+
+  it('logs a flush failure with context and still disposes and closes', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const liveHandlers = {
+      flushCampDataRecord: () => { throw new Error('disk full') },
+      disposeCampDataRecord: vi.fn(),
+    }
+    const oldDb = { close: vi.fn() }
+
+    disposeCampDataRecordThenCloseDb(liveHandlers, oldDb)
+
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('campDataRecord'), 'disk full')
+    expect(liveHandlers.disposeCampDataRecord).toHaveBeenCalledTimes(1)
+    expect(oldDb.close).toHaveBeenCalledTimes(1)
+    err.mockRestore()
+  })
+})
+
 // --------------------------------------------------------------------------
 // Structural guard — the three call sites route through the helpers, so an
 // inline reorder or drop at a call site trips this gate even though the IIFE
