@@ -124,12 +124,21 @@ Choose **Start by hand** on **Seed your camp.**, or use the sidebar. Every table
 ### Time Blocks
 
 1. Type a name (e.g. Block 1).
-2. Set the start and end time. (Shoresh doesn't check that end comes after start — double-check.)
-3. Pick **Morning**, **Afternoon** or **Evening**.
+2. Set the start and end time.
+3. Check **Morning**, **Afternoon** or **Evening**. Shoresh fills it in from the start time (before noon is morning, noon to 5 pm is afternoon, later is evening). Change it if you want.
 4. Click **+ Add**.
 5. Click **Activities →**.
 
 [shot: time-blocks/table]
+
+#### Flags on time blocks
+
+- **Ends before start** appears under the end time when the block ends at or before it starts. **+ Add** (or **Save**, when you edit a block) stays grey until you fix it.
+  - A block like this that was already saved, or came in from an imported file, shows the same flag. An imported one is held back until you fix it.
+- **Overlaps** and the other block's name (for example, "Overlaps Block 2") appears on a row whose time runs into another block. This is a heads-up only. You can still save it, because some camps overlap blocks on purpose.
+- When two blocks overlap, a group can hold only one of them on a given day. The Generated schedule won't put a group in both. In Manual Build, a group placed in both gets the overlap mark ([see below](#the-overlap-mark)).
+
+[shot: time-blocks/ends-before-start-and-overlaps-flags]
 
 ### Activities
 
@@ -235,17 +244,32 @@ It's a warning, not a block. The **Overlapping** count at the top shows how many
 
 ### Put it on the week
 
-1. In Generated Schedule or Manual Build, click a cell and start typing the set's name.
-2. Pick it from the list — it has a small **Elective** tag.
-3. The cell shows the set name and count, e.g. "Chugim (4)".
+From the grid you can reach a set two ways. Use either one.
+
+**From the side panel:**
+
+1. In Generated Schedule or Manual Build, look under **Elective sets** in the left panel, below **Activities**.
+2. Drag a set onto a cell.
+
+The **Elective sets** section only shows once you have at least one set.
+
+[shot: schedule/elective-sets-in-rail]
+
+**From the cell:**
+
+1. Click a cell. The list opens with your sets already showing under **Elective sets**.
+2. Start typing to narrow the list, or pick one straight away. Each has a small **Elective** tag.
+3. Press Enter, or click the set.
+
+Either way the cell shows the set name and count, e.g. "Chugim (4)".
+
+[shot: schedule/cell-editor-elective-sets]
 
 Shortcut: type `Chugim: Archery, Drama` and press Enter to make a new set and place it in one go.
 
 ---
 
 ## 7. Special days
-
-> TODO(T350): date/day binding is changing — update after T350 lands
 
 ### Create a special day
 
@@ -271,6 +295,53 @@ This is a one-time copy. Later changes to your time blocks won't follow.
 
 [shot: special-day/grid]
 
+### Place it on a week and day
+
+A special day only shows on your schedule once you place it on a week and a day. On that day, the special day's own grid replaces the regular one.
+
+1. Click **Special Schedules** in the sidebar, then click your special day.
+2. Find **Placed on** near the top.
+3. Click **+ Place on a day**. A small grid opens, with one row per week and one column per day.
+4. Click the cell for the week and day you want. A tick appears.
+5. Click **Done**.
+
+[shot: special-day/placed-on-picker]
+
+- **Placed on** now lists the day, for example "Week 1 · Mon".
+- In **Special Schedules**, the special day shows its week and day underneath, e.g. "Placed Week 1 Mon". On several days it says "Placed 2 days".
+- Open **Generated Schedule** or **Manual Build** and go to that week. The day shows the special day's grid. You can't edit it there. Click it to open the special day.
+- A replaced day isn't counted in the schedule's totals, flags or overlap marks.
+- Exports and printouts show the special day's grid for that day too.
+
+[shot: generated/replaced-day]
+
+You can place the same special day on more than one week and day.
+
+### If the day is already taken
+
+A week and day can hold only one special day.
+
+1. Click a cell that is taken. It shows the other special day's name.
+2. Read the question: the week and day, then "already uses" the other one. Use yours instead?
+3. Click **Use** and your special day's name to swap. Click **Cancel** to leave it as it was.
+
+The other special day isn't deleted. Place it on that week and day again to undo.
+
+[shot: special-day/replace-prompt]
+
+### Take it off a day
+
+1. Open your special day, as above, and look under **Placed on**.
+2. Click the small **x** on the week and day you want to remove.
+
+Or:
+
+1. Click **+ Place on a day**.
+2. Click the ticked cell. Its tooltip says **Remove from this day**.
+3. Click **Done**.
+
+The special day stays saved and the regular schedule comes back on that day.
+
 ---
 
 ## 8. Backups
@@ -287,13 +358,16 @@ If you see **Backup saved — camp document not included**, the database was bac
 
 1. At the bottom of the sidebar, click **Restore from backup…** (directors only).
 2. Choose a backup file from the `backups` folder. Pick the `.db` file; Shoresh finds the camp document saved beside it.
-3. Check the date in the confirmation, then click **Restore**. Shoresh first saves a copy of your current data, then restores.
+3. Read the confirmation. It names the backup's date and says it replaces this camp's data. Check the date, then click **Restore**. (**Cancel** leaves everything as it was.) Shoresh first saves a copy of your current data, then restores.
+4. Wait for **Restored from backup.**
+
+[shot: sidebar/restore-confirmation]
 
 Restoring rebuilds *this computer* from the backup, then syncs. If other computers in the camp hold newer changes, those changes sync back to this computer. A restore does not roll back the other computers.
 
 Backups made before backups included the camp document cannot be restored. Shoresh will say so, because the restore would be undone at the next sync. If a restore says it did not finish, your previous data was put back and nothing changed; if it also says to restart Shoresh, do that before anything else, because a copy of your previous data is in the backups folder.
 
-Records you erased after the backup was made may reappear until the other computers sync.
+The confirmation says it too: "Anything erased since then may reappear until other devices sync." So if you erased records after the backup was made, they can come back on this computer until the other computers sync.
 
 Your best protection is still a second computer joined to the camp — it keeps a full copy all the time.
 
@@ -343,6 +417,58 @@ If you see **Handoff did not complete**, nothing changed and the old computer is
 
 **If the old computer is already gone or broken:** export your schedule (section 10), start a new camp on the new computer, and use **Import last year** to bring the file in. Then join your other computers to the new camp.
 
+### Pair again: a laptop that can't reach its camp
+
+Say a laptop was switched off, or away from camp, while another device was removed from the camp. When it comes back it may not be able to find the others. Shoresh waits several hours with no camp device reachable before it tells you. Laptops that are just closed overnight shouldn't trigger it.
+
+When it does, you'll see a red dot at the bottom of the sidebar:
+
+**can't reach the camp · pair again on the camp's network**
+
+Fix it from the laptop that shows the flag, and one other camp computer. Both must be on the camp's Wi-Fi.
+
+**On a camp computer that is working:**
+
+1. Open the **Settings** gear → **LAN & Devices**.
+2. Click **Add a device**.
+3. Note the camp code.
+
+**On the laptop with the flag:**
+
+4. Click the flag. The **Pair again** screen opens.
+5. Type the camp code. Click **Continue**.
+6. If it shows **Waiting for approval**, go to the camp computer and click **Approve** under **Pending Pairing Requests**.
+7. Type your **Name** and **PIN**. Click **Sign in**.
+8. Wait for **Getting your camp…**.
+9. You'll see **Back in** and your camp's name, with "Your changes from this device are merged in." Click **Continue**.
+
+[shot: sidebar/cant-reach-the-camp-flag]
+[shot: pair-again/code-screen]
+
+- Your changes on the laptop are kept.
+- If the camp deleted a record while the laptop was away, the delete stays. Your offline edits to that record don't bring it back.
+- A message that says **Update Shoresh on this device first** (or on the camp device) means the two have different versions. Update, then try again.
+- A message that says a director removed this device means it can't pair again. A director adds it as a new device instead, as in [Adding a device](#9-adding-a-device).
+
+### The router flag on LAN & Devices
+
+On **LAN & Devices**, right under the **Device Manager** title, Shoresh sometimes shows one small grey line with a short explanation. It's about your router. It lets camp computers that are on other networks connect to this one directly. It is information only. There is nothing to click.
+
+[shot: devices/router-flag]
+
+It appears only when cross-network reconnect is on. If your copy of Shoresh doesn't use it, you'll never see this line, and that's normal. Computers on the same Wi-Fi never need it. When the router opening works, nothing shows.
+
+What each line means:
+
+| You see | What it means for you |
+| --- | --- |
+| **Router opening stays set** | Your router is keeping the opening. Other camp devices can reach this computer directly. Nothing to do. |
+| **Router declined a direct path** | The router said no. Same-Wi-Fi devices are fine. A device on another network may not connect directly. |
+| **No router to ask** | Shoresh couldn't find a router it can ask. Common on camp, school and phone-hotspot networks. Same-Wi-Fi devices are fine. |
+| **Another router sits in front of this one** | A second router, or your internet provider, is in front of yours, so opening a path here wouldn't help. Same-Wi-Fi devices are fine. |
+| **Shoresh's connection spot is busy** | Another program on this computer is using the spot Shoresh wants. Close other copies of Shoresh and reopen it. Same-Wi-Fi devices are fine. |
+| **Couldn't check the router** | Something went wrong while Shoresh talked to the router. Same-Wi-Fi devices are fine. |
+
 ---
 
 ## 10. Export to Excel
@@ -351,6 +477,7 @@ If you see **Handoff did not complete**, nothing changed and the old computer is
 2. Click **Export to Excel**.
 3. If both schedules are started, **Export which?** asks you to pick one. (It asks every time.)
 4. The file downloads with one sheet per day and an **All Groups** sheet.
+5. A day replaced by a special day prints as that special day's grid and notes, labelled with the week and weekday.
 
 Before the season ends, export your final schedule to keep a copy (steps above). Then continue to [End of season](#11-end-of-season-clear-elective-choices).
 
@@ -363,11 +490,16 @@ Before the season ends, export your final schedule to keep a copy (steps above).
 Do this **before** you clear choices. A camper with no choices is not in the file.
 
 1. Click **Electives** in the sidebar.
-2. At the bottom right, click **Download campers**. You get `shoresh_campers.xlsx`.
+2. At the bottom right, click **Download campers**. (Directors only.) You get `shoresh_campers.xlsx`.
+
+[shot: electives/download-campers]
+
 3. Edit it in Excel — for example, fix a camper's **Division**. Keep the **Camper ID** column as it is. A camper with no Camper ID is matched by name, so don't rename those.
 4. Import it back like a camper preference sheet: open an elective set, click **Import Camper Preferences**, pick the file, then click **Commit Assignments**. The campers in the app update.
 
 No camper is added twice and none is removed.
+
+[shot: electives/camper-import-preview]
 
 ### Then: clear elective choices
 
