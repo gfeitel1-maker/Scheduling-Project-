@@ -200,6 +200,7 @@ export function createPortMapper({ localPort, portInUse = false, deps, log = () 
       for (const externalPort of ports) {
         try {
           await withTimeout(found.gateway.deleteMapping({ internalPort: localPort, externalPort }), callMs)
+          if (externalPort === remembered) log('portMapping: removed stale mapping')
         } catch (err) {
           if (err?.code !== 'NO_SUCH_ENTRY') {
             allRemoved = false
@@ -322,10 +323,14 @@ export async function createLibraryDeps() {
       try { assertControlOnLocationHost(g, location) } catch (err) { await Promise.resolve(g.stop?.()).catch(() => {}); throw err }
       guardRediscovery(g, location)
       return wrap(g, (gw) => ({
+        // Each delete gets its OWN bound. Reusing the discovery signal (a short AbortSignal.timeout
+        // created when the gateway was found) meant every later delete was already aborted, so quit
+        // never removed the mapping (final-build audit F1).
         deleteMapping: async ({ externalPort }) => {
+          const callSignal = AbortSignal.timeout(CALL_MS)
           try {
-            const device = await gw.getGateway({ signal })
-            await device.run(WAN_IP_CONNECTION_2, 'DeletePortMapping', [['NewRemoteHost', ''], ['NewExternalPort', externalPort], ['NewProtocol', 'TCP']], { signal })
+            const device = await gw.getGateway({ signal: callSignal })
+            await device.run(WAN_IP_CONNECTION_2, 'DeletePortMapping', [['NewRemoteHost', ''], ['NewExternalPort', externalPort], ['NewProtocol', 'TCP']], { signal: callSignal })
           } catch (err) { throw codedError(err) }
         },
       }))
