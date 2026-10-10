@@ -1,12 +1,22 @@
 ---
 title: T360-transport-connection-dos-test-flake
 document_type: ticket
-status: open
+status: completed
 created: 2026-10-09
 task_class: test-infrastructure
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/standards/TESTING_STANDARD.md]
 archive_when: electron/sync/automerge/transportConnectionDos.test.js passes 30 consecutive runs under load on a 4-core machine, with its timing dependency replaced by a deterministic clock or condition waits, and a planted defect still turns it red
 ---
+
+> **COMPLETED** — fixed by #848 and #851. Cause: 300–400 ms handshake deadlines raced a loaded scheduler,
+> and the tests watched the attacker side, which hears of a remote abort late. #848 observes the target
+> side, replaces sleeps with condition/event waits and uses a 1500 ms deadline. #851 makes test 1 unable to
+> false-green: its deadline is beyond the test, so only the cap can reduce an uncapped flood (deadline
+> survival moved to test 1b). Plant-check: disabling the cap in `electron/sync/automerge/transport.js`
+> turns test 1 red. 30 consecutive full-file runs on #851's tree, 12/12 each, at 1-min load 6.8–27 on the
+> 4-core Mac. Test 4 decision: its guaranteed part (refused at exactly maxConnections without the floor)
+> is deterministic; the "lands via turnover" part stays a documented best-effort with a 10 s budget, as the
+> ADR's honest guarantee states — it passed in all 30 runs.
 
 # T360 — `transportConnectionDos.test.js` is flaky under load (pre-existing on main)
 

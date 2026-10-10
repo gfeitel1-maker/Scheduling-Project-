@@ -91,7 +91,9 @@ async function authenticate(client, target) {
 
 describe('T340 connection-manager DoS hardening', () => {
   it('1: an un-admitted flood never evicts an established admitted connection and is capped to maxConnections - reservedFloor', async () => {
-    const target = await startTarget({ maxConnections: 8, reservedFloor: 3, unadmittedDeadlineMs: HANDSHAKE_SAFE_DEADLINE_MS })
+    // Deadline far beyond the test, so nothing can reap an attacker: an UNCAPPED flood stays at 12
+    // open however slow the machine is, and only the cap can bring it to 5.
+    const target = await startTarget({ maxConnections: 8, reservedFloor: 3, unadmittedDeadlineMs: 600_000 })
     const camp = await startCamp('camp')
     await camp.dial(target.getMultiaddrs()[0])
     expect(await authenticate(camp, target)).toBe(true)
@@ -100,9 +102,17 @@ describe('T340 connection-manager DoS hardening', () => {
     expect(target.getPeers()).toContain(camp.peerId)
 
     const attackers = await flood(target, 12)
-    // the attacker side can see 'open' before the target's cap abort propagates; wait for it
-    await waitFor(() => openAttackerConns(target, attackers) <= 5, { timeout: HANDSHAKE_SAFE_DEADLINE_MS / 2 }) // bounded below the deadline, so a deadline-reaped uncapped flood cannot satisfy it
+    await waitFor(() => openAttackerConns(target, attackers) <= 5, { timeout: 10_000 })
     expect(target.getPeers()).toContain(camp.peerId)
+    expect(target.isPeerAuthenticated(camp.peerId)).toBe(true)
+  })
+
+  it('1b: an admitted connection survives the un-admitted deadline', async () => {
+    const target = await startTarget({ maxConnections: 8, reservedFloor: 3, unadmittedDeadlineMs: HANDSHAKE_SAFE_DEADLINE_MS })
+    const camp = await startCamp('camp')
+    await camp.dial(target.getMultiaddrs()[0])
+    expect(await authenticate(camp, target)).toBe(true)
+    await flood(target, 3)
 
     await sleep(HANDSHAKE_SAFE_DEADLINE_MS + 500) // past the deadline: the admitted conn must survive it
     expect(target.getPeers()).toContain(camp.peerId)
