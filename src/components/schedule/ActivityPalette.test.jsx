@@ -183,4 +183,18 @@ describe('ActivityPalette — Elective sets section (audit-2 A9)', () => {
     renderPalette({ electiveSets: [electiveSets[1]] })
     expect(screen.queryByTestId('palette-zone-electives')).toBeNull()
   })
+
+  it('counts a recurring-event cell that is linked to the activity (restored import)', () => {
+    const fixedCells = [
+      { group_id: 'g1', day_id: 'd1', activity_id: 'a2', is_fixed_event: 1, fixed_event_id: 'fe1' },
+      { group_id: 'g1', day_id: 'd2', activity_id: 'a2', is_fixed_event: 1, fixed_event_id: 'fe1' },
+    ]
+    renderPalette({ slots: fixedCells })
+    expect(screen.getByTestId('palette-count-a2').textContent).toMatch(/^2 \//)
+  })
+
+  it('does not count a recurring-event cell that links to no activity', () => {
+    renderPalette({ slots: [{ group_id: 'g1', day_id: 'd1', activity_id: null, is_fixed_event: 1, fixed_event_id: 'fe9' }] })
+    expect(screen.getByTestId('palette-count-a2').textContent).toMatch(/^0 \//)
+  })
 })

@@ -21,11 +21,14 @@ import { blockNamesForSpan } from '../../components/schedule/cellLabel'
 import SpecialDayCell from './SpecialDayCell'
 import SpecialDayPlacements from './SpecialDayPlacements'
 import FailureLine from './FailureLine'
+import { copyCampTimeBlocks } from './copyCampTimeBlocks'
+import { seedFailureMessage } from './seedFailureMessage'
 import GridEditorFrame from '../../components/schedule/GridEditorFrame'
 
 const LABELS = {
   backLink: '← Special Schedules',
   addBlock: '+ Add Block',
+  copyBlocks: 'Copy time blocks',
   notesLabel: 'Notes',
   printAction: 'Print',
   locationPlaceholder: '— No location —',
@@ -189,6 +192,15 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
     }
   }
 
+  async function copyBlocks() {
+    try {
+      await copyCampTimeBlocks({ campId, specialDayId })
+    } catch (err) {
+      setError(describeWriteFailure(err, seedFailureMessage(err.seededCount ?? 0, err.totalCount ?? 0)))
+    }
+    await load()
+  }
+
   async function renameBlock(blockId, name) {
     const trimmed = name.trim() || 'Block'
     try {
@@ -334,7 +346,10 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
       totalCells={totalCells}
       empty={timeBlocks.length === 0 ? (
         <div style={S.emptyState}>
-          <button className="press-97" onClick={addBlock} style={S.btnPrimary}>{LABELS.addBlock}</button>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+            <button className="press-97" onClick={copyBlocks} style={S.btnPrimary}>{LABELS.copyBlocks}</button>
+            <button className="press-97" onClick={addBlock} style={S.btnSecondary}>{LABELS.addBlock}</button>
+          </div>
         </div>
       ) : groups.length === 0 ? (
         <div style={S.emptyState}>

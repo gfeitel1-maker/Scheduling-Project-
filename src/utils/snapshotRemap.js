@@ -73,6 +73,9 @@ export function remapSnapshotSlots(slots, { groups, days, timeBlocks, activities
     const isFixed = Boolean(s.is_fixed_event && s.fixed_event_id)
     const needsActivity = !s.is_fixed_event && s.activity_id
     const a = needsActivity ? activity(s.activity_id, n.activity) : null
+    // A recurring-event cell may also carry its activity link (tally). A dead
+    // link is re-bound by name or dropped; it never skips the cell.
+    const linked = isFixed && s.activity_id ? activity(s.activity_id, n.activity) : null
     const f = isFixed ? fixed(s.fixed_event_id, n.fixed_event) : null
     const ev = event && s.event_id ? event(s.event_id, n.event) : null
     const es = electiveSet && s.elective_set_id ? electiveSet(s.elective_set_id, n.elective_set) : null
@@ -106,6 +109,7 @@ export function remapSnapshotSlots(slots, { groups, days, timeBlocks, activities
       day_id: d.id,
       time_block_id: b.id,
       ...(a ? { activity_id: a.id } : {}),
+      ...(linked ? { activity_id: linked.problem ? null : linked.id } : {}),
       ...(f ? { fixed_event_id: f.id } : {}),
       ...(ev ? { event_id: ev.id } : {}),
       ...(es ? { elective_set_id: es.id } : {}),

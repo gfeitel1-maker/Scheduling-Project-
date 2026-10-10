@@ -282,3 +282,50 @@ describe('SpecialDayGridEditor — block times (packaged audit #30)', () => {
     expect(screen.getByText('9:00 AM–1:15 PM').closest('.block-name').textContent).toBe('Opening9:00 AM–1:15 PM')
   })
 })
+
+describe('SpecialDayGridEditor — Copy time blocks on an empty special schedule', () => {
+  const campBlocks = [
+    { id: 'cb1', camp_id: CAMP_ID, name: 'Morning', sort_order: 0, start_time: '09:00', end_time: '10:00' },
+    { id: 'cb2', camp_id: CAMP_ID, name: 'Afternoon', sort_order: 1, start_time: '13:00', end_time: '14:00' },
+  ]
+  let specialBlocks
+  function emptyDayFixtures() {
+    specialBlocks = []
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'special_days') return Promise.resolve([{ id: SD_ID, camp_id: CAMP_ID, name: 'Color War' }])
+      if (entity === 'special_day_time_blocks') return Promise.resolve(specialBlocks)
+      if (entity === 'time_blocks') return Promise.resolve(campBlocks)
+      if (entity === 'groups') return Promise.resolve([{ id: 'g1', camp_id: CAMP_ID, name: 'Bunk A' }])
+      return Promise.resolve([])
+    })
+    localClient.write.mockImplementation((_t, entity, id, field, value) => {
+      if (entity === 'special_day_time_blocks') {
+        let row = specialBlocks.find((b) => b.id === id)
+        if (!row) { row = { id }; specialBlocks.push(row) }
+        row[field] = value
+      }
+      return Promise.resolve({ status: 'applied' })
+    })
+  }
+
+  it('offers the action when there are no blocks, copies the camp blocks on click, then hides it', async () => {
+    emptyDayFixtures()
+    render(<SpecialDayGridEditor campId={CAMP_ID} specialDayId={SD_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
+
+    const copy = await screen.findByRole('button', { name: 'Copy time blocks' })
+    fireEvent.click(copy)
+
+    await waitFor(() => expect(screen.getByText('Morning')).toBeTruthy())
+    expect(screen.getByText('Afternoon')).toBeTruthy()
+    expect(specialBlocks.map((b) => b.name)).toEqual(['Morning', 'Afternoon'])
+    expect(specialBlocks.every((b) => b.special_day_id === SD_ID)).toBe(true)
+    expect(screen.queryByRole('button', { name: 'Copy time blocks' })).toBeNull()
+  })
+
+  it('does not offer the action once the special day has blocks', async () => {
+    baseFixtures()
+    render(<SpecialDayGridEditor campId={CAMP_ID} specialDayId={SD_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Opening')).toBeTruthy())
+    expect(screen.queryByRole('button', { name: 'Copy time blocks' })).toBeNull()
+  })
+})
