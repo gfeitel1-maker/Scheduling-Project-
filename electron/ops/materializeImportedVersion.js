@@ -17,6 +17,15 @@ import { normalizeName } from '../../src/ingest/preview.js'
 import { resolveImportedPlacements } from './resolveImportedPlacements.js'
 import { deriveScheduleTemplateId } from './scheduleTemplateId.js'
 
+// The renderer supplies the file name; it becomes a stored version name, so it
+// is coerced to a bare, bounded string at the boundary.
+export function cleanSourceFileName(value) {
+  if (typeof value !== 'string') return null
+  const base = value.split(/[\\/]/).pop().trim()
+  if (!base) return null
+  return base.length > 120 ? `${base.slice(0, 119)}…` : base
+}
+
 async function writeFields(syncClient, entity, entityId, fields, authorUserId) {
   for (const [field, value] of Object.entries(fields)) {
     const result = await syncClient.write({ entity, entity_id: entityId, field, value, author_user_id: authorUserId })
@@ -45,7 +54,7 @@ export function nameMap(db, table, campId, nameColumn = 'name') {
  * @param {{campId: string, authorUserId: string, placements: Array}} args
  * @returns {Promise<{created: boolean, snapshotId: string|null, allWeeksArchived?: boolean, unresolvedCount: number, unresolvedNames: string[]}>}
  */
-export async function materializeImportedVersion(db, syncClient, { campId, authorUserId, placements }) {
+export async function materializeImportedVersion(db, syncClient, { campId, authorUserId, placements, sourceFileName = null }) {
   if (!placements || placements.length === 0) {
     return { created: false, snapshotId: null, unresolvedCount: 0, unresolvedNames: [] }
   }
@@ -70,13 +79,6 @@ export async function materializeImportedVersion(db, syncClient, { campId, autho
     await writeFields(syncClient, 'schedule_weeks', weekId, { camp_id: campId, name: 'Week 1', sort_order: '0', is_archived: '0' }, authorUserId)
   }
 
-  let template = db.prepare("SELECT id FROM schedule_templates WHERE week_id = ? AND kind = 'manual'").get(weekId)
-  let templateId = template?.id
-  if (!templateId) {
-    templateId = deriveScheduleTemplateId(weekId, 'manual')
-    await writeFields(syncClient, 'schedule_templates', templateId, { kind: 'manual', camp_id: campId, week_id: weekId, name: '' }, authorUserId)
-  }
-
   const maps = {
     activityIdByName: nameMap(db, 'activities', campId),
     fixedEventIdByName: nameMap(db, 'fixed_events', campId),
@@ -91,14 +93,27 @@ export async function materializeImportedVersion(db, syncClient, { campId, autho
     return { created: false, snapshotId: null, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName) }
   }
 
-  const snapshotId = randomUUID()
-  await writeFields(syncClient, 'schedule_snapshots', snapshotId, {
-    template_id: templateId,
-    name: 'Imported schedule',
-    is_auto: false,
-    created_at: new Date().toISOString(),
-    slots: JSON.stringify(slots),
-  }, authorUserId)
+  // The director lands on Generated, so the imported week must be findable
+  // there as well as on Manual: one identical version per candidate route.
+  const name = sourceFileName ? `Imported from ${sourceFileName}` : 'Imported schedule'
+  let snapshotId = null
+  for (const kind of ['manual', 'generated']) {
+    const existing = db.prepare('SELECT id FROM schedule_templates WHERE week_id = ? AND kind = ?').get(weekId, kind)
+    let templateId = existing?.id
+    if (!templateId) {
+      templateId = deriveScheduleTemplateId(weekId, kind)
+      await writeFields(syncClient, 'schedule_templates', templateId, { kind, camp_id: campId, week_id: weekId, name: '' }, authorUserId)
+    }
+    const id = randomUUID()
+    await writeFields(syncClient, 'schedule_snapshots', id, {
+      template_id: templateId,
+      name,
+      is_auto: false,
+      created_at: new Date().toISOString(),
+      slots: JSON.stringify(slots),
+    }, authorUserId)
+    snapshotId ??= id
+  }
 
   return { created: true, snapshotId, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName) }
 }

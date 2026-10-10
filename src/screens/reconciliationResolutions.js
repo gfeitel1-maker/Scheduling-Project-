@@ -152,8 +152,14 @@ export function applyResolutions({ approved, decisions, answers, fixedEvents }) 
     }
   }
 
+  // An unanswered question keeps the file's meaning: a low-confidence event the
+  // file shows on a daily or weekly pattern (All Camp, Ruach, Shabbat), and any
+  // meal ("Lunch 3", "Menucha"), still imports. A sibling-basis event that is
+  // not a meal ("Specialty 4", "Snack Shack") is held.
+  const MEAL_NAME = /^(lunch|menucha|breakfast|dinner|snack)(\s*\d+)?$/i
   const nextFixedEvents = (fixedEvents ?? []).filter(
     (fe) => !heldFixedEventKeys.has(fixedEventMatchKey(fe.name, fe.time_block, fe.days))
+      || fe.support?.basis === 'daily' || fe.support?.basis === 'weekly' || MEAL_NAME.test(String(fe.name ?? '').trim())
   )
 
   return { approved: nextApproved, resolutions, fixedEvents: nextFixedEvents }

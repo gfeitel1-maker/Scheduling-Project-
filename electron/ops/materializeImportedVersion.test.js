@@ -6,7 +6,7 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
 import { appendOp } from './operations.js'
-import { materializeImportedVersion } from './materializeImportedVersion.js'
+import { materializeImportedVersion, cleanSourceFileName } from './materializeImportedVersion.js'
 import { deriveScheduleTemplateId } from './scheduleTemplateId.js'
 
 const files = []
@@ -221,7 +221,17 @@ describe('materializeImportedVersion', () => {
     const r2 = await materializeImportedVersion(db, fakeSyncClient(db), { campId, authorUserId, placements })
 
     expect(r1.snapshotId).not.toBe(r2.snapshotId)
-    expect(db.prepare('SELECT COUNT(*) c FROM schedule_snapshots').get().c).toBe(2)
+    // one version per candidate route (manual + generated) per import
+    expect(db.prepare('SELECT COUNT(*) c FROM schedule_snapshots').get().c).toBe(4)
+  })
+
+  it('cleanSourceFileName: strips paths, caps a long name, and rejects non-strings', () => {
+    expect(cleanSourceFileName('campB-by-day.txt')).toBe('campB-by-day.txt')
+    expect(cleanSourceFileName('/Users/x/docs\\sub/campB.txt')).toBe('campB.txt')
+    const long = cleanSourceFileName('a'.repeat(300) + '.txt')
+    expect(long.length).toBe(120)
+    expect(long.endsWith('…')).toBe(true)
+    for (const bad of [null, undefined, 42, {}, ['a.txt'], '', '   ']) expect(cleanSourceFileName(bad)).toBeNull()
   })
 
   it('returns created:false immediately with no writes when placements is empty', async () => {

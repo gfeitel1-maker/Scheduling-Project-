@@ -1418,6 +1418,7 @@ export default function ImportScreen({ campId, onNavigate }) {
       // schedule import also materializes as a saved version (ADR
       // 2026-09-02-imported-schedule-materializes-as-a-version.md).
       placements: [...placementsRef.current],
+      sourceFileName: fileNames.join(', ') || null,
       // T118 slice 4 — every pattern the director resolved THIS import (an
       // already-confirmed-from-a-prior-import pattern is skipped — nothing
       // new to write). Written once, at successful commit, by
