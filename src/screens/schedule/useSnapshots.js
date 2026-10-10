@@ -3,6 +3,7 @@ import { computeFindings } from '../../engine/buildSchedule'
 import { parseSnapshotPayload, unrestorableMessage } from '../snapshotRestore'
 import { routeSetter } from './useRouteState'
 import { toSnapshotSlot } from '../../utils/snapshotSlot'
+import { attachNames, remapSnapshotSlots, describeSkipped } from '../../utils/snapshotRemap'
 
 // Snapshots / versions CRUD + restore, over the T28 repository.
 //
@@ -77,7 +78,7 @@ export function useSnapshots({
     if (!existingTemplates[routeName]) return
     const tid = templateIdFor(routeName)
     const setRouteSnapshots = routeSetter(setSnapshotsByRoute, routeName)
-    const snapSlots = slotsByRoute[routeName].map(toSnapshotSlot)
+    const snapSlots = slotsByRoute[routeName].map(sl => attachNames(toSnapshotSlot(sl), { groups, days, timeBlocks, activities, fixedEvents }))
     const id = crypto.randomUUID()
     const createdAt = new Date().toISOString()
     setActionError(null)
@@ -152,16 +153,13 @@ export function useSnapshots({
     // an old version stays restorable and simply comes back without the
     // per-day diffs the feature used to layer on top.
 
-    // Restore-time reference guard (Red Hat HIGH, T117 slice 2) — a Replace
-    // re-import mints NEW catalog ids for groups/days/time_blocks/activities
-    // but does not clear existing schedule_snapshots rows. Restoring a
-    // version saved before such a re-import would otherwise write
-    // template_slots rows referencing dead ids (no runtime FK enforcement),
-    // producing a silently-broken/blank grid. Product decision: keep the
-    // versions, but skip any dead cell non-destructively and tell the
-    // director how many were skipped.
-    const survivingSlots = dropDeadReferences(fullSnap.slots, { groups, days, timeBlocks, activities, fixedEvents, events, electiveSets })
-    const droppedCount = fullSnap.slots.length - survivingSlots.length
+    // A Replace re-import mints NEW ids for groups/days/blocks/activities.
+    // Saved cells carry the names they had, so each dead id is re-bound to the
+    // live row with the same name; a cell that cannot be matched is skipped and
+    // reported by name. Old snapshots (no names) skip their dead cells.
+    const { slots: remapped, skipped } = remapSnapshotSlots(fullSnap.slots, { groups, days, timeBlocks, activities, fixedEvents })
+    const survivingSlots = dropDeadReferences(remapped, { groups, days, timeBlocks, activities, fixedEvents, events, electiveSets })
+    const otherDropped = remapped.length - survivingSlots.length
 
     // Keep the week being replaced as a version, so a restore is never a one-way door.
     // saveSnapshot already surfaces its own failure; do not replace the week after it.
@@ -194,8 +192,10 @@ export function useSnapshots({
       : { slots: freshSlots, groups, activities, days, replacedDayIds }))
     setDismissedFindingKeys(new Set())
 
-    if (droppedCount > 0) {
-      setActionError(`Restored; ${droppedCount} cell(s) skipped (item removed).`)
+    if (skipped.length > 0 || otherDropped > 0) {
+      const detail = skipped.length > 0 ? `: ${describeSkipped(skipped)}` : ''
+      const extra = otherDropped > 0 ? ` (${otherDropped} more no longer exist)` : ''
+      setActionError(`Restored; ${skipped.length + otherDropped} cell(s) skipped${detail}${extra}`)
     }
   }
 

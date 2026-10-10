@@ -8,7 +8,7 @@ import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { commitIngest } from './ingest.js'
-import { dropDeadReferences } from '../../src/screens/schedule/useSnapshots.js'
+import { remapSnapshotSlots } from '../../src/utils/snapshotRemap.js'
 
 afterAll(() => { cleanupTemplatedDbs() })
 
@@ -36,8 +36,8 @@ const APPROVED = {
   time_blocks: ['09:00-09:40'],
   activities: ['Swim'],
 }
-const commit = (mode) => commitIngest(db, {
-  camp_id: campId, cohort_id: null, author_user_id: 'u1', device_id: deviceId, mode, approved: APPROVED,
+const commit = (mode, approved = APPROVED) => commitIngest(db, {
+  camp_id: campId, cohort_id: null, author_user_id: 'u1', device_id: deviceId, mode, approved,
 })
 const ids = (table, col = 'name') => Object.fromEntries(
   db.prepare(`SELECT id, ${col} AS n FROM ${table} WHERE camp_id = ?`).all(campId).map((r) => [r.n, r.id]))
@@ -98,19 +98,47 @@ describe('R1 — Replace saves both schedules first', () => {
     expect(db.prepare('SELECT COUNT(*) n FROM schedule_snapshots').get().n).toBe(0)
   })
 
-  it('restoring that version after the replace: every cell is reported dead, because Replace mints new ids', () => {
+  const liveCatalog = () => ({
+    groups: db.prepare('SELECT id, name FROM groups WHERE camp_id = ?').all(campId),
+    days: db.prepare('SELECT id, label FROM days_of_operation WHERE camp_id = ?').all(campId),
+    timeBlocks: db.prepare('SELECT id, name, start_time, end_time FROM time_blocks WHERE camp_id = ?').all(campId),
+    activities: db.prepare('SELECT id, name FROM activities WHERE camp_id = ?').all(campId),
+    fixedEvents: [],
+  })
+
+  it('restoring that version after a same-setup replace brings every placement back on the NEW ids', () => {
     seedRoutes()
     commit('replace')
     const slots = JSON.parse(versions('template-generated')[0].slots)
-    const live = {
-      groups: db.prepare('SELECT id FROM groups WHERE camp_id = ?').all(campId),
-      days: db.prepare('SELECT id FROM days_of_operation WHERE camp_id = ?').all(campId),
-      timeBlocks: db.prepare('SELECT id FROM time_blocks WHERE camp_id = ?').all(campId),
-      activities: db.prepare('SELECT id FROM activities WHERE camp_id = ?').all(campId),
-      fixedEvents: [],
-    }
     expect(slots.length).toBe(4)
-    expect(dropDeadReferences(slots, live)).toHaveLength(0)
+    const { slots: restored, skipped } = remapSnapshotSlots(slots, liveCatalog())
+    expect(skipped).toEqual([])
+    expect(restored).toHaveLength(4)
+    const cat = liveCatalog()
+    for (const r of restored) {
+      expect(cat.groups.map((g) => g.id)).toContain(r.group_id)
+      expect(cat.days.map((d) => d.id)).toContain(r.day_id)
+      expect(cat.timeBlocks.map((b) => b.id)).toContain(r.time_block_id)
+      expect(cat.activities.map((a) => a.id)).toContain(r.activity_id)
+    }
+  })
+
+  it('a renamed group\'s cells are skipped and reported by name', () => {
+    seedRoutes()
+    commit('replace', { ...APPROVED, groups: ['Bunk 1', 'Bunk 3'] })
+    const slots = JSON.parse(versions('template-generated')[0].slots)
+    const { slots: restored, skipped } = remapSnapshotSlots(slots, liveCatalog())
+    expect(restored).toHaveLength(2)
+    expect(skipped).toHaveLength(2)
+    expect(skipped.map((k) => k.label).every((l) => l.startsWith('Bunk 2 · '))).toBe(true)
+    expect(skipped[0].reason).toBe('no matching group')
+  })
+
+  it('an old snapshot without names skips dead ids rather than guessing', () => {
+    const { slots, skipped } = remapSnapshotSlots(
+      [{ group_id: 'gone', day_id: 'gone', time_block_id: 'gone', activity_id: 'gone' }], liveCatalog())
+    expect(slots).toEqual([])
+    expect(skipped[0].label).toBe('a cell saved without names')
   })
 
   it('a failed save aborts the replace: nothing is cleared, nothing imported', () => {

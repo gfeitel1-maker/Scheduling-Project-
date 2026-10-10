@@ -3,6 +3,7 @@ import { appendOp, DELETE_FIELD, runAtomic } from './operations.js'
 import { nameFieldFor } from './restore.js'
 import { clearSlotOccupant } from './slotOccupants.js'
 import { toSnapshotSlot } from '../../src/utils/snapshotSlot.js'
+import { attachNames } from '../../src/utils/snapshotRemap.js'
 
 // Deleting a setup record that a schedule uses.
 // docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md
@@ -278,10 +279,18 @@ export function previewDelete(db, { entity, entity_id }) {
 // camp were produced. Asserted by deleteRecord.test.js, not merely commented.
 export function writeRouteSnapshot(db, { template_id, name, author_user_id, device_id }) {
   const id = randomUUID()
+  const campId = db.prepare('SELECT camp_id FROM schedule_templates WHERE id = ?').get(template_id)?.camp_id
+  const catalog = {
+    groups: db.prepare('SELECT id, name FROM groups WHERE camp_id = ?').all(campId),
+    days: db.prepare('SELECT id, label FROM days_of_operation WHERE camp_id = ?').all(campId),
+    timeBlocks: db.prepare('SELECT id, name, start_time, end_time FROM time_blocks WHERE camp_id = ?').all(campId),
+    activities: db.prepare('SELECT id, name FROM activities WHERE camp_id = ?').all(campId),
+    fixedEvents: db.prepare('SELECT id, name FROM fixed_events WHERE camp_id = ?').all(campId),
+  }
   const slots = db
     .prepare('SELECT * FROM template_slots WHERE template_id = ?')
     .all(template_id)
-    .map((s) => toSnapshotSlot({ ...s, flags: s.flags ? JSON.parse(s.flags) : {} }))
+    .map((s) => attachNames(toSnapshotSlot({ ...s, flags: s.flags ? JSON.parse(s.flags) : {} }), catalog))
 
   const ops = []
   const push = (field, value) =>

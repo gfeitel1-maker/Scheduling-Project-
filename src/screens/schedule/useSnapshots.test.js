@@ -280,7 +280,7 @@ describe('useSnapshots', () => {
         { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', fixed_event_id: null, is_fixed_event: false, flags: {} },
       ])
       expect(props.setActionError).toHaveBeenCalledWith(
-        'Restored; 2 cell(s) skipped (item removed).'
+        'Restored; 2 cell(s) skipped: a cell saved without names — no matching activity; a cell saved without names — no matching group'
       )
     })
 
@@ -298,7 +298,7 @@ describe('useSnapshots', () => {
       const restoredSlots = repo.restoreSnapshotRows.mock.calls[0][1]
       expect(restoredSlots).toHaveLength(0)
       expect(props.setActionError).toHaveBeenCalledWith(
-        'Restored; 1 cell(s) skipped (item removed).'
+        'Restored; 1 cell(s) skipped: a cell saved without names — no matching fixed event'
       )
     })
 

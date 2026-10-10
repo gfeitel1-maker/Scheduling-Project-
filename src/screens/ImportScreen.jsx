@@ -272,14 +272,11 @@ export default function ImportScreen({ campId, onNavigate }) {
   // What Replace destroys that Trash cannot bring back, read in the same
   // pre-confirm pass as the Program-filtered duplicate-check set so the
   // warning can state real numbers.
-  // Saved versions survive the delete but their slots name group/activity ids
-  // that no longer exist, so restoring one fails.
   //
   // T108 Phase 2 review round 2 (MED/HIGH #4) — dayOverrideCount/
   // day_override_templates removed: that table is retired product concept
   // (overrides are now `day_overrides` rows, authored in place on the
   // schedule grid, not a standalone CRUD screen with "templates" to refill).
-  const [snapshotCount, setSnapshotCount] = useState(0)
   // Slots placed on EITHER schedule route, camp-wide. replaceScope tears down
   // template_slots for both Manual Build and Generated
   // Schedule (FK ordering forces it), and the director sees the count only
@@ -541,7 +538,6 @@ export default function ImportScreen({ campId, onNavigate }) {
         existingAll[entity] = await localClient.list(entity).catch(() => [])
       }
       setExistingRecordsAll(existingAll)
-      setSnapshotCount((await localClient.list('schedule_snapshots').catch(() => [])).length)
       const allSlots = await localClient.list('template_slots').catch(() => [])
       setSlotCount(allSlots.length)
       const templates = await localClient.list('schedule_templates').catch(() => [])
@@ -2481,13 +2477,7 @@ export default function ImportScreen({ campId, onNavigate }) {
                       recoverable from Trash.</>) },
                 ].filter((w) => w.count > 0)
 
-                const irreversibleWarnings = [
-                  { key: 'snapshots', count: snapshotCount, render: () => (
-                      <><strong>{snapshotCount}</strong> saved schedule {snapshotCount === 1 ? 'version' : 'versions'} lost
-                      permanently — not in Trash.</>) },
-                ].filter((w) => w.count > 0)
-
-                if (recoverableWarnings.length === 0 && irreversibleWarnings.length === 0) return null
+                if (recoverableWarnings.length === 0) return null
 
                 return (
                   <div>
@@ -2500,22 +2490,6 @@ export default function ImportScreen({ campId, onNavigate }) {
                       }}>
                         {recoverableWarnings.map((w, i) => (
                           <div key={w.key} style={{ marginTop: i === 0 ? 0 : 6 }}>{w.render()}</div>
-                        ))}
-                      </div>
-                    )}
-                    {irreversibleWarnings.length > 0 && (
-                      <div style={{
-                        marginTop: recoverableWarnings.length > 0 ? 8 : 10, padding: '10px 12px', borderRadius: 7,
-                        background: 'color-mix(in srgb, var(--danger) 8%, var(--surface))',
-                        border: '1px solid color-mix(in srgb, var(--danger) 40%, var(--border))',
-                        fontSize: 12, lineHeight: 1.6, color: 'var(--text)',
-                      }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <WarningTriangleIcon color="var(--danger)" />
-                          <span style={{ fontWeight: 600, color: 'var(--danger)' }}>Cannot be undone</span>
-                        </div>
-                        {irreversibleWarnings.map((w) => (
-                          <div key={w.key} style={{ marginTop: 6 }}>{w.render()}</div>
                         ))}
                       </div>
                     )}
