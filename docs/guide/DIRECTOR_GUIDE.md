@@ -248,7 +248,7 @@ From the grid you can reach a set two ways. Use either one.
 
 **From the side panel:**
 
-1. In Generated Schedule or Manual Build, look under **Elective sets** in the left panel, below **Activities**.
+1. In Generated Schedule or Manual Build, look under **Elective sets** at the top of the left panel, above **Activities**.
 2. Drag a set onto a cell.
 
 The **Elective sets** section only shows once you have at least one set.
