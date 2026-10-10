@@ -558,7 +558,8 @@ describe('FixedEventsScreen deleteAll (characterization)', () => {
         : [])
     )
     fireEvent.click(screen.getByText('Delete All'))
-    await waitFor(() => expect(screen.queryByText('Delete 1 fixed event?')).not.toBeNull())
+    // The confirm counts what will actually be deleted, including the row synced in after load.
+    await waitFor(() => expect(screen.queryByText('Delete 2 fixed events?')).not.toBeNull())
     fireEvent.click(screen.getByText('Delete All Fixed Events'))
 
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'fixed_events', 'anchor-2'))
