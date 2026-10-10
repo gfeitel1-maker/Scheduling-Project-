@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { checkPackagedDriver, checkPackagedDatachannel, interpretLoadProbe, findPackagedApp, checkLockfilePlatforms, waitForExit } from './verifyPackagedApp.js'
+import { checkPackagedDriver, checkPackagedDatachannel, interpretLoadProbe, findPackagedApp, checkLockfilePlatforms, waitForExit, resolvePackagedPaths, quitModes } from './verifyPackagedApp.js'
 import { EventEmitter } from 'node:events'
 
 let tmp
@@ -128,5 +128,26 @@ describe('waitForExit', () => {
     const child = new EventEmitter()
     child.exitCode = 0
     expect(await waitForExit(child, 20)).toBe(true)
+  })
+})
+
+describe('resolvePackagedPaths / quitModes', () => {
+  it('resolves the Windows unpacked exe and resources/app', () => {
+    const exe = path.join(tmp, 'release/win-unpacked/Shoresh.exe')
+    fs.mkdirSync(path.dirname(exe), { recursive: true })
+    fs.writeFileSync(exe, 'x')
+    expect(resolvePackagedPaths(tmp, 'win32')).toEqual({ executable: exe, appDir: path.join(tmp, 'release/win-unpacked/resources/app') })
+  })
+  it('resolves the macOS arm64 bundle', () => {
+    fs.mkdirSync(path.join(tmp, 'release/mac-arm64/Shoresh.app'), { recursive: true })
+    const r = resolvePackagedPaths(tmp, 'darwin')
+    expect(r.executable).toBe(path.join(tmp, 'release/mac-arm64/Shoresh.app/Contents/MacOS/Shoresh'))
+  })
+  it('returns null when nothing is packaged', () => {
+    expect(resolvePackagedPaths(tmp, 'win32')).toBeNull()
+  })
+  it('skips SIGTERM on Windows', () => {
+    expect(quitModes('win32')).toEqual(['app'])
+    expect(quitModes('darwin')).toEqual(['sigterm', 'app'])
   })
 })

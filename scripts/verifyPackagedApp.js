@@ -41,6 +41,25 @@ export function findPackagedApp(root) {
   return null
 }
 
+// Where the packaged app lives per platform. Windows electron-builder output is release/win-unpacked
+// (asar is off, so resources/app holds the tree); macOS is release/mac*/Shoresh.app.
+export function resolvePackagedPaths(root, platform = process.platform) {
+  if (platform === 'win32') {
+    const base = path.join(root, 'release', 'win-unpacked')
+    const executable = path.join(base, 'Shoresh.exe')
+    if (!fs.existsSync(executable)) return null
+    return { executable, appDir: path.join(base, 'resources', 'app') }
+  }
+  const bundle = findPackagedApp(root)
+  if (!bundle) return null
+  return { executable: path.join(bundle, 'Contents/MacOS/Shoresh'), appDir: path.join(bundle, 'Contents/Resources/app') }
+}
+
+// SIGTERM is a hard kill on Windows (TerminateProcess), so it proves nothing about a clean quit.
+export function quitModes(platform = process.platform) {
+  return platform === 'win32' ? ['app'] : ['sigterm', 'app']
+}
+
 function listNodeFiles(dir) {
   const out = []
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -145,11 +164,10 @@ async function launchSmoke(executable, timeoutS, quitVia) {
 
 async function main() {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-  const appBundle = findPackagedApp(root)
   const fail = (m) => { console.error(`\nPACKAGED APP CHECK FAILED\n${m}\n`); process.exit(1) }
-  if (!appBundle) fail(`No release/mac*/Shoresh.app found under ${root}. Run npm run electron:build first.`)
-  const appDir = path.join(appBundle, 'Contents/Resources/app')
-  const executable = path.join(appBundle, 'Contents/MacOS/Shoresh')
+  const paths = resolvePackagedPaths(root)
+  if (!paths) fail(`No packaged app (release/mac*/Shoresh.app or release/win-unpacked/Shoresh.exe) found under ${root}. Run npm run electron:build first.`)
+  const { appDir, executable } = paths
 
   const tree = checkPackagedDriver(appDir)
   if (!tree.ok) fail(tree.message)
@@ -173,7 +191,7 @@ async function main() {
 
   if (process.argv.includes('--launch')) {
     const timeoutS = Number(process.env.SHORESH_SMOKE_TIMEOUT_S) || 180
-    for (const quitVia of ['sigterm', 'app']) {
+    for (const quitVia of quitModes()) {
       const smoke = await launchSmoke(executable, timeoutS, quitVia)
       if (!smoke.ok) fail(smoke.message)
       console.log(`verify:packaged: packaged app booted to the renderer heartbeat and exited within ${QUIT_BOUND_MS / 1000}s of ${quitVia === 'sigterm' ? 'SIGTERM' : 'app.quit()'}`)
