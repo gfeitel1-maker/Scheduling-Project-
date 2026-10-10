@@ -60,7 +60,7 @@ describe('genuine two-row layout stays two', () => {
       out[tail] = out[tail].replace(/Activity/g, 'Swim    ')
       out[tail - 1] = out[tail - 1].replace('CIT Block 3', '           ')
     })
-    expect(rows.flat()).not.toContain('All Camp Swim')
+    expect(rows.flat()).not.toContain('All Camp Swim') // security-gate:allow — fabricated test cell text, not a camp name
     expect(rows.flat()).toContain('All Camp')
     expect(rows.flat()).toContain('Swim')
   })
