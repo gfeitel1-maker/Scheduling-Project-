@@ -26,6 +26,7 @@ import { verifySessionToken, attemptLogin } from './localAuth.js'
 import { deviceTrustStatus, deviceTrustReason } from './deviceTrust.js'
 import { recordAuditEvent } from '../audit/auditLog.js'
 import { bindOrVerifyPeerIdentity } from '../sync/automerge/peerIdentity.js'
+import { sanitizePeerDeviceName } from './deviceName.js'
 
 function isNonEmptyString(v) {
   return typeof v === 'string' && v.length > 0
@@ -257,7 +258,8 @@ export function evaluatePairingRequest(db, { device_id, device_name, rejoin = fa
 
   // First-time or pending device: upsert without overwriting the name once
   // it's set (Security MEDIUM-2: prevents name spoofing on a pending device).
-  db.prepare("INSERT OR IGNORE INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run(device_id, device_name)
+  // The name is the peer's own claim: strip invisible/bidi characters and cap it before storing.
+  db.prepare("INSERT OR IGNORE INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run(device_id, sanitizePeerDeviceName(device_name, device_id))
   // Only update pairing_status, not the name — the first-seen name wins.
   db.prepare("UPDATE devices SET pairing_status = 'pending' WHERE id = ? AND (pairing_status IS NULL OR pairing_status = 'pending')").run(device_id)
   recordAuditEvent(db, { deviceId: device_id, actorUserId: null, action: 'device.pairing_request', outcome: 'allow' })

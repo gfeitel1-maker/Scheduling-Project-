@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { DEFAULT_DEVICE_NAME, normalizeDeviceName, pairingDeviceName } from './deviceName.js'
+import { DEFAULT_DEVICE_NAME, DEVICE_NAME_MAX, normalizeDeviceName, pairingDeviceName, sanitizePeerDeviceName } from './deviceName.js'
 
 describe('normalizeDeviceName', () => {
   it('trims and strips control characters', () => {
@@ -19,5 +19,19 @@ describe('pairingDeviceName', () => {
   })
   it('sends a chosen name as chosen', () => {
     expect(pairingDeviceName('Office laptop', 'abcd1234')).toBe('Office laptop')
+  })
+})
+
+describe('Security follow-ups (#886)', () => {
+  it('strips bidi overrides and invisible characters, which could spoof a name', () => {
+    expect(normalizeDeviceName('Director‮ dapi​﻿')).toBe('Director dapi')
+    expect(() => normalizeDeviceName('‮⁦‏')).toThrow(/empty/)
+  })
+
+  it('sanitizes a peer-supplied pairing name without throwing: stripped, capped, never empty', () => {
+    expect(sanitizePeerDeviceName('Office‮\u0000 iPad', 'abcd1234')).toBe('Office iPad')
+    expect(sanitizePeerDeviceName('y'.repeat(500), 'abcd1234')).toHaveLength(DEVICE_NAME_MAX)
+    expect(sanitizePeerDeviceName('‮ \u0007', 'abcd1234')).toBe('Device abcd')
+    expect(sanitizePeerDeviceName(42, 'abcd1234')).toBe('Device abcd')
   })
 })

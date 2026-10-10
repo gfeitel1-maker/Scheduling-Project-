@@ -285,8 +285,11 @@ export function sanitizeOpRejectedForIpc(msg) {
   return { ...msg, op: sanitizeOpForIpc(msg.op) }
 }
 
-export function ensureDeviceRow(db, deviceId) {
+export function ensureDeviceRow(db, deviceId, hostname = os.hostname()) {
   db.prepare('INSERT OR IGNORE INTO devices (id, name) VALUES (?, ?)').run(deviceId, DEFAULT_DEVICE_NAME)
+  // Earlier versions seeded this row with the computer's hostname, which pairing then sent to the
+  // approving device. Reset that one value to the default; a name the director chose is kept.
+  db.prepare('UPDATE devices SET name = ? WHERE id = ? AND name = ?').run(DEFAULT_DEVICE_NAME, deviceId, hostname)
 }
 
 // T292 round-2 follow-up (Red Hat MEDIUM test-coverage gap): the will-quit
