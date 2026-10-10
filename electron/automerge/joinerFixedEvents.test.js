@@ -46,3 +46,22 @@ it("a joiner projects every fixed event of the host's imported campB", () => {
   expect(fixedEvents(joiner)).toEqual(hostEvents)
   host.close(); joiner.close()
 }, 120_000)
+
+// Red Hat, PR #891: writing kind first must not break the reverse transition. A device holding a
+// recurring row (is_all_groups=0) that the document turns into a fixed one must write the scope
+// columns before kind='fixed', or the same CHECK fails the other way.
+it('an existing recurring fixed event that becomes fixed still projects', async () => {
+  const { createEmptyDoc, applyWrites } = await import('./campDocument.js')
+  const campId = randomUUID()
+  const { db } = openTemplatedDb()
+  db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Camp Test', 'a'.repeat(64))
+  const row = (fields) => Object.entries(fields).map(([field, value]) => ({ entity: 'fixed_events', entity_id: 'fe-1', field, value }))
+  let doc = applyWrites(createEmptyDoc(), row({ camp_id: campId, name: 'Lunch', kind: 'recurring', is_all_groups: '0', group_ids: '["g1"]' }))
+  projectAll(db, doc)
+  expect(db.prepare('SELECT kind, is_all_groups FROM fixed_events WHERE id = ?').get('fe-1')).toEqual({ kind: 'recurring', is_all_groups: 0 })
+  doc = applyWrites(doc, row({ kind: 'fixed', is_all_groups: '1', group_ids: '[]' }))
+  const failures = projectAll(db, doc)?.failures ?? []
+  expect(failures.filter((f) => f.entity === 'fixed_events')).toEqual([])
+  expect(db.prepare('SELECT kind, is_all_groups FROM fixed_events WHERE id = ?').get('fe-1')).toEqual({ kind: 'fixed', is_all_groups: 1 })
+  db.close()
+})
