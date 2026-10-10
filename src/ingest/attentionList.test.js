@@ -149,6 +149,39 @@ describe('buildStructureIssues', () => {
     expect(issues.find((i) => i.id === 'group-no-activities:g1')).toBeUndefined()
   })
 
+  // Rows from localClient.list() are raw SELECT * output: eligibility is a
+  // JSON-stringified array, so a default-"everyone" activity arrives as '[]'.
+  const rawCamp = (activities, groups) => ({
+    tiers: [{ id: 't1' }, { id: 't2' }], groups,
+    days_of_operation: [{ id: 'd1' }], time_blocks: [{ id: 'tb1' }], activities, locations: [],
+  })
+  const rawGroups = [
+    { id: 'g1', name: 'Bunk 1', tier_id: 't1' }, { id: 'g2', name: 'Bunk 2', tier_id: 't1' },
+    { id: 'g3', name: 'Bunk 3', tier_id: 't2' }, { id: 'g4', name: 'Bunk 4', tier_id: 't2' },
+  ]
+  const rawAct = (id, tiers, groups) => ({ id, name: id, eligible_tier_ids: tiers, eligible_group_ids: groups })
+  const noGroupIds = (issues) => issues.filter((i) => i.id.startsWith('group-no-activities')).map((i) => i.id)
+
+  it('flags nothing for default-eligibility activities as stored (JSON "[]" strings)', () => {
+    const acts = ['Swim', 'Archery', 'Arts', 'Sports'].map((n) => rawAct(n, '[]', '[]'))
+    expect(noGroupIds(buildStructureIssues(rawCamp(acts, rawGroups)))).toEqual([])
+  })
+
+  it('flags nothing for NULL eligibility columns', () => {
+    expect(noGroupIds(buildStructureIssues(rawCamp([rawAct('Swim', null, null)], rawGroups)))).toEqual([])
+  })
+
+  it('still flags a group when every activity is restricted away from it (stored strings)', () => {
+    const acts = [rawAct('Swim', '["t-other"]', '[]')]
+    expect(noGroupIds(buildStructureIssues(rawCamp(acts, rawGroups))))
+      .toEqual(['group-no-activities:g1', 'group-no-activities:g2', 'group-no-activities:g3', 'group-no-activities:g4'])
+  })
+
+  it('mixed: flags only the group no restricted activity reaches', () => {
+    const acts = [rawAct('Swim', '["t1"]', '[]'), rawAct('Arts', '[]', '["g3"]')]
+    expect(noGroupIds(buildStructureIssues(rawCamp(acts, rawGroups)))).toEqual(['group-no-activities:g4'])
+  })
+
   it('does not flag any group-eligibility issue when there are no activities at all (already covered by empty:activities)', () => {
     const collections = {
       tiers: [{ id: 't1' }], groups: [{ id: 'g1', name: 'Bunk 1', tier_id: 't1' }],
