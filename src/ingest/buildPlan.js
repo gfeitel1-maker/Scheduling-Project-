@@ -284,6 +284,8 @@ function fieldsForUnchecked(entity, name, campId, index, cohortId) {
 //
 // Recorded as ONE opaque finding per name (the raw text), never split into
 // fake offerings — ingest never invents an elective's roster of offerings.
+const LIST_SHAPED = /[,;]|\/.*\//
+
 export function buildElectiveCandidates(source, existing) {
   const headerFindings = Array.isArray(source?.electiveHeaderFindings) ? source.electiveHeaderFindings : []
   const activityPeriods = source?.activityPeriods && typeof source.activityPeriods === 'object' ? source.activityPeriods : {}
@@ -311,9 +313,18 @@ export function buildElectiveCandidates(source, existing) {
   // nudge just because the text also matches ELECTIVE_HEADER_TERMS. A
   // row/column-LABEL finding (`source: 'label'`) never names an activity and
   // is exempt from this filter by construction — it always passes through.
+  // I5: a name that is a fixed event — in the db or in this import — is an
+  // event, not an elective period, same as a live activity.
+  const fixedEventKeys = new Set([
+    ...(Array.isArray(existing?.fixed_events) ? existing.fixed_events : []),
+    ...(Array.isArray(source?.fixedEvents) ? source.fixedEvents : []),
+  ].filter((r) => r?.name).map((r) => normalizeName(r.name)))
+  const isKnownName = (name) => liveActivityKeys.has(recognitionKey('activities', name))
+    || fixedEventKeys.has(normalizeName(name))
+
   const headerFindingsFiltered = headerFindings.filter((f) => {
     if (f.source !== 'cell') return true
-    return !liveActivityKeys.has(recognitionKey('activities', f.sourceExcerpt))
+    return !isKnownName(f.sourceExcerpt)
   })
 
   // Packaged audit #11 — a name pass 1/2 claimed as a fixed/recurring event
@@ -332,7 +343,11 @@ export function buildElectiveCandidates(source, existing) {
     // header finding; a name that shows up under an electives period AND
     // elsewhere still deserves its own shape finding for the unexplained rest.
     if (flags.every(Boolean)) continue
-    if (liveActivityKeys.has(recognitionKey('activities', name))) continue // false-positive guard
+    if (isKnownName(name)) continue // false-positive guard
+    // I5: a single-offering name ("Sports") is an activity this import is
+    // about to create, never a guess at an elective period. Only an
+    // unresolved list ("Arts/Crafts, Sports, Music") looks like one.
+    if (!LIST_SHAPED.test(name)) continue
     shapeFindings.push({ detector: 'shape', band: 'inferred', sourceExcerpt: name, row: null, column: null })
   }
 

@@ -8,6 +8,7 @@ import { useGraceWindowUndo } from '../hooks/useGraceWindowUndo'
 import { buildBlastRadiusIndex } from '../ingest/blastRadius.js'
 import { reportToLanes } from '../ingest/reportToLanes.js'
 import { getReadiness } from '../engine/readiness.js'
+import { withImportOwnRecords } from '../ingest/importOwnRecords.js'
 import { fetchCensusSnapshot } from '../ingest/existingSnapshot.js'
 import { describeWriteFailure } from '../utils/writeErrorMessage.js'
 import { heldConflictsToDecisions, foldTriageInputs, isDecisionResolvedFor, mapCommitError, identityRememberCalls } from './reconciliationTriage.js'
@@ -36,7 +37,7 @@ import { CircleCheckIcon } from '../components/icons'
 // tray is not a client-side guess, it is commitPlan re-run to completion and
 // rolled back.
 
-async function fetchReadiness() {
+async function fetchReadiness(baseInputs) {
   const collections = {
     cohorts: await localClient.list('cohorts').catch(() => []),
     tiers: await localClient.list('tiers').catch(() => []),
@@ -46,7 +47,7 @@ async function fetchReadiness() {
     activities: await localClient.list('activities').catch(() => []),
     recurringevents: await localClient.list('fixed_events').catch(() => []),
   }
-  return getReadiness(collections, null)
+  return getReadiness(withImportOwnRecords(collections, baseInputs), null)
 }
 
 // T237 — the second, fileless door into this screen. Kept as a top-level
@@ -166,7 +167,7 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
         return
       }
 
-      const readiness = await fetchReadiness()
+      const readiness = await fetchReadiness(baseInputs)
       if (requestGenRef.current !== myGen) return
       const snapshot = await fetchCensusSnapshot(localClient.list)
       if (requestGenRef.current !== myGen) return
