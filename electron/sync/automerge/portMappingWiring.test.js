@@ -13,12 +13,12 @@ import { openTemplatedDb, cleanupTemplatedDbs } from '../../db/testDbTemplate.js
 import { getOrCreateDeviceId } from '../../db/localDb.js'
 import { makeSignalingPair } from './punchTestSupport.js'
 
-const wired = vi.hoisted(() => ({ calls: [], publish: null }))
+const wired = vi.hoisted(() => ({ calls: [], publish: null, stoppedAt: null }))
 vi.mock('./punchReconnectWiring.js', async (importActual) => ({
   ...(await importActual()),
   wirePunchReconnect: vi.fn(async (opts) => {
     wired.calls.push(opts)
-    return { stop: async () => {}, publishOwnReflexive: wired.publish }
+    return { stop: async () => { wired.stoppedAt = Date.now() }, publishOwnReflexive: wired.publish }
   }),
 }))
 
@@ -38,6 +38,7 @@ beforeEach(() => {
   process.env.SHORESH_PUNCH_ENABLED = 'true'
   wired.calls.length = 0
   wired.publish = vi.fn()
+  wired.stoppedAt = null
   db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(randomUUID(), 'Camp Test', 'a'.repeat(64))
 })
 afterEach(() => {
@@ -68,7 +69,7 @@ function fakeRouter() {
     schedule: () => ({}),
     cancel: () => {},
   }
-  return { table, deps }
+  return { table, deps, gateway }
 }
 
 async function startStarter({ deps, withFactory = false } = {}) {
@@ -180,4 +181,20 @@ describe('gossip feed', () => {
     await starter.shutdownPunch()
     expect(wired.calls[0].getMappedAddress()).toBe(null)
   })
+})
+
+describe('quit ordering', () => {
+  // willQuit.js bounds the whole quit at 5s and the native punch teardown is what lets the process
+  // exit, so an unresponsive router must never hold the punch teardown behind its 3s unmap bound.
+  it('tears down the punch path at once even while the router unmap hangs', async () => {
+    const router = fakeRouter()
+    const { starter } = await startStarter({ deps: router.deps, withFactory: true })
+    await vi.waitFor(() => expect(starter.getPortMappingStatus()).not.toBe(null))
+    router.gateway.deleteMapping = () => new Promise(() => {})
+    const t0 = Date.now()
+    const done = starter.shutdownPunch()
+    await vi.waitFor(() => expect(wired.stoppedAt).not.toBe(null), { timeout: 1000 })
+    expect(wired.stoppedAt - t0).toBeLessThan(1000)
+    await done
+  }, 10000)
 })

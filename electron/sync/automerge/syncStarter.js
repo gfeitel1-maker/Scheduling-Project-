@@ -765,12 +765,15 @@ export function createAutomergeSyncStarter({
     shutdownPunch: async () => {
       const mapping = portMapping
       portMapping = null
-      await mapping?.stop()
+      // Start the router unmap (bounded at 3s) but never hold the punch teardown behind it: the
+      // native cleanup is what lets the process exit, and will-quit bounds the whole quit at 5s.
+      const unmapping = mapping ? mapping.stop().catch(() => {}) : null
       await punchWiring?.stop()
       punchWiring = null
       await punchModule?.shutdownPunchNative()
       punchIdentityHandle?.cleanup()
       punchIdentityHandle = null
+      await unmapping
     },
     releaseBroadcaster: () => setAutomergeLocalWriteBroadcaster(db, null),
     getStartupAttempted: () => automergeStartupAttempted,
