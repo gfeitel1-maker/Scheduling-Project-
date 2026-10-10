@@ -192,7 +192,8 @@ describe('makeHandlers: device row setup', () => {
     makeHandlers(db, deviceId, {})
     const row = db.prepare('SELECT id, name FROM devices WHERE id = ?').get(deviceId)
     expect(row).toBeTruthy()
-    expect(row.name).toBe(os.hostname())
+    expect(row.name).toBe('This computer')
+    expect(row.name).not.toBe(os.hostname())
   })
 })
 
