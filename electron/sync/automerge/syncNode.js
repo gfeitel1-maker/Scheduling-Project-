@@ -10,6 +10,7 @@
 // connected peer (mirrors test-cr4-live.mjs's except-self broadcast, which is
 // what lets a 3+ peer LAN mesh converge without a full connection graph).
 import * as A from '@automerge/automerge'
+import { createJoinTagAdvertiser } from './joinTagDiscovery.js'
 import { startTransport } from './transport.js'
 import { projectAll } from '../../automerge/projector.js'
 import { reconcileAndRecordConflicts } from '../../automerge/reconcileForProjection.js'
@@ -82,7 +83,7 @@ export function isSyncCompatible(incomingVersion, localVersion) {
 // installed builds in one process: overriding this alone lets a test node ANNOUNCE a version other
 // than this checkout's real CURRENT_SCHEMA_VERSION, to construct a genuine peer-version mismatch
 // without needing a second codebase.
-export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingNew, onProjectionError, onCrossCampRejected, onRemoteOps, onPairingRequest, onPairingDecision, isJoinWindowOpen, getJoinSecret, peerDiscovery, onAuthRejected, isPeerTrusted, listen, now, localSchemaVersion = CURRENT_SCHEMA_VERSION, handshakeSchemaVersion = localSchemaVersion, relayServerFactory, relayTransportFactory, directUpgradeServiceFactory, punchTransportFactory, onPunchPeerAdmitted, onRelayReservationRefused, relaunch, onHandoffChanged, handoffRetryMs, handoffFaults } = {}) {
+export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingNew, onProjectionError, onCrossCampRejected, onRemoteOps, onPairingRequest, onPairingDecision, isJoinWindowOpen, getJoinSecret, peerDiscovery, joinDiscoveryFor, onAuthRejected, isPeerTrusted, listen, now, localSchemaVersion = CURRENT_SCHEMA_VERSION, handshakeSchemaVersion = localSchemaVersion, relayServerFactory, relayTransportFactory, directUpgradeServiceFactory, punchTransportFactory, onPunchPeerAdmitted, onRelayReservationRefused, relaunch, onHandoffChanged, handoffRetryMs, handoffFaults } = {}) {
   const getLocalSchemaVersion = () =>
     typeof localSchemaVersion === 'function' ? localSchemaVersion() : localSchemaVersion
   const getHandshakeSchemaVersion = () =>
@@ -698,6 +699,12 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
     onChanged: onHandoffChanged,
   })
 
+  // The Host advertises the code-derived join tag only while Add-a-device is open
+  // (joinTagDiscovery.js). Only a node that can hold a join secret (the Host) gets one;
+  // the joining device's own node (joinSession.js) passes no getJoinSecret.
+  const joinTag = getJoinSecret ? createJoinTagAdvertiser(joinDiscoveryFor ? { discoveryFor: joinDiscoveryFor } : {}) : null
+  if (joinTag) peerDiscovery = [...(peerDiscovery ?? []), joinTag.factory]
+
   const transport = await startTransport({
     listen,
     deviceId,
@@ -973,6 +980,8 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
     broadcastLocalDoc: async () => syncAllAuthenticatedPeers(),
     handoff: handoffWire.api,
     sendHandoff: transport.sendHandoff,
+    // main.js's setJoinWindow: the live code while Add-a-device is open, null when it closes.
+    setJoinCode: (code) => joinTag?.setCode(code) ?? Promise.resolve(),
     stop: async () => {
       handoffWire.stop()
       return transport.stop()

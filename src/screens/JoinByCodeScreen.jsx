@@ -61,6 +61,9 @@ export default function JoinByCodeScreen({ onBack, onJoined, rejoin = false }) {
   const busyRef = useRef(false)
   // Held from the approval so login can present it; never rendered.
   const secretRef = useRef(null)
+  // The sign-in this flow already did against the camp. Handed on at Continue so
+  // the director signs in once, not again on a second screen.
+  const sessionRef = useRef(null)
 
   const cancel = useCallback(async () => {
     busyRef.current = false
@@ -214,6 +217,7 @@ export default function JoinByCodeScreen({ onBack, onJoined, rejoin = false }) {
         return
       }
 
+      sessionRef.current = { token: login.token, role: login.role }
       setStep(STEP.receiving)
       const data = await localClient.joinAwaitData()
       if (data.status !== 'ok') {
@@ -401,7 +405,7 @@ export default function JoinByCodeScreen({ onBack, onJoined, rejoin = false }) {
                 address. */}
             <div style={S.authTitle}>{rejoin ? `Back in ${camp?.name}` : `Joined ${camp?.name}`}</div>
             <div style={S.authSubtitle}>{rejoin ? 'Your changes from this device are merged in.' : "You won't need the code again."}</div>
-            <button style={S.authBtnPrimary} onClick={() => onJoined?.(camp)}>Continue</button>
+            <button style={S.authBtnPrimary} onClick={() => onJoined?.(camp, sessionRef.current)}>Continue</button>
           </>
         )}
       </div>

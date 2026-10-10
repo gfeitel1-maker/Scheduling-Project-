@@ -36,7 +36,7 @@ beforeEach(() => {
   localClient.joinFindHost.mockResolvedValue({ status: 'found' })
   localClient.joinRequestPairing.mockResolvedValue({ status: 'pending' })
   localClient.joinAwaitPairingDecision.mockResolvedValue({ status: 'approved', deviceSecretIdentifier: 'sec' })
-  localClient.joinLogin.mockResolvedValue({ status: 'ok' })
+  localClient.joinLogin.mockResolvedValue({ status: 'ok', token: 'join-token', role: 'admin' })
   localClient.joinAwaitData.mockResolvedValue({ status: 'ok', camp: { id: 'c1', name: 'Camp Kinneret' } })
   localClient.joinCancel.mockResolvedValue({ status: 'cancelled' })
 })
@@ -74,7 +74,9 @@ describe('JoinByCodeScreen — the whole way through', () => {
 
     expect(await screen.findByText(/Joined Camp Kinneret/)).toBeTruthy()
     await user.click(screen.getByRole('button', { name: /continue/i }))
-    expect(onJoined).toHaveBeenCalledWith({ id: 'c1', name: 'Camp Kinneret' })
+    // Signed in ONCE: the join's own sign-in session is handed on, so the device
+    // lands in the camp rather than on a second sign-in screen.
+    expect(onJoined).toHaveBeenCalledWith({ id: 'c1', name: 'Camp Kinneret' }, { token: 'join-token', role: 'admin' })
   })
 
   it('tells the director the code is wrong instead of searching for nothing', async () => {

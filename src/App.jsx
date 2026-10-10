@@ -820,7 +820,7 @@ export default function App() {
     // belonged to the WebSocket transport — it asked which machine to connect
     // to, a question that has no meaning once every device holds the whole
     // camp document.
-    return <JoinByCodeScreen onBack={device.backToModeSelect} onJoined={device.retry} />
+    return <JoinByCodeScreen onBack={device.backToModeSelect} onJoined={device.completeJoin} />
   }
 
   if (device.phase === 'login') {

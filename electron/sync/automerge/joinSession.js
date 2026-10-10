@@ -409,6 +409,23 @@ export async function startJoinSession({
         ).run(reply.camp.id, reply.camp.name ?? null, reply.camp.signing_public_key ?? null)
       }
 
+      // THIS device's own pairing, locally. The Host's approval handed us our
+      // device_secret_identifier; it is the HMAC key for this device's 'local'
+      // tokens (localAuth.js issueLocalToken), so without it every later sign-in
+      // on this device fails "pair it first" — found by a packaged two-instance
+      // run, where the joined device could never sign in. The login just
+      // succeeded with this secret, so the Host has accepted it.
+      if (typeof deviceSecretIdentifier === 'string' && deviceSecretIdentifier.length > 0) {
+        db.prepare(
+          `INSERT INTO devices (id, name, authorized_at, pairing_status, device_secret_identifier)
+           VALUES (?, ?, ?, 'authorized', ?)
+           ON CONFLICT(id) DO UPDATE SET
+             device_secret_identifier = excluded.device_secret_identifier,
+             authorized_at = COALESCE(devices.authorized_at, excluded.authorized_at),
+             pairing_status = 'authorized'`
+        ).run(deviceId, deviceName || `Device ${deviceId.slice(0, 8)}`, new Date().toISOString(), deviceSecretIdentifier)
+      }
+
       // Trust the Host as a device, locally. Found by the integration harness
       // (test/integration/harnessAutomerge.js), and a real defect rather than
       // a fixture gap: evaluateAuthenticate re-checks the RECEIVING side's own

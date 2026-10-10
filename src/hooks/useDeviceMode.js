@@ -250,6 +250,22 @@ export function useDeviceMode() {
     return result
   }, [])
 
+  // A finished join already signed in against the camp (JoinByCodeScreen ->
+  // joinLogin). Keep that session instead of sending the director to a second
+  // sign-in; the reload below verifies it locally like any stored token.
+  const completeJoin = useCallback((_camp, session) => {
+    if (session && session.token) {
+      localStorage.setItem(TOKEN_KEY, session.token)
+      setToken(session.token)
+      setSessionEndedReason(null)
+    }
+    if (session && session.role) {
+      localStorage.setItem(ROLE_KEY, session.role)
+      setRole(session.role)
+    }
+    retry()
+  }, [retry])
+
   const bootstrapCamp = useCallback(async ({ campName, adminName, adminPin }) => {
     try {
       await localClient.chooseMode({ mode: 'host', campName, port: DEFAULT_HOST_PORT })
@@ -309,6 +325,7 @@ export function useDeviceMode() {
     chooseJoin,
     bootstrapCamp,
     login,
+    completeJoin,
     logout,
     backToModeSelect,
   }

@@ -2935,6 +2935,11 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     // reused. Discarded (not just left stale) on close: nothing should still
     // verify against it once the Host has stopped advertising the tag.
     joinSecret = joinWindowOpen ? mintJoinSecret() : null
+    // Advertise the code-derived join tag for exactly this window (and stop on close) —
+    // without it the joining device searches a tag nobody answers. ADR 2026-09-15 §2.
+    Promise.resolve(getAutomergeNode()?.setJoinCode?.(joinSecret)).catch((err) => {
+      console.error(`join window: updating the join-tag advertisement failed: ${err?.message ?? err}`)
+    })
     return {
       open: joinWindowOpen,
       code: joinSecret,
