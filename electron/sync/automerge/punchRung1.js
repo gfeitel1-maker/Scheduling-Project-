@@ -10,9 +10,10 @@
 //
 // INERT: nothing imports this unless something outside tests wires it; punchTransport itself is only
 // built behind syncStarter.js's strict SHORESH_PUNCH_ENABLED === 'true' gate.
+import { multiaddr } from '@multiformats/multiaddr'
 import { isIPv4, isIPv6 } from 'node:net'
 import { TimeoutError } from '@libp2p/interface'
-import { loadTrustedPunchMemory } from './peerAddressBook.js'
+import { loadMappedPeerAddress, loadTrustedPunchMemory } from './peerAddressBook.js'
 import { createBoundPeerTrust } from './peerIdentity.js'
 
 export const RUNG1_DEFAULT_TIMEOUT_MS = 8_000
@@ -37,14 +38,41 @@ function publicSrflx(candidates) {
   })
 }
 
-// peer: { peerId }. deps: { db, transport, upgrader, timeoutMs?, signal?, isPeerTrusted?, maxAgeMs?,
-// allowNonPublicCandidates? (loopback tests only) }.
+// T359 slice 2: before the UDP punch, dial the peer's remembered router-mapped TCP address (7 day age
+// limit, trust re-checked before the dial and after the upgrade). Any failure falls through to the punch.
+async function attemptMappedDial(peer, { db, dial, timeoutMs, signal, checkTrust, isPeerRevoked, allowNonPublicMapped }) {
+  const address = loadMappedPeerAddress(db, peer.peerId, { isPeerTrusted: checkTrust, allowNonPublic: allowNonPublicMapped })
+  if (!address) return null
+  let connection
+  try {
+    const timeout = AbortSignal.timeout(timeoutMs)
+    connection = await dial(multiaddr(address), { signal: signal ? AbortSignal.any([signal, timeout]) : timeout })
+  } catch {
+    return null
+  }
+  if (connection?.remotePeer?.toString() !== peer.peerId) {
+    try { await connection?.close?.() } catch { /* already closing */ }
+    return null
+  }
+  if (!checkTrust(peer.peerId) || isPeerRevoked?.(peer.peerId)) {
+    try { await connection.close() } catch { /* already closing */ }
+    return { ok: false, reason: 'revoked' }
+  }
+  return { ok: true, connection }
+}
+
+// peer: { peerId }. deps: { db, dial? (libp2p dial; enables the mapped-address-first step), transport, upgrader, timeoutMs?, signal?, isPeerTrusted?, maxAgeMs?,
+// allowNonPublicCandidates? and allowNonPublicMapped? (loopback tests only) }.
 // -> { ok: true, connection } | { ok: false, reason: 'no-memory' | 'mapping-moved' | 'timeout' | 'revoked' | 'error' }
 // A revoked, unknown, stale or unusable memory reports 'no-memory' and is never probed. Trust is
 // checked again after the upgrade: a peer revoked mid-dial gets its connection closed and 'revoked'.
-export async function attemptRung1(peer, { db, transport, upgrader, timeoutMs = RUNG1_DEFAULT_TIMEOUT_MS, signal, isPeerTrusted, isPeerRevoked, maxAgeMs = RUNG1_MEMORY_MAX_AGE_MS, allowNonPublicCandidates = false }) {
+export async function attemptRung1(peer, { db, transport, upgrader, timeoutMs = RUNG1_DEFAULT_TIMEOUT_MS, signal, isPeerTrusted, isPeerRevoked, maxAgeMs = RUNG1_MEMORY_MAX_AGE_MS, allowNonPublicCandidates = false, dial, allowNonPublicMapped = false }) {
   try {
     const checkTrust = isPeerTrusted ?? createBoundPeerTrust(db)
+    if (dial) {
+      const mapped = await attemptMappedDial(peer, { db, dial, timeoutMs, signal, checkTrust, isPeerRevoked, allowNonPublicMapped })
+      if (mapped) return mapped
+    }
     let memory = loadTrustedPunchMemory(db, peer?.peerId, { isPeerTrusted: checkTrust })
     if (!memory) return { ok: false, reason: 'no-memory' }
     if (!(Date.now() - Date.parse(memory.lastSeenAt) <= maxAgeMs)) return { ok: false, reason: 'no-memory' }

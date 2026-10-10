@@ -11,7 +11,7 @@ import { attemptRung1 } from './punchRung1.js'
 import { attemptRung2 } from './punchRung2.js'
 import { createPunchSignaling, createReplayStore } from './punchSignaling.js'
 import { createHighWaterStore, deviceRegistryFromDb, publishReflexive, readReflexive } from './punchGossip.js'
-import { listTrustedRememberedAddresses } from './peerAddressBook.js'
+import { listTrustedRememberedAddresses, rememberMappedPeerAddress } from './peerAddressBook.js'
 import { ownReflexiveMultiaddrs } from './punchIdentity.js'
 import { publicRecordAddresses } from './rendezvousClient.js'
 
@@ -51,6 +51,9 @@ export function createRoutedSignalChannel() {
 export async function wirePunchReconnect({
   db, deviceId, campId, userDataPath, node, channel, getTransport, getUpgrader, rendezvous, emit,
   getDoc, setDoc, republishMs = GOSSIP_REPUBLISH_MS, coordinatorOptions = {},
+  // T359: () => '/ip4/<ext>/tcp/<port>' | null, the router-mapped address of this device's TCP listener.
+  // Nothing in production supplies it until slice 3; it never leaves this module except in the signed gossip entry.
+  getMappedAddress = () => null,
 }) {
   const registry = deviceRegistryFromDb(db)
   const highWater = createHighWaterStore({ filePath: join(userDataPath, 'punch-gossip-highwater.json'), onError: () => emit(EVENTS.PUNCH_STORE_FAILED, { store: 'high-water' }) })
@@ -96,7 +99,7 @@ export async function wirePunchReconnect({
       const transport = getTransport()
       const upgrader = getUpgrader()
       if (!transport || !upgrader) throw new Error('punch transport not ready')
-      return attemptRung1(peer, { db, transport, upgrader })
+      return attemptRung1(peer, { db, transport, upgrader, dial: (addr, options) => node.dial(addr, options) })
     },
     attemptRung2: (peer) => {
       if (!signaling) throw new Error('punch signaling not ready')
@@ -118,7 +121,8 @@ export async function wirePunchReconnect({
   let lastPublished = 0
   function publishOwnReflexive() {
     try {
-      const candidates = publicRecordAddresses(ownReflexiveMultiaddrs(db))
+      const mapped = getMappedAddress()
+      const candidates = [...(mapped ? [mapped] : []), ...publicRecordAddresses(ownReflexiveMultiaddrs(db))]
       if (candidates.length === 0 || node.getPeers().length === 0) return
       const peerId = node.peerId
       setDoc(publishReflexive(getDoc(), db, { campId, deviceId, peerId, candidates }))
@@ -129,8 +133,23 @@ export async function wirePunchReconnect({
     }
   }
 
+  // T359: a connected peer's signed gossip entry is the only source of its mapped TCP address.
+  function rememberMappedAddresses() {
+    try {
+      const entries = readReflexive(getDoc(), { campId, registry, highWater })
+      for (const entry of entries.values()) {
+        if (entry.deviceId === deviceId || !isConnected(entry.peerId)) continue
+        const tcp = entry.candidates.find((c) => c.includes('/tcp/'))
+        if (tcp) rememberMappedPeerAddress(db, entry.peerId, `${tcp}/p2p/${entry.peerId}`, { observedAtMs: entry.ts })
+      }
+    } catch (err) {
+      console.warn(`punch: could not remember a peer's mapped address (${err?.message ?? err})`)
+    }
+  }
+
   node.onPeersChanged?.(() => {
     attachInbound()
+    rememberMappedAddresses()
     for (const peer of listPeers()) if (isConnected(peer.peerId)) coordinator.peerConnected(peer.peerId)
     if (Date.now() - lastPublished >= republishMs) publishOwnReflexive()
     coordinator.notifyPeersChanged()

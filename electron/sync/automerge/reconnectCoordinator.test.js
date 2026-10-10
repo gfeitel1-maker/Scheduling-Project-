@@ -5,6 +5,10 @@
 import { describe, it, expect, vi } from 'vitest'
 import { createReconnectCoordinator, RUNG3_WAIT_MS } from './reconnectCoordinator.js'
 import { EVENTS, createConnectivityEmitter } from './connectivityEvents.js'
+import Database from 'better-sqlite3'
+import { initSchema } from '../../db/localDb.js'
+import { rememberMappedPeerAddress } from './peerAddressBook.js'
+import { attemptRung1 } from './punchRung1.js'
 
 const PEER = { peerId: 'peer-b', deviceId: 'dev-b' }
 
@@ -40,6 +44,26 @@ describe('ladder order and strict escalation', () => {
     const { coord, calls, rendezvous } = setup({ lan: true })
     expect(await coord.reconnect(PEER)).toEqual({ ok: true, rung: 'lan' })
     expect(calls).toEqual(['lan'])
+    expect(rendezvous.request).not.toHaveBeenCalled()
+  })
+
+  it('T359: rung 1 succeeding through the remembered mapped TCP dial makes ZERO rung-3 calls and never starts the UDP punch', async () => {
+    const db = new Database(':memory:')
+    initSchema(db)
+    db.prepare("INSERT INTO devices (id, name, pairing_status, authorized_at, libp2p_peer_id) VALUES ('dev-b', 'b', 'approved', '2026-10-01T00:00:00.000Z', 'peer-b')").run()
+    rememberMappedPeerAddress(db, 'peer-b', '/ip4/34.120.1.7/tcp/50000/p2p/peer-b')
+    const dial = vi.fn(async () => ({ remotePeer: { toString: () => 'peer-b' }, close: async () => {} }))
+    const connectFromMemory = vi.fn()
+    const rendezvous = { request: vi.fn(), release: vi.fn() }
+    const coord = createReconnectCoordinator({
+      listPeers: () => [PEER], isConnected: () => false, attemptLan: async () => false,
+      attemptRung1: (peer) => attemptRung1(peer, { db, transport: { connectFromMemory }, upgrader: {}, dial }),
+      attemptRung2: vi.fn(async () => ({ ok: false })), rendezvous, lanGraceMs: 0,
+      setTimer: (fn, ms) => ({ fn, ms, unref() {} }), clearTimer: () => {},
+    })
+    expect(await coord.reconnect(PEER)).toEqual({ ok: true, rung: 'rung1' })
+    expect(dial.mock.calls[0][0].toString()).toBe('/ip4/34.120.1.7/tcp/50000/p2p/peer-b')
+    expect(connectFromMemory).not.toHaveBeenCalled()
     expect(rendezvous.request).not.toHaveBeenCalled()
   })
 

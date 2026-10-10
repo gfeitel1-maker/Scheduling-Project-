@@ -36,6 +36,20 @@ describe('punchGossip', () => {
     expect(read().get('device-b')).toMatchObject({ deviceId: 'device-b', peerId: b.peerId, candidates: CANDS, ts: NOW })
   })
 
+  it('T359: a mapped TCP address published first is read back first', () => {
+    const cands = ['/ip4/34.120.1.7/tcp/50000', ...CANDS]
+    doc = publish(b, cands)
+    expect(read().get('device-b').candidates).toEqual(cands)
+  })
+
+  it('T359: the public filter applies to TCP candidates exactly as to UDP', () => {
+    for (const bad of ['/ip4/192.168.1.5/tcp/50000', '/ip4/127.0.0.1/tcp/50000', '/ip4/100.64.1.2/tcp/50000', '/ip4/169.254.1.2/tcp/50000', '/ip6/::ffff:34.120.1.7/tcp/50000']) {
+      expect(() => publish(b, [bad, ...CANDS])).toThrow(/bad candidate list/)
+      const hostile = publish(b, [bad], NOW, freshCampDoc(), { allowPrivateCandidates: true })
+      expect(read(a, hostile).has('device-b')).toBe(false)
+    }
+  })
+
   it('the entry is camp-encrypted: no candidate appears in the document in the clear', () => {
     doc = publish(b)
     expect(JSON.stringify(A.toJS(doc))).not.toContain('34.120.1.7')
@@ -99,7 +113,7 @@ describe('punchGossip', () => {
   it('publish refuses too many, non-udp and oversize candidates', () => {
     const many = Array.from({ length: MAX_CANDIDATES + 1 }, (_, i) => `/ip4/34.120.1.${i + 1}/udp/4000`)
     expect(() => publish(b, many)).toThrow(/candidates/)
-    expect(() => publish(b, ['/ip4/1.2.3.4/tcp/80'])).toThrow(/candidate/)
+    expect(() => publish(b, ['/ip4/1.2.3.4/sctp/80'])).toThrow(/candidate/)
     expect(() => publish(b, [`/ip4/1.2.3.4/udp/80/${'x'.repeat(300)}`])).toThrow(/candidate/)
   })
 

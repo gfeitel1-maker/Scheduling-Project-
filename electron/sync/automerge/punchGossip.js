@@ -34,7 +34,7 @@ export const MAX_VALUE_CHARS = 4096
 const MAX_ENTRIES_READ = 64
 const GOSSIP_SIG_CONTEXT = 'shoresh-punch-gossip-sig-v1'
 const GOSSIP_KEY_INFO = 'shoresh-punch-gossip-v1'
-const CANDIDATE_RE = /^\/(ip4|ip6)\/([^/]+)\/udp\/(\d{1,5})$/
+const CANDIDATE_RE = /^\/(ip4|ip6)\/([^/]+)\/(?:udp|tcp)\/(\d{1,5})$/
 const NONCE_BYTES = 12
 const TAG_BYTES = 16
 
@@ -193,7 +193,7 @@ export function deviceRegistryFromDb(db) {
  */
 export function publishReflexive(doc, db, { campId, deviceId, peerId, candidates, now = Date.now, signMessage, allowPrivateCandidates = false }) {
   if (!validCandidates(candidates, allowPrivateCandidates)) {
-    throw new Error(`punchGossip: candidates must be at most ${MAX_CANDIDATES} public udp multiaddrs of at most ${MAX_CANDIDATE_CHARS} chars (bad candidate list)`)
+    throw new Error(`punchGossip: candidates must be at most ${MAX_CANDIDATES} public udp or tcp multiaddrs of at most ${MAX_CANDIDATE_CHARS} chars (bad candidate list)`)
   }
   const { doc: keyed, addressKey } = mintRendezvousAddressKey(doc, campId)
   const value = sealGossipEntry(db, { addressKey, deviceId, peerId, candidates, ts: now(), signMessage })
