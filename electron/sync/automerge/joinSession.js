@@ -24,9 +24,10 @@
 import * as A from '@automerge/automerge'
 import { recordLibp2pPeerId } from './peerIdentity.js'
 
-import { createEmptyDoc } from '../../automerge/campDocument.js'
+import { createEmptyDoc, applyWrites } from '../../automerge/campDocument.js'
 import { joinDiscoveryTag, normalizeJoinCode, newJoinNonce, joinProof, verifyJoinProof, rejoinCampProof } from '../joinCode.js'
-import { verifyTombstones, applyTombstonesToDoc } from '../../automerge/tombstoneApply.js'
+import { verifyTombstones, applyTombstonesToDoc, findRejoinDeletes } from '../../automerge/tombstoneApply.js'
+import { appendReceivedOps } from '../../automerge/historyLedger.js'
 import { getCurrentDoc, setCurrentDoc } from './liveDoc.js'
 import { createMdnsDiscovery } from './discovery.js'
 import { startSyncNode } from './syncNode.js'
@@ -122,6 +123,8 @@ export async function startJoinSession({
   // secrets merge into it. The caller must have stopped this device's persistent node first.
   rejoin = false,
   doc,
+  // Test seam: which records to re-delete after a Pair-again merge.
+  settleDeletes = findRejoinDeletes,
 } = {}) {
   const normalizedCode = normalizeJoinCode(code)
   if (normalizedCode === null) return { status: 'invalid_code' }
@@ -150,6 +153,21 @@ export async function startJoinSession({
   // this, because the mDNS tag the Host was found by is public (see
   // joinCode.js's proof section for the mirrored-tag attack this closes).
   let hostProvedCode = false
+  // Pair again: this device's document as it stood just before the camp's merged into it, so that
+  // after each merge a record the camp deleted can be told apart from one it did not.
+  let preMergeDoc = null
+  let settleStarted = false
+
+  // The re-delete is applied as a local change (so it propagates and projects), and recorded in
+  // this device's history exactly as a delete received from the camp is: attributed to the camp's
+  // device and to whoever the document says deleted it, so Trash shows the camp's deletion.
+  async function settleRejoin() {
+    const current = getCurrentDoc(db)
+    const deletes = settleDeletes(preMergeDoc, current)
+    if (deletes.length === 0) return
+    await node.applyLocal(applyWrites(current, deletes))
+    appendReceivedOps(db, deletes, { fromPeerId: hostPeerId, doc: getCurrentDoc(db) })
+  }
 
   const firstPeer = deferred()
   const pairingDecision = deferred()
@@ -187,7 +205,25 @@ export async function startJoinSession({
     },
     onProjected: () => {
       const camp = campRow(db)
-      if (camp) campArrived.resolve(camp)
+      if (!camp) return
+      if (!preMergeDoc) { campArrived.resolve(camp); return }
+      // Pair again, step two: the camp's delete wins over this device's offline edits to the same
+      // record (findRejoinDeletes). Done ONCE, and only when this device holds every change the
+      // camp advertised: settling on a partial delivery could re-delete a record the camp later
+      // restored. Deferred a microtask because the receive path is still using the merged document
+      // when this fires. The camp is reported once the settle has run, whether or not it succeeded,
+      // so a failure here can never hang the rejoin. Ordinary peer sync is untouched.
+      if (settleStarted || !node.isCaughtUpWith(hostPeerId)) return
+      settleStarted = true
+      queueMicrotask(async () => {
+        try {
+          await settleRejoin()
+        } catch (err) {
+          console.error(`pair again: re-deleting records the camp deleted FAILED — any such record may hold this device's offline edits until it is deleted again: ${err?.stack ?? err}`)
+        } finally {
+          campArrived.resolve(camp)
+        }
+      })
     },
   })
 
@@ -318,6 +354,7 @@ export async function startJoinSession({
         if (tombstones.length > 0 && !verifyTombstones(pub, tombstones)) return { status: 'tombstones_unverified' }
         const cleaned = applyTombstonesToDoc(getCurrentDoc(db), tombstones)
         setCurrentDoc(db, cleaned)
+        preMergeDoc = A.clone(cleaned)
       }
       // Hand the token to the node so its ordinary mutual-auth path can run.
       // Then authenticate immediately rather than waiting for mDNS to

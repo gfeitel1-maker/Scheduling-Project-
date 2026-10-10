@@ -25,6 +25,8 @@ import { projectEntity } from '../../automerge/projector.js'
 import { runRendezvousRotation } from './rendezvousRotation.js'
 import { signTombstone } from '../../automerge/tombstoneSignature.js'
 import { CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
+import { DELETE_FIELD } from '../../ops/operations.js'
+import { listDeleted } from '../../ops/trash.js'
 import { ensureDeviceIdentity } from '../../auth/deviceIdentity.js'
 
 const CAMP_ID = 'camp-pair-again'
@@ -255,6 +257,62 @@ describe('Pair again: two devices', () => {
     expect(readRecord(getCurrentDoc(bDb), 'campers', 'camper-x')).toBeNull()
     expect(aDb.prepare("SELECT id FROM campers WHERE id = 'camper-x'").get()).toBeUndefined()
     expect(await eventually(() => !bDb.prepare("SELECT id FROM campers WHERE id = 'camper-x'").get())).toBe(true)
+  })
+
+  // Keeper ruling: on Pair again a camp-side DELETE wins over the stranded device's offline field
+  // edit to the same record — no half-record on either side, and no conflict for a director.
+  it('a record deleted on the camp while the device was away stays deleted despite an offline edit; other offline edits merge', async () => {
+    aDb.prepare("INSERT INTO activities (id, camp_id, name, notes) VALUES ('act-r', ?, 'Swim', 'Lake')").run(CAMP_ID)
+    const a = await startA()
+    await pairB(a)
+    expect(readRecord(getCurrentDoc(bDb), 'activities', 'act-r')?.name).toBe('Swim')
+
+    // B is offline: it edits a field of R, and a different record.
+    setCurrentDoc(bDb, applyWrite(getCurrentDoc(bDb), { entity: 'activities', entity_id: 'act-r', field: 'notes', value: 'Bring towels' }), { persist: false })
+    setCurrentDoc(bDb, applyWrite(getCurrentDoc(bDb), { entity: 'activities', entity_id: 'act-offline', field: 'name', value: 'Pottery' }), { persist: false })
+
+    // Meanwhile A deletes R.
+    const directorId = aDb.prepare("SELECT id FROM users WHERE name = 'Director'").get().id
+    await a.applyLocal(applyWrite(a.getDoc(), { entity: 'activities', entity_id: 'act-r', field: DELETE_FIELD, value: null, author_user_id: directorId }))
+    expect(aDb.prepare("SELECT id FROM activities WHERE id = 'act-r'").get()).toBeUndefined()
+
+    const s = await join(a, { rejoin: true })
+    await s.findHost()
+    expect((await s.requestPairing()).status).toBe('pending')
+    const decision = s.waitForPairingDecision()
+    const secret = await approve(a, 'device-b')
+    await decision
+    expect((await s.login({ name: 'Director', pin: '1234', deviceSecretIdentifier: secret })).status).toBe('ok')
+    expect(await s.waitForCamp()).not.toBeNull()
+
+    expect(await eventually(() => aDb.prepare('SELECT name FROM activities WHERE id = ?').get('act-offline')?.name === 'Pottery')).toBe(true)
+    expect(readRecord(getCurrentDoc(bDb), 'activities', 'act-r')).toBeNull()
+    expect(await eventually(() => readRecord(a.getDoc(), 'activities', 'act-r') === null)).toBe(true)
+    expect(aDb.prepare("SELECT id FROM activities WHERE id = 'act-r'").get()).toBeUndefined()
+    expect(bDb.prepare("SELECT id FROM activities WHERE id = 'act-r'").get()).toBeUndefined()
+    expect(readRecord(getCurrentDoc(bDb), 'activities', 'act-offline')).toEqual({ name: 'Pottery' })
+    for (const db of [aDb, bDb]) expect(db.prepare("SELECT id FROM conflicts WHERE entity_id = 'act-r'").all()).toEqual([])
+    // B's Trash lists R as deleted by the camp's director, on the camp's device.
+    expect(listDeleted(bDb).find((r) => r.entity_id === 'act-r')).toMatchObject({ deleted_by_user_id: directorId, deleted_on_device_id: 'device-a' })
+  })
+
+  it('a settle that throws still reports the camp, so Pair again never hangs', async () => {
+    const a = await startA()
+    await pairB(a)
+    await a.applyLocal(applyWrite(a.getDoc(), { entity: 'activities', entity_id: 'act-new', field: 'name', value: 'Archery' }))
+    const started = await startJoinSession({
+      db: bDb, deviceId: 'device-b', deviceName: 'Laptop B', code: CODE, knownHost: a.getMultiaddrs()[0],
+      rejoin: true, doc: getCurrentDoc(bDb), settleDeletes: () => { throw new Error('planted') },
+    })
+    const s = started.session
+    sessions.push(s)
+    await s.findHost()
+    expect((await s.requestPairing()).status).toBe('pending')
+    const decision = s.waitForPairingDecision()
+    const secret = await approve(a, 'device-b')
+    await decision
+    expect((await s.login({ name: 'Director', pin: '1234', deviceSecretIdentifier: secret })).status).toBe('ok')
+    expect(await s.waitForCamp()).toMatchObject({ id: CAMP_ID })
   })
 
   it('pair again needs a device that already has a camp', async () => {

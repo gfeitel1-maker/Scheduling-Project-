@@ -9,8 +9,8 @@ import * as A from '@automerge/automerge'
 import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { ensureHostSigningKey } from '../auth/localAuth.js'
 import { signTombstone } from './tombstoneSignature.js'
-import { verifyTombstones, applyTombstonesToDoc } from './tombstoneApply.js'
-import { createEmptyDoc, applyWrites, readRecord } from './campDocument.js'
+import { verifyTombstones, applyTombstonesToDoc, settleRejoinDeletes } from './tombstoneApply.js'
+import { createEmptyDoc, applyWrites, readRecord, readFieldAuthor } from './campDocument.js'
 import { DELETE_FIELD } from '../ops/operations.js'
 
 afterAll(() => cleanupTemplatedDbs())
@@ -54,16 +54,54 @@ describe('applyTombstonesToDoc', () => {
   })
 })
 
-// R4b — today's result, pinned: one side deletes a record, the other concurrently edits one of its
-// fields. Automerge keeps the concurrent edit, so the record comes back holding ONLY that field.
-describe('edit vs delete across a merge (current behaviour)', () => {
-  it('a field edited offline survives the other side\'s delete; the rest of the record stays deleted', () => {
-    const base = applyWrites(A.clone(createEmptyDoc()), [
-      { entity: 'activities', entity_id: 'act', field: 'name', value: 'Swim' },
-      { entity: 'activities', entity_id: 'act', field: 'location', value: 'Lake' },
+// Keeper ruling on Pair again: a camp-side DELETE wins over the rejoining device's offline FIELD
+// EDITS to the same record. A plain Automerge merge keeps the concurrent edit (the record comes back
+// holding only that field); settleRejoinDeletes re-deletes it, and leaves every other record alone.
+describe('edit vs delete across a Pair-again merge', () => {
+  const base = () => applyWrites(A.clone(createEmptyDoc()), [
+    { entity: 'activities', entity_id: 'act', field: 'name', value: 'Swim' },
+    { entity: 'activities', entity_id: 'act', field: 'location', value: 'Lake' },
+    { entity: 'activities', entity_id: 'other', field: 'name', value: 'Art' },
+  ])
+  const rejoinMerge = (camp, offline) => settleRejoinDeletes(A.clone(offline), A.merge(camp, offline))
+
+  it('the record stays fully deleted after the rejoin merge', () => {
+    const b = base()
+    const camp = applyWrites(A.clone(b), [{ entity: 'activities', entity_id: 'act', field: DELETE_FIELD, value: null }])
+    const offline = applyWrites(A.clone(b), [{ entity: 'activities', entity_id: 'act', field: 'name', value: 'Swim (deep end)' }])
+    expect(readRecord(rejoinMerge(camp, offline), 'activities', 'act')).toBeNull()
+  })
+
+  it('also when the offline device edited every field, using the camp\'s delete marker', () => {
+    const b = base()
+    const camp = applyWrites(A.clone(b), [{ entity: 'activities', entity_id: 'act', field: DELETE_FIELD, value: null, author_user_id: 'dir' }])
+    const offline = applyWrites(A.clone(b), [
+      { entity: 'activities', entity_id: 'act', field: 'name', value: 'Swim 2' },
+      { entity: 'activities', entity_id: 'act', field: 'location', value: 'Pool' },
     ])
-    const camp = applyWrites(A.clone(base), [{ entity: 'activities', entity_id: 'act', field: DELETE_FIELD, value: null }])
-    const offline = applyWrites(A.clone(base), [{ entity: 'activities', entity_id: 'act', field: 'name', value: 'Swim (deep end)' }])
-    expect(readRecord(A.merge(camp, offline), 'activities', 'act')).toEqual({ name: 'Swim (deep end)' })
+    const out = rejoinMerge(camp, offline)
+    expect(readRecord(out, 'activities', 'act')).toBeNull()
+    expect(readFieldAuthor(out, 'activities', 'act', DELETE_FIELD)).toBe('dir')
+  })
+
+  it('offline edits to records the camp did not delete still merge', () => {
+    const b = base()
+    const camp = applyWrites(A.clone(b), [{ entity: 'activities', entity_id: 'act', field: DELETE_FIELD, value: null }])
+    const offline = applyWrites(A.clone(b), [{ entity: 'activities', entity_id: 'other', field: 'name', value: 'Art & Craft' }])
+    expect(readRecord(rejoinMerge(camp, offline), 'activities', 'other')).toEqual({ name: 'Art & Craft' })
+  })
+
+  it('a collection that is not a modeled entity is never touched (it would throw on write)', () => {
+    const pre = A.change(base(), (d) => { d.legacy_retired = { 'r\u0000a': 1, 'r\u0000b': 2 } })
+    const merged = A.change(A.clone(pre), (d) => { delete d.legacy_retired['r\u0000b'] })
+    expect(() => settleRejoinDeletes(A.clone(pre), merged)).not.toThrow()
+  })
+
+  it('a record the camp deleted and then re-created is left alone', () => {
+    const b = base()
+    let camp = applyWrites(A.clone(b), [{ entity: 'activities', entity_id: 'act', field: DELETE_FIELD, value: null }])
+    camp = applyWrites(camp, [{ entity: 'activities', entity_id: 'act', field: 'name', value: 'Swim again' }])
+    const offline = A.clone(b)
+    expect(readRecord(rejoinMerge(camp, offline), 'activities', 'act')).toEqual({ name: 'Swim again' })
   })
 })
