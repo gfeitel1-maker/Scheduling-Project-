@@ -26,8 +26,13 @@
 // stop grouping, which is why the signature is built from the rendered text
 // rather than from the decision kind alone.
 
+// A decision pinned to a slot (day + block) is a different question per slot even
+// for the same item, so its reason sentence (which names the slot) or its
+// from/to slots stay in the key.
 function signatureOf(decision) {
-  return JSON.stringify([decision?.kind ?? null, decision?.entity ?? null, decision?.entityName ?? decision?.reason ?? null])
+  const slotted = decision?.kind === 'all_camp_override'
+  const who = slotted ? decision.reason : decision?.entityName ?? decision?.reason ?? null
+  return JSON.stringify([decision?.kind ?? null, decision?.entity ?? null, who, decision?.from ?? null, decision?.to ?? null])
 }
 
 /**

@@ -65,4 +65,12 @@ describe('aggregated card copy', () => {
     const byId = new Map(r.decisions.map((d) => [d.id, d.entityName]))
     for (const c of cards) expect(new Set(c.ids.map((id) => byId.get(id))).size).toBe(1)
   })
+
+  it('campB: Tue and Thu All Camp Activity overrides stay separate cards, each with its own day', () => {
+    const f = { activityName: 'All Camp Activity', block: '14:25-15:15', missingGroups: ['CIT'], insteadByGroup: {}, attendingCount: 1, totalGroups: 2, occurrences: 1 }
+    const r = buildReconciliationReport({ planItems: [], readiness: [], placements, allGroupNames: groups, allCampOverrides: [{ ...f, day: 'Tuesday' }, { ...f, day: 'Thursday' }] })
+    const cards = groupIdenticalDecisions(r.decisions.filter((d) => d.kind === 'all_camp_override'))
+    expect(cards).toHaveLength(2)
+    expect(cards.map((c) => c.decision.reason.split(' ')[0])).toEqual(['Tuesday', 'Thursday'])
+  })
 })
