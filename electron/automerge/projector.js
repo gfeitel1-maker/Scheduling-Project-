@@ -34,6 +34,7 @@ import * as Automerge from '@automerge/automerge'
 import { createAuthorityReplayContext, createVerifiedEntryTrust, isCompleteEntry, AUTHORITY_LOG_ENTITY } from './authorityReplay.js'
 import { recordAuditEvent } from '../audit/auditLog.js'
 import { PROJECTIONS } from '../ops/projections.js'
+import { REQUIRED_FIRST_ON_WRITE } from '../../src/data/setupCrudRepository.js'
 import { STAGE1_ENTITY, MODELED_ENTITIES, BULK_REPLACE_MODELED_ENTITIES, DEFERRED_ENTITIES } from './campDocument.js'
 import { STORE_DOCUMENT_REPLAY, boundedErrorMessage } from '../ops/documentWriteFailures.js'
 
@@ -632,7 +633,16 @@ function upsertRow(db, entity, id, row, fields, outstandingIds = null, failures 
     // elective_set_activities/event_slots) reconstruct sibling NOT-NULL FK columns to
     // satisfy a multi-column INSERT; passed the full row, they resolve those siblings directly
     // instead of querying the `operations` table, which the doc-replay path never writes.
-    for (const field of fields) {
+    // The field a cross-column CHECK depends on goes first, as every local write
+    // already orders it (setupCrudRepository's REQUIRED_FIRST_ON_WRITE): a joiner
+    // creating a recurring fixed event from the document otherwise wrote
+    // is_all_groups=0 against the row's default kind='fixed' and the CHECK
+    // refused it, so imported fixed events never reached a joining device.
+    const requiredFirst = REQUIRED_FIRST_ON_WRITE[entity]
+    const ordered = requiredFirst && fields.includes(requiredFirst)
+      ? [requiredFirst, ...fields.filter((f) => f !== requiredFirst)]
+      : fields
+    for (const field of ordered) {
       if (!(field in row)) continue
       failedField = field
       const applied = applyProjection(db, { entity, entity_id: id, field, value: row[field], knownRow: row })
