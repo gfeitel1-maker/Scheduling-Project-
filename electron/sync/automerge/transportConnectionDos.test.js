@@ -99,9 +99,19 @@ describe('T340 connection-manager DoS hardening', () => {
     // non-vacuity: with capacity free the admitted connection is simply untouched
     expect(target.getPeers()).toContain(camp.peerId)
 
+    // Per-connection: a CAP abort closes a connection moments after it opens; a deadline reap closes
+    // it no sooner than the deadline. Counting only early closes means an uncapped flood cannot pass
+    // by being reaped later, however slow the machine is.
+    // The cap aborts inside transport's own connection:open listener, which runs before any listener
+    // added here, so age is read from the connection's own timeline (open -> close).
+    let capAborted = 0
+    target.libp2pNode.addEventListener('connection:close', (evt) => {
+      const { direction, timeline } = evt.detail
+      if (direction === 'inbound' && timeline?.open && (timeline.close ?? Date.now()) - timeline.open < HANDSHAKE_SAFE_DEADLINE_MS / 2) capAborted++
+    })
     const attackers = await flood(target, 12)
-    // the attacker side can see 'open' before the target's cap abort propagates; wait for it
-    await waitFor(() => openAttackerConns(target, attackers) <= 5, { timeout: HANDSHAKE_SAFE_DEADLINE_MS / 2 }) // bounded below the deadline, so a deadline-reaped uncapped flood cannot satisfy it
+    await waitFor(() => capAborted >= 7, { timeout: 10_000 }) // 12 un-admitted against a cap of 5
+    expect(openAttackerConns(target, attackers)).toBeLessThanOrEqual(5)
     expect(target.getPeers()).toContain(camp.peerId)
 
     await sleep(HANDSHAKE_SAFE_DEADLINE_MS + 500) // past the deadline: the admitted conn must survive it
