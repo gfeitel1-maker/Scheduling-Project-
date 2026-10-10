@@ -115,6 +115,7 @@ const NON_FINDING_MESSAGE_FILES = [
   'src/ingest/workbookToSource.js',
   'src/screens/reconciliationResolutions.js',
   'src/screens/reconciliationTriage.js',
+  'src/utils/snapshotRemap.js',
   'src/localClient.mock.js',
 ]
 
