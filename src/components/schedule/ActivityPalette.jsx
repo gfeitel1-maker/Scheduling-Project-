@@ -131,7 +131,7 @@ export default function ActivityPalette({
   onToggleCollapse,
 }) {
   const nonFixedEventSlots = (slots || [])
-    .filter(s => !s.is_fixed_event && s.is_span_head !== 0 && s.is_span_head !== false)
+    .filter(s => (!s.is_fixed_event || s.activity_id) && s.is_span_head !== 0 && s.is_span_head !== false)
     .filter(s => groupId == null || s.group_id === groupId)
   const scaleFor = activity => groupId == null
     ? groups.filter(g => isActivityEligibleForGroup(activity, g)).length

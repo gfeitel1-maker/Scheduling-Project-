@@ -1261,6 +1261,24 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
               )
             )}
 
+            {/* Nothing is on either route (e.g. straight after a Replace import),
+                so the toolbar above is not drawn, but earlier versions — the
+                "Before replace" save — must stay reachable from here. */}
+            {!anyRouteStarted && !generating && versionRows.length > 0 && (
+              <div style={{ ...S.centeredRow, marginTop: 12 }}>
+                <VersionsDropdown
+                  snapshots={versionRows}
+                  isOpen={showVersions}
+                  role={role}
+                  onToggle={() => setShowVersions(v => !v)}
+                  onRestore={restoreSnapshot}
+                  onSaveNamed={name => { saveSnapshot(name, false).catch(() => {}) }}
+                  onRenameAutoSave={renameSnapshot}
+                  onDelete={deleteSnapshot}
+                />
+              </div>
+            )}
+
             {/* The other route has work, this one does not: the same offer,
                 inline. No warning, no confirmation — nothing is at risk. */}
             {anyRouteStarted && !hasSchedule && !generating && (

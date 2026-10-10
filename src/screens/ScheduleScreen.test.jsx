@@ -1729,3 +1729,27 @@ describe('a day replaced by a special day is excluded from every count (A8)', ()
     expect(unfillableBox.textContent).toContain('0')
   })
 })
+
+describe('empty route with saved versions (packaged audit 714d1b32 item 7)', () => {
+  const beforeReplace = {
+    id: 'snap-1', template_id: 'schedule-template:camp-1', name: 'Before replace — Oct 10, 10:40 AM',
+    is_auto: 1, created_at: '2026-10-10T10:40:00.000Z', slots: JSON.stringify([{ group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', is_fixed_event: false, flags: {} }]),
+  }
+
+  it('keeps Versions reachable on the empty-state offer and opens the list', async () => {
+    mockList({ template_slots: [], schedule_snapshots: [beforeReplace] })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+
+    await waitFor(() => expect(screen.getByText('Generate a schedule')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: /Versions/ }))
+    await waitFor(() => expect(screen.getByText('Before replace — Oct 10, 10:40 AM')).toBeTruthy())
+  })
+
+  it('shows no Versions button on an empty route when there are no versions', async () => {
+    mockList({ template_slots: [], schedule_snapshots: [] })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+
+    await waitFor(() => expect(screen.getByText('Generate a schedule')).toBeTruthy())
+    expect(screen.queryByRole('button', { name: /Versions/ })).toBeNull()
+  })
+})

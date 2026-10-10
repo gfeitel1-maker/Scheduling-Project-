@@ -101,6 +101,38 @@ function seedCatalog(db, campId) {
 }
 
 describe('materializeImportedVersion', () => {
+  it('does not save another version when the slots equal the latest one of the same name (re-import of the same file)', async () => {
+    const db = makeDb()
+    const campId = seedCamp(db)
+    seedWeek(db, campId)
+    seedCatalog(db, campId)
+    const placements = [{ groupName: 'Bunk 1', dayName: 'Monday', blockLabel: '09:00', activityName: 'Swim' }]
+    const args = { campId, authorUserId, placements, sourceFileName: 'campB.txt' }
+
+    const first = await materializeImportedVersion(db, fakeSyncClient(db), args)
+    const second = await materializeImportedVersion(db, fakeSyncClient(db), args)
+
+    expect(first.created).toBe(true)
+    expect(second.created).toBe(false)
+    expect(second.unchanged).toBe(true)
+    // one per candidate route, and no more after the second run
+    expect(db.prepare('SELECT COUNT(*) c FROM schedule_snapshots').get().c).toBe(2)
+  })
+
+  it('still saves a version when the same file name now yields different slots', async () => {
+    const db = makeDb()
+    const campId = seedCamp(db)
+    seedWeek(db, campId)
+    seedCatalog(db, campId)
+    const swim = { groupName: 'Bunk 1', dayName: 'Monday', blockLabel: '09:00', activityName: 'Swim' }
+    const lunch = { ...swim, activityName: 'Lunch' }
+    await materializeImportedVersion(db, fakeSyncClient(db), { campId, authorUserId, placements: [swim], sourceFileName: 'campB.txt' })
+    const second = await materializeImportedVersion(db, fakeSyncClient(db), { campId, authorUserId, placements: [swim, lunch], sourceFileName: 'campB.txt' })
+
+    expect(second.created).toBe(true)
+    expect(db.prepare('SELECT COUNT(*) c FROM schedule_snapshots').get().c).toBe(4)
+  })
+
   it('does not un-archive or duplicate Week 1 when every week is archived (Red Hat #1)', async () => {
     const db = makeDb()
     const campId = seedCamp(db)
@@ -225,19 +257,18 @@ describe('materializeImportedVersion', () => {
     expect(JSON.parse(snap.slots)).toHaveLength(1)
   })
 
-  it('re-running the same call twice creates two separate schedule_snapshots rows', async () => {
+  it('re-running the same call twice saves one version per route, not two', async () => {
     const db = makeDb()
     const campId = seedCamp(db)
     seedWeek(db, campId)
     seedCatalog(db, campId)
     const placements = [{ groupName: 'Bunk 1', dayName: 'Monday', blockLabel: '09:00', activityName: 'Swim' }]
 
-    const r1 = await materializeImportedVersion(db, fakeSyncClient(db), { campId, authorUserId, placements })
+    await materializeImportedVersion(db, fakeSyncClient(db), { campId, authorUserId, placements })
     const r2 = await materializeImportedVersion(db, fakeSyncClient(db), { campId, authorUserId, placements })
 
-    expect(r1.snapshotId).not.toBe(r2.snapshotId)
-    // one version per candidate route (manual + generated) per import
-    expect(db.prepare('SELECT COUNT(*) c FROM schedule_snapshots').get().c).toBe(4)
+    expect(r2.created).toBe(false)
+    expect(db.prepare('SELECT COUNT(*) c FROM schedule_snapshots').get().c).toBe(2)
   })
 
   it('cleanSourceFileName: strips paths, caps a long name, and rejects non-strings', () => {

@@ -44,7 +44,7 @@ describe('resolveImportedPlacements', () => {
     const placements = [{ groupName: 'Bunk 1', dayName: 'Monday', blockLabel: '09:00', activityName: 'Lunch' }]
     const { slots } = resolveImportedPlacements(placements, m)
     expect(slots).toEqual([
-      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, fixed_event_id: 'anc-lunch', is_fixed_event: true, flags: {} },
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-lunch', fixed_event_id: 'anc-lunch', is_fixed_event: true, flags: {} },
     ])
   })
 

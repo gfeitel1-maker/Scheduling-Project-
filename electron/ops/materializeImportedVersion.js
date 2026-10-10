@@ -100,6 +100,7 @@ export async function materializeImportedVersion(db, syncClient, { campId, autho
   // The director lands on Generated, so the imported week must be findable
   // there as well as on Manual: one identical version per candidate route.
   const name = sourceFileName ? `Imported from ${sourceFileName}` : 'Imported schedule'
+  const slotsJson = JSON.stringify(slots)
   let snapshotId = null
   for (const kind of ['manual', 'generated']) {
     const existing = db.prepare('SELECT id FROM schedule_templates WHERE week_id = ? AND kind = ?').get(weekId, kind)
@@ -108,16 +109,25 @@ export async function materializeImportedVersion(db, syncClient, { campId, autho
       templateId = deriveScheduleTemplateId(weekId, kind)
       await writeFields(syncClient, 'schedule_templates', templateId, { kind, camp_id: campId, week_id: weekId, name: '' }, authorUserId)
     }
+    // Re-importing the same file (Keep mode, nothing new placed) must not stack
+    // another identical version: skip when the newest same-named version on this
+    // route already holds exactly these slots. A changed file or changed slots
+    // still saves.
+    const latest = db
+      .prepare('SELECT slots FROM schedule_snapshots WHERE template_id = ? AND name = ? ORDER BY created_at DESC, rowid DESC LIMIT 1')
+      .get(templateId, name)
+    if (latest?.slots === slotsJson) continue
     const id = randomUUID()
     await writeFields(syncClient, 'schedule_snapshots', id, {
       template_id: templateId,
       name,
       is_auto: false,
       created_at: new Date().toISOString(),
-      slots: JSON.stringify(slots),
+      slots: slotsJson,
     }, authorUserId)
     snapshotId ??= id
   }
 
+  if (!snapshotId) return { created: false, snapshotId: null, unchanged: true, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName), unresolvedItems }
   return { created: true, snapshotId, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName), unresolvedItems }
 }

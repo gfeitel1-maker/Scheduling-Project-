@@ -53,7 +53,10 @@ export function resolveImportedPlacements(placements, maps) {
     if (fixedEventId) {
       slots.push({
         group_id: groupId, day_id: dayId, time_block_id: blockId,
-        activity_id: null, fixed_event_id: fixedEventId, is_fixed_event: true, flags: {},
+        // A recurring event that shares its name with an activity IS that
+        // activity's session: carry the link so the palette tally counts it.
+        activity_id: activityIdByName.get(normalizeName(activityName)) ?? null,
+        fixed_event_id: fixedEventId, is_fixed_event: true, flags: {},
       })
       continue
     }

@@ -135,4 +135,21 @@ describe('VersionsDropdown', () => {
     // (like the "⋯" overflow menu's) cannot have fired from this keystroke.
     expect(parentKeyDown).not.toHaveBeenCalled()
   })
+
+  it('renders no stray 0 for a saved version whose is_auto arrives as the integer 0', () => {
+    const fromDb = { ...NAMED, is_auto: 0 }
+    renderOpen([fromDb])
+    const row = rowFor('V2 second')
+    expect(row.textContent).not.toMatch(/^0|\b0(?=Restore)/)
+    expect(within(row).queryByText('0')).toBeNull()
+    expect(row.textContent.startsWith('V2 second')).toBe(true)
+    expect(row.textContent).not.toContain('0Restore')
+  })
+
+  it('shows the name of an auto-saved version that has one (Before replace)', () => {
+    const before = { id: 's-b', name: 'Before replace — Oct 10, 10:40 AM', is_auto: 1, created_at: '2026-10-10T10:40:00.000Z', restorable: true, on_screen: false }
+    renderOpen([before])
+    expect(screen.getByText('Before replace — Oct 10, 10:40 AM')).toBeTruthy()
+    expect(screen.queryByText('Auto-save')).toBeNull()
+  })
 })

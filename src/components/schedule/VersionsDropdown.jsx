@@ -123,8 +123,8 @@ export default function VersionsDropdown({ snapshots, isOpen, role, onToggle, on
                       </div>
                     ) : (
                       <>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: snap.is_auto ? 'var(--text-secondary)' : 'var(--text)', fontStyle: snap.is_auto ? 'italic' : 'normal', overflowWrap: 'anywhere' }}>
-                          {snap.is_auto ? 'Auto-save' : snap.name}
+                        <div style={{ fontSize: 13, fontWeight: 600, color: snap.name ? 'var(--text)' : 'var(--text-secondary)', fontStyle: snap.name ? 'normal' : 'italic', overflowWrap: 'anywhere' }}>
+                          {snap.name || 'Auto-save'}
                         </div>
                         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-secondary)', marginTop: 1 }}>
                           {formatTime(snap.created_at)}
@@ -139,7 +139,7 @@ export default function VersionsDropdown({ snapshots, isOpen, role, onToggle, on
                     </span>
                   )}
 
-                  {!isRenaming && snap.is_auto && (
+                  {!isRenaming && Boolean(snap.is_auto) && !snap.name && (
                     <button
                       onClick={() => { setRenamingId(snap.id); setRenameValue('') }}
                       style={{ fontSize: 10, color: 'var(--text-secondary)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', fontFamily: 'inherit' }}
