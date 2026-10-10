@@ -2,7 +2,7 @@
 //
 // T359 slice 2: rung 1 dials the peer's remembered router-mapped TCP address FIRST, before the UDP punch
 // attempt. Real two-node libp2p over TCP loopback (Noise); the loopback address stands in for the public
-// mapped address via the test-only allowNonPublicMapped flag.
+// mapped address via the test-only mappedAddressFilter injection.
 import Database from 'better-sqlite3'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -35,7 +35,7 @@ async function setup({ ageMs = 1000 } = {}) {
   db.prepare('INSERT INTO peer_last_addresses (peer_id, multiaddr, last_seen_at) VALUES (?, ?, ?)').run(peerId, addr, new Date(Date.now() - ageMs).toISOString())
   const connectFromMemory = vi.fn(async () => { throw new Error('UDP punch must not be reached') })
   const dial = vi.fn((ma, opts) => local.dial(ma, opts))
-  return { db, peerId, remote, local, dial, transport: { connectFromMemory }, deps: { db, upgrader: {}, allowNonPublicMapped: true } }
+  return { db, peerId, remote, local, dial, transport: { connectFromMemory }, deps: { db, upgrader: {}, mappedAddressFilter: (m) => m.startsWith('/ip4/127.') } }
 }
 
 describe('attemptRung1 - mapped TCP address first', () => {
