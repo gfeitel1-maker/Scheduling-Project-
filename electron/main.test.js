@@ -84,7 +84,7 @@ import { openLocalDb, getOrCreateDeviceId } from './db/localDb.js'
 import { openTemplatedDb, cleanupTemplatedDbs } from './db/testDbTemplate.js'
 import { createUser, ensureHostSigningKey } from './auth/localAuth.js'
 import { appendOp, latestOp } from './ops/operations.js'
-import { makeHandlers, sanitizeConflictForIpc, sanitizeOpRejectedForIpc, SESSION_INVALID_REASONS } from './main.js'
+import { makeHandlers as makeHandlersUntracked, sanitizeConflictForIpc, sanitizeOpRejectedForIpc, SESSION_INVALID_REASONS } from './main.js'
 import { isAtRestEncryptionEnabled } from './db/atRestEncryption.js'
 import { createLocalWriteClient } from './sync/localWriteClient.js'
 import { isAutomergeEngine } from './sync/automerge/syncEngineFlag.js'
@@ -140,7 +140,18 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
+// makeHandlers arms a 1500ms camp-data-record debounce timer on every write. A test that ends
+// before it fires leaves it to run against a closed db (or past the end of the file, where its
+// console.error hits a torn-down worker), so every handler set is disposed with its db.
+const createdHandlers = []
+function makeHandlers(...args) {
+  const handlers = makeHandlersUntracked(...args)
+  createdHandlers.push(handlers)
+  return handlers
+}
+
 afterEach(() => {
+  for (const handlers of createdHandlers.splice(0)) handlers.disposeCampDataRecord?.()
   db.close()
   if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile)
 })
