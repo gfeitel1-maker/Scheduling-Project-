@@ -2,7 +2,7 @@
 // home card that names it both read through these, so the card's number is the
 // screen's row count by construction (audit I4: "Activities 26" beside an
 // Activities screen showing 18, because the card counted pinned-event rows).
-import { filterFreeChoiceActivities } from '../engine/freeChoiceActivities'
+import { filterFreeChoiceActivities } from '../engine/freeChoiceActivities.js'
 
 const inCamp = (campId) => (row) => row.camp_id === campId
 

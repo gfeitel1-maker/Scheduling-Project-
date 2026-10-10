@@ -2,7 +2,7 @@
 // content of a replaced day, as plain data. The grid lane and the exporters
 // both read it, so screen text and printed text cannot drift. Pure; no IPC.
 
-import { timeRangeLabel } from '../../utils/timeBlockLabel'
+import { timeRangeLabel } from '../../utils/timeBlockLabel.js'
 
 // dayId -> replacement for this week's bindings. An orphan binding (another
 // week, a day not in `days`, a special day that no longer exists) replaces

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { timeBlockLabel, isTimeRangeName, blockLabelParts, formatTime12 } from './timeBlockLabel'
+import { timeBlockLabel, isTimeRangeName, blockLabelParts, formatTime12 } from './timeBlockLabel.js'
 
 describe('timeBlockLabel', () => {
   it('renders a block whose name only restates its times once, with AM/PM', () => {

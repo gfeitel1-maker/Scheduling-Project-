@@ -1,4 +1,4 @@
-import { activitiesListed, fixedEventsListed, timeBlocksListed } from './setupListSelectors'
+import { activitiesListed, fixedEventsListed, timeBlocksListed } from './setupListSelectors.js'
 
 // Audit I4 — a card's number is the row count of the screen it names, read
 // through that screen's own selector (setupListSelectors.js). Activities is the

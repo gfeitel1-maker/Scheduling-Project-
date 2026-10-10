@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { activitiesListed, fixedEventsListed, timeBlocksListed } from './setupListSelectors'
+import { activitiesListed, fixedEventsListed, timeBlocksListed } from './setupListSelectors.js'
 import { rootsCardCount } from './rootsCardCounts'
 
 // Audit I4 — one shared fixture shaped like the imported camp the audit saw:
