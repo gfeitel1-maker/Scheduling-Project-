@@ -8,6 +8,19 @@
 // counsellor sees on another laptop.
 
 import { REQUIRED_AREAS } from '../../engine/readiness'
+import { PREFILLED_AREAS } from '../../utils/setupReviewed'
+
+/**
+ * "Setup looks complete" is a claim about the director's own review, not just
+ * about row counts: a pre-filled step nobody has opened, or import questions
+ * still open, mean it is not true yet. Same inputs the rows' needs-a-look dot
+ * reads (Sidebar.jsx), so the two cannot disagree.
+ */
+export function setupStillOpen({ counts, reviewedAreas, decided, openQuestionCount = 0 }) {
+  if (openQuestionCount > 0) return true
+  if (!decided) return false
+  return PREFILLED_AREAS.some((area) => counts?.[area] > 0 && !reviewedAreas?.[area])
+}
 
 // Roots-as-Hub Slice B: 'system' is no longer a foldable nav section — Camp,
 // Conflicts, Trash and LAN & Devices moved to the Settings gear menu, which

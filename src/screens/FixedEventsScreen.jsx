@@ -884,8 +884,19 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
   // is shown in italics rather than in words, and the text keeps reading the
   // division it covers instead of "—".
   function fixedEventTierLabel(a) {
-    const { mode, unitIds } = resolveFixedEventUnitIds(a, groups)
+    const { mode, unitIds, inferred } = resolveFixedEventUnitIds(a, groups)
     if (mode === 'all') return 'All age divisions'
+    // A row scoped to specific groups (no stored division) must not read as the
+    // whole division its groups belong to: "Badger" for what is Badger 2 only.
+    if (inferred) {
+      const wanted = new Set(a.group_ids)
+      return unitIds.flatMap((tid) => {
+        const members = groups.filter((g) => g.tier_id === tid)
+        return members.every((g) => wanted.has(g.id))
+          ? [tierById[tid]].filter(Boolean)
+          : members.filter((g) => wanted.has(g.id)).map((g) => g.name)
+      }).join(', ') || '—'
+    }
     const names = unitIds.map(tid => tierById[tid]).filter(Boolean)
     return names.length ? names.join(', ') : '—'
   }

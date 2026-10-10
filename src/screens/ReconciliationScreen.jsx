@@ -11,7 +11,7 @@ import { getReadiness } from '../engine/readiness.js'
 import { withImportOwnRecords } from '../ingest/importOwnRecords.js'
 import { fetchCensusSnapshot } from '../ingest/existingSnapshot.js'
 import { describeWriteFailure } from '../utils/writeErrorMessage.js'
-import { heldConflictsToDecisions, foldTriageInputs, isDecisionResolvedFor, mapCommitError, identityRememberCalls } from './reconciliationTriage.js'
+import { heldConflictsToDecisions, foldTriageInputs, isDecisionResolvedFor, mapCommitError, identityRememberCalls, heldBackDecisions } from './reconciliationTriage.js'
 import { computeDomainCounts } from '../components/reconciliation/domainRollup.js'
 import ReconstructionMoment from '../components/reconciliation/ReconstructionMoment.jsx'
 import { shouldShowReconstructionMoment } from '../components/reconciliation/reconstructionMoment.gate.js'
@@ -239,7 +239,7 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
       // 'replace' (commitPlan's own Invariant-3 guard would throw otherwise);
       // buildCommitInputs never sets mode:'replace' AND captureInverse
       // together — foldTriageInputs' mode comes straight from baseInputs.
-      const outcome = await localClient.ingestCommit({ ...inputs, captureInverse: inputs.mode !== 'replace' })
+      const outcome = await localClient.ingestCommit({ ...inputs, openDecisions: heldBackDecisions(decisions, answersForApply), captureInverse: inputs.mode !== 'replace' })
       if (outcome?.held) {
         // A peer race held the real commit — surface it the same way the dry
         // run does, as fresh hold-lane cards, never a silent failure.
@@ -385,6 +385,9 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
 
   const totalCount = lanes.hold.length + lanes.standard.length
   const doneCount = [...lanes.hold, ...lanes.standard].filter((d) => isDecisionResolvedFor(d, answers, dismissedGaps)).length
+  const openDecisions = [...lanes.hold, ...lanes.standard].filter((d) => !isDecisionResolvedFor(d, answers, dismissedGaps))
+  const openChanged = openDecisions.filter((d) => d.kind === 'confirm_change').length
+  const questionCounts = { attention: openDecisions.length - openChanged, changed: openChanged }
   const pct = totalCount === 0 ? 100 : Math.round((doneCount / totalCount) * 100)
   const confirmedCount = Object.keys(answers).filter((id) =>
     [...lanes.hold, ...lanes.standard].some((d) => d.id === id && isDecisionResolvedFor(d, answers, dismissedGaps)),
@@ -484,6 +487,7 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
           onSelectNode={selectNode}
           onClearSelection={clearSelection}
           decisionsById={decisionsById}
+          questionCounts={questionCounts}
         />
 
         <div style={rootMapPanelWrapperStyle}>
@@ -507,16 +511,26 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
 
       {notInSourceCount > 0 && (
         <div style={styles.notInSourceGap}>
-          <span>{notInSourceCount} items not mentioned in this file — left as-is, not a problem.</span>{' '}
+          <span>{notInSourceCount} {notInSourceCount === 1 ? 'item' : 'items'} not mentioned in this file — left as-is, not a problem.</span>{' '}
           <button className="press-97" onClick={() => setShowNotInSource((v) => !v)} style={styles.linkButton}>
             {showNotInSource ? 'Hide' : 'Show them'}
           </button>
+          {showNotInSource && (
+            <ul data-testid="not-in-source-list" style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+              {(report?.readiness ?? []).filter((row) => row.state === 'optional').map((row) => (
+                <li key={row.key}>{row.label}</li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 
       <div style={styles.tray}>
         <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{tray.hint}</div>
         <div style={{ display: 'flex', gap: 10 }}>
+          {onDiscard && (
+            <button className="press-97" disabled={applying} onClick={onDiscard} style={S.btnSecondary}>Cancel</button>
+          )}
           <button
             className="press-97"
             disabled={applying}

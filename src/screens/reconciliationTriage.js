@@ -278,9 +278,19 @@ export function isDecisionResolvedFor(decision, answers, dismissedGaps = new Set
   if (decision.kind === 'confirm_value') return a.action === 'looks_right' || a.action === 'edited'
   if (decision.kind === 'confirm_change') return a.choice === 'accept' || a.choice === 'keep' || a.ack === true
   if (decision.kind === 'review_legacy_priority') return a.resolved === true
+  if (decision.kind === 'all_camp_override') return a.choice === 'all_camp' || a.choice === 'as_written'
   // Slice 3a — either answer resolves the card; only 'confirm' folds into
   // confirmedElectiveSets above.
   if (decision.kind === 'elective_candidate') return a.choice === 'confirm' || a.choice === 'decline'
   if (decision.kind === 'elective_candidates_truncated') return a.resolved === true
   return false
+}
+
+// The questions the director left open. applyResolutions holds an unanswered
+// confirm_value out of the commit, so commitPlan never sees it; these ride
+// along so "kept for later" is a record on the camp, not just a label.
+export function heldBackDecisions(decisions, answers) {
+  return decisions
+    .filter((d) => d.kind === 'confirm_value' && !isDecisionResolvedFor(d, answers))
+    .map(({ id, kind, entity, entityId, entityName, reason, title }) => ({ id, kind, entity, entityId: entityId ?? null, entityName: entityName ?? null, reason: reason ?? title ?? null }))
 }

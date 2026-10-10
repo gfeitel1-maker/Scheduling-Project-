@@ -17,6 +17,7 @@ import { normalizeName } from './preview.js'
 import { unitDisplayName } from './fieldUpdate.js'
 import { formatBlockTime12h } from './blockTimeText.js'
 import { describeAppearance } from './appearsAt.js'
+import { decisionTitle } from './decisionTitle.js'
 
 // T257 — a group's `unit` delta may carry a discriminated token
 // ({kind, id?, name}) rather than a bare string. Director-facing copy
@@ -734,8 +735,10 @@ export function buildReconciliationReport(input) {
     const appearsAt = (decision.entity === 'activities' || decision.kind === 'elective_candidate') && decision.entityName && decision.kind !== 'all_camp_override'
       ? describeAppearance(placements, decision.entityName, allGroupNames)
       : decision.entityName
+    const title = decisionTitle(decision, { placements, allGroupNames })
     return {
       ...decision,
+      ...(title ? { title } : {}),
       ...(appearsAt && appearsAt !== decision.entityName ? { appearsAt } : {}),
       blastRadius: blastRadiusIndex.get(
         blastRadiusKeyFor(decision.entity, decision.entityId, decision.entityName),

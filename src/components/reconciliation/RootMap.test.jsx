@@ -816,3 +816,20 @@ describe('RootMap grid visibility gating', () => {
     expect(attentionTile.getAttribute('aria-pressed')).toBe('false')
   })
 })
+
+describe('census tiles count questions when told to (audit 714 item 3)', () => {
+  const tile = (label) => screen.getByText(label).closest('button').firstElementChild.textContent
+  const props = { selection: { type: 'none' }, onSelectTile: noop, onSelectNode: noop, onClearSelection: noop }
+
+  it('defaults to counting groups of records, as before', () => {
+    render(<RootMap model={model()} {...props} />)
+    expect(tile('Needs attention')).toBe('1')
+  })
+
+  it('shows the open question counts it is given for Needs attention and Changed', () => {
+    render(<RootMap model={model()} {...props} questionCounts={{ attention: 41, changed: 2 }} />)
+    expect(tile('Needs attention')).toBe('41')
+    expect(tile('Changed')).toBe('2')
+    expect(tile('Understood')).toBe('0')
+  })
+})

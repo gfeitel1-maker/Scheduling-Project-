@@ -230,7 +230,7 @@ function DomainHead({ domainKey, state, selected, onSelect }) {
   )
 }
 
-export default function RootMap({ model, selection, onSelectTile, onSelectNode, onClearSelection, decisionsById }) {
+export default function RootMap({ model, selection, onSelectTile, onSelectNode, onClearSelection, decisionsById, questionCounts = null }) {
   const wholeCampEnter = useEnterTransition('settle')
   const wholeCampEmpty = model.domains.every((d) => d.children.length === 0)
   const dimmed = (domainKey, childKey) => {
@@ -250,6 +250,13 @@ export default function RootMap({ model, selection, onSelectTile, onSelectNode, 
     )
     return acc
   }, {})
+  // The screen beside these tiles counts QUESTIONS ("0 of 41 answered"); a tile
+  // counting kinds of record ("1 Needs attention") read as a contradiction.
+  // Needs attention and Changed take the open-question counts when given.
+  if (questionCounts) {
+    tileCounts.attention = questionCounts.attention
+    tileCounts.changed = questionCounts.changed
+  }
 
   // Pulse scoping (Governor consolidation) — attention chips only breathe
   // inside the currently focused/selected domain layer, never all at once.

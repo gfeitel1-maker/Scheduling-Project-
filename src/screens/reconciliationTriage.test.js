@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { heldConflictsToDecisions, foldTriageInputs, isDecisionResolvedFor, mapCommitError, identityRememberCalls } from './reconciliationTriage.js'
+import { heldConflictsToDecisions, foldTriageInputs, isDecisionResolvedFor, mapCommitError, identityRememberCalls, heldBackDecisions } from './reconciliationTriage.js'
 
 describe('heldConflictsToDecisions', () => {
   it('folds an ambiguous_identity conflict into a resolve_conflict decision, held-flagged', () => {
@@ -349,5 +349,25 @@ describe('mapCommitError', () => {
 
   it('falls back to describeWriteFailure for anything else', () => {
     expect(mapCommitError(new Error('boom'))).toMatch(/Nothing was imported/)
+  })
+})
+
+describe('heldBackDecisions (audit 714 item 1)', () => {
+  const cv = (id, over = {}) => ({ id, kind: 'confirm_value', entity: 'activities', entityName: id, ...over })
+  it('returns the unanswered confirm_value decisions, and only those', () => {
+    const decisions = [cv('a'), cv('b'), { id: 'c', kind: 'resolve_conflict', entity: 'groups' }, { id: 'd', kind: 'confirm_change', entity: 'groups' }]
+    const out = heldBackDecisions(decisions, { b: { action: 'looks_right' } })
+    expect(out.map((d) => d.id)).toEqual(['a'])
+  })
+  it('includes unanswered fixed events', () => {
+    expect(heldBackDecisions([cv('f', { entity: 'fixed_events' })], {}).map((d) => d.id)).toEqual(['f'])
+  })
+  it('says what the question was when the decision carries no reason', () => {
+    const [d] = heldBackDecisions([cv('a', { title: 'Add Carpool as an activity?' })], {})
+    expect(d.reason).toBe('Add Carpool as an activity?')
+  })
+  it('sends only what the store needs', () => {
+    const [d] = heldBackDecisions([cv('a', { evidence: { big: 1 }, reason: 'why' })], {})
+    expect(Object.keys(d).sort()).toEqual(['entity', 'entityId', 'entityName', 'id', 'kind', 'reason'])
   })
 })

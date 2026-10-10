@@ -33,6 +33,7 @@ export function useSetupCounts(campId) {
   const [countsFor, setCountsFor] = useState(null)
   const [syncStatus, setSyncStatus] = useState(null)
   const [offerShown, setOfferShown] = useState(false)
+  const [openQuestionCount, setOpenQuestionCount] = useState(0)
 
   const refreshCounts = useCallback(async () => {
     const areas = Object.keys(AREA_TABLE)
@@ -69,6 +70,10 @@ export function useSetupCounts(campId) {
       return next
     })
     setCountsFor({ campId, complete })
+    // Import questions the director left open: "setup looks complete" is not
+    // true while any remain. A failed read counts as none, like the lists above.
+    const open = await Promise.resolve(localClient.listOpenReconciliationDecisions?.()).catch(() => [])
+    setOpenQuestionCount(Array.isArray(open) ? open.length : 0)
   }, [campId])
 
   useEffect(() => {
@@ -153,5 +158,6 @@ export function useSetupCounts(campId) {
     handleShowBackup,
     offerShown,
     setOfferShown,
+    openQuestionCount,
   }
 }

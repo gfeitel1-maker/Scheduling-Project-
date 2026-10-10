@@ -521,7 +521,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // and localClient both already await/resolve their handler's return value
   // either way) — but every pre-T117 caller, which never passes placements,
   // keeps getting the outcome object back synchronously, unchanged.
-  function ingestCommit({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, placements, sourceFileName, compoundCellDecisions, divisionSupport } = {}) {
+  function ingestCommit({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, placements, sourceFileName, compoundCellDecisions, divisionSupport, openDecisions } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const session = requireAuthorized(db, { token, action: 'groups.import' })
     // T351 — any device holding 'groups.import' may run this, on a trusted, non-revoked device
@@ -538,6 +538,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       // this division), written as import_evidence. Inference support only:
       // a division the file STATED is filtered out renderer-side.
       divisionSupport: divisionSupport ?? {},
+      openDecisions: openDecisions ?? [],
       // ADR 2026-08-09 Decision 2 — the S4b clear path (record.clears) now has
       // a real caller from a raw schedule import too, and the item-level
       // human/import provenance side-channel for the unit field. Both arrive

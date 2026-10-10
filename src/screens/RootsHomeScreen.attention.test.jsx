@@ -137,4 +137,20 @@ describe('RootsHomeScreen attention rows — T237', () => {
     fireEvent.click(screen.getByTestId('attention-overflow'))
     expect(onNavigate).toHaveBeenCalledWith('reconciliation')
   })
+
+  it('lists import questions kept for later instead of saying All clear, and opens them (audit 714)', async () => {
+    const collections = collectionsFor()
+    localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
+    localClient.listOpenReconciliationDecisions.mockResolvedValue([
+      { id: 'activities:null:create:Carpool', kind: 'confirm_value', domain_key: 'Scheduling', child_key: 'Activities', entity_id: null, entity_name: 'Carpool', reason: 'Seen only once in the file.' },
+    ])
+    const onNavigate = vi.fn()
+
+    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={onNavigate} />)
+    const rail = screen.getByRole('complementary', { name: 'Needs your attention' })
+    await waitFor(() => expect(within(rail).queryByText('Carpool')).not.toBeNull())
+    expect(within(rail).queryByText('All clear')).toBeNull()
+    fireEvent.click(within(rail).getByText('Carpool').closest('button'))
+    expect(onNavigate).toHaveBeenCalledWith('reconciliation')
+  })
 })

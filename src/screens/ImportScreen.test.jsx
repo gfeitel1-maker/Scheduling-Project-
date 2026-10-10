@@ -346,6 +346,21 @@ describe('ImportScreen — inferred activity rules (T35)', () => {
     expect(screen.getByText(/in every Program/).textContent).toContain('5')
   })
 
+  // Audit 714 — a brand-new camp already holds its five weekdays
+  // (src/utils/setupReviewed.js). Offering "Keep them / Replace them" for those
+  // asks a question about nothing the director set up.
+  it('does not offer Keep/Replace when the only thing set up is the default days', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'days_of_operation') {
+        return Promise.resolve(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].map((d, i) => ({ id: `d${i}`, day_of_week: i + 1, name: d })))
+      }
+      return Promise.resolve([])
+    })
+    await uploadFile()
+    expect(screen.queryByText(/already set up, camp-wide/)).toBeNull()
+    expect(screen.queryByText(/Replace them/)).toBeNull()
+  })
+
   // Round 2 (second reviewer) — the commit button label was still gated on
   // the Program-scoped count, so a multi-Program camp whose active Program
   // holds zero REPLACEABLE rows saw the Replace confirmation panel (driven by

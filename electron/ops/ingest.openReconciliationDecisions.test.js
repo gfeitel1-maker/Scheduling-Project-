@@ -112,4 +112,34 @@ describe('commitPlan writes open_reconciliation_decisions', () => {
     expect(() => commit({ approved: { template_slots: ['x'] } })).toThrow()
     expect(openRows()).toEqual(before)
   })
+  describe('questions the director left open and the renderer held back (audit 714 item 1)', () => {
+    const held = (over = {}) => ({
+      id: 'activities:null:create:Carpool', kind: 'confirm_value', entity: 'activities',
+      entityId: null, entityName: 'Carpool', reason: 'Seen only once in the file.', ...over,
+    })
+
+    it('persists a held-back decision that never entered the plan', () => {
+      commit({ approved: { groups: ['Bunk 1'] }, openDecisions: [held()] })
+      const rows = openRows()
+      expect(rows.map((r) => r.entity_name)).toEqual(['Carpool'])
+      expect(rows[0].kind).toBe('confirm_value')
+      expect(rows[0].entity_type).toBe('activities')
+    })
+
+    it('persists a held-back fixed event', () => {
+      commit({ approved: { groups: ['Bunk 1'] }, openDecisions: [held({ id: 'fixed_events:null:confirm_value:r:Carpool:b:Mon', entity: 'fixed_events', entityName: 'Carpool' })] })
+      expect(openRows().map((r) => r.entity_type)).toEqual(['fixed_events'])
+    })
+
+    it('a later commit with nothing held back clears the stale row', () => {
+      commit({ approved: { groups: ['Bunk 1'] }, openDecisions: [held()] })
+      commit({ approved: { activities: ['Carpool'] } })
+      expect(openRows()).toHaveLength(0)
+    })
+
+    it('ignores malformed entries rather than throwing', () => {
+      commit({ approved: { groups: ['Bunk 1'] }, openDecisions: [null, { id: 5 }, { id: 'x', kind: 'resolve_conflict', entity: 'activities' }, held()] })
+      expect(openRows()).toHaveLength(1)
+    })
+  })
 })

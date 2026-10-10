@@ -653,3 +653,65 @@ describe('shared import frame (design F5)', () => {
     expect(frame.style.margin).toBe('')
   })
 })
+
+describe('audit 714: "not mentioned in this file" names its items', () => {
+  it('Show them lists as many items as the line counts', async () => {
+    localClient.ingestReconcile.mockResolvedValue(understoodOnlyResult())
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
+    const line = await screen.findByText(/items? not mentioned in this file/)
+    const n = Number(line.textContent.match(/^(\d+)/)[1])
+    expect(n).toBeGreaterThan(0)
+    expect(screen.queryByTestId('not-in-source-list')).toBeNull()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Show them' }))
+    const list = screen.getByTestId('not-in-source-list')
+    expect(list.querySelectorAll('li')).toHaveLength(n)
+    for (const li of list.querySelectorAll('li')) expect(li.textContent.trim()).not.toBe('')
+  })
+})
+
+describe('audit 714: the counters agree', () => {
+  it('Needs attention counts the open questions and drops as they are answered', async () => {
+    localClient.ingestReconcile.mockResolvedValue(oneChangedResult())
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
+    await screen.findByText(/0 of 1 question/)
+    const tile = () => screen.getByText('Needs attention').closest('button').firstElementChild.textContent
+    expect(tile()).toBe('1')
+    await userEvent.click(screen.getByText('Use this value'))
+    await screen.findByText(/1 of 1 question/)
+    expect(tile()).toBe('0')
+  })
+})
+
+describe('audit 714: leaving the review', () => {
+  it('Cancel discards the staged import without committing anything', async () => {
+    localClient.ingestReconcile.mockResolvedValue(oneChangedResult())
+    const onDiscard = vi.fn()
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={onDiscard} onNavigate={vi.fn()} />)
+    await screen.findByText(/0 of 1 question/)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(onDiscard).toHaveBeenCalledTimes(1)
+    expect(localClient.ingestCommit).not.toHaveBeenCalled()
+  })
+
+  it('has no Cancel when the host gave nowhere to go back to', async () => {
+    localClient.ingestReconcile.mockResolvedValue(oneChangedResult())
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onNavigate={vi.fn()} />)
+    await screen.findByText(/0 of 1 question/)
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull()
+  })
+
+  it('commits the questions left open so Roots can list them', async () => {
+    localClient.ingestReconcile.mockResolvedValue(oneChangedResult())
+    localClient.ingestCommit.mockResolvedValue({ total: 1 })
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
+    await screen.findByText(/0 of 1 question/)
+
+    await userEvent.click(screen.getByRole('button', { name: /Use what Shoresh understood/ }))
+    await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
+    expect(localClient.ingestCommit.mock.calls[0][0].openDecisions).toEqual([
+      expect.objectContaining({ entity: 'activities', entityName: 'Swim', kind: 'confirm_value' }),
+    ])
+  })
+})
