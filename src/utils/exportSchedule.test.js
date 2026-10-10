@@ -137,8 +137,8 @@ describe('exportToExcel — multi-period span (T248 leftover)', () => {
     const masterRows = sheetRows(wb, 'All Groups')
     expect(masterRows).toEqual([
       ['Group', 'Day', 'Time Block', 'Activity'],
-      ['Bunk 1', 'Monday', 'Period 1', 'Swimming'],
-      ['Bunk 1', 'Monday', 'Period 2', 'Swimming'],
+      ['Bunk 1', 'Monday', 'Period 1 (9:00–10:00 AM)', 'Swimming'],
+      ['Bunk 1', 'Monday', 'Period 2 (10:00–11:00 AM)', 'Swimming'],
     ])
   })
 })
@@ -168,8 +168,8 @@ describe('exportToExcel — replaced day', () => {
       ['Notes', 'Wear team colours'],
     ])
     const master = sheetRows(wb, 'All Groups')
-    expect(master).toContainEqual(['Bunk 1', 'Tuesday', 'Opening', 'Kayaking'])
-    expect(master).not.toContainEqual(['Bunk 1', 'Tuesday', 'Period 1', 'Swimming'])
+    expect(master).toContainEqual(['Bunk 1', 'Tuesday', 'Opening (9:00–9:30 AM)', 'Kayaking'])
+    expect(master).not.toContainEqual(['Bunk 1', 'Tuesday', 'Period 1 (9:00–10:00 AM)', 'Swimming'])
   })
 
   it('an empty special day prints its name, a single dash line, and notes', () => {
@@ -203,5 +203,20 @@ describe('exportToExcel — a time-named block prints its range once (I3)', () =
       ],
     })
     expect(sheetRows(wb, 'Monday').map(r => r[0])).toEqual(['Time Block', '12:55–1:35 PM', 'Lunch (11:30 AM–12:15 PM)'])
+  })
+
+  it('the All Groups sheet uses the same label as the day sheets (not the raw block name)', () => {
+    const wb = capturedWorkbook({
+      slots: [
+        { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'a1', elective_set_id: null },
+        { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'a1', elective_set_id: null },
+      ],
+      activities: [{ id: 'a1', name: 'Swim' }], fixedEvents: [], groups: [{ id: 'g1', name: 'Bunk 1' }], days: [{ id: 'd1', label: 'Monday' }],
+      timeBlocks: [
+        { id: 'b1', name: '12:55-01:35', start_time: '12:55:00', end_time: '13:35:00' },
+        { id: 'b2', name: 'Lunch', start_time: '11:30:00', end_time: '12:15:00' },
+      ],
+    })
+    expect(sheetRows(wb, 'All Groups').map(r => r[2])).toEqual(['Time Block', '12:55–1:35 PM', 'Lunch (11:30 AM–12:15 PM)'])
   })
 })

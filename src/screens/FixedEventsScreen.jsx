@@ -300,7 +300,8 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
   const [error, setError] = useState(null)
   const [pendingDelete, setPendingDelete] = useState(null) // fixed event being confirmed for delete
   const [deleting, setDeleting] = useState(false)
-  const [pendingDeleteAll, setPendingDeleteAll] = useState(false)
+  // null, or the exact ids the open Delete All confirm names (fetched fresh when it opens).
+  const [pendingDeleteAll, setPendingDeleteAll] = useState(null)
   const [deletingAll, setDeletingAll] = useState(false)
   const deleteInFlight = useRef(false)
   const fileRef = useRef()
@@ -559,21 +560,25 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
     }
   }
 
-  function deleteAll() {
-    setPendingDeleteAll(true)
+  // Re-fetch when the confirm opens, not from the closed-over `fixedEvents` state: a row synced in
+  // from another device after page-load must be both counted in the confirm and deleted. The confirm
+  // names exactly these ids, and exactly these are deleted.
+  async function deleteAll() {
+    try {
+      const fresh = await localClient.list('fixed_events')
+      // Same selector the screen lists through: only THIS screen's kind. The recurring and fixed
+      // screens share the fixed_events table, so a camp+cohort filter alone would delete the other
+      // screen's rows too.
+      setPendingDeleteAll(fixedEventsListed(fresh, { campId, cohortId: activeCohort?.id, kind }).map(a => a.id))
+    } catch (err) {
+      setError(`Could not load ${eventLabelPlural} to delete: ${err?.message ?? err}`)
+    }
   }
 
   async function confirmDeleteAll() {
     setDeletingAll(true)
     try {
-      // Re-fetch immediately rather than using the closed-over `fixedEvents`
-      // state — a row synced in from another device between page-load and
-      // this click must not be silently skipped. The delete loop itself now
-      // lives in the shared repository; scoping (camp + cohort) stays here.
-      const freshFixedEvents = await localClient.list('fixed_events')
-      const ids = (freshFixedEvents || [])
-        .filter(a => a.camp_id === campId && a.cohort_id === activeCohort?.id)
-        .map(a => a.id)
+      const ids = pendingDeleteAll
       const { succeeded, failed, failedDueToRole } = await repository.deleteAllRecords('fixed_events', ids)
       await load()
       if (failed > 0) {
@@ -587,7 +592,7 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
       setError(describeWriteFailure(err, `Those ${eventLabelPlural} could not be deleted.`))
     } finally {
       setDeletingAll(false)
-      setPendingDeleteAll(false)
+      setPendingDeleteAll(null)
     }
   }
 
@@ -1058,12 +1063,12 @@ export default function FixedEventsScreen({ campId, role, onNavigate, kind = 're
 
       {pendingDeleteAll && (
         <ConfirmDangerDialog
-          title={`Delete all ${eventLabelPlural}?`}
+          title={`Delete ${pendingDeleteAll.length} ${pendingDeleteAll.length === 1 ? eventLabel : eventLabelPlural}?`}
           recovery="They can be restored from Trash."
           confirmLabel={`Delete All ${eventLabelPluralCap}`}
           busy={deletingAll}
           onConfirm={confirmDeleteAll}
-          onCancel={() => setPendingDeleteAll(false)}
+          onCancel={() => setPendingDeleteAll(null)}
         />
       )}
     </div>

@@ -59,7 +59,7 @@ export function exportToExcel({ slots, activities, fixedEvents, groups, days, ti
       if (replacement) {
         for (const block of replacement.blocks) {
           const { label } = replacedCellLabel({ replacement, groupId: group.id, blockId: block.id, actMap })
-          if (label) masterRows.push([group.name, day.label, block.name, label])
+          if (label) masterRows.push([group.name, day.label, timeBlockLabel(block), label])
         }
         continue
       }
@@ -67,7 +67,7 @@ export function exportToExcel({ slots, activities, fixedEvents, groups, days, ti
         const slot = slots.find(s => s.group_id === group.id && s.day_id === day.id && s.time_block_id === block.id)
         if (!slot) continue
         const actName = formatCellLabel(resolveSlotCell(slot, lookups), { fixedEventBracket: true })
-        masterRows.push([group.name, day.label, block.name, actName])
+        masterRows.push([group.name, day.label, timeBlockLabel(block), actName])
       }
     }
   }
