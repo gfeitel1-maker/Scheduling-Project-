@@ -682,10 +682,43 @@ export function recordFieldKeys(doc, entity, entityId) {
 // instead, the one place applyOneWriteInto needs it to gate a write by field name.
 export const CAMP_AUTHORITY_LOG_FIELDS = ['kind', 'target_device_id', 'target_peer_id', 'signer_device_id', 'signature']
 
+// Per-batch key index (applyWrites). A delete must find every key of one record in the entity's
+// flat collection and in the two marks collections; listing a whole collection per delete made a
+// Replace re-import (one batch deleting every setup record) O(deletes x keys) inside one
+// A.change, and froze the main process for over a minute on an imported camp. Within a batch
+// each collection is listed once, keys are grouped by record, and keys the batch itself sets are
+// added as it goes. Without a batch (a single applyWrite) it lists, as before.
+const recordGroup = (key) => splitRecordKey(key)?.entityId ?? null
+// A marks key is `${entity}\0${entityId}\0${field}`: grouped by everything up to the field.
+const markGroup = (key) => key.slice(0, key.lastIndexOf(FIELD_DELIM) + 1)
+
+function keysInGroup(d, batch, collName, group, groupOf) {
+  const coll = d[collName]
+  if (!coll) return []
+  if (!batch) return Object.keys(coll).filter((key) => groupOf(key) === group)
+  let index = batch.get(collName)
+  if (!index) {
+    index = new Map()
+    for (const key of Object.keys(coll)) addToGroup(index, groupOf(key), key)
+    batch.set(collName, index)
+  }
+  return [...(index.get(group) ?? [])].filter((key) => key in coll)
+}
+
+function addToGroup(index, group, key) {
+  if (!index.has(group)) index.set(group, new Set())
+  index.get(group).add(key)
+}
+
+function noteKey(batch, collName, key, groupOf) {
+  const index = batch?.get(collName)
+  if (index) addToGroup(index, groupOf(key), key)
+}
+
 // The per-field body of a write, applied INSIDE an open A.change. Extracted so
 // applyWrite and applyWrites share one implementation rather than two copies —
 // provenance/authorship/tombstone semantics drift the moment there are two.
-function applyOneWriteInto(d, { entity, entity_id, field, value, source, author_user_id }) {
+function applyOneWriteInto(d, { entity, entity_id, field, value, source, author_user_id }, batch = null) {
   const fields = entity === 'camp_authority_log' ? CAMP_AUTHORITY_LOG_FIELDS : PROJECTIONS[entity].fields
   // Lazy top-up (see genesis comment above): a document persisted before `entity` existed in
   // MODELED_ENTITIES (or a genesis-cloned doc whose frozen entity list predates it) has no
@@ -697,10 +730,7 @@ function applyOneWriteInto(d, { entity, entity_id, field, value, source, author_
   if (field === DELETE_FIELD) {
     // A delete removes every field key for this record. There is no container
     // to remove — that absence is the point of the shape.
-    const prefix = `${entity_id}${FIELD_DELIM}`
-    for (const key of Object.keys(coll)) {
-      if (key.startsWith(prefix) && splitRecordKey(key)?.entityId === entity_id) delete coll[key]
-    }
+    for (const key of keysInGroup(d, batch, entity, entity_id, recordGroup)) delete coll[key]
     // A deleted record's provenance goes with it. Leaving markers behind would
     // let a later record reusing the same id inherit a hand-edited claim it
     // never earned.
@@ -708,9 +738,7 @@ function applyOneWriteInto(d, { entity, entity_id, field, value, source, author_
     for (const collection of [PROVENANCE_COLLECTION, AUTHOR_COLLECTION]) {
       const marks = d[collection]
       if (!marks) continue
-      for (const key of Object.keys(marks)) {
-        if (key.startsWith(markerPrefix)) delete marks[key]
-      }
+      for (const key of keysInGroup(d, batch, collection, markerPrefix, markGroup)) delete marks[key]
     }
     // WHO DELETED IT — a deliberate tombstone, and the one marker that has to
     // OUTLIVE the record it describes.
@@ -733,12 +761,18 @@ function applyOneWriteInto(d, { entity, entity_id, field, value, source, author_
     // record permanently marked as deleted-by-someone.
     if (author_user_id) {
       const authors = d[AUTHOR_COLLECTION]
-      if (authors) authors[authorKey(entity, entity_id, DELETE_FIELD)] = author_user_id
+      if (authors) {
+        const tombstoneKey = authorKey(entity, entity_id, DELETE_FIELD)
+        authors[tombstoneKey] = author_user_id
+        noteKey(batch, AUTHOR_COLLECTION, tombstoneKey, markGroup)
+      }
     }
     return
   }
   if (!fields.includes(field)) return
-  coll[recordKey(entity_id, field)] = storedValue(entity, field, coerceOpValue(value))
+  const fieldKey = recordKey(entity_id, field)
+  coll[fieldKey] = storedValue(entity, field, coerceOpValue(value))
+  noteKey(batch, entity, fieldKey, recordGroup)
   // Provenance tracks the LATEST write's ownership, so an import write CLEARS
   // a human marker rather than leaving it. A director accepting an imported
   // value (S2b's stale-accept passes source:'import') hands ownership back to
@@ -762,7 +796,10 @@ function applyOneWriteInto(d, { entity, entity_id, field, value, source, author_
       // the same failure this ADR exists to fix, arriving from the opposite
       // direction.
       if (source === 'import') delete prov[pKey]
-      else prov[pKey] = HUMAN_PROVENANCE
+      else {
+        prov[pKey] = HUMAN_PROVENANCE
+        noteKey(batch, PROVENANCE_COLLECTION, pKey, markGroup)
+      }
     }
   }
   // Authorship, on the same "omitted leaves it unchanged" rule as provenance —
@@ -774,7 +811,10 @@ function applyOneWriteInto(d, { entity, entity_id, field, value, source, author_
     if (authors) {
       const aKey = authorKey(entity, entity_id, field)
       if (author_user_id === null) delete authors[aKey]
-      else authors[aKey] = author_user_id
+      else {
+        authors[aKey] = author_user_id
+        noteKey(batch, AUTHOR_COLLECTION, aKey, markGroup)
+      }
     }
   }
   // The record exists again, so any deleted-by tombstone is stale. Cleared on
@@ -810,7 +850,8 @@ export function applyWrites(doc, writes) {
     assertModeled(w.entity)
   }
   return A.change(doc, (d) => {
-    for (const w of writes) applyOneWriteInto(d, w)
+    const batch = new Map()
+    for (const w of writes) applyOneWriteInto(d, w, batch)
   })
 }
 
