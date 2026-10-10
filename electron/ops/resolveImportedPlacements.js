@@ -9,6 +9,7 @@
 
 import { normalizeName } from '../../src/ingest/preview.js'
 import { timeBlockLabel } from '../../src/utils/timeBlockLabel.js'
+import { formatBlockTime12h } from '../../src/ingest/blockTimeText.js'
 
 /**
  * @param {Array<{groupName, dayName, blockLabel, activityName}>} placements
@@ -85,7 +86,7 @@ export function describeUnresolved(unresolved, timeBlocks = []) {
       activityName: u.activityName,
       groupName: u.groupName,
       dayName: u.dayName,
-      blockText: block ? timeBlockLabel(block) : u.blockLabel,
+      blockText: block ? timeBlockLabel(block) : formatBlockTime12h(u.blockLabel),
       reason: u.reason,
     }
   })

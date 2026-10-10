@@ -617,7 +617,7 @@ describe('ImportScreen — the grace-window undo offer reaches the post-commit t
   it('replace: names what was left out (day, 12-hour time, groups), offers the add in place, and never says ready', async () => {
     const onNavigate = await commitWithVersion(kayakVersion)
     expect(await screen.findByText(/2 placements left out of the imported schedule/)).toBeTruthy()
-    expect(screen.getByText('Monday 9:00–9:45 AM: Bunk 1 and Bunk 2')).toBeTruthy()
+    expect(screen.getByText('Mon 9:00–9:45 AM · Bunk 1, Bunk 2')).toBeTruthy()
     expect(screen.queryByText(/ready/i)).toBeNull()
     expect(document.body.textContent).not.toMatch(/import the file again/)
     await userEvent.click(screen.getByText('Add “Kayak” as an activity'))

@@ -20,14 +20,20 @@ describe('leftOutPlacements', () => {
     })
     expect(r.count).toBe(3)
     expect(r.entries).toHaveLength(1)
-    expect(r.entries[0].spots).toEqual(['Monday 9:00–9:45 AM: Bunk 1 and Bunk 2', 'Tuesday 9:00–9:45 AM: Bunk 2'])
+    expect(r.entries[0].spots).toEqual(['Mon 9:00–9:45 AM · Bunk 1, Bunk 2', 'Tue 9:00–9:45 AM · Bunk 2'])
     expect(r.entries[0].action).toEqual({ kind: 'addActivity', label: 'Add “Kayak” as an activity' })
+  })
+
+  it('collapses consecutive days and numbered groups into one line', () => {
+    const items = []
+    for (const d of ['Monday', 'Tuesday', 'Wednesday', 'Thursday']) for (const g of ['Bunk 1', 'Bunk 2', 'Bunk 3', 'Bunk 4']) items.push(item('Kayak', d, '9:00–9:45 AM', g))
+    expect(leftOutPlacements({ created: true, unresolvedItems: items }).entries[0].spots).toEqual(['Mon–Thu 9:00–9:45 AM · Bunk 1–4'])
   })
 
   it('caps names and spots with and-N-more', () => {
     const items = []
     for (let n = 0; n < 7; n++) items.push(item(`Act${n}`, 'Monday', '9:00 AM', 'G'))
-    for (let d = 0; d < 6; d++) items.push(item('Act0', `D${d}`, '9:00 AM', 'G'))
+    for (let d = 0; d < 6; d++) items.push(item('Act0', 'Monday', `${d + 1}:00 PM`, 'G'))
     const r = leftOutPlacements({ created: true, unresolvedItems: items })
     expect(r.entries).toHaveLength(5)
     expect(r.moreNames).toBe(2)
