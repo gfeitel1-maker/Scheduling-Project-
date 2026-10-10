@@ -20,7 +20,12 @@ import { randomUUID } from 'node:crypto'
 import { openTemplatedDb, cleanupTemplatedDbs } from './db/testDbTemplate.js'
 import { commitIngest } from './ops/ingest.js'
 import { appendOp } from './ops/operations.js'
-import { materializeImportedVersion } from './ops/materializeImportedVersion.js'
+import { appendOp } from './ops/operations.js'
+import { normalizeScheduleInputs, SCHEDULE_INPUT_ENTITIES } from './ops/scheduleInputNormalization.js'
+import { resolvePriorityForGeneration } from '../src/ingest/resolvePriorityForGeneration.js'
+import buildSchedule from '../src/engine/buildSchedule.js'
+import { materializeImportedVersion, nameMap } from './ops/materializeImportedVersion.js'
+import { normalizeName } from '../src/ingest/preview.js'
 import { normalizeScheduleInputs, SCHEDULE_INPUT_ENTITIES } from './ops/scheduleInputNormalization.js'
 import { parseTextGrid } from '../src/ingest/textGrid.js'
 import { extractEntities } from '../src/ingest/extractEntities.js'
@@ -170,5 +175,66 @@ describe('an unanswered numbered-sibling event is held back, not pinned', () => 
     expect(rows.length).toBeGreaterThan(0)
     expect(rows.every((r) => r.activity_id)).toBe(true)
     d.close()
+  })
+})
+
+// Owner regression: "lunch was skipped for half of the groups". Per group AND
+// per day, every Lunch/Menucha cell the file shows must be covered by a fixed
+// event of that name at that block, with zero answers and with every card
+// confirmed. "Lunch exists somewhere" is how this regressed.
+describe.each([
+  ['zero answers', () => null],
+  ['every card confirmed', (dec) => (dec.entity === 'fixed_events' ? { action: 'looks_right' } : null)],
+])('every group gets its meal on every day the file shows it (%s)', (_label, answerFor) => {
+  let d, id, imp
+  beforeAll(() => {
+    ;({ d, id } = seedDirectorCamp())
+    imp = importUnanswered(d, id, fs.readFileSync(SAMPLE, 'utf8'), answerFor)
+  }, 60_000)
+  afterAll(() => d?.close())
+
+  it('leaves no placement out of the imported version', async () => {
+    const { placements } = capturePlacements({ pages: imp.parsed.pages }, imp.proposal)
+    const writeClient = {
+      async write({ entity, entity_id, field, value, author_user_id }) {
+        return { status: 'applied', op: appendOp(d, { entity, entity_id, field, value, author_user_id, device_id: deviceId }) }
+      },
+    }
+    const out = await materializeImportedVersion(d, writeClient, { campId: id, authorUserId: userId, placements })
+    expect({ count: out.unresolvedCount, names: [...new Set(out.unresolvedNames)] }).toEqual({ count: 0, names: [] })
+  })
+
+  it('Generate leaves every meal cell as a fixed event, never an activity', () => {
+    const rowsByEntity = {}
+    for (const entity of SCHEDULE_INPUT_ENTITIES) rowsByEntity[entity] = d.prepare(`SELECT * FROM ${entity}`).all()
+    const { cohorts: _c, ...flat } = normalizeScheduleInputs(rowsByEntity, id)
+    const result = buildSchedule({ ...flat, activities: resolvePriorityForGeneration(flat.activities), campId: id, replacedDayIds: [] })
+    const fixedKeys = new Set(result.slots.filter((s) => s.type === 'fixed_event').map((s) => `${s.groupId}|${s.dayId}|${s.blockId}`))
+    const { placements } = capturePlacements({ pages: imp.parsed.pages }, imp.proposal)
+    const groupId = nameMap(d, 'groups', id)
+    const dayId = nameMap(d, 'days_of_operation', id, 'label')
+    const blockId = nameMap(d, 'time_blocks', id)
+    const lost = placements.filter((p) => /^lunch\b|^menucha$/i.test(p.activityName))
+      .filter((p) => !fixedKeys.has(`${groupId.get(normalizeName(p.groupName))}|${dayId.get(normalizeName(p.dayName))}|${blockId.get(normalizeName(p.blockLabel))}`))
+      .map((p) => `${p.groupName}|${p.dayName}|${p.blockLabel}`)
+    expect(lost).toEqual([])
+  })
+
+  it('covers every group the file gives a meal (13 of 14), per day, at the block the file shows', () => {
+    const { placements } = capturePlacements({ pages: imp.parsed.pages }, imp.proposal)
+    const meals = placements.filter((p) => /^lunch\b|^menucha$/i.test(p.activityName))
+    const groupId = nameMap(d, 'groups', id)
+    const dayId = nameMap(d, 'days_of_operation', id, 'label')
+    const blockId = nameMap(d, 'time_blocks', id)
+    const fixed = d.prepare('SELECT name, day_id, time_block_id, is_all_groups, group_ids FROM fixed_events WHERE camp_id = ?').all(id)
+    const missing = meals.filter((p) => {
+      const g = groupId.get(normalizeName(p.groupName))
+      return !fixed.some((fe) => normalizeName(fe.name) === normalizeName(p.activityName)
+        && fe.day_id === dayId.get(normalizeName(p.dayName))
+        && fe.time_block_id === blockId.get(normalizeName(p.blockLabel))
+        && (fe.is_all_groups || JSON.parse(fe.group_ids ?? '[]').includes(g)))
+    }).map((p) => `${p.groupName}|${p.dayName}|${p.blockLabel}|${p.activityName}`)
+    expect(new Set(meals.map((p) => p.groupName)).size).toBe(13) // the file shows no meal for CIT
+    expect(missing).toEqual([])
   })
 })

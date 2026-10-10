@@ -152,8 +152,14 @@ export function applyResolutions({ approved, decisions, answers, fixedEvents }) 
     }
   }
 
+  // An unanswered question keeps the file's meaning: a low-confidence event the
+  // file plainly shows (weekly or daily evidence, or any meal) still imports.
+  // Only a lone numbered sibling that is not a meal ("Specialty 4") is held —
+  // it is the one shape that may be a stray cell rather than a schedule fact.
+  const MEAL_NAME = /^(lunch|menucha|breakfast|dinner|snack)\b/i
   const nextFixedEvents = (fixedEvents ?? []).filter(
     (fe) => !heldFixedEventKeys.has(fixedEventMatchKey(fe.name, fe.time_block, fe.days))
+      || (fe.support?.basis !== 'sibling' || MEAL_NAME.test(String(fe.name ?? '').trim()))
   )
 
   return { approved: nextApproved, resolutions, fixedEvents: nextFixedEvents }
