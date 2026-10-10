@@ -28,6 +28,8 @@ import { activityTruthStatus } from '../../src/ingest/truthStatus.js'
 import { resolveLocationCreateId } from './locationCreate.js'
 import { deriveDayId } from './dayId.js'
 import { PROJECTIONS } from './projections.js'
+import { writeRouteSnapshot, campCatalog } from './deleteRecord.js'
+import { attachNames } from '../../src/utils/snapshotRemap.js'
 import { U2_DELETABLE_ENTITIES, referencesInto } from './undoReferences.js'
 import { buildReconciliationReport } from '../../src/ingest/reconciliationReport.js'
 import { replaceOpenDecisionsForCommit } from './openReconciliationDecisions.js'
@@ -1764,6 +1766,34 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     // creates, which also lets the new records reuse the old names against
     // UNIQUE(camp_id, name).
     if (mode === 'replace') {
+      // R1: replaceScope deletes every template_slots row (step 1) on both
+      // routes. Save each route that has placements as a version FIRST; a throw
+      // here rolls back the whole transaction, so a failed save clears nothing.
+      // Old versions saved without names would be unrestorable once the ids
+      // change; name their cells now, while the catalog still exists.
+      const catalog = campCatalog(db, camp_id)
+      const unnamed = db.prepare(
+        `SELECT v.id, v.slots FROM schedule_snapshots v JOIN schedule_templates t ON t.id = v.template_id
+          WHERE t.camp_id = ? AND v.slots IS NOT NULL`
+      ).all(camp_id)
+      for (const v of unnamed) {
+        let parsed
+        try { parsed = JSON.parse(v.slots) } catch { continue }
+        if (!Array.isArray(parsed) || parsed.every((sl) => sl.names)) continue
+        appendOp(db, {
+          entity: 'schedule_snapshots', entity_id: v.id, field: 'slots',
+          value: JSON.stringify(parsed.map((sl) => (sl.names ? sl : attachNames(sl, catalog)))),
+          author_user_id: author_user_id ?? null, device_id,
+        })
+      }
+      const routesWithSlots = db.prepare(
+        `SELECT t.id FROM schedule_templates t
+          WHERE t.camp_id = ? AND EXISTS (SELECT 1 FROM template_slots s WHERE s.template_id = t.id)`
+      ).all(camp_id)
+      const savedAt = new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+      for (const { id } of routesWithSlots) {
+        writeRouteSnapshot(db, { template_id: id, name: `Before replace — ${savedAt}`, author_user_id, device_id })
+      }
       // T183 PR-2: snapshot division scope BEFORE the teardown erases it. Read
       // the live fixed events' unit_ids and resolve them to division NAMES against
       // the pre-teardown tiers (ids are about to change). Keyed by the

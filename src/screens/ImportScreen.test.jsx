@@ -385,6 +385,20 @@ describe('ImportScreen — inferred activity rules (T35)', () => {
     expect(screen.getByText(/3 slots/)).toBeTruthy()
   })
 
+  it('R1: the Replace option names only the schedules that hold placements, saved as a version first', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'tiers') return Promise.resolve([{ id: 't1', cohort_id: 'cohort-1' }])
+      if (entity === 'schedule_templates') return Promise.resolve([{ id: 'tm', kind: 'manual' }, { id: 'tg', kind: 'generated' }])
+      if (entity === 'template_slots') return Promise.resolve([{ id: 's1', template_id: 'tg' }])
+      return Promise.resolve([])
+    })
+    await uploadFile()
+    await userEvent.click(screen.getByText(/Replace them/))
+    const sentence = screen.getByText(/Clears \d+ items? first/).textContent
+    expect(sentence).toContain('Generated Schedule (saved as a version first)')
+    expect(sentence).not.toContain('Manual Build')
+  })
+
   it('does not warn about slots when the camp has none placed', async () => {
     localClient.list.mockImplementation((entity) => {
       if (entity === 'tiers') return Promise.resolve([{ id: 't1', cohort_id: 'cohort-1' }])
@@ -473,54 +487,16 @@ describe('ImportScreen — Replace warning names Recurring Events and separates 
     expect(screen.queryByText(/Recurring Events cleared/)).toBeNull()
   })
 
-  it('renders the recoverable and irreversible warnings in two separate bordered containers', async () => {
+  it('does not claim saved schedule versions are lost: they survive Replace', async () => {
     localClient.list.mockImplementation((entity) => {
       if (entity === 'tiers') return Promise.resolve([{ id: 't1', cohort_id: 'cohort-1' }])
-      if (entity === 'fixed_events') return Promise.resolve([{ id: 'a1' }])
       if (entity === 'schedule_snapshots') return Promise.resolve([{ id: 'v1' }])
       return Promise.resolve([])
     })
     await uploadFile()
     await userEvent.click(screen.getByText(/Replace them/))
-
-    const irreversibleLabel = screen.getByText('Cannot be undone')
-    // Walk up to the bordered container the spec requires — the one painted
-    // with --danger — and confirm it holds the snapshot sentence but not the
-    // Recurring Events sentence, i.e. the two are not sharing one box.
-    let dangerContainer = irreversibleLabel.parentElement
-    while (dangerContainer && !/color-mix\(in srgb, var\(--danger\)/.test(dangerContainer.getAttribute('style') || '')) {
-      dangerContainer = dangerContainer.parentElement
-    }
-    expect(dangerContainer).toBeTruthy()
-    expect(dangerContainer.textContent).toMatch(/saved schedule version/)
-    expect(dangerContainer.textContent).not.toMatch(/Recurring Event/)
-
-    const fixedEventsLine = screen.getByText(/Recurring Events? cleared/)
-    let accentContainer = fixedEventsLine.parentElement
-    while (accentContainer && !/color-mix\(in srgb, var\(--accent\)/.test(accentContainer.getAttribute('style') || '')) {
-      accentContainer = accentContainer.parentElement
-    }
-    expect(accentContainer).toBeTruthy()
-    expect(accentContainer.textContent).not.toMatch(/saved schedule version/)
-    expect(accentContainer).not.toBe(dangerContainer)
-  })
-
-  it('still shows the irreversible block with its "Cannot be undone" label when it is the only sub-block present', async () => {
-    localClient.list.mockImplementation((entity) => {
-      if (entity === 'tiers') return Promise.resolve([{ id: 't1', cohort_id: 'cohort-1' }])
-      if (entity === 'schedule_snapshots') return Promise.resolve([{ id: 'v1' }])
-      // slots, anchors, day overrides all empty — the recoverable sub-block
-      // must not render, but the irreversible one must still stand alone
-      // rather than degrading to plain unlabeled text.
-      return Promise.resolve([])
-    })
-    await uploadFile()
-    await userEvent.click(screen.getByText(/Replace them/))
-    expect(screen.getByText('Cannot be undone')).toBeTruthy()
-    expect(screen.getByText(/saved schedule version/)).toBeTruthy()
-    expect(screen.queryByText(/Manual Build/)).toBeNull()
-    expect(screen.queryByText(/Recurring Event/)).toBeNull()
-    expect(screen.queryByText(/Day Override/)).toBeNull()
+    expect(screen.queryByText(/saved schedule version/)).toBeNull()
+    expect(screen.queryByText('Cannot be undone')).toBeNull()
   })
 
   it('renders no warning block at all when slots, anchors, snapshots, and day overrides are all zero', async () => {
