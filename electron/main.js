@@ -61,6 +61,7 @@ import { getElectiveRunOuterSchedule } from './ops/getElectiveRunOuterSchedule.j
 import { campHasSetupData } from './ops/campHasSetupData.js'
 import { PROJECTIONS } from './ops/projections.js'
 import { createCampDataRecordWriter } from './campDataRecord.js'
+import { smokeBootstrapRequested, runSmokeBootstrap, SMOKE_SYNC_MARKER } from './smokeBootstrap.js'
 import { isAutomergeEngine } from './sync/automerge/syncEngineFlag.js'
 import { createAutomergeSyncStarter } from './sync/automerge/syncStarter.js'
 import { STATUSES as PORT_MAPPING_STATUSES, PERMANENT_LEASE_REASON } from './sync/automerge/portMapping.js'
@@ -4021,10 +4022,19 @@ if (isElectronEntryPoint()) {
       console.error('deploy smoke marker write failed (non-fatal)', err)
     }
   }
+  let smokeBootstrapStarted = false
   ipcMain.handle('shoresh:smoke-ready', () => {
     writeSmokeMarker()
     // verify:packaged's quit check: the app's own quit path must exit, not just SIGTERM.
     if (process.env.SHORESH_SMOKE_NONCE && process.env.SHORESH_SMOKE_QUIT === '1') setImmediate(() => app.quit())
+    if (smokeBootstrapRequested() && !smokeBootstrapStarted) {
+      smokeBootstrapStarted = true
+      runSmokeBootstrap({
+        handlers: liveHandlers,
+        syncStarterHolder,
+        writeSyncMarker: () => fs.writeFileSync(path.join(userDataPath, SMOKE_SYNC_MARKER), JSON.stringify({ nonce: process.env.SHORESH_SMOKE_NONCE })),
+      }).catch((err) => console.error('smoke bootstrap failed', err))
+    }
     return { ok: true }
   })
 

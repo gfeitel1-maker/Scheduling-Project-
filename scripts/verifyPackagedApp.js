@@ -12,7 +12,9 @@
 //      copies but never rebuilds (no binding.gyp), so the probe constructs a PeerConnection
 //   4. with --launch: the packaged app boots against a throwaway userData dir and
 //      reaches the renderer heartbeat (the same marker scripts/deploy-local.sh waits for), then
-//      exits within 10s of SIGTERM and, in a second launch, of its own app.quit()
+//      exits within 10s of SIGTERM and, in a second launch, of its own app.quit(); a third launch
+//      seeds a camp (SHORESH_SMOKE_BOOTSTRAP), runs with SHORESH_PUNCH_ENABLED=true, waits for the
+//      sync node, and requires the same bound after SIGTERM
 //
 // Runs as `postelectron:build`, so `npm run electron:build` cannot succeed without it.
 
@@ -56,9 +58,24 @@ export function resolvePackagedPaths(root, platform = process.platform) {
 }
 
 // SIGTERM is a hard kill on Windows (TerminateProcess), so it proves nothing about a clean quit.
+// 'sigterm-sync' seeds a camp, runs with punch on and waits for the sync node before SIGTERM, so it
+// exercises the sync/punch teardown the empty-userData modes never reach.
 export function quitModes(platform = process.platform) {
-  return platform === 'win32' ? ['app'] : ['sigterm', 'app']
+  return platform === 'win32' ? ['app'] : ['sigterm', 'app', 'sigterm-sync']
 }
+
+export function smokeLaunchEnv(quitVia, base) {
+  const env = { ...base }
+  if (quitVia === 'app') env.SHORESH_SMOKE_QUIT = '1'
+  if (quitVia === 'sigterm-sync') {
+    env.SHORESH_SMOKE_BOOTSTRAP = '1'
+    env.SHORESH_PUNCH_ENABLED = 'true'
+  }
+  return env
+}
+
+const SYNC_MARKER = 'deploy-smoke-sync-started.json'
+const quitSignalName = (quitVia) => (quitVia === 'app' ? 'app.quit()' : 'SIGTERM')
 
 function listNodeFiles(dir) {
   const out = []
@@ -135,8 +152,7 @@ async function launchSmoke(executable, timeoutS, quitVia) {
   const nonce = crypto.randomUUID()
   const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-pkg-smoke-'))
   const marker = path.join(userData, 'deploy-smoke-marker.json')
-  const env = { ...process.env, SHORESH_SMOKE_NONCE: nonce, SHORESH_SMOKE_USERDATA: userData }
-  if (quitVia === 'app') env.SHORESH_SMOKE_QUIT = '1'
+  const env = smokeLaunchEnv(quitVia, { ...process.env, SHORESH_SMOKE_NONCE: nonce, SHORESH_SMOKE_USERDATA: userData })
   const child = spawn(executable, [], { env, stdio: 'ignore' })
   try {
     let booted = false
@@ -151,9 +167,17 @@ async function launchSmoke(executable, timeoutS, quitVia) {
       await new Promise((r) => setTimeout(r, 1000))
     }
     if (!booted) return { ok: false, message: `no smoke heartbeat within ${timeoutS}s` }
-    if (quitVia === 'sigterm') child.kill('SIGTERM')
+    if (quitVia === 'sigterm-sync') {
+      const syncMarker = path.join(userData, SYNC_MARKER)
+      for (let s = 0; s < timeoutS && !fs.existsSync(syncMarker); s++) {
+        if (child.exitCode !== null) return { ok: false, message: 'packaged app exited before its sync node started' }
+        await new Promise((r) => setTimeout(r, 1000))
+      }
+      if (!fs.existsSync(syncMarker)) return { ok: false, message: `sync node did not start within ${timeoutS}s of the heartbeat` }
+    }
+    if (quitVia !== 'app') child.kill('SIGTERM')
     if (!(await waitForExit(child, QUIT_BOUND_MS))) {
-      return { ok: false, message: `packaged app did not exit within ${QUIT_BOUND_MS / 1000}s of ${quitVia === 'sigterm' ? 'SIGTERM' : 'app.quit()'}` }
+      return { ok: false, message: `packaged app did not exit within ${QUIT_BOUND_MS / 1000}s of ${quitSignalName(quitVia)}${quitVia === 'sigterm-sync' ? ' with a bootstrapped camp and punch on' : ''}` }
     }
     return { ok: true }
   } finally {
@@ -194,7 +218,7 @@ async function main() {
     for (const quitVia of quitModes()) {
       const smoke = await launchSmoke(executable, timeoutS, quitVia)
       if (!smoke.ok) fail(smoke.message)
-      console.log(`verify:packaged: packaged app booted to the renderer heartbeat and exited within ${QUIT_BOUND_MS / 1000}s of ${quitVia === 'sigterm' ? 'SIGTERM' : 'app.quit()'}`)
+      console.log(`verify:packaged: packaged app booted to the renderer heartbeat and exited within ${QUIT_BOUND_MS / 1000}s of ${quitSignalName(quitVia)} (${quitVia})`)
     }
   }
 }
