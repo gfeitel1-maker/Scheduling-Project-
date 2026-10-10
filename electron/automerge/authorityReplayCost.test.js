@@ -171,5 +171,21 @@ describe('batched index equals the per-change replay on adversarial shapes', () 
     same(Automerge.merge(Automerge.clone(a), b))
     same(Automerge.merge(Automerge.clone(b), a))
   })
+
+  // The index reads through getBackend/getWithType/keys/text. If an Automerge upgrade changes
+  // their shape, entries stop indexing and revocations are silently ignored: fail here instead.
+  it('the backend calls the index relies on still return the shapes it reads', () => {
+    let doc = entry(createEmptyDoc(), { kind: 'genesis', target_device_id: 'F' })
+    const heads = Automerge.getHeads(doc)
+    const backend = Automerge.getBackend(doc)
+    const root = backend.getWithType('_root', AUTHORITY_LOG_ENTITY, heads)
+    expect(root[0]).toBe('map')
+    const keys = backend.keys(root[1], heads)
+    expect(keys.length).toBeGreaterThan(0)
+    const kind = backend.getWithType(root[1], keys.find((k) => k.endsWith('\u0000kind')), heads)
+    expect(kind[0]).toBe('text')
+    expect(backend.text(kind[1], heads)).toBe('genesis')
+    expect(entryChangeHashIndex(Automerge, doc).size).toBe(1)
+  })
 })
 

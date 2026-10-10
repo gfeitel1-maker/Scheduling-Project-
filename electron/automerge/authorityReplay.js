@@ -69,7 +69,8 @@ function byHashOf(automerge, doc) {
   return cache.byHash
 }
 
-// Reads the camp_authority_log collection as it stood at `heads`, straight from the document's
+// Reads the camp_authority_log collection as it stood at `heads` (except entries in `skipIds`),
+// straight from the document's
 // backend: keys and values at historical heads, without materialising the document. Same
 // result as listRecordIds/readRecord on the document at those heads, as far as isCompleteEntry
 // can tell: the collection is the root key's winning object, a field's text is its string, and
@@ -81,14 +82,14 @@ function byHashOf(automerge, doc) {
 const PLAIN_SCALAR_TYPES = new Set(['int', 'uint', 'f64', 'boolean'])
 const NON_STRING_VALUE = Object.freeze({})
 
-function authorityRowsAt(backend, heads) {
+function authorityRowsAt(backend, heads, skipIds) {
   const root = backend.getWithType('_root', AUTHORITY_LOG_ENTITY, heads)
   if (!root || (root[0] !== 'map' && root[0] !== 'table')) return new Map()
   const logId = root[1]
   const rows = new Map()
   for (const key of backend.keys(logId, heads)) {
     const parsed = splitRecordKey(key)
-    if (!parsed) continue
+    if (!parsed || skipIds.has(parsed.entityId)) continue
     const value = backend.getWithType(logId, key, heads)
     if (!value) continue
     let field
@@ -162,8 +163,9 @@ function buildEntryChangeIndexFrom(automerge, doc) {
     }
     seen.add(change.hash)
     heads.add(change.hash)
-    for (const [id, row] of authorityRowsAt(backend, [...heads])) {
-      if (index.has(id)) continue
+    // Entries already indexed are skipped before their values are read, so after most changes
+    // this costs one key listing of the collection.
+    for (const [id, row] of authorityRowsAt(backend, [...heads], index)) {
       if (isCompleteEntry(row)) index.set(id, change.hash)
     }
   }
