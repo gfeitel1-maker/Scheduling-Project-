@@ -139,7 +139,7 @@ describe('T250 archive_when — Draft: run list', () => {
     await waitFor(() => expect(screen.getByText(/Elective assignment — 2026-09-25/)).toBeTruthy())
 
     const draftRow = screen.getByTestId('run-list-row-run-1')
-    expect(within(draftRow).getByText('Draft')).toBeTruthy()
+    expect(within(draftRow).getByText('Committed')).toBeTruthy()
     expect(within(draftRow).getByText(/fabricated-camper-preferences-a\.csv/)).toBeTruthy()
     expect(within(screen.getByTestId('run-list-row-run-2')).getByText('Final')).toBeTruthy()
 

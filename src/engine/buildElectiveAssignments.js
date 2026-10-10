@@ -642,6 +642,32 @@ export function buildElectiveAssignments({
       })
     }
 
+    // Audit E5 (2026-10-10) — WHY a camper sits in something they did not ask for,
+    // read off this period's SETTLED state, which is the state the solver placed
+    // them against: a column only loses seats by being cancelled, so a requested
+    // column that is full now was full when they were placed. Each of their
+    // requested offerings here was either cancelled (did not make its minimum) or
+    // full. A requested offering with room left is a case this reading cannot
+    // account for, and it gets NO reason rather than a guessed one.
+    const notRequestedReason = (camperId) => {
+      const requested = []
+      for (let j = 0; j < here.length; j++) {
+        if (rankAt(camperId, occurrenceId, here[j].labelKey) != null) requested.push(j)
+      }
+      if (requested.length === 0) return 'NO_CHOICE_OFFERED'
+      const remaining = remainingCapacity()
+      let didNotRun = 0
+      let full = 0
+      for (const j of requested) {
+        if (cancelled.has(j)) didNotRun += 1
+        else if (remaining[j] <= 0) full += 1
+      }
+      if (didNotRun + full < requested.length) return null
+      if (full === 0) return 'CHOICES_DID_NOT_RUN'
+      if (didNotRun === 0) return 'CHOICES_FULL'
+      return 'CHOICES_FULL_OR_DID_NOT_RUN'
+    }
+
     const unplaced = []
     for (const camperId of who) {
       const j = seat.get(camperId)
@@ -655,6 +681,7 @@ export function buildElectiveAssignments({
       const flags = []
       if (rank == null) flags.push('NOT_REQUESTED')
       else if (rank > 1 && hasOrderingEvidence(kind)) flags.push('NOT_TOP_CHOICE')
+      const reason = rank == null ? notRequestedReason(camperId) : null
       assignments.push({
         camper_id: camperId,
         occurrence_id: occurrenceId,
@@ -662,6 +689,7 @@ export function buildElectiveAssignments({
         activity_id: o.activity_id,
         preference_rank: rank,
         flags,
+        ...(reason ? { not_requested_reason: reason } : {}),
       })
     }
 

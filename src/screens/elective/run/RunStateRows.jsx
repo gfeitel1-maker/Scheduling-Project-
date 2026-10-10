@@ -19,6 +19,7 @@
 // mid-session is what re-earns motion here.
 import { useEffect, useRef } from 'react'
 import { S } from '../../../styles/shared'
+import { runStatusLabel } from './runStateCopy.js'
 
 // S.cautionBanner as a ROW rather than a block: the bottom margin is dropped
 // and a structural 1px divider separates stacked rows, so five conditions read
@@ -96,7 +97,7 @@ export function RunIdentity({ run, scheduleTemplates = [], scheduleWeeks = [], t
   const week = scheduleWeeks.find((w) => w.id === run.schedule_week_id)
   const tier = tiers.find((t) => t.id === run.tier_id)
   const parts = [
-    run.status === 'final' ? 'Final' : 'Draft',
+    runStatusLabel(run),
     run.source_filename,
     template?.name,
     week?.name,

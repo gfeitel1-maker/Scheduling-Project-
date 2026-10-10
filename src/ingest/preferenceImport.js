@@ -388,3 +388,19 @@ export function readPreferenceSheet({
 
   return { mapping, parsed }
 }
+
+/**
+ * Audit E1 (2026-10-10) — does this workbook hold a CAMPER PREFERENCE TABLE (a
+ * camper column plus ranked choices) on any tab?
+ *
+ * Asked by the elective set's OFFERINGS import, which reads a different document
+ * (what the set offers) and used to answer a preference sheet with a bare
+ * "Couldn't read that file." It answers by the same rule the preference import
+ * itself uses to pick a tab (`selectPreferenceSheet`), so the two doors cannot
+ * disagree about what a preference sheet is. Only a `table` counts: a day x period
+ * grid is also what an offerings file looks like, so it is not claimed here.
+ */
+export function isCamperPreferenceWorkbook(sheets = []) {
+  if (!Array.isArray(sheets) || sheets.length === 0) return false
+  return selectPreferenceSheet({ sheets }).kind === 'table'
+}

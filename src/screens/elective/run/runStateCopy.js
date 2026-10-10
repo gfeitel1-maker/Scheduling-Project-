@@ -483,3 +483,12 @@ export function satisfactionSummary({
     `${occurrenceCount} ${occurrenceCount === 1 ? 'occurrence' : 'occurrences'}.`
   return parts.length > 0 ? `${placed} ${parts.join(', ')}.` : placed
 }
+
+// Audit E7 (2026-10-10) — the status word for a PERSISTED run. A run is persisted
+// only by Commit, so every listed run is committed; `status: 'draft'` means it is
+// still editable, not that it was never saved, and read "DRAFT" to a director who
+// had just pressed Commit. `final` (finalized, locked) is the only other status
+// the schema allows (CHECK status IN ('draft','final')).
+export function runStatusLabel(run) {
+  return run?.status === 'final' ? 'Final' : 'Committed'
+}

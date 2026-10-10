@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { localClient } from '../../../localClient'
 import { describeWriteFailure } from '../../../utils/writeErrorMessage'
 import { S, RunError } from './RunStateRows.jsx'
+import { runStatusLabel } from './runStateCopy.js'
 
 const styles = {
   wrap: { marginBottom: 16 },
@@ -48,7 +49,7 @@ export default function RunList({ onOpen }) {
           onClick={() => onOpen?.(run)}
         >
           <span style={styles.name}>{run.name}</span>
-          <span style={styles.status}>{run.status === 'final' ? 'Final' : 'Draft'}</span>
+          <span style={styles.status}>{runStatusLabel(run)}</span>
           {run.source_filename ? <span style={S.listRowMeta}>{run.source_filename}</span> : null}
         </button>
       ))}

@@ -37,14 +37,15 @@
 /**
  * @param {{ at: Date, sheetCount: number }} args
  *   `at` — when the import happened; formatted in LOCAL time to the minute.
- *   `sheetCount` — how many campers' preference sheets this import read
- *   (`parsed.campers.length`), not how many files were selected.
- * @returns {string} e.g. "Import 2026-09-29 14:02, 32 sheets"
+ *   `camperCount` — how many campers this import read (`parsed.campers.length`),
+ *   not how many files were selected. Audit E7 (2026-10-10): the count IS campers,
+ *   so the name says "campers" — "100 sheets" read as 100 files.
+ * @returns {string} e.g. "Import 2026-09-29 14:02, 32 campers"
  */
-export function importEventRunName({ at, sheetCount }) {
+export function importEventRunName({ at, camperCount }) {
   const pad = (n) => String(n).padStart(2, '0')
   const date = `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`
   const time = `${pad(at.getHours())}:${pad(at.getMinutes())}`
-  const noun = sheetCount === 1 ? 'sheet' : 'sheets'
-  return `Import ${date} ${time}, ${sheetCount} ${noun}`
+  const noun = camperCount === 1 ? 'camper' : 'campers'
+  return `Import ${date} ${time}, ${camperCount} ${noun}`
 }

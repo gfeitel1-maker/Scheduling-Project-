@@ -26,6 +26,7 @@ import { localClient } from '../../localClient'
 import { parseTextGrid } from '../../ingest/textGrid'
 import { parseGridSchedule } from '../../ingest/parseGridSchedule'
 import { populateElectiveSet } from '../../ingest/electiveSetPopulate'
+import { clearDraft } from './assignment/electiveDraftStore.js'
 
 const CAMP_ID = 'camp-1'
 
@@ -783,7 +784,7 @@ describe('ElectiveSetDetail — T301 slice 3: a bundle authored on this screen r
     await waitFor(() => expect(screen.queryByText('Pottery')).not.toBeNull())
     await waitFor(() => expect(screen.queryByText('1 bundle')).not.toBeNull())
 
-    const fileInput = [...document.querySelectorAll('input[type="file"]')].find((i) => i.accept?.includes('csv'))
+    const fileInput = [...document.querySelectorAll('input[type="file"]')].find((i) => i.accept?.includes('.tsv'))
     const sheetFile = new File(['Name\t#1\nAri\tPottery'], 'sheet.txt', { type: 'text/plain' })
     fireEvent.change(fileInput, { target: { files: [sheetFile] } })
     await waitFor(() => expect(screen.getByText(/Confirm Mapping/)).toBeTruthy())
@@ -804,5 +805,81 @@ describe('ElectiveSetDetail — Back', () => {
 
     fireEvent.click(screen.getByText('← Back to Elective Sets'))
     expect(onBack).toHaveBeenCalled()
+  })
+})
+
+// Audit E1 (2026-10-10) — a camper-preference sheet handed to the OFFERINGS Import
+// is recognised and routed, one click, to Import Camper Preferences, instead of a
+// bare "Couldn't read that file." Nothing is written to the offerings.
+describe('ElectiveSetDetail — offerings Import routes a preference sheet (audit E1)', () => {
+  const fs = require('node:fs')
+  const path = require('node:path')
+  const csv = fs.readFileSync(path.resolve(__dirname, '../../../docs/work/specs/samples/fabricated-camper-preferences-100.csv'), 'utf8')
+
+  beforeEach(() => {
+    parseTextGrid.mockReset().mockReturnValue({ pages: [] })
+    parseGridSchedule.mockReset()
+    populateElectiveSet.mockReset()
+  })
+
+  it('names the sheet as camper preferences and hands it to the preference import in one click', async () => {
+    // An earlier test in this file leaves an in-progress draft for this set; that
+    // draft's replace-confirmation gate is exercised elsewhere, not here.
+    clearDraft(CAMP_ID, 'set-1')
+    localClient.list.mockImplementation(byEntity({ elective_set_activities: [] }))
+    renderDetail({ activities: [activity()], ...SCHEDULE_FIXTURE })
+    await waitFor(() => expect(screen.getByText('Import')).toBeTruthy())
+
+    const input = document.querySelector('input[type="file"]')
+    fireEvent.change(input, { target: { files: [new File([csv], 'prefs.csv', { type: 'text/csv' })] } })
+
+    await waitFor(() => expect(screen.getByText(/camper preferences, not offerings/)).toBeTruthy())
+    expect(screen.queryByText("Couldn't read that file.")).toBeNull()
+    expect(populateElectiveSet).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Import as Camper Preferences' }))
+    await waitFor(() => expect(screen.getByText('Confirm Mapping')).toBeTruthy())
+    expect(screen.queryByText(/camper preferences, not offerings/)).toBeNull()
+  })
+
+  it('an unreadable non-preference file says in one line what this Import expects', async () => {
+    localClient.list.mockImplementation(byEntity({ elective_set_activities: [] }))
+    renderDetail({ activities: [activity()] })
+    await waitFor(() => expect(screen.getByText('Import')).toBeTruthy())
+
+    const input = document.querySelector('input[type="file"]')
+    fireEvent.change(input, { target: { files: [new File(['hello'], 'notes.txt', { type: 'text/plain' })] } })
+
+    await waitFor(() => expect(screen.getByText(/Couldn't read that file\. This Import reads the activities this set offers/)).toBeTruthy())
+  })
+})
+
+// Audit E4 (2026-10-10) — "Open to" is the activity's eligibility, which an import
+// can INFER from file history. An inferred value carries the needs-a-look dot here
+// too, and loses it once the director has written the field.
+describe('ElectiveSetDetail — inferred "Open to" carries the needs-a-look dot (audit E4)', () => {
+  const evidenceFor = (source) => ({
+    evidence: [{ entity_id: 'act-1', field: 'eligible_group_names', tag: 'inferred' }],
+    fieldSources: { 'act-1': { eligible_group_ids: source } },
+  })
+  const groups = [{ id: 'g-1', name: 'Bunk 4' }]
+
+  it('marks an import-inferred Open to', async () => {
+    localClient.listImportEvidence = vi.fn().mockResolvedValue(evidenceFor('import'))
+    localClient.list.mockImplementation(byEntity({ elective_set_activities: [offering()] }))
+    renderDetail({ activities: [activity({ eligible_group_ids: '["g-1"]' })], groups })
+    await waitFor(() => expect(screen.getByText('Bunk 4')).toBeTruthy())
+    await waitFor(() => expect(screen.getByLabelText(/Open to was inferred from your file/)).toBeTruthy())
+    delete localClient.listImportEvidence
+  })
+
+  it('shows no dot once the director has confirmed or edited it', async () => {
+    localClient.listImportEvidence = vi.fn().mockResolvedValue(evidenceFor('human'))
+    localClient.list.mockImplementation(byEntity({ elective_set_activities: [offering()] }))
+    renderDetail({ activities: [activity({ eligible_group_ids: '["g-1"]' })], groups })
+    await waitFor(() => expect(screen.getByText('Bunk 4')).toBeTruthy())
+    await waitFor(() => expect(localClient.listImportEvidence).toHaveBeenCalled())
+    expect(screen.queryByLabelText(/Open to was inferred from your file/)).toBeNull()
+    delete localClient.listImportEvidence
   })
 })

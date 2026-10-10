@@ -383,7 +383,7 @@ describe('T319 — the run is named after the import event, never after one arri
     const first = viaCli('ari.csv', SAME)
     expect(first.ok).toBe(true)
     const afterFirst = runRow(first.runId)
-    expect(afterFirst.name).toMatch(/^Import \d{4}-\d{2}-\d{2} \d{2}:\d{2}, 1 sheet$/)
+    expect(afterFirst.name).toMatch(/^Import \d{4}-\d{2}-\d{2} \d{2}:\d{2}, 1 camper$/)
     expect(afterFirst.name).not.toBe('ari.csv')
     expect(afterFirst.name).not.toBe('noa.csv')
     expect(afterFirst.source_filename).toBe('ari.csv')

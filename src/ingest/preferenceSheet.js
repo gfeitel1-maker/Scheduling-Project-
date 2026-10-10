@@ -67,7 +67,10 @@ import { CELL_CHOICE, ORDERED_FALLBACK, UNORDERED_SET } from '../engine/rankKind
 // list rather than a clever parser: a wrong guess about which column is rank 1 is
 // a wrong statement about a child's first choice.
 const RANK_HEADER = /^#\s*(\d+)$/
-const RANK_CHOICE_NUMBER = /^choice\s*#?\s*(\d+)$|^(\d+)\s*(?:st|nd|rd|th)?\s+choice$/i
+// Audit E2 (2026-10-10): `Rank 1`, `Preference 1` and `Pref #1` are the same
+// ordinal statement as `Choice 1`. A bare `Rank` stays a long-format VALUE
+// column (RANK_VALUE_HEADER below) — it carries no number.
+const RANK_CHOICE_NUMBER = /^(?:choice|rank|pref(?:erence)?)\s*#?\s*(\d+)$|^(\d+)\s*(?:st|nd|rd|th)?\s+choice$/i
 const ORDINAL_WORDS = [
   'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth',
   'ninth', 'tenth', 'eleventh', 'twelfth',
@@ -129,7 +132,7 @@ function rankFromHeader(header) {
 // `Student` / `Camper` / `Child` alone, not only `Student Name`. The old pattern
 // required the literal word "name" somewhere, so a bare `Student` header made the
 // whole file "not a camper preference sheet".
-const NAME_HEADER = /(camper|student|child).*name|^name$|^(camper|student|child)$/i
+const NAME_HEADER = /(camper|student|child).*name|^(full\s*)?name$|^(camper|student|child)$/i
 // A name SPLIT ACROSS TWO COLUMNS — the default output of most form tools, and so
 // probably the most common real file this app rejected outright. Joined
 // FIRST-then-LAST with a single space, because `deriveCamperId` keys on the
@@ -143,7 +146,7 @@ const ACTIVITY_VALUE_HEADER = /^(activity|activity\s*name|choice|choice\s*name|e
 const FIRST_NAME_HEADER = /^(first|given)\s*name$/i
 const LAST_NAME_HEADER = /^(last|family|sur)\s*name$/i
 const EXTERNAL_ID_HEADER = /(camper|student|child)\s*(id|number|#)$|^id$/i
-const DIVISION_HEADER = /division|bunk|group|unit|edah/i
+const DIVISION_HEADER = /division|bunk|cabin|group|unit|edah/i
 // A per-row coordinate (T279). A sheet that scopes each choice to a cell says
 // so in its own columns; this is the parse-time half of the coordinate
 // resolver, and the value it yields is a LABEL PAIR, never an occurrence_id —
@@ -342,13 +345,19 @@ function describeCoverage(cells, roles) {
  */
 export function inferPreferenceMapping(header = [], { catalog } = {}) {
   const cells = header.map((h) => String(h ?? '').trim())
+  // Audit E2 (2026-10-10) — ROLE matching reads a normalised copy, so `CAMPER_ID`,
+  // `camper-name` and `#2.` name the same roles as `Camper ID`, `Camper Name` and
+  // `#2`. Underscores, hyphens, dots and colons become spaces and runs of space
+  // collapse; case is already ignored by every pattern. `cells` (as written) stays
+  // what coverage and the inverted-matrix catalog match read.
+  const keys = cells.map((h) => h.replace(/[_\-.:]+/g, ' ').replace(/\s+/g, ' ').trim())
   const findIndex = (re) => {
-    const i = cells.findIndex((h) => re.test(h))
+    const i = keys.findIndex((h) => re.test(h))
     return i === -1 ? null : i
   }
 
   const ranked = []
-  cells.forEach((h, index) => {
+  keys.forEach((h, index) => {
     // A column-scoped coordinate wins over a bare rank read: "Monday #1" is rank
     // 1 IN MONDAY, and reading it as a plain rank 1 would merge it with every
     // other day's first choice.

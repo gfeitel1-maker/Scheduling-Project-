@@ -185,6 +185,24 @@ export default function ActivityPalette({
         maxHeight: '70vh',
         overflowY: 'auto',
       }}>
+      {/* Audit E3 (2026-10-10) — the sets come FIRST. A camp has a handful of sets
+          and up to dozens of activities; at the bottom of this 70vh scroller the sets
+          were off-screen with 18 activities. Top rather than sticky: a sticky block
+          would permanently cover activity rows in a narrow rail, and a short list of
+          sets costs only a few rows above the activities. */}
+      {durableSets.length > 0 && (
+        <div data-testid="palette-zone-electives" style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 6, paddingBottom: 8, borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+          <span style={SECTION_LABEL}>Elective sets</span>
+          {durableSets.map(set => (
+            <DraggableElectiveItem
+              key={set.id}
+              set={set}
+              count={nonFixedEventSlots.filter(s => s.elective_set_id === set.id).length}
+              draggable={draggable}
+            />
+          ))}
+        </div>
+      )}
       <div style={{
         display: 'flex',
         alignItems: 'center',
@@ -264,19 +282,6 @@ export default function ActivityPalette({
             scaleFor={scaleFor}
           />
         </>
-      )}
-      {durableSets.length > 0 && (
-        <div data-testid="palette-zone-electives" style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6, paddingTop: 8, borderTop: '1px solid var(--border)', flexShrink: 0 }}>
-          <span style={SECTION_LABEL}>Elective sets</span>
-          {durableSets.map(set => (
-            <DraggableElectiveItem
-              key={set.id}
-              set={set}
-              count={nonFixedEventSlots.filter(s => s.elective_set_id === set.id).length}
-              draggable={draggable}
-            />
-          ))}
-        </div>
       )}
     </div>
   )

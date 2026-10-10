@@ -342,6 +342,8 @@ export default function AssignmentPanel({
   // "group_id is ROSTER-OWNED" comment): fills in a camper's real bunk group
   // when the sheet's own division column did not resolve to one.
   campers = [],
+  // Audit E1 — `{ file }` handed over from the offerings Import (ElectiveSetDetail).
+  incomingFile = null,
   // Board item 9b — every elective bundle name in the CAMP, not just this set's.
   // These join the label catalogue, which is what makes a bundle's
   // director-given name a label a camper's sheet may rank (ADR D4). Camp-wide
@@ -449,6 +451,13 @@ export default function AssignmentPanel({
     [activities]
   )
 
+  // Audit E6 — the names of the activities THIS set offers (`setActivities` are its
+  // offering rows), so the parse summary can say how many ranked choices fell outside.
+  const offeredNames = useMemo(() => {
+    const byId = new Map((activities ?? []).map((a) => [a?.id, a?.name]))
+    return (setActivities ?? []).map((o) => byId.get(o?.activity_id)).filter(Boolean)
+  }, [activities, setActivities])
+
   function reset() {
     setPhase('empty')
     setRows(null)
@@ -479,6 +488,16 @@ export default function AssignmentPanel({
   // the draft store gets asked before a new file silently replaces it;
   // everyone else (the ordinary case — no draft exists yet) goes straight
   // through, unchanged from before this ticket.
+  // Audit E1 — a preference sheet the director picked at the OFFERINGS Import and
+  // sent here with one click. Enters through the same gate as this panel's own file
+  // picker, so an in-progress draft is still asked about before it is replaced.
+  // Keyed on the handoff OBJECT (fresh per click), not the file, so a second click
+  // with the same file is honoured.
+  useEffect(() => {
+    if (incomingFile?.file) handleFileChosen(incomingFile.file)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fires once per handoff
+  }, [incomingFile])
+
   function handleFileChosen(file) {
     if (!file) return
     if (getDraft(campId, electiveSetId)) {
@@ -1205,9 +1224,9 @@ export default function AssignmentPanel({
       const week = scheduleTemplates?.find((t) => t.id === templateId)
       // Computed before the call, not inline: test/perCellSolvePlacement.test.js reads
       // this payload up to its first `})`, so an inline call would hide `parsed,` from it.
-      const name = importEventRunName({ at: new Date(), sheetCount: parsed?.campers?.length ?? 0 })
+      const name = importEventRunName({ at: new Date(), camperCount: parsed?.campers?.length ?? 0 })
       const out = await localClient.commitElectiveRun({
-        // T319 — the shared import-event name, not a bare date. `sheetCount` is
+        // T319 — the shared import-event name, not a bare date. `camperCount` is
         // how many campers THIS parsed sheet read, the same fact the CLI door
         // derives from its own `parsed`.
         //
@@ -1618,6 +1637,7 @@ export default function AssignmentPanel({
             onMapToActivity={mapLabelToActivity}
             onSplitPacked={splitPackedCell}
             activityNames={activityNames}
+            offeredNames={offeredNames}
             resolutions={resolutionMap(resolutions)}
             busyLabel={resolvingLabel}
           />
@@ -1661,6 +1681,7 @@ export default function AssignmentPanel({
             onMapToActivity={mapLabelToActivity}
             onSplitPacked={splitPackedCell}
             activityNames={activityNames}
+            offeredNames={offeredNames}
             resolutions={resolutionMap(resolutions)}
             busyLabel={resolvingLabel}
           />
