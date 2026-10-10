@@ -82,7 +82,7 @@ export function isSyncCompatible(incomingVersion, localVersion) {
 // installed builds in one process: overriding this alone lets a test node ANNOUNCE a version other
 // than this checkout's real CURRENT_SCHEMA_VERSION, to construct a genuine peer-version mismatch
 // without needing a second codebase.
-export async function startSyncNode({ deviceId, db, doc, onProjected, onProjectionError, onCrossCampRejected, onRemoteOps, onPairingRequest, onPairingDecision, isJoinWindowOpen, getJoinSecret, peerDiscovery, onAuthRejected, isPeerTrusted, listen, now, localSchemaVersion = CURRENT_SCHEMA_VERSION, handshakeSchemaVersion = localSchemaVersion, relayServerFactory, relayTransportFactory, directUpgradeServiceFactory, punchTransportFactory, onPunchPeerAdmitted, onRelayReservationRefused, relaunch, onHandoffChanged, handoffRetryMs, handoffFaults } = {}) {
+export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingNew, onProjectionError, onCrossCampRejected, onRemoteOps, onPairingRequest, onPairingDecision, isJoinWindowOpen, getJoinSecret, peerDiscovery, onAuthRejected, isPeerTrusted, listen, now, localSchemaVersion = CURRENT_SCHEMA_VERSION, handshakeSchemaVersion = localSchemaVersion, relayServerFactory, relayTransportFactory, directUpgradeServiceFactory, punchTransportFactory, onPunchPeerAdmitted, onRelayReservationRefused, relaunch, onHandoffChanged, handoffRetryMs, handoffFaults } = {}) {
   const getLocalSchemaVersion = () =>
     typeof localSchemaVersion === 'function' ? localSchemaVersion() : localSchemaVersion
   const getHandshakeSchemaVersion = () =>
@@ -516,6 +516,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     syncStates.set(fromPeerId, nextState)
     const nothingNew = JSON.stringify(before) === JSON.stringify(A.getHeads(nextDoc))
     setCurrentDoc(db, nextDoc, { persist: !nothingNew })
+    if (nothingNew) onNothingNew?.(fromPeerId)
     if (!nothingNew) {
       // Same consume-and-adopt contract as handleReceived above.
       const reconciled = reconcileForProjection(nextDoc)

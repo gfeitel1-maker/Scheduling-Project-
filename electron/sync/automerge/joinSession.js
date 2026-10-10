@@ -207,25 +207,36 @@ export async function startJoinSession({
       const camp = campRow(db)
       if (!camp) return
       if (!preMergeDoc) { campArrived.resolve(camp); return }
-      // Pair again, step two: the camp's delete wins over this device's offline edits to the same
-      // record (findRejoinDeletes). Done ONCE, and only when this device holds every change the
-      // camp advertised: settling on a partial delivery could re-delete a record the camp later
-      // restored. Deferred a microtask because the receive path is still using the merged document
-      // when this fires. The camp is reported once the settle has run, whether or not it succeeded,
-      // so a failure here can never hang the rejoin. Ordinary peer sync is untouched.
-      if (settleStarted || !node.isCaughtUpWith(hostPeerId)) return
-      settleStarted = true
-      queueMicrotask(async () => {
-        try {
-          await settleRejoin()
-        } catch (err) {
-          console.error(`pair again: re-deleting records the camp deleted FAILED — any such record may hold this device's offline edits until it is deleted again: ${err?.stack ?? err}`)
-        } finally {
-          campArrived.resolve(camp)
-        }
-      })
+      completeRejoin(camp)
+    },
+    // A sync exchange that merged nothing: a rejoining device the camp has nothing new for never
+    // sees onProjected. Once the host's advertised heads are all held, the rejoin is complete.
+    onNothingNew: (fromPeerId) => {
+      if (!preMergeDoc || fromPeerId !== hostPeerId) return
+      const camp = campRow(db)
+      if (camp) completeRejoin(camp)
     },
   })
+
+  // Pair again, step two: the camp's delete wins over this device's offline edits to the same
+  // record (findRejoinDeletes). Done ONCE, and only when this device holds every change the
+  // camp advertised: settling on a partial delivery could re-delete a record the camp later
+  // restored. Deferred a microtask because the receive path is still using the merged document
+  // when this fires. The camp is reported once the settle has run, whether or not it succeeded,
+  // so a failure here can never hang the rejoin. Ordinary peer sync is untouched.
+  function completeRejoin(camp) {
+    if (settleStarted || !node.isCaughtUpWith(hostPeerId)) return
+    settleStarted = true
+    queueMicrotask(async () => {
+      try {
+        await settleRejoin()
+      } catch (err) {
+        console.error(`pair again: re-deleting records the camp deleted FAILED — any such record may hold this device's offline edits until it is deleted again: ${err?.stack ?? err}`)
+      } finally {
+        campArrived.resolve(camp)
+      }
+    })
+  }
 
   node.onPeerDiscovery(({ id }) => {
     // mDNS only ever surfaces peers advertising the join tag we asked for, so
@@ -461,8 +472,8 @@ export async function startJoinSession({
       // wrote that row a moment ago, so an early return here would report
       // success before a single byte of the camp's actual data had arrived —
       // exactly the "logged in but empty" state this wait exists to catch.
-      // `campArrived` is resolved only from onProjected, i.e. only once a
-      // received document has actually merged and projected.
+      // `campArrived` is resolved only once a received document has merged and projected, or (a
+      // rejoin with nothing new) once the host exchange shows this device is caught up.
       return withTimeout(campArrived.promise, documentWaitMs, null)
     },
 
