@@ -52,6 +52,14 @@ describe('op budget', () => {
     expect(readRecord(doc, 'schedule_snapshots', 'snap-1').slots).toBe(slots)
   })
 
+  it('a camp map image is a handful of ops, not one per character', () => {
+    let doc = createEmptyDoc()
+    const image = 'data:image/png;base64,' + 'A'.repeat(500_000)
+    doc = applyWrite(doc, { entity: 'camp_maps', entity_id: 'map-1', field: 'image_data', value: image })
+    expect(opsInLastChange(doc)).toBeLessThanOrEqual(5)
+    expect(readRecord(doc, 'camp_maps', 'map-1').image_data).toBe(image)
+  })
+
   it('ordinary short text fields are unchanged (still Text)', () => {
     let doc = createEmptyDoc()
     doc = applyWrite(doc, { entity: 'schedule_snapshots', entity_id: 'snap-1', field: 'name', value: 'Before lunch swap' })

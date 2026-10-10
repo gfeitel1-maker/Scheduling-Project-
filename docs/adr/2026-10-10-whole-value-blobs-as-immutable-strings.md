@@ -19,9 +19,10 @@ related_adrs: [docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md]
 
 ## Context
 
-Two values in the camp document are whole JSON blobs that are only ever replaced whole: a
+Three values in the camp document are large blobs that are only ever replaced whole: a
 template's bulk-replaced slot set (`template_slots_scopes[template_id]`, written by every
-regenerate and manual bulk save) and a saved schedule version (`schedule_snapshots.slots`).
+regenerate and manual bulk save), a saved schedule version (`schedule_snapshots.slots`), and a
+camp map image (`camp_maps.image_data`, base64, capped at 1.4M characters).
 They were already meant to be single last-writer-wins registers. Automerge 3 stores a plain JS
 string as collaborative Text, one op per character, so each write added hundreds of thousands of
 ops to permanent history. An imported camp measured on 2026-10-10 held 2.9M ops in 229 changes,
@@ -30,7 +31,7 @@ regenerate and snapshot.
 
 ## Decision
 
-- Both blobs are written as `ImmutableString` (`A.RawString`): one op per write, the same
+- All three are written as `ImmutableString` (`A.RawString`): one op per write, the same
   last-writer-wins register the design already intended. Text gave no merge benefit, because the
   value is never edited in place.
 - The write seams are `applyBulkReplace` and `storedValue(entity, field, value)` in
@@ -48,6 +49,11 @@ regenerate and snapshot.
 - History already written as Text is not rewritten, so an existing camp keeps its current load
   cost. Shrinking an existing camp would need compaction (a fresh history), which changes sync
   and was ruled out; pre-production camps are recreated instead.
+- Every device of a camp must run this version together. Older code reads an ImmutableString
+  as an object, not a string: it cannot bind a new snapshot's `slots` or a new map image into
+  SQLite, so that row fails to project on the older device (bulk-replaced slots still project,
+  because the older code JSON-parses them). Shoresh is pre-production with no live camps, and
+  test camps are recreated, so no compatibility path is built.
 - Concurrent writes of the same blob behave as before: last writer wins, the loser stays visible to
   `A.getConflicts`, and an identical value from both sides is not a conflict (Automerge returns an
   ImmutableString from `getConflicts` as a plain string).
