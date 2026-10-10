@@ -7,25 +7,32 @@ import { describe, it, expect, vi } from 'vitest'
 import { resolveStartupDoc, dispatchRemoteOps, REMOTE_OPS_COALESCE_THRESHOLD } from './startupGuard.js'
 
 describe('resolveStartupDoc — Finding 1', () => {
+  it('does not load the persisted file when liveDoc already holds the document', () => {
+    let loads = 0
+    const liveDoc = { live: true }
+    expect(resolveStartupDoc({ liveDoc, loadPersisted: () => { loads++; return { persisted: true } } })).toBe(liveDoc)
+    expect(loads).toBe(0)
+  })
+
   it('returns null when neither liveDoc nor a persisted doc exists (caller must refuse to start)', () => {
-    expect(resolveStartupDoc({ liveDoc: null, persistedDoc: null })).toBeNull()
+    expect(resolveStartupDoc({ liveDoc: null, loadPersisted: () => null })).toBeNull()
   })
 
   it('prefers liveDoc over the persisted doc when both exist', () => {
     const liveDoc = { marker: 'live' }
     const persistedDoc = { marker: 'persisted' }
-    expect(resolveStartupDoc({ liveDoc, persistedDoc })).toBe(liveDoc)
+    expect(resolveStartupDoc({ liveDoc, loadPersisted: () => persistedDoc })).toBe(liveDoc)
   })
 
   it('falls back to the persisted doc when liveDoc has not been loaded yet', () => {
     const persistedDoc = { marker: 'persisted' }
-    expect(resolveStartupDoc({ liveDoc: null, persistedDoc })).toBe(persistedDoc)
+    expect(resolveStartupDoc({ liveDoc: null, loadPersisted: () => persistedDoc })).toBe(persistedDoc)
   })
 
   it('never fabricates a document — there is no third fallback', () => {
     // Regression guard against reintroducing `?? createEmptyDoc()`: with both inputs falsy the
     // result must be exactly null, not an object.
-    const result = resolveStartupDoc({ liveDoc: undefined, persistedDoc: undefined })
+    const result = resolveStartupDoc({ liveDoc: undefined, loadPersisted: undefined })
     expect(result).toBeNull()
   })
 })
