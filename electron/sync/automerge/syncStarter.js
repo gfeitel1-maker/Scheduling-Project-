@@ -759,8 +759,9 @@ export function createAutomergeSyncStarter({
   return {
     start,
     getNode: () => automergeSyncNode,
-    getPortMappingStatus: () =>
-      process.env.SHORESH_PUNCH_ENABLED === 'true' ? portMapping?.getStatus() ?? null : null,
+    // Flag-off is null because portMapping is only ever created inside the single punchEnabled gate
+    // (T347's guard requires exactly one SHORESH_PUNCH_ENABLED read in this file).
+    getPortMappingStatus: () => portMapping?.getStatus() ?? null,
     shutdownPunch: async () => {
       const mapping = portMapping
       portMapping = null

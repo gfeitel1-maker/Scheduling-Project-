@@ -131,14 +131,28 @@ describe('test isolation', () => {
 })
 
 describe('getPortMappingStatus contract', () => {
-  it('is null before the mapper has a result, and null when the flag is off even with a result', async () => {
+  it('is null before the mapper has a result', async () => {
     const router = fakeRouter()
     const { starter } = await startStarter({ deps: router.deps })
-    await vi.waitFor(() => expect(starter.getPortMappingStatus()).not.toBe(null))
-    process.env.SHORESH_PUNCH_ENABLED = 'false'
     expect(starter.getPortMappingStatus()).toBe(null)
-    process.env.SHORESH_PUNCH_ENABLED = 'true'
+    await vi.waitFor(() => expect(starter.getPortMappingStatus()).not.toBe(null))
     await starter.shutdownPunch()
+  })
+
+  // The flag is read once at start (T347's guard pins exactly one SHORESH_PUNCH_ENABLED read in
+  // syncStarter.js), so "flag off" means a starter started with it off: no mapper, no router call, null.
+  it('is null, and the router is never asked, when the starter starts with the flag off', async () => {
+    const router = fakeRouter()
+    process.env.SHORESH_PUNCH_ENABLED = 'false'
+    try {
+      const { starter } = await startStarter({ deps: router.deps })
+      await new Promise((r) => setTimeout(r, 50))
+      expect(starter.getPortMappingStatus()).toBe(null)
+      expect(router.table.size).toBe(0)
+      await starter.shutdownPunch()
+    } finally {
+      process.env.SHORESH_PUNCH_ENABLED = 'true'
+    }
   })
 
   it('is exactly { status, lease } for a mapped result: no external IP, no port', async () => {
