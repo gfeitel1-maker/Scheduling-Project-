@@ -82,7 +82,7 @@ export function isSyncCompatible(incomingVersion, localVersion) {
 // installed builds in one process: overriding this alone lets a test node ANNOUNCE a version other
 // than this checkout's real CURRENT_SCHEMA_VERSION, to construct a genuine peer-version mismatch
 // without needing a second codebase.
-export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingNew, onProjectionError, onCrossCampRejected, onRemoteOps, onPairingRequest, onPairingDecision, isJoinWindowOpen, getJoinSecret, peerDiscovery, onAuthRejected, isPeerTrusted, listen, now, localSchemaVersion = CURRENT_SCHEMA_VERSION, handshakeSchemaVersion = localSchemaVersion, relayServerFactory, relayTransportFactory, directUpgradeServiceFactory, punchTransportFactory, onPunchPeerAdmitted, onRelayReservationRefused, relaunch, onHandoffChanged, handoffRetryMs, handoffFaults } = {}) {
+export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingNew, onProjectionError, onCrossCampRejected, onRemoteOps, onPairingRequest, onPairingDecision, isJoinWindowOpen, getJoinSecret, peerDiscovery, onAuthRejected, isPeerTrusted, listen, now, localSchemaVersion = CURRENT_SCHEMA_VERSION, handshakeSchemaVersion = localSchemaVersion, relayServerFactory, relayTransportFactory, directUpgradeServiceFactory, punchTransportFactory, pendingProfile, onPunchPeerAdmitted, onRelayReservationRefused, relaunch, onHandoffChanged, handoffRetryMs, handoffFaults } = {}) {
   const getLocalSchemaVersion = () =>
     typeof localSchemaVersion === 'function' ? localSchemaVersion() : localSchemaVersion
   const getHandshakeSchemaVersion = () =>
@@ -771,6 +771,9 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
     directUpgradeServiceFactory,
     // T347 (S1) — the ICE data-channel transport; same omitted-by-default discipline as above.
     punchTransportFactory,
+    // T340: fd-adaptive pre-Noise pending sizing (fdLimitProfile.js); undefined keeps transport.js's defaults.
+    maxIncomingPendingConnections: pendingProfile?.globalPending,
+    maxPublicPendingTotal: pendingProfile?.publicSubCap,
     // T336 Precondition 3 — a direct passthrough to transport.js, same discipline as
     // onPairingRequest/onLogin above (a plain caller-supplied callback, not a listener registry
     // like onPeersChanged below): syncStarter.js is the only real caller and reports this straight

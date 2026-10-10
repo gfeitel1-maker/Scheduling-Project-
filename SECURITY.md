@@ -266,9 +266,9 @@ against the real admission gate — see the ADR's "Known limitation (v1)" sectio
 re-touches the admission gate's readmission guarantee and is tracked as fast-follow **T333**. Accepted
 for v1 per the owner's 2026-10-03 ruling.
 
-### Router port mapping: one TCP port open to the internet (T359; accepted by the owner 2026-10-09, behind `SHORESH_PUNCH_ENABLED`)
+### Router port mapping: one TCP port open to the internet (T359; accepted by the owner 2026-10-09; ON by default in packaged builds since the owner's "On now" of 2026-10-10)
 
-With `SHORESH_PUNCH_ENABLED` exactly `true`, the app pins its libp2p TCP listener to a persisted port and asks the device's own router, by UPnP-IGD or NAT-PMP (`electron/sync/automerge/portMapping.js`), to forward that port. No third party is involved and there is no STUN anywhere. With the flag off nothing is sent to the router.
+In a packaged build `SHORESH_PUNCH_ENABLED` defaults to `true` (`electron/wanDefaults.js`, resolved once in `electron/main.js`; dev and tests stay off unless set, and an explicit `false` turns it off). With it on, the app pins its libp2p TCP listener to a persisted port and asks the device's own router, by UPnP-IGD or NAT-PMP (`electron/sync/automerge/portMapping.js`), to forward that port. No third party is involved and there is no STUN anywhere. With the flag off nothing is sent to the router. The pending-slot numbers below are the normal profile; when the process's open-file soft limit is under 512 the app starts the low profile (public 32 of 128), chosen by `electron/sync/automerge/fdLimitProfile.js`, and `npm run verify:packaged` fails a build whose packaged limit is under 512. The `punch` and `portMapping` rows in `electron/sync/automerge/transportCapabilities.js` carry the 2026-10-10 signoff; the two-device hardware proof is its one open condition.
 
 **What is exposed.** While the app runs, and only if the flag is on and the mapping succeeded, that TCP port is reachable from the whole internet. An unauthenticated caller reaches, in order: libp2p's TCP accept, the Noise handshake (pure JavaScript, no native parser before authentication), then `authGate`. A caller that is not an admitted, non-revoked camp device is dropped there. Expect scanners; they find the port within hours and the log will show refused handshakes.
 

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { checkPackagedDriver, checkPackagedDatachannel, interpretLoadProbe, findPackagedApp, checkLockfilePlatforms, waitForExit, resolvePackagedPaths, quitModes } from './verifyPackagedApp.js'
+import { checkPackagedDriver, checkPackagedDatachannel, interpretLoadProbe, findPackagedApp, checkLockfilePlatforms, waitForExit, resolvePackagedPaths, quitModes, interpretFdLimitProbe, MIN_FD_LIMIT } from './verifyPackagedApp.js'
 import { EventEmitter } from 'node:events'
 
 let tmp
@@ -149,5 +149,22 @@ describe('resolvePackagedPaths / quitModes', () => {
   it('skips SIGTERM on Windows', () => {
     expect(quitModes('win32')).toEqual(['app'])
     expect(quitModes('darwin')).toEqual(['sigterm', 'app'])
+  })
+})
+
+describe('interpretFdLimitProbe (T340: a low open-file limit is visible at build time)', () => {
+  it('fails below 512 and reports the number', () => {
+    const r = interpretFdLimitProbe({ status: 0, stdout: '256\n', stderr: '' })
+    expect(r.ok).toBe(false)
+    expect(r.message).toContain('256')
+    expect(r.message).toContain(String(MIN_FD_LIMIT))
+  })
+  it('passes at exactly 512 and above', () => {
+    expect(interpretFdLimitProbe({ status: 0, stdout: '512\n', stderr: '' })).toMatchObject({ ok: true, limit: 512 })
+    expect(interpretFdLimitProbe({ status: 0, stdout: '10240\n', stderr: '' }).ok).toBe(true)
+  })
+  it('fails when the limit cannot be read or is unparseable', () => {
+    expect(interpretFdLimitProbe({ status: 1, stdout: '', stderr: 'boom' }).ok).toBe(false)
+    expect(interpretFdLimitProbe({ status: 0, stdout: 'unlimited\n', stderr: '' }).ok).toBe(false)
   })
 })

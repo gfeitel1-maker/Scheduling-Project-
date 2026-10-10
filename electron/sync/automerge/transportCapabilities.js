@@ -19,7 +19,7 @@
 // inherit the exemption) authorized to perform their own network egress (fetch/https/etc). Every
 // other file under electron/sync/** must have zero egress, regardless of capability state.
 // `inertPresence`: true = the package may sit in the tree while `signoff` is null, but only under a
-// dedicated guard test that proves its sole strictly-gated entry point (see the `punch` row).
+// dedicated guard test that proves its sole strictly-gated entry point. No row uses it since the T340 switch-on.
 // `signoff`: null = blocked (default). `{date, owner, doc}` = authorized, `doc` pointing at a dated
 // sign-off record.
 export const TRANSPORT_CAPABILITIES = {
@@ -94,35 +94,52 @@ export const TRANSPORT_CAPABILITIES = {
     signoff: null,
   },
   // T347 (S1 of docs/adr/2026-10-08-relayless-cross-network-reconnect.md): node-datachannel, the ICE
-  // data-channel pipe wrapped as a libp2p transport (punchTransport.js). The package is present in
-  // the tree while `signoff` is null — the T327 signoff lands in S5 — so `inertPresence` records that
-  // this presence is deliberate and tolerated by the package scan, and ONLY because
-  // punchPresenceWithoutSignoff.guard.test.js proves the single strictly-gated door to it
-  // (SHORESH_PUNCH_ENABLED === 'true' in syncStarter.js, no other importer). `sourceMarkers` is empty
-  // on purpose: syncStarter.js must reference the gate, and that test, not a marker, polices it.
-  // No STUN/TURN server is ever configured (punchTransport.js refuses a non-empty iceServers), so the
-  // native library has no third-party ICE egress; the text egress scan could not see it if it did.
+  // data-channel pipe wrapped as a libp2p transport (punchTransport.js), reached only through the single
+  // strictly-gated door in syncStarter.js (SHORESH_PUNCH_ENABLED === 'true'; punchPresenceWithoutSignoff.guard.test.js
+  // proves there is no other importer). T340 switch-on: signed off 2026-10-10 on the owner's "On now" go,
+  // so packaged builds resolve the flag to 'true' by default (electron/wanDefaults.js). No STUN/TURN server
+  // is ever configured (punchTransport.js refuses a non-empty iceServers).
   punch: {
     packages: ['node-datachannel'],
     sourceMarkers: [],
     egressAllowlist: [],
-    inertPresence: true,
-    signoff: null,
+    signoff: {
+      date: '2026-10-10',
+      owner: 'gfeitel1 (owner GO "On now" 2026-10-10, relayed by board keeper)',
+      scope: 'hole-punch rungs 1-2 plus the rung-3 Cloudflare rendezvous fallback, default ON in packaged builds only; no STUN',
+      doc: 'docs/work/security/2026-10-09-wan-ladder-assessment.md#verdict-go-with-conditions-for-shoresh_punch_enabled-default-on',
+      conditions: [
+        'met: F1 fixed, rendezvous namespace and address key rotate on revocation (PR #841)',
+        'OPEN: real independently-NATed two-device hardware proof; owner chose On now ahead of the 2-laptop test; to be recorded after the fact',
+        'met: PRs #836 and #837 merged with CI green',
+        'met: this signoff written; npm audit and postinstall re-check recorded in docs/work/security/2026-10-08-t340-precondition-evidence.md (b), re-run by npm run security in the gate',
+        'met: revoked peer on a punch connection is disconnected, test added (PR #841)',
+        'met: Cloudflare Workers Logs and Logpush off, limiter bindings live (docs/work/security/2026-10-09-wan-ladder-assessment.md, owner-side evidence Q3)',
+      ],
+    },
   },
   // T359 (docs/adr/2026-10-09-router-port-mapping-on-rung-1.md): router port mapping of the libp2p TCP
   // listener via UPnP-IGD / NAT-PMP. LAN-only egress: SSDP multicast to 239.255.255.250:1900, HTTP/SOAP to the
   // gateway's own LAN address, NAT-PMP UDP to the gateway's port 5351. `egressAllowlist` is the exact set of
   // files allowed to open that UDP egress (the scan exempts ONLY its dgram label there; any other egress
-  // label in the file still fails). inertPresence: the package sits in the tree and is reached only through
-  // portMappingLifecycle.js, which syncStarter.js builds inside the strict SHORESH_PUNCH_ENABLED block.
-  // signoff stays null: the T327 capability signoff is a separate owner-delegated gate that follows the
-  // owner's two-laptop hardware session.
+  // label in the file still fails). Reached only through portMappingLifecycle.js, built inside the strict
+  // SHORESH_PUNCH_ENABLED block. T340 switch-on: signed off 2026-10-10 with the punch row.
   portMapping: {
     packages: ['@achingbrain/nat-port-mapper', '@achingbrain/ssdp'],
     sourceMarkers: [],
     egressAllowlist: ['electron/sync/automerge/portMapping.js'],
-    inertPresence: true,
-    signoff: null,
+    signoff: {
+      date: '2026-10-10',
+      owner: 'gfeitel1 (owner GO "On now" 2026-10-10, relayed by board keeper)',
+      scope: 'one router port opened for the libp2p TCP listener while the app runs; only paired devices pass Noise plus mutual auth; removed on quit and on revoke',
+      doc: 'docs/work/security/2026-10-09-wan-ladder-assessment.md#verdict-go-with-conditions-for-shoresh_punch_enabled-default-on',
+      conditions: [
+        'met: pre-Noise pending slots sized for internet exposure, public sources capped (PR #858, T340 precondition 5)',
+        'met: egress gate, pending-slot scanner test and docs (PR #865)',
+        'met: fd-adaptive pending profile and verify:packaged fd-limit step (this PR)',
+        'OPEN: real independently-NATed two-device hardware proof; owner chose On now ahead of the 2-laptop test; to be recorded after the fact',
+      ],
+    },
   },
   websockets: {
     packages: ['@libp2p/websockets'],

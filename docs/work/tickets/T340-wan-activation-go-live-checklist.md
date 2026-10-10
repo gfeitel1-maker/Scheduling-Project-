@@ -63,6 +63,18 @@ tracks that decision and its hard preconditions; it is NOT a build task to start
 6. **DONE (documented, evidence (c)):** `SHORESH_RELAY_ENABLED` must be the literal string `'true'`
    (strict `=== 'true'` at `electron/sync/automerge/syncStarter.js:386`; other values fail closed to inert).
 
+## Switch-on 2026-10-10 (owner GO "On now")
+
+Owner chose "On now" over "After 2-laptop test (Recommended)" and "Not yet". The WAN ladder is ON by default in
+packaged builds (`electron/wanDefaults.js`; dev and tests stay off), the `punch` and `portMapping` signoffs are
+written in `electron/sync/automerge/transportCapabilities.js`, and the pending slots are fd-adaptive
+(`electron/sync/automerge/fdLimitProfile.js`, `scripts/verifyPackagedApp.js`).
+
+- [x] Preconditions 1, 3, 4, 5, 6 above (PRs #858, #865; evidence docs linked in each item).
+- [x] F1 namespace/address-key rotation on revoke and the punch-revoke test (PR #841); PRs #836, #837 merged.
+- [x] Default-on in packaged builds, Worker URL default, capability signoffs, fd-adaptive caps, verify:packaged fd step (this PR, claude/t340-switch-on).
+- [ ] **OPEN:** real independently-NATed two-device hardware proof (precondition 2). The owner chose On now ahead of the 2-laptop test; to be recorded after the fact.
+
 ## Not in scope here
 
 The capabilities themselves are built and signed off (inert); this ticket does not re-open them. It

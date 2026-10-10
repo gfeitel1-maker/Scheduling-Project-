@@ -28,6 +28,8 @@ import { tcp } from '@libp2p/tcp'
 import { noise } from '@chainsafe/libp2p-noise'
 import { yamux } from '@chainsafe/libp2p-yamux'
 import { startTransport, MAX_INCOMING_PENDING_CONNECTIONS, INBOUND_UPGRADE_TIMEOUT_MS, UNADMITTED_DEADLINE_MS } from './transport.js'
+import { LOW_PROFILE, NORMAL_PROFILE } from './fdLimitProfile.js'
+import fs from 'node:fs'
 import { makeConnectionRateLimiter, MAX_PENDING_PER_SOURCE, MAX_PUBLIC_PENDING_TOTAL, PENDING_TTL_MS } from './connectionRateLimiter.js'
 
 let cleanups = []
@@ -50,8 +52,8 @@ const LAN_IP = '192.168.1.50'
 
 // The real limiter, with the source of each inbound connection decided by the test (loopback would
 // otherwise be exempt). Connections it was not told about are attributed to `current`.
-function classifyingLimiter() {
-  const real = makeConnectionRateLimiter({ pendingTtlMs: INBOUND_UPGRADE_TIMEOUT_MS })
+function classifyingLimiter(maxPublicPendingTotal = MAX_PUBLIC_PENDING_TOTAL) {
+  const real = makeConnectionRateLimiter({ pendingTtlMs: INBOUND_UPGRADE_TIMEOUT_MS, maxPublicPendingTotal })
   const byPort = new Map()
   const byKey = new Map()
   const state = { current: LAN_IP }
@@ -72,13 +74,14 @@ function classifyingLimiter() {
   }
 }
 
-async function startTarget() {
-  const c = classifyingLimiter()
+async function startTarget(profile = null) {
+  const c = classifyingLimiter(profile?.publicSubCap)
   const target = await startTransport({
     deviceId: 'target',
     onAuthenticate: () => ({ ok: true }),
     inboundConnectionThreshold: 100000, // libp2p's own per-HOST cap would otherwise fire on loopback
     connectionRateLimiter: c.limiter,
+    ...(profile ? { maxIncomingPendingConnections: profile.globalPending } : {}),
   })
   cleanups.push(() => target.stop())
   const port = Number(/\/tcp\/(\d+)/.exec(target.getMultiaddrs()[0].toString())[1])
@@ -171,5 +174,41 @@ describe('connectionRateLimiter in isolation (deterministic, clock injected)', (
     for (let i = 0; i < 300; i++) expect(limiter.allow(LAN_IP, `lan/${i}`)).toBe(true)
     t += PENDING_TTL_MS + 1
     expect(limiter.allow(publicIp(5000), 'after')).toBe(true)
+  })
+})
+
+describe.each([LOW_PROFILE, NORMAL_PROFILE])('LAN-reserve holds in the $name fd profile (public $publicSubCap, global $globalPending)', (profile) => {
+  it('the sub-cap leaves at least half the global pending slots to the LAN', () => {
+    expect(profile.globalPending - profile.publicSubCap).toBeGreaterThanOrEqual(profile.globalPending / 2)
+    expect(MAX_PENDING_PER_SOURCE).toBeLessThan(profile.publicSubCap)
+  })
+
+  it('public sources saturate only the sub-cap and the LAN is never blocked (limiter, deterministic)', () => {
+    let t = 0
+    const limiter = makeConnectionRateLimiter({ now: () => t, maxPublicPendingTotal: profile.publicSubCap })
+    for (let i = 0; i < profile.publicSubCap; i++) expect(limiter.allow(publicIp(i), `k${i}`)).toBe(true)
+    expect(limiter.allow(publicIp(5000), 'over')).toBe(false)
+    for (let i = 0; i < profile.globalPending; i++) expect(limiter.allow(LAN_IP, `lan/${i}`)).toBe(true)
+  })
+
+  it('real target: the profile sub-cap refuses the next public source while the LAN still gets in', async () => {
+    const t = await startTarget(profile)
+    const scanners = Array.from({ length: profile.publicSubCap }, (_, i) => scanner(t.port, publicIp(100 + i), t.assign, freePort()))
+    await sleep(500)
+    expect(scanners.filter((s) => s.closed)).toHaveLength(0)
+    const extra = scanner(t.port, publicIp(9000), t.assign, freePort())
+    await waitFor(() => extra.closed)
+    expect(await legit(t.target, LAN_IP, t.state)).toBe(true)
+  }, 30000)
+})
+
+describe('syncStarter hands the fd profile to the sync node', () => {
+  it('resolves the profile once and passes it to startSyncNode; syncNode forwards both numbers to startTransport', () => {
+    const starter = fs.readFileSync(new URL('./syncStarter.js', import.meta.url), 'utf8')
+    expect(starter).toMatch(/resolvePendingProfile\(\)/)
+    expect(starter).toMatch(/startSyncNode\(\{[\s\S]*?pendingProfile,/)
+    const node = fs.readFileSync(new URL('./syncNode.js', import.meta.url), 'utf8')
+    expect(node).toMatch(/maxIncomingPendingConnections: pendingProfile\?\.globalPending/)
+    expect(node).toMatch(/maxPublicPendingTotal: pendingProfile\?\.publicSubCap/)
   })
 })

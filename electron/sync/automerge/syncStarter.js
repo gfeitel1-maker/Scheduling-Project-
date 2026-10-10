@@ -50,6 +50,7 @@ import { recordAuditEvent } from '../../audit/auditLog.js'
 import { issueDeviceToken } from '../../auth/localAuth.js'
 import { recordDeviceHealthEvent, DEVICE_HEALTH } from '../../ops/deviceHealthEvents.js'
 import { codeForAuthRejectedReason } from '../../authRejectedSender.js'
+import { resolvePendingProfile } from './fdLimitProfile.js'
 // sanitizeOpForIpc is defined in main.js (the sole exporter). This creates a
 // circular import (main.js -> syncStarter.js -> main.js), which ESM tolerates
 // here: sanitizeOpForIpc is a hoisted function declaration, never called at
@@ -508,6 +509,7 @@ export function createAutomergeSyncStarter({
         listenAddrs.push('/ip4/0.0.0.0/udp/0')
       }
 
+      const pendingProfile = resolvePendingProfile()
       const startSyncNode = startSyncNodeImpl ? await startSyncNodeImpl() : (await import('./syncNode.js')).startSyncNode
       automergeSyncNode = await startSyncNode({
         deviceId,
@@ -517,6 +519,7 @@ export function createAutomergeSyncStarter({
         directUpgradeServiceFactory,
         relayTransportFactory,
         punchTransportFactory,
+        pendingProfile,
         onPunchPeerAdmitted: punchPersistence?.onPeerAdmitted,
         // Stage 5f, found on a real two-machine run: transport.js's DEFAULT_LISTEN is
         // '/ip4/127.0.0.1/tcp/0' — LOOPBACK ONLY. That default is correct for the in-process tests

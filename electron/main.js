@@ -65,6 +65,7 @@ import { isAutomergeEngine } from './sync/automerge/syncEngineFlag.js'
 import { createAutomergeSyncStarter } from './sync/automerge/syncStarter.js'
 import { STATUSES as PORT_MAPPING_STATUSES, PERMANENT_LEASE_REASON } from './sync/automerge/portMapping.js'
 import { createSyncStarterHolder } from './sync/automerge/syncStarterHolder.js'
+import { applyPackagedWanDefaults } from './wanDefaults.js'
 import { forgetRevokedPeer } from './sync/automerge/punchIdentity.js'
 import { resolveConflictInDoc } from './automerge/reconcile.js'
 import { ensureDeviceIdentity } from './auth/deviceIdentity.js'
@@ -3340,6 +3341,8 @@ if (isElectronEntryPoint()) {
   // infers the directory from argv, which put every dev clone in one shared
   // "Electron" directory while the packaged app used "shoresh".
   const userDataPath = applyUserDataPath(app)
+  // T340 switch-on: resolved once, before any sync start reads the env (syncStarter.js stays strict-equality).
+  applyPackagedWanDefaults(process.env, app.isPackaged)
   const defaultDbPath = path.join(userDataPath, 'shoresh.sqlite')
 
   // Stage 5e (docs/work/plans/2026-09-06-stage5-live-wiring-design.md § 5): wire liveDoc.js's

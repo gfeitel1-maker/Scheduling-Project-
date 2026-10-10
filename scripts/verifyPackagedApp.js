@@ -10,7 +10,8 @@
 //   3. the same for node-datachannel (WAN hole-punch transport): its prebuilt N-API
 //      binary ships in a per-platform @node-datachannel/* package, which electron-builder
 //      copies but never rebuilds (no binding.gyp), so the probe constructs a PeerConnection
-//   4. with --launch: the packaged app boots against a throwaway userData dir and
+//   4. the open-file soft limit under the packaged Electron is at least 512 (darwin/linux)
+//   5. with --launch: the packaged app boots against a throwaway userData dir and
 //      reaches the renderer heartbeat (the same marker scripts/deploy-local.sh waits for), then
 //      exits within 10s of SIGTERM and, in a second launch, of its own app.quit()
 //
@@ -120,6 +121,28 @@ function datachannelProbe(executable, appDir) {
   return interpretLoadProbe({ status: r.status, stdout: r.stdout, stderr: r.error ? String(r.error) : r.stderr }, DATACHANNEL)
 }
 
+// T340: the adaptive pending-slot profile keeps the app safe at any limit, but a packaged build whose
+// main process runs with fewer than 512 open files is on the low profile; make that visible at build time.
+export const MIN_FD_LIMIT = 512
+
+export function interpretFdLimitProbe({ status, stdout, stderr }) {
+  const text = String(stdout).trim()
+  const limit = /^\d+$/.test(text) ? Number(text) : null
+  if (status !== 0 || limit === null) {
+    return { ok: false, message: `could not read the open-file soft limit under the packaged Electron (exit ${status}): ${String(stderr).trim() || text || '(no output)'}` }
+  }
+  if (limit < MIN_FD_LIMIT) {
+    return { ok: false, limit, message: `the packaged app's open-file soft limit is ${limit}, below the required ${MIN_FD_LIMIT}; the WAN pending-slot profile would drop to low` }
+  }
+  return { ok: true, limit }
+}
+
+function fdLimitProbe(executable) {
+  const script = `const r=require('node:child_process').spawnSync('/bin/sh',['-c','ulimit -n'],{encoding:'utf8',timeout:5000});process.stdout.write(String(r.stdout));process.exit(r.status===0?0:1)`
+  const r = spawnSync(executable, ['-e', script], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, encoding: 'utf8', timeout: 60000 })
+  return interpretFdLimitProbe({ status: r.status, stdout: r.stdout, stderr: r.error ? String(r.error) : r.stderr })
+}
+
 export function waitForExit(child, ms) {
   if (child.exitCode !== null || child.signalCode) return Promise.resolve(true)
   return new Promise((resolve) => {
@@ -188,6 +211,12 @@ async function main() {
   const dcProbe = datachannelProbe(executable, appDir)
   if (!dcProbe.ok) fail(dcProbe.message)
   console.log(`verify:packaged: ${DATACHANNEL} loads and constructs a PeerConnection under the packaged Electron`)
+
+  if (process.platform !== 'win32') {
+    const fd = fdLimitProbe(executable)
+    if (!fd.ok) fail(fd.message)
+    console.log(`verify:packaged: open-file soft limit under the packaged Electron is ${fd.limit} (>= ${MIN_FD_LIMIT})`)
+  }
 
   if (process.argv.includes('--launch')) {
     const timeoutS = Number(process.env.SHORESH_SMOKE_TIMEOUT_S) || 180
