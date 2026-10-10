@@ -65,3 +65,32 @@ describe('genuine two-row layout stays two', () => {
     expect(rows.flat()).toContain('Swim')
   })
 })
+
+// Red Hat plants: the join must fire only when the NARROW line is the one that
+// carries the time label (campB's shape), never when the label sits on line 1.
+describe('stacked-cell join does not eat a location row or a note (plants)', () => {
+  const header = '               Monday      Tuesday     Wednesday   Thursday'
+  const page = (...body) => parseTextGrid([header, '', ...body].join('\n')).pages[0].rows
+
+  it('locBelowNarrow: label on line 1, then a narrow wrap, then the location row', () => {
+    const rows = page(
+      '09:00-09:40    Swim        Swim        Swim        Swim',
+      '               Instructional',
+      '               Pool        Pool        Pool        Pool',
+    )
+    expect(rows).toHaveLength(1)
+    expect(rows[0].cells.join('|')).not.toMatch(/Pool/)
+    expect(rows[0].cells[1]).toBe('Swim')
+    expect(rows[0].locations).toEqual(['Pool', 'Pool', 'Pool', 'Pool'])
+  })
+
+  it('note then event: "Swim" / "Rain plan" / "Archery" with the label on line 1 stays unjoined', () => {
+    const rows = page(
+      '09:00-09:40    Swim        Swim        Swim        Swim',
+      '               Rain plan',
+      '               Archery     Archery     Archery     Archery',
+    )
+    expect(rows.flatMap((r) => r.cells).join('|')).not.toMatch(/Rain plan Archery|Swim Rain plan Archery/)
+    expect(rows.flatMap((r) => r.cells)).not.toContain('Swim Archery')
+  })
+})
