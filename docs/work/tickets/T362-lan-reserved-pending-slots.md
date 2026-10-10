@@ -2,7 +2,7 @@
 ticket: T362
 document_type: ticket
 title: LAN-reserved pending slots - cap public sources at 64 of 256 pre-Noise pending connections so an internet scan can never block same-LAN sync
-status: in-review
+status: open
 created: 2026-10-09
 archive_when: "merged to main and the LAN-always-has-slots property is pinned by scannerPendingSlots.test.js"
 task_class: security-auth
