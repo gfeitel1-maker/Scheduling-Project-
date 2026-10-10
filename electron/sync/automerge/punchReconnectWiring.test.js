@@ -94,6 +94,17 @@ describe('a dependency that is not ready is a rung error, not "unreachable"', ()
   })
 })
 
+describe('late work after stop', () => {
+  it('a rung-1 attempt arriving after stop() never reaches the transport', async () => {
+    const getTransport = vi.fn(() => ({}))
+    const args = base({ getTransport, getUpgrader: () => ({}), coordinatorOptions: { lanGraceMs: 0, setTimer: () => ({ unref() {} }), clearTimer: () => {} } })
+    const wiring = await wirePunchReconnect({ ...args, node: fakeNode() })
+    await wiring.stop()
+    await wiring.coordinator.reconnect({ peerId: '12D3KooWOther', deviceId: 'dev-x' })
+    expect(getTransport).not.toHaveBeenCalled()
+  })
+})
+
 describe('gossip publishing of this device\'s own reflexive candidates', () => {
   function readyDoc() {
     return A.change(A.from({ camps: {} }), (d) => { d.camps.id = 'camp-1' })

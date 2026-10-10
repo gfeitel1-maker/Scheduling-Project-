@@ -98,6 +98,7 @@ export async function wirePunchReconnect({
   }
   attachInbound()
 
+  let stopping = false
   const attemptLan = createAttemptLan({ db, node, isConnected })
 
   const coordinator = createReconnectCoordinator({
@@ -105,12 +106,14 @@ export async function wirePunchReconnect({
     isConnected,
     attemptLan,
     attemptRung1: (peer) => {
+      if (stopping) throw new Error('punch wiring stopped')
       const transport = getTransport()
       const upgrader = getUpgrader()
       if (!transport || !upgrader) throw new Error('punch transport not ready')
       return attemptRung1(peer, { db, transport, upgrader, dial: (addr, options) => node.dial(addr, options) })
     },
     attemptRung2: (peer) => {
+      if (stopping) throw new Error('punch wiring stopped')
       if (!signaling) throw new Error('punch signaling not ready')
       return attemptRung2({
         peerDeviceId: peer.deviceId,
@@ -171,6 +174,7 @@ export async function wirePunchReconnect({
     coordinator,
     publishOwnReflexive,
     async stop() {
+      stopping = true
       clearInterval(republishTimer)
       coordinator.stop()
       channel.detachAll()

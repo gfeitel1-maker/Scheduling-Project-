@@ -69,6 +69,7 @@ export function smokeLaunchEnv(quitVia, base) {
   if (quitVia === 'app') env.SHORESH_SMOKE_QUIT = '1'
   if (quitVia === 'sigterm-sync') {
     env.SHORESH_SMOKE_BOOTSTRAP = '1'
+    env.SHORESH_SMOKE_PIN = crypto.randomInt(100000, 1000000).toString()
     env.SHORESH_PUNCH_ENABLED = 'true'
   }
   return env
@@ -169,11 +170,14 @@ async function launchSmoke(executable, timeoutS, quitVia) {
     if (!booted) return { ok: false, message: `no smoke heartbeat within ${timeoutS}s` }
     if (quitVia === 'sigterm-sync') {
       const syncMarker = path.join(userData, SYNC_MARKER)
-      for (let s = 0; s < timeoutS && !fs.existsSync(syncMarker); s++) {
+      const synced = () => {
+        try { return JSON.parse(fs.readFileSync(syncMarker, 'utf8')).nonce === nonce } catch { return false }
+      }
+      for (let s = 0; s < timeoutS && !synced(); s++) {
         if (child.exitCode !== null) return { ok: false, message: 'packaged app exited before its sync node started' }
         await new Promise((r) => setTimeout(r, 1000))
       }
-      if (!fs.existsSync(syncMarker)) return { ok: false, message: `sync node did not start within ${timeoutS}s of the heartbeat` }
+      if (!synced()) return { ok: false, message: `sync node did not start within ${timeoutS}s of the heartbeat` }
     }
     if (quitVia !== 'app') child.kill('SIGTERM')
     if (!(await waitForExit(child, QUIT_BOUND_MS))) {

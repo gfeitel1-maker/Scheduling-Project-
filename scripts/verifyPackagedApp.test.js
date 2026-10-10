@@ -152,7 +152,9 @@ describe('resolvePackagedPaths / quitModes', () => {
   })
   it('the sigterm-sync mode seeds a camp and turns punch on; the others change nothing', () => {
     const base = { A: '1' }
-    expect(smokeLaunchEnv('sigterm-sync', base)).toEqual({ A: '1', SHORESH_SMOKE_BOOTSTRAP: '1', SHORESH_PUNCH_ENABLED: 'true' })
+    const env = smokeLaunchEnv('sigterm-sync', base)
+    expect(env).toMatchObject({ A: '1', SHORESH_SMOKE_BOOTSTRAP: '1', SHORESH_PUNCH_ENABLED: 'true' })
+    expect(env.SHORESH_SMOKE_PIN).toMatch(/^\d{6}$/)
     expect(smokeLaunchEnv('sigterm', base)).toEqual(base)
     expect(smokeLaunchEnv('app', base)).toEqual({ A: '1', SHORESH_SMOKE_QUIT: '1' })
   })

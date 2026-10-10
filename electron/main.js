@@ -4027,9 +4027,11 @@ if (isElectronEntryPoint()) {
     writeSmokeMarker()
     // verify:packaged's quit check: the app's own quit path must exit, not just SIGTERM.
     if (process.env.SHORESH_SMOKE_NONCE && process.env.SHORESH_SMOKE_QUIT === '1') setImmediate(() => app.quit())
-    if (smokeBootstrapRequested() && !smokeBootstrapStarted) {
+    if (smokeBootstrapRequested({ isPackaged: app.isPackaged, userDataPath }) && !smokeBootstrapStarted) {
       smokeBootstrapStarted = true
       runSmokeBootstrap({
+        db,
+        pin: process.env.SHORESH_SMOKE_PIN,
         handlers: liveHandlers,
         syncStarterHolder,
         writeSyncMarker: () => fs.writeFileSync(path.join(userDataPath, SMOKE_SYNC_MARKER), JSON.stringify({ nonce: process.env.SHORESH_SMOKE_NONCE })),
