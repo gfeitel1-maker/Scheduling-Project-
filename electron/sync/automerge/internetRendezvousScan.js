@@ -37,6 +37,7 @@
 
 // Each entry is a distinct way to reach the internet from Node/Electron main-process code.
 // `label` is what the failure message shows a reader who has never seen this file.
+export const DGRAM_LABEL = 'dgram UDP socket'
 const EGRESS_PATTERNS = [
   { label: 'fetch()', re: /(?:^|[^.\w])(?:globalThis\.|window\.|self\.)?fetch\s*\(/m },
   { label: "node http/https module", re: /(?:from\s*|import\s*\(\s*|require\s*\(\s*)['"](?:node:)?https?['"]/m },
@@ -47,6 +48,9 @@ const EGRESS_PATTERNS = [
   { label: 'XMLHttpRequest', re: /\bXMLHttpRequest\b/m },
   { label: 'raw net/tls socket', re: /\b(?:net|tls)\s*\.\s*connect\s*\(/m },
   { label: 'hard-coded http(s) URL', re: /['"`]https?:\/\//m },
+  // T359 slice 5 — a UDP socket is egress the HTTP-shaped patterns above cannot see (SSDP multicast,
+  // NAT-PMP). It is the one label a LAN-egress allowlist can exempt (see unauthorizedEgress).
+  { label: DGRAM_LABEL, re: /['"`](?:node:)?dgram['"`]|\bdgram\s*\.\s*createSocket\s*\(/m },
   // T288 addendum §1.3 — a dynamic import() whose argument is NOT a string literal is a computed
   // module specifier, which can resolve to an internet-egress package at runtime without any
   // static import to grep for. A static `import('./x.js')` (or "x.js", or `x.js`) is excluded by
@@ -99,12 +103,17 @@ export function forbiddenPackagesPresent(lockfilePackages, forbiddenPackages) {
  * never by virtue of who imports it (T288 addendum §1.3's file-identity-not-import-graph rule;
  * seam 3's importer-inheritance exploit).
  */
-export function unauthorizedEgress(files, { discoveryOn, allowlist }) {
+export function unauthorizedEgress(files, { discoveryOn, allowlist, lanOn = false, lanAllowlist = [] }) {
   const allowed = new Set(allowlist)
+  const lanAllowed = new Set(lanAllowlist)
   return files
-    .filter(({ relPath, source }) => {
-      if (findInternetEgress(source).length === 0) return false
-      return !(discoveryOn && allowed.has(relPath))
+    .map(({ relPath, source }) => {
+      const labels = findInternetEgress(source)
+      if (labels.length === 0) return null
+      if (discoveryOn && allowed.has(relPath)) return null
+      // T359 slice 5: a port-mapping module may open UDP sockets to the LAN (SSDP, NAT-PMP) and nothing else.
+      const remaining = lanOn && lanAllowed.has(relPath) ? labels.filter((l) => l !== DGRAM_LABEL) : labels
+      return remaining.length === 0 ? null : `${relPath} (${remaining.join(', ')})`
     })
-    .map(({ relPath, source }) => `${relPath} (${findInternetEgress(source).join(', ')})`)
+    .filter(Boolean)
 }

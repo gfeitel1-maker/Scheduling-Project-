@@ -5,8 +5,8 @@
 // is not on the LOCATION host, so a LAN device cannot steer SOAP requests (with this device's internal
 // address in them) to another host.
 import http from 'node:http'
-import { afterEach, describe, expect, it } from 'vitest'
-import { createLibraryDeps } from './portMapping.js'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+const { createLibraryDeps } = await vi.importActual('./portMapping.js')
 
 const servers = []
 afterEach(async () => { await Promise.all(servers.splice(0).map((s) => new Promise((r) => s.close(r)))) })

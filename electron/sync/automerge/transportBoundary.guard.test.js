@@ -21,6 +21,8 @@ import {
   ALL_FORBIDDEN_PACKAGES,
   ALL_FORBIDDEN_MARKERS,
   DISCOVERY_EGRESS_ALLOWLIST,
+  PORT_MAPPING_EGRESS_ALLOWLIST,
+  portMappingEgressOn,
 } from './transportCapabilities.js'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -88,7 +90,10 @@ describe('Tier-4 internet-transport boundary guard (per-capability, T288)', () =
       source: readFileSync(f, 'utf8'),
     }))
     const discoveryOn = Boolean(TRANSPORT_CAPABILITIES.discovery.signoff)
-    const offenders = unauthorizedEgress(entries, { discoveryOn, allowlist: DISCOVERY_EGRESS_ALLOWLIST })
+    const offenders = unauthorizedEgress(entries, {
+      discoveryOn, allowlist: DISCOVERY_EGRESS_ALLOWLIST,
+      lanOn: portMappingEgressOn(), lanAllowlist: PORT_MAPPING_EGRESS_ALLOWLIST,
+    })
 
     expect(offenders,
       `Unauthorized internet egress: ${offenders.join('; ')}. Only the files named in ` +
@@ -110,6 +115,55 @@ describe('Tier-4 internet-transport boundary guard (per-capability, T288)', () =
 // (T288 addendum §6, seams 1-3: "plant the defect the guard cannot see", not just the defect the
 // guard was designed around.)
 describe('Tier-4 guard — non-vacuity (planted defects)', () => {
+  // T359 slice 5: the port-mapping row. Real file set, real registry, one planted change each.
+  const realEntries = () => walkSyncFiles().filter((f) => !f.endsWith('internetRendezvousScan.js')).map((f) => ({
+    relPath: f.slice(repoRoot.length + 1), basename: path.basename(f), source: readFileSync(f, 'utf8'),
+  }))
+  const mappingOpts = (over = {}) => ({
+    discoveryOn: Boolean(TRANSPORT_CAPABILITIES.discovery.signoff), allowlist: DISCOVERY_EGRESS_ALLOWLIST,
+    lanOn: portMappingEgressOn(), lanAllowlist: PORT_MAPPING_EGRESS_ALLOWLIST, ...over,
+  })
+
+  it('port mapping: the real tree is clean with the real allowlist, and portMapping.js is the one file that needs it', () => {
+    expect(unauthorizedEgress(realEntries(), mappingOpts())).toEqual([])
+    expect(PORT_MAPPING_EGRESS_ALLOWLIST).toEqual(['electron/sync/automerge/portMapping.js'])
+    const without = unauthorizedEgress(realEntries(), mappingOpts({ lanAllowlist: [] }))
+    expect(without.map((o) => o.split(' ')[0])).toEqual(['electron/sync/automerge/portMapping.js'])
+  })
+
+  it('port mapping: a new UDP socket in an unlisted sync file goes red', () => {
+    const entries = [
+      ...realEntries(),
+      { relPath: 'electron/sync/automerge/sneaky.js', basename: 'sneaky.js', source: `import dgram from 'node:dgram'\nexport const s = dgram.createSocket('udp4')` },
+      { relPath: 'electron/sync/automerge/sneakier.js', basename: 'sneakier.js', source: `const d = await import('node:dgram')` },
+    ]
+    const offenders = unauthorizedEgress(entries, mappingOpts())
+    expect(offenders.map((o) => o.split(' ')[0])).toEqual(['electron/sync/automerge/sneaky.js', 'electron/sync/automerge/sneakier.js'])
+  })
+
+  it('port mapping: removing the listed file from the allowlist goes red', () => {
+    expect(unauthorizedEgress(realEntries(), mappingOpts({ lanAllowlist: [] })).length).toBe(1)
+  })
+
+  it('port mapping: the allowlist covers UDP only, so an https call from the listed file still fails', () => {
+    const entries = realEntries().map((e) => e.relPath.endsWith('/portMapping.js') ? { ...e, source: `${e.source}\nfetch('https://example.com')` } : e)
+    const offenders = unauthorizedEgress(entries, mappingOpts())
+    expect(offenders).toHaveLength(1)
+    expect(offenders[0]).toContain('fetch()')
+    expect(offenders[0]).not.toContain('dgram')
+  })
+
+  it('port mapping: the exemption needs the row to be signed off or inertPresence', () => {
+    expect(portMappingEgressOn({ portMapping: { signoff: null, inertPresence: false } })).toBe(false)
+    expect(unauthorizedEgress(realEntries(), mappingOpts({ lanOn: false })).length).toBe(1)
+  })
+
+  it('port mapping: the dgram pattern flags the shapes it was written for and ignores prose', () => {
+    expect(findInternetEgress(`import dgram from "dgram"`)).toContain('dgram UDP socket')
+    expect(findInternetEgress(`const d = require('node:dgram')`)).toContain('dgram UDP socket')
+    expect(findInternetEgress(`// dgram sockets are used elsewhere\nconst x = 1`)).toEqual([])
+  })
+
   it('seam 1: a still-blocked package goes red EVEN WITH discovery AND relay signed off', () => {
     // discovery.signoff AND relay.signoff are BOTH set in the real registry now (T337 landed the
     // relay coordination signoff) — this proves signing off those capabilities does not widen what

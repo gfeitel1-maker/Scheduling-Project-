@@ -122,6 +122,16 @@ describe('lifecycle', () => {
 })
 
 describe('test isolation', () => {
+  it('syncStarter.js does not read VITEST: the harness, not production code, keeps tests off the router', () => {
+    const src = fs.readFileSync(new URL('./syncStarter.js', import.meta.url), 'utf8').replace(/\/\/[^\n]*/g, '')
+    expect(src).not.toMatch(/VITEST/)
+  })
+
+  it('the test harness replaces the library collaborators with "no mapper"', async () => {
+    const { createLibraryDeps } = await import('./portMapping.js')
+    expect(await createLibraryDeps()).toBe(null)
+  })
+
   it('flag on and no injected deps under Vitest: no mapper is started, so no real router can be touched', async () => {
     const { starter } = await startStarter({ deps: undefined })
     await new Promise((r) => setTimeout(r, 100))

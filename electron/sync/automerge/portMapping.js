@@ -239,11 +239,34 @@ function codedError(err) {
 
 // The library re-fetches the LOCATION itself (uncapped) and then sends SOAP to whatever controlURL that
 // descriptor names. Checked on the descriptor the library actually holds: the control endpoint must be
-// plain http on the LOCATION's own host and port, or the device is rejected.
+// plain http on the LOCATION's own host and port, or the device is rejected. Re-applied on every
+// periodic re-discovery by guardRediscovery.
 export function assertControlOnLocationHost(gateway, location) {
   const base = new URL(location)
   const control = new URL(gateway.gateway.getService(WAN_IP_CONNECTION_2).controlURL)
   if (control.protocol !== 'http:' || control.host !== base.host) throw new Error('UPnP control URL is not on the gateway host')
+}
+
+// The library re-runs its own SSDP search once the descriptor it holds expires (about an hour) and swaps
+// in whatever answers, unchecked. Every later call goes through getGateway(), so it is re-asserted
+// there: the refreshed device must keep the original host and name a control URL on that host, or the
+// old (expired) descriptor is restored, so the next call searches and checks again, and the call fails.
+export function guardRediscovery(g, location) {
+  const base = new URL(location)
+  const original = g.getGateway.bind(g)
+  g.getGateway = async (options) => {
+    const previous = g.gateway
+    const device = await original(options)
+    if (device === previous) return device
+    try {
+      if (new URL(device.service.location).hostname !== base.hostname) throw new Error('UPnP gateway moved off the LOCATION host')
+      assertControlOnLocationHost(g, location)
+    } catch (err) {
+      g.setGateway(previous)
+      throw err
+    }
+    return device
+  }
 }
 
 export async function createLibraryDeps() {
@@ -297,6 +320,7 @@ export async function createLibraryDeps() {
       await fetchCapped(location, { maxBytes, signal })
       const g = await upnpNat({ autoRefresh: false }).getGateway(new URL(location), { signal, redirect: 'manual' })
       try { assertControlOnLocationHost(g, location) } catch (err) { await Promise.resolve(g.stop?.()).catch(() => {}); throw err }
+      guardRediscovery(g, location)
       return wrap(g, (gw) => ({
         deleteMapping: async ({ externalPort }) => {
           try {

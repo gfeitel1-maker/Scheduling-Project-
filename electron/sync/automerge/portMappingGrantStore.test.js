@@ -2,7 +2,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createFileGrantStore } from './portMappingGrantStore.js'
 
 let dir
@@ -10,6 +10,27 @@ beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'grant-')) })
 afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }) })
 
 describe('file grantStore', () => {
+  it('fsyncs the parent directory after the rename, and a failing directory fsync does not fail the save', () => {
+    const file = path.join(dir, 'g.json')
+    const order = []
+    const open = vi.spyOn(fs, 'openSync')
+    const realRename = fs.renameSync
+    vi.spyOn(fs, 'renameSync').mockImplementation((...a) => { order.push('rename'); return realRename(...a) })
+    vi.spyOn(fs, 'fsyncSync').mockImplementation((fd) => {
+      const isDir = fs.fstatSync(fd).isDirectory()
+      order.push(isDir ? 'fsync-dir' : 'fsync-file')
+      if (isDir) throw new Error('EINVAL')
+    })
+    try {
+      expect(() => createFileGrantStore(file).save({ externalPort: 61000 })).not.toThrow()
+    } finally {
+      vi.restoreAllMocks()
+    }
+    expect(order).toEqual(['fsync-file', 'rename', 'fsync-dir'])
+    expect(open).toHaveBeenCalledWith(dir, 'r')
+    expect(createFileGrantStore(file).load()).toEqual({ externalPort: 61000 })
+  })
+
   it('round-trips the granted external port and leaves no temp file behind', () => {
     const file = path.join(dir, 'g.json')
     const store = createFileGrantStore(file)

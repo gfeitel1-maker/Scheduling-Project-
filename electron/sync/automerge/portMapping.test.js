@@ -221,7 +221,7 @@ describe('re-map and library deps', () => {
   })
 
   it('createLibraryDeps loads the dependency lazily and exposes the collaborator surface', async () => {
-    const { createLibraryDeps } = await import('./portMapping.js')
+    const { createLibraryDeps } = await vi.importActual('./portMapping.js')
     const deps = await createLibraryDeps()
     for (const k of ['lanInterfaces', 'ssdpSearch', 'openUpnp', 'openPmp', 'defaultGatewayIp', 'schedule', 'cancel']) expect(typeof deps[k]).toBe('function')
   })

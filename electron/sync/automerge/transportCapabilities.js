@@ -109,6 +109,21 @@ export const TRANSPORT_CAPABILITIES = {
     inertPresence: true,
     signoff: null,
   },
+  // T359 (docs/adr/2026-10-09-router-port-mapping-on-rung-1.md): router port mapping of the libp2p TCP
+  // listener via UPnP-IGD / NAT-PMP. LAN-only egress: SSDP multicast to 239.255.255.250:1900, HTTP/SOAP to the
+  // gateway's own LAN address, NAT-PMP UDP to the gateway's port 5351. `egressAllowlist` is the exact set of
+  // files allowed to open that UDP egress (the scan exempts ONLY its dgram label there; any other egress
+  // label in the file still fails). inertPresence: the package sits in the tree and is reached only through
+  // portMappingLifecycle.js, which syncStarter.js builds inside the strict SHORESH_PUNCH_ENABLED block.
+  // signoff stays null: the T327 capability signoff is a separate owner-delegated gate that follows the
+  // owner's two-laptop hardware session.
+  portMapping: {
+    packages: ['@achingbrain/nat-port-mapper', '@achingbrain/ssdp'],
+    sourceMarkers: [],
+    egressAllowlist: ['electron/sync/automerge/portMapping.js'],
+    inertPresence: true,
+    signoff: null,
+  },
   websockets: {
     packages: ['@libp2p/websockets'],
     sourceMarkers: [],
@@ -154,3 +169,6 @@ export const ALL_FORBIDDEN_PACKAGES = () => forbiddenPackagesFor(TRANSPORT_CAPAB
 export const ALL_FORBIDDEN_MARKERS = () =>
   Object.values(TRANSPORT_CAPABILITIES).flatMap((c) => (c.signoff ? [] : c.sourceMarkers))
 export const DISCOVERY_EGRESS_ALLOWLIST = TRANSPORT_CAPABILITIES.discovery.egressAllowlist
+export const PORT_MAPPING_EGRESS_ALLOWLIST = TRANSPORT_CAPABILITIES.portMapping.egressAllowlist
+export const portMappingEgressOn = (registry = TRANSPORT_CAPABILITIES) =>
+  Boolean(registry.portMapping.signoff || registry.portMapping.inertPresence)
