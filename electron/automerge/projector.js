@@ -34,6 +34,7 @@ import * as Automerge from '@automerge/automerge'
 import { createAuthorityReplayContext, createVerifiedEntryTrust, isCompleteEntry, AUTHORITY_LOG_ENTITY } from './authorityReplay.js'
 import { recordAuditEvent } from '../audit/auditLog.js'
 import { PROJECTIONS } from '../ops/projections.js'
+import { REQUIRED_FIRST_ON_WRITE } from '../../src/data/setupCrudRepository.js'
 import { STAGE1_ENTITY, MODELED_ENTITIES, BULK_REPLACE_MODELED_ENTITIES, DEFERRED_ENTITIES } from './campDocument.js'
 import { STORE_DOCUMENT_REPLAY, boundedErrorMessage } from '../ops/documentWriteFailures.js'
 
@@ -632,7 +633,20 @@ function upsertRow(db, entity, id, row, fields, outstandingIds = null, failures 
     // elective_set_activities/event_slots) reconstruct sibling NOT-NULL FK columns to
     // satisfy a multi-column INSERT; passed the full row, they resolve those siblings directly
     // instead of querying the `operations` table, which the doc-replay path never writes.
-    for (const field of fields) {
+    // fixed_events' CHECK ties is_all_groups/group_ids to kind (schema.sql), and
+    // each field is its own UPDATE. Moving to 'recurring' (or creating a row,
+    // whose default is kind='fixed', is_all_groups=1) needs kind written first,
+    // as every local write already orders it (setupCrudRepository's
+    // REQUIRED_FIRST_ON_WRITE); without it a joiner never received imported
+    // recurring events. Moving to 'fixed' needs kind written LAST, after the
+    // scope columns it requires.
+    const requiredFirst = REQUIRED_FIRST_ON_WRITE[entity]
+    const ordered = !requiredFirst || !(requiredFirst in row)
+      ? fields
+      : row[requiredFirst] === 'fixed'
+        ? [...fields.filter((f) => f !== requiredFirst), requiredFirst]
+        : [requiredFirst, ...fields.filter((f) => f !== requiredFirst)]
+    for (const field of ordered) {
       if (!(field in row)) continue
       failedField = field
       const applied = applyProjection(db, { entity, entity_id: id, field, value: row[field], knownRow: row })
