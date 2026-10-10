@@ -661,7 +661,9 @@ export function createAutomergeSyncStarter({
       setAutomergeLocalWriteBroadcaster(db, automergeSyncNode.broadcastLocalDoc)
 
       // T359 slice 3: the pinned listener is bound, so ask the router to map it. Flag-off never gets here.
-      if (punchEnabled && pinnedListen) {
+      // Under Vitest the real router is never touched unless a test injects portMappingDeps.
+      const mappingDeps = portMappingDeps ?? (process.env.VITEST ? null : undefined)
+      if (punchEnabled && pinnedListen && mappingDeps !== null) {
         try {
           const [{ createPortMappingLifecycle }, { createFileGrantStore, GRANT_FILE }, { createLibraryDeps }] = await Promise.all([
             import('./portMappingLifecycle.js'), import('./portMappingGrantStore.js'), import('./portMapping.js'),
@@ -670,7 +672,7 @@ export function createAutomergeSyncStarter({
           portMapping = createPortMappingLifecycle({
             localPort: pinnedListen.port,
             portInUse: pinnedListen.status === 'port-in-use',
-            deps: portMappingDeps ?? await createLibraryDeps(),
+            deps: mappingDeps ?? await createLibraryDeps(),
             grantStore: createFileGrantStore(path.join(userDataPath, GRANT_FILE)),
             log: (m) => console.warn(m),
             onChange: () => {

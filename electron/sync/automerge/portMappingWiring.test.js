@@ -120,6 +120,16 @@ describe('lifecycle', () => {
   })
 })
 
+describe('test isolation', () => {
+  it('flag on and no injected deps under Vitest: no mapper is started, so no real router can be touched', async () => {
+    const { starter } = await startStarter({ deps: undefined })
+    await new Promise((r) => setTimeout(r, 100))
+    expect(starter.getPortMappingStatus()).toBe(null)
+    expect(fs.existsSync(path.join(userDataPath, 'port-mapping-grant.json'))).toBe(false)
+    await starter.shutdownPunch()
+  })
+})
+
 describe('getPortMappingStatus contract', () => {
   it('is null before the mapper has a result, and null when the flag is off even with a result', async () => {
     const router = fakeRouter()
