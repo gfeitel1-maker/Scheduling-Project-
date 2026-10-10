@@ -317,3 +317,27 @@ describe('T359 slice 3 carry items: a failing grantStore and a missing entry', (
     expect(store.peek()).toEqual({ externalPort: 61000 })
   })
 })
+
+describe('quit unmap failure is recovered at the next start (final-build audit F1)', () => {
+  const memoryStore = () => { let rec = null; return { load: () => rec, save: (r) => { rec = r }, clear: () => { rec = null }, peek: () => rec } }
+
+  it('a failed unmap keeps the grant record; the next start removes the mapping, clears the record and says so', async () => {
+    const gateway = fakeGateway()
+    const realDelete = gateway.deleteMapping
+    const store = memoryStore()
+    const w = world({ gateway })
+    const first = createPortMapper({ localPort: 50123, deps: w.deps, discoveryMs: 50, grantStore: store, log: w.log })
+    await first.map()
+    gateway.deleteMapping = async () => { throw new Error('This operation was aborted') }
+    await first.unmap()
+    expect(w.log).toHaveBeenCalledWith('portMapping: unmap did not complete')
+    expect(store.peek()).toEqual({ externalPort: 50123 })
+    expect(gateway.table.has(50123)).toBe(true)
+    gateway.deleteMapping = realDelete
+    const log = vi.fn()
+    await createPortMapper({ localPort: 50123, deps: w.deps, discoveryMs: 50, grantStore: store, log }).cleanupStale()
+    expect(gateway.table.has(50123)).toBe(false)
+    expect(store.peek()).toBe(null)
+    expect(log).toHaveBeenCalledWith('portMapping: removed stale mapping')
+  })
+})
