@@ -76,7 +76,7 @@ let hostDb, joinerDb, bus, nodes, sessions, code, windowOpen
 beforeEach(() => {
   hostDb = freshDb('host')
   joinerDb = freshDb('joiner')
-  hostDb.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(CAMP_ID, 'Camp Tag')
+  hostDb.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(CAMP_ID, 'Test Camp')
   ensureHostSigningKey(hostDb)
   insertUser(hostDb, { name: 'Director', pin: '1234', role: 'admin' })
   bus = createTagBus()
