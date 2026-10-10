@@ -100,6 +100,7 @@ import {
   makeHandlers,
   flushCampDataRecordOnQuit,
   disposeCampDataRecordThenCloseDb,
+  writeCampDataRecordAfterDbSwap,
 } from './main.js'
 
 let db
@@ -292,6 +293,46 @@ describe('wiring 3b: a pending edit survives a db swap or restore', () => {
   })
 })
 
+describe('wiring 4: the workbook is refreshed from the newly installed db', () => {
+  async function realWriterFor(rows) {
+    const { createCampDataRecordWriter } = await vi.importActual('./campDataRecord.js')
+    const files = {}
+    const writer = createCampDataRecordWriter({
+      db: { prepare: () => ({ get: () => ({ id: 'c', name: 'Camp' }) }) },
+      documentsDir: '/docs',
+      listEntitiesFn: () => rows,
+      buildFn: ({ entities }) => entities.groups,
+      writeFn: (wb) => Buffer.from(JSON.stringify(wb)),
+      fsImpl: {
+        existsSync: () => true,
+        mkdirSync: () => {},
+        writeFileSync: (p, b) => { files[p] = b.toString() },
+        renameSync: (from, to) => { files[to] = files[from]; delete files[from] },
+        unlinkSync: () => {},
+      },
+    })
+    return { writer, files }
+  }
+
+  it('after a restore or switch the workbook reflects the new db with no further edit', async () => {
+    const { writer, files } = await realWriterFor([{ name: 'Restored Group' }])
+    const newHandlers = {
+      scheduleCampDataRecord: () => writer.schedule(),
+      flushCampDataRecord: () => writer.flush(),
+    }
+    writeCampDataRecordAfterDbSwap(newHandlers)
+    expect(Object.values(files)).toEqual([JSON.stringify([{ name: 'Restored Group' }])])
+  })
+
+  it('logs a failure with context and does not throw', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const newHandlers = { scheduleCampDataRecord: () => { throw new Error('boom') } }
+    expect(() => writeCampDataRecordAfterDbSwap(newHandlers)).not.toThrow()
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('campDataRecord'), 'boom')
+    err.mockRestore()
+  })
+})
+
 // --------------------------------------------------------------------------
 // Structural guard — the three call sites route through the helpers, so an
 // inline reorder or drop at a call site trips this gate even though the IIFE
@@ -330,6 +371,20 @@ describe('wiring call sites route through the exported helpers', () => {
       /ipcMain\.handle\(\s*['"]shoresh:list-recent-projects['"]/
     )
     expect(restore).toContain('disposeCampDataRecordThenCloseDb(liveHandlers, oldDb)')
+  })
+
+  it('restore-project and reinitialize write the record from the new handlers after registering them', () => {
+    const restore = region(
+      /ipcMain\.handle\(\s*['"]shoresh:restore-project['"]/,
+      /ipcMain\.handle\(\s*['"]shoresh:list-recent-projects['"]/
+    )
+    const reinit = region(/function reinitialize\s*\(/, /ipcMain\.handle\(\s*['"]shoresh:get-current-project['"]/)
+    for (const r of [restore, reinit]) {
+      expect(r.indexOf('registerHandlers(swappedHandlers, db)')).toBeGreaterThanOrEqual(0)
+      expect(r.indexOf('writeCampDataRecordAfterDbSwap(swappedHandlers)')).toBeGreaterThan(
+        r.indexOf('registerHandlers(swappedHandlers, db)')
+      )
+    }
   })
 })
 

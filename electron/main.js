@@ -329,6 +329,22 @@ export function disposeCampDataRecordThenCloseDb(liveHandlers, oldDb) {
   try { liveHandlers?.disposeCampDataRecord?.() } catch { /* ignore */ }
   try { oldDb?.close?.() } catch { /* ignore — db may already be closed */ }
 }
+/**
+ * Write the camp-data workbook once from a freshly installed db (after a restore or
+ * project switch), so ~/Documents/Shoresh does not show the previous db's data until the
+ * next edit. Uses the NEW handlers' writer; schedule-then-flush makes it immediate.
+ * The write itself logs and swallows its own failures; the guard covers anything else
+ * so a failed export can never fail the restore or switch.
+ */
+export function writeCampDataRecordAfterDbSwap(newHandlers) {
+  try {
+    newHandlers?.scheduleCampDataRecord?.()
+    newHandlers?.flushCampDataRecord?.()
+  } catch (err) {
+    console.error('campDataRecord: write after db swap failed (non-fatal):', err?.message ?? err)
+  }
+}
+
 export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath: _userDataPath, safeStorage: injectedSafeStorage, getAutomergeSyncNode, getAutomergeStartupAttempted, getRelayReservationRefused, getPortMappingStatus, onCampBootstrapped, onCampJoined, retrySync, stopSync } = {}) {
   // Both default to safe no-ops so every existing caller/test that doesn't
   // pass them (there are many) is unaffected — Stage 5d-2b additions only,
@@ -3626,6 +3642,7 @@ if (isElectronEntryPoint()) {
       }
       disposeCampDataRecordThenCloseDb(liveHandlers, oldDb)
       registerHandlers(swappedHandlers, db)
+      writeCampDataRecordAfterDbSwap(swappedHandlers)
       setCurrentProjectPath(userDataPath, newPath)
       const camp = db.prepare('SELECT name FROM camps LIMIT 1').get()
       addRecentProject(userDataPath, { path: newPath, campName: camp?.name ?? null })
@@ -3875,6 +3892,7 @@ if (isElectronEntryPoint()) {
           discardLiveDoc(oldDb)
           disposeCampDataRecordThenCloseDb(liveHandlers, oldDb)
           registerHandlers(swappedHandlers, db)
+          writeCampDataRecordAfterDbSwap(swappedHandlers)
           if (mainWindow) mainWindow.webContents.reload()
         },
       })
