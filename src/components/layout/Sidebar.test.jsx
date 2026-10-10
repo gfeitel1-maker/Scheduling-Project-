@@ -388,6 +388,14 @@ describe('Sidebar: host-not-syncing retry affordance (T275)', () => {
     fireEvent.click(screen.getByTitle('Settings'))
   }
 
+  // Red Hat #844 R1: during Pair again the node is stopped on purpose; a retry would start a second
+  // node on the same identity, so the row is not offered.
+  it('offers no "try again" while this device is pairing again', () => {
+    renderSidebar({ syncStatus: { ...HOST_NOT_SYNCING, pairingAgain: true } })
+    openGear()
+    expect(screen.queryByRole('button', { name: 'try again' })).toBeNull()
+  })
+
   it('renders "try again" as a real clickable control for host-not-syncing', () => {
     renderSidebar({ syncStatus: HOST_NOT_SYNCING })
     openGear()
@@ -647,5 +655,30 @@ describe('Sidebar: Backup Now footer states', () => {
   it('still shows plain success for a clean backup', () => {
     renderSidebar({ backupStatus: 'ok' })
     expect(screen.getByText('Backup saved')).toBeTruthy()
+  })
+})
+
+// WAN-ladder round 2 (keeper): a device offline through a revoke cannot find its camp. Flag + action,
+// never a banner; present only on the conservative signal (peersUnreachable from main.js).
+describe('Sidebar: footer cannot-reach-camp flag', () => {
+  const UNREACHABLE = { mode: 'client', connected: false, state: 'client-disconnected', unsharedWrites: 0, lowDisk: false, otherDeviceCount: 1, peersUnreachable: true }
+
+  it('is present with its action when the camp is unreachable', () => {
+    const onNavigate = vi.fn()
+    renderSidebar({ syncStatus: UNREACHABLE, onNavigate })
+    expect(screen.getByText("can't reach the camp")).toBeTruthy()
+    expect(screen.getByText("pair again on the camp's network")).toBeTruthy()
+    fireEvent.click(screen.getByText("can't reach the camp").closest('button'))
+    expect(onNavigate).toHaveBeenCalledWith('pairAgain')
+  })
+
+  it('is absent while peers are reachable', () => {
+    renderSidebar({ syncStatus: { ...UNREACHABLE, connected: true, state: 'client-connected', peersUnreachable: false } })
+    expect(screen.queryByText("can't reach the camp")).toBeNull()
+  })
+
+  it('is absent for a single-device camp even if the flag were set', () => {
+    renderSidebar({ syncStatus: { ...UNREACHABLE, otherDeviceCount: 0 } })
+    expect(screen.queryByText("can't reach the camp")).toBeNull()
   })
 })

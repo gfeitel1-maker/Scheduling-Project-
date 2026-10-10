@@ -203,12 +203,50 @@ address key (`electron/sync/automerge/rendezvousRotation.js`; amendment 2026-10-
   syncs the revocation, and rotates. A camp with no granted admin in its authority log has no
   rotator.
 
-### A device offline through a revoke may have to re-pair (v1, accepted; UI flag pending)
+### A device offline through a revoke may have to re-pair (v1, accepted; flagged, with Pair again)
 
 A revoke changes both the LAN discovery tag and the rendezvous namespace. A device that was offline
 through it still holds the old tag and namespace. Once its peers restart with the new LAN tag, it
-cannot find them by LAN or rendezvous and must pair again on the camp's network. Today nothing on
-that device says so. A flag with a "Pair again" action is planned for the PR that adds that flow.
+cannot find them by LAN or rendezvous and must pair again on the camp's network. The device shows a
+footer flag, "can't reach the camp · pair again on the camp's network", once no camp peer has been
+reachable for 6 hours while the camp has other paired devices
+(`electron/sync/automerge/peerReachability.js`). The signal is conservative. The device cannot tell
+stale secrets apart from every other device being switched off, so the bound is long.
+
+The flag's action is **Pair again**: the device types a code from a camp device's Add-a-device
+window and re-pairs while keeping its data. Re-admission rules (`evaluatePairingRequest` in
+`electron/auth/connectionAuth.js`):
+
+- **A director approves every re-pair.** A Pair-again request is never answered by re-delivering the
+  device's stored secret (the first-join retry shortcut). It is marked `rejoin_pending`, listed for
+  the director as a returning device, and recorded in the audit log as `device.rejoin_request`.
+  Approval issues a new device secret; the old one stops working on the approving device. Turning
+  the request down leaves the device as it was. Only Remove takes a device out. A request lapses
+  after 24 hours, and the director's list shows its age.
+- **Every pairing request must carry a code proof.** A request without one is refused outright,
+  before any lookup. It learns nothing: no stored secret, no reason, nothing about whether the id is
+  known or revoked. Refusal reasons are named only to a requester that proved it holds the code.
+- **Schema versions must match**, checked before a director is asked. A mismatch is refused, and
+  the device is told which side to update.
+- **A revoked device id is refused outright**, whether `devices.revoked_at` is set locally or the
+  distributed authority log says `revoked`. This applies to a first join as well. The refusal comes
+  before the director's screen, and `approveDevice` refuses a revoked id too, so no click can
+  quietly undo a revoke. A removed machine comes back only as a new device with a new id.
+- **Same camp only.** A device that has never admitted this device id refuses it. The request
+  carries an HMAC of the device's camp id keyed by the code, so the answering device can tell a
+  different camp (`not_a_member`) from its own camp's device that it never approved
+  (`not_known_here`, "read the code off the device that approved it") without the camp id going on
+  the wire. The joining side also checks the signed-in camp id against its own before it uses the
+  token or writes anything.
+- **Erasures are applied first.** The login reply carries the camp's purge tombstones. The
+  re-pairing device verifies every one against the camp's signing key and deletes the erased
+  camper (and the records that name it) from its own document before anything merges. One
+  unverifiable tombstone refuses the whole re-pair with a plain reason, and nothing merges.
+- **Data is kept.** The temporary join node starts from the device's own document. That document
+  shares the camp's genesis root, so the merge keeps its offline edits and brings in the camp's
+  current discovery secrets. The persistent node stops first, so one peer identity never runs twice.
+  A retry is ignored while a join runs, and the node restarts on any exit: cancel, refusal, failure,
+  the screen unmounting, or the renderer reloading or going away.
 
 ### LAN discovery-tag rotation is restart-bounded for a running process (v1, accepted; live rotation required in T334/DHT)
 

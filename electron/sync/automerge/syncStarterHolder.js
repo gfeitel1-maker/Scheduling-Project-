@@ -39,6 +39,17 @@ export function createSyncStarterHolder(makeStarter) {
     return p
   }
 
+  // Pair again runs a temporary node on this device's peer identity, so the persistent one stops
+  // first; the next start() (join finished, or cancelled) builds a fresh starter.
+  async function stop() {
+    while (starting) {
+      try { await starting } catch { /* start() reports its own failures */ }
+    }
+    await shutdown()
+    starter.releaseBroadcaster()
+    starter = makeStarter()
+  }
+
   async function doReplace() {
     while (starting) {
       try { await starting } catch { /* start() reports its own failures */ }
@@ -95,6 +106,7 @@ export function createSyncStarterHolder(makeStarter) {
       onCampBootstrapped: () => start(),
       onCampJoined: () => start(),
       retrySync: () => start(),
+      stopSync: () => stop(),
     }),
   }
 }

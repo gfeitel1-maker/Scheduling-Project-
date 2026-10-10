@@ -71,6 +71,7 @@ import { mintGenesisEntry, mintGrantEntry, mintRevokeEntry } from './automerge/a
 import { syncRefusalForDomainMigration } from './db/migrationDomainState.js'
 import { getDocIfLoaded, getCurrentDoc, setUserDataDirGetter as setAutomergeUserDataDirGetter, setDocCipher as setAutomergeDocCipher, flushPendingWrites as flushAutomergeDoc, discardLiveDoc } from './sync/automerge/liveDoc.js'
 import { runRendezvousRotation } from './sync/automerge/rendezvousRotation.js'
+import { createPeerReachabilityTracker } from './sync/automerge/peerReachability.js'
 import { projectEntity } from './automerge/projector.js'
 import { AUTHORITY_LOG_ENTITY, currentAuthorityState, quorumThreshold } from './automerge/authorityReplay.js'
 import * as Automerge from '@automerge/automerge'
@@ -92,6 +93,8 @@ import {
   rotatePreResolveBackups,
 } from './db/projectManager.js'
 
+// Pair again: a re-pair request lapses after a day.
+const REJOIN_REQUEST_TTL_MS = 24 * 60 * 60 * 1000
 const HOST_PATTERN = /^[a-zA-Z0-9.\-:]+$/
 
 // IPC_PIN_FIELDS lives in ./ops/pinFields.js so this push boundary and the
@@ -320,11 +323,12 @@ export function disposeCampDataRecordThenCloseDb(liveHandlers, oldDb) {
   try { liveHandlers?.disposeCampDataRecord?.() } catch { /* ignore */ }
   try { oldDb?.close?.() } catch { /* ignore — db may already be closed */ }
 }
-export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath: _userDataPath, safeStorage: injectedSafeStorage, getAutomergeSyncNode, getAutomergeStartupAttempted, getRelayReservationRefused, onCampBootstrapped, onCampJoined, retrySync } = {}) {
+export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath: _userDataPath, safeStorage: injectedSafeStorage, getAutomergeSyncNode, getAutomergeStartupAttempted, getRelayReservationRefused, onCampBootstrapped, onCampJoined, retrySync, stopSync } = {}) {
   // Both default to safe no-ops so every existing caller/test that doesn't
   // pass them (there are many) is unaffected — Stage 5d-2b additions only,
   // never a behavior change for a caller that stays silent about them.
   const getAutomergeNode = getAutomergeSyncNode || (() => null)
+  const peerReachability = createPeerReachabilityTracker({ onThresholdCrossed: () => pushSyncStatus() })
   // T268 — "has a startup attempt finished" (see startAutomergeSyncNodeIfEnabled
   // in main.js's top-level app.whenReady() flow). Defaults to false ("not yet
   // attempted") so a caller that never wires this — every existing test, and
@@ -361,6 +365,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // restore-db call sites that don't wire sync) is unaffected. The real
   // outcome surfaces via the next pushSyncStatus, never via this ack.
   const retrySyncFn = retrySync || (() => {})
+  const stopSyncFn = stopSync || (async () => {})
   // T228 — requireAuthorized is module-level (not a closure over this call's
   // getMainWindow), so the last makeHandlers call to run wins here. That
   // matches every other caller of getMainWindow in this file, which is
@@ -810,10 +815,18 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // this return value would risk telling the director something the next
   // real getSyncStatus push contradicts.
   function retrySyncHandler() {
+    // While any join runs, its temporary node holds this device's peer identity; a second,
+    // persistent node now would be the same identity live twice. The join's own exit restarts sync.
+    if (activeJoin) return { ok: false, reason: 'pairing_in_progress' }
     retrySyncFn()
     return { ok: true }
   }
   function getSyncStatus() {
+    const status = computeSyncStatus()
+    // During Pair again the persistent node is stopped on purpose: the footer must not offer a retry.
+    return activeJoin && activeJoinIsRejoin ? { ...status, pairingAgain: true } : status
+  }
+  function computeSyncStatus() {
     // The disk filling up, noticed while there is still room to act (T160).
     // Throttled inside the monitor — getSyncStatus is called on mount and on
     // every push, and free space does not change meaningfully in a second.
@@ -861,6 +874,14 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     // connectivity state, and a camp near its relay cap is just as true whether this device is
     // the Host or a Client.
     const relayReservationRefused = Boolean(getRelayReservationRefusedFn())
+    // A device offline through a revoke cannot find peers that rotated their discovery secrets.
+    // Conservative signal and bound: see peerReachability.js. The flag's action is Pair again.
+    const reachNode = getAutomergeNode()
+    const peersUnreachable = peerReachability.update({
+      nodeRunning: reachNode != null,
+      otherDeviceCount,
+      peerReachable: reachNode ? reachNode.getPeers().some((p) => reachNode.isPeerAuthenticated(p)) : false,
+    })
     const atRestEncryptionEnabled = isAtRestEncryptionEnabled()
 
     // T268 — a refused sync (electron/db/migrationDomainState.js) is checked
@@ -910,7 +931,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
         // last case exists to avoid a boot flicker: the node starts
         // asynchronously after app.whenReady(), so "not yet attempted" must
         // read the same as it always has, not as a false alarm.
-        return { mode: 'host', connected: true, state: 'host', unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused, atRestEncryptionEnabled }
+        return { mode: 'host', connected: true, state: 'host', unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused, atRestEncryptionEnabled, peersUnreachable }
       }
       return { mode: 'host', connected: false, state: 'host-not-syncing', unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused, atRestEncryptionEnabled }
     }
@@ -926,7 +947,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     const connected = peers.length > 0
     const authed = peers.some((peerId) => node.isPeerAuthenticated(peerId))
     const state = !connected ? 'client-disconnected' : (authed ? 'client-connected' : 'client-connecting')
-    return { mode: 'client', connected, authenticated: authed, state, unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused, atRestEncryptionEnabled }
+    return { mode: 'client', connected, authenticated: authed, state, unsharedWrites, lowDisk: disk.low, otherDeviceCount, relayReservationRefused, atRestEncryptionEnabled, peersUnreachable }
   }
 
   // T27 — push the status when it changes, rather than leaving the renderer to
@@ -1205,7 +1226,33 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     requireAuthorized(db, { token, action: 'devices.read' })
     // Exclude denied devices (pairing_status='denied') so a single deny action
     // stops the device from re-appearing on the next poll (CodeReview fix).
-    return db.prepare("SELECT id, name FROM devices WHERE authorized_at IS NULL AND revoked_at IS NULL AND (pairing_status IS NULL OR pairing_status = 'pending')").all()
+    // A Pair-again request (pairing_status 'rejoin_pending') is listed too, marked, so the
+    // director approves a returning device knowingly.
+    const rows = db.prepare(
+      "SELECT id, name, pairing_status = 'rejoin_pending' AS rejoin FROM devices WHERE revoked_at IS NULL AND ((authorized_at IS NULL AND (pairing_status IS NULL OR pairing_status = 'pending')) OR pairing_status = 'rejoin_pending')"
+    ).all()
+    const out = []
+    for (const d of rows) {
+      if (d.rejoin !== 1) { out.push({ id: d.id, name: d.name, rejoin: false }); continue }
+      // A Pair-again request lapses after a day; the device stays allowed in as it was.
+      if (rejoinRequestExpired(d.id)) {
+        db.prepare("UPDATE devices SET pairing_status = 'authorized' WHERE id = ? AND pairing_status = 'rejoin_pending'").run(d.id)
+        continue
+      }
+      out.push({ id: d.id, name: d.name, rejoin: true, requestedAt: rejoinRequestedAt(d.id) })
+    }
+    return out
+  }
+
+  function rejoinRequestedAt(targetDeviceId) {
+    return db.prepare(
+      "SELECT MAX(occurred_at) AS at FROM audit_events WHERE device_id = ? AND action = 'device.rejoin_request' AND outcome = 'allow'"
+    ).get(targetDeviceId)?.at ?? null
+  }
+
+  function rejoinRequestExpired(targetDeviceId) {
+    const at = rejoinRequestedAt(targetDeviceId)
+    return !at || Date.now() - Date.parse(at) > REJOIN_REQUEST_TTL_MS
   }
 
   function listDevices({ token } = {}) {
@@ -1416,6 +1463,16 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       'SELECT authorized_at, authorized_by_user_id, pairing_status, device_secret_identifier, revoked_at, revoked_by_user_id, revocation_reason FROM devices WHERE id = ?'
     ).get(targetDeviceId)
     if (!existing) throw new Error('device not found')
+    // A revoked device is never re-admitted by an approval; a removed machine returns as a new device.
+    const authorityRevoked = db.prepare('SELECT status FROM authority_cache WHERE device_id = ?').get(targetDeviceId)?.status === 'revoked'
+    if (existing.revoked_at || authorityRevoked) {
+      recordAuditEvent(db, { actorUserId: userId, deviceId: targetDeviceId, action: 'device.approve', outcome: 'deny', reason: 'device_revoked' })
+      throw new Error('This device was removed from the camp and cannot be approved again. Add it as a new device.')
+    }
+    if (existing.pairing_status === 'rejoin_pending' && rejoinRequestExpired(targetDeviceId)) {
+      db.prepare("UPDATE devices SET pairing_status = 'authorized' WHERE id = ?").run(targetDeviceId)
+      throw new Error('That Pair-again request is more than a day old. Ask the device to pair again.')
+    }
 
     const secret = randomBytes(32).toString('hex')
     const now = new Date().toISOString()
@@ -1457,7 +1514,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     }
 
     inflight.baseline = { authorized_at: now, authorized_by_user_id: userId, pairing_status: 'authorized', device_secret_identifier: secret, revoked_at: null, revoked_by_user_id: null, revocation_reason: null }
-    recordAuditEvent(db, { actorUserId: userId, deviceId: targetDeviceId, action: 'device.approve', outcome: 'allow' })
+    recordAuditEvent(db, { actorUserId: userId, deviceId: targetDeviceId, action: 'device.approve', outcome: 'allow', ...(existing.pairing_status === 'rejoin_pending' ? { metadata: { rejoin: true } } : {}) })
 
     // T331 (docs/adr/2026-10-02-distributed-revocation-authority.md) — the in-person pairing UX
     // IS the natural point to mint a signed admin grant too, when the approving admin chooses to
@@ -1493,7 +1550,9 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
 
     // CodeReview: write pairing_status='denied' so denied devices don't
     // re-appear in listPendingPairingRequests on the next poll.
-    db.prepare("UPDATE devices SET pairing_status = 'denied' WHERE id = ?").run(targetDeviceId)
+    // Turning down a Pair-again request leaves the device as it was (still allowed in, still on its
+    // old secret); only Remove takes a device out.
+    db.prepare("UPDATE devices SET pairing_status = CASE WHEN pairing_status = 'rejoin_pending' THEN 'authorized' ELSE 'denied' END WHERE id = ?").run(targetDeviceId)
 
     recordAuditEvent(db, { actorUserId: userId, deviceId: targetDeviceId, action: 'device.deny', outcome: 'allow' })
 
@@ -2830,6 +2889,9 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // an app restart mid-join starts over, which is correct — nothing has been
   // written yet at any point before login.
   let activeJoin = null
+  // Pair again stopped the persistent node to run the join node on the same peer identity; any
+  // exit that is not a completed join must start it again.
+  let activeJoinIsRejoin = false
 
   async function joinStart({
     code,
@@ -2850,6 +2912,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     peerDiscovery,
     discoveryWaitMs,
     documentWaitMs,
+    rejoin = false,
   } = {}) {
     if (activeJoin) {
       const cancelled = await joinCancel()
@@ -2864,19 +2927,38 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       if (cancelled.status === 'stop_failed') return { status: 'stop_failed' }
     }
     const testOnly = Boolean(process.env.VITEST)
-    const started = await startJoinSession({
-      db,
-      deviceId,
-      deviceName: deviceName || db.prepare('SELECT name FROM devices WHERE id = ?').get(deviceId)?.name,
-      code,
-      knownHost: testOnly ? knownHost : undefined,
-      peerDiscovery: testOnly ? peerDiscovery : undefined,
-      discoveryWaitMs: testOnly ? discoveryWaitMs : undefined,
-      documentWaitMs: testOnly ? documentWaitMs : undefined,
-    })
-    if (started.status !== 'started') return { status: started.status }
+    const isRejoin = rejoin === true
+    let started
+    try {
+      if (isRejoin) await stopSyncFn()
+      started = await startJoinSession({
+        db,
+        deviceId,
+        deviceName: deviceName || db.prepare('SELECT name FROM devices WHERE id = ?').get(deviceId)?.name,
+        code,
+        knownHost: testOnly ? knownHost : undefined,
+        peerDiscovery: testOnly ? peerDiscovery : undefined,
+        discoveryWaitMs: testOnly ? discoveryWaitMs : undefined,
+        documentWaitMs: testOnly ? documentWaitMs : undefined,
+        ...(isRejoin ? { rejoin: true, doc: getCurrentDoc(db) } : {}),
+      })
+    } catch (err) {
+      if (isRejoin) restartSyncAfterRejoin()
+      throw err
+    }
+    if (started.status !== 'started') {
+      if (isRejoin) restartSyncAfterRejoin()
+      return { status: started.status }
+    }
     activeJoin = started.session
+    activeJoinIsRejoin = isRejoin
     return { status: 'started' }
+  }
+
+  function restartSyncAfterRejoin() {
+    Promise.resolve(retrySyncFn()).catch((err) => {
+      console.error(`sync node restart after pair again failed (non-fatal): ${err?.message ?? err}`)
+    })
   }
 
   async function joinFindHost() {
@@ -2939,6 +3021,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     if (!camp) return { status: 'timeout' }
 
     activeJoin = null
+    activeJoinIsRejoin = false
     // T274 round 2 (Red Hat, HIGH): onCampJoined must fire ONLY when the
     // temporary node is confirmed stopped. The whole reason to stop first is
     // that the temp node and the persistent node share this device's
@@ -2988,10 +3071,23 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       return { status: 'stop_failed' }
     }
     activeJoin = null
+    if (activeJoinIsRejoin) {
+      activeJoinIsRejoin = false
+      restartSyncAfterRejoin()
+    }
     return { status: 'cancelled' }
   }
 
+  // The renderer that drove a join went away (reload, crash, window closed): nobody can finish it,
+  // so stop it, which also restarts sync after a Pair-again attempt.
+  async function onRendererGone() {
+    if (activeJoin) await joinCancel()
+  }
+
   return {
+    onRendererGone,
+    // A db swap / project switch builds new handlers; the old ones' timers must not outlive them.
+    dispose: () => peerReachability.stop(),
     // Stage 6c: called by the libp2p node when its peer set changes, so the
     // sidebar reflects reachability instead of showing whatever was true at
     // mount. Not an IPC channel — it is invoked in-process (see
@@ -3347,6 +3443,7 @@ if (isElectronEntryPoint()) {
     // has to ask the LIVE handlers whether the director's Add-a-device window
     // is open — reading a captured `initialHandlers` would silently consult a
     // stale set after a switch.
+    if (liveHandlers && liveHandlers !== handlers) liveHandlers.dispose?.()
     liveHandlers = handlers
     // Remove existing registrations before re-registering (project switch).
     for (const ch of HANDLER_CHANNELS) ipcMain.removeHandler(ch)
@@ -3867,6 +3964,12 @@ if (isElectronEntryPoint()) {
 
   function createWindow() {
     mainWindow = openMainWindow()
+    // A reload, or a renderer that crashed or closed, abandons any join it was driving; stopping it
+    // also restarts sync after a Pair-again attempt.
+    const abandonJoin = () => { Promise.resolve(liveHandlers?.onRendererGone?.()).catch(() => {}) }
+    mainWindow.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => { if (isMainFrame && !isInPlace) abandonJoin() })
+    mainWindow.webContents.on('render-process-gone', abandonJoin)
+    mainWindow.webContents.on('destroyed', abandonJoin)
   }
 
   ipcMain.handle('shoresh:get-boot-failure', () => null)

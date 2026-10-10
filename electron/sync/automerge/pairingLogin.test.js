@@ -18,6 +18,14 @@ import { createEmptyDoc, applyWrite } from '../../automerge/campDocument.js'
 import { ensureHostSigningKey, issueCampToken, issueLocalToken, issueDeviceToken } from '../../auth/localAuth.js'
 import { startSyncNode } from './syncNode.js'
 import { wireMutualAuth } from './mutualAuth.js'
+import { mintJoinSecret, newJoinNonce, joinProof } from '../joinCode.js'
+
+// Every real pairing request carries a code proof (joinSession.js); a nonce-less one is refused.
+const CODE = mintJoinSecret()
+function proven() {
+  const join_nonce = newJoinNonce()
+  return { join_nonce, join_proof: joinProof(CODE, join_nonce, 'joiner') }
+}
 
 // Inserts a user directly (bypassing localAuth.js's createUser, which
 // requires a live op-log `write` callback — overkill for these tests, which
@@ -80,7 +88,7 @@ describe('pairing_request + login over libp2p (Stage 5d-2b)', () => {
     insertUser(dbA, { camp_id: 'camp-1', name: 'Director', pin: '1234', role: 'admin' })
 
     const genesis = createEmptyDoc()
-    const host = await startSyncNode({ deviceId: 'host-device', db: dbA, doc: A.clone(genesis) })
+    const host = await startSyncNode({ deviceId: 'host-device', db: dbA, doc: A.clone(genesis), getJoinSecret: () => CODE })
     const client = await startSyncNode({ deviceId: 'client-device', db: dbB, doc: A.clone(genesis) })
     nodes.push(host, client)
 
@@ -91,8 +99,9 @@ describe('pairing_request + login over libp2p (Stage 5d-2b)', () => {
       type: 'pairing_request',
       device_id: 'client-device',
       device_name: 'Client Laptop',
+      ...proven(),
     })
-    expect(pending).toEqual({ type: 'pairing_pending' })
+    expect(pending.type).toBe('pairing_pending')
 
     // Director approves — mirrors main.js's approveDevice handler.
     const secret = randomBytes(32).toString('hex')
@@ -127,7 +136,7 @@ describe('pairing_request + login over libp2p (Stage 5d-2b)', () => {
     ).run('client-device', 'Client', new Date().toISOString(), secret)
 
     const genesis = createEmptyDoc()
-    const host = await startSyncNode({ deviceId: 'host-device', db: dbA, doc: A.clone(genesis) })
+    const host = await startSyncNode({ deviceId: 'host-device', db: dbA, doc: A.clone(genesis), getJoinSecret: () => CODE })
     const client = await startSyncNode({ deviceId: 'client-device', db: dbB, doc: A.clone(genesis) })
     nodes.push(host, client)
 
@@ -138,8 +147,36 @@ describe('pairing_request + login over libp2p (Stage 5d-2b)', () => {
       type: 'pairing_request',
       device_id: 'client-device',
       device_name: 'Client',
+      ...proven(),
     })
-    expect(reply).toEqual({ type: 'pairing_approved', device_secret_identifier: secret })
+    expect(reply).toMatchObject({ type: 'pairing_approved', device_secret_identifier: secret })
+  })
+
+  // Security #844 S1: without a code proof the request learns nothing — no secret for an approved
+  // device, and no reason for a revoked one.
+  it('a nonce-less pairing_request is refused, for an approved or a revoked device alike', async () => {
+    ensureHostSigningKey(dbA)
+    const secret = randomBytes(32).toString('hex')
+    dbA.prepare(
+      "INSERT INTO devices (id, name, authorized_at, pairing_status, device_secret_identifier) VALUES (?, ?, ?, 'authorized', ?)"
+    ).run('client-device', 'Client', new Date().toISOString(), secret)
+    dbA.prepare(
+      "INSERT INTO devices (id, name, authorized_at, revoked_at, pairing_status) VALUES ('gone-device', 'Gone', ?, ?, 'revoked')"
+    ).run(new Date().toISOString(), new Date().toISOString())
+
+    const genesis = createEmptyDoc()
+    let clock = Date.now()
+    const host = await startSyncNode({ deviceId: 'host-device', db: dbA, doc: A.clone(genesis), getJoinSecret: () => CODE, now: () => clock })
+    const client = await startSyncNode({ deviceId: 'client-device', db: dbB, doc: A.clone(genesis) })
+    nodes.push(host, client)
+    await client.dial(host.getMultiaddrs()[0])
+    await waitFor(() => client.getPeers().length > 0)
+
+    expect(await client.authenticateWith(host.peerId, { type: 'pairing_request', device_id: 'client-device', device_name: 'Client' }))
+      .toEqual({ type: 'pairing_denied' })
+    clock += 60_000
+    expect(await client.authenticateWith(host.peerId, { type: 'pairing_request', device_id: 'gone-device', device_name: 'Gone' }))
+      .toEqual({ type: 'pairing_denied' })
   })
 
   it('wrong PIN is rejected and lockout applies exactly like the WS path (same attemptLogin)', async () => {

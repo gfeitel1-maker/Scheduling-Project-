@@ -1875,7 +1875,11 @@ export const mockShoresh = {
   // S4b §4 — the dev mock has no op log/seq clock, so the export stamps 0 and
   // the staleness gate is inert at :5200 (the real clock lives under electron:dev).
   async latestOpSeq() { return 0 },
+  // Browser preview of the can't-reach-the-camp flag: ?syncFlag=unreachable.
   async getSyncStatus() {
+    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('syncFlag') === 'unreachable') {
+      return { mode: 'client', connected: false, state: 'client-disconnected', unsharedWrites: 0, lowDisk: false, otherDeviceCount: 1, peersUnreachable: true }
+    }
     return { mode: null, connected: false, state: 'standalone' }
   },
   // T275 — mock stand-in for the retry affordance. The mock's getSyncStatus
@@ -2814,7 +2818,11 @@ export const mockShoresh = {
   async joinFindHost() {
     return { status: mockJoinStarted ? 'found' : 'not_found' }
   },
+  // Browser preview of the Pair-again refusals: ?pairAgain=not_this_camp|device_revoked.
   async joinRequestPairing() {
+    const outcome = typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('pairAgain')
+    if (outcome === 'not_this_camp') return { status: 'not_this_camp' }
+    if (outcome === 'device_revoked') return { status: 'denied', reason: 'device_revoked' }
     return { status: 'pending' }
   },
   async joinAwaitPairingDecision() {

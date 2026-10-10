@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import AuthWatermark from '../components/AuthWatermark'
 import { S, useEnterTransition } from '../styles/shared'
 import { localClient } from '../localClient'
@@ -30,6 +30,10 @@ const STEP = {
   searching: 'searching',
   notFound: 'notFound',
   wrongCamp: 'wrongCamp',
+  notThisCamp: 'notThisCamp',
+  notKnownHere: 'notKnownHere',
+  updateNeeded: 'updateNeeded',
+  erasureFailed: 'erasureFailed',
   waitingForApproval: 'waitingForApproval',
   denied: 'denied',
   signIn: 'signIn',
@@ -38,7 +42,13 @@ const STEP = {
   joined: 'joined',
 }
 
-export default function JoinByCodeScreen({ onBack, onJoined }) {
+// Pair again: the can't-reach-the-camp flag's action. Same flow, run by a device that already
+// belongs to the camp and keeps its data (electron/sync/automerge/joinSession.js, `rejoin`).
+export function PairAgainScreen({ onNavigate }) {
+  return <JoinByCodeScreen rejoin onBack={() => onNavigate('devices')} onJoined={() => onNavigate('roots')} />
+}
+
+export default function JoinByCodeScreen({ onBack, onJoined, rejoin = false }) {
   const enter = useEnterTransition('liftFade')
   const [step, setStep] = useState(STEP.code)
   const [code, setCode] = useState('')
@@ -47,6 +57,7 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
   const [error, setError] = useState(null)
   const [camp, setCamp] = useState(null)
   const [deniedReason, setDeniedReason] = useState(null)
+  const [versions, setVersions] = useState(null)
   const busyRef = useRef(false)
   // Held from the approval so login can present it; never rendered.
   const secretRef = useRef(null)
@@ -74,6 +85,16 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
     }
   }, [])
 
+  // Leaving mid-attempt (navigating away, the screen unmounting) must not strand a join: main
+  // stops it, which after Pair again also restarts this device's sync.
+  const stepRef = useRef(step)
+  useEffect(() => { stepRef.current = step }, [step])
+  useEffect(() => () => {
+    if (stepRef.current !== STEP.code && stepRef.current !== STEP.joined) {
+      localClient.joinCancel().catch(() => {})
+    }
+  }, [])
+
   const startOver = useCallback(async () => {
     await cancel()
     secretRef.current = null
@@ -93,7 +114,7 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
     setError(null)
     setStep(STEP.searching)
     try {
-      const started = await localClient.joinStart({ code })
+      const started = await localClient.joinStart(rejoin ? { code, rejoin: true } : { code })
       if (started.status === 'invalid_code') {
         // A typo, reported as a typo. Deriving a search from nonsense would
         // surface as "no camps found" and send them to check their network.
@@ -134,6 +155,19 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
         setStep(STEP.wrongCamp)
         return
       }
+      if (pairing.status === 'not_this_camp') {
+        setStep(STEP.notThisCamp)
+        return
+      }
+      if (pairing.status === 'not_known_here') {
+        setStep(STEP.notKnownHere)
+        return
+      }
+      if (pairing.status === 'update_needed') {
+        setVersions(pairing)
+        setStep(STEP.updateNeeded)
+        return
+      }
       if (pairing.status === 'denied') {
         setDeniedReason(pairing.reason)
         setStep(STEP.denied)
@@ -155,7 +189,7 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
     } finally {
       busyRef.current = false
     }
-  }, [code])
+  }, [code, rejoin])
 
   const submitSignIn = useCallback(async () => {
     if (busyRef.current) return
@@ -165,6 +199,14 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
       const login = await localClient.joinLogin({
         name, pin, deviceSecretIdentifier: secretRef.current,
       })
+      if (login.status === 'not_this_camp') {
+        setStep(STEP.notThisCamp)
+        return
+      }
+      if (login.status === 'tombstones_unverified') {
+        setStep(STEP.erasureFailed)
+        return
+      }
       if (login.status !== 'ok') {
         setError(login.locked
           ? 'Too many tries. Wait a moment and try again.'
@@ -202,9 +244,11 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
 
         {step === STEP.code && (
           <>
-            <div style={S.authTitle}>Camp code</div>
+            <div style={S.authTitle}>{rejoin ? 'Pair again' : 'Camp code'}</div>
             <div style={S.authSubtitle}>
-              On the device this camp was set up on: <strong>Device Manager</strong> → <strong>Add a device</strong>.
+              {rejoin
+                ? <>On a camp device that is on the camp's network: <strong>Device Manager</strong> → <strong>Add a device</strong>, then type its code here. Your changes on this device are kept.</>
+                : <>On the device this camp was set up on: <strong>Device Manager</strong> → <strong>Add a device</strong>.</>}
             </div>
             <input
               style={codeInput}
@@ -242,6 +286,51 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
           />
         )}
 
+        {step === STEP.notThisCamp && (
+          <Outcome
+            title="That code is for a different camp"
+            body={<>This device can only pair again with its own camp. Get the code from a device in that camp.</>}
+            actionLabel="Start over"
+            onAction={startOver}
+          />
+        )}
+
+        {step === STEP.notKnownHere && (
+          <Outcome
+            title="That device doesn't know this one yet"
+            body={<>This device can only pair again through a camp device that approved it before. Read the code off that device, or ask a director.</>}
+            actionLabel="Start over"
+            onAction={startOver}
+          />
+        )}
+
+        {step === STEP.updateNeeded && (
+          <Outcome
+            title={versions?.hostSchemaVersion > versions?.localSchemaVersion ? 'Update Shoresh on this device first' : 'Update Shoresh on the camp device first'}
+            body={<>The two devices run different versions of Shoresh and can't share changes until they match. Update, then pair again. Nothing was approved.</>}
+            actionLabel="Start over"
+            onAction={startOver}
+          />
+        )}
+
+        {step === STEP.erasureFailed && (
+          <Outcome
+            title="Couldn't apply the camp's erasures"
+            body={<>The camp erased records while this device was away, and this device couldn't confirm those erasures came from the camp. Nothing was merged. Ask a director to remove this device and add it as a new one.</>}
+            actionLabel="Back to devices"
+            onAction={goBack}
+          />
+        )}
+
+        {step === STEP.denied && deniedReason === 'device_revoked' && (
+          <Outcome
+            title="This device was removed from the camp"
+            body={<>A director removed it, so it can't pair again. To use it in this camp, a director adds it as a new device.</>}
+            actionLabel="Back to devices"
+            onAction={goBack}
+          />
+        )}
+
         {step === STEP.waitingForApproval && (
           <Waiting
             title="Waiting for approval"
@@ -250,7 +339,7 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
           />
         )}
 
-        {step === STEP.denied && (
+        {step === STEP.denied && deniedReason !== 'device_revoked' && (
           <Outcome
             title={deniedReason === 'pairing-requires-local-network' ? "Not on the camp's network" : "This device wasn't allowed in"}
             body={deniedReason === 'pairing-requires-local-network'
@@ -310,8 +399,8 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
                 first moment it can be, so recognition is something the director
                 CONFIRMS rather than something they took on faith from an
                 address. */}
-            <div style={S.authTitle}>Joined {camp?.name}</div>
-            <div style={S.authSubtitle}>You won't need the code again.</div>
+            <div style={S.authTitle}>{rejoin ? `Back in ${camp?.name}` : `Joined ${camp?.name}`}</div>
+            <div style={S.authSubtitle}>{rejoin ? 'Your changes from this device are merged in.' : "You won't need the code again."}</div>
             <button style={S.authBtnPrimary} onClick={() => onJoined?.(camp)}>Continue</button>
           </>
         )}

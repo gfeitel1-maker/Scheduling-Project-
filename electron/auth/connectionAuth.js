@@ -212,9 +212,38 @@ export function evaluateAuthenticate(db, { token, device_id, peerId, appliedTomb
 //   { ok: true, alreadyApproved: true, device_secret_identifier }             — RedHat FM3/5/6 idempotent re-delivery
 //   { ok: true, alreadyApproved: false }                                      — fresh/pending device; caller must
 //                                                                                still invoke onPairingRequest itself
-export function evaluatePairingRequest(db, { device_id, device_name }) {
+export function evaluatePairingRequest(db, { device_id, device_name, rejoin = false, sameCamp = false, schemaCompatible = true }) {
   if (!isNonEmptyString(device_id) || !isNonEmptyString(device_name)) {
     return { ok: false, reason: 'invalid_request' }
+  }
+
+  const existingDevice = db
+    .prepare('SELECT authorized_at, revoked_at, device_secret_identifier FROM devices WHERE id = ?')
+    .get(device_id)
+
+  // An explicitly revoked device id is refused outright, by either route. Neither a typed code
+  // nor a director's click may quietly undo a revoke; a removed machine comes back only as a new
+  // device (new id), which the director approves as one.
+  const authorityStatus = db.prepare('SELECT status FROM authority_cache WHERE device_id = ?').get(device_id)?.status
+  if (existingDevice?.revoked_at || authorityStatus === 'revoked') {
+    recordAuditEvent(db, { deviceId: device_id, actorUserId: null, action: rejoin ? 'device.rejoin_request' : 'device.pairing_request', outcome: 'deny', reason: 'device_revoked' })
+    return { ok: false, reason: 'device_revoked' }
+  }
+
+  // Pair again: a device this camp already admitted, re-pairing because its discovery secrets went
+  // stale. It must be a device this camp knows (a different camp's code reaches a Host that has
+  // never seen it), and it waits for a director exactly like a first join — no idempotent
+  // re-delivery of the old secret. Approval issues a new one.
+  if (rejoin) {
+    // `sameCamp`: the requester proved it belongs to THIS camp but this device never approved it
+    // (it pairs through whichever device approved it). Otherwise it is a different camp's device.
+    if (!existingDevice?.authorized_at) return { ok: false, reason: sameCamp ? 'not_known_here' : 'not_a_member' }
+    // Refused before a director is asked: an approval across a schema gap would admit a device
+    // that every sync exchange then refuses.
+    if (!schemaCompatible) return { ok: false, reason: 'schema_mismatch' }
+    db.prepare("UPDATE devices SET pairing_status = 'rejoin_pending' WHERE id = ?").run(device_id)
+    recordAuditEvent(db, { deviceId: device_id, actorUserId: null, action: 'device.rejoin_request', outcome: 'allow' })
+    return { ok: true, alreadyApproved: false }
   }
 
   // RedHat FM3/5/6 recovery: if this device is already authorized on the
@@ -222,10 +251,7 @@ export function evaluatePairingRequest(db, { device_id, device_name }) {
   // locally, or the connection dropped right after approval), re-deliver
   // pairing_approved with the stored secret rather than treating this as a
   // fresh unknown request. This makes the approval idempotent.
-  const existingDevice = db
-    .prepare('SELECT authorized_at, revoked_at, device_secret_identifier FROM devices WHERE id = ?')
-    .get(device_id)
-  if (existingDevice && existingDevice.authorized_at && !existingDevice.revoked_at && existingDevice.device_secret_identifier) {
+  if (existingDevice && existingDevice.authorized_at && existingDevice.device_secret_identifier) {
     return { ok: true, alreadyApproved: true, device_secret_identifier: existingDevice.device_secret_identifier }
   }
 

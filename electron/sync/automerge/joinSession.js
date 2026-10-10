@@ -25,7 +25,9 @@ import * as A from '@automerge/automerge'
 import { recordLibp2pPeerId } from './peerIdentity.js'
 
 import { createEmptyDoc } from '../../automerge/campDocument.js'
-import { joinDiscoveryTag, normalizeJoinCode, newJoinNonce, joinProof, verifyJoinProof } from '../joinCode.js'
+import { joinDiscoveryTag, normalizeJoinCode, newJoinNonce, joinProof, verifyJoinProof, rejoinCampProof } from '../joinCode.js'
+import { verifyTombstones, applyTombstonesToDoc } from '../../automerge/tombstoneApply.js'
+import { getCurrentDoc, setCurrentDoc } from './liveDoc.js'
 import { createMdnsDiscovery } from './discovery.js'
 import { startSyncNode } from './syncNode.js'
 import { CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
@@ -114,6 +116,12 @@ export async function startJoinSession({
   startNode = startSyncNode,
   discoveryWaitMs = DISCOVERY_WAIT_MS,
   documentWaitMs = DOCUMENT_WAIT_MS,
+  // Pair again: an already-paired device whose discovery secrets went stale (it was offline through
+  // a revoke) re-pairs with the camp's code. It keeps its camp row and brings its OWN document, which
+  // shares the genesis root, so its offline edits merge into the camp's and the camp's current
+  // secrets merge into it. The caller must have stopped this device's persistent node first.
+  rejoin = false,
+  doc,
 } = {}) {
   const normalizedCode = normalizeJoinCode(code)
   if (normalizedCode === null) return { status: 'invalid_code' }
@@ -126,7 +134,11 @@ export async function startJoinSession({
   // received here would project over a camp that already exists. Refused
   // rather than guarded downstream, because there is no correct way to
   // continue.
-  if (campRow(db)) {
+  const ownCamp = campRow(db)
+  if (rejoin) {
+    if (!ownCamp) throw new Error('startJoinSession: pair again needs a device that already belongs to a camp')
+    if (!doc) throw new Error('startJoinSession: pair again needs this device\'s own document')
+  } else if (ownCamp) {
     throw new Error('startJoinSession: this device already belongs to a camp')
   }
 
@@ -159,7 +171,7 @@ export async function startJoinSession({
     // them silently discards one side's entire entity collection — visible
     // only through getConflicts, which nothing reads). createEmptyDoc returns
     // the frozen GENESIS; this is the single most important line in the file.
-    doc: A.clone(createEmptyDoc()),
+    doc: rejoin ? doc : A.clone(createEmptyDoc()),
     listen,
     peerDiscovery: peerDiscovery ?? [createMdnsDiscovery({ serviceTag: joinDiscoveryTag(normalizedCode) })],
     onPairingDecision: (msg, { fromPeerId }) => {
@@ -240,6 +252,7 @@ export async function startJoinSession({
         // mDNS tag cannot produce it, so it never reaches the director.
         join_nonce: nonce,
         join_proof: joinProof(normalizedCode, nonce, 'joiner'),
+        ...(rejoin ? { rejoin: true, camp_proof: rejoinCampProof(normalizedCode, ownCamp.id), schema_version: CURRENT_SCHEMA_VERSION } : {}),
       })
       // The Host's half. Checked on BOTH pairing replies, because either can be
       // the last thing we hear before we would otherwise send a PIN.
@@ -248,6 +261,13 @@ export async function startJoinSession({
       }
       if (reply?.type === 'pairing_approved') {
         return { status: 'approved', deviceSecretIdentifier: reply.device_secret_identifier }
+      }
+      // A Host that has never admitted this device: on Pair again, that is a different camp's code.
+      if (reply?.type === 'pairing_denied' && reply.reason === 'not_a_member') return { status: 'not_this_camp' }
+      // Same camp, but the answering device never approved this one: pair through the device that did.
+      if (reply?.type === 'pairing_denied' && reply.reason === 'not_known_here') return { status: 'not_known_here' }
+      if (reply?.type === 'pairing_denied' && reply.reason === 'schema_mismatch') {
+        return { status: 'update_needed', hostSchemaVersion: reply.host_schema_version ?? null, localSchemaVersion: CURRENT_SCHEMA_VERSION }
       }
       if (reply?.type === 'pairing_denied') return { status: 'denied', ...(reply.reason ? { reason: reply.reason } : {}) }
       return { status: 'pending' }
@@ -286,6 +306,19 @@ export async function startJoinSession({
       if (reply?.type !== 'login_ok') {
         return { status: 'failed', locked: Boolean(reply?.locked), retryAfterMs: reply?.retryAfterMs }
       }
+      // Pair again must land in the SAME camp. Checked before the token is used or anything is
+      // written or admitted, so a mismatch leaves this device exactly as it was.
+      if (rejoin && reply.camp?.id !== ownCamp.id) return { status: 'not_this_camp' }
+      // Pair again, step one: the camp's signed purge tombstones are applied to this device's own
+      // document BEFORE anything merges, so a camper erased while it was away is not carried back.
+      // Verified against this camp's signing key exactly as projection does; any failure refuses.
+      if (rejoin) {
+        const tombstones = reply.tombstones ?? []
+        const pub = db.prepare('SELECT signing_public_key FROM camps LIMIT 1').get()?.signing_public_key
+        if (tombstones.length > 0 && !verifyTombstones(pub, tombstones)) return { status: 'tombstones_unverified' }
+        const cleaned = applyTombstonesToDoc(getCurrentDoc(db), tombstones)
+        setCurrentDoc(db, cleaned)
+      }
       // Hand the token to the node so its ordinary mutual-auth path can run.
       // Then authenticate immediately rather than waiting for mDNS to
       // re-announce this Host: wireMutualAuth leaves a peer un-dialed while
@@ -322,7 +355,7 @@ export async function startJoinSession({
       // sync exchange, and a document that projected while this row was still
       // missing would drop `users` on an FK error and might be the only merge
       // this device ever receives.
-      if (reply.camp?.id) {
+      if (reply.camp?.id && !rejoin) {
         db.prepare(
           'INSERT OR REPLACE INTO camps (id, name, signing_public_key) VALUES (?, ?, ?)'
         ).run(reply.camp.id, reply.camp.name ?? null, reply.camp.signing_public_key ?? null)
@@ -338,8 +371,9 @@ export async function startJoinSession({
       // direction, with nothing logged on the Host. Every earlier test seeded
       // this row by hand, which is exactly why nothing caught it.
       if (reply.host_device_id) {
+        // On Pair again the row usually exists already; keep it (and its name) as it is.
         db.prepare(
-          "INSERT OR REPLACE INTO devices (id, name, authorized_at, pairing_status) VALUES (?, ?, ?, 'authorized')"
+          `INSERT OR ${rejoin ? 'IGNORE' : 'REPLACE'} INTO devices (id, name, authorized_at, pairing_status) VALUES (?, ?, ?, 'authorized')`
         ).run(reply.host_device_id, 'Main computer', new Date().toISOString())
         // …and record WHICH PEER that device currently is. The Host records the
         // reverse mapping on a successful login (syncNode.onLogin), but nothing
