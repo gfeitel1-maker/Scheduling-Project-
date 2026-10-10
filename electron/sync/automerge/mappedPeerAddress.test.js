@@ -102,6 +102,21 @@ describe('one mapped row per peer', () => {
   })
 })
 
+describe('rememberMappedPeerAddress - future timestamps', () => {
+  it('rejects an entry dated beyond the skew window, so a peer cannot pin its own row with a far-future ts', () => {
+    const db = freshDb()
+    expect(rememberMappedPeerAddress(db, 'peer-1', MAPPED, { observedAtMs: NOW + 365 * 24 * 3600e3, now: () => NOW })).toBe(false)
+    expect(rows(db)).toEqual([])
+    expect(rememberMappedPeerAddress(db, 'peer-1', MAPPED, { observedAtMs: NOW + 6 * 60e3, now: () => NOW })).toBe(false)
+  })
+
+  it('an honest entry after a rejected far-future one still lands', () => {
+    const db = freshDb()
+    rememberMappedPeerAddress(db, 'peer-1', MAPPED, { observedAtMs: NOW + 365 * 24 * 3600e3, now: () => NOW })
+    expect(rememberMappedPeerAddress(db, 'peer-1', MAPPED, { observedAtMs: NOW + 60e3, now: () => NOW })).toBe(true)
+  })
+})
+
 describe('loadMappedPeerAddress', () => {
   it('returns the row for a trusted peer inside 7 days, null past it', () => {
     const db = freshDb()

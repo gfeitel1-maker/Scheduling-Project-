@@ -32,7 +32,8 @@
 // still trusted when the snapshot was read.
 import { deviceTrustStatus } from '../../auth/deviceTrust.js'
 import { createBoundPeerTrust } from './peerIdentity.js'
-import { isPublicAddress } from './punchGossip.js'
+import { multiaddr } from '@multiformats/multiaddr'
+import { isPublicAddress, MAX_FUTURE_SKEW_MS } from './punchGossip.js'
 
 // Keep at most this many remembered addresses per peer — small and deliberately so: a camp LAN
 // device rarely has more than a couple of live interfaces, and this only exists to cap growth,
@@ -44,6 +45,12 @@ export const PEER_LAST_ADDRESSES_MAX_PER_PEER = 5
 // prune below. An observed public TCP address (an inbound connection's ephemeral source port) is not a
 // listener and is never stored by rememberPeerAddress.
 export const MAPPED_ADDRESS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
+// T361: a LAN row older than this is not redialed at startup. 30 days: a camp's LAN addresses are DHCP
+// leases that survive an off-season gap far less often than a router mapping is refreshed, while a
+// refused dial is now isolated and cheap, so the bound only has to stop an ancient row being tried forever.
+export const LAN_ADDRESS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
+// Per-dial budget for the startup redial, its own signal rather than libp2p's 30s default.
+export const REDIAL_TIMEOUT_MS = 5000
 const TCP_ADDR_RE = /^\/(ip4|ip6)\/([^/]+)\/tcp\/(\d{1,5})(?:\/p2p\/([^/]+))?$/
 function parsePublicTcp(multiaddr) {
   const m = TCP_ADDR_RE.exec(multiaddr)
@@ -84,10 +91,11 @@ export function rememberPeerAddress(db, peerId, multiaddr, now = () => new Date(
 // (`/ip4/<ext>/tcp/<port>/p2p/<peerId>`). `observedAtMs` is the entry's own signed timestamp. Public-
 // filtered here at the write; at most one such row per peer; it is replaced only by a strictly newer
 // entry, so republishing other ports cannot churn it and an older entry cannot roll it back.
-export function rememberMappedPeerAddress(db, peerId, multiaddr, { observedAtMs = Date.now() } = {}) {
+export function rememberMappedPeerAddress(db, peerId, multiaddr, { observedAtMs = Date.now(), now = Date.now } = {}) {
   if (typeof peerId !== 'string' || peerId.length === 0 || typeof multiaddr !== 'string') return false
   const parsed = parsePublicTcp(multiaddr)
   if (!parsed || parsed.peerId !== peerId || !Number.isFinite(observedAtMs)) return false
+  if (observedAtMs - now() > MAX_FUTURE_SKEW_MS) return false
   const seen = new Date(observedAtMs).toISOString()
   return db.transaction(() => {
     const existing = db.prepare('SELECT multiaddr, last_seen_at FROM peer_last_addresses WHERE peer_id = ?').all(peerId).filter((r) => isPublicTcp(r.multiaddr))
@@ -100,14 +108,13 @@ export function rememberMappedPeerAddress(db, peerId, multiaddr, { observedAtMs 
 }
 
 // The trusted peer's remembered mapped address if it is at most 7 days old, else null. The age limit
-// belongs to the rung-1 dial path; redialTrustedPeers' startup redial does not use it. `allowNonPublic`
-// is for loopback test fixtures only.
-export function loadMappedPeerAddress(db, peerId, { isPeerTrusted, maxAgeMs = MAPPED_ADDRESS_MAX_AGE_MS, now = Date.now, allowNonPublic = false } = {}) {
+// is applied here and by listTrustedRememberedAddresses. `isAddressAllowed` is a test-only injection
+// point (loopback fixtures); production never passes it.
+export function loadMappedPeerAddress(db, peerId, { isPeerTrusted, maxAgeMs = MAPPED_ADDRESS_MAX_AGE_MS, now = Date.now, isAddressAllowed = isPublicTcp } = {}) {
   const checkTrust = isPeerTrusted ?? createBoundPeerTrust(db)
   if (!checkTrust(peerId)) return null
   const rows = db.prepare('SELECT multiaddr, last_seen_at FROM peer_last_addresses WHERE peer_id = ? ORDER BY last_seen_at DESC').all(peerId)
-  const matches = allowNonPublic ? (m) => TCP_ADDR_RE.test(m) && m.startsWith('/ip4/127.') : isPublicTcp
-  const row = rows.find((r) => matches(r.multiaddr))
+  const row = rows.find((r) => isAddressAllowed(r.multiaddr))
   if (!row || !(now() - Date.parse(row.last_seen_at) <= maxAgeMs)) return null
   return row.multiaddr
 }
@@ -168,19 +175,36 @@ export function loadTrustedPunchMemory(db, peerId, { isPeerTrusted } = {}) {
 // a peer revoked since the last read is excluded. This is a SNAPSHOT, not a live guarantee — see
 // redialTrustedPeers' own per-target re-check for why a revoke landing after this call is still
 // honored.
-export function listTrustedRememberedAddresses(db) {
+export function listTrustedRememberedAddresses(db, { now = Date.now } = {}) {
   const rows = db
     .prepare(
-      'SELECT d.id AS deviceId, d.libp2p_peer_id AS peerId, p.multiaddr AS multiaddr ' +
+      'SELECT d.id AS deviceId, d.libp2p_peer_id AS peerId, p.multiaddr AS multiaddr, p.last_seen_at AS lastSeenAt ' +
         'FROM peer_last_addresses p JOIN devices d ON d.libp2p_peer_id = p.peer_id'
     )
     .all()
+  const at = now()
+  const fresh = (row) => at - Date.parse(row.lastSeenAt) <= (isPublicTcp(row.multiaddr) ? MAPPED_ADDRESS_MAX_AGE_MS : LAN_ADDRESS_MAX_AGE_MS)
   return rows
     .filter((row) => {
       const trust = deviceTrustStatus(db, row.deviceId)
-      return trust.authorized && !trust.revoked
+      return trust.authorized && !trust.revoked && fresh(row)
     })
+    .sort((a, b) => isPublicTcp(b.multiaddr) - isPublicTcp(a.multiaddr) || (a.lastSeenAt < b.lastSeenAt ? 1 : a.lastSeenAt > b.lastSeenAt ? -1 : 0))
     .map((row) => ({ peerId: row.peerId, multiaddr: row.multiaddr }))
+}
+
+// The dial target for a remembered '/ip4/…/p2p/<id>' string, or null when it does not name `peerId`.
+// The /p2p component is validated here and then DROPPED from the dial: a dial pinned to a peer id is
+// keyed by that id in libp2p's dial queue, so a later discovery dial for the same peer JOINS the stale
+// job and inherits its refusal (see docs/work/tickets/T361-startup-redial-isolation.md). Identity is
+// verified on the resulting connection instead.
+function redialTarget(peerId, remembered) {
+  try {
+    const named = multiaddr(remembered).getComponents().find((c) => c.name === 'p2p')?.value
+    return named === peerId ? multiaddr(remembered.replace(/\/p2p\/[^/]+$/, '')) : null
+  } catch {
+    return null
+  }
 }
 
 // Dials every remembered address of every trusted peer, in PARALLEL (Promise.allSettled — one
@@ -238,18 +262,22 @@ export function selectCoordinationCandidates(db, excludePeerId, { isPeerTrusted 
   return candidates
 }
 
-export async function redialTrustedPeers(db, { dial, isConnected, isPeerTrusted } = {}) {
+export async function redialTrustedPeers(db, { dial, isConnected, isPeerTrusted, timeoutMs = REDIAL_TIMEOUT_MS, now } = {}) {
   const checkTrust = isPeerTrusted ?? createBoundPeerTrust(db)
-  const targets = listTrustedRememberedAddresses(db)
+  const targets = listTrustedRememberedAddresses(db, { now })
   const attempted = []
 
   await Promise.allSettled(
     targets.map(async ({ peerId, multiaddr }) => {
       if (isConnected?.(peerId)) return
       if (!checkTrust(peerId)) return
+      const target = redialTarget(peerId, multiaddr)
+      if (!target) return
       attempted.push(peerId)
       try {
-        await dial(multiaddr)
+        const connection = await dial(target, { signal: AbortSignal.timeout(timeoutMs) })
+        const remote = connection?.remotePeer?.toString()
+        if (remote && remote !== peerId) await connection.close?.()
       } catch (err) {
         console.error(
           `redialTrustedPeers: dial to remembered address for ${peerId} failed (stale address, ` +

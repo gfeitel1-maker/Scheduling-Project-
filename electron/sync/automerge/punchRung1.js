@@ -40,8 +40,8 @@ function publicSrflx(candidates) {
 
 // T359 slice 2: before the UDP punch, dial the peer's remembered router-mapped TCP address (7 day age
 // limit, trust re-checked before the dial and after the upgrade). Any failure falls through to the punch.
-async function attemptMappedDial(peer, { db, dial, timeoutMs, signal, checkTrust, isPeerRevoked, allowNonPublicMapped }) {
-  const address = loadMappedPeerAddress(db, peer.peerId, { isPeerTrusted: checkTrust, allowNonPublic: allowNonPublicMapped })
+async function attemptMappedDial(peer, { db, dial, timeoutMs, signal, checkTrust, isPeerRevoked, mappedAddressFilter }) {
+  const address = loadMappedPeerAddress(db, peer.peerId, { isPeerTrusted: checkTrust, isAddressAllowed: mappedAddressFilter })
   if (!address) return null
   let connection
   try {
@@ -62,15 +62,15 @@ async function attemptMappedDial(peer, { db, dial, timeoutMs, signal, checkTrust
 }
 
 // peer: { peerId }. deps: { db, dial? (libp2p dial; enables the mapped-address-first step), transport, upgrader, timeoutMs?, signal?, isPeerTrusted?, maxAgeMs?,
-// allowNonPublicCandidates? and allowNonPublicMapped? (loopback tests only) }.
+// allowNonPublicCandidates? and mappedAddressFilter? (loopback tests only; defaults to the public-TCP filter) }.
 // -> { ok: true, connection } | { ok: false, reason: 'no-memory' | 'mapping-moved' | 'timeout' | 'revoked' | 'error' }
 // A revoked, unknown, stale or unusable memory reports 'no-memory' and is never probed. Trust is
 // checked again after the upgrade: a peer revoked mid-dial gets its connection closed and 'revoked'.
-export async function attemptRung1(peer, { db, transport, upgrader, timeoutMs = RUNG1_DEFAULT_TIMEOUT_MS, signal, isPeerTrusted, isPeerRevoked, maxAgeMs = RUNG1_MEMORY_MAX_AGE_MS, allowNonPublicCandidates = false, dial, allowNonPublicMapped = false }) {
+export async function attemptRung1(peer, { db, transport, upgrader, timeoutMs = RUNG1_DEFAULT_TIMEOUT_MS, signal, isPeerTrusted, isPeerRevoked, maxAgeMs = RUNG1_MEMORY_MAX_AGE_MS, allowNonPublicCandidates = false, dial, mappedAddressFilter }) {
   try {
     const checkTrust = isPeerTrusted ?? createBoundPeerTrust(db)
     if (dial) {
-      const mapped = await attemptMappedDial(peer, { db, dial, timeoutMs, signal, checkTrust, isPeerRevoked, allowNonPublicMapped })
+      const mapped = await attemptMappedDial(peer, { db, dial, timeoutMs, signal, checkTrust, isPeerRevoked, mappedAddressFilter })
       if (mapped) return mapped
     }
     let memory = loadTrustedPunchMemory(db, peer?.peerId, { isPeerTrusted: checkTrust })
