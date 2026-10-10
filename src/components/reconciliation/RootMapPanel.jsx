@@ -175,6 +175,10 @@ export default function RootMapPanel({
 
   const gaps = scoped.filter((d) => d.kind === 'required_gap')
   const rest = scoped.filter((d) => d.kind !== 'required_gap')
+  // Only confirm_value cards have a plain "use the file's value" answer.
+  // confirm_change overwrites what the director already has, and choice cards
+  // have no file-value option, so those stay individual.
+  const bulkIds = rest.filter((d) => d.kind === 'confirm_value' && answers[d.id] === undefined).map((d) => d.id)
   // Design polish #2 — the crossfade should fire only when the panel's
   // CONTENT TYPE/heading actually changes (a node selection, or a
   // none<->tile<->node type change), not on a tile->tile filter change
@@ -296,12 +300,16 @@ export default function RootMapPanel({
               a director answering the twenty-fifth could not have answered it
               differently from the first. Grouping is DISPLAY only — every id in
               the group still gets its own staged answer. */}
-          {groupIdenticalDecisions(rest.filter((d) => answers[d.id] === undefined)).map(({ decision: d, ids, members, count }) => (
+          {bulkIds.length > 0 && (
+            <button className="press-97" onClick={() => onAnswer(bulkIds, { action: 'looks_right' })} style={styles.bulkButton}>
+              {`Use the file's values for all ${bulkIds.length} remaining`}
+            </button>
+          )}
+          {groupIdenticalDecisions(rest.filter((d) => answers[d.id] === undefined)).map(({ decision: d, ids, count }) => (
             <DecisionCard
               key={d.id}
               decision={d}
               repeatCount={count}
-              members={members}
               rank={lanes.hold.includes(d) ? 'hold' : 'standard'}
               answer={answers[d.id]}
               onAnswer={(a) => onAnswer(ids, a)}
@@ -386,6 +394,7 @@ const styles = {
     borderTop: '1px dashed var(--border)',
     textAlign: 'right',
   },
+  bulkButton: { ...S.btnPrimary, padding: '7px 12px', marginBottom: 10 },
   openButton: {
     ...S.btnPrimary,
     display: 'block',

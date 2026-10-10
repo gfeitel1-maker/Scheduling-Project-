@@ -811,3 +811,38 @@ describe('RootMapPanel — per-tile empty copy (§6)', () => {
     expect(screen.getByText('Nothing left out — everything in this file matched your camp.')).toBeTruthy()
   })
 })
+
+describe('RootMapPanel "use the file\'s values for all remaining"', () => {
+  const cv = (id) => ({ id, kind: 'confirm_value', entityName: `Item ${id}` })
+  const choice = { id: 'c1', kind: 'all_camp_override', entityName: 'Pick' }
+  function show(answers, onAnswer) {
+    render(
+      <RootMapPanel
+        model={emptyModel()}
+        selection={{ type: 'none' }}
+        lanes={{ hold: [], standard: [cv('a'), cv('b'), cv('c'), choice] }}
+        dismissedGaps={new Set()}
+        answers={answers}
+        onAnswer={onAnswer}
+        onDismissGap={noop}
+        onUndismissGap={noop}
+        expandedEvidence={new Set()}
+        onToggleEvidence={noop}
+        onNavigate={noop}
+        onClearSelection={noop}
+      />,
+    )
+  }
+
+  it('stages exactly the unanswered file-value cards, not answered ones or choice cards', () => {
+    const calls = []
+    show({ a: { action: 'edited' } }, (ids, a) => calls.push([ids, a]))
+    fireEvent.click(screen.getByText("Use the file's values for all 2 remaining"))
+    expect(calls).toEqual([[['b', 'c'], { action: 'looks_right' }]])
+  })
+
+  it('is hidden when nothing is unanswered', () => {
+    show({ a: { action: 'edited' }, b: { action: 'edited' }, c: { action: 'edited' } }, noop)
+    expect(screen.queryByText(/for all \d+ remaining/)).toBeNull()
+  })
+})
