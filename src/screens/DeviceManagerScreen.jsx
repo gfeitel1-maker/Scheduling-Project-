@@ -408,7 +408,9 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
                       ) : (
                         <>
                           {device.name || '—'}
-                          {device.isSelf && <span style={styles.flagMuted}> · this computer</span>}
+                          {device.isSelf && String(device.name ?? '').trim().toLowerCase() !== 'this computer' && (
+                            <span style={styles.flagMuted}> (this computer)</span>
+                          )}
                           {canDecide && (
                             <button style={{ ...S.btnSecondary, marginLeft: 8 }} onClick={() => startRename(device)} aria-label={`Rename ${device.name || 'device'}`}>Rename</button>
                           )}

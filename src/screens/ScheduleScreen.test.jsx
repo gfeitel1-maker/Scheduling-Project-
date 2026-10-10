@@ -1741,7 +1741,9 @@ describe('empty route with saved versions (packaged audit 714d1b32 item 7)', () 
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
 
     await waitFor(() => expect(screen.getByText('Generate a schedule')).toBeTruthy())
-    fireEvent.click(screen.getByRole('button', { name: /Versions/ }))
+    // Snapshots load separately from the slots that draw the offer, so the
+    // button can appear a beat after "Generate a schedule" does.
+    fireEvent.click(await screen.findByRole('button', { name: /Versions/ }))
     await waitFor(() => expect(screen.getByText('Before replace — Oct 10, 10:40 AM')).toBeTruthy())
   })
 

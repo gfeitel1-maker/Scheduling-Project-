@@ -128,7 +128,7 @@ export default function ConnectedToolsPanel() {
             style={S.input}
             value={label}
             onChange={(e) => setLabel(e.target.value)}
-            placeholder="e.g. Greg's laptop MCP"
+            placeholder="e.g. Office laptop"
           />
         </div>
         <div style={styles.field}>
