@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
 import { unresolvedPlacementsNotice } from '../ingest/unresolvedPlacementsNotice'
+import { leftOutPlacements } from '../ingest/leftOutPlacements'
 import { localClient } from '../localClient'
 import { useCohorts } from '../hooks/useCohorts'
 import { S, useEnterTransition } from '../styles/shared'
@@ -1531,7 +1532,7 @@ export default function ImportScreen({ campId, onNavigate }) {
     // grace-window undo offer, when the commit was undo-capable — before
     // ever leaving this screen. Only that tray's own "Continue" button
     // navigates to Roots from here on.
-    setLedger((prev) => ({ ...prev, phase: 'committed', outcome, notices }))
+    setLedger((prev) => ({ ...prev, phase: 'committed', outcome, notices, leftOut: leftOutPlacements(version) }))
   }
 
   // Nothing was written for a staged split (HIGH #1) — discarding the import
@@ -1563,6 +1564,7 @@ export default function ImportScreen({ campId, onNavigate }) {
         phase={ledger.phase ?? 'triage'}
         outcome={ledger.outcome ?? null}
         notices={ledger.notices ?? []}
+        leftOut={ledger.leftOut ?? null}
         // T114 — detected client-side at parse time (the placements only exist
         // here), asked in reconciliation like every other thing the import is
         // unsure about.

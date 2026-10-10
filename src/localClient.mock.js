@@ -25,7 +25,7 @@ import { deriveCamperId, mintCamperId, deriveSpecialDayPlacementId } from '../el
 import { deriveElectiveRunFindingId } from '../electron/ops/deriveElectiveRunFindingId.js'
 // T117 slice 2 — same src/-may-import-electron/ops/*.js pure-module exception,
 // this time so :5200 can prove a version got created without a second resolver.
-import { resolveImportedPlacements } from '../electron/ops/resolveImportedPlacements.js'
+import { resolveImportedPlacements, describeUnresolved } from '../electron/ops/resolveImportedPlacements.js'
 import { deriveScheduleTemplateId } from '../electron/ops/scheduleTemplateId.js'
 import { hasContradictoryRanks } from './ingest/preferenceSheet.js'
 // F8 (board item 9b round 3) — the SAME pure validator
@@ -1655,6 +1655,7 @@ export const mockShoresh = {
           blockIdByName: nameMap('time_blocks'),
         }
         const { slots, unresolved } = resolveImportedPlacements(placements, maps)
+        const unresolvedItems = describeUnresolved(unresolved, (state.time_blocks ?? []).filter((b) => b.camp_id === campId))
         if (slots.length > 0) {
           const snapshotId = randomId()
           state.schedule_snapshots.push({
@@ -1665,9 +1666,9 @@ export const mockShoresh = {
             created_at: new Date().toISOString(),
             slots: JSON.stringify(slots),
           })
-          version = { created: true, snapshotId, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName) }
+          version = { created: true, snapshotId, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName), unresolvedItems }
         } else {
-          version = { created: false, snapshotId: null, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName) }
+          version = { created: false, snapshotId: null, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName), unresolvedItems }
         }
       }
     }

@@ -8,6 +8,7 @@
 // span-head merging.
 
 import { normalizeName } from '../../src/ingest/preview.js'
+import { timeBlockLabel } from '../../src/utils/timeBlockLabel.js'
 
 /**
  * @param {Array<{groupName, dayName, blockLabel, activityName}>} placements
@@ -67,4 +68,25 @@ export function resolveImportedPlacements(placements, maps) {
   }
 
   return { slots, unresolved }
+}
+
+// What the director needs to find a left-out placement again: the name, the
+// day, the group, and the block in its 12-hour form when the camp has that
+// block (a block the camp lacks keeps the file's own spelling).
+export function describeUnresolved(unresolved, timeBlocks = []) {
+  const blockByName = new Map()
+  for (const b of timeBlocks) {
+    const key = normalizeName(b.name)
+    if (!blockByName.has(key)) blockByName.set(key, b)
+  }
+  return unresolved.map((u) => {
+    const block = blockByName.get(normalizeName(u.blockLabel))
+    return {
+      activityName: u.activityName,
+      groupName: u.groupName,
+      dayName: u.dayName,
+      blockText: block ? timeBlockLabel(block) : u.blockLabel,
+      reason: u.reason,
+    }
+  })
 }

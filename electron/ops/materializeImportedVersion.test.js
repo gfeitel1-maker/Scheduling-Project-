@@ -191,6 +191,21 @@ describe('materializeImportedVersion', () => {
     expect(db.prepare('SELECT COUNT(*) c FROM schedule_snapshots').get().c).toBe(0)
   })
 
+  it('reports each left-out placement with its day, group and 12-hour block time', async () => {
+    const db = makeDb()
+    const campId = seedCamp(db)
+    seedWeek(db, campId)
+    seedCatalog(db, campId)
+    db.prepare("UPDATE time_blocks SET start_time = '13:35', end_time = '14:20' WHERE camp_id = ?").run(campId)
+    const placements = [{ groupName: 'Bunk 1', dayName: 'Monday', blockLabel: '09:00', activityName: 'Nonexistent' }]
+
+    const result = await materializeImportedVersion(db, fakeSyncClient(db), { campId, authorUserId, placements })
+
+    expect(result.unresolvedItems).toEqual([
+      { activityName: 'Nonexistent', groupName: 'Bunk 1', dayName: 'Monday', blockText: '09:00 (1:35–2:20 PM)', reason: 'activity' },
+    ])
+  })
+
   it('writes only the resolved slots and reports unresolvedNames when some resolve and some do not', async () => {
     const db = makeDb()
     const campId = seedCamp(db)

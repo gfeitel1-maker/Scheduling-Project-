@@ -290,3 +290,26 @@ describe('commitTrayState', () => {
     expect(undoneTray.receipt.summary).toMatch(/the import created/)
   })
 })
+
+describe('commitTrayState — placements left out', () => {
+  it('replace variant never says ready when something was left out', () => {
+    const tray = commitTrayState({ notices: [], undoCapable: false, undoState: { total: 40 }, leftOut: { count: 124 } })
+    expect(tray.hint).toBe('Setup replaced. 124 placements were left out of the schedule, listed above.')
+    expect(tray.hint.toLowerCase()).not.toMatch(/ready/)
+  })
+
+  it('merge variant says what was imported and what was left out, no ready', () => {
+    const tray = commitTrayState({
+      notices: [],
+      undoCapable: true,
+      undoState: { status: 'live', isLive: true, isPending: false, total: 40, secondsLeft: null },
+      leftOut: { count: 1 },
+    })
+    expect(tray.hint).toBe('Imported 40 records from the file. 1 placement was left out of the schedule, listed above.')
+    expect(tray.secondary.label).toBe('Undo this import')
+  })
+
+  it('a clean result keeps the single success line', () => {
+    expect(commitTrayState({ undoCapable: false, undoState: { total: 40 }, leftOut: null }).hint).toBe('Setup replaced and ready.')
+  })
+})

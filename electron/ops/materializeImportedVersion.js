@@ -14,7 +14,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { normalizeName } from '../../src/ingest/preview.js'
-import { resolveImportedPlacements } from './resolveImportedPlacements.js'
+import { resolveImportedPlacements, describeUnresolved } from './resolveImportedPlacements.js'
 import { deriveScheduleTemplateId } from './scheduleTemplateId.js'
 
 // The renderer supplies the file name; it becomes a stored version name, so it
@@ -88,9 +88,13 @@ export async function materializeImportedVersion(db, syncClient, { campId, autho
   }
 
   const { slots, unresolved } = resolveImportedPlacements(placements, maps)
+  const unresolvedItems = describeUnresolved(
+    unresolved,
+    db.prepare('SELECT name, start_time, end_time FROM time_blocks WHERE camp_id = ?').all(campId),
+  )
 
   if (slots.length === 0) {
-    return { created: false, snapshotId: null, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName) }
+    return { created: false, snapshotId: null, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName), unresolvedItems }
   }
 
   // The director lands on Generated, so the imported week must be findable
@@ -115,5 +119,5 @@ export async function materializeImportedVersion(db, syncClient, { campId, autho
     snapshotId ??= id
   }
 
-  return { created: true, snapshotId, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName) }
+  return { created: true, snapshotId, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName), unresolvedItems }
 }

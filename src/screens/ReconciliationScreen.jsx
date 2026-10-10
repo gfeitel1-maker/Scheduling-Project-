@@ -69,7 +69,7 @@ export default function ReconciliationScreen({ entry = 'import', ...rest }) {
   return <ImportReconciliation {...rest} />
 }
 
-function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard, onNavigate, factCount = 0, isFirstImport = false, allCampOverrides = [], placements = [], allGroupNames = [], phase = 'triage', outcome = null, notices = [] }) {
+function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard, onNavigate, factCount = 0, isFirstImport = false, allCampOverrides = [], placements = [], allGroupNames = [], phase = 'triage', outcome = null, notices = [], leftOut = null }) {
   // U1 (docs/adr/2026-08-17-onescreen-reconciliation-undo.md, T253 Amendment)
   // — owned by THIS screen's own hook instance, never module-level, never
   // persisted (Invariant 5). ImportScreen keeps this screen mounted through
@@ -324,6 +324,7 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
     return (
       <CommittedTray
         notices={notices}
+        leftOut={leftOut}
         outcome={outcome}
         graceWindow={graceWindow}
         onNavigate={onNavigate}
@@ -638,13 +639,14 @@ function OpenDecisionsDoor({ onNavigate }) {
 // idiom for the receipt's two-tier disclosure — no second disclosure
 // pattern. commitTrayState decides all copy; this component only wires
 // clicks and animates.
-function CommittedTray({ notices, outcome, graceWindow, onNavigate }) {
+function CommittedTray({ notices, leftOut, outcome, graceWindow, onNavigate }) {
   const contentEnter = useEnterTransition('slideFade')
   const reduced = prefersReducedMotion()
   const [showDetail, setShowDetail] = useState(false)
   const undoCapable = Array.isArray(outcome?.invertibleOps)
   const tray = commitTrayState({
     notices,
+    leftOut,
     undoCapable,
     undoState: { ...graceWindow, total: outcome?.total ?? 0 },
   })
@@ -671,6 +673,32 @@ function CommittedTray({ notices, outcome, graceWindow, onNavigate }) {
       <div style={contentEnter}>
         {notices.length > 0 && (
           <div style={styles.understoodRow}>{notices.join(' ')}</div>
+        )}
+
+        {leftOut && (
+          <div style={styles.understoodRow} role="status">
+            <div style={{ fontWeight: 600, color: 'var(--text)' }}>{leftOut.headline}</div>
+            <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
+              {leftOut.entries.map((e) => (
+                <li key={e.name} style={{ marginBottom: 6 }}>
+                  <strong>{e.name}</strong>
+                  {e.spots.map((s) => <div key={s}>{s}</div>)}
+                  {e.moreSpots > 0 && <div>and {e.moreSpots} more</div>}
+                  {e.action && (
+                    <button className="press-97" onClick={() => onNavigate?.('activities', { addActivityName: e.name })} style={styles.linkButton}>
+                      {e.action.label}
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+            {leftOut.moreNames > 0 && <div>and {leftOut.moreNames} more</div>}
+            {leftOut.setupActions.map((a) => (
+              <button key={a.screen} className="press-97" onClick={() => onNavigate?.(a.screen)} style={{ ...styles.linkButton, marginRight: 12 }}>
+                {a.label}
+              </button>
+            ))}
+          </div>
         )}
 
         {graceWindow.undoError && (
