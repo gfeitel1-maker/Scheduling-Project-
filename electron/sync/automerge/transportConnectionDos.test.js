@@ -91,7 +91,9 @@ async function authenticate(client, target) {
 
 describe('T340 connection-manager DoS hardening', () => {
   it('1: an un-admitted flood never evicts an established admitted connection and is capped to maxConnections - reservedFloor', async () => {
-    const target = await startTarget({ maxConnections: 8, reservedFloor: 3, unadmittedDeadlineMs: HANDSHAKE_SAFE_DEADLINE_MS })
+    // Deadline far beyond the test, so nothing can reap an attacker: an UNCAPPED flood stays at 12
+    // open however slow the machine is, and only the cap can bring it to 5.
+    const target = await startTarget({ maxConnections: 8, reservedFloor: 3, unadmittedDeadlineMs: 600_000 })
     const camp = await startCamp('camp')
     await camp.dial(target.getMultiaddrs()[0])
     expect(await authenticate(camp, target)).toBe(true)
@@ -99,20 +101,18 @@ describe('T340 connection-manager DoS hardening', () => {
     // non-vacuity: with capacity free the admitted connection is simply untouched
     expect(target.getPeers()).toContain(camp.peerId)
 
-    // Per-connection: a CAP abort closes a connection moments after it opens; a deadline reap closes
-    // it no sooner than the deadline. Counting only early closes means an uncapped flood cannot pass
-    // by being reaped later, however slow the machine is.
-    // The cap aborts inside transport's own connection:open listener, which runs before any listener
-    // added here, so age is read from the connection's own timeline (open -> close).
-    let capAborted = 0
-    target.libp2pNode.addEventListener('connection:close', (evt) => {
-      const { direction, timeline } = evt.detail
-      if (direction === 'inbound' && timeline?.open && (timeline.close ?? Date.now()) - timeline.open < HANDSHAKE_SAFE_DEADLINE_MS / 2) capAborted++
-    })
     const attackers = await flood(target, 12)
-    await waitFor(() => capAborted >= 7, { timeout: 10_000 }) // 12 un-admitted against a cap of 5
-    expect(openAttackerConns(target, attackers)).toBeLessThanOrEqual(5)
+    await waitFor(() => openAttackerConns(target, attackers) <= 5, { timeout: 10_000 })
     expect(target.getPeers()).toContain(camp.peerId)
+    expect(target.isPeerAuthenticated(camp.peerId)).toBe(true)
+  })
+
+  it('1b: an admitted connection survives the un-admitted deadline', async () => {
+    const target = await startTarget({ maxConnections: 8, reservedFloor: 3, unadmittedDeadlineMs: HANDSHAKE_SAFE_DEADLINE_MS })
+    const camp = await startCamp('camp')
+    await camp.dial(target.getMultiaddrs()[0])
+    expect(await authenticate(camp, target)).toBe(true)
+    await flood(target, 3)
 
     await sleep(HANDSHAKE_SAFE_DEADLINE_MS + 500) // past the deadline: the admitted conn must survive it
     expect(target.getPeers()).toContain(camp.peerId)
