@@ -529,6 +529,25 @@ export function loadDoc(bytes) {
 // zero matches in generated output. Use `grep -a`.
 const FIELD_DELIM = '\u0000'
 
+// Whole-value blobs. A saved schedule version (schedule_snapshots.slots), a camp map image
+// (camp_maps.image_data, up to 1.4M characters) and a bulk-replaced slot set
+// (doc[`${entity}_scopes`][scope_id], always, in applyBulkReplace) are replaced whole, never edited in place,
+// so they are written as ImmutableString: one op per write, a plain last-writer-wins register.
+// Written as Automerge Text they cost one op per character, and history keeps every one: an
+// imported camp reached 2.9M ops and a multi-second load from these two alone
+// (docs/adr/2026-10-10-whole-value-blobs-as-immutable-strings.md).
+const WHOLE_VALUE_FIELDS = new Set(['schedule_snapshots.slots', 'camp_maps.image_data'])
+
+export function storedValue(entity, field, value) {
+  return typeof value === 'string' && WHOLE_VALUE_FIELDS.has(`${entity}.${field}`) ? new A.RawString(value) : value
+}
+
+// Every reader gets a plain string back, whether the document holds the value as ImmutableString
+// (written since this change) or as Text (written before it).
+export function plainValue(value) {
+  return A.isImmutableString(value) ? value.toString() : value
+}
+
 export function recordKey(entityId, field) {
   return `${entityId}${FIELD_DELIM}${field}`
 }
@@ -640,7 +659,7 @@ export function readRecord(doc, entity, entityId) {
     if (!key.startsWith(prefix)) continue
     const parsed = splitRecordKey(key)
     if (!parsed || parsed.entityId !== entityId) continue
-    out[parsed.field] = collection[key]
+    out[parsed.field] = plainValue(collection[key])
     found = true
   }
   return found ? out : null
@@ -719,7 +738,7 @@ function applyOneWriteInto(d, { entity, entity_id, field, value, source, author_
     return
   }
   if (!fields.includes(field)) return
-  coll[recordKey(entity_id, field)] = coerceOpValue(value)
+  coll[recordKey(entity_id, field)] = storedValue(entity, field, coerceOpValue(value))
   // Provenance tracks the LATEST write's ownership, so an import write CLEARS
   // a human marker rather than leaving it. A director accepting an imported
   // value (S2b's stale-accept passes source:'import') hands ownership back to
@@ -830,6 +849,6 @@ export function applyBulkReplace(doc, { entity, scope_id, rows }) {
     // Lazy top-up, same reasoning as applyWrite's above — a document persisted before this
     // primitive existed has no scope collection yet.
     if (!d[collectionName]) d[collectionName] = {}
-    d[collectionName][scope_id] = JSON.stringify(sanitizedRows)
+    d[collectionName][scope_id] = new A.RawString(JSON.stringify(sanitizedRows))
   })
 }

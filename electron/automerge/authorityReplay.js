@@ -75,11 +75,12 @@ function byHashOf(automerge, doc) {
 // result as listRecordIds/readRecord on the document at those heads, as far as isCompleteEntry
 // can tell: the collection is the root key's winning object, a field's text is its string, and
 // every other value maps to what the proxy would return (see PLAIN_SCALAR_TYPES).
-// Value types the document proxy returns as the same JS primitive. Every other type (a raw
-// 'str' is an ImmutableString object, a counter a Counter object, a timestamp a Date, bytes a
-// Uint8Array, a map/list an object) is an object to the proxy: truthy and never a string, which
-// is all isCompleteEntry can see of it.
-const PLAIN_SCALAR_TYPES = new Set(['int', 'uint', 'f64', 'boolean'])
+// Value types readRecord returns as the same JS primitive: the proxy's own scalars, plus a raw
+// 'str' (ImmutableString), which readRecord turns into a plain string (campDocument.js's
+// plainValue). Every other type (a counter is a Counter object, a timestamp a Date, bytes a
+// Uint8Array, a map/list an object) is an object: truthy and never a string, which is all
+// isCompleteEntry can see of it.
+const PLAIN_SCALAR_TYPES = new Set(['int', 'uint', 'f64', 'boolean', 'str'])
 const NON_STRING_VALUE = Object.freeze({})
 
 function authorityRowsAt(backend, heads, skipIds) {

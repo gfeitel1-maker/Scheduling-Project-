@@ -34,7 +34,7 @@
 // state to replicate. Resolution is an ordinary field write that dominates both
 // values, so it clears everywhere by the mechanism that raised it.
 import * as A from '@automerge/automerge'
-import { splitRecordKey, recordKey } from './campDocument.js'
+import { splitRecordKey, recordKey, storedValue } from './campDocument.js'
 
 // Ordering is part of the contract, not tidiness: two devices must produce
 // byte-identical reconciliations from identical documents, and callers (the
@@ -188,6 +188,6 @@ export function resolveConflictInDoc(doc, { entity, entityId, field, value }) {
     const collection = d[entity]
     if (!collection || !(key in collection)) return
     delete collection[key]
-    collection[key] = value
+    collection[key] = storedValue(entity, field, value)
   })
 }
