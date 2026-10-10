@@ -193,8 +193,8 @@ function main() {
 
   try {
     rebuild(target)
-  } catch {
-    console.error(`ensure-abi: rebuild for ${target} failed. Run it by hand to see why:`)
+  } catch (err) {
+    console.error(`ensure-abi: rebuild for ${target} failed: ${err?.message ?? err}. Run it by hand to see why:`)
     console.error(target === 'node'
       ? '  npm rebuild better-sqlite3'
       : '  npx electron-rebuild -f -w better-sqlite3')

@@ -63,3 +63,26 @@ describe('verdict', () => {
     expect(v.reason).toBe('built-for-node')
   })
 })
+
+// Windows locks a loaded .node file, so a probe that loads it IN this process makes the rebuild's
+// unlink fail with EPERM (seen on windows-latest). The probe must load it in a child process.
+describe('probeUnderNode — does not load the module into this process', () => {
+  it('a loadable module is reported loaded, and did not run in this process', async () => {
+    const { probeUnderNode } = await import('./verifyNativeAbi.js')
+    const { mkdtempSync, writeFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const modulePath = join(mkdtempSync(join(tmpdir(), 'probe-')), 'm.js')
+    writeFileSync(modulePath, 'globalThis.__probedInProcess = true\n')
+    const r = probeUnderNode(modulePath)
+    expect(r.loaded).toBe(true) // non-vacuity: the probe did load it (in some process)
+    expect(globalThis.__probedInProcess).toBeUndefined()
+  })
+
+  it('an unloadable path reports the load error', async () => {
+    const { probeUnderNode } = await import('./verifyNativeAbi.js')
+    const r = probeUnderNode('/nonexistent/x.node')
+    expect(r.loaded).toBe(false)
+    expect(r.error).toMatch(/Cannot find module|not found|ENOENT/i)
+  })
+})
