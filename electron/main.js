@@ -63,7 +63,7 @@ import { PROJECTIONS } from './ops/projections.js'
 import { createCampDataRecordWriter } from './campDataRecord.js'
 import { isAutomergeEngine } from './sync/automerge/syncEngineFlag.js'
 import { createAutomergeSyncStarter } from './sync/automerge/syncStarter.js'
-import { STATUSES as PORT_MAPPING_STATUSES } from './sync/automerge/portMapping.js'
+import { STATUSES as PORT_MAPPING_STATUSES, PERMANENT_LEASE_REASON } from './sync/automerge/portMapping.js'
 import { createSyncStarterHolder } from './sync/automerge/syncStarterHolder.js'
 import { forgetRevokedPeer } from './sync/automerge/punchIdentity.js'
 import { resolveConflictInDoc } from './automerge/reconcile.js'
@@ -827,13 +827,17 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // router-reported address and port; a whitelist, not a delete-list, so a field added there later
   // stays out of the renderer by default.
   function getPortMappingStatusHandler() {
-    let raw
-    try { raw = getPortMappingStatusFn() } catch { return null }
-    if (!raw || typeof raw !== 'object' || !PORT_MAPPING_STATUSES.includes(raw.status)) return null
-    const payload = { status: raw.status }
-    if (typeof raw.reason === 'string') payload.reason = raw.reason
-    if (Number.isFinite(raw.leaseSeconds)) payload.leaseSeconds = raw.leaseSeconds
-    return payload
+    try {
+      const raw = getPortMappingStatusFn()
+      if (!raw || typeof raw !== 'object' || !PORT_MAPPING_STATUSES.includes(raw.status)) return null
+      const payload = { status: raw.status }
+      if (raw.status === 'permanent-lease' && raw.reason === PERMANENT_LEASE_REASON) payload.reason = raw.reason
+      const lease = Number.isFinite(raw.lease) ? raw.lease : raw.leaseSeconds
+      if (Number.isFinite(lease) && lease >= 0) payload.leaseSeconds = lease
+      return payload
+    } catch {
+      return null
+    }
   }
 
   function getSyncStatus() {

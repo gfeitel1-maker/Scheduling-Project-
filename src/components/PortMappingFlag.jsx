@@ -13,7 +13,7 @@ const COPY = {
   },
   refused: {
     line: 'Router declined a direct path',
-    why: () => 'Your router said no when Shoresh asked it to allow other devices in. Devices on the same Wi-Fi are not affected; a device on another network may take longer to connect.',
+    why: () => 'Your router said no when Shoresh asked it to allow other devices in. Devices on the same Wi-Fi are not affected; a device on another network may not be able to connect directly.',
   },
   'no-gateway': {
     line: 'No router to ask',
