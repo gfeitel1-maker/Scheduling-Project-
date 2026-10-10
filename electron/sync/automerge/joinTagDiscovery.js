@@ -40,11 +40,22 @@ export function createJoinTagAdvertiser({ discoveryFor = (serviceTag) => createM
       if (want) {
         const service = discoveryFor(want)(components)
         service.addEventListener('peer', forward)
-        inner = { tag: want, service }
-        await service.start()
+        try {
+          await service.start()
+          inner = { tag: want, service }
+        } catch (err) {
+          service.removeEventListener('peer', forward)
+          throw err
+        }
       }
     })
-    return chain
+    // Report this call's failure to its caller, but never leave the chain rejected: one failed
+    // start would otherwise skip every later open, close and code change until restart.
+    const result = chain
+    chain = chain.catch((err) => {
+      console.error(`join tag: advertising failed: ${err?.message ?? err}`)
+    })
+    return result
   }
 
   function factory(c) {
