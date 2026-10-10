@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { runGateReportCli, confirmCiRun, CliUsageError } from './gateReportCli.js'
+import { runGateReportCli, confirmCiRun, defaultFetchRun, CliUsageError } from './gateReportCli.js'
 
 // A hand-written verifier PASS must cite evidence that resolves to a green gate-results file
 // stamped with the commit under review — not merely any existing file.
@@ -267,7 +267,7 @@ describe('runGateReportCli — ciRun binds Verifier to a CI run (no local gate r
   const opinions = [opinion('security', 4), opinion('red_hat', 4), opinion('tester', 4), opinion('code_reviewer', 4)]
   const base = { taskId: 'T201', round: 1, expectedOpinionGates: ['security', 'red_hat', 'tester', 'code_reviewer'], reports: opinions, commit: SHA }
   // The CLI never trusts typed ciRun fields: it re-fetches the run. Tests stub the fetch; no gh/network.
-  const gateRun = (over = {}) => ({ headSha: SHA, status: 'completed', conclusion: 'success', workflowName: 'gate', path: '.github/workflows/gate.yml', ...over })
+  const gateRun = (over = {}) => ({ headSha: SHA, status: 'completed', conclusion: 'success', workflowName: 'gate', workflowDatabaseId: 777, gateWorkflowId: 777, ...over })
   const stub = (run) => () => JSON.stringify(run)
   const run = (name, input, fetchRun) => runGateReportCli(writeInput(name, withBoundTranscript(input)), { runsDir: scratch, fetchRun })
 
@@ -277,6 +277,16 @@ describe('runGateReportCli — ciRun binds Verifier to a CI run (no local gate r
     expect(result.verifier_pass).toBe(true)
     const persisted = JSON.parse(readFileSync(result.gate_report_ref, 'utf8'))
     expect(persisted.verifier_ci_run).toEqual({ id: 18234567890, head_sha: SHA, status: 'completed', conclusion: 'success' })
+  })
+
+  it('the gate workflow id but a different workflow name -> not pass', () => {
+    const ciRun = { id: 5, headSha: SHA, status: 'completed', conclusion: 'success' }
+    expect(run('ci-name.json', { ...base, ciRun }, stub(gateRun({ workflowName: 'lint' }))).verifier_pass).toBe(false)
+  })
+
+  it('no resolved gate workflow id -> not pass', () => {
+    const ciRun = { id: 6, headSha: SHA, status: 'completed', conclusion: 'success' }
+    expect(run('ci-noid.json', { ...base, ciRun }, stub(gateRun({ gateWorkflowId: undefined }))).verifier_pass).toBe(false)
   })
 
   it('passes the run id to the fetcher', () => {
@@ -321,7 +331,7 @@ describe('runGateReportCli — ciRun binds Verifier to a CI run (no local gate r
     expect(run('e5.json', { ...base, ciRun: typed }, stub(gateRun({ conclusion: 'failure' }))).verifier_pass).toBe(false)
   })
   it('a successful run of a workflow other than gate.yml -> not pass', () => {
-    expect(run('e6.json', { ...base, ciRun: typed }, stub(gateRun({ workflowName: 'gate', path: '.github/workflows/lint.yml' }))).verifier_pass).toBe(false)
+    expect(run('e6.json', { ...base, ciRun: typed }, stub(gateRun({ workflowName: 'gate', workflowDatabaseId: 999 }))).verifier_pass).toBe(false)
   })
   it('typed status disagrees with the fetched (successful) run -> not pass', () => {
     expect(run('e7.json', { ...base, ciRun: { ...typed, status: 'queued' } }, stub(gateRun())).verifier_pass).toBe(false)
@@ -373,8 +383,40 @@ describe('runGateReportCli — ciRun binds Verifier to a CI run (no local gate r
       expect(r.verifier_pass).toBe(false)
     })
     it('evidence_ref citing an UNconfirmed ciRun id -> verifier_pass false', () => {
-      const r = run('h6.json', { ...base, reports: [hw('runs/18234567890'), ...opinions], ciRun: { id: 18234567890, headSha: SHA, status: 'completed', conclusion: 'success' } }, stub(gateRun({ path: '.github/workflows/other.yml' })))
+      const r = run('h6.json', { ...base, reports: [hw('runs/18234567890'), ...opinions], ciRun: { id: 18234567890, headSha: SHA, status: 'completed', conclusion: 'success' } }, stub(gateRun({ workflowDatabaseId: 999 })))
       expect(r.verifier_pass).toBe(false)
     })
+  })
+})
+
+// The REAL argv against a gh stand-in that, like gh 2.96, rejects any --json field it doesn't know.
+// `path` is not one (gh says: Unknown JSON field: "path"); asking for it made every ciRun fail closed.
+describe('defaultFetchRun — real gh argv', () => {
+  const GH_RUN_VIEW_FIELDS = ['attempt', 'conclusion', 'createdAt', 'databaseId', 'displayTitle', 'event', 'headBranch', 'headSha', 'jobs', 'name', 'number', 'startedAt', 'status', 'updatedAt', 'url', 'workflowDatabaseId', 'workflowName']
+  const SHA = '5ba82017aaaabbbbccccddddeeeeffff00001111'
+  let binDir, savedPath
+  beforeEach(() => {
+    binDir = mkdtempSync(join(tmpdir(), 'fake-gh-'))
+    const gh = join(binDir, 'gh')
+    writeFileSync(gh, `#!/usr/bin/env node
+const a = process.argv.slice(2)
+if (a[0] === 'api') { process.stdout.write(${JSON.stringify(JSON.stringify({ id: 777, name: 'gate', path: '.github/workflows/gate.yml' }))}); process.exit(0) }
+const i = a.indexOf('--json')
+const known = ${JSON.stringify(GH_RUN_VIEW_FIELDS)}
+const asked = i < 0 ? [] : a[i + 1].split(',')
+const bad = asked.find((f) => !known.includes(f))
+if (bad) { process.stderr.write('Unknown JSON field: "' + bad + '"\\n'); process.exit(1) }
+const run = { headSha: '${SHA}', status: 'completed', conclusion: 'success', workflowName: 'gate', workflowDatabaseId: 777 }
+process.stdout.write(JSON.stringify(Object.fromEntries(asked.map((f) => [f, run[f]]))))
+`, { mode: 0o755 })
+    savedPath = process.env.PATH
+    process.env.PATH = `${binDir}:${savedPath}`
+  })
+  afterEach(() => { process.env.PATH = savedPath; rmSync(binDir, { recursive: true, force: true }) })
+
+  it('asks gh only for fields it supports, and a gate run confirms', () => {
+    const r = confirmCiRun({ id: 18234567890, headSha: SHA, status: 'completed', conclusion: 'success' }, defaultFetchRun)
+    expect(r.reason).toBeNull()
+    expect(r.run).toEqual({ id: 18234567890, headSha: SHA, status: 'completed', conclusion: 'success' })
   })
 })
