@@ -261,6 +261,7 @@ export const localClient = {
   // MEDIUM). A rolled-back failure fires it too — harmless, the re-read sees the
   // unchanged data.
   importSetupRows: announcing((token, rows) => shoresh.importSetupRows({ token: token ?? currentToken(), rows })),
+  renameDevice: (deviceId, name) => shoresh.renameDevice({ token: currentToken(), deviceId, name }),
   revokeDevice: (deviceId, reason) => shoresh.revokeDevice({ token: currentToken(), deviceId, reason }),
   duplicateWeek: (sourceWeekId, campId) => shoresh.duplicateWeek({ sourceWeekId, campId }),
   // deleteWeekHandler (electron/main.js) destructures { token, weekId } and goes

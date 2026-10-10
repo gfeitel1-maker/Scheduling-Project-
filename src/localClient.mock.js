@@ -2754,7 +2754,7 @@ export const mockShoresh = {
   },
   async listDevices() {
     return (loadState().devices || []).map(({ id, name, pairing_status, authorized_at, revoked_at, last_synced_at }) =>
-      ({ id, name, pairing_status, authorized_at, revoked_at, last_synced_at }))
+      ({ id, name, pairing_status, authorized_at, revoked_at, last_synced_at, isSelf: id === 'mock-device' }))
   },
   // T322 S3b — per-peer erasure state. The browser mock has no purge-tombstones
   // and no peers reporting, so there is nothing to show: hasErasure=false keeps
@@ -2861,6 +2861,14 @@ export const mockShoresh = {
   async denyDevice(deviceId) {
     updateDevice(deviceId, { pairing_status: 'denied' })
     return { deviceId, denied: true }
+  },
+  async renameDevice(deviceId, name) {
+    // eslint-disable-next-line no-control-regex
+    const clean = String(name ?? '').replace(/[\u0000-\u001f\u007f-\u009f]/g, '').trim()
+    if (!clean) throw new Error('A device name cannot be empty.')
+    if (clean.length > 40) throw new Error('A device name can be at most 40 characters.')
+    updateDevice(deviceId, { name: clean })
+    return { deviceId, name: clean }
   },
   async revokeDevice(deviceId, reason = null) {
     updateDevice(deviceId, { revoked_at: new Date().toISOString(), revocation_reason: reason })

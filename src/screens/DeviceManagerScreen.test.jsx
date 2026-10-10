@@ -17,6 +17,7 @@ vi.mock('../localClient', () => ({
     approveDevice: vi.fn(),
     denyDevice: vi.fn(),
     revokeDevice: vi.fn(),
+    renameDevice: vi.fn(),
     getJoinCode: vi.fn(),
     setJoinWindow: vi.fn(),
     listToolAuthorizations: vi.fn().mockResolvedValue([]),
@@ -350,5 +351,36 @@ describe('DeviceManagerScreen — host handoff control', () => {
     render(<DeviceManagerScreen campId="c1" role="staff" deviceMode="host" />)
     expect(await screen.findByText('MacBook')).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Hand hosting to/ })).toBeNull()
+  })
+})
+
+describe('DeviceManagerScreen — rename', () => {
+  it('saves a new name for a peer row and reloads the list', async () => {
+    localClient.listDevices.mockResolvedValue([authorizedDevice()])
+    localClient.renameDevice.mockResolvedValue({})
+    render(<DeviceManagerScreen campId="c1" role="admin" deviceMode="host" />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Rename MacBook' }))
+    const input = screen.getByLabelText('Device name')
+    await userEvent.clear(input)
+    await userEvent.type(input, 'Office laptop')
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(localClient.renameDevice).toHaveBeenCalledWith('authorized-1', 'Office laptop')
+  })
+
+  it('shows the refusal instead of failing silently', async () => {
+    localClient.listDevices.mockResolvedValue([authorizedDevice({ isSelf: true })])
+    localClient.renameDevice.mockRejectedValue(new Error('A device name cannot be empty.'))
+    render(<DeviceManagerScreen campId="c1" role="admin" deviceMode="host" />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Rename MacBook' }))
+    await userEvent.clear(screen.getByLabelText('Device name'))
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(await screen.findByText('A device name cannot be empty.')).toBeTruthy()
+  })
+
+  it('offers no rename to staff', async () => {
+    localClient.listDevices.mockResolvedValue([authorizedDevice()])
+    render(<DeviceManagerScreen campId="c1" role="staff" deviceMode="host" />)
+    await screen.findByText('MacBook')
+    expect(screen.queryByRole('button', { name: /Rename/ })).toBeNull()
   })
 })

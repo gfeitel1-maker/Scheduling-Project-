@@ -95,6 +95,7 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
   const [error, setError] = useState(null)
   const [gone, setGone] = useState({})
   const [busy, setBusy] = useState({})
+  const [renaming, setRenaming] = useState(null)
   // Planned host handoff (docs/adr/2026-10-09-host-succession-simple.md): the control is per-row and
   // hidden unless the host reports that device eligible (an admin device on the LAN).
   const { status: handoffStatus, refresh: refreshHandoff } = useHostHandoff()
@@ -199,6 +200,26 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
       setError(err?.message || 'Failed to revoke device')
     } finally {
       setBusy((b) => ({ ...b, [deviceId]: false }))
+    }
+  }
+
+  function startRename(device) {
+    setError(null)
+    setRenaming({ id: device.id, value: device.name || '' })
+  }
+
+  async function saveRename() {
+    const { id, value } = renaming
+    setBusy((b) => ({ ...b, [id]: true }))
+    try {
+      await localClient.renameDevice(id, value)
+      setRenaming(null)
+      setError(null)
+      load()
+    } catch (err) {
+      setError(err?.message || "Couldn't rename this device.")
+    } finally {
+      setBusy((b) => ({ ...b, [id]: false }))
     }
   }
 
@@ -369,7 +390,31 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
                 const { removalPending, isRevoked, isAuthorized, canVote, detailText } = deriveDeviceRowState(device, { role })
                 return (
                   <tr key={device.id}>
-                    <td style={S.td}>{device.name || '—'}</td>
+                    <td style={S.td}>
+                      {renaming?.id === device.id ? (
+                        <form style={styles.actions} onSubmit={(e) => { e.preventDefault(); saveRename() }}>
+                          <input
+                            style={{ ...S.input, width: 200, minWidth: 0 }}
+                            aria-label="Device name"
+                            autoFocus
+                            maxLength={40}
+                            value={renaming.value}
+                            onChange={(e) => setRenaming({ id: device.id, value: e.target.value })}
+                            onKeyDown={(e) => { if (e.key === 'Escape') setRenaming(null) }}
+                          />
+                          <button type="submit" style={busy[device.id] ? { ...S.btnPrimary, ...S.buttonDisabled } : S.btnPrimary} disabled={!!busy[device.id]}>Save</button>
+                          <button type="button" style={S.btnSecondary} onClick={() => setRenaming(null)}>Cancel</button>
+                        </form>
+                      ) : (
+                        <>
+                          {device.name || '—'}
+                          {device.isSelf && <span style={styles.flagMuted}> · this computer</span>}
+                          {canDecide && (
+                            <button style={{ ...S.btnSecondary, marginLeft: 8 }} onClick={() => startRename(device)} aria-label={`Rename ${device.name || 'device'}`}>Rename</button>
+                          )}
+                        </>
+                      )}
+                    </td>
                     <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 11 }}>{device.id.slice(0, 8)}</td>
                     <td style={S.td}>
                       {removalPending ? (
