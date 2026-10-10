@@ -23,7 +23,7 @@ How to run your camp's schedule in Shoresh, step by step. Bold words are exactly
    - **Start a new camp** — this is the first computer for your camp.
    - **Join with a camp code** — your camp already exists on another computer. Go to [Adding a device](#9-adding-a-device).
 
-[shot: mode-select/first-launch]
+![Set up this device, with the Start a new camp and Join with a camp code cards](img/mode-select-first-launch.jpg)
 
 ### Start a new camp
 
@@ -33,7 +33,7 @@ How to run your camp's schedule in Shoresh, step by step. Bold words are exactly
 4. Click **Create camp**. (It stays grey until all three are filled in.)
 5. You're in. No separate sign-in needed this time.
 
-[shot: camp-bootstrap/filled]
+![Set up your camp form with camp name, your name and PIN filled in](img/camp-bootstrap-filled.jpg)
 
 ### Signing in later
 
@@ -45,7 +45,7 @@ How to run your camp's schedule in Shoresh, step by step. Bold words are exactly
 - Too many tries: **Just a moment** appears with a countdown. Wait; it unlocks by itself.
 - There is no "forgot PIN" button.
 
-[shot: login/locked-out]
+![Sign in screen showing Just a moment with an unlock countdown](img/login-locked-out.jpg)
 
 ---
 
@@ -129,7 +129,7 @@ Choose **Start by hand** on **Seed your camp.**, or use the sidebar. Every table
 4. Click **+ Add**.
 5. Click **Activities →**.
 
-[shot: time-blocks/table]
+![Time Blocks table with six blocks and a blank row for adding another](img/time-blocks-table.jpg)
 
 #### Flags on time blocks
 
@@ -138,7 +138,7 @@ Choose **Start by hand** on **Seed your camp.**, or use the sidebar. Every table
 - **Overlaps** and the other block's name (for example, "Overlaps Block 2") appears on a row whose time runs into another block. This is a heads-up only. You can still save it, because some camps overlap blocks on purpose.
 - When two blocks overlap, a group can hold only one of them on a given day. The Generated schedule won't put a group in both. In Manual Build, a group placed in both gets the overlap mark ([see below](#the-overlap-mark)).
 
-[shot: time-blocks/ends-before-start-and-overlaps-flags]
+![Time Blocks with Overlaps flags on two rows and Ends before start under a new block](img/time-blocks-flags.jpg)
 
 ### Activities
 
@@ -151,7 +151,7 @@ Choose **Start by hand** on **Seed your camp.**, or use the sidebar. Every table
 
 Quick way: type a name in the **Add Activity** box at the bottom and click **+ Add**.
 
-[shot: activities/add-form]
+![Add Activity form with name, weekly limits, priority and age divisions](img/activities-add-form.jpg)
 
 ---
 
@@ -293,7 +293,7 @@ This is a one-time copy. Later changes to your time blocks won't follow.
 4. Need a new block? Click **+ Add Block**.
 5. Click **Print** when you're done.
 
-[shot: special-day/grid]
+![A special day grid with groups across the top and blocks down the side](img/special-day-grid.jpg)
 
 ### Place it on a week and day
 
@@ -305,7 +305,7 @@ A special day only shows on your schedule once you place it on a week and a day.
 4. Click the cell for the week and day you want. A tick appears.
 5. Click **Done**.
 
-[shot: special-day/placed-on-picker]
+![Place on a day picker with Wednesday of Week 1 ticked](img/special-day-placed-on-picker.jpg)
 
 - **Placed on** now lists the day, for example "Week 1 · Mon".
 - In **Special Schedules**, the special day shows its week and day underneath, e.g. "Placed Week 1 Mon". On several days it says "Placed 2 days".
@@ -327,7 +327,7 @@ A week and day can hold only one special day.
 
 The other special day isn't deleted. Place it on that week and day again to undo.
 
-[shot: special-day/replace-prompt]
+![Prompt asking whether to use this special day instead of the one already on Monday](img/special-day-replace-prompt.jpg)
 
 ### Take it off a day
 
@@ -383,7 +383,7 @@ Both computers must be on the **same Wi-Fi**. VPN and phone hotspots won't work.
 2. Click **Add a device**.
 3. Note the camp code shown. It's the same every time.
 
-[shot: device-manager/code-showing]
+![Device Manager showing the camp code under Add a device](img/device-manager-code-showing.jpg)
 
 **On the new computer:**
 
@@ -492,7 +492,7 @@ Do this **before** you clear choices. A camper with no choices is not in the fil
 1. Click **Electives** in the sidebar.
 2. At the bottom right, click **Download campers**. (Directors only.) You get `shoresh_campers.xlsx`.
 
-[shot: electives/download-campers]
+![Electives screen with the Download campers button at the bottom right](img/electives-download-campers.jpg)
 
 3. Edit it in Excel — for example, fix a camper's **Division**. Keep the **Camper ID** column as it is. A camper with no Camper ID is matched by name, so don't rename those.
 4. Import it back like a camper preference sheet: open an elective set, click **Import Camper Preferences**, pick the file, then click **Commit Assignments**. The campers in the app update.
