@@ -463,3 +463,27 @@ describe('ParseSummary resolutions (T298)', () => {
     expect(screen.queryByTestId('residue-split')).toBeNull()
   })
 })
+
+// Audit E6 (2026-10-10) — the ranked choices that named an activity this set does
+// not offer are counted in one line under the stats.
+describe('ParseSummary — ranked choices not offered in this set (audit E6)', () => {
+  it('states how many ranked choices were for activities not offered here', () => {
+    const parsed = {
+      campers: [{ id: 'c1' }], choices: [{ label: 'Archery' }],
+      preferences: [{ label: 'Archery', labelKey: 'archery', rank: 1 }, { label: 'Swim', labelKey: 'swim', rank: 2 }],
+      residue: [{ kind: 'UNRESOLVED_CHOICE_LABEL', label: 'Ceramics', why: '“Ceramics” is not an activity this camp has.', head: 'Row 2, column E' }],
+      skippedRows: [],
+    }
+    render(<ParseSummary parsed={parsed} offeredNames={['Archery']} onSolve={vi.fn()} onChooseDifferentFile={vi.fn()} />)
+    expect(screen.getByText('2 ranked choices were for activities not offered in this set.')).not.toBeNull()
+  })
+
+  it('says nothing when every ranked choice is offered', () => {
+    const parsed = {
+      campers: [{ id: 'c1' }], choices: [{ label: 'Archery' }],
+      preferences: [{ label: 'Archery', labelKey: 'archery', rank: 1 }], residue: [], skippedRows: [],
+    }
+    render(<ParseSummary parsed={parsed} offeredNames={['Archery']} onSolve={vi.fn()} onChooseDifferentFile={vi.fn()} />)
+    expect(screen.queryByText(/not offered in this set/)).toBeNull()
+  })
+})

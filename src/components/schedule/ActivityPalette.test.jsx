@@ -166,6 +166,19 @@ describe('ActivityPalette — Elective sets section (audit-2 A9)', () => {
     expect(screen.getByTestId('palette-elective-count-es-1').textContent).toBe('2 wk')
   })
 
+  // Audit E3 (2026-10-10) — with 18 activities the sets sat below the fold of a
+  // 70vh scroller. A camp has a handful of sets and many activities, so the sets
+  // go FIRST, above the activities heading and filter.
+  it('puts the elective sets above the activities, so they are visible without scrolling', () => {
+    renderPalette({ electiveSets })
+    const sets = screen.getByTestId('palette-zone-electives')
+    const filter = screen.getByLabelText('Filter activities')
+    const firstActivity = screen.getByText('Swimming')
+    const FOLLOWING = Node.DOCUMENT_POSITION_FOLLOWING
+    expect(sets.compareDocumentPosition(filter) & FOLLOWING).toBeTruthy()
+    expect(sets.compareDocumentPosition(firstActivity) & FOLLOWING).toBeTruthy()
+  })
+
   it('renders no section when the camp has no reusable sets', () => {
     renderPalette({ electiveSets: [electiveSets[1]] })
     expect(screen.queryByTestId('palette-zone-electives')).toBeNull()

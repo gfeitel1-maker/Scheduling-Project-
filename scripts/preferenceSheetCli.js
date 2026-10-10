@@ -409,7 +409,7 @@ export function runPreferenceSheetCli({
           // default name is the IMPORT EVENT (when, and how many sheets it read),
           // shared with every other door via importEventRunName. An explicit
           // --name/run_name still wins.
-          name: runName ?? importEventRunName({ at: new Date(), sheetCount: parsed?.campers?.length ?? 0 }),
+          name: runName ?? importEventRunName({ at: new Date(), camperCount: parsed?.campers?.length ?? 0 }),
           sourceFilename: path.basename(file),
           sourceSha256,
           parsed,

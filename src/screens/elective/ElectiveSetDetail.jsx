@@ -22,7 +22,9 @@ import { markElectivePermissionTier } from '../../ingest/electivePermissionTier'
 import { filterFreeChoiceActivities } from '../../engine/freeChoiceActivities'
 import { clearElectivePermissionOnRemoval } from '../../ingest/electivePermissionClear'
 import { createActivity } from '../schedule/createActivityHelper'
-import { assertImportFileSize, readWorkbookSafely, unescapeRow } from '../../utils/exportSanitize.js'
+import { assertImportFileSize, readWorkbookSafely, readWorkbookRows, unescapeRow } from '../../utils/exportSanitize.js'
+import { isCamperPreferenceWorkbook } from '../../ingest/preferenceImport.js'
+import { fieldNeedsLook, NEEDS_LOOK_DOT_STYLE } from '../../utils/ruleProvenance.js'
 import { useLatestTimeout } from '../../hooks/useLatestTimeout'
 import AssignmentPanel from './assignment/AssignmentPanel.jsx'
 import BundleEditor from './BundleEditor.jsx'
@@ -41,7 +43,11 @@ const offeringScopeFilter = (row, electiveSetId) => row.elective_set_id === elec
 
 const IMPORT_LABELS = {
   importAction: 'Import',
-  noGridFound: "Couldn't read that file.",
+  // Audit E1 — says, in one line, what THIS Import expects, so a director holding
+  // the wrong kind of file knows which door to use.
+  noGridFound: "Couldn't read that file. This Import reads the activities this set offers.",
+  preferenceSheet: 'That file is camper preferences, not offerings.',
+  routeToPreferences: 'Import as Camper Preferences',
 }
 
 // Defense-in-depth: malformed JSON in an eligible_*_ids column must not crash
@@ -76,7 +82,7 @@ function eligibilitySummary(activity, tiers, groups) {
 }
 
 function OfferingRow({
-  offering, activity, locations, tiers, groups, onSaveCapacity, onSaveMinimum, onDelete, role,
+  offering, activity, locations, tiers, groups, onSaveCapacity, onSaveMinimum, onDelete, role, openToInferred = false,
   // T301 slice 2 — linked-elective bundles for this offering's activity.
   days, timeBlocks, occurrenceCells, bundles, bundlePeriods, bundleTiers,
   onToggleBundlePeriod, onSetBundleScopeMode, onToggleBundleTier, onSaveBundleName, onDeleteBundle,
@@ -253,6 +259,14 @@ function OfferingRow({
       <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 12 }}>{location?.name ?? '—'}</td>
       <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 12 }}>
         {activity ? eligibilitySummary(activity, tiers, groups) : '—'}
+        {activity && openToInferred && (
+          <span
+            role="img"
+            aria-label="Open to was inferred from your file. Needs a look; confirm it on Activities."
+            title="Inferred from your file. Needs a look; confirm it on Activities."
+            style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', marginLeft: 6, verticalAlign: 'middle', ...NEEDS_LOOK_DOT_STYLE }}
+          />
+        )}
       </td>
       <td style={S.td}>
         <input
@@ -382,6 +396,11 @@ export default function ElectiveSetDetail({
   const [confirmClear, setConfirmClear] = useState(false)
   const [clearing, setClearing] = useState(false)
   const fileInputRef = useRef(null)
+  // Audit E1 — a preference sheet picked at the offerings Import, waiting for the
+  // director's one click to hand it to AssignmentPanel's import. `handoff` is what
+  // that click sends: a fresh object per click, so the same file can be sent twice.
+  const [preferenceFile, setPreferenceFile] = useState(null)
+  const [preferenceHandoff, setPreferenceHandoff] = useState(null)
 
   // T301 slice 2 — this set's authored bundles. Three flat tables, loaded
   // plainly (not via useCrudScreen, which is shaped around ONE entity with
@@ -422,6 +441,38 @@ export default function ElectiveSetDetail({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     reloadBundles()
   }, [reloadBundles])
+
+  // Audit E4 (2026-10-10) — "Open to" is the ACTIVITY's eligibility, and an import
+  // can have INFERRED it from file history. The Activities screen marks that with the
+  // needs-a-look dot; this table showed the same value unmarked. Read the same
+  // provenance the Activities screen reads, keyed again on `activities` so a value
+  // the director confirms or edits there loses its mark here. Unavailable provenance
+  // marks nothing — the column reads exactly as it did before this.
+  const [provenance, setProvenance] = useState({ evidence: [], fieldSources: {} })
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const data = await localClient.listImportEvidence?.()
+        if (!cancelled && data) setProvenance(data)
+      } catch {
+        // Not marked. The value itself is still shown.
+      }
+    })()
+    return () => { cancelled = true }
+  }, [activities])
+  const openToNeedsLook = useMemo(() => {
+    const evidenceByActivity = {}
+    for (const row of provenance.evidence ?? []) {
+      if (!evidenceByActivity[row.entity_id]) evidenceByActivity[row.entity_id] = {}
+      evidenceByActivity[row.entity_id][row.field] = row
+    }
+    return (activityId) => fieldNeedsLook(
+      'eligible_group_ids',
+      provenance.fieldSources?.[activityId] ?? {},
+      evidenceByActivity[activityId] ?? {}
+    )
+  }, [provenance])
 
   // The picker grid's cells — the union of both candidate routes' placed
   // periods for this set (CLAUDE.md: neither route is canonical). Recomputed
@@ -592,8 +643,26 @@ export default function ElectiveSetDetail({
     if (!file) return
     setError(null)
     setVanishedNotice(null)
+    setPreferenceFile(null)
     setImporting(true)
     try {
+      // Audit E1 — a CAMPER PREFERENCE sheet is a different document from the one
+      // this Import reads. Recognised by the preference import's own tab rule and
+      // routed there (one click, below) rather than read as offerings or refused.
+      // Nothing is written. A detection that cannot run is not a reason to fail the
+      // offerings import, so it falls through to the ordinary read.
+      let isPreferences = false
+      try {
+        isPreferences = isCamperPreferenceWorkbook(
+          readWorkbookRows(await file.arrayBuffer(), { type: 'array', byteLength: file.size })
+        )
+      } catch {
+        isPreferences = false
+      }
+      if (isPreferences) {
+        setPreferenceFile(file)
+        return
+      }
       let pages
       if (/\.(xlsx|xlsm|xls)$/i.test(file.name)) {
         const wb = readWorkbookSafely(await file.arrayBuffer(), { type: 'array', byteLength: file.size })
@@ -788,7 +857,7 @@ export default function ElectiveSetDetail({
       <input
         ref={fileInputRef}
         type="file"
-        accept=".xlsx,.xlsm,.xls,.txt"
+        accept=".xlsx,.xlsm,.xls,.csv,.txt"
         style={{ display: 'none' }}
         onChange={(e) => runImport(e.target.files?.[0])}
       />
@@ -806,6 +875,22 @@ export default function ElectiveSetDetail({
           >
             {importing ? 'Importing…' : IMPORT_LABELS.importAction}
           </button>
+          {preferenceFile && (
+            <div role="note" style={{ ...S.emptyStateBody, marginTop: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
+              <span>{IMPORT_LABELS.preferenceSheet}</span>
+              <button
+                type="button"
+                className="press-97"
+                style={S.btnUtility}
+                onClick={() => {
+                  setPreferenceHandoff({ file: preferenceFile })
+                  setPreferenceFile(null)
+                }}
+              >
+                {IMPORT_LABELS.routeToPreferences}
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
@@ -829,6 +914,7 @@ export default function ElectiveSetDetail({
                   key={offering.id}
                   offering={offering}
                   activity={activities.find((a) => a.id === offering.activity_id)}
+                  openToInferred={openToNeedsLook(offering.activity_id)}
                   locations={locations}
                   tiers={tiers}
                   groups={groups}
@@ -919,6 +1005,7 @@ export default function ElectiveSetDetail({
         bundlePeriods={bundlePeriods}
         bundleTiers={bundleTiers}
         catalogBundleNames={allBundleNames}
+        incomingFile={preferenceHandoff}
       />
     </div>
   )

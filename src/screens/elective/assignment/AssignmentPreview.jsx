@@ -5,14 +5,17 @@ import { useState } from 'react'
 import { S, prefersReducedMotion } from '../../../styles/shared'
 import { ChevronIcon } from '../../../components/icons/index.jsx'
 import { findingDisplayMessage } from './findingDisplayMessage.js'
+import { notRequestedChip, notRequestedSummary } from './notRequestedReasons.js'
 
 // "1 occurrences" read as a bug in the data before it read as a typo. The
 // per-occurrence header below already got this right; the summary line did not.
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 
+// Each takes the assignment row. NOT_REQUESTED carries the solver's own reason
+// (audit E5), worded in notRequestedReasons.js.
 const FLAG_COPY = {
-  NOT_TOP_CHOICE: (rank) => `Not top choice (got #${rank})`,
-  NOT_REQUESTED: () => 'Not requested',
+  NOT_TOP_CHOICE: (a) => `Not top choice (got #${a.preference_rank})`,
+  NOT_REQUESTED: (a) => notRequestedChip(a),
 }
 const FLAG_COLOR = {
   NOT_TOP_CHOICE: 'var(--accent)',
@@ -68,7 +71,7 @@ function OccurrencePanel({ occurrence, day, timeBlock, tierName, assignments, ac
                     {camperById.get(a.camper_id)?.display_name ?? a.camper_id}
                     {(a.flags ?? []).map((flag) => (
                       <span key={flag} style={S.chip(FLAG_COLOR[flag] ?? 'var(--text-secondary)', true, { padding: '2px 8px', fontSize: 11 })}>
-                        {FLAG_COPY[flag] ? FLAG_COPY[flag](a.preference_rank) : flag}
+                        {FLAG_COPY[flag] ? FLAG_COPY[flag](a) : flag}
                       </span>
                     ))}
                   </span>
@@ -131,12 +134,17 @@ export default function AssignmentPreview({
     if (f.kind === 'NO_CAPACITY') unplacedByOccurrence.set(f.occurrence_id, (f.camper_ids ?? []).length)
   }
   const camperCount = new Set(assignments.map((a) => a.camper_id)).size
+  // Audit E5 — one line saying why campers sit in things they did not ask for.
+  const notRequestedLine = notRequestedSummary(assignments)
 
   return (
     <div>
       <div style={{ marginBottom: 12, fontSize: 13 }}>
         {plural(camperCount, 'camper')} placed · {plural(occurrences.length, 'occurrence')} · {plural(findings.length, 'finding')}
       </div>
+      {notRequestedLine && (
+        <div style={{ marginBottom: 12, fontSize: 13, color: 'var(--text-secondary)' }}>{notRequestedLine}</div>
+      )}
       {findingsList}
       {occurrences.map((occ) => (
         <OccurrencePanel

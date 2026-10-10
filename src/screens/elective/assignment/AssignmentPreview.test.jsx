@@ -297,3 +297,25 @@ describe('AssignmentPreview — findings name an activity the way a director spe
     expect(container.textContent).toContain('2 campers placed · 2 occurrences · 2 findings')
   })
 })
+
+// Audit E5 (2026-10-10) — a "Not requested" placement says why, from the solver.
+describe('AssignmentPreview — Not requested says why (audit E5)', () => {
+  it('words the solver reason on the chip and summarises it in one line', async () => {
+    const { assignments, findings } = buildElectiveAssignments({
+      campers: [{ id: 'cam-1' }],
+      occurrences: [{ id: 'occ-1' }],
+      offerings: [{ occurrence_id: 'occ-1', labelKey: 'swim', activity_id: 'act-1', capacity: 5 }],
+      preferences: [{ camper_id: 'cam-1', labelKey: 'ceramics', rank: 1 }],
+    })
+    const { default: userEvent } = await import('@testing-library/user-event')
+    render(
+      <AssignmentPreview
+        assignments={assignments} findings={findings} occurrences={OCC} days={DAYS} timeBlocks={TBS}
+        activities={ACTIVITIES} campers={CAMPERS} role="admin" onCommit={vi.fn()} committing={false}
+      />
+    )
+    expect(screen.getByText('1 placement is not something the camper requested: 1 because none of their choices was offered then.')).not.toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: /Monday, Period 2/ }))
+    expect(screen.getByText('Not requested: none of their choices is offered here')).not.toBeNull()
+  })
+})

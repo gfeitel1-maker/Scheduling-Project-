@@ -513,3 +513,16 @@ describe('groupBundleTierNotCoveredFindings — camper entries replace the names
     ])
   })
 })
+
+// Audit E7 (2026-10-10) — a run in the list EXISTS only because the director
+// committed it, so its stored `status: 'draft'` reads "Committed" (still editable),
+// and only a finalized run reads "Final". Read from the run's real status.
+import { runStatusLabel } from './runStateCopy.js'
+describe('runStatusLabel (audit E7)', () => {
+  it('a committed, not-yet-final run reads Committed, never Draft', () => {
+    expect(runStatusLabel({ status: 'draft' })).toBe('Committed')
+  })
+  it('a finalized run reads Final', () => {
+    expect(runStatusLabel({ status: 'final' })).toBe('Final')
+  })
+})

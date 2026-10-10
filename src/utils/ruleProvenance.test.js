@@ -126,3 +126,24 @@ describe('tierForCapacitySource', () => {
     expect(tierForCapacitySource(null)).toBe('confirmed')
   })
 })
+
+// Audit E4 (2026-10-10) — one field's needs-a-look state, for surfaces that show a
+// single rule field (the elective offerings table's "Open to").
+import { fieldNeedsLook } from './ruleProvenance.js'
+
+describe('fieldNeedsLook (audit E4)', () => {
+  const ev = { eligible_group_names: { tag: 'inferred' } }
+  it('marks an import-written, inferred eligibility', () => {
+    expect(fieldNeedsLook('eligible_group_ids', { eligible_group_ids: 'import' }, ev)).toBe(true)
+  })
+  it('clears once the director has written the field (confirm or edit)', () => {
+    expect(fieldNeedsLook('eligible_group_ids', { eligible_group_ids: 'human' }, ev)).toBe(false)
+    expect(fieldNeedsLook('eligible_group_ids', { eligible_group_ids: null }, ev)).toBe(false)
+  })
+  it('does not mark a value the file stated outright (observed)', () => {
+    expect(fieldNeedsLook('eligible_group_ids', { eligible_group_ids: 'import' }, { eligible_group_names: { tag: 'observed' } })).toBe(false)
+  })
+  it('does not mark a hand-made activity with no history', () => {
+    expect(fieldNeedsLook('eligible_group_ids', {}, {})).toBe(false)
+  })
+})

@@ -95,3 +95,14 @@ export const NEEDS_LOOK_DOT_STYLE = { background: 'var(--accent)', border: 'none
 export function tierForCapacitySource(capacitySource) {
   return capacitySource === 'unconfirmed' ? 'inferred' : 'confirmed'
 }
+
+// Audit E4 (2026-10-10) — ONE rule field's needs-a-look state, for a surface that
+// shows a single field rather than the whole Activities row (the elective
+// offerings table's "Open to" column reads `eligible_group_ids`). The same tier
+// rule as the Activities dot, so the two screens cannot disagree: inferred only
+// while the last write was the importer's; a director's confirm or edit makes the
+// last write theirs, and the mark clears.
+export function fieldNeedsLook(key, fieldSources, evidenceByField) {
+  const row = deriveActivityProvenance(fieldSources, evidenceByField).find((r) => r.key === key)
+  return Boolean(row) && needsLook(row.tier)
+}

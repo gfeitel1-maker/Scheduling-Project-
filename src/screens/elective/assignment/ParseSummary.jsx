@@ -6,6 +6,7 @@ import { S, useEnterTransition } from '../../../styles/shared'
 import { foldTokens, residueIsDecision, residueRailColor } from '../../../ingest/residueKinds'
 import { proposeActivityMatch, RESOLUTION } from '../../../ingest/labelResolutions'
 import { A } from './assignmentStyles'
+import { countRankedNotOffered } from './notOfferedChoices.js'
 
 // REPORTED AT SOLVE TIME INSTEAD, and better there. `AssignmentPanel` re-reports
 // unmatched divisions aggregated per division VALUE with a `suggestDivisionMatch`
@@ -179,6 +180,8 @@ function Stat({ value, label }) {
 
 export default function ParseSummary({
   parsed,
+  // Audit E6 — names of the activities this elective set offers.
+  offeredNames = null,
   contradictoryRanks = false,
   onSolve,
   onChooseDifferentFile,
@@ -251,6 +254,10 @@ export default function ParseSummary({
   const campers = parsed?.campers?.length ?? 0
   const choices = parsed?.choices?.length ?? 0
   const preferences = parsed?.preferences?.length ?? 0
+  // Audit E6 — the ranked choices that did NOT land as preferences because they
+  // named an activity this set does not offer. Stated only when the caller says what
+  // the set offers (the CLI and older tests do not).
+  const notOffered = offeredNames ? countRankedNotOffered(parsed, offeredNames) : 0
   const skippedRows = parsed?.skippedRows ?? []
   // THE LOUD HALF (ADR section 3.4), which had never been rendered anywhere in the
   // product. The whole design rests on the director being told what we could not
@@ -321,6 +328,13 @@ export default function ParseSummary({
         <Stat value={choices} label="Choices" />
         <Stat value={preferences} label="Preferences" />
       </div>
+      {notOffered > 0 && (
+        <div style={{ ...S.emptyStateBody, marginBottom: 12 }}>
+          {notOffered === 1
+            ? '1 ranked choice was for an activity not offered in this set.'
+            : `${notOffered} ranked choices were for activities not offered in this set.`}
+        </div>
+      )}
       {skippedRows.length > 0 && (
         <details style={A.disclosure}>
           <summary style={A.disclosureSummary}>{skippedRows.length} row(s) skipped</summary>
