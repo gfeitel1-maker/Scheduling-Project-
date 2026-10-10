@@ -198,7 +198,7 @@ export function listTrustedRememberedAddresses(db, { now = Date.now } = {}) {
 // keyed by that id in libp2p's dial queue, so a later discovery dial for the same peer JOINS the stale
 // job and inherits its refusal (see docs/work/tickets/T361-startup-redial-isolation.md). Identity is
 // verified on the resulting connection instead.
-function redialTarget(peerId, remembered) {
+export function redialTarget(peerId, remembered) {
   try {
     const named = multiaddr(remembered).getComponents().find((c) => c.name === 'p2p')?.value
     return named === peerId ? multiaddr(remembered.replace(/\/p2p\/[^/]+$/, '')) : null
@@ -262,6 +262,28 @@ export function selectCoordinationCandidates(db, excludePeerId, { isPeerTrusted 
   return candidates
 }
 
+// Dials a remembered target and verifies identity on the connection. Returns true only for a
+// connection to `peerId`. A connection to anyone else (or with no remotePeer at all) is never a
+// success and is closed ONLY if this dial opened it: libp2p may hand back an existing connection to
+// a different trusted peer, which must stay up. Never throws.
+export async function dialAndVerify(dial, peerId, target, { timeoutMs = REDIAL_TIMEOUT_MS } = {}) {
+  const startedAt = Date.now()
+  try {
+    const connection = await dial(target, { signal: AbortSignal.timeout(timeoutMs) })
+    if (!connection) return false
+    if (connection.remotePeer?.toString() === peerId) return true
+    const openedAt = connection.timeline?.open
+    if (typeof openedAt !== 'number' || openedAt >= startedAt) await connection.close?.()
+    return false
+  } catch (err) {
+    console.error(
+      `dial to remembered address for ${peerId} failed (stale address, ` +
+        `peer unreachable, or peer id mismatch — no trust granted either way): ${err?.message ?? err}`
+    )
+    return false
+  }
+}
+
 export async function redialTrustedPeers(db, { dial, isConnected, isPeerTrusted, timeoutMs = REDIAL_TIMEOUT_MS, now } = {}) {
   const checkTrust = isPeerTrusted ?? createBoundPeerTrust(db)
   const targets = listTrustedRememberedAddresses(db, { now })
@@ -274,16 +296,7 @@ export async function redialTrustedPeers(db, { dial, isConnected, isPeerTrusted,
       const target = redialTarget(peerId, multiaddr)
       if (!target) return
       attempted.push(peerId)
-      try {
-        const connection = await dial(target, { signal: AbortSignal.timeout(timeoutMs) })
-        const remote = connection?.remotePeer?.toString()
-        if (remote && remote !== peerId) await connection.close?.()
-      } catch (err) {
-        console.error(
-          `redialTrustedPeers: dial to remembered address for ${peerId} failed (stale address, ` +
-            `peer unreachable, or peer id mismatch — no trust granted either way): ${err?.message ?? err}`
-        )
-      }
+      await dialAndVerify(dial, peerId, target, { timeoutMs })
     })
   )
 
