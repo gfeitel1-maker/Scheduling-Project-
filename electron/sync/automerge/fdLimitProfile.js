@@ -14,7 +14,7 @@ export function parseUlimit(stdout) {
 }
 
 export function readOpenFileSoftLimit(spawn = spawnSync) {
-  const r = spawn('/bin/sh', ['-c', 'ulimit -n'], { encoding: 'utf8', timeout: 2000 })
+  const r = spawn('/bin/sh', ['-c', 'ulimit -n'], { encoding: 'utf8', timeout: 500 })
   if (r?.status !== 0) return null
   return parseUlimit(r.stdout)
 }
@@ -26,4 +26,10 @@ export function resolvePendingProfile({ platform = process.platform, readLimit =
   const profile = limit !== null && limit >= MIN_FD_LIMIT_FOR_NORMAL ? NORMAL_PROFILE : LOW_PROFILE
   log(`automerge sync: open-file soft limit ${limit ?? 'unknown'} -> pending profile ${profile.name} (public ${profile.publicSubCap}, global ${profile.globalPending})`)
   return profile
+}
+
+export function describeFdSelection(deps = {}) {
+  const fdLimit = (deps.readLimit ?? readOpenFileSoftLimit)()
+  const selectedProfile = resolvePendingProfile({ ...deps, readLimit: () => fdLimit, log: () => {} }).name
+  return { fdLimit, selectedProfile }
 }

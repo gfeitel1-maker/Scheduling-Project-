@@ -96,6 +96,7 @@ export function createAutomergeSyncStarter({
   relaunch,
   punchEmit,
   portMappingDeps,
+  readFdLimit,
 }) {
   // T347 (S1): set only when the punch transport was actually wired, so quit can tear down its
   // native state and an unwired build never loads the module.
@@ -509,7 +510,7 @@ export function createAutomergeSyncStarter({
         listenAddrs.push('/ip4/0.0.0.0/udp/0')
       }
 
-      const pendingProfile = resolvePendingProfile()
+      const pendingProfile = resolvePendingProfile(readFdLimit ? { readLimit: readFdLimit } : {})
       const startSyncNode = startSyncNodeImpl ? await startSyncNodeImpl() : (await import('./syncNode.js')).startSyncNode
       automergeSyncNode = await startSyncNode({
         deviceId,

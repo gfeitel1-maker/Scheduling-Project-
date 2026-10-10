@@ -73,6 +73,8 @@ written in `electron/sync/automerge/transportCapabilities.js`, and the pending s
 - [x] Preconditions 1, 3, 4, 5, 6 above (PRs #858, #865; evidence docs linked in each item).
 - [x] F1 namespace/address-key rotation on revoke and the punch-revoke test (PR #841); PRs #836, #837 merged.
 - [x] Default-on in packaged builds, Worker URL default, capability signoffs, fd-adaptive caps, verify:packaged fd step (this PR, claude/t340-switch-on).
+- [x] The rendezvous URL default applies only when punch resolves ON (`electron/wanDefaults.js`). A deliberate narrowing: with punch explicitly off the Worker is never contacted by default. Pinned by the "not defaulted when punch is explicitly off" test in `electron/wanDefaults.test.js`.
+- [x] verify:packaged reads the fd limit inside the app's own launched process (smoke marker `fdLimit`/`selectedProfile`), not from the build shell; wiring pinned by `pendingProfile*.test.js`.
 - [ ] **OPEN:** real independently-NATed two-device hardware proof (precondition 2). The owner chose On now ahead of the 2-laptop test; to be recorded after the fact.
 
 ## Not in scope here

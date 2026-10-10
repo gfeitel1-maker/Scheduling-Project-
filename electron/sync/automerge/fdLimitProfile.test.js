@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest'
-import { resolvePendingProfile, parseUlimit, readOpenFileSoftLimit, LOW_PROFILE, NORMAL_PROFILE } from './fdLimitProfile.js'
+import { resolvePendingProfile, parseUlimit, readOpenFileSoftLimit, describeFdSelection, LOW_PROFILE, NORMAL_PROFILE } from './fdLimitProfile.js'
 
 describe('pending-slot profile from the open-file soft limit (T340)', () => {
   it('256 picks the low profile 32/128', () => {
@@ -40,5 +40,24 @@ describe('pending-slot profile from the open-file soft limit (T340)', () => {
     expect(n).toBe(4096)
     expect(calls).toEqual([['/bin/sh', ['-c', 'ulimit -n'], true]])
     expect(readOpenFileSoftLimit(() => ({ status: 1, stdout: '' }))).toBeNull()
+  })
+  it('reads with a 500ms timeout, and a timed-out or killed child yields the low profile', () => {
+    let timeout
+    readOpenFileSoftLimit((c, a, o) => { timeout = o.timeout; return { status: 0, stdout: '4096\n' } })
+    expect(timeout).toBe(500)
+    const timedOut = () => ({ status: null, signal: 'SIGTERM', error: Object.assign(new Error('spawnSync ETIMEDOUT'), { code: 'ETIMEDOUT' }), stdout: '' })
+    const killed = () => ({ status: null, signal: 'SIGKILL', stdout: '4096\n' })
+    for (const spawn of [timedOut, killed]) {
+      expect(readOpenFileSoftLimit(spawn)).toBeNull()
+      expect(resolvePendingProfile({ platform: 'darwin', readLimit: () => readOpenFileSoftLimit(spawn) }).name).toBe('low')
+    }
+  })
+})
+
+describe('describeFdSelection (what the packaged app reports in its smoke marker)', () => {
+  it('reports the limit and the profile name resolved from that same limit', () => {
+    expect(describeFdSelection({ platform: 'darwin', readLimit: () => 256 })).toEqual({ fdLimit: 256, selectedProfile: 'low' })
+    expect(describeFdSelection({ platform: 'darwin', readLimit: () => 10240 })).toEqual({ fdLimit: 10240, selectedProfile: 'normal' })
+    expect(describeFdSelection({ platform: 'darwin', readLimit: () => null })).toEqual({ fdLimit: null, selectedProfile: 'low' })
   })
 })
