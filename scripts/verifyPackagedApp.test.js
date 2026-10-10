@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { checkPackagedDriver, checkPackagedDatachannel, interpretLoadProbe, findPackagedApp, checkLockfilePlatforms, waitForExit, resolvePackagedPaths, quitModes } from './verifyPackagedApp.js'
+import { checkPackagedDriver, checkPackagedDatachannel, interpretLoadProbe, findPackagedApp, checkLockfilePlatforms, waitForExit, resolvePackagedPaths, quitModes, smokeLaunchEnv } from './verifyPackagedApp.js'
 import { EventEmitter } from 'node:events'
 
 let tmp
@@ -148,6 +148,14 @@ describe('resolvePackagedPaths / quitModes', () => {
   })
   it('skips SIGTERM on Windows', () => {
     expect(quitModes('win32')).toEqual(['app'])
-    expect(quitModes('darwin')).toEqual(['sigterm', 'app'])
+    expect(quitModes('darwin')).toEqual(['sigterm', 'app', 'sigterm-sync'])
+  })
+  it('the sigterm-sync mode seeds a camp and turns punch on; the others change nothing', () => {
+    const base = { A: '1' }
+    const env = smokeLaunchEnv('sigterm-sync', base)
+    expect(env).toMatchObject({ A: '1', SHORESH_SMOKE_BOOTSTRAP: '1', SHORESH_PUNCH_ENABLED: 'true' })
+    expect(env.SHORESH_SMOKE_PIN).toMatch(/^\d{6}$/)
+    expect(smokeLaunchEnv('sigterm', base)).toEqual(base)
+    expect(smokeLaunchEnv('app', base)).toEqual({ A: '1', SHORESH_SMOKE_QUIT: '1' })
   })
 })

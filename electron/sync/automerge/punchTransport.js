@@ -56,6 +56,8 @@ export function loadNodeDataChannel() {
 const liveSessions = new Set()
 let activeTransports = 0
 let cleanupNdc = null
+// Set once native cleanup has run: libdatachannel must not open a new PeerConnection after it.
+let nativeShutDown = false
 
 // Closes every live session, waits for libdatachannel to report each closed, then runs the
 // module-level cleanup() that lets the process exit. Safe to call repeatedly and when nothing was
@@ -63,10 +65,18 @@ let cleanupNdc = null
 export async function shutdownPunchNative() {
   const sessions = [...liveSessions]
   for (const s of sessions) s.close()
-  await Promise.all(sessions.map((s) => s.whenClosed))
+  let timer
+  const settled = new Promise((resolve) => { timer = setTimeout(resolve, CLOSE_SETTLE_TIMEOUT_MS) })
+  await Promise.race([Promise.all(sessions.map((s) => s.whenClosed)), settled])
+  clearTimeout(timer)
   await new Promise((resolve) => setImmediate(resolve))
   if (liveSessions.size === 0 && cleanupNdc) {
-    try { cleanupNdc() } catch { /* shutting down; nothing useful to do with a native cleanup error */ }
+    const cleanup = cleanupNdc
+    cleanupNdc = null
+    nativeShutDown = true
+    try { cleanup() } catch { /* shutting down; nothing useful to do with a native cleanup error */ }
+  } else if (liveSessions.size > 0) {
+    console.error(`punch: ${liveSessions.size} session(s) did not close within ${CLOSE_SETTLE_TIMEOUT_MS}ms; skipping native cleanup`)
   }
 }
 
@@ -203,6 +213,7 @@ function remoteAddrFromPair(pc) {
 // any other.
 class PunchSession {
   constructor({ ndc, name, rtcConfig, ice, role, sid, sendSignal, log, direction, remoteAddr, onClosed, silent = false }) {
+    if (nativeShutDown) throw new Error('punch: native layer is shut down')
     this.sid = sid
     this.role = role
     this.log = log
@@ -491,6 +502,7 @@ class PunchTransport {
     if (this.started) return
     this.ndc ??= loadNodeDataChannel()
     cleanupNdc = () => this.ndc.cleanup()
+    nativeShutDown = false
     this.started = true
     activeTransports++
     this.unsubscribe = this.opts.signaling.onSignal((msg) => this.onSignal(msg))

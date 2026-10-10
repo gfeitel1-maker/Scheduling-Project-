@@ -19,7 +19,7 @@ export function createSyncStarterHolder(makeStarter) {
   }
 
   async function shutdown() {
-    const punch = starter.shutdownPunch().catch(() => {})
+    const punch = starter.shutdownPunch().catch((err) => { console.error(`automerge sync: punch shutdown failed: ${err?.message ?? err}`) })
     const node = starter.getNode()
     if (node) {
       try { await node.stop() } catch (err) { console.error(`automerge sync: stopping the node failed: ${err?.message ?? err}`) }

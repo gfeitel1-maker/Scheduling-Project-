@@ -92,6 +92,7 @@ export function createAutomergeSyncStarter({
   getLiveHandlers,
   startSyncNodeImpl,
   punchSignaling,
+  punchStopTimeoutMs = 2000,
   relaunch,
   punchEmit,
   portMappingDeps,
@@ -771,11 +772,25 @@ export function createAutomergeSyncStarter({
       // Start the router unmap (bounded at 3s) but never hold the punch teardown behind it: the
       // native cleanup is what lets the process exit, and will-quit bounds the whole quit at 5s.
       const unmapping = mapping ? mapping.stop().catch(() => {}) : null
-      await punchWiring?.stop()
+      const wiring = punchWiring
       punchWiring = null
-      await punchModule?.shutdownPunchNative()
-      punchIdentityHandle?.cleanup()
-      punchIdentityHandle = null
+      try {
+        if (wiring) {
+          let timer
+          const timedOut = new Promise((resolve) => { timer = setTimeout(() => resolve('timeout'), punchStopTimeoutMs) })
+          try {
+            if (await Promise.race([Promise.resolve(wiring.stop()), timedOut]) === 'timeout') {
+              console.error(`sync: punch reconnect wiring did not stop within ${punchStopTimeoutMs}ms; continuing teardown so the process can exit`)
+            }
+          } finally { clearTimeout(timer) }
+        }
+      } finally {
+        // Without the native cleanup the process cannot exit, so it runs even if stop hung or threw.
+        try { await punchModule?.shutdownPunchNative() } finally {
+          punchIdentityHandle?.cleanup()
+          punchIdentityHandle = null
+        }
+      }
       await unmapping
     },
     releaseBroadcaster: () => setAutomergeLocalWriteBroadcaster(db, null),
