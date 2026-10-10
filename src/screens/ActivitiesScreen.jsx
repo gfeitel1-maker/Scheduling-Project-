@@ -482,14 +482,15 @@ const repo = createScheduleRepository({ localClient })
 // See docs/adr/2026-08-12-setup-crud-shared-persistence-seam.md.
 const repository = createSetupCrudRepository({ localClient })
 
-export default function ActivitiesScreen({ campId, role, onNavigate, weekId, weeks = [], onSelectWeek }) {
+export default function ActivitiesScreen({ campId, role, onNavigate, weekId, weeks = [], onSelectWeek, initialNewName = null }) {
   const emptyEnter = useEnterTransition('liftFade')
   const [activities, setActivities] = useState([])
   const [tiers, setTiers] = useState([])
   const [groups, setGroups] = useState([])
   const [locations, setLocations] = useState([])
   const [loading, setLoading] = useState(true)
-  const [modal, setModal] = useState(null) // null | { activity } — activity=null means new
+  // initialNewName: an import's left-out activity opens the new-activity form already named.
+  const [modal, setModal] = useState(initialNewName ? { activity: { name: initialNewName } } : null) // null | { activity } — activity=null means new
   const [importStep, setImportStep] = useState(null)
   const [importRows, setImportRows] = useState([])
   const [importMapping, setImportMapping] = useState(null)

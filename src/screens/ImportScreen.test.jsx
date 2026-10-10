@@ -589,6 +589,56 @@ describe('ImportScreen — the grace-window undo offer reaches the post-commit t
     await waitFor(() => expect(screen.getByText('Setup replaced and ready.')).toBeTruthy())
     expect(screen.queryByText('Undo this import')).toBeNull()
   })
+
+  async function commitWithVersion(version, extra = {}) {
+    const onNavigate = vi.fn()
+    localClient.ingestCommit.mockResolvedValue({
+      total: 3,
+      fixedEvents: { created: 0, skipped: [], partial: [] },
+      version,
+      ...extra,
+    })
+    render(<ImportScreen campId="camp-1" onNavigate={onNavigate} />)
+    const input = document.querySelector('input[type="file"]')
+    await userEvent.upload(input, new File(['irrelevant'], 'schedule.txt', { type: 'text/plain' }))
+    await waitFor(() => expect(screen.getAllByText(/Swim/).length).toBeGreaterThan(0))
+    await goToCommit()
+    return onNavigate
+  }
+
+  const kayakVersion = {
+    created: true, snapshotId: 's1', unresolvedCount: 2, unresolvedNames: ['Kayak', 'Kayak'],
+    unresolvedItems: [
+      { activityName: 'Kayak', groupName: 'Bunk 1', dayName: 'Monday', blockText: '9:00–9:45 AM', reason: 'activity' },
+      { activityName: 'Kayak', groupName: 'Bunk 2', dayName: 'Monday', blockText: '9:00–9:45 AM', reason: 'activity' },
+    ],
+  }
+
+  it('replace: names what was left out (day, 12-hour time, groups), offers the add in place, and never says ready', async () => {
+    const onNavigate = await commitWithVersion(kayakVersion)
+    expect(await screen.findByText(/2 placements left out of the imported schedule/)).toBeTruthy()
+    expect(screen.getByText('Mon 9:00–9:45 AM · Bunk 1, Bunk 2')).toBeTruthy()
+    expect(screen.queryByText(/ready/i)).toBeNull()
+    expect(document.body.textContent).not.toMatch(/import the file again/)
+    await userEvent.click(screen.getByText('Add “Kayak” as an activity'))
+    expect(onNavigate).toHaveBeenCalledWith('activities', { addActivityName: 'Kayak' })
+  })
+
+  it('merge: left-out line sits with the imported count, still no ready', async () => {
+    await commitWithVersion(kayakVersion, {
+      invertibleOps: [{ entity: 'activities', entity_id: 'a1', field: 'name', opId: 'op1', seq: 1, priorValue: 'Swim', prior_source: 'import' }],
+      createdEntityIds: [{ entity: 'activities', entity_id: 'a2' }],
+    })
+    expect(await screen.findByText(/Imported 3 records from the file\. 2 placements were left out/)).toBeTruthy()
+    expect(screen.getByText('Add “Kayak” as an activity')).toBeTruthy()
+    expect(screen.queryByText(/ready/i)).toBeNull()
+  })
+
+  it('clean: only the success line', async () => {
+    await commitWithVersion({ created: true, snapshotId: 's1', unresolvedCount: 0, unresolvedNames: [], unresolvedItems: [] })
+    expect(await screen.findByText('Setup replaced and ready.')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/left out/)
+  })
 })
 
 // Code review HIGH fix — removing the `justImported` carrier (correct per

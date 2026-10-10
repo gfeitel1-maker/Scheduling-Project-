@@ -142,7 +142,7 @@ function receiptFor({ deleted = [], skipped = [], kept = [] } = {}) {
  * @param undoState    useGraceWindowUndo's fields, plus `total` (outcome.total)
  * @returns { hint, primary, secondary, receipt }
  */
-export function commitTrayState({ notices = [], undoCapable = false, undoState = {} } = {}) {
+export function commitTrayState({ notices = [], undoCapable = false, undoState = {}, leftOut = null } = {}) {
   const {
     status = 'idle',
     isPending = false,
@@ -154,10 +154,14 @@ export function commitTrayState({ notices = [], undoCapable = false, undoState =
   } = undoState
 
   const primary = { label: 'Continue' }
-  const importedHint = `Imported ${total} ${recordWord(total)} from the file.`
+  const leftOutClause = leftOut
+    ? ` ${leftOut.count} placement${leftOut.count === 1 ? ' was' : 's were'} left out of the schedule, listed above.`
+    : ''
+  const importedHint = `Imported ${total} ${recordWord(total)} from the file.${leftOutClause}`
 
   if (!undoCapable) {
-    return { hint: 'Setup replaced and ready.', primary, secondary: null, receipt: null }
+    const hint = leftOut ? `Setup replaced.${leftOutClause}` : 'Setup replaced and ready.'
+    return { hint, primary, secondary: null, receipt: null }
   }
 
   if (status === 'used') {
