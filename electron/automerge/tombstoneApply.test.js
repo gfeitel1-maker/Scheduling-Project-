@@ -91,6 +91,12 @@ describe('edit vs delete across a Pair-again merge', () => {
     expect(readRecord(rejoinMerge(camp, offline), 'activities', 'other')).toEqual({ name: 'Art & Craft' })
   })
 
+  it('a collection that is not a modeled entity is never touched (it would throw on write)', () => {
+    const pre = A.change(base(), (d) => { d.legacy_retired = { 'r\u0000a': 1, 'r\u0000b': 2 } })
+    const merged = A.change(A.clone(pre), (d) => { delete d.legacy_retired['r\u0000b'] })
+    expect(() => settleRejoinDeletes(A.clone(pre), merged)).not.toThrow()
+  })
+
   it('a record the camp deleted and then re-created is left alone', () => {
     const b = base()
     let camp = applyWrites(A.clone(b), [{ entity: 'activities', entity_id: 'act', field: DELETE_FIELD, value: null }])

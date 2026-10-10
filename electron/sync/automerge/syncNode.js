@@ -900,6 +900,12 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     // valid Automerge doc); not part of the normal edit/broadcast flow.
     sendDocTo: transport.sendDocTo,
     getDoc: () => getCurrentDoc(db),
+    // Read-only: true once this device holds every change `peerId` last advertised (its heads from
+    // the sync exchange). Pair again settles deletes only then, never on a partial delivery.
+    isCaughtUpWith: (peerId) => {
+      const theirHeads = syncStates.get(peerId)?.theirHeads
+      return Array.isArray(theirHeads) && A.getMissingDeps(getCurrentDoc(db), theirHeads).length === 0
+    },
     // T271 round 3 test-only accessor (docs/adr/2026-09-26-schema-version-gate-before-merge.md,
     // Verification item 2): a byte snapshot of `peerId`'s current sync state (null if none exists
     // yet), for a test to capture BEFORE and AFTER a refused exchange and assert byte-for-byte

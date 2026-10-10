@@ -3,7 +3,7 @@
 // camper; merging first would carry it back into the camp's document. Deleting it locally first
 // means the merge carries the deletion instead (the camp's regenerated document never had the
 // record, so the device's create and delete both arrive and the record stays gone).
-import { applyWrites, listRecordIds, readRecord, readFieldAuthor, AUTHOR_COLLECTION, PROVENANCE_COLLECTION } from './campDocument.js'
+import { applyWrites, listRecordIds, readRecord, readFieldAuthor, MODELED_ENTITIES } from './campDocument.js'
 import { verifyTombstone } from './tombstoneSignature.js'
 import { TOMBSTONE_DENYLISTED_ENTITIES } from './projector.js'
 import { DELETE_FIELD } from '../ops/operations.js'
@@ -41,10 +41,12 @@ export function applyTombstonesToDoc(doc, tombstones) {
 // key) — and every field still present is exactly this device's own pre-merge value, i.e. nothing
 // in it came from the camp. The second condition leaves a record the camp deleted and then wrote
 // again untouched. Records the camp did not delete keep their offline edits.
-export function settleRejoinDeletes(preMergeDoc, mergedDoc) {
+// Only modeled entities are considered: anything else (retired collections, the provenance and
+// author maps) is not a record this device can write.
+export function findRejoinDeletes(preMergeDoc, mergedDoc) {
   const deletes = []
   for (const entity of Object.keys(preMergeDoc)) {
-    if (entity === AUTHOR_COLLECTION || entity === PROVENANCE_COLLECTION) continue
+    if (!MODELED_ENTITIES.has(entity)) continue
     for (const id of listRecordIds(preMergeDoc, entity)) {
       const mine = readRecord(preMergeDoc, entity, id)
       const now = readRecord(mergedDoc, entity, id)
@@ -58,5 +60,10 @@ export function settleRejoinDeletes(preMergeDoc, mergedDoc) {
       }
     }
   }
+  return deletes
+}
+
+export function settleRejoinDeletes(preMergeDoc, mergedDoc) {
+  const deletes = findRejoinDeletes(preMergeDoc, mergedDoc)
   return deletes.length ? applyWrites(mergedDoc, deletes) : mergedDoc
 }
