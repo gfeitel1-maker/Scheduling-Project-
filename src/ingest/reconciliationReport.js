@@ -15,6 +15,7 @@
 import { CONFIDENCE } from './confidence.js'
 import { normalizeName } from './preview.js'
 import { unitDisplayName } from './fieldUpdate.js'
+import { formatBlockTime12h } from './blockTimeText.js'
 
 // T257 — a group's `unit` delta may carry a discriminated token
 // ({kind, id?, name}) rather than a bare string. Director-facing copy
@@ -623,7 +624,8 @@ export function buildReconciliationReport(input) {
     })
   }
 
-  // T114 — a probable all-camp override, surfaced as a question rather than
+  // T114 — a probable all-camp override (question copy I7: day, 12-hour time,
+  // full name, who, and what each excluded group has instead), surfaced as a question rather than
   // silently inferred either way.
   //
   // An activity attended by almost every group, once, is most likely an
@@ -641,9 +643,11 @@ export function buildReconciliationReport(input) {
     if (decisionsByKey.has(id)) continue
     buckets.needsAttention += 1
     const missing = finding.missingGroups ?? []
-    const missingLabel = missing.length === 1
-      ? missing[0]
-      : `${missing.slice(0, -1).join(', ')} and ${missing[missing.length - 1]}`
+    const instead = finding.insteadByGroup ?? {}
+    const withInstead = missing.map((g) => (instead[g]?.length ? `${g} (${instead[g].join(', ')})` : g))
+    const missingLabel = withInstead.length === 1
+      ? withInstead[0]
+      : `${withInstead.slice(0, -1).join(', ')} and ${withInstead[withInstead.length - 1]}`
     decisionsByKey.set(id, {
       id,
       kind: 'all_camp_override',
@@ -658,11 +662,12 @@ export function buildReconciliationReport(input) {
         day: finding.day,
         block: finding.block,
         missingGroups: missing,
+        insteadByGroup: instead,
         attendingCount: finding.attendingCount,
         totalGroups: finding.totalGroups,
         occurrences: finding.occurrences,
       },
-      reason: `"${finding.activityName}" on ${finding.day} has ${finding.attendingCount} of your ${finding.totalGroups} groups — everyone except ${missingLabel}. Was this an all-camp activity that ${missing.length === 1 ? 'they were' : 'they were'} pulled out of?`,
+      reason: `${finding.day} ${formatBlockTime12h(finding.block)} · ${finding.activityName} · every group except ${missingLabel}. Was this an all-camp activity they were pulled out of?`,
     })
   }
 
