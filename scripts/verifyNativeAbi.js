@@ -30,7 +30,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { createRequire } from 'node:module'
+import { spawnSync } from 'node:child_process'
 
 export const MODULE_REL = 'node_modules/better-sqlite3/build/Release/better_sqlite3.node'
 
@@ -57,13 +57,14 @@ export function classifyLoad(loadResult) {
   return 'unknown'
 }
 
+// Loads the module in a CHILD Node process. Loading it here would keep the .node file mapped for the
+// rest of this process, and on Windows a loaded DLL cannot be deleted, so the rebuild that follows
+// a probe failed with EPERM on unlink.
 export function probeUnderNode(modulePath) {
-  try {
-    createRequire(import.meta.url)(modulePath)
-    return { loaded: true, error: null }
-  } catch (err) {
-    return { loaded: false, error: (err && err.message) || String(err) }
-  }
+  const child = 'try { require(process.argv[1]) } catch (e) { process.stdout.write(String((e && e.message) || e)); process.exit(1) }'
+  const res = spawnSync(process.execPath, ['-e', child, modulePath], { encoding: 'utf8' })
+  if (res.status === 0) return { loaded: true, error: null }
+  return { loaded: false, error: res.stdout || res.stderr || String(res.error) }
 }
 
 export function sha256(file) {
