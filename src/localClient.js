@@ -111,6 +111,8 @@ export const localClient = {
   },
   // T27 — is this device the main computer, connected to it, or on its own.
   getSyncStatus: () => shoresh.getSyncStatus(),
+  // T359 slice 4 - the router-opening flag's status, or null when there is nothing to show.
+  getPortMappingStatus: () => (shoresh.getPortMappingStatus ? shoresh.getPortMappingStatus() : Promise.resolve(null)),
   // T275 — the sidebar's host-not-syncing retry affordance.
   retrySync: () => shoresh.retrySync(),
   // T16 — commit an approved import proposal. The preview is built in the

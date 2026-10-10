@@ -6,6 +6,7 @@ import path from 'node:path'
 import { randomUUID, randomBytes, scryptSync } from 'node:crypto'
 import * as A from '@automerge/automerge'
 import { ENTITIES } from './auth/permissions.js'
+import { STATUSES, PERMANENT_LEASE_REASON, createPortMapper } from './sync/automerge/portMapping.js'
 
 vi.mock('electron', () => ({
   app: {
@@ -3817,5 +3818,104 @@ describe('T175 sticky at-rest encryption wiring', () => {
     const preload = fs.readFileSync(new URL('./preload.js', import.meta.url), 'utf8')
     expect(preload).not.toMatch(/disable\w*Encrypt|setAtRestEncryption|encryption[-_]?(off|disable)/i)
     expect(src).not.toMatch(/ipcMain\.handle\('shoresh:[^']*(disable|set)-?[^']*encrypt/i)
+  })
+})
+
+// T359 slice 4 - the renderer sees only {status, reason?, leaseSeconds?}: never the router-reported
+// address or port, whatever the mapper hands the handler.
+describe('getPortMappingStatus (T359 slice 4)', () => {
+  const ALLOWED = new Set(['status', 'reason', 'leaseSeconds'])
+
+  it('returns null when no mapper is wired, or it reports nothing', () => {
+    expect(makeHandlers(db, deviceId, {}).getPortMappingStatus()).toBeNull()
+    expect(makeHandlers(db, deviceId, { getPortMappingStatus: () => null }).getPortMappingStatus()).toBeNull()
+  })
+
+  it('strips externalIp, externalPort and every other field from the payload', () => {
+    const handlers = makeHandlers(db, deviceId, {
+      getPortMappingStatus: () => ({
+        status: 'permanent-lease', reason: PERMANENT_LEASE_REASON, leaseSeconds: 0,
+        externalIp: '203.0.113.9', externalPort: 4001, lease: 0, ip: '10.0.0.1', gateway: '192.168.1.1',
+      }),
+    })
+    const payload = handlers.getPortMappingStatus()
+    expect(payload).toEqual({ status: 'permanent-lease', reason: PERMANENT_LEASE_REASON, leaseSeconds: 0 })
+    expect(Object.keys(payload).every((k) => ALLOWED.has(k))).toBe(true)
+    expect(JSON.stringify(payload)).not.toMatch(/203\.0\.113|externalIp|externalPort|4001/)
+  })
+
+  it.each(STATUSES)('passes %s through with keys inside the allowed subset', (status) => {
+    const payload = makeHandlers(db, deviceId, {
+      getPortMappingStatus: () => ({ status, externalIp: '203.0.113.9' }),
+    }).getPortMappingStatus()
+    expect(payload.status).toBe(status)
+    expect(Object.keys(payload).every((k) => ALLOWED.has(k))).toBe(true)
+  })
+
+  it('treats an unknown status, a non-object, or a throwing getter as null', () => {
+    expect(makeHandlers(db, deviceId, { getPortMappingStatus: () => ({ status: 'bogus' }) }).getPortMappingStatus()).toBeNull()
+    expect(makeHandlers(db, deviceId, { getPortMappingStatus: () => 'mapped' }).getPortMappingStatus()).toBeNull()
+    expect(makeHandlers(db, deviceId, { getPortMappingStatus: () => { throw new Error('x') } }).getPortMappingStatus()).toBeNull()
+  })
+
+  it('drops a reason that is not the permanent-lease constant, or is attached to another status', () => {
+    const get = (raw) => makeHandlers(db, deviceId, { getPortMappingStatus: () => raw }).getPortMappingStatus()
+    expect(get({ status: 'permanent-lease', reason: 'router at 203.0.113.9 keeps it' })).toEqual({ status: 'permanent-lease' })
+    expect(get({ status: 'refused', reason: PERMANENT_LEASE_REASON })).toEqual({ status: 'refused' })
+    expect(get({ status: 'permanent-lease', reason: PERMANENT_LEASE_REASON })).toEqual({ status: 'permanent-lease', reason: PERMANENT_LEASE_REASON })
+  })
+
+  it('maps the mapper\'s lease to leaseSeconds, accepts leaseSeconds, and range-checks both', () => {
+    const get = (raw) => makeHandlers(db, deviceId, { getPortMappingStatus: () => raw }).getPortMappingStatus()
+    expect(get({ status: 'mapped', lease: 3600 })).toEqual({ status: 'mapped', leaseSeconds: 3600 })
+    expect(get({ status: 'mapped', leaseSeconds: 60 })).toEqual({ status: 'mapped', leaseSeconds: 60 })
+    expect(get({ status: 'mapped', lease: -1 })).toEqual({ status: 'mapped' })
+    expect(get({ status: 'mapped', lease: null })).toEqual({ status: 'mapped' })
+  })
+
+  it('a getter that throws on property access is null', () => {
+    const hostile = { get status() { throw new Error('x') } }
+    expect(makeHandlers(db, deviceId, { getPortMappingStatus: () => hostile }).getPortMappingStatus()).toBeNull()
+  })
+
+  it.each(['timed', 'permanent-only', 'refused', 'error'])('real createPortMapper output (%s) carries no address through the handler', async (mode) => {
+    const gateway = {
+      externalIp: async () => '93.184.216.34',
+      addMapping: async ({ leaseSeconds, externalPort }) => {
+        if (mode === 'refused') throw Object.assign(new Error('r'), { code: 'REFUSED' })
+        if (mode === 'error') throw new Error('boom')
+        if (mode === 'permanent-only' && leaseSeconds !== 0) throw Object.assign(new Error('725'), { code: 'PERMANENT_ONLY' })
+        return { externalPort }
+      },
+      deleteMapping: async () => {},
+    }
+    const mapper = createPortMapper({
+      localPort: 50123,
+      discoveryMs: 50,
+      deps: {
+        lanInterfaces: () => [{ address: '192.168.1.20', netmask: '255.255.255.0' }],
+        ssdpSearch: async function* () { yield { location: 'http://192.168.1.1:5000/rootDesc.xml' } },
+        openUpnp: async () => gateway,
+        defaultGatewayIp: async () => '192.168.1.1',
+        openPmp: () => null,
+        schedule: () => ({}),
+        cancel: () => {},
+      },
+    })
+    const raw = await mapper.map()
+    if (mode === 'timed' || mode === 'permanent-only') expect(raw.externalIp).toBe('93.184.216.34')
+    const payload = makeHandlers(db, deviceId, { getPortMappingStatus: () => raw }).getPortMappingStatus()
+    expect(payload.status).toBe(raw.status)
+    expect(Object.keys(payload).every((k) => ALLOWED.has(k))).toBe(true)
+    expect(JSON.stringify(payload)).not.toMatch(/93\.184|192\.168|50123/)
+    if (mode === 'timed') expect(payload.leaseSeconds).toBe(3600)
+    if (mode === 'permanent-only') expect(payload).toEqual({ status: 'permanent-lease', reason: PERMANENT_LEASE_REASON, leaseSeconds: 0 })
+  })
+
+  it('is registered on the IPC surface and the preload', () => {
+    const preload = fs.readFileSync(new URL('./preload.js', import.meta.url), 'utf8')
+    const main = fs.readFileSync(new URL('./main.js', import.meta.url), 'utf8')
+    expect(preload).toContain("getPortMappingStatus: () => ipcRenderer.invoke('shoresh:get-port-mapping-status')")
+    expect(main).toContain("ipcMain.handle('shoresh:get-port-mapping-status'")
   })
 })

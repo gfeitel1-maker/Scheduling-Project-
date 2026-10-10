@@ -3,6 +3,7 @@ import { localClient } from '../localClient'
 import { S, useEnterTransition } from '../styles/shared'
 import { deriveDeviceRowState } from './deviceRowState'
 import ConnectedToolsPanel from '../components/ConnectedToolsPanel'
+import PortMappingFlag from '../components/PortMappingFlag'
 import HostHandoffControl from '../components/HostHandoffControl'
 import { useHostHandoff } from '../hooks/useHostHandoff'
 import { SETUP_MAX_WIDTH } from '../components/setup/SetupScreenShell'
@@ -254,6 +255,8 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
       <div style={styles.header}>
         <h1 style={styles.title}>Device Manager</h1>
       </div>
+
+      <PortMappingFlag />
 
       {error && (
         <div style={styles.errorBanner}>{error}</div>
