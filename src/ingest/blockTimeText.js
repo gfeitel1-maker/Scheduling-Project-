@@ -1,5 +1,5 @@
 import { startMinutesForOrdering } from './orderTimeBlocks.js'
-import { timeRangeLabel } from '../utils/timeBlockLabel.js'
+import { timeRangeLabel, formatTime12 } from '../utils/timeBlockLabel.js'
 
 const RANGE = /^\s*(\d{1,2})[:.](\d{2})\s*[-–—]\s*(\d{1,2})[:.](\d{2})\s*$/
 
@@ -18,4 +18,12 @@ export function formatBlockTime12h(label) {
   const end = startMinutesForOrdering(`${m[3]}:${m[4]}`)
   if (start == null || end == null || end <= start) return text
   return timeRangeLabel({ start_time: hhmm(start), end_time: hhmm(end) })
+}
+
+// Just the start of a range, "3:20 PM", by the same camp-day rule.
+export function formatBlockStart12h(label) {
+  const text = String(label ?? '')
+  const m = text.match(/^\s*(\d{1,2})[:.](\d{2})/)
+  const start = m ? startMinutesForOrdering(`${m[1]}:${m[2]}`) : null
+  return start == null ? text : formatTime12(hhmm(start))
 }

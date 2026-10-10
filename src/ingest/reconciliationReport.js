@@ -16,6 +16,7 @@ import { CONFIDENCE } from './confidence.js'
 import { normalizeName } from './preview.js'
 import { unitDisplayName } from './fieldUpdate.js'
 import { formatBlockTime12h } from './blockTimeText.js'
+import { describeAppearance } from './appearsAt.js'
 
 // T257 — a group's `unit` delta may carry a discriminated token
 // ({kind, id?, name}) rather than a bare string. Director-facing copy
@@ -436,6 +437,8 @@ export function buildReconciliationReport(input) {
     evidenceSupport = {},
     blastRadiusIndex = new Map(),
     unknownFieldEvidence = new Map(),
+    // Where each activity sits in the file's grid, so a card can say so.
+    placements = [], allGroupNames = [],
   } = input ?? {}
   const { activities: activityEvidence = {}, fixedEvents: fixedEventEvidence = {} } = evidenceSupport ?? {}
 
@@ -727,12 +730,18 @@ export function buildReconciliationReport(input) {
     })
   }
 
-  const decisions = [...decisionsByKey.values()].map((decision) => ({
-    ...decision,
-    blastRadius: blastRadiusIndex.get(
-      blastRadiusKeyFor(decision.entity, decision.entityId, decision.entityName),
-    ) ?? 0,
-  }))
+  const decisions = [...decisionsByKey.values()].map((decision) => {
+    const appearsAt = (decision.entity === 'activities' || decision.kind === 'elective_candidate') && decision.entityName && decision.kind !== 'all_camp_override'
+      ? describeAppearance(placements, decision.entityName, allGroupNames)
+      : decision.entityName
+    return {
+      ...decision,
+      ...(appearsAt && appearsAt !== decision.entityName ? { appearsAt } : {}),
+      blastRadius: blastRadiusIndex.get(
+        blastRadiusKeyFor(decision.entity, decision.entityId, decision.entityName),
+      ) ?? 0,
+    }
+  })
 
   return {
     buckets,

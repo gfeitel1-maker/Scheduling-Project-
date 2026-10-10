@@ -162,6 +162,7 @@ export default function ImportScreen({ campId, onNavigate }) {
   // time and must survive staging nulling `proposal` out.
   const divisionsRef = useRef([])
   const allCampOverridesRef = useRef([])
+  const allGroupNamesRef = useRef([])
   const coScheduleRef = useRef(new Map())
   const groupTierByNameRef = useRef({})
   const fixedEventNamesRef = useRef([])
@@ -370,6 +371,7 @@ export default function ImportScreen({ campId, onNavigate }) {
     groupTierByNameRef.current = {}
     coScheduleRef.current = new Map()
     allCampOverridesRef.current = []
+    allGroupNamesRef.current = []
     fileGroupUnitsRef.current = {}
     fileActivityLocationsRef.current = {}
     confirmedCompoundDecisionsRef.current = new Map()
@@ -718,6 +720,7 @@ export default function ImportScreen({ campId, onNavigate }) {
       // A near-all, once-a-week activity is probably an all-camp activity the
       // director pulled a group out of, not one that excludes them. Detected
       // here, asked in reconciliation — never inferred silently either way.
+      allGroupNamesRef.current = proposal.entities.groups ?? []
       allCampOverridesRef.current = detectAllCampOverrides(
         placementsRef.current,
         proposal.entities.groups ?? [],
@@ -1564,6 +1567,8 @@ export default function ImportScreen({ campId, onNavigate }) {
         // here), asked in reconciliation like every other thing the import is
         // unsure about.
         allCampOverrides={allCampOverridesRef.current}
+        placements={placementsRef.current}
+        allGroupNames={allGroupNamesRef.current}
       />
     )
   }

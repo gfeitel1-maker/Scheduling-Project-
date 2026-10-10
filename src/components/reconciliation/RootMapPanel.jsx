@@ -296,11 +296,12 @@ export default function RootMapPanel({
               a director answering the twenty-fifth could not have answered it
               differently from the first. Grouping is DISPLAY only — every id in
               the group still gets its own staged answer. */}
-          {groupIdenticalDecisions(rest.filter((d) => answers[d.id] === undefined)).map(({ decision: d, ids, count }) => (
+          {groupIdenticalDecisions(rest.filter((d) => answers[d.id] === undefined)).map(({ decision: d, ids, members, count }) => (
             <DecisionCard
               key={d.id}
               decision={d}
               repeatCount={count}
+              members={members}
               rank={lanes.hold.includes(d) ? 'hold' : 'standard'}
               answer={answers[d.id]}
               onAnswer={(a) => onAnswer(ids, a)}
