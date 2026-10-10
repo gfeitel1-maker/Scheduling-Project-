@@ -69,7 +69,7 @@ export default function ReconciliationScreen({ entry = 'import', ...rest }) {
   return <ImportReconciliation {...rest} />
 }
 
-function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard, onNavigate, factCount = 0, isFirstImport = false, allCampOverrides = [], phase = 'triage', outcome = null, notices = [] }) {
+function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard, onNavigate, factCount = 0, isFirstImport = false, allCampOverrides = [], placements = [], allGroupNames = [], phase = 'triage', outcome = null, notices = [] }) {
   // U1 (docs/adr/2026-08-17-onescreen-reconciliation-undo.md, T253 Amendment)
   // — owned by THIS screen's own hook instance, never module-level, never
   // persisted (Invariant 5). ImportScreen keeps this screen mounted through
@@ -188,6 +188,8 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
         // T114 — computed at parse time in ImportScreen (placements live there),
         // not by the dry run, so it arrives as a prop rather than on `result`.
         allCampOverrides,
+        placements,
+        allGroupNames,
       })
       if (requestGenRef.current !== myGen) return
       lastGoodReportRef.current = nextReport

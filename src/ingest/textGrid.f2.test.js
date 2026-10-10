@@ -72,7 +72,7 @@ describe('isHeaderLine — a body row starting with a time word (T36 F2)', () =>
 // so any change to the parser that moves a shipped camp's parse fails here.
 const GOLDEN = {
   'campA-bunk-schedules.txt': { pages: 33, columnsPerPage: 5, rows: 483 },
-  'campB-by-day.txt': { pages: 5, columnsPerPage: 14, rows: 62 },
+  'campB-by-day.txt': { pages: 5, columnsPerPage: 14, rows: 60 },
   'campC-daysheet-synthetic.txt': { pages: 3, columnsPerPage: 5, rows: 23 },
 }
 

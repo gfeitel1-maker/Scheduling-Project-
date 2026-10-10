@@ -532,14 +532,28 @@ export function parseTextGrid(text) {
       // location line simply carries no `locations` field downstream.
       const locationLineGroups = []
       let prevHadData = false
+      // I6 — a narrow data line sitting between two full-width lines, carrying
+      // the block's only time label (the full line above had none), is the middle of a cell wrapped over three
+      // lines ("All Camp" / 02:25-03:15 CIT Block 3 / "Activity"). The full-width
+      // line after it is that cell's tail, not a location printed under the row.
+      let prevWasNarrow = false
+      let labelLines = 0
       for (const tokens of block) {
         const dataTokens = []
+        let lineHasLabel = false
         for (const token of tokens) {
-          if (columns.length > 0 && token.end <= columns[0].start) label.push(token.text)
+          if (columns.length > 0 && token.end <= columns[0].start) { label.push(token.text); lineHasLabel = true }
           else dataTokens.push(token)
         }
+        if (lineHasLabel) labelLines++
+        const wrapsAcrossNarrow = prevWasNarrow && !lineHasLabel && isValueRow(tokens)
+        prevWasNarrow = false
         if (dataTokens.length === 0) {
           if (stripLocations) prevHadData = false
+          continue
+        }
+        if (wrapsAcrossNarrow && valueRows.length > 0) {
+          valueRows[valueRows.length - 1].push(dataTokens)
           continue
         }
         if (stripLocations) {
@@ -560,6 +574,7 @@ export function parseTextGrid(text) {
           leading.push(dataTokens)
         } else {
           valueRows[valueRows.length - 1].push(dataTokens)
+          prevWasNarrow = lineHasLabel && labelLines === 1
         }
       }
       // A block with no value row at all is still one row of content.

@@ -31,7 +31,7 @@ function signatureOf(decision) {
 
 /**
  * @param decisions the unanswered decisions a lane is about to render
- * @returns [{ decision, ids, count }] in first-appearance order — `decision` is
+ * @returns [{ decision, ids, members, count }] in first-appearance order — `decision` is
  *          the first member, to render; `ids` is every member, to answer.
  */
 export function groupIdenticalDecisions(decisions = []) {
@@ -39,8 +39,8 @@ export function groupIdenticalDecisions(decisions = []) {
   for (const decision of decisions) {
     const key = signatureOf(decision)
     const existing = groups.get(key)
-    if (existing) existing.ids.push(decision.id)
-    else groups.set(key, { decision, ids: [decision.id] })
+    if (existing) { existing.ids.push(decision.id); existing.members.push(decision) }
+    else groups.set(key, { decision, ids: [decision.id], members: [decision] })
   }
   return [...groups.values()].map((g) => ({ ...g, count: g.ids.length }))
 }

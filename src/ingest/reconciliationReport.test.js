@@ -1507,14 +1507,13 @@ describe('buildReconciliationReport — all-camp override questions (T114)', () 
     expect(d.entityName).toBe('Color War')
   })
 
-  it('asks the question in the director\'s own terms, with the counts', () => {
+  it('asks the question in the director\'s own terms: day, time, full name, who', () => {
     const report = buildReconciliationReport({
       planItems: [], readiness: [], allCampOverrides: [finding],
     })
     const reason = report.decisions[0].reason
     expect(reason).toMatch(/Color War/)
-    expect(reason).toMatch(/3 of your 4 groups/)
-    expect(reason).toMatch(/everyone except Alufim 1/)
+    expect(reason).toMatch(/^Wednesday 2:00 PM · Color War · every group except Alufim 1\./)
   })
 
   it('carries the evidence needed to judge it', () => {

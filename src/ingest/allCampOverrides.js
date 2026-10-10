@@ -51,7 +51,7 @@ function slotKey(day, block) {
 /**
  * @param {Array<{groupName, dayName, blockLabel, activityName}>} placements
  * @param {string[]} allGroupNames every group the camp has
- * @returns {Array<{activityName, day, block, missingGroups, attendingCount, totalGroups, occurrences}>}
+ * @returns {Array<{activityName, day, block, missingGroups, insteadByGroup, attendingCount, totalGroups, occurrences}>}
  *          one entry per probable override, sorted for a stable preview order
  */
 export function detectAllCampOverrides(placements, allGroupNames) {
@@ -61,8 +61,14 @@ export function detectAllCampOverrides(placements, allGroupNames) {
 
   // activity -> slotKey -> { day, block, groups:Set }
   const byActivity = new Map()
+  // group + slot -> what that group has there, so a question can say what an
+  // excluded group does instead.
+  const hasInstead = new Map()
   for (const r of rows) {
     if (!r?.activityName || !r?.groupName || !r?.dayName || !r?.blockLabel) continue
+    const gk = `${r.groupName}\u0000${slotKey(r.dayName, r.blockLabel)}`
+    if (!hasInstead.has(gk)) hasInstead.set(gk, [])
+    if (!hasInstead.get(gk).includes(r.activityName)) hasInstead.get(gk).push(r.activityName)
     if (!byActivity.has(r.activityName)) byActivity.set(r.activityName, new Map())
     const slots = byActivity.get(r.activityName)
     const key = slotKey(r.dayName, r.blockLabel)
@@ -90,6 +96,9 @@ export function detectAllCampOverrides(placements, allGroupNames) {
         day: slot.day,
         block: slot.block,
         missingGroups: missing.slice().sort(),
+        insteadByGroup: Object.fromEntries(
+          missing.slice().sort().map((g) => [g, hasInstead.get(`${g}\u0000${slotKey(slot.day, slot.block)}`) ?? []]),
+        ),
         attendingCount: slot.groups.size,
         totalGroups: allGroups.length,
         occurrences: slots.size,
