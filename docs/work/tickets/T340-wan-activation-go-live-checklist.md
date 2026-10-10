@@ -51,9 +51,15 @@ tracks that decision and its hard preconditions; it is NOT a build task to start
 5. **ADR 2026-09-14 owner-level items** not owned by the capability slices: ~~signed/integrity-checked
    auto-update (an internet-facing Electron app without it is an RCE vector)~~ _CLOSED: owner
    2026-10-08 will not build it; there is no update path, board item `h-signed-auto-update-closed`._
-   Still open: a full internet-scale libp2p rate-limit review (includes the sizing of the 16
-   pre-Noise pending slots, `MAX_INCOMING_PENDING_CONNECTIONS`; pairing itself is LAN-only per owner
-   ruling 2026-10-08, see the max-connections ADR).
+   Internet-scale libp2p rate-limit review: **DONE in code, pending CI (2026-10-09)**. Assessment
+   `docs/work/security/2026-10-09-t340-p5-pending-slot-sizing.md` (read against installed libp2p
+   3.3.11; arithmetic, not hardware-measured). Implemented on branch `claude/t340-pending-slots`:
+   pending slots 16 → 64, `inboundUpgradeTimeout` 5 s, per-source pending cap 2 (IPv4 /32, IPv6 /64),
+   and the F1 fix (failed handshakes no longer permanently consume a source's concurrent budget);
+   recorded as an amendment to `docs/adr/2026-10-08-max-connections-dos-mitigation.md`. Targeted
+   tests green locally; full gate (CI) not yet run. Accepted residual: a 32+-source botnet can block
+   WAN inbound while it lasts (LAN, outbound and relay/punch rungs unaffected). Pairing itself is
+   LAN-only per owner ruling 2026-10-08.
 6. **DONE (documented, evidence (c)):** `SHORESH_RELAY_ENABLED` must be the literal string `'true'`
    (strict `=== 'true'` at `electron/sync/automerge/syncStarter.js:386`; other values fail closed to inert).
 

@@ -48,7 +48,7 @@ describe('makeConnectionRateLimiter — inert on the LAN', () => {
 describe('makeConnectionRateLimiter — caps a public flood', () => {
   it('denies a public source past the new-connections-per-window ceiling, then recovers after the window', () => {
     let t = 1_000_000
-    const rl = makeConnectionRateLimiter({ maxNewConnectionsPerWindow: 3, windowMs: 10_000, maxConcurrentPerSource: 100, now: () => t })
+    const rl = makeConnectionRateLimiter({ maxNewConnectionsPerWindow: 3, windowMs: 10_000, maxConcurrentPerSource: 100, maxPendingPerSource: 100, now: () => t })
     expect(rl.allow('8.8.8.8')).toBe(true)
     expect(rl.allow('8.8.8.8')).toBe(true)
     expect(rl.allow('8.8.8.8')).toBe(true)
@@ -59,11 +59,12 @@ describe('makeConnectionRateLimiter — caps a public flood', () => {
 
   it('caps concurrent connections per source and frees a slot on release', () => {
     const rl = makeConnectionRateLimiter({ maxNewConnectionsPerWindow: 1000, maxConcurrentPerSource: 2 })
-    expect(rl.allow('1.2.3.4')).toBe(true)
-    expect(rl.allow('1.2.3.4')).toBe(true)
-    expect(rl.allow('1.2.3.4')).toBe(false) // 2 already open
+    // Only an UPGRADED connection counts as concurrent (connection:close fires only for those).
+    expect(rl.allow('1.2.3.4', 'a')).toBe(true); rl.upgraded('1.2.3.4', 'a')
+    expect(rl.allow('1.2.3.4', 'b')).toBe(true); rl.upgraded('1.2.3.4', 'b')
+    expect(rl.allow('1.2.3.4', 'c')).toBe(false) // 2 already open
     rl.release('1.2.3.4')
-    expect(rl.allow('1.2.3.4')).toBe(true) // a slot freed
+    expect(rl.allow('1.2.3.4', 'c')).toBe(true) // a slot freed
   })
 
   it('limits each public source independently', () => {
@@ -76,8 +77,56 @@ describe('makeConnectionRateLimiter — caps a public flood', () => {
   it('the default ceilings are generous enough for a real reconnecting device', () => {
     const rl = makeConnectionRateLimiter()
     // A legit public peer reconnecting a few times stays well under the ceiling.
-    for (let i = 0; i < 5; i++) { expect(rl.allow('203.0.113.9')).toBe(true); rl.release('203.0.113.9') }
+    for (let i = 0; i < 5; i++) { expect(rl.allow('203.0.113.9', `k${i}`)).toBe(true); rl.upgraded('203.0.113.9', `k${i}`); rl.release('203.0.113.9') }
     expect(MAX_NEW_CONNECTIONS_PER_WINDOW).toBeGreaterThanOrEqual(10)
     expect(MAX_CONCURRENT_PER_SOURCE).toBeGreaterThanOrEqual(5)
+  })
+})
+
+// T340 precondition 5 (docs/work/security/2026-10-09-t340-p5-pending-slot-sizing.md §2 F1, §7).
+describe('makeConnectionRateLimiter — pending (pre-upgrade) accounting', () => {
+  it('F1: accepted connections that never finish upgrading do not lock the source out once they expire', () => {
+    let t = 1_000_000
+    const rl = makeConnectionRateLimiter({ maxNewConnectionsPerWindow: 1000, maxConcurrentPerSource: 20, maxPendingPerSource: 1000, pendingTtlMs: 5_000, now: () => t })
+    // 20 handshakes that fail: libp2p never fires connection:close for them, so release() never runs.
+    for (let i = 0; i < 20; i++) expect(rl.allow('8.8.8.8', `8.8.8.8/${1000 + i}`)).toBe(true)
+    t += 5_001
+    expect(rl.allow('8.8.8.8', '8.8.8.8/2000')).toBe(true)
+  })
+
+  it('refuses a third pending connection from one source while another source is still admitted', () => {
+    const rl = makeConnectionRateLimiter({ maxNewConnectionsPerWindow: 1000 })
+    expect(rl.allow('8.8.8.8', '8.8.8.8/1')).toBe(true)
+    expect(rl.allow('8.8.8.8', '8.8.8.8/2')).toBe(true)
+    expect(rl.allow('8.8.8.8', '8.8.8.8/3')).toBe(false)
+    expect(rl.allow('9.9.9.9', '9.9.9.9/1')).toBe(true)
+  })
+
+  it('an upgraded connection gives its pending slot back and counts as concurrent until release', () => {
+    const rl = makeConnectionRateLimiter({ maxNewConnectionsPerWindow: 1000, maxPendingPerSource: 1, maxConcurrentPerSource: 1 })
+    expect(rl.allow('8.8.8.8', 'a')).toBe(true)
+    expect(rl.allow('8.8.8.8', 'b')).toBe(false) // pending full
+    rl.upgraded('8.8.8.8', 'a')
+    expect(rl.allow('8.8.8.8', 'c')).toBe(false) // concurrent full
+    rl.release('8.8.8.8')
+    expect(rl.allow('8.8.8.8', 'c')).toBe(true)
+  })
+
+  it('IPv6 addresses in the same /64 share one budget; a different /64 does not', () => {
+    const rl = makeConnectionRateLimiter({ maxNewConnectionsPerWindow: 1000 })
+    expect(rl.allow('2001:db8:1:2::1', 'x1')).toBe(true)
+    expect(rl.allow('2001:db8:1:2:ffff::9', 'x2')).toBe(true)
+    expect(rl.allow('2001:0db8:0001:0002::77', 'x3')).toBe(false)
+    expect(rl.allow('2001:db8:1:3::1', 'y1')).toBe(true)
+  })
+
+  it('prunes per-source state so a scan of many one-shot sources does not grow memory forever', () => {
+    let t = 1_000_000
+    const rl = makeConnectionRateLimiter({ windowMs: 10_000, pendingTtlMs: 5_000, now: () => t })
+    for (let i = 0; i < 500; i++) rl.allow(`8.8.${i >> 8}.${i & 255}`, `k${i}`)
+    t += 20_000
+    rl.allow('9.9.9.9', 'last')
+    expect(rl._sizes().ips).toBeLessThanOrEqual(1)
+    expect(rl._sizes().pending).toBeLessThanOrEqual(1)
   })
 })

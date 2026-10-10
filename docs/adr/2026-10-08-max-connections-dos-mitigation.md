@@ -177,3 +177,27 @@ The implementing slice records the final arithmetic with the installed defaults 
 6. Behavior-neutrality: LAN-only mode (flag off) sync is identical.
 7. Full `npm run verify` is the gate (not a targeted suite). The slice also re-confirms T337's
    C2/C4 and re-runs the dcutr-subtree `npm audit`/postinstall check as evidence.
+
+## Amendment 2026-10-09: pending-slot sizing (T340 precondition 5)
+
+The routed item above is resolved by
+[docs/work/security/2026-10-09-t340-p5-pending-slot-sizing.md](../work/security/2026-10-09-t340-p5-pending-slot-sizing.md),
+read against the installed libp2p 3.3.11 source. Decided and implemented in
+`electron/sync/automerge/transport.js` and `electron/sync/automerge/connectionRateLimiter.js`:
+
+- `MAX_INCOMING_PENDING_CONNECTIONS` 16 → **64**; `connectionManager.inboundUpgradeTimeout` set
+  explicitly to **5 s** (libp2p default 10 s). A pending slot is held for the whole upgrade, not
+  only "pre-Noise"; the earlier wording was imprecise.
+- A **per-source pending cap of 2** in the gater, keyed on the IPv4 address or the IPv6 /64, public
+  sources only. Holding all 64 slots now needs ~32 concurrent sources instead of one IP at
+  1.6 connections/s.
+- **F1 fixed:** libp2p fires `connection:close` only for upgraded connections, so a source's
+  concurrent count is now taken at `connection:open` (`upgraded()`), not at the gater. A failed
+  handshake no longer permanently consumes one of the source's 20 units. Per-source tables are pruned.
+- libp2p's allow list is **not** used (a roaming device's IP has changed; a carrier-NAT neighbour
+  would inherit the bypass).
+
+Residual, accepted by the assessment: a botnet of 32+ sources can still block WAN inbound for its
+duration; LAN, outbound dials and the relay/punch rungs are unaffected, so a roaming reconnect is
+delayed, not lost. Pinned by `electron/sync/automerge/connectionRateLimiter.test.js` and test 11/12 of
+`electron/sync/automerge/transportConnectionDos.test.js`. Not measured on hardware.

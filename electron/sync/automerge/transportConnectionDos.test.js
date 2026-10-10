@@ -18,6 +18,7 @@ import { generateKeyPair } from '@libp2p/crypto/keys'
 import { noise } from '@chainsafe/libp2p-noise'
 import { yamux } from '@chainsafe/libp2p-yamux'
 import { startTransport } from './transport.js'
+import { makeConnectionRateLimiter } from './connectionRateLimiter.js'
 import { AUTH_PROTO } from './wireProtocol.js'
 import { peerIdFromString } from '@libp2p/peer-id'
 
@@ -268,5 +269,42 @@ describe('T340 connection-manager DoS hardening', () => {
     await sleep(300)
     expect(liveConns(director, joiner1.peerId).length).toBe(1)
     expect(c1.status).toBe('open')
+  })
+
+  // T340 precondition 5 (docs/work/security/2026-10-09-t340-p5-pending-slot-sizing.md §6-§7). A scanner
+  // that opens raw TCP sockets and never speaks holds libp2p's shared pre-Noise pending slots for the
+  // whole inboundUpgradeTimeout. With a per-source pending cap, one source can hold at most 2 of them,
+  // so a different source's real dial still gets a slot. Loopback is normally exempt from the limiter,
+  // so the test limiter classifies every source as public; 127.0.0.1 and ::1 are the two sources.
+  it('11: a same-source scan holding pending slots does not starve a dial from another source', async () => {
+    const rl = makeConnectionRateLimiter({ isExempt: () => false, maxNewConnectionsPerWindow: 1000 })
+    const target = await startTarget({
+      listen: ['/ip4/127.0.0.1/tcp/0', '/ip6/::1/tcp/0'],
+      maxIncomingPendingConnections: 4,
+      connectionRateLimiter: rl,
+    })
+    const addrs = target.getMultiaddrs().map((m) => m.toString())
+    const port4 = Number(/\/ip4\/127\.0\.0\.1\/tcp\/(\d+)/.exec(addrs.find((a) => a.startsWith('/ip4/')))[1])
+    const sockets = []
+    for (let i = 0; i < 10; i++) {
+      const s = net.connect(port4, '127.0.0.1')
+      s.on('error', () => {})
+      sockets.push(s)
+    }
+    cleanups.push(async () => sockets.forEach((s) => s.destroy()))
+    await sleep(300) // let the scan land in the pending slots
+    const legit = await startAttacker()
+    const v6 = target.getMultiaddrs().find((m) => m.toString().startsWith('/ip6/'))
+    const conn = await legit.dial(v6, { signal: AbortSignal.timeout(3000) })
+    expect(conn.status).toBe('open')
+    // The upgraded dial left the pending set (gater and connection:open agree on its key): only the
+    // scanner's source still has pending entries.
+    await waitFor(() => rl._sizes().concurrent === 1)
+    expect(rl._sizes().pending).toBe(1)
+  })
+
+  it('12: production config passes the 5s inbound upgrade timeout to libp2p', async () => {
+    const target = await startTarget()
+    expect(target.libp2pNode.components.upgrader.inboundUpgradeTimeout).toBe(5_000)
   })
 })
