@@ -63,5 +63,5 @@ describe('rotation check cost on an import-sized camp', () => {
     expect(result.reason).toBe('rotated')
     // The history is read through views at prefix heads, never replayed into a scratch document.
     expect(calls.applyChanges).toBe(0)
-  })
+  }, 120_000) // building the 3000-change fixture is slow on a loaded runner; the assertion is a call count
 })

@@ -71,9 +71,16 @@ function byHashOf(automerge, doc) {
 
 // Reads the camp_authority_log collection as it stood at `heads`, straight from the document's
 // backend: keys and values at historical heads, without materialising the document. Same
-// result as listRecordIds/readRecord on the document at those heads: the collection is the
-// root key's winning object, a field's text is its string, a scalar is itself, and a nested
-// object is reported as a non-string placeholder (never a complete string field).
+// result as listRecordIds/readRecord on the document at those heads, as far as isCompleteEntry
+// can tell: the collection is the root key's winning object, a field's text is its string, and
+// every other value maps to what the proxy would return (see PLAIN_SCALAR_TYPES).
+// Value types the document proxy returns as the same JS primitive. Every other type (a raw
+// 'str' is an ImmutableString object, a counter a Counter object, a timestamp a Date, bytes a
+// Uint8Array, a map/list an object) is an object to the proxy: truthy and never a string, which
+// is all isCompleteEntry can see of it.
+const PLAIN_SCALAR_TYPES = new Set(['int', 'uint', 'f64', 'boolean'])
+const NON_STRING_VALUE = Object.freeze({})
+
 function authorityRowsAt(backend, heads) {
   const root = backend.getWithType('_root', AUTHORITY_LOG_ENTITY, heads)
   if (!root || (root[0] !== 'map' && root[0] !== 'table')) return new Map()
@@ -86,8 +93,9 @@ function authorityRowsAt(backend, heads) {
     if (!value) continue
     let field
     if (value[0] === 'text') field = backend.text(value[1], heads)
-    else if (value[0] === 'map' || value[0] === 'list' || value[0] === 'table') field = {}
-    else field = value[1]
+    else if (PLAIN_SCALAR_TYPES.has(value[0])) field = value[1]
+    else if (value[0] === 'null') field = null
+    else field = NON_STRING_VALUE
     if (!rows.has(parsed.entityId)) rows.set(parsed.entityId, {})
     rows.get(parsed.entityId)[parsed.field] = field
   }
@@ -146,8 +154,13 @@ function buildEntryChangeIndexFrom(automerge, doc) {
   // Nothing is replayed or decoded. Rebuilding a scratch document cost 17s of applyChanges, and
   // decoding every change 18s, on the imported camp that hung (229 changes, 2.9 million ops).
   const heads = new Set()
+  const seen = new Set()
   for (const change of changeMeta(automerge, doc)) {
-    for (const dep of change.deps) heads.delete(dep)
+    for (const dep of change.deps) {
+      if (!seen.has(dep)) throw new Error('authority replay: change history is not in causal order')
+      heads.delete(dep)
+    }
+    seen.add(change.hash)
     heads.add(change.hash)
     for (const [id, row] of authorityRowsAt(backend, [...heads])) {
       if (index.has(id)) continue

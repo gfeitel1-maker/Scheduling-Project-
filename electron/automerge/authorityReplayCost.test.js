@@ -136,5 +136,40 @@ describe('batched index equals the per-change replay on adversarial shapes', () 
     doc = raw(doc, (d) => { d[AUTHORITY_LOG_ENTITY] = { 'n\u0000kind': 'genesis', 'n\u0000target_device_id': 'N' } })
     same(doc)
   })
+
+  for (const field of ['kind', 'target_device_id', 'signer_device_id']) {
+    it(`a ${field} written as a raw string or a counter, later rewritten as text`, () => {
+      for (const odd of [() => new Automerge.RawString('X'), () => new Automerge.Counter(0), () => new Automerge.Counter(5)]) {
+        let doc = entry(createEmptyDoc(), { kind: 'genesis', target_device_id: 'F' })
+        doc = raw(doc, (d) => {
+          d[AUTHORITY_LOG_ENTITY]['o\u0000kind'] = 'grant'
+          d[AUTHORITY_LOG_ENTITY]['o\u0000target_device_id'] = 'T'
+          d[AUTHORITY_LOG_ENTITY]['o\u0000signer_device_id'] = 'F'
+          d[AUTHORITY_LOG_ENTITY][`o\u0000${field}`] = odd()
+        })
+        doc = raw(doc, (d) => { d[AUTHORITY_LOG_ENTITY][`o\u0000${field}`] = field === 'kind' ? 'grant' : 'Y' })
+        same(doc)
+      }
+    })
+  }
+
+  it('concurrent writes of different types to the same field, merged both ways', () => {
+    const base = entry(createEmptyDoc(), { kind: 'genesis', target_device_id: 'F' })
+    let a = Automerge.clone(base, { actor: '11'.repeat(16) })
+    let b = Automerge.clone(base, { actor: 'ee'.repeat(16) })
+    a = entry(a, { kind: 'grant', target_device_id: 'A', signer_device_id: 'F' })
+    b = raw(b, (d) => {
+      const log = d[AUTHORITY_LOG_ENTITY]
+      for (const [i, v] of [new Automerge.Counter(0), {}, 7].entries()) {
+        log[`f${i}\u0000kind`] = v
+        log[`f${i}\u0000target_device_id`] = 'T'
+        log[`f${i}\u0000signer_device_id`] = 'F'
+      }
+    })
+    const ids = Object.keys(a[AUTHORITY_LOG_ENTITY]).map((k) => k.split('\u0000')[0])
+    b = raw(b, (d) => { for (const id of ids) d[AUTHORITY_LOG_ENTITY][`${id}\u0000kind`] = new Automerge.Counter(0) })
+    same(Automerge.merge(Automerge.clone(a), b))
+    same(Automerge.merge(Automerge.clone(b), a))
+  })
 })
 
