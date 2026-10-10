@@ -54,8 +54,9 @@ describe('ConnectedToolsPanel', () => {
     await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/not found/))
   })
 
-  it('makes no accountability overclaim: says it does not stop someone already signed in', async () => {
+  it('keeps the explanation to one plain line; the caveats live in SECURITY.md', async () => {
     render(<ConnectedToolsPanel />)
-    expect((await screen.findByText(/does not stop someone who is already signed in/)).textContent).toBeTruthy()
+    expect(await screen.findByText(/Revoke any of them at any time/)).toBeTruthy()
+    expect(screen.queryByText(/not a lock/)).toBeNull()
   })
 })

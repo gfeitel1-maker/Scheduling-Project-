@@ -163,6 +163,14 @@ export function useSnapshots({
     const survivingSlots = dropDeadReferences(fullSnap.slots, { groups, days, timeBlocks, activities, fixedEvents, events, electiveSets })
     const droppedCount = fullSnap.slots.length - survivingSlots.length
 
+    // Keep the week being replaced as a version, so a restore is never a one-way door.
+    // saveSnapshot already surfaces its own failure; do not replace the week after it.
+    try {
+      await saveSnapshot(null, true)
+    } catch {
+      return
+    }
+
     setActionError(null)
     try {
       await repo.restoreSnapshotRows(templateId, survivingSlots)

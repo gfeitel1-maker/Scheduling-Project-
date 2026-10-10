@@ -153,6 +153,39 @@ describe('useSnapshots', () => {
     expect(props.setDismissedFindingKeys).toHaveBeenCalledTimes(1)
   })
 
+  it('restoreSnapshot first saves the current schedule as an auto version, so the restore can be undone', async () => {
+    const payload = {
+      template_id: 'tid-generated',
+      slots: JSON.stringify([{ group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', is_fixed_event: false, flags: {} }]),
+    }
+    const order = []
+    const repo = makeRepo({
+      getSnapshot: vi.fn(async () => payload),
+      writeSnapshotFields: vi.fn(async () => { order.push('save'); return { status: 'applied' } }),
+      restoreSnapshotRows: vi.fn(async () => { order.push('restore'); return { status: 'applied' } }),
+    })
+    const { result } = setup({ repo })
+    await act(async () => { await result.current.restoreSnapshot({ id: 'snap-1' }) })
+
+    expect(order).toEqual(['save', 'restore'])
+    const [, fields] = repo.writeSnapshotFields.mock.calls[0]
+    expect(fields).toMatchObject({ template_id: 'tid-generated', is_auto: true })
+    expect(JSON.parse(fields.slots)).toHaveLength(1)
+  })
+
+  it('restoreSnapshot does not restore, and says so, when the pre-restore save fails', async () => {
+    const payload = { template_id: 'tid-generated', slots: JSON.stringify([{ group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', is_fixed_event: false, flags: {} }]) }
+    const repo = makeRepo({
+      getSnapshot: vi.fn(async () => payload),
+      writeSnapshotFields: vi.fn(async () => { throw new Error('disk full') }),
+    })
+    const { result, props } = setup({ repo })
+    await act(async () => { await result.current.restoreSnapshot({ id: 'snap-1' }) })
+
+    expect(repo.restoreSnapshotRows).not.toHaveBeenCalled()
+    expect(props.setActionError).toHaveBeenCalled()
+  })
+
   // T117 slice 2 — a version written by materializeImportedVersion.js (the
   // 'Imported schedule' snapshot) uses the EXACT same slot shape as any other
   // snapshot, including a mix of activity and anchor placements. Proves that

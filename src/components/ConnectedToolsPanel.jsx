@@ -68,14 +68,7 @@ export default function ConnectedToolsPanel() {
   return (
     <section style={styles.section} aria-labelledby="connected-tools-title">
       <h2 id="connected-tools-title" style={styles.sectionTitle}>Connected Tools</h2>
-      <p style={styles.note}>
-        Authorize the scripts and assistants that work with this camp&apos;s data, such as the MCP server and the import
-        command-line tools. Each one gets its own name and secret, shows up here, and can be revoked at any time.
-        Revoking stops that tool from starting up again; a tool that is already running keeps working until it is
-        restarted. &quot;Read only&quot; is honored by well-behaved tools, but it is not a lock: a program running as you
-        on this computer could ignore it. This records which tools you chose to connect; it does not stop someone who is already signed in to this
-        computer from reaching the camp&apos;s files.
-      </p>
+      <p style={styles.note}>Tools you authorize here can work with this camp&apos;s data. Revoke any of them at any time.</p>
 
       {error && <div role="alert" style={styles.error}>{error}</div>}
 
