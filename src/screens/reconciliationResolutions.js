@@ -159,7 +159,7 @@ export function applyResolutions({ approved, decisions, answers, fixedEvents }) 
   const MEAL_NAME = /^(lunch|menucha|breakfast|dinner|snack)\b/i
   const nextFixedEvents = (fixedEvents ?? []).filter(
     (fe) => !heldFixedEventKeys.has(fixedEventMatchKey(fe.name, fe.time_block, fe.days))
-      || (fe.support?.basis !== 'sibling' || MEAL_NAME.test(String(fe.name ?? '').trim()))
+      || fe.support?.basis === 'daily' || fe.support?.basis === 'weekly' || MEAL_NAME.test(String(fe.name ?? '').trim())
   )
 
   return { approved: nextApproved, resolutions, fixedEvents: nextFixedEvents }

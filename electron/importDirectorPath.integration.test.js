@@ -20,10 +20,6 @@ import { randomUUID } from 'node:crypto'
 import { openTemplatedDb, cleanupTemplatedDbs } from './db/testDbTemplate.js'
 import { commitIngest } from './ops/ingest.js'
 import { appendOp } from './ops/operations.js'
-import { appendOp } from './ops/operations.js'
-import { normalizeScheduleInputs, SCHEDULE_INPUT_ENTITIES } from './ops/scheduleInputNormalization.js'
-import { resolvePriorityForGeneration } from '../src/ingest/resolvePriorityForGeneration.js'
-import buildSchedule from '../src/engine/buildSchedule.js'
 import { materializeImportedVersion, nameMap } from './ops/materializeImportedVersion.js'
 import { normalizeName } from '../src/ingest/preview.js'
 import { normalizeScheduleInputs, SCHEDULE_INPUT_ENTITIES } from './ops/scheduleInputNormalization.js'
@@ -136,9 +132,16 @@ describe('director import with every reconciliation card unanswered (campB-by-da
       },
     }
     const { placements } = capturePlacements({ pages: parsed.pages }, proposal)
-    const out = await materializeImportedVersion(db, writeClient, { campId, authorUserId: userId, placements })
+    const out = await materializeImportedVersion(db, writeClient, { campId, authorUserId: userId, placements, sourceFileName: 'campB-by-day.txt' })
     expect(out.created).toBe(true)
     expect(db.prepare('SELECT COUNT(*) c FROM schedule_snapshots WHERE id = ?').get(out.snapshotId).c).toBe(1)
+    // I2: the director lands on Generated (ScheduleScreen's default route), so
+    // the version must be findable there, by file name, holding the placements.
+    for (const kind of ['generated', 'manual']) {
+      const snaps = db.prepare(`SELECT s.name, s.slots FROM schedule_snapshots s JOIN schedule_templates t ON t.id = s.template_id WHERE t.kind = ? AND t.camp_id = ?`).all(kind, campId)
+      expect(snaps.map((s) => s.name)).toEqual(['Imported from campB-by-day.txt'])
+      expect(JSON.parse(snaps[0].slots).length).toBe(placements.length)
+    }
   })
 })
 

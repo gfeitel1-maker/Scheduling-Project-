@@ -221,7 +221,8 @@ describe('materializeImportedVersion', () => {
     const r2 = await materializeImportedVersion(db, fakeSyncClient(db), { campId, authorUserId, placements })
 
     expect(r1.snapshotId).not.toBe(r2.snapshotId)
-    expect(db.prepare('SELECT COUNT(*) c FROM schedule_snapshots').get().c).toBe(2)
+    // one version per candidate route (manual + generated) per import
+    expect(db.prepare('SELECT COUNT(*) c FROM schedule_snapshots').get().c).toBe(4)
   })
 
   it('returns created:false immediately with no writes when placements is empty', async () => {
