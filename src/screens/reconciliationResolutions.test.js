@@ -317,6 +317,23 @@ describe('applyResolutions — fixed-event hold-back (sub-slice 4)', () => {
     expect(fixedEvents).toEqual([])
   })
 
+  it.each([
+    ['Lunch 3', true], ['Menucha', true], ['Lunch', true],
+    ['Snack Shack', false], ['Lunch duty', false], ['Dinner Theater', false],
+  ])('unanswered low-confidence %s is kept as a meal: %s', (name, kept) => {
+    const decision = fixedEventValueDecision({ entityName: name, id: `fixed_events:${name}`, timeBlock: 'Noon', days: ['Monday'] })
+    const fe = { name, time_block: 'Noon', days: ['Monday'], scope: { is_all_groups: true }, support: { basis: 'sibling' } }
+    const { fixedEvents } = applyResolutions({ approved: {}, decisions: [decision], answers: {}, fixedEvents: [fe] })
+    expect(fixedEvents).toEqual(kept ? [fe] : [])
+  })
+
+  it('an unanswered low-confidence event on a daily or weekly pattern is kept, whatever its name', () => {
+    const decision = fixedEventValueDecision({ entityName: 'Shabbat', id: 'fixed_events:Shabbat', timeBlock: 'Noon', days: ['Friday'] })
+    const fe = { name: 'Shabbat', time_block: 'Noon', days: ['Friday'], scope: { is_all_groups: true }, support: { basis: 'weekly' } }
+    const { fixedEvents } = applyResolutions({ approved: {}, decisions: [decision], answers: {}, fixedEvents: [fe] })
+    expect(fixedEvents).toEqual([fe])
+  })
+
   it('a RESOLVED (looks_right) fixed-event confirm_value ships its event unchanged', () => {
     const decision = fixedEventValueDecision()
     const fe = { name: 'Free Swim', time_block: 'Afternoon', days: ['Monday'], scope: { is_all_groups: true } }

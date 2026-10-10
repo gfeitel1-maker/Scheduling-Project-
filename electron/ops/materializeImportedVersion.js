@@ -17,6 +17,15 @@ import { normalizeName } from '../../src/ingest/preview.js'
 import { resolveImportedPlacements } from './resolveImportedPlacements.js'
 import { deriveScheduleTemplateId } from './scheduleTemplateId.js'
 
+// The renderer supplies the file name; it becomes a stored version name, so it
+// is coerced to a bare, bounded string at the boundary.
+export function cleanSourceFileName(value) {
+  if (typeof value !== 'string') return null
+  const base = value.split(/[\\/]/).pop().trim()
+  if (!base) return null
+  return base.length > 120 ? `${base.slice(0, 119)}…` : base
+}
+
 async function writeFields(syncClient, entity, entityId, fields, authorUserId) {
   for (const [field, value] of Object.entries(fields)) {
     const result = await syncClient.write({ entity, entity_id: entityId, field, value, author_user_id: authorUserId })

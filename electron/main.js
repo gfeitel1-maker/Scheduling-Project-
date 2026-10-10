@@ -35,7 +35,7 @@ import { CLEARABLE_ENTITIES, previewDelete, deleteRecord, mergeLocation } from '
 import { listMigrationReviews, dismissMigrationReviews } from './ops/migrationReviews.js'
 import { listOpenReconciliationDecisions, dismissOpenReconciliationDecisions } from './ops/openReconciliationDecisions.js'
 import { commitIngest, ingestUndo, listImportEvidence, listCompoundCellDecisions } from './ops/ingest.js'
-import { materializeImportedVersion } from './ops/materializeImportedVersion.js'
+import { materializeImportedVersion, cleanSourceFileName } from './ops/materializeImportedVersion.js'
 import { confirmAlias, ConfirmAliasError } from './ops/confirmAlias.js'
 import { mergeActivity, previewActivityMerge } from './ops/mergeActivity.js'
 import { confirmCompoundCellPattern } from './ops/confirmCompoundCellPattern.js'
@@ -615,7 +615,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     // must not be reported as failed because the version step had trouble.
     if (Array.isArray(placements) && placements.length > 0) {
       return materializeImportedVersion(db, syncClient, {
-        campId: camp.id, authorUserId: session.userId, placements, sourceFileName,
+        campId: camp.id, authorUserId: session.userId, placements, sourceFileName: cleanSourceFileName(sourceFileName),
       }).then((version) => {
         outcome.version = version
         return outcome
