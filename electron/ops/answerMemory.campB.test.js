@@ -97,7 +97,7 @@ describe('predicate 1: answer campB, re-import it, zero repeat questions', () =>
     const got = recall(again)
     for (const [i, d] of again.entries()) {
       const r = got[d.id]
-      expect(r, d.id).toMatchObject({ tier: 0, match: 'exact', autoApply: true, answeredBy: 'u-admin', answeredByName: 'Dana' })
+      expect(r, d.id).toMatchObject({ tier: 0, match: 'exact', autoApply: answerFor(d, i).action === 'looks_right', answeredBy: 'u-admin', answeredByName: 'Dana' })
       expect(r.answeredAt).toMatch(/^2026-10-01/)
       expect(r.answer).toEqual(answerFor(d, i))
     }
@@ -135,7 +135,9 @@ describe('predicate 2: a variant file asks only what is genuinely new', () => {
     answerAll(decisions)
     const fixed = decisions.find((d) => d.entity === 'fixed_events' && d.days.includes('Thursday'))
     const variant = { ...fixed, days: fixed.days.map((x) => (x === 'Thursday' ? 'Thurs' : x)), timeBlock: fixed.timeBlock.replace(/^0/, '') }
-    expect(recall([variant])[fixed.id]).toMatchObject({ match: 'exact', autoApply: true })
+    const variantGot = recall([variant])[fixed.id]
+    expect(variantGot).toMatchObject({ match: 'exact' })
+    expect(variantGot.autoApply).toBe(variantGot.answer.action === 'looks_right')
 
     const [ex] = campBExclusionDecisions()
     expect(ex.kind).toBe('all_camp_override')

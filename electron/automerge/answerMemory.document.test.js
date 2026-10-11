@@ -127,7 +127,7 @@ describe('across devices', () => {
     expect(match(b, fixed('Lunch 1'))).toBeNull()
     expect(pull(b, a)).toEqual([])
     const got = match(b, fixed('Lunch 1'))
-    expect(got).toMatchObject({ match: 'exact', autoApply: true, answeredByName: 'Dana', answer: { action: 'edited' } })
+    expect(got).toMatchObject({ match: 'exact', autoApply: false, answeredByName: 'Dana', answer: { action: 'edited' } })
   })
 
   it('concurrent same-signature answers: same answer is one answer; different answers are a contradiction', () => {
@@ -137,7 +137,7 @@ describe('across devices', () => {
     remember(b, [{ decision: fixed('Lunch 1'), answer: REJECT }], 'u-staff')
     pull(a, b)
     expect(liveRecords(a.db, CAMP).answers).toHaveLength(2)
-    expect(match(a, fixed('Lunch 1'))).toMatchObject({ match: 'exact', autoApply: true })
+    expect(match(a, fixed('Lunch 1'))).toMatchObject({ match: 'exact', autoApply: false })
     const c = device('c')
     const d = device('d')
     remember(c, [{ decision: fixed('Lunch 2'), answer: REJECT }])

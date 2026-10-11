@@ -213,7 +213,7 @@ export function journalEntriesFor(decisions, answers, importId) {
       chosen: chosenOf(answer),
       // docs/adr/2026-10-11-import-answer-memory.md 3.5: a decision answered the way the store
       // remembered it was learned from that record. Absent otherwise, so older entries keep their shape.
-      ...(answer && d.recalled?.memoryId && sameAnswer(answer, d.recalled.answer) ? { learned_from_id: d.recalled.memoryId } : {}),
+      ...(answer && d.recallShown === true && d.recalled?.memoryId && sameAnswer(answer, d.recalled.answer) ? { learned_from_id: d.recalled.memoryId } : {}),
     })
   }
   return entries

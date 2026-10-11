@@ -44,7 +44,9 @@ export function answerMemoryEntries(decisions, answers, { bulkIds = new Set() } 
     const entry = { decision: compactDecision(d), answer, bulk: bulkIds.has(d.id) }
     if (answer.tap === true) entry.tap = true
     if (answer.rememberNear === true) entry.rememberNear = true
-    if (d.recalled) entry.recalled = { match: d.recalled.match, memoryId: d.recalled.memoryId }
+    // Only a recall the director was SHOWN counts as recalled (PR 2's UI sets `recallShown`): an
+    // answer given without seeing the memory is a fresh answer, not an override or a tap-through.
+    if (d.recalled && d.recallShown === true) entry.recalled = { match: d.recalled.match, memoryId: d.recalled.memoryId }
     entries.push(entry)
   }
   return entries

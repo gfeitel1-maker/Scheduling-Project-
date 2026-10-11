@@ -27,7 +27,7 @@ describe('attachRecall', () => {
 
 describe('answerMemoryEntries', () => {
   it('lists answered decisions only, with compact decisions and the bulk, tap and near flags', () => {
-    const decisions = [fixed('A'), fixed('B'), fixed('C'), { ...fixed('D'), recalled: { match: 'near', memoryId: 'm1', answer: { action: 'edited' }, why: 'x' } }]
+    const decisions = [fixed('A'), fixed('B'), fixed('C'), { ...fixed('D'), recallShown: true, recalled: { match: 'near', memoryId: 'm1', answer: { action: 'edited' }, why: 'x' } }]
     const answers = {
       'fe:A': { action: 'looks_right' },
       'fe:B': { action: 'looks_right', tap: true },
@@ -41,6 +41,13 @@ describe('answerMemoryEntries', () => {
     expect(entries[0].decision.recalled).toBeUndefined()
     expect(JSON.stringify(entries[0].decision).length).toBeLessThan(600)
   })
+  it('a recall the director never saw is not marked recalled, so the answer is remembered as a fresh one', () => {
+    const d = { ...fixed('E'), recalled: { match: 'near', memoryId: 'm1', answer: { action: 'edited' }, why: 'x' } }
+    const [entry] = answerMemoryEntries([d], { 'fe:E': { action: 'edited' } })
+    expect(entry.recalled).toBeUndefined()
+    const [shown] = answerMemoryEntries([{ ...d, recallShown: true }], { 'fe:E': { action: 'edited' } })
+    expect(shown.recalled).toEqual({ match: 'near', memoryId: 'm1' })
+  })
   it('sends nothing for kinds that are not remembered', () => {
     const d = { id: 'c', kind: 'resolve_conflict', entity: 'groups', entityName: 'G' }
     expect(answerMemoryEntries([d], { c: { choice: 'create' } })).toEqual([])
@@ -49,12 +56,14 @@ describe('answerMemoryEntries', () => {
 
 describe('the journal records what a recalled decision was learned from', () => {
   it('carries learned_from_id when the answer is the recalled one, and nothing otherwise', () => {
-    const d = { ...fixed('A'), recalled: { memoryId: 'm1', answer: { action: 'looks_right' } } }
+    const d = { ...fixed('A'), recallShown: true, recalled: { memoryId: 'm1', answer: { action: 'looks_right' } } }
     const [same] = journalEntriesFor([d], { 'fe:A': { action: 'looks_right' } }, 'imp')
     expect(same.learned_from_id).toBe('m1')
     expect(same.outcome).toBe('accepted')
     const [other] = journalEntriesFor([d], { 'fe:A': { action: 'edited' } }, 'imp')
     expect('learned_from_id' in other).toBe(false)
+    const [unseen] = journalEntriesFor([{ ...d, recallShown: false }], { 'fe:A': { action: 'looks_right' } }, 'imp')
+    expect('learned_from_id' in unseen).toBe(false)
     const [plain] = journalEntriesFor([fixed('B')], { 'fe:B': { action: 'looks_right' } }, 'imp')
     expect('learned_from_id' in plain).toBe(false)
   })

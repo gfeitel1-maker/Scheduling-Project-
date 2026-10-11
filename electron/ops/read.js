@@ -5,6 +5,7 @@
 // stays a hard whitelist against the same frozen registries in
 // campScopedEntities.js, never caller-built SQL. This module never touches
 // `token` — auth stays in electron/main.js.
+import { ANSWER_RECORD_KINDS } from './answerMemory.js'
 import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES, resolveParentJoinChain } from './campScopedEntities.js'
 
 export function listEntities(db, entity) {
@@ -22,6 +23,12 @@ export function listEntities(db, entity) {
 
   const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
   if (!camp) return []
+
+  // Import answers are validated and read only by liveRecords (answerMemory.js); a generic read of
+  // this table would hand every answer's payload to the renderer.
+  if (entity === 'camp_seedlings') {
+    return db.prepare('SELECT * FROM camp_seedlings WHERE camp_id = ? AND kind NOT IN (?, ?)').all(camp.id, ...ANSWER_RECORD_KINDS)
+  }
 
   if (DIRECT_CAMP_ENTITIES.has(entity)) {
     return db.prepare(`SELECT * FROM ${entity} WHERE camp_id = ?`).all(camp.id)

@@ -122,7 +122,7 @@ describe('Tier 0: exact and near recall', () => {
   it('exact after normalization, labelled with date and author', () => {
     remember([one(fixed('Lunch 1'), REJECT)])
     const got = matchOne(fixed('LUNCH 1', { timeBlock: '12:00-12:40' }))
-    expect(got).toMatchObject({ tier: 0, source: 'instance', match: 'exact', autoApply: true, answer: { action: 'edited' }, answeredBy: 'u-admin', answeredByName: 'Dana' })
+    expect(got).toMatchObject({ tier: 0, source: 'instance', match: 'exact', autoApply: false, answer: { action: 'edited' }, answeredBy: 'u-admin', answeredByName: 'Dana' })
     expect(got.answeredAt).toMatch(/^2026-10-01/)
     expect(got.why).toMatch(/Dana/)
   })
@@ -150,9 +150,30 @@ describe('Tier 0: exact and near recall', () => {
     remember([one(ack, { ack: true })])
     expect(matchOne(ack)).toMatchObject({ match: 'exact', answer: { ack: true } })
   })
-  it('a rejection recalled exactly still applies (memory of one decided question)', () => {
+  // Tier 0 auto-applies only what the allow-list lets a pattern auto-apply: the ACCEPTING answer on
+  // a fixed event. Every other exact recall pre-selects and still asks (Red Hat, PR #909).
+  it('a rejection recalled exactly pre-selects but never auto-applies', () => {
     remember([one(exclusion('Trip'), { choice: 'as_written' })])
-    expect(matchOne(exclusion('Trip'))).toMatchObject({ match: 'exact', autoApply: true })
+    expect(matchOne(exclusion('Trip'))).toMatchObject({ match: 'exact', autoApply: false, answer: { choice: 'as_written' } })
+  })
+  it('only an accepted fixed event auto-applies at tier 0; every other kind and verdict is pre-select only', () => {
+    const nameKind = { id: 'nk', kind: 'name_kind', entity: 'activities', entityName: 'Swim', candidateEvents: [{ time_block: '02:25-03:15', days: ['Tuesday'] }] }
+    const elective = { id: 'el', kind: 'elective_candidate', entity: 'activities', entityName: 'Electives A' }
+    const backed = { id: 'bc', kind: 'confirm_change', entity: 'groups', entityId: 'g1', entityName: 'Alufim 1', field: ['unit'], proposedValue: 'U1', currentValue: 'U0' }
+    db.prepare('INSERT INTO groups (id, camp_id, name) VALUES (?,?,?)').run('g1', CAMP, 'Alufim 1')
+    const drift = { id: 'dr', kind: 'confirm_change', entity: 'fixed_events', entityName: 'Lunch', field: null, from: 'a', to: 'b', timeBlock: '12:00-12:40', days: ['Monday'] }
+    const edited = { id: 'ev', kind: 'confirm_value', entity: 'activities', entityId: null, entityName: 'Archery', field: ['duration'], proposedValue: 40, currentValue: 30 }
+    const never = [
+      [fixed('Lunch 1'), REJECT], [exclusion('Trip'), { choice: 'all_camp' }], [exclusion('Hike'), { choice: 'as_written' }],
+      [nameKind, { choice: 'fixed' }], [nameKind, { choice: 'activity' }], [elective, { choice: 'confirm' }], [elective, { choice: 'decline' }],
+      [backed, { choice: 'accept' }], [backed, { choice: 'keep' }], [drift, { ack: true }], [edited, REJECT],
+    ]
+    for (const [d, a] of never) {
+      remember([one(d, a, { tap: true })])
+      expect(matchOne(d), `${d.kind}:${JSON.stringify(a)}`).toMatchObject({ match: 'exact', autoApply: false })
+    }
+    remember([one(fixed('Lunch 9'), ACCEPT, { tap: true })])
+    expect(matchOne(fixed('Lunch 9'))).toMatchObject({ match: 'exact', autoApply: true })
   })
   it('a name-key near: same name, different key', () => {
     remember([one(fixed('Lunch 1'), REJECT)])
@@ -213,14 +234,18 @@ describe('Change, Forget, Remember this', () => {
     expect(live().answers).toHaveLength(1)
     expect(live().answers[0].id).not.toBe(id)
   })
-  it('a near card tapped through writes nothing; "Remember this" on a name-key near inserts and leaves the old live', () => {
+  it('a near card tapped through is kept as evidence that retires nothing; "Remember this" on a name-key near inserts and leaves the old live', () => {
     const d = fixed('Lunch 1')
     remember([one(d, REJECT)])
     const near = fixed('Lunch 1', { timeBlock: '01:00-01:40' })
     remember([one(near, REJECT, { recalled: { match: 'near' } })])
-    expect(rows()).toHaveLength(1)
-    remember([one(near, ACCEPT, { recalled: { match: 'near' }, rememberNear: true })])
     expect(rows()).toHaveLength(2)
+    expect(live().answers.map((a) => a.role).sort()).toEqual(['evidence', 'instance'])
+    expect(rows().every((r) => r.status === 'active')).toBe(true)
+    remember([one(near, REJECT, { recalled: { match: 'near' } })])
+    expect(rows()).toHaveLength(2)
+    remember([one(near, ACCEPT, { recalled: { match: 'near' }, rememberNear: true })])
+    expect(rows()).toHaveLength(3)
     expect(rows().filter((r) => r.status === 'active')).toHaveLength(2)
   })
   it('"Remember this" on a baseline near retires ALL live heads for the key in one atomic step', () => {
@@ -260,7 +285,7 @@ describe('concurrent Change and ordering without clocks', () => {
     const d = fixed('Lunch 1')
     forge(d, { payload: { seq: 1, answer: { verdict: 'reject' } } })
     forge(d, { payload: { seq: 2, answer: { verdict: 'reject' } } })
-    expect(matchOne(d)).toMatchObject({ match: 'exact', autoApply: true })
+    expect(matchOne(d)).toMatchObject({ match: 'exact', autoApply: false })
     forge(d, { payload: { seq: 3, answer: { verdict: 'accept' } } })
     const got = matchOne(d)
     expect(got).toMatchObject({ match: 'near', autoApply: false, contradiction: 2 })
@@ -427,12 +452,10 @@ describe('retention, the cap and long histories', () => {
     runRetention(db, { campId: CAMP, deviceId: 'dev-1', authorUserId: 'u-admin', now: () => new Date(clock) })
     expect(rows()).toHaveLength(4)
   })
-  it('the 5,000 cap stops new evidence rows, never instance answers', () => {
+  it('the 5,000 cap counts live records of every role: evidence and instance answers both stop at it', () => {
     remember([one(fixed('Lunch 1'), REJECT)], { cap: 1 })
-    const r = remember([one(fixed('Lunch 2'), ACCEPT)], { cap: 1 })
-    expect(r.skipped.map((s) => s.reason)).toEqual(['cap'])
-    const r2 = remember([one(fixed('Lunch 3'), REJECT)], { cap: 1 })
-    expect(r2.written).toHaveLength(1)
+    expect(remember([one(fixed('Lunch 2'), ACCEPT)], { cap: 1 }).skipped.map((s) => s.reason)).toEqual(['cap'])
+    expect(remember([one(fixed('Lunch 3'), REJECT)], { cap: 1 }).skipped.map((s) => s.reason)).toEqual(['cap'])
   })
   it('retention-deleted answers are absent from the Trash listing', () => {
     remember([one(fixed('Lunch 1'), REJECT), one(fixed('Lunch 1'), ACCEPT, {})])
@@ -479,7 +502,7 @@ describe('pattern writers and the view data', () => {
   })
   it('forgetPattern writes a veto covering exactly the answers it covered; the answers stay and keep resolving', () => {
     sibs()
-    const covered = live().answers.map((a) => a.id)
+    const covered = live().answers.map((a) => a.coverId)
     const r = forgetPattern(db, { campId: CAMP, authorUserId: 'u-admin', deviceId: 'dev-1', template: 'T1', key: 'fixed_event|specialty' })
     expect(r.ok).toBe(true)
     expect(rows().filter((x) => x.kind === VETO_KIND)).toHaveLength(1)
@@ -550,20 +573,33 @@ describe('keys and the projection', () => {
 })
 
 describe('guard: one reader', () => {
-  it('no other source file names the answer kinds', () => {
+  const sources = () => {
     const root = process.cwd()
-    const allowed = new Set(['electron/ops/answerMemory.js'])
-    const hits = []
+    const out = []
     const walk = (dir) => {
       for (const e of fs.readdirSync(path.join(root, dir), { withFileTypes: true })) {
         const rel = path.join(dir, e.name)
         if (e.isDirectory()) { if (!['node_modules', 'legacy', 'archive', 'dist'].includes(e.name)) walk(rel) } else if (/\.(js|jsx|mjs)$/.test(e.name) && !/\.test\./.test(e.name)) {
-          const s = fs.readFileSync(path.join(root, rel), 'utf8')
-          if (/\bimport_answer\b|\bimport_rule_veto\b/.test(s) && !allowed.has(rel)) hits.push(rel)
+          out.push({ rel, text: fs.readFileSync(path.join(root, rel), 'utf8') })
         }
       }
     }
     for (const d of ['electron', 'src', 'scripts']) walk(d)
+    return out
+  }
+  it('no other source file names the answer kinds or imports their constants', () => {
+    const allowed = new Set(['electron/ops/answerMemory.js'])
+    const hits = sources()
+      .filter(({ rel, text }) => !allowed.has(rel) && /\bimport_answer\b|\bimport_rule_veto\b|\bANSWER_KIND\b|\bVETO_KIND\b/.test(text))
+      .map(({ rel }) => rel)
     expect(hits).toEqual([])
+  })
+  // A generic list('camp_seedlings') hands every row to the caller. listEntities drops the answer kinds
+  // server-side (tested in answerMemory.redhat.test.js), which is what makes the column-mapping recall
+  // below safe; any NEW generic read must be added here on purpose.
+  it('no new generic camp_seedlings read appears', () => {
+    const generic = /\.list\(\s*['"`]camp_seedlings['"`]\s*\)/
+    const hits = sources().filter(({ text }) => generic.test(text)).map(({ rel }) => rel)
+    expect(hits).toEqual(['src/screens/elective/assignment/AssignmentPanel.jsx'])
   })
 })

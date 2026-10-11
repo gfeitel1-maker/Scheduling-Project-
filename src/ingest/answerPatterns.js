@@ -11,13 +11,15 @@ export { LEARNING_BAR }
 const SEP = '\u0000'
 
 // A fixed menu of templates, never a search.
-export function patternKeysFor(qkind, f) {
+// `fit` shortens an over-long feature value the way the writer did, so a decision's key and a
+// stored record's key are the same string (fit must be idempotent).
+export function patternKeysFor(qkind, f, fit = (k) => k) {
   const keys = []
   if (qkind === 'classify' && f?.proposedClass) {
-    if (f.stem) keys.push({ template: 'T1', key: `${f.proposedClass}|${f.stem}` })
+    if (f.stem) keys.push({ template: 'T1', key: `${f.proposedClass}|${fit(f.stem)}` })
     if (f.isMeal) keys.push({ template: 'T2', key: `${f.proposedClass}|meal` })
   }
-  if (qkind === 'exclusion' && f?.excludedSet) keys.push({ template: 'T3', key: f.excludedSet })
+  if (qkind === 'exclusion' && f?.excludedSet) keys.push({ template: 'T3', key: fit(f.excludedSet) })
   return keys
 }
 
@@ -38,9 +40,9 @@ export function patternGroups(records, vetoes, fit = (k) => k) {
   const byGroup = new Map()
   for (const r of records ?? []) {
     if (!r.qualifies || r.bulk) continue
-    for (const { template, key } of patternKeysFor(r.qkind, r.features)) {
+    for (const { template, key } of patternKeysFor(r.qkind, r.features, fit)) {
       const gk = `${template}${SEP}${key}`
-      if (coverByGroup.get(`${template}${SEP}${fit(key)}`)?.has(r.id)) continue
+      if (coverByGroup.get(`${template}${SEP}${fit(key)}`)?.has(r.coverId ?? r.id)) continue
       if (!byGroup.has(gk)) byGroup.set(gk, { template, key, qkind: r.qkind, byName: new Map() })
       const g = byGroup.get(gk)
       const name = r.parts?.[0] ?? ''
@@ -135,7 +137,7 @@ export function recallPattern(decision, records, vetoes, fit) {
   if (!sig) return null
   const groups = patternGroups(records, vetoes, fit)
   let best = null
-  for (const { template, key } of patternKeysFor(sig.qkind, sig.features)) {
+  for (const { template, key } of patternKeysFor(sig.qkind, sig.features, fit)) {
     const group = groups.get(`${template}${SEP}${key}`)
     if (!group) continue
     const ev = evaluateGroup(group)
@@ -166,7 +168,7 @@ export function progressForDecision(decision, records, vetoes, fit) {
   if (!sig) return null
   const groups = patternGroups(records, vetoes, fit)
   let best = null
-  for (const { template, key } of patternKeysFor(sig.qkind, sig.features)) {
+  for (const { template, key } of patternKeysFor(sig.qkind, sig.features, fit)) {
     const group = groups.get(`${template}${SEP}${key}`)
     if (!group) continue
     const ev = evaluateGroup(group)
