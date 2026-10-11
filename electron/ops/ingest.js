@@ -1362,10 +1362,10 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   // "unchanged" by that row nor unioned into it. NULL week (every pre-slice-2 row) keys exactly as before
   // plus an empty trailing segment, so all-weeks identity is unchanged.
   //
-  // T363: the SPAN is part of the slot too (ADR 2026-08-09 §1, amended): the same event at one block
-  // for two group sets that hold it for different lengths is two rows, because one row cannot carry
-  // two spans. Scope is still not part of the key. fixedEventPlaceKey is the span-blind prefix, for
-  // the move/tombstone checks that only know where an event sits.
+  // T363 (ADR 2026-08-09 §1, amended): matching, tombstones and move detection use the span-blind
+  // fixedEventPlaceKey. fixedEventSlotKey (place + span) is used only for a place where the incoming file
+  // itself holds two or more spans for DISJOINT group sets: one row cannot carry two spans, so those
+  // split into one row per span. Anywhere else a place is one row and a span difference is reported.
   const fixedEventPlaceKey = (cohortId, dayId, tbId, name, weekId = null) =>
     `${cohortId ?? ''}|${dayId}|${tbId}|${normalizeName(name)}|${weekId ?? ''}`
   const fixedEventSlotKey = (cohortId, dayId, tbId, name, weekId = null, span = 1) =>
@@ -1426,7 +1426,6 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       if (!dayId || !tbId || !name) continue
       const weekId = fields.get('schedule_week_id') ?? null
       rejected.add(fixedEventPlaceKey(fields.get('cohort_id') ?? null, dayId, tbId, name, weekId))
-      rejected.add(fixedEventSlotKey(fields.get('cohort_id') ?? null, dayId, tbId, name, weekId, Number(fields.get('span_blocks')) || 1))
     }
     return rejected
   }
@@ -1989,6 +1988,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       .all(camp_id)) {
       const slotKey = fixedEventSlotKey(row.cohort_id, row.day_id, row.time_block_id, row.name, row.schedule_week_id, row.span_blocks ?? 1)
       fixedEventSlots.add(slotKey)
+      fixedEventSlots.add(fixedEventPlaceKey(row.cohort_id, row.day_id, row.time_block_id, row.name, row.schedule_week_id))
       // Malformed group_ids/unit_ids (partial sync / hand-edited SQLite / old
       // migration) must not crash an unrelated import — mirror
       // FixedEventsScreen.jsx's parseIdList defensive posture: a parse failure
@@ -2045,7 +2045,10 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       } else {
         liveGroupIds = groupIds // plain group_ids scope (or null sentinel)
       }
-      liveFixedEventScope.set(slotKey, { is_all_groups: liveIsAllGroups, group_ids: liveGroupIds })
+      const liveScopeEntry = { is_all_groups: liveIsAllGroups, group_ids: liveGroupIds }
+      liveFixedEventScope.set(slotKey, liveScopeEntry)
+      const liveFixedPlace = fixedEventPlaceKey(row.cohort_id, row.day_id, row.time_block_id, row.name, row.schedule_week_id)
+      if (!liveFixedEventScope.has(liveFixedPlace)) liveFixedEventScope.set(liveFixedPlace, liveScopeEntry)
     }
 
     // Slice B one-off recognition (Red Hat HIGH #1, docs/adr/2026-08-24-
@@ -2490,7 +2493,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       return Math.min(fe.span_blocks ?? 1, Math.max(remaining, 1))
     }
     const liveWeekIds = new Set(db.prepare('SELECT id FROM schedule_weeks WHERE camp_id = ?').all(camp_id).map((w) => w.id))
-    const slotScopeUnion = new Map()
+    const placeEntries = new Map()
     for (const fe of plan.fixedEvents) {
       const tb = blockIdByName.get(normalizeName(fe.time_block))
       if (!tb) continue
@@ -2502,11 +2505,49 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       for (const d of (fe.days ?? [])) {
         const dId = dayIdByName.get(normalizeName(d))
         if (!dId) continue
-        const k = fixedEventSlotKey(cohort_id, dId, tb, fe.name, fe.weekId ?? null, span)
+        const place = fixedEventPlaceKey(cohort_id, dId, tb, fe.name, fe.weekId ?? null)
+        const list = placeEntries.get(place) ?? []
+        list.push({ span, feAll, feIds, dropped: feIds.length < requested })
+        placeEntries.set(place, list)
+      }
+    }
+    // A place splits by span only when the file holds two or more spans there AND their group scopes
+    // are pairwise disjoint (an all-groups event overlaps everything). Otherwise it stays one row
+    // carrying the first event's span, and the events at other spans are reported, not imported.
+    const splitPlaces = new Set()
+    const placeSpan = new Map()
+    for (const [place, list] of placeEntries) {
+      placeSpan.set(place, list[0].span)
+      const bySpan = new Map()
+      for (const e of list) {
+        const b = bySpan.get(e.span) ?? { isAll: false, ids: new Set() }
+        b.isAll = b.isAll || e.feAll
+        e.feIds.forEach((id) => b.ids.add(id))
+        bySpan.set(e.span, b)
+      }
+      if (bySpan.size < 2) continue
+      const scopes = [...bySpan.values()]
+      let disjoint = true
+      for (let i = 0; i < scopes.length && disjoint; i++) {
+        for (let j = i + 1; j < scopes.length && disjoint; j++) {
+          if (scopes[i].isAll || scopes[j].isAll || [...scopes[i].ids].some((id) => scopes[j].ids.has(id))) disjoint = false
+        }
+      }
+      if (disjoint) splitPlaces.add(place)
+    }
+    const eventSlotKey = (dId, tb, fe, span) => {
+      const place = fixedEventPlaceKey(cohort_id, dId, tb, fe.name, fe.weekId ?? null)
+      return splitPlaces.has(place) ? fixedEventSlotKey(cohort_id, dId, tb, fe.name, fe.weekId ?? null, span) : place
+    }
+    const slotScopeUnion = new Map()
+    for (const [place, list] of placeEntries) {
+      for (const e of list) {
+        if (!splitPlaces.has(place) && e.span !== placeSpan.get(place)) continue
+        const k = splitPlaces.has(place) ? `${place}|${e.span}` : place
         const u = slotScopeUnion.get(k) ?? { isAll: false, ids: new Set(), dropped: false }
-        u.isAll = u.isAll || feAll
-        u.dropped = u.dropped || feIds.length < requested
-        feIds.forEach((id) => u.ids.add(id))
+        u.isAll = u.isAll || e.feAll
+        u.dropped = u.dropped || e.dropped
+        e.feIds.forEach((id) => u.ids.add(id))
         slotScopeUnion.set(k, u)
       }
     }
@@ -2578,14 +2619,24 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         // no id — the occurrence is unchanged. Group-scope changes on an existing
         // slot are recognized here and left untouched (fixed event updates are out of
         // scope per ADR §4).
-        const slotKey = fixedEventSlotKey(cohort_id, dayId, tbId, fe.name, fe.weekId ?? null, clampedSpanBlocks)
+        const placeKey = fixedEventPlaceKey(cohort_id, dayId, tbId, fe.name, fe.weekId ?? null)
+        const slotKey = eventSlotKey(dayId, tbId, fe, clampedSpanBlocks)
+        if (!splitPlaces.has(placeKey) && clampedSpanBlocks !== placeSpan.get(placeKey)) {
+          fixedPartial.push({
+            name: fe.name,
+            reason: 'another event with the same name, day and block has a different length for overlapping groups; this one was not imported',
+            time_block: fe.time_block,
+            days: fe.days,
+          })
+          continue
+        }
         const union = slotScopeUnion.get(slotKey)
         const slotIsAll = union.isAll ? 1 : 0
         const slotGroupIds = slotIsAll ? [] : [...union.ids]
         // C1b: this exact file slot is the one the cardinality pre-pass
         // paired against a single unmatched live slot elsewhere — report the
         // drift and suppress the create. No op is appended for either side.
-        const moved = movedBySlot.get(fixedEventPlaceKey(cohort_id, dayId, tbId, fe.name, fe.weekId ?? null))
+        const moved = movedBySlot.get(placeKey)
         if (moved) {
           fixedMoved.push({
             name: moved.name,
@@ -2645,11 +2696,12 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
           fixedUnchanged.push({ name: fe.name, confidence: fe.confidence, time_block: fe.time_block, days: fe.days })
           continue
         }
-        if (rejectedSlots.has(slotKey)) {
+        if (rejectedSlots.has(placeKey)) {
           fixedRejected.push({ name: fe.name })
           continue
         }
         fixedEventSlots.add(slotKey)
+        fixedEventSlots.add(placeKey)
         const fixedEventId = randomUUID()
         // T183 PR-2: if this exact slot was a DIVISION-scoped fixed event before the
         // Replace teardown, restore that scope rather than writing the grid's
@@ -2660,9 +2712,13 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         // no longer resolves (division renamed/removed in the new file), we do
         // NOT restore — the slot falls through to grid scope and is reported as
         // residue after the loop, never silently flattened.
-        const preserveKey = divisionPreserveKey(cohort_id, labelByDayId.get(dayId), fe.time_block, fe.name, clampedSpanBlocks)
+        let preserveKey = divisionPreserveKey(cohort_id, labelByDayId.get(dayId), fe.time_block, fe.name, clampedSpanBlocks)
         let preservedUnitIds = null
         if (mode === 'replace') {
+          if (!splitPlaces.has(placeKey) && !preservedDivisionScope.has(preserveKey)) {
+            const spanless = preserveKey.slice(0, preserveKey.lastIndexOf('|') + 1)
+            preserveKey = [...preservedDivisionScope.keys()].find((k) => k.startsWith(spanless) && /^\d+$/.test(k.slice(spanless.length))) ?? preserveKey
+          }
           const preserved = preservedDivisionScope.get(preserveKey)
           if (preserved) {
             const ids = preserved.divisionNames

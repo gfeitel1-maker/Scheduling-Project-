@@ -620,13 +620,19 @@ comment always said: every inferred fixed/recurring-event name, high or low conf
 dual-use names. No change to `fixedEvents.js` or `buildPlan.js` — the fix is the seeding set built
 in `ImportScreen.jsx`.
 
-## 2026-10-11 — amendment: the fixed-event slot key includes the span (T363)
+## 2026-10-11 — amendment: same-place events split by span only when the file's scopes are disjoint (T363)
 
-The fixed-event slot key (cohort, day, time block, normalized name, week) is now followed by the event's
-span in blocks (`NULL` and `1` are the same). Scope is still not part of the key, so a director narrowing a
-live row's groups still does not get a duplicate on the next Keep re-import. Two events at the same name, day
-and block that differ in span are two slots, so each imports as its own row, recognizes on re-import, and
-carries its own rejected-slot tombstone and division-scope snapshot. Events with the same span at one slot are
-still unioned by scope. Move/drift detection and tombstone-vs-move pairing stay span-blind (they only know
-where an event sits). A director who changes a live row's span by hand makes it a different slot from the
-file's, so a Keep re-import of the original file adds the original-span row again.
+Matching, rejected-slot tombstones and move detection stay on the span-blind place key (cohort, day, time
+block, normalized name, week). A director who changes a live row's span by hand therefore gets no duplicate on
+the next Keep re-import, and a tombstone at a place suppresses re-import whatever the span.
+
+The one exception is a place where the incoming file itself holds two or more spans AND the group scopes of
+those spans are pairwise disjoint (an all-groups event overlaps everything). Those events are two rows, one
+per span, each matched to a live row at that place with the same span. Everywhere else a place is one row:
+scopes are unioned within the first event's span, and an event at a different span for overlapping groups is
+not imported and is reported in `fixedEvents.partial`. Division-scope preservation on Replace follows the same
+rule (span-aware only for a split place).
+
+The engine never lets row order decide when two rows cover one group at one head block (reachable by hand
+edits): `src/engine/buildSchedule.js` uses the larger span (ties: smaller id) and raises a
+`FIXED_EVENT_OVERLAP` finding for the group.

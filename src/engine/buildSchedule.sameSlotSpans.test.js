@@ -37,3 +37,21 @@ describe('two same-name events at one block with different spans', () => {
     expect(result.conflicts).toEqual([])
   })
 })
+
+describe('two rows covering the same group at one block (overlapping scopes)', () => {
+  const short = lunch('fe1', ['g1', 'g2'], 1)
+  const long = lunch('fe2', ['g2', 'g3'], 2)
+
+  it.each([['short first', true], ['long first', false]])('the larger span wins and a finding names the group, whatever the row order (%s)', (_n, shortFirst) => {
+    const result = buildSchedule(engineInput({ fixedEvents: shortFirst ? [short, long] : [long, short] }))
+    const cell = (g, b) => result.slots.find((s) => s.groupId === g && s.blockId === b)
+    expect(cell('g2', 'b2')).toMatchObject({ type: 'fixed_event' })
+    const overlaps = result.findings.filter((f) => f.kind === 'FIXED_EVENT_OVERLAP')
+    expect(overlaps.map((f) => f.groupId)).toEqual(['g2'])
+    expect(overlaps[0].severity).toBe('caution')
+  })
+
+  it('raises no finding when the rows cover different groups', () => {
+    expect(buildSchedule(engineInput({ fixedEvents: [short, lunch('fe3', ['g3'], 2)] })).findings.filter((f) => f.kind === 'FIXED_EVENT_OVERLAP')).toEqual([])
+  })
+})

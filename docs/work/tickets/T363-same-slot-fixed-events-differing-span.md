@@ -53,14 +53,15 @@ The keeper ruled on 2026-10-11 to ticket this rather than fix it now. Reporting 
 
 ## Resolution (2026-10-11)
 
-Took the ticket's direction, which keeps the scope-blind slot key: the span joins the slot key
-(`fixedEventSlotKey` in `electron/ops/ingest.js`, ADR 2026-08-09 amended). Both events now import as separate
-rows and `fixedEvents.partial` no longer carries the "different length" report. Checked as the ticket asked:
-Keep re-import writes 0 new rows; rejected-slot tombstones are per span (a deleted long row is honoured and the
-short row is untouched); the Replace division-scope snapshot key includes the span; scope drift is keyed by the
-new slot; the engine places both rows for disjoint groups (`src/engine/buildSchedule.sameSlotSpans.test.js`).
-Tests: `electron/ops/ingest.sameSlotTwoScopes.test.js`. Not covered: the review-screen match key
-(`fixedEventMatchKey`, name + block + days) is still span-blind, so a held-back question for one of the two
-holds both (as it already did for two scopes); a span a director edits by hand makes that row a different slot
-from the file's, so Keep re-importing the original file adds the original-span row; the mock
-(`src/localClient.mock.js`) has no slot recognition or union, so no mirror was needed.
+Matching stays on the span-blind place key (`fixedEventPlaceKey` in `electron/ops/ingest.js`; ADR 2026-08-09
+amended). A place splits into one row per span only when the incoming file holds two or more spans there with
+pairwise-disjoint group scopes; each span row then matches a live row at that place with the same span.
+Every other case is one row per place with scopes unioned, and an event at a different span for overlapping
+groups is reported in `fixedEvents.partial`, never double-covered. A tombstone at the place suppresses
+re-import whatever the span; a hand-edited span plus a Keep re-import of the original file creates no
+duplicate. Replace restores a preserved division scope (span-aware only for a split place). Engine: when two
+rows cover one group at one head block, `buildSchedule.js` picks the larger span (ties: smaller id) and raises
+`FIXED_EVENT_OVERLAP`. Tests: `electron/ops/ingest.sameSlotTwoScopes.test.js`,
+`src/engine/buildSchedule.sameSlotSpans.test.js`. Not covered: the review-screen match key
+(`fixedEventMatchKey`, name + block + days) is still span-blind; the mock (`src/localClient.mock.js`) has no
+slot recognition or union, so no mirror was needed.

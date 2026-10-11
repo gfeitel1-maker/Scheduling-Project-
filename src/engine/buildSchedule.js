@@ -294,6 +294,14 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
   // it beats an all-weeks one at the same cell regardless of which one this
   // loop visits last. (Two fixed events of the SAME scope colliding is unrelated
   // and stays last-write-wins, as before.)
+  const fixedEventOverlapFindings = []
+  const overlapReportedGroups = new Set()
+  const fixedEventOverlapWinner = (a, b) => {
+    const spanA = a.span_blocks || 1
+    const spanB = b.span_blocks || 1
+    if (spanA !== spanB) return spanA > spanB ? a : b
+    return String(a.id) <= String(b.id) ? a : b
+  }
   function setFixedEventLookup(key, fixedEvent) {
     const existing = fixedEventLookup.get(key)
     if (existing && existing.schedule_week_id == null && fixedEvent.schedule_week_id != null) {
@@ -328,6 +336,24 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
 
     for (const gid of groupList) {
       for (const did of dayList) {
+        // T363: two rows for one group at one head block (overlapping scopes at different spans) must
+        // not be decided by row order. The longer span wins, ties go to the smaller id, and the group
+        // gets a finding. A tied loser is skipped whole, so its tails never land.
+        const rival = fixedEventLookup.get(`${gid}|${did}|${fixedEvent.time_block_id}`)
+        if (rival?._isSpanHead && rival.id !== fixedEvent.id && (rival.schedule_week_id ?? null) === (fixedEvent.schedule_week_id ?? null)) {
+          if (!overlapReportedGroups.has(gid)) {
+            overlapReportedGroups.add(gid)
+            const winner = fixedEventOverlapWinner(rival, fixedEvent)
+            fixedEventOverlapFindings.push({
+              kind: 'FIXED_EVENT_OVERLAP',
+              groupId: gid,
+              activityId: winner.activity_id ?? null,
+              severity: 'caution',
+              reason: `${groups.find((g) => g.id === gid)?.name || gid} has "${fixedEvent.name || fixedEvent.id}" set twice in the same block, for ${rival.span_blocks || 1} and ${spanBlocks} blocks; the longer one is used`,
+            })
+          }
+          if (fixedEventOverlapWinner(rival, fixedEvent) === rival) continue
+        }
         // Head block
         setFixedEventLookup(`${gid}|${did}|${fixedEvent.time_block_id}`, { ...fixedEvent, _isSpanHead: true })
         // Tail blocks (span_blocks > 1)
@@ -1090,7 +1116,7 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
 
   // Aggregate findings — one per (groupId, activityId, kind), never stamped
   // onto individual slots. See docs/adr/2026-07-28-schedule-flag-findings-reshape.md.
-  const findings = []
+  const findings = [...fixedEventOverlapFindings]
   const underserved = []
   if (!fixedEventsOnly) {
     for (const group of groups) {
