@@ -180,6 +180,9 @@ function chosenOf(answer) {
     // `undefined` when absent, so the kinds that answer by `choice` are stored
     // exactly as before.
     action: answer.action ?? undefined,
+    // A per-field answer ('mixed') records WHICH fields kept the camp's value; the rest took the
+    // file's. Without it the journal knows the row was split but not how (Code Review, #928).
+    keep: Array.isArray(answer.keep) ? [...answer.keep] : undefined,
     // The activity a mapping pointed AT. Named rather than an id because a
     // resolution is about a spelling, and the id is not what was compared.
     activityName: answer.activityName ?? undefined,

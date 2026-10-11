@@ -151,3 +151,14 @@ describe('resolve_unknown_label (T285)', () => {
     expect(entry.outcome).toBe(OUTCOMES.UNANSWERED)
   })
 })
+
+// #928: a per-field answer records which fields kept the camp's value.
+describe('a mixed (per-field) answer in the journal', () => {
+  it('is CHANGED and names the kept fields', () => {
+    const d = { id: 'm1', kind: 'confirm_value', entity: 'activities', entityName: 'Swim', field: ['min_per_week', 'max_per_week'] }
+    const [entry] = journalEntriesFor([d], { m1: { action: 'mixed', keep: ['max_per_week'] } }, 'imp-1')
+    expect(entry.outcome).toBe(OUTCOMES.CHANGED)
+    expect(JSON.parse(entry.chosen).keep).toEqual(["max_per_week"])
+  })
+})
+

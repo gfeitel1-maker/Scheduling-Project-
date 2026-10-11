@@ -1546,3 +1546,33 @@ describe('buildReconciliationReport — all-camp override questions (T114)', () 
     expect(withInput).toEqual(without)
   })
 })
+
+// #928: an update card shows the camp's current value beside the file's, from the same plan item.
+describe('confirm_value update carries currentValue (per-field Keep yours / Use file\'s)', () => {
+  const update = (fields) => ({ op: 'update', entity: 'activities', entity_id: 'a3', fields, evidence: { tier: 'low', matched_name: 'Kayak' }, _name: 'Kayak' })
+  const decisionFor = (fields) => buildReconciliationReport({ planItems: [update(fields)], readiness: [] }).decisions.find((d) => d.kind === 'confirm_value')
+
+  it('one changed field: currentValue is that field\'s camp value, beside proposedValue', () => {
+    const d = decisionFor({ location: { from: 'A', to: 'B', source: 'import' } })
+    expect(d.field).toEqual(['location'])
+    expect(d.currentValue).not.toBeUndefined()
+    expect(d.currentValue).not.toEqual(d.proposedValue)
+  })
+
+  it('two changed fields: currentValue maps each field to its camp value, keyed like proposedValue', () => {
+    const d = decisionFor({
+      min_per_week: { from: 1, to: 2, source: 'import' },
+      max_per_week: { from: 3, to: 4, source: 'import' },
+    })
+    expect(Object.keys(d.currentValue).sort()).toEqual(['max_per_week', 'min_per_week'])
+    expect(Object.keys(d.currentValue).sort()).toEqual(Object.keys(d.proposedValue).sort())
+    expect(d.currentValue.min_per_week).toBe(1)
+    expect(d.currentValue.max_per_week).toBe(3)
+  })
+
+  it('a field with no camp value reads as null, never undefined', () => {
+    const d = decisionFor({ min_per_week: { to: 2, source: 'import' }, max_per_week: { from: 3, to: 4, source: 'import' } })
+    expect(d.currentValue.min_per_week).toBeNull()
+  })
+})
+
