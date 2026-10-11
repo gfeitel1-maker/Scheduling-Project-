@@ -199,3 +199,26 @@ describe('buildSpecialDayPlan — existing activities it will reuse', () => {
     expect(p.reusedActivityNames.sort()).toEqual(['Lunch', 'Opening'])
   })
 })
+
+describe('buildSpecialDayPlan — two columns that resolve to the same group (slice 3a review minor)', () => {
+  const twin = proposeSpecialDay([{
+    title: 'Color War 2022',
+    columns: ['Lil Chai', 'LilChai', 'Shalom'],
+    rows: [
+      { label: '9:15-9:45', cells: ['Opening', 'Opening', 'Opening'] },
+      { label: '10:15', cells: ['Pool', 'Pool', 'Lunch'] },
+    ],
+  }])
+
+  it('blocks the plan and names the colliding columns instead of letting the second silently overwrite the first', () => {
+    const p = buildSpecialDayPlan(twin, { groups: [{ id: 'g1', name: 'Lil Chai' }, { id: 'g3', name: 'Shalom' }], activities: [], specialDays: [] })
+    expect(p.ready).toBe(false)
+    expect(p.blockedBy).toContain('duplicate_columns')
+    expect(p.duplicateColumns).toEqual(['Lil Chai', 'LilChai'])
+  })
+
+  it('a plan whose columns are distinct groups is unaffected', () => {
+    expect(plan.blockedBy).not.toContain('duplicate_columns')
+    expect(plan.duplicateColumns).toEqual([])
+  })
+})

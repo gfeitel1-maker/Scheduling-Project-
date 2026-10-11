@@ -932,6 +932,7 @@ export function buildPlan(source, existing = null, resolutions = []) {
     // F3/F4 slice 3a: a recognised one-day file's confirmed plan (src/ingest/specialDayPlan.js), committed by
     // commitPlan in the same transaction as everything else.
     specialDay: source?.specialDay ?? null,
+    wholeCampDays: source?.wholeCampDays ?? [],
     // Slice 3a — create-shaped elective nudges, never entity `items` (no
     // elective_set exists yet to diff fields against).
     electiveCandidates: buildElectiveCandidates(source, existing),

@@ -114,3 +114,44 @@ describe('special-day commit lives in commitPlan', () => {
     expect(tug.map((r) => r.id)).toEqual([deriveSpecialDayActivityId(campId, 'Tug')])
   })
 })
+
+describe('slice 3b bug (a): a renamed import-created activity is not overwritten by a re-import', () => {
+  it('import, rename the activity, delete the day, re-import: the new name is kept and nothing is duplicated', async () => {
+    const { deriveSpecialDayActivityId } = await import('./electiveDerivedIds.js')
+    commit(plan())
+    const tugId = deriveSpecialDayActivityId(campId, 'Tug')
+    appendOp(d, { entity: 'activities', entity_id: tugId, field: 'name', value: 'Tug of War', author_user_id: userId, device_id: deviceId })
+    d.prepare('DELETE FROM special_day_slots').run()
+    d.prepare('DELETE FROM special_day_time_blocks').run()
+    d.prepare('DELETE FROM special_days').run()
+    const again = commit(plan())
+    expect(d.prepare('SELECT name FROM activities WHERE id = ?').get(tugId).name).toBe('Tug of War')
+    expect(d.prepare("SELECT id FROM activities WHERE camp_id = ? AND name IN ('Tug', 'Tug of War')").all(campId)).toHaveLength(1)
+    expect(again.specialDay).toMatchObject({ created: true, activitiesCreated: 0 })
+  })
+})
+
+describe('slice 3b bug (b): the plan is honest about columns and periods that collide or do not resolve', () => {
+  it('two columns resolving to the same group are refused, nothing written', () => {
+    const bad = plan({ columns: [{ columnName: 'Red', groupId: g1 }, { columnName: 'Crimson', groupId: g1 }], slots: [
+      { columnName: 'Red', blockName: '9:15-9:45', activityName: 'Relay' }, { columnName: 'Crimson', blockName: '9:15-9:45', activityName: 'Tug' },
+    ] })
+    expect(() => commit(bad)).toThrow(/same group/i)
+    expect(counts()).toEqual({ special_days: 0, special_day_time_blocks: 0, special_day_slots: 0 })
+  })
+
+  it('two periods with the same sort_order are refused, nothing written', () => {
+    const bad = plan({ timeBlocks: [{ name: 'A', sort_order: 0 }, { name: 'B', sort_order: 0 }], slots: [{ columnName: 'Red', blockName: 'A', activityName: 'Relay' }, { columnName: 'Red', blockName: 'B', activityName: 'Tug' }] })
+    expect(() => commit(bad)).toThrow(/same order|sort/i)
+    expect(counts()).toEqual({ special_days: 0, special_day_time_blocks: 0, special_day_slots: 0 })
+  })
+
+  it('a cell naming a column or period the plan does not have is refused rather than skipped (counts stay truthful)', () => {
+    const bad = plan({ slots: [...plan().slots, { columnName: 'Green', blockName: '10:15', activityName: 'Relay' }] })
+    expect(() => commit(bad)).toThrow(/Green/)
+    expect(counts().special_day_slots).toBe(0)
+    const bad2 = plan({ slots: [...plan().slots, { columnName: 'Red', blockName: 'no such period', activityName: 'Relay' }] })
+    expect(() => commit(bad2)).toThrow(/no such period/)
+  })
+})
+

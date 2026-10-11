@@ -26,7 +26,7 @@ import { settleAmbiguousFromCamp } from '../ingest/settleAmbiguousFromCamp'
 import { derivePinOnlyActivityNames } from '../ingest/pinOnlyActivityNames'
 import { inferMultiBlockCandidates } from '../ingest/multiBlockCandidates'
 import { detectTripsAndSpecialDays } from '../ingest/tripDetection.js'
-import { planTripEvents, applyTripClaims, dropMultiBlockForTrips, tripItemKey } from '../ingest/tripEvents.js'
+import { planTripEvents, planWholeCampDays, applyTripClaims, dropMultiBlockForTrips, tripItemKey } from '../ingest/tripEvents.js'
 import { findNameVariantCandidates } from '../ingest/nearDuplicateNames'
 import { findMovedPlacements } from '../ingest/movedPlacements'
 import { detectCompoundCellPatterns } from '../ingest/compoundCellPatterns'
@@ -220,6 +220,7 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
   const [tripAnswers, setTripAnswers] = useState({})
   const [tripWeeks, setTripWeeks] = useState({})
   const [tripTouched, setTripTouched] = useState({})
+  const [wholeAnswers, setWholeAnswers] = useState({})
   // The week trips bind to by default: the week open in the app; else the only week; else none, and
   // every item stays pending until one is picked (a trip is never written for all weeks).
   const defaultTripWeekId = weeks.some((w) => w.id === openWeekId)
@@ -233,9 +234,19 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
     hasWeeks: weeks.length > 0,
     allGroupNames: proposal?.entities?.groups ?? allGroupNamesRef.current,
   })
+  // F3/F4 slice 3b — whole-camp days. Never pre-selected; only the director's own answer accepts one.
+  const wholePlan = planWholeCampDays({
+    detections: tripDetections,
+    answers: wholeAnswers,
+    weekId: defaultTripWeekId,
+    weekByKey: tripWeeks,
+    hasWeeks: weeks.length > 0,
+  })
+  const tripAndWholeClaims = new Map([...tripPlan.claims, ...wholePlan.claims])
+  const tripAndWholeEvents = [...tripPlan.fixedEvents, ...wholePlan.fixedEvents]
   // Precedence (slice-0 finding 7): an accepted trip wins its cells, so the "Every week" / "Just this
   // once" question is not offered for that name, start block and day.
-  const offeredMultiBlockCandidates = dropMultiBlockForTrips(multiBlockCandidates, tripPlan.fixedEvents)
+  const offeredMultiBlockCandidates = dropMultiBlockForTrips(multiBlockCandidates, tripAndWholeEvents)
   // T118 slice 4 (docs/adr/2026-09-03-compound-cell-interpretation.md) — a
   // compound cell (e.g. "Lunch + Leave") the classifier flagged as unresolved,
   // filtered against this camp's already-confirmed decisions so a resolved
@@ -389,6 +400,7 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
     setTripAnswers({})
     setTripWeeks({})
     setTripTouched({})
+    setWholeAnswers({})
     setCompoundCellCandidates([])
     setMovedPlacements([])
     setNameVariantCandidates([])
@@ -1412,7 +1424,7 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
     const tripClaims = applyTripClaims({
       parsed: { pages: pagesRef.current },
       proposal: effectiveProposal,
-      claims: tripPlan.claims,
+      claims: tripAndWholeClaims,
       fixedEvents,
       textSpans: inferTextSpans({ pages: pagesRef.current }, effectiveProposal).spans,
     })
@@ -1421,7 +1433,7 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
       if (fullyClaimed.has(normalizeName(name))) delete outgoingRules[name]
     }
     const partlyClaimed = Object.keys(outgoingRules).filter((name) =>
-      !fullyClaimed.has(normalizeName(name)) && tripPlan.fixedEvents.some((fe) => normalizeName(fe.name) === normalizeName(name)))
+      !fullyClaimed.has(normalizeName(name)) && tripAndWholeEvents.some((fe) => normalizeName(fe.name) === normalizeName(name)))
     if (partlyClaimed.length > 0) {
       const recomputed = inferActivityRules(
         partlyClaimed, tripClaims.activityPages, tripClaims.seenCounts,
@@ -1481,7 +1493,7 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
       humanEditedFields: { groups: groupHumanFields, activities: activityHumanFields },
       divisionSupport,
       cohort_id: activeCohort?.id ?? null,
-      fixedEvents: [...tripClaims.fixedEvents, ...tripPlan.fixedEvents, ...multiBlockRecurring, ...settledAmbiguous.settledFixed],
+      fixedEvents: [...tripClaims.fixedEvents, ...tripAndWholeEvents, ...multiBlockRecurring, ...settledAmbiguous.settledFixed],
       ambiguousEvents: settledAmbiguous.stillAmbiguous,
       multiBlockEvents: multiBlockOneOff,
       activityRules: outgoingRules,
@@ -1490,6 +1502,7 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
       // T118 slice 4 — reads effectiveProposal (not the stale parse-time
       // `proposal`), so a wrapper fold's changed seenCounts/activityPeriods
       // are what buildPlan's create-confidence/rule inference actually sees.
+      wholeCampDays: wholePlan.wholeCampDays,
       seenCounts: tripClaims.seenCounts ?? null,
       pinOnlyActivityNames: [...pinOnlyActivityNames, ...settledAmbiguous.settledFixedNames.map(normalizeName), ...tripClaims.fullyClaimedNames],
       // Slice 3a — plain data extractEntities already computed, carried
@@ -1692,6 +1705,12 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
               You have more than one group whose name matches{' '}
               {specialDayPlan.ambiguousColumns.join(', ')}, so this day cannot tell which one the
               column means. Rename one of them under Groups first.
+            </p>
+          )}
+          {specialDayPlan.duplicateColumns?.length > 0 && (
+            <p style={{ margin: '0 0 8px', fontSize: 13 }}>
+              {specialDayPlan.duplicateColumns.join(', ')} all mean the same group, so this day would
+              give that group only one of them. Remove or rename the repeated column in the file.
             </p>
           )}
           {specialDayPlan.ambiguousActivityNames?.length > 0 && (
@@ -2276,13 +2295,13 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
               un-pressed candidate is simply not sent. */}
           {/* F3/F4 slice 2 — Trips and Group Days. One line per detection, pre-selected from the
               detector's default; the week it lands in is named on the line and can be changed there.
-              Whole-camp days are not here (slice 3b). A camp with no weeks gets one plain line saying why. */}
+              Whole-camp days (slice 3b) are the first lines and are never pre-selected. A camp with no weeks gets one plain line saying why. */}
           {tripDetections.length > 0 && weeks.length === 0 && (
             <div style={{ marginBottom: 20, fontSize: 12, color: 'var(--text-secondary)' }}>
               This file looks like it has field trips. Add a week on the Schedule screen to import them as trips; until then they import as ordinary activities.
             </div>
           )}
-          {tripPlan.items.length > 0 && (
+          {(tripPlan.items.length > 0 || wholePlan.items.length > 0) && (
             <div style={{ marginBottom: 20 }}>
               <div style={{
                 fontFamily: 'var(--font-condensed)', fontSize: 10, fontWeight: 700,
@@ -2292,6 +2311,45 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
                 Trips and Group Days
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {wholePlan.items.map((item) => {
+                  const d = item.detection
+                  const pill = (active) => ({
+                    fontSize: 11, padding: '3px 8px', borderRadius: 5, fontFamily: 'inherit', cursor: 'pointer',
+                    border: `1px solid ${active ? 'var(--primary)' : 'var(--border)'}`,
+                    background: active ? `color-mix(in srgb, var(--primary) 12%, var(--surface))` : 'var(--bg)',
+                    color: active ? 'var(--primary)' : 'var(--text-secondary)',
+                  })
+                  const weekName = weeks.find((w) => w.id === item.weekId)?.name
+                  return (
+                    <div key={item.key} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 12, color: 'var(--text)' }}>
+                        {d.name}, {d.day}, every group
+                        <span style={{ marginLeft: 6, opacity: 0.6, fontSize: 11 }}>· {d.blocks.length} blocks</span>
+                      </span>
+                      <select
+                        aria-label={`Week for ${d.name}`}
+                        value={item.weekId ?? ''}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          setTripWeeks((w) => ({ ...w, [item.key]: v || undefined }))
+                        }}
+                        style={{ fontSize: 11, padding: '2px 4px', borderRadius: 5, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'inherit' }}
+                      >
+                        {!item.weekId && <option value="">Choose a week</option>}
+                        {weeks.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+                      </select>
+                      <button type="button" onClick={() => setWholeAnswers((a) => ({ ...a, [item.key]: 'special_day' }))} style={pill(item.answer === 'special_day')}>Special day</button>
+                      <button type="button" onClick={() => setWholeAnswers((a) => ({ ...a, [item.key]: 'events' }))} style={pill(item.answer === 'events')}>Events</button>
+                      <span style={{ flexBasis: '100%', fontSize: 11, color: 'var(--text-secondary)' }}>
+                        {item.answer === 'special_day'
+                          ? `Replaces the whole day for every group on ${d.day}${weekName ? `, ${weekName}` : ''}. Other cells that day are hidden, not deleted, and come back if you unplace it.`
+                          : item.weekId
+                            ? `Not decided; imports as an all-camp event on ${d.day}${weekName ? `, ${weekName}` : ''} and replaces nothing.`
+                            : 'Pick a week; imports as it does today until then'}
+                      </span>
+                    </div>
+                  )
+                })}
                 {tripPlan.items.map((item) => {
                   const d = item.detection
                   const pill = (active) => ({
