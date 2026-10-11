@@ -543,7 +543,7 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
   // Why `act` cannot go here, or null when it can. The code names the first
   // constraint that refuses it; Pass 3 turns the codes into the cell's reason.
   function blockedBy(act, groupId, dayId, blockId) {
-    if (getCount(groupId, act.id) >= act.max_per_week) return 'max'
+    if (act.max_per_week != null && getCount(groupId, act.id) >= act.max_per_week) return 'max'
     if (placedTodayForGroup(groupId, dayId, act.id)) return 'today'
 
     const group = groupMap.get(groupId)

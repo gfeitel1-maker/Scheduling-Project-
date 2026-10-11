@@ -293,15 +293,23 @@ export function inferFixedEvents(parsed, proposal, options = {}) {
     if (sp.span_blocks * 2 <= blocksPerDay && !isMealName(sp.name)) catalogueSpanNorms.add(norm)
   }
   for (const buckets of byBlockActivity.values()) {
-    for (const entries of buckets.values()) {
-      const groupsHere = new Set(entries.map((e) => e.group))
-      if (groupsHere.size === totalGroups && catalogueSpanNorms.has(normalizeName(entries[0].activity))) continue
+    const everyEntry = [...buckets.values()].flat()
+    for (const exact of buckets.values()) {
+      const groupsHere = new Set(exact.map((e) => e.group))
+      if (groupsHere.size === totalGroups && catalogueSpanNorms.has(normalizeName(exact[0].activity))) continue
       if (groupsHere.size < 2) continue
       if (groupsHere.size * 3 < totalGroups * 2) continue
+      // F9: a group that ALSO runs this name at this block on other days has a larger day-set, so it
+      // fell in its own bucket and lost the weekly event. It holds the event on the bucket's days; its
+      // extra days stay activity cells.
+      const bucketDays = exact[0].days
+      const alsoHere = everyEntry.filter((e) => !groupsHere.has(e.group) && e.days.length > bucketDays.length
+        && bucketDays.every((d) => e.days.includes(d)))
+      const entries = [...exact, ...alsoHere.map((e) => ({ ...e, days: bucketDays, occ: bucketDays.length }))]
       // Confidence on this arm is a statement about the axis that justified it:
       // 'high' only when EVERY observed group holds the event, so a 'high' on
       // 2-of-5 days never looks like it contradicts its own support numbers.
-      const confidence = groupsHere.size === totalGroups ? 'high' : 'low'
+      const confidence = groupsHere.size + alsoHere.length === totalGroups ? 'high' : 'low'
       for (const e of entries) {
         // A tuple arm 1 already admitted is emitted once, keeping its own
         // day-majority confidence — arm 2 only ever ADDS tuples.
