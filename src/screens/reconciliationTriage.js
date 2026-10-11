@@ -151,7 +151,7 @@ export function heldConflictsToDecisions(conflicts) {
 // HeldResolution used to build.
 export function foldTriageInputs(baseInputs, decisions, answers) {
   const nonConflict = decisions.filter((d) => d.kind !== 'resolve_conflict')
-  const { approved, resolutions, fixedEvents, unpinnedNames } = applyResolutions({
+  const { approved, resolutions, fixedEvents, unpinnedNames, noLongerPinned } = applyResolutions({
     approved: baseInputs.approved,
     decisions: nonConflict,
     answers,
@@ -247,7 +247,7 @@ export function foldTriageInputs(baseInputs, decisions, answers) {
     eventsByAnswer.push(...(d.candidateEvents ?? []))
   }
   // A name the director called an activity is no longer claimed by an event.
-  const unpinned = unpinnedNames ?? []
+  const unpinned = [...(unpinnedNames ?? []), ...(noLongerPinned ?? [])]
   const basePins = unpinned.length
     ? (baseInputs.pinOnlyActivityNames ?? []).filter((n) => !unpinned.includes(normalizeName(n)))
     : baseInputs.pinOnlyActivityNames

@@ -45,9 +45,10 @@ describe('journalEntriesFor — one entry per decision PRESENTED', () => {
 })
 
 describe('outcome, per kind, against the real answer shapes', () => {
-  it('confirm_value: looks_right is ACCEPTED, edited is CHANGED', () => {
+  it('confirm_value: looks_right is ACCEPTED, edited (a decline) is REJECTED, not-an-event is CHANGED', () => {
     expect(outcomeOf(confirmValue('d'), { action: 'looks_right' })).toBe(OUTCOMES.ACCEPTED)
-    expect(outcomeOf(confirmValue('d'), { action: 'edited' })).toBe(OUTCOMES.CHANGED)
+    expect(outcomeOf(confirmValue('d'), { action: 'edited' })).toBe(OUTCOMES.REJECTED)
+    expect(outcomeOf(confirmValue('d'), { action: 'edited', notAnEvent: true })).toBe(OUTCOMES.CHANGED)
     expect(outcomeOf(confirmValue('d'), { action: 'something-else' })).toBe(OUTCOMES.UNANSWERED)
   })
 
@@ -106,7 +107,7 @@ describe('what is stored', () => {
     cyclic.self = cyclic
     const entry = journalEntriesFor([confirmValue('d1')], { d1: { action: 'edited', value: cyclic } }, 'i')[0]
     expect(entry.chosen).toBeNull()
-    expect(entry.outcome).toBe(OUTCOMES.CHANGED)
+    expect(entry.outcome).toBe(OUTCOMES.REJECTED)
   })
 
   it('records the lane a question ARRIVED in, independent of how it was answered', () => {

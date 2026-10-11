@@ -26,4 +26,10 @@ describe('confirm_value card buttons', () => {
     fireEvent.click(screen.getByText('Keep mine'))
     expect(onAnswer).toHaveBeenLastCalledWith({ action: 'edited' })
   })
+
+  it('an unknown-field card offers no decline button (declining it would do nothing)', () => {
+    render(<DecisionCard decision={{ ...base, entityId: 'a1', field: 'max_per_week', unknownField: true, unknowns: ['max_per_week'], title: 'Confirm Swim?' }} answer={undefined} onAnswer={vi.fn()} />)
+    expect(screen.queryByText('Don’t add')).toBeNull()
+    expect(screen.queryByText('Keep mine')).toBeNull()
+  })
 })
