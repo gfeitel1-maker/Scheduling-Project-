@@ -1341,7 +1341,7 @@ describe('buildReconciliationReport — unknownFieldEvidence (per-field UNKNOWN 
     expect(report.unknownFields).toEqual({ priority: [], min_per_week: [] })
   })
 
-  it('augments an existing decision on the same row rather than emitting a second one', () => {
+  it('leaves a real decision on the same row exactly as it is (the flag carries the unknown; the card keeps Keep mine, the answer still applies)', () => {
     const planItems = [
       {
         op: 'update', entity: 'activities', entity_id: 'a1',
@@ -1355,8 +1355,9 @@ describe('buildReconciliationReport — unknownFieldEvidence (per-field UNKNOWN 
     expect(report.decisions).toHaveLength(1)
     const [decision] = report.decisions
     expect(decision.field).toEqual(['max_per_week']) // the ordinary decision's own field shape, untouched
-    expect(decision.unknownField).toBe(true)
-    expect(decision.unknowns).toEqual(['min_per_week'])
+    expect(decision.unknownField).toBeUndefined()
+    expect(decision.unknowns ?? []).toEqual([])
+    expect(report.unknownFields.min_per_week).toEqual(['Swim'])
   })
 })
 

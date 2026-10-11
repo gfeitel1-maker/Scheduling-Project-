@@ -382,20 +382,10 @@ function unknownFieldsFor(entityId, unknownFieldEvidence) {
   return UNKNOWN_FIELD_CANDIDATES.filter((f) => unknownFieldEvidence.has(`${entityId}:${f}`))
 }
 
-// An existing decision on the row (any kind — a genuine create/change may already have
-// produced one) is augmented with `unknowns`/`unknownField`. No decision is ever synthesized
-// for an unknown field: grids never state priority, so a question per activity on every
-// unchanged re-import was noise (ADR 2026-08-20, amendment 2026-10-11).
-function augmentWithUnknowns(item, unknownFields, decisionsByKey) {
-  const id = decisionId(item.entity, item.entity_id, item.op, item._name)
-  const existing = decisionsByKey.get(id)
-  if (!existing) return
-  decisionsByKey.set(id, {
-    ...existing,
-    unknownField: true,
-    unknowns: [...new Set([...(existing.unknowns ?? []), ...unknownFields])],
-  })
-}
+// No decision is ever synthesized or tagged for an unknown field: grids never state priority, so a
+// question per activity on every unchanged re-import was noise, and tagging a real create/change
+// with unknownField hid its decline button and turned its "Looks right" into a no-op. The review
+// shows one flag per field instead (ADR 2026-08-20, amendment 2026-10-11).
 
 // The fields a CREATE will commit as unknown — mirrors the tag:'unknown' evidence writes in
 // electron/ops/ingest.js commitCreate (priority: no 'high'/'low' in the rule; min_per_week:
@@ -461,7 +451,6 @@ export function buildReconciliationReport(input) {
     const unknownFields = item.op === 'create' ? unknownFieldsForCreate(item) : unknownFieldsFor(item.entity_id, unknownFieldEvidence)
     if (unknownFields.length === 0) continue
     for (const f of unknownFields) unknownFieldNames[f].push(item._name)
-    if (item.op !== 'create') augmentWithUnknowns(item, unknownFields, decisionsByKey)
   }
 
   // Rule 6: readiness rows with state 'optional' contribute to notInSource
