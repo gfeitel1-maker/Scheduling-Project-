@@ -63,3 +63,23 @@ describe('T371 names that share a derived id', () => {
     a.db.close(); if (fs.existsSync(a.file)) fs.unlinkSync(a.file)
   })
 })
+
+describe('T371 a derived id that already has a row', () => {
+  it('re-importing a set the director renamed leaves the rename alone', () => {
+    const a = device('dev-a')
+    const imp = (sets) => commitIngest(a.db, { approved: {}, camp_id: CAMP, device_id: 'dev-a', confirmedElectiveSets: sets })
+    imp([{ name: 'Chugim', choices: [] }])
+    a.db.prepare("UPDATE elective_sets SET name = 'Afternoon Electives'").run()
+    imp([{ name: 'Chugim', choices: [] }])
+    expect(a.db.prepare('SELECT name FROM elective_sets').all().map((r) => r.name)).toEqual(['Afternoon Electives'])
+    a.db.close(); if (fs.existsSync(a.file)) fs.unlinkSync(a.file)
+  })
+
+  it('choices that differ only in spacing share one activity and keep the first name', () => {
+    const a = device('dev-a')
+    commitIngest(a.db, { approved: {}, camp_id: CAMP, device_id: 'dev-a', confirmedElectiveSets: [{ name: 'Chugim', choices: ['Tie Dye', 'TieDye'] }] })
+    const names = a.db.prepare('SELECT name FROM activities ORDER BY name').all().map((r) => r.name)
+    expect(names).toContain('Tie Dye')
+    a.db.close(); if (fs.existsSync(a.file)) fs.unlinkSync(a.file)
+  })
+})

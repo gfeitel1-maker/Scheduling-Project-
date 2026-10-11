@@ -619,6 +619,10 @@ function writeElectiveChoices(db, { setId, setName, choices, camp_id, author_use
         let activityId = reuseActivityId ?? activityIdByKey.get(k)
         if (!activityId) {
           activityId = deriveSpecialDayActivityId(camp_id, choiceName)
+        }
+        // A derived id can already have a row (a spacing variant earlier in
+        // this file, or a renamed activity): reuse it, never rewrite its name.
+        if (!db.prepare('SELECT 1 FROM activities WHERE id = ?').get(activityId)) {
           op('activities', activityId, 'name', choiceName)
           op('activities', activityId, 'camp_id', camp_id)
           mine.push({ entity: 'activities', entity_id: activityId })
@@ -697,8 +701,11 @@ function commitElectiveCandidates(db, { confirmedElectiveSets = [], camp_id, aut
     if (!name) continue
     const key = electiveChoiceLabelKey(name)
     if (liveNormalizedNames.has(key)) continue
+    const id = deriveElectiveSetId(camp_id, name)
+    // The derived id is the set's identity: a row under it (e.g. renamed by
+    // the director since the last import) is already present, never rewritten.
+    if (db.prepare('SELECT 1 FROM elective_sets WHERE id = ?').get(id)) continue
     try {
-      const id = deriveElectiveSetId(camp_id, name)
       const commonOp = { entity: 'elective_sets', entity_id: id, author_user_id: author_user_id ?? null, device_id, parent_op_id: null, source: 'human' }
       const mine = [{ entity: 'elective_sets', entity_id: id }]
       runAtomic(db, () => {
