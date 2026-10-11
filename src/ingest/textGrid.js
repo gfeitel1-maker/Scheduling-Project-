@@ -486,6 +486,16 @@ export function parseTextGrid(text) {
       return filled.size >= Math.max(2, Math.ceil(columns.length * 0.5))
     }
 
+    const filledColumns = (tokens) => {
+      const filled = new Set()
+      for (const t of tokens ?? []) {
+        if (columns.length > 0 && t.end <= columns[0].start) continue
+        const i = columnFor(t, columns)
+        if (i >= 0) filled.add(i)
+      }
+      return filled
+    }
+
     // One blank-line block can hold more than one period (T140) — campA does it
     // twice. Each is handed to the existing per-block logic unchanged, which
     // simply runs once per period instead of once per block.
@@ -566,6 +576,22 @@ export function parseTextGrid(text) {
             continue
           }
           prevHadData = true
+        }
+        // A labelled page's unlabelled line directly under a value row, filling
+        // only columns that row's last line filled and fewer of them, is that
+        // row's wrapped text ("Wilderness" over "Skills" on two of four days),
+        // not a second row of the same period. At most half the columns: Camp A
+        // nests a swim sub-schedule (4 of 5 columns) under a full row with no
+        // blank line, and that IS a second row. With few columns a two-cell wrap
+        // otherwise clears isValueRow's floor and becomes its own row.
+        if (!stripLocations && !lineHasLabel && valueRows.length > 0) {
+          const lastRow = valueRows[valueRows.length - 1]
+          const above = filledColumns(lastRow[lastRow.length - 1])
+          const here = filledColumns(dataTokens)
+          if (here.size > 0 && here.size < above.size && here.size * 2 <= columns.length && [...here].every((i) => above.has(i))) {
+            lastRow.push(dataTokens)
+            continue
+          }
         }
         if (isValueRow(tokens)) {
           valueRows.push([...leading, dataTokens])
