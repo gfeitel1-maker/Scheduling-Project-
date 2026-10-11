@@ -203,7 +203,7 @@ const COMPARABLE_COLUMNS = Object.freeze({
   tiers: ['sort_order'],
   groups: ['availability', 'tier_id'],
   days_of_operation: ['day_of_week', 'sort_order'],
-  time_blocks: ['start_time', 'end_time', 'sort_order'],
+  time_blocks: ['start_time', 'end_time', 'sort_order', 'events_only'],
   // M4 §D4: 'location' -> 'location_id'. The frozen `activities.location`
   // string (D5 of the parent ADR) is never written after v32 and stays out of
   // this diff — comparing against it would only ever be stale.
@@ -575,7 +575,11 @@ function buildExistingSnapshot(db, camp_id, cohort_id, mode) {
     const scopedRows = scoped && cohort_id ? rows.filter((r) => r.cohort_id === cohort_id) : rows
     // S2c §3: resolve the FK columns to the LABEL forms buildPlan compares
     // against (shared with the mock so the two snapshots cannot diverge).
-    for (const row of scopedRows) enrichSnapshotRow(entity, row, groupNameById, tierNameById, locationNameById)
+    for (const row of scopedRows) {
+      enrichSnapshotRow(entity, row, groupNameById, tierNameById, locationNameById)
+      // T364: who last wrote the flag, from the op log, so a re-import can tell its own flag from the director's.
+      if (entity === 'time_blocks') row.events_only_source = lastKnownFieldSources(db, 'time_blocks', row.id).get('events_only') ?? null
+    }
     existing[entity] = scopedRows
   }
   // S1b §4: the confirmed-alias tier reads this out of the snapshot, exactly
@@ -765,7 +769,7 @@ function commitElectiveCandidates(db, { confirmedElectiveSets = [], camp_id, aut
  * that DOES hold returns the normal `{ held: true, conflicts, ... }` shape,
  * with none of these three fields present — same as a real held commit.
  */
-export function commitIngest(db, { approved, links, clears = {}, humanEditedFields = {}, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {}, mode = 'add', resolutions = [], base_generation = 0, dryRun = false, seenCounts = null, pinOnlyActivityNames = [], captureInverse = false, electiveHeaderFindings = [], activityPeriods = {}, confirmedElectiveSets = [], multiBlockEvents = [], specialDay = null, wholeCampDays = [], divisionSupport = {}, openDecisions = [] }) {
+export function commitIngest(db, { approved, links, clears = {}, humanEditedFields = {}, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents, activityRules = {}, mode = 'add', resolutions = [], base_generation = 0, dryRun = false, seenCounts = null, pinOnlyActivityNames = [], captureInverse = false, electiveHeaderFindings = [], activityPeriods = {}, confirmedElectiveSets = [], multiBlockEvents = [], specialDay = null, wholeCampDays = [], divisionSupport = {}, openDecisions = [] }) {
   if (!approved || typeof approved !== 'object') throw new Error('ingest: nothing to commit')
   if (!camp_id) throw new Error('ingest: camp_id is required')
 

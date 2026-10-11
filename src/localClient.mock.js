@@ -85,7 +85,7 @@ const MOCK_COMPARABLE_COLUMNS = {
   tiers: ['sort_order'],
   groups: ['availability', 'tier_id'],
   days_of_operation: ['day_of_week', 'sort_order'],
-  time_blocks: ['start_time', 'end_time', 'sort_order'],
+  time_blocks: ['start_time', 'end_time', 'sort_order', 'events_only'],
   // M4: 'location' -> 'location_id' (mirrors electron's COMPARABLE_COLUMNS).
   // max_groups_per_slot/same_tier_only (T114 co-schedule): added so a re-import
   // can actually DIFF them. Folding the inference into `fields` is not enough —
@@ -1074,6 +1074,7 @@ export const mockShoresh = {
           const row = { id: r.id, name: r[mockNameColumnFor(entity)] }
           if (scoped) row.cohort_id = r.cohort_id ?? null
           for (const c of MOCK_COMPARABLE_COLUMNS[entity]) row[c] = r[c]
+          if (entity === 'time_blocks') row.events_only_source = getSource(state, entity, r.id, 'events_only') ?? null
           return enrichSnapshotRow(entity, row, groupNameById, tierNameById, locationNameById)
         })
         existing[entity] = scoped && cohortId ? rows.filter((r) => r.cohort_id === cohortId) : rows
