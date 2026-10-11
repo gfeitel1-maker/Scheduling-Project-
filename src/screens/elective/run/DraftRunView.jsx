@@ -31,7 +31,7 @@ import { CELL_CHOICE } from '../../../engine/rankKind.js'
 import DeleteRunDialog from './DeleteRunDialog.jsx'
 import { A } from '../assignment/assignmentStyles.js'
 import {
-  DANGLING_MOVE_PLACEHOLDER, FINALIZE_MESSAGES, REMOVE_PLACEMENT_LABEL, danglingMessage, occurrenceLabel, overCapacityMessage,
+  DANGLING_MOVE_PLACEHOLDER, FINALIZE_MESSAGES, REMOVE_PLACEMENT_LABEL, RESTORE_LOCK_LABEL, danglingMessage, lockedSeatOverwrittenMessage, occurrenceLabel, overCapacityMessage,
   resolveCamperDisambiguators, satisfactionSummary, stalenessOfferMessage,
   groupBundleTierNotCoveredFindings, bundleTierNotCoveredGroupMessage, finalizeFindingMessage,
   sheetOnlyCampersMessage, UNKNOWN_CAMPER_LABEL,
@@ -546,6 +546,22 @@ export default function DraftRunView({
     await reload()
   }
 
+  // T264 — one tap puts the director's lock back: the existing locked write of
+  // the activity they chose, so every device ends at source 'manual', locked.
+  async function restoreLockedSeat(finding) {
+    setMovingId(finding.assignment_id)
+    const ok = await writeAssignment({
+      camperId: finding.camper_id,
+      occurrenceId: finding.occurrence_id,
+      activityId: finding.locked_activity_id,
+      locked: true,
+    })
+    setMovingId(null)
+    if (!ok) return
+    summaryRef.current?.focus()
+    await reload()
+  }
+
   // T250 A1/A2 — locks this run. finalizeElectiveRun's real return shape
   // (electron/ops/finalizeElectiveRun.js): {ok:true, finalizedAt, snapshotRows}
   // | {ok:false, error:'ALREADY_FINAL'} | {ok:false, error:'STALE_OUTER_SCHEDULE'|
@@ -802,8 +818,9 @@ export default function DraftRunView({
       return { id: name ? id : null, name }
     })
   }, [state.campers, state.sheetOnlyCampers])
+  const lockedSeatRows = state.lockedSeatFindings ?? []
   const stateRowCount = overCapacityRows.length + danglingRows.length + collapsingOnlyRows.length + commitNotices.length
-    + bundleMismatchGroups.length + (sheetOnlyCamperEntries.length > 0 ? 1 : 0)
+    + bundleMismatchGroups.length + (sheetOnlyCamperEntries.length > 0 ? 1 : 0) + lockedSeatRows.length
 
   const stateRows = [
     ...overCapacityRows.map((o, i) => (
@@ -971,6 +988,34 @@ export default function DraftRunView({
         />
       )
     })() : null,
+    // T264 — a hidden seat is absent from `rows`, so the camper's name comes
+    // from the finding itself.
+    ...lockedSeatRows.map((f, i) => {
+      const index = stateRowCount - lockedSeatRows.length + i
+      const camperName = f.camper_name ?? rows.find((r) => r.camper_id === f.camper_id)?.camper_name ?? UNKNOWN_CAMPER_LABEL
+      return (
+        <RunStateRow
+          key={`locked-seat-${f.assignment_id}`}
+          testId={`run-state-locked-seat-${f.assignment_id}`}
+          first={index === 0}
+          last={index === stateRowCount - 1}
+          message={lockedSeatOverwrittenMessage({
+            camperName, lockedActivityName: f.locked_activity_name, solverActivityName: f.solver_activity_name,
+          })}
+          action={(
+            <button
+              className="press-97"
+              style={S.btnSecondary}
+              data-testid={`run-state-locked-seat-restore-${f.assignment_id}`}
+              disabled={movingId === f.assignment_id}
+              onClick={() => restoreLockedSeat(f)}
+            >
+              {RESTORE_LOCK_LABEL}
+            </button>
+          )}
+        />
+      )
+    }),
     // T250 A2 — appended AFTER the over-capacity and dangling rows: whatever
     // refusal the last Finalize attempt produced, inline in the run's own
     // run-state area rather than a separate block.

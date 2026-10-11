@@ -63,6 +63,21 @@ function renderScreen({ resolveConflict, conflict = makeConflict() } = {}) {
   render(<TestHarness resolveConflict={resolveConflict} conflict={conflict} />)
 }
 
+describe('elective_assignments.activity_id card (T264)', () => {
+  it('is labelled in plain words, not the generic fallback', () => {
+    renderScreen({
+      conflict: makeConflict({
+        id: 'elective_assignments:easgn1:5.r.c.o:activity_id:op2',
+        entity: 'elective_assignments',
+        entity_id: 'easgn1:5.r.c.o',
+        field: 'activity_id',
+      }),
+    })
+    expect(screen.getByText('Which elective a camper is placed in')).toBeTruthy()
+    expect(screen.queryByText('A change to this record')).toBeNull()
+  })
+})
+
 describe('noticeForStatus (Fix 2: covers every non-success syncClient.write status)', () => {
   it('returns the existing conflict copy for status "conflict"', () => {
     expect(noticeForStatus('conflict')).toBe('This changed again — pick again below.')

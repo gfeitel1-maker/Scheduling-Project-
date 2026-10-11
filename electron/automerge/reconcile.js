@@ -48,6 +48,24 @@ function sorted(keys) {
 // whole tuple, and showing the conflict would put raw secrets on ConflictsScreen.
 const MACHINE_RESOLVED_CAMP_FIELD = 'rendezvousSecrets'
 
+// T264 (docs/adr/2026-10-11-locked-elective-seat-survives-unmerged-regeneration.md).
+// A lock merged after a regeneration contests source and solver_generation as
+// well as activity_id. Those two are the solver's bookkeeping, not a choice a
+// director can make (and solver_generation read as two raw UUIDs), so they are
+// not conflicts of their own: they fold into the activity_id one, whose values
+// carry which side was the director's lock ('manual') and which the solver's.
+// The seat itself is surfaced by getElectiveRun's lockedSeatFindings.
+const SOLVER_OWNED_ASSIGNMENT_FIELDS = new Set(['source', 'solver_generation'])
+
+// Automerge op ids are `counter@actor`; one device is one actor.
+const actorOf = (opId) => opId.slice(opId.indexOf('@') + 1)
+
+function sourceBySide(collection, entityId, versions) {
+  const sources = conflictEntries(A.getConflicts(collection, recordKey(entityId, 'source')))
+  if (sources.length < 2 || !sources.some(([, v]) => !sameValue(v, sources[0][1]))) return versions.map(() => undefined)
+  return versions.map(([opId]) => sources.find(([sourceOpId]) => actorOf(sourceOpId) === actorOf(opId))?.[1])
+}
+
 // Automerge hands conflicting values back keyed by op id. Sorting by that key
 // gives every device the same order for the same document.
 function conflictEntries(conflicts) {
@@ -92,6 +110,7 @@ export function reconcile(doc) {
       const parsed = splitRecordKey(key)
       if (!parsed) continue
       if (entity === 'camps' && parsed.field === MACHINE_RESOLVED_CAMP_FIELD) continue
+      if (entity === 'elective_assignments' && SOLVER_OWNED_ASSIGNMENT_FIELDS.has(parsed.field)) continue
 
       const versions = conflictEntries(A.getConflicts(collection, key))
       if (versions.length < 2) continue
@@ -101,11 +120,16 @@ export function reconcile(doc) {
       // produce a prompt.
       if (!values.some((v) => !sameValue(v, values[0]))) continue
 
+      const sources = entity === 'elective_assignments' && parsed.field === 'activity_id'
+        ? sourceBySide(collection, parsed.entityId, versions)
+        : null
       conflicts.push({
         entity,
         entityId: parsed.entityId,
         field: parsed.field,
-        values: versions.map(([opId, value]) => ({ opId, value })),
+        values: versions.map(([opId, value], i) => (
+          sources?.[i] === undefined ? { opId, value } : { opId, value, source: sources[i] }
+        )),
       })
     }
   }

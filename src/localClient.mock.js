@@ -2444,7 +2444,7 @@ export const mockShoresh = {
     return {
       rows, occurrences, preferences, choices, offeringOccurrencesByChoiceId, campers, sheetOnlyCampers,
       staleCount: 0, finalizedAgainstStaleGeneration: false,
-      overCapacityOccurrences: [], danglingFindings, eligibilityFindings, resourceConflicts: [],
+      overCapacityOccurrences: [], danglingFindings, lockedSeatFindings: [], eligibilityFindings, resourceConflicts: [],
       snapshotIncomplete: false, expectedSnapshotRows: null, heldSnapshotRows: null,
     }
   },

@@ -522,6 +522,67 @@ describe('T250/T320 archive_when — Draft: DANGLING_MANUAL_ASSIGNMENT surfaced 
 })
 
 // ---------------------------------------------------------------------------
+// T264 (docs/adr/2026-10-11-locked-elective-seat-survives-unmerged-regeneration.md)
+// — a lock that lost to a regeneration it had not merged with: ONE plain item
+// with a one-tap Restore, through the existing setElectiveAssignment.
+// ---------------------------------------------------------------------------
+describe('T264 — LOCKED_SEAT_OVERWRITTEN: one item, one-tap Restore', () => {
+  const overwritten = {
+    kind: 'LOCKED_SEAT_OVERWRITTEN', assignment_id: 'a1', camper_id: 'camper-1', camper_name: 'Testcamper Alpha',
+    occurrence_id: 'occ-1', locked_activity_id: 'act-2', locked_activity_name: 'Pottery',
+    solver_activity_id: 'act-1', solver_activity_name: 'Archery',
+  }
+
+  it('names the camper, the activity they were locked into and the one the solver chose, with a Restore control', async () => {
+    localClient.getElectiveRun.mockResolvedValue({ ...CLEAN_RUN_STATE, lockedSeatFindings: [overwritten] })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+    const row = await screen.findByTestId('run-state-locked-seat-a1')
+    expect(row.textContent).toMatch(
+      /Testcamper Alpha was locked into Pottery, but another device regenerated this run and placed them in Archery\./
+    )
+    expect(within(row).getByTestId('run-state-locked-seat-restore-a1').textContent).toBe('Restore lock')
+    expect(row.textContent).not.toMatch(/act-|LOCKED_SEAT|[0-9a-f]{8}-/)
+  })
+
+  it('says it without the solver\'s activity when only the locked one is known', async () => {
+    localClient.getElectiveRun.mockResolvedValue({
+      ...CLEAN_RUN_STATE, lockedSeatFindings: [{ ...overwritten, solver_activity_id: null, solver_activity_name: null }],
+    })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+    const row = await screen.findByTestId('run-state-locked-seat-a1')
+    expect(row.textContent).toMatch(/Testcamper Alpha's lock on Pottery was replaced when another device regenerated this run\./)
+  })
+
+  it('Restore writes the locked activity back, locked, through setElectiveAssignment, and the item clears on the re-read', async () => {
+    localClient.getElectiveRun
+      .mockResolvedValueOnce({ ...CLEAN_RUN_STATE, lockedSeatFindings: [overwritten] })
+      .mockResolvedValue({ ...CLEAN_RUN_STATE, lockedSeatFindings: [] })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+    fireEvent.click(await screen.findByTestId('run-state-locked-seat-restore-a1'))
+    await waitFor(() => expect(localClient.setElectiveAssignment).toHaveBeenCalledTimes(1))
+    expect(localClient.setElectiveAssignment).toHaveBeenCalledWith({
+      runId: 'run-1', camperId: 'camper-1', occurrenceId: 'occ-1', activityId: 'act-2', locked: true, replacesAssignmentId: null,
+    })
+    await waitFor(() => expect(screen.queryByTestId('run-state-locked-seat-a1')).toBeNull())
+  })
+
+  it('a refused Restore keeps the item and says why', async () => {
+    localClient.getElectiveRun.mockResolvedValue({ ...CLEAN_RUN_STATE, lockedSeatFindings: [overwritten] })
+    localClient.setElectiveAssignment.mockResolvedValue({ ok: false, error: 'OCCURRENCE_FULL', message: 'Pottery is full.' })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+    fireEvent.click(await screen.findByTestId('run-state-locked-seat-restore-a1'))
+    await waitFor(() => expect(screen.getByText('Pottery is full.')).toBeTruthy())
+    expect(screen.getByTestId('run-state-locked-seat-a1')).toBeTruthy()
+  })
+
+  it('renders nothing for a run with no overwritten lock (non-vacuity)', async () => {
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+    await screen.findByTestId('run-satisfaction-summary')
+    expect(screen.queryByTestId('run-state-locked-seat-a1')).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
 // T250 B1 — commitElectiveRun's `findings` return array mixes THREE kinds
 // (DANGLING_MANUAL_ASSIGNMENT, PREFERENCE_EDIT_HELD, BUNDLE_TIER_NOT_COVERED)
 // and every one of them carries a camper_id, so a caller that filters on

@@ -15,6 +15,7 @@ import {
   buildDanglingManualAssignmentFinding,
   danglingOccurrenceMissingOrUnusableFragment,
 } from './danglingManualAssignmentFinding.js'
+import { deriveLockedSeatOverwrittenFindings } from './lockedSeatOverwrittenFinding.js'
 import { computeElectiveRunResourceConflicts } from './electiveRunResourceConflicts.js'
 
 // The review payload: one row per placement, with the camper's name and the
@@ -287,6 +288,9 @@ export function getElectiveRun(db, { runId }) {
     .all({ runId })
     .map(buildDanglingManualAssignmentFinding)
 
+  // T264 — a lock that lost to a regeneration it had not yet merged with.
+  const lockedSeatFindings = deriveLockedSeatOverwrittenFindings(db, runId, gen)
+
   // T320 item 4 — eligibility findings persisted at commit time, filtered to
   // THIS run's CURRENT solver generation (not pruned on regeneration, unlike
   // occurrences — filtered by generation at read time instead, per the ADR's
@@ -326,7 +330,7 @@ export function getElectiveRun(db, { runId }) {
 
   return {
     rows, staleCount, finalizedAgainstStaleGeneration, overCapacityOccurrences, occurrences,
-    preferences, choices, offeringOccurrencesByChoiceId, campers, sheetOnlyCampers, danglingFindings, eligibilityFindings, resourceConflicts,
+    preferences, choices, offeringOccurrencesByChoiceId, campers, sheetOnlyCampers, danglingFindings, lockedSeatFindings, eligibilityFindings, resourceConflicts,
     // T320 item 1 — cross-handler parity with getElectiveRunOuterSchedule.js:
     // the SAME computeSnapshotCompleteness call.
     ...computeSnapshotCompleteness(db, run),

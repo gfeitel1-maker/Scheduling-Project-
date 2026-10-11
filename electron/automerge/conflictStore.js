@@ -24,6 +24,15 @@ function conflictKey(entity, entityId, field) {
   return `crdt:${entity}:${entityId}:${field}`
 }
 
+// `source` is carried only when reconcile.js annotated the side (T264: which
+// side of an elective_assignments activity_id conflict was the director's
+// lock), so every other row keeps exactly its prior shape.
+function sideOf(v) {
+  const side = { value: v?.value ?? null, op_id: v?.opId ?? null }
+  if (v?.source !== undefined) side.source = v.source
+  return side
+}
+
 /**
  * Record every conflict `reconcile` derived, skipping any already pending.
  * Returns the rows actually inserted, which is what a caller logs or counts —
@@ -55,8 +64,8 @@ export function recordConflicts(db, conflicts, { now = () => new Date().toISOStr
         c.entity,
         c.entityId,
         c.field,
-        JSON.stringify({ value: second?.value ?? null, op_id: second?.opId ?? null }),
-        JSON.stringify({ value: first?.value ?? null, op_id: first?.opId ?? null }),
+        JSON.stringify(sideOf(second)),
+        JSON.stringify(sideOf(first)),
         first?.opId ?? randomUUID(),
         now()
       )

@@ -24,6 +24,10 @@ const FIELD_LABELS = {
   'template_slots.activity_id': "Which activity is in a cell",
   'template_slots.group_id': "Which group a cell belongs to",
   'template_slots.locked': "Whether a cell was held in place",
+  // T264. The other two things a lock and a regeneration disagree about
+  // (source, solver_generation) never reach this screen: reconcile.js folds
+  // them into this card, and the run screen carries the one Restore item.
+  'elective_assignments.activity_id': 'Which elective a camper is placed in',
   // M6 (D3, docs/adr/2026-08-16-locations-optional-map.md): the generic
   // String(side.value) branch below would dump ~700KB of unreadable base64
   // text for this field — same sentinel shape as '__PIN__', a signal to

@@ -301,3 +301,66 @@ describe('rendezvous fields are never director-facing conflicts', () => {
     expect(reconcile(A.merge(A.clone(a), b)).conflicts.map((c) => c.field)).toEqual(['name'])
   })
 })
+
+// T264 (docs/adr/2026-10-11-locked-elective-seat-survives-unmerged-regeneration.md).
+// A lock merged after a regeneration disagrees with the solver on activity_id,
+// source and solver_generation of one row. source and solver_generation are
+// solver bookkeeping, not choices a director can make, and the second showed
+// two raw UUIDs: they fold into the one activity_id card, which records which
+// side was the director's lock and which the solver's.
+describe('elective_assignments: solver-owned keys fold into the activity_id card', () => {
+  const set = (doc, id, fields) => A.change(doc, (d) => {
+    if (!d.elective_assignments) d.elective_assignments = {}
+    for (const [field, value] of Object.entries(fields)) d.elective_assignments[recordKey(id, field)] = value
+  })
+  const lockVsSolver = () => {
+    const { a, b } = diverge(
+      createEmptyDoc(),
+      (d) => set(d, 'seat-1', { activity_id: 'act-archery', choice_id: 'c-archery', source: 'manual', solver_generation: 'G0' }),
+      (d) => set(d, 'seat-1', { activity_id: 'act-gaga', choice_id: 'c-gaga', source: 'solver', solver_generation: 'G1' })
+    )
+    return A.merge(A.clone(a), b)
+  }
+
+  it('does not report solver_generation or source as their own conflicts', () => {
+    const fields = reconcile(lockVsSolver()).conflicts.map((c) => c.field)
+    expect(fields).not.toContain('solver_generation')
+    expect(fields).not.toContain('source')
+  })
+
+  it('still reports activity_id, and records which side was the lock and which the solver', () => {
+    const activity = reconcile(lockVsSolver()).conflicts.find((c) => c.field === 'activity_id')
+    expect(activity.values.map((v) => [v.value, v.source]).sort()).toEqual([
+      ['act-archery', 'manual'],
+      ['act-gaga', 'solver'],
+    ])
+  })
+
+  it('does not drop other real conflicts on the row (non-vacuity)', () => {
+    expect(reconcile(lockVsSolver()).conflicts.map((c) => c.field)).toContain('choice_id')
+  })
+
+  it('leaves a source conflict on any other entity alone (non-vacuity)', () => {
+    const { a, b } = diverge(
+      createEmptyDoc(),
+      (d) => A.change(d, (x) => { x.activities[recordKey('act-1', 'source')] = 'import' }),
+      (d) => A.change(d, (x) => { x.activities[recordKey('act-1', 'source')] = 'human' })
+    )
+    expect(reconcile(A.merge(A.clone(a), b)).conflicts.map((c) => c.field)).toEqual(['source'])
+  })
+
+  it('adds no source annotation when only the activity disagrees', () => {
+    const { a, b } = diverge(
+      createEmptyDoc(),
+      (d) => set(d, 'seat-1', { activity_id: 'act-a', source: 'manual' }),
+      (d) => set(d, 'seat-1', { activity_id: 'act-b', source: 'manual' })
+    )
+    const [c] = reconcile(A.merge(A.clone(a), b)).conflicts
+    expect(c.values.every((v) => !('source' in v))).toBe(true)
+  })
+
+  it('assertNoUnrecordedConflicts accepts exactly what reconcile reports', () => {
+    const merged = lockVsSolver()
+    expect(() => assertNoUnrecordedConflicts(merged, reconcile(merged).conflicts)).not.toThrow()
+  })
+})

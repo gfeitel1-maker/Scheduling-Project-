@@ -1,7 +1,7 @@
 ---
 title: T264-cross-device-lock-survival
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-25
 task_class: database-sync
 archive_when: an ADR decides how a locked elective seat survives a regeneration run on a device that has not yet merged the lock, and that decision is implemented with a non-vacuous test in which the lock op and the regeneration commit are ordered so the regenerating device cannot see the lock locally
@@ -12,9 +12,7 @@ related_tickets: [docs/work/tickets/T245-draft-assignment-move-lock-ipc.md, docs
 
 # T264 — a locked elective seat survives a regeneration on a device that has not merged the lock
 
-**ADR-GATED. Do not implement from this ticket.** The mechanism does not exist yet and the ticket
-does not propose one; the first deliverable is an ADR. Filed as one line on the board for the owner
-to schedule, not as authorized work.
+_Prior: ADR-gated; the first deliverable was an ADR._ That ADR is `docs/adr/2026-10-11-locked-elective-seat-survives-unmerged-regeneration.md` (accepted, GO-A) and this ticket is its implementation.
 
 ## The gap, stated precisely
 
@@ -61,3 +59,29 @@ covers only the already-merged case and is not sufficient evidence for this tick
 Raised by Red Hat during T246's review as a HIGH. Its severity framing ("materially worse than the
 bug being fixed") did not survive checking against the merge-base and is not carried forward; the
 gap itself did.
+
+## Resolution
+
+Implemented per the accepted ADR (keeper ruling GO-A: one plain item with one-tap Restore, the
+`solver_generation`/`source` cards stop surfacing, the activity card is labelled).
+
+- `electron/ops/lockedSeatOverwrittenFinding.js` derives `LOCKED_SEAT_OVERWRITTEN` from the merged
+  projection through the shared generation-visibility fragment; `getElectiveRun` returns it as
+  `lockedSeatFindings`, and `DraftRunView` shows one row naming the camper, the locked activity and
+  the solver's, with a **Restore lock** button that calls the existing `setElectiveAssignment`.
+- `electron/automerge/reconcile.js` no longer reports `solver_generation` or `source` on
+  `elective_assignments` as conflicts of their own; it annotates the `activity_id` conflict's sides with
+  which one was the lock (`manual`) and which the solver's, and `conflictStore.js` carries that through.
+  `ConflictsScreen` labels the card "Which elective a camper is placed in".
+- `setElectiveAssignment` closes the seat's own pending conflict rows on the writing device (nothing
+  projects a local write, so the Restore would otherwise leave stale cards there). Found by the
+  integration scenario, not reasoned.
+- The local skip in `commitElectiveRun` is unchanged.
+- Pinned by `test/integration/scenarios/39-locked-seat-unmerged-regeneration.automerge.js` (a real
+  two-device partition; B's local `is_locked` asserted 0 before the heal). Forced deterministically:
+  the solver winning every key, and the lock winning every key (no false item). Not forced: the mixed
+  per-key outcomes (stale-generation hidden seat; `manual` holding the solver's activity) depend on op
+  counters lining up and on random actor ids, so they are pinned at the detector and reconciler unit
+  tests instead.
+- Not done, by scope: `choice_id` conflicts on the same row still surface as their own card, and the
+  conflict card's two sides still show raw activity ids (as `template_slots.activity_id` does today).

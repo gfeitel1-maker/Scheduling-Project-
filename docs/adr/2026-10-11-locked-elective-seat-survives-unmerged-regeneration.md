@@ -3,7 +3,7 @@ title: "A locked elective seat is never lost silently when a regeneration runs b
 document_type: adr
 authority: normative
 status: accepted
-implementation_state: not_started
+implementation_state: implemented
 date: 2026-10-11
 decided: 2026-10-11
 deciders: [product-owner]

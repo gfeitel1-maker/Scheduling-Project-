@@ -288,8 +288,8 @@ export function setElectiveAssignment(db, {
         // commitElectiveRun reads `is_locked = 1` before its transaction and
         // skips writing those derived ids entirely, so source/activity_id/
         // solver_generation are all left alone. A lock this device has NOT yet
-        // merged is still overwritten with source:'solver' — pre-existing, and
-        // T264's scope, not this write path's.
+        // merged can still be overwritten with source:'solver'; T264 surfaces that
+        // as LOCKED_SEAT_OVERWRITTEN on the run, and this same write is its Restore.
         solver_generation: run.solver_generation,
       }
       for (const [field, value] of Object.entries(fields)) {
@@ -298,6 +298,16 @@ export function setElectiveAssignment(db, {
           author_user_id: authorUserId, device_id: deviceId, client_write_id: randomUUID(),
         })
       }
+      // T264 — this write sets every key above, and an Automerge put replaces
+      // every concurrent value of its key, so any pending merge conflict on
+      // this seat is answered by it. Nothing projects a local write, so without
+      // this the writer keeps showing cards for a disagreement it just ended
+      // (the other devices clear theirs when the write reaches them).
+      db.prepare(
+        `UPDATE conflicts SET resolved_at = ?
+          WHERE entity = 'elective_assignments' AND entity_id = ? AND resolved_at IS NULL
+            AND id LIKE 'crdt:%' AND field IN (${Object.keys(fields).map(() => '?').join(',')})`
+      ).run(new Date().toISOString(), assignmentId, ...Object.keys(fields))
       // T320 item 3 — a genuine cross-occurrence MOVE (the destination id
       // differs from the source), inside the SAME transaction as the
       // destination write: either both land or neither does. Re-tombstoning
