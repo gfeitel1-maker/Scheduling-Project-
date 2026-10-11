@@ -236,7 +236,7 @@ The deltas below compare against the earlier (random-seed) JSON, so small per-ca
 | Daily event cells covered (Generate and Manual) | 1896 / 2160 | 2160 / 2160 |
 | One-off ("single") event cells | 46 / 86 | 86 / 86 |
 | All-day event cells | 882 / 1158 | 906 / 1158 |
-| Weekly event cells (F9) | 49 / 58 | 49 / 58 |
+| Weekly event cells (F9), zero answers / confirm all | 49 / 58 and 49 / 58 | 49 / 58 and **58 / 58** |
 | Trip event cells (F3) | 8 / 118 | 8 / 118 |
 | Multi-block span, e.g. s14 Ropes Course (F5) | not one session | `runs: {2: 10}`, one double session |
 | Day-sheet camps s12/s13: questions, Manual unresolved (F7) | 8 and 21 questions; 6 and 20 unresolved | 1 and 1; 0 and 0 |
@@ -253,6 +253,10 @@ The deltas below compare against the earlier (random-seed) JSON, so small per-ca
 - F6: electives, in flight in #929.
 - F9: weekly events.
 - Part of all-day coverage.
+
+**F9 was a harness gap, not a product bug.** s14 "Swim" is the only shortfall: a weekly all-camp event whose name is also an activity. `inferFixedEvents` infers it correctly as a dual-use name and returns it in `ambiguousEvents`. The app turns that into one `name_kind` question (ADR 2026-09-26 OQ3, where unanswered means activity). The harness never passed `ambiguousEvents` to the report, so the question was never asked and could not be answered.
+
+The harness now mirrors ImportScreen. It uses `settleAmbiguousFromCamp` against the camp's records (except on Replace), passes the remaining ambiguous names to the report, and "confirm all" answers `name_kind` with "fixed time". Swim is then 9/9 in Generate and Manual, and weekly is 58/58. With zero answers Swim stays an activity (0/9) by design. Whether a high-confidence, every-group dual-use name should default to an event when unanswered is a product question for the board, not a defect.
 
 **New regressions:** none found. The apparent upticks (s02 and s07 stillNeeded, s05 and s09 questions) are seed noise or a newly imported activity, for example Ropes Course now present on s05 and s14.
 

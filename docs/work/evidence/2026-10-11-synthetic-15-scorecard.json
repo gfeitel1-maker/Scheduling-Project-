@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-10-11T16:57:11.038Z",
-  "runtimeMs": 32694,
+  "generatedAt": "2026-10-11T17:03:42.079Z",
+  "runtimeMs": 25268,
   "node": "v22.23.2",
   "camps": {
     "s01-by-day-small-5d": {
@@ -10,7 +10,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 226,
+          "cpuMs": 220,
           "held": false
         },
         "confirmAll": {
@@ -354,7 +354,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 200,
+        "cpuMs": 221,
         "held": false,
         "counts": {
           "groups": 6,
@@ -545,7 +545,7 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 67,
+        "cpuMs": 81,
         "slots": 210,
         "placed": 114,
         "unfillable": 0,
@@ -696,7 +696,7 @@
         ],
         "electiveCells": {}
       },
-      "runtimeMs": 2117
+      "runtimeMs": 2265
     },
     "s02-by-day-three-waves": {
       "slug": "s02-by-day-three-waves",
@@ -705,7 +705,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 342,
+          "cpuMs": 368,
           "held": false
         },
         "confirmAll": {
@@ -1082,7 +1082,7 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 66,
+        "cpuMs": 70,
         "slots": 700,
         "placed": 280,
         "unfillable": 0,
@@ -1265,7 +1265,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 381,
+        "cpuMs": 386,
         "held": false,
         "counts": {
           "groups": 14,
@@ -1643,7 +1643,7 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 57,
+        "cpuMs": 61,
         "slots": 700,
         "placed": 280,
         "unfillable": 0,
@@ -1799,7 +1799,7 @@
           "fixed_event:chugim": 14
         }
       },
-      "runtimeMs": 2153
+      "runtimeMs": 2282
     },
     "s03-by-day-4day-24h-nolunch": {
       "slug": "s03-by-day-4day-24h-nolunch",
@@ -1808,7 +1808,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 61,
+          "cpuMs": 63,
           "held": false
         },
         "confirmAll": {
@@ -1950,7 +1950,7 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 13,
+        "cpuMs": 14,
         "slots": 72,
         "placed": 48,
         "unfillable": 0,
@@ -2072,7 +2072,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 73,
+        "cpuMs": 78,
         "held": false,
         "counts": {
           "groups": 3,
@@ -2219,7 +2219,7 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 12,
+        "cpuMs": 13,
         "slots": 72,
         "placed": 48,
         "unfillable": 0,
@@ -2334,7 +2334,7 @@
         ],
         "electiveCells": {}
       },
-      "runtimeMs": 701
+      "runtimeMs": 600
     },
     "s04-by-day-6day-large": {
       "slug": "s04-by-day-6day-large",
@@ -2343,7 +2343,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 314,
+          "cpuMs": 310,
           "held": false
         },
         "confirmAll": {
@@ -2660,7 +2660,7 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 658,
+        "cpuMs": 724,
         "slots": 1350,
         "placed": 724,
         "unfillable": 0,
@@ -2906,7 +2906,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 476,
+        "cpuMs": 470,
         "held": false,
         "counts": {
           "groups": 25,
@@ -3228,7 +3228,7 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 603,
+        "cpuMs": 650,
         "slots": 1350,
         "placed": 724,
         "unfillable": 0,
@@ -3467,7 +3467,7 @@
           "activity:ceramics / kayaking / yoga / puppetry": 8
         }
       },
-      "runtimeMs": 4880
+      "runtimeMs": 4208
     },
     "s05-by-day-tiny-early": {
       "slug": "s05-by-day-tiny-early",
@@ -3476,7 +3476,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 287,
+          "cpuMs": 312,
           "held": false
         },
         "confirmAll": {
@@ -3904,7 +3904,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 99,
+        "cpuMs": 83,
         "held": false,
         "counts": {
           "groups": 2,
@@ -4164,7 +4164,7 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 9,
+        "cpuMs": 10,
         "slots": 80,
         "placed": 40,
         "unfillable": 0,
@@ -4307,7 +4307,7 @@
         ],
         "electiveCells": {}
       },
-      "runtimeMs": 984
+      "runtimeMs": 502
     },
     "s06-by-day-40-groups-late": {
       "slug": "s06-by-day-40-groups-late",
@@ -4316,7 +4316,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 492,
+          "cpuMs": 447,
           "held": false
         },
         "confirmAll": {
@@ -4678,7 +4678,7 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 650,
+        "cpuMs": 680,
         "slots": 2000,
         "placed": 1040,
         "unfillable": 0,
@@ -4903,7 +4903,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 655,
+        "cpuMs": 644,
         "held": false,
         "counts": {
           "groups": 40,
@@ -5485,7 +5485,7 @@
           "activity:hiking / fishing / kayaking / orienteering / bocce": 10
         }
       },
-      "runtimeMs": 5841
+      "runtimeMs": 4302
     },
     "s07-by-group-3-divisions": {
       "slug": "s07-by-group-3-divisions",
@@ -5494,7 +5494,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 133,
+          "cpuMs": 134,
           "held": false
         },
         "confirmAll": {
@@ -5711,7 +5711,7 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 306,
+        "cpuMs": 302,
         "slots": 320,
         "placed": 192,
         "unfillable": 0,
@@ -5881,7 +5881,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 215,
+        "cpuMs": 235,
         "held": false,
         "counts": {
           "groups": 8,
@@ -6103,7 +6103,7 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 75,
+        "cpuMs": 73,
         "slots": 320,
         "placed": 192,
         "unfillable": 0,
@@ -6266,7 +6266,7 @@
           "activity:indoor elective": 2
         }
       },
-      "runtimeMs": 1358
+      "runtimeMs": 1084
     },
     "s08-by-group-24h-wrapped": {
       "slug": "s08-by-group-24h-wrapped",
@@ -6275,7 +6275,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 179,
+          "cpuMs": 196,
           "held": false
         },
         "confirmAll": {
@@ -6491,7 +6491,7 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 74,
+        "cpuMs": 80,
         "slots": 384,
         "placed": 288,
         "unfillable": 0,
@@ -6648,7 +6648,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 142,
+        "cpuMs": 129,
         "held": false,
         "counts": {
           "groups": 12,
@@ -6866,7 +6866,7 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 73,
+        "cpuMs": 115,
         "slots": 384,
         "placed": 288,
         "unfillable": 0,
@@ -7016,7 +7016,7 @@
           "activity:chess club / robotics / cooking": 6
         }
       },
-      "runtimeMs": 1114
+      "runtimeMs": 943
     },
     "s09-by-group-6day-except": {
       "slug": "s09-by-group-6day-except",
@@ -7025,7 +7025,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 236,
+          "cpuMs": 239,
           "held": false
         },
         "confirmAll": {
@@ -7405,7 +7405,7 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 118,
+        "cpuMs": 126,
         "slots": 1008,
         "placed": 340,
         "unfillable": 0,
@@ -7615,7 +7615,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 449,
+        "cpuMs": 474,
         "held": false,
         "counts": {
           "groups": 21,
@@ -7988,7 +7988,7 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 130,
+        "cpuMs": 194,
         "slots": 1008,
         "placed": 340,
         "unfillable": 0,
@@ -8171,7 +8171,7 @@
           "fixed_event:bechirot": 63
         }
       },
-      "runtimeMs": 2531
+      "runtimeMs": 2189
     },
     "s10-by-group-sun-thu-early": {
       "slug": "s10-by-group-sun-thu-early",
@@ -8180,7 +8180,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 79,
+          "cpuMs": 75,
           "held": false
         },
         "confirmAll": {
@@ -8429,7 +8429,7 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 19,
+        "cpuMs": 22,
         "slots": 140,
         "placed": 64,
         "unfillable": 0,
@@ -8583,7 +8583,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 103,
+        "cpuMs": 88,
         "held": false,
         "counts": {
           "groups": 4,
@@ -8981,7 +8981,7 @@
         ],
         "electiveCells": {}
       },
-      "runtimeMs": 729
+      "runtimeMs": 457
     },
     "s11-daysheet-5d-small": {
       "slug": "s11-daysheet-5d-small",
@@ -8990,7 +8990,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 88,
+          "cpuMs": 76,
           "held": false
         },
         "confirmAll": {
@@ -9197,7 +9197,7 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 11,
+        "cpuMs": 10,
         "slots": 180,
         "placed": 76,
         "unfillable": 0,
@@ -9322,7 +9322,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 159,
+        "cpuMs": 145,
         "held": false,
         "counts": {
           "groups": 6,
@@ -9531,7 +9531,7 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 11,
+        "cpuMs": 9,
         "slots": 180,
         "placed": 76,
         "unfillable": 0,
@@ -9649,7 +9649,7 @@
           "fixed_event:electives": 6
         }
       },
-      "runtimeMs": 801
+      "runtimeMs": 430
     },
     "s12-daysheet-4d-late": {
       "slug": "s12-daysheet-4d-late",
@@ -9658,7 +9658,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 120,
+          "cpuMs": 104,
           "held": false
         },
         "confirmAll": {
@@ -9940,7 +9940,7 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 102,
+        "cpuMs": 100,
         "slots": 400,
         "placed": 288,
         "unfillable": 0,
@@ -10161,7 +10161,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 326,
+        "cpuMs": 351,
         "held": false,
         "counts": {
           "groups": 10,
@@ -10662,7 +10662,7 @@
           "activity:pottery / drama / robotics": 2
         }
       },
-      "runtimeMs": 1399
+      "runtimeMs": 962
     },
     "s13-daysheet-16-splits": {
       "slug": "s13-daysheet-16-splits",
@@ -10671,7 +10671,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 249,
+          "cpuMs": 272,
           "held": false
         },
         "confirmAll": {
@@ -10976,7 +10976,7 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 244,
+        "cpuMs": 258,
         "slots": 720,
         "placed": 440,
         "unfillable": 0,
@@ -11190,7 +11190,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 287,
+        "cpuMs": 275,
         "held": false,
         "counts": {
           "groups": 16,
@@ -11498,7 +11498,7 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 243,
+        "cpuMs": 239,
         "slots": 720,
         "placed": 440,
         "unfillable": 0,
@@ -11705,7 +11705,7 @@
           "activity:ceramics / pottery": 4
         }
       },
-      "runtimeMs": 2882
+      "runtimeMs": 1968
     },
     "s14-by-day-period-24h": {
       "slug": "s14-by-day-period-24h",
@@ -11714,7 +11714,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 130,
+          "cpuMs": 116,
           "held": false
         },
         "confirmAll": {
@@ -11812,9 +11812,10 @@
           "activities": 15
         },
         "questions": {
-          "total": 3,
+          "total": 4,
           "byKind": {
-            "elective_candidate": 3
+            "elective_candidate": 3,
+            "name_kind": 1
           }
         },
         "exclusivity": {
@@ -11928,7 +11929,7 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 118,
+        "cpuMs": 148,
         "slots": 360,
         "placed": 225,
         "unfillable": 0,
@@ -12110,7 +12111,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 230,
+        "cpuMs": 225,
         "held": false,
         "counts": {
           "groups": 9,
@@ -12191,6 +12192,16 @@
               "Friday"
             ],
             "groups": "all"
+          },
+          {
+            "name": "Swim",
+            "kind": "fixed",
+            "block": "09:20-10:05",
+            "span": 1,
+            "days": [
+              "Wednesday"
+            ],
+            "groups": "all"
           }
         ],
         "counts": {
@@ -12198,9 +12209,9 @@
           "divisions": 3,
           "days": 5,
           "timeBlocks": 8,
-          "activities": 17,
-          "pinnedEventActivities": 4,
-          "fixedEvents": 10,
+          "activities": 16,
+          "pinnedEventActivities": 5,
+          "fixedEvents": 11,
           "recurringEvents": 10,
           "electiveSets": 1,
           "specialDays": 0
@@ -12213,9 +12224,10 @@
           "activities": 15
         },
         "questions": {
-          "total": 3,
+          "total": 4,
           "byKind": {
-            "elective_candidate": 3
+            "elective_candidate": 3,
+            "name_kind": 1
           }
         },
         "exclusivity": {
@@ -12224,7 +12236,7 @@
           "candidates": [],
           "inTwoBuckets": [],
           "orphanMarkers": [],
-          "pinnedMarkers": 4,
+          "pinnedMarkers": 5,
           "eventQuestions": [],
           "eventOpenItems": [],
           "ok": true
@@ -12254,7 +12266,7 @@
               "total": 90
             },
             "weekly": {
-              "ok": 0,
+              "ok": 9,
               "total": 9
             }
           },
@@ -12280,7 +12292,7 @@
               "total": 45
             },
             "Swim": {
-              "ok": 0,
+              "ok": 9,
               "total": 9
             }
           },
@@ -12290,13 +12302,7 @@
             "Museum Trip | Herons 2 | Thursday | 12:30–13:15",
             "Museum Trip | Herons 2 | Thursday | 13:20–14:05",
             "Museum Trip | Herons 3 | Thursday | 12:30–13:15",
-            "Museum Trip | Herons 3 | Thursday | 13:20–14:05",
-            "Swim | Otters 1 | Wednesday | 09:20–10:05",
-            "Swim | Otters 2 | Wednesday | 09:20–10:05",
-            "Swim | Otters 3 | Wednesday | 09:20–10:05",
-            "Swim | Herons 1 | Wednesday | 09:20–10:05",
-            "Swim | Herons 2 | Wednesday | 09:20–10:05",
-            "Swim | Herons 3 | Wednesday | 09:20–10:05"
+            "Museum Trip | Herons 3 | Thursday | 13:20–14:05"
           ]
         },
         "activitiesVsManifest": {
@@ -12305,8 +12311,10 @@
             "Museum Trip"
           ],
           "spuriousCount": 2,
-          "missing": [],
-          "missingCount": 0
+          "missing": [
+            "Swim"
+          ],
+          "missingCount": 1
         },
         "spansDb": [
           {
@@ -12329,12 +12337,12 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 109,
+        "cpuMs": 101,
         "slots": 360,
-        "placed": 225,
+        "placed": 216,
         "unfillable": 0,
-        "stillNeeded": 23,
-        "underservedPairs": 21,
+        "stillNeeded": 13,
+        "underservedPairs": 13,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -12353,7 +12361,7 @@
               "total": 90
             },
             "weekly": {
-              "ok": 0,
+              "ok": 9,
               "total": 9
             }
           },
@@ -12379,23 +12387,17 @@
               "total": 45
             },
             "Swim": {
-              "ok": 0,
+              "ok": 9,
               "total": 9
             }
           },
           "firstMisses": [
-            "Museum Trip | Herons 1 | Thursday | 12:30–13:15 -> activity:woodworking",
-            "Museum Trip | Herons 1 | Thursday | 13:20–14:05 -> activity:storytelling",
-            "Museum Trip | Herons 2 | Thursday | 12:30–13:15 -> activity:ropes course",
-            "Museum Trip | Herons 2 | Thursday | 13:20–14:05 -> activity:woodworking",
-            "Museum Trip | Herons 3 | Thursday | 12:30–13:15 -> activity:rocketry",
-            "Museum Trip | Herons 3 | Thursday | 13:20–14:05 -> activity:yoga",
-            "Swim | Otters 1 | Wednesday | 09:20–10:05 -> activity:magic show",
-            "Swim | Otters 2 | Wednesday | 09:20–10:05 -> activity:elective",
-            "Swim | Otters 3 | Wednesday | 09:20–10:05 -> activity:ropes course",
-            "Swim | Herons 1 | Wednesday | 09:20–10:05 -> activity:puppetry",
-            "Swim | Herons 2 | Wednesday | 09:20–10:05 -> activity:puppetry",
-            "Swim | Herons 3 | Wednesday | 09:20–10:05 -> activity:museum trip"
+            "Museum Trip | Herons 1 | Thursday | 12:30–13:15 -> activity:volleyball",
+            "Museum Trip | Herons 1 | Thursday | 13:20–14:05 -> activity:woodworking",
+            "Museum Trip | Herons 2 | Thursday | 12:30–13:15 -> activity:photography",
+            "Museum Trip | Herons 2 | Thursday | 13:20–14:05 -> activity:magic show",
+            "Museum Trip | Herons 3 | Thursday | 12:30–13:15 -> activity:tennis",
+            "Museum Trip | Herons 3 | Thursday | 13:20–14:05 -> activity:magic show"
           ]
         },
         "spanRuns": [
@@ -12445,7 +12447,7 @@
               "total": 90
             },
             "weekly": {
-              "ok": 0,
+              "ok": 9,
               "total": 9
             }
           },
@@ -12471,7 +12473,7 @@
               "total": 45
             },
             "Swim": {
-              "ok": 0,
+              "ok": 9,
               "total": 9
             }
           },
@@ -12481,13 +12483,7 @@
             "Museum Trip | Herons 2 | Thursday | 12:30–13:15 -> activity:museum trip",
             "Museum Trip | Herons 2 | Thursday | 13:20–14:05 -> activity:museum trip",
             "Museum Trip | Herons 3 | Thursday | 12:30–13:15 -> activity:museum trip",
-            "Museum Trip | Herons 3 | Thursday | 13:20–14:05 -> activity:museum trip",
-            "Swim | Otters 1 | Wednesday | 09:20–10:05 -> activity:swim",
-            "Swim | Otters 2 | Wednesday | 09:20–10:05 -> activity:swim",
-            "Swim | Otters 3 | Wednesday | 09:20–10:05 -> activity:swim",
-            "Swim | Herons 1 | Wednesday | 09:20–10:05 -> activity:swim",
-            "Swim | Herons 2 | Wednesday | 09:20–10:05 -> activity:swim",
-            "Swim | Herons 3 | Wednesday | 09:20–10:05 -> activity:swim"
+            "Museum Trip | Herons 3 | Thursday | 13:20–14:05 -> activity:museum trip"
           ]
         },
         "spans": [
@@ -12504,7 +12500,7 @@
           "activity:elective": 6
         }
       },
-      "runtimeMs": 1433
+      "runtimeMs": 881
     },
     "s15-by-day-period-6day-nolunch": {
       "slug": "s15-by-day-period-6day-nolunch",
@@ -12513,7 +12509,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 199,
+          "cpuMs": 187,
           "held": false
         },
         "confirmAll": {
@@ -12810,7 +12806,7 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 367,
+        "cpuMs": 366,
         "slots": 972,
         "placed": 522,
         "unfillable": 0,
@@ -12993,7 +12989,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 350,
+        "cpuMs": 346,
         "held": false,
         "counts": {
           "groups": 18,
@@ -13292,7 +13288,7 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 391,
+        "cpuMs": 439,
         "slots": 972,
         "placed": 522,
         "unfillable": 0,
@@ -13468,7 +13464,7 @@
           "fixed_event:electives": 18
         }
       },
-      "runtimeMs": 3590
+      "runtimeMs": 2040
     }
   }
 }

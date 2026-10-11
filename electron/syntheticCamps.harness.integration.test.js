@@ -35,6 +35,7 @@ import { normalizeName } from '../src/ingest/preview.js'
 import { parseTextGrid, normalizeTimeLabel } from '../src/ingest/textGrid.js'
 import { extractEntities } from '../src/ingest/extractEntities.js'
 import { inferFixedEvents } from '../src/ingest/fixedEvents.js'
+import { settleAmbiguousFromCamp } from '../src/ingest/settleAmbiguousFromCamp.js'
 import { derivePinOnlyActivityNames } from '../src/ingest/pinOnlyActivityNames.js'
 import { inferActivityRules } from '../src/ingest/activityRules.js'
 import { capturePlacements } from '../src/ingest/capturePlacements.js'
@@ -97,8 +98,15 @@ function seedCamp(key = randomUUID()) {
 function importFile(d, id, text, { answerFor = () => null, mode = 'add' } = {}) {
   const parsed = parseTextGrid(text)
   const proposal = extractEntities(parsed)
-  const { fixedEvents, dualUseNames = [] } = inferFixedEvents({ pages: parsed.pages }, proposal, {})
-  const pinOnly = derivePinOnlyActivityNames(fixedEvents, dualUseNames)
+  const { fixedEvents: inferredEvents, dualUseNames = [], ambiguousEvents = [] } = inferFixedEvents({ pages: parsed.pages }, proposal, {})
+  // As ImportScreen does: a dual-use name the camp already classified is read from its records, not
+  // asked again (Replace deletes them first); the rest go to the review as one name_kind question.
+  const settled = settleAmbiguousFromCamp(ambiguousEvents, mode === 'replace' ? {} : {
+    activities: d.prepare('SELECT name, catalog_role FROM activities WHERE camp_id = ?').all(id),
+    fixedEvents: d.prepare('SELECT name FROM fixed_events WHERE camp_id = ?').all(id),
+  })
+  const fixedEvents = [...inferredEvents, ...settled.settledFixed]
+  const pinOnly = new Set([...derivePinOnlyActivityNames(inferredEvents, dualUseNames), ...settled.settledFixedNames.map(normalizeName)])
   const { placements } = capturePlacements({ pages: parsed.pages }, proposal)
   const fixedEventNames = fixedEvents.filter((e) => e.kind === 'fixed').map((e) => e.name)
   const statedUnits = proposal.groupUnits ?? {}
@@ -161,6 +169,7 @@ function importFile(d, id, text, { answerFor = () => null, mode = 'add' } = {}) 
     unknownFieldEvidence: new Map(Object.entries(dry.unknownFieldEvidence ?? {})),
     electiveCandidates: dry.electiveCandidates,
     allCampOverrides: detectAllCampOverrides(placements, proposal.entities.groups ?? []),
+    ambiguousEvents: settled.stillAmbiguous,
     placements,
     allGroupNames: proposal.entities.groups ?? [],
   })
@@ -173,6 +182,10 @@ function importFile(d, id, text, { answerFor = () => null, mode = 'add' } = {}) 
 const CONFIRM_ALL = (dec) => {
   if (dec.kind === 'confirm_value') return { action: 'looks_right' }
   if (dec.kind === 'elective_candidate') return { choice: 'confirm' }
+  // F9: a name that is both a pinned event and a catalogue activity is ONE name_kind question
+  // (ADR 2026-09-26 OQ3, unanswered = activity). "Confirm everything" answers it the way the file
+  // reads it: a fixed time. Without this the confirm path never exercised the weekly event at all.
+  if (dec.kind === 'name_kind') return { choice: 'fixed' }
   return null
 }
 
