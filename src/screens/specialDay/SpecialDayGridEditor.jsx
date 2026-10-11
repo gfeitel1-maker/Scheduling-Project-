@@ -70,6 +70,7 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
   const [error, setError] = useState(null)
   const [offer, setOffer] = useState(null)
   const [copyNote, setCopyNote] = useState(null)
+  const [notPlaced, setNotPlaced] = useState(false)
   const [editingName, setEditingName] = useState(false)
   const [nameDraft, setNameDraft] = useState('')
   const [notesDraft, setNotesDraft] = useState('')
@@ -142,6 +143,7 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
       if (op?.entity === 'special_days' && op?.entity_id === specialDayId && op?.field === '__deleted__') {
         onDeletedElsewhereRef.current?.()
       }
+      if (op?.entity === 'special_day_placements') setNotPlaced(false)
     })
     return () => { unsub?.() }
   }, [specialDayId])
@@ -198,10 +200,11 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
 
   async function copyBlocks() {
     try {
-      const { carriedCount, placed, offer: found, cellFailure } = await copyCampTimeBlocks({ campId, specialDayId })
+      const { carriedCount, placed, offer: found, cellFailure, notice } = await copyCampTimeBlocks({ campId, specialDayId })
       setOffer(found)
       if (cellFailure) setError(cellFailure)
-      setCopyNote(carriedCount > 0 && !placed ? LABELS.notPlacedNote : null)
+      setCopyNote(notice)
+      setNotPlaced(carriedCount > 0 && !placed)
     } catch (err) {
       setError(describeWriteFailure(err, seedFailureMessage(err.seededCount ?? 0, err.totalCount ?? 0)))
     }
@@ -209,10 +212,11 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
   }
 
   async function bringOffered() {
-    const current = offer
-    setOffer(null)
     try {
-      await current.apply()
+      const result = await offer.apply()
+      if (result.failure) setError(result.failure)
+      else setOffer(null)
+      if (result.notice) setCopyNote(result.notice)
     } catch (err) {
       setError(describeWriteFailure(err, 'Could not bring the recurring events.'))
     }
@@ -359,8 +363,9 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
       banners={(
         <>
           {error && <FailureLine message={error} />}
-          {offer && <RecurringOfferLine offer={offer} onBring={bringOffered} onSkip={() => setOffer(null)} />}
-          {copyNote && <div style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 14px' }}>{copyNote}</div>}
+          {offer?.specialDayId === specialDayId && <RecurringOfferLine offer={offer} onBring={bringOffered} onSkip={() => setOffer(null)} />}
+          {notPlaced && <div style={noteStyle}>{LABELS.notPlacedNote}</div>}
+          {copyNote && <div style={noteStyle}>{copyNote}</div>}
         </>
       )}
       toolbarActions={<button className="press-97" onClick={addBlock} style={S.btnSecondary}>{LABELS.addBlock}</button>}
@@ -433,3 +438,5 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
     </GridEditorFrame>
   )
 }
+
+const noteStyle = { fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 14px' }

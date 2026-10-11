@@ -333,9 +333,10 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
 
   async function seedFromCampTimeBlocks(specialDayId) {
     try {
-      const { offer: found, cellFailure } = await copyCampTimeBlocks({ campId, specialDayId })
+      const { offer: found, cellFailure, notice } = await copyCampTimeBlocks({ campId, specialDayId })
       setOffer(found)
       if (cellFailure) setError(cellFailure)
+      else if (notice) setError(notice)
       setToast(LABELS.createdHint(days.find((d) => d.id === specialDayId)?.name ?? 'Special Day'))
     } catch (err) {
       setError(describeWriteFailure(err, seedFailureMessage(err.seededCount ?? 0, err.totalCount ?? 0)))
@@ -502,13 +503,20 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
         </div>
       )}
 
-      {offer && (
+      {offer && days.some((d) => d.id === offer.specialDayId) && (
         <RecurringOfferLine
           offer={offer}
           onBring={async () => {
-            const current = offer
-            setOffer(null)
-            try { await current.apply() } catch (err) { setError(describeWriteFailure(err, 'Could not bring the recurring events.')) }
+            try {
+              const result = await offer.apply()
+              if (result.failure) setError(result.failure)
+              else {
+                setOffer(null)
+                if (result.notice) setError(result.notice)
+              }
+            } catch (err) {
+              setError(describeWriteFailure(err, 'Could not bring the recurring events.'))
+            }
           }}
           onSkip={() => setOffer(null)}
         />

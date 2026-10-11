@@ -15,3 +15,8 @@ export function cellFailureMessage(names) {
   const list = [...new Set(names.filter(Boolean))].join(' and ')
   return `Blocks copied; couldn't add ${list || 'your fixed events'} — add them by hand or try again`
 }
+
+export function bringFailureMessage(names, written) {
+  const list = [...new Set(names.filter(Boolean))].join(' and ')
+  return `${written > 0 ? `Added ${written} cell${written === 1 ? '' : 's'}; c` : 'C'}ouldn't add ${list} — try again`
+}

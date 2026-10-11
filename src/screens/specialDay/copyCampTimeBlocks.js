@@ -1,7 +1,8 @@
 import { localClient } from '../../localClient'
 import { resolveFixedEventGroupIds } from '../../engine/fixedEventScope'
 import { parseIdList } from '../../utils/normalizeActivityEligibility'
-import { cellFailureMessage } from './seedFailureMessage'
+import { timeBlockLabel } from '../../utils/timeBlockLabel'
+import { cellFailureMessage, bringFailureMessage } from './seedFailureMessage'
 
 async function writeField(entity, id, field, value) {
   const token = localStorage.getItem('shoresh-token')
@@ -16,8 +17,8 @@ const isEveryDay = (ev) => ev.day_id == null || ev.day_id === ''
 // Which camp fixed events a special day takes. A week-scoped override is never
 // carried. Fixed events that run every day come across automatically; a
 // recurring or day-specific event is OFFERED, and only when the special day is
-// placed on a weekday (a special day replaces that day), for events that apply
-// to that weekday.
+// placed on exactly one weekday (a special day replaces that day), for events
+// that apply to that weekday.
 function splitFixedEvents(fixedEvents, placedDayId) {
   const live = fixedEvents.filter((ev) => ev.schedule_week_id == null && ev.activity_id != null)
   const carry = live.filter((ev) => ev.kind === 'fixed' && isEveryDay(ev))
@@ -30,6 +31,7 @@ function splitFixedEvents(fixedEvents, placedDayId) {
 // Cells (one per group x spanned block) an event fills, in the special day's
 // own block ids. Resolves scope through the engine's resolveFixedEventGroupIds.
 function cellsFor(events, groups, campBlocks, blockIdMap) {
+  const groupName = new Map(groups.map((g) => [g.id, g.name]))
   const cells = []
   for (const ev of events) {
     const head = campBlocks.findIndex((b) => b.id === ev.time_block_id)
@@ -37,28 +39,69 @@ function cellsFor(events, groups, campBlocks, blockIdMap) {
     const groupIds = resolveFixedEventGroupIds(ev, groups)
     for (const b of campBlocks.slice(head, head + (ev.span_blocks || 1))) {
       for (const groupId of groupIds) {
-        cells.push({ groupId, blockId: blockIdMap.get(b.id), activityId: ev.activity_id, locationId: ev.location_id })
+        cells.push({
+          eventName: ev.name, groupId, groupName: groupName.get(groupId), blockId: blockIdMap.get(b.id),
+          blockLabel: timeBlockLabel(b), activityId: ev.activity_id, locationId: ev.location_id,
+        })
       }
     }
   }
   return cells
 }
 
-async function writeCells(specialDayId, cells, taken) {
+// A slot row is created by its identity fields (the third one materializes it), so a
+// cell is several writes and cannot be atomic. On a mid-cell failure the row this call
+// created is deleted again (best effort) so no half-written row is left behind.
+async function writeCell(specialDayId, cell, existing) {
+  const id = existing?.id ?? crypto.randomUUID()
+  try {
+    if (!existing) {
+      await writeField('special_day_slots', id, 'special_day_id', specialDayId)
+      await writeField('special_day_slots', id, 'group_id', cell.groupId)
+      await writeField('special_day_slots', id, 'time_block_id', cell.blockId)
+    }
+    await writeField('special_day_slots', id, 'activity_id', cell.activityId)
+    if (cell.locationId) await writeField('special_day_slots', id, 'location_id', cell.locationId)
+  } catch (err) {
+    if (!existing) {
+      try { await localClient.deleteEntity?.(localStorage.getItem('shoresh-token'), 'special_day_slots', id) } catch { /* best effort */ }
+    }
+    throw err
+  }
+  return id
+}
+
+// Re-lists the day's slots every call, so a cell the director filled by hand (or an
+// earlier Bring filled) is never written twice. A cell is marked taken only after its
+// write succeeds. Returns the cells written, the events that failed, and the cells kept.
+async function placeCells(specialDayId, cells) {
+  const [slotRows, activityRows] = await Promise.all([localClient.list('special_day_slots'), localClient.list('activities')])
+  const activityName = new Map((activityRows || []).map((a) => [a.id, a.name]))
+  const slots = new Map(
+    (slotRows || []).filter((s) => s.special_day_id === specialDayId).map((s) => [`${s.group_id}|${s.time_block_id}`, s])
+  )
   let written = 0
+  const failed = new Set()
+  const skipped = []
   for (const c of cells) {
     const key = `${c.groupId}|${c.blockId}`
-    if (taken.has(key)) continue
-    taken.add(key)
-    const id = crypto.randomUUID()
-    await writeField('special_day_slots', id, 'special_day_id', specialDayId)
-    await writeField('special_day_slots', id, 'group_id', c.groupId)
-    await writeField('special_day_slots', id, 'time_block_id', c.blockId)
-    await writeField('special_day_slots', id, 'activity_id', c.activityId)
-    if (c.locationId) await writeField('special_day_slots', id, 'location_id', c.locationId)
-    written += 1
+    const row = slots.get(key)
+    if (row?.activity_id) {
+      if (row.activity_id !== c.activityId) {
+        skipped.push(`${activityName.get(row.activity_id) ?? 'Another activity'} kept in ${c.groupName} ${c.blockLabel} — ${c.eventName} not added there`)
+      }
+      continue
+    }
+    try {
+      const id = await writeCell(specialDayId, c, row)
+      slots.set(key, { id, activity_id: c.activityId })
+      written += 1
+    } catch (err) {
+      console.error('special day copy: could not place a fixed event cell', err)
+      failed.add(c.eventName)
+    }
   }
-  return written
+  return { written, failed: [...failed], skipped }
 }
 
 // The one copy path behind both "Start from your time blocks?" (right after a
@@ -66,11 +109,13 @@ async function writeCells(specialDayId, cells, taken) {
 // schedule. Sequential writes, not a transaction: on a failure the thrown error
 // carries how many blocks landed so the caller can say so (seedFailureMessage).
 //
-// Returns { carriedCount, placed, offer, cellFailure }: cellFailure is a message when the
-// blocks copied but the fixed-event cells did not (it does not throw: the blocks are in).
-// `offer`: `offer` is null or
-// { count, dayLabel, apply } where apply() places the offered recurring events.
-export async function copyCampTimeBlocks({ campId, specialDayId, withFixedEvents = true }) {
+// Returns { carriedCount, placed, offer, cellFailure, notice }.
+//  - cellFailure: set when the blocks copied but some fixed-event cells did not
+//    (names only the events that failed; it does not throw, the blocks are in).
+//  - notice: cells kept as they were, or why no offer is made.
+//  - offer: null or { count, dayLabel, specialDayId, apply } where apply() places the
+//    offered recurring events and returns { written, failure, notice }.
+export async function copyCampTimeBlocks({ campId, specialDayId }) {
   let seededCount = 0
   let totalCount = 0
   try {
@@ -91,8 +136,6 @@ export async function copyCampTimeBlocks({ campId, specialDayId, withFixedEvents
       seededCount += 1
     }
 
-    if (!withFixedEvents) return { carriedCount: 0, placed: false, offer: null }
-
     const [events, groupRows, days, placements] = await Promise.all([
       localClient.list('fixed_events'),
       localClient.list('groups'),
@@ -103,29 +146,46 @@ export async function copyCampTimeBlocks({ campId, specialDayId, withFixedEvents
     const fixedEvents = (events || [])
       .filter((ev) => ev.camp_id === campId)
       .map((ev) => ({ ...ev, group_ids: parseIdList(ev.group_ids), unit_ids: parseIdList(ev.unit_ids) }))
-    const placedDayId = (placements || []).find((p) => p.special_day_id === specialDayId)?.day_id ?? null
+    const placedDayIds = [...new Set((placements || []).filter((p) => p.special_day_id === specialDayId).map((p) => p.day_id))]
+    const dayLabel = (id) => {
+      const d = (days || []).find((x) => x.id === id)
+      return d?.label || d?.day_of_week || 'another day'
+    }
+    const multiDay = placedDayIds.length > 1
+    const placedDayId = placedDayIds.length === 1 ? placedDayIds[0] : null
     const { carry, offered } = splitFixedEvents(fixedEvents, placedDayId)
 
-    const taken = new Set()
-    let carriedCount = 0
-    let cellFailure = null
-    try {
-      carriedCount = await writeCells(specialDayId, cellsFor(carry, groups, scoped, blockIdMap), taken)
-    } catch (cellErr) {
-      console.error('special day copy: fixed-event cells failed', cellErr)
-      cellFailure = cellFailureMessage(carry.map((ev) => ev.name))
+    const placedCarry = await placeCells(specialDayId, cellsFor(carry, groups, scoped, blockIdMap))
+    const notices = [...placedCarry.skipped]
+    if (multiDay) {
+      notices.push(`This special day is on ${placedDayIds.map(dayLabel).join(' and ')}, so recurring events aren't offered. Add them by hand.`)
     }
 
     let offer = null
     if (offered.length) {
-      const day = (days || []).find((d) => d.id === placedDayId)
       offer = {
         count: offered.length,
-        dayLabel: day?.label || day?.day_of_week || 'that day',
-        apply: () => writeCells(specialDayId, cellsFor(offered, groups, scoped, blockIdMap), taken),
+        dayLabel: dayLabel(placedDayId),
+        specialDayId,
+        apply: async () => {
+          const stillThere = (await localClient.list('special_days') || []).some((d) => d.id === specialDayId)
+          if (!stillThere) return { written: 0, failure: 'This special day was deleted.', notice: null }
+          const r = await placeCells(specialDayId, cellsFor(offered, groups, scoped, blockIdMap))
+          return {
+            written: r.written,
+            failure: r.failed.length ? bringFailureMessage(r.failed, r.written) : null,
+            notice: r.skipped.length ? r.skipped.join('; ') : null,
+          }
+        },
       }
     }
-    return { carriedCount, placed: placedDayId != null, offer, cellFailure }
+    return {
+      carriedCount: placedCarry.written,
+      placed: placedDayId != null || multiDay,
+      offer,
+      cellFailure: placedCarry.failed.length ? cellFailureMessage(placedCarry.failed) : null,
+      notice: notices.length ? notices.join('; ') : null,
+    }
   } catch (err) {
     err.seededCount = seededCount
     err.totalCount = totalCount
