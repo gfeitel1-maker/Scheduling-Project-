@@ -1889,11 +1889,11 @@ export const mockShoresh = {
   async rememberImportAnswers() {
     return { written: [], skipped: [] }
   },
-  listLearned: (...args) => learnedMock().listLearned(...args),
-  changeImportAnswer: (...args) => learnedMock().changeImportAnswer(...args),
-  forgetImportAnswer: (...args) => learnedMock().forgetImportAnswer(...args),
-  forgetImportPattern: (...args) => learnedMock().forgetImportPattern(...args),
-  keepImportAnswer: (...args) => learnedMock().keepImportAnswer(...args),
+  listLearned(...args) { return learnedMock().listLearned(...args) },
+  changeImportAnswer(...args) { return learnedMock().changeImportAnswer(...args) },
+  forgetImportAnswer(...args) { return learnedMock().forgetImportAnswer(...args) },
+  forgetImportPattern(...args) { return learnedMock().forgetImportPattern(...args) },
+  keepImportAnswer(...args) { return learnedMock().keepImportAnswer(...args) },
   // T118 slice 4 — mock stand-in for listCompoundCellDecisions
   // (electron/ops/ingest.js), returning entries in the same [pattern, value]
   // shape the real IPC boundary does (localClient.js re-wraps into a Map).
