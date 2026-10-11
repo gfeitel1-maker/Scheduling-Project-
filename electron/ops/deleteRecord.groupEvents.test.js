@@ -215,6 +215,17 @@ describe('a division-scoped event when its division loses a group', () => {
     expect(r.group_events.restored).toBe(1)
   })
 
+  it('restoring it on its own is refused while its division has no live group', () => {
+    group('b2', 'Badger 2')
+    setTier('b2', 'tier1')
+    divisionEvent('div', ['tier1'])
+    del()
+    const r = restoreEntity(db, { entity: 'fixed_events', entity_id: 'div', ...session })
+    expect(r.error).toBe('group-deleted')
+    expect(r.group_name).toBe('Badger 2')
+    expect(live('div')).toBeUndefined()
+  })
+
   it('is untouched while the division still has another group', () => {
     group('b2', 'Badger 2')
     group('b3', 'Badger 3')

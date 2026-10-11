@@ -353,6 +353,19 @@ export function restoreEntity(db, { entity, entity_id, author_user_id, device_id
     if (ids.length > 0 && !divisionScoped && gone.length === ids.length) {
       return { error: 'group-deleted', group_name: lastKnownFields(db, 'groups', gone[0]).get('name') ?? null }
     }
+    // A division-scoped event resolves its groups live. If none of its divisions has a live group,
+    // restoring it alone would bring back an event that targets nobody: name a deleted group that
+    // last belonged to one of its divisions, so the director restores that group instead.
+    if (divisionScoped) {
+      const unitIds = parseIdList(fields.get('unit_ids'))
+      const units = new Set(unitIds.length ? unitIds : [fields.get('unit_id')])
+      const live = db.prepare('SELECT tier_id FROM groups').all().some((g) => units.has(g.tier_id))
+      if (!live) {
+        const deletedIds = db.prepare('SELECT DISTINCT entity_id FROM operations WHERE entity = ? AND field = ?').all('groups', DELETE_FIELD).map((r) => r.entity_id)
+        const last = deletedIds.map((g) => lastKnownFields(db, 'groups', g)).find((f) => units.has(f.get('tier_id')))
+        if (last) return { error: 'group-deleted', group_name: last.get('name') ?? null }
+      }
+    }
   }
 
   // camp_id first: applyProjection's camp guard rejects a camp_id that does
