@@ -49,13 +49,15 @@ function sorted(keys) {
 const MACHINE_RESOLVED_CAMP_FIELD = 'rendezvousSecrets'
 
 // T264 (docs/adr/2026-10-11-locked-elective-seat-survives-unmerged-regeneration.md).
-// A lock merged after a regeneration contests source and solver_generation as
-// well as activity_id. Those two are the solver's bookkeeping, not a choice a
-// director can make (and solver_generation read as two raw UUIDs), so they are
-// not conflicts of their own: they fold into the activity_id one, whose values
+// A lock merged after a regeneration contests source, solver_generation and
+// choice_id as well as activity_id. source and solver_generation are the
+// solver's bookkeeping and choice_id follows the activity (the choice the
+// activity belongs to), so none is a choice a director can make (and two read
+// as raw ids): they are not conflicts of their own but fold into the
+// activity_id one, whose values
 // carry which side was the director's lock ('manual') and which the solver's.
 // The seat itself is surfaced by getElectiveRun's lockedSeatFindings.
-const SOLVER_OWNED_ASSIGNMENT_FIELDS = new Set(['source', 'solver_generation'])
+const SOLVER_OWNED_ASSIGNMENT_FIELDS = new Set(['source', 'solver_generation', 'choice_id'])
 
 // Automerge op ids are `counter@actor`; one device is one actor.
 const actorOf = (opId) => opId.slice(opId.indexOf('@') + 1)

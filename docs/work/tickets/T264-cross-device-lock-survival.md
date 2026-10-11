@@ -83,5 +83,13 @@ Implemented per the accepted ADR (keeper ruling GO-A: one plain item with one-ta
   per-key outcomes (stale-generation hidden seat; `manual` holding the solver's activity) depend on op
   counters lining up and on random actor ids, so they are pinned at the detector and reconciler unit
   tests instead.
-- Not done, by scope: `choice_id` conflicts on the same row still surface as their own card, and the
-  conflict card's two sides still show raw activity ids (as `template_slots.activity_id` does today).
+- `choice_id` follows the activity, so it folds into the same card as `source`/`solver_generation`
+  (`reconcile.js`); `setElectiveAssignment`, the Restore, rewrites it from the lock's activity and
+  closes any pending row for it. After the heal a seat holds exactly one conflict card (activity_id).
+- The activity card reads names, not ids: `Archery (the lock)` against `Gaga (the solver)`
+  (`src/screens/conflictSideCopy.js`; `usePendingConflicts` resolves ids through `resolveActivityName`,
+  the same shape as `resolveAuthorLabel`). Found on the way: `listPendingConflicts` returned
+  document-derived rows with only `{value, op_id, source}` per side, no entity/field/id, so the
+  renderer could not label or key any such card; `operations.js` now fills them from the row.
+- Not done, by scope: a Keep on the activity card writes only `activity_id`; it does not rewrite
+  `choice_id`. Only the Restore settles `choice_id`.

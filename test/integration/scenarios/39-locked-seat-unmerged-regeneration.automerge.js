@@ -77,6 +77,8 @@ const findings = (d) => getElectiveRun(d.db, { runId: RUN }).lockedSeatFindings
 const seatConflictFields = (d) => d.db
   .prepare("SELECT field FROM conflicts WHERE resolved_at IS NULL AND entity = 'elective_assignments' AND entity_id = ? ORDER BY field")
   .all(SEAT).map((r) => r.field)
+const lockedChoice = (d) => d.db
+  .prepare("SELECT id FROM elective_choices WHERE run_id = ? AND label = 'Archery'").get(RUN)?.id
 const hiddenLockedSeats = (d) => d.db
   .prepare(
     `SELECT COUNT(*) c FROM elective_assignments a
@@ -160,16 +162,14 @@ async function pass({ lockWins }) {
     await waitFor(() => new Set(devices.map(([, d]) => JSON.stringify(seatRow(d)))).size === 1, 10000)
       .catch(() => { throw new Error(`${tag} devices never converged on one row`) })
 
-    // (b) the solver-owned keys are not separate cards; the activity card stays.
-    // choice_id may still surface (the lock and the solver name different
-    // choices): it is outside this ticket's ruling, which names only
-    // solver_generation and source.
+    // (b) the solver-owned keys (source, solver_generation) and choice_id, which
+    // follows the activity, are not separate cards: the labelled activity card
+    // is the only conflict the seat holds.
     for (const [label, d] of devices) {
       const fields = seatConflictFields(d)
-      if (fields.includes('solver_generation') || fields.includes('source')) {
-        throw new Error(`${tag} ${label} still surfaces a solver-owned key as its own card: ${fields.join(',')}`)
+      if (fields.join(',') !== 'activity_id') {
+        throw new Error(`${tag} ${label} should hold only the activity card, got: ${fields.join(',')}`)
       }
-      if (!fields.includes('activity_id')) throw new Error(`${tag} ${label} lost the activity card: ${fields.join(',')}`)
     }
 
     const merged = seatRow(host)
@@ -222,7 +222,7 @@ async function pass({ lockWins }) {
     for (const [label, d] of devices) {
       await waitFor(() => {
         const r = seatRow(d)
-        return r?.source === 'manual' && r.activity_id === P && r.is_locked === 1 && visible(d)
+        return r?.source === 'manual' && r.activity_id === P && r.choice_id === lockedChoice(d) && r.is_locked === 1 && visible(d)
           && findings(d).length === 0 && seatConflictFields(d).length === 0
       }, 15000).catch(() => {
         throw new Error(`${tag} ${label} did not end restored: ${JSON.stringify(seatRow(d))} items=${findings(d).length} conflicts=${seatConflictFields(d)}`)

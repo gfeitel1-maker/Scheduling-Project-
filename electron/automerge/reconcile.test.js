@@ -322,10 +322,11 @@ describe('elective_assignments: solver-owned keys fold into the activity_id card
     return A.merge(A.clone(a), b)
   }
 
-  it('does not report solver_generation or source as their own conflicts', () => {
+  it('does not report solver_generation, source or choice_id as their own conflicts', () => {
     const fields = reconcile(lockVsSolver()).conflicts.map((c) => c.field)
     expect(fields).not.toContain('solver_generation')
     expect(fields).not.toContain('source')
+    expect(fields).not.toContain('choice_id')
   })
 
   it('still reports activity_id, and records which side was the lock and which the solver', () => {
@@ -337,7 +338,12 @@ describe('elective_assignments: solver-owned keys fold into the activity_id card
   })
 
   it('does not drop other real conflicts on the row (non-vacuity)', () => {
-    expect(reconcile(lockVsSolver()).conflicts.map((c) => c.field)).toContain('choice_id')
+    const { a, b } = diverge(
+      createEmptyDoc(),
+      (d) => set(d, 'seat-1', { activity_id: 'act-a', preference_rank: 1 }),
+      (d) => set(d, 'seat-1', { activity_id: 'act-b', preference_rank: 2 })
+    )
+    expect(reconcile(A.merge(A.clone(a), b)).conflicts.map((c) => c.field).sort()).toEqual(['activity_id', 'preference_rank'])
   })
 
   it('leaves a source conflict on any other entity alone (non-vacuity)', () => {
