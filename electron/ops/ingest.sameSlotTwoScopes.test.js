@@ -146,6 +146,25 @@ describe('F1 - span', () => {
     expect(out.fixedEvents.partial[0].reason).toMatch(/different length/)
   })
 
+  it('Red Hat 1: a re-import that splits a span-2 place does not add a span-1 row over a live row that already covers that group', () => {
+    commit({ ...TWO_BLOCKS, fixedEvents: [ev(['Otters 1', 'Otters 2'], { span_blocks: 2 })] })
+    const second = commit({ ...TWO_BLOCKS, fixedEvents: [ev(['Otters 1']), ev(['Otters 2'], { span_blocks: 2 })] })
+    expect(second.fixedEvents.created).toBe(0)
+    expect(rows()).toHaveLength(1)
+    expect(second.fixedEvents.partial.length).toBeGreaterThan(0)
+    expect(second.fixedEvents.partial[0].reason).toMatch(/already/)
+  })
+
+  it('Red Hat 1: live rows already split, a file changing one span creates nothing over the live cover', () => {
+    const THREE = { approved: { ...TWO_BLOCKS.approved, time_blocks: ['10:00-10:45', '11:00-11:45', '12:00-12:45'] } }
+    commit({ ...THREE, fixedEvents: [ev(['Otters 1']), ev(['Otters 2'], { span_blocks: 2 })] })
+    expect(rows()).toHaveLength(2)
+    const second = commit({ ...THREE, fixedEvents: [ev(['Otters 1']), ev(['Otters 2'], { span_blocks: 3 })] })
+    expect(second.fixedEvents.created).toBe(0)
+    expect(rows()).toHaveLength(2)
+    expect(second.fixedEvents.partial.length).toBeGreaterThan(0)
+  })
+
   it('T363: Replace with two disjoint different-span events keeps both rows and a preserved division scope on one', () => {
     const approved = { ...TWO_BLOCKS.approved, tiers: ['Juniors'] }
     const links = { groups: { 'Otters 1': 'Juniors', 'Otters 2': 'Juniors' } }

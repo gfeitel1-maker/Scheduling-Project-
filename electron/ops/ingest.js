@@ -1977,6 +1977,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     // above unless compared separately here. Read-only per ADR §4 — this map
     // is consulted below to REPORT a drift, never to write one.
     const liveFixedEventScope = new Map()
+    const liveScopesByPlace = new Map()
     // T183: the live group list WITH tier_id, so a division-scoped fixed event's
     // coverage can be resolved through the shared resolver below. The other
     // group reads in this file are `SELECT id, name` (label maps) and stay so.
@@ -2049,6 +2050,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       liveFixedEventScope.set(slotKey, liveScopeEntry)
       const liveFixedPlace = fixedEventPlaceKey(row.cohort_id, row.day_id, row.time_block_id, row.name, row.schedule_week_id)
       if (!liveFixedEventScope.has(liveFixedPlace)) liveFixedEventScope.set(liveFixedPlace, liveScopeEntry)
+      liveScopesByPlace.set(liveFixedPlace, [...(liveScopesByPlace.get(liveFixedPlace) ?? []), liveScopeEntry])
     }
 
     // Slice B one-off recognition (Red Hat HIGH #1, docs/adr/2026-08-24-
@@ -2699,6 +2701,21 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         if (rejectedSlots.has(placeKey)) {
           fixedRejected.push({ name: fe.name })
           continue
+        }
+        if (splitPlaces.has(placeKey)) {
+          const incomingAll = Boolean(union.isAll)
+          const covered = (liveScopesByPlace.get(placeKey) ?? []).some((live) =>
+            incomingAll || live.is_all_groups || live.group_ids === null
+            || (live.group_ids ?? []).some((id) => union.ids.has(id)))
+          if (covered) {
+            fixedPartial.push({
+              name: fe.name,
+              reason: 'some of these groups already have this event at this time with a different length; this one was not imported',
+              time_block: fe.time_block,
+              days: fe.days,
+            })
+            continue
+          }
         }
         fixedEventSlots.add(slotKey)
         fixedEventSlots.add(placeKey)
