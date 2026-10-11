@@ -46,7 +46,6 @@ import { detectAllCampOverrides } from '../src/ingest/allCampOverrides.js'
 import { inferCoScheduleRules } from '../src/ingest/coScheduleRules.js'
 import { proposeSpecialDay } from '../src/ingest/specialDayFile.js'
 import { buildSpecialDayPlan } from '../src/ingest/specialDayPlan.js'
-import { commitSpecialDayPlan } from '../src/ingest/commitSpecialDay.js'
 import { foldTriageInputs, heldBackDecisions } from '../src/screens/reconciliationTriage.js'
 import { resolvePriorityForGeneration } from '../src/ingest/resolvePriorityForGeneration.js'
 import { resolveFixedEventGroupIds, resolveFixedEventDayIds } from '../src/engine/fixedEventScope.js'
@@ -520,10 +519,7 @@ async function evaluateSpecialDayFiles(m, d, id) {
       rec.blockedBy = plan?.blockedBy ?? []
       rec.periods = plan?.periods?.length ?? null
       if (plan?.ready) {
-        const res = await safe2(() => commitSpecialDayPlan(plan, {
-          writeField: async (entity, entityId, field, value) => { appendOp(d, { entity, entity_id: entityId, field, value, author_user_id: userId, device_id: deviceId }) },
-          newId: () => randomUUID(),
-        }))
+        const res = await safe2(async () => commitIngest(d, { camp_id: id, approved: {}, links: {}, specialDay: plan, author_user_id: userId, device_id: deviceId, mode: 'add' }).specialDay)
         rec.commit = res
       }
     }

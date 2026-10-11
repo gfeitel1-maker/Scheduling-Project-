@@ -80,6 +80,12 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   { fromTable: 'elective_occurrences', fromColumn: 'day_id', toEntity: 'days_of_operation', kind: 'scalar', enforced: false },
   // T350: soft (no SQL REFERENCES) — an orphan placement is ignored at resolution, never thrown.
   { fromTable: 'special_day_placements', fromColumn: 'day_id', toEntity: 'days_of_operation', kind: 'scalar', enforced: false },
+  // F3/F4 slice 3a: a one-day-file import creates a special day, so its own children are incoming edges into
+  // U2-deletable entities. The two SQL-declared ones (REFERENCES special_days) are enforced; the rest are soft.
+  { fromTable: 'special_day_time_blocks', fromColumn: 'special_day_id', toEntity: 'special_days', kind: 'scalar', enforced: true },
+  { fromTable: 'special_day_slots', fromColumn: 'special_day_id', toEntity: 'special_days', kind: 'scalar', enforced: true },
+  { fromTable: 'special_day_slots', fromColumn: 'time_block_id', toEntity: 'special_day_time_blocks', kind: 'scalar', enforced: false },
+  { fromTable: 'special_day_placements', fromColumn: 'special_day_id', toEntity: 'special_days', kind: 'scalar', enforced: false },
   // -- into time_blocks --
   { fromTable: 'fixed_events', fromColumn: 'time_block_id', toEntity: 'time_blocks', kind: 'scalar', enforced: false },
   { fromTable: 'template_slots', fromColumn: 'time_block_id', toEntity: 'time_blocks', kind: 'scalar', enforced: false },
@@ -171,7 +177,10 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
 // imported so this file has no dependency on ingest.js; the schema-parity
 // test asserts the two never drift apart.
 export const U2_DELETABLE_ENTITIES = Object.freeze(
-  new Set(['cohorts', 'tiers', 'groups', 'days_of_operation', 'time_blocks', 'locations', 'activities', 'fixed_events'])
+  new Set([
+    'cohorts', 'tiers', 'groups', 'days_of_operation', 'time_blocks', 'locations', 'activities', 'fixed_events',
+    'special_days', 'special_day_time_blocks', 'special_day_slots', 'special_day_placements',
+  ])
 )
 
 // Read-only single-hop referential check: does any LIVE row of fromTable

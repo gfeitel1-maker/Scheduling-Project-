@@ -527,7 +527,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // and localClient both already await/resolve their handler's return value
   // either way) — but every pre-T117 caller, which never passes placements,
   // keeps getting the outcome object back synchronously, unchanged.
-  function ingestCommit({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, placements, sourceFileName, compoundCellDecisions, divisionSupport, openDecisions } = {}) {
+  function ingestCommit({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, specialDay, placements, sourceFileName, compoundCellDecisions, divisionSupport, openDecisions } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const session = requireAuthorized(db, { token, action: 'groups.import' })
     // T351 — any device holding 'groups.import' may run this, on a trusted, non-revoked device
@@ -590,6 +590,8 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       // written as `events` catalog rows only (surface-then-fill). Absent
       // for every caller that predates this, same as fixedEvents above.
       multiBlockEvents: multiBlockEvents ?? [],
+      // F3/F4 slice 3a — a confirmed one-day-file plan, committed in this same transaction.
+      specialDay: specialDay ?? null,
       // U1 — additive, opt-in. Absent/false for every existing caller, same
       // behavior as before (docs/adr/2026-08-17-onescreen-reconciliation-undo.md).
       captureInverse: captureInverse === true,
