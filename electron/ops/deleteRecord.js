@@ -120,6 +120,45 @@ function routesFor(db, rows) {
   return { routes, unprotected_count }
 }
 
+function parseIds(raw) {
+  try {
+    const v = JSON.parse(raw ?? '[]')
+    return Array.isArray(v) ? v : []
+  } catch {
+    return []
+  }
+}
+
+// Events that name this group directly. An every-group event (is_all_groups) is
+// untouched; a division-scoped one (unit_ids / unit_id) resolves its groups live,
+// so it is not orphaned here even if this was the division's last group.
+// `sole` events target nobody once the group is gone and are trashed with it;
+// `trimmed` events keep their other groups and only lose this one.
+function groupEventEffects(db, group_id) {
+  const sole = []
+  const trimmed = []
+  const rows = db
+    .prepare(
+      "SELECT id, kind, group_ids, unit_ids, unit_id FROM fixed_events WHERE (is_all_groups IS NULL OR is_all_groups = 0) AND group_ids LIKE '%' || ? || '%'"
+    )
+    .all(group_id)
+  for (const row of rows) {
+    const ids = parseIds(row.group_ids)
+    if (!ids.includes(group_id)) continue
+    const remaining = ids.filter((g) => g !== group_id)
+    const divisionScoped = parseIds(row.unit_ids).length > 0 || !!row.unit_id
+    if (remaining.length === 0 && !divisionScoped) sole.push(row)
+    else trimmed.push({ id: row.id, remaining })
+  }
+  return { sole, trimmed }
+}
+
+function dependentEvents(db, entity, entity_id) {
+  if (entity === 'days_of_operation') return fixedEventRows(db, entity_id)
+  if (entity === 'groups') return groupEventEffects(db, entity_id).sole
+  return []
+}
+
 function fixedEventRows(db, day_id) {
   return db.prepare('SELECT id, kind FROM fixed_events WHERE day_id = ?').all(day_id)
 }
@@ -256,9 +295,8 @@ export function previewDelete(db, { entity, entity_id }) {
     slot_count: rows.length,
     routes,
     unprotected_count,
-    fixed_event_count: entity === 'days_of_operation' ? fixedEventRows(db, entity_id).length : 0,
-    fixed_event_kind_counts:
-      entity === 'days_of_operation' ? fixedEventKindCounts(fixedEventRows(db, entity_id)) : { fixed: 0, recurring: 0 },
+    fixed_event_count: dependentEvents(db, entity, entity_id).length,
+    fixed_event_kind_counts: fixedEventKindCounts(dependentEvents(db, entity, entity_id)),
     weather_dependent_count: entity === 'activities' ? weatherDependents(db, entity_id).length : 0,
     // T194: campers whose group_id points here. Reported, never cascaded.
     camper_count: entity === 'groups' ? camperDependents(db, entity_id) : 0,
@@ -573,6 +611,7 @@ export function deleteRecord(db, { entity, entity_id, expected_slot_count, autho
       }
 
       const ops = []
+      const cascadeBatch = randomUUID()
       if (entity === 'activities') {
         for (const dependent of weatherDependents(db, entity_id)) {
           ops.push(
@@ -589,12 +628,26 @@ export function deleteRecord(db, { entity, entity_id, expected_slot_count, autho
         ops.push(...clearActivityPlacements(db, rows, { author_user_id, device_id }))
       } else if (entity === 'groups') {
         ops.push(...removeSlotRows(db, rows, { author_user_id, device_id }))
+        // The batch tag rides on client_write_id (unique per op, so the index holds)
+        // so restore finds exactly what THIS delete did to events.
+        const { sole, trimmed } = groupEventEffects(db, entity_id)
+        for (const e of sole) {
+          ops.push(appendOp(db, { entity: 'fixed_events', entity_id: e.id, field: DELETE_FIELD, value: 1, author_user_id, device_id, client_write_id: `${cascadeBatch}:${e.id}` }))
+        }
+        for (const e of trimmed) {
+          ops.push(
+            appendOp(db, { entity: 'fixed_events', entity_id: e.id, field: 'group_ids', value: JSON.stringify(e.remaining), author_user_id, device_id, client_write_id: `${cascadeBatch}:${e.id}` })
+          )
+        }
       } else {
         ops.push(...removeDayFromWeek(db, { day_id: entity_id, slots: rows, author_user_id, device_id }))
       }
 
       ops.push(
-        appendOp(db, { entity, entity_id, field: DELETE_FIELD, value: 1, author_user_id, device_id })
+        appendOp(db, {
+          entity, entity_id, field: DELETE_FIELD, value: 1, author_user_id, device_id,
+          ...(entity === 'groups' ? { client_write_id: `${cascadeBatch}:group` } : {}),
+        })
       )
 
       return {

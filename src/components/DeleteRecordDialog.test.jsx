@@ -181,3 +181,22 @@ describe('DeleteRecordDialog: fixed-event deletions are named by kind, not all "
     expect(screen.getAllByText(/1 recurring event/).length).toBeGreaterThan(0)
   })
 })
+
+describe('DeleteRecordDialog: a group names the recurring events it removes', () => {
+  it('the confirm button names the events after the places', () => {
+    render(
+      <DeleteRecordDialog
+        preview={preview({
+          entity: 'groups',
+          name: 'Badger 2',
+          destructive: true,
+          slot_count: 60,
+          fixed_event_kind_counts: { fixed: 0, recurring: 2 },
+        })}
+        onCancel={noop}
+        onDeleted={noop}
+      />
+    )
+    expect(screen.getByRole('button', { name: 'Delete and clear 60 places and 2 recurring events' })).toBeTruthy()
+  })
+})

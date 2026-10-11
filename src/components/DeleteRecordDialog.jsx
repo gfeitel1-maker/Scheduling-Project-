@@ -92,8 +92,13 @@ function whatChanges(preview) {
       campers > 0
         ? ` ${campers} camper${campers === 1 ? '' : 's'} ${campers === 1 ? 'is' : 'are'} in ${who} — they are not deleted, but they will have no group until you put them in one.`
         : ''
-    if (slot_count === 0) return `Nothing in your schedules uses ${who}.${camperNote}`
-    return `${who} is used in ${places(slot_count)} in your schedules. Deleting it removes its whole week from both schedules — there is nothing left behind to fill in.${camperNote}`
+    const eventParts = fixedEventParts(preview)
+    const eventNote =
+      eventParts.length > 0
+        ? ` The ${joinParts(eventParts)} that only ${who} takes part in go to Trash with it. Events shared with other groups just lose ${who}.`
+        : ''
+    if (slot_count === 0) return `Nothing in your schedules uses ${who}.${eventNote}${camperNote}`
+    return `${who} is used in ${places(slot_count)} in your schedules. Deleting it removes its whole week from both schedules — there is nothing left behind to fill in.${eventNote}${camperNote}`
   }
 
   const parts = []
@@ -163,8 +168,8 @@ export default function DeleteRecordDialog({ preview, onCancel, onDeleted }) {
       ? preview.ref_count > 0
         ? `Delete and clear ${joinParts(locationRefParts(preview))}`
         : `Delete ${LABEL[preview.entity].the}`
-      : preview.slot_count > 0
-        ? `Delete and clear ${places(preview.slot_count)}`
+      : preview.slot_count > 0 || (preview.entity === 'groups' && fixedEventParts(preview).length > 0)
+        ? `Delete and clear ${joinParts([...(preview.slot_count > 0 ? [places(preview.slot_count)] : []), ...(preview.entity === 'groups' ? fixedEventParts(preview) : [])])}`
         : `Delete ${LABEL[preview.entity].the}`
 
   return (

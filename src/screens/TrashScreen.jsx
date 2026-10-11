@@ -28,17 +28,39 @@ const OUTCOME_COPY = {
   unique_field: 'A record with that name already exists, so this can’t be restored. Rename or remove the existing one first.',
 }
 
-function outcomeMessage(error, existing) {
+function outcomeMessage(error, existing, groupName) {
+  if (error === 'group-deleted') {
+    return `${groupName || 'The group'} this event belongs to is still deleted. Restore ${groupName || 'the group'} first — the event comes back with it.`
+  }
   if (error === 'unique_field' && existing?.name) {
     return `A record named “${existing.name}” already exists, so this can’t be restored. Rename or remove the existing one first.`
   }
   return OUTCOME_COPY[error] ?? 'That restore did not go through. Try again in a moment.'
 }
 
-function restoredMessage(row) {
+function restoredMessage(row, groupEvents) {
   const who = row.name || entityLabel(row.entity)
   const caveat = restoreCaveat(row.entity)
-  return caveat ? `${who} is back. ${caveat}` : `${who} is back.`
+  const parts = [`${who} is back.`]
+  if (groupEvents?.restored > 0) {
+    parts.push(`${groupEvents.restored} event${groupEvents.restored === 1 ? '' : 's'} that only it took part in came back too.`)
+  }
+  if (groupEvents?.readded > 0) {
+    parts.push(`It is back in ${groupEvents.readded} shared event${groupEvents.readded === 1 ? '' : 's'}.`)
+  }
+  if (groupEvents?.gone > 0) {
+    parts.push(`${groupEvents.gone} shared event${groupEvents.gone === 1 ? ' was' : 's were'} deleted since, so ${who} was not added back to ${groupEvents.gone === 1 ? 'it' : 'them'}.`)
+  }
+  if (groupEvents?.failed > 0) {
+    parts.push(`${groupEvents.failed} event${groupEvents.failed === 1 ? '' : 's'} could not be brought back — ${groupEvents.failed === 1 ? 'it is' : 'they are'} still in Trash, restore ${groupEvents.failed === 1 ? 'it' : 'them'} from there.`)
+  }
+  if (groupEvents?.not_readded > 0) {
+    parts.push(
+      `${groupEvents.not_readded} shared event${groupEvents.not_readded === 1 ? ' was' : 's were'} changed since, so ${who} was not added back to ${groupEvents.not_readded === 1 ? 'it' : 'them'} — add it on Recurring Events.`
+    )
+  }
+  if (caveat) parts.push(caveat)
+  return parts.join(' ')
 }
 
 function Notice({ tone, children }) {
@@ -109,12 +131,12 @@ export default function TrashScreen({ role }) {
           text: `Waiting for the device this camp was set up on to bring ${row.name || 'this record'} back. It will happen as soon as this device reaches it — you can close the app in the meantime.${caveat ? ` ${caveat}` : ''}`,
         })
       } else if (result?.ok) {
-        setNotice({ tone: 'success', text: restoredMessage(row) })
+        setNotice({ tone: 'success', text: restoredMessage(row, result.group_events) })
         if (result.deleted_children?.length) {
           setChildOffer({ parent: row, children: result.deleted_children })
         }
       } else {
-        setNotice({ tone: 'danger', text: outcomeMessage(result?.error, result?.existing) })
+        setNotice({ tone: 'danger', text: outcomeMessage(result?.error, result?.existing, result?.group_name) })
       }
     } catch (err) {
       setNotice({
