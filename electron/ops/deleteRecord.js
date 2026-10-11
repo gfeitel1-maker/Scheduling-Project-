@@ -611,6 +611,7 @@ export function deleteRecord(db, { entity, entity_id, expected_slot_count, autho
       }
 
       const ops = []
+      const cascadeBatch = randomUUID()
       if (entity === 'activities') {
         for (const dependent of weatherDependents(db, entity_id)) {
           ops.push(
@@ -627,13 +628,15 @@ export function deleteRecord(db, { entity, entity_id, expected_slot_count, autho
         ops.push(...clearActivityPlacements(db, rows, { author_user_id, device_id }))
       } else if (entity === 'groups') {
         ops.push(...removeSlotRows(db, rows, { author_user_id, device_id }))
+        // The batch tag rides on client_write_id (unique per op, so the index holds)
+        // so restore finds exactly what THIS delete did to events.
         const { sole, trimmed } = groupEventEffects(db, entity_id)
         for (const e of sole) {
-          ops.push(appendOp(db, { entity: 'fixed_events', entity_id: e.id, field: DELETE_FIELD, value: 1, author_user_id, device_id }))
+          ops.push(appendOp(db, { entity: 'fixed_events', entity_id: e.id, field: DELETE_FIELD, value: 1, author_user_id, device_id, client_write_id: `${cascadeBatch}:${e.id}` }))
         }
         for (const e of trimmed) {
           ops.push(
-            appendOp(db, { entity: 'fixed_events', entity_id: e.id, field: 'group_ids', value: JSON.stringify(e.remaining), author_user_id, device_id })
+            appendOp(db, { entity: 'fixed_events', entity_id: e.id, field: 'group_ids', value: JSON.stringify(e.remaining), author_user_id, device_id, client_write_id: `${cascadeBatch}:${e.id}` })
           )
         }
       } else {
@@ -641,7 +644,10 @@ export function deleteRecord(db, { entity, entity_id, expected_slot_count, autho
       }
 
       ops.push(
-        appendOp(db, { entity, entity_id, field: DELETE_FIELD, value: 1, author_user_id, device_id })
+        appendOp(db, {
+          entity, entity_id, field: DELETE_FIELD, value: 1, author_user_id, device_id,
+          ...(entity === 'groups' ? { client_write_id: `${cascadeBatch}:group` } : {}),
+        })
       )
 
       return {

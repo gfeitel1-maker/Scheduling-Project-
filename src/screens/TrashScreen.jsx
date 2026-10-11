@@ -28,7 +28,10 @@ const OUTCOME_COPY = {
   unique_field: 'A record with that name already exists, so this can’t be restored. Rename or remove the existing one first.',
 }
 
-function outcomeMessage(error, existing) {
+function outcomeMessage(error, existing, groupName) {
+  if (error === 'group-deleted') {
+    return `${groupName || 'The group'} this event belongs to is still deleted. Restore ${groupName || 'the group'} first — the event comes back with it.`
+  }
   if (error === 'unique_field' && existing?.name) {
     return `A record named “${existing.name}” already exists, so this can’t be restored. Rename or remove the existing one first.`
   }
@@ -44,6 +47,12 @@ function restoredMessage(row, groupEvents) {
   }
   if (groupEvents?.readded > 0) {
     parts.push(`It is back in ${groupEvents.readded} shared event${groupEvents.readded === 1 ? '' : 's'}.`)
+  }
+  if (groupEvents?.gone > 0) {
+    parts.push(`${groupEvents.gone} shared event${groupEvents.gone === 1 ? ' was' : 's were'} deleted since, so ${who} was not added back to ${groupEvents.gone === 1 ? 'it' : 'them'}.`)
+  }
+  if (groupEvents?.failed > 0) {
+    parts.push(`${groupEvents.failed} event${groupEvents.failed === 1 ? '' : 's'} could not be brought back — ${groupEvents.failed === 1 ? 'it is' : 'they are'} still in Trash, restore ${groupEvents.failed === 1 ? 'it' : 'them'} from there.`)
   }
   if (groupEvents?.not_readded > 0) {
     parts.push(
@@ -127,7 +136,7 @@ export default function TrashScreen({ role }) {
           setChildOffer({ parent: row, children: result.deleted_children })
         }
       } else {
-        setNotice({ tone: 'danger', text: outcomeMessage(result?.error, result?.existing) })
+        setNotice({ tone: 'danger', text: outcomeMessage(result?.error, result?.existing, result?.group_name) })
       }
     } catch (err) {
       setNotice({

@@ -215,25 +215,17 @@ export function lastKnownFieldSources(db, entity, entity_id) {
   return sources
 }
 
-// A group delete (deleteRecord.js) writes its template_slots and fixed_events ops
-// as one contiguous run ending at the group's own delete op. Walking back through
-// that run finds exactly what the delete did to events, without mistaking an
-// event the director deleted deliberately, earlier, for part of it. A delete is
-// one transaction, so its ops land milliseconds apart; the time window keeps a
-// run from bleeding into earlier edits when the group had no slot rows between.
-const GROUP_DELETE_WINDOW_MS = 2000
+// A group delete (deleteRecord.js) tags its event ops, and its own delete op, with
+// one batch id on client_write_id ("<batch>:<event id>" / "<batch>:group"). Matching
+// on that finds exactly what the delete did to events — an event deleted by hand,
+// however close in time, carries no tag.
 function groupDeleteEventOps(db, group_id) {
-  const last = latestOpForEntity(db, 'groups', group_id)
-  const prior = db
-    .prepare('SELECT * FROM operations WHERE seq < ? ORDER BY seq DESC LIMIT 5000')
-    .all(last.seq)
-  const run = []
-  for (const op of prior) {
-    if (op.device_id !== last.device_id || (op.entity !== 'template_slots' && op.entity !== 'fixed_events')) break
-    if (Date.parse(last.timestamp) - Date.parse(op.timestamp) > GROUP_DELETE_WINDOW_MS) break
-    if (op.entity === 'fixed_events') run.push(op)
-  }
-  return run
+  const tag = latestOpForEntity(db, 'groups', group_id)?.client_write_id
+  if (!tag || !tag.endsWith(':group')) return []
+  const batch = tag.slice(0, -':group'.length)
+  return db
+    .prepare("SELECT * FROM operations WHERE entity = 'fixed_events' AND client_write_id LIKE ? ORDER BY seq")
+    .all(`${batch}:%`)
 }
 
 function parseIdList(raw) {
@@ -354,6 +346,15 @@ export function restoreEntity(db, { entity, entity_id, author_user_id, device_id
     }
   }
 
+  if (entity === 'fixed_events' && !Number(fields.get('is_all_groups'))) {
+    const ids = parseIdList(fields.get('group_ids'))
+    const divisionScoped = parseIdList(fields.get('unit_ids')).length > 0 || !!fields.get('unit_id')
+    const gone = ids.filter((g) => !db.prepare('SELECT 1 FROM groups WHERE id = ?').get(g))
+    if (ids.length > 0 && !divisionScoped && gone.length === ids.length) {
+      return { error: 'group-deleted', group_name: lastKnownFields(db, 'groups', gone[0]).get('name') ?? null }
+    }
+  }
+
   // camp_id first: applyProjection's camp guard rejects a camp_id that does
   // not match this device's camp, and ensureExists needs the row to exist
   // before any other field can update it.
@@ -410,28 +411,36 @@ export function restoreEntity(db, { entity, entity_id, author_user_id, device_id
 
   let group_events
   if (entity === 'groups') {
-    group_events = { restored: 0, readded: 0, not_readded: 0 }
+    group_events = { restored: 0, readded: 0, not_readded: 0, gone: 0, failed: 0 }
     for (const op of groupEventOps) {
-      if (op.field === DELETE_FIELD) {
-        const r = restoreEntity(db, { entity: 'fixed_events', entity_id: op.entity_id, author_user_id, device_id })
-        if (r.ok) {
-          group_events.restored += 1
-          ops.push(...r.ops)
+      const row = db.prepare('SELECT group_ids FROM fixed_events WHERE id = ?').get(op.entity_id)
+      try {
+        if (op.field === DELETE_FIELD) {
+          const r = restoreEntity(db, { entity: 'fixed_events', entity_id: op.entity_id, author_user_id, device_id })
+          if (r.ok) {
+            group_events.restored += 1
+            ops.push(...r.ops)
+          } else {
+            throw new Error(`restore refused: ${r.error}`)
+          }
+        } else if (op.field === 'group_ids') {
+          const before = db
+            .prepare("SELECT value FROM operations WHERE entity = 'fixed_events' AND entity_id = ? AND field = 'group_ids' AND seq < ? ORDER BY seq DESC LIMIT 1")
+            .get(op.entity_id, op.seq)
+          if (!row) {
+            group_events.gone += 1
+          } else if (before && JSON.stringify(parseIdList(row.group_ids)) === JSON.stringify(parseIdList(op.value))) {
+            ops.push(
+              appendOp(db, { entity: 'fixed_events', entity_id: op.entity_id, field: 'group_ids', value: before.value, author_user_id, device_id })
+            )
+            group_events.readded += 1
+          } else {
+            group_events.not_readded += 1
+          }
         }
-      } else if (op.field === 'group_ids' && !parseIdList(op.value).includes(entity_id)) {
-        const before = db
-          .prepare("SELECT value FROM operations WHERE entity = 'fixed_events' AND entity_id = ? AND field = 'group_ids' AND seq < ? ORDER BY seq DESC LIMIT 1")
-          .get(op.entity_id, op.seq)
-        const row = db.prepare('SELECT group_ids FROM fixed_events WHERE id = ?').get(op.entity_id)
-        const untouched = row && JSON.stringify(parseIdList(row.group_ids)) === JSON.stringify(parseIdList(op.value))
-        if (before && untouched) {
-          ops.push(
-            appendOp(db, { entity: 'fixed_events', entity_id: op.entity_id, field: 'group_ids', value: before.value, author_user_id, device_id })
-          )
-          group_events.readded += 1
-        } else {
-          group_events.not_readded += 1
-        }
+      } catch (err) {
+        group_events.failed += 1
+        console.error(`restore of group ${entity_id}: event ${op.entity_id} (${op.field}) did not come back`, err)
       }
     }
   }

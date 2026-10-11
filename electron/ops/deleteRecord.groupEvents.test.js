@@ -127,7 +127,7 @@ describe('restoring the group', () => {
     expect(live('music')).toBeTruthy()
     expect(live('sports')).toBeTruthy()
     expect(multiIds()).toEqual(['b2', 'b3'])
-    expect(r.group_events).toEqual({ restored: 2, readded: 1, not_readded: 0 })
+    expect(r.group_events).toEqual({ restored: 2, readded: 1, not_readded: 0, gone: 0, failed: 0 })
   })
 
   it('does not resurrect an event deleted deliberately before the group', () => {
@@ -146,5 +146,45 @@ describe('restoring the group', () => {
     const r = restoreEntity(db, { entity: 'groups', entity_id: 'b2', ...session })
     expect(multiIds()).toEqual(['b3', 'b9'])
     expect(r.group_events.not_readded).toBe(1)
+  })
+
+  it('a hand-deleted event is not brought back by a later group delete with no events of its own', () => {
+    group('b2', 'Badger 2')
+    event('music', { groupIds: ['b2'] })
+    write('fixed_events', 'music', DELETE_FIELD, 1)
+    deleteRecord(db, { entity: 'groups', entity_id: 'b2', ...session })
+    const r = restoreEntity(db, { entity: 'groups', entity_id: 'b2', ...session })
+    expect(live('music')).toBeUndefined()
+    expect(r.group_events.restored).toBe(0)
+  })
+
+  it('counts and reports an event that fails to restore, and still restores the rest', () => {
+    seed()
+    del()
+    db.prepare("DELETE FROM operations WHERE entity_id = 'sports' AND field = 'camp_id'").run()
+    const r = restoreEntity(db, { entity: 'groups', entity_id: 'b2', ...session })
+    expect(r.group_events.failed).toBe(1)
+    expect(r.group_events.restored).toBe(1)
+    expect(live('music')).toBeTruthy()
+  })
+
+  it('says the event row is gone, not that it changed', () => {
+    seed()
+    del()
+    write('fixed_events', 'multi', DELETE_FIELD, 1)
+    const r = restoreEntity(db, { entity: 'groups', entity_id: 'b2', ...session })
+    expect(r.group_events.gone).toBe(1)
+    expect(r.group_events.not_readded).toBe(0)
+  })
+})
+
+describe('restoring a cascaded event on its own', () => {
+  it('is refused while its only group is still deleted, naming the group', () => {
+    seed()
+    del()
+    const r = restoreEntity(db, { entity: 'fixed_events', entity_id: 'music', ...session })
+    expect(r.error).toBe('group-deleted')
+    expect(r.group_name).toBe('Badger 2')
+    expect(live('music')).toBeUndefined()
   })
 })
