@@ -58,9 +58,11 @@ is a span.
 ## Resolution (2026-10-11)
 
 Option 2 shipped. In `src/ingest/textSpans.js` a block is `structurallyFree` only when it is blank for most
-(group, day) sequences AND the group does not print that block on any of its other days. A free period
-recurs on every day; a span tail is blank only where the span is. Red-first tests in
+(group, day) sequences AND the group does not print that block on any of its other days, or it does print it elsewhere but is also
+blank on a day the candidate span is not the head of (a rotating free period: its blankness is not explained
+by the span, so it is free there and no span is inferred). A free period recurs; a span tail is blank only
+where the span is. Red-first tests in
 `src/ingest/textSpans.f5.test.js` (all-camp shape as s02/s08, partial-group shape as s12; a block blank on
 every day after a shared activity stays not-a-span). Not covered: a genuine free period that is printed on
 some other day for that group (e.g. a Friday short day that otherwise fills the block) reads as a span tail
-if every occurrence of the name is followed by it; the all-or-nothing per-activity rule still applies.
+if every occurrence of the name is followed by it and the block is blank only after that name; the all-or-nothing per-activity rule still applies.

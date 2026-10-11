@@ -121,6 +121,16 @@ describe('F5 text-grid spans are one session of N blocks', () => {
     expect(spans.has('ropes course')).toBe(false)
   })
 
+  it('T367: a block blank on days the candidate is not the head (a rotating free period) is not a span tail', () => {
+    const ROTATING = [
+      dayPage('Monday', [[T[0], ['Music', 'Drama', 'Swim']], [T[1], ['Archery', 'Swim', 'Drama']], [T[2], ['Swim', 'Drama', 'Music']]]),
+      dayPage('Tuesday', [[T[0], ['Drama', 'Swim', 'Music']], [T[1], ['Ropes Course', 'Ropes Course', 'Ropes Course']], [T[2], ['', '', '']], ['12:00–12:45', ['Music', 'Swim', 'Drama']]]),
+      dayPage('Wednesday', [[T[0], ['Swim', 'Music', 'Drama']], [T[1], ['Archery', 'Archery', 'Archery']], [T[2], ['', '', '']], ['12:00–12:45', ['Drama', 'Music', 'Swim']]]),
+    ].join('\n\n')
+    const { spans } = importRules(ROTATING)
+    expect(spans.has('ropes course')).toBe(false)
+  })
+
   it('T367 (s12 shape): two of three groups hold the span, the third prints Pottery then a blank-majority block', () => {
     const PART = [
       dayPage('Monday', [[T[0], ['Music', 'Drama', 'Swim']], [T[1], ['Archery', 'Swim', 'Drama']], [T[2], ['Swim', 'Drama', 'Music']]]),
