@@ -154,7 +154,12 @@ async function launchSmoke(executable, timeoutS, quitVia) {
   const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-pkg-smoke-'))
   const marker = path.join(userData, 'deploy-smoke-marker.json')
   const env = smokeLaunchEnv(quitVia, { ...process.env, SHORESH_SMOKE_NONCE: nonce, SHORESH_SMOKE_USERDATA: userData })
-  const child = spawn(executable, [], { env, stdio: 'ignore' })
+  // Keep the tail of the app's stderr: a failed smoke must say WHY (the 2dd5fb7a sync-quit failure
+  // was the app logging "smoke bootstrap failed", which stdio: 'ignore' threw away).
+  const child = spawn(executable, [], { env, stdio: ['ignore', 'ignore', 'pipe'] })
+  let stderrTail = ''
+  child.stderr.on('data', (d) => { stderrTail = (stderrTail + d).slice(-4000) })
+  const failed = (message) => ({ ok: false, message: stderrTail.trim() ? `${message}\n--- packaged app stderr (last 4000 chars) ---\n${stderrTail.trim()}` : message })
   try {
     let booted = false
     for (let s = 0; s < timeoutS && !booted; s++) {
@@ -164,24 +169,24 @@ async function launchSmoke(executable, timeoutS, quitVia) {
         } catch { /* partial write; keep polling */ }
       }
       if (booted) break
-      if (child.exitCode !== null) return { ok: false, message: 'packaged app exited before reaching the smoke heartbeat' }
+      if (child.exitCode !== null) return failed('packaged app exited before reaching the smoke heartbeat')
       await new Promise((r) => setTimeout(r, 1000))
     }
-    if (!booted) return { ok: false, message: `no smoke heartbeat within ${timeoutS}s` }
+    if (!booted) return failed(`no smoke heartbeat within ${timeoutS}s`)
     if (quitVia === 'sigterm-sync') {
       const syncMarker = path.join(userData, SYNC_MARKER)
       const synced = () => {
         try { return JSON.parse(fs.readFileSync(syncMarker, 'utf8')).nonce === nonce } catch { return false }
       }
       for (let s = 0; s < timeoutS && !synced(); s++) {
-        if (child.exitCode !== null) return { ok: false, message: 'packaged app exited before its sync node started' }
+        if (child.exitCode !== null) return failed('packaged app exited before its sync node started')
         await new Promise((r) => setTimeout(r, 1000))
       }
-      if (!synced()) return { ok: false, message: `sync node did not start within ${timeoutS}s of the heartbeat` }
+      if (!synced()) return failed(`sync node did not start within ${timeoutS}s of the heartbeat`)
     }
     if (quitVia !== 'app') child.kill('SIGTERM')
     if (!(await waitForExit(child, QUIT_BOUND_MS))) {
-      return { ok: false, message: `packaged app did not exit within ${QUIT_BOUND_MS / 1000}s of ${quitSignalName(quitVia)}${quitVia === 'sigterm-sync' ? ' with a bootstrapped camp and punch on' : ''}` }
+      return failed(`packaged app did not exit within ${QUIT_BOUND_MS / 1000}s of ${quitSignalName(quitVia)}${quitVia === 'sigterm-sync' ? ' with a bootstrapped camp and punch on' : ''}`)
     }
     return { ok: true }
   } finally {
