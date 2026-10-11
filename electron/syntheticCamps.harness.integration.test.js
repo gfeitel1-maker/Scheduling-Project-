@@ -155,6 +155,9 @@ function importFile(d, id, text, { answerFor = () => null, mode = 'add' } = {}) 
       ...(rule.span_blocks ? { span_blocks: rule.span_blocks } : {}),
       co_schedule: coSchedule.get(name),
       ...(rule.min_from_file ? { min_from_file: true } : {}),
+      // As ImportScreen does (B4): the observation travels with the rule, so the commit writes evidence.
+      eligibility_known: rule.eligibility_known,
+      support: rule.support,
     }
   }
   const baseInputs = {

@@ -128,6 +128,21 @@ describe('ImportScreen — division provenance sent to the commit', () => {
   })
 })
 
+// B4 (docs/adr/2026-08-10-ingestion-evidence-persistence.md): the commit writes an activity's
+// inferred-field evidence only when the rule carries the observation it came from (rule.support,
+// electron/ops/ingest.js writeActivityEvidence). ImportScreen used to drop it from outgoingRules,
+// so no app import ever wrote that evidence.
+describe('ImportScreen — activity rule evidence sent to the commit', () => {
+  it('sends each inferred rule with the observation it came from', async () => {
+    await uploadFile()
+    const payload = await commit()
+    const swim = payload.activityRules.Swim
+    expect(swim.support).toMatchObject({ appearances: 3 })
+    expect(swim.support.matched_groups.length).toBeGreaterThan(0)
+    expect(typeof swim.eligibility_known).toBe('boolean')
+  })
+})
+
 // T40 slice 3a — a one-day special schedule must be recognised and stopped,
 // not silently folded into the camp's permanent weekly setup.
 const FOUR_GROUPS = [
