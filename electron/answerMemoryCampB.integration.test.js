@@ -28,7 +28,7 @@ import { inferFixedEvents } from '../src/ingest/fixedEvents.js'
 import { derivePinOnlyActivityNames } from '../src/ingest/pinOnlyActivityNames.js'
 import { inferActivityRules } from '../src/ingest/activityRules.js'
 import { buildReconciliationReport } from '../src/ingest/reconciliationReport.js'
-import { foldTriageInputs } from '../src/screens/reconciliationTriage.js'
+import { foldTriageInputs, heldBackDecisions } from '../src/screens/reconciliationTriage.js'
 import { answerMemoryEntries, attachRecall } from '../src/ingest/answerRecall.js'
 import { classifyDecision } from '../src/ingest/answerMemory.js'
 
@@ -135,5 +135,25 @@ describe('campB answer memory through the real handlers', () => {
     const base = campBInputs(['Sports'])
     const report = await reconcile(base)
     for (const d of report.decisions) expect(classifyDecision(d), `${d.kind}/${d.entity}`).toBeTruthy()
+  })
+})
+
+describe('the audit path: every activity asked, only Sports answered, "Use what Shoresh understood"', () => {
+  it('commits the accepted create, so it is not asked again; the unanswered ones stay open and are asked again', async () => {
+    const names = extractEntities(parseTextGrid(campB)).entities.activities
+    const base = campBInputs(names)
+    const report = await reconcile(base)
+    const asked = report.decisions.filter((d) => d.entity === 'activities')
+    expect(asked.length).toBeGreaterThan(1)
+    const sports = report.decisions.find((d) => d.entityName === 'Sports')
+    const answers = { [sports.id]: { action: 'looks_right' } }
+    const outcome = await handlers.ingestCommit({ token, ...foldTriageInputs(base, report.decisions, answers), openDecisions: heldBackDecisions(report.decisions, answers), captureInverse: true })
+    expect(outcome.held).toBe(false)
+    expect(db.prepare("SELECT name FROM activities WHERE lower(name) = 'sports'").all()).toHaveLength(1)
+    const res = await handlers.rememberImportAnswers({ token, importId: randomUUID(), entries: answerMemoryEntries(report.decisions, answers, { bulkIds: new Set() }) })
+    expect(res.skipped.map((x) => x.reason)).toEqual(['state_derived'])
+    const again = await reconcile(base)
+    expect(again.decisions.map((d) => d.entityName)).not.toContain('Sports')
+    expect(again.decisions.filter((d) => d.entity === 'activities')).toHaveLength(asked.length - 1)
   })
 })
