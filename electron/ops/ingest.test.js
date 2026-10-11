@@ -1556,6 +1556,86 @@ describe('confirmedElectiveSets (Slice 3a)', () => {
   })
 })
 
+// F6 change 5 (docs/adr/2026-10-11-import-electives-keep-their-shape.md D2):
+// the set's choices land as elective_set_activities rows, always 'potential'.
+describe('confirmedElectiveSets choices (F6 change 5)', () => {
+  const choicesOf = (name) => db.prepare(
+    `SELECT a.name AS activity, esa.status FROM elective_set_activities esa
+       JOIN elective_sets es ON es.id = esa.elective_set_id
+       JOIN activities a ON a.id = esa.activity_id
+      WHERE es.name = ? ORDER BY a.name`
+  ).all(name)
+
+  it('writes each choice as a POTENTIAL elective_set_activities row, reusing a matching activity and creating the rest', () => {
+    const existing = randomUUID()
+    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run(existing, campId, 'Hiking')
+    const result = commitIngest(db, {
+      approved: {}, camp_id: campId, device_id: deviceId,
+      confirmedElectiveSets: [{ name: 'Chugim', choices: ['hiking', 'Fishing', 'Kayaking'] }],
+    })
+    expect(result.electiveSetsCreated).toHaveLength(1)
+    expect(choicesOf('Chugim')).toEqual([
+      { activity: 'Fishing', status: 'potential' },
+      { activity: 'Hiking', status: 'potential' },
+      { activity: 'Kayaking', status: 'potential' },
+    ])
+    expect(db.prepare("SELECT COUNT(*) c FROM activities WHERE name LIKE 'hiking' COLLATE NOCASE").get().c).toBe(1)
+    expect(db.prepare("SELECT activity_id FROM elective_set_activities LIMIT 100").all().map((r) => r.activity_id)).toContain(existing)
+  })
+
+  it('a bare word (no choices) is a set with zero choices', () => {
+    commitIngest(db, { approved: {}, camp_id: campId, device_id: deviceId, confirmedElectiveSets: [{ name: 'Electives' }] })
+    expect(count('elective_sets')).toBe(1)
+    expect(count('elective_set_activities')).toBe(0)
+  })
+
+  it('a choice listed twice is one row; the second is "already a choice", never thrown', () => {
+    const result = commitIngest(db, {
+      approved: {}, camp_id: campId, device_id: deviceId,
+      confirmedElectiveSets: [{ name: 'Chugim', choices: ['Hiking', 'HIKING', 'Fishing'] }],
+    })
+    expect(result.electiveSetsFailed).toBeUndefined()
+    expect(choicesOf('Chugim').map((r) => r.activity)).toEqual(['Fishing', 'Hiking'])
+  })
+
+  it('writes elective_set_id and activity_id before status, and never a confirmed row', () => {
+    commitIngest(db, {
+      approved: {}, camp_id: campId, device_id: deviceId,
+      confirmedElectiveSets: [{ name: 'Chugim', choices: ['Hiking'] }],
+    })
+    const id = db.prepare('SELECT id FROM elective_set_activities').get().id
+    const fields = db.prepare("SELECT field FROM operations WHERE entity = 'elective_set_activities' AND entity_id = ? ORDER BY seq").all(id).map((o) => o.field)
+    expect(fields.indexOf('elective_set_id')).toBeLessThan(fields.indexOf('status'))
+    expect(fields.indexOf('activity_id')).toBeLessThan(fields.indexOf('status'))
+    expect(db.prepare("SELECT COUNT(*) c FROM elective_set_activities WHERE status = 'confirmed'").get().c).toBe(0)
+  })
+
+  it('one choice failing to write does not stop the others or fail the commit', () => {
+    const originalPrepare = db.prepare.bind(db)
+    let failed = false
+    db.prepare = (sql) => {
+      if (!failed && sql.includes('INSERT OR IGNORE INTO elective_set_activities')) {
+        failed = true
+        throw new Error('simulated write failure')
+      }
+      return originalPrepare(sql)
+    }
+    let result
+    try {
+      result = commitIngest(db, {
+        approved: {}, camp_id: campId, device_id: deviceId,
+        confirmedElectiveSets: [{ name: 'Chugim', choices: ['Hiking', 'Fishing'] }],
+      })
+    } finally {
+      db.prepare = originalPrepare
+    }
+    expect(result.held).toBe(false)
+    expect(count('elective_sets')).toBe(1)
+    expect(count('elective_set_activities')).toBe(1)
+    expect(result.electiveSetsFailed).toHaveLength(1)
+  })
+})
+
 // docs/adr/2026-08-23-activity-recurrence-tiers-ingestion.md §3.2/§3.4/§4.1.
 // The classifier write of activities.recurrence_truth_status at ingest
 // commit. Column already exists (v44, PR #162) — this is populating it.

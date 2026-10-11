@@ -28,6 +28,7 @@ import { activityTruthStatus } from '../../src/ingest/truthStatus.js'
 import { resolveLocationCreateId } from './locationCreate.js'
 import { deriveDayId } from './dayId.js'
 import { PROJECTIONS } from './projections.js'
+import { deriveElectiveImportId } from '../../src/ingest/electiveSetPopulate.js'
 import { writeRouteSnapshot, campCatalog } from './deleteRecord.js'
 import { attachNames } from '../../src/utils/snapshotRemap.js'
 import { U2_DELETABLE_ENTITIES, referencesInto } from './undoReferences.js'
@@ -625,15 +626,57 @@ function buildExistingSnapshot(db, camp_id, cohort_id, mode) {
  * that DOES hold returns the normal `{ held: true, conflicts, ... }` shape,
  * with none of these three fields present — same as a real held commit.
  */
+// F6 change 5: a set's imported choices, written as POTENTIAL
+// elective_set_activities rows (the director has not vouched for them; the
+// solver counts only confirmed). elective_set_activities has no
+// UNIQUE_FIRST_FIELD entry: its projection only materializes a row once both
+// elective_set_id and activity_id have been written, so those go first, then
+// status. The row id is content-keyed (deriveElectiveImportId), so two devices
+// importing the same choice converge on one row; a choice that is already
+// there (any status) is left exactly as it is. Each choice is isolated: a
+// failure is a soft entry in `failed`, never thrown.
+function writeElectiveChoices(db, { setId, setName, choices, camp_id, author_user_id, device_id, failed }) {
+  const activityIdByKey = new Map()
+  for (const row of db.prepare('SELECT id, name FROM activities WHERE camp_id = ? ORDER BY id ASC').all(camp_id)) {
+    const k = recognitionKey('activities', row.name)
+    if (!activityIdByKey.has(k)) activityIdByKey.set(k, row.id)
+  }
+  const op = (entity, entityId, field, value) => appendOp(db, {
+    entity, entity_id: entityId, field, value, author_user_id: author_user_id ?? null, device_id,
+    parent_op_id: null, source: 'human', client_write_id: randomUUID(),
+  })
+  for (const raw of Array.isArray(choices) ? choices : []) {
+    const choiceName = String(raw ?? '').trim()
+    if (!choiceName) continue
+    try {
+      const k = recognitionKey('activities', choiceName)
+      let activityId = activityIdByKey.get(k)
+      if (!activityId) {
+        activityId = randomUUID()
+        op('activities', activityId, 'name', choiceName)
+        op('activities', activityId, 'camp_id', camp_id)
+        activityIdByKey.set(k, activityId)
+      }
+      const joinId = deriveElectiveImportId(setId, activityId)
+      if (db.prepare('SELECT 1 FROM elective_set_activities WHERE elective_set_id = ? AND activity_id = ?').get(setId, activityId)) continue
+      op('elective_set_activities', joinId, 'elective_set_id', setId)
+      op('elective_set_activities', joinId, 'activity_id', activityId)
+      op('elective_set_activities', joinId, 'status', 'potential')
+    } catch (err) {
+      if (/UNIQUE/i.test(err.message)) continue
+      failed.push({ name: choiceName, message: `Couldn't add "${choiceName}" as a choice of the "${setName}" elective: ${err.message}` })
+    }
+  }
+}
+
 // Slice 3a (docs/adr/2026-08-22-nested-schedules-electives-and-events.md §4
 // addendum): the standing invariant — "electives are authored, never
 // reconstructed from a file" (electron/ops/durableElectiveSets.js) — is
 // honored, not broken, by pre-filling this SAME low-level create mechanism
 // commitPlan's commitCreate uses for every other entity: appendOp per field,
 // which PROJECTIONS.js (registered for 'elective_sets') replays into the
-// table. Never a raw INSERT, never elective_set_activities (ingest creates
-// the empty set only — offerings stay a director-authored step on the
-// Electives screen).
+// table. Never a raw INSERT. Imported choices (F6 change 5, writeElectiveChoices
+// above) land as POTENTIAL rows the director confirms on the Electives screen.
 //
 // Idempotent on repeat: if a live elective_sets row already carries this
 // name for the camp — compared CASE/WHITESPACE-INSENSITIVELY (fix, panel
@@ -682,6 +725,7 @@ function commitElectiveCandidates(db, { confirmedElectiveSets = [], camp_id, aut
       appendOp(db, { ...commonOp, field: 'camp_id', value: camp_id, client_write_id: randomUUID() })
       created.push({ id, name })
       liveNormalizedNames.add(key)
+      writeElectiveChoices(db, { setId: id, setName: name, choices: candidate.choices, camp_id, author_user_id, device_id, failed })
     } catch (err) {
       failed.push({ name, message: `Couldn't open the "${name}" elective space: ${err.message}` })
     }
