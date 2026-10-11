@@ -504,7 +504,7 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
       error={error}
     >
       {note && <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>{note}</div>}
-      {toast && <div style={{ ...S.errorBanner, background: 'var(--surface)', marginBottom: 16 }}>{toast}</div>}
+      {toast && <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, padding: '10px 14px', fontSize: 13, color: 'var(--text)', marginBottom: 16 }}>{toast}</div>}
 
       {loading ? (
         <div style={S.stateLoading}>Loading…</div>

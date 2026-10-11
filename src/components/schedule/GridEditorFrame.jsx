@@ -11,6 +11,10 @@ import { placeCell, placeRowHeader } from '../../screens/schedule/gridPlacement'
 import { blockLabelParts } from '../../utils/timeBlockLabel'
 import './scheduleGrid.css'
 
+// Same device as the day view: the frame's min-width is the scroll floor, so many groups
+// scroll inside the overflowX container instead of squeezing each column to a letter.
+const COLUMN_FLOOR = 88
+
 export default function GridEditorFrame({
   enterStyle, onBack, backLabel, title, meta, banners,
   toolbarActions, groups, timeBlocks, filledCount, totalCells,
@@ -41,13 +45,13 @@ export default function GridEditorFrame({
 
       {empty ?? (
         <div style={{ overflowX: 'auto' }}>
-          <div role="grid" className="schedule-grid-frame" aria-rowcount={timeBlocks.length + 1} aria-colcount={groups.length + 1}>
+          <div role="grid" className="schedule-grid-frame" style={{ '--frame-min-width': `${140 + groups.length * COLUMN_FLOOR}px` }} aria-rowcount={timeBlocks.length + 1} aria-colcount={groups.length + 1}>
             <div role="rowgroup" className="schedule-grid schedule-grid--header" style={{ gridTemplateColumns }}>
               <div role="row" style={{ display: 'contents' }}>
                 <div role="columnheader" className="cell row-header" aria-colindex={1} style={placeRowHeader({ blockIndex: 0 })}>Block</div>
                 {groups.map((g, groupIndex) => (
                   <div key={g.id} role="columnheader" className="cell" aria-colindex={groupIndex + 2} title={g.name}
-                    style={{ ...placeCell({ blockIndex: 0, columnIndex: groupIndex }), whiteSpace: 'normal', overflowWrap: 'anywhere', textOverflow: 'clip' }}>
+                    style={{ ...placeCell({ blockIndex: 0, columnIndex: groupIndex }), whiteSpace: 'normal', overflowWrap: 'normal', textOverflow: 'clip' }}>
                     {renderColumnHeader ? renderColumnHeader(g, groupIndex) : g.name}
                   </div>
                 ))}
