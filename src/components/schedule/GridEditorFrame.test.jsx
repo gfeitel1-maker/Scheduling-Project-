@@ -78,4 +78,23 @@ describe('GridEditorFrame', () => {
     fireEvent.click(screen.getByText('Print'))
     expect(h.onPrint).toHaveBeenCalled()
   })
+
+  it('shows a block named after its own times once, as the friendly range', () => {
+    renderFrame({ timeBlocks: [{ id: 'b1', name: '08:40-09:00', start_time: '08:40', end_time: '09:00' }] })
+    expect(screen.queryByText('08:40-09:00')).toBeNull()
+    expect(screen.getAllByText('8:40–9:00 AM')).toHaveLength(1)
+  })
+
+  it('shows a real block name plus the friendly time', () => {
+    renderFrame({ timeBlocks: [{ id: 'b1', name: 'Lunch Period', start_time: '12:00', end_time: '12:40' }] })
+    expect(screen.getByText('Lunch Period')).toBeTruthy()
+    expect(screen.getByText('12:00–12:40 PM')).toBeTruthy()
+  })
+
+  it('keeps similar group headers readable: full name in the title, wrapping instead of truncating', () => {
+    renderFrame({ groups: [{ id: 'g1', name: 'Badger 2' }, { id: 'g2', name: 'Badger 3' }, { id: 'g3', name: 'Porcupine 2' }] })
+    const heads = screen.getAllByRole('columnheader').filter((h) => h.textContent !== 'Block')
+    expect(heads.map((h) => h.getAttribute('title'))).toEqual(['Badger 2', 'Badger 3', 'Porcupine 2'])
+    for (const h of heads) expect(h.style.whiteSpace).toBe('normal')
+  })
 })

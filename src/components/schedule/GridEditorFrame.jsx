@@ -8,7 +8,7 @@ import { S } from '../../styles/shared'
 import { ArrowIcon, CloseIcon } from '../icons'
 import { buildRowTracks, columnTracks } from '../../screens/schedule/gridTracks'
 import { placeCell, placeRowHeader } from '../../screens/schedule/gridPlacement'
-import { timeRangeLabel } from '../../utils/timeBlockLabel'
+import { blockLabelParts } from '../../utils/timeBlockLabel'
 import './scheduleGrid.css'
 
 export default function GridEditorFrame({
@@ -46,8 +46,8 @@ export default function GridEditorFrame({
               <div role="row" style={{ display: 'contents' }}>
                 <div role="columnheader" className="cell row-header" aria-colindex={1} style={placeRowHeader({ blockIndex: 0 })}>Block</div>
                 {groups.map((g, groupIndex) => (
-                  <div key={g.id} role="columnheader" className="cell" aria-colindex={groupIndex + 2}
-                    style={placeCell({ blockIndex: 0, columnIndex: groupIndex })}>
+                  <div key={g.id} role="columnheader" className="cell" aria-colindex={groupIndex + 2} title={g.name}
+                    style={{ ...placeCell({ blockIndex: 0, columnIndex: groupIndex }), whiteSpace: 'normal', overflowWrap: 'anywhere', textOverflow: 'clip' }}>
                     {renderColumnHeader ? renderColumnHeader(g, groupIndex) : g.name}
                   </div>
                 ))}
@@ -63,7 +63,7 @@ export default function GridEditorFrame({
                         <button type="button" className="cell-action" title="Move up" onClick={() => onMoveBlock(block.id, -1)} disabled={blockIndex === 0}><ArrowIcon direction="up" /></button>
                         <button type="button" className="cell-action" title="Move down" onClick={() => onMoveBlock(block.id, 1)} disabled={blockIndex === timeBlocks.length - 1}><ArrowIcon direction="down" /></button>
                       </div>
-                      <InlineName name={block.name} sub={timeRangeLabel(block)} onRename={(name) => onRenameBlock(block.id, name)} />
+                      <InlineName name={blockLabelParts(block).name} sub={blockLabelParts(block).time} editValue={block.name} onRename={(name) => onRenameBlock(block.id, name)} />
                       <button type="button" className="cell-action" title="Remove block" onClick={() => onRemoveBlock(block.id)} style={{ color: 'var(--danger)' }}><CloseIcon size={10} /></button>
                     </div>
                   </div>
@@ -89,12 +89,12 @@ export default function GridEditorFrame({
 }
 
 // Click-to-rename label for a block row header or an event group column header.
-export function InlineName({ name, sub, onRename }) {
+export function InlineName({ name, sub, editValue = name, onRename }) {
   const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(name)
+  const [draft, setDraft] = useState(editValue)
 
   function startEditing() {
-    setDraft(name)
+    setDraft(editValue)
     setEditing(true)
   }
 

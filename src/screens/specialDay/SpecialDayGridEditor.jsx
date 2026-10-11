@@ -33,6 +33,9 @@ const LABELS = {
   printAction: 'Print',
   locationPlaceholder: '— No location —',
   locationAddHint: '+ location',
+  notPlacedNote: 'Brought your every-day events. Put this special day on a weekday to bring that day\u2019s other events.',
+  bring: 'Bring',
+  skip: 'Skip',
   deletedElsewhere: 'This special day was deleted.',
 }
 
@@ -66,6 +69,8 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
   const [locations, setLocations] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [offer, setOffer] = useState(null)
+  const [copyNote, setCopyNote] = useState(null)
   const [editingName, setEditingName] = useState(false)
   const [nameDraft, setNameDraft] = useState('')
   const [notesDraft, setNotesDraft] = useState('')
@@ -194,9 +199,22 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
 
   async function copyBlocks() {
     try {
-      await copyCampTimeBlocks({ campId, specialDayId })
+      const { carriedCount, placed, offer: found } = await copyCampTimeBlocks({ campId, specialDayId })
+      setOffer(found)
+      setCopyNote(carriedCount > 0 && !placed ? LABELS.notPlacedNote : null)
     } catch (err) {
       setError(describeWriteFailure(err, seedFailureMessage(err.seededCount ?? 0, err.totalCount ?? 0)))
+    }
+    await load()
+  }
+
+  async function bringOffered() {
+    const current = offer
+    setOffer(null)
+    try {
+      await current.apply()
+    } catch (err) {
+      setError(describeWriteFailure(err, 'Could not bring the recurring events.'))
     }
     await load()
   }
@@ -338,7 +356,19 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
           onDeletedElsewhere={onDeletedElsewhere}
         />
       }
-      banners={error && <FailureLine message={error} />}
+      banners={(
+        <>
+          {error && <FailureLine message={error} />}
+          {offer && (
+            <div style={styles.offer}>
+              <span>{`Also bring ${offer.count} recurring event${offer.count === 1 ? '' : 's'} from ${offer.dayLabel}?`}</span>
+              <button type="button" className="press-97" onClick={bringOffered} style={styles.offerBtn}>{LABELS.bring}</button>
+              <button type="button" className="press-97" onClick={() => setOffer(null)} style={styles.offerBtn}>{LABELS.skip}</button>
+            </div>
+          )}
+          {copyNote && <div style={styles.offer}>{copyNote}</div>}
+        </>
+      )}
       toolbarActions={<button className="press-97" onClick={addBlock} style={S.btnSecondary}>{LABELS.addBlock}</button>}
       groups={groups}
       timeBlocks={timeBlocks}
@@ -408,4 +438,12 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
       <div ref={notesPrintRef} className="notes-print-view" style={{ display: 'none' }} />
     </GridEditorFrame>
   )
+}
+
+const styles = {
+  offer: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 14px' },
+  offerBtn: {
+    background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+    color: 'var(--primary)', fontSize: 13, fontFamily: 'inherit', textDecoration: 'underline',
+  },
 }
