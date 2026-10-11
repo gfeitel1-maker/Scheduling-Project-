@@ -6,7 +6,7 @@
 // Rules:
 //   * Offered: every 'trip' and 'subset-day' detection, only when the camp has at least one week.
 //     A camp with no weeks is not offered trips (the cells stay as they import today). 'all-camp-day'
-//     is slice 3b and is not handled here: it stays exactly as it imports today.
+//     is planWholeCampDays below (slice 3b), never this function.
 //   * Answer: the director's answer for the item, else the detector's defaultAnswer. With no week to
 //     bind to (several weeks, none open) the item is PENDING whatever its default: a trip is never
 //     written with a NULL week, and a pending item's cells commit as they do today.
@@ -75,6 +75,50 @@ export function planTripEvents({ detections = [], answers = {}, weekId = null, w
     for (const c of d.claims ?? []) claims.set(cellKey(c.groupName, c.dayName, c.blockLabel), normalizeName(d.name))
   }
   return { items, fixedEvents, claims }
+}
+
+/**
+ * F3/F4 slice 3b: the 'all-camp-day' detections. The dangerous item: it is never pre-selected (the detector
+ * gives it no default, and nothing here supplies one), so only the director's explicit answer accepts it.
+ *   answer 'special_day' + a week -> a wholeCampDays entry (commitPlan builds the special day and binds it to
+ *                                    that week and day); its cells are claimed.
+ *   anything else + a week        -> week-bound all-camp 'fixed' events, the non-replacing result.
+ *   no week                       -> pending, nothing emitted; the cells import as they do today.
+ * @returns {{ items: Array<{ key, detection, answer: 'special_day'|'events'|null, weekId: string|null, pending: boolean, accepted: boolean }>,
+ *   fixedEvents: Array<object>, wholeCampDays: Array<object>, claims: Map<string, string> }}
+ */
+export function planWholeCampDays({ detections = [], answers = {}, weekId = null, weekByKey = {}, hasWeeks = false } = {}) {
+  const items = []
+  const fixedEvents = []
+  const wholeCampDays = []
+  const claims = new Map()
+  if (!hasWeeks) return { items, fixedEvents, wholeCampDays, claims }
+  for (const d of detections) {
+    if (d.kind !== 'all-camp-day') continue
+    const key = tripItemKey(d)
+    const answer = answers[key] ?? null
+    const week = weekByKey[key] ?? weekId ?? null
+    const accepted = Boolean(week) && answer === 'special_day'
+    items.push({ key, detection: d, answer, weekId: week, pending: answer == null || !week, accepted })
+    if (!week) continue
+    if (accepted) {
+      wholeCampDays.push({ name: d.name, day: d.day, weekId: week, blocks: [...d.blocks], groups: [...d.groupIds] })
+    } else {
+      fixedEvents.push({
+        name: d.name,
+        time_block: d.blocks[0],
+        days: [d.day],
+        kind: 'fixed',
+        scope: { is_all_groups: true, groups: null },
+        confidence: 'high',
+        ...(d.blocks.length > 1 ? { span_blocks: d.blocks.length } : {}),
+        weekId: week,
+        trip: true,
+      })
+    }
+    for (const c of d.claims ?? []) claims.set(cellKey(c.groupName, c.dayName, c.blockLabel), normalizeName(d.name))
+  }
+  return { items, fixedEvents, wholeCampDays, claims }
 }
 
 /**
@@ -170,4 +214,16 @@ export function dropMultiBlockForTrips(candidates = [], tripFixedEvents = []) {
     if (days.length > 0) out.push({ ...c, days })
   }
   return out
+}
+
+export function wholeCampDayNotices(outcome) {
+  const notices = []
+  for (const w of outcome?.wholeCampDays ?? []) {
+    if (w.keptExisting) notices.push(`${w.name} on ${w.day} was not made a special day: that day already has a special day in that week, and it was left as it was.`)
+    else if (w.skipped) notices.push(`${w.name} on ${w.day} was not made a special day: ${w.skipped}.`)
+  }
+  for (const p of outcome?.placementsDropped ?? []) {
+    notices.push(`A special day placed on ${p.dayLabel ?? 'a day'} was unplaced because that day no longer exists after Replace. The special day itself is kept.`)
+  }
+  return notices
 }

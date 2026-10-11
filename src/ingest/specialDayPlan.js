@@ -64,6 +64,11 @@ export function buildSpecialDayPlan(proposal, live) {
   }))
   const unmatchedColumns = columns.filter((c) => !c.groupId && !c.ambiguous).map((c) => c.columnName)
   const ambiguousColumns = columns.filter((c) => c.ambiguous).map((c) => c.columnName)
+  // Two columns that resolve to ONE group derive the same cell ids, so the second would silently overwrite
+  // the first while the cell count included both.
+  const columnsByGroup = new Map()
+  for (const c of columns) if (c.groupId) columnsByGroup.set(c.groupId, [...(columnsByGroup.get(c.groupId) ?? []), c.columnName])
+  const duplicateColumns = [...columnsByGroup.values()].filter((names) => names.length > 1).flat()
 
   const timeBlocks = proposal.timeBlocks.map((name, i) => ({
     name,
@@ -113,6 +118,7 @@ export function buildSpecialDayPlan(proposal, live) {
   // explanation.
   if (unmatchedColumns.length > 0) blockedBy.push('unmatched_columns')
   if (ambiguousColumns.length > 0) blockedBy.push('ambiguous_columns')
+  if (duplicateColumns.length > 0) blockedBy.push('duplicate_columns')
   if (ambiguousActivityNamesList.length > 0) blockedBy.push('ambiguous_activities')
   // Blocked because two special days sharing a name is a mess for the director,
   // NOT because the database would stop it. _Prior: this comment read
@@ -129,6 +135,7 @@ export function buildSpecialDayPlan(proposal, live) {
     columns,
     unmatchedColumns,
     ambiguousColumns,
+    duplicateColumns,
     timeBlocks,
     activities: activityRows,
     newActivityNames,

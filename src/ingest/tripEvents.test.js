@@ -5,7 +5,7 @@ import { inferFixedEvents } from './fixedEvents.js'
 import { inferTextSpans } from './textSpans.js'
 import { inferActivityRules } from './activityRules.js'
 import { detectTripsAndSpecialDays } from './tripDetection.js'
-import { planTripEvents, applyTripClaims, tripItemKey } from './tripEvents.js'
+import { planTripEvents, applyTripClaims, tripItemKey, wholeCampDayNotices } from './tripEvents.js'
 
 const LABELS = ['09:00-09:45', '09:50-10:35', '10:40-11:25', '11:30-12:15', '12:20-13:05']
 function grid(days) {
@@ -86,5 +86,25 @@ describe('applyTripClaims', () => {
     expect(c.fullyClaimedNames).toEqual(['Zoo Trip'])
     expect(c.seenCounts.activities['Zoo Trip']).toBe(0)
     expect(c.fixedEvents.map((fe) => fe.name)).toEqual(['Lunch'])
+  })
+})
+
+describe('wholeCampDayNotices: every outcome the director did not get is said out loud', () => {
+  it('says nothing when everything was placed or already in place', () => {
+    expect(wholeCampDayNotices({ wholeCampDays: [{ name: 'Games Day', day: 'Friday', created: true, placed: true }] })).toEqual([])
+    expect(wholeCampDayNotices({})).toEqual([])
+  })
+  it('names a kept-existing binding, a skipped item and a dropped placement', () => {
+    const n = wholeCampDayNotices({
+      wholeCampDays: [
+        { name: 'Games Day', day: 'Friday', keptExisting: true },
+        { name: 'Spirit Day', day: 'Monday', skipped: 'a special day with that name already exists' },
+      ],
+      placementsDropped: [{ dayLabel: 'Friday', specialDayId: 'x' }],
+    })
+    expect(n).toHaveLength(3)
+    expect(n[0]).toMatch(/Games Day.*Friday.*already has a special day/)
+    expect(n[1]).toMatch(/Spirit Day.*Monday.*already exists/)
+    expect(n[2]).toMatch(/Friday.*no longer/)
   })
 })

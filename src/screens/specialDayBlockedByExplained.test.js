@@ -42,6 +42,7 @@ const EXPLAINED_BY_FIELD = {
   ambiguous_columns: 'ambiguousColumns',
   ambiguous_activities: 'ambiguousActivityNames',
   name_taken: 'nameTaken',
+  duplicate_columns: 'duplicateColumns',
 }
 const NEEDS_NO_MESSAGE = new Set(['no_name'])
 
