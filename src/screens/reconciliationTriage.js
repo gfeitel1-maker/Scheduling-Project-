@@ -228,18 +228,38 @@ export function foldTriageInputs(baseInputs, decisions, answers) {
       declinedElectiveKeys.add(normalizeName(d.entityName))
     }
   }
+  const listCells = []
   for (const d of decisions) {
     if (d.kind !== 'elective_candidate' || !d.entityName) continue
     const key = normalizeName(d.entityName)
     if (declinedElectiveKeys.has(key) || seenElectiveKeys.has(key)) continue
     seenElectiveKeys.add(key)
+    const choices = d.evidence?.choices
+    if (Array.isArray(choices)) {
+      // D3: a strict split stays split unless declined; an ambiguous cell is
+      // one activity unless the director said it is a choice of several.
+      if (d.evidence.detector === 'list_question' && answers[d.id]?.choice !== 'confirm') continue
+      listCells.push({ cell: d.entityName, choices, column: d.evidence.column || null })
+      continue
+    }
     confirmedElectiveSets.push({ name: d.entityName })
   }
+  const listSets = nameListSets(listCells, baseInputs.placements)
+  confirmedElectiveSets.push(...listSets)
+  const splitCellKeys = new Set(listSets.flatMap((set) => set.cellTexts.map(normalizeName)))
+  const approvedWithoutSplits = splitCellKeys.size
+    ? Object.fromEntries(Object.entries(approved).map(([entity, rows]) => [entity, entity === 'activities'
+      ? rows.filter((r) => !splitCellKeys.has(normalizeName(typeof r === 'object' ? r.name : r)))
+      : rows]))
+    : approved
 
   // "It's for all camp": the groups the file left out become eligible too.
   // Eligibility is per activity, not per slot, so this widens the activity's
   // rule; "It really excludes" and an unanswered card leave the file's groups.
   let activityRules = baseInputs.activityRules
+  if (splitCellKeys.size && activityRules) {
+    activityRules = Object.fromEntries(Object.entries(activityRules).filter(([name]) => !splitCellKeys.has(normalizeName(name))))
+  }
   for (const d of decisions) {
     if (d.kind !== 'all_camp_override' || answers[d.id]?.choice !== 'all_camp') continue
     const rule = activityRules?.[d.entityName]
@@ -268,12 +288,34 @@ export function foldTriageInputs(baseInputs, decisions, answers) {
     : basePins
 
   return {
-    ...baseInputs, approved, activityRules, pinOnlyActivityNames,
+    ...baseInputs, approved: approvedWithoutSplits, activityRules, pinOnlyActivityNames,
     fixedEvents: eventsByAnswer.length ? [...fixedEvents, ...eventsByAnswer] : fixedEvents,
     resolutions: [...(baseInputs.resolutions ?? []), ...resolutions],
     confirmedElectiveSets: [...(baseInputs.confirmedElectiveSets ?? []), ...confirmedElectiveSets],
     ...(baseInputs.placements ? { placements: markElectivePlacements(baseInputs.placements, confirmedElectiveSets) } : {}),
   }
+}
+
+// D3: one set per distinct choice list. The set is named after the cell's
+// column header when the plan has one, else "Electives"; when one base name
+// would carry different lists each is suffixed with the day and block of its
+// first placement ("Electives (Tue 14:00)").
+function nameListSets(listCells, placements = []) {
+  const byList = new Map()
+  for (const { cell, choices, column } of listCells) {
+    const listKey = choices.map(normalizeName).join('|')
+    if (!byList.has(listKey)) byList.set(listKey, { base: column || 'Electives', choices, cellTexts: [] })
+    byList.get(listKey).cellTexts.push(cell)
+  }
+  const lists = [...byList.values()]
+  const perBase = new Map()
+  for (const l of lists) perBase.set(normalizeName(l.base), (perBase.get(normalizeName(l.base)) ?? 0) + 1)
+  return lists.map((l) => {
+    if (perBase.get(normalizeName(l.base)) === 1) return { name: l.base, choices: l.choices, cellTexts: l.cellTexts }
+    const first = (placements ?? []).find((p) => l.cellTexts.some((c) => normalizeName(c) === normalizeName(p.activityName)))
+    const where = first ? `${String(first.dayName).slice(0, 3)} ${first.blockLabel}` : l.choices[0]
+    return { name: `${l.base} (${where})`, choices: l.choices, cellTexts: l.cellTexts }
+  })
 }
 
 // S1b's "Remember this" alias-confirmation, restored from ImportScreen's old

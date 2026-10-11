@@ -29,7 +29,7 @@ import { inferTextSpans } from './textSpans.js'
 // cells ({ ..., electiveSetName, choices }), leaving every other placement
 // untouched. Same array back when nothing matches.
 export function markElectivePlacements(placements, electiveSets = []) {
-  const setByKey = new Map(electiveSets.map((set) => [normalizeName(set.name), set]))
+  const setByKey = new Map(electiveSets.flatMap((set) => [set.name, ...(set.cellTexts ?? [])].map((text) => [normalizeName(text), set])))
   if (setByKey.size === 0) return placements
   return placements.map((p) => {
     const set = setByKey.get(normalizeName(p.activityName))

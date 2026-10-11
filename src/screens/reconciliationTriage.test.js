@@ -218,6 +218,63 @@ describe('foldTriageInputs', () => {
     ])
   })
 
+  describe('D3 list cells', () => {
+    const CELL = 'Hiking / Fishing / Kayaking'
+    const split = (cell, choices, over = {}) => ({ id: `s:${cell}`, kind: 'elective_candidate', entity: 'elective_sets', entityName: cell, evidence: { detector: 'shape', choices }, ...over })
+    const ask = (cell, choices) => split(cell, choices, { evidence: { detector: 'list_question', choices } })
+    const base = () => ({
+      ...baseInputs,
+      approved: { activities: [CELL, 'Swim'] },
+      activityRules: { [CELL]: { eligible_group_names: ['Hawks'] } },
+      placements: [
+        { groupName: 'Hawks', dayName: 'Tuesday', blockLabel: '14:00', activityName: CELL },
+        { groupName: 'Hawks', dayName: 'Tuesday', blockLabel: '09:00', activityName: 'Swim' },
+      ],
+    })
+
+    it('an unanswered split cell becomes an Electives set with its choices; the slashed name is not an activity', () => {
+      const out = foldTriageInputs(base(), [split(CELL, ['Hiking', 'Fishing', 'Kayaking'])], {})
+      expect(out.confirmedElectiveSets).toEqual([expect.objectContaining({ name: 'Electives', choices: ['Hiking', 'Fishing', 'Kayaking'] })])
+      expect(JSON.stringify(out.approved.activities)).not.toContain('Hiking')
+      expect(out.activityRules[CELL]).toBeUndefined()
+      expect(out.placements[0]).toMatchObject({ electiveSetName: 'Electives', choices: ['Hiking', 'Fishing', 'Kayaking'] })
+      expect(out.placements[1].activityName).toBe('Swim')
+    })
+
+    it('"Not electives" leaves the cell as one activity', () => {
+      const out = foldTriageInputs(base(), [split(CELL, ['Hiking', 'Fishing', 'Kayaking'])], { [`s:${CELL}`]: { choice: 'decline' } })
+      expect(out.confirmedElectiveSets).toEqual([])
+      expect(JSON.stringify(out.approved.activities)).toContain('Hiking')
+      expect(out.placements[0].activityName).toBe(CELL)
+    })
+
+    it('an unanswered ambiguous question changes nothing; "a choice of several" splits it', () => {
+      const d = ask(CELL, ['Hiking', 'Fishing', 'Kayaking'])
+      const none = foldTriageInputs(base(), [d], {})
+      expect(none.confirmedElectiveSets).toEqual([])
+      expect(none.placements[0].activityName).toBe(CELL)
+      const yes = foldTriageInputs(base(), [d], { [d.id]: { choice: 'confirm' } })
+      expect(yes.confirmedElectiveSets[0].choices).toEqual(['Hiking', 'Fishing', 'Kayaking'])
+      expect(yes.placements[0].electiveSetName).toBe('Electives')
+    })
+
+    it('two cells with different choice lists get day and time suffixes; the same list shares one set', () => {
+      const other = 'Art / Music / Chess'
+      const input = {
+        ...base(),
+        approved: { activities: [CELL, other] },
+        placements: [
+          { groupName: 'Hawks', dayName: 'Tuesday', blockLabel: '14:00', activityName: CELL },
+          { groupName: 'Owls', dayName: 'Tuesday', blockLabel: '14:00', activityName: CELL },
+          { groupName: 'Hawks', dayName: 'Thursday', blockLabel: '10:00', activityName: other },
+        ],
+      }
+      const out = foldTriageInputs(input, [split(CELL, ['Hiking', 'Fishing', 'Kayaking']), split(other, ['Art', 'Music', 'Chess'])], {})
+      expect(out.confirmedElectiveSets.map((s) => s.name)).toEqual(['Electives (Tue 14:00)', 'Electives (Thu 10:00)'])
+      expect(out.placements.map((p) => p.electiveSetName)).toEqual(['Electives (Tue 14:00)', 'Electives (Tue 14:00)', 'Electives (Thu 10:00)'])
+    })
+  })
+
   // T117 slice 2 — foldTriageInputs spreads ...baseInputs into its return, so
   // placements (an additive key ImportScreen adds to baseInputs, not one this
   // module knows about) must survive untouched, same as any other pass-through
