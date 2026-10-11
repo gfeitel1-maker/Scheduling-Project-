@@ -221,7 +221,7 @@ function summaryOf(decision, answer) {
   if (answer.action === 'looks_right') return 'Using the file’s value'
   if (answer.action === 'mixed') {
     const taken = (decision.field ?? []).filter((f) => !answer.keep.includes(f))
-    return `Kept yours for ${answer.keep.join(', ')}; took the file’s ${taken.join(', ')}`
+    return `Kept yours for ${answer.keep.map(fieldLabel).join(', ')}; took the file’s ${taken.map(fieldLabel).join(', ')}`
   }
   if (answer.choice === 'accept') return 'Will use the file’s value'
   if (answer.choice === 'keep') return 'Keeping the current value'
@@ -314,8 +314,8 @@ function PerFieldChoice({ decision, onAnswer }) {
       {decision.field.map((f) => {
         const isKept = kept.includes(f)
         return (
-          <div key={f} role="group" aria-label={f} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 12, color: 'var(--text-secondary)' }}>
-            <span style={{ fontWeight: 600, color: 'var(--text)', minWidth: 110 }}>{f}</span>
+          <div key={f} role="group" aria-label={fieldLabel(f)} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 12, color: 'var(--text-secondary)' }}>
+            <span style={{ fontWeight: 600, color: 'var(--text)', minWidth: 110 }}>{fieldLabel(f)}</span>
             <span>{`Yours: ${formatFieldValue(decision.currentValue?.[f])}`}</span>
             <span>{`File: ${formatFieldValue(decision.proposedValue?.[f])}`}</span>
             <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4 }}>

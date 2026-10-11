@@ -543,7 +543,7 @@ describe('per-field Keep inside a multi-field update card', () => {
     render(<ReconciliationScreen baseInputs={{ approved: { activities: ['Swim'] }, cohort_id: null, mode: 'add' }} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
     await screen.findByText(/0 of 1 question/)
 
-    await userEvent.click(within(screen.getByRole('group', { name: 'max_per_week' })).getByText('Keep yours'))
+    await userEvent.click(within(screen.getByRole('group', { name: 'Most per week' })).getByText('Keep yours'))
     await userEvent.click(screen.getByText('Apply these choices'))
     await screen.findByText(/1 of 1 question/)
     await userEvent.click(screen.getByText('Use this setup'))

@@ -37,13 +37,13 @@ describe('confirm_value card buttons', () => {
 
   it('per-field toggles render only for a multi-field update, with both values shown', () => {
     const { unmount } = render(<DecisionCard decision={multi} answer={undefined} onAnswer={vi.fn()} />)
-    expect(screen.getByRole('group', { name: 'min_per_week' })).toBeTruthy()
-    expect(screen.getByRole('group', { name: 'max_per_week' })).toBeTruthy()
+    expect(screen.getByRole('group', { name: 'Fewest per week' })).toBeTruthy()
+    expect(screen.getByRole('group', { name: 'Most per week' })).toBeTruthy()
     expect(screen.getByText(/Yours: 3/)).toBeTruthy()
     expect(screen.getByText(/File: 4/)).toBeTruthy()
     unmount()
     render(<DecisionCard decision={{ ...base, entityId: 'a1', field: ['min_per_week'], proposedValue: 3 }} answer={undefined} onAnswer={vi.fn()} />)
-    expect(screen.queryByRole('group', { name: 'min_per_week' })).toBeNull()
+    expect(screen.queryByRole('group', { name: 'Fewest per week' })).toBeNull()
   })
 
   it('whole-card buttons still answer for every field', () => {
@@ -58,16 +58,16 @@ describe('confirm_value card buttons', () => {
   it('a mixed choice answers with only the kept fields; all-kept collapses to Keep mine', () => {
     const onAnswer = vi.fn()
     render(<DecisionCard decision={multi} answer={undefined} onAnswer={onAnswer} />)
-    fireEvent.click(within(screen.getByRole('group', { name: 'max_per_week' })).getByText('Keep yours'))
+    fireEvent.click(within(screen.getByRole('group', { name: 'Most per week' })).getByText('Keep yours'))
     fireEvent.click(screen.getByText('Apply these choices'))
     expect(onAnswer).toHaveBeenLastCalledWith({ action: 'mixed', keep: ['max_per_week'] })
-    fireEvent.click(within(screen.getByRole('group', { name: 'min_per_week' })).getByText('Keep yours'))
+    fireEvent.click(within(screen.getByRole('group', { name: 'Fewest per week' })).getByText('Keep yours'))
     fireEvent.click(screen.getByText('Apply these choices'))
     expect(onAnswer).toHaveBeenLastCalledWith({ action: 'edited' })
   })
 
   it('the resolved line says what was kept and what was taken', () => {
     render(<DecisionCard decision={multi} answer={{ action: 'mixed', keep: ['max_per_week'] }} onAnswer={vi.fn()} />)
-    expect(screen.getByText(/Kept yours for max_per_week; took the file’s min_per_week/)).toBeTruthy()
+    expect(screen.getByText(/Kept yours for Most per week; took the file’s Fewest per week/)).toBeTruthy()
   })
 })
