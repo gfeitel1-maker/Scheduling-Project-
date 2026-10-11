@@ -627,10 +627,15 @@ export function buildReconciliationReport(input) {
         sourceExcerpt: candidate.sourceExcerpt ?? null,
         row: candidate.row ?? null,
         column: candidate.column ?? null,
+        ...(Array.isArray(candidate.choices) ? { choices: candidate.choices } : {}),
       },
       reason: candidate.detector === 'header'
         ? `This period is labeled "${candidate.sourceExcerpt}" — it looks like electives.`
-        : `This looks like an elective period — the cell doesn't match a known activity.`,
+        : candidate.detector === 'list_question'
+          ? `Is '${candidate.sourceExcerpt}' one activity or a choice of several?`
+          : Array.isArray(candidate.choices)
+            ? `Read as a choice of ${candidate.choices.length}: ${candidate.choices.join(', ')}.`
+            : `This looks like an elective period — the cell doesn't match a known activity.`,
     })
   }
 
