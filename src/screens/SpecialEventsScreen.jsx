@@ -37,6 +37,7 @@ const LABELS = {
   emptyMessage: 'No special events yet.',
   namePlaceholder: 'Color War',
   seedPrompt: 'Start from your time blocks?',
+  varyNote: 'Lunch waves differ by weekday \u2014 place this day to bring them',
   seedFromBlocks: 'Copy time blocks',
   startEmpty: 'Empty',
   createdHint: (name) => `"${name}" created — build it from Special Schedules under Schedule.`,
@@ -343,10 +344,10 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
     try { await fn() } finally { busyRef.current = false; setBusy(false) }
   }
 
-  function bringOffered() {
+  function bringOffered(keys) {
     return exclusive(async () => {
       try {
-        const result = await offer.apply()
+        const result = await offer.apply(keys)
         if (result.failure) setError(result.failure)
         else {
           setOffer(null)
@@ -362,19 +363,25 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
     return exclusive(() => seedCopy(specialDayId))
   }
 
+  // The prompt closes the moment Copy is clicked, and loadDays() (which clears `error`)
+  // runs BEFORE the outcome is reported, so a failure it would have wiped stays on screen.
   async function seedCopy(specialDayId) {
+    setSeedPromptForId(null)
+    let outcome
     try {
-      const { offer: found, cellFailure, notice } = await copyCampTimeBlocks({ campId, specialDayId })
-      setOffer(found)
-      setNote(notice)
-      if (cellFailure) setError(cellFailure)
-      setToast(LABELS.createdHint(days.find((d) => d.id === specialDayId)?.name ?? 'Special Day'))
+      outcome = await copyCampTimeBlocks({ campId, specialDayId })
     } catch (err) {
-      setError(describeWriteFailure(err, seedFailureMessage(err.seededCount ?? 0, err.totalCount ?? 0)))
-    } finally {
-      setSeedPromptForId(null)
-      await loadDays()
+      outcome = { failure: describeWriteFailure(err, seedFailureMessage(err.seededCount ?? 0, err.totalCount ?? 0)) }
     }
+    await loadDays()
+    if (outcome.failure) {
+      setError(outcome.failure)
+      return
+    }
+    setOffer(outcome.offer)
+    setNote(outcome.notice ?? (outcome.varies && !outcome.placed ? LABELS.varyNote : null))
+    if (outcome.cellFailure) setError(outcome.cellFailure)
+    setToast(LABELS.createdHint(days.find((d) => d.id === specialDayId)?.name ?? 'Special Day'))
   }
 
   function startEmpty(specialDayId) {
@@ -498,7 +505,7 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
       error={error}
     >
       {note && <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>{note}</div>}
-      {toast && <div style={{ ...S.errorBanner, background: 'var(--surface)', marginBottom: 16 }}>{toast}</div>}
+      {toast && <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, padding: '10px 14px', fontSize: 13, color: 'var(--text)', marginBottom: 16 }}>{toast}</div>}
 
       {loading ? (
         <div style={S.stateLoading}>Loading…</div>

@@ -37,7 +37,7 @@ async function readAll(campId) {
   return { ...data, conflictTitles }
 }
 
-export default function SpecialDayPlacements({ campId, specialDayId, specialDayName, onDeletedElsewhere }) {
+export default function SpecialDayPlacements({ campId, specialDayId, specialDayName, onDeletedElsewhere, onPlaced }) {
   const [data, setData] = useState(EMPTY)
   const [panelOpen, setPanelOpen] = useState(false)
   const [inFlight, setInFlight] = useState(() => new Set())
@@ -106,7 +106,10 @@ export default function SpecialDayPlacements({ campId, specialDayId, specialDayN
       return
     }
     try { await reload() } catch { /* the failure line below still reports the write */ }
-    if (!error && result?.ok === true) return
+    if (!error && result?.ok === true) {
+      if (kind === 'bind') onPlaced?.()
+      return
+    }
     if (!error && result?.reason === 'occupied') {
       setPendingReplace({ week, day, occupantId: result.currentSpecialDayId })
       return

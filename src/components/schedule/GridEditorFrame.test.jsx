@@ -38,6 +38,16 @@ describe('GridEditorFrame', () => {
     expect(h.onBack).toHaveBeenCalled()
   })
 
+  it('gives each group column a readable floor and wraps headers at word boundaries only', () => {
+    const many = Array.from({ length: 14 }, (_, i) => ({ id: `g${i}`, name: `Badger ${i}` }))
+    renderFrame({ groups: many })
+    const frame = document.querySelector('.schedule-grid-frame')
+    expect(frame.style.getPropertyValue('--frame-min-width')).toBe(`${140 + 14 * 88}px`)
+    const header = screen.getByRole('columnheader', { name: 'Badger 3' })
+    expect(header.style.overflowWrap).not.toBe('anywhere')
+    expect(header.getAttribute('title')).toBe('Badger 3')
+  })
+
   it('renders meta between the back row and the banners, and nothing when omitted', () => {
     renderFrame({ meta: <div data-testid="meta">Placed on</div>, banners: <div data-testid="banner">b</div> })
     const meta = screen.getByTestId('meta')

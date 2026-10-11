@@ -298,7 +298,7 @@ describe('SpecialEventsScreen — seed from camp time blocks', () => {
       ...emptyEntries,
       time_blocks: campBlocks,
       groups: [{ id: 'g1', camp_id: CAMP_ID, name: 'Bunk A' }],
-      days_of_operation: [{ id: 'mon', camp_id: CAMP_ID, label: 'Monday' }],
+      days_of_operation: [{ id: 'mon', camp_id: CAMP_ID, label: 'Monday' }, { id: 'tue', camp_id: CAMP_ID, label: 'Tuesday' }],
       special_day_placements: [{ id: 'p', week_id: 'w', day_id: 'mon', special_day_id: 'new-id-0' }],
       fixed_events: [{ id: 'f', camp_id: CAMP_ID, kind: 'recurring', name: 'Group Time', day_id: 'mon', time_block_id: 'cb', is_all_groups: 1, group_ids: '[]', unit_ids: '[]', activity_id: 'a1', span_blocks: 1 }],
     }))
@@ -336,7 +336,7 @@ describe('SpecialEventsScreen — seed from camp time blocks', () => {
       ...emptyEntries,
       time_blocks: [{ id: 'cb', camp_id: CAMP_ID, name: 'Morning', sort_order: 0 }],
       groups: [{ id: 'g1', camp_id: CAMP_ID, name: 'Bunk A' }],
-      days_of_operation: [{ id: 'mon', camp_id: CAMP_ID, label: 'Monday' }],
+      days_of_operation: [{ id: 'mon', camp_id: CAMP_ID, label: 'Monday' }, { id: 'tue', camp_id: CAMP_ID, label: 'Tuesday' }],
       special_day_placements: [{ id: 'p', week_id: 'w', day_id: 'mon', special_day_id: 'new-id-0' }],
       fixed_events: [{ id: 'f', camp_id: CAMP_ID, kind: 'recurring', name: 'Group Time', day_id: 'mon', time_block_id: 'cb', is_all_groups: 1, group_ids: '[]', unit_ids: '[]', activity_id: 'a1', span_blocks: 1 }],
     }))
@@ -360,7 +360,7 @@ describe('SpecialEventsScreen — seed from camp time blocks', () => {
         ...emptyEntries,
         time_blocks: [{ id: 'cb', camp_id: CAMP_ID, name: 'Morning', sort_order: 0 }],
         groups: [{ id: 'g1', camp_id: CAMP_ID, name: 'Bunk A' }],
-        days_of_operation: [{ id: 'mon', camp_id: CAMP_ID, label: 'Monday' }],
+        days_of_operation: [{ id: 'mon', camp_id: CAMP_ID, label: 'Monday' }, { id: 'tue', camp_id: CAMP_ID, label: 'Tuesday' }],
         special_day_placements: [{ id: 'p', week_id: 'w', day_id: 'mon', special_day_id: 'new-id-0' }],
         fixed_events: [{ id: 'f', camp_id: CAMP_ID, kind: 'recurring', name: 'Group Time', day_id: 'mon', time_block_id: 'cb', is_all_groups: 1, group_ids: '[]', unit_ids: '[]', activity_id: 'a1', span_blocks: 1 }],
       })(entity)
@@ -406,6 +406,22 @@ describe('SpecialEventsScreen — seed from camp time blocks', () => {
     fireEvent.click(await screen.findByText(/Copy time blocks/))
     const note = await screen.findByText(/kept in Bunk A/)
     expect(note.closest('[role="alert"]')).toBeNull()
+  })
+
+  it('closes the prompt and keeps a write failure on screen after Copy', async () => {
+    localClient.list.mockImplementation(byEntityLive({
+      ...emptyEntries,
+      time_blocks: [{ id: 'cb', camp_id: CAMP_ID, name: 'Morning', sort_order: 0 }],
+    }))
+    const ok = localClient.write.getMockImplementation()
+    localClient.write.mockImplementation(async (t, entity, ...rest) =>
+      entity === 'special_day_time_blocks' ? { status: 'rejected' } : ok(t, entity, ...rest))
+    render(<SpecialEventsScreen campId={CAMP_ID} role="admin" />)
+    await waitFor(() => expect(screen.queryByText('No special events yet.')).not.toBeNull())
+    addViaInlineRow({ name: 'Color War', type: 'day' })
+    fireEvent.click(await screen.findByText(/Copy time blocks/))
+    await waitFor(() => expect(screen.queryByText(/Start from your time blocks/)).toBeNull())
+    expect(await screen.findByText(/Couldn't add blocks/)).toBeTruthy()
   })
 
   it('reports partial completion when seeding fails partway through (non-atomic, design-accepted)', () => {
