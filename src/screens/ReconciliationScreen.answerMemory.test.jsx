@@ -257,14 +257,32 @@ describe('"Not an event, treat as an activity" through the screen', () => {
     expect(entry.answer).toMatchObject({ action: 'edited', notAnEvent: true })
   })
 
-  it('"Don\u2019t add" still imports no activity-claim change: the event stays claimed', async () => {
+  it('changing "Don\u2019t add" back to "Add it" before commit restores the event', async () => {
+    localClient.ingestReconcile.mockResolvedValue(reconcileResult([NAME]))
+    mount({ baseInputs: inputs })
+    await screen.findByText(/0 of 1 question/)
+    await userEvent.click(screen.getByText('Don’t add'))
+    await userEvent.click(await screen.findByText('1 resolved · Show all'))
+    await userEvent.click(await screen.findByText('Undo'))
+    await userEvent.click(await screen.findByText('Add it'))
+    await userEvent.click(await screen.findByRole('button', { name: 'Use this setup' }))
+    await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
+    const sent = localClient.ingestCommit.mock.calls.at(-1)[0]
+    expect(sent.fixedEvents).toEqual([event])
+    expect(sent.pinOnlyActivityNames).toContain(NAME)
+  })
+
+  it('"Don\u2019t add" drops the event and its pinned activity row from the commit', async () => {
     localClient.ingestReconcile.mockResolvedValue(reconcileResult([NAME]))
     mount({ baseInputs: inputs })
     await screen.findByText(/0 of 1 question/)
     await userEvent.click(screen.getByText('Don’t add'))
     await userEvent.click(await screen.findByRole('button', { name: 'Use this setup' }))
     await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
-    expect(localClient.ingestCommit.mock.calls.at(-1)[0].pinOnlyActivityNames).toContain(NAME)
+    const sent = localClient.ingestCommit.mock.calls.at(-1)[0]
+    expect(sent.fixedEvents).toEqual([])
+    expect(sent.approved.activities).not.toContain(NAME)
+    expect(sent.pinOnlyActivityNames).not.toContain(NAME)
   })
 })
 

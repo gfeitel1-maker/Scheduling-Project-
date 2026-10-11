@@ -93,6 +93,7 @@ export function applyResolutions({ approved, decisions, answers, fixedEvents, pi
   // goes to the catalogue as an ordinary activity instead of a pinned event's marker row.
   const droppedFixedEventKeys = new Set()
   const asActivityNames = new Set()
+  const declinedNames = new Set()
 
   for (const decision of filterQueueDecisions(decisions)) {
     const answer = answers?.[decision.id]
@@ -120,12 +121,16 @@ export function applyResolutions({ approved, decisions, answers, fixedEvents, pi
       // side-channel — activityRules/groupUnitOverrides — not a resolution).
       // Unresolved -> held back: remove from approved so it does not write
       // unconditionally (the silent-write risk this module exists to guard).
-      if (decision.entity === 'fixed_events' && answer?.action === 'edited' && answer.notAnEvent === true) {
+      // "Don't add" / "Keep mine" is the card's only rejecting answer (an edit-in-place carries a value).
+      // A no is an absence: the event is dropped whatever its confidence, and the row is held back.
+      const declined = answer?.action === 'edited' && !('value' in answer) && !decision.unknownField
+      if (decision.entity === 'fixed_events' && declined) {
         droppedFixedEventKeys.add(fixedEventMatchKey(decision.entityName, decision.timeBlock, decision.days))
-        asActivityNames.add(normalizeName(decision.entityName ?? ''))
+        if (answer.notAnEvent === true) asActivityNames.add(normalizeName(decision.entityName ?? ''))
+        else declinedNames.add(normalizeName(decision.entityName ?? ''))
         continue
       }
-      if (!isDecisionResolved(decision, answer)) {
+      if (declined || !isDecisionResolved(decision, answer)) {
         // Fix round 2026-08-17, FIX 1: 'fixed_events' is never a key in
         // `approved` (buildPlan/commitIngest gate it via the fixedEvents[]
         // array, not the approved whitelist — see the comment below). Writing
@@ -194,5 +199,6 @@ export function applyResolutions({ approved, decisions, answers, fixedEvents, pi
     }
   }
 
-  return { approved: nextApproved, resolutions, fixedEvents: nextFixedEvents, unpinnedNames: [...unpinnedNames] }
+  const noLongerPinned = [...declinedNames].filter((n) => !kept.has(n))
+  return { approved: nextApproved, resolutions, fixedEvents: nextFixedEvents, unpinnedNames: [...unpinnedNames], noLongerPinned }
 }

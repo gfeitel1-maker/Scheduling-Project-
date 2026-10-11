@@ -371,3 +371,46 @@ describe('heldBackDecisions (audit 714 item 1)', () => {
     expect(Object.keys(d).sort()).toEqual(['entity', 'entityId', 'entityName', 'id', 'kind', 'reason'])
   })
 })
+
+describe('every "no" answer reaches the commit inputs as an absence', () => {
+  const base = { approved: { activities: ['Swim'] }, fixedEvents: [], pinOnlyActivityNames: [], activityRules: { Swim: { eligible_group_names: ['A'], eligibility_known: true } }, resolutions: [], confirmedElectiveSets: [] }
+  const ev = { name: 'Swim', time_block: '10:00-11:00', days: ['Monday'] }
+
+  it('elective_candidate "Not electives" confirms no elective set', () => {
+    const d = { id: 'elective_candidate:c1', kind: 'elective_candidate', entityName: 'Period 3' }
+    expect(foldTriageInputs(base, [d], { [d.id]: { choice: 'decline' } }).confirmedElectiveSets).toEqual([])
+    expect(foldTriageInputs(base, [d], { [d.id]: { choice: 'confirm' } }).confirmedElectiveSets).toEqual([{ name: 'Period 3' }])
+  })
+
+  it('all_camp_override "as written" leaves the file’s groups; "all camp" widens them', () => {
+    const d = { id: 'all_camp_override:s', kind: 'all_camp_override', entityName: 'Swim', evidence: { missingGroups: ['B'] } }
+    expect(foldTriageInputs(base, [d], { [d.id]: { choice: 'as_written' } }).activityRules.Swim.eligible_group_names).toEqual(['A'])
+    expect(foldTriageInputs(base, [d], { [d.id]: { choice: 'all_camp' } }).activityRules.Swim.eligible_group_names).toEqual(['A', 'B'])
+  })
+
+  it('name_kind "activity" brings back no event and no pin; "fixed" does', () => {
+    const d = { id: 'name_kind:swim', kind: 'name_kind', entityName: 'Swim', candidateEvents: [ev] }
+    const no = foldTriageInputs(base, [d], { [d.id]: { choice: 'activity' } })
+    expect(no.fixedEvents).toEqual([])
+    expect(no.pinOnlyActivityNames).toEqual([])
+    expect(foldTriageInputs(base, [d], { [d.id]: { choice: 'fixed' } }).fixedEvents).toEqual([ev])
+  })
+
+  it('a declined fixed-event confirm_value drops the event and its pinned row, end to end through the fold', () => {
+    const fe = { ...ev, support: { basis: 'daily' } }
+    const d = { id: 'fixed_events:Swim', kind: 'confirm_value', entity: 'fixed_events', entityName: 'Swim', timeBlock: fe.time_block, days: fe.days, field: null }
+    const out = foldTriageInputs({ ...base, fixedEvents: [fe], pinOnlyActivityNames: ['Swim'] }, [d], { [d.id]: { action: 'edited' } })
+    expect(out.fixedEvents).toEqual([])
+    expect(out.approved.activities).toEqual([])
+  })
+
+  it('location "not a place" and held "keep"/"skip" fold into the resolutions the commit honours', () => {
+    const loc = { id: 'held:location:k', kind: 'resolve_conflict', _held: true, _heldKind: 'location', entity: 'activities', entityName: 'Swim', field: ['location'], _namingActivities: ['Swim', 'Dive'] }
+    const stale = { id: 'held:s', kind: 'resolve_conflict', _held: true, _heldKind: 'stale', entity: 'activities', entityName: 'Swim', field: ['priority'] }
+    const gen = { id: 'held:g', kind: 'resolve_conflict', _held: true, _heldKind: 'generic_fallback', _reason: 'validation', entity: 'activities', entityName: 'Swim', field: ['x'] }
+    const r = foldTriageInputs(base, [loc, stale, gen], { [loc.id]: { choice: 'not_a_place' }, [stale.id]: { choice: 'keep' }, [gen.id]: { choice: 'skip' } }).resolutions
+    expect(r.filter((x) => x.choice === 'not_a_place').map((x) => x.name)).toEqual(['Swim', 'Dive'])
+    expect(r).toContainEqual(expect.objectContaining({ reason: 'stale', choice: 'keep' }))
+    expect(r).toContainEqual(expect.objectContaining({ choice: 'skip' }))
+  })
+})

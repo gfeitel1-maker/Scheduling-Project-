@@ -408,3 +408,52 @@ describe('applyResolutions — a claimed name\'s backing activity row follows it
     expect(out.approved.activities).toEqual(['Specialty 4'])
   })
 })
+
+// "Don't add" is a director's explicit no. It must reach the commit inputs as an absence, whatever the
+// event's confidence and whether or not the name is claimed.
+describe('a declined confirm_value ("Don’t add" / "Keep mine") is absent from the commit inputs', () => {
+  const fe = { name: 'Specialty 1', time_block: '12:00-12:40', days: ['Monday'], support: { basis: 'daily' } }
+  const feDecision = () => ({
+    id: 'fixed_events:Specialty 1', kind: 'confirm_value', entity: 'fixed_events', entityId: null, entityName: 'Specialty 1',
+    timeBlock: fe.time_block, days: fe.days, field: null, confidence: 'low', proposedValue: null, unknowns: [], evidence: null, reason: 'r',
+  })
+
+  it('a declined fixed event is not committed, even one an unanswered question would keep', () => {
+    const d = feDecision()
+    const out = applyResolutions({ approved: {}, decisions: [d], answers: { [d.id]: { action: 'edited' } }, fixedEvents: [fe], pinOnlyActivityNames: [] })
+    expect(out.fixedEvents).toEqual([])
+  })
+
+  it('a declined fixed event takes its pinned-only activity row with it, and the name is NOT turned into an activity', () => {
+    const d = feDecision()
+    const out = applyResolutions({ approved: { activities: ['Specialty 1'] }, decisions: [d], answers: { [d.id]: { action: 'edited' } }, fixedEvents: [fe], pinOnlyActivityNames: ['Specialty 1'] })
+    expect(out.fixedEvents).toEqual([])
+    expect(out.approved.activities).toEqual([])
+    expect(out.unpinnedNames).toEqual([])
+  })
+
+  it('"Add it" still imports the event', () => {
+    const d = feDecision()
+    const out = applyResolutions({ approved: {}, decisions: [d], answers: { [d.id]: { action: 'looks_right' } }, fixedEvents: [fe], pinOnlyActivityNames: [] })
+    expect(out.fixedEvents).toEqual([fe])
+  })
+
+  it('declining one day of a name leaves the other day’s event alone', () => {
+    const tue = { ...fe, days: ['Tuesday'] }
+    const d = feDecision()
+    const out = applyResolutions({ approved: {}, decisions: [d], answers: { [d.id]: { action: 'edited' } }, fixedEvents: [fe, tue], pinOnlyActivityNames: [] })
+    expect(out.fixedEvents).toEqual([tue])
+  })
+
+  it('a declined "Add Archery?" create card is not approved', () => {
+    const d = confirmValueDecision({ field: null, proposedValue: null })
+    const out = applyResolutions({ approved: { activities: ['Archery', 'Swim'] }, decisions: [d], answers: { [d.id]: { action: 'edited' } } })
+    expect(out.approved.activities).toEqual(['Swim'])
+  })
+
+  it('"Keep mine" on a changed-value card holds the row back instead of writing the file’s value', () => {
+    const d = confirmValueDecision()
+    const out = applyResolutions({ approved: { activities: ['Archery'] }, decisions: [d], answers: { [d.id]: { action: 'edited' } } })
+    expect(out.approved.activities).toEqual([])
+  })
+})
