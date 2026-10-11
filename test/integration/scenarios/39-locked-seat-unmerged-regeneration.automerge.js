@@ -90,14 +90,7 @@ async function pass({ lockWins }) {
   let host, clientA, clientB
   const tag = lockWins ? '[lock wins]' : '[solver wins]'
   try {
-    // CI only (3/3 runs, never locally): the very first join's Noise handshake is reset
-    // (EncryptionFailedError: read ECONNRESET) before anything this scenario tests has run.
-    // One retry of the SETUP, on that error alone; anything else fails. Root cause: T373.
-    let setup
-    try { setup = await setupTwoJoinedDevices() } catch (err) {
-      if (err?.name !== 'EncryptionFailedError' && !/EncryptionFailed/.test(String(err?.stack))) throw err
-      setup = await setupTwoJoinedDevices()
-    }
+    const setup = await setupTwoJoinedDevices()
     host = setup.host
     clientA = setup.clientA
     clientB = setup.clientB
@@ -129,18 +122,7 @@ async function pass({ lockWins }) {
     })
     const first = commit(clientA, FIRST)
     if (!first.ok) throw new Error(`${tag} the first commit was refused: ${first.error}`)
-    // A's commit reaches the Host; B's sync link is then restarted so that it
-    // pulls the base state (a plain broadcast does not reach B in this harness).
     await waitFor(() => seatRow(host)?.source === 'solver', 20000)
-    // The restart's redial can meet the old connection being torn down (ECONNRESET on CI);
-    // retry like production's redial rather than fail the scenario on transport timing.
-    await clientB.restart(`${tmpDir}/clientB-base`, campId)
-    for (let attempt = 1; ; attempt++) {
-      try { await clientB.reconnect(host); break } catch (err) {
-        if (attempt >= 3 || !/ECONNRESET|AbortError|closed/i.test(String(err?.message ?? err))) throw err
-        await new Promise((r) => setTimeout(r, 250 * attempt))
-      }
-    }
     for (const [label, d] of [['clientB', clientB], ['host', host]]) {
       await waitFor(() => seatRow(d)?.source === 'solver' && gen(d) != null, 15000)
         .catch(() => {
