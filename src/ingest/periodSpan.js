@@ -9,6 +9,10 @@ import { startMinutesForOrdering } from './orderTimeBlocks.js'
 // first-class periods because the extractor's only test was "does this label
 // start with a time".
 //
+// A short row is dropped only when it is also empty (F2, 2026-10-11 synthetic
+// scorecard): the file's own change-overs are blank or labelled "Change", while
+// a 10-minute row with a Flag Raising in it is a real block and its event.
+//
 // 10 minutes is the line, and the corpus picked the number rather than taste.
 // The change-overs are 5 and 10 minutes ("11:10-11:20 Change", "9:40-9:50
 // Change"). The shortest REAL period is campB's 15-minute "Group Time"
@@ -29,7 +33,7 @@ const RANGE = /(\d{1,2}[:.]\d{2}(?:\s*[ap]\.?m\.?)?)\s*[-–—]\s*(\d{1,2}[:.]\
  * something is is not evidence that it is short, and dropping a period on a
  * failed parse would lose real programme.
  */
-export function isChangeOverSpan(label) {
+export function isChangeOverSpan(label, cells = []) {
   const match = String(label ?? '').match(RANGE)
   if (!match) return false
 
@@ -41,5 +45,17 @@ export function isChangeOverSpan(label) {
 
   const span = end - start
   if (span <= 0) return false
-  return span <= CHANGE_OVER_MAX_MINUTES
+  return span <= CHANGE_OVER_MAX_MINUTES && !rowCarriesContent(cells)
+}
+
+// A short row that prints an event or activity (a 10-minute Flag Raising,
+// Reveille, Taps) is a period. Only an empty row, or one whose cells say
+// "Change"/"Transition", is passing time.
+const PASSING_TIME = /^(change|changeover|change[\s-]over|transition|passing(\s+time)?|travel|walk)$/i
+
+function rowCarriesContent(cells) {
+  return cells.some((c) => {
+    const text = String(c ?? '').trim()
+    return text !== '' && !/^[-–—.\s]+$/.test(text) && !PASSING_TIME.test(text)
+  })
 }

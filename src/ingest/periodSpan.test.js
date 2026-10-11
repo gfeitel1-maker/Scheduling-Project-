@@ -39,6 +39,17 @@ describe('isChangeOverSpan', () => {
     expect(isChangeOverSpan('12:55-01:35')).toBe(false)
   })
 
+  it('keeps a short row that prints an event (F2: 10-minute Flag Raising, Reveille, Taps)', () => {
+    expect(isChangeOverSpan('08:50-09:00', ['Flag Raising', 'Flag Raising'])).toBe(false)
+    expect(isChangeOverSpan('07:30-07:40', ['Reveille'])).toBe(false)
+  })
+
+  it('still drops a short row that is empty or only says Change', () => {
+    expect(isChangeOverSpan('11:10-11:20', ['', '-', ''])).toBe(true)
+    expect(isChangeOverSpan('9:40-9:50', ['Change', 'Change'])).toBe(true)
+    expect(isChangeOverSpan('1:05-1:10', [])).toBe(true)
+  })
+
   it('states its threshold rather than hiding it', () => {
     expect(CHANGE_OVER_MAX_MINUTES).toBe(10)
   })
