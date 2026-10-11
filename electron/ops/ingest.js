@@ -3003,8 +3003,42 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     // gate needs (undoReferences.schemaParity.test.js keeps this constant in
     // sync with the registry that gates the actual deletes).
     outcome.createdEntityIds = createdEntityIds.filter((e) => U2_DELETABLE_ENTITIES.has(e.entity))
+    if (!dryRunAborted) recordUndoableRun(db, evidenceRunId, outcome.invertibleOps, outcome.createdEntityIds)
   }
   return outcome
+}
+
+// T372: what each captureInverse commit created/changed, held in the main process. Undo reads this
+// instead of the renderer's copy, so a caller can name only a run, never a row or a field snapshot.
+// Lives for the process (the grace window is a same-session affordance), bounded per db.
+const UNDOABLE_RUNS_MAX = 20
+const undoableRuns = new WeakMap()
+function recordUndoableRun(db, runId, invertibleOps, createdEntityIds) {
+  if (!undoableRuns.has(db)) undoableRuns.set(db, new Map())
+  const runs = undoableRuns.get(db)
+  const prev = runs.get(runId)
+  runs.delete(runId)
+  runs.set(runId, structuredClone({
+    invertibleOps: [...(prev?.invertibleOps ?? []), ...invertibleOps],
+    createdEntityIds: [...(prev?.createdEntityIds ?? []), ...createdEntityIds],
+  }))
+  while (runs.size > UNDOABLE_RUNS_MAX) runs.delete(runs.keys().next().value)
+}
+
+/**
+ * Undo an import by run id alone. The rows and field snapshots come from what the run recorded
+ * server-side; nothing the caller sends can widen the set. An unknown run (never committed with
+ * captureInverse here, or the process restarted) undoes nothing and says so.
+ */
+export function undoImportRun(db, { importRunId, author_user_id, device_id, client_write_id }) {
+  const rec = typeof importRunId === 'string' ? undoableRuns.get(db)?.get(importRunId) : null
+  if (!rec) return { ok: true, reverted: [], skipped: [], deleted: [], kept: [], unknownRun: true }
+  return ingestUndo(db, {
+    invertibleOps: structuredClone(rec.invertibleOps),
+    createdEntityIds: structuredClone(rec.createdEntityIds),
+    importRunId,
+    author_user_id, device_id, client_write_id,
+  })
 }
 
 // Deterministic per-row client_write_id for one entry of an ingestUndo call,
