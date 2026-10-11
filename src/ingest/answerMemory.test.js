@@ -13,7 +13,9 @@ const fixed = (over = {}) => ({
   timeBlock: '12:00-12:40', days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
   evidence: { basis: 'daily' }, ...over,
 })
-const sig = (d) => JSON.stringify(signatureOf(d))
+// The exact-recall KEY: the normalized parts. (The whole signature also carries features and a
+// baseline, which differ for reasons that would mask a normalizer defect.)
+const sig = (d) => JSON.stringify(signatureOf(d).parts)
 
 describe('normalizers: equal after normalization', () => {
   it('days and blocks and case', () => {

@@ -384,7 +384,9 @@ describe('tombstones and aliases exclude at read', () => {
 describe('retention, the cap and long histories', () => {
   it('write 100 answers, retire 90, run retention, write another: it validates and orders last', () => {
     remember(Array.from({ length: 100 }, (_, i) => one(fixed(`Event ${i}x`), REJECT)))
-    const ids = live().answers.slice(0, 90).map((a) => a.id)
+    // The OLDEST 90 are retired, so few records remain but their seq values are high: a count-based
+    // cap (seq <= number of records) would discard every one of them and the next write.
+    const ids = live().answers.slice(-90).map((a) => a.id)
     for (const id of ids) forgetAnswer(db, { campId: CAMP, authorUserId: 'u-admin', deviceId: 'dev-1', memoryId: id })
     db.prepare("UPDATE camp_seedlings SET confirmed_at = '2020-01-01T00:00:00.000Z' WHERE status = 'superseded'").run()
     runRetention(db, { campId: CAMP, deviceId: 'dev-1', authorUserId: 'u-admin', now: () => new Date('2026-10-11T00:00:00Z') })
