@@ -365,6 +365,24 @@ describe('elective_assignments: solver-owned keys fold into the activity_id card
     expect(c.values.every((v) => !('source' in v))).toBe(true)
   })
 
+  it('does not report preference_rank for a lock-vs-solver seat (the rank follows the activity)', () => {
+    const { a, b } = diverge(
+      createEmptyDoc(),
+      (d) => set(d, 'seat-1', { activity_id: 'act-archery', choice_id: 'c-archery', preference_rank: 1, source: 'manual', solver_generation: 'G0' }),
+      (d) => set(d, 'seat-1', { activity_id: 'act-gaga', choice_id: 'c-gaga', preference_rank: 2, source: 'solver', solver_generation: 'G1' })
+    )
+    expect(reconcile(A.merge(A.clone(a), b)).conflicts.map((c) => c.field)).toEqual(['activity_id'])
+  })
+
+  it('does not swallow a choice_id disagreement between two directors (manual vs manual)', () => {
+    const { a, b } = diverge(
+      createEmptyDoc(),
+      (d) => set(d, 'seat-1', { activity_id: 'act-a', choice_id: 'c-a', source: 'manual' }),
+      (d) => set(d, 'seat-1', { activity_id: 'act-b', choice_id: 'c-b', source: 'manual' })
+    )
+    expect(reconcile(A.merge(A.clone(a), b)).conflicts.map((c) => c.field).sort()).toEqual(['activity_id', 'choice_id'])
+  })
+
   it('assertNoUnrecordedConflicts accepts exactly what reconcile reports', () => {
     const merged = lockVsSolver()
     expect(() => assertNoUnrecordedConflicts(merged, reconcile(merged).conflicts)).not.toThrow()

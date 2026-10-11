@@ -49,18 +49,26 @@ function sorted(keys) {
 const MACHINE_RESOLVED_CAMP_FIELD = 'rendezvousSecrets'
 
 // T264 (docs/adr/2026-10-11-locked-elective-seat-survives-unmerged-regeneration.md).
-// A lock merged after a regeneration contests source, solver_generation and
-// choice_id as well as activity_id. source and solver_generation are the
+// A lock merged after a regeneration contests source, solver_generation,
+// choice_id and preference_rank as well as activity_id. source and solver_generation are the
 // solver's bookkeeping and choice_id follows the activity (the choice the
 // activity belongs to), so none is a choice a director can make (and two read
 // as raw ids): they are not conflicts of their own but fold into the
 // activity_id one, whose values
 // carry which side was the director's lock ('manual') and which the solver's.
 // The seat itself is surfaced by getElectiveRun's lockedSeatFindings.
-const SOLVER_OWNED_ASSIGNMENT_FIELDS = new Set(['source', 'solver_generation', 'choice_id'])
+const SOLVER_OWNED_ASSIGNMENT_FIELDS = new Set(['source', 'solver_generation', 'choice_id', 'preference_rank'])
 
 // Automerge op ids are `counter@actor`; one device is one actor.
 const actorOf = (opId) => opId.slice(opId.indexOf('@') + 1)
+
+// The fold applies only to a seat whose source genuinely disagrees with a
+// solver on one side. Two directors choosing differently (manual vs manual)
+// keep every card, because nothing there follows from a solver's bookkeeping.
+function seatHasSolverSide(collection, entityId) {
+  const sources = conflictEntries(A.getConflicts(collection, recordKey(entityId, 'source')))
+  return sources.length >= 2 && sources.some(([, v]) => v === 'solver')
+}
 
 function sourceBySide(collection, entityId, versions) {
   const sources = conflictEntries(A.getConflicts(collection, recordKey(entityId, 'source')))
@@ -112,7 +120,7 @@ export function reconcile(doc) {
       const parsed = splitRecordKey(key)
       if (!parsed) continue
       if (entity === 'camps' && parsed.field === MACHINE_RESOLVED_CAMP_FIELD) continue
-      if (entity === 'elective_assignments' && SOLVER_OWNED_ASSIGNMENT_FIELDS.has(parsed.field)) continue
+      if (entity === 'elective_assignments' && SOLVER_OWNED_ASSIGNMENT_FIELDS.has(parsed.field) && seatHasSolverSide(collection, parsed.entityId)) continue
 
       const versions = conflictEntries(A.getConflicts(collection, key))
       if (versions.length < 2) continue
