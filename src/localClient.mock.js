@@ -1872,6 +1872,30 @@ export const mockShoresh = {
     saveState(state)
     return { ok: true, id }
   },
+  // docs/adr/2026-10-11-import-answer-memory.md — browser-dev stand-ins. Nothing is remembered in the
+  // mock: recall finds nothing (every decision asks), writes report nothing written, and the view's
+  // data is the empty state. PR 2's view needs a richer fixture here.
+  async matchImportAnswers({ decisions = [] } = {}) {
+    return Object.fromEntries(decisions.map((d) => [d.id, null]))
+  },
+  async rememberImportAnswers() {
+    return { written: [], skipped: [] }
+  },
+  async listLearned() {
+    return { answers: [], patterns: [], vetoes: 0, formerUserAnswers: 0, canWrite: true, diagnostics: { discarded: 0, tombstoned: 0 } }
+  },
+  async changeImportAnswer() {
+    return { ok: false, error: 'NOT_FOUND' }
+  },
+  async forgetImportAnswer() {
+    return { ok: false, error: 'NOT_FOUND' }
+  },
+  async forgetImportPattern() {
+    return { ok: false, error: 'NOT_FOUND' }
+  },
+  async keepImportAnswer() {
+    return { ok: false, error: 'NOT_FOUND' }
+  },
   // T118 slice 4 — mock stand-in for listCompoundCellDecisions
   // (electron/ops/ingest.js), returning entries in the same [pattern, value]
   // shape the real IPC boundary does (localClient.js re-wraps into a Map).

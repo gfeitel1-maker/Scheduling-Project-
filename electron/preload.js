@@ -127,6 +127,14 @@ contextBridge.exposeInMainWorld('shoresh', {
   recordDeclinedSplit: (args) => ipcRenderer.invoke('shoresh:record-declined-split', args),
   recordImportDecisions: (args) => ipcRenderer.invoke('shoresh:record-import-decisions', args),
   rememberColumnMapping: (args) => ipcRenderer.invoke('shoresh:remember-column-mapping', args),
+  // docs/adr/2026-10-11-import-answer-memory.md — remembered import answers and what Shoresh has learned.
+  matchImportAnswers: (args) => ipcRenderer.invoke('shoresh:match-import-answers', args),
+  rememberImportAnswers: (args) => ipcRenderer.invoke('shoresh:remember-import-answers', args),
+  listLearned: (args) => ipcRenderer.invoke('shoresh:list-learned', args),
+  changeImportAnswer: (args) => ipcRenderer.invoke('shoresh:change-import-answer', args),
+  forgetImportAnswer: (args) => ipcRenderer.invoke('shoresh:forget-import-answer', args),
+  forgetImportPattern: (args) => ipcRenderer.invoke('shoresh:forget-import-pattern', args),
+  keepImportAnswer: (args) => ipcRenderer.invoke('shoresh:keep-import-answer', args),
   listDeclinedSplitNames: (args) => ipcRenderer.invoke('shoresh:list-declined-split-names', args),
   // T118 slice 4 — read the camp's confirmed compound-cell-pattern decisions
   // (docs/adr/2026-09-03-compound-cell-interpretation.md), so a resolved

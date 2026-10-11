@@ -62,7 +62,7 @@ const PERMISSIONS_ADMIN_ONLY_EXCEPTIONS = {
   // the consequence without the context.
   camp_seedlings: {
     reason:
-      'T312: written and read only inside the elective preference import, which is admin-only (ADR docs/adr/2026-09-17-individual-elective-scheduling.md D9). A seedling decides how a camp\'s sheets are read on every future import, so write is a setup-shaping power; staff hold no elective surface that would give it context.',
+      'T312: written and read only inside the elective preference import, which is admin-only (ADR docs/adr/2026-09-17-individual-elective-scheduling.md D9). A seedling decides how a camp\'s sheets are read on every future import, so write is a setup-shaping power; staff hold no elective surface that would give it context. CARVE-OUT (docs/adr/2026-10-11-import-answer-memory.md 3.3): staff with groups.import write the two import-answer kinds through the separate import_answers.write action, whose handler can never write a preference_column_roles record.',
   },
 
   camp_maps: {

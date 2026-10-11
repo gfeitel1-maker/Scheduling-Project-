@@ -164,6 +164,18 @@ export const localClient = {
   // T312 — remember the confirmed column mapping for this camp's form.
   rememberColumnMapping: ({ matchKey, payload } = {}) =>
     shoresh.rememberColumnMapping({ token: currentToken(), matchKey, payload }),
+  // docs/adr/2026-10-11-import-answer-memory.md — remembered import answers.
+  matchImportAnswers: ({ decisions, others, suppressed, mode } = {}) =>
+    shoresh.matchImportAnswers({ token: currentToken(), decisions, others, suppressed, mode }),
+  rememberImportAnswers: ({ importId, entries } = {}) =>
+    shoresh.rememberImportAnswers({ token: currentToken(), importId, entries }),
+  listLearned: () => shoresh.listLearned({ token: currentToken() }),
+  changeImportAnswer: ({ memoryId, verdict } = {}) =>
+    shoresh.changeImportAnswer({ token: currentToken(), memoryId, verdict }),
+  forgetImportAnswer: ({ memoryId } = {}) => shoresh.forgetImportAnswer({ token: currentToken(), memoryId }),
+  forgetImportPattern: ({ template, key } = {}) =>
+    shoresh.forgetImportPattern({ token: currentToken(), template, key }),
+  keepImportAnswer: ({ memoryId } = {}) => shoresh.keepImportAnswer({ token: currentToken(), memoryId }),
   // T118 slice 4 — the camp's confirmed compound-cell-pattern decisions
   // (docs/adr/2026-09-03-compound-cell-interpretation.md), fetched at parse
   // time so a resolved pattern never asks again. IPC returns plain entries

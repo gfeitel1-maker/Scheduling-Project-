@@ -11,7 +11,7 @@ import { deriveCampSeedlingId } from './electiveDerivedIds.js'
 import { PERMISSIONS } from '../auth/permissions.js'
 import { normalizeName } from '../../src/ingest/preview.js'
 import {
-  signatureOf, toRecordAnswer, toUiAnswer, roleFor, validateAnswer, isExplicit, QKINDS, VERDICTS, ANSWER_V,
+  signatureOf, signatureOfOther, toRecordAnswer, toUiAnswer, roleFor, validateAnswer, isExplicit, QKINDS, VERDICTS, ANSWER_V,
 } from '../../src/ingest/answerMemory.js'
 import {
   recallPattern, patternGroups, evaluateGroup, progressForDecision, patternKeysFor, answerLabel,
@@ -235,7 +235,7 @@ function describeAuthor(rec) {
 
 const STATE_DEPENDENT = new Set(['value', 'drift_ack'])
 
-export function matchImportAnswers(db, { campId, decisions = [], suppressed = [], mode = 'add', permissions } = {}) {
+export function matchImportAnswers(db, { campId, decisions = [], others = [], suppressed = [], mode = 'add', permissions } = {}) {
   const state = liveRecords(db, campId, permissions ? { permissions } : undefined)
   const tables = tableNames(db)
   const skip = new Set(suppressed)
@@ -262,6 +262,17 @@ export function matchImportAnswers(db, { campId, decisions = [], suppressed = []
     if (got && skip.has(decision.id)) { got.autoApply = false; got.suppressed = true }
     out[decision.id] = got ?? (progress ? { tier: null, source: null, match: null, answer: null, why: null, autoApply: false, progress } : null)
   }
+  // Session-state questions with no card in the report (a two-row split, a name-variant or
+  // multi-block merge, an unknown label): asked of the answer memory by signature alone.
+  for (const other of Array.isArray(others) ? others : []) {
+    if (!other || typeof other.id !== 'string') continue
+    const sig = signatureOfOther(other.qkind, other)
+    out[other.id] = null
+    if (!sig) continue
+    const key = canonicalKey(sig)
+    const heads = state.answers.filter((a) => a.keyHash === key.keyHash && a.qkind === sig.qkind)
+    if (heads.length > 0) out[other.id] = instanceRecall(db, tables, null, sig, heads, null)
+  }
   return out
 }
 
@@ -271,8 +282,8 @@ function instanceRecall(db, tables, decision, sig, heads, progress, nearKind = n
   const qualifying = heads.every((h) => h.qualifies)
   const baselineEqual = heads.every((h) => valuesEqual(h.baseline, sig.baseline))
   const contradiction = verdicts.size > 1
-  const exact = !nearKind && !contradiction && qualifying && baselineEqual && refsAreLive(db, tables, decision, sig)
-  const answer = toUiAnswer(decision, newest.answer)
+  const exact = !nearKind && !contradiction && qualifying && baselineEqual && (decision ? refsAreLive(db, tables, decision, sig) : true)
+  const answer = decision ? toUiAnswer(decision, newest.answer) : { verdict: newest.answer.verdict }
   if (!answer) return null
   const asRecorded = !qualifying
   return {
@@ -370,9 +381,13 @@ export function rememberImportAnswers(db, { campId, authorUserId, deviceId, impo
     const state = liveRecords(db, campId)
     for (const entry of entries) {
       const decision = entry?.decision
-      const sig = decision ? signatureOf(decision) : null
+      const other = entry?.other
+      const sig = other ? signatureOfOther(other.qkind, other) : decision ? signatureOf(decision) : null
       if (!sig) { skipped.push({ reason: 'not_remembered' }); continue }
-      const answer = toRecordAnswer(decision, entry.answer)
+      const answer = other
+        ? (typeof entry.answer?.verdict === 'string' ? { verdict: entry.answer.verdict } : null)
+        : toRecordAnswer(decision, entry.answer)
+      if (answer && other && !validateAnswer(sig.qkind, answer)) { skipped.push({ reason: 'unanswered' }); continue }
       if (!answer) { skipped.push({ reason: 'unanswered' }); continue }
       if (entry.recalled) answer.recalled = true
       else if (entry.tap === true) answer.tap = true
