@@ -14,6 +14,12 @@ const archery = { id: 'archery', name: 'Archery', priority: 'high', max_per_week
 // Partial row: only Otters 1 prints Flag Raising.
 const flagRaising = { id: 'fe1', name: 'Flag Raising', activity_id: null, is_all_groups: false, group_ids: ['g1'], day_id: null, time_block_id: 'flag', span_blocks: 1 }
 
+// Same role as `minimal` in buildSchedule.test.js: the engine input is built by a helper, so the
+// T187 fixture scanner sees only the overrides at each call site.
+const engineInput = (over) => ({
+  groups, tiers: [{ id: 't1', name: 'Junior' }], days: [day], timeBlocks: [], activities: [], fixedEvents: [], campId: 'test', replacedDayIds: [], ...over,
+})
+
 const run = (eventsOnly) =>
   buildSchedule({
     groups, tiers: [{ id: 't1', name: 'Junior' }], days: [day], timeBlocks: [flagBlock(eventsOnly), mainBlock],
@@ -22,31 +28,30 @@ const run = (eventsOnly) =>
 
 describe('events-only time blocks', () => {
   it('Generate never places Archery in a 10-minute Flag Raising block, but the event still lands', () => {
-    const slots = run(1)
-    const inFlag = slots.filter((s) => s.blockId === 'flag')
+    const cells = run(1)
+    const inFlag = cells.filter((s) => s.blockId === 'flag')
     expect(inFlag.filter((s) => s.type === 'activity')).toEqual([])
     expect(inFlag.find((s) => s.groupId === 'g1').type).toBe('fixed_event')
-    expect(slots.some((s) => s.blockId === 'main' && s.type === 'activity' && s.activityId === 'archery')).toBe(true)
+    expect(cells.some((s) => s.blockId === 'main' && s.type === 'activity' && s.activityId === 'archery')).toBe(true)
   })
 
   it('a multi-block activity cannot span into an events-only block', () => {
     const span = { ...archery, id: 'ropes', name: 'Ropes', span_blocks: 2 }
     const blocks = [{ ...mainBlock, id: 'pre', sort_order: 0, start_time: '09:05', end_time: '09:50' }, flagBlock(1), { ...mainBlock, sort_order: 2, start_time: '10:00', end_time: '10:45' }]
-    const { slots } = buildSchedule({
+    const { slots: cells } = buildSchedule({
       groups, tiers: [{ id: 't1', name: 'Junior' }], days: [day], timeBlocks: blocks, activities: [span], fixedEvents: [], campId: 'test', replacedDayIds: [],
     })
-    expect(slots.filter((s) => s.blockId === 'flag' && s.type === 'activity')).toEqual([])
+    expect(cells.filter((s) => s.blockId === 'flag' && s.type === 'activity')).toEqual([])
   })
 
   describe('a director-locked multi-block span across an events-only block (a lock wins)', () => {
     const span = { ...archery, id: 'ropes', name: 'Ropes', span_blocks: 2 }
     const blocks = [{ ...mainBlock, id: 'pre', sort_order: 0, start_time: '09:05', end_time: '09:50' }, flagBlock(1), { ...mainBlock, sort_order: 2, start_time: '10:00', end_time: '10:45' }]
     // Otters 1 prints Flag Raising in the events-only block; Otters 2 does not, and its lock runs through.
-    const run = (extra = {}) => buildSchedule({
-      groups, tiers: [{ id: 't1', name: 'Junior' }], days: [day], timeBlocks: blocks, activities: [span, archery],
-      fixedEvents: [{ ...flagRaising, time_block_id: 'flag' }], campId: 'test', replacedDayIds: [],
-      preplacedSlots: [{ groupId: 'g2', dayId: 'd1', blockId: 'pre', activityId: 'ropes' }], ...extra,
-    })
+    const run = () => buildSchedule(engineInput({
+      timeBlocks: blocks, activities: [span, archery], fixedEvents: [{ ...flagRaising, time_block_id: 'flag' }],
+      preplacedSlots: [{ groupId: 'g2', dayId: 'd1', blockId: 'pre', activityId: 'ropes' }],
+    }))
     const cell = (r, g, b) => r.slots.find((s) => s.groupId === g && s.blockId === b)
 
     it('keeps both cells as Ropes', () => {
@@ -73,8 +78,8 @@ describe('events-only time blocks', () => {
   })
 
   it('flipping the toggle off makes the block schedulable again', () => {
-    const slots = run(0)
-    expect(slots.some((s) => s.blockId === 'flag' && s.groupId === 'g2' && s.type === 'activity')).toBe(true)
+    const cells = run(0)
+    expect(cells.some((s) => s.blockId === 'flag' && s.groupId === 'g2' && s.type === 'activity')).toBe(true)
   })
 })
 
