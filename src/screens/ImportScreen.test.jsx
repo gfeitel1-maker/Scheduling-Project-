@@ -168,6 +168,23 @@ describe('ImportScreen — residual report (T36)', () => {
     expect(screen.getByText(textNode(/Flag Raising.*08:50-09:00.*Badger 1, Badger 2.*skipped/))).toBeTruthy()
   })
 
+  it('T366: caps the skipped short rows it names and says how many more there are', async () => {
+    const many = Array.from({ length: 30 }, (_, i) => ({ label: `08:${String(i).padStart(2, '0')}-08:${String(i + 1).padStart(2, '0')}`, text: `Event ${i}`, groups: ['Badger 1'] }))
+    extractEntities.mockReturnValueOnce({ ...baseProposal, skippedShortRows: many })
+    await uploadFile()
+    expect(screen.getByText(/and 24 more/)).toBeTruthy()
+    expect(screen.queryByText(textNode(/Event 29/))).toBeNull()
+  })
+
+  it('T366: the advice names the Time Blocks screen first, since the skipped row made no block', async () => {
+    extractEntities.mockReturnValueOnce({
+      ...baseProposal,
+      skippedShortRows: [{ label: '08:50-09:00', text: 'Flag Raising', groups: ['Badger 1'] }],
+    })
+    await uploadFile()
+    expect(screen.getByText(textNode(/Time Blocks.*Fixed Events/))).toBeTruthy()
+  })
+
   it('renders no residual section when nothing was left unmatched', async () => {
     extractEntities.mockReturnValueOnce({ ...baseProposal, residual: { cells: [] } })
     await uploadFile()

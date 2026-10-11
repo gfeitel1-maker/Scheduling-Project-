@@ -76,8 +76,15 @@ const sparseFile = (shortRow, longRow) => {
 
 describe('T366 - a sparse short row is kept or reported, never dropped silently', () => {
   it('keeps the row as a block when its text matches an event the file prints elsewhere', () => {
-    const text = sparseFile(['Flag Raising', 'Flag Raising', '', '', ''], Array(5).fill('Flag raising!'))
+    const text = sparseFile(['Flag Raising', 'Flag Raising', 'Flag Raising', '', ''], Array(5).fill('Flag raising!'))
     expect(blocksOf(text)).toContain('08:50-09:00')
+  })
+
+  it('drops and reports a row where under half the cells match a known event (2 of 5)', () => {
+    const text = sparseFile(['Flag Raising', 'Flag Raising', '', '', ''], Array(5).fill('Flag raising!'))
+    const proposal = extractEntities(parseTextGrid(text))
+    expect(proposal.entities.time_blocks).not.toContain('08:50-09:00')
+    expect(proposal.skippedShortRows).toEqual([{ label: '08:50-09:00', text: 'Flag Raising', groups: ['Otters 1', 'Otters 2'] }])
   })
 
   it('reports a dropped sparse row by time, name and groups when nothing else matches', () => {

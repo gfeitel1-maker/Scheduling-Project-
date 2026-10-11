@@ -18,11 +18,13 @@ Source: Red Hat review of PR #906 (F2: short event rows and events-only time blo
 
 ## Resolution (2026-10-11)
 
-A short row that fails the 2/3 agreement line is now kept as a block when at least 2 of its cells (and at
-least a third) match, loosely ("Flag Raising (all)" = "Flag raising!"), an event that another SHORT row of the
-file agrees on (`src/ingest/periodSpan.js`, `src/ingest/extractEntities.js`). Otherwise any text in the dropped
+A short row that fails the 2/3 agreement line is now kept as a block when at least max(2, half of its
+cells rounded up) match, loosely ("Flag Raising (all)" = "Flag raising!"), an event that another SHORT row of the
+file agrees on (`src/ingest/periodSpan.js`, `src/ingest/extractEntities.js`); one shared loose tally serves both this and the
+2/3 agreement test, so the spellings match in both paths. Otherwise any text in the dropped
 row is reported in `proposal.skippedShortRows` as `{ label, text, groups }` and shown in the import preview's
-"Not recognised" panel (`src/screens/ImportScreen.jsx`). Choice of "elsewhere": short rows only, because campA's
+"Not recognised" panel (`src/screens/ImportScreen.jsx`), capped at 6 names plus "…and N more", with advice that
+names the Time Blocks screen first (the skipped row made no block, and Fixed Events only offers existing blocks). Choice of "elsewhere": short rows only, because campA's
 overflow slivers (a long period's "Lunch" bled into a few cells) must stay dropped (golden count 11); an event
 that only a long row agrees on is reported, not kept. Not covered: the preview lists skipped overflow text too
 (noisy on campA-style files, by design: never silent); no director action to promote a reported row.

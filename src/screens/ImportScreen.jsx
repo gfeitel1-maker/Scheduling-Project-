@@ -140,6 +140,8 @@ function computeSplitPreview(name, suffix, proposalActivityNames, existingActivi
   return { degenerate: false, collision: collidesExisting || collidesProposal, newName }
 }
 
+const SKIPPED_SHORT_ROWS_SHOWN = 6
+
 export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = null, weeks = [] }) {
   // Units and time blocks are scoped to a Program; an import files them under
   // the active one so the setup screens will show them (T33).
@@ -2009,12 +2011,16 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
                 )}
                 {skippedShortRows.length > 0 && (
                   <ul style={{ margin: '0 0 8px', paddingLeft: 18 }}>
-                    {skippedShortRows.map((r) => (
+                    {skippedShortRows.slice(0, SKIPPED_SHORT_ROWS_SHOWN).map((r) => (
                       <li key={`${r.label}|${r.text}`}>
-                        "{r.text}" at {r.label} for {r.groups.join(', ')} was skipped as a short change-over.
-                        If it is a real event, add it under Fixed Events.
+                        "{r.text}" at {r.label} for {r.groups.join(', ')} was skipped as a short change-over,
+                        so no time block was made for it. If it is a real event, add the block under Time Blocks,
+                        then the event under Fixed Events.
                       </li>
                     ))}
+                    {skippedShortRows.length > SKIPPED_SHORT_ROWS_SHOWN && (
+                      <li>…and {skippedShortRows.length - SKIPPED_SHORT_ROWS_SHOWN} more</li>
+                    )}
                   </ul>
                 )}
                 {strippedBanners.length > 0 && (

@@ -53,7 +53,7 @@ export function isChangeOverSpan(label, cells = [], knownEventTexts = null) {
   // T366: a sparse row whose text is an event the file prints elsewhere is that event's block.
   // A few stray cells of an overflow sliver ("Lunch" bled into 3 of 31 groups) are not a block.
   const matching = knownEventTexts ? cells.filter((c) => knownEventTexts.has(eventKey(c))).length : 0
-  return !(matching >= 2 && matching >= cells.length * SPARSE_KEEP)
+  return !(matching >= Math.max(2, Math.ceil(cells.length * SPARSE_KEEP)))
 }
 
 // "Flag Raising (all)" and "Flag raising!" are one event.
@@ -67,6 +67,11 @@ function eventKey(text) {
  */
 export function agreedEventTexts(cells) {
   if (cells.length === 0) return []
+  return [...eventTally(cells)].filter(([, n]) => n >= cells.length * AGREEMENT).map(([key]) => key)
+}
+
+// One count of what a row prints, keyed loosely so "Flag Raising (all)" and "Flag raising!" are one text.
+function eventTally(cells) {
   const tally = new Map()
   for (const c of cells) {
     const text = String(c ?? '').trim()
@@ -74,7 +79,7 @@ export function agreedEventTexts(cells) {
     const key = eventKey(text)
     if (key) tally.set(key, (tally.get(key) ?? 0) + 1)
   }
-  return [...tally].filter(([, n]) => n >= cells.length * AGREEMENT).map(([key]) => key)
+  return tally
 }
 
 /** Cells of a dropped short row that carry real text, as { index, text }. */
@@ -94,18 +99,11 @@ function isBlankOrPassing(text) {
 // lone group's text is not an event.
 const PASSING_TIME = /^(change|changeover|change[\s-]over|transition|passing(\s+time)?)[\s.!:]*$/i
 const AGREEMENT = 2 / 3
-const SPARSE_KEEP = 1 / 3
+const SPARSE_KEEP = 1 / 2
 
 function rowCarriesContent(cells) {
   if (cells.length === 0) return false
-  const tally = new Map()
-  for (const c of cells) {
-    const text = String(c ?? '').trim()
-    if (isBlankOrPassing(text)) continue
-    const key = text.toLowerCase()
-    tally.set(key, (tally.get(key) ?? 0) + 1)
-  }
-  return Math.max(0, ...tally.values()) >= cells.length * AGREEMENT
+  return Math.max(0, ...eventTally(cells).values()) >= cells.length * AGREEMENT
 }
 
 /** The text most cells of a row print, or null for a blank or passing-time row. */
