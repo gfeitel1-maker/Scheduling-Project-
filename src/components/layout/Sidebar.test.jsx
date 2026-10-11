@@ -703,3 +703,23 @@ describe('Sidebar: footer cannot-reach-camp flag', () => {
     expect(screen.queryByText("can't reach the camp")).toBeNull()
   })
 })
+
+// A camp device refused this one as removed (electron/sync/automerge/selfRemoval.js). Flag + Pair
+// again, never a banner; it replaces the vaguer cannot-reach flag rather than stacking on it.
+describe('Sidebar: footer removed-from-camp flag', () => {
+  const REMOVED = { mode: 'client', connected: false, state: 'client-disconnected', unsharedWrites: 0, lowDisk: false, otherDeviceCount: 1, peersUnreachable: true, removedFromCamp: true }
+
+  it('is present with Pair again when this device was removed', () => {
+    const onNavigate = vi.fn()
+    renderSidebar({ syncStatus: REMOVED, onNavigate })
+    expect(screen.getByText('removed from this camp')).toBeTruthy()
+    expect(screen.queryByText("can't reach the camp")).toBeNull()
+    fireEvent.click(screen.getByText('removed from this camp').closest('button'))
+    expect(onNavigate).toHaveBeenCalledWith('pairAgain')
+  })
+
+  it('is absent otherwise', () => {
+    renderSidebar({ syncStatus: { ...REMOVED, removedFromCamp: false } })
+    expect(screen.queryByText('removed from this camp')).toBeNull()
+  })
+})

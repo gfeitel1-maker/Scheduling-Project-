@@ -643,6 +643,8 @@ export function createAutomergeSyncStarter({
           // evaluateAuthenticate's own code choices (electron/auth/connectionAuth.js).
           const mainWindow = getMainWindow()
           if (mainWindow) mainWindow.webContents.send('shoresh:auth-rejected', { code: codeForAuthRejectedReason(reply?.reason) })
+          // syncNode has already recorded a removal refusal (selfRemoval.js); refresh the footer now.
+          try { getLiveHandlers()?.pushSyncStatus?.() } catch { /* never break sync over a UI notice */ }
         },
         // T336 Precondition 3 — transport.js's wrapped addRelay observed a genuine
         // RESERVATION_REFUSED. Recorded here (not acted on further — this is a UI notice, not a

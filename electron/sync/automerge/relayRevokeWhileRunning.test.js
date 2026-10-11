@@ -116,6 +116,13 @@ describe('T337 revoke-while-running — R declines to broker a CONNECT for a pee
     // Proof 2 is concerned with.
     r.revokePeer(b.peerId.toString())
 
+    // revokePeer also hangs up on B (so a revoked device re-authenticates and hears why). The
+    // gater is still the control under test: B comes straight back on a fresh connection and asks.
+    const deadline = Date.now() + 5000
+    while (b.getConnections(relayPeerId).length > 0 && Date.now() < deadline) await new Promise((res) => setTimeout(res, 25))
+    expect(b.getConnections(relayPeerId).length).toBe(0)
+    await b.dial(multiaddr(r.getMultiaddrs()[0].toString()))
+
     const connectResponse = await requestConnect(b, relayPeerId, c.peerId)
     expect(connectResponse.status).toBe(Status.PERMISSION_DENIED)
   })

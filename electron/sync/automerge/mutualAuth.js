@@ -104,7 +104,7 @@ const DISCOVERY_EMIT_STATE_MAX_SIZE = 500
 // that never purges a camper) gets an empty self-report rather than a crash. syncNode.js is the
 // one production caller that supplies a real one, reading the `tombstones` table. Read fresh on
 // every dial/authenticate attempt, same discipline as getSchemaVersion.
-export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrusted, onRejected, attemptTimeoutMs = 30_000, now = () => Date.now(), emitter = createConnectivityEmitter(), getSchemaVersion = () => CURRENT_SCHEMA_VERSION, getAppliedTombstones = () => [] } = {}) {
+export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrusted, onRejected, attemptTimeoutMs = 30_000, now = () => Date.now(), emitter = createConnectivityEmitter(), getSchemaVersion = () => CURRENT_SCHEMA_VERSION, getAppliedTombstones = () => [], isSelfRemoved = () => false, reauthAfterDisconnectMs = 1_000 } = {}) {
   if (typeof isPeerTrusted !== 'function') {
     throw new TypeError(
       'wireMutualAuth requires an isPeerTrusted(peerId) predicate: this seam decides who receives ' +
@@ -156,6 +156,8 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
   // recency order (re-set deletes then re-inserts), so the oldest entry to evict is
   // always the Map's first key.
   const deniedRecently = new Map()
+  // Peers whose last authenticate from this device succeeded (bounded like deniedRecently). See forget().
+  const admittedBy = new Set()
 
   // peerId -> unique per-attempt token object (T230). Ownership is compared by IDENTITY, not by
   // attemptId (the numeric per-peer counter above stays event-correlation-only, T212 semantics
@@ -194,6 +196,10 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
 
   async function tryAuthenticate(peerId) {
     if (attempted.has(peerId)) return
+    // A camp peer has authoritatively told this device it was removed (selfRemoval.js). Every
+    // further authenticate would be refused the same way, so make none — no retry loop — until
+    // Pair again clears the state. A transient failure never sets this, so it never stops retries.
+    if (isSelfRemoved()) return
 
     // Short-circuits a peer denied within the last NEGATIVE_CACHE_TTL_MS without
     // touching isPeerTrusted at all — see the module-level comment for why this
@@ -422,6 +428,8 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
         // concurrent in-flight attempts, so eviction should no longer be reachable in the normal
         // case — see NEGATIVE_CACHE_MAX_SIZE's cap above, kept as a backstop.
         if (owns()) ownerOf.delete(peerId)
+        admittedBy.add(peerId)
+        if (admittedBy.size > NEGATIVE_CACHE_MAX_SIZE) admittedBy.delete(admittedBy.keys().next().value)
         if (!stalled) emitter.emit(EVENTS.AUTH_OK, { peerId, attemptId })
       }
     } catch (err) {
@@ -478,6 +486,20 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
   // proved to afresh. An attempt still in flight is left alone; it settles on its own.
   function forget(peerId) {
     if (!ownerOf.has(peerId)) attempted.delete(peerId)
+    // A peer that HAD admitted this device dropped the connection. libp2p fires peer:discovery only
+    // for a peer new to its peer store, so a re-announce of an already-known peer never reaches
+    // tryAuthenticate again — without this, a device the camp just removed (its peer hangs up on
+    // revoke) would sit silent until a restart and never hear the refusal that says why. One
+    // attempt per lost admission, never a loop: the retry only re-arms on a fresh AUTH_OK, and a
+    // peer that is simply gone fails the dial once (DIAL_FAILED, a transient — never "removed").
+    if (admittedBy.delete(peerId)) {
+      const t = setTimeout(() => {
+        tryAuthenticate(peerId).catch((err) => {
+          console.error(`mutualAuth: unexpected error re-authenticating with ${peerId} after a disconnect: ${err?.message ?? err}`)
+        })
+      }, reauthAfterDisconnectMs)
+      t.unref?.()
+    }
   }
 
   return { tryAuthenticate, retryPeersAwaitingToken, reciprocate, forget }
