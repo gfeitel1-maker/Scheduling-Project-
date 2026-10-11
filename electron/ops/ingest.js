@@ -588,44 +588,6 @@ function buildExistingSnapshot(db, camp_id, cohort_id, mode) {
   return existing
 }
 
-/**
- * Commit an approved import proposal, or commit nothing.
- *
- * `approved` is `{ [entity]: [name, ...] }` — exactly what the director
- * confirmed in the preview, not the raw proposal. Anything outside
- * INGESTIBLE_ENTITIES is a hard error rather than a silent skip: a caller
- * asking to ingest placements has misunderstood something, and quietly
- * dropping the request would hide that.
- *
- * `fixedEvents` is a dedicated payload of proposed recurring fixed events
- * (docs/adr/2026-08-03-ingesting-recurring-fixed-events.md), NOT a key in
- * `approved`: the generic whitelist above still rejects `fixed_events`, and
- * fixed events are writable only through commitPlan's validated fixed-event branch.
- *
- * `activityRules` is a dedicated payload (T35), NOT a key in `approved`, keyed
- * by activity name -> `{ eligible_group_names, min_per_week, max_per_week,
- * priority }`.
- *
- * S0 (ADR 2026-08-08): commitIngest is now a THIN adapter. It validates the
- * whitelist, then produces a pure `ReconciliationPlan` via `buildPlan` (renderer
- * side, no DB) and hands it to `commitPlan` — the single privileged committer
- * that resolves against the live DB and writes. The op sequence is byte-identical
- * to the pre-S0 importer, proven by the golden-ops characterization test.
- *
- * Returns `{ created: { [entity]: count }, total,
- *            fixedEvents: { created, skipped, partial }, replaced? }`.
- *
- * D1 (dry-run reconciliation): pass `dryRun: true` and the transaction runs
- * to completion, then rolls back the same way a HELD import does — nothing is
- * written. The returned shape gains `dryRun: true` and, when the dry run did
- * NOT hold, three more fields computed AFTER the rollback (see the dryRun
- * branch below, and commitPlan's own doc comment for the rollback mechanism):
- * `planItems` (the resolved plan.items), `fieldProvenance` (from
- * buildFieldProvenanceMap, entity:entityId:field -> 'human'|'import'), and
- * `legacyPriorityActivities` (from listLegacyPriorityActivities). A dry run
- * that DOES hold returns the normal `{ held: true, conflicts, ... }` shape,
- * with none of these three fields present — same as a real held commit.
- */
 // F6 change 5: a set's imported choices, written as POTENTIAL
 // elective_set_activities rows (the director has not vouched for them; the
 // solver counts only confirmed). elective_set_activities has no
@@ -755,6 +717,44 @@ function commitElectiveCandidates(db, { confirmedElectiveSets = [], camp_id, aut
   return { created, failed, createdEntities }
 }
 
+/**
+ * Commit an approved import proposal, or commit nothing.
+ *
+ * `approved` is `{ [entity]: [name, ...] }` — exactly what the director
+ * confirmed in the preview, not the raw proposal. Anything outside
+ * INGESTIBLE_ENTITIES is a hard error rather than a silent skip: a caller
+ * asking to ingest placements has misunderstood something, and quietly
+ * dropping the request would hide that.
+ *
+ * `fixedEvents` is a dedicated payload of proposed recurring fixed events
+ * (docs/adr/2026-08-03-ingesting-recurring-fixed-events.md), NOT a key in
+ * `approved`: the generic whitelist above still rejects `fixed_events`, and
+ * fixed events are writable only through commitPlan's validated fixed-event branch.
+ *
+ * `activityRules` is a dedicated payload (T35), NOT a key in `approved`, keyed
+ * by activity name -> `{ eligible_group_names, min_per_week, max_per_week,
+ * priority }`.
+ *
+ * S0 (ADR 2026-08-08): commitIngest is now a THIN adapter. It validates the
+ * whitelist, then produces a pure `ReconciliationPlan` via `buildPlan` (renderer
+ * side, no DB) and hands it to `commitPlan` — the single privileged committer
+ * that resolves against the live DB and writes. The op sequence is byte-identical
+ * to the pre-S0 importer, proven by the golden-ops characterization test.
+ *
+ * Returns `{ created: { [entity]: count }, total,
+ *            fixedEvents: { created, skipped, partial }, replaced? }`.
+ *
+ * D1 (dry-run reconciliation): pass `dryRun: true` and the transaction runs
+ * to completion, then rolls back the same way a HELD import does — nothing is
+ * written. The returned shape gains `dryRun: true` and, when the dry run did
+ * NOT hold, three more fields computed AFTER the rollback (see the dryRun
+ * branch below, and commitPlan's own doc comment for the rollback mechanism):
+ * `planItems` (the resolved plan.items), `fieldProvenance` (from
+ * buildFieldProvenanceMap, entity:entityId:field -> 'human'|'import'), and
+ * `legacyPriorityActivities` (from listLegacyPriorityActivities). A dry run
+ * that DOES hold returns the normal `{ held: true, conflicts, ... }` shape,
+ * with none of these three fields present — same as a real held commit.
+ */
 export function commitIngest(db, { approved, links, clears = {}, humanEditedFields = {}, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {}, mode = 'add', resolutions = [], base_generation = 0, dryRun = false, seenCounts = null, pinOnlyActivityNames = [], captureInverse = false, electiveHeaderFindings = [], activityPeriods = {}, confirmedElectiveSets = [], multiBlockEvents = [], specialDay = null, divisionSupport = {}, openDecisions = [] }) {
   if (!approved || typeof approved !== 'object') throw new Error('ingest: nothing to commit')
   if (!camp_id) throw new Error('ingest: camp_id is required')
