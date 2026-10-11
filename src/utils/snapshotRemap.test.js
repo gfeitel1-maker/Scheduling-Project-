@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { remapSnapshotSlots } from './snapshotRemap'
+import { dropDeadReferences } from '../screens/schedule/useSnapshots.js'
+import { resolveImportedPlacements } from '../../electron/ops/resolveImportedPlacements.js'
 
 const catalog = {
   groups: [{ id: 'g', name: 'Bunk 1' }],
@@ -24,5 +26,25 @@ describe('remapSnapshotSlots — recurring-event cells that carry an activity li
     const { slots, skipped } = remapSnapshotSlots([cell], catalog)
     expect(skipped).toEqual([])
     expect(slots[0].activity_id).toBeNull()
+  })
+})
+
+describe('restoring an imported version with an elective cell (F6 change 4)', () => {
+  it('binds the id-only slot (no names block) to the live elective set and keeps it through the restore pipeline', () => {
+    const electiveSets = [{ id: 'es-live', name: 'Chugim' }]
+    const { slots: imported } = resolveImportedPlacements(
+      [{ groupName: 'Bunk 1', dayName: 'Monday', blockLabel: '09:00', electiveSetName: 'Chugim', activityName: 'Chugim', choices: [] }],
+      {
+        groupIdByName: new Map([['bunk 1', 'g']]), dayIdByName: new Map([['monday', 'd']]), blockIdByName: new Map([['09:00', 'b']]),
+        activityIdByName: new Map(), fixedEventIdByName: new Map(), electiveSetIdByName: new Map([['chugim', 'es-live']]),
+      },
+    )
+    expect(imported[0].names).toBeUndefined()
+    const saved = JSON.parse(JSON.stringify(imported))
+    const { slots, skipped } = remapSnapshotSlots(saved, { ...catalog, electiveSets })
+    const surviving = dropDeadReferences(slots, { ...catalog, electiveSets })
+    expect(skipped).toEqual([])
+    expect(surviving).toHaveLength(1)
+    expect(surviving[0]).toMatchObject({ group_id: 'g', day_id: 'd', time_block_id: 'b', elective_set_id: 'es-live', activity_id: null, fixed_event_id: null })
   })
 })
