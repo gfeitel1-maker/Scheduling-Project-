@@ -58,15 +58,12 @@ const deviceId = 'device-1'
 const userId = 'u1'
 const COUNTED_TABLES = ['groups', 'tiers', 'days_of_operation', 'time_blocks', 'activities', 'locations', 'fixed_events', 'elective_sets']
 
-// `<slug>:<invariant>` entries that fail today. Each is a finding in the scorecard (F1: electron/ops/ingest.js
-// fixedEventSlotKey is scope-blind, so a second group scope on the same name/day/block is dropped); remove the
-// entry when fixed.
+// `<slug>:<invariant>` entries that fail today and are tracked as findings in the scorecard; each runs under
+// it.fails and must be removed the day its product bug is fixed. Empty since F1 (same name/day/block, two
+// group scopes) was fixed in electron/ops/ingest.js.
 const MEAL_ZERO = 'zero answers: every group gets its meal on every day and block the file prints it'
 const MEAL_ALL = 'confirm all: every group gets its meal on every day and block the file prints it'
-const KNOWN_FAILING = new Set(
-  ['s04-by-day-6day-large', 's09-by-group-6day-except', 's12-daysheet-4d-late', 's13-daysheet-16-splits']
-    .flatMap((slug) => [`${slug}:${MEAL_ZERO}`, `${slug}:${MEAL_ALL}`]),
-)
+const KNOWN_FAILING = new Set()
 
 const results = {}
 const startedAt = Date.now()

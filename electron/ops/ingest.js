@@ -2349,6 +2349,27 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     // the whole import stays one atomic unit (ADR §4). fixed_events is
     // written here and nowhere else in ingest; the generic whitelist never lets
     // it through.
+    // Two inferred events can share (name, block, day) with different group sets
+    // (a meal every group has Mon-Wed that one group also has Thu). The slot key is
+    // scope-blind by design (ADR 2026-08-09 §1), so the second would be skipped as
+    // already live and its groups silently lost. Union the scopes per slot up front
+    // so the one row written per slot covers every group that has the event there.
+    const slotScopeUnion = new Map()
+    for (const fe of plan.fixedEvents) {
+      const tb = blockIdByName.get(normalizeName(fe.time_block))
+      if (!tb) continue
+      const feAll = Boolean(fe.scope?.is_all_groups)
+      const feIds = feAll ? [] : (fe.scope?.groups ?? []).map((g) => groupIdByName.get(normalizeName(g))).filter(Boolean)
+      for (const d of (fe.days ?? [])) {
+        const dId = dayIdByName.get(normalizeName(d))
+        if (!dId) continue
+        const k = fixedEventSlotKey(cohort_id, dId, tb, fe.name)
+        const u = slotScopeUnion.get(k) ?? { isAll: false, ids: new Set() }
+        u.isAll = u.isAll || feAll
+        feIds.forEach((id) => u.ids.add(id))
+        slotScopeUnion.set(k, u)
+      }
+    }
     for (const fe of plan.fixedEvents) {
       const tbId = blockIdByName.get(normalizeName(fe.time_block))
       const requestedDays = (fe.days ?? []).length
@@ -2413,6 +2434,9 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         // slot are recognized here and left untouched (fixed event updates are out of
         // scope per ADR §4).
         const slotKey = fixedEventSlotKey(cohort_id, dayId, tbId, fe.name)
+        const union = slotScopeUnion.get(slotKey)
+        const slotIsAll = union.isAll ? 1 : 0
+        const slotGroupIds = slotIsAll ? [] : [...union.ids]
         // C1b: this exact file slot is the one the cardinality pre-pass
         // paired against a single unmatched live slot elsewhere — report the
         // drift and suppress the create. No op is appended for either side.
@@ -2453,17 +2477,17 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
             // sources are not guaranteed to dedup, and a duplicate group name
             // in the incoming scope must not read as a scope change.
             const dedupSort = (ids) => [...new Set(ids)].sort()
-            const incomingGroupIds = dedupSort(groupIds)
+            const incomingGroupIds = dedupSort(slotGroupIds)
             const liveGroupIds = dedupSort(liveScope?.group_ids ?? [])
             const scopeDiffers = Boolean(liveScope) && (
-              Boolean(liveScope.is_all_groups) !== Boolean(isAll)
+              Boolean(liveScope.is_all_groups) !== Boolean(slotIsAll)
               || JSON.stringify(incomingGroupIds) !== JSON.stringify(liveGroupIds)
             )
             if (scopeDiffers) {
               const describe = (allGroups, ids) =>
                 allGroups ? 'all groups' : ids.map((id) => liveName('groups', id)).join(', ')
               const from = describe(Boolean(liveScope.is_all_groups), liveGroupIds)
-              const to = describe(Boolean(isAll), incomingGroupIds)
+              const to = describe(Boolean(slotIsAll), incomingGroupIds)
               fixedScopeChanged.push({
                 name: fe.name,
                 reason: `scope changed from ${from} to ${to}`,
@@ -2581,9 +2605,9 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
           // v65 CHECK's recurring branch is satisfied before is_all_groups/
           // group_ids/unit_ids land. Absent a preserved scope, grid scope is
           // written unchanged.
-          kind: preservedUnitIds ? 'recurring' : (isAll ? 'fixed' : 'recurring'),
-          is_all_groups: preservedUnitIds ? 0 : isAll,
-          group_ids: JSON.stringify(preservedUnitIds ? [] : (isAll ? [] : groupIds)),
+          kind: preservedUnitIds ? 'recurring' : (slotIsAll ? 'fixed' : 'recurring'),
+          is_all_groups: preservedUnitIds ? 0 : slotIsAll,
+          group_ids: JSON.stringify(preservedUnitIds ? [] : (slotIsAll ? [] : slotGroupIds)),
           ...(preservedUnitIds ? { unit_ids: JSON.stringify(preservedUnitIds) } : {}),
           // Slice B (docs/adr/2026-08-24-merged-cell-multiblock-ingest.md
           // addendum): a director-confirmed recurring multi-block candidate
