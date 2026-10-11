@@ -216,9 +216,7 @@ function fieldsForUnchecked(entity, name, campId, index, cohortId, eventBlockNam
       // F2: a <=10-minute block that a fixed event in this plan sits in takes events and nothing else
       // (Generate never fills it). A short block with no event (every group printing a plain activity)
       // stays schedulable. Written on create only.
-      const clock = (t) => { const [h, m] = t.split(':'); return +h * 60 + +m }
-      const span = start_time == null ? null : clock(end_time) - clock(start_time)
-      const eventsOnly = span != null && span > 0 && span <= CHANGE_OVER_MAX_MINUTES && eventBlockNames?.has(String(name).trim()) ? { events_only: 1 } : {}
+      const eventsOnly = isShortEventBlock(name, eventBlockNames) ? { events_only: 1 } : {}
       return { cohort_id: cohortId, name, camp_id: campId, start_time, end_time, sort_order: index, ...eventsOnly }
     }
     // name FIRST — activities is UNIQUE_FIELD_ENTITIES-registered (T115).
@@ -412,6 +410,17 @@ export function buildElectiveCandidates(source, existing) {
   return candidates
 }
 
+// A block of CHANGE_OVER_MAX_MINUTES or less that a fixed event in this import sits in.
+// A live row's stored times outrank its label: a director may have edited the times and kept the name.
+function isShortEventBlock(name, eventBlockNames, stored = null) {
+  if (!eventBlockNames?.has(String(name).trim())) return false
+  const { start_time, end_time } = stored?.start_time != null && stored?.end_time != null ? stored : parseTimeRange(name)
+  if (start_time == null || end_time == null) return false
+  const clock = (t) => { const [h, m] = t.split(':'); return +h * 60 + +m }
+  const span = clock(end_time) - clock(start_time)
+  return span > 0 && span <= CHANGE_OVER_MAX_MINUTES
+}
+
 export function buildPlan(source, existing = null, resolutions = []) {
   const approved = source?.approved ?? {}
   const links = source?.links ?? {}
@@ -425,6 +434,10 @@ export function buildPlan(source, existing = null, resolutions = []) {
   // proposal.seenCounts's own shape verbatim rather than a separate
   // pre-classified verdict).
   const seenCounts = source?.seenCounts ?? null
+  const eventsKnown = Array.isArray(source?.fixedEvents)
+  const shortBlockPrints = source?.shortBlockPrints && typeof source.shortBlockPrints === 'object' ? source.shortBlockPrints : null
+  const approvedActivityKeys = new Set((Array.isArray(approved.activities) ? approved.activities : []).map((a) => normalizeName(typeof a === 'string' ? a : a?.name ?? '')))
+  const eventNameKeys = new Set((Array.isArray(source?.fixedEvents) ? source.fixedEvents : []).map((fe) => normalizeName(fe?.name ?? '')))
   const eventBlockNames = new Set((Array.isArray(source?.fixedEvents) ? source.fixedEvents : []).map((fe) => String(fe?.time_block ?? '').trim()))
   // A3 (HARD BLOCKER, Red Hat) — the pin-only/dual-use guard's buildPlan-side
   // carry. ImportScreen.jsx's dualUseActivityNames/pinOnlyActivityNames used
@@ -597,6 +610,23 @@ export function buildPlan(source, existing = null, resolutions = []) {
           }
           if (same) continue
           fields[field] = { from: live ?? null, to: proposed, source: 'import' }
+        }
+
+        // T364 / T365: a recognized short block follows the fixed events of this import, unless the
+        // director has written the flag (any non-import source), which is never touched. A flag is only
+        // CLEARED when the file prints the block as a plain schedulable block (shortBlockPrints: the
+        // text it prints is an activity of this import, not an event); absence from the recurring list
+        // also fits a one-off, a trip or an unticked event. A null source (a block made by hand, never
+        // toggled) may be SET but is never cleared. Needs the caller to have carried fixedEvents at
+        // all: an absent list says nothing about events.
+        if (entity === 'time_blocks' && 'events_only' in match && eventsKnown && !(match.events_only_source && match.events_only_source !== 'import')) {
+          const want = isShortEventBlock(name, eventBlockNames, match) ? 1 : 0
+          const prints = shortBlockPrints?.[String(name).trim()]
+          const printsActivity = Boolean(prints) && approvedActivityKeys.has(normalizeName(prints)) && !eventNameKeys.has(normalizeName(prints))
+          const mayClear = match.events_only_source === 'import' && printsActivity
+          if (Number(match.events_only) !== want && (want === 1 || mayClear)) {
+            fields.events_only = { from: match.events_only ?? 0, to: want, source: 'import' }
+          }
         }
 
         // T266 — an activity row that ALREADY EXISTS and is now recognized as

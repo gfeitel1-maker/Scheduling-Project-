@@ -8,6 +8,7 @@ import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { commitIngest } from './ingest.js'
+import { appendOp, DELETE_FIELD } from './operations.js'
 
 afterAll(() => cleanupTemplatedDbs())
 let db, tmpFile, campId
@@ -86,13 +87,96 @@ const ev = (groups, extra = {}) => ({
 })
 
 describe('F1 - span', () => {
-  it('different spans are never unioned: the first event keeps its span and group set, the other is reported', () => {
+  it('T363: different spans are never unioned: both import, each keeping its own span and group set', () => {
     const out = commit({ ...TWO_BLOCKS, fixedEvents: [ev(['Otters 3'], { span_blocks: 2 }), ev(['Otters 1', 'Otters 2'])] })
-    const mon = rows()
-    expect(mon).toHaveLength(1)
+    const mon = rows().sort((a, b) => (b.span_blocks ?? 1) - (a.span_blocks ?? 1))
+    expect(mon).toHaveLength(2)
     expect(scopeOf(mon[0])).toEqual(['Otters 3'])
     expect(mon[0].span_blocks).toBe(2)
-    expect(out.fixedEvents.partial).toContainEqual(expect.objectContaining({ name: 'Lunch', reason: expect.stringContaining('different length') }))
+    expect(scopeOf(mon[1])).toEqual(['Otters 1', 'Otters 2'])
+    expect(mon[1].span_blocks ?? 1).toBe(1)
+    expect(out.fixedEvents.partial).toEqual([])
+  })
+
+  it('T363: Keep re-import of two same-slot events with different spans writes nothing new', () => {
+    const input = { ...TWO_BLOCKS, fixedEvents: [ev(['Otters 3'], { span_blocks: 2 }), ev(['Otters 1', 'Otters 2'])] }
+    commit(input)
+    const second = commit(input)
+    expect(second.fixedEvents.created).toBe(0)
+    expect(second.fixedEvents.scopeChanged).toEqual([])
+    expect(rows()).toHaveLength(2)
+  })
+
+  it('T363: a director deleting one of the two is honoured on re-import (tombstone is per span)', () => {
+    const input = { ...TWO_BLOCKS, fixedEvents: [ev(['Otters 3'], { span_blocks: 2 }), ev(['Otters 1', 'Otters 2'])] }
+    commit(input)
+    const long = rows().find((r) => r.span_blocks === 2)
+    appendOp(db, { entity: 'fixed_events', entity_id: long.id, field: DELETE_FIELD, value: 1, source: 'human', author_user_id: 'u1', device_id: deviceId, parent_op_id: null, client_write_id: randomUUID() })
+    const second = commit(input)
+    expect(second.fixedEvents.rejected).toHaveLength(1)
+    expect(rows()).toHaveLength(1)
+    expect(rows()[0].span_blocks ?? 1).toBe(1)
+  })
+
+  it('T363: a director-edited span plus a Keep re-import of the original file creates no duplicate', () => {
+    const input = { ...TWO_BLOCKS, fixedEvents: [ev('all')] }
+    commit(input)
+    appendOp(db, { entity: 'fixed_events', entity_id: rows()[0].id, field: 'span_blocks', value: 2, source: 'human', author_user_id: 'u1', device_id: deviceId, parent_op_id: null, client_write_id: randomUUID() })
+    const second = commit(input)
+    expect(second.fixedEvents.created).toBe(0)
+    expect(rows()).toHaveLength(1)
+    expect(rows()[0].span_blocks).toBe(2)
+  })
+
+  it('T363: a deleted span-2 Lunch is not resurrected by a re-import at span 1 (the tombstone is per place)', () => {
+    commit({ ...TWO_BLOCKS, fixedEvents: [ev('all', { span_blocks: 2 })] })
+    appendOp(db, { entity: 'fixed_events', entity_id: rows()[0].id, field: DELETE_FIELD, value: 1, source: 'human', author_user_id: 'u1', device_id: deviceId, parent_op_id: null, client_write_id: randomUUID() })
+    const second = commit({ ...TWO_BLOCKS, fixedEvents: [ev('all')] })
+    expect(second.fixedEvents.rejected).toHaveLength(1)
+    expect(second.fixedEvents.created).toBe(0)
+    expect(rows()).toHaveLength(0)
+  })
+
+  it.each([['short event first', false], ['long event first', true]])('T363: overlapping scopes with different spans give one row (the longer span, either file order) and one partial report per event: %s', (_n, longFirst) => {
+    const short = ev('all')
+    const long = ev(['Otters 1'], { span_blocks: 2, days: ['Monday', 'Thursday'] })
+    const base = { ...TWO_BLOCKS, approved: { ...TWO_BLOCKS.approved, days_of_operation: ['Monday', 'Thursday'] } }
+    const out = commit({ ...base, fixedEvents: longFirst ? [long, { ...short, days: ['Monday', 'Thursday'] }] : [{ ...short, days: ['Monday', 'Thursday'] }, long] })
+    expect(rows()).toHaveLength(2)
+    expect(rows().map((r) => r.span_blocks)).toEqual([2, 2])
+    expect(out.fixedEvents.partial).toHaveLength(1)
+    expect(out.fixedEvents.partial[0].reason).toMatch(/different length/)
+  })
+
+  it('T363: Replace with two disjoint different-span events keeps both rows and a preserved division scope on one', () => {
+    const approved = { ...TWO_BLOCKS.approved, tiers: ['Juniors'] }
+    const links = { groups: { 'Otters 1': 'Juniors', 'Otters 2': 'Juniors' } }
+    const fes = [ev(['Otters 3'], { span_blocks: 2 }), ev(['Otters 1', 'Otters 2'])]
+    commit({ approved, links, fixedEvents: fes })
+    const jid = db.prepare('SELECT id FROM tiers WHERE camp_id = ? AND name = ?').get(campId, 'Juniors').id
+    db.prepare("UPDATE fixed_events SET is_all_groups = 0, group_ids = '[]', unit_ids = ? WHERE camp_id = ? AND (span_blocks IS NULL OR span_blocks = 1)").run(JSON.stringify([jid]), campId)
+    const res = commit({ approved, links, mode: 'replace', fixedEvents: fes })
+    const r = rows().sort((a, b) => (b.span_blocks ?? 1) - (a.span_blocks ?? 1))
+    expect(r).toHaveLength(2)
+    expect(r[0].span_blocks).toBe(2)
+    expect(scopeOf(r[0])).toEqual(['Otters 3'])
+    const newJid = db.prepare('SELECT id FROM tiers WHERE camp_id = ? AND name = ?').get(campId, 'Juniors').id
+    expect(JSON.parse(r[1].unit_ids)).toEqual([newJid])
+    expect(JSON.parse(r[1].group_ids)).toEqual([])
+    expect(res.fixedEvents.scopePreserved).toHaveLength(1)
+  })
+
+  it('T363: Replace restores a preserved division scope onto a row whose span a director changed by hand', () => {
+    const approved = { ...TWO_BLOCKS.approved, tiers: ['Juniors'] }
+    const links = { groups: { 'Otters 1': 'Juniors', 'Otters 2': 'Juniors', 'Otters 3': 'Juniors' } }
+    const fes = [ev('all')]
+    commit({ approved, links, fixedEvents: fes })
+    const jid = db.prepare('SELECT id FROM tiers WHERE camp_id = ? AND name = ?').get(campId, 'Juniors').id
+    db.prepare("UPDATE fixed_events SET is_all_groups = 0, group_ids = '[]', unit_ids = ?, span_blocks = 2, kind = 'recurring' WHERE camp_id = ?").run(JSON.stringify([jid]), campId)
+    const res = commit({ approved, links, mode: 'replace', fixedEvents: fes })
+    expect(rows()).toHaveLength(1)
+    expect(JSON.parse(rows()[0].unit_ids)).toHaveLength(1)
+    expect(res.fixedEvents.scopePreserved).toHaveLength(1)
   })
 
   it('equal spans are unioned and keep the span', () => {

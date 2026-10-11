@@ -527,7 +527,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // and localClient both already await/resolve their handler's return value
   // either way) — but every pre-T117 caller, which never passes placements,
   // keeps getting the outcome object back synchronously, unchanged.
-  function ingestCommit({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, specialDay, wholeCampDays, placements, sourceFileName, compoundCellDecisions, divisionSupport, openDecisions } = {}) {
+  function ingestCommit({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, shortBlockPrints, activityRules, mode: ingestMode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, specialDay, wholeCampDays, placements, sourceFileName, compoundCellDecisions, divisionSupport, openDecisions } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const session = requireAuthorized(db, { token, action: 'groups.import' })
     // T351 — any device holding 'groups.import' may run this, on a trusted, non-revoked device
@@ -559,8 +559,10 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       author_user_id: session.userId,
       device_id: deviceId,
       // Recurring fixed events the director ticked, resolved to real rows and
-      // written as fixed_events (T34). Defaults to none.
-      fixedEvents: fixedEvents ?? [],
+      // written as fixed_events (T34). Left undefined when the caller carries no
+      // event information (T364: an absent list must not clear events-only flags).
+      fixedEvents,
+      shortBlockPrints,
       // Inferred/edited activity rules (T35), keyed by activity name. Defaults
       // to none, preserving pre-T35 behaviour for callers that pass none.
       activityRules: activityRules ?? {},
@@ -652,7 +654,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // guard above — a dry run commits nothing anywhere, on any device, so there
   // is no fork-the-camp risk to guard against. Also does not push any
   // onOpApplied/sync broadcast: nothing was written for a peer to learn about.
-  function ingestReconcile({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents, divisionSupport } = {}) {
+  function ingestReconcile({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, shortBlockPrints, activityRules, mode: ingestMode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents, divisionSupport } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const session = requireAuthorized(db, { token, action: 'groups.import' })
     const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
@@ -670,7 +672,8 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       camp_id: camp.id,
       author_user_id: session.userId,
       device_id: deviceId,
-      fixedEvents: fixedEvents ?? [],
+      fixedEvents,
+      shortBlockPrints,
       activityRules: activityRules ?? {},
       mode: ingestMode === 'replace' ? 'replace' : 'add',
       resolutions: resolutions ?? [],

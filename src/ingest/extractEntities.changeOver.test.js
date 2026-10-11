@@ -65,6 +65,67 @@ describe('F2 - a 10-minute row with an event is a block; a change-over is not', 
   })
 })
 
+// T366: a short row that fails the 2/3 agreement line is never dropped silently.
+const GRID5 = ['Otters 1', 'Otters 2', 'Otters 3', 'Otters 4', 'Otters 5']
+const sparseFile = (shortRow, longRow) => {
+  const row = (time, cells) => `${time.padEnd(18)}${cells.map((c) => c.padEnd(18)).join('')}`.trimEnd()
+  return ['Monday — All Camp', '', `   Time           ${GRID5.map((g) => g.padEnd(18)).join('')}`, '',
+    row('08:50–09:00', shortRow), '', row('09:05–09:50', ['Archery', 'Music', 'Drama', 'Swim', 'Art']), '',
+    row('15:00–15:10', longRow), ''].join('\n')
+}
+
+describe('T366 - a sparse short row is kept or reported, never dropped silently', () => {
+  it('keeps the row as a block when its text matches an event the file prints elsewhere', () => {
+    const text = sparseFile(['Flag Raising', 'Flag Raising', 'Flag Raising', '', ''], Array(5).fill('Flag raising!'))
+    expect(blocksOf(text)).toContain('08:50-09:00')
+  })
+
+  it('drops and reports a row where under half the cells match a known event (2 of 5)', () => {
+    const text = sparseFile(['Flag Raising', 'Flag Raising', '', '', ''], Array(5).fill('Flag raising!'))
+    const proposal = extractEntities(parseTextGrid(text))
+    expect(proposal.entities.time_blocks).not.toContain('08:50-09:00')
+    expect(proposal.skippedShortRows).toEqual([{ label: '08:50-09:00', text: 'Flag Raising', groups: ['Otters 1', 'Otters 2'] }])
+  })
+
+  it('reports a dropped sparse row by time, name and groups when nothing else matches', () => {
+    const text = sparseFile(['Flag Raising', 'Flag Raising', '', '', ''], Array(5).fill('Closing Circle'))
+    const proposal = extractEntities(parseTextGrid(text))
+    expect(proposal.entities.time_blocks).not.toContain('08:50-09:00')
+    expect(proposal.skippedShortRows).toEqual([
+      { label: '08:50-09:00', text: 'Flag Raising', groups: ['Otters 1', 'Otters 2'] },
+    ])
+  })
+
+  it('reports nothing for a genuinely empty change-over row', () => {
+    const text = sparseFile(['-', '-', '-', '-', '-'], Array(5).fill('Closing Circle'))
+    expect(extractEntities(parseTextGrid(text)).skippedShortRows).toEqual([])
+  })
+})
+
+describe('T364 - what a kept short block prints', () => {
+  it('records the text most cells print, per kept short block', () => {
+    const text = sparseFile(Array(5).fill('Swim'), Array(5).fill('Flag raising!'))
+    expect(extractEntities(parseTextGrid(text)).shortBlockPrints).toEqual({ '08:50-09:00': 'Swim', '15:00-15:10': 'Flag raising!' })
+  })
+
+  it('Red Hat 5: a 2 Flag Raising / 2 Swim row (a tie, under agreement) is kept but prints nothing', () => {
+    const row = (time, cells) => `${time.padEnd(18)}${cells.map((c) => c.padEnd(18)).join('')}`.trimEnd()
+    const text = ['Monday — All Camp', '', `   Time           ${GRID5.map((g) => g.padEnd(18)).join('')}`, '',
+      row('08:50–09:00', ['Flag Raising', 'Flag Raising', 'Swim', 'Swim', '']), '',
+      row('09:05–09:50', ['Archery', 'Music', 'Drama', 'Art', 'Chess']), '',
+      row('15:00–15:10', Array(5).fill('Flag raising!')), '',
+      row('16:00–16:10', Array(5).fill('Swim')), ''].join('\n')
+    const out = extractEntities(parseTextGrid(text))
+    expect(out.entities.time_blocks).toContain('08:50-09:00')
+    expect(out.shortBlockPrints['08:50-09:00']).toBeUndefined()
+  })
+
+  it('records nothing for a long block or a dropped change-over', () => {
+    const text = sparseFile(['-', '-', '-', '-', '-'], Array(5).fill('Closing Circle'))
+    expect(Object.keys(extractEntities(parseTextGrid(text)).shortBlockPrints)).toEqual(['15:00-15:10'])
+  })
+})
+
 describe('T132 golden - real-sample time-block counts', () => {
   it('campA stays at 11 blocks (main before F2; T132 recorded 13 before later merging): overflow slivers stay dropped', () => {
     const blocks = blocksOf(fs.readFileSync(path.join(SAMPLES, 'campA-bunk-schedules.txt'), 'utf8'))

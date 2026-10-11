@@ -5,6 +5,13 @@ import { isChangeOverSpan, CHANGE_OVER_MAX_MINUTES } from './periodSpan'
 // were five-minute gaps between periods rather than periods anyone schedules
 // into: "1:05-1:10" and "11:45-11:50". The source file names these explicitly
 // elsewhere ("11:10-11:20 Change", "9:40-9:50 Change") — they are passing time.
+describe('T366 - one tally for what a short row prints', () => {
+  it('counts "Flag Raising (all)" and "Flag raising!" as one event when the row has no known events', () => {
+    const cells = ['Flag Raising (all)', 'Flag raising!', 'Flag Raising (all)', 'Flag raising!', 'Flag Raising']
+    expect(isChangeOverSpan('8:50-9:00', cells)).toBe(false)
+  })
+})
+
 describe('isChangeOverSpan', () => {
   it('calls the five-minute gaps a real file produced change-overs', () => {
     expect(isChangeOverSpan('1:05-1:10')).toBe(true)

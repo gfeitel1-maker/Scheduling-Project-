@@ -85,7 +85,7 @@ const MOCK_COMPARABLE_COLUMNS = {
   tiers: ['sort_order'],
   groups: ['availability', 'tier_id'],
   days_of_operation: ['day_of_week', 'sort_order'],
-  time_blocks: ['start_time', 'end_time', 'sort_order'],
+  time_blocks: ['start_time', 'end_time', 'sort_order', 'events_only'],
   // M4: 'location' -> 'location_id' (mirrors electron's COMPARABLE_COLUMNS).
   // max_groups_per_slot/same_tier_only (T114 co-schedule): added so a re-import
   // can actually DIFF them. Folding the inference into `fields` is not enough —
@@ -996,7 +996,7 @@ export const mockShoresh = {
   // off localStorage on every call (never a live reference), so skipping the
   // final saveState() is sufficient to discard every mutation this run made —
   // CLONE-RUN-DISCARD without a second copy step.
-  async ingestCommit({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, dryRun = false, seenCounts, pinOnlyActivityNames, captureInverse = false, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, specialDay, placements, sourceFileName, compoundCellDecisions, openDecisions } = {}) {
+  async ingestCommit({ approved, links, cohort_id, fixedEvents, shortBlockPrints, activityRules, mode, resolutions, base_generation, dryRun = false, seenCounts, pinOnlyActivityNames, captureInverse = false, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, specialDay, placements, sourceFileName, compoundCellDecisions, openDecisions } = {}) {
     const state = loadState()
     if (!state.camp) throw new Error('ingest: no camp')
     // U1 Invariant 3 (docs/adr/2026-08-17-onescreen-reconciliation-undo.md) —
@@ -1074,6 +1074,7 @@ export const mockShoresh = {
           const row = { id: r.id, name: r[mockNameColumnFor(entity)] }
           if (scoped) row.cohort_id = r.cohort_id ?? null
           for (const c of MOCK_COMPARABLE_COLUMNS[entity]) row[c] = r[c]
+          if (entity === 'time_blocks') row.events_only_source = getSource(state, entity, r.id, 'events_only') ?? null
           return enrichSnapshotRow(entity, row, groupNameById, tierNameById, locationNameById)
         })
         existing[entity] = scoped && cohortId ? rows.filter((r) => r.cohort_id === cohortId) : rows
@@ -1091,7 +1092,7 @@ export const mockShoresh = {
     // buildPlan consumes the ambiguous_identity resolutions itself (pin identity /
     // force create); the stale resolutions are honored below in the Policy-A gate.
     const plan = buildPlan(
-      { approved: recordApproved, links, activityRules, fixedEvents, camp_id: campId, cohort_id: cohortId, mode, base_generation: base_generation ?? 0, seenCounts: seenCounts ?? null, pinOnlyActivityNames: pinOnlyActivityNames ?? [], electiveHeaderFindings: electiveHeaderFindings ?? [], activityPeriods: activityPeriods ?? {} },
+      { approved: recordApproved, links, activityRules, fixedEvents, shortBlockPrints, camp_id: campId, cohort_id: cohortId, mode, base_generation: base_generation ?? 0, seenCounts: seenCounts ?? null, pinOnlyActivityNames: pinOnlyActivityNames ?? [], electiveHeaderFindings: electiveHeaderFindings ?? [], activityPeriods: activityPeriods ?? {} },
       existing,
       Array.isArray(resolutions) ? resolutions : [],
     )
@@ -1834,8 +1835,8 @@ export const mockShoresh = {
   // ADR), not an unqualified assertion made here.
   // clears/humanEditedFields are accepted by the real IPC surface but, like
   // ingestCommit above, the mock's decide layer doesn't consume them.
-  async ingestReconcile({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents } = {}) {
-    const outcome = await this.ingestCommit({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents, dryRun: true })
+  async ingestReconcile({ approved, links, cohort_id, fixedEvents, shortBlockPrints, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents } = {}) {
+    const outcome = await this.ingestCommit({ approved, links, cohort_id, fixedEvents, shortBlockPrints, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents, dryRun: true })
     return {
       dryRun: true,
       held: outcome.held,

@@ -129,12 +129,12 @@ export const localClient = {
   // T118 slice 4 — compoundCellDecisions rides alongside placements: the
   // director's freshly-resolved compound-cell-pattern decisions THIS import,
   // written to the per-camp learned table once, at successful commit.
-  ingestCommit: announcing(({ approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, specialDay, placements, sourceFileName, compoundCellDecisions, divisionSupport, openDecisions } = {}) =>
-    shoresh.ingestCommit({ token: currentToken(), approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, specialDay, placements, sourceFileName, compoundCellDecisions, divisionSupport, openDecisions })),
+  ingestCommit: announcing(({ approved, links, clears, humanEditedFields, cohort_id, fixedEvents, shortBlockPrints, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, specialDay, placements, sourceFileName, compoundCellDecisions, divisionSupport, openDecisions } = {}) =>
+    shoresh.ingestCommit({ token: currentToken(), approved, links, clears, humanEditedFields, cohort_id, fixedEvents, shortBlockPrints, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, specialDay, placements, sourceFileName, compoundCellDecisions, divisionSupport, openDecisions })),
   // D1 — read-only dry run of the same commit pipeline, for the reconciliation
   // summary. Same argument shape as ingestCommit; never writes.
-  ingestReconcile: ({ approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents, divisionSupport } = {}) =>
-    shoresh.ingestReconcile({ token: currentToken(), approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents, divisionSupport }),
+  ingestReconcile: ({ approved, links, clears, humanEditedFields, cohort_id, fixedEvents, shortBlockPrints, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents, divisionSupport } = {}) =>
+    shoresh.ingestReconcile({ token: currentToken(), approved, links, clears, humanEditedFields, cohort_id, fixedEvents, shortBlockPrints, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents, divisionSupport }),
   // U1+U2 — reverts field-updates AND newly-created rows from a
   // captureInverse commit. See the ADR's "grace-window" mechanism;
   // invertibleOps/createdEntityIds never persist past the renderer session

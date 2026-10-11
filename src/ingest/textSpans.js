@@ -114,11 +114,30 @@ export function inferTextSpans(parsed, proposal = {}) {
       if (cell.names.length === 0) blankCount.set(k, (blankCount.get(k) ?? 0) + 1)
     }
   }
-  const structurallyFree = (seq, cell) => {
+  // A free period recurs; a span tail is blank only where the span is. So a block printed on another
+  // of the group's days is not free, UNLESS it is also blank on a day the candidate span is not the
+  // head of (a rotating free period): then its blankness is not explained by the span.
+  const printedDays = new Map() // [group, block] -> days it is printed
+  const blankDays = new Map() // [group, block] -> days it is blank
+  for (const seq of seqs) {
+    for (const cell of seq.cells) {
+      const k = JSON.stringify([seq.groupName, cell.blockLabel])
+      const days = cell.names.length === 0 ? blankDays : printedDays
+      if (!days.has(k)) days.set(k, new Set())
+      days.get(k).add(seq.dayName)
+    }
+  }
+  const structurallyFree = (seq, cell, covered) => {
     const k = JSON.stringify([seq.dayName, cell.blockLabel])
-    return (blankCount.get(k) ?? 0) * 2 > cellCount.get(k)
+    if ((blankCount.get(k) ?? 0) * 2 <= cellCount.get(k)) return false
+    const gk = JSON.stringify([seq.groupName, cell.blockLabel])
+    const printedElsewhere = [...(printedDays.get(gk) ?? [])].some((d) => d !== seq.dayName)
+    if (!printedElsewhere) return true
+    return [...(blankDays.get(gk) ?? [])].some((d) => !covered.has(JSON.stringify([seq.groupName, d, cell.blockLabel])))
   }
 
+  const coveredBlanks = (list, k) => new Set(list.flatMap((o) =>
+    Array.from({ length: k }, (_, j) => JSON.stringify([o.seq.groupName, o.seq.dayName, o.seq.cells[o.i + j + 1].blockLabel]))))
   const spans = new Map()
   const continuations = []
   for (const [norm, { name, list }] of occ) {
@@ -128,8 +147,9 @@ export function inferTextSpans(parsed, proposal = {}) {
       continue
     }
     const k = list[0].blanks
+    let covered
     if (list.length >= 2 && k >= 1 && list.every((o) => o.run === 1 && o.singleCell && o.closed && o.blanks === k)
-      && !list.some((o) => o.seq.cells.slice(o.i + 1, o.i + 1 + k).some((c) => structurallyFree(o.seq, c)))) {
+      && !list.some((o) => o.seq.cells.slice(o.i + 1, o.i + 1 + k).some((c) => structurallyFree(o.seq, c, (covered ??= coveredBlanks(list, k)))))) {
       spans.set(norm, { name, span_blocks: k + 1, sessions: list.length, form: 'blank' })
       for (const o of list) {
         for (let j = 1; j <= k; j++) {

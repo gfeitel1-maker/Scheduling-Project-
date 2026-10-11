@@ -727,7 +727,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute,
   // highlights (its one flag, OVERLAP, is derived per-cell already).
   const findingsRailOpen = railView !== null
   const highlightedKind = !isManual && railView && railView !== 'ALL' ? railView : null
-  const KIND_COLOR = { UNFILLABLE: 'var(--danger)', UNDERSERVED: 'var(--accent)', DISTRIBUTION: 'var(--secondary)', FIXED_EVENT_DUPLICATE: 'var(--accent)' }
+  const KIND_COLOR = { UNFILLABLE: 'var(--danger)', UNDERSERVED: 'var(--accent)', DISTRIBUTION: 'var(--secondary)', FIXED_EVENT_DUPLICATE: 'var(--accent)', FIXED_EVENT_OVERLAP: 'var(--accent)' }
   const highlightColor = KIND_COLOR[highlightedKind] || 'var(--danger)'
   const highlightMap = highlightMapForKind(highlightedKind, findingsRows, slots)
   const railRows = railView && railView !== 'ALL'

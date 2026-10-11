@@ -1,7 +1,7 @@
 ---
 title: T364-events-only-flag-goes-stale
 document_type: ticket
-status: open
+status: completed
 created: 2026-10-11
 task_class: scheduling-engine
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-08-09-ingest-fixed-event-routing-and-reviewable-units.md]
@@ -15,3 +15,21 @@ archive_when: a re-import that removes a block's only fixed event clears that bl
 **Direction.** On re-import, if an events-only block no longer holds any fixed event and the flag was set by import (not the director), clear it or raise one question. That means recording who set the flag, or comparing against the import evidence.
 
 Source: Red Hat review of PR #906 (F2: short event rows and events-only time blocks), 2026-10-11. Filed as a follow-up by the keeper's ruling; not a blocker for #906.
+
+## Resolution (2026-10-11)
+
+Who set the flag comes from data that already exists: the op-log `source` of the flag's last write, read in
+`buildExistingSnapshot` (`electron/ops/ingest.js`) as `events_only_source` and consumed by the recognized-block
+arm of `src/ingest/buildPlan.js`. A re-import clears an import-set flag on a short block that no longer holds
+a fixed event AND that the file prints as a plain schedulable block (`shortBlockPrints`, the text the block
+prints, from `extractEntities`; it must be an approved activity and not a fixed event of the import, so a
+one-off, a trip or an unticked event never clears it); a flag the director wrote (any non-import source) is
+never touched and raises no conflict. A null source (a block created by hand, never toggled) may be SET by
+import but is never CLEARED. Whether a live block is short is read from its stored start/end times, not its
+name. No
+schema change, no new column. `electron/main.js` no longer defaults an absent `fixedEvents` to `[]` for
+`ingestCommit`/`ingestReconcile`, so a caller that carries no event information (not a schedule import) cannot
+clear flags. Mirrored in `src/localClient.mock.js`. Tests: `electron/ops/ingest.eventsOnly.test.js`,
+`src/localClient.mock.eventsOnly.test.js`. Not covered: the Time Blocks edit form saves `events_only` along
+with the other fields, so a block saved by hand without toggling reads as director-set from then on (the safe
+direction: it is then never cleared or set by import).

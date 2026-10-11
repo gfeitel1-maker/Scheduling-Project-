@@ -1,7 +1,7 @@
 ---
 title: T363-same-slot-fixed-events-differing-span
 document_type: ticket
-status: open
+status: completed
 created: 2026-10-11
 task_class: architecture
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-08-09-ingest-fixed-event-routing-and-reviewable-units.md, docs/adr/2026-09-26-ingest-category-exclusivity-and-anchor-identity.md]
@@ -50,3 +50,18 @@ The keeper ruled on 2026-10-11 to ticket this rather than fix it now. Reporting 
 - PR #905 (F1 from `docs/work/evidence/2026-10-11-synthetic-15-scorecard.md`): the span-differing case is
   skipped and reported.
 - The test is "spans differ" in `electron/ops/ingest.sameSlotTwoScopes.test.js`.
+
+## Resolution (2026-10-11)
+
+Matching stays on the span-blind place key (`fixedEventPlaceKey` in `electron/ops/ingest.js`; ADR 2026-08-09
+amended). A place splits into one row per span only when the incoming file holds two or more spans there with
+pairwise-disjoint group scopes; each span row then matches a live row at that place with the same span.
+Every other case is one row per place with scopes unioned, and an event at a different span for overlapping
+groups is reported in `fixedEvents.partial`, never double-covered. A tombstone at the place suppresses
+re-import whatever the span; a hand-edited span plus a Keep re-import of the original file creates no
+duplicate. Replace restores a preserved division scope (span-aware only for a split place). Engine: when two
+rows cover one group at one head block, `buildSchedule.js` picks the larger span (ties: smaller id) and raises
+`FIXED_EVENT_OVERLAP`. Tests: `electron/ops/ingest.sameSlotTwoScopes.test.js`,
+`src/engine/buildSchedule.sameSlotSpans.test.js`. Not covered: the review-screen match key
+(`fixedEventMatchKey`, name + block + days) is still span-blind; the mock (`src/localClient.mock.js`) has no
+slot recognition or union, so no mirror was needed.

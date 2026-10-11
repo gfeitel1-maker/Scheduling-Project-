@@ -619,3 +619,20 @@ confidence-independent, matching what Decision 1 and `buildPlan.js`'s own `pinOn
 comment always said: every inferred fixed/recurring-event name, high or low confidence, minus
 dual-use names. No change to `fixedEvents.js` or `buildPlan.js` — the fix is the seeding set built
 in `ImportScreen.jsx`.
+
+## 2026-10-11 — amendment: same-place events split by span only when the file's scopes are disjoint (T363)
+
+Matching, rejected-slot tombstones and move detection stay on the span-blind place key (cohort, day, time
+block, normalized name, week). A director who changes a live row's span by hand therefore gets no duplicate on
+the next Keep re-import, and a tombstone at a place suppresses re-import whatever the span.
+
+The one exception is a place where the incoming file itself holds two or more spans AND the group scopes of
+those spans are pairwise disjoint (an all-groups event overlaps everything). Those events are two rows, one
+per span, each matched to a live row at that place with the same span. Everywhere else a place is one row:
+scopes are unioned within the first event's span, and an event at a different span for overlapping groups is
+not imported and is reported in `fixedEvents.partial`. Division-scope preservation on Replace follows the same
+rule (span-aware only for a split place).
+
+The engine never lets row order decide when two rows cover one group at one head block (reachable by hand
+edits): `src/engine/buildSchedule.js` uses the larger span (ties: smaller id) and raises a
+`FIXED_EVENT_OVERLAP` finding for the group.

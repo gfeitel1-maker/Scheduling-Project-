@@ -166,6 +166,54 @@ function normalizeInput(input) {
 // does this fixed event cover" one named home, and an alias is a far smaller target
 // for a merge conflict to mangle than a call-site edit.
 // See docs/work/tickets/T182-stale-anchor-duplicate-finding.md.
+const sameFixedEventName = (a, b) => String(a.name ?? '').trim().toLowerCase() === String(b.name ?? '').trim().toLowerCase()
+
+function fixedEventOverlapWinner(a, b) {
+  const spanA = a.span_blocks || 1
+  const spanB = b.span_blocks || 1
+  if (spanA !== spanB) return spanA > spanB ? a : b
+  return String(a.id) <= String(b.id) ? a : b
+}
+
+// T363: two same-name rows holding one group at one head block (overlapping scopes) must not be decided
+// by row order: the longer span wins, ties go to the smaller id, and the group gets one finding. Events
+// with different names in one block are not covered here; they keep the older last-write-wins behaviour.
+// Shared by the build and by computeFindings so the finding survives a recompute. `fixedEvents` must
+// already be filtered to the week being built.
+function fixedEventOverlapFindings(fixedEvents, groups, days) {
+  const findings = []
+  const heads = new Map()
+  const reported = new Set()
+  for (const fixedEvent of fixedEvents || []) {
+    const groupList = resolveFixedEventGroupIds(fixedEvent, groups)
+    const dayList = resolveFixedEventDayIds(fixedEvent, days)
+    for (const gid of groupList) {
+      for (const did of dayList) {
+        const key = `${gid}|${did}|${fixedEvent.time_block_id}|${String(fixedEvent.name ?? '').trim().toLowerCase()}|${fixedEvent.schedule_week_id ?? ''}`
+        const rival = heads.get(key)
+        if (!rival) { heads.set(key, fixedEvent); continue }
+        if (rival.id === fixedEvent.id || reported.has(gid)) continue
+        reported.add(gid)
+        const winner = fixedEventOverlapWinner(rival, fixedEvent)
+        const spanA = rival.span_blocks || 1
+        const spanB = fixedEvent.span_blocks || 1
+        const groupName = groups.find((g) => g.id === gid)?.name || gid
+        const eventName = fixedEvent.name || fixedEvent.id
+        findings.push({
+          kind: 'FIXED_EVENT_OVERLAP',
+          groupId: gid,
+          activityId: winner.activity_id ?? null,
+          severity: 'caution',
+          reason: spanA === spanB
+            ? `${groupName} has "${eventName}" set twice in the same block; only one of them is used`
+            : `${groupName} has "${eventName}" set twice in the same block, for ${spanA} and ${spanB} blocks; the longer one is used`,
+        })
+      }
+    }
+  }
+  return findings
+}
+
 function fixedEventCoveredGroupIds(fixedEvent, liveGroups) {
   return resolveFixedEventGroupIds(fixedEvent, liveGroups)
 }
@@ -329,6 +377,12 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
 
     for (const gid of groupList) {
       for (const did of dayList) {
+        // T363: two rows for one group at one head block (overlapping scopes at different spans) must
+        // not be decided by row order. The longer span wins, ties go to the smaller id, and the group
+        // gets a finding. A tied loser is skipped whole, so its tails never land.
+        const rival = fixedEventLookup.get(`${gid}|${did}|${fixedEvent.time_block_id}`)
+        if (rival?._isSpanHead && rival.id !== fixedEvent.id && (rival.schedule_week_id ?? null) === (fixedEvent.schedule_week_id ?? null)
+          && sameFixedEventName(rival, fixedEvent) && fixedEventOverlapWinner(rival, fixedEvent) === rival) continue
         // Head block
         setFixedEventLookup(`${gid}|${did}|${fixedEvent.time_block_id}`, { ...fixedEvent, _isSpanHead: true })
         // Tail blocks (span_blocks > 1)
@@ -1087,7 +1141,7 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
 
   // Aggregate findings — one per (groupId, activityId, kind), never stamped
   // onto individual slots. See docs/adr/2026-07-28-schedule-flag-findings-reshape.md.
-  const findings = []
+  const findings = fixedEventOverlapFindings(fixedEvents, groups, days)
   const underserved = []
   if (!fixedEventsOnly) {
     for (const group of groups) {
@@ -1261,6 +1315,9 @@ export function computeFindings({ slots: allSlots, groups, activities, days: all
   // anchor-duplicate-finding.md). Absent/empty fixedEvents → no findings (safe
   // default for callers that don't yet thread fixedEvents/weekId through).
   if (fixedEvents && fixedEvents.length > 0) {
+    findings.push(...fixedEventOverlapFindings(
+      fixedEvents.filter((fe) => fe.schedule_week_id == null || fe.schedule_week_id === weekId), groups, days,
+    ))
     // Suppress a week-closed activity from the exclusion set: an activity
     // closed via activityExclusions/groupExclusions/locationExclusions for
     // this week would not be excluded by a fresh build even though its
