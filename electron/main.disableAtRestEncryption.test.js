@@ -115,6 +115,18 @@ describe('disableAtRestEncryption handler', () => {
     expect((await handlers.disableAtRestEncryption({ token, phrase: DISABLE_PHRASE })).ok).toBe(false)
   })
 
+  it('a second call while one is running is refused and never starts a second disable', async () => {
+    let release
+    runner.mockImplementation(() => new Promise((r) => { release = () => r({ ok: true, restarting: true }) }))
+    const { handlers, token } = await loginAs('Director', '135790')
+    const first = handlers.disableAtRestEncryption({ token, phrase: DISABLE_PHRASE })
+    await new Promise((r) => setTimeout(r, 0))
+    expect(await handlers.disableAtRestEncryption({ token, phrase: DISABLE_PHRASE })).toEqual({ ok: false, error: 'in_progress' })
+    release()
+    expect((await first).ok).toBe(true)
+    expect(runner).toHaveBeenCalledTimes(1)
+  })
+
   it('reports unavailable when no runner is wired (never a silent success)', async () => {
     setAtRestDisableRunner(null)
     const { handlers, token } = await loginAs('Director', '135790')

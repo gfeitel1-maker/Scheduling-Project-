@@ -6,6 +6,16 @@ import { S } from '../styles/shared'
 // states the consequence and the scope (this computer only) before the one irreversible click.
 const PHRASE = 'DISABLE ENCRYPTION'
 
+const REASONS = {
+  confirmation_mismatch: 'The confirmation words did not match.',
+  unavailable: 'This computer cannot turn encryption off right now.',
+  in_progress: 'Turning encryption off is already in progress.',
+  not_encrypted: 'Encryption is already off on this computer.',
+  unknown_state: 'Shoresh could not confirm it was safe to change anything, so it changed nothing.',
+  backup_failed: 'A safety copy could not be made, so nothing was changed.',
+}
+const reasonFor = (res) => REASONS[res?.error] || res?.message || 'Something went wrong, and nothing was changed.'
+
 export default function DisableEncryptionPanel() {
   const [open, setOpen] = useState(false)
   const [typed, setTyped] = useState('')
@@ -19,7 +29,7 @@ export default function DisableEncryptionPanel() {
     try {
       const res = await localClient.disableAtRestEncryption(typed)
       if (res?.ok) setDone(true)
-      else setError(res?.message || res?.error || 'unknown problem')
+      else setError(reasonFor(res))
     } catch (err) {
       setError(err?.message || 'unknown problem')
     } finally {
@@ -31,8 +41,8 @@ export default function DisableEncryptionPanel() {
     <section style={styles.section}>
       <h2 style={styles.sectionTitle}>Encryption on this computer</h2>
       <p style={styles.note}>
-        Your camp&apos;s information is stored encrypted on this computer. Turning that off is rarely
-        needed and cannot be undone from here.
+        Your camp&apos;s information is normally stored encrypted on this computer. Turning that off is
+        rarely needed and cannot be undone from here.
       </p>
       {done && <p style={styles.flag}>Encryption is off. Shoresh is restarting.</p>}
       {!done && !open && (
@@ -41,18 +51,18 @@ export default function DisableEncryptionPanel() {
       {!done && open && (
         <div style={styles.box}>
           <p style={styles.note}>
-            This decrypts the camp&apos;s database and document on this computer. Camper information,
-            including PIN hashes, will be readable by anyone who can open the files on this computer.
+            This unlocks the camp&apos;s saved information on this computer. Camper information and everyone&apos;s
+            PIN protection will be readable by anyone who can open the files on this computer.
             It affects only this computer; other paired devices keep their own encryption until you turn
             it off on each of them. Older backups made while encryption was on can no longer be opened
-            afterwards. Shoresh checks the result and restarts; if anything fails, encryption stays on
+            afterwards. Shoresh checks the result, signs everyone out and restarts; if anything fails, encryption stays on
             and nothing is lost.
           </p>
           <label style={styles.label}>
             Type {PHRASE} to confirm
             <input style={S.input} value={typed} onChange={(e) => setTyped(e.target.value)} disabled={busy} autoComplete="off" />
           </label>
-          {error && <p style={styles.error}>Encryption is still on. {error}</p>}
+          {error && <p style={styles.error}>Encryption is still on. {error} Shoresh will restart in a few seconds.</p>}
           <div style={styles.row}>
             <button type="button" style={S.btnSecondary} onClick={() => { setOpen(false); setTyped(''); setError(null) }} disabled={busy}>Cancel</button>
             <button

@@ -115,6 +115,13 @@ export function setDocCipher(cipher) {
   docCipher = cipher
 }
 
+// T345: while the device key is being shredded no save may reach disk (a late one would encrypt the
+// decrypted document with a key that no longer exists). Pending saves stay queued, not dropped.
+let docSavesSuspended = false
+export function suspendDocSaves(suspended) {
+  docSavesSuspended = Boolean(suspended)
+}
+
 export function setLocalWriteBroadcaster(db, fn) {
   if (!db) throw new Error('setLocalWriteBroadcaster: db is required — the broadcaster is per-device')
   broadcastCallbacks.set(db, fn)
@@ -144,6 +151,7 @@ export function resetForTests() {
   docRegistry = new WeakMap()
   userDataDirGetter = null
   docCipher = null
+  docSavesSuspended = false
   warnedUnconfigured = false
   broadcastCallbacks = new WeakMap()
   // Without this, a test whose transaction throws leaves a depth > 0 and every
@@ -288,6 +296,7 @@ export function flushPendingWrites() {
     clearTimeout(pendingTimer)
     pendingTimer = null
   }
+  if (docSavesSuspended) return
   if (pendingSaves.size === 0) return
   const userDataDir = userDataDirGetter?.()
   const entries = pendingSaves

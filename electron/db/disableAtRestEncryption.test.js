@@ -133,6 +133,16 @@ describe('disableAtRestEncryption: refuses on unknown or inconsistent state, tou
     expect(fs.existsSync(keyPath)).toBe(true)
   })
 
+  it('a plaintext RECENT project (never opened under the key) is skipped, not a permanent refusal', () => {
+    const other = path.join(dir, 'other.sqlite')
+    fs.writeFileSync(other, MAGIC + JSON.stringify({ camps: 1 }), 'latin1')
+    const before = fs.readFileSync(other)
+    const res = run({ dbPaths: [dbPath, other] })
+    expect(res.disabled).toBe(true)
+    expect(fs.readFileSync(other).equals(before)).toBe(true)
+    expect(fs.existsSync(keyPath)).toBe(false)
+  })
+
   it('db file unreadable/missing: unknown_state', () => {
     fs.rmSync(dbPath)
     expect(() => run()).toThrow(expect.objectContaining({ code: 'unknown_state' }))

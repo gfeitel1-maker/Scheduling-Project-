@@ -58,8 +58,15 @@ export function disableAtRestEncryption({ userDataDir, dbPaths, safeStorage, Dat
   }
 
   const counts = new Map()
+  // dbPaths[0] is the open camp db and must be keyed. A recent project that was never opened under
+  // the key is already plaintext; there is nothing to decrypt, so it is left alone.
+  const targets = []
   for (const file of dbPaths) {
-    if (isPlaintextSqliteFile(file, { fsImpl })) throw unknown(`${path.basename(file)} is already plaintext while this device holds a key`)
+    if (isPlaintextSqliteFile(file, { fsImpl })) {
+      if (file === dbPaths[0]) throw unknown(`${path.basename(file)} is already plaintext while this device holds a key`)
+      continue
+    }
+    targets.push(file)
     try {
       const db = new Database(file)
       try { db.pragma(rawKeyPragma(key)); db.pragma('wal_checkpoint(TRUNCATE)') } finally { db.close() }
@@ -82,7 +89,7 @@ export function disableAtRestEncryption({ userDataDir, dbPaths, safeStorage, Dat
     for (const t of tmps) { try { fsImpl.unlinkSync(t) } catch { /* may not exist */ } }
     for (const [file, bak] of backups) {
       try {
-        if (dbPaths.includes(file)) restoreDbFromBackup(file, bak, { fsImpl })
+        if (targets.includes(file)) restoreDbFromBackup(file, bak, { fsImpl })
         else fsImpl.copyFileSync(bak, file)
       } catch { /* the backup still exists */ }
     }
@@ -93,7 +100,7 @@ export function disableAtRestEncryption({ userDataDir, dbPaths, safeStorage, Dat
 
   withRollback(() => {
     try {
-      for (const file of [...dbPaths, ...docs.filter((d) => d.encrypted).map((d) => d.file)]) {
+      for (const file of [...targets, ...docs.filter((d) => d.encrypted).map((d) => d.file)]) {
         const bak = `${file}.pre-disable-${stamp}.bak`
         fsImpl.copyFileSync(file, bak)
         backups.set(file, bak)
@@ -113,7 +120,7 @@ export function disableAtRestEncryption({ userDataDir, dbPaths, safeStorage, Dat
       }
     }
 
-    for (const file of dbPaths) {
+    for (const file of targets) {
       decryptEncryptedToPlaintext(file, key, { Database, writeBackup: () => backups.get(file), expectedCounts: counts.get(file), fsImpl })
     }
 
