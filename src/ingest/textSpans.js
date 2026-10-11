@@ -15,7 +15,8 @@
 //           consecutive blocks, N >= 2.
 //   blank:  the name is never repeated, has at least 2 occurrences, and EVERY
 //           occurrence is a single-name cell followed by exactly k >= 1 blank
-//           cells (then a non-blank cell or the end of the day). N = k + 1.
+//           cells, then a non-blank cell (blanks running to the end of the
+//           day are a short day, not a span). N = k + 1.
 // A name printed sometimes as a single block and sometimes as a run, or whose
 // following blanks vary, is not a span. "Blank" is otherwise indistinguishable
 // from a free/unfilled cell, which is why it needs the per-occurrence
@@ -91,8 +92,11 @@ export function inferTextSpans(parsed, proposal = {}) {
         while (i + run < cells.length && cells[i + run].names.some((n) => normalizeName(n) === norm)) run += 1
         let blanks = 0
         while (i + run + blanks < cells.length && cells[i + run + blanks].names.length === 0) blanks += 1
+        // A blank tail must be closed by a printed cell: blanks that run to the
+        // end of the day are where this group's day ends, not a span.
+        const closed = i + run + blanks < cells.length
         if (!occ.has(norm)) occ.set(norm, { name, list: [] })
-        occ.get(norm).list.push({ run, blanks, singleCell: cell.names.length === 1, seq, i })
+        occ.get(norm).list.push({ run, blanks, closed, singleCell: cell.names.length === 1, seq, i })
       }
     })
   }
@@ -123,7 +127,7 @@ export function inferTextSpans(parsed, proposal = {}) {
       continue
     }
     const k = list[0].blanks
-    if (list.length >= 2 && k >= 1 && list.every((o) => o.run === 1 && o.singleCell && o.blanks === k)
+    if (list.length >= 2 && k >= 1 && list.every((o) => o.run === 1 && o.singleCell && o.closed && o.blanks === k)
       && !list.some((o) => o.seq.cells.slice(o.i + 1, o.i + 1 + k).some((c) => structurallyFree(o.seq, c)))) {
       spans.set(norm, { name, span_blocks: k + 1, sessions: list.length, form: 'blank' })
       for (const o of list) {

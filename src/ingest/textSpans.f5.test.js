@@ -36,9 +36,13 @@ const REPEAT = [
   dayPage('Wednesday', [[T[0], ['Swim', 'Music', 'Drama']], [T[1], ['Ropes Course', 'Archery', 'Swim']], [T[2], ['Ropes Course', 'Drama', 'Music']]]),
 ].join('\n\n')
 
-const BLANK = REPEAT
-  .replace(/(10:00–10:45\s+)Ropes Course /, '$1             ')
-  .replace(/(11:00–11:45\s+)Ropes Course /, '$1             ')
+// The same week with each span printed once and its second block blank. Every
+// blank continuation is followed by a printed cell, as a merged cell always is.
+const BLANK = [
+  dayPage('Monday', [[T[0], ['Ropes Course', 'Music', 'Drama']], [T[1], ['', 'Swim', 'Archery']], [T[2], ['Swim', 'Drama', 'Music']]]),
+  dayPage('Tuesday', [[T[0], ['Archery', 'Music', 'Drama']], [T[1], ['Swim', 'Drama', 'Music']], [T[2], ['Music', 'Swim', 'Archery']]]),
+  dayPage('Wednesday', [[T[0], ['Ropes Course', 'Music', 'Drama']], [T[1], ['', 'Archery', 'Swim']], [T[2], ['Swim', 'Drama', 'Music']]]),
+].join('\n\n')
 
 describe('F5 text-grid spans are one session of N blocks', () => {
   it('r6 repro: a 2-block name printed once a week is detected as a 2-block span', () => {
@@ -71,7 +75,7 @@ describe('F5 text-grid spans are one session of N blocks', () => {
     expect(rules.get('Ropes Course').span_blocks).toBeUndefined()
     const ropes = placements.filter((p) => p.activityName === 'Ropes Course' && p.groupName === 'Otters 1')
     expect(ropes.map((p) => `${p.dayName} ${p.blockLabel}`).sort()).toEqual(
-      ['Monday 09:00-09:45', 'Monday 10:00-10:45', 'Wednesday 10:00-10:45', 'Wednesday 11:00-11:45'].sort(),
+      ['Monday 09:00-09:45', 'Monday 10:00-10:45', 'Wednesday 09:00-09:45', 'Wednesday 10:00-10:45'].sort(),
     )
   })
 
@@ -85,6 +89,16 @@ describe('F5 text-grid spans are one session of N blocks', () => {
     expect(rules.get('Archery')).toBeDefined()
     expect(spans.has('archery')).toBe(false)
     expect(placements.filter((p) => p.activityName === 'Archery')).toHaveLength(3)
+  })
+
+  it('a blank that ends one group\'s day (a minority short day) is not a span tail', () => {
+    const SHORT = [
+      dayPage('Monday', [[T[0], ['Music', 'Drama', 'Swim']], [T[1], ['Archery', 'Swim', 'Drama']], [T[2], ['', 'Crafts', 'Music']]]),
+      dayPage('Tuesday', [[T[0], ['Drama', 'Swim', 'Music']], [T[1], ['Archery', 'Music', 'Swim']], [T[2], ['', 'Crafts', 'Drama']]]),
+    ].join('\n\n')
+    const { spans, placements } = importRules(SHORT)
+    expect(placements.filter((p) => p.activityName === 'Archery')).toHaveLength(2)
+    expect(spans.has('archery')).toBe(false)
   })
 
   it('a single stray blank after one occurrence is not a span', () => {
