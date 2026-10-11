@@ -66,3 +66,4 @@ where the span is. Red-first tests in
 every day after a shared activity stays not-a-span). Not covered: a genuine free period that is printed on
 some other day for that group (e.g. a Friday short day that otherwise fills the block) reads as a span tail
 if every occurrence of the name is followed by it and the block is blank only after that name; the all-or-nothing per-activity rule still applies.
+ Also not covered: two different double activities that share one block pair on different days can read as free periods and miss the span; this fails safe (a blank cell, never a wrong claim).
