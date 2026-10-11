@@ -108,6 +108,18 @@ describe('T364 - what a kept short block prints', () => {
     expect(extractEntities(parseTextGrid(text)).shortBlockPrints).toEqual({ '08:50-09:00': 'Swim', '15:00-15:10': 'Flag raising!' })
   })
 
+  it('Red Hat 5: a 2 Flag Raising / 2 Swim row (a tie, under agreement) is kept but prints nothing', () => {
+    const row = (time, cells) => `${time.padEnd(18)}${cells.map((c) => c.padEnd(18)).join('')}`.trimEnd()
+    const text = ['Monday — All Camp', '', `   Time           ${GRID5.map((g) => g.padEnd(18)).join('')}`, '',
+      row('08:50–09:00', ['Flag Raising', 'Flag Raising', 'Swim', 'Swim', '']), '',
+      row('09:05–09:50', ['Archery', 'Music', 'Drama', 'Art', 'Chess']), '',
+      row('15:00–15:10', Array(5).fill('Flag raising!')), '',
+      row('16:00–16:10', Array(5).fill('Swim')), ''].join('\n')
+    const out = extractEntities(parseTextGrid(text))
+    expect(out.entities.time_blocks).toContain('08:50-09:00')
+    expect(out.shortBlockPrints['08:50-09:00']).toBeUndefined()
+  })
+
   it('records nothing for a long block or a dropped change-over', () => {
     const text = sparseFile(['-', '-', '-', '-', '-'], Array(5).fill('Closing Circle'))
     expect(Object.keys(extractEntities(parseTextGrid(text)).shortBlockPrints)).toEqual(['15:00-15:10'])
