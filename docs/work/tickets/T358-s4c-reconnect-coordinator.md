@@ -2,7 +2,7 @@
 ticket: T358
 document_type: ticket
 title: S4c — reconnect coordinator (LAN, rung 1, rung 2, then rung 3 only on failure), demand-driven rung-3 polling, public reflexive addresses in the rendezvous record, production wiring, inert behind SHORESH_PUNCH_ENABLED
-status: open
+status: closed
 created: 2026-10-09
 archive_when: "the coordinator escalates strictly LAN, rung 1, rung 2, rung 3 and never contacts rung 3 while an earlier rung can succeed or when SHORESH_RENDEZVOUS_URL is unset; the rendezvous client publishes and polls only on demand with backoff; the rendezvous record carries only public reflexive addresses; attemptRung1, attemptRung2, the punch-signal protocol and gossip publishing have production callers inside the SHORESH_PUNCH_ENABLED gate; a total failure raises SAME_NETWORK_REQUIRED; nothing activates without SHORESH_PUNCH_ENABLED"
 task_class: security-auth

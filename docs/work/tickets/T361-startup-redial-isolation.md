@@ -2,7 +2,7 @@
 ticket: T361
 document_type: ticket
 title: Make the startup redial real, fresh and isolated (T328 follow-up found in T359 slice 2)
-status: in-progress
+status: closed
 created: 2026-10-09
 archive_when: "the startup redial dials remembered addresses in a form libp2p accepts, skips addresses past their age limit, can never break a later discovery dial for the same peer, and the gossip timestamp clamp and the removal of production loopback bypasses have shipped"
 task_class: security-auth

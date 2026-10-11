@@ -2,7 +2,7 @@
 ticket: T359
 document_type: ticket
 title: Router port mapping on rung 1 (map the libp2p TCP listener via UPnP-IGD / NAT-PMP, no STUN), five PRs, inert behind SHORESH_PUNCH_ENABLED
-status: open
+status: closed
 created: 2026-10-09
 archive_when: "the libp2p TCP listener is pinned and mapped through the router with no third party, the router-reported public address reaches a roaming peer's remembered addresses and is dialled first in rung 1, the mapping is removed on quit, revoke and disable and stale mappings are cleaned at startup, the director sees a plain status flag, the new LAN egress has a gate entry and test, and the owner's two-laptop session has recorded one consumer router and one phone hotspot; nothing activates without SHORESH_PUNCH_ENABLED"
 task_class: security-auth

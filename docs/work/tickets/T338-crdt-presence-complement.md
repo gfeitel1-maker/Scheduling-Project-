@@ -2,7 +2,7 @@
 ticket: T338
 document_type: ticket
 title: "Future complement — CRDT-piggybacked presence/address exchange (deferred, not in T337)"
-status: open
+status: closed
 created: 2026-10-03
 archive_when: "a decision is recorded on whether to build CRDT-piggybacked presence as a complement to the T337 camp-peer coordination relay, and if built, it is gated and merged"
 task_class: security-auth

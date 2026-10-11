@@ -2,7 +2,7 @@
 ticket: T336
 document_type: ticket
 title: NAT hole-punch (dcutr) layered on T337's coordination foundation, opens the dcutr capability
-status: open
+status: closed
 created: 2026-10-03
 archive_when: "dcutr is built test-first on T337's coordination foundation, the three T337-carry-forward blocking preconditions below are each proven on real multi-node libp2p, and the dcutr capability is signed off through the full capability+battle-test gate (AutoNAT DROPPED — see 'What it does')"
 task_class: security-auth

@@ -1,7 +1,7 @@
 ---
 title: "A camper's elective preferences can be changed without re-importing a file"
 document_type: ticket
-status: open
+status: closed
 created: 2026-09-28
 task_class: database-sync
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md, docs/governance/standards/DESIGN_STANDARD.md]

@@ -2,7 +2,7 @@
 ticket: T352
 document_type: ticket
 title: Doc-aware backup restore - restoring the SQLite backup alone is silently undone by the Automerge document
-status: in-progress
+status: closed
 created: 2026-10-09
 archive_when: "doc-aware restore designed and built, or explicitly declined by the owner"
 task_class: database-sync

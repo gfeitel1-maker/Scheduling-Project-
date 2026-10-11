@@ -2,7 +2,7 @@
 ticket: T357
 document_type: ticket
 title: S4b — rung 2 hardening (highWater and replay stores fail closed and surface write failures, address filter gaps, signaling budget ordering, once-per-revocation identity rotation), inert behind SHORESH_PUNCH_ENABLED
-status: open
+status: closed
 created: 2026-10-09
 archive_when: "the highWater and replay file stores report an unreadable or corrupt file and refuse entries instead of starting empty, warn and expose every write failure, and fsync before rename; isPublicAddress rejects the listed special-use ranges; a replayed signal neither burns the origin budget nor raises CLOCK_SKEW; forgetRevokedPeer rotates the punch identity once per revocation; nothing activates without SHORESH_PUNCH_ENABLED"
 task_class: security-auth

@@ -2,7 +2,7 @@
 ticket: T347
 document_type: ticket
 title: S1 — punch transport (node-datachannel as a libp2p transport), inert build behind SHORESH_PUNCH_ENABLED
-status: open
+status: closed
 created: 2026-10-08
 archive_when: "electron/sync/automerge/punchTransport.js exists as a libp2p transport over a node-datachannel data channel with Noise, authGate/T331 mutualAuth, isPeerRevoked and Automerge sync proven unchanged over it; native misuse is proven unable to abort the process; syncStarter.js wires it only when SHORESH_PUNCH_ENABLED is the literal string 'true' and the native module loads; the build is green with node-datachannel present and punch.signoff null"
 task_class: security-auth

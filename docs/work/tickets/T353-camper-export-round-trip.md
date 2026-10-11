@@ -2,7 +2,7 @@
 ticket: T353
 document_type: ticket
 title: Camper Excel export that re-imports through the preference-sheet import to update campers
-status: open
+status: closed
 created: 2026-10-09
 archive_when: "a Download campers control exports a workbook whose sheet re-imports through the existing preference-sheet import and commit path; a red-first round-trip test on a real templated DB proves an edited field changes with no duplicate and no lost camper; DIRECTOR_GUIDE end-of-season section describes export, edit, re-import, then clear; npm run verify green in CI"
 task_class: ui-ux-design

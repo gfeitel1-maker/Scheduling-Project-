@@ -2,7 +2,7 @@
 ticket: T337
 document_type: ticket
 title: Coordination layer — camp-peer circuit-relay-v2 (foundation for NAT hole-punch), opens the relay capability
-status: open
+status: closed
 created: 2026-10-03
 archive_when: "circuit-relay-v2 coordination via a reachable camp peer is built test-first, the relay role is proven camp-admitted-only (R declines to broker for a non-admitted/revoked requester), AutoNAT is proven camp-peers-only, both carry-forward proofs + revoke-while-running-at-every-hop pass on real multi-node libp2p, and the capability is signed off through the full capability+battle-test gate"
 task_class: security-auth
