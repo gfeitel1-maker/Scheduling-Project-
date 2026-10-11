@@ -6,7 +6,7 @@
 // (SpecialSchedulesScreen, route 'schedule:special') is UNCHANGED — this
 // screen only authors name/notes/location and routes "Build →" there, same
 // as the two screens it replaces did.
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { localClient } from '../localClient'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { createLocationRecord } from '../lib/locationDedup'
@@ -22,6 +22,7 @@ import SetupScreenShell, { SETUP_MAX_WIDTH } from '../components/setup/SetupScre
 import DuplicateNameDot from '../components/setup/DuplicateNameDot'
 import { duplicateSiblingsByIdFor } from './duplicateSiblings.js'
 import { copyCampTimeBlocks } from './specialDay/copyCampTimeBlocks'
+import RecurringOfferLine from './specialDay/RecurringOfferLine'
 import { seedFailureMessage } from './specialDay/seedFailureMessage'
 
 const repository = createSetupCrudRepository({ localClient })
@@ -238,6 +239,10 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
   const duplicateEventSiblings = useMemo(() => duplicateSiblingsByIdFor(events), [events])
   const [seedPromptForId, setSeedPromptForId] = useState(null)
   const [toast, setToast] = useState(null)
+  const [offer, setOffer] = useState(null)
+  const [note, setNote] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
 
   const [selected, setSelected] = useState(initialFocus)
   const [supportData, setSupportData] = useState({ locations: [] })
@@ -329,9 +334,40 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
     }
   }
 
-  async function seedFromCampTimeBlocks(specialDayId) {
+  // A double-click would start a second copy/Bring that reads the same still-empty cells
+  // and writes them again; the ref blocks it synchronously, `busy` disables the buttons.
+  async function exclusive(fn) {
+    if (busyRef.current) return
+    busyRef.current = true
+    setBusy(true)
+    try { await fn() } finally { busyRef.current = false; setBusy(false) }
+  }
+
+  function bringOffered() {
+    return exclusive(async () => {
+      try {
+        const result = await offer.apply()
+        if (result.failure) setError(result.failure)
+        else {
+          setOffer(null)
+          if (result.notice) setNote(result.notice)
+        }
+      } catch (err) {
+        setError(describeWriteFailure(err, 'Could not bring the recurring events.'))
+      }
+    })
+  }
+
+  function seedFromCampTimeBlocks(specialDayId) {
+    return exclusive(() => seedCopy(specialDayId))
+  }
+
+  async function seedCopy(specialDayId) {
     try {
-      await copyCampTimeBlocks({ campId, specialDayId })
+      const { offer: found, cellFailure, notice } = await copyCampTimeBlocks({ campId, specialDayId })
+      setOffer(found)
+      setNote(notice)
+      if (cellFailure) setError(cellFailure)
       setToast(LABELS.createdHint(days.find((d) => d.id === specialDayId)?.name ?? 'Special Day'))
     } catch (err) {
       setError(describeWriteFailure(err, seedFailureMessage(err.seededCount ?? 0, err.totalCount ?? 0)))
@@ -461,6 +497,7 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
       countLabel={`${rows.length} special event${rows.length !== 1 ? 's' : ''}`}
       error={error}
     >
+      {note && <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>{note}</div>}
       {toast && <div style={{ ...S.errorBanner, background: 'var(--surface)', marginBottom: 16 }}>{toast}</div>}
 
       {loading ? (
@@ -498,11 +535,20 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
         </div>
       )}
 
+      {offer && days.some((d) => d.id === offer.specialDayId) && (
+        <RecurringOfferLine
+          offer={offer}
+          onBring={bringOffered}
+          busy={busy}
+          onSkip={() => setOffer(null)}
+        />
+      )}
+
       {seedPromptForId && days.some((d) => d.id === seedPromptForId) && (
         <div style={{ ...enterStyle, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '12px 16px' }}>
           <div style={{ fontSize: 13, marginBottom: 8 }}>{LABELS.seedPrompt}</div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button className="press-97" onClick={() => seedFromCampTimeBlocks(seedPromptForId)} style={S.btnSecondary}>{LABELS.seedFromBlocks}</button>
+            <button className="press-97" onClick={() => seedFromCampTimeBlocks(seedPromptForId)} disabled={busy} style={S.btnSecondary}>{LABELS.seedFromBlocks}</button>
             <button className="press-97" onClick={() => startEmpty(seedPromptForId)} style={S.btnSecondary}>{LABELS.startEmpty}</button>
           </div>
         </div>

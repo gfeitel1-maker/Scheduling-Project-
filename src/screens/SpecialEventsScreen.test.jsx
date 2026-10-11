@@ -47,6 +47,18 @@ function byEntity(entries) {
   return (entity) => Promise.resolve(entries[entity] ?? [])
 }
 
+// Like byEntity, plus the special days this test created through the write mock, so a
+// reload after creation still finds the new day (the real list would).
+function byEntityLive(entries) {
+  return (entity) => {
+    if (entity !== 'special_days') return Promise.resolve(entries[entity] ?? [])
+    const created = localClient.write.mock.calls
+      .filter(([, e, , f]) => e === 'special_days' && f === 'name')
+      .map(([, , id, , v]) => ({ id, camp_id: CAMP_ID, name: v }))
+    return Promise.resolve([...(entries.special_days ?? []), ...created])
+  }
+}
+
 const emptyEntries = {
   events: [], special_days: [], special_day_time_blocks: [], special_day_slots: [],
   template_slots: [], groups: [], days_of_operation: [], time_blocks: [], locations: [],
@@ -278,6 +290,122 @@ describe('SpecialEventsScreen — seed from camp time blocks', () => {
     // one-shot COPY, not an ongoing storage relationship.
     const calls = localClient.write.mock.calls
     expect(calls.some(([, entity]) => entity === 'time_blocks')).toBe(false)
+  })
+
+  it('offers the recurring events after the create-time copy when the day is placed', async () => {
+    const campBlocks = [{ id: 'cb', camp_id: CAMP_ID, name: 'Morning', sort_order: 0, start_time: '09:00:00', end_time: '10:00:00' }]
+    localClient.list.mockImplementation(byEntityLive({
+      ...emptyEntries,
+      time_blocks: campBlocks,
+      groups: [{ id: 'g1', camp_id: CAMP_ID, name: 'Bunk A' }],
+      days_of_operation: [{ id: 'mon', camp_id: CAMP_ID, label: 'Monday' }],
+      special_day_placements: [{ id: 'p', week_id: 'w', day_id: 'mon', special_day_id: 'new-id-0' }],
+      fixed_events: [{ id: 'f', camp_id: CAMP_ID, kind: 'recurring', name: 'Group Time', day_id: 'mon', time_block_id: 'cb', is_all_groups: 1, group_ids: '[]', unit_ids: '[]', activity_id: 'a1', span_blocks: 1 }],
+    }))
+    render(<SpecialEventsScreen campId={CAMP_ID} role="admin" />)
+    await waitFor(() => expect(screen.queryByText('No special events yet.')).not.toBeNull())
+    addViaInlineRow({ name: 'Color War', type: 'day' })
+    await waitFor(() => expect(screen.queryByText(/Copy time blocks/)).not.toBeNull())
+    fireEvent.click(screen.getByText(/Copy time blocks/))
+
+    expect(await screen.findByText('Also bring 1 recurring event from Monday?')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Bring' }))
+    await waitFor(() => expect(localClient.write.mock.calls.some(([, e, , f, v]) => e === 'special_day_slots' && f === 'activity_id' && v === 'a1')).toBe(true))
+    expect(screen.queryByText(/Also bring/)).toBeNull()
+  })
+
+  it('Empty writes no blocks and no cells', async () => {
+    localClient.list.mockImplementation(byEntityLive({
+      ...emptyEntries,
+      time_blocks: [{ id: 'cb', camp_id: CAMP_ID, name: 'Morning', sort_order: 0 }],
+      fixed_events: [{ id: 'f', camp_id: CAMP_ID, kind: 'fixed', name: 'Carpool', day_id: null, time_block_id: 'cb', is_all_groups: 1, group_ids: '[]', unit_ids: '[]', activity_id: 'a1', span_blocks: 1 }],
+    }))
+    render(<SpecialEventsScreen campId={CAMP_ID} role="admin" />)
+    await waitFor(() => expect(screen.queryByText('No special events yet.')).not.toBeNull())
+    addViaInlineRow({ name: 'Color War', type: 'day' })
+    const writesBefore = localClient.write.mock.calls.length
+    fireEvent.click(await screen.findByRole('button', { name: 'Empty' }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Empty' })).toBeNull())
+    const after = localClient.write.mock.calls.slice(writesBefore)
+    expect(after.some(([, e]) => e === 'special_day_time_blocks' || e === 'special_day_slots')).toBe(false)
+  })
+
+  it('keeps the offer when Bring fails so it can be retried', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    localClient.list.mockImplementation(byEntityLive({
+      ...emptyEntries,
+      time_blocks: [{ id: 'cb', camp_id: CAMP_ID, name: 'Morning', sort_order: 0 }],
+      groups: [{ id: 'g1', camp_id: CAMP_ID, name: 'Bunk A' }],
+      days_of_operation: [{ id: 'mon', camp_id: CAMP_ID, label: 'Monday' }],
+      special_day_placements: [{ id: 'p', week_id: 'w', day_id: 'mon', special_day_id: 'new-id-0' }],
+      fixed_events: [{ id: 'f', camp_id: CAMP_ID, kind: 'recurring', name: 'Group Time', day_id: 'mon', time_block_id: 'cb', is_all_groups: 1, group_ids: '[]', unit_ids: '[]', activity_id: 'a1', span_blocks: 1 }],
+    }))
+    render(<SpecialEventsScreen campId={CAMP_ID} role="admin" />)
+    await waitFor(() => expect(screen.queryByText('No special events yet.')).not.toBeNull())
+    addViaInlineRow({ name: 'Color War', type: 'day' })
+    fireEvent.click(await screen.findByText(/Copy time blocks/))
+    await screen.findByText('Also bring 1 recurring event from Monday?')
+    localClient.write.mockImplementation(async (_t, entity) => (entity === 'special_day_slots' ? { status: 'rejected' } : { status: 'applied' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Bring' }))
+    expect(await screen.findByText("Couldn't add Group Time — try again")).toBeTruthy()
+    expect(screen.getByText('Also bring 1 recurring event from Monday?')).toBeTruthy()
+    log.mockRestore()
+  })
+
+  it('two rapid Bring clicks write one set of cells', async () => {
+    const slots = []
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'special_day_slots') return Promise.resolve(slots)
+      return byEntityLive({
+        ...emptyEntries,
+        time_blocks: [{ id: 'cb', camp_id: CAMP_ID, name: 'Morning', sort_order: 0 }],
+        groups: [{ id: 'g1', camp_id: CAMP_ID, name: 'Bunk A' }],
+        days_of_operation: [{ id: 'mon', camp_id: CAMP_ID, label: 'Monday' }],
+        special_day_placements: [{ id: 'p', week_id: 'w', day_id: 'mon', special_day_id: 'new-id-0' }],
+        fixed_events: [{ id: 'f', camp_id: CAMP_ID, kind: 'recurring', name: 'Group Time', day_id: 'mon', time_block_id: 'cb', is_all_groups: 1, group_ids: '[]', unit_ids: '[]', activity_id: 'a1', span_blocks: 1 }],
+      })(entity)
+    })
+    localClient.write.mockImplementation(async (_t, entity, id, field, value) => {
+      await new Promise((r) => setTimeout(r, 5))
+      if (entity === 'special_day_slots') {
+        let row = slots.find((x) => x.id === id)
+        if (!row) { row = { id }; slots.push(row) }
+        row[field] = value
+      }
+      return { status: 'applied' }
+    })
+    render(<SpecialEventsScreen campId={CAMP_ID} role="admin" />)
+    await waitFor(() => expect(screen.queryByText('No special events yet.')).not.toBeNull())
+    addViaInlineRow({ name: 'Color War', type: 'day' })
+    const copy = await screen.findByText(/Copy time blocks/)
+    fireEvent.click(copy)
+    fireEvent.click(copy)
+    await screen.findByText('Also bring 1 recurring event from Monday?')
+    const bring = screen.getByRole('button', { name: 'Bring' })
+    fireEvent.click(bring)
+    fireEvent.click(bring)
+    await waitFor(() => expect(screen.queryByText(/Also bring/)).toBeNull())
+    expect(slots.filter((x) => x.activity_id === 'a1')).toHaveLength(1)
+    expect(localClient.write.mock.calls.filter(([, e, , f]) => e === 'special_day_time_blocks' && f === 'name')).toHaveLength(1)
+  })
+
+  it('shows a kept-cell notice as a neutral note, not an error', async () => {
+    localClient.list.mockImplementation(byEntityLive({
+      ...emptyEntries,
+      time_blocks: [{ id: 'cb', camp_id: CAMP_ID, name: 'Morning', sort_order: 0 }],
+      groups: [{ id: 'g1', camp_id: CAMP_ID, name: 'Bunk A' }],
+      activities: [{ id: 'a1', camp_id: CAMP_ID, name: 'Carpool' }, { id: 'a2', camp_id: CAMP_ID, name: 'Drop-off' }],
+      fixed_events: [
+        { id: 'f1', camp_id: CAMP_ID, kind: 'fixed', name: 'Carpool', day_id: null, time_block_id: 'cb', is_all_groups: 1, group_ids: '[]', unit_ids: '[]', activity_id: 'a1', span_blocks: 1 },
+        { id: 'f2', camp_id: CAMP_ID, kind: 'fixed', name: 'Drop-off', day_id: null, time_block_id: 'cb', is_all_groups: 1, group_ids: '[]', unit_ids: '[]', activity_id: 'a2', span_blocks: 1 },
+      ],
+    }))
+    render(<SpecialEventsScreen campId={CAMP_ID} role="admin" />)
+    await waitFor(() => expect(screen.queryByText('No special events yet.')).not.toBeNull())
+    addViaInlineRow({ name: 'Color War', type: 'day' })
+    fireEvent.click(await screen.findByText(/Copy time blocks/))
+    const note = await screen.findByText(/kept in Bunk A/)
+    expect(note.closest('[role="alert"]')).toBeNull()
   })
 
   it('reports partial completion when seeding fails partway through (non-atomic, design-accepted)', () => {

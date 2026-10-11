@@ -21,6 +21,7 @@ import { blockNamesForSpan } from '../../components/schedule/cellLabel'
 import SpecialDayCell from './SpecialDayCell'
 import SpecialDayPlacements from './SpecialDayPlacements'
 import FailureLine from './FailureLine'
+import RecurringOfferLine from './RecurringOfferLine'
 import { copyCampTimeBlocks } from './copyCampTimeBlocks'
 import { seedFailureMessage } from './seedFailureMessage'
 import GridEditorFrame from '../../components/schedule/GridEditorFrame'
@@ -33,6 +34,7 @@ const LABELS = {
   printAction: 'Print',
   locationPlaceholder: '— No location —',
   locationAddHint: '+ location',
+  notPlacedNote: 'Brought your every-day events. Put this special day on a weekday to bring that day\u2019s other events.',
   deletedElsewhere: 'This special day was deleted.',
 }
 
@@ -66,6 +68,11 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
   const [locations, setLocations] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [offer, setOffer] = useState(null)
+  const [copyNote, setCopyNote] = useState(null)
+  const [notPlaced, setNotPlaced] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
   const [editingName, setEditingName] = useState(false)
   const [nameDraft, setNameDraft] = useState('')
   const [notesDraft, setNotesDraft] = useState('')
@@ -138,6 +145,7 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
       if (op?.entity === 'special_days' && op?.entity_id === specialDayId && op?.field === '__deleted__') {
         onDeletedElsewhereRef.current?.()
       }
+      if (op?.entity === 'special_day_placements') setNotPlaced(false)
     })
     return () => { unsub?.() }
   }, [specialDayId])
@@ -192,11 +200,40 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
     }
   }
 
-  async function copyBlocks() {
+  // A double-click would start a second copy/Bring that reads the same still-empty cells
+  // and writes them again; the ref blocks it synchronously, `busy` disables the buttons.
+  async function exclusive(fn) {
+    if (busyRef.current) return
+    busyRef.current = true
+    setBusy(true)
+    try { await fn() } finally { busyRef.current = false; setBusy(false) }
+  }
+
+  const copyBlocks = () => exclusive(copyBlocksOnce)
+
+  async function copyBlocksOnce() {
     try {
-      await copyCampTimeBlocks({ campId, specialDayId })
+      const { carriedCount, placed, offer: found, cellFailure, notice } = await copyCampTimeBlocks({ campId, specialDayId })
+      setOffer(found)
+      if (cellFailure) setError(cellFailure)
+      setCopyNote(notice)
+      setNotPlaced(carriedCount > 0 && !placed)
     } catch (err) {
       setError(describeWriteFailure(err, seedFailureMessage(err.seededCount ?? 0, err.totalCount ?? 0)))
+    }
+    await load()
+  }
+
+  const bringOffered = () => exclusive(bringOfferedOnce)
+
+  async function bringOfferedOnce() {
+    try {
+      const result = await offer.apply()
+      if (result.failure) setError(result.failure)
+      else setOffer(null)
+      if (result.notice) setCopyNote(result.notice)
+    } catch (err) {
+      setError(describeWriteFailure(err, 'Could not bring the recurring events.'))
     }
     await load()
   }
@@ -338,7 +375,14 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
           onDeletedElsewhere={onDeletedElsewhere}
         />
       }
-      banners={error && <FailureLine message={error} />}
+      banners={(
+        <>
+          {error && <FailureLine message={error} />}
+          {offer?.specialDayId === specialDayId && <RecurringOfferLine offer={offer} busy={busy} onBring={bringOffered} onSkip={() => setOffer(null)} />}
+          {notPlaced && <div style={noteStyle}>{LABELS.notPlacedNote}</div>}
+          {copyNote && <div style={noteStyle}>{copyNote}</div>}
+        </>
+      )}
       toolbarActions={<button className="press-97" onClick={addBlock} style={S.btnSecondary}>{LABELS.addBlock}</button>}
       groups={groups}
       timeBlocks={timeBlocks}
@@ -347,7 +391,7 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
       empty={timeBlocks.length === 0 ? (
         <div style={S.emptyState}>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-            <button className="press-97" onClick={copyBlocks} style={S.btnPrimary}>{LABELS.copyBlocks}</button>
+            <button className="press-97" onClick={copyBlocks} disabled={busy} style={S.btnPrimary}>{LABELS.copyBlocks}</button>
             <button className="press-97" onClick={addBlock} style={S.btnSecondary}>{LABELS.addBlock}</button>
           </div>
         </div>
@@ -409,3 +453,5 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
     </GridEditorFrame>
   )
 }
+
+const noteStyle = { fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 14px' }

@@ -328,4 +328,79 @@ describe('SpecialDayGridEditor — Copy time blocks on an empty special schedule
     await waitFor(() => expect(screen.getByText('Opening')).toBeTruthy())
     expect(screen.queryByRole('button', { name: 'Copy time blocks' })).toBeNull()
   })
+
+  it('clears the not-placed note once the day is placed', async () => {
+    emptyDayFixtures()
+    const listeners = []
+    localClient.onOpApplied.mockImplementation((cb) => { listeners.push(cb); return () => {} })
+    const base = localClient.list.getMockImplementation()
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'fixed_events') return Promise.resolve([{ id: 'f1', camp_id: CAMP_ID, kind: 'fixed', name: 'Carpool', day_id: null, time_block_id: 'cb1', is_all_groups: 1, group_ids: '[]', unit_ids: '[]', activity_id: 'a1', span_blocks: 1 }])
+      return base(entity)
+    })
+    render(<SpecialDayGridEditor campId={CAMP_ID} specialDayId={SD_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy time blocks' }))
+    expect(await screen.findByText(/Put this special day on a weekday/)).toBeTruthy()
+    listeners.forEach((cb) => cb({ entity: 'special_day_placements', entity_id: 'p', field: 'week_id' }))
+    await waitFor(() => expect(screen.queryByText(/Put this special day on a weekday/)).toBeNull())
+  })
+
+  it('two rapid Bring clicks write one set of cells, and two rapid Copy clicks copy once', async () => {
+    emptyDayFixtures()
+    const base = localClient.list.getMockImplementation()
+    const slots = []
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'fixed_events') return Promise.resolve([{ id: 'f1', camp_id: CAMP_ID, kind: 'recurring', name: 'Group Time', day_id: 'mon', time_block_id: 'cb1', is_all_groups: 1, group_ids: '[]', unit_ids: '[]', activity_id: 'a1', span_blocks: 1 }])
+      if (entity === 'days_of_operation') return Promise.resolve([{ id: 'mon', camp_id: CAMP_ID, label: 'Monday' }])
+      if (entity === 'special_day_placements') return Promise.resolve([{ id: 'p', week_id: 'w', day_id: 'mon', special_day_id: SD_ID }])
+      if (entity === 'special_day_slots') return Promise.resolve(slots)
+      return base(entity)
+    })
+    const baseWrite = localClient.write.getMockImplementation()
+    localClient.write.mockImplementation(async (t, entity, id, field, value) => {
+      await new Promise((r) => setTimeout(r, 5))
+      if (entity === 'special_day_slots') {
+        let row = slots.find((x) => x.id === id)
+        if (!row) { row = { id }; slots.push(row) }
+        row[field] = value
+      }
+      return baseWrite(t, entity, id, field, value)
+    })
+    render(<SpecialDayGridEditor campId={CAMP_ID} specialDayId={SD_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
+    const copy = await screen.findByRole('button', { name: 'Copy time blocks' })
+    fireEvent.click(copy)
+    fireEvent.click(copy)
+    await screen.findByText('Also bring 1 recurring event from Monday?')
+    expect(specialBlocks).toHaveLength(2)
+    const bring = screen.getByRole('button', { name: 'Bring' })
+    fireEvent.click(bring)
+    fireEvent.click(bring)
+    await waitFor(() => expect(screen.queryByText(/Also bring/)).toBeNull())
+    expect(slots.filter((x) => x.activity_id === 'a1')).toHaveLength(1)
+  })
+
+  it('offers recurring events after the copy and places them when the director clicks Bring', async () => {
+    emptyDayFixtures()
+    const base = localClient.list.getMockImplementation()
+    const slotWrites = []
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'fixed_events') return Promise.resolve([{ id: 'f1', camp_id: CAMP_ID, kind: 'recurring', name: 'Group Time', day_id: 'mon', time_block_id: 'cb1', is_all_groups: 1, group_ids: '[]', unit_ids: '[]', activity_id: 'a1', span_blocks: 1 }])
+      if (entity === 'days_of_operation') return Promise.resolve([{ id: 'mon', camp_id: CAMP_ID, label: 'Monday' }])
+      if (entity === 'special_day_placements') return Promise.resolve([{ id: 'p', week_id: 'w', day_id: 'mon', special_day_id: SD_ID }])
+      return base(entity)
+    })
+    const baseWrite = localClient.write.getMockImplementation()
+    localClient.write.mockImplementation((t, entity, id, field, value) => {
+      if (entity === 'special_day_slots') slotWrites.push(field)
+      return baseWrite(t, entity, id, field, value)
+    })
+    render(<SpecialDayGridEditor campId={CAMP_ID} specialDayId={SD_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy time blocks' }))
+
+    expect(await screen.findByText('Also bring 1 recurring event from Monday?')).toBeTruthy()
+    expect(slotWrites).toHaveLength(0)
+    fireEvent.click(screen.getByRole('button', { name: 'Bring' }))
+    await waitFor(() => expect(slotWrites).toContain('activity_id'))
+    expect(screen.queryByText(/Also bring/)).toBeNull()
+  })
 })
