@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-10-11T13:02:06.657Z",
-  "runtimeMs": 53422,
+  "generatedAt": "2026-10-11T13:29:34.459Z",
+  "runtimeMs": 62807,
   "node": "v25.8.1",
   "camps": {
     "s01-by-day-small-5d": {
@@ -10,7 +10,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 247,
+          "cpuMs": 222,
           "held": false
         },
         "confirmAll": {
@@ -198,7 +198,7 @@
         "slots": 210,
         "placed": 114,
         "unfillable": 0,
-        "stillNeeded": 8,
+        "stillNeeded": 10,
         "underservedPairs": 5,
         "overlap": 0,
         "errorFindings": [],
@@ -245,12 +245,12 @@
             }
           },
           "firstMisses": [
-            "Museum Trip | Herons 1 | Wednesday | 09:20–10:05 -> activity:arts and crafts",
-            "Museum Trip | Herons 1 | Wednesday | 10:10–10:55 -> activity:ceramics",
-            "Museum Trip | Herons 2 | Wednesday | 09:20–10:05 -> activity:climbing wall",
-            "Museum Trip | Herons 2 | Wednesday | 10:10–10:55 -> activity:fishing",
-            "Museum Trip | Herons 3 | Wednesday | 09:20–10:05 -> activity:museum trip",
-            "Museum Trip | Herons 3 | Wednesday | 10:10–10:55 -> activity:dance"
+            "Museum Trip | Herons 1 | Wednesday | 09:20–10:05 -> activity:fishing",
+            "Museum Trip | Herons 1 | Wednesday | 10:10–10:55 -> activity:drama",
+            "Museum Trip | Herons 2 | Wednesday | 09:20–10:05 -> activity:drama",
+            "Museum Trip | Herons 2 | Wednesday | 10:10–10:55 -> activity:climbing wall",
+            "Museum Trip | Herons 3 | Wednesday | 09:20–10:05 -> activity:drumming",
+            "Museum Trip | Herons 3 | Wednesday | 10:10–10:55 -> activity:arts and crafts"
           ]
         },
         "spanRuns": [
@@ -258,9 +258,9 @@
             "name": "Ropes Course",
             "expected": 2,
             "activitySpanBlocks": null,
-            "placedGroupDays": 6,
+            "placedGroupDays": 4,
             "runs": {
-              "1": 6
+              "1": 4
             }
           }
         ],
@@ -269,7 +269,7 @@
             "name": "Museum Trip",
             "expectedCells": 6,
             "placedTotal": 4,
-            "placedAtExpectedCells": 1
+            "placedAtExpectedCells": 0
           }
         ],
         "electiveCells": {
@@ -352,7 +352,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 211,
+        "cpuMs": 229,
         "held": false,
         "counts": {
           "groups": 6,
@@ -541,12 +541,12 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 31,
+        "cpuMs": 25,
         "slots": 210,
         "placed": 114,
         "unfillable": 0,
         "stillNeeded": 9,
-        "underservedPairs": 5,
+        "underservedPairs": 6,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -592,11 +592,11 @@
             }
           },
           "firstMisses": [
-            "Museum Trip | Herons 1 | Wednesday | 09:20–10:05 -> activity:lunch bunch",
-            "Museum Trip | Herons 1 | Wednesday | 10:10–10:55 -> activity:dance",
-            "Museum Trip | Herons 2 | Wednesday | 09:20–10:05 -> activity:basketball",
-            "Museum Trip | Herons 2 | Wednesday | 10:10–10:55 -> activity:lunch bunch",
-            "Museum Trip | Herons 3 | Wednesday | 09:20–10:05 -> activity:drama",
+            "Museum Trip | Herons 1 | Wednesday | 09:20–10:05 -> activity:basketball",
+            "Museum Trip | Herons 1 | Wednesday | 10:10–10:55 -> activity:ceramics",
+            "Museum Trip | Herons 2 | Wednesday | 09:20–10:05 -> activity:drumming",
+            "Museum Trip | Herons 2 | Wednesday | 10:10–10:55 -> activity:drama",
+            "Museum Trip | Herons 3 | Wednesday | 09:20–10:05 -> activity:ceramics",
             "Museum Trip | Herons 3 | Wednesday | 10:10–10:55 -> activity:arts and crafts"
           ]
         },
@@ -605,9 +605,9 @@
             "name": "Ropes Course",
             "expected": 2,
             "activitySpanBlocks": null,
-            "placedGroupDays": 5,
+            "placedGroupDays": 6,
             "runs": {
-              "1": 5
+              "1": 6
             }
           }
         ],
@@ -615,7 +615,7 @@
           {
             "name": "Museum Trip",
             "expectedCells": 6,
-            "placedTotal": 4,
+            "placedTotal": 3,
             "placedAtExpectedCells": 0
           }
         ],
@@ -692,7 +692,7 @@
         ],
         "electiveCells": {}
       },
-      "runtimeMs": 6528
+      "runtimeMs": 7976
     },
     "s02-by-day-three-waves": {
       "slug": "s02-by-day-three-waves",
@@ -701,7 +701,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 236,
+          "cpuMs": 276,
           "held": false
         },
         "confirmAll": {
@@ -958,9 +958,9 @@
           "activities": 26
         },
         "questions": {
-          "total": 6,
+          "total": 3,
           "byKind": {
-            "confirm_value": 6
+            "confirm_value": 3
           }
         },
         "exclusivity": {
@@ -970,17 +970,11 @@
           "inTwoBuckets": [],
           "eventQuestions": [
             "fixed_events:Carpool",
-            "fixed_events:Lunch 1",
-            "fixed_events:Lunch 2",
-            "fixed_events:Lunch 3",
             "fixed_events:Morning Circle",
             "fixed_events:Pick Up"
           ],
           "eventOpenItems": [
             "fixed_events:Carpool",
-            "fixed_events:Lunch 1",
-            "fixed_events:Lunch 2",
-            "fixed_events:Lunch 3",
             "fixed_events:Morning Circle",
             "fixed_events:Pick Up"
           ],
@@ -1082,12 +1076,12 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 58,
+        "cpuMs": 67,
         "slots": 700,
         "placed": 280,
         "unfillable": 0,
-        "stillNeeded": 0,
-        "underservedPairs": 0,
+        "stillNeeded": 1,
+        "underservedPairs": 1,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -1249,7 +1243,7 @@
           "periods": null,
           "commit": {
             "ok": true,
-            "specialDayId": "d05353b5-6939-4482-8581-2bc11346fd70",
+            "specialDayId": "0afd7132-83a4-4e77-af77-eef42f6fb041",
             "periods": 10,
             "cells": 60,
             "activitiesCreated": 9
@@ -1264,7 +1258,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 277,
+        "cpuMs": 317,
         "held": false,
         "counts": {
           "groups": 14,
@@ -1526,9 +1520,9 @@
           "activities": 26
         },
         "questions": {
-          "total": 6,
+          "total": 3,
           "byKind": {
-            "confirm_value": 6
+            "confirm_value": 3
           }
         },
         "exclusivity": {
@@ -1538,9 +1532,6 @@
           "inTwoBuckets": [],
           "eventQuestions": [
             "fixed_events:Carpool",
-            "fixed_events:Lunch 1",
-            "fixed_events:Lunch 2",
-            "fixed_events:Lunch 3",
             "fixed_events:Morning Circle",
             "fixed_events:Pick Up"
           ],
@@ -1643,12 +1634,12 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 57,
+        "cpuMs": 55,
         "slots": 700,
         "placed": 280,
         "unfillable": 0,
-        "stillNeeded": 1,
-        "underservedPairs": 1,
+        "stillNeeded": 0,
+        "underservedPairs": 0,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -1799,7 +1790,7 @@
           "fixed_event:chugim": 14
         }
       },
-      "runtimeMs": 3723
+      "runtimeMs": 11355
     },
     "s03-by-day-4day-24h-nolunch": {
       "slug": "s03-by-day-4day-24h-nolunch",
@@ -1808,7 +1799,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 111,
+          "cpuMs": 124,
           "held": false
         },
         "confirmAll": {
@@ -1980,12 +1971,12 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 3,
+        "cpuMs": 16,
         "slots": 72,
         "placed": 39,
         "unfillable": 0,
-        "stillNeeded": 4,
-        "underservedPairs": 3,
+        "stillNeeded": 6,
+        "underservedPairs": 5,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -2015,10 +2006,10 @@
             }
           },
           "firstMisses": [
-            "Farm Trip | Otters 1 | Thursday | 10:15–10:45 -> activity:arts and crafts",
-            "Farm Trip | Otters 1 | Thursday | 10:45–11:15 -> activity:archery",
-            "Farm Trip | Otters 1 | Thursday | 11:15–11:45 -> activity:basketball",
-            "Farm Trip | Otters 1 | Thursday | 11:45–12:15 -> activity:swim test"
+            "Farm Trip | Otters 1 | Thursday | 10:15–10:45 -> activity:farm trip",
+            "Farm Trip | Otters 1 | Thursday | 10:45–11:15 -> activity:dance",
+            "Farm Trip | Otters 1 | Thursday | 11:15–11:45 -> activity:swim test",
+            "Farm Trip | Otters 1 | Thursday | 11:45–12:15 -> activity:arts and crafts"
           ]
         },
         "spanRuns": [
@@ -2035,7 +2026,7 @@
             "name": "Farm Trip",
             "expectedCells": 4,
             "placedTotal": 2,
-            "placedAtExpectedCells": 0
+            "placedAtExpectedCells": 1
           }
         ],
         "electiveCells": {
@@ -2100,7 +2091,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 90,
+        "cpuMs": 92,
         "held": false,
         "counts": {
           "groups": 3,
@@ -2277,12 +2268,12 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 4,
+        "cpuMs": 3,
         "slots": 72,
         "placed": 39,
         "unfillable": 0,
-        "stillNeeded": 3,
-        "underservedPairs": 2,
+        "stillNeeded": 7,
+        "underservedPairs": 5,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -2312,10 +2303,10 @@
             }
           },
           "firstMisses": [
-            "Farm Trip | Otters 1 | Thursday | 10:15–10:45 -> activity:farm trip",
-            "Farm Trip | Otters 1 | Thursday | 10:45–11:15 -> activity:swim test",
-            "Farm Trip | Otters 1 | Thursday | 11:15–11:45 -> activity:dance",
-            "Farm Trip | Otters 1 | Thursday | 11:45–12:15 -> activity:basketball"
+            "Farm Trip | Otters 1 | Thursday | 10:15–10:45 -> activity:arts and crafts",
+            "Farm Trip | Otters 1 | Thursday | 10:45–11:15 -> activity:dance",
+            "Farm Trip | Otters 1 | Thursday | 11:15–11:45 -> activity:basketball",
+            "Farm Trip | Otters 1 | Thursday | 11:45–12:15 -> activity:chess club"
           ]
         },
         "spanRuns": [
@@ -2331,8 +2322,8 @@
           {
             "name": "Farm Trip",
             "expectedCells": 4,
-            "placedTotal": 2,
-            "placedAtExpectedCells": 1
+            "placedTotal": 1,
+            "placedAtExpectedCells": 0
           }
         ],
         "electiveCells": {
@@ -2390,7 +2381,7 @@
         ],
         "electiveCells": {}
       },
-      "runtimeMs": 2226
+      "runtimeMs": 2012
     },
     "s04-by-day-6day-large": {
       "slug": "s04-by-day-6day-large",
@@ -2399,7 +2390,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 247,
+          "cpuMs": 272,
           "held": false
         },
         "confirmAll": {
@@ -2419,8 +2410,17 @@
               "Tuesday",
               "Wednesday",
               "Thursday",
-              "Friday",
               "Saturday"
+            ],
+            "groups": "all"
+          },
+          {
+            "name": "Arrival",
+            "kind": "recurring",
+            "block": "08:30-08:45",
+            "span": 1,
+            "days": [
+              "Friday"
             ],
             "groups": "17 groups"
           },
@@ -2444,8 +2444,17 @@
               "Tuesday",
               "Wednesday",
               "Thursday",
-              "Friday",
               "Saturday"
+            ],
+            "groups": "all"
+          },
+          {
+            "name": "Dismissal",
+            "kind": "recurring",
+            "block": "03:05-03:20",
+            "span": 1,
+            "days": [
+              "Friday"
             ],
             "groups": "17 groups"
           },
@@ -2459,8 +2468,17 @@
               "Tuesday",
               "Wednesday",
               "Thursday",
-              "Friday",
               "Saturday"
+            ],
+            "groups": "13 groups"
+          },
+          {
+            "name": "Lunch 1",
+            "kind": "recurring",
+            "block": "11:15-12:00",
+            "span": 1,
+            "days": [
+              "Friday"
             ],
             "groups": [
               "Foxes 1",
@@ -2532,22 +2550,13 @@
         },
         "lunch": {
           "expectedCells": 142,
-          "strictOk": 102,
-          "groupDayOk": 102,
+          "strictOk": 142,
+          "groupDayOk": 142,
           "expectedGroups": 25,
-          "missingGroups": [
-            "Otters 1",
-            "Otters 2",
-            "Otters 3",
-            "Otters 4",
-            "Herons 1",
-            "Herons 2",
-            "Herons 3",
-            "Herons 4"
-          ],
-          "ok": 102,
+          "missingGroups": [],
+          "ok": 142,
           "total": 142,
-          "ratio": 0.718
+          "ratio": 1
         },
         "events": {
           "byKind": {
@@ -2560,11 +2569,11 @@
               "total": 72
             },
             "lunch": {
-              "ok": 102,
+              "ok": 142,
               "total": 142
             },
             "daily": {
-              "ok": 204,
+              "ok": 284,
               "total": 426
             },
             "single": {
@@ -2586,7 +2595,7 @@
               "total": 72
             },
             "Lunch 1": {
-              "ok": 30,
+              "ok": 70,
               "total": 70
             },
             "Lunch 2": {
@@ -2594,7 +2603,7 @@
               "total": 72
             },
             "Arrival": {
-              "ok": 102,
+              "ok": 142,
               "total": 142
             },
             "Flag Raising": {
@@ -2602,7 +2611,7 @@
               "total": 142
             },
             "Dismissal": {
-              "ok": 102,
+              "ok": 142,
               "total": 142
             },
             "Trip Day": {
@@ -2674,12 +2683,12 @@
         ]
       },
       "generate": {
-        "cpuMs": 165,
+        "cpuMs": 172,
         "slots": 1200,
-        "placed": 844,
+        "placed": 724,
         "unfillable": 0,
-        "stillNeeded": 91,
-        "underservedPairs": 31,
+        "stillNeeded": 103,
+        "underservedPairs": 38,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -2694,11 +2703,11 @@
               "total": 72
             },
             "lunch": {
-              "ok": 102,
+              "ok": 142,
               "total": 142
             },
             "daily": {
-              "ok": 204,
+              "ok": 284,
               "total": 426
             },
             "single": {
@@ -2720,7 +2729,7 @@
               "total": 72
             },
             "Lunch 1": {
-              "ok": 30,
+              "ok": 70,
               "total": 70
             },
             "Lunch 2": {
@@ -2728,7 +2737,7 @@
               "total": 72
             },
             "Arrival": {
-              "ok": 102,
+              "ok": 142,
               "total": 142
             },
             "Flag Raising": {
@@ -2736,7 +2745,7 @@
               "total": 142
             },
             "Dismissal": {
-              "ok": 102,
+              "ok": 142,
               "total": 142
             },
             "Trip Day": {
@@ -2749,18 +2758,18 @@
             }
           },
           "firstMisses": [
-            "Aquarium Trip | Moles 1 | Wednesday | 09:05–10:05 -> activity:free swim",
-            "Aquarium Trip | Moles 1 | Wednesday | 10:10–11:10 -> activity:orienteering",
-            "Aquarium Trip | Moles 2 | Wednesday | 09:05–10:05 -> activity:pottery",
-            "Aquarium Trip | Moles 2 | Wednesday | 10:10–11:10 -> activity:drumming",
-            "Aquarium Trip | Moles 3 | Wednesday | 09:05–10:05 -> activity:puppetry",
-            "Aquarium Trip | Moles 3 | Wednesday | 10:10–11:10 -> activity:basketball",
-            "Aquarium Trip | Moles 4 | Wednesday | 09:05–10:05 -> activity:lanyard",
-            "Aquarium Trip | Moles 4 | Wednesday | 10:10–11:10 -> activity:orienteering",
-            "Aquarium Trip | Voles 1 | Wednesday | 09:05–10:05 -> activity:lanyard",
-            "Aquarium Trip | Voles 1 | Wednesday | 10:10–11:10 -> activity:gaga pit",
-            "Aquarium Trip | Voles 2 | Wednesday | 09:05–10:05 -> activity:yoga",
-            "Aquarium Trip | Voles 2 | Wednesday | 10:10–11:10 -> activity:free swim"
+            "Aquarium Trip | Moles 1 | Wednesday | 09:05–10:05 -> activity:robotics",
+            "Aquarium Trip | Moles 1 | Wednesday | 10:10–11:10 -> activity:gaga pit",
+            "Aquarium Trip | Moles 2 | Wednesday | 09:05–10:05 -> activity:robotics",
+            "Aquarium Trip | Moles 2 | Wednesday | 10:10–11:10 -> activity:painting",
+            "Aquarium Trip | Moles 3 | Wednesday | 09:05–10:05 -> activity:volleyball",
+            "Aquarium Trip | Moles 3 | Wednesday | 10:10–11:10 -> activity:soccer",
+            "Aquarium Trip | Moles 4 | Wednesday | 09:05–10:05 -> activity:kayaking",
+            "Aquarium Trip | Moles 4 | Wednesday | 10:10–11:10 -> activity:trampoline",
+            "Aquarium Trip | Voles 1 | Wednesday | 09:05–10:05 -> activity:kayaking",
+            "Aquarium Trip | Voles 1 | Wednesday | 10:10–11:10 -> activity:hiking",
+            "Aquarium Trip | Voles 2 | Wednesday | 09:05–10:05 -> activity:arts and crafts",
+            "Aquarium Trip | Voles 2 | Wednesday | 10:10–11:10 -> activity:drumming"
           ]
         },
         "spanRuns": [
@@ -2768,18 +2777,18 @@
             "name": "Ropes Course",
             "expected": 2,
             "activitySpanBlocks": null,
-            "placedGroupDays": 16,
+            "placedGroupDays": 9,
             "runs": {
-              "1": 16
+              "1": 9
             }
           },
           {
             "name": "Wilderness Skills",
             "expected": 2,
             "activitySpanBlocks": null,
-            "placedGroupDays": 12,
+            "placedGroupDays": 10,
             "runs": {
-              "1": 12
+              "1": 10
             }
           }
         ],
@@ -2793,8 +2802,8 @@
           {
             "name": "Games Day",
             "expectedCells": 72,
-            "placedTotal": 16,
-            "placedAtExpectedCells": 1
+            "placedTotal": 13,
+            "placedAtExpectedCells": 2
           }
         ],
         "electiveCells": {
@@ -2920,7 +2929,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 401,
+        "cpuMs": 488,
         "held": false,
         "counts": {
           "groups": 25,
@@ -2945,8 +2954,17 @@
               "Tuesday",
               "Wednesday",
               "Thursday",
-              "Friday",
               "Saturday"
+            ],
+            "groups": "all"
+          },
+          {
+            "name": "Arrival",
+            "kind": "recurring",
+            "block": "08:30-08:45",
+            "span": 1,
+            "days": [
+              "Friday"
             ],
             "groups": "17 groups"
           },
@@ -2970,8 +2988,17 @@
               "Tuesday",
               "Wednesday",
               "Thursday",
-              "Friday",
               "Saturday"
+            ],
+            "groups": "all"
+          },
+          {
+            "name": "Dismissal",
+            "kind": "recurring",
+            "block": "03:05-03:20",
+            "span": 1,
+            "days": [
+              "Friday"
             ],
             "groups": "17 groups"
           },
@@ -2985,8 +3012,17 @@
               "Tuesday",
               "Wednesday",
               "Thursday",
-              "Friday",
               "Saturday"
+            ],
+            "groups": "13 groups"
+          },
+          {
+            "name": "Lunch 1",
+            "kind": "recurring",
+            "block": "11:15-12:00",
+            "span": 1,
+            "days": [
+              "Friday"
             ],
             "groups": [
               "Foxes 1",
@@ -3058,22 +3094,13 @@
         },
         "lunch": {
           "expectedCells": 142,
-          "strictOk": 102,
-          "groupDayOk": 102,
+          "strictOk": 142,
+          "groupDayOk": 142,
           "expectedGroups": 25,
-          "missingGroups": [
-            "Otters 1",
-            "Otters 2",
-            "Otters 3",
-            "Otters 4",
-            "Herons 1",
-            "Herons 2",
-            "Herons 3",
-            "Herons 4"
-          ],
-          "ok": 102,
+          "missingGroups": [],
+          "ok": 142,
           "total": 142,
-          "ratio": 0.718
+          "ratio": 1
         },
         "events": {
           "byKind": {
@@ -3086,11 +3113,11 @@
               "total": 72
             },
             "lunch": {
-              "ok": 102,
+              "ok": 142,
               "total": 142
             },
             "daily": {
-              "ok": 204,
+              "ok": 284,
               "total": 426
             },
             "single": {
@@ -3112,7 +3139,7 @@
               "total": 72
             },
             "Lunch 1": {
-              "ok": 30,
+              "ok": 70,
               "total": 70
             },
             "Lunch 2": {
@@ -3120,7 +3147,7 @@
               "total": 72
             },
             "Arrival": {
-              "ok": 102,
+              "ok": 142,
               "total": 142
             },
             "Flag Raising": {
@@ -3128,7 +3155,7 @@
               "total": 142
             },
             "Dismissal": {
-              "ok": 102,
+              "ok": 142,
               "total": 142
             },
             "Trip Day": {
@@ -3200,12 +3227,12 @@
         ]
       },
       "confirmAllGenerate": {
-        "cpuMs": 165,
+        "cpuMs": 156,
         "slots": 1200,
-        "placed": 844,
+        "placed": 724,
         "unfillable": 0,
-        "stillNeeded": 93,
-        "underservedPairs": 31,
+        "stillNeeded": 104,
+        "underservedPairs": 38,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -3220,11 +3247,11 @@
               "total": 72
             },
             "lunch": {
-              "ok": 102,
+              "ok": 142,
               "total": 142
             },
             "daily": {
-              "ok": 204,
+              "ok": 284,
               "total": 426
             },
             "single": {
@@ -3246,7 +3273,7 @@
               "total": 72
             },
             "Lunch 1": {
-              "ok": 30,
+              "ok": 70,
               "total": 70
             },
             "Lunch 2": {
@@ -3254,7 +3281,7 @@
               "total": 72
             },
             "Arrival": {
-              "ok": 102,
+              "ok": 142,
               "total": 142
             },
             "Flag Raising": {
@@ -3262,7 +3289,7 @@
               "total": 142
             },
             "Dismissal": {
-              "ok": 102,
+              "ok": 142,
               "total": 142
             },
             "Trip Day": {
@@ -3275,18 +3302,18 @@
             }
           },
           "firstMisses": [
-            "Aquarium Trip | Moles 1 | Wednesday | 09:05–10:05 -> activity:painting",
-            "Aquarium Trip | Moles 1 | Wednesday | 10:10–11:10 -> activity:yoga",
-            "Aquarium Trip | Moles 2 | Wednesday | 09:05–10:05 -> activity:orienteering",
-            "Aquarium Trip | Moles 2 | Wednesday | 10:10–11:10 -> activity:music",
-            "Aquarium Trip | Moles 3 | Wednesday | 09:05–10:05 -> activity:fishing",
-            "Aquarium Trip | Moles 3 | Wednesday | 10:10–11:10 -> activity:woodworking",
-            "Aquarium Trip | Moles 4 | Wednesday | 09:05–10:05 -> activity:knitting",
-            "Aquarium Trip | Moles 4 | Wednesday | 10:10–11:10 -> activity:yoga",
-            "Aquarium Trip | Voles 1 | Wednesday | 09:05–10:05 -> activity:painting",
-            "Aquarium Trip | Voles 1 | Wednesday | 10:10–11:10 -> activity:puppetry",
-            "Aquarium Trip | Voles 2 | Wednesday | 09:05–10:05 -> activity:electives",
-            "Aquarium Trip | Voles 2 | Wednesday | 10:10–11:10 -> activity:photography"
+            "Aquarium Trip | Moles 1 | Wednesday | 09:05–10:05 -> activity:tie dye",
+            "Aquarium Trip | Moles 1 | Wednesday | 10:10–11:10 -> activity:orienteering",
+            "Aquarium Trip | Moles 2 | Wednesday | 09:05–10:05 -> activity:knitting",
+            "Aquarium Trip | Moles 2 | Wednesday | 10:10–11:10 -> activity:painting",
+            "Aquarium Trip | Moles 3 | Wednesday | 09:05–10:05 -> activity:bocce",
+            "Aquarium Trip | Moles 3 | Wednesday | 10:10–11:10 -> activity:photography",
+            "Aquarium Trip | Moles 4 | Wednesday | 09:05–10:05 -> activity:music",
+            "Aquarium Trip | Moles 4 | Wednesday | 10:10–11:10 -> activity:storytelling",
+            "Aquarium Trip | Voles 1 | Wednesday | 09:05–10:05 -> activity:hiking",
+            "Aquarium Trip | Voles 1 | Wednesday | 10:10–11:10 -> activity:orienteering",
+            "Aquarium Trip | Voles 2 | Wednesday | 09:05–10:05 -> activity:puppetry",
+            "Aquarium Trip | Voles 2 | Wednesday | 10:10–11:10 -> activity:storytelling"
           ]
         },
         "spanRuns": [
@@ -3294,18 +3321,18 @@
             "name": "Ropes Course",
             "expected": 2,
             "activitySpanBlocks": null,
-            "placedGroupDays": 16,
+            "placedGroupDays": 10,
             "runs": {
-              "1": 16
+              "1": 10
             }
           },
           {
             "name": "Wilderness Skills",
             "expected": 2,
             "activitySpanBlocks": null,
-            "placedGroupDays": 10,
+            "placedGroupDays": 9,
             "runs": {
-              "1": 10
+              "1": 9
             }
           }
         ],
@@ -3313,14 +3340,14 @@
           {
             "name": "Aquarium Trip",
             "expectedCells": 16,
-            "placedTotal": 10,
+            "placedTotal": 8,
             "placedAtExpectedCells": 0
           },
           {
             "name": "Games Day",
             "expectedCells": 72,
-            "placedTotal": 16,
-            "placedAtExpectedCells": 3
+            "placedTotal": 13,
+            "placedAtExpectedCells": 4
           }
         ],
         "electiveCells": {
@@ -3439,7 +3466,7 @@
           "activity:ceramics / kayaking / yoga / puppetry": 8
         }
       },
-      "runtimeMs": 5083
+      "runtimeMs": 10761
     },
     "s05-by-day-tiny-early": {
       "slug": "s05-by-day-tiny-early",
@@ -3448,7 +3475,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 73,
+          "cpuMs": 93,
           "held": false
         },
         "confirmAll": {
@@ -3582,22 +3609,16 @@
           "activities": 7
         },
         "questions": {
-          "total": 1,
-          "byKind": {
-            "confirm_value": 1
-          }
+          "total": 0,
+          "byKind": {}
         },
         "exclusivity": {
           "decisions": [],
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
-          "eventQuestions": [
-            "fixed_events:Lunch"
-          ],
-          "eventOpenItems": [
-            "fixed_events:Lunch"
-          ],
+          "eventQuestions": [],
+          "eventOpenItems": [],
           "ok": true
         },
         "lunch": {
@@ -3701,12 +3722,12 @@
         ]
       },
       "generate": {
-        "cpuMs": 4,
+        "cpuMs": 5,
         "slots": 60,
         "placed": 34,
         "unfillable": 0,
-        "stillNeeded": 6,
-        "underservedPairs": 6,
+        "stillNeeded": 7,
+        "underservedPairs": 7,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -3752,7 +3773,7 @@
             }
           },
           "firstMisses": [
-            "Farm Trip | Otters 2 | Thursday | 09:00–09:20 -> activity:basketball",
+            "Farm Trip | Otters 2 | Thursday | 09:00–09:20 -> activity:ceramics",
             "Farm Trip | Otters 2 | Thursday | 09:20–09:40 -> activity:climbing wall",
             "Games Day | Otters 1 | Friday | 07:30–07:40 -> none:",
             "Games Day | Otters 1 | Friday | 09:40–09:50 -> none:",
@@ -3873,7 +3894,7 @@
           "periods": null,
           "commit": {
             "ok": true,
-            "specialDayId": "001c1b33-8244-40d6-a0e0-9b7c22ef339d",
+            "specialDayId": "eae1c44c-5819-411c-af98-008c0c06c4b8",
             "periods": 8,
             "cells": 16,
             "activitiesCreated": 7
@@ -4027,19 +4048,15 @@
           "activities": 7
         },
         "questions": {
-          "total": 1,
-          "byKind": {
-            "confirm_value": 1
-          }
+          "total": 0,
+          "byKind": {}
         },
         "exclusivity": {
           "decisions": [],
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
-          "eventQuestions": [
-            "fixed_events:Lunch"
-          ],
+          "eventQuestions": [],
           "eventOpenItems": [],
           "ok": true
         },
@@ -4148,8 +4165,8 @@
         "slots": 60,
         "placed": 34,
         "unfillable": 0,
-        "stillNeeded": 8,
-        "underservedPairs": 8,
+        "stillNeeded": 7,
+        "underservedPairs": 7,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -4195,8 +4212,8 @@
             }
           },
           "firstMisses": [
-            "Farm Trip | Otters 2 | Thursday | 09:00–09:20 -> activity:archery",
-            "Farm Trip | Otters 2 | Thursday | 09:20–09:40 -> activity:basketball",
+            "Farm Trip | Otters 2 | Thursday | 09:00–09:20 -> activity:farm trip",
+            "Farm Trip | Otters 2 | Thursday | 09:20–09:40 -> activity:climbing wall",
             "Games Day | Otters 1 | Friday | 07:30–07:40 -> none:",
             "Games Day | Otters 1 | Friday | 09:40–09:50 -> none:",
             "Games Day | Otters 2 | Friday | 07:30–07:40 -> none:",
@@ -4222,8 +4239,8 @@
           {
             "name": "Farm Trip",
             "expectedCells": 2,
-            "placedTotal": 2,
-            "placedAtExpectedCells": 0
+            "placedTotal": 3,
+            "placedAtExpectedCells": 1
           }
         ],
         "electiveCells": {
@@ -4305,7 +4322,7 @@
         ],
         "electiveCells": {}
       },
-      "runtimeMs": 1611
+      "runtimeMs": 1998
     },
     "s06-by-day-40-groups-late": {
       "slug": "s06-by-day-40-groups-late",
@@ -4314,7 +4331,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 333,
+          "cpuMs": 305,
           "held": false
         },
         "confirmAll": {
@@ -4540,9 +4557,9 @@
           "activities": 42
         },
         "questions": {
-          "total": 6,
+          "total": 3,
           "byKind": {
-            "confirm_value": 5,
+            "confirm_value": 2,
             "elective_candidate": 1
           }
         },
@@ -4553,17 +4570,11 @@
           "inTwoBuckets": [],
           "eventQuestions": [
             "fixed_events:Arrival",
-            "fixed_events:Dismissal",
-            "fixed_events:Lunch 1",
-            "fixed_events:Lunch 2",
-            "fixed_events:Lunch 3"
+            "fixed_events:Dismissal"
           ],
           "eventOpenItems": [
             "fixed_events:Arrival",
-            "fixed_events:Dismissal",
-            "fixed_events:Lunch 1",
-            "fixed_events:Lunch 2",
-            "fixed_events:Lunch 3"
+            "fixed_events:Dismissal"
           ],
           "ok": true
         },
@@ -4690,12 +4701,12 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 246,
+        "cpuMs": 228,
         "slots": 2000,
         "placed": 1040,
         "unfillable": 0,
         "stillNeeded": 45,
-        "underservedPairs": 30,
+        "underservedPairs": 31,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -4757,18 +4768,18 @@
             }
           },
           "firstMisses": [
-            "Aquarium Trip | Foxes 1 | Wednesday | 01:55–02:45 -> activity:magic show",
-            "Aquarium Trip | Foxes 1 | Wednesday | 02:50–03:40 -> activity:arts and crafts",
-            "Aquarium Trip | Foxes 1 | Wednesday | 03:45–04:35 -> activity:puppetry",
-            "Aquarium Trip | Foxes 2 | Wednesday | 01:55–02:45 -> activity:free swim",
-            "Aquarium Trip | Foxes 2 | Wednesday | 02:50–03:40 -> activity:trampoline",
-            "Aquarium Trip | Foxes 2 | Wednesday | 03:45–04:35 -> activity:volleyball",
-            "Aquarium Trip | Foxes 3 | Wednesday | 01:55–02:45 -> activity:dance",
-            "Aquarium Trip | Foxes 3 | Wednesday | 02:50–03:40 -> activity:cooking",
+            "Aquarium Trip | Foxes 1 | Wednesday | 01:55–02:45 -> activity:cooking",
+            "Aquarium Trip | Foxes 1 | Wednesday | 02:50–03:40 -> activity:rocketry",
+            "Aquarium Trip | Foxes 1 | Wednesday | 03:45–04:35 -> activity:photography",
+            "Aquarium Trip | Foxes 2 | Wednesday | 01:55–02:45 -> activity:swim",
+            "Aquarium Trip | Foxes 2 | Wednesday | 02:50–03:40 -> activity:pottery",
+            "Aquarium Trip | Foxes 2 | Wednesday | 03:45–04:35 -> activity:kayaking",
+            "Aquarium Trip | Foxes 3 | Wednesday | 01:55–02:45 -> activity:ceramics",
+            "Aquarium Trip | Foxes 3 | Wednesday | 02:50–03:40 -> activity:chess club",
             "Aquarium Trip | Foxes 3 | Wednesday | 03:45–04:35 -> activity:drumming",
-            "Aquarium Trip | Foxes 4 | Wednesday | 01:55–02:45 -> activity:sailing",
-            "Aquarium Trip | Foxes 4 | Wednesday | 02:50–03:40 -> activity:painting",
-            "Aquarium Trip | Foxes 4 | Wednesday | 03:45–04:35 -> activity:tie dye"
+            "Aquarium Trip | Foxes 4 | Wednesday | 01:55–02:45 -> activity:storytelling",
+            "Aquarium Trip | Foxes 4 | Wednesday | 02:50–03:40 -> activity:free swim",
+            "Aquarium Trip | Foxes 4 | Wednesday | 03:45–04:35 -> activity:painting"
           ]
         },
         "spanRuns": [
@@ -4776,9 +4787,9 @@
             "name": "Wilderness Skills",
             "expected": 3,
             "activitySpanBlocks": null,
-            "placedGroupDays": 14,
+            "placedGroupDays": 15,
             "runs": {
-              "1": 14
+              "1": 15
             }
           },
           {
@@ -4915,7 +4926,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 719,
+        "cpuMs": 754,
         "held": false,
         "counts": {
           "groups": 40,
@@ -5146,9 +5157,9 @@
           "activities": 42
         },
         "questions": {
-          "total": 6,
+          "total": 3,
           "byKind": {
-            "confirm_value": 5,
+            "confirm_value": 2,
             "elective_candidate": 1
           }
         },
@@ -5159,10 +5170,7 @@
           "inTwoBuckets": [],
           "eventQuestions": [
             "fixed_events:Arrival",
-            "fixed_events:Dismissal",
-            "fixed_events:Lunch 1",
-            "fixed_events:Lunch 2",
-            "fixed_events:Lunch 3"
+            "fixed_events:Dismissal"
           ],
           "eventOpenItems": [],
           "ok": true
@@ -5290,11 +5298,11 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 218,
+        "cpuMs": 233,
         "slots": 2000,
         "placed": 1040,
         "unfillable": 0,
-        "stillNeeded": 46,
+        "stillNeeded": 43,
         "underservedPairs": 30,
         "overlap": 0,
         "errorFindings": [],
@@ -5357,18 +5365,18 @@
             }
           },
           "firstMisses": [
-            "Aquarium Trip | Foxes 1 | Wednesday | 01:55–02:45 -> activity:yoga",
-            "Aquarium Trip | Foxes 1 | Wednesday | 02:50–03:40 -> activity:climbing wall",
-            "Aquarium Trip | Foxes 1 | Wednesday | 03:45–04:35 -> activity:woodworking",
-            "Aquarium Trip | Foxes 2 | Wednesday | 01:55–02:45 -> activity:swim",
-            "Aquarium Trip | Foxes 2 | Wednesday | 02:50–03:40 -> activity:storytelling",
-            "Aquarium Trip | Foxes 2 | Wednesday | 03:45–04:35 -> activity:softball",
-            "Aquarium Trip | Foxes 3 | Wednesday | 01:55–02:45 -> activity:swim test",
-            "Aquarium Trip | Foxes 3 | Wednesday | 02:50–03:40 -> activity:ceramics",
-            "Aquarium Trip | Foxes 3 | Wednesday | 03:45–04:35 -> activity:music",
-            "Aquarium Trip | Foxes 4 | Wednesday | 01:55–02:45 -> activity:rocketry",
-            "Aquarium Trip | Foxes 4 | Wednesday | 02:50–03:40 -> activity:magic show",
-            "Aquarium Trip | Foxes 4 | Wednesday | 03:45–04:35 -> activity:storytelling"
+            "Aquarium Trip | Foxes 1 | Wednesday | 01:55–02:45 -> activity:puppetry",
+            "Aquarium Trip | Foxes 1 | Wednesday | 02:50–03:40 -> activity:volleyball",
+            "Aquarium Trip | Foxes 1 | Wednesday | 03:45–04:35 -> activity:aquarium trip",
+            "Aquarium Trip | Foxes 2 | Wednesday | 01:55–02:45 -> activity:trampoline",
+            "Aquarium Trip | Foxes 2 | Wednesday | 02:50–03:40 -> activity:nature walk",
+            "Aquarium Trip | Foxes 2 | Wednesday | 03:45–04:35 -> activity:tennis",
+            "Aquarium Trip | Foxes 3 | Wednesday | 01:55–02:45 -> activity:drumming",
+            "Aquarium Trip | Foxes 3 | Wednesday | 02:50–03:40 -> activity:cooking",
+            "Aquarium Trip | Foxes 3 | Wednesday | 03:45–04:35 -> activity:puppetry",
+            "Aquarium Trip | Foxes 4 | Wednesday | 01:55–02:45 -> activity:puppetry",
+            "Aquarium Trip | Foxes 4 | Wednesday | 02:50–03:40 -> activity:trampoline",
+            "Aquarium Trip | Foxes 4 | Wednesday | 03:45–04:35 -> activity:photography"
           ]
         },
         "spanRuns": [
@@ -5376,18 +5384,18 @@
             "name": "Wilderness Skills",
             "expected": 3,
             "activitySpanBlocks": null,
-            "placedGroupDays": 13,
+            "placedGroupDays": 14,
             "runs": {
-              "1": 13
+              "1": 14
             }
           },
           {
             "name": "Ropes Course",
             "expected": 2,
             "activitySpanBlocks": null,
-            "placedGroupDays": 10,
+            "placedGroupDays": 11,
             "runs": {
-              "1": 10
+              "1": 11
             }
           }
         ],
@@ -5395,7 +5403,7 @@
           {
             "name": "Aquarium Trip",
             "expectedCells": 30,
-            "placedTotal": 11,
+            "placedTotal": 13,
             "placedAtExpectedCells": 1
           }
         ],
@@ -5508,7 +5516,7 @@
           "activity:hiking / fishing / kayaking / orienteering / bocce": 10
         }
       },
-      "runtimeMs": 7785
+      "runtimeMs": 10307
     },
     "s07-by-group-3-divisions": {
       "slug": "s07-by-group-3-divisions",
@@ -5517,7 +5525,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 121,
+          "cpuMs": 117,
           "held": false
         },
         "confirmAll": {
@@ -5732,12 +5740,12 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 23,
+        "cpuMs": 132,
         "slots": 320,
         "placed": 192,
         "unfillable": 0,
-        "stillNeeded": 41,
-        "underservedPairs": 38,
+        "stillNeeded": 43,
+        "underservedPairs": 40,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -5787,12 +5795,12 @@
             }
           },
           "firstMisses": [
-            "Museum Trip | Herons 1 | Wednesday | 09:40–10:25 -> activity:kayaking",
-            "Museum Trip | Herons 1 | Wednesday | 10:30–11:15 -> activity:fishing",
-            "Museum Trip | Herons 2 | Wednesday | 09:40–10:25 -> activity:nature walk",
-            "Museum Trip | Herons 2 | Wednesday | 10:30–11:15 -> activity:orienteering",
-            "Museum Trip | Herons 3 | Wednesday | 09:40–10:25 -> activity:orienteering",
-            "Museum Trip | Herons 3 | Wednesday | 10:30–11:15 -> activity:music"
+            "Museum Trip | Herons 1 | Wednesday | 09:40–10:25 -> activity:fishing",
+            "Museum Trip | Herons 1 | Wednesday | 10:30–11:15 -> activity:orienteering",
+            "Museum Trip | Herons 2 | Wednesday | 09:40–10:25 -> activity:music",
+            "Museum Trip | Herons 2 | Wednesday | 10:30–11:15 -> activity:hiking",
+            "Museum Trip | Herons 3 | Wednesday | 09:40–10:25 -> activity:drumming",
+            "Museum Trip | Herons 3 | Wednesday | 10:30–11:15 -> activity:hiking"
           ]
         },
         "spanRuns": [
@@ -5810,7 +5818,7 @@
           {
             "name": "Museum Trip",
             "expectedCells": 6,
-            "placedTotal": 5,
+            "placedTotal": 6,
             "placedAtExpectedCells": 0
           }
         ],
@@ -5902,7 +5910,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 171,
+        "cpuMs": 267,
         "held": false,
         "counts": {
           "groups": 8,
@@ -6122,12 +6130,12 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 19,
+        "cpuMs": 24,
         "slots": 320,
         "placed": 192,
         "unfillable": 0,
-        "stillNeeded": 44,
-        "underservedPairs": 41,
+        "stillNeeded": 46,
+        "underservedPairs": 43,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -6177,12 +6185,12 @@
             }
           },
           "firstMisses": [
-            "Museum Trip | Herons 1 | Wednesday | 09:40–10:25 -> activity:orienteering",
-            "Museum Trip | Herons 1 | Wednesday | 10:30–11:15 -> activity:gaga pit",
+            "Museum Trip | Herons 1 | Wednesday | 09:40–10:25 -> activity:lanyard",
+            "Museum Trip | Herons 1 | Wednesday | 10:30–11:15 -> activity:hiking",
             "Museum Trip | Herons 2 | Wednesday | 09:40–10:25 -> activity:drumming",
-            "Museum Trip | Herons 2 | Wednesday | 10:30–11:15 -> activity:gaga pit",
-            "Museum Trip | Herons 3 | Wednesday | 09:40–10:25 -> activity:garden",
-            "Museum Trip | Herons 3 | Wednesday | 10:30–11:15 -> activity:hiking"
+            "Museum Trip | Herons 2 | Wednesday | 10:30–11:15 -> activity:drama",
+            "Museum Trip | Herons 3 | Wednesday | 09:40–10:25 -> activity:lanyard",
+            "Museum Trip | Herons 3 | Wednesday | 10:30–11:15 -> activity:painting"
           ]
         },
         "spanRuns": [
@@ -6200,7 +6208,7 @@
           {
             "name": "Museum Trip",
             "expectedCells": 6,
-            "placedTotal": 5,
+            "placedTotal": 4,
             "placedAtExpectedCells": 0
           }
         ],
@@ -6285,7 +6293,7 @@
           "activity:indoor elective": 2
         }
       },
-      "runtimeMs": 1702
+      "runtimeMs": 2933
     },
     "s08-by-group-24h-wrapped": {
       "slug": "s08-by-group-24h-wrapped",
@@ -6294,7 +6302,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 119,
+          "cpuMs": 133,
           "held": false
         },
         "confirmAll": {
@@ -6314,14 +6322,7 @@
               "Tuesday",
               "Wednesday"
             ],
-            "groups": [
-              "Herons 1",
-              "Herons 2",
-              "Herons 3",
-              "Otters 1",
-              "Otters 2",
-              "Otters 3"
-            ]
+            "groups": "all"
           },
           {
             "name": "Check In",
@@ -6350,14 +6351,7 @@
               "Tuesday",
               "Wednesday"
             ],
-            "groups": [
-              "Herons 1",
-              "Herons 2",
-              "Herons 3",
-              "Otters 1",
-              "Otters 2",
-              "Otters 3"
-            ]
+            "groups": "all"
           },
           {
             "name": "Check Out",
@@ -6445,7 +6439,7 @@
               "total": 48
             },
             "daily": {
-              "ok": 48,
+              "ok": 84,
               "total": 84
             }
           },
@@ -6455,11 +6449,11 @@
               "total": 48
             },
             "Check In": {
-              "ok": 24,
+              "ok": 42,
               "total": 42
             },
             "Check Out": {
-              "ok": 24,
+              "ok": 42,
               "total": 42
             }
           },
@@ -6525,9 +6519,9 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 41,
+        "cpuMs": 52,
         "slots": 384,
-        "placed": 324,
+        "placed": 288,
         "unfillable": 0,
         "stillNeeded": 61,
         "underservedPairs": 12,
@@ -6541,7 +6535,7 @@
               "total": 48
             },
             "daily": {
-              "ok": 48,
+              "ok": 84,
               "total": 84
             }
           },
@@ -6551,27 +6545,27 @@
               "total": 48
             },
             "Check In": {
-              "ok": 24,
+              "ok": 42,
               "total": 42
             },
             "Check Out": {
-              "ok": 24,
+              "ok": 42,
               "total": 42
             }
           },
           "firstMisses": [
-            "Games Day | Otters 1 | Thursday | 09:00–09:15 -> activity:gaga pit",
-            "Games Day | Otters 1 | Thursday | 09:15–09:45 -> activity:hiking",
-            "Games Day | Otters 1 | Thursday | 09:45–10:15 -> activity:wilderness",
-            "Games Day | Otters 1 | Thursday | 10:15–10:45 -> activity:knitting",
+            "Games Day | Otters 1 | Thursday | 09:00–09:15 -> activity:music",
+            "Games Day | Otters 1 | Thursday | 09:15–09:45 -> activity:orienteering",
+            "Games Day | Otters 1 | Thursday | 09:45–10:15 -> activity:gaga pit",
+            "Games Day | Otters 1 | Thursday | 10:15–10:45 -> activity:wilderness",
             "Games Day | Otters 1 | Thursday | 10:45–11:15 -> activity:lanyard",
-            "Games Day | Otters 1 | Thursday | 11:15–11:45 -> activity:orienteering",
-            "Games Day | Otters 1 | Thursday | 11:45–12:15 -> activity:nature walk",
+            "Games Day | Otters 1 | Thursday | 11:15–11:45 -> activity:nature walk",
+            "Games Day | Otters 1 | Thursday | 11:45–12:15 -> activity:knitting",
             "Games Day | Otters 1 | Thursday | 12:15–12:30 -> activity:painting",
-            "Games Day | Otters 2 | Thursday | 09:00–09:15 -> activity:robotics",
-            "Games Day | Otters 2 | Thursday | 09:15–09:45 -> activity:sailing",
-            "Games Day | Otters 2 | Thursday | 09:45–10:15 -> activity:softball",
-            "Games Day | Otters 2 | Thursday | 10:15–10:45 -> activity:wilderness"
+            "Games Day | Otters 2 | Thursday | 09:00–09:15 -> activity:pottery",
+            "Games Day | Otters 2 | Thursday | 09:15–09:45 -> activity:wilderness",
+            "Games Day | Otters 2 | Thursday | 09:45–10:15 -> activity:trampoline",
+            "Games Day | Otters 2 | Thursday | 10:15–10:45 -> activity:tie dye"
           ]
         },
         "spanRuns": [
@@ -6593,8 +6587,8 @@
           {
             "name": "Games Day",
             "expectedCells": 48,
-            "placedTotal": 12,
-            "placedAtExpectedCells": 4
+            "placedTotal": 11,
+            "placedAtExpectedCells": 2
           }
         ],
         "electiveCells": {
@@ -6679,7 +6673,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 169,
+        "cpuMs": 159,
         "held": false,
         "counts": {
           "groups": 12,
@@ -6704,14 +6698,7 @@
               "Tuesday",
               "Wednesday"
             ],
-            "groups": [
-              "Herons 1",
-              "Herons 2",
-              "Herons 3",
-              "Otters 1",
-              "Otters 2",
-              "Otters 3"
-            ]
+            "groups": "all"
           },
           {
             "name": "Check In",
@@ -6740,14 +6727,7 @@
               "Tuesday",
               "Wednesday"
             ],
-            "groups": [
-              "Herons 1",
-              "Herons 2",
-              "Herons 3",
-              "Otters 1",
-              "Otters 2",
-              "Otters 3"
-            ]
+            "groups": "all"
           },
           {
             "name": "Check Out",
@@ -6832,7 +6812,7 @@
               "total": 48
             },
             "daily": {
-              "ok": 48,
+              "ok": 84,
               "total": 84
             }
           },
@@ -6842,11 +6822,11 @@
               "total": 48
             },
             "Check In": {
-              "ok": 24,
+              "ok": 42,
               "total": 42
             },
             "Check Out": {
-              "ok": 24,
+              "ok": 42,
               "total": 42
             }
           },
@@ -6912,11 +6892,11 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 44,
+        "cpuMs": 36,
         "slots": 384,
-        "placed": 324,
+        "placed": 288,
         "unfillable": 0,
-        "stillNeeded": 59,
+        "stillNeeded": 60,
         "underservedPairs": 12,
         "overlap": 0,
         "errorFindings": [],
@@ -6928,7 +6908,7 @@
               "total": 48
             },
             "daily": {
-              "ok": 48,
+              "ok": 84,
               "total": 84
             }
           },
@@ -6938,27 +6918,27 @@
               "total": 48
             },
             "Check In": {
-              "ok": 24,
+              "ok": 42,
               "total": 42
             },
             "Check Out": {
-              "ok": 24,
+              "ok": 42,
               "total": 42
             }
           },
           "firstMisses": [
-            "Games Day | Otters 1 | Thursday | 09:00–09:15 -> activity:hiking",
-            "Games Day | Otters 1 | Thursday | 09:15–09:45 -> activity:gaga pit",
-            "Games Day | Otters 1 | Thursday | 09:45–10:15 -> activity:orienteering",
-            "Games Day | Otters 1 | Thursday | 10:15–10:45 -> activity:garden",
-            "Games Day | Otters 1 | Thursday | 10:45–11:15 -> activity:knitting",
-            "Games Day | Otters 1 | Thursday | 11:15–11:45 -> activity:nature walk",
-            "Games Day | Otters 1 | Thursday | 11:45–12:15 -> activity:wilderness",
-            "Games Day | Otters 1 | Thursday | 12:15–12:30 -> activity:music",
-            "Games Day | Otters 2 | Thursday | 09:00–09:15 -> activity:tennis",
-            "Games Day | Otters 2 | Thursday | 09:15–09:45 -> activity:trampoline",
-            "Games Day | Otters 2 | Thursday | 09:45–10:15 -> activity:softball",
-            "Games Day | Otters 2 | Thursday | 10:15–10:45 -> activity:pottery"
+            "Games Day | Otters 1 | Thursday | 09:00–09:15 -> activity:kayaking",
+            "Games Day | Otters 1 | Thursday | 09:15–09:45 -> activity:hiking",
+            "Games Day | Otters 1 | Thursday | 09:45–10:15 -> activity:garden",
+            "Games Day | Otters 1 | Thursday | 10:15–10:45 -> activity:painting",
+            "Games Day | Otters 1 | Thursday | 10:45–11:15 -> activity:gaga pit",
+            "Games Day | Otters 1 | Thursday | 11:15–11:45 -> activity:orienteering",
+            "Games Day | Otters 1 | Thursday | 11:45–12:15 -> activity:nature walk",
+            "Games Day | Otters 1 | Thursday | 12:15–12:30 -> activity:knitting",
+            "Games Day | Otters 2 | Thursday | 09:00–09:15 -> activity:pottery",
+            "Games Day | Otters 2 | Thursday | 09:15–09:45 -> activity:robotics",
+            "Games Day | Otters 2 | Thursday | 09:45–10:15 -> activity:games day",
+            "Games Day | Otters 2 | Thursday | 10:15–10:45 -> activity:storytelling"
           ]
         },
         "spanRuns": [
@@ -6981,7 +6961,7 @@
             "name": "Games Day",
             "expectedCells": 48,
             "placedTotal": 12,
-            "placedAtExpectedCells": 4
+            "placedAtExpectedCells": 5
           }
         ],
         "electiveCells": {
@@ -7059,7 +7039,7 @@
           "activity:chess club / robotics / cooking": 6
         }
       },
-      "runtimeMs": 2133
+      "runtimeMs": 1951
     },
     "s09-by-group-6day-except": {
       "slug": "s09-by-group-6day-except",
@@ -7068,7 +7048,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 192,
+          "cpuMs": 188,
           "held": false
         },
         "confirmAll": {
@@ -7090,7 +7070,7 @@
               "Thursday",
               "Friday"
             ],
-            "groups": "20 groups"
+            "groups": "all"
           },
           {
             "name": "Arrival",
@@ -7138,7 +7118,7 @@
               "Thursday",
               "Friday"
             ],
-            "groups": "20 groups"
+            "groups": "all"
           },
           {
             "name": "Dismissal",
@@ -7234,7 +7214,7 @@
               "Thursday",
               "Friday"
             ],
-            "groups": "20 groups"
+            "groups": "all"
           },
           {
             "name": "Lunch",
@@ -7269,9 +7249,9 @@
           "activities": 31
         },
         "questions": {
-          "total": 10,
+          "total": 9,
           "byKind": {
-            "confirm_value": 10
+            "confirm_value": 9
           }
         },
         "exclusivity": {
@@ -7288,8 +7268,7 @@
             "fixed_events:Games Day",
             "fixed_events:Games Day",
             "fixed_events:Games Day",
-            "fixed_events:Games Day",
-            "fixed_events:Lunch"
+            "fixed_events:Games Day"
           ],
           "eventOpenItems": [
             "fixed_events:Arrival",
@@ -7300,22 +7279,19 @@
             "fixed_events:Games Day",
             "fixed_events:Games Day",
             "fixed_events:Games Day",
-            "fixed_events:Games Day",
-            "fixed_events:Lunch"
+            "fixed_events:Games Day"
           ],
           "ok": true
         },
         "lunch": {
           "expectedCells": 106,
-          "strictOk": 101,
-          "groupDayOk": 101,
+          "strictOk": 106,
+          "groupDayOk": 106,
           "expectedGroups": 21,
-          "missingGroups": [
-            "Counselor Aides"
-          ],
-          "ok": 101,
+          "missingGroups": [],
+          "ok": 106,
           "total": 106,
-          "ratio": 0.953
+          "ratio": 1
         },
         "events": {
           "byKind": {
@@ -7328,11 +7304,11 @@
               "total": 160
             },
             "lunch": {
-              "ok": 101,
+              "ok": 106,
               "total": 106
             },
             "daily": {
-              "ok": 202,
+              "ok": 212,
               "total": 318
             },
             "single": {
@@ -7350,11 +7326,11 @@
               "total": 160
             },
             "Lunch": {
-              "ok": 101,
+              "ok": 106,
               "total": 106
             },
             "Arrival": {
-              "ok": 101,
+              "ok": 106,
               "total": 106
             },
             "Flag Raising": {
@@ -7362,7 +7338,7 @@
               "total": 106
             },
             "Dismissal": {
-              "ok": 101,
+              "ok": 106,
               "total": 106
             },
             "Campfire": {
@@ -7416,11 +7392,11 @@
         ]
       },
       "generate": {
-        "cpuMs": 50,
+        "cpuMs": 51,
         "slots": 882,
-        "placed": 355,
+        "placed": 340,
         "unfillable": 0,
-        "stillNeeded": 23,
+        "stillNeeded": 22,
         "underservedPairs": 12,
         "overlap": 0,
         "errorFindings": [],
@@ -7436,11 +7412,11 @@
               "total": 160
             },
             "lunch": {
-              "ok": 101,
+              "ok": 106,
               "total": 106
             },
             "daily": {
-              "ok": 202,
+              "ok": 212,
               "total": 318
             },
             "single": {
@@ -7458,11 +7434,11 @@
               "total": 160
             },
             "Lunch": {
-              "ok": 101,
+              "ok": 106,
               "total": 106
             },
             "Arrival": {
-              "ok": 101,
+              "ok": 106,
               "total": 106
             },
             "Flag Raising": {
@@ -7470,7 +7446,7 @@
               "total": 106
             },
             "Dismissal": {
-              "ok": 101,
+              "ok": 106,
               "total": 106
             },
             "Campfire": {
@@ -7479,14 +7455,14 @@
             }
           },
           "firstMisses": [
-            "Aquarium Trip | Otters 1 | Wednesday | 09:25–10:15 -> activity:sailing",
-            "Aquarium Trip | Otters 1 | Wednesday | 10:20–11:10 -> activity:trampoline",
-            "Aquarium Trip | Otters 2 | Wednesday | 09:25–10:15 -> activity:archery",
-            "Aquarium Trip | Otters 2 | Wednesday | 10:20–11:10 -> activity:magic show",
-            "Aquarium Trip | Otters 3 | Wednesday | 09:25–10:15 -> activity:volleyball",
-            "Aquarium Trip | Otters 3 | Wednesday | 10:20–11:10 -> activity:fishing",
-            "Aquarium Trip | Otters 4 | Wednesday | 09:25–10:15 -> activity:free swim",
-            "Aquarium Trip | Otters 4 | Wednesday | 10:20–11:10 -> activity:climbing wall",
+            "Aquarium Trip | Otters 1 | Wednesday | 09:25–10:15 -> activity:aquarium trip",
+            "Aquarium Trip | Otters 1 | Wednesday | 10:20–11:10 -> activity:robotics",
+            "Aquarium Trip | Otters 2 | Wednesday | 09:25–10:15 -> activity:ceramics",
+            "Aquarium Trip | Otters 2 | Wednesday | 10:20–11:10 -> activity:photography",
+            "Aquarium Trip | Otters 3 | Wednesday | 09:25–10:15 -> activity:storytelling",
+            "Aquarium Trip | Otters 3 | Wednesday | 10:20–11:10 -> activity:aquarium trip",
+            "Aquarium Trip | Otters 4 | Wednesday | 09:25–10:15 -> activity:rocketry",
+            "Aquarium Trip | Otters 4 | Wednesday | 10:20–11:10 -> activity:bocce",
             "Games Day | Otters 1 | Saturday | 09:10–09:20 -> none:",
             "Games Day | Otters 2 | Saturday | 09:10–09:20 -> none:",
             "Games Day | Otters 3 | Saturday | 09:10–09:20 -> none:",
@@ -7498,9 +7474,9 @@
             "name": "Ropes Course",
             "expected": 2,
             "activitySpanBlocks": null,
-            "placedGroupDays": 13,
+            "placedGroupDays": 14,
             "runs": {
-              "1": 13
+              "1": 14
             }
           }
         ],
@@ -7509,7 +7485,7 @@
             "name": "Aquarium Trip",
             "expectedCells": 8,
             "placedTotal": 4,
-            "placedAtExpectedCells": 0
+            "placedAtExpectedCells": 2
           }
         ],
         "electiveCells": {
@@ -7618,7 +7594,7 @@
           "periods": null,
           "commit": {
             "ok": true,
-            "specialDayId": "3b36efe5-4847-467f-8a38-ca1ef4f08ee3",
+            "specialDayId": "b50418e1-1fdd-4f1c-ae53-f76f85890c80",
             "periods": 8,
             "cells": 48,
             "activitiesCreated": 7
@@ -7633,7 +7609,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 311,
+        "cpuMs": 309,
         "held": false,
         "counts": {
           "groups": 21,
@@ -7660,7 +7636,7 @@
               "Thursday",
               "Friday"
             ],
-            "groups": "20 groups"
+            "groups": "all"
           },
           {
             "name": "Arrival",
@@ -7708,7 +7684,7 @@
               "Thursday",
               "Friday"
             ],
-            "groups": "20 groups"
+            "groups": "all"
           },
           {
             "name": "Dismissal",
@@ -7804,7 +7780,7 @@
               "Thursday",
               "Friday"
             ],
-            "groups": "20 groups"
+            "groups": "all"
           },
           {
             "name": "Lunch",
@@ -7839,9 +7815,9 @@
           "activities": 31
         },
         "questions": {
-          "total": 10,
+          "total": 9,
           "byKind": {
-            "confirm_value": 10
+            "confirm_value": 9
           }
         },
         "exclusivity": {
@@ -7858,23 +7834,20 @@
             "fixed_events:Games Day",
             "fixed_events:Games Day",
             "fixed_events:Games Day",
-            "fixed_events:Games Day",
-            "fixed_events:Lunch"
+            "fixed_events:Games Day"
           ],
           "eventOpenItems": [],
           "ok": true
         },
         "lunch": {
           "expectedCells": 106,
-          "strictOk": 101,
-          "groupDayOk": 101,
+          "strictOk": 106,
+          "groupDayOk": 106,
           "expectedGroups": 21,
-          "missingGroups": [
-            "Counselor Aides"
-          ],
-          "ok": 101,
+          "missingGroups": [],
+          "ok": 106,
           "total": 106,
-          "ratio": 0.953
+          "ratio": 1
         },
         "events": {
           "byKind": {
@@ -7887,11 +7860,11 @@
               "total": 160
             },
             "lunch": {
-              "ok": 101,
+              "ok": 106,
               "total": 106
             },
             "daily": {
-              "ok": 202,
+              "ok": 212,
               "total": 318
             },
             "single": {
@@ -7909,11 +7882,11 @@
               "total": 160
             },
             "Lunch": {
-              "ok": 101,
+              "ok": 106,
               "total": 106
             },
             "Arrival": {
-              "ok": 101,
+              "ok": 106,
               "total": 106
             },
             "Flag Raising": {
@@ -7921,7 +7894,7 @@
               "total": 106
             },
             "Dismissal": {
-              "ok": 101,
+              "ok": 106,
               "total": 106
             },
             "Campfire": {
@@ -7975,9 +7948,9 @@
         ]
       },
       "confirmAllGenerate": {
-        "cpuMs": 47,
+        "cpuMs": 44,
         "slots": 882,
-        "placed": 355,
+        "placed": 340,
         "unfillable": 0,
         "stillNeeded": 22,
         "underservedPairs": 12,
@@ -7995,11 +7968,11 @@
               "total": 160
             },
             "lunch": {
-              "ok": 101,
+              "ok": 106,
               "total": 106
             },
             "daily": {
-              "ok": 202,
+              "ok": 212,
               "total": 318
             },
             "single": {
@@ -8017,11 +7990,11 @@
               "total": 160
             },
             "Lunch": {
-              "ok": 101,
+              "ok": 106,
               "total": 106
             },
             "Arrival": {
-              "ok": 101,
+              "ok": 106,
               "total": 106
             },
             "Flag Raising": {
@@ -8029,7 +8002,7 @@
               "total": 106
             },
             "Dismissal": {
-              "ok": 101,
+              "ok": 106,
               "total": 106
             },
             "Campfire": {
@@ -8038,14 +8011,14 @@
             }
           },
           "firstMisses": [
-            "Aquarium Trip | Otters 1 | Wednesday | 09:25–10:15 -> activity:trampoline",
-            "Aquarium Trip | Otters 1 | Wednesday | 10:20–11:10 -> activity:robotics",
-            "Aquarium Trip | Otters 2 | Wednesday | 09:25–10:15 -> activity:aquarium trip",
-            "Aquarium Trip | Otters 2 | Wednesday | 10:20–11:10 -> activity:cooking",
-            "Aquarium Trip | Otters 3 | Wednesday | 09:25–10:15 -> activity:storytelling",
-            "Aquarium Trip | Otters 3 | Wednesday | 10:20–11:10 -> activity:soccer",
-            "Aquarium Trip | Otters 4 | Wednesday | 09:25–10:15 -> activity:bocce",
-            "Aquarium Trip | Otters 4 | Wednesday | 10:20–11:10 -> activity:ceramics",
+            "Aquarium Trip | Otters 1 | Wednesday | 09:25–10:15 -> activity:robotics",
+            "Aquarium Trip | Otters 1 | Wednesday | 10:20–11:10 -> activity:swim",
+            "Aquarium Trip | Otters 2 | Wednesday | 09:25–10:15 -> activity:drama",
+            "Aquarium Trip | Otters 2 | Wednesday | 10:20–11:10 -> activity:bocce",
+            "Aquarium Trip | Otters 3 | Wednesday | 09:25–10:15 -> activity:sailing",
+            "Aquarium Trip | Otters 3 | Wednesday | 10:20–11:10 -> activity:tennis",
+            "Aquarium Trip | Otters 4 | Wednesday | 09:25–10:15 -> activity:climbing wall",
+            "Aquarium Trip | Otters 4 | Wednesday | 10:20–11:10 -> activity:chess club",
             "Games Day | Otters 1 | Saturday | 09:10–09:20 -> none:",
             "Games Day | Otters 2 | Saturday | 09:10–09:20 -> none:",
             "Games Day | Otters 3 | Saturday | 09:10–09:20 -> none:",
@@ -8068,7 +8041,7 @@
             "name": "Aquarium Trip",
             "expectedCells": 8,
             "placedTotal": 4,
-            "placedAtExpectedCells": 1
+            "placedAtExpectedCells": 0
           }
         ],
         "electiveCells": {
@@ -8166,7 +8139,7 @@
           "fixed_event:bechirot": 63
         }
       },
-      "runtimeMs": 3397
+      "runtimeMs": 3425
     },
     "s10-by-group-sun-thu-early": {
       "slug": "s10-by-group-sun-thu-early",
@@ -8175,7 +8148,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 87,
+          "cpuMs": 86,
           "held": false
         },
         "confirmAll": {
@@ -8335,9 +8308,9 @@
           "activities": 11
         },
         "questions": {
-          "total": 3,
+          "total": 2,
           "byKind": {
-            "confirm_value": 3
+            "confirm_value": 2
           }
         },
         "exclusivity": {
@@ -8347,12 +8320,10 @@
           "inTwoBuckets": [],
           "eventQuestions": [
             "fixed_events:Closing",
-            "fixed_events:Lunch",
             "fixed_events:Opening"
           ],
           "eventOpenItems": [
             "fixed_events:Closing",
-            "fixed_events:Lunch",
             "fixed_events:Opening"
           ],
           "ok": true
@@ -8450,8 +8421,8 @@
         "slots": 140,
         "placed": 56,
         "unfillable": 0,
-        "stillNeeded": 7,
-        "underservedPairs": 7,
+        "stillNeeded": 5,
+        "underservedPairs": 5,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -8498,9 +8469,9 @@
           },
           "firstMisses": [
             "Farm Trip | Herons 1 | Wednesday | 10:30–11:30 -> activity:drumming",
-            "Farm Trip | Herons 1 | Wednesday | 11:30–12:30 -> activity:climbing wall",
-            "Farm Trip | Herons 2 | Wednesday | 10:30–11:30 -> activity:basketball",
-            "Farm Trip | Herons 2 | Wednesday | 11:30–12:30 -> activity:ceramics"
+            "Farm Trip | Herons 1 | Wednesday | 11:30–12:30 -> activity:archery",
+            "Farm Trip | Herons 2 | Wednesday | 10:30–11:30 -> activity:chess club",
+            "Farm Trip | Herons 2 | Wednesday | 11:30–12:30 -> activity:drama"
           ]
         },
         "spanRuns": [
@@ -8598,7 +8569,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 110,
+        "cpuMs": 102,
         "held": false,
         "counts": {
           "groups": 4,
@@ -8763,9 +8734,9 @@
           "activities": 11
         },
         "questions": {
-          "total": 3,
+          "total": 2,
           "byKind": {
-            "confirm_value": 3
+            "confirm_value": 2
           }
         },
         "exclusivity": {
@@ -8775,7 +8746,6 @@
           "inTwoBuckets": [],
           "eventQuestions": [
             "fixed_events:Closing",
-            "fixed_events:Lunch",
             "fixed_events:Opening"
           ],
           "eventOpenItems": [],
@@ -8870,12 +8840,12 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 13,
+        "cpuMs": 5,
         "slots": 140,
         "placed": 56,
         "unfillable": 0,
-        "stillNeeded": 8,
-        "underservedPairs": 8,
+        "stillNeeded": 5,
+        "underservedPairs": 5,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -8921,10 +8891,10 @@
             }
           },
           "firstMisses": [
-            "Farm Trip | Herons 1 | Wednesday | 10:30–11:30 -> activity:dance",
-            "Farm Trip | Herons 1 | Wednesday | 11:30–12:30 -> activity:ceramics",
-            "Farm Trip | Herons 2 | Wednesday | 10:30–11:30 -> activity:lunch bunch",
-            "Farm Trip | Herons 2 | Wednesday | 11:30–12:30 -> activity:ceramics"
+            "Farm Trip | Herons 1 | Wednesday | 10:30–11:30 -> activity:basketball",
+            "Farm Trip | Herons 1 | Wednesday | 11:30–12:30 -> activity:archery",
+            "Farm Trip | Herons 2 | Wednesday | 10:30–11:30 -> activity:arts and crafts",
+            "Farm Trip | Herons 2 | Wednesday | 11:30–12:30 -> activity:chess club"
           ]
         },
         "spanRuns": [
@@ -9015,7 +8985,7 @@
         ],
         "electiveCells": {}
       },
-      "runtimeMs": 5614
+      "runtimeMs": 1179
     },
     "s11-daysheet-5d-small": {
       "slug": "s11-daysheet-5d-small",
@@ -9024,7 +8994,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 101,
+          "cpuMs": 86,
           "held": false
         },
         "confirmAll": {
@@ -9278,9 +9248,9 @@
             "name": "Ropes Course",
             "expected": 2,
             "activitySpanBlocks": null,
-            "placedGroupDays": 3,
+            "placedGroupDays": 4,
             "runs": {
-              "1": 3
+              "1": 4
             }
           }
         ],
@@ -9354,7 +9324,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 115,
+        "cpuMs": 111,
         "held": false,
         "counts": {
           "groups": 6,
@@ -9679,7 +9649,7 @@
           "fixed_event:electives": 6
         }
       },
-      "runtimeMs": 5027
+      "runtimeMs": 1023
     },
     "s12-daysheet-4d-late": {
       "slug": "s12-daysheet-4d-late",
@@ -9688,7 +9658,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 136,
+          "cpuMs": 126,
           "held": false
         },
         "confirmAll": {
@@ -9704,7 +9674,21 @@
             "block": "12:30-01:10",
             "span": 1,
             "days": [
-              "Monday",
+              "Monday"
+            ],
+            "groups": [
+              "1A",
+              "1B",
+              "1C",
+              "1D"
+            ]
+          },
+          {
+            "name": "Lunch 1",
+            "kind": "recurring",
+            "block": "12:30-01:10",
+            "span": 1,
+            "days": [
               "Tuesday",
               "Wednesday",
               "Thursday"
@@ -9713,7 +9697,8 @@
               "1A",
               "1B",
               "1C",
-              "1D"
+              "1D",
+              "2A"
             ]
           },
           {
@@ -9740,10 +9725,34 @@
             "block": "05:30-06:00",
             "span": 1,
             "days": [
-              "Monday",
+              "Monday"
+            ],
+            "groups": [
+              "1A",
+              "1B",
+              "1C",
+              "1D"
+            ]
+          },
+          {
+            "name": "Pick Up",
+            "kind": "recurring",
+            "block": "05:30-06:00",
+            "span": 1,
+            "days": [
               "Tuesday",
               "Wednesday",
               "Thursday"
+            ],
+            "groups": "all"
+          },
+          {
+            "name": "Sign In",
+            "kind": "recurring",
+            "block": "10:20-10:40",
+            "span": 1,
+            "days": [
+              "Monday"
             ],
             "groups": [
               "1A",
@@ -9758,17 +9767,11 @@
             "block": "10:20-10:40",
             "span": 1,
             "days": [
-              "Monday",
               "Tuesday",
               "Wednesday",
               "Thursday"
             ],
-            "groups": [
-              "1A",
-              "1B",
-              "1C",
-              "1D"
-            ]
+            "groups": "all"
           },
           {
             "name": "Theme Day",
@@ -9801,9 +9804,9 @@
           "activities": 20
         },
         "questions": {
-          "total": 9,
+          "total": 8,
           "byKind": {
-            "confirm_value": 7,
+            "confirm_value": 6,
             "elective_candidate": 2
           }
         },
@@ -9812,25 +9815,19 @@
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
-          "eventQuestions": [
-            "fixed_events:Lunch 2"
-          ],
-          "eventOpenItems": [
-            "fixed_events:Lunch 2"
-          ],
+          "eventQuestions": [],
+          "eventOpenItems": [],
           "ok": true
         },
         "lunch": {
           "expectedCells": 34,
-          "strictOk": 31,
-          "groupDayOk": 31,
+          "strictOk": 34,
+          "groupDayOk": 34,
           "expectedGroups": 10,
-          "missingGroups": [
-            "2A"
-          ],
-          "ok": 31,
+          "missingGroups": [],
+          "ok": 34,
           "total": 34,
-          "ratio": 0.912
+          "ratio": 1
         },
         "events": {
           "byKind": {
@@ -9843,11 +9840,11 @@
               "total": 60
             },
             "lunch": {
-              "ok": 31,
+              "ok": 34,
               "total": 34
             },
             "daily": {
-              "ok": 32,
+              "ok": 68,
               "total": 68
             },
             "weekly": {
@@ -9865,7 +9862,7 @@
               "total": 60
             },
             "Lunch 1": {
-              "ok": 16,
+              "ok": 19,
               "total": 19
             },
             "Lunch 2": {
@@ -9873,11 +9870,11 @@
               "total": 15
             },
             "Sign In": {
-              "ok": 16,
+              "ok": 34,
               "total": 34
             },
             "Pick Up": {
-              "ok": 16,
+              "ok": 34,
               "total": 34
             },
             "Theme Day": {
@@ -9941,12 +9938,12 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 49,
+        "cpuMs": 34,
         "slots": 400,
-        "placed": 327,
+        "placed": 288,
         "unfillable": 0,
-        "stillNeeded": 53,
-        "underservedPairs": 14,
+        "stillNeeded": 59,
+        "underservedPairs": 15,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -9961,11 +9958,11 @@
               "total": 60
             },
             "lunch": {
-              "ok": 31,
+              "ok": 34,
               "total": 34
             },
             "daily": {
-              "ok": 32,
+              "ok": 68,
               "total": 68
             },
             "weekly": {
@@ -9983,7 +9980,7 @@
               "total": 60
             },
             "Lunch 1": {
-              "ok": 16,
+              "ok": 19,
               "total": 19
             },
             "Lunch 2": {
@@ -9991,11 +9988,11 @@
               "total": 15
             },
             "Sign In": {
-              "ok": 16,
+              "ok": 34,
               "total": 34
             },
             "Pick Up": {
-              "ok": 16,
+              "ok": 34,
               "total": 34
             },
             "Theme Day": {
@@ -10004,18 +10001,18 @@
             }
           },
           "firstMisses": [
-            "Aquarium Trip | 1A | Tuesday | 02:10 PM–02:55 PM -> activity:aquarium trip",
-            "Aquarium Trip | 1A | Tuesday | 03:00 PM–03:45 PM -> activity:softball",
-            "Aquarium Trip | 1B | Tuesday | 02:10 PM–02:55 PM -> activity:pottery",
-            "Aquarium Trip | 1B | Tuesday | 03:00 PM–03:45 PM -> activity:sailing",
-            "Aquarium Trip | 1C | Tuesday | 02:10 PM–02:55 PM -> activity:garden",
-            "Aquarium Trip | 1C | Tuesday | 03:00 PM–03:45 PM -> activity:orienteering",
-            "Aquarium Trip | 1D | Tuesday | 02:10 PM–02:55 PM -> activity:hiking",
-            "Aquarium Trip | 1D | Tuesday | 03:00 PM–03:45 PM -> activity:painting",
-            "Games Day | 2A | Monday | 10:20 AM–10:40 AM -> activity:knitting",
-            "Games Day | 2A | Monday | 10:50 AM–11:35 AM -> activity:softball",
-            "Games Day | 2A | Monday | 11:40 AM–12:25 PM -> activity:games day",
-            "Games Day | 2A | Monday | 12:30 PM–01:10 PM -> activity:hiking"
+            "Aquarium Trip | 1A | Tuesday | 02:10 PM–02:55 PM -> activity:robotics",
+            "Aquarium Trip | 1A | Tuesday | 03:00 PM–03:45 PM -> activity:soccer",
+            "Aquarium Trip | 1B | Tuesday | 02:10 PM–02:55 PM -> activity:soccer",
+            "Aquarium Trip | 1B | Tuesday | 03:00 PM–03:45 PM -> activity:knitting",
+            "Aquarium Trip | 1C | Tuesday | 02:10 PM–02:55 PM -> activity:lanyard",
+            "Aquarium Trip | 1C | Tuesday | 03:00 PM–03:45 PM -> activity:fishing",
+            "Aquarium Trip | 1D | Tuesday | 02:10 PM–02:55 PM -> activity:garden",
+            "Aquarium Trip | 1D | Tuesday | 03:00 PM–03:45 PM -> activity:lanyard",
+            "Games Day | 2A | Monday | 10:20 AM–10:40 AM -> activity:games day",
+            "Games Day | 2A | Monday | 10:50 AM–11:35 AM -> activity:knitting",
+            "Games Day | 2A | Monday | 11:40 AM–12:25 PM -> activity:orienteering",
+            "Games Day | 2A | Monday | 12:30 PM–01:10 PM -> activity:lanyard"
           ]
         },
         "spanRuns": [
@@ -10023,18 +10020,18 @@
             "name": "Wilderness Skills",
             "expected": 3,
             "activitySpanBlocks": null,
-            "placedGroupDays": 7,
+            "placedGroupDays": 6,
             "runs": {
-              "1": 7
+              "1": 6
             }
           },
           {
             "name": "Ropes Course",
             "expected": 2,
             "activitySpanBlocks": null,
-            "placedGroupDays": 14,
+            "placedGroupDays": 11,
             "runs": {
-              "1": 14
+              "1": 11
             }
           }
         ],
@@ -10043,12 +10040,12 @@
             "name": "Aquarium Trip",
             "expectedCells": 8,
             "placedTotal": 4,
-            "placedAtExpectedCells": 1
+            "placedAtExpectedCells": 0
           },
           {
             "name": "Games Day",
             "expectedCells": 60,
-            "placedTotal": 16,
+            "placedTotal": 12,
             "placedAtExpectedCells": 6
           }
         ],
@@ -10169,7 +10166,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 206,
+        "cpuMs": 182,
         "held": false,
         "counts": {
           "groups": 10,
@@ -10190,7 +10187,21 @@
             "block": "12:30-01:10",
             "span": 1,
             "days": [
-              "Monday",
+              "Monday"
+            ],
+            "groups": [
+              "1A",
+              "1B",
+              "1C",
+              "1D"
+            ]
+          },
+          {
+            "name": "Lunch 1",
+            "kind": "recurring",
+            "block": "12:30-01:10",
+            "span": 1,
+            "days": [
               "Tuesday",
               "Wednesday",
               "Thursday"
@@ -10199,7 +10210,8 @@
               "1A",
               "1B",
               "1C",
-              "1D"
+              "1D",
+              "2A"
             ]
           },
           {
@@ -10226,10 +10238,34 @@
             "block": "05:30-06:00",
             "span": 1,
             "days": [
-              "Monday",
+              "Monday"
+            ],
+            "groups": [
+              "1A",
+              "1B",
+              "1C",
+              "1D"
+            ]
+          },
+          {
+            "name": "Pick Up",
+            "kind": "recurring",
+            "block": "05:30-06:00",
+            "span": 1,
+            "days": [
               "Tuesday",
               "Wednesday",
               "Thursday"
+            ],
+            "groups": "all"
+          },
+          {
+            "name": "Sign In",
+            "kind": "recurring",
+            "block": "10:20-10:40",
+            "span": 1,
+            "days": [
+              "Monday"
             ],
             "groups": [
               "1A",
@@ -10244,17 +10280,11 @@
             "block": "10:20-10:40",
             "span": 1,
             "days": [
-              "Monday",
               "Tuesday",
               "Wednesday",
               "Thursday"
             ],
-            "groups": [
-              "1A",
-              "1B",
-              "1C",
-              "1D"
-            ]
+            "groups": "all"
           },
           {
             "name": "Theme Day",
@@ -10287,9 +10317,9 @@
           "activities": 20
         },
         "questions": {
-          "total": 9,
+          "total": 8,
           "byKind": {
-            "confirm_value": 7,
+            "confirm_value": 6,
             "elective_candidate": 2
           }
         },
@@ -10298,23 +10328,19 @@
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
-          "eventQuestions": [
-            "fixed_events:Lunch 2"
-          ],
+          "eventQuestions": [],
           "eventOpenItems": [],
           "ok": true
         },
         "lunch": {
           "expectedCells": 34,
-          "strictOk": 31,
-          "groupDayOk": 31,
+          "strictOk": 34,
+          "groupDayOk": 34,
           "expectedGroups": 10,
-          "missingGroups": [
-            "2A"
-          ],
-          "ok": 31,
+          "missingGroups": [],
+          "ok": 34,
           "total": 34,
-          "ratio": 0.912
+          "ratio": 1
         },
         "events": {
           "byKind": {
@@ -10327,11 +10353,11 @@
               "total": 60
             },
             "lunch": {
-              "ok": 31,
+              "ok": 34,
               "total": 34
             },
             "daily": {
-              "ok": 32,
+              "ok": 68,
               "total": 68
             },
             "weekly": {
@@ -10349,7 +10375,7 @@
               "total": 60
             },
             "Lunch 1": {
-              "ok": 16,
+              "ok": 19,
               "total": 19
             },
             "Lunch 2": {
@@ -10357,11 +10383,11 @@
               "total": 15
             },
             "Sign In": {
-              "ok": 16,
+              "ok": 34,
               "total": 34
             },
             "Pick Up": {
-              "ok": 16,
+              "ok": 34,
               "total": 34
             },
             "Theme Day": {
@@ -10431,12 +10457,12 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 64,
+        "cpuMs": 52,
         "slots": 400,
-        "placed": 327,
+        "placed": 288,
         "unfillable": 0,
-        "stillNeeded": 62,
-        "underservedPairs": 16,
+        "stillNeeded": 66,
+        "underservedPairs": 18,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -10451,11 +10477,11 @@
               "total": 60
             },
             "lunch": {
-              "ok": 31,
+              "ok": 34,
               "total": 34
             },
             "daily": {
-              "ok": 32,
+              "ok": 68,
               "total": 68
             },
             "weekly": {
@@ -10473,7 +10499,7 @@
               "total": 60
             },
             "Lunch 1": {
-              "ok": 16,
+              "ok": 19,
               "total": 19
             },
             "Lunch 2": {
@@ -10481,11 +10507,11 @@
               "total": 15
             },
             "Sign In": {
-              "ok": 16,
+              "ok": 34,
               "total": 34
             },
             "Pick Up": {
-              "ok": 16,
+              "ok": 34,
               "total": 34
             },
             "Theme Day": {
@@ -10494,18 +10520,18 @@
             }
           },
           "firstMisses": [
-            "Aquarium Trip | 1A | Tuesday | 02:10 PM–02:55 PM -> activity:fishing",
-            "Aquarium Trip | 1A | Tuesday | 03:00 PM–03:45 PM -> activity:wilderness skills",
-            "Aquarium Trip | 1B | Tuesday | 02:10 PM–02:55 PM -> activity:kayaking",
-            "Aquarium Trip | 1B | Tuesday | 03:00 PM–03:45 PM -> activity:music lake",
-            "Aquarium Trip | 1C | Tuesday | 02:10 PM–02:55 PM -> activity:pottery",
-            "Aquarium Trip | 1C | Tuesday | 03:00 PM–03:45 PM -> activity:orienteering",
-            "Aquarium Trip | 1D | Tuesday | 02:10 PM–02:55 PM -> activity:drumming",
-            "Aquarium Trip | 1D | Tuesday | 03:00 PM–03:45 PM -> activity:robotics",
-            "Games Day | 2A | Monday | 10:20 AM–10:40 AM -> activity:knitting",
-            "Games Day | 2A | Monday | 10:50 AM–11:35 AM -> activity:orienteering pavilion",
-            "Games Day | 2A | Monday | 11:40 AM–12:25 PM -> activity:softball",
-            "Games Day | 2A | Monday | 12:30 PM–01:10 PM -> activity:soccer"
+            "Aquarium Trip | 1A | Tuesday | 02:10 PM–02:55 PM -> activity:drama",
+            "Aquarium Trip | 1A | Tuesday | 03:00 PM–03:45 PM -> activity:hiking",
+            "Aquarium Trip | 1B | Tuesday | 02:10 PM–02:55 PM -> activity:drama",
+            "Aquarium Trip | 1B | Tuesday | 03:00 PM–03:45 PM -> activity:hiking",
+            "Aquarium Trip | 1C | Tuesday | 02:10 PM–02:55 PM -> activity:knitting",
+            "Aquarium Trip | 1C | Tuesday | 03:00 PM–03:45 PM -> activity:nature walk",
+            "Aquarium Trip | 1D | Tuesday | 02:10 PM–02:55 PM -> activity:garden",
+            "Aquarium Trip | 1D | Tuesday | 03:00 PM–03:45 PM -> activity:gaga pit",
+            "Games Day | 2A | Monday | 10:20 AM–10:40 AM -> activity:music",
+            "Games Day | 2A | Monday | 10:50 AM–11:35 AM -> activity:drumming",
+            "Games Day | 2A | Monday | 11:40 AM–12:25 PM -> activity:soccer",
+            "Games Day | 2A | Monday | 12:30 PM–01:10 PM -> activity:drama"
           ]
         },
         "spanRuns": [
@@ -10522,9 +10548,9 @@
             "name": "Ropes Course",
             "expected": 2,
             "activitySpanBlocks": null,
-            "placedGroupDays": 10,
+            "placedGroupDays": 8,
             "runs": {
-              "1": 10
+              "1": 8
             }
           }
         ],
@@ -10538,7 +10564,7 @@
           {
             "name": "Games Day",
             "expectedCells": 60,
-            "placedTotal": 12,
+            "placedTotal": 10,
             "placedAtExpectedCells": 5
           }
         ],
@@ -10646,7 +10672,7 @@
           "activity:pottery / drama / robotics field 2": 1
         }
       },
-      "runtimeMs": 1848
+      "runtimeMs": 1317
     },
     "s13-daysheet-16-splits": {
       "slug": "s13-daysheet-16-splits",
@@ -10655,7 +10681,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 238,
+          "cpuMs": 208,
           "held": false
         },
         "confirmAll": {
@@ -10715,10 +10741,25 @@
             "span": 1,
             "days": [
               "Monday",
-              "Tuesday",
               "Wednesday",
               "Thursday",
               "Friday"
+            ],
+            "groups": [
+              "2C",
+              "2D",
+              "3A",
+              "3B",
+              "3C"
+            ]
+          },
+          {
+            "name": "Lunch 2",
+            "kind": "recurring",
+            "block": "11:35-12:10",
+            "span": 1,
+            "days": [
+              "Tuesday"
             ],
             "groups": [
               "2C",
@@ -10751,10 +10792,19 @@
             "span": 1,
             "days": [
               "Monday",
-              "Tuesday",
               "Wednesday",
               "Thursday",
               "Friday"
+            ],
+            "groups": "all"
+          },
+          {
+            "name": "Pick Up",
+            "kind": "recurring",
+            "block": "02:35-02:55",
+            "span": 1,
+            "days": [
+              "Tuesday"
             ],
             "groups": "8 groups"
           },
@@ -10765,10 +10815,19 @@
             "span": 1,
             "days": [
               "Monday",
-              "Tuesday",
               "Wednesday",
               "Thursday",
               "Friday"
+            ],
+            "groups": "all"
+          },
+          {
+            "name": "Sign In",
+            "kind": "recurring",
+            "block": "08:45-09:05",
+            "span": 1,
+            "days": [
+              "Tuesday"
             ],
             "groups": "8 groups"
           }
@@ -10793,9 +10852,9 @@
           "activities": 26
         },
         "questions": {
-          "total": 22,
+          "total": 21,
           "byKind": {
-            "confirm_value": 22
+            "confirm_value": 21
           }
         },
         "exclusivity": {
@@ -10804,28 +10863,22 @@
           "candidates": [],
           "inTwoBuckets": [],
           "eventQuestions": [
-            "fixed_events:Library",
-            "fixed_events:Lunch 3"
+            "fixed_events:Library"
           ],
           "eventOpenItems": [
-            "fixed_events:Library",
-            "fixed_events:Lunch 3"
+            "fixed_events:Library"
           ],
           "ok": true
         },
         "lunch": {
           "expectedCells": 72,
-          "strictOk": 60,
-          "groupDayOk": 60,
+          "strictOk": 72,
+          "groupDayOk": 72,
           "expectedGroups": 16,
-          "missingGroups": [
-            "3A",
-            "3B",
-            "3C"
-          ],
-          "ok": 60,
+          "missingGroups": [],
+          "ok": 72,
           "total": 72,
-          "ratio": 0.833
+          "ratio": 1
         },
         "events": {
           "byKind": {
@@ -10838,11 +10891,11 @@
               "total": 72
             },
             "lunch": {
-              "ok": 60,
+              "ok": 72,
               "total": 72
             },
             "daily": {
-              "ok": 80,
+              "ok": 144,
               "total": 144
             },
             "alternate": {
@@ -10864,7 +10917,7 @@
               "total": 30
             },
             "Lunch 2": {
-              "ok": 10,
+              "ok": 22,
               "total": 22
             },
             "Lunch 3": {
@@ -10872,11 +10925,11 @@
               "total": 20
             },
             "Sign In": {
-              "ok": 40,
+              "ok": 72,
               "total": 72
             },
             "Pick Up": {
-              "ok": 40,
+              "ok": 72,
               "total": 72
             },
             "Library": {
@@ -10933,12 +10986,12 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 96,
+        "cpuMs": 76,
         "slots": 720,
-        "placed": 516,
+        "placed": 440,
         "unfillable": 0,
-        "stillNeeded": 76,
-        "underservedPairs": 16,
+        "stillNeeded": 81,
+        "underservedPairs": 19,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -10953,11 +11006,11 @@
               "total": 72
             },
             "lunch": {
-              "ok": 60,
+              "ok": 72,
               "total": 72
             },
             "daily": {
-              "ok": 80,
+              "ok": 144,
               "total": 144
             },
             "alternate": {
@@ -10979,7 +11032,7 @@
               "total": 30
             },
             "Lunch 2": {
-              "ok": 10,
+              "ok": 22,
               "total": 22
             },
             "Lunch 3": {
@@ -10987,11 +11040,11 @@
               "total": 20
             },
             "Sign In": {
-              "ok": 40,
+              "ok": 72,
               "total": 72
             },
             "Pick Up": {
-              "ok": 40,
+              "ok": 72,
               "total": 72
             },
             "Library": {
@@ -11001,17 +11054,17 @@
           },
           "firstMisses": [
             "Aquarium Trip | 3A | Wednesday | 12:55 PM–01:40 PM -> activity:tie dye",
-            "Aquarium Trip | 3A | Wednesday | 01:45 PM–02:30 PM -> activity:pottery",
-            "Aquarium Trip | 3B | Wednesday | 12:55 PM–01:40 PM -> activity:storytelling",
-            "Aquarium Trip | 3B | Wednesday | 01:45 PM–02:30 PM -> activity:free swim",
-            "Aquarium Trip | 3C | Wednesday | 12:55 PM–01:40 PM -> activity:music",
-            "Aquarium Trip | 3C | Wednesday | 01:45 PM–02:30 PM -> activity:tennis",
-            "Aquarium Trip | 3D | Wednesday | 12:55 PM–01:40 PM -> activity:trampoline",
-            "Aquarium Trip | 3D | Wednesday | 01:45 PM–02:30 PM -> activity:rocketry",
-            "Games Day | 3A | Tuesday | 08:45 AM–09:05 AM -> activity:woodworking",
-            "Games Day | 3A | Tuesday | 09:15 AM–10:00 AM -> activity:orienteering",
-            "Games Day | 3A | Tuesday | 10:05 AM–10:50 AM -> activity:aquarium trip",
-            "Games Day | 3A | Tuesday | 10:55 AM–11:30 AM -> activity:storytelling"
+            "Aquarium Trip | 3A | Wednesday | 01:45 PM–02:30 PM -> activity:music",
+            "Aquarium Trip | 3B | Wednesday | 12:55 PM–01:40 PM -> activity:aquarium trip",
+            "Aquarium Trip | 3B | Wednesday | 01:45 PM–02:30 PM -> activity:photography",
+            "Aquarium Trip | 3C | Wednesday | 12:55 PM–01:40 PM -> activity:swim",
+            "Aquarium Trip | 3C | Wednesday | 01:45 PM–02:30 PM -> activity:aquarium trip",
+            "Aquarium Trip | 3D | Wednesday | 12:55 PM–01:40 PM -> activity:woodworking",
+            "Aquarium Trip | 3D | Wednesday | 01:45 PM–02:30 PM -> activity:yoga",
+            "Games Day | 3A | Tuesday | 08:45 AM–09:05 AM -> activity:softball",
+            "Games Day | 3A | Tuesday | 09:15 AM–10:00 AM -> activity:aquarium trip",
+            "Games Day | 3A | Tuesday | 10:05 AM–10:50 AM -> activity:lanyard",
+            "Games Day | 3A | Tuesday | 10:55 AM–11:30 AM -> activity:nature walk"
           ]
         },
         "spanRuns": [
@@ -11019,9 +11072,9 @@
             "name": "Ropes Course",
             "expected": 2,
             "activitySpanBlocks": null,
-            "placedGroupDays": 11,
+            "placedGroupDays": 12,
             "runs": {
-              "1": 11
+              "1": 12
             }
           }
         ],
@@ -11029,13 +11082,13 @@
           {
             "name": "Aquarium Trip",
             "expectedCells": 8,
-            "placedTotal": 8,
-            "placedAtExpectedCells": 0
+            "placedTotal": 5,
+            "placedAtExpectedCells": 2
           },
           {
             "name": "Games Day",
             "expectedCells": 72,
-            "placedTotal": 17,
+            "placedTotal": 14,
             "placedAtExpectedCells": 1
           }
         ],
@@ -11160,7 +11213,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 347,
+        "cpuMs": 297,
         "held": false,
         "counts": {
           "groups": 16,
@@ -11225,10 +11278,25 @@
             "span": 1,
             "days": [
               "Monday",
-              "Tuesday",
               "Wednesday",
               "Thursday",
               "Friday"
+            ],
+            "groups": [
+              "2C",
+              "2D",
+              "3A",
+              "3B",
+              "3C"
+            ]
+          },
+          {
+            "name": "Lunch 2",
+            "kind": "recurring",
+            "block": "11:35-12:10",
+            "span": 1,
+            "days": [
+              "Tuesday"
             ],
             "groups": [
               "2C",
@@ -11261,10 +11329,19 @@
             "span": 1,
             "days": [
               "Monday",
-              "Tuesday",
               "Wednesday",
               "Thursday",
               "Friday"
+            ],
+            "groups": "all"
+          },
+          {
+            "name": "Pick Up",
+            "kind": "recurring",
+            "block": "02:35-02:55",
+            "span": 1,
+            "days": [
+              "Tuesday"
             ],
             "groups": "8 groups"
           },
@@ -11275,10 +11352,19 @@
             "span": 1,
             "days": [
               "Monday",
-              "Tuesday",
               "Wednesday",
               "Thursday",
               "Friday"
+            ],
+            "groups": "all"
+          },
+          {
+            "name": "Sign In",
+            "kind": "recurring",
+            "block": "08:45-09:05",
+            "span": 1,
+            "days": [
+              "Tuesday"
             ],
             "groups": "8 groups"
           }
@@ -11303,9 +11389,9 @@
           "activities": 26
         },
         "questions": {
-          "total": 22,
+          "total": 21,
           "byKind": {
-            "confirm_value": 22
+            "confirm_value": 21
           }
         },
         "exclusivity": {
@@ -11314,25 +11400,20 @@
           "candidates": [],
           "inTwoBuckets": [],
           "eventQuestions": [
-            "fixed_events:Library",
-            "fixed_events:Lunch 3"
+            "fixed_events:Library"
           ],
           "eventOpenItems": [],
           "ok": true
         },
         "lunch": {
           "expectedCells": 72,
-          "strictOk": 60,
-          "groupDayOk": 60,
+          "strictOk": 72,
+          "groupDayOk": 72,
           "expectedGroups": 16,
-          "missingGroups": [
-            "3A",
-            "3B",
-            "3C"
-          ],
-          "ok": 60,
+          "missingGroups": [],
+          "ok": 72,
           "total": 72,
-          "ratio": 0.833
+          "ratio": 1
         },
         "events": {
           "byKind": {
@@ -11345,11 +11426,11 @@
               "total": 72
             },
             "lunch": {
-              "ok": 60,
+              "ok": 72,
               "total": 72
             },
             "daily": {
-              "ok": 80,
+              "ok": 144,
               "total": 144
             },
             "alternate": {
@@ -11371,7 +11452,7 @@
               "total": 30
             },
             "Lunch 2": {
-              "ok": 10,
+              "ok": 22,
               "total": 22
             },
             "Lunch 3": {
@@ -11379,11 +11460,11 @@
               "total": 20
             },
             "Sign In": {
-              "ok": 40,
+              "ok": 72,
               "total": 72
             },
             "Pick Up": {
-              "ok": 40,
+              "ok": 72,
               "total": 72
             },
             "Library": {
@@ -11449,12 +11530,12 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 178,
+        "cpuMs": 159,
         "slots": 720,
-        "placed": 516,
+        "placed": 440,
         "unfillable": 0,
-        "stillNeeded": 236,
-        "underservedPairs": 163,
+        "stillNeeded": 307,
+        "underservedPairs": 233,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -11469,11 +11550,11 @@
               "total": 72
             },
             "lunch": {
-              "ok": 60,
+              "ok": 72,
               "total": 72
             },
             "daily": {
-              "ok": 80,
+              "ok": 144,
               "total": 144
             },
             "alternate": {
@@ -11495,7 +11576,7 @@
               "total": 30
             },
             "Lunch 2": {
-              "ok": 10,
+              "ok": 22,
               "total": 22
             },
             "Lunch 3": {
@@ -11503,11 +11584,11 @@
               "total": 20
             },
             "Sign In": {
-              "ok": 40,
+              "ok": 72,
               "total": 72
             },
             "Pick Up": {
-              "ok": 40,
+              "ok": 72,
               "total": 72
             },
             "Library": {
@@ -11516,18 +11597,18 @@
             }
           },
           "firstMisses": [
-            "Aquarium Trip | 3A | Wednesday | 12:55 PM–01:40 PM -> activity:music studio b",
-            "Aquarium Trip | 3A | Wednesday | 01:45 PM–02:30 PM -> activity:storytelling meadow",
-            "Aquarium Trip | 3B | Wednesday | 12:55 PM–01:40 PM -> activity:painting",
-            "Aquarium Trip | 3B | Wednesday | 01:45 PM–02:30 PM -> activity:painting shed",
-            "Aquarium Trip | 3C | Wednesday | 12:55 PM–01:40 PM -> activity:photography pavilion",
-            "Aquarium Trip | 3C | Wednesday | 01:45 PM–02:30 PM -> activity:free swim",
-            "Aquarium Trip | 3D | Wednesday | 12:55 PM–01:40 PM -> activity:woodworking",
-            "Aquarium Trip | 3D | Wednesday | 01:45 PM–02:30 PM -> activity:rocketry",
-            "Games Day | 3A | Tuesday | 08:45 AM–09:05 AM -> activity:games day",
-            "Games Day | 3A | Tuesday | 09:15 AM–10:00 AM -> activity:yoga",
-            "Games Day | 3A | Tuesday | 10:05 AM–10:50 AM -> activity:yoga shed",
-            "Games Day | 3A | Tuesday | 10:55 AM–11:30 AM -> activity:volleyball"
+            "Aquarium Trip | 3A | Wednesday | 12:55 PM–01:40 PM -> activity:tie dye",
+            "Aquarium Trip | 3A | Wednesday | 01:45 PM–02:30 PM -> activity:aquarium trip",
+            "Aquarium Trip | 3B | Wednesday | 12:55 PM–01:40 PM -> activity:free swim",
+            "Aquarium Trip | 3B | Wednesday | 01:45 PM–02:30 PM -> activity:pottery",
+            "Aquarium Trip | 3C | Wednesday | 12:55 PM–01:40 PM -> activity:orienteering",
+            "Aquarium Trip | 3C | Wednesday | 01:45 PM–02:30 PM -> activity:nature walk",
+            "Aquarium Trip | 3D | Wednesday | 12:55 PM–01:40 PM -> activity:storytelling",
+            "Aquarium Trip | 3D | Wednesday | 01:45 PM–02:30 PM -> activity:puppetry meadow",
+            "Games Day | 3A | Tuesday | 08:45 AM–09:05 AM -> activity:softball",
+            "Games Day | 3A | Tuesday | 09:15 AM–10:00 AM -> activity:robotics",
+            "Games Day | 3A | Tuesday | 10:05 AM–10:50 AM -> activity:orienteering",
+            "Games Day | 3A | Tuesday | 10:55 AM–11:30 AM -> activity:soccer meadow"
           ]
         },
         "spanRuns": [
@@ -11535,9 +11616,9 @@
             "name": "Ropes Course",
             "expected": 2,
             "activitySpanBlocks": null,
-            "placedGroupDays": 6,
+            "placedGroupDays": 7,
             "runs": {
-              "1": 6
+              "1": 7
             }
           }
         ],
@@ -11546,12 +11627,12 @@
             "name": "Aquarium Trip",
             "expectedCells": 8,
             "placedTotal": 4,
-            "placedAtExpectedCells": 0
+            "placedAtExpectedCells": 1
           },
           {
             "name": "Games Day",
             "expectedCells": 72,
-            "placedTotal": 9,
+            "placedTotal": 7,
             "placedAtExpectedCells": 3
           }
         ],
@@ -11656,7 +11737,7 @@
           "activity:ceramics / pottery": 4
         }
       },
-      "runtimeMs": 2346
+      "runtimeMs": 2443
     },
     "s14-by-day-period-24h": {
       "slug": "s14-by-day-period-24h",
@@ -11665,7 +11746,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 127,
+          "cpuMs": 95,
           "held": false
         },
         "confirmAll": {
@@ -11761,16 +11842,6 @@
               "Monday"
             ],
             "groups": "all"
-          },
-          {
-            "name": "Swim",
-            "kind": "recurring",
-            "block": "09:20-10:05",
-            "span": 1,
-            "days": [
-              "Wednesday"
-            ],
-            "groups": "8 groups"
           }
         ],
         "counts": {
@@ -11781,7 +11852,7 @@
           "activities": 16,
           "pinnedEventActivities": 5,
           "fixedEvents": 12,
-          "recurringEvents": 11,
+          "recurringEvents": 10,
           "electiveSets": 0,
           "specialDays": 0
         },
@@ -11793,9 +11864,8 @@
           "activities": 15
         },
         "questions": {
-          "total": 4,
+          "total": 3,
           "byKind": {
-            "confirm_value": 1,
             "elective_candidate": 3
           }
         },
@@ -11833,7 +11903,7 @@
               "total": 90
             },
             "weekly": {
-              "ok": 8,
+              "ok": 0,
               "total": 9
             }
           },
@@ -11859,7 +11929,7 @@
               "total": 45
             },
             "Swim": {
-              "ok": 8,
+              "ok": 0,
               "total": 9
             }
           },
@@ -11870,7 +11940,12 @@
             "Museum Trip | Herons 2 | Thursday | 13:20–14:05",
             "Museum Trip | Herons 3 | Thursday | 12:30–13:15",
             "Museum Trip | Herons 3 | Thursday | 13:20–14:05",
-            "Swim | Otters 1 | Wednesday | 09:20–10:05"
+            "Swim | Otters 1 | Wednesday | 09:20–10:05",
+            "Swim | Otters 2 | Wednesday | 09:20–10:05",
+            "Swim | Otters 3 | Wednesday | 09:20–10:05",
+            "Swim | Herons 1 | Wednesday | 09:20–10:05",
+            "Swim | Herons 2 | Wednesday | 09:20–10:05",
+            "Swim | Herons 3 | Wednesday | 09:20–10:05"
           ]
         },
         "activitiesVsManifest": {
@@ -11905,12 +11980,12 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 42,
+        "cpuMs": 21,
         "slots": 360,
-        "placed": 199,
+        "placed": 207,
         "unfillable": 0,
-        "stillNeeded": 25,
-        "underservedPairs": 23,
+        "stillNeeded": 24,
+        "underservedPairs": 21,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -11929,7 +12004,7 @@
               "total": 90
             },
             "weekly": {
-              "ok": 8,
+              "ok": 0,
               "total": 9
             }
           },
@@ -11955,18 +12030,23 @@
               "total": 45
             },
             "Swim": {
-              "ok": 8,
+              "ok": 0,
               "total": 9
             }
           },
           "firstMisses": [
-            "Museum Trip | Herons 1 | Thursday | 12:30–13:15 -> activity:museum trip",
-            "Museum Trip | Herons 1 | Thursday | 13:20–14:05 -> activity:tennis",
-            "Museum Trip | Herons 2 | Thursday | 12:30–13:15 -> activity:photography",
-            "Museum Trip | Herons 2 | Thursday | 13:20–14:05 -> activity:magic show",
-            "Museum Trip | Herons 3 | Thursday | 12:30–13:15 -> activity:puppetry",
-            "Museum Trip | Herons 3 | Thursday | 13:20–14:05 -> activity:tie dye",
-            "Swim | Otters 1 | Wednesday | 09:20–10:05 -> activity:tie dye"
+            "Museum Trip | Herons 1 | Thursday | 12:30–13:15 -> activity:tie dye",
+            "Museum Trip | Herons 1 | Thursday | 13:20–14:05 -> activity:photography",
+            "Museum Trip | Herons 2 | Thursday | 12:30–13:15 -> activity:swim",
+            "Museum Trip | Herons 2 | Thursday | 13:20–14:05 -> activity:tie dye",
+            "Museum Trip | Herons 3 | Thursday | 12:30–13:15 -> activity:volleyball",
+            "Museum Trip | Herons 3 | Thursday | 13:20–14:05 -> activity:puppetry",
+            "Swim | Otters 1 | Wednesday | 09:20–10:05 -> activity:free swim",
+            "Swim | Otters 2 | Wednesday | 09:20–10:05 -> activity:puppetry",
+            "Swim | Otters 3 | Wednesday | 09:20–10:05 -> activity:puppetry",
+            "Swim | Herons 1 | Wednesday | 09:20–10:05 -> activity:tennis",
+            "Swim | Herons 2 | Wednesday | 09:20–10:05 -> activity:rocketry",
+            "Swim | Herons 3 | Wednesday | 09:20–10:05 -> activity:museum trip"
           ]
         },
         "spanRuns": [
@@ -11982,8 +12062,8 @@
           {
             "name": "Museum Trip",
             "expectedCells": 6,
-            "placedTotal": 5,
-            "placedAtExpectedCells": 1
+            "placedTotal": 4,
+            "placedAtExpectedCells": 0
           }
         ],
         "electiveCells": {
@@ -12014,7 +12094,7 @@
               "total": 90
             },
             "weekly": {
-              "ok": 9,
+              "ok": 0,
               "total": 9
             }
           },
@@ -12040,7 +12120,7 @@
               "total": 45
             },
             "Swim": {
-              "ok": 9,
+              "ok": 0,
               "total": 9
             }
           },
@@ -12050,7 +12130,13 @@
             "Museum Trip | Herons 2 | Thursday | 12:30–13:15 -> activity:museum trip",
             "Museum Trip | Herons 2 | Thursday | 13:20–14:05 -> activity:museum trip",
             "Museum Trip | Herons 3 | Thursday | 12:30–13:15 -> activity:museum trip",
-            "Museum Trip | Herons 3 | Thursday | 13:20–14:05 -> activity:museum trip"
+            "Museum Trip | Herons 3 | Thursday | 13:20–14:05 -> activity:museum trip",
+            "Swim | Otters 1 | Wednesday | 09:20–10:05 -> activity:swim",
+            "Swim | Otters 2 | Wednesday | 09:20–10:05 -> activity:swim",
+            "Swim | Otters 3 | Wednesday | 09:20–10:05 -> activity:swim",
+            "Swim | Herons 1 | Wednesday | 09:20–10:05 -> activity:swim",
+            "Swim | Herons 2 | Wednesday | 09:20–10:05 -> activity:swim",
+            "Swim | Herons 3 | Wednesday | 09:20–10:05 -> activity:swim"
           ]
         },
         "spans": [
@@ -12074,7 +12160,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 174,
+        "cpuMs": 175,
         "held": false,
         "counts": {
           "groups": 9,
@@ -12083,7 +12169,7 @@
           "time_blocks": 8,
           "activities": 21,
           "locations": 0,
-          "fixed_events": 23,
+          "fixed_events": 22,
           "elective_sets": 0
         }
       },
@@ -12175,16 +12261,6 @@
               "Monday"
             ],
             "groups": "all"
-          },
-          {
-            "name": "Swim",
-            "kind": "recurring",
-            "block": "09:20-10:05",
-            "span": 1,
-            "days": [
-              "Wednesday"
-            ],
-            "groups": "8 groups"
           }
         ],
         "counts": {
@@ -12195,7 +12271,7 @@
           "activities": 16,
           "pinnedEventActivities": 5,
           "fixedEvents": 12,
-          "recurringEvents": 11,
+          "recurringEvents": 10,
           "electiveSets": 1,
           "specialDays": 0
         },
@@ -12207,9 +12283,8 @@
           "activities": 15
         },
         "questions": {
-          "total": 4,
+          "total": 3,
           "byKind": {
-            "confirm_value": 1,
             "elective_candidate": 3
           }
         },
@@ -12247,7 +12322,7 @@
               "total": 90
             },
             "weekly": {
-              "ok": 8,
+              "ok": 0,
               "total": 9
             }
           },
@@ -12273,7 +12348,7 @@
               "total": 45
             },
             "Swim": {
-              "ok": 8,
+              "ok": 0,
               "total": 9
             }
           },
@@ -12284,7 +12359,12 @@
             "Museum Trip | Herons 2 | Thursday | 13:20–14:05",
             "Museum Trip | Herons 3 | Thursday | 12:30–13:15",
             "Museum Trip | Herons 3 | Thursday | 13:20–14:05",
-            "Swim | Otters 1 | Wednesday | 09:20–10:05"
+            "Swim | Otters 1 | Wednesday | 09:20–10:05",
+            "Swim | Otters 2 | Wednesday | 09:20–10:05",
+            "Swim | Otters 3 | Wednesday | 09:20–10:05",
+            "Swim | Herons 1 | Wednesday | 09:20–10:05",
+            "Swim | Herons 2 | Wednesday | 09:20–10:05",
+            "Swim | Herons 3 | Wednesday | 09:20–10:05"
           ]
         },
         "activitiesVsManifest": {
@@ -12319,12 +12399,12 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 42,
+        "cpuMs": 22,
         "slots": 360,
-        "placed": 199,
+        "placed": 207,
         "unfillable": 0,
-        "stillNeeded": 25,
-        "underservedPairs": 21,
+        "stillNeeded": 18,
+        "underservedPairs": 16,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -12343,7 +12423,7 @@
               "total": 90
             },
             "weekly": {
-              "ok": 8,
+              "ok": 0,
               "total": 9
             }
           },
@@ -12369,18 +12449,23 @@
               "total": 45
             },
             "Swim": {
-              "ok": 8,
+              "ok": 0,
               "total": 9
             }
           },
           "firstMisses": [
-            "Museum Trip | Herons 1 | Thursday | 12:30–13:15 -> activity:storytelling",
+            "Museum Trip | Herons 1 | Thursday | 12:30–13:15 -> activity:trampoline",
             "Museum Trip | Herons 1 | Thursday | 13:20–14:05 -> activity:tie dye",
-            "Museum Trip | Herons 2 | Thursday | 12:30–13:15 -> activity:yoga",
-            "Museum Trip | Herons 2 | Thursday | 13:20–14:05 -> activity:museum trip",
-            "Museum Trip | Herons 3 | Thursday | 12:30–13:15 -> activity:museum trip",
-            "Museum Trip | Herons 3 | Thursday | 13:20–14:05 -> activity:trampoline",
-            "Swim | Otters 1 | Wednesday | 09:20–10:05 -> activity:tie dye"
+            "Museum Trip | Herons 2 | Thursday | 12:30–13:15 -> activity:woodworking",
+            "Museum Trip | Herons 2 | Thursday | 13:20–14:05 -> activity:yoga",
+            "Museum Trip | Herons 3 | Thursday | 12:30–13:15 -> activity:storytelling",
+            "Museum Trip | Herons 3 | Thursday | 13:20–14:05 -> activity:photography",
+            "Swim | Otters 1 | Wednesday | 09:20–10:05 -> activity:yoga",
+            "Swim | Otters 2 | Wednesday | 09:20–10:05 -> activity:trampoline",
+            "Swim | Otters 3 | Wednesday | 09:20–10:05 -> activity:cooking",
+            "Swim | Herons 1 | Wednesday | 09:20–10:05 -> activity:volleyball",
+            "Swim | Herons 2 | Wednesday | 09:20–10:05 -> activity:tie dye",
+            "Swim | Herons 3 | Wednesday | 09:20–10:05 -> activity:storytelling"
           ]
         },
         "spanRuns": [
@@ -12396,8 +12481,8 @@
           {
             "name": "Museum Trip",
             "expectedCells": 6,
-            "placedTotal": 6,
-            "placedAtExpectedCells": 2
+            "placedTotal": 5,
+            "placedAtExpectedCells": 0
           }
         ],
         "electiveCells": {
@@ -12428,7 +12513,7 @@
               "total": 90
             },
             "weekly": {
-              "ok": 9,
+              "ok": 0,
               "total": 9
             }
           },
@@ -12454,7 +12539,7 @@
               "total": 45
             },
             "Swim": {
-              "ok": 9,
+              "ok": 0,
               "total": 9
             }
           },
@@ -12464,7 +12549,13 @@
             "Museum Trip | Herons 2 | Thursday | 12:30–13:15 -> activity:museum trip",
             "Museum Trip | Herons 2 | Thursday | 13:20–14:05 -> activity:museum trip",
             "Museum Trip | Herons 3 | Thursday | 12:30–13:15 -> activity:museum trip",
-            "Museum Trip | Herons 3 | Thursday | 13:20–14:05 -> activity:museum trip"
+            "Museum Trip | Herons 3 | Thursday | 13:20–14:05 -> activity:museum trip",
+            "Swim | Otters 1 | Wednesday | 09:20–10:05 -> activity:swim",
+            "Swim | Otters 2 | Wednesday | 09:20–10:05 -> activity:swim",
+            "Swim | Otters 3 | Wednesday | 09:20–10:05 -> activity:swim",
+            "Swim | Herons 1 | Wednesday | 09:20–10:05 -> activity:swim",
+            "Swim | Herons 2 | Wednesday | 09:20–10:05 -> activity:swim",
+            "Swim | Herons 3 | Wednesday | 09:20–10:05 -> activity:swim"
           ]
         },
         "spans": [
@@ -12481,7 +12572,7 @@
           "activity:elective": 6
         }
       },
-      "runtimeMs": 1356
+      "runtimeMs": 1298
     },
     "s15-by-day-period-6day-nolunch": {
       "slug": "s15-by-day-period-6day-nolunch",
@@ -12490,7 +12581,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 202,
+          "cpuMs": 174,
           "held": false
         },
         "confirmAll": {
@@ -12693,9 +12784,9 @@
           "activities": 32
         },
         "questions": {
-          "total": 3,
+          "total": 2,
           "byKind": {
-            "confirm_value": 3
+            "confirm_value": 2
           }
         },
         "exclusivity": {
@@ -12705,13 +12796,11 @@
           "inTwoBuckets": [],
           "eventQuestions": [
             "fixed_events:Arrival",
-            "fixed_events:Dismissal",
-            "fixed_events:Snack"
+            "fixed_events:Dismissal"
           ],
           "eventOpenItems": [
             "fixed_events:Arrival",
-            "fixed_events:Dismissal",
-            "fixed_events:Snack"
+            "fixed_events:Dismissal"
           ],
           "ok": true
         },
@@ -12819,12 +12908,12 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 101,
+        "cpuMs": 111,
         "slots": 972,
         "placed": 468,
         "unfillable": 0,
-        "stillNeeded": 12,
-        "underservedPairs": 11,
+        "stillNeeded": 15,
+        "underservedPairs": 12,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -12866,18 +12955,18 @@
             }
           },
           "firstMisses": [
-            "Farm Trip | Moles 1 | Thursday | 08:30–09:00 -> activity:photography",
-            "Farm Trip | Moles 1 | Thursday | 09:10–09:55 -> activity:fishing",
-            "Farm Trip | Moles 2 | Thursday | 08:30–09:00 -> activity:yoga",
-            "Farm Trip | Moles 2 | Thursday | 09:10–09:55 -> activity:volleyball",
-            "Farm Trip | Moles 3 | Thursday | 08:30–09:00 -> activity:chess club",
-            "Farm Trip | Moles 3 | Thursday | 09:10–09:55 -> activity:garden",
-            "Farm Trip | Voles 1 | Thursday | 08:30–09:00 -> activity:swim test",
-            "Farm Trip | Voles 1 | Thursday | 09:10–09:55 -> activity:magic show",
-            "Farm Trip | Voles 2 | Thursday | 08:30–09:00 -> activity:basketball",
-            "Farm Trip | Voles 2 | Thursday | 09:10–09:55 -> activity:magic show",
-            "Farm Trip | Voles 3 | Thursday | 08:30–09:00 -> activity:puppetry",
-            "Farm Trip | Voles 3 | Thursday | 09:10–09:55 -> activity:gaga pit"
+            "Farm Trip | Moles 1 | Thursday | 08:30–09:00 -> activity:woodworking",
+            "Farm Trip | Moles 1 | Thursday | 09:10–09:55 -> activity:volleyball",
+            "Farm Trip | Moles 2 | Thursday | 08:30–09:00 -> activity:volleyball",
+            "Farm Trip | Moles 2 | Thursday | 09:10–09:55 -> activity:drumming",
+            "Farm Trip | Moles 3 | Thursday | 08:30–09:00 -> activity:music",
+            "Farm Trip | Moles 3 | Thursday | 09:10–09:55 -> activity:climbing wall",
+            "Farm Trip | Voles 1 | Thursday | 08:30–09:00 -> activity:cooking",
+            "Farm Trip | Voles 1 | Thursday | 09:10–09:55 -> activity:yoga",
+            "Farm Trip | Voles 2 | Thursday | 08:30–09:00 -> activity:kayaking",
+            "Farm Trip | Voles 2 | Thursday | 09:10–09:55 -> activity:nature walk",
+            "Farm Trip | Voles 3 | Thursday | 08:30–09:00 -> activity:drama",
+            "Farm Trip | Voles 3 | Thursday | 09:10–09:55 -> activity:yoga"
           ]
         },
         "spanRuns": [
@@ -12885,9 +12974,9 @@
             "name": "Wilderness Skills",
             "expected": 3,
             "activitySpanBlocks": null,
-            "placedGroupDays": 11,
+            "placedGroupDays": 9,
             "runs": {
-              "1": 11
+              "1": 9
             }
           },
           {
@@ -12902,7 +12991,7 @@
           {
             "name": "Farm Trip",
             "expectedCells": 12,
-            "placedTotal": 7,
+            "placedTotal": 6,
             "placedAtExpectedCells": 0
           }
         ],
@@ -13000,7 +13089,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 307,
+        "cpuMs": 318,
         "held": false,
         "counts": {
           "groups": 18,
@@ -13208,9 +13297,9 @@
           "activities": 32
         },
         "questions": {
-          "total": 3,
+          "total": 2,
           "byKind": {
-            "confirm_value": 3
+            "confirm_value": 2
           }
         },
         "exclusivity": {
@@ -13220,8 +13309,7 @@
           "inTwoBuckets": [],
           "eventQuestions": [
             "fixed_events:Arrival",
-            "fixed_events:Dismissal",
-            "fixed_events:Snack"
+            "fixed_events:Dismissal"
           ],
           "eventOpenItems": [],
           "ok": true
@@ -13334,7 +13422,7 @@
         "slots": 972,
         "placed": 468,
         "unfillable": 0,
-        "stillNeeded": 11,
+        "stillNeeded": 13,
         "underservedPairs": 11,
         "overlap": 0,
         "errorFindings": [],
@@ -13377,18 +13465,18 @@
             }
           },
           "firstMisses": [
-            "Farm Trip | Moles 1 | Thursday | 08:30–09:00 -> activity:fishing",
-            "Farm Trip | Moles 1 | Thursday | 09:10–09:55 -> activity:drama",
-            "Farm Trip | Moles 2 | Thursday | 08:30–09:00 -> activity:rocketry",
-            "Farm Trip | Moles 2 | Thursday | 09:10–09:55 -> activity:basketball",
-            "Farm Trip | Moles 3 | Thursday | 08:30–09:00 -> activity:hiking",
-            "Farm Trip | Moles 3 | Thursday | 09:10–09:55 -> activity:lanyard",
-            "Farm Trip | Voles 1 | Thursday | 08:30–09:00 -> activity:swim test",
-            "Farm Trip | Voles 1 | Thursday | 09:10–09:55 -> activity:hiking",
-            "Farm Trip | Voles 2 | Thursday | 08:30–09:00 -> activity:ceramics",
-            "Farm Trip | Voles 2 | Thursday | 09:10–09:55 -> activity:archery",
-            "Farm Trip | Voles 3 | Thursday | 08:30–09:00 -> activity:cooking",
-            "Farm Trip | Voles 3 | Thursday | 09:10–09:55 -> activity:volleyball"
+            "Farm Trip | Moles 1 | Thursday | 08:30–09:00 -> activity:orienteering",
+            "Farm Trip | Moles 1 | Thursday | 09:10–09:55 -> activity:nature walk",
+            "Farm Trip | Moles 2 | Thursday | 08:30–09:00 -> activity:drama",
+            "Farm Trip | Moles 2 | Thursday | 09:10–09:55 -> activity:farm trip",
+            "Farm Trip | Moles 3 | Thursday | 08:30–09:00 -> activity:chess club",
+            "Farm Trip | Moles 3 | Thursday | 09:10–09:55 -> activity:drumming",
+            "Farm Trip | Voles 1 | Thursday | 08:30–09:00 -> activity:bocce",
+            "Farm Trip | Voles 1 | Thursday | 09:10–09:55 -> activity:woodworking",
+            "Farm Trip | Voles 2 | Thursday | 08:30–09:00 -> activity:volleyball",
+            "Farm Trip | Voles 2 | Thursday | 09:10–09:55 -> activity:swim test",
+            "Farm Trip | Voles 3 | Thursday | 08:30–09:00 -> activity:yoga",
+            "Farm Trip | Voles 3 | Thursday | 09:10–09:55 -> activity:free swim"
           ]
         },
         "spanRuns": [
@@ -13396,9 +13484,9 @@
             "name": "Wilderness Skills",
             "expected": 3,
             "activitySpanBlocks": null,
-            "placedGroupDays": 12,
+            "placedGroupDays": 10,
             "runs": {
-              "1": 12
+              "1": 10
             }
           },
           {
@@ -13414,7 +13502,7 @@
             "name": "Farm Trip",
             "expectedCells": 12,
             "placedTotal": 7,
-            "placedAtExpectedCells": 0
+            "placedAtExpectedCells": 1
           }
         ],
         "electiveCells": {
@@ -13504,7 +13592,7 @@
           "fixed_event:electives": 18
         }
       },
-      "runtimeMs": 2547
+      "runtimeMs": 2301
     }
   }
 }
