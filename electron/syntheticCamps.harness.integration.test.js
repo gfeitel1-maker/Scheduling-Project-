@@ -7,7 +7,7 @@
 //   buildReconciliationReport -> foldTriageInputs -> commitIngest -> real SQLite ->
 //   buildSchedule (Generate) + capturePlacements/materializeImportedVersion (Manual from import)
 //
-// FINDINGS ONLY. This file asserts hard invariants (a crash, the T266 exclusivity invariant, a Keep
+// This file asserts hard invariants (a crash, the fill-again invariants below, the T266 exclusivity invariant, a Keep
 // re-import that writes, a Generate error finding) and RECORDS every quality metric without asserting it.
 // A hard invariant that fails today is listed in KNOWN_FAILING and runs under it.fails, so CI stays green
 // while the finding stays visible; the entry must be deleted the day the product is fixed (it.fails then
@@ -16,6 +16,11 @@
 // Glue (importUnanswered) mirrors electron/importDirectorPath.integration.test.js plus the division and
 // co-schedule inference ImportScreen runs before commit. Nothing here reimplements product logic: scope
 // resolution, overlap and span behaviour are read from the product modules.
+//
+// Scope limit: the glue is a hand-written copy of ImportScreen's plan assembly, so a green run says nothing
+// about ImportScreen branches it does not copy: an accepted trip's rule recompute (partlyClaimed), the
+// director's hand edits in the rule editor, and the trip review itself (a fresh camp has no week, so
+// planTripEvents offers nothing; see WHOLE_DAY_FOR_SOME).
 //
 // SYNTHETIC_ONLY=s05 runs one camp (debugging aid; the scorecard then holds only that camp).
 // Scorecard: written ONLY when asked. SHORESH_WRITE_SCORECARD=1 writes the tracked
@@ -52,6 +57,7 @@ import { resolvePriorityForGeneration } from '../src/ingest/resolvePriorityForGe
 import { resolveFixedEventGroupIds, resolveFixedEventDayIds } from '../src/engine/fixedEventScope.js'
 import { computeOverlaps } from '../src/utils/computeOverlaps.js'
 import buildSchedule from '../src/engine/buildSchedule.js'
+import { isActivityEligibleForGroup } from '../src/engine/eligibility.js'
 
 const DIR = path.join(process.cwd(), 'docs/work/specs/samples/synthetic')
 const MANIFEST = JSON.parse(fs.readFileSync(path.join(DIR, 'manifest.json'), 'utf8'))
@@ -67,11 +73,20 @@ const userId = 'u1'
 const COUNTED_TABLES = ['groups', 'tiers', 'days_of_operation', 'time_blocks', 'activities', 'locations', 'fixed_events', 'elective_sets']
 
 // `<slug>:<invariant>` entries that fail today and are tracked as findings in the scorecard; each runs under
-// it.fails and must be removed the day its product bug is fixed. Empty since F1 (same name/day/block, two
-// group scopes) was fixed in electron/ops/ingest.js.
+// it.fails and must be removed the day its product bug is fixed.
 const MEAL_ZERO = 'zero answers: every group gets its meal on every day and block the file prints it'
 const MEAL_ALL = 'confirm all: every group gets its meal on every day and block the file prints it'
-const KNOWN_FAILING = new Set()
+// Owner: "imagine that a camp imports a schedule - all things have been filled in. it would be
+// reasonable to assume that when we generate it should be again."
+const FAITHFUL_ZERO = 'zero answers: every inferred rule admits the file it was read from'
+const FAITHFUL_ALL = 'confirm all: every inferred rule admits the file it was read from'
+const FILLS_ZERO = 'zero answers: Generate fills the week again (nothing short, no empty cell)'
+const FILLS_ALL = 'confirm all: Generate fills the week again (nothing short, no empty cell)'
+// A whole-day item for SOME groups (a trip, a Games Day) is read as an event only when the camp has a
+// schedule week to bind it to (src/ingest/tripEvents.js planTripEvents), and a camp's first import has
+// none: the name becomes a day-long span activity that the inferred daily fixed events leave no room for.
+const WHOLE_DAY_FOR_SOME = [`s04-by-day-6day-large:${FILLS_ZERO}`, `s04-by-day-6day-large:${FILLS_ALL}`]
+const KNOWN_FAILING = new Set(WHOLE_DAY_FOR_SOME)
 
 const results = {}
 const startedAt = Date.now()
@@ -139,6 +154,7 @@ function importFile(d, id, text, { answerFor = () => null, mode = 'add' } = {}) 
       priority: rule.priority,
       ...(rule.span_blocks ? { span_blocks: rule.span_blocks } : {}),
       co_schedule: coSchedule.get(name),
+      ...(rule.min_from_file ? { min_from_file: true } : {}),
     }
   }
   const baseInputs = {
@@ -390,6 +406,64 @@ function slotContent(input, activitiesById, feById, setById, slot) {
   return { type: slot.type, name: null }
 }
 
+// Owner: "imagine that a camp imports a schedule - all things have been filled in. it would be
+// reasonable to assume that when we generate it should be again." Last year's file is a feasible
+// schedule, so every rule inferred from it must admit it: per group per week, the file's session
+// count (a printed span counts once per run) sits within [min_per_week, max_per_week], and a group
+// the file shows doing the activity is eligible for it. Any violation is an inference bug.
+function evaluateFaithful(m, d, id, imp) {
+  const input = scheduleInput(d, id)
+  const lk = lookups(d, id)
+  const order = new Map(input.timeBlocks.map((b, i) => [b.id, i]))
+  const kind = new Map()
+  for (const e of m?.events ?? []) kind.set(normalizeName(e.name), e.kind)
+  for (const e of m?.electives ?? []) kind.set(normalizeName(e.name), 'elective')
+  const cells = new Map() // activity|group -> Map(day -> [block index])
+  for (const p of imp.placements) {
+    const k = `${normalizeName(p.activityName)}|${normalizeName(p.groupName)}`
+    if (!cells.has(k)) cells.set(k, new Map())
+    const byDay = cells.get(k)
+    const day = normalizeName(p.dayName)
+    if (!byDay.has(day)) byDay.set(day, [])
+    byDay.get(day).push(order.get(lk.block.get(blockKey(p.blockLabel))) ?? -1)
+  }
+  const sessions = (k, span) => {
+    let n = 0
+    for (const idx of cells.get(k)?.values() ?? []) {
+      if (span <= 1) { n += idx.length; continue }
+      const sorted = [...idx].sort((a, b) => a - b)
+      for (let i = 0; i < sorted.length; i++) if (i === 0 || sorted[i] !== sorted[i - 1] + 1) n++
+    }
+    return n
+  }
+  const violations = []
+  let checked = 0
+  let fileSessions = 0
+  for (const act of input.activities) {
+    // Every catalogue activity, a min-0 one included: eligibility and max still have to admit the file.
+    if (act.catalog_role === 'pinned_event') continue
+    for (const g of input.groups) {
+      const n = sessions(`${normalizeName(act.name)}|${normalizeName(g.name)}`, act.span_blocks ?? 1)
+      const eligible = isActivityEligibleForGroup(act, g)
+      checked++
+      fileSessions += n
+      const why = n > 0 && !eligible ? 'ineligible' : eligible && n < (act.min_per_week ?? 0) ? 'belowMin' : act.max_per_week != null && n > act.max_per_week ? 'aboveMax' : null
+      if (why) violations.push({ why, activity: act.name, group: g.name, file: n, min: act.min_per_week, max: act.max_per_week ?? null, eventKind: kind.get(normalizeName(act.name)) ?? null })
+    }
+  }
+  // The week must also hold every minimum at once: per group, the cells the file gives activities
+  // must cover the sum of the minimums (span blocks included).
+  const actByName = new Map(input.activities.filter((a) => a.catalog_role !== 'pinned_event').map((a) => [normalizeName(a.name), a]))
+  for (const g of input.groups) {
+    const cellsUsed = new Set(imp.placements.filter((p) => normalizeName(p.groupName) === normalizeName(g.name) && actByName.has(normalizeName(p.activityName))).map((p) => `${normalizeName(p.dayName)}|${blockKey(p.blockLabel)}`))
+    const need = input.activities.filter((a) => a.catalog_role !== 'pinned_event' && a.min_per_week && isActivityEligibleForGroup(a, g)).reduce((n, a) => n + a.min_per_week * (a.span_blocks ?? 1), 0)
+    if (need > cellsUsed.size) violations.push({ why: 'overCapacity', group: g.name, file: cellsUsed.size, min: need })
+  }
+  const byWhy = {}
+  for (const v of violations) byWhy[v.why] = (byWhy[v.why] ?? 0) + 1
+  return { checked, fileSessions, count: violations.length, byWhy, first: violations.slice(0, 20) }
+}
+
 function evaluateGenerate(m, d, id, imp = null) {
   const input = scheduleInput(d, id)
   const lk = lookups(d, id)
@@ -501,6 +575,7 @@ function evaluateGenerate(m, d, id, imp = null) {
     slots: slots.length,
     placed: activitySlots.filter((s) => s.activityId).length,
     unfillable: activitySlots.filter((s) => s.flags?.UNFILLABLE).length,
+    unfillableCells: activitySlots.filter((s) => s.flags?.UNFILLABLE).slice(0, 12).map((s) => `${groupNameById.get(s.groupId)} | ${input.days.find((x) => x.id === s.dayId)?.label} | ${input.timeBlocks.find((x) => x.id === s.blockId)?.name}: ${s.flags?.UNFILLABLE_reason ?? ''}`),
     stillNeeded: underserved.reduce((sum, f) => sum + Math.max(0, (f.needed ?? 0) - (f.got ?? 0)), 0),
     underservedPairs: underserved.length,
     overlap: overlap.ok ? overlap.value.size : `error: ${overlap.error}`,
@@ -604,6 +679,7 @@ async function runCamp(m) {
   rec.stages.zeroAnswers = z.ok ? { ok: true, cpuMs: Math.round((process.cpuUsage(t0).user + process.cpuUsage(t0).system) / 1000), held: z.value.committed.held } : { ok: false, error: z.error }
   if (z.ok) {
     rec.zeroAnswers = evaluateImport(m, zero.d, zero.id, z.value)
+    rec.faithful = evaluateFaithful(m, zero.d, zero.id, z.value)
     rec.generate = evaluateGenerate(m, zero.d, zero.id, z.value)
     rec.manual = await evaluateManual(m, zero.d, zero.id, z.value).catch((e) => ({ error: String(e?.message ?? e).slice(0, 300) }))
     rec.specialDayFiles = await evaluateSpecialDayFiles(m, zero.d, zero.id).catch((e) => [{ error: String(e?.message ?? e).slice(0, 300) }])
@@ -626,6 +702,7 @@ async function runCamp(m) {
   rec.stages.confirmAll = a.ok ? { ok: true, held: a.value.committed.held } : { ok: false, error: a.error }
   if (a.ok) {
     rec.confirmAll = evaluateImport(m, all.d, all.id, a.value)
+    rec.confirmAllFaithful = evaluateFaithful(m, all.d, all.id, a.value)
     rec.confirmAllGenerate = evaluateGenerate(m, all.d, all.id, a.value)
     rec.confirmAllManual = await evaluateManual(m, all.d, all.id, a.value).catch((e) => ({ error: String(e?.message ?? e).slice(0, 300) }))
   }
@@ -670,6 +747,59 @@ describe.skipIf(!process.env.SYNTHETIC_REPRO)('repro', () => {
 })
 
 // A normal test run (CI, the gate, a developer's vitest) must not rewrite tracked evidence.
+const fillsAgain = (g) => ({ stillNeeded: g?.stillNeeded ?? null, unfillable: g?.unfillable ?? null, ...(g?.error ? { error: g.error } : {}) })
+
+// The owner's real camp file and the variants built from it (docs/work/specs/samples/synthetic/campb-variants.mjs):
+// filled weeks, so the fill-again invariants apply to them exactly as to the synthetic corpus.
+const VARIANT_DIR = path.join(DIR, 'campb-variants')
+const REAL_SAMPLES = [
+  { slug: 'campB', file: path.join(process.cwd(), 'docs/work/specs/samples/campB-by-day.txt') },
+  ...fs.readdirSync(VARIANT_DIR).filter((f) => f.endsWith('.txt')).sort().map((f) => ({ slug: f.replace(/\.txt$/, ''), file: path.join(VARIANT_DIR, f) })),
+]
+const realResults = {}
+
+describe('the owner\'s camp and its variants fill again', () => {
+  it('has campB and seven variants', () => { expect(REAL_SAMPLES).toHaveLength(8) })
+
+  describe.each(REAL_SAMPLES.filter((c) => !process.env.SYNTHETIC_ONLY || c.slug.startsWith(process.env.SYNTHETIC_ONLY)))('$slug', ({ slug, file }) => {
+    const rec = {}
+    const m = { slug, events: [], electives: [], spans: [] }
+    beforeAll(() => {
+      const text = fs.readFileSync(file, 'utf8')
+      for (const [key, answerFor] of [['zero', undefined], ['all', CONFIRM_ALL]]) {
+        const { d, id } = seedCamp(`${slug}:${key}`)
+        const imp = importFile(d, id, text, answerFor ? { answerFor } : {})
+        rec[key] = { faithful: evaluateFaithful(m, d, id, imp), generate: evaluateGenerate(m, d, id, imp) }
+        d.close()
+      }
+      realResults[slug] = rec
+    }, 900_000)
+    const hard = (name, check) => (KNOWN_FAILING.has(`${slug}:${name}`) ? it.fails : it)(name, () => check(rec))
+    hard(FAITHFUL_ZERO, (r) => { expect(r.zero.faithful.first).toEqual([]) })
+    hard(FAITHFUL_ALL, (r) => { expect(r.all.faithful.first).toEqual([]) })
+    hard(FILLS_ZERO, (r) => { expect(fillsAgain(r.zero.generate)).toEqual({ stillNeeded: 0, unfillable: 0 }) })
+    hard(FILLS_ALL, (r) => { expect(fillsAgain(r.all.generate)).toEqual({ stillNeeded: 0, unfillable: 0 }) })
+  })
+
+  // Non-vacuity: the faithfulness check must see a rule the file breaks. Raise one activity's minimum
+  // above what any group got and it reports belowMin; leave it and it reports nothing.
+  it('the faithfulness check reports a rule the file breaks', () => {
+    const { d, id } = seedCamp('campB:plant')
+    const imp = importFile(d, id, fs.readFileSync(REAL_SAMPLES[0].file, 'utf8'))
+    const m = { events: [], electives: [], spans: [] }
+    expect(evaluateFaithful(m, d, id, imp).first).toEqual([])
+    d.prepare("UPDATE activities SET min_per_week = 9, max_per_week = 9 WHERE camp_id = ? AND name = 'Music'").run(id)
+    expect(evaluateFaithful(m, d, id, imp).byWhy.belowMin).toBeGreaterThan(0)
+    // A max below what a group got, and an eligibility that leaves out a group the file shows.
+    d.prepare("UPDATE activities SET min_per_week = 1, max_per_week = 1 WHERE camp_id = ? AND name = 'Music'").run(id)
+    expect(evaluateFaithful(m, d, id, imp).byWhy.aboveMax).toBeGreaterThan(0)
+    const oneGroup = d.prepare('SELECT id FROM groups WHERE camp_id = ? LIMIT 1').get(id).id
+    d.prepare("UPDATE activities SET max_per_week = 9, eligible_group_ids = ? WHERE camp_id = ? AND name = 'Music'").run(JSON.stringify([oneGroup]), id)
+    expect(evaluateFaithful(m, d, id, imp).byWhy.ineligible).toBeGreaterThan(0)
+    d.close()
+  })
+})
+
 describe('scorecard write gate', () => {
   // Standing guard for the deterministic seeds: the same camp run twice gives the same metrics
   // (timings excluded). Random camp or cohort ids made identical runs differ before.
@@ -697,7 +827,11 @@ describe('synthetic corpus: 15 fictional camps through the real pipeline', () =>
   afterAll(() => {
     cleanupTemplatedDbs()
     if (!SCORECARD_PATH) return
-    const scorecard = { generatedAt: new Date().toISOString(), runtimeMs: Date.now() - startedAt, node: process.version, camps: results }
+    const real = Object.fromEntries(Object.entries(realResults).map(([slug, r]) => [slug, Object.fromEntries(Object.entries(r).map(([k, v]) => [k, {
+      faithful: { checked: v.faithful.checked, violations: v.faithful.byWhy, first: v.faithful.first.slice(0, 8) },
+      generate: { stillNeeded: v.generate.stillNeeded, unfillable: v.generate.unfillable, short: v.generate.underservedDetail?.map((u) => `${u.activity} / ${u.group}`) ?? [] },
+    }]))]))
+    const scorecard = { generatedAt: new Date().toISOString(), runtimeMs: Date.now() - startedAt, node: process.version, camps: results, ownerCampAndVariants: real }
     fs.mkdirSync(path.dirname(SCORECARD_PATH), { recursive: true })
     fs.writeFileSync(SCORECARD_PATH, JSON.stringify(scorecard, null, 2) + '\n')
   })
@@ -741,6 +875,10 @@ describe('synthetic corpus: 15 fictional camps through the real pipeline', () =>
       expect(r.confirmAllGenerate.error).toBeUndefined()
       expect(r.confirmAllGenerate.errorFindings).toEqual([])
     })
+    hard(FAITHFUL_ZERO, (r) => { expect(r.faithful?.first).toEqual([]) })
+    hard(FAITHFUL_ALL, (r) => { expect(r.confirmAllFaithful?.first).toEqual([]) })
+    hard(FILLS_ZERO, (r) => { expect(fillsAgain(r.generate)).toEqual({ stillNeeded: 0, unfillable: 0 }) })
+    hard(FILLS_ALL, (r) => { expect(fillsAgain(r.confirmAllGenerate)).toEqual({ stillNeeded: 0, unfillable: 0 }) })
     hard('re-import with Keep writes zero new records', (r) => {
       expect(r.reimportKeep).toEqual({ ok: true, newRecords: {} })
     })

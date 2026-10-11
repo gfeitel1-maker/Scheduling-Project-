@@ -795,6 +795,8 @@ export function buildPlan(source, existing = null, resolutions = []) {
               co_schedule: activityRules?.[name]?.co_schedule,
               // F5: a file-read multi-block span, same side-channel as co_schedule.
               span_blocks: activityRules?.[name]?.span_blocks,
+              // A 0 weekly minimum the file showed, which the commit keeps rather than flooring.
+              min_from_file: activityRules?.[name]?.min_from_file,
             }
           } else {
             item._rule = activityRules?.[name]

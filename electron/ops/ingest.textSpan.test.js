@@ -48,3 +48,21 @@ describe('text-grid span reaches activities.span_blocks', () => {
     expect(activity('Hike').span_blocks).toBeNull()
   })
 })
+
+describe('a weekly minimum of 0 the file itself shows is kept', () => {
+  it('writes 0 for an observed split-cell-only activity, and still floors an unobserved one to 1', () => {
+    commit({
+      Volleyball: { eligible_group_names: ['Group 1'], min_per_week: 0, max_per_week: 3, min_from_file: true },
+      Kayak: { eligible_group_names: ['Group 1'], min_per_week: 0, max_per_week: 3 },
+    })
+    expect(activity('Volleyball').min_per_week).toBe(0)
+    expect(activity('Kayak').min_per_week).toBe(1)
+  })
+})
+
+describe('a file-shown 0 is not an obligation', () => {
+  it('gives a min-0 activity no obligation truth status', () => {
+    commit({ Volleyball: { eligible_group_names: ['Group 1'], min_per_week: 0, max_per_week: 3, min_from_file: true } })
+    expect(activity('Volleyball').recurrence_truth_status).not.toBe('obligation')
+  })
+})

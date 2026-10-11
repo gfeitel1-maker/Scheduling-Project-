@@ -1423,7 +1423,9 @@ export const mockShoresh = {
           if (groupIds.length > 0) fields.eligible_group_ids = JSON.stringify(groupIds)
           // T61 — an eligible activity runs at least once a week or the engine
           // places it zero times. Floored on both paths, matching commitCreate.
-          if (groupIds.length > 0 && !(Number.isInteger(fields.min_per_week) && fields.min_per_week >= 1)) fields.min_per_week = 1
+          // Except a 0 the file itself showed (min_from_file), as commitCreate keeps it.
+          if (rule.min_per_week === 0 && rule.min_from_file === true) fields.min_per_week = 0
+          else if (groupIds.length > 0 && !(Number.isInteger(fields.min_per_week) && fields.min_per_week >= 1)) fields.min_per_week = 1
           // M4 §D1c mirror, corrected.
           if (rule.location != null && rule.location !== '') {
             const locationId = resolveApprovedLocationId(rule.location)

@@ -1655,7 +1655,11 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         if (groupIds.length > 0) fields.eligible_group_ids = JSON.stringify(groupIds)
         // T61. An eligible activity asked for zero times a week is scheduled
         // zero times — correct and silently useless. Floored on both paths.
-        if (groupIds.length > 0 && !(Number.isInteger(fields.min_per_week) && fields.min_per_week >= 1)) {
+        // Except a 0 the file itself shows: a group that only ever got the activity as part of a
+        // split cell ("Volleyball - Yoga") had no whole weekly session, so none is required.
+        const fileShowsZero = rule.min_per_week === 0 && rule.min_from_file === true
+        if (fileShowsZero) fields.min_per_week = 0
+        else if (groupIds.length > 0 && !(Number.isInteger(fields.min_per_week) && fields.min_per_week >= 1)) {
           fields.min_per_week = 1
           minPerWeekUnknown = true
         }

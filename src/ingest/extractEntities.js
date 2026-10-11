@@ -625,7 +625,8 @@ export function extractEntities(parsed, compoundCellDecisions, confirmedNameMerg
             activityPages.get(key).add(cellKey)
             if (!activityGroupCounts.has(key)) activityGroupCounts.set(key, new Map())
             const perGroup = activityGroupCounts.get(key)
-            perGroup.set(cellKey, (perGroup.get(cellKey) ?? 0) + 1)
+            // A split cell ("Volleyball - Yoga") is one period shared, so each name is a share of a session.
+            perGroup.set(cellKey, (perGroup.get(cellKey) ?? 0) + 1 / names.length)
           }
           // Flag, don't drop (opposite of NON_GROUP_HEADERS): the value still
           // becomes a normal activity candidate above; this ADDITIONALLY
