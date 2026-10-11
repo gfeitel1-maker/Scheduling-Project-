@@ -53,6 +53,13 @@ function splitFixedEvents(fixedEvents, groups, placedDayId, operatingDayIds) {
   return { carry, offered, varies: live.some((ev) => !carriedRows.has(ev)) }
 }
 
+// Whether a camp's fixed events differ by weekday for some group, which is when an unplaced
+// special day cannot carry them and the editor says to place the day. Same rule as the copy.
+export function campEventsVaryByWeekday({ fixedEvents, groups, operatingDayIds }) {
+  const parsed = (fixedEvents || []).map((ev) => ({ ...ev, group_ids: parseIdList(ev.group_ids), unit_ids: parseIdList(ev.unit_ids) }))
+  return splitFixedEvents(parsed, groups || [], null, operatingDayIds || []).varies
+}
+
 // Cells (one per group x spanned block) an event fills, in the special day's
 // own block ids. Resolves scope through the engine's resolveFixedEventGroupIds.
 function cellsFor(events, groups, campBlocks, blockIdMap) {
@@ -105,7 +112,7 @@ async function writeCell(specialDayId, cell, existing) {
 // Re-lists the day's slots every call, so a cell the director filled by hand (or an
 // earlier Bring filled) is never written twice. A cell is marked taken only after its
 // write succeeds. Returns the cells written, the events that failed, and the cells kept.
-async function placeCells(specialDayId, cells) {
+async function placeCells(specialDayId, cells, onCell = () => {}) {
   const [slotRows, activityRows] = await Promise.all([localClient.list('special_day_slots'), localClient.list('activities')])
   const activityName = new Map((activityRows || []).map((a) => [a.id, a.name]))
   // Filling an existing empty row in place below assumes there is no director "empty this cell"
@@ -129,6 +136,7 @@ async function placeCells(specialDayId, cells) {
       const id = await writeCell(specialDayId, c, row)
       slots.set(key, { id, activity_id: c.activityId })
       written += 1
+      onCell()
     } catch (err) {
       console.error('special day copy: could not place a fixed event cell', err)
       failed.add(c.eventName)
@@ -200,7 +208,7 @@ export async function offerForPlacedDay({ campId, specialDayId }) {
 //  - notice: cells kept as they were, or why no offer is made.
 //  - offer: null or { count, dayLabel, specialDayId, apply } where apply() places the
 //    offered recurring events and returns { written, failure, notice }.
-export async function copyCampTimeBlocks({ campId, specialDayId }) {
+export async function copyCampTimeBlocks({ campId, specialDayId, onProgress = () => {} }) {
   let seededCount = 0
   let totalCount = 0
   try {
@@ -219,6 +227,7 @@ export async function copyCampTimeBlocks({ campId, specialDayId }) {
       if (b.start_time) await writeField('special_day_time_blocks', newId, 'start_time', b.start_time)
       if (b.end_time) await writeField('special_day_time_blocks', newId, 'end_time', b.end_time)
       seededCount += 1
+      onProgress({ phase: 'blocks', done: seededCount, total: totalCount })
     }
 
     const [events, groupRows, days, placements] = await Promise.all([
@@ -240,7 +249,13 @@ export async function copyCampTimeBlocks({ campId, specialDayId }) {
     const placedDayId = placedDayIds.length === 1 ? placedDayIds[0] : null
     const { carry, offered, varies } = splitFixedEvents(fixedEvents, groups, placedDayId, (days || []).filter((d) => d.camp_id === campId).map((d) => d.id))
 
-    const placedCarry = await placeCells(specialDayId, cellsFor(carry, groups, scoped, blockIdMap))
+    const carryCells = cellsFor(carry, groups, scoped, blockIdMap)
+    let cellsDone = 0
+    onProgress({ phase: 'cells', done: 0, total: carryCells.length })
+    const placedCarry = await placeCells(specialDayId, carryCells, () => {
+      cellsDone += 1
+      onProgress({ phase: 'cells', done: cellsDone, total: carryCells.length })
+    })
     const notices = [...placedCarry.skipped]
     if (multiDay) {
       notices.push(`This special day is on ${placedDayIds.map(dayLabel).join(' and ')}, so recurring events aren't offered. Add them by hand.`)
