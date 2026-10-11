@@ -159,6 +159,15 @@ describe('ImportScreen — residual report (T36)', () => {
     expect(screen.getByText(/Review \d+ record/)).toBeTruthy()
   })
 
+  it('T366: names a short row skipped as a change-over by text, time and groups', async () => {
+    extractEntities.mockReturnValueOnce({
+      ...baseProposal,
+      skippedShortRows: [{ label: '08:50-09:00', text: 'Flag Raising', groups: ['Badger 1', 'Badger 2'] }],
+    })
+    await uploadFile()
+    expect(screen.getByText(textNode(/Flag Raising.*08:50-09:00.*Badger 1, Badger 2.*skipped/))).toBeTruthy()
+  })
+
   it('renders no residual section when nothing was left unmatched', async () => {
     extractEntities.mockReturnValueOnce({ ...baseProposal, residual: { cells: [] } })
     await uploadFile()

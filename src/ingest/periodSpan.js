@@ -30,6 +30,16 @@ export const CHANGE_OVER_MAX_MINUTES = 10
 
 const RANGE = /(\d{1,2}[:.]\d{2}(?:\s*[ap]\.?m\.?)?)\s*[-–—]\s*(\d{1,2}[:.]\d{2}(?:\s*[ap]\.?m\.?)?)/i
 
+export function isShortLabel(label) {
+  const match = String(label ?? '').match(RANGE)
+  if (!match) return false
+  const start = startMinutesForOrdering(match[1])
+  const end = startMinutesForOrdering(match[2])
+  if (start === null || end === null) return false
+  const span = end - start
+  return span > 0 && span <= CHANGE_OVER_MAX_MINUTES
+}
+
 /**
  * True when a label describes a gap between periods rather than a period.
  *
@@ -37,19 +47,43 @@ const RANGE = /(\d{1,2}[:.]\d{2}(?:\s*[ap]\.?m\.?)?)\s*[-–—]\s*(\d{1,2}[:.]\
  * something is is not evidence that it is short, and dropping a period on a
  * failed parse would lose real programme.
  */
-export function isChangeOverSpan(label, cells = []) {
-  const match = String(label ?? '').match(RANGE)
-  if (!match) return false
+export function isChangeOverSpan(label, cells = [], knownEventTexts = null) {
+  if (!isShortLabel(label)) return false
+  if (rowCarriesContent(cells)) return false
+  // T366: a sparse row whose text is an event the file prints elsewhere is that event's block.
+  // A few stray cells of an overflow sliver ("Lunch" bled into 3 of 31 groups) are not a block.
+  const matching = knownEventTexts ? cells.filter((c) => knownEventTexts.has(eventKey(c))).length : 0
+  return !(matching >= 2 && matching >= cells.length * SPARSE_KEEP)
+}
 
-  // Reuse the camp-day reading so an afternoon range measures correctly and a
-  // span crossing noon does not come out negative.
-  const start = startMinutesForOrdering(match[1])
-  const end = startMinutesForOrdering(match[2])
-  if (start === null || end === null) return false
+// "Flag Raising (all)" and "Flag raising!" are one event.
+function eventKey(text) {
+  return String(text ?? '').toLowerCase().replace(/\([^)]*\)/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim()
+}
 
-  const span = end - start
-  if (span <= 0) return false
-  return span <= CHANGE_OVER_MAX_MINUTES && !rowCarriesContent(cells)
+/**
+ * The texts that reach the usual agreement line in some row of the file: the
+ * file's own fixed events, keyed loosely enough to survive punctuation.
+ */
+export function agreedEventTexts(cells) {
+  if (cells.length === 0) return []
+  const tally = new Map()
+  for (const c of cells) {
+    const text = String(c ?? '').trim()
+    if (isBlankOrPassing(text)) continue
+    const key = eventKey(text)
+    if (key) tally.set(key, (tally.get(key) ?? 0) + 1)
+  }
+  return [...tally].filter(([, n]) => n >= cells.length * AGREEMENT).map(([key]) => key)
+}
+
+/** Cells of a dropped short row that carry real text, as { index, text }. */
+export function sparseRowTexts(cells) {
+  return cells.map((c, index) => ({ index, text: String(c ?? '').trim() })).filter((x) => !isBlankOrPassing(x.text))
+}
+
+function isBlankOrPassing(text) {
+  return text === '' || /^[-–—.\s]+$/.test(text) || PASSING_TIME.test(text)
 }
 
 // A short row is a period only when at least two thirds of its cells print the
@@ -60,13 +94,14 @@ export function isChangeOverSpan(label, cells = []) {
 // lone group's text is not an event.
 const PASSING_TIME = /^(change|changeover|change[\s-]over|transition|passing(\s+time)?)[\s.!:]*$/i
 const AGREEMENT = 2 / 3
+const SPARSE_KEEP = 1 / 3
 
 function rowCarriesContent(cells) {
   if (cells.length === 0) return false
   const tally = new Map()
   for (const c of cells) {
     const text = String(c ?? '').trim()
-    if (text === '' || /^[-–—.\s]+$/.test(text) || PASSING_TIME.test(text)) continue
+    if (isBlankOrPassing(text)) continue
     const key = text.toLowerCase()
     tally.set(key, (tally.get(key) ?? 0) + 1)
   }

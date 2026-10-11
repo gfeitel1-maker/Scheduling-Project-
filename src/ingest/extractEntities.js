@@ -28,7 +28,7 @@ import { whitespaceInsensitiveName as whitespaceInsensitiveKey } from './preview
 // commitPlan's create loop follows, so a location this same import proposes is
 import { orderTimeBlocks } from './orderTimeBlocks.js'
 import { dropRedundantEndpoints } from './dropRedundantEndpoints.js'
-import { isChangeOverSpan } from './periodSpan.js'
+import { isChangeOverSpan, isShortLabel, agreedEventTexts, sparseRowTexts } from './periodSpan.js'
 // already a live row (and in locationIdByName) by the time any activity's
 // location field resolves. Order is normative here, not just set membership —
 // ingest.test.js's set-equality check pairs with this array's own order.
@@ -476,6 +476,14 @@ export function extractEntities(parsed, compoundCellDecisions, confirmedNameMerg
   // fix, a tally of what the parser already decided not to use, honestly
   // captured (raw cleaned text, not a fabricated entity).
   const residualCellValues = []
+  // T366: short rows dropped as change-overs that still printed text. Keyed by
+  // label + text so a row repeated on every day page is reported once.
+  const skippedShortRowMap = new Map()
+  // Only events other SHORT rows agree on: a long period's event ("Lunch") bleeding into
+  // an overflow sliver must not turn the sliver into a block.
+  const knownEventTexts = new Set(
+    pages.flatMap((pg) => (pg.rows ?? []).filter((r) => isShortLabel(r.label)).flatMap((r) => agreedEventTexts(r.cells.map(stripTimes)))),
+  )
 
   for (const page of pages) {
     const title = cleanTitle(page.title)
@@ -571,8 +579,19 @@ export function extractEntities(parsed, compoundCellDecisions, confirmedNameMerg
       // time is a change-over rather than a period — the file names those
       // explicitly in other rows ("11:10-11:20 Change"), but the ones that
       // arrive unlabelled used to become schedulable blocks (T132).
-      if (row.label && /^\d{1,2}[:.]\d{2}/.test(row.label.trim()) && !isChangeOverSpan(row.label, row.cells.map(stripTimes))) {
-        timeBlocks.push(row.label.trim())
+      if (row.label && /^\d{1,2}[:.]\d{2}/.test(row.label.trim())) {
+        const stripped = row.cells.map(stripTimes)
+        if (!isChangeOverSpan(row.label, stripped, knownEventTexts)) {
+          timeBlocks.push(row.label.trim())
+        } else {
+          for (const { index, text } of sparseRowTexts(stripped)) {
+            const key = JSON.stringify([row.label.trim(), text])
+            if (!skippedShortRowMap.has(key)) skippedShortRowMap.set(key, { label: row.label.trim(), text, groups: [] })
+            const group = orientation.columns === 'days' ? title : String(page.columns[index] ?? '').trim()
+            const entry = skippedShortRowMap.get(key)
+            if (group && !entry.groups.includes(group)) entry.groups.push(group)
+          }
+        }
       }
       // Slice 3a header-label detector, period form: "Chugim"/"Bechirot" etc.
       // as the row's own label (the common shape — an elective PERIOD, not an
@@ -804,6 +823,7 @@ export function extractEntities(parsed, compoundCellDecisions, confirmedNameMerg
     // T36 — most-seen first, same convention tally() uses for activities, so a
     // repeated artifact ("Block 2" on every page) reads as one line with a
     // count rather than a wall of duplicates.
+    skippedShortRows: [...skippedShortRowMap.values()],
     residual: { cells: tally(residualCellValues).map((v) => ({ value: v.name, count: v.count })) },
   }
 }

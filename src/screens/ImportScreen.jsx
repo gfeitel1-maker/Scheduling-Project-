@@ -1960,7 +1960,8 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
 
           {(() => {
             const residualCells = proposal.residual?.cells ?? []
-            if (residualCells.length === 0 && residualSheets.length === 0 && strippedBanners.length === 0 && ambiguousLocations.length === 0 && declinedPages.length === 0) return null
+            const skippedShortRows = proposal.skippedShortRows ?? []
+            if (residualCells.length === 0 && skippedShortRows.length === 0 && residualSheets.length === 0 && strippedBanners.length === 0 && ambiguousLocations.length === 0 && declinedPages.length === 0) return null
             return (
               <div style={{
                 background: 'var(--surface)', border: '1px solid var(--border)',
@@ -2001,6 +2002,16 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
                         "{a.text}" was read as the place an activity happens, because it sits under
                         one. But it is also scheduled elsewhere as its own activity, so it may be a
                         second thing happening rather than a room. Check it on the list above.
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {skippedShortRows.length > 0 && (
+                  <ul style={{ margin: '0 0 8px', paddingLeft: 18 }}>
+                    {skippedShortRows.map((r) => (
+                      <li key={`${r.label}|${r.text}`}>
+                        "{r.text}" at {r.label} for {r.groups.join(', ')} was skipped as a short change-over.
+                        If it is a real event, add it under Fixed Events.
                       </li>
                     ))}
                   </ul>
