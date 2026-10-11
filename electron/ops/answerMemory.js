@@ -331,7 +331,7 @@ function patternRecall(decision, pat) {
   const answer = toUiAnswer(decision, pat.answer)
   if (!answer) return null
   return {
-    tier: 1, source: 'pattern', match: 'pattern', band: pat.band, template: pat.template, memoryId: pat.memoryId, answer,
+    tier: 1, source: 'pattern', match: 'pattern', band: pat.band, baselineOk: pat.baselineOk, template: pat.template, memoryId: pat.memoryId, answer,
     examples: pat.examples, why: pat.why, progress: pat.progress, agree: pat.agree, disagree: pat.disagree,
     autoApply: pat.autoApply, asRecorded: false,
   }

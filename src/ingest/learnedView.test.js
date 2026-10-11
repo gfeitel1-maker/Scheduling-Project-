@@ -5,6 +5,7 @@ import { describe, it, expect } from 'vitest'
 import {
   buildLearnedGroups, progressLine, patternFlag, formerAnswersSentence, matchesQuery, seedFromRecall,
   memoryStripText, suggestedReason, shortDate, NEVER_APPLY_LINE,
+  isSuggestion, NEAR_NOTED_TEXT, skippedNotice,
 } from './learnedView.js'
 
 const ans = (over = {}) => ({
@@ -186,5 +187,29 @@ describe('card labels', () => {
       .toBe('Similar to your answer on 12 Oct, but something is different. Check it still applies.')
     expect(suggestedReason({ source: 'pattern', band: 'established', why: 'W' }, { eligible: false }))
       .toBe('W Pre-selected, but you always confirm this kind.')
+  })
+})
+
+describe('review-card state helpers', () => {
+  it('a recall that is not seeded is a suggestion, until the director has answered it that way', () => {
+    const d = fixed('S', { ...patternHit, band: 'suggest', autoApply: false })
+    expect(isSuggestion(d, undefined)).toBe(true)
+    expect(isSuggestion(d, { action: 'looks_right' })).toBe(false)
+    expect(isSuggestion(fixed('E', exact), undefined)).toBe(false)
+  })
+  it('a capped pattern says why it did not apply, and an exact non-eligible recall says it still asks', () => {
+    expect(suggestedReason({ source: 'pattern', band: 'suggest', baselineOk: false, why: 'A.' }, { eligible: true }))
+      .toBe("A. Shoresh didn't apply this on its own because this is a different shape from your earlier answers.")
+    expect(suggestedReason({ source: 'instance', match: 'exact', answeredAt: '2026-10-12T10:00:00Z', answeredByName: 'Dana' }, {}))
+      .toBe("Same as Dana's answer on 12 Oct. Pre-selected, but you always confirm this kind.")
+  })
+  it('the evidence-only near label is fixed copy', () => {
+    expect(NEAR_NOTED_TEXT).toBe('Your newer answer is noted; tap Remember this to make it the remembered one')
+  })
+  it('skipped reasons: cap, unwritable, too_large and malformed are told in plain words; unchanged is silent', () => {
+    expect(skippedNotice([{ reason: 'unchanged' }, { reason: 'unanswered' }])).toBeNull()
+    expect(skippedNotice([{ reason: 'cap' }, { reason: 'cap' }, { reason: 'too_large' }, { reason: 'unchanged' }]))
+      .toBe('3 answers couldn’t be remembered: Shoresh’s memory for this camp is full; they were too large to store.')
+    expect(skippedNotice([{ reason: 'malformed' }])).toBe('1 answer couldn’t be remembered: they couldn’t be read.')
   })
 })
