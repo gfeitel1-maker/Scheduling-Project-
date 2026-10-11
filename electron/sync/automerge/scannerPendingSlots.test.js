@@ -54,17 +54,24 @@ function classifyingLimiter() {
   const real = makeConnectionRateLimiter({ pendingTtlMs: INBOUND_UPGRADE_TIMEOUT_MS })
   const byPort = new Map()
   const byKey = new Map()
+  // The limiter's own verdict per scanner local port: what the test asserts, rather than whether a
+  // socket happened to close (under CI load a socket can close for reasons unrelated to the limit).
+  const decisions = new Map()
   const state = { current: LAN_IP }
   const sourceOf = (key) => byKey.get(key) ?? state.current
   return {
     state,
+    decisions,
     assign: (port, ip) => byPort.set(String(port), ip),
     limiter: {
       isExempt: real.isExempt,
       allow(_ip, key) {
         const ip = byPort.get(key?.split('/')[1]) ?? state.current
         byKey.set(key, ip)
-        return real.allow(ip, key)
+        const allowed = real.allow(ip, key)
+        const port = key?.split('/')[1]
+        if (byPort.has(port)) decisions.set(port, allowed)
+        return allowed
       },
       upgraded: (_ip, key) => real.upgraded(sourceOf(key), key),
       release: () => {},
@@ -88,7 +95,7 @@ async function startTarget() {
 function scanner(port, ip, assign, localPort) {
   assign(localPort, ip)
   const s = net.connect({ port, host: '127.0.0.1', localAddress: '127.0.0.1', localPort })
-  const rec = { socket: s, closed: false }
+  const rec = { socket: s, closed: false, port: String(localPort) }
   s.on('error', () => {})
   s.on('close', () => { rec.closed = true })
   cleanups.push(async () => s.destroy())
@@ -141,11 +148,15 @@ describe('scanner vs the pre-Noise pending slots (real libp2p target, production
   it('many distinct public sources saturate only the PUBLIC sub-cap: one more public source past the sub-cap is refused, the LAN still gets in, and the slots free at the upgrade timeout', async () => {
     const t = await startTarget()
     const scanners = Array.from({ length: MAX_PUBLIC_PENDING_TOTAL }, (_, i) => scanner(t.port, publicIp(100 + i), t.assign, freePort()))
-    await sleep(500)
-    expect(scanners.filter((s) => s.closed)).toHaveLength(0) // every one holds a slot: nothing was limited yet
+    // Wait for the limiter to have decided every one (not a fixed sleep), then assert its verdicts:
+    // every one was admitted to a slot, nothing was limited yet.
+    await waitFor(() => scanners.every((s) => t.decisions.has(s.port)), { timeout: 10000 })
+    expect(scanners.filter((s) => t.decisions.get(s.port) !== true).map((s) => s.port)).toEqual([])
 
     const extra = scanner(t.port, publicIp(9000), t.assign, freePort())
-    await waitFor(() => extra.closed) // the public source past the sub-cap is refused
+    await waitFor(() => t.decisions.has(extra.port), { timeout: 10000 })
+    expect(t.decisions.get(extra.port)).toBe(false) // the public source past the sub-cap is refused by the limiter
+    await waitFor(() => extra.closed)
     expect(await legit(t.target, publicIp(9001), t.state)).toBe(false)
     expect(await legit(t.target, LAN_IP, t.state)).toBe(true) // LAN is not blocked by the scan
 
