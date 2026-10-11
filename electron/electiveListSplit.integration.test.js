@@ -61,7 +61,7 @@ describe('list cell import, parsed grid to commit', () => {
   it('writes one set with three potential choices and no activity named with slashes', () => {
     const { folded } = run()
     expect(folded.placements.filter((p) => p.electiveSetName)).toHaveLength(2)
-    expect(db.prepare('SELECT name FROM elective_sets').all()).toEqual([{ name: 'Electives' }])
+    expect(db.prepare('SELECT name FROM elective_sets').all()).toEqual([{ name: 'Electives (Fish, Hike, Kayak)' }])
     const rows = db.prepare("SELECT a.name, esa.status FROM elective_set_activities esa JOIN activities a ON a.id = esa.activity_id ORDER BY a.name").all()
     expect(rows.map((r) => r.name)).toEqual(['Fish', 'Hike', 'Kayak'])
     expect(rows.every((r) => r.status === 'potential')).toBe(true)

@@ -239,12 +239,12 @@ export function foldTriageInputs(baseInputs, decisions, answers) {
       // D3: a strict split stays split unless declined; an ambiguous cell is
       // one activity unless the director said it is a choice of several.
       if (d.evidence.detector === 'list_question' && answers[d.id]?.choice !== 'confirm') continue
-      listCells.push({ cell: d.entityName, choices, column: d.evidence.column || null })
+      listCells.push({ cell: d.entityName, choices })
       continue
     }
     confirmedElectiveSets.push({ name: d.entityName })
   }
-  const listSets = nameListSets(listCells, baseInputs.placements)
+  const listSets = nameListSets(listCells)
   confirmedElectiveSets.push(...listSets)
   const splitCellKeys = new Set(listSets.flatMap((set) => set.cellTexts.map(normalizeName)))
   const approvedWithoutSplits = splitCellKeys.size
@@ -296,26 +296,21 @@ export function foldTriageInputs(baseInputs, decisions, answers) {
   }
 }
 
-// D3: one set per distinct choice list. The set is named after the cell's
-// column header when the plan has one, else "Electives"; when one base name
-// would carry different lists each is suffixed with the day and block of its
-// first placement ("Electives (Tue 14:00)").
-function nameListSets(listCells, placements = []) {
+// D3: one set per distinct choice list, named after its own choices (sorted,
+// case-insensitive, deduplicated) so the name depends on the list and nothing
+// else: not the slot, not the order the file printed it.
+function nameListSets(listCells) {
   const byList = new Map()
-  for (const { cell, choices, column } of listCells) {
-    const listKey = choices.map(normalizeName).join('|')
-    if (!byList.has(listKey)) byList.set(listKey, { base: column || 'Electives', choices, cellTexts: [] })
-    byList.get(listKey).cellTexts.push(cell)
+  for (const { cell, choices } of listCells) {
+    const unique = []
+    const seen = new Set()
+    for (const c of choices) if (!seen.has(normalizeName(c))) { seen.add(normalizeName(c)); unique.push(c) }
+    const sorted = [...unique].sort((x, y) => normalizeName(x).localeCompare(normalizeName(y)))
+    const key = sorted.map(normalizeName).join('|')
+    if (!byList.has(key)) byList.set(key, { name: `Electives (${sorted.join(', ')})`, choices: unique, cellTexts: [] })
+    byList.get(key).cellTexts.push(cell)
   }
-  const lists = [...byList.values()]
-  const perBase = new Map()
-  for (const l of lists) perBase.set(normalizeName(l.base), (perBase.get(normalizeName(l.base)) ?? 0) + 1)
-  return lists.map((l) => {
-    if (perBase.get(normalizeName(l.base)) === 1) return { name: l.base, choices: l.choices, cellTexts: l.cellTexts }
-    const first = (placements ?? []).find((p) => l.cellTexts.some((c) => normalizeName(c) === normalizeName(p.activityName)))
-    const where = first ? `${String(first.dayName).slice(0, 3)} ${first.blockLabel}` : l.choices[0]
-    return { name: `${l.base} (${where})`, choices: l.choices, cellTexts: l.cellTexts }
-  })
+  return [...byList.values()]
 }
 
 // S1b's "Remember this" alias-confirmation, restored from ImportScreen's old
