@@ -281,7 +281,7 @@ describe('buildElectiveCandidates (Slice 3a content-shape detector)', () => {
     const candidates = buildElectiveCandidates(source, { activities: [] })
     expect(candidates).toHaveLength(1)
     expect(candidates[0]).toMatchObject({
-      detector: 'shape', band: 'inferred', sourceExcerpt: 'Arts/Crafts, Sports, Music',
+      detector: 'list_question', band: 'inferred', sourceExcerpt: 'Arts/Crafts, Sports, Music',
     })
   })
 
