@@ -2984,6 +2984,8 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     documentWaitMs,
     rejoin = false,
   } = {}) {
+    // A new join supersedes any earlier session: a token kept from it must never reach the node.
+    nodeAuthToken = null
     if (activeJoin) {
       const cancelled = await joinCancel()
       // T274 round 3 — a `stop_failed` here means the OLD temporary node is
@@ -3136,6 +3138,8 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // failed stop keeps the reference alive (retryable, never orphaned) instead
   // of being silently dropped.
   async function joinCancel() {
+    // An abandoned join must not leave its sign-in (or an older session's) for a later node start.
+    nodeAuthToken = null
     if (!activeJoin) return { status: 'idle' }
     const session = activeJoin
     try {
