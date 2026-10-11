@@ -553,6 +553,17 @@ describe('T264 — LOCKED_SEAT_OVERWRITTEN: one item, one-tap Restore', () => {
     expect(row.textContent).toMatch(/Testcamper Alpha's lock on Pottery was replaced when another device regenerated this run\./)
   })
 
+  it('says plainly the earlier choice is not known, and offers no Restore, when the lock\'s activity is lost', async () => {
+    localClient.getElectiveRun.mockResolvedValue({
+      ...CLEAN_RUN_STATE,
+      lockedSeatFindings: [{ ...overwritten, locked_activity_id: null, locked_activity_name: null, solver_activity_id: null, solver_activity_name: null }],
+    })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+    const row = await screen.findByTestId('run-state-locked-seat-a1')
+    expect(row.textContent).toMatch(/Testcamper Alpha's lock was replaced when another device regenerated this run\. Which activity it held is not known/)
+    expect(within(row).queryByTestId('run-state-locked-seat-restore-a1')).toBeNull()
+  })
+
   it('Restore writes the locked activity back, locked, through setElectiveAssignment, and the item clears on the re-read', async () => {
     localClient.getElectiveRun
       .mockResolvedValueOnce({ ...CLEAN_RUN_STATE, lockedSeatFindings: [overwritten] })

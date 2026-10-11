@@ -1000,9 +1000,9 @@ export default function DraftRunView({
           first={index === 0}
           last={index === stateRowCount - 1}
           message={lockedSeatOverwrittenMessage({
-            camperName, lockedActivityName: f.locked_activity_name, solverActivityName: f.solver_activity_name,
+            camperName, lockedActivityId: f.locked_activity_id, lockedActivityName: f.locked_activity_name, solverActivityName: f.solver_activity_name,
           })}
-          action={(
+          action={f.locked_activity_id === null ? undefined : (
             <button
               className="press-97"
               style={S.btnSecondary}

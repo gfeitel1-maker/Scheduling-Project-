@@ -115,7 +115,10 @@ export function danglingMessage({ camperName }) {
 // when the merge no longer says which one it was.
 const LOST_ACTIVITY_LABEL = 'an activity that is no longer listed'
 export const RESTORE_LOCK_LABEL = 'Restore lock'
-export function lockedSeatOverwrittenMessage({ camperName, lockedActivityName, solverActivityName }) {
+export function lockedSeatOverwrittenMessage({ camperName, lockedActivityId, lockedActivityName, solverActivityName }) {
+  if (lockedActivityId === null) {
+    return `${camperName}'s lock was replaced when another device regenerated this run. Which activity it held is not known, so choose one for them.`
+  }
   const locked = lockedActivityName ?? LOST_ACTIVITY_LABEL
   if (solverActivityName == null) {
     return `${camperName}'s lock on ${locked} was replaced when another device regenerated this run.`

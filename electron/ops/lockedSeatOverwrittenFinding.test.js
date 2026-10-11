@@ -128,21 +128,21 @@ describe('deriveLockedSeatOverwrittenFindings', () => {
     expect(deriveLockedSeatOverwrittenFindings(db, 'run-1', currentGen(db))).toEqual([])
   })
 
-  it('once the activity card has been answered there is no conflict row: still one item, locked activity = the row\'s', () => {
+  it('once the activity card has been answered there is no conflict row: still one item, but the lock\'s activity is not known', () => {
     const db = committedRun()
     mergeLeft(db, { is_locked: 1, source: 'solver', activity_id: 'act-archery', solver_generation: currentGen(db) })
     const [item] = deriveLockedSeatOverwrittenFindings(db, 'run-1', currentGen(db))
     expect(item).toMatchObject({
-      locked_activity_id: 'act-archery', locked_activity_name: 'Archery', solver_activity_id: null, solver_activity_name: null,
+      locked_activity_id: null, locked_activity_name: null, solver_activity_id: null, solver_activity_name: null,
     })
   })
 
-  it('an unannotated conflict row cannot say which side was the lock: falls back to the row\'s activity', () => {
+  it('an unannotated conflict row cannot say which side was the lock: the lock\'s activity is not known, never the row\'s', () => {
     const db = committedRun()
     mergeLeft(db, { is_locked: 1, source: 'solver', activity_id: 'act-gaga', solver_generation: currentGen(db) })
     activityConflict(db, { annotated: false })
     const [item] = deriveLockedSeatOverwrittenFindings(db, 'run-1', currentGen(db))
-    expect(item).toMatchObject({ locked_activity_id: 'act-gaga', solver_activity_id: null })
+    expect(item).toMatchObject({ locked_activity_id: null, solver_activity_id: null })
   })
 
   it('one-tap Restore through setElectiveAssignment clears it', () => {

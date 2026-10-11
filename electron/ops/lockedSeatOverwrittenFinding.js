@@ -15,7 +15,9 @@ import { electiveGenerationVisibleFragment } from './electiveGenerationPredicate
 // Which side of the pending activity_id conflict was the director's lock
 // ('manual') and which the solver's. reconcile.js annotates the sides; a
 // device that has already answered the card has no row, and an unannotated
-// one cannot say, so both degrade to "the row's own activity".
+// one cannot say. Then the lock's activity is NOT KNOWN (null): the row's own
+// activity is the solver's, and offering it as the lock to restore would
+// confirm the overwrite.
 function sidesOfActivityConflict(db, assignmentId) {
   const row = db
     .prepare(
@@ -49,7 +51,7 @@ export function deriveLockedSeatOverwrittenFindings(db, runId, gen) {
   const name = (id) => (id == null ? null : nameOf.get(id)?.name ?? null)
   return rows.map((r) => {
     const sides = sidesOfActivityConflict(db, r.id)
-    const lockedId = sides.locked ?? r.activity_id
+    const lockedId = sides.locked
     const solverId = sides.locked != null && sides.solver != null ? sides.solver : null
     return {
       kind: 'LOCKED_SEAT_OVERWRITTEN',
