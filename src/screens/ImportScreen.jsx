@@ -575,8 +575,9 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
         setProposal(null)
         // Slice 3b — resolved against the camp's LIVE rows, so the director is
         // shown what this day would actually add before agreeing to any of it.
-        // A read failure here degrades to a plan with nothing matched, which is
-        // not-ready and therefore cannot commit — never to a silent build.
+        // A failed groups/special-days read degrades to a plan that is not ready and cannot commit. A failed
+        // fixed_events read does NOT block: the preview then lists a camp event as a new activity, while the commit
+        // (which reads fixed_events itself) mints it as an event marker.
         const [liveGroups, liveActivities, liveSpecialDays, liveDays, reconciled, liveFixedEvents] = await Promise.all([
           localClient.list('groups').catch(() => []),
           localClient.list('activities').catch(() => []),
