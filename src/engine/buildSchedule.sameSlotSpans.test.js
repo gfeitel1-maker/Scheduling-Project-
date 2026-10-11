@@ -52,6 +52,8 @@ describe('two rows covering the same group at one block (overlapping scopes)', (
   })
 
   it('raises no finding when the rows cover different groups', () => {
-    expect(buildSchedule(engineInput({ fixedEvents: [short, lunch('fe3', ['g3'], 2)] })).findings.filter((f) => f.kind === 'FIXED_EVENT_OVERLAP')).toEqual([])
+    const result = buildSchedule(engineInput({ fixedEvents: [short, lunch('fe3', ['g3'], 2)] }))
+    expect(result.slots.find((x) => x.groupId === 'g3' && x.blockId === 'b2')).toMatchObject({ type: 'fixed_event' })
+    expect(result.findings.filter((f) => f.kind === 'FIXED_EVENT_OVERLAP')).toEqual([])
   })
 })
