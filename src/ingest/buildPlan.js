@@ -16,6 +16,7 @@ import { INGESTIBLE_ENTITIES } from './extractEntities.js'
 import { normalizeName, recognitionKey } from './preview.js'
 import { dbFieldFor } from './fieldUpdate.js'
 import { startMinutesForOrdering } from './orderTimeBlocks.js'
+import { CHANGE_OVER_MAX_MINUTES } from './periodSpan.js'
 import { UNIQUE_FIRST_FIELD, UNIQUE_FIELD_EXTRA_SCOPE_COLUMNS } from '../data/setupCrudRepository.js'
 
 // ADR 2026-08-17-onescreen-reconciliation-merge.md §1 — moved here (not
@@ -211,7 +212,12 @@ function fieldsForUnchecked(entity, name, campId, index, cohortId) {
     // cohort_id, then name — same composite-scope reasoning as tiers above.
     case 'time_blocks': {
       const { start_time, end_time } = parseTimeRange(name)
-      return { cohort_id: cohortId, name, camp_id: campId, start_time, end_time, sort_order: index }
+      // F2: extraction keeps a <=10-minute row only when most groups print an event in it, so such a
+      // block takes events and nothing else (Generate never fills it). Written on create only.
+      const clock = (t) => { const [h, m] = t.split(':'); return +h * 60 + +m }
+      const span = start_time == null ? null : clock(end_time) - clock(start_time)
+      const eventsOnly = span != null && span > 0 && span <= CHANGE_OVER_MAX_MINUTES ? { events_only: 1 } : {}
+      return { cohort_id: cohortId, name, camp_id: campId, start_time, end_time, sort_order: index, ...eventsOnly }
     }
     // name FIRST — activities is UNIQUE_FIELD_ENTITIES-registered (T115).
     case 'activities':

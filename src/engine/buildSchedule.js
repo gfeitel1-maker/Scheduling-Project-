@@ -460,6 +460,13 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
           continue
         }
 
+        // F2: an events-only block (a kept 10-minute Flag Raising/Taps row) takes fixed events
+        // only. A group with no event there gets an empty cell, never an activity.
+        if (block.events_only) {
+          slots.push({ groupId: group.id, dayId: day.id, blockId: block.id, cohort_id: cohortId, type: 'unavailable', activityId: null, fixedEventId: null, is_span_head: true, flags: {} })
+          continue
+        }
+
         const avail = group.availability
         const pod = block.part_of_day
         if (avail !== 'all' && avail !== pod) {
@@ -559,6 +566,7 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
         // even though the visible schedule still renders the elective.
         if (assigned.has(nextKey) || fixedEventLookup.has(nextKey) || electiveLookup.has(nextKey) || eventLookup.has(nextKey)) return 'span'
         // Tail block must also be within the group's available part of day
+        if (nextBlock.events_only) return 'span'
         if (avail !== 'all' && avail !== nextBlock.part_of_day) return 'span'
         // Tail block occupies the place too — same capacity + same_tier_only
         // guard as the head.

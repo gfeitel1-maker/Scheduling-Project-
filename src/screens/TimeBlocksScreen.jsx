@@ -58,6 +58,7 @@ function BlockRow({ block, role, onSave, onDelete, duplicateSiblings, overlaps }
   const [start, setStart] = useState(block.start_time)
   const [end, setEnd] = useState(block.end_time)
   const [pod, setPod] = useState(block.part_of_day)
+  const [eventsOnly, setEventsOnly] = useState(!!block.events_only)
   const [saving, setSaving] = useState(false)
   const draftBackwards = isBackwardsBlock({ start_time: start, end_time: end })
 
@@ -65,7 +66,7 @@ function BlockRow({ block, role, onSave, onDelete, duplicateSiblings, overlaps }
     if (!name.trim() || draftBackwards) return
     setSaving(true)
     try {
-      await onSave(block.id, { name: name.trim(), start_time: start, end_time: end, part_of_day: pod, sort_order: minutesFromMidnight(start) })
+      await onSave(block.id, { name: name.trim(), start_time: start, end_time: end, part_of_day: pod, sort_order: minutesFromMidnight(start), events_only: eventsOnly ? 1 : 0 })
       setEditing(false)
     } catch {
       // onSave already surfaced the error; stay in edit mode so nothing is lost.
@@ -84,11 +85,14 @@ function BlockRow({ block, role, onSave, onDelete, duplicateSiblings, overlaps }
           <select value={pod} onChange={e => setPod(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={{ ...S.input, width: 120 }}>
             {POD_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
+          <label style={{ display: 'block', marginTop: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
+            <input type="checkbox" checked={eventsOnly} onChange={e => setEventsOnly(e.target.checked)} /> Events only
+          </label>
         </td>
         <td style={{ ...S.td, textAlign: 'right' }}>
           <div style={rowActionsFlex}>
             <button className="press-97" onClick={save} disabled={saving || draftBackwards} style={draftBackwards ? { ...S.btnPrimary, ...S.buttonDisabled, whiteSpace: 'nowrap' } : { ...S.btnPrimary, whiteSpace: 'nowrap' }}>{saving ? 'Saving…' : 'Save'}</button>
-            <button className="press-97" onClick={() => { setName(block.name); setStart(block.start_time); setEnd(block.end_time); setPod(block.part_of_day); setEditing(false) }} style={{ ...S.btnSecondary, whiteSpace: 'nowrap' }}>Cancel</button>
+            <button className="press-97" onClick={() => { setName(block.name); setStart(block.start_time); setEnd(block.end_time); setPod(block.part_of_day); setEventsOnly(!!block.events_only); setEditing(false) }} style={{ ...S.btnSecondary, whiteSpace: 'nowrap' }}>Cancel</button>
           </div>
         </td>
       </tr>
@@ -113,6 +117,7 @@ function BlockRow({ block, role, onSave, onDelete, duplicateSiblings, overlaps }
           onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditing(true) } }}
           style={{ cursor: 'pointer' }}
         >{block.name}</span>
+        {block.events_only ? <div style={{ ...S.fieldFlag, color: 'var(--text-secondary)' }}>Events only: Generate leaves this block for fixed events</div> : null}
         {duplicateSiblings?.length > 0 && <DuplicateNameDot row={block} siblings={duplicateSiblings} entityLabel="time block" />}
         {overlaps?.map(o => <div key={o.id} style={overlapFlagStyle}>Overlaps {o.name}</div>)}
       </td>

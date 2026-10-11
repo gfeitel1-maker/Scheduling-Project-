@@ -302,7 +302,7 @@ export const PROJECTIONS = {
   time_blocks: {
     table: 'time_blocks',
     key: 'id',
-    fields: ['camp_id', 'cohort_id', 'name', 'start_time', 'end_time', 'part_of_day', 'sort_order'],
+    fields: ['camp_id', 'cohort_id', 'name', 'start_time', 'end_time', 'part_of_day', 'sort_order', 'events_only'],
     ensureExists: (db, id) => {
       // Same zero-camps caveat as cohorts/groups/days_of_operation.ensureExists above.
       const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
