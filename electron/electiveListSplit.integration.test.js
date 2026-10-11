@@ -127,4 +127,14 @@ describe('list cell import, parsed grid to commit', () => {
     expect(db.prepare('SELECT COUNT(*) c FROM elective_sets').get().c).toBe(0)
     expect(db.prepare('SELECT name FROM activities').all().map((r) => r.name)).toContain('Arts/Crafts')
   })
+
+  it('re-importing the same file, or the list reordered, leaves one set with three choices', () => {
+    commit(prepare(GRID))
+    commit(prepare(GRID))
+    commit(prepare(GRID.replaceAll(LIST, 'Kayak / Hike / Fish')))
+    expect(db.prepare('SELECT name FROM elective_sets').all()).toEqual([{ name: 'Electives (Fish, Hike, Kayak)' }])
+    expect(db.prepare('SELECT COUNT(*) c FROM elective_set_activities').get().c).toBe(3)
+    const names = db.prepare('SELECT name FROM activities').all().map((r) => r.name.toLowerCase())
+    expect(new Set(names).size).toBe(names.length)
+  })
 })
