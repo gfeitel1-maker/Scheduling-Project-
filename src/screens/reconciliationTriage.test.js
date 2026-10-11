@@ -110,6 +110,18 @@ describe('foldTriageInputs', () => {
     expect(resolutions).toEqual([])
   })
 
+  it('an accepted unknown_fields answer becomes one confirm resolution per name', () => {
+    const { resolutions } = foldTriageInputs(baseInputs, [], {
+      'unknown_fields:priority': { choice: 'accept', names: ['Art', 'Swim'] },
+      'unknown_fields:min_per_week': { choice: 'accept', names: ['Art'] },
+    })
+    expect(resolutions).toEqual([
+      { entity: 'activities', name: 'Art', field: 'priority', reason: 'unknown_field', choice: 'confirm' },
+      { entity: 'activities', name: 'Swim', field: 'priority', reason: 'unknown_field', choice: 'confirm' },
+      { entity: 'activities', name: 'Art', field: 'min_per_week', reason: 'unknown_field', choice: 'confirm' },
+    ])
+  })
+
   it('an UNANSWERED confirm_value holds the name back (never auto-applied)', () => {
     const decisions = [{ id: 'd1', kind: 'confirm_value', entity: 'activities', entityName: 'Art', confidence: 'low' }]
     const { approved } = foldTriageInputs(baseInputs, decisions, {})

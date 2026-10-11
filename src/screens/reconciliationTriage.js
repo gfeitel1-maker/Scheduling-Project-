@@ -165,6 +165,15 @@ export function foldTriageInputs(baseInputs, decisions, answers) {
     pinOnlyActivityNames: baseInputs.pinOnlyActivityNames,
   })
 
+  // The review flag's dismiss ("Low is fine" / "Leave as is"): one confirm per accepted name.
+  for (const field of ['priority', 'min_per_week']) {
+    const a = answers[`unknown_fields:${field}`]
+    if (a?.choice !== 'accept') continue
+    for (const name of a.names ?? []) {
+      resolutions.push({ entity: 'activities', name, field, reason: 'unknown_field', choice: 'confirm' })
+    }
+  }
+
   for (const d of decisions) {
     if (d.kind !== 'resolve_conflict') continue
     const a = answers[d.id]
