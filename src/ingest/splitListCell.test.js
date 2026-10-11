@@ -19,6 +19,22 @@ describe('strictSplit', () => {
   })
 })
 
+describe('strictSplit tightening', () => {
+  it.each([
+    'Art, Music; Drama', 'Art, Music, Drama / Chess', 'Grades 3, 4, 5', 'Bunks 1, 2, 3', '10, 20, 30',
+    'Mon, Wed, Fri', 'Monday, Tuesday, Art', 'Staff: Dan, Moshe, Yossi', 'A, Music, Drama',
+  ])('does not split %s', (cell) => {
+    expect(strictSplit(cell)).toBeNull()
+  })
+  it('splits exactly three parts and parts of exactly four words', () => {
+    expect(strictSplit('Art, Music, Drama')).toHaveLength(3)
+    expect(strictSplit('a b c d, e f g h, Chess')).toEqual(['a b c d', 'e f g h', 'Chess'])
+  })
+  it('collapses duplicate parts case-insensitively', () => {
+    expect(strictSplit('Art, art, Music, Drama')).toEqual(['Art', 'Music', 'Drama'])
+  })
+})
+
 describe('looksListLike / looseSplit', () => {
   it('flags an unspaced slash, a two-part list and an & part as list-like', () => {
     expect(looksListLike('Arts/Crafts')).toBe(true)
