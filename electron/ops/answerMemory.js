@@ -322,9 +322,13 @@ function writeRecord(db, { campId, kind, matchKey, payload, authorUserId, device
   return { id, payload: values.payload, matchKey, confirmedAt }
 }
 
-function retire(db, ids, { authorUserId, deviceId }) {
+// The retiring op carries NO author. Two people retiring one record at the same time write the same
+// value, which is not a conflict, but the document's per-field author map would record two different
+// authors for it and raise a conflicts row about who retired it. The successor record names its
+// author, and a Forget has none to name.
+function retire(db, ids, { deviceId }) {
   for (const id of ids) {
-    appendOp(db, { entity: 'camp_seedlings', entity_id: id, field: 'status', value: 'superseded', author_user_id: authorUserId ?? null, device_id: deviceId, client_write_id: randomUUID() })
+    appendOp(db, { entity: 'camp_seedlings', entity_id: id, field: 'status', value: 'superseded', author_user_id: null, device_id: deviceId, client_write_id: randomUUID() })
   }
 }
 

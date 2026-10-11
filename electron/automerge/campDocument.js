@@ -530,13 +530,21 @@ export function loadDoc(bytes) {
 const FIELD_DELIM = '\u0000'
 
 // Whole-value blobs. A saved schedule version (schedule_snapshots.slots), a camp map image
-// (camp_maps.image_data, up to 1.4M characters) and a bulk-replaced slot set
+// (camp_maps.image_data, up to 1.4M characters), a remembered answer or column mapping
+// (camp_seedlings.payload, docs/adr/2026-10-11-import-answer-memory.md 3.1) and a bulk-replaced slot set
 // (doc[`${entity}_scopes`][scope_id], always, in applyBulkReplace) are replaced whole, never edited in place,
 // so they are written as ImmutableString: one op per write, a plain last-writer-wins register.
 // Written as Automerge Text they cost one op per character, and history keeps every one: an
 // imported camp reached 2.9M ops and a multi-second load from these two alone
 // (docs/adr/2026-10-10-whole-value-blobs-as-immutable-strings.md).
-const WHOLE_VALUE_FIELDS = new Set(['schedule_snapshots.slots', 'camp_maps.image_data'])
+const WHOLE_VALUE_FIELDS = new Set([
+  'schedule_snapshots.slots', 'camp_maps.image_data',
+  // Every field of a seedling is written whole and never edited in place. As Text, one answer cost
+  // ~220 ops (its 101-character match_key alone is 101), kept forever in history; as ImmutableString
+  // it is 7. Setting `status` to the same value on two devices is then not a conflict either.
+  'camp_seedlings.camp_id', 'camp_seedlings.kind', 'camp_seedlings.match_key', 'camp_seedlings.payload',
+  'camp_seedlings.status', 'camp_seedlings.confirmed_by', 'camp_seedlings.confirmed_at',
+])
 
 export function storedValue(entity, field, value) {
   return typeof value === 'string' && WHOLE_VALUE_FIELDS.has(`${entity}.${field}`) ? new A.RawString(value) : value
