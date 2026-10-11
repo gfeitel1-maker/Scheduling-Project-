@@ -1583,6 +1583,29 @@ describe('confirmedElectiveSets choices (F6 change 5)', () => {
     expect(db.prepare("SELECT activity_id FROM elective_set_activities LIMIT 100").all().map((r) => r.activity_id)).toContain(existing)
   })
 
+  it('an activity-name UNIQUE collision reuses the existing activity as the choice instead of silently dropping it', () => {
+    const existing = randomUUID()
+    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run(existing, campId, 'Hiking')
+    const originalPrepare = db.prepare.bind(db)
+    db.prepare = (sql) => {
+      if (sql.includes('SELECT id, name FROM activities WHERE camp_id')) return { all: () => [] }
+      if (/INSERT[^;]*INTO activities\b/i.test(sql)) throw new Error('UNIQUE constraint failed: activities.camp_id, activities.name')
+      return originalPrepare(sql)
+    }
+    let result
+    try {
+      result = commitIngest(db, {
+        approved: {}, camp_id: campId, device_id: deviceId,
+        confirmedElectiveSets: [{ name: 'Chugim', choices: ['Hiking'] }],
+      })
+    } finally {
+      db.prepare = originalPrepare
+    }
+    expect(result.electiveSetsFailed ?? []).toEqual([])
+    expect(choicesOf('Chugim')).toEqual([{ activity: 'Hiking', status: 'potential' }])
+    expect(db.prepare('SELECT activity_id FROM elective_set_activities').get().activity_id).toBe(existing)
+  })
+
   it('reports how many choices each created set holds', () => {
     const result = commitIngest(db, {
       approved: {}, camp_id: campId, device_id: deviceId,

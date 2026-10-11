@@ -650,9 +650,11 @@ function writeElectiveChoices(db, { setId, setName, choices, camp_id, author_use
     if (!choiceName) continue
     const k = recognitionKey('activities', choiceName)
     const mine = []
+    let reuseActivityId = null
+    for (let attempt = 0; attempt < 2; attempt++) {
     try {
       runAtomic(db, () => {
-        let activityId = activityIdByKey.get(k)
+        let activityId = reuseActivityId ?? activityIdByKey.get(k)
         if (!activityId) {
           activityId = randomUUID()
           op('activities', activityId, 'name', choiceName)
@@ -668,9 +670,18 @@ function writeElectiveChoices(db, { setId, setName, choices, camp_id, author_use
         activityIdByKey.set(k, activityId)
       })
       createdEntities.push(...mine)
+      break
     } catch (err) {
-      if (/UNIQUE/i.test(err.message)) continue
+      if (/UNIQUE/i.test(err.message) && /elective_set_activities/.test(err.message)) break
+      if (attempt === 0 && /UNIQUE/i.test(err.message)) {
+        reuseActivityId = db.prepare('SELECT id FROM activities WHERE camp_id = ? AND name = ? COLLATE NOCASE ORDER BY id ASC').get(camp_id, choiceName)?.id ?? null
+        if (reuseActivityId) continue
+        failed.push({ name: choiceName, message: `Couldn't add "${choiceName}" as a choice of the "${setName}" elective: an activity with that name already exists but couldn't be found.` })
+        break
+      }
       failed.push({ name: choiceName, message: `Couldn't add "${choiceName}" as a choice of the "${setName}" elective: ${err.message}` })
+      break
+    }
     }
   }
 }
