@@ -4,8 +4,9 @@
 // call the same functions, so the glue is not re-typed anywhere.
 //
 // Rules:
-//   * Offered: every 'trip' and 'subset-day' detection, only when the camp has at least one week.
-//     A camp with no weeks is not offered trips (the cells stay as they import today). 'all-camp-day'
+//   * Offered: every 'trip' and 'subset-day' detection, only when `hasWeeks` (a week to bind to exists).
+//     The caller passes hasWeeks true for a fresh camp too, with weeksForImport's Week 1 (the commit creates it),
+//     so a camp with no weeks is not denied trips; hasWeeks false is the pure "nothing to bind to". 'all-camp-day'
 //     is planWholeCampDays below (slice 3b), never this function.
 //   * Answer: the director's answer for the item, else the detector's defaultAnswer. With no week to
 //     bind to (several weeks, none open) the item is PENDING whatever its default: a trip is never

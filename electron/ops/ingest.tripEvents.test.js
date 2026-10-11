@@ -22,6 +22,9 @@ import { inferActivityRules } from '../../src/ingest/activityRules.js'
 import { inferTextSpans } from '../../src/ingest/textSpans.js'
 import { detectTripsAndSpecialDays } from '../../src/ingest/tripDetection.js'
 import { planTripEvents, applyTripClaims, dropMultiBlockForTrips, tripItemKey } from '../../src/ingest/tripEvents.js'
+import { defaultWeekId, weeksForImport } from '../../src/ingest/defaultWeek.js'
+import { materializeImportedVersion } from './materializeImportedVersion.js'
+import { appendOp } from './operations.js'
 import { buildReconciliationReport } from '../../src/ingest/reconciliationReport.js'
 import { buildBlastRadiusIndex } from '../../src/ingest/blastRadius.js'
 import { foldTriageInputs, heldBackDecisions } from '../../src/screens/reconciliationTriage.js'
@@ -353,5 +356,79 @@ describe('slice 2: precedence over the multi-block "Just this once" question', (
       { name: 'Zoo Trip', start_block: '10:00', span_blocks: 2, days: ['Friday'] },
       { name: 'Pottery', start_block: '10:00', span_blocks: 2, days: ['Monday'] },
     ])
+  })
+})
+
+describe('first import on a fresh camp: Week 1 is created, trips bind to it', () => {
+  const synText = (prefix) => fs.readFileSync(path.join(SYN, MANIFEST.camps.find((c) => c.slug.startsWith(prefix)).file), 'utf8')
+  const freshCamp = () => d.prepare('DELETE FROM schedule_weeks WHERE camp_id = ?').run(campId)
+  const firstImport = (text, opts = {}) => {
+    freshCamp()
+    const weeks = weeksForImport([], campId)
+    return importText(text, { weekId: weeks[0].id, hasWeeks: true, ...opts })
+  }
+  const weeksOfCamp = () => d.prepare('SELECT id, name, sort_order, is_archived FROM schedule_weeks WHERE camp_id = ?').all(campId)
+
+  it('the renderer plan side offers a virtual Week 1 with the deterministic id when the camp has no weeks', () => {
+    expect(weeksForImport([], campId)).toEqual([{ id: `schedule-week:${campId}:1`, name: 'Week 1', willCreate: true }])
+    expect(defaultWeekId(campId)).toBe(`schedule-week:${campId}:1`)
+    const real = [{ id: 'w', name: 'Week A' }]
+    expect(weeksForImport(real, campId)).toBe(real)
+  })
+
+  for (const prefix of ['s04', 's13']) {
+    it(`${prefix}: first import writes trips week-bound on schedule-week:<camp>:1, not as activities`, () => {
+      const text = synText(prefix)
+      const imp = firstImport(text)
+      const accepted = imp.trips.items.filter((i) => i.accepted)
+      expect(accepted.length).toBeGreaterThan(0)
+      expect(weeksOfCamp()).toEqual([{ id: defaultWeekId(campId), name: 'Week 1', sort_order: 0, is_archived: 0 }])
+      const rows = weekRows()
+      expect(rows.length).toBe(accepted.length)
+      for (const r of rows) expect(r.schedule_week_id).toBe(defaultWeekId(campId))
+      const tripNames = new Set(accepted.map((i) => normalizeName(i.detection.name)))
+      const asActivity = d.prepare('SELECT name, catalog_role FROM activities WHERE camp_id = ?').all(campId)
+        .filter((a) => tripNames.has(normalizeName(a.name)) && a.catalog_role !== 'pinned_event')
+      expect(asActivity).toEqual([])
+    })
+  }
+
+  it('materializeImportedVersion afterwards finds the existing Week 1 instead of duplicating it', async () => {
+    firstImport(synText('s13'))
+    const client = { async write({ entity, entity_id, field, value, author_user_id }) { return { status: 'applied', op: appendOp(d, { entity, entity_id, field, value, author_user_id, device_id: deviceId }) } } }
+    const placements = [{ activityName: 'Swim', groupName: 'Group 1', dayLabel: 'Monday', blockName: '10:00-10:45' }]
+    await materializeImportedVersion(d, client, { campId, authorUserId: userId, placements })
+    expect(weeksOfCamp().map((w) => w.id)).toEqual([defaultWeekId(campId)])
+  })
+
+  it('Undo removes the Week 1 the import created when nothing else references it', () => {
+    const { committed } = firstImport(synText('s13'), { captureInverse: true })
+    expect(weeksOfCamp().length).toBe(1)
+    const r = ingestUndo(d, {
+      invertibleOps: committed.invertibleOps ?? [], createdEntityIds: committed.createdEntityIds ?? [],
+      importRunId: committed.importRunId ?? committed.import_run_id ?? null,
+      author_user_id: userId, device_id: deviceId, client_write_id: randomUUID(),
+    })
+    expect(r.ok).toBe(true)
+    expect(weekRows()).toEqual([])
+    expect(weeksOfCamp()).toEqual([])
+  })
+
+  it('Undo keeps Week 1 when something else (a director-made template) references it', () => {
+    const { committed } = firstImport(synText('s13'), { captureInverse: true })
+    d.prepare("INSERT INTO schedule_templates (id, camp_id, week_id, kind, name) VALUES (?, ?, ?, 'manual', '')").run(randomUUID(), campId, defaultWeekId(campId))
+    const r = ingestUndo(d, {
+      invertibleOps: committed.invertibleOps ?? [], createdEntityIds: committed.createdEntityIds ?? [],
+      importRunId: committed.importRunId ?? committed.import_run_id ?? null,
+      author_user_id: userId, device_id: deviceId, client_write_id: randomUUID(),
+    })
+    expect(r.kept.filter((k) => k.entity === 'schedule_weeks').map((k) => k.reason)).toEqual(['still_referenced'])
+    expect(weeksOfCamp().length).toBe(1)
+  })
+
+  it('a camp that already has a different week never gets schedule-week:<camp>:1 created', () => {
+    const imp = importText(synText('s13'), { weekId: week1 })
+    expect(imp.trips.items.some((i) => i.accepted)).toBe(true)
+    expect(weeksOfCamp().map((w) => w.id).sort()).toEqual([week1, week2].sort())
   })
 })

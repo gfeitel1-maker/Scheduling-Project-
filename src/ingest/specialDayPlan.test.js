@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { buildSpecialDayPlan } from './specialDayPlan'
+import { buildSpecialDayPlan, resolveSpecialDayPlacement } from './specialDayPlan'
 import { proposeSpecialDay } from './specialDayFile'
+import { activityNameKey } from './preview'
 
 // T40 slice 3b — turn the recognised one-day file into a plan a director can
 // confirm, then commit.
@@ -220,5 +221,89 @@ describe('buildSpecialDayPlan — two columns that resolve to the same group (sl
   it('a plan whose columns are distinct groups is unaffected', () => {
     expect(plan.blockedBy).not.toContain('duplicate_columns')
     expect(plan.duplicateColumns).toEqual([])
+  })
+})
+
+describe('F3/F4 slice 4: resolveSpecialDayPlacement', () => {
+  const days = [{ id: 'dM', label: 'Monday' }, { id: 'dT', label: 'Tuesday' }]
+  const weeks = [{ id: 'w1' }, { id: 'w2' }]
+  it('weekday in the file name + the open week -> a placement', () => {
+    expect(resolveSpecialDayPlacement({ texts: ['Tuesday Color War Day.xlsx'], days, weeks, weekId: 'w2' }))
+      .toEqual({ placement: { weekId: 'w2', dayId: 'dT' }, flag: null, dayId: 'dT' })
+  })
+  it('no weekday printed -> unplaced with a flag, never invented', () => {
+    const r = resolveSpecialDayPlacement({ texts: ['Color War Day.xlsx'], days, weeks, weekId: 'w1' })
+    expect(r.placement).toBeNull()
+    expect(r.flag).toMatch(/weekday/)
+  })
+  it('a weekday the camp does not run -> unplaced', () => {
+    expect(resolveSpecialDayPlacement({ texts: ['Friday games'], days, weeks, weekId: 'w1' }).placement).toBeNull()
+  })
+  it('no weeks -> not placed, and the flag says why', () => {
+    const r = resolveSpecialDayPlacement({ texts: ['Tuesday games'], days, weeks: [], weekId: null })
+    expect(r.placement).toBeNull()
+    expect(r.flag).toMatch(/no weeks/)
+  })
+  it('several weeks and none open -> unplaced, but the resolved DAY is kept and the flag says to pick a week', () => {
+    const r = resolveSpecialDayPlacement({ texts: ['Tuesday games'], days, weeks, weekId: null })
+    expect(r.placement).toBeNull()
+    expect(r.dayId).toBe('dT')
+    expect(r.flag).toMatch(/pick a week/i)
+  })
+  it('a weekday that only appears inside a longer word is not a weekday', () => {
+    for (const t of ['Mondayish games', 'Sundayfunday', 'Thursdaymorning']) {
+      const r = resolveSpecialDayPlacement({ texts: [t], days: [...days, { id: 'dTh', label: 'Thursday' }, { id: 'dS', label: 'Sunday' }], weeks: [{ id: 'w1' }], weekId: 'w1' })
+      expect(r.placement, t).toBeNull()
+      expect(r.flag, t).toMatch(/does not say which weekday/)
+    }
+    expect(resolveSpecialDayPlacement({ texts: ['Tuesday-games.xlsx'], days, weeks: [{ id: 'w1' }], weekId: 'w1' }).placement).toEqual({ weekId: 'w1', dayId: 'dT' })
+  })
+  it('underscore, digit and plural joined weekday names are still weekdays', () => {
+    for (const t of ['Tuesday_Games.xlsx', 'Tuesdays.xlsx', 'Day1_Tuesday', 'Tuesday2.xlsx']) {
+      expect(resolveSpecialDayPlacement({ texts: [t], days, weeks: [{ id: 'w1' }], weekId: 'w1' }).placement, t).toEqual({ weekId: 'w1', dayId: 'dT' })
+    }
+  })
+  it('one week and none open -> that week', () => {
+    expect(resolveSpecialDayPlacement({ texts: ['Tuesday games'], days, weeks: [{ id: 'w1' }], weekId: null }).placement).toEqual({ weekId: 'w1', dayId: 'dT' })
+  })
+  it('two different weekdays in one name -> unplaced, never the earlier day of the week', () => {
+    const r = resolveSpecialDayPlacement({ texts: ['Tuesday Trip (rain date Monday).pdf'], days: [{ id: 'dM', label: 'Monday' }, { id: 'dT', label: 'Tuesday' }], weeks: [{ id: 'w1' }], weekId: 'w1' })
+    expect(r.placement).toBeNull()
+    expect(r.flag).toMatch(/more than one weekday/)
+  })
+})
+
+describe('F3/F4 slice 4/5 review: plan and commit share one activity-name equivalence', () => {
+  const towProposal = (name) => proposeSpecialDay([{
+    title: 'Color War 2022', columns: ['Lil Chai', 'Chaverim', 'Shalom'], rows: [{ label: '9:15-9:45', cells: [name, name, name] }, { label: '10:15', cells: ['Lunch', 'Lunch', 'Lunch'] }],
+  }])
+  const live = (extra = {}) => ({ groups: [{ id: 'g1', name: 'Lil Chai' }], activities: [{ id: 'a1', name: 'Tug of War' }, { id: 'a2', name: 'Lunch' }], specialDays: [], ...extra })
+
+  it('an aliased name is reused, not listed as new', () => {
+    const p = buildSpecialDayPlan(towProposal('Tug Battle'), live({ aliases: new Map([['tug battle', 'a1']]) }))
+    expect(p.newActivityNames).toEqual([])
+    expect(p.reusedActivityNames).toContain('Tug Battle')
+    expect(p.activities.find((a) => a.name === 'Tug Battle').activityId).toBe('a1')
+  })
+  it('without the alias the same name is new', () => {
+    expect(buildSpecialDayPlan(towProposal('Tug Battle'), live()).newActivityNames).toEqual(['Tug Battle'])
+  })
+  it('"Tug-of-War" matches "Tug of War" with no alias at all', () => {
+    const p = buildSpecialDayPlan(towProposal('Tug-of-War'), live())
+    expect(p.newActivityNames).toEqual([])
+    expect(p.activities.find((a) => a.name === 'Tug-of-War').activityId).toBe('a1')
+  })
+})
+
+describe('activityNameKey', () => {
+  it('folds case, whitespace and punctuation; keeps genuinely different names apart', () => {
+    const k = activityNameKey
+    expect(k('Tug-of-War')).toBe(k('Tug of War'))
+    expect(k('tug_of_war')).toBe(k('TUG  OF  WAR'))
+    expect(k('Capture the Flag!')).toBe(k('capture the flag'))
+    expect(k('T-Ball')).toBe(k('Tball'))
+    expect(k('Arts & Crafts')).not.toBe(k('Arts and Crafts'))
+    expect(k('Swim')).not.toBe(k('Swim Return'))
+    expect(k('Lunch 2')).not.toBe(k('Lunch 3'))
   })
 })

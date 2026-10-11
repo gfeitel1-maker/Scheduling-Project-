@@ -1855,6 +1855,7 @@ export const mockShoresh = {
       // rows from. buildReconciliationReport degrades additively to "nothing
       // unknown" on an empty map, matching every other Phase C/D signal above.
       unknownFieldEvidence: {},
+      activityAliases: [],
     }
   },
   // S1b — mock stand-in for confirmAlias (electron/ops/confirmAlias.js), mirroring

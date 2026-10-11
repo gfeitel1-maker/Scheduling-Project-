@@ -28,6 +28,8 @@ import { activityTruthStatus } from '../../src/ingest/truthStatus.js'
 import { resolveLocationCreateId } from './locationCreate.js'
 import { deriveDayId } from './dayId.js'
 import { PROJECTIONS } from './projections.js'
+import { matchExistingActivity } from '../../src/ingest/specialDayPlan.js'
+import { defaultWeekId, defaultWeekFields } from '../../src/ingest/defaultWeek.js'
 import { deriveElectiveImportId } from '../../src/ingest/electiveSetPopulate.js'
 import { writeRouteSnapshot, campCatalog } from './deleteRecord.js'
 import { attachNames } from '../../src/utils/snapshotRemap.js'
@@ -45,7 +47,7 @@ import { recordNotAPlace, isWordDeclinedAsPlace } from './locationWordDecisions.
 // could reference it is already gone, so one upfront referential pass
 // (referencesInto, run once per candidate before any delete) is sufficient.
 const U2_DELETE_ORDER = Object.freeze([
-  'elective_set_activities', 'elective_sets', 'special_day_placements', 'special_day_slots', 'special_day_time_blocks', 'special_days', 'fixed_events', 'activities', 'locations', 'time_blocks', 'days_of_operation', 'groups', 'tiers', 'cohorts',
+  'elective_set_activities', 'elective_sets', 'special_day_placements', 'special_day_slots', 'special_day_time_blocks', 'special_days', 'fixed_events', 'schedule_weeks', 'activities', 'locations', 'time_blocks', 'days_of_operation', 'groups', 'tiers', 'cohorts',
 ])
 
 // ADR §2. Kept here rather than imported from the renderer so the guarantee
@@ -300,6 +302,14 @@ function listAliasMap(db, camp_id, cohort_id) {
     if (!map[row.entity_type].has(key)) map[row.entity_type].set(key, row.entity_id)
   }
   return map
+}
+
+/**
+ * The camp's confirmed activity aliases as [normalizeName(label), activityId] pairs, the same read the one-day
+ * commit matches names by, so the preview plan can match them identically.
+ */
+export function listActivityAliases(db, camp_id) {
+  return [...listAliasMap(db, camp_id, null).activities]
 }
 
 /**
@@ -2459,6 +2469,20 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       blockIndexById.set(row.id, cohortTimeBlockCount++)
     }
 
+    // A fresh camp has no schedule week until something needs one. When the plan binds anything (a trip, a
+    // whole-camp day, a one-day file's placement) to the deterministic Week 1, create it HERE, before those
+    // writes, in this transaction: the weeks check below and commitSpecialDay both require the week to exist.
+    // Only when the camp has no week at all; materializeImportedVersion later finds this row, not a second one.
+    const firstWeekId = defaultWeekId(camp_id)
+    const bindsFirstWeek = (plan.fixedEvents ?? []).some((fe) => fe.weekId === firstWeekId)
+      || (plan.wholeCampDays ?? []).some((w) => w.weekId === firstWeekId)
+      || plan.specialDay?.placement?.weekId === firstWeekId
+    if (bindsFirstWeek && !db.prepare('SELECT 1 FROM schedule_weeks WHERE camp_id = ? LIMIT 1').get(camp_id)) {
+      for (const [field, value] of Object.entries(defaultWeekFields(camp_id))) {
+        write(db, { entity: 'schedule_weeks', entity_id: firstWeekId, field, value, author_user_id: author_user_id ?? null, device_id, parent_op_id: null, client_write_id: randomUUID(), source: IMPORT_SOURCE })
+      }
+    }
+
     // Fixed events, after the entity loop and INSIDE the same transaction, so
     // the whole import stays one atomic unit (ADR §4). fixed_events is
     // written here and nowhere else in ingest; the generic whitelist never lets
@@ -2864,6 +2888,13 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     // commits here, in the one transaction: derived ids make a re-import converge on the same rows, any throw
     // rolls the whole day back, and `write` captures the creations for Undo. A same-named live day (derived
     // id or typed by hand) is left alone, never doubled.
+    const placementHolder = (placementId) => db.prepare('SELECT special_day_id FROM special_day_placements WHERE id = ?').get(placementId)
+    const writePlacement = (placementId, weekId, dayId, specialDayId) => {
+      for (const [field, value] of [['week_id', weekId], ['day_id', dayId], ['special_day_id', specialDayId]]) {
+        write(db, { entity: 'special_day_placements', entity_id: placementId, field, value, author_user_id: author_user_id ?? null, device_id, parent_op_id: null, client_write_id: randomUUID(), source: IMPORT_SOURCE })
+      }
+    }
+    const aliasedActivities = listAliasMap(db, camp_id, null).activities
     const commitSpecialDay = (sd, { repairGrid = false } = {}) => {
       if (!sd.ready) {
         throw new Error(`That special day is not ready to build (${(sd.blockedBy ?? []).join(', ') || 'no plan'}).`)
@@ -2872,11 +2903,27 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       const nameKey = normalizeName(sd.name)
       const takenRow = db.prepare('SELECT id, name FROM special_days WHERE camp_id = ?').all(camp_id)
         .find((r) => r.id === dayId || normalizeName(r.name) === nameKey)
+      // The day this import is about: the one already there (derived id or hand-built, same name), else the one
+      // about to be made. The (week, day) holder is judged against THAT id.
+      const ownDayId = takenRow?.id ?? dayId
+      let placementId = null
+      if (sd.placement) {
+        if (!db.prepare('SELECT 1 FROM schedule_weeks WHERE id = ? AND camp_id = ?').get(sd.placement.weekId, camp_id)) throw new Error('That placement names a week this camp does not have; nothing was written.')
+        if (!db.prepare('SELECT 1 FROM days_of_operation WHERE id = ? AND camp_id = ?').get(sd.placement.dayId, camp_id)) throw new Error('That placement names a day this camp does not run; nothing was written.')
+        placementId = deriveSpecialDayPlacementId(sd.placement.weekId, sd.placement.dayId)
+        const holder = placementHolder(placementId)
+        if (holder && holder.special_day_id !== ownDayId) return { created: false, specialDayId: null, periods: 0, cells: 0, activitiesCreated: 0, placed: false, keptExisting: true }
+      }
       const sdOp = (entity, entity_id, field, value) => write(db, {
         entity, entity_id, field, value, author_user_id: author_user_id ?? null, device_id,
         parent_op_id: null, client_write_id: randomUUID(), source: IMPORT_SOURCE,
       })
-      if (takenRow && !repairGrid) return { created: false, specialDayId: takenRow.id, periods: 0, cells: 0, activitiesCreated: 0 }
+      if (takenRow && !repairGrid) {
+        // The director's explicit (week, day) is honoured even for a day that already exists unplaced: the
+        // placement is the only row a re-import adds.
+        if (placementId && !placementHolder(placementId)) writePlacement(placementId, sd.placement.weekId, sd.placement.dayId, takenRow.id)
+        return { created: false, specialDayId: takenRow.id, periods: 0, cells: 0, activitiesCreated: 0, ...(placementId ? { placed: true } : {}) }
+      }
       if (takenRow) {
         // A Replace import re-mints groups, so an import-made day's cells can point at deleted groups. Drop those
         // cells and write the missing ones for the live groups (derived ids: a day that is intact is untouched).
@@ -2930,10 +2977,9 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       const activityIdByName = new Map()
       const liveActivities = db.prepare('SELECT id, name FROM activities WHERE camp_id = ?').all(camp_id)
       for (const a of sd.activities ?? []) {
-        const key = normalizeName(a.name)
-        const live = liveActivities.filter((r) => normalizeName(r.name) === key)
-        if (live.length > 1) throw new Error(`"${a.name}" matches more than one activity; nothing was written.`)
-        if (live.length === 1) { activityIdByName.set(a.name, live[0].id); continue }
+        const match = matchExistingActivity(a.name, liveActivities, aliasedActivities)
+        if (match.ambiguous) throw new Error(`"${a.name}" matches more than one activity; nothing was written.`)
+        if (match.activityId) { activityIdByName.set(a.name, match.activityId); continue }
         const id = deriveSpecialDayActivityId(camp_id, a.name)
         // A row under the derived id is already present (the director may have renamed it since the last
         // import): reuse it, never write the imported name back over theirs.
@@ -2971,7 +3017,8 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         if (activityId) sdOp('special_day_slots', id, 'activity_id', activityId)
         cells += 1
       }
-      return { created: true, specialDayId: dayId, periods: blockIdByName.size, cells, activitiesCreated }
+      if (placementId) writePlacement(placementId, sd.placement.weekId, sd.placement.dayId, dayId)
+      return { created: true, specialDayId: dayId, periods: blockIdByName.size, cells, activitiesCreated, ...(placementId ? { placed: true } : {}) }
     }
 
     // F3/F4 slice 3a (docs/adr/2026-10-11-import-special-days-and-field-trips.md). A recognised one-day file
@@ -3020,7 +3067,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       if (existingDay && existingDay.id !== derivedDayId) { skip('a special day with that name already exists'); continue }
       const specialDayId = derivedDayId
       const placementId = deriveSpecialDayPlacementId(w.weekId, dayId)
-      const holder = db.prepare('SELECT special_day_id FROM special_day_placements WHERE id = ?').get(placementId)
+      const holder = placementHolder(placementId)
       if (holder && holder.special_day_id !== specialDayId) {
         wholeCampDaysOutcome.push({ name: w.name, day: w.day, weekId: w.weekId, created: false, placed: false, keptExisting: true })
         continue
@@ -3037,9 +3084,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       const built = commitSpecialDay(sd, { repairGrid: true })
       let placed = false
       if (!holder) {
-        for (const [field, value] of [['week_id', w.weekId], ['day_id', dayId], ['special_day_id', specialDayId]]) {
-          write(db, { entity: 'special_day_placements', entity_id: placementId, field, value, author_user_id: author_user_id ?? null, device_id, parent_op_id: null, client_write_id: randomUUID(), source: IMPORT_SOURCE })
-        }
+        writePlacement(placementId, w.weekId, dayId, specialDayId)
         placed = true
       }
       wholeCampDaysOutcome.push({ name: w.name, day: w.day, weekId: w.weekId, created: built.created, placed, ...(built.repaired ? { repaired: built.repaired } : {}) })

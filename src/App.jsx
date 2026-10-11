@@ -278,7 +278,9 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
         setWeekId(first?.id ?? null)
       }
     }).catch(() => {})
-  }, [campId])
+    // Reloaded on navigation too: a first import creates Week 1, and screens
+    // opened afterwards must see it rather than offer "Week 1 (new)" again.
+  }, [campId, screen])
 
   // Run the one-time camp bootstrap (default weekdays + "Main" program) once
   // per camp. The ref guard neutralizes React StrictMode's dev-mode

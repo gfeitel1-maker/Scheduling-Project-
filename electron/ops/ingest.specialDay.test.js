@@ -9,6 +9,12 @@ import { randomUUID } from 'node:crypto'
 import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { commitIngest, ingestUndo } from './ingest.js'
 import { appendOp } from './operations.js'
+import { deriveSpecialDayPlacementId } from './electiveDerivedIds.js'
+import { defaultWeekId } from '../../src/ingest/defaultWeek.js'
+import path from 'node:path'
+import { parseTextGrid } from '../../src/ingest/textGrid.js'
+import { proposeSpecialDay } from '../../src/ingest/specialDayFile.js'
+import { buildSpecialDayPlan, resolveSpecialDayPlacement } from '../../src/ingest/specialDayPlan.js'
 
 afterAll(() => cleanupTemplatedDbs())
 const deviceId = 'device-1'
@@ -155,3 +161,213 @@ describe('slice 3b bug (b): the plan is honest about columns and periods that co
   })
 })
 
+
+describe('F3/F4 slice 4: a one-day file is placed on its (week, day) in the same transaction', () => {
+  let weekId, tueId
+  beforeEach(() => {
+    weekId = randomUUID()
+    tueId = randomUUID()
+    d.prepare('INSERT INTO schedule_weeks (id, camp_id, name, sort_order) VALUES (?, ?, ?, ?)').run(weekId, campId, 'Week 1', 0)
+    d.prepare('INSERT INTO days_of_operation (id, camp_id, label, day_of_week, sort_order) VALUES (?, ?, ?, ?, ?)').run(tueId, campId, 'Tuesday', 2, 1)
+  })
+  const placements = () => d.prepare('SELECT * FROM special_day_placements').all()
+
+  it('writes one placement bound to the new day', () => {
+    const out = commit(plan({ placement: { weekId, dayId: tueId } }))
+    expect(placements()).toMatchObject([{ week_id: weekId, day_id: tueId, special_day_id: out.specialDay.specialDayId }])
+    expect(out.specialDay).toMatchObject({ created: true, placed: true })
+  })
+
+  it('no placement requested writes none', () => {
+    commit(plan())
+    expect(placements()).toHaveLength(0)
+  })
+
+  it('re-import is idempotent: same placement row, nothing doubled', () => {
+    commit(plan({ placement: { weekId, dayId: tueId } }))
+    const first = placements()
+    expect(first).toHaveLength(1)
+    commit(plan({ placement: { weekId, dayId: tueId } }))
+    expect(placements()).toEqual(first)
+    expect(counts().special_days).toBe(1)
+  })
+
+  it('Undo removes the placement with the day', () => {
+    const out = commit(plan({ placement: { weekId, dayId: tueId } }), { captureInverse: true })
+    expect(placements()).toHaveLength(1)
+    ingestUndo(d, { invertibleOps: out.invertibleOps, createdEntityIds: out.createdEntityIds, importRunId: out.importRunId, author_user_id: userId, device_id: deviceId, client_write_id: randomUUID() })
+    expect(placements()).toHaveLength(0)
+    expect(counts().special_days).toBe(0)
+  })
+
+  it('an occupied (week, day) keeps the existing binding: no new day is created, and the outcome says so', () => {
+    const other = commit(plan({ name: 'Games Day', placement: { weekId, dayId: tueId } }))
+    const out = commit(plan({ placement: { weekId, dayId: tueId } }))
+    expect(out.specialDay).toMatchObject({ created: false, placed: false, keptExisting: true })
+    expect(counts().special_days).toBe(1)
+    expect(placements()).toMatchObject([{ special_day_id: other.specialDay.specialDayId }])
+  })
+
+  it('a week or day that is not this camp\'s is refused, nothing written', () => {
+    expect(() => commit(plan({ placement: { weekId: 'nope', dayId: tueId } }))).toThrow(/week/i)
+    expect(() => commit(plan({ placement: { weekId, dayId: 'nope' } }))).toThrow(/day/i)
+    expect(counts().special_days).toBe(0)
+  })
+})
+
+describe('F3/F4 slice 4 review: placement honours the director\'s selection and the holder that is really there', () => {
+  let weekId, tueId
+  beforeEach(() => {
+    weekId = randomUUID()
+    tueId = randomUUID()
+    d.prepare('INSERT INTO schedule_weeks (id, camp_id, name, sort_order) VALUES (?, ?, ?, ?)').run(weekId, campId, 'Week 1', 0)
+    d.prepare('INSERT INTO days_of_operation (id, camp_id, label, day_of_week, sort_order) VALUES (?, ?, ?, ?, ?)').run(tueId, campId, 'Tuesday', 2, 1)
+  })
+  const placements = () => d.prepare('SELECT * FROM special_day_placements').all()
+
+  it('re-import of an existing UNPLACED day whose week and day now resolve places it: the placement is the only new row', () => {
+    commit(plan())
+    const before = { counts: counts(), acts: ids('activities'), days: ids('special_days') }
+    expect(placements()).toHaveLength(0)
+    const out = commit(plan({ placement: { weekId, dayId: tueId } }))
+    expect(out.specialDay).toMatchObject({ created: false, placed: true })
+    expect(out.specialDay.keptExisting).toBeUndefined()
+    expect({ counts: counts(), acts: ids('activities'), days: ids('special_days') }).toEqual(before)
+    expect(placements()).toMatchObject([{ week_id: weekId, day_id: tueId, special_day_id: before.days[0] }])
+  })
+
+  it('re-placing into an occupied (week, day) still keeps the existing binding', () => {
+    commit(plan({ name: 'Games Day', placement: { weekId, dayId: tueId } }))
+    commit(plan())
+    const out = commit(plan({ placement: { weekId, dayId: tueId } }))
+    expect(out.specialDay).toMatchObject({ created: false, placed: false, keptExisting: true })
+    expect(placements()).toHaveLength(1)
+  })
+
+  it('a hand-built day of the same name that already holds the (week, day) is reported placed, not kept-existing', () => {
+    const handId = randomUUID()
+    appendOp(d, { entity: 'special_days', entity_id: handId, field: 'name', value: 'Maccabiah', author_user_id: userId, device_id: deviceId })
+    appendOp(d, { entity: 'special_days', entity_id: handId, field: 'camp_id', value: campId, author_user_id: userId, device_id: deviceId })
+    const placementId = deriveSpecialDayPlacementId(weekId, tueId)
+    for (const [field, value] of [['week_id', weekId], ['day_id', tueId], ['special_day_id', handId]]) {
+      appendOp(d, { entity: 'special_day_placements', entity_id: placementId, field, value, author_user_id: userId, device_id: deviceId })
+    }
+    const out = commit(plan({ placement: { weekId, dayId: tueId } }))
+    expect(out.specialDay).toMatchObject({ created: false, specialDayId: handId, placed: true })
+    expect(out.specialDay.keptExisting).toBeUndefined()
+    expect(counts().special_days).toBe(1)
+    expect(placements()).toHaveLength(1)
+  })
+})
+
+describe('first import on a fresh camp: a one-day file placed on Week 1 creates it in the same transaction', () => {
+  it('no weeks at all: the placement on the deterministic Week 1 creates the week, the day and the placement together', () => {
+    const tueId = randomUUID()
+    d.prepare('INSERT INTO days_of_operation (id, camp_id, label, day_of_week, sort_order) VALUES (?, ?, ?, ?, ?)').run(tueId, campId, 'Tuesday', 2, 1)
+    expect(d.prepare('SELECT COUNT(*) c FROM schedule_weeks').get().c).toBe(0)
+    const out = commit(plan({ placement: { weekId: defaultWeekId(campId), dayId: tueId } }))
+    expect(out.specialDay).toMatchObject({ created: true, placed: true })
+    expect(d.prepare('SELECT id, name FROM schedule_weeks').all()).toEqual([{ id: defaultWeekId(campId), name: 'Week 1' }])
+    expect(d.prepare('SELECT week_id, day_id FROM special_day_placements').all()).toEqual([{ week_id: defaultWeekId(campId), day_id: tueId }])
+  })
+
+  it('a failure after the week is created rolls the week back too', () => {
+    const tueId = randomUUID()
+    d.prepare('INSERT INTO days_of_operation (id, camp_id, label, day_of_week, sort_order) VALUES (?, ?, ?, ?, ?)').run(tueId, campId, 'Tuesday', 2, 1)
+    const bad = plan({ placement: { weekId: defaultWeekId(campId), dayId: tueId }, columns: [{ columnName: 'Red', groupId: g1 }, { columnName: 'Blue', groupId: 'no-such-group' }] })
+    expect(() => commit(bad)).toThrow()
+    expect(d.prepare('SELECT COUNT(*) c FROM schedule_weeks').get().c).toBe(0)
+  })
+})
+
+describe('F3/F4 slice 5: no catalog activity is minted where an equivalent one exists', () => {
+  let towId
+  beforeEach(() => {
+    towId = randomUUID()
+    appendOp(d, { entity: 'activities', entity_id: towId, field: 'name', value: 'Tug of War', author_user_id: userId, device_id: deviceId })
+    appendOp(d, { entity: 'activities', entity_id: towId, field: 'camp_id', value: campId, author_user_id: userId, device_id: deviceId })
+  })
+  const tugPlan = (name) => plan({
+    activities: [{ name, activityId: null }],
+    slots: [{ columnName: 'Red', blockName: '9:15-9:45', activityName: name }],
+  })
+  const activityCount = () => d.prepare('SELECT COUNT(*) c FROM activities').get().c
+
+  it.each(['tug of war ', 'Tug  of  War', 'TugOfWar'])('"%s" mints nothing and its cell points at the existing activity', (name) => {
+    const before = activityCount()
+    const out = commit(tugPlan(name))
+    expect(activityCount()).toBe(before)
+    expect(out.specialDay.activitiesCreated).toBe(0)
+    expect(d.prepare('SELECT activity_id FROM special_day_slots').all()).toEqual([{ activity_id: towId }])
+  })
+
+  it.each(['Tug-of-War', 'Tug_of_War', 'Tug of War!'])('"%s" mints nothing with NO alias: punctuation reads as a space', (name) => {
+    const before = activityCount()
+    const out = commit(tugPlan(name))
+    expect(activityCount()).toBe(before)
+    expect(out.specialDay.activitiesCreated).toBe(0)
+    expect(d.prepare('SELECT activity_id FROM special_day_slots').all()).toEqual([{ activity_id: towId }])
+  })
+
+  it('"Arts & Crafts" and "Arts and Crafts" stay two activities (pinned: & is not the word "and")', () => {
+    appendOp(d, { entity: 'activities', entity_id: randomUUID(), field: 'name', value: 'Arts and Crafts', author_user_id: userId, device_id: deviceId })
+    const before = activityCount()
+    commit(tugPlan('Arts & Crafts'))
+    expect(activityCount()).toBe(before + 1)
+  })
+
+  it('"T-Ball" matches an existing "Tball" (pinned: the same typo class as "Lunch2" / "Lunch 2")', () => {
+    const tball = randomUUID()
+    appendOp(d, { entity: 'activities', entity_id: tball, field: 'name', value: 'Tball', author_user_id: userId, device_id: deviceId })
+    appendOp(d, { entity: 'activities', entity_id: tball, field: 'camp_id', value: campId, author_user_id: userId, device_id: deviceId })
+    const before = activityCount()
+    commit(tugPlan('T-Ball'))
+    expect(activityCount()).toBe(before)
+    expect(d.prepare('SELECT activity_id FROM special_day_slots').all()).toEqual([{ activity_id: tball }])
+  })
+
+  it('"Tug-of-War" mints nothing when the director confirmed it as an alias of "Tug of War"', () => {
+    d.prepare("INSERT INTO source_aliases (id, camp_id, entity_type, cohort_id, source_label, entity_id, status, confirmed_at) VALUES (?, ?, 'activities', NULL, 'Tug-of-War', ?, 'active', '2026-01-01')").run(randomUUID(), campId, towId)
+    const before = activityCount()
+    commit(tugPlan('Tug-of-War'))
+    expect(activityCount()).toBe(before)
+    expect(d.prepare('SELECT activity_id FROM special_day_slots').all()).toEqual([{ activity_id: towId }])
+  })
+
+  it('a genuinely new name still mints, and Undo removes it', () => {
+    const before = activityCount()
+    const out = commit(tugPlan('Water Balloon Toss'), { captureInverse: true })
+    expect(activityCount()).toBe(before + 1)
+    ingestUndo(d, { invertibleOps: out.invertibleOps, createdEntityIds: out.createdEntityIds, importRunId: out.importRunId, author_user_id: userId, device_id: deviceId, client_write_id: randomUUID() })
+    expect(activityCount()).toBe(before)
+  })
+})
+
+describe('F3/F4 slice 4: the synthetic one-day files (s02, s05, s09) place when the name says a weekday', () => {
+  const SYN = path.join(process.cwd(), 'docs/work/specs/samples/synthetic')
+  const FILES = JSON.parse(fs.readFileSync(path.join(SYN, 'manifest.json'), 'utf8')).specialDayFiles
+  it.each(FILES.map((f) => [f.slug.slice(0, 3), f]))('%s', (_slug, f) => {
+    const weekId = randomUUID()
+    const tueId = randomUUID()
+    d.prepare('INSERT INTO schedule_weeks (id, camp_id, name, sort_order) VALUES (?, ?, ?, ?)').run(weekId, campId, 'Week 1', 0)
+    d.prepare('INSERT INTO days_of_operation (id, camp_id, label, day_of_week, sort_order) VALUES (?, ?, ?, ?, ?)').run(tueId, campId, 'Tuesday', 2, 1)
+    for (const name of f.groups) {
+      const id = randomUUID()
+      appendOp(d, { entity: 'groups', entity_id: id, field: 'name', value: name, author_user_id: userId, device_id: deviceId })
+      appendOp(d, { entity: 'groups', entity_id: id, field: 'camp_id', value: campId, author_user_id: userId, device_id: deviceId })
+    }
+    const proposal = proposeSpecialDay(parseTextGrid(fs.readFileSync(path.join(SYN, f.file), 'utf8')).pages)
+    const built = buildSpecialDayPlan(proposal, {
+      groups: d.prepare('SELECT * FROM groups WHERE camp_id = ?').all(campId),
+      activities: d.prepare('SELECT * FROM activities WHERE camp_id = ?').all(campId),
+      specialDays: [],
+    })
+    const live = { days: d.prepare('SELECT * FROM days_of_operation').all(), weeks: [{ id: weekId }], weekId }
+    const bare = resolveSpecialDayPlacement({ texts: [path.basename(f.file)], ...live })
+    expect(bare.placement).toBeNull()
+    expect(bare.flag).toBeTruthy()
+    const named = resolveSpecialDayPlacement({ texts: [`Tuesday ${path.basename(f.file)}`], ...live })
+    commit({ ...built, placement: named.placement })
+    expect(d.prepare('SELECT COUNT(*) c FROM special_day_placements').get().c).toBe(1)
+  })
+})

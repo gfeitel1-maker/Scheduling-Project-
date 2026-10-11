@@ -15,8 +15,9 @@
 //
 // The plan is therefore not-ready by default and says what is blocking it.
 
-import { whitespaceInsensitiveName } from './preview.js'
+import { whitespaceInsensitiveName, normalizeName, activityNameKey } from './preview.js'
 import { mapWithCollisions } from './mapWithCollisions.js'
+import { dayNameFromTitle, titleNamesDay } from './extractEntities.js'
 
 const key = (s) => whitespaceInsensitiveName(String(s ?? ''))
 
@@ -28,6 +29,21 @@ function readPeriod(label) {
   const m = text.match(RANGE)
   if (m) return { start_time: m[1].trim(), end_time: m[2].trim() }
   return { start_time: text || null, end_time: null }
+}
+
+/**
+ * Which existing activity a name in a one-day file means: a live activity whose name is equivalent
+ * (activityNameKey), else the activity the director confirmed it as an alias of. Two equivalent live
+ * activities are ambiguous, never a guess. SHARED by the plan (here) and the commit (electron/ops/ingest.js).
+ * @param {Array<{id: string, name: string}>} activities  the camp's live activities
+ * @param {Map<string, string>} [aliases]  normalizeName(source label) -> activity id
+ */
+export function matchExistingActivity(name, activities, aliases) {
+  const k = activityNameKey(name)
+  const live = activities.filter((a) => activityNameKey(a.name) === k)
+  if (live.length > 1) return { activityId: null, ambiguous: true }
+  if (live.length === 1) return { activityId: live[0].id, ambiguous: false }
+  return { activityId: aliases?.get(normalizeName(name)) ?? null, ambiguous: false }
 }
 
 /**
@@ -49,10 +65,6 @@ export function buildSpecialDayPlan(proposal, live) {
   // camp has hit duplicate-by-normalization names before; collisions are
   // collected and BLOCK the plan rather than being resolved by array order.
   const { map: groupByName, ambiguous: ambiguousColumnNames } = mapWithCollisions(groups, (g) => key(g.name), (g) => g.id)
-  // T255 Slice A: activities got no such treatment and were plain
-  // last-write-wins — the same failure shape, applied to the "reuse an
-  // existing activity" match instead of the "match a column to a group" one.
-  const { map: activityByName, ambiguous: ambiguousActivityNames } = mapWithCollisions(activities, (a) => key(a.name), (a) => a.id)
 
   const columns = proposal.columnNames.map((columnName) => ({
     columnName,
@@ -76,13 +88,13 @@ export function buildSpecialDayPlan(proposal, live) {
     ...readPeriod(name),
   }))
 
-  const activityRows = proposal.activityNames.map((name) => ({
-    name,
-    // An ambiguous name resolves to NOTHING rather than to a guess, same as
-    // an ambiguous column above.
-    activityId: ambiguousActivityNames.has(key(name)) ? null : (activityByName.get(key(name)) ?? null),
-    ambiguous: ambiguousActivityNames.has(key(name)),
-  }))
+  // The commit resolves each name through the same matchExistingActivity, so what this preview lists as new is
+  // exactly what the commit will mint. An ambiguous name resolves to NOTHING rather than to a guess, same as
+  // an ambiguous column above.
+  const activityRows = proposal.activityNames.map((name) => {
+    const m = matchExistingActivity(name, activities, live?.aliases)
+    return { name, activityId: m.activityId, ambiguous: m.ambiguous }
+  })
   const newActivityNames = activityRows.filter((a) => !a.activityId && !a.ambiguous).map((a) => a.name)
   // Which of the camp's EXISTING activities this day will bind to. Matching is
   // whitespace/case-insensitive so a re-import does not double the catalog, but
@@ -146,4 +158,27 @@ export function buildSpecialDayPlan(proposal, live) {
     blockedBy,
     ready: blockedBy.length === 0,
   }
+}
+
+/**
+ * F3/F4 slice 4 (ADR "One-day file"). Where a one-day file lands: the weekday printed in the file's name or
+ * title (matched to the camp's days), on the week open in the app. Nothing guessed: no weekday -> unplaced
+ * with a plain flag, never a forced picker.
+ * @returns {{placement: {weekId, dayId}|null, flag: string|null}}
+ */
+const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+
+export function resolveSpecialDayPlacement({ texts, days, weeks, weekId }) {
+  if (!weeks?.length) return { placement: null, flag: 'This camp has no weeks yet, so the day was not placed.', dayId: '' }
+  const week = weeks.find((w) => w.id === weekId) ?? (weeks.length === 1 ? weeks[0] : null)
+  const named = new Set()
+  for (const t of texts ?? []) {
+    for (const d of WEEKDAYS) if (titleNamesDay(t, d)) named.add(d)
+  }
+  if (named.size > 1) return { placement: null, flag: 'The file names more than one weekday, so the day was not placed.', dayId: '' }
+  const printed = named.size ? dayNameFromTitle([...named][0]) : null
+  const day = printed ? (days ?? []).find((d) => dayNameFromTitle(d.label) === printed) : null
+  if (!day) return { placement: null, flag: 'The file does not say which weekday this is, so the day was not placed.', dayId: '' }
+  if (!week) return { placement: null, flag: `Pick a week to place the day on ${day.label}.`, dayId: day.id }
+  return { placement: { weekId: week.id, dayId: day.id }, flag: null, dayId: day.id }
 }

@@ -118,8 +118,6 @@ const ACCEPTED_NON_REFERENCES = [
   { table: 'template_slots', column: 'template_id', reason: 'points at schedule_templates, not a U2-deletable entity' },
   { table: 'locations', column: 'map_id', reason: 'points at camp_maps (a map image, restore-refused / not a U2-deletable entity); a dangling map_id resolves to the primary map (v50 pair, ADR 2026-08-26)' },
   { table: 'schedule_snapshots', column: 'template_id', reason: 'points at schedule_templates, not a U2-deletable entity' },
-  { table: 'schedule_templates', column: 'week_id', reason: 'points at schedule_weeks, not a U2-deletable entity' },
-  { table: 'special_day_placements', column: 'week_id', reason: 'points at schedule_weeks, not a U2-deletable entity (T350)' },
   { table: 'elective_bundle_periods', column: 'bundle_id', reason: 'points at elective_bundles, not a U2-deletable entity (T301 v81; its day_id/time_block_id ARE registered references)' },
   { table: 'elective_bundle_tiers', column: 'bundle_id', reason: 'points at elective_bundles, not a U2-deletable entity (T301 v81; its tier_id IS a registered reference)' },
   { table: 'template_slots', column: 'event_id', reason: 'points at events, not a U2-deletable entity' },
@@ -135,7 +133,6 @@ const ACCEPTED_NON_REFERENCES = [
   // spelling. It points at no Shoresh entity.
   { table: 'campers', column: 'external_id', reason: 'an opaque identifier from the camp\'s own external roster system — not a pointer to any Shoresh entity' },
   { table: 'elective_assignment_runs', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity' },
-  { table: 'elective_assignment_runs', column: 'schedule_week_id', reason: 'points at schedule_weeks, not a U2-deletable entity' },
   { table: 'elective_assignment_runs', column: 'schedule_template_id', reason: 'points at schedule_templates, not a U2-deletable entity' },
   { table: 'elective_occurrences', column: 'run_id', reason: 'points at elective_assignment_runs, not a U2-deletable entity' },
   { table: 'elective_choices', column: 'run_id', reason: 'points at elective_assignment_runs, not a U2-deletable entity' },
@@ -171,16 +168,10 @@ const ACCEPTED_NON_REFERENCES = [
   { table: 'event_groups', column: 'event_id', reason: 'points at events, not a U2-deletable entity' },
   { table: 'event_slots', column: 'event_id', reason: 'points at events, not a U2-deletable entity' },
   { table: 'event_slots', column: 'time_block_id', reason: 'points at event_time_blocks, not a U2-deletable entity' },
-  { table: 'week_activity_exclusions', column: 'week_id', reason: 'points at schedule_weeks, not a U2-deletable entity' },
-  { table: 'week_group_exclusions', column: 'week_id', reason: 'points at schedule_weeks, not a U2-deletable entity' },
-  { table: 'week_location_exclusions', column: 'week_id', reason: 'points at schedule_weeks, not a U2-deletable entity' },
   // T108 Phase 2 review round 3.
-  { table: 'day_overrides', column: 'schedule_week_id', reason: 'points at schedule_weeks, not a U2-deletable entity' },
   // v42 (docs/work/specs/2026-08-23-unified-schedule-overlay-slices.md Slice 1):
-  { table: 'fixed_events', column: 'schedule_week_id', reason: 'optional binding to schedule_weeks, not a U2-deletable entity — mirrors day_overrides.schedule_week_id' },
   // v43 (docs/work/specs/2026-08-23-unified-schedule-overlay-slices.md
   // Slice 3a).
-  { table: 'elective_sets', column: 'schedule_week_id', reason: 'optional binding to schedule_weeks, not a U2-deletable entity — mirrors fixed_events.schedule_week_id' },
   // is_all_groups is not an *_id/*_ids column so the scanner never flags it;
   // no entry needed (matches fixed_events.is_all_groups, likewise unlisted).
   { table: 'audit_events', column: 'actor_user_id', reason: 'points at users, not a U2-deletable entity' },
@@ -333,9 +324,9 @@ describe('fixed_events has no incoming references', () => {
 })
 
 describe('U2_DELETABLE_ENTITIES stays in sync with INGESTIBLE_ENTITIES', () => {
-  it('is exactly INGESTIBLE_ENTITIES plus fixed_events, the four special-day entities and the F6 elective entities', () => {
+  it('is exactly INGESTIBLE_ENTITIES plus fixed_events, the four special-day entities, the F6 elective entities and schedule_weeks (a first import creates Week 1)', () => {
     const special = ['special_days', 'special_day_time_blocks', 'special_day_slots', 'special_day_placements']
-    expect([...U2_DELETABLE_ENTITIES].sort()).toEqual([...INGESTIBLE_ENTITIES, 'fixed_events', ...special, 'elective_sets', 'elective_set_activities'].sort())
+    expect([...U2_DELETABLE_ENTITIES].sort()).toEqual([...INGESTIBLE_ENTITIES, 'fixed_events', ...special, 'elective_sets', 'elective_set_activities', 'schedule_weeks'].sort())
   })
 })
 
