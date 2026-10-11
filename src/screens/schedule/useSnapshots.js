@@ -190,7 +190,7 @@ export function useSnapshots({
     // FIXED_EVENT_DUPLICATE is generated-route only — see useScheduleData's route
     // loop for the same gate and reasoning.
     setFindings(computeFindings(route === 'generated'
-      ? { slots: freshSlots, groups, activities, days, replacedDayIds, fixedEvents, weekId, activityExclusions, groupExclusions, locationExclusions }
+      ? { slots: freshSlots, groups, activities, days, timeBlocks, replacedDayIds, fixedEvents, weekId, activityExclusions, groupExclusions, locationExclusions }
       : { slots: freshSlots, groups, activities, days, replacedDayIds }))
     setDismissedFindingKeys(new Set())
 

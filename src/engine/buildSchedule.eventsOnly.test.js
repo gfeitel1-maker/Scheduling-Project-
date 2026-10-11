@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import buildSchedule from './buildSchedule.js'
+import buildSchedule, { computeFindings } from './buildSchedule.js'
 
 // F2: a kept 10-minute block (Flag Raising, Taps) is events-only. Generate must
 // never put a regular activity in it, even for a group with no event there.
@@ -38,20 +38,57 @@ describe('events-only time blocks', () => {
     expect(slots.filter((s) => s.blockId === 'flag' && s.type === 'activity')).toEqual([])
   })
 
-  it('a preplaced (locked) multi-block span cannot cross into an events-only block', () => {
+  describe('a director-locked multi-block span across an events-only block (a lock wins)', () => {
     const span = { ...archery, id: 'ropes', name: 'Ropes', span_blocks: 2 }
     const blocks = [{ ...mainBlock, id: 'pre', sort_order: 0, start_time: '09:05', end_time: '09:50' }, flagBlock(1), { ...mainBlock, sort_order: 2, start_time: '10:00', end_time: '10:45' }]
-    const { slots } = buildSchedule({
-      groups, tiers: [{ id: 't1', name: 'Junior' }], days: [day], timeBlocks: blocks, activities: [span], fixedEvents: [], campId: 'test', replacedDayIds: [],
-      preplacedSlots: [{ groupId: 'g1', dayId: 'd1', blockId: 'pre', activityId: 'ropes' }],
+    // Otters 1 prints Flag Raising in the events-only block; Otters 2 does not, and its lock runs through.
+    const run = (extra = {}) => buildSchedule({
+      groups, tiers: [{ id: 't1', name: 'Junior' }], days: [day], timeBlocks: blocks, activities: [span, archery],
+      fixedEvents: [{ ...flagRaising, time_block_id: 'flag' }], campId: 'test', replacedDayIds: [],
+      preplacedSlots: [{ groupId: 'g2', dayId: 'd1', blockId: 'pre', activityId: 'ropes' }], ...extra,
     })
-    expect(slots.filter((s) => s.blockId === 'flag' && s.type === 'activity')).toEqual([])
-    // The lock would have to cross the events-only block, so it is not honoured as a two-block span.
-    expect(slots.find((s) => s.groupId === 'g1' && s.blockId === 'pre').activityId).not.toBe('ropes')
+    const cell = (r, g, b) => r.slots.find((s) => s.groupId === g && s.blockId === b)
+
+    it('keeps both cells as Ropes', () => {
+      const r = run()
+      expect(cell(r, 'g2', 'pre')).toMatchObject({ type: 'activity', activityId: 'ropes', is_span_head: true })
+      expect(cell(r, 'g2', 'flag')).toMatchObject({ type: 'activity', activityId: 'ropes', is_span_head: false })
+    })
+
+    it('raises a finding naming the event', () => {
+      const f = run().findings.filter((x) => x.kind === 'EVENTS_ONLY_SPAN')
+      expect(f).toHaveLength(1)
+      expect(f[0]).toMatchObject({ groupId: 'g2', activityId: 'ropes', reason: 'Ropes runs into Flag Raising (events only)' })
+    })
+
+    it('counts Ropes once as a session', () => {
+      const ropes = run().slots.filter((s) => s.groupId === 'g2' && s.activityId === 'ropes' && s.type === 'activity' && s.is_span_head !== false)
+      expect(ropes).toHaveLength(1)
+    })
+
+    it("Generate's own placements still never enter the events-only block", () => {
+      const r = run()
+      expect(r.slots.filter((s) => s.blockId === 'flag' && s.type === 'activity' && s.is_span_head !== false)).toEqual([])
+    })
   })
 
   it('flipping the toggle off makes the block schedulable again', () => {
     const slots = run(0)
     expect(slots.some((s) => s.blockId === 'flag' && s.groupId === 'g2' && s.type === 'activity')).toBe(true)
+  })
+})
+
+describe('computeFindings: a persisted lock span tail inside an events-only block', () => {
+  it('raises EVENTS_ONLY_SPAN from the saved slots', () => {
+    const span = { ...archery, id: 'ropes', name: 'Ropes', min_per_week: 0 }
+    const findings = computeFindings({
+      slots: [
+        { group_id: 'g2', day_id: 'd1', time_block_id: 'pre', activity_id: 'ropes', is_span_head: true },
+        { group_id: 'g2', day_id: 'd1', time_block_id: 'flag', activity_id: 'ropes', is_span_head: false },
+      ],
+      groups, activities: [span], days: [day], replacedDayIds: [],
+      fixedEvents: [{ ...flagRaising, time_block_id: 'flag' }], timeBlocks: [flagBlock(1), mainBlock],
+    })
+    expect(findings.filter((f) => f.kind === 'EVENTS_ONLY_SPAN').map((f) => f.reason)).toEqual(['Ropes runs into Flag Raising (events only)'])
   })
 })
