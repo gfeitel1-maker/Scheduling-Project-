@@ -25,3 +25,12 @@ describe('elective_candidate answered summary', () => {
     expect(summary.textContent).toMatch(/Electives/)
   })
 })
+
+describe('elective_candidate question', () => {
+  it('says unanswered stays an elective and does not promise an empty set', () => {
+    render(<DecisionCard decision={decision} answer={undefined} onAnswer={() => {}} />)
+    expect(screen.queryByText(/empty/i)).toBeNull()
+    expect(screen.getByText(/stays an elective unless/i)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Keep as electives' })).toBeTruthy()
+  })
+})

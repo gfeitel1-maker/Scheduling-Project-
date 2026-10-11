@@ -2,7 +2,7 @@
 //
 // Importing one real camp file produced 240 buttons on one screen, and most of
 // them were the same question over and over: 25 identical "This looks like an
-// elective period. Create an empty 'Indoor Elective' elective set?" cards, and
+// elective period" cards for 'Indoor Elective', and
 // 49 identical "Use this value / Keep current" pairs. Nothing on screen told
 // them apart, so a director answering the twenty-fifth could not have answered
 // it differently from the first even if they wanted to.
