@@ -29,6 +29,7 @@ import DeviceManagerScreen from './screens/DeviceManagerScreen'
 import HostHandoffConfirm from './components/HostHandoffConfirm'
 import SeedScreen from './screens/SeedScreen'
 import AboutScreen from './screens/AboutScreen'
+import LearnedScreen from './screens/LearnedScreen'
 import { PairAgainScreen } from './screens/JoinByCodeScreen'
 import { useDeviceMode } from './hooks/useDeviceMode'
 import BootRecoveryScreen from './screens/BootRecoveryScreen'
@@ -115,6 +116,8 @@ const SCREENS = {
   about:        AboutScreen,
   // Footer-only: the can't-reach-the-camp flag's action.
   pairAgain:    PairAgainScreen,
+  // Footer-only: what the camp's import answers have taught Shoresh (answer memory).
+  learned:      LearnedScreen,
 }
 
 // Which schedule route a sidebar destination stands for. Absent for the

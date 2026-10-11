@@ -723,3 +723,27 @@ describe('Sidebar: footer removed-from-camp flag', () => {
     expect(screen.queryByText('removed from this camp')).toBeNull()
   })
 })
+
+describe('Sidebar: "What Shoresh has learned" footer entry (answer memory, PR 2)', () => {
+  for (const role of ['admin', 'staff']) {
+    it(`is visible to ${role} and navigates to the learned screen`, () => {
+      const onNavigate = vi.fn()
+      renderSidebar({ role, onNavigate })
+      fireEvent.click(screen.getByText('What Shoresh has learned'))
+      expect(onNavigate).toHaveBeenCalledWith('learned')
+    })
+  }
+
+  it('sits above About & Legal and carries no count badge', () => {
+    renderSidebar({ role: 'staff' })
+    const learned = screen.getByText('What Shoresh has learned')
+    const about = screen.getByText(/About & Legal/)
+    expect(learned.compareDocumentPosition(about) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(learned.textContent).toBe('What Shoresh has learned')
+  })
+
+  it('reads as the current screen when open', () => {
+    renderSidebar({ current: 'learned' })
+    expect(screen.getByText('What Shoresh has learned').style.color).toBe('var(--text)')
+  })
+})

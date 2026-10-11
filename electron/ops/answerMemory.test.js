@@ -273,6 +273,18 @@ describe('Change, Forget, Remember this', () => {
     expect(a[0].confirmed_by).toBe('u-staff')
     expect(matchOne(d).answer).toEqual({ action: 'looks_right' })
   })
+  it('the view\'s 8-second Undo: changeAnswer on a just-forgotten answer writes it back as a fresh live record', () => {
+    const d = fixed('Lunch 1')
+    remember([one(d, REJECT)])
+    const id = live().answers[0].id
+    forgetAnswer(db, { campId: CAMP, authorUserId: 'u-admin', deviceId: 'dev-1', memoryId: id })
+    expect(matchOne(d)).toBeNull()
+    const back = changeAnswer(db, { campId: CAMP, authorUserId: 'u-admin', deviceId: 'dev-1', memoryId: id, verdict: 'reject' })
+    expect(back.ok).toBe(true)
+    expect(back.id).not.toBe(id)
+    expect(live().answers).toHaveLength(1)
+    expect(matchOne(d).answer).toEqual({ action: 'edited' })
+  })
   it('changeAnswer refuses a verdict outside the question\'s vocabulary', () => {
     remember([one(fixed('Lunch 1'), REJECT)])
     const r = changeAnswer(db, { campId: CAMP, authorUserId: 'u-admin', deviceId: 'dev-1', memoryId: live().answers[0].id, verdict: 'all_camp' })

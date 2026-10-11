@@ -129,7 +129,7 @@ function patternRow(p, byId, viewerUserId, canWrite) {
     : null
   const asRecorded = supporters.some((a) => a.asRecorded)
   return {
-    rowKind: 'pattern', id: `pattern:${p.template}:${p.key}`, template: p.template, key: p.key, qkind: p.qkind,
+    rowKind: 'pattern', id: `pattern:${p.template}:${p.key}`, template: p.template, key: p.key, qkind: p.qkind, verdict: p.verdict,
     names: [...names, ...supporters.map((a) => a.name)],
     title: `${p.label}: ${namesText}`,
     why: `You answered ${p.label} for ${namesText}${stamps.length ? ` (${stamps.slice(0, 3).join(', ')})` : ''}.`,
@@ -141,7 +141,7 @@ function patternRow(p, byId, viewerUserId, canWrite) {
     canKeep: canWrite && supporters.some((a) => a.asRecorded),
     keepIds: supporters.filter((a) => a.asRecorded).map((a) => a.id),
     supporters: supporters.map((a) => answerRow(a, viewerUserId, canWrite)),
-    choices: [], confirmed_at: latest, camp_shape: null,
+    latestId: supporters[0]?.id ?? null, choices: CHANGE_CHOICES[p.qkind] ?? [], confirmed_at: latest, camp_shape: supporters[0]?.camp_shape ?? null,
   }
 }
 
@@ -159,6 +159,16 @@ export function buildLearnedGroups(data) {
     g.count = g.patterns.length + g.answers.length
   }
   return out.filter((g) => g.count > 0)
+}
+
+// "Your camp changed since you answered" (ADR 3.5): the answer's camp shape differs from the camp's
+// now, and this viewer has not already been shown the current shape. A missing last-shown means shown.
+export const LAST_SHOWN_SHAPE_KEY = 'learned.lastShownShape'
+export const campShapeKey = (s) => `${s?.groups ?? '?'}|${s?.days ?? '?'}`
+export function campChanged(answerShape, currentShape, lastShownKey) {
+  if (!answerShape || !currentShape) return false
+  const now = campShapeKey(currentShape)
+  return campShapeKey(answerShape) !== now && lastShownKey !== now
 }
 
 export function matchesQuery(row, query) {

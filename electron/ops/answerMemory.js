@@ -471,7 +471,8 @@ export function rememberImportAnswers(db, { campId, authorUserId, deviceId, impo
 
 function findAnswer(db, campId, memoryId) {
   const state = liveRecords(db, campId)
-  const found = state.answers.find((a) => a.id === memoryId)
+  // A just-forgotten answer is still findable, so the view's Undo can write it back through Change.
+  const found = state.answers.find((a) => a.id === memoryId) ?? state.retired.find((a) => a.id === memoryId && a.kind === ANSWER_KIND)
   return { state, found }
 }
 
