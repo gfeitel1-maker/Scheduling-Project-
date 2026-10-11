@@ -1610,6 +1610,27 @@ describe('confirmedElectiveSets choices (F6 change 5)', () => {
     expect(db.prepare("SELECT COUNT(*) c FROM elective_set_activities WHERE status = 'confirmed'").get().c).toBe(0)
   })
 
+  it('a throw while writing a choice leaves no orphan activity (no camp_id) behind', () => {
+    const originalPrepare = db.prepare.bind(db)
+    db.prepare = (sql) => {
+      if (sql.includes('INSERT OR IGNORE INTO elective_set_activities')) throw new Error('simulated write failure')
+      return originalPrepare(sql)
+    }
+    let result
+    try {
+      result = commitIngest(db, {
+        approved: {}, camp_id: campId, device_id: deviceId,
+        confirmedElectiveSets: [{ name: 'Chugim', choices: ['Fishing'] }],
+      })
+    } finally {
+      db.prepare = originalPrepare
+    }
+    expect(result.electiveSetsFailed).toHaveLength(1)
+    expect(count('elective_set_activities')).toBe(0)
+    expect(db.prepare("SELECT COUNT(*) c FROM operations WHERE entity = 'activities'").get().c).toBe(0)
+    expect(db.prepare("SELECT COUNT(*) c FROM activities WHERE name = 'Fishing'").get().c).toBe(0)
+  })
+
   it('one choice failing to write does not stop the others or fail the commit', () => {
     const originalPrepare = db.prepare.bind(db)
     let failed = false

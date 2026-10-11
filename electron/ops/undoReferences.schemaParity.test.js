@@ -120,11 +120,8 @@ const ACCEPTED_NON_REFERENCES = [
   { table: 'schedule_snapshots', column: 'template_id', reason: 'points at schedule_templates, not a U2-deletable entity' },
   { table: 'schedule_templates', column: 'week_id', reason: 'points at schedule_weeks, not a U2-deletable entity' },
   { table: 'special_day_placements', column: 'week_id', reason: 'points at schedule_weeks, not a U2-deletable entity (T350)' },
-  { table: 'elective_set_activities', column: 'elective_set_id', reason: 'points at elective_sets, not a U2-deletable entity' },
-  { table: 'elective_bundles', column: 'elective_set_id', reason: 'points at elective_sets, not a U2-deletable entity (T301 v81; its activity_id IS a registered reference in undoReferences.js)' },
   { table: 'elective_bundle_periods', column: 'bundle_id', reason: 'points at elective_bundles, not a U2-deletable entity (T301 v81; its day_id/time_block_id ARE registered references)' },
   { table: 'elective_bundle_tiers', column: 'bundle_id', reason: 'points at elective_bundles, not a U2-deletable entity (T301 v81; its tier_id IS a registered reference)' },
-  { table: 'template_slots', column: 'elective_set_id', reason: 'points at elective_sets, not a U2-deletable entity' },
   { table: 'template_slots', column: 'event_id', reason: 'points at events, not a U2-deletable entity' },
 
   // -- T194 participant substrate (v66), docs/adr/2026-09-17-individual-
@@ -141,7 +138,6 @@ const ACCEPTED_NON_REFERENCES = [
   { table: 'elective_assignment_runs', column: 'schedule_week_id', reason: 'points at schedule_weeks, not a U2-deletable entity' },
   { table: 'elective_assignment_runs', column: 'schedule_template_id', reason: 'points at schedule_templates, not a U2-deletable entity' },
   { table: 'elective_occurrences', column: 'run_id', reason: 'points at elective_assignment_runs, not a U2-deletable entity' },
-  { table: 'elective_occurrences', column: 'elective_set_id', reason: 'points at elective_sets, not a U2-deletable entity' },
   { table: 'elective_choices', column: 'run_id', reason: 'points at elective_assignment_runs, not a U2-deletable entity' },
   { table: 'elective_choice_offerings', column: 'choice_id', reason: 'points at elective_choices, not a U2-deletable entity' },
   { table: 'elective_choice_offerings', column: 'occurrence_id', reason: 'points at elective_occurrences, not a U2-deletable entity' },
@@ -337,9 +333,9 @@ describe('fixed_events has no incoming references', () => {
 })
 
 describe('U2_DELETABLE_ENTITIES stays in sync with INGESTIBLE_ENTITIES', () => {
-  it('is exactly INGESTIBLE_ENTITIES plus fixed_events and the four special-day entities', () => {
+  it('is exactly INGESTIBLE_ENTITIES plus fixed_events, the four special-day entities and the F6 elective entities', () => {
     const special = ['special_days', 'special_day_time_blocks', 'special_day_slots', 'special_day_placements']
-    expect([...U2_DELETABLE_ENTITIES].sort()).toEqual([...INGESTIBLE_ENTITIES, 'fixed_events', ...special].sort())
+    expect([...U2_DELETABLE_ENTITIES].sort()).toEqual([...INGESTIBLE_ENTITIES, 'fixed_events', ...special, 'elective_sets', 'elective_set_activities'].sort())
   })
 })
 

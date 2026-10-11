@@ -17,7 +17,7 @@ import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { appendOp } from './operations.js'
-import { commitPlan, ingestUndo } from './ingest.js'
+import { commitPlan, commitIngest, ingestUndo } from './ingest.js'
 
 
 // Discards the cached template. Per-test cleanup would rebuild the chain every time and
@@ -656,5 +656,28 @@ describe('U2g — idempotent per-row retry', () => {
     const second = ingestUndo(db, { invertibleOps: res.invertibleOps, createdEntityIds: res.createdEntityIds, author_user_id: 'u1', device_id: deviceId, client_write_id: clientWriteId })
     expect(second.deleted).toEqual([{ entity: 'activities', entity_id: tennis.id }])
     expect(opCount()).toBe(opsAfterFirst) // no new op written on the retry
+  })
+})
+
+describe('F6 — undoing an import removes the elective sets it minted', () => {
+  it('removes the set, its join rows, and the activities minted for its choices', () => {
+    const res = commitIngest(db, {
+      approved: {}, camp_id: campId, device_id: deviceId, captureInverse: true,
+      confirmedElectiveSets: [{ name: 'Chugim', choices: ['Fishing', 'Hiking'] }],
+    })
+    expect(res.electiveSetsCreated).toHaveLength(1)
+    const count = (t) => db.prepare(`SELECT COUNT(*) c FROM ${t}`).get().c
+    expect(count('elective_sets')).toBe(1)
+    expect(count('elective_set_activities')).toBe(2)
+    expect(count('activities')).toBe(2)
+
+    const undo = ingestUndo(db, {
+      invertibleOps: res.invertibleOps, createdEntityIds: res.createdEntityIds,
+      author_user_id: 'u1', device_id: deviceId, client_write_id: randomUUID(),
+    })
+    expect(undo.kept).toEqual([])
+    expect(count('elective_sets')).toBe(0)
+    expect(count('elective_set_activities')).toBe(0)
+    expect(count('activities')).toBe(0)
   })
 })

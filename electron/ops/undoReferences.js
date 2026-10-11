@@ -119,6 +119,11 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   // schema-parity scanner (undoReferences.schemaParity.test.js), not an entry
   // here; deleteElectiveSet.js's own cascade handles its lifecycle directly.
   { fromTable: 'elective_set_activities', fromColumn: 'activity_id', toEntity: 'activities', kind: 'scalar', enforced: false },
+  // F6: imports mint elective sets with join rows, so undo deletes both; the join row is deleted first (U2_DELETE_ORDER) and excluded.
+  { fromTable: 'elective_set_activities', fromColumn: 'elective_set_id', toEntity: 'elective_sets', kind: 'scalar', enforced: true },
+  { fromTable: 'elective_bundles', fromColumn: 'elective_set_id', toEntity: 'elective_sets', kind: 'scalar', enforced: true },
+  { fromTable: 'template_slots', fromColumn: 'elective_set_id', toEntity: 'elective_sets', kind: 'scalar', enforced: false },
+  { fromTable: 'elective_occurrences', fromColumn: 'elective_set_id', toEntity: 'elective_sets', kind: 'scalar', enforced: false },
   // T301 (v81) — linked elective bundles. Four incoming edges into U2-deletable
   // entities, all soft (no REFERENCES clause in schema.sql, so enforced:false
   // and an unchecked delete SILENTLY orphans rather than throwing).
@@ -130,10 +135,9 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   // posture is `elective_set_activities.activity_id`'s exactly, one line up:
   // the bundle is a second, independent thing hanging off the same activity.
   //
-  // The three remaining *_id columns on these tables are NOT here and are
-  // accepted in the scanner instead: elective_bundles.elective_set_id points at
-  // elective_sets, and both bundle_id columns point at elective_bundles —
-  // none of the three is a U2-deletable entity.
+  // The two bundle_id columns are NOT here and are accepted in the scanner
+  // instead: they point at elective_bundles, not a U2-deletable entity. (The
+  // elective_set_id columns ARE registered below since F6 made sets deletable.)
   { fromTable: 'elective_bundles', fromColumn: 'activity_id', toEntity: 'activities', kind: 'scalar', enforced: false },
   { fromTable: 'elective_bundle_periods', fromColumn: 'day_id', toEntity: 'days_of_operation', kind: 'scalar', enforced: false },
   { fromTable: 'elective_bundle_periods', fromColumn: 'time_block_id', toEntity: 'time_blocks', kind: 'scalar', enforced: false },
@@ -180,6 +184,7 @@ export const U2_DELETABLE_ENTITIES = Object.freeze(
   new Set([
     'cohorts', 'tiers', 'groups', 'days_of_operation', 'time_blocks', 'locations', 'activities', 'fixed_events',
     'special_days', 'special_day_time_blocks', 'special_day_slots', 'special_day_placements',
+    'elective_sets', 'elective_set_activities',
   ])
 )
 

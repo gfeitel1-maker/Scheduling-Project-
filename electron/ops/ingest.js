@@ -45,7 +45,7 @@ import { recordNotAPlace, isWordDeclinedAsPlace } from './locationWordDecisions.
 // could reference it is already gone, so one upfront referential pass
 // (referencesInto, run once per candidate before any delete) is sufficient.
 const U2_DELETE_ORDER = Object.freeze([
-  'special_day_placements', 'special_day_slots', 'special_day_time_blocks', 'special_days', 'fixed_events', 'activities', 'locations', 'time_blocks', 'days_of_operation', 'groups', 'tiers', 'cohorts',
+  'elective_set_activities', 'elective_sets', 'special_day_placements', 'special_day_slots', 'special_day_time_blocks', 'special_days', 'fixed_events', 'activities', 'locations', 'time_blocks', 'days_of_operation', 'groups', 'tiers', 'cohorts',
 ])
 
 // ADR §2. Kept here rather than imported from the renderer so the guarantee
@@ -635,7 +635,7 @@ function buildExistingSnapshot(db, camp_id, cohort_id, mode) {
 // importing the same choice converge on one row; a choice that is already
 // there (any status) is left exactly as it is. Each choice is isolated: a
 // failure is a soft entry in `failed`, never thrown.
-function writeElectiveChoices(db, { setId, setName, choices, camp_id, author_user_id, device_id, failed }) {
+function writeElectiveChoices(db, { setId, setName, choices, camp_id, author_user_id, device_id, failed, createdEntities }) {
   const activityIdByKey = new Map()
   for (const row of db.prepare('SELECT id, name FROM activities WHERE camp_id = ? ORDER BY id ASC').all(camp_id)) {
     const k = recognitionKey('activities', row.name)
@@ -648,20 +648,26 @@ function writeElectiveChoices(db, { setId, setName, choices, camp_id, author_use
   for (const raw of Array.isArray(choices) ? choices : []) {
     const choiceName = String(raw ?? '').trim()
     if (!choiceName) continue
+    const k = recognitionKey('activities', choiceName)
+    const mine = []
     try {
-      const k = recognitionKey('activities', choiceName)
-      let activityId = activityIdByKey.get(k)
-      if (!activityId) {
-        activityId = randomUUID()
-        op('activities', activityId, 'name', choiceName)
-        op('activities', activityId, 'camp_id', camp_id)
+      runAtomic(db, () => {
+        let activityId = activityIdByKey.get(k)
+        if (!activityId) {
+          activityId = randomUUID()
+          op('activities', activityId, 'name', choiceName)
+          op('activities', activityId, 'camp_id', camp_id)
+          mine.push({ entity: 'activities', entity_id: activityId })
+        }
+        const joinId = deriveElectiveImportId(setId, activityId)
+        if (db.prepare('SELECT 1 FROM elective_set_activities WHERE elective_set_id = ? AND activity_id = ?').get(setId, activityId)) return
+        op('elective_set_activities', joinId, 'elective_set_id', setId)
+        op('elective_set_activities', joinId, 'activity_id', activityId)
+        op('elective_set_activities', joinId, 'status', 'potential')
+        mine.push({ entity: 'elective_set_activities', entity_id: joinId })
         activityIdByKey.set(k, activityId)
-      }
-      const joinId = deriveElectiveImportId(setId, activityId)
-      if (db.prepare('SELECT 1 FROM elective_set_activities WHERE elective_set_id = ? AND activity_id = ?').get(setId, activityId)) continue
-      op('elective_set_activities', joinId, 'elective_set_id', setId)
-      op('elective_set_activities', joinId, 'activity_id', activityId)
-      op('elective_set_activities', joinId, 'status', 'potential')
+      })
+      createdEntities.push(...mine)
     } catch (err) {
       if (/UNIQUE/i.test(err.message)) continue
       failed.push({ name: choiceName, message: `Couldn't add "${choiceName}" as a choice of the "${setName}" elective: ${err.message}` })
@@ -701,6 +707,7 @@ function writeElectiveChoices(db, { setId, setName, choices, camp_id, author_use
 // a candidate after it in the same list.
 function commitElectiveCandidates(db, { confirmedElectiveSets = [], camp_id, author_user_id, device_id }) {
   const created = []
+  const createdEntities = []
   const failed = []
   // Loaded once and updated in-memory as this call creates rows, so two
   // same-period candidates (differing only by case) in the SAME
@@ -717,20 +724,24 @@ function commitElectiveCandidates(db, { confirmedElectiveSets = [], camp_id, aut
     try {
       const id = randomUUID()
       const commonOp = { entity: 'elective_sets', entity_id: id, author_user_id: author_user_id ?? null, device_id, parent_op_id: null, source: 'human' }
-      // name FIRST — elective_sets is UNIQUE_FIRST_FIELD-registered (Red Hat, 2026-08-22):
-      // writing the unique `name` before `camp_id` means a cross-device collision on
-      // `name` is rejected BEFORE a blank-name row is materialized, so the loser never
-      // ends up with an orphaned camp_id-only row. Matches the manual-create ordering.
-      appendOp(db, { ...commonOp, field: 'name', value: name, client_write_id: randomUUID() })
-      appendOp(db, { ...commonOp, field: 'camp_id', value: camp_id, client_write_id: randomUUID() })
+      const mine = [{ entity: 'elective_sets', entity_id: id }]
+      runAtomic(db, () => {
+        // name FIRST — elective_sets is UNIQUE_FIRST_FIELD-registered (Red Hat, 2026-08-22):
+        // writing the unique `name` before `camp_id` means a cross-device collision on
+        // `name` is rejected BEFORE a blank-name row is materialized, so the loser never
+        // ends up with an orphaned camp_id-only row. Matches the manual-create ordering.
+        appendOp(db, { ...commonOp, field: 'name', value: name, client_write_id: randomUUID() })
+        appendOp(db, { ...commonOp, field: 'camp_id', value: camp_id, client_write_id: randomUUID() })
+        writeElectiveChoices(db, { setId: id, setName: name, choices: candidate.choices, camp_id, author_user_id, device_id, failed, createdEntities: mine })
+      })
       created.push({ id, name })
+      createdEntities.push(...mine)
       liveNormalizedNames.add(key)
-      writeElectiveChoices(db, { setId: id, setName: name, choices: candidate.choices, camp_id, author_user_id, device_id, failed })
     } catch (err) {
       failed.push({ name, message: `Couldn't open the "${name}" elective space: ${err.message}` })
     }
   }
-  return { created, failed }
+  return { created, failed, createdEntities }
 }
 
 export function commitIngest(db, { approved, links, clears = {}, humanEditedFields = {}, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {}, mode = 'add', resolutions = [], base_generation = 0, dryRun = false, seenCounts = null, pinOnlyActivityNames = [], captureInverse = false, electiveHeaderFindings = [], activityPeriods = {}, confirmedElectiveSets = [], multiBlockEvents = [], specialDay = null, divisionSupport = {}, openDecisions = [] }) {
@@ -806,10 +817,22 @@ export function commitIngest(db, { approved, links, clears = {}, humanEditedFiel
   // existing row it could collide with — the dedup check above is its own
   // narrower guard), so it does not need that transaction's atomicity.
   if (!dryRun && !outcome.held && confirmedElectiveSets.length > 0) {
-    const { created: electiveSetsCreated, failed: electiveSetsFailed } = commitElectiveCandidates(db, {
+    const { created: electiveSetsCreated, failed: electiveSetsFailed, createdEntities } = commitElectiveCandidates(db, {
       confirmedElectiveSets, camp_id, author_user_id: author_user_id ?? null, device_id,
     })
     outcome.electiveSetsCreated = electiveSetsCreated
+    // Undo must remove what this import minted: the set, its join rows and the
+    // activities made for its choices. Same snapshot commitPlan takes for its own creates.
+    if (captureInverse) {
+      for (const entry of createdEntities) {
+        const fieldSnapshot = {}
+        for (const field of PROJECTIONS[entry.entity]?.fields ?? []) {
+          const latest = latestOp(db, entry.entity, entry.entity_id, field)
+          fieldSnapshot[field] = latest ? latest.seq : null
+        }
+        outcome.createdEntityIds.push({ ...entry, fieldSnapshot })
+      }
+    }
     // Soft warning, never a thrown error — see commitElectiveCandidates'
     // own comment. The main commit above already succeeded; this only ever
     // narrows what the director is told, never what actually happened.
