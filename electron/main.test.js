@@ -2391,6 +2391,13 @@ describe('resolveConflict — the locked-seat activity card on elective_assignme
     expect(row).toMatchObject({ activity_id: 'act-gaga', choice_id: choiceFor('Gaga'), preference_rank: 2, source: 'manual', is_locked: 0 })
     expect(getElectiveRun(db, { runId: 'run-1' }).lockedSeatFindings).toEqual([])
   })
+
+  it('a card that arrives after the run is final can still be answered (single-key write)', async () => {
+    const { handlers, token, seat } = await seatWithPendingCard()
+    db.prepare("UPDATE elective_assignment_runs SET status = 'final' WHERE id = ?").run('run-1')
+    expect(() => handlers.resolveConflict({ token, entity: 'elective_assignments', entity_id: seat, field: 'activity_id', chosen_op_id: '9@lock' })).not.toThrow()
+    expect(db.prepare('SELECT activity_id FROM elective_assignments WHERE id = ?').get(seat).activity_id).toBe('act-archery')
+  })
 })
 
 describe('resolveConflict handler (conflicts.resolve, staff+admin)', () => {

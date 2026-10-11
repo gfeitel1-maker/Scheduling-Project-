@@ -1935,7 +1935,10 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
         .prepare('SELECT run_id, camper_id, occurrence_id, is_locked FROM elective_assignments WHERE id = ?')
         .get(entity_id)
     }
-    if (seatRow) {
+    // A final run refuses re-placement (RUN_NOT_DRAFT), but a conflict can still arrive after
+    // finalizing; the card must stay answerable, so it falls back to the single-key write.
+    const runIsDraft = seatRow ? db.prepare('SELECT status FROM elective_assignment_runs WHERE id = ?').get(seatRow.run_id)?.status !== 'final' : false
+    if (seatRow && runIsDraft) {
       const placed = setElectiveAssignment(db, {
         runId: seatRow.run_id, camperId: seatRow.camper_id, occurrenceId: seatRow.occurrence_id,
         activityId: chosenValue,
