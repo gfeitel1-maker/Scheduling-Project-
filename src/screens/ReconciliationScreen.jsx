@@ -415,6 +415,14 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
     return localClient.forgetImportAnswer({ memoryId: decision.recalled.memoryId })
   }
 
+  function setFlagAnswer(key, answer) {
+    const next = { ...answers }
+    if (answer) next[key] = answer
+    else delete next[key]
+    setAnswers(next)
+    startDryRunDebounce(() => runDryRun(next), 250)
+  }
+
   async function undoAutoApplied(autoIds) {
     setUndoing(true)
     const next = { ...answers }
@@ -629,7 +637,7 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
         </div>
       )}
 
-      <UnknownFieldFlags unknownFields={report?.unknownFields} onNavigate={onNavigate} />
+      <UnknownFieldFlags unknownFields={report?.unknownFields} answers={answers} onAnswer={setFlagAnswer} onNavigate={onNavigate} />
 
       {/* The panel is always rendered here, at the same JSX position — it is
           never remounted by a breakpoint crossing, so its own local state
@@ -704,24 +712,36 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
 
 // Fields the file never states (priority, min_per_week) are one flag with a way to fix them, not a
 // question per activity (docs/adr/2026-08-20-per-field-unknown-reconciliation-state.md, amendment).
-function UnknownFieldFlags({ unknownFields, onNavigate }) {
+function UnknownFieldFlags({ unknownFields, answers, onAnswer, onNavigate }) {
   const count = (n) => `${n} ${n === 1 ? 'activity' : 'activities'}`
-  const lines = []
-  const p = unknownFields?.priority?.length ?? 0
-  const m = unknownFields?.min_per_week?.length ?? 0
+  const rows = []
+  const p = unknownFields?.priority ?? []
+  const m = unknownFields?.min_per_week ?? []
   // Counts are what the FILE leaves out; an activity the director declines is never written, so the
   // consequence is stated for the ones kept.
-  if (p > 0) lines.push(`The file doesn’t say how important ${count(p)} ${p === 1 ? 'is' : 'are'}. Any you keep count as low priority.`)
-  if (m > 0) lines.push(`The file doesn’t say how often ${count(m)} should run each week. Any you keep are scheduled once a week.`)
-  if (lines.length === 0) return null
+  if (p.length > 0) rows.push({ field: 'priority', names: p, accept: 'Low is fine', done: `Low priority kept for ${count(p.length)}.`, text: `The file doesn’t say how important ${count(p.length)} ${p.length === 1 ? 'is' : 'are'}. Any you keep count as low priority.` })
+  if (m.length > 0) rows.push({ field: 'min_per_week', names: m, accept: 'Leave as is', done: `Once a week kept for ${count(m.length)}.`, text: `The file doesn’t say how often ${count(m.length)} should run each week. Any you keep are scheduled once a week.` })
+  if (rows.length === 0) return null
   return (
     <div style={{ marginBottom: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-      {lines.map((text) => (
-        <div key={text}>
-          <Flag tone="caution">{text}</Flag>
-          {onNavigate && <>{' '}<button className="press-97" onClick={() => onNavigate('activities')} style={styles.linkButton}>Set them in Activities</button></>}
-        </div>
-      ))}
+      {rows.map((row) => {
+        const key = `unknown_fields:${row.field}`
+        const accepted = answers?.[key]?.choice === 'accept'
+        return (
+          <div key={row.field}>
+            <Flag tone="caution">{accepted ? row.done : row.text}</Flag>
+            {' '}
+            {accepted ? (
+              <button className="press-97" onClick={() => onAnswer(key, null)} style={styles.linkButton}>Undo</button>
+            ) : (
+              <>
+                <button className="press-97" onClick={() => onAnswer(key, { choice: 'accept', names: row.names })} style={styles.linkButton}>{row.accept}</button>
+                {onNavigate && <>{' '}<button className="press-97" onClick={() => onNavigate('activities')} style={styles.linkButton}>Set them in Activities</button></>}
+              </>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }

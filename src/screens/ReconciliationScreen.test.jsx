@@ -127,6 +127,37 @@ describe('unknown fields', () => {
   })
 })
 
+describe('unknown field dismissal', () => {
+  const result = {
+    planItems: [
+      { op: 'unchanged', entity: 'activities', entity_id: 'a1', _name: 'Swim', fields: {}, evidence: { tier: 'exact_name' } },
+      { op: 'unchanged', entity: 'activities', entity_id: 'a2', _name: 'Art', fields: {}, evidence: { tier: 'exact_name' } },
+    ],
+    fixedEventsReport: {},
+    legacyPriorityActivities: [],
+    fieldProvenance: {},
+    evidenceSupport: {},
+    unknownFieldEvidence: { 'a1:priority': true, 'a2:priority': true, 'a1:min_per_week': true },
+  }
+
+  it('accepting swaps the line for a true statement, and Undo brings the flag back', async () => {
+    localClient.ingestReconcile.mockResolvedValue(result)
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
+    await screen.findByText(/0 of 0 question/)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Low is fine' }))
+    expect(screen.getByText('Low priority kept for 2 activities.')).toBeTruthy()
+    expect(screen.queryByText(/doesn.t say how important/)).toBeNull()
+    expect(screen.getByText(/doesn.t say how often/)).toBeTruthy()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    expect(screen.getByText(/doesn.t say how important 2 activities are/)).toBeTruthy()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Leave as is' }))
+    expect(screen.getByText('Once a week kept for 1 activity.')).toBeTruthy()
+  })
+})
+
 describe('resolving a decision', () => {
   it('updates the done count and stages a confirmed decision, without writing anything (read-only reconciliation)', async () => {
     localClient.ingestReconcile.mockResolvedValue(oneChangedResult())
