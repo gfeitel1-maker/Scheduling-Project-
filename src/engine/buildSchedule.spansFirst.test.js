@@ -24,8 +24,8 @@ const ropes = act('ropes', { span_blocks: 2, min_per_week: 2, max_per_week: 4, m
 // the singles for the one place it fits.
 const fixedAt = (blocks) => blocks.map((b) => ({ id: `fe${b}`, activity_id: 'lunch', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: `b${b}`, span_blocks: 1 }))
 
-function input(activities, fixed = fixedAt([1, 4]), blocks = timeBlocks) {
-  return { groups, tiers: [{ id: 't1', name: 'T' }], days, timeBlocks: blocks, activities: [lunch, ...activities], fixedEvents: fixed, campId: 'c', replacedDayIds: [] }
+function input(activities, fixedBlocks = [1, 4], blocks = timeBlocks) {
+  return { groups, tiers: [{ id: 't1', name: 'T' }], days, timeBlocks: blocks, activities: [lunch, ...activities], fixedEvents: fixedAt(fixedBlocks), campId: 'c', replacedDayIds: [] }
 }
 
 const blockIdx = (id) => Number(id.slice(1))
@@ -61,7 +61,7 @@ describe('buildSchedule: span activities are placed first, contiguously, as one 
   it('a 3-block span is placed in the only 3-block runs a day has (either side of a midday fixed event)', () => {
     const wild = act('wild', { span_blocks: 3, min_per_week: 1, max_per_week: 3 })
     const seven = Array.from({ length: 7 }, (_, i) => ({ id: `b${i}`, name: `B${i}`, start_time: `${String(8 + i).padStart(2, '0')}:00`, end_time: `${String(8 + i).padStart(2, '0')}:45`, sort_order: i, part_of_day: 'morning' }))
-    const { slots } = buildSchedule(input([...singles, wild], fixedAt([3]), seven))
+    const { slots } = buildSchedule(input([...singles, wild], [3], seven))
     for (const g of groups) {
       const runs = [...cellsByGroupDay(slots, 'wild')].filter(([k]) => k.startsWith(`${g.id}|`)).map(([, v]) => v)
       expect(runs, g.id).toHaveLength(1)
@@ -114,7 +114,7 @@ describe('buildSchedule: a span respects max_groups_per_slot in every block it c
   it.each(cases)('span %i, fixed at %j, min %i', (span, fixed, minW) => {
     const tight = act('ropes', { span_blocks: span, min_per_week: minW, max_per_week: 5, max_groups_per_slot: 1 })
     const acts = [...singles.slice(0, 3), tight]
-    const { slots } = buildSchedule(input(acts, fixedAt(fixed)))
+    const { slots } = buildSchedule(input(acts, fixed))
     expect(overLimit(slots, acts)).toEqual([])
   })
 })
