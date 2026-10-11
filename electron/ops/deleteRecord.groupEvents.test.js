@@ -188,3 +188,89 @@ describe('restoring a cascaded event on its own', () => {
     expect(live('music')).toBeUndefined()
   })
 })
+
+const setTier = (id, tier) => write('groups', id, 'tier_id', tier)
+
+function divisionEvent(id, unitIds, kind = 'recurring') {
+  write('fixed_events', id, 'camp_id', 'camp1')
+  write('fixed_events', id, 'name', id)
+  write('fixed_events', id, 'kind', kind)
+  write('fixed_events', id, 'is_all_groups', 0)
+  write('fixed_events', id, 'unit_ids', JSON.stringify(unitIds))
+}
+
+describe('a division-scoped event when its division loses a group', () => {
+  it('is trashed with the division\'s last group and restored with it', () => {
+    group('b2', 'Badger 2')
+    setTier('b2', 'tier1')
+    divisionEvent('div', ['tier1'])
+    const p = previewDelete(db, { entity: 'groups', entity_id: 'b2' })
+    expect(p.fixed_event_count).toBe(1)
+    del()
+    expect(live('div')).toBeUndefined()
+    const r = restoreEntity(db, { entity: 'groups', entity_id: 'b2', ...session })
+    expect(r.ok).toBe(true)
+    expect(live('div')).toBeTruthy()
+    expect(JSON.parse(live('div').unit_ids)).toEqual(['tier1'])
+    expect(r.group_events.restored).toBe(1)
+  })
+
+  it('is untouched while the division still has another group', () => {
+    group('b2', 'Badger 2')
+    group('b3', 'Badger 3')
+    setTier('b2', 'tier1')
+    setTier('b3', 'tier1')
+    divisionEvent('div', ['tier1'])
+    const before = live('div')
+    del()
+    expect(live('div')).toEqual(before)
+  })
+
+  it('is untouched when another of its divisions still has groups', () => {
+    group('b2', 'Badger 2')
+    group('c1', 'Cub 1')
+    setTier('b2', 'tier1')
+    setTier('c1', 'tier2')
+    divisionEvent('div', ['tier1', 'tier2'])
+    del()
+    expect(live('div')).toBeTruthy()
+  })
+})
+
+describe('the delete preview and the delete agree', () => {
+  const snapshot = () => new Map(db.prepare('SELECT id, group_ids FROM fixed_events').all().map((r) => [r.id, r.group_ids]))
+
+  const fixtures = {
+    'sole-group event': () => { group('b2', 'B2'); event('e', { groupIds: ['b2'] }) },
+    'multi-group event': () => { group('b2', 'B2'); group('b3', 'B3'); event('e', { groupIds: ['b2', 'b3'] }) },
+    'all-groups event': () => { group('b2', 'B2'); event('e', { all: 1 }) },
+    'division event losing its last group': () => { group('b2', 'B2'); setTier('b2', 't1'); divisionEvent('e', ['t1']) },
+    'division event with groups remaining': () => {
+      group('b2', 'B2'); group('b3', 'B3'); setTier('b2', 't1'); setTier('b3', 't1'); divisionEvent('e', ['t1'])
+    },
+    'all of the above at once': () => {
+      group('b2', 'B2'); group('b3', 'B3'); group('c1', 'C1')
+      setTier('b2', 't1'); setTier('b3', 't2'); setTier('c1', 't2')
+      event('sole', { groupIds: ['b2'] }); event('multi', { groupIds: ['b2', 'b3'] }); event('all', { all: 1 })
+      divisionEvent('divLast', ['t1']); divisionEvent('divRemain', ['t2'])
+    },
+  }
+
+  for (const [label, build] of Object.entries(fixtures)) {
+    it(`counts exactly what is trashed and modified: ${label}`, () => {
+      build()
+      const p = previewDelete(db, { entity: 'groups', entity_id: 'b2' })
+      const before = snapshot()
+      const kindOf = new Map(db.prepare('SELECT id, kind FROM fixed_events').all().map((r) => [r.id, r.kind]))
+      del()
+      const after = snapshot()
+      const trashed = [...before.keys()].filter((id) => !after.has(id))
+      const modified = [...before.keys()].filter((id) => after.has(id) && after.get(id) !== before.get(id))
+      expect(p.fixed_event_count).toBe(trashed.length)
+      expect(p.fixed_event_trimmed_count).toBe(modified.length)
+      const kinds = { fixed: 0, recurring: 0 }
+      for (const id of trashed) kinds[kindOf.get(id) === 'recurring' ? 'recurring' : 'fixed'] += 1
+      expect(p.fixed_event_kind_counts).toEqual(kinds)
+    })
+  }
+})

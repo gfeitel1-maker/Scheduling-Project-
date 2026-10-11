@@ -4,6 +4,7 @@ import { nameFieldFor } from './restore.js'
 import { clearSlotOccupant } from './slotOccupants.js'
 import { toSnapshotSlot } from '../../src/utils/snapshotSlot.js'
 import { attachNames } from '../../src/utils/snapshotRemap.js'
+import { resolveFixedEventGroupIds } from '../../src/engine/fixedEventScope.js'
 
 // Deleting a setup record that a schedule uses.
 // docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md
@@ -129,25 +130,39 @@ function parseIds(raw) {
   }
 }
 
-// Events that name this group directly. An every-group event (is_all_groups) is
-// untouched; a division-scoped one (unit_ids / unit_id) resolves its groups live,
-// so it is not orphaned here even if this was the division's last group.
-// `sole` events target nobody once the group is gone and are trashed with it;
-// `trimmed` events keep their other groups and only lose this one.
-function groupEventEffects(db, group_id) {
+// THE cascade of a group delete onto events. previewDelete reports it and
+// deleteRecord applies it — one function, so the dialog's count cannot drift
+// from what the delete does.
+//
+// Scope is resolved live, the way the engine resolves it (fixedEventScope.js):
+//  - every-group events are untouched;
+//  - a division-scoped event (unit_ids / unit_id) is `sole` when this group is
+//    the last one left across its divisions — it would target nobody — and is
+//    otherwise untouched (its groups resolve live; nothing to trim);
+//  - a group-list event is `sole` when this is its only group, else `trimmed`.
+// `sole` events are trashed with the group; `trimmed` ones only lose it.
+export function groupDeleteCascade(db, group_id) {
   const sole = []
   const trimmed = []
+  const groups = db.prepare('SELECT id, tier_id FROM groups').all()
+  const others = groups.filter((g) => g.id !== group_id)
   const rows = db
-    .prepare(
-      "SELECT id, kind, group_ids, unit_ids, unit_id FROM fixed_events WHERE (is_all_groups IS NULL OR is_all_groups = 0) AND group_ids LIKE '%' || ? || '%'"
-    )
-    .all(group_id)
+    .prepare('SELECT id, kind, group_ids, unit_ids, unit_id FROM fixed_events WHERE is_all_groups IS NULL OR is_all_groups = 0')
+    .all()
   for (const row of rows) {
+    const unitIds = parseIds(row.unit_ids)
+    const divisionScoped = unitIds.filter(Boolean).length > 0 || (row.unit_id != null && row.unit_id !== '')
+    if (divisionScoped) {
+      const scope = { unit_ids: unitIds, unit_id: row.unit_id }
+      if (resolveFixedEventGroupIds(scope, groups).includes(group_id) && resolveFixedEventGroupIds(scope, others).length === 0) {
+        sole.push(row)
+      }
+      continue
+    }
     const ids = parseIds(row.group_ids)
     if (!ids.includes(group_id)) continue
     const remaining = ids.filter((g) => g !== group_id)
-    const divisionScoped = parseIds(row.unit_ids).length > 0 || !!row.unit_id
-    if (remaining.length === 0 && !divisionScoped) sole.push(row)
+    if (remaining.length === 0) sole.push(row)
     else trimmed.push({ id: row.id, remaining })
   }
   return { sole, trimmed }
@@ -155,7 +170,7 @@ function groupEventEffects(db, group_id) {
 
 function dependentEvents(db, entity, entity_id) {
   if (entity === 'days_of_operation') return fixedEventRows(db, entity_id)
-  if (entity === 'groups') return groupEventEffects(db, entity_id).sole
+  if (entity === 'groups') return groupDeleteCascade(db, entity_id).sole
   return []
 }
 
@@ -285,6 +300,7 @@ export function previewDelete(db, { entity, entity_id }) {
 
   const rows = slotRows(db, entity, entity_id)
   const { routes, unprotected_count } = routesFor(db, rows)
+  const dependents = dependentEvents(db, entity, entity_id)
 
   return {
     ok: true,
@@ -295,8 +311,10 @@ export function previewDelete(db, { entity, entity_id }) {
     slot_count: rows.length,
     routes,
     unprotected_count,
-    fixed_event_count: dependentEvents(db, entity, entity_id).length,
-    fixed_event_kind_counts: fixedEventKindCounts(dependentEvents(db, entity, entity_id)),
+    fixed_event_count: dependents.length,
+    fixed_event_kind_counts: fixedEventKindCounts(dependents),
+    // Events that keep their other groups and only lose this one.
+    fixed_event_trimmed_count: entity === 'groups' ? groupDeleteCascade(db, entity_id).trimmed.length : 0,
     weather_dependent_count: entity === 'activities' ? weatherDependents(db, entity_id).length : 0,
     // T194: campers whose group_id points here. Reported, never cascaded.
     camper_count: entity === 'groups' ? camperDependents(db, entity_id) : 0,
@@ -630,7 +648,7 @@ export function deleteRecord(db, { entity, entity_id, expected_slot_count, autho
         ops.push(...removeSlotRows(db, rows, { author_user_id, device_id }))
         // The batch tag rides on client_write_id (unique per op, so the index holds)
         // so restore finds exactly what THIS delete did to events.
-        const { sole, trimmed } = groupEventEffects(db, entity_id)
+        const { sole, trimmed } = groupDeleteCascade(db, entity_id)
         for (const e of sole) {
           ops.push(appendOp(db, { entity: 'fixed_events', entity_id: e.id, field: DELETE_FIELD, value: 1, author_user_id, device_id, client_write_id: `${cascadeBatch}:${e.id}` }))
         }
