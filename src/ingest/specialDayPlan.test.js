@@ -307,3 +307,58 @@ describe('activityNameKey', () => {
     expect(k('Lunch 2')).not.toBe(k('Lunch 3'))
   })
 })
+
+describe('buildSpecialDayPlan — meals and camp events are events, never catalogue activities', () => {
+  const file = proposeSpecialDay([{
+    title: 'Color War Day',
+    columns: ['Lil Chai', 'Chaverim'],
+    rows: [
+      { label: '9:15-9:45', cells: ['Lunch', 'Lunch'] },
+      { label: '10:15', cells: ['Mifkad', 'Pool'] },
+    ],
+  }])
+  const live = { groups, activities: [{ id: 'fe-act', name: 'Flag Raising' }], specialDays: [], fixedEvents: [{ name: 'mifkad ', activity_id: 'fe-act' }] }
+  const p = buildSpecialDayPlan(file, live)
+
+  it('keeps a meal name out of newActivityNames and lists it as an event', () => {
+    expect(p.newActivityNames).toEqual(['Pool'])
+    expect(p.eventNames).toContain('Lunch')
+  })
+
+  it('keeps a camp fixed-event name out of newActivityNames and binds it to the event\'s activity', () => {
+    expect(p.newActivityNames).not.toContain('Mifkad')
+    expect(p.reusedActivityNames).toContain('Mifkad')
+    expect(p.activities.find((a) => a.name === 'Mifkad').activityId).toBe('fe-act')
+  })
+
+  it('reuses a live marker of that key instead of minting another', () => {
+    const q = buildSpecialDayPlan(file, { ...live, activities: [{ id: 'm1', name: 'Lunch', catalog_role: 'pinned_event' }] })
+    expect(q.activities.find((a) => a.name === 'Lunch').activityId).toBe('m1')
+    expect(q.newActivityNames).toEqual(['Pool'])
+    expect(q.eventNames).not.toContain('Lunch')
+  })
+})
+
+describe('buildSpecialDayPlan — a fixed event whose activity is gone', () => {
+  const file = proposeSpecialDay([{
+    title: 'Color War Day',
+    columns: ['Lil Chai', 'Chaverim'],
+    rows: [
+      { label: '9:15-9:45', cells: ['Pool', 'Pool'] },
+      { label: '10:15', cells: ['Mifkad', 'Ga Ga'] },
+    ],
+  }])
+
+  it('treats a dangling activity_id as an unresolved event: listed in eventNames, not reused', () => {
+    const p = buildSpecialDayPlan(file, { groups, activities: [], specialDays: [], fixedEvents: [{ name: 'Mifkad', activity_id: 'gone' }] })
+    expect(p.eventNames).toContain('Mifkad')
+    expect(p.reusedActivityNames).not.toContain('Mifkad')
+    expect(p.activities.find((a) => a.name === 'Mifkad').activityId).toBeNull()
+  })
+
+  it('matches a fixed event name ignoring spacing: "Ga Ga" is the event "GaGa"', () => {
+    const p = buildSpecialDayPlan(file, { groups, activities: [{ id: 'm', name: 'Other' }], specialDays: [], fixedEvents: [{ name: 'GaGa', activity_id: 'm' }] })
+    expect(p.newActivityNames).not.toContain('Ga Ga')
+    expect(p.activities.find((a) => a.name === 'Ga Ga').activityId).toBe('m')
+  })
+})

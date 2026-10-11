@@ -28,7 +28,7 @@ import { activityTruthStatus } from '../../src/ingest/truthStatus.js'
 import { resolveLocationCreateId } from './locationCreate.js'
 import { deriveDayId } from './dayId.js'
 import { PROJECTIONS } from './projections.js'
-import { matchExistingActivity } from '../../src/ingest/specialDayPlan.js'
+import { resolveSpecialDayName } from '../../src/ingest/specialDayPlan.js'
 import { defaultWeekId, defaultWeekFields } from '../../src/ingest/defaultWeek.js'
 import { deriveElectiveImportId } from '../../src/ingest/electiveSetPopulate.js'
 import { writeRouteSnapshot, campCatalog } from './deleteRecord.js'
@@ -3054,18 +3054,22 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       let activitiesCreated = 0
       const activityIdByName = new Map()
       const liveActivities = db.prepare('SELECT id, name FROM activities WHERE camp_id = ?').all(camp_id)
+      const liveEvents = db.prepare('SELECT name, activity_id FROM fixed_events WHERE camp_id = ?').all(camp_id)
+      const activityLive = db.prepare('SELECT 1 FROM activities WHERE id = ? AND camp_id = ?')
       for (const a of sd.activities ?? []) {
-        const match = matchExistingActivity(a.name, liveActivities, aliasedActivities)
+        const match = resolveSpecialDayName(a.name, liveActivities, aliasedActivities, liveEvents)
         if (match.ambiguous) throw new Error(`"${a.name}" matches more than one activity; nothing was written.`)
-        if (match.activityId) { activityIdByName.set(a.name, match.activityId); continue }
+        if (match.activityId && activityLive.get(match.activityId, camp_id)) { activityIdByName.set(a.name, match.activityId); continue }
         const id = deriveSpecialDayActivityId(camp_id, a.name)
         // A row under the derived id is already present (the director may have renamed it since the last
         // import): reuse it, never write the imported name back over theirs.
         if (!db.prepare('SELECT 1 FROM activities WHERE id = ?').get(id)) {
           sdOp('activities', id, 'name', a.name)
           sdOp('activities', id, 'camp_id', camp_id)
+          // A meal or camp-event name is an event, never a catalogue activity (same marker the weekly import mints).
+          if (match.eventLike) sdOp('activities', id, 'catalog_role', 'pinned_event')
           liveActivities.push({ id, name: a.name })
-          activitiesCreated += 1
+          if (!match.eventLike) activitiesCreated += 1
         }
         activityIdByName.set(a.name, id)
       }

@@ -61,4 +61,20 @@ describe('mockShoresh.ingestCommit — specialDay', () => {
     expect(state.special_days).toHaveLength(1)
     expect(out.specialDay).toMatchObject({ created: false })
   })
+
+  it('mints a meal as a pinned_event marker and reuses a camp fixed event\'s activity', async () => {
+    const stateKey = JSON.parse(globalThis.localStorage.getItem(STORE_KEY))
+    stateKey.activities.push({ id: 'a2', camp_id: 'camp1', name: 'Flag Raising', catalog_role: 'pinned_event' })
+    stateKey.fixed_events = [{ id: 'fe1', camp_id: 'camp1', name: 'Mifkad', activity_id: 'a2' }]
+    globalThis.localStorage.setItem(STORE_KEY, JSON.stringify(stateKey))
+    const { mockShoresh } = await import('./localClient.mock.js')
+    const d = day()
+    d.activities = [{ name: 'Lunch', activityId: null }, { name: 'Mifkad', activityId: null }]
+    d.slots = [{ columnName: 'Red', blockName: '9:15', activityName: 'Lunch' }]
+    const out = await mockShoresh.ingestCommit({ approved: {}, links: {}, mode: 'add', specialDay: d })
+    const state = JSON.parse(globalThis.localStorage.getItem(STORE_KEY))
+    expect(state.activities.filter((a) => a.name === 'Lunch')).toMatchObject([{ catalog_role: 'pinned_event' }])
+    expect(state.activities.some((a) => a.name === 'Mifkad')).toBe(false)
+    expect(out.specialDay.activitiesCreated).toBe(0)
+  })
 })

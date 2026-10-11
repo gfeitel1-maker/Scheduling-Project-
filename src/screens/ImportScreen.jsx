@@ -575,15 +575,17 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
         setProposal(null)
         // Slice 3b — resolved against the camp's LIVE rows, so the director is
         // shown what this day would actually add before agreeing to any of it.
-        // A read failure here degrades to a plan with nothing matched, which is
-        // not-ready and therefore cannot commit — never to a silent build.
-        const [liveGroups, liveActivities, liveSpecialDays, liveDays, reconciled] = await Promise.all([
+        // A failed groups/special-days read degrades to a plan that is not ready and cannot commit. A failed
+        // fixed_events read does NOT block: the preview then lists a camp event as a new activity, while the commit
+        // (which reads fixed_events itself) mints it as an event marker.
+        const [liveGroups, liveActivities, liveSpecialDays, liveDays, reconciled, liveFixedEvents] = await Promise.all([
           localClient.list('groups').catch(() => []),
           localClient.list('activities').catch(() => []),
           localClient.list('special_days').catch(() => []),
           localClient.list('days_of_operation').catch(() => []),
           // The camp's confirmed aliases, so the preview matches names exactly as the commit will.
           localClient.ingestReconcile({ approved: {}, links: {} }).catch(() => null),
+          localClient.list('fixed_events').catch(() => []),
         ])
         const resolved = resolveSpecialDayPlacement({
           texts: files.length === 1 ? [files[0].name, specialDay.name] : [specialDay.name], days: liveDays ?? [], weeks: importWeeks, weekId: openWeekId,
@@ -592,6 +594,7 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
         setSpecialDayPlacement({ weekId: resolved.placement?.weekId ?? '', dayId: resolved.dayId ?? '', flag: resolved.flag })
         setSpecialDayPlan(buildSpecialDayPlan(specialDay, {
           groups: liveGroups ?? [], activities: liveActivities ?? [], specialDays: liveSpecialDays ?? [],
+          fixedEvents: liveFixedEvents ?? [],
           aliases: new Map(reconciled?.activityAliases ?? []),
         }))
         return
@@ -1743,6 +1746,11 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
               {specialDayPlan.newActivityNames.length === 1 ? 'activity' : 'activities'} to your camp:{' '}
               {specialDayPlan.newActivityNames.join(', ')}. These stay in your activities even if you
               delete this day afterwards.
+            </p>
+          )}
+          {specialDayPlan.eventNames?.length > 0 && (
+            <p style={{ margin: '0 0 8px', fontSize: 13 }}>
+              Shows as events, not activities: {specialDayPlan.eventNames.join(', ')}.
             </p>
           )}
           {specialDayPlan.reusedActivityNames?.length > 0 && (

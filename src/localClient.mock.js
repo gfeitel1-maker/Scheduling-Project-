@@ -10,7 +10,8 @@
 import { buildPlan, CLEAR } from './ingest/buildPlan.js'
 import { INGESTIBLE_ENTITIES } from './ingest/extractEntities.js'
 import { domainOf, childOf } from './components/reconciliation/domainRollup.js'
-import { normalizeName, recognitionKey } from './ingest/preview.js'
+import { normalizeName, recognitionKey, activityNameKey } from './ingest/preview.js'
+import { isMealName } from './ingest/eventKeptWhenUnanswered.js'
 // S2c: the SAME pure field-update helpers the real committer uses, so the mock's
 // fold/snapshot/validation cannot drift from electron/ops/ingest.js.
 import { foldApprovedToRecords, enrichSnapshotRow, resolveFieldWrite, dbFieldFor } from './ingest/fieldUpdate.js'
@@ -1596,10 +1597,13 @@ export const mockShoresh = {
         for (const a of specialDay.activities ?? []) {
           const live = state.activities.find((r) => r.camp_id === campId && norm(r.name) === norm(a.name))
           if (live) { activityIdByName.set(a.name, live.id); continue }
+          const event = (state.fixed_events ?? []).find((e) => e.camp_id === campId && activityNameKey(e.name) === activityNameKey(a.name))
+          if (event?.activity_id && state.activities.some((r) => r.id === event.activity_id)) { activityIdByName.set(a.name, event.activity_id); continue }
+          const eventLike = isMealName(a.name) || !!event
           const id = randomId()
-          state.activities.push({ id, camp_id: campId, name: a.name })
+          state.activities.push({ id, camp_id: campId, name: a.name, ...(eventLike ? { catalog_role: 'pinned_event' } : {}) })
           activityIdByName.set(a.name, id)
-          activitiesCreated += 1
+          if (!eventLike) activitiesCreated += 1
         }
         const blockIdByName = new Map()
         for (const b of specialDay.timeBlocks ?? []) {
