@@ -427,8 +427,8 @@ export function listImportEvidence(db, camp_id, { entity_type, entity_id } = {})
 // re-flagging it forever. This flips the evidence row's tag from 'unknown'
 // to 'inferred' so the SAME field self-heals on the next report build,
 // without touching the committed field value or its op-log source.
-// Not called from inside commitPlan's transaction — this is a standalone
-// upsert, same host-local table, matching writeEvidence's own discipline.
+// Called inside commitPlan's transaction (the create and unchanged/update arms), after the
+// 'unknown' rows are written; same host-local table, matching writeEvidence's own discipline.
 export function confirmUnknownFieldEvidence(db, { camp_id, entity_type, entity_id, field, author_user_id = null }) {
   const existing = db
     .prepare('SELECT tag FROM import_evidence WHERE camp_id = ? AND entity_type = ? AND entity_id = ? AND field = ?')
@@ -1784,6 +1784,13 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
           support: { reason: 'no priority in source; never inferred or judged' },
           import_run_id: evidenceRunId, committed_at: evidenceCommittedAt,
         })
+      }
+      // A field the director already accepted (the review flag's dismiss) is confirmed from the first import.
+      for (const field of UNKNOWN_FIELD_CANDIDATES) {
+        const res = resolutionFor('activities', item._name, field)
+        if (res?.reason === 'unknown_field' && res.choice === 'confirm') {
+          confirmUnknownFieldEvidence(db, { camp_id, entity_type: 'activities', entity_id: entityId, field, author_user_id })
+        }
       }
       // recurrence_truth_status classifier (ADR §3.2/§3.4/§4.1). Only computed
       // when the director hasn't already hand-set it earlier in THIS same

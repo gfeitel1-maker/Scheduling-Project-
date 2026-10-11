@@ -113,7 +113,7 @@ function seedCamp(key = randomUUID()) {
 }
 
 // The director's import path: dry run -> report -> answers -> fold -> real commit (openDecisions as the screen sends them).
-function importFile(d, id, text, { answerFor = () => null, mode = 'add' } = {}) {
+function importFile(d, id, text, { answerFor = () => null, mode = 'add', acceptUnknownFields = false } = {}) {
   const parsed = parseTextGrid(text)
   const proposal = extractEntities(parsed)
   // As ImportScreen does: the camp's own time-block names, so a re-import recognizes its named periods.
@@ -201,6 +201,12 @@ function importFile(d, id, text, { answerFor = () => null, mode = 'add' } = {}) 
     allGroupNames: proposal.entities.groups ?? [],
   })
   const answers = Object.fromEntries(report.decisions.map((dec) => [dec.id, answerFor(dec)]).filter(([, a]) => a))
+  // The review's "Low is fine" / "Leave as is" on the unknown-field flags, keyed exactly as the screen keys them.
+  if (acceptUnknownFields) {
+    for (const [field, names] of Object.entries(report.unknownFields ?? {})) {
+      if (names.length > 0) answers[`unknown_fields:${field}`] = { choice: 'accept', names }
+    }
+  }
   const folded = foldTriageInputs(baseInputs, report.decisions, answers)
   const committed = commitIngest(d, { ...common, ...baseInputs, ...folded, openDecisions: heldBackDecisions(report.decisions, answers) })
   return { parsed, proposal, placements: folded.placements ?? placements, pinOnly, dualUseNames, dry, report, answers, committed }
@@ -727,13 +733,22 @@ async function runCamp(m) {
   zero.d.close()
 
   const all = seedCamp(`${m.slug}:all`)
-  const a = safe(() => importFile(all.d, all.id, text, { answerFor: CONFIRM_ALL }))
+  const a = safe(() => importFile(all.d, all.id, text, { answerFor: CONFIRM_ALL, acceptUnknownFields: true }))
   rec.stages.confirmAll = a.ok ? { ok: true, held: a.value.committed.held } : { ok: false, error: a.error }
   if (a.ok) {
     rec.confirmAll = evaluateImport(m, all.d, all.id, a.value)
     rec.confirmAllFaithful = evaluateFaithful(m, all.d, all.id, a.value)
     rec.confirmAllGenerate = evaluateGenerate(m, all.d, all.id, a.value)
     rec.confirmAllManual = await evaluateManual(m, all.d, all.id, a.value).catch((e) => ({ error: String(e?.message ?? e).slice(0, 300) }))
+    // Accepting the unknown-field flags confirms the evidence, so a Keep re-import has nothing left to flag
+    // for an activity the first import kept (one it held back is created, unconfirmed, by the re-import).
+    const keptByFirst = new Set(all.d.prepare('SELECT name FROM activities WHERE camp_id = ?').all(all.id).map((r) => normalizeName(r.name)))
+    const again = safe(() => importFile(all.d, all.id, text, { mode: 'add' }))
+    // Positive control: the first import did flag something, so an empty list after Keep is earned.
+    rec.confirmAllFlaggedFirst = (a.value.report.unknownFields?.priority?.length ?? 0) + (a.value.report.unknownFields?.min_per_week?.length ?? 0)
+    rec.confirmAllUnknownAfterKeep = again.ok
+      ? Object.fromEntries(Object.entries(again.value.report.unknownFields).map(([f, names]) => [f, names.filter((n) => keptByFirst.has(normalizeName(n)))]))
+      : { error: again.error }
   }
   all.d.close()
   return rec
@@ -925,6 +940,10 @@ describe('synthetic corpus: 15 fictional camps through the real pipeline', () =>
     })
     hard('re-import with Keep writes zero new records', (r) => {
       expect(r.reimportKeep).toEqual({ ok: true, newRecords: {} })
+    })
+    hard('accepting the unknown-field flags leaves nothing flagged on a Keep re-import', (r) => {
+      expect(r.confirmAllUnknownAfterKeep).toEqual({ priority: [], min_per_week: [] })
+      expect(r.confirmAllFlaggedFirst).toBeGreaterThan(0)
     })
     hard(KEEP_ASKS_NOTHING, (r) => {
       expect(r.keepAfterReplace).toEqual({ ok: true, questionsAsked: [], createQuestionsForExisting: [], newRecords: {} })

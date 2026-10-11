@@ -1359,6 +1359,19 @@ describe('per-field UNKNOWN evidence at import (2026-08-20 ADR)', () => {
     expect(stillUnknown.has(`${activityId}:priority`)).toBe(false)
   })
 
+  it('a confirm resolution on a CREATE writes the unknown fields as confirmed, so they are never unknown from the first import', () => {
+    commitIngest(db, {
+      approved: { activities: ['Drama'] },
+      activityRules: { Drama: { eligible_group_names: null, min_per_week: 1, max_per_week: 2, priority: null } },
+      resolutions: [{ entity: 'activities', name: 'Drama', field: 'priority', reason: 'unknown_field', choice: 'confirm' }],
+      camp_id: campId, author_user_id: 'u1', device_id: deviceId,
+    })
+    const activityId = db.prepare('SELECT id FROM activities WHERE name = ?').get('Drama').id
+    const priorityRow = evidenceRows('activities', activityId).find((r) => r.field === 'priority')
+    expect(priorityRow.tag).toBe('inferred')
+    expect(JSON.parse(priorityRow.support).confirmedBy).toBe('u1')
+  })
+
   // Review round follow-up (HIGH): inferActivityRules ALSO floors
   // min_per_week to 1 for a never-observed activity (appearances===0 ->
   // perWeek rounds to 0 -> floored to 1), so the REAL mainstream import path
