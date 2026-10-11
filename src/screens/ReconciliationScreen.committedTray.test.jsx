@@ -19,9 +19,11 @@ vi.mock('../localClient', () => ({
   },
 }))
 
+const grace = vi.hoisted(() => ({ status: 'used' }))
+
 vi.mock('../hooks/useGraceWindowUndo', () => ({
   useGraceWindowUndo: () => ({
-    status: 'used',
+    status: grace.status,
     isPending: false,
     secondsLeft: null,
     undoError: null,
@@ -81,5 +83,31 @@ describe('CommittedTray receipt placement', () => {
     )
     expect(screen.queryByText(/saved as a version/)).toBeNull()
     expect(screen.queryByRole('button', { name: 'Open it in Manual' })).toBeNull()
+  })
+
+  it('counts what the director recognizes: elective join rows are not records', () => {
+    grace.status = 'expired'
+    try {
+      render(
+        <ReconciliationScreen
+          phase="committed"
+          outcome={{
+            invertibleOps: [{}],
+            createdEntityIds: [
+              { entity: 'elective_sets', entity_id: 's1' },
+              { entity: 'activities', entity_id: 'a1' },
+              { entity: 'activities', entity_id: 'a2' },
+              { entity: 'elective_set_activities', entity_id: 'j1' },
+              { entity: 'elective_set_activities', entity_id: 'j2' },
+            ],
+          }}
+          notices={[]}
+          onNavigate={vi.fn()}
+        />
+      )
+      expect(screen.getByText(/Imported 3 records from the file\./)).toBeTruthy()
+    } finally {
+      grace.status = 'used'
+    }
   })
 })
