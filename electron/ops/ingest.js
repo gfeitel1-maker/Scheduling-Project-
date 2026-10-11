@@ -3246,6 +3246,29 @@ export function ingestUndo(db, { invertibleOps, createdEntityIds = [], importRun
     // undone together" case still resolves correctly because activities is
     // ordered before locations: Kayaking is confirmed deletable (nothing
     // else points at it) and lands in excludeSet before Lake's own check runs.
+    // A set that stays (a director-added choice or an occurrence still points
+    // at it) keeps ALL its import-minted choices: drop the set and its join
+    // rows from the candidates so no partial membership remains.
+    const joinsBySet = new Map()
+    for (const { entity, entity_id } of candidateSet.values()) {
+      if (entity !== 'elective_set_activities') continue
+      const setId = db.prepare('SELECT elective_set_id FROM elective_set_activities WHERE id = ?').get(entity_id)?.elective_set_id
+      if (!joinsBySet.has(setId)) joinsBySet.set(setId, [])
+      joinsBySet.get(setId).push(entity_id)
+    }
+    for (const { entity, entity_id } of [...candidateSet.values()]) {
+      if (entity !== 'elective_sets') continue
+      const joins = joinsBySet.get(entity_id) ?? []
+      const blockers = referencesInto(db, entity, entity_id, new Set(joins.map((j) => `elective_set_activities:${j}`)))
+      if (blockers.length === 0) continue
+      kept.push({
+        entity, entity_id, name: nameOf(entity, entity_id),
+        reason: 'still_referenced', referencedByCount: blockers.length,
+      })
+      candidateSet.delete(`${entity}:${entity_id}`)
+      for (const j of joins) candidateSet.delete(`elective_set_activities:${j}`)
+    }
+
     const candidatesByEntity = new Map() // entity -> [entity_id, ...]
     for (const { entity, entity_id } of candidateSet.values()) {
       if (!candidatesByEntity.has(entity)) candidatesByEntity.set(entity, [])

@@ -680,4 +680,31 @@ describe('F6 — undoing an import removes the elective sets it minted', () => {
     expect(count('elective_set_activities')).toBe(0)
     expect(count('activities')).toBe(0)
   })
+
+  it('keeps the whole set (all choices) when a director-added choice still references it', () => {
+    const res = commitIngest(db, {
+      approved: {}, camp_id: campId, device_id: deviceId, captureInverse: true,
+      confirmedElectiveSets: [{ name: 'Chugim', choices: ['Fishing', 'Hiking'] }],
+    })
+    const count = (t) => db.prepare(`SELECT COUNT(*) c FROM ${t}`).get().c
+    const setId = db.prepare('SELECT id FROM elective_sets').get().id
+    const extra = randomUUID()
+    const joinId = randomUUID()
+    const w = (entity, entity_id, field, value) => appendOp(db, { entity, entity_id, field, value, author_user_id: 'u1', device_id: deviceId, parent_op_id: null, source: 'human', client_write_id: randomUUID() })
+    w('activities', extra, 'name', 'Archery')
+    w('activities', extra, 'camp_id', campId)
+    w('elective_set_activities', joinId, 'elective_set_id', setId)
+    w('elective_set_activities', joinId, 'activity_id', extra)
+    w('elective_set_activities', joinId, 'status', 'potential')
+    expect(count('elective_set_activities')).toBe(3)
+
+    const undo = ingestUndo(db, {
+      invertibleOps: res.invertibleOps, createdEntityIds: res.createdEntityIds,
+      author_user_id: 'u1', device_id: deviceId, client_write_id: randomUUID(),
+    })
+    expect(undo.kept.map((k) => k.entity)).toContain('elective_sets')
+    expect(count('elective_sets')).toBe(1)
+    expect(count('elective_set_activities')).toBe(3)
+    expect(count('activities')).toBe(3)
+  })
 })
