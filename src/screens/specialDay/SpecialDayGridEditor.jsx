@@ -22,7 +22,7 @@ import SpecialDayCell from './SpecialDayCell'
 import SpecialDayPlacements from './SpecialDayPlacements'
 import FailureLine from './FailureLine'
 import RecurringOfferLine from './RecurringOfferLine'
-import { copyCampTimeBlocks } from './copyCampTimeBlocks'
+import { copyCampTimeBlocks, offerForPlacedDay } from './copyCampTimeBlocks'
 import { seedFailureMessage } from './seedFailureMessage'
 import GridEditorFrame from '../../components/schedule/GridEditorFrame'
 
@@ -34,7 +34,7 @@ const LABELS = {
   printAction: 'Print',
   locationPlaceholder: '— No location —',
   locationAddHint: '+ location',
-  notPlacedNote: 'Brought your every-day events. Put this special day on a weekday to bring that day\u2019s other events.',
+  notPlacedNote: 'Lunch waves differ by weekday \u2014 place this day to bring them',
   deletedElsewhere: 'This special day was deleted.',
 }
 
@@ -227,14 +227,26 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
     setOffer(outcome.offer)
     if (outcome.cellFailure) setError(outcome.cellFailure)
     setCopyNote(outcome.notice)
-    setNotPlaced(outcome.carriedCount > 0 && !outcome.placed)
+    setNotPlaced(Boolean(outcome.varies) && !outcome.placed)
   }
 
-  const bringOffered = () => exclusive(bringOfferedOnce)
-
-  async function bringOfferedOnce() {
+  // Placing the day on a weekday opens that weekday's offer on its own, so a lunch wave is not missed.
+  async function onPlaced() {
+    setNotPlaced(false)
+    setCopyNote(null)
     try {
-      const result = await offer.apply()
+      const found = await offerForPlacedDay({ campId, specialDayId })
+      if (found) setOffer(found)
+    } catch (err) {
+      setError(describeWriteFailure(err, 'Could not look up that weekday\u2019s recurring events.'))
+    }
+  }
+
+  const bringOffered = (keys) => exclusive(() => bringOfferedOnce(keys))
+
+  async function bringOfferedOnce(keys) {
+    try {
+      const result = await offer.apply(keys)
       if (result.failure) setError(result.failure)
       else setOffer(null)
       if (result.notice) setCopyNote(result.notice)
@@ -379,12 +391,13 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
           specialDayId={specialDayId}
           specialDayName={specialDay.name}
           onDeletedElsewhere={onDeletedElsewhere}
+          onPlaced={onPlaced}
         />
       }
       banners={(
         <>
           {error && <FailureLine message={error} />}
-          {offer?.specialDayId === specialDayId && <RecurringOfferLine offer={offer} busy={busy} onBring={bringOffered} onSkip={() => setOffer(null)} />}
+          {offer?.specialDayId === specialDayId && <RecurringOfferLine key={`${offer.dayLabel}-${offer.count}`} offer={offer} busy={busy} onBring={bringOffered} onSkip={() => setOffer(null)} />}
           {notPlaced && <div style={noteStyle}>{LABELS.notPlacedNote}</div>}
           {copyNote && <div style={noteStyle}>{copyNote}</div>}
         </>

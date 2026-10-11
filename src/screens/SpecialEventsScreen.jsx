@@ -37,6 +37,7 @@ const LABELS = {
   emptyMessage: 'No special events yet.',
   namePlaceholder: 'Color War',
   seedPrompt: 'Start from your time blocks?',
+  varyNote: 'Lunch waves differ by weekday \u2014 place this day to bring them',
   seedFromBlocks: 'Copy time blocks',
   startEmpty: 'Empty',
   createdHint: (name) => `"${name}" created — build it from Special Schedules under Schedule.`,
@@ -343,10 +344,10 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
     try { await fn() } finally { busyRef.current = false; setBusy(false) }
   }
 
-  function bringOffered() {
+  function bringOffered(keys) {
     return exclusive(async () => {
       try {
-        const result = await offer.apply()
+        const result = await offer.apply(keys)
         if (result.failure) setError(result.failure)
         else {
           setOffer(null)
@@ -378,7 +379,7 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
       return
     }
     setOffer(outcome.offer)
-    setNote(outcome.notice)
+    setNote(outcome.notice ?? (outcome.varies && !outcome.placed ? LABELS.varyNote : null))
     if (outcome.cellFailure) setError(outcome.cellFailure)
     setToast(LABELS.createdHint(days.find((d) => d.id === specialDayId)?.name ?? 'Special Day'))
   }

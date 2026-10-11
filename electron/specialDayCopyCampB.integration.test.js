@@ -65,6 +65,7 @@ describe('copyCampTimeBlocks on campB committed rows', () => {
   it('carries each group\'s own lunch wave and Busses, and nothing into groups without that wave', async () => {
     const r = await copyCampTimeBlocks({ campId, specialDayId: SD })
     expect(r.cellFailure).toBeNull()
+    expect(r.varies).toBe(true)
     const actName = new Map(tables.activities.map((a) => [a.id, a.name]))
     const groupName = new Map(tables.groups.map((g) => [g.id, g.name]))
     const byAct = (name) => slots.filter((s) => actName.get(s.activity_id) === name)

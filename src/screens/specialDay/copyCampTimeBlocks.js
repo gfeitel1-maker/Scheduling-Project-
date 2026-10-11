@@ -50,7 +50,7 @@ function splitFixedEvents(fixedEvents, groups, placedDayId, operatingDayIds) {
   const offered = placedDayId
     ? live.filter((ev) => !carriedRows.has(ev) && (ev.day_id === placedDayId || (ev.kind === 'recurring' && isEveryDay(ev))))
     : []
-  return { carry, offered }
+  return { carry, offered, varies: live.some((ev) => !carriedRows.has(ev)) }
 }
 
 // Cells (one per group x spanned block) an event fills, in the special day's
@@ -63,9 +63,11 @@ function cellsFor(events, groups, campBlocks, blockIdMap) {
     if (head < 0) continue
     const groupIds = resolveFixedEventGroupIds(ev, groups)
     for (const b of campBlocks.slice(head, head + (ev.span_blocks || 1))) {
+      const blockId = blockIdMap.get(b.id)
+      if (!blockId) continue
       for (const groupId of groupIds) {
         cells.push({
-          eventName: ev.name, groupId, groupName: groupName.get(groupId), blockId: blockIdMap.get(b.id),
+          eventName: ev.name, groupId, groupName: groupName.get(groupId), blockId,
           blockLabel: timeBlockLabel(b), activityId: ev.activity_id, locationId: ev.location_id,
         })
       }
@@ -135,6 +137,58 @@ async function placeCells(specialDayId, cells) {
   return { written, failed: [...failed], skipped }
 }
 
+// The offer: one entry per offered event (so the director can untick one), and apply(keys)
+// places only the ticked ones. Events are keyed by their row id.
+function makeOffer({ specialDayId, offered, groups, scoped, blockIdMap, dayLabel }) {
+  if (!offered.length) return null
+  return {
+    count: offered.length,
+    dayLabel,
+    specialDayId,
+    events: offered.map((ev) => ({ key: ev.id, name: ev.name })),
+    apply: async (keys) => {
+      const stillThere = (await localClient.list('special_days') || []).some((d) => d.id === specialDayId)
+      if (!stillThere) return { written: 0, failure: 'This special day was deleted.', notice: null }
+      const chosen = keys ? offered.filter((ev) => keys.includes(ev.id)) : offered
+      const r = await placeCells(specialDayId, cellsFor(chosen, groups, scoped, blockIdMap))
+      return {
+        written: r.written,
+        failure: r.failed.length ? bringFailureMessage(r.failed, r.written) : null,
+        notice: r.skipped.length ? r.skipped.join('; ') : null,
+      }
+    },
+  }
+}
+
+// The offer for a special day that has just been placed on one weekday, without copying blocks
+// again. The camp blocks were copied one-to-one, so a special-day block is matched to its camp
+// block by position and name; a block renamed since is skipped rather than guessed at.
+export async function offerForPlacedDay({ campId, specialDayId }) {
+  const [campBlocks, dayBlocks, events, groupRows, days, placements] = await Promise.all([
+    localClient.list('time_blocks'),
+    localClient.list('special_day_time_blocks'),
+    localClient.list('fixed_events'),
+    localClient.list('groups'),
+    localClient.list('days_of_operation'),
+    localClient.list('special_day_placements'),
+  ])
+  const bySort = (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
+  const scoped = (campBlocks || []).filter((b) => b.camp_id === campId).sort(bySort)
+  const own = (dayBlocks || []).filter((b) => b.special_day_id === specialDayId).sort(bySort)
+  const blockIdMap = new Map()
+  scoped.forEach((b, i) => { if (own[i] && own[i].name === b.name) blockIdMap.set(b.id, own[i].id) })
+  const placedDayIds = [...new Set((placements || []).filter((p) => p.special_day_id === specialDayId).map((p) => p.day_id))]
+  if (placedDayIds.length !== 1 || blockIdMap.size === 0) return null
+  const groups = (groupRows || []).filter((g) => g.camp_id === campId)
+  const fixedEvents = (events || [])
+    .filter((ev) => ev.camp_id === campId)
+    .map((ev) => ({ ...ev, group_ids: parseIdList(ev.group_ids), unit_ids: parseIdList(ev.unit_ids) }))
+  const operating = (days || []).filter((d) => d.camp_id === campId)
+  const { offered } = splitFixedEvents(fixedEvents, groups, placedDayIds[0], operating.map((d) => d.id))
+  const day = operating.find((d) => d.id === placedDayIds[0])
+  return makeOffer({ specialDayId, offered, groups, scoped, blockIdMap, dayLabel: day?.label || day?.day_of_week || 'another day' })
+}
+
 // The one copy path behind both "Start from your time blocks?" (right after a
 // Special Day is created) and the Copy time blocks action on an empty special
 // schedule. Sequential writes, not a transaction: on a failure the thrown error
@@ -184,7 +238,7 @@ export async function copyCampTimeBlocks({ campId, specialDayId }) {
     }
     const multiDay = placedDayIds.length > 1
     const placedDayId = placedDayIds.length === 1 ? placedDayIds[0] : null
-    const { carry, offered } = splitFixedEvents(fixedEvents, groups, placedDayId, (days || []).filter((d) => d.camp_id === campId).map((d) => d.id))
+    const { carry, offered, varies } = splitFixedEvents(fixedEvents, groups, placedDayId, (days || []).filter((d) => d.camp_id === campId).map((d) => d.id))
 
     const placedCarry = await placeCells(specialDayId, cellsFor(carry, groups, scoped, blockIdMap))
     const notices = [...placedCarry.skipped]
@@ -192,27 +246,11 @@ export async function copyCampTimeBlocks({ campId, specialDayId }) {
       notices.push(`This special day is on ${placedDayIds.map(dayLabel).join(' and ')}, so recurring events aren't offered. Add them by hand.`)
     }
 
-    let offer = null
-    if (offered.length) {
-      offer = {
-        count: offered.length,
-        dayLabel: dayLabel(placedDayId),
-        specialDayId,
-        apply: async () => {
-          const stillThere = (await localClient.list('special_days') || []).some((d) => d.id === specialDayId)
-          if (!stillThere) return { written: 0, failure: 'This special day was deleted.', notice: null }
-          const r = await placeCells(specialDayId, cellsFor(offered, groups, scoped, blockIdMap))
-          return {
-            written: r.written,
-            failure: r.failed.length ? bringFailureMessage(r.failed, r.written) : null,
-            notice: r.skipped.length ? r.skipped.join('; ') : null,
-          }
-        },
-      }
-    }
+    const offer = makeOffer({ specialDayId, offered, groups, scoped, blockIdMap, dayLabel: dayLabel(placedDayId) })
     return {
       carriedCount: placedCarry.written,
       placed: placedDayId != null || multiDay,
+      varies,
       offer,
       cellFailure: placedCarry.failed.length ? cellFailureMessage(placedCarry.failed) : null,
       notice: notices.length ? notices.join('; ') : null,

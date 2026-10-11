@@ -335,14 +335,28 @@ describe('SpecialDayGridEditor — Copy time blocks on an empty special schedule
     localClient.onOpApplied.mockImplementation((cb) => { listeners.push(cb); return () => {} })
     const base = localClient.list.getMockImplementation()
     localClient.list.mockImplementation((entity) => {
+      if (entity === 'fixed_events') return Promise.resolve([{ id: 'f1', camp_id: CAMP_ID, kind: 'recurring', name: 'Lunch 2', day_id: 'mon', time_block_id: 'cb1', is_all_groups: 1, group_ids: '[]', unit_ids: '[]', activity_id: 'a1', span_blocks: 1 }])
+      if (entity === 'days_of_operation') return Promise.resolve([{ id: 'mon', camp_id: CAMP_ID, label: 'Monday' }, { id: 'tue', camp_id: CAMP_ID, label: 'Tuesday' }])
+      return base(entity)
+    })
+    render(<SpecialDayGridEditor campId={CAMP_ID} specialDayId={SD_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy time blocks' }))
+    expect(await screen.findByText(/Lunch waves differ by weekday/)).toBeTruthy()
+    listeners.forEach((cb) => cb({ entity: 'special_day_placements', entity_id: 'p', field: 'week_id' }))
+    await waitFor(() => expect(screen.queryByText(/Lunch waves differ by weekday/)).toBeNull())
+  })
+
+  it('shows no weekday note when every event is every-day', async () => {
+    emptyDayFixtures()
+    const base = localClient.list.getMockImplementation()
+    localClient.list.mockImplementation((entity) => {
       if (entity === 'fixed_events') return Promise.resolve([{ id: 'f1', camp_id: CAMP_ID, kind: 'fixed', name: 'Carpool', day_id: null, time_block_id: 'cb1', is_all_groups: 1, group_ids: '[]', unit_ids: '[]', activity_id: 'a1', span_blocks: 1 }])
       return base(entity)
     })
     render(<SpecialDayGridEditor campId={CAMP_ID} specialDayId={SD_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Copy time blocks' }))
-    expect(await screen.findByText(/Put this special day on a weekday/)).toBeTruthy()
-    listeners.forEach((cb) => cb({ entity: 'special_day_placements', entity_id: 'p', field: 'week_id' }))
-    await waitFor(() => expect(screen.queryByText(/Put this special day on a weekday/)).toBeNull())
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Copy time blocks' })).toBeNull())
+    expect(screen.queryByText(/Lunch waves differ by weekday/)).toBeNull()
   })
 
   it('two rapid Bring clicks write one set of cells, and two rapid Copy clicks copy once', async () => {
