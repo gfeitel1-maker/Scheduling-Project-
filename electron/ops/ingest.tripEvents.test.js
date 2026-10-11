@@ -10,7 +10,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
-import { commitIngest } from './ingest.js'
+import { commitIngest, ingestUndo } from './ingest.js'
 import { matchImportAnswers, rememberImportAnswers } from './answerMemory.js'
 import { normalizeScheduleInputs, SCHEDULE_INPUT_ENTITIES } from './scheduleInputNormalization.js'
 import { normalizeName } from '../../src/ingest/preview.js'
@@ -62,7 +62,7 @@ const CONFIRM_ALL = (dec) => {
 }
 
 // The ImportScreen glue for one schedule file, trips included.
-function importText(text, { weekId = week1, hasWeeks = true, tripAnswers = {}, mutate } = {}) {
+function importText(text, { weekId = week1, hasWeeks = true, tripAnswers = {}, mutate, captureInverse = false } = {}) {
   const parsed = parseTextGrid(text)
   mutate?.(parsed)
   const pages = { pages: parsed.pages }
@@ -109,7 +109,7 @@ function importText(text, { weekId = week1, hasWeeks = true, tripAnswers = {}, m
   })
   const answers = Object.fromEntries(report.decisions.map((dec) => [dec.id, CONFIRM_ALL(dec)]).filter(([, a]) => a))
   const folded = foldTriageInputs(base, report.decisions, answers)
-  const committed = commitIngest(d, { ...common, ...base, ...folded, openDecisions: heldBackDecisions(report.decisions, answers) })
+  const committed = commitIngest(d, { ...common, ...base, ...folded, openDecisions: heldBackDecisions(report.decisions, answers), captureInverse })
   return { parsed, proposal, detections, trips, claimed, committed }
 }
 
@@ -279,6 +279,23 @@ describe('slice 2: week rules', () => {
     expect(again.committed.fixedEvents.created).toBe(0)
     importText(s13(), { weekId: week2 })
     expect(weekRows().filter((r) => r.schedule_week_id === week2).length).toBe(first)
+  })
+})
+
+describe('slice 2: Undo import removes the week-bound trip events', () => {
+  const s13 = () => fs.readFileSync(path.join(SYN, MANIFEST.camps.find((c) => c.slug.startsWith('s13')).file), 'utf8')
+
+  it('undoing the import leaves no week-bound row behind', () => {
+    const { committed } = importText(s13(), { captureInverse: true })
+    expect(weekRows().length).toBeGreaterThan(0) // non-vacuity: the import did write week-bound trips
+    const r = ingestUndo(d, {
+      invertibleOps: committed.invertibleOps ?? [],
+      createdEntityIds: committed.createdEntityIds ?? [],
+      importRunId: committed.importRunId ?? committed.import_run_id ?? null,
+      author_user_id: userId, device_id: deviceId, client_write_id: randomUUID(),
+    })
+    expect(r.ok).toBe(true)
+    expect(weekRows()).toEqual([])
   })
 })
 
