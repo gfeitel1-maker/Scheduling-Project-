@@ -226,7 +226,7 @@ Observed while building the harness: committing the pipeline with the rule Map f
 
 ## Re-run against main a7cfb38f (same day, deterministic seeds)
 
-The harness now derives camp and cohort ids from the camp slug and scenario. Previously random ids seeded the engine's PRNG, so identical runs differed: s02 stillNeeded ranged 0 to 3 and s07 ranged 38 to 47. The JSON above was regenerated from this run, and a second run matches it with 0 changed metrics. 153 pass, 1 skipped repro hook, and `KNOWN_FAILING` is empty.
+The harness now derives camp and cohort ids from the camp slug and scenario. Previously random ids seeded the engine's PRNG, so identical runs differed: s02 stillNeeded ranged 0 to 3 and s07 ranged 38 to 47. The JSON above was regenerated from this run, and a second run matches it with 0 changed metrics (timestamps and CPU timings excluded); a standing test now runs one camp twice and requires identical metrics. 153 pass, 1 skipped repro hook, and `KNOWN_FAILING` is empty.
 
 The deltas below compare against the earlier (random-seed) JSON, so small per-camp swings in placed and stillNeeded on unchanged camps are seed noise, not product change.
 
@@ -258,7 +258,7 @@ The deltas below compare against the earlier (random-seed) JSON, so small per-ca
 
 The harness now mirrors ImportScreen. It uses `settleAmbiguousFromCamp` against the camp's records (except on Replace), passes the remaining ambiguous names to the report, and "confirm all" answers `name_kind` with "fixed time". Swim is then 9/9 in Generate and Manual, and weekly is 58/58. With zero answers Swim stays an activity (0/9) by design. Whether a high-confidence, every-group dual-use name should default to an event when unanswered is a product question for the board, not a defect.
 
-**New regressions:** none found. The apparent upticks (s02 and s07 stillNeeded, s05 and s09 questions) are seed noise or a newly imported activity, for example Ropes Course now present on s05 and s14.
+**New regressions:** none distinguishable from seed noise (the baseline above was drawn with random seeds, so a per-metric split between product change and noise isn't possible for it). The apparent upticks (s02 and s07 stillNeeded, s05 and s09 questions) are seed noise or a newly imported activity, for example Ropes Course now present on s05 and s14.
 
 ## Not covered by this run
 

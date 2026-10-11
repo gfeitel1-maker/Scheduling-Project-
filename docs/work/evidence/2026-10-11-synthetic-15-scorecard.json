@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-10-11T17:03:42.079Z",
-  "runtimeMs": 25268,
+  "generatedAt": "2026-10-11T17:07:12.383Z",
+  "runtimeMs": 64299,
   "node": "v22.23.2",
   "camps": {
     "s01-by-day-small-5d": {
@@ -10,7 +10,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 220,
+          "cpuMs": 112,
           "held": false
         },
         "confirmAll": {
@@ -196,7 +196,7 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 93,
+        "cpuMs": 46,
         "slots": 210,
         "placed": 114,
         "unfillable": 0,
@@ -354,7 +354,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 221,
+        "cpuMs": 127,
         "held": false,
         "counts": {
           "groups": 6,
@@ -545,7 +545,7 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 81,
+        "cpuMs": 45,
         "slots": 210,
         "placed": 114,
         "unfillable": 0,
@@ -696,7 +696,7 @@
         ],
         "electiveCells": {}
       },
-      "runtimeMs": 2265
+      "runtimeMs": 1295
     },
     "s02-by-day-three-waves": {
       "slug": "s02-by-day-three-waves",
@@ -705,7 +705,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 368,
+          "cpuMs": 263,
           "held": false
         },
         "confirmAll": {
@@ -1082,7 +1082,7 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 70,
+        "cpuMs": 65,
         "slots": 700,
         "placed": 280,
         "unfillable": 0,
@@ -1265,7 +1265,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 386,
+        "cpuMs": 362,
         "held": false,
         "counts": {
           "groups": 14,
@@ -1643,7 +1643,7 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 61,
+        "cpuMs": 60,
         "slots": 700,
         "placed": 280,
         "unfillable": 0,
@@ -1799,7 +1799,7 @@
           "fixed_event:chugim": 14
         }
       },
-      "runtimeMs": 2282
+      "runtimeMs": 3859
     },
     "s03-by-day-4day-24h-nolunch": {
       "slug": "s03-by-day-4day-24h-nolunch",
@@ -1808,7 +1808,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 63,
+          "cpuMs": 65,
           "held": false
         },
         "confirmAll": {
@@ -1950,7 +1950,7 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 14,
+        "cpuMs": 18,
         "slots": 72,
         "placed": 48,
         "unfillable": 0,
@@ -2072,7 +2072,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 78,
+        "cpuMs": 94,
         "held": false,
         "counts": {
           "groups": 3,
@@ -2334,7 +2334,7 @@
         ],
         "electiveCells": {}
       },
-      "runtimeMs": 600
+      "runtimeMs": 1334
     },
     "s04-by-day-6day-large": {
       "slug": "s04-by-day-6day-large",
@@ -2343,7 +2343,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 310,
+          "cpuMs": 333,
           "held": false
         },
         "confirmAll": {
@@ -2660,7 +2660,7 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 724,
+        "cpuMs": 693,
         "slots": 1350,
         "placed": 724,
         "unfillable": 0,
@@ -2906,7 +2906,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 470,
+        "cpuMs": 518,
         "held": false,
         "counts": {
           "groups": 25,
@@ -3228,7 +3228,7 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 650,
+        "cpuMs": 651,
         "slots": 1350,
         "placed": 724,
         "unfillable": 0,
@@ -3467,7 +3467,7 @@
           "activity:ceramics / kayaking / yoga / puppetry": 8
         }
       },
-      "runtimeMs": 4208
+      "runtimeMs": 10123
     },
     "s05-by-day-tiny-early": {
       "slug": "s05-by-day-tiny-early",
@@ -3476,7 +3476,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 312,
+          "cpuMs": 338,
           "held": false
         },
         "confirmAll": {
@@ -3904,7 +3904,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 83,
+        "cpuMs": 109,
         "held": false,
         "counts": {
           "groups": 2,
@@ -4307,7 +4307,7 @@
         ],
         "electiveCells": {}
       },
-      "runtimeMs": 502
+      "runtimeMs": 1211
     },
     "s06-by-day-40-groups-late": {
       "slug": "s06-by-day-40-groups-late",
@@ -4316,7 +4316,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 447,
+          "cpuMs": 450,
           "held": false
         },
         "confirmAll": {
@@ -4678,7 +4678,7 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 680,
+        "cpuMs": 675,
         "slots": 2000,
         "placed": 1040,
         "unfillable": 0,
@@ -4903,7 +4903,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 644,
+        "cpuMs": 883,
         "held": false,
         "counts": {
           "groups": 40,
@@ -5267,7 +5267,7 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 622,
+        "cpuMs": 675,
         "slots": 2000,
         "placed": 1040,
         "unfillable": 0,
@@ -5485,7 +5485,7 @@
           "activity:hiking / fishing / kayaking / orienteering / bocce": 10
         }
       },
-      "runtimeMs": 4302
+      "runtimeMs": 11365
     },
     "s07-by-group-3-divisions": {
       "slug": "s07-by-group-3-divisions",
@@ -5494,7 +5494,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 134,
+          "cpuMs": 135,
           "held": false
         },
         "confirmAll": {
@@ -5711,7 +5711,7 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 302,
+        "cpuMs": 292,
         "slots": 320,
         "placed": 192,
         "unfillable": 0,
@@ -5881,7 +5881,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 235,
+        "cpuMs": 239,
         "held": false,
         "counts": {
           "groups": 8,
@@ -6103,7 +6103,7 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 73,
+        "cpuMs": 105,
         "slots": 320,
         "placed": 192,
         "unfillable": 0,
@@ -6266,7 +6266,7 @@
           "activity:indoor elective": 2
         }
       },
-      "runtimeMs": 1084
+      "runtimeMs": 4527
     },
     "s08-by-group-24h-wrapped": {
       "slug": "s08-by-group-24h-wrapped",
@@ -6275,7 +6275,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 196,
+          "cpuMs": 142,
           "held": false
         },
         "confirmAll": {
@@ -6491,7 +6491,7 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 80,
+        "cpuMs": 86,
         "slots": 384,
         "placed": 288,
         "unfillable": 0,
@@ -6648,7 +6648,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 129,
+        "cpuMs": 211,
         "held": false,
         "counts": {
           "groups": 12,
@@ -6866,7 +6866,7 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 115,
+        "cpuMs": 96,
         "slots": 384,
         "placed": 288,
         "unfillable": 0,
@@ -7016,7 +7016,7 @@
           "activity:chess club / robotics / cooking": 6
         }
       },
-      "runtimeMs": 943
+      "runtimeMs": 3192
     },
     "s09-by-group-6day-except": {
       "slug": "s09-by-group-6day-except",
@@ -7025,7 +7025,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 239,
+          "cpuMs": 271,
           "held": false
         },
         "confirmAll": {
@@ -7405,7 +7405,7 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 126,
+        "cpuMs": 165,
         "slots": 1008,
         "placed": 340,
         "unfillable": 0,
@@ -7615,7 +7615,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 474,
+        "cpuMs": 523,
         "held": false,
         "counts": {
           "groups": 21,
@@ -7988,7 +7988,7 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 194,
+        "cpuMs": 136,
         "slots": 1008,
         "placed": 340,
         "unfillable": 0,
@@ -8171,7 +8171,7 @@
           "fixed_event:bechirot": 63
         }
       },
-      "runtimeMs": 2189
+      "runtimeMs": 6999
     },
     "s10-by-group-sun-thu-early": {
       "slug": "s10-by-group-sun-thu-early",
@@ -8180,7 +8180,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 75,
+          "cpuMs": 150,
           "held": false
         },
         "confirmAll": {
@@ -8429,7 +8429,7 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 22,
+        "cpuMs": 25,
         "slots": 140,
         "placed": 64,
         "unfillable": 0,
@@ -8583,7 +8583,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 88,
+        "cpuMs": 112,
         "held": false,
         "counts": {
           "groups": 4,
@@ -8834,7 +8834,7 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 19,
+        "cpuMs": 21,
         "slots": 140,
         "placed": 64,
         "unfillable": 0,
@@ -8981,7 +8981,7 @@
         ],
         "electiveCells": {}
       },
-      "runtimeMs": 457
+      "runtimeMs": 661
     },
     "s11-daysheet-5d-small": {
       "slug": "s11-daysheet-5d-small",
@@ -8990,7 +8990,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 76,
+          "cpuMs": 196,
           "held": false
         },
         "confirmAll": {
@@ -9197,7 +9197,7 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 10,
+        "cpuMs": 26,
         "slots": 180,
         "placed": 76,
         "unfillable": 0,
@@ -9322,7 +9322,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 145,
+        "cpuMs": 301,
         "held": false,
         "counts": {
           "groups": 6,
@@ -9531,7 +9531,7 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 9,
+        "cpuMs": 12,
         "slots": 180,
         "placed": 76,
         "unfillable": 0,
@@ -9649,7 +9649,7 @@
           "fixed_event:electives": 6
         }
       },
-      "runtimeMs": 430
+      "runtimeMs": 795
     },
     "s12-daysheet-4d-late": {
       "slug": "s12-daysheet-4d-late",
@@ -9658,7 +9658,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 104,
+          "cpuMs": 182,
           "held": false
         },
         "confirmAll": {
@@ -9940,7 +9940,7 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 100,
+        "cpuMs": 115,
         "slots": 400,
         "placed": 288,
         "unfillable": 0,
@@ -10161,7 +10161,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 351,
+        "cpuMs": 397,
         "held": false,
         "counts": {
           "groups": 10,
@@ -10448,7 +10448,7 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 99,
+        "cpuMs": 116,
         "slots": 400,
         "placed": 288,
         "unfillable": 0,
@@ -10662,7 +10662,7 @@
           "activity:pottery / drama / robotics": 2
         }
       },
-      "runtimeMs": 962
+      "runtimeMs": 6847
     },
     "s13-daysheet-16-splits": {
       "slug": "s13-daysheet-16-splits",
@@ -10671,7 +10671,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 272,
+          "cpuMs": 254,
           "held": false
         },
         "confirmAll": {
@@ -10976,7 +10976,7 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 258,
+        "cpuMs": 264,
         "slots": 720,
         "placed": 440,
         "unfillable": 0,
@@ -11190,7 +11190,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 275,
+        "cpuMs": 414,
         "held": false,
         "counts": {
           "groups": 16,
@@ -11498,7 +11498,7 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 239,
+        "cpuMs": 272,
         "slots": 720,
         "placed": 440,
         "unfillable": 0,
@@ -11705,7 +11705,7 @@
           "activity:ceramics / pottery": 4
         }
       },
-      "runtimeMs": 1968
+      "runtimeMs": 2699
     },
     "s14-by-day-period-24h": {
       "slug": "s14-by-day-period-24h",
@@ -11714,7 +11714,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 116,
+          "cpuMs": 111,
           "held": false
         },
         "confirmAll": {
@@ -11929,7 +11929,7 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 148,
+        "cpuMs": 162,
         "slots": 360,
         "placed": 225,
         "unfillable": 0,
@@ -12111,7 +12111,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 225,
+        "cpuMs": 162,
         "held": false,
         "counts": {
           "groups": 9,
@@ -12337,7 +12337,7 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 101,
+        "cpuMs": 105,
         "slots": 360,
         "placed": 216,
         "unfillable": 0,
@@ -12500,7 +12500,7 @@
           "activity:elective": 6
         }
       },
-      "runtimeMs": 881
+      "runtimeMs": 971
     },
     "s15-by-day-period-6day-nolunch": {
       "slug": "s15-by-day-period-6day-nolunch",
@@ -12509,7 +12509,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 187,
+          "cpuMs": 202,
           "held": false
         },
         "confirmAll": {
@@ -12806,7 +12806,7 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 366,
+        "cpuMs": 385,
         "slots": 972,
         "placed": 522,
         "unfillable": 0,
@@ -12989,7 +12989,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 346,
+        "cpuMs": 396,
         "held": false,
         "counts": {
           "groups": 18,
@@ -13288,7 +13288,7 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 439,
+        "cpuMs": 394,
         "slots": 972,
         "placed": 522,
         "unfillable": 0,
@@ -13464,7 +13464,7 @@
           "fixed_event:electives": 18
         }
       },
-      "runtimeMs": 2040
+      "runtimeMs": 3090
     }
   }
 }

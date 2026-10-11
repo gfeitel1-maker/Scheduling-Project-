@@ -98,7 +98,9 @@ function seedCamp(key = randomUUID()) {
 function importFile(d, id, text, { answerFor = () => null, mode = 'add' } = {}) {
   const parsed = parseTextGrid(text)
   const proposal = extractEntities(parsed)
-  const { fixedEvents: inferredEvents, dualUseNames = [], ambiguousEvents = [] } = inferFixedEvents({ pages: parsed.pages }, proposal, {})
+  // As ImportScreen does: the camp's own time-block names, so a re-import recognizes its named periods.
+  const knownTimeBlockNames = d.prepare('SELECT name FROM time_blocks WHERE camp_id = ?').all(id).map((t) => t.name)
+  const { fixedEvents: inferredEvents, dualUseNames = [], ambiguousEvents = [] } = inferFixedEvents({ pages: parsed.pages }, proposal, { knownTimeBlockNames })
   // As ImportScreen does: a dual-use name the camp already classified is read from its records, not
   // asked again (Replace deletes them first); the rest go to the review as one name_kind question.
   const settled = settleAmbiguousFromCamp(ambiguousEvents, mode === 'replace' ? {} : {
@@ -632,6 +634,16 @@ describe.skipIf(!process.env.SYNTHETIC_REPRO)('repro', () => {
 
 // A normal test run (CI, the gate, a developer's vitest) must not rewrite tracked evidence.
 describe('scorecard write gate', () => {
+  // Standing guard for the deterministic seeds: the same camp run twice gives the same metrics
+  // (timings excluded). Random camp or cohort ids made identical runs differ before.
+  it('one camp run twice gives identical metrics', async () => {
+    const m = MANIFEST.camps.find((c) => c.slug.startsWith('s05'))
+    const strip = (r) => JSON.parse(JSON.stringify(r, (k, v) => (/cpuMs|runtimeMs/.test(k) ? undefined : v)))
+    const first = strip(await runCamp(m))
+    const second = strip(await runCamp(m))
+    expect(second).toEqual(first)
+  }, 120000)
+
   it('writes nowhere unless asked: SHORESH_WRITE_SCORECARD=1 or an explicit SYNTHETIC_SCORECARD_PATH', () => {
     expect(scorecardWriteTarget({})).toBeNull()
     expect(scorecardWriteTarget({ SHORESH_WRITE_SCORECARD: '0' })).toBeNull()
