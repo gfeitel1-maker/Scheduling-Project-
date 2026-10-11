@@ -127,6 +127,8 @@ function receiptFor({ deleted = [], skipped = [], kept = [] } = {}) {
   }
   if (R > 0) {
     const items = kept.map((k) => {
+      if (k.reason === 'used_in_saved_version') return `${k.name ?? 'record'} (in a saved schedule version)`
+      if (k.reason === 'parent_kept') return `${k.name ?? 'record'} (part of a day that was kept)`
       const n = k.referencedByCount ?? 0
       return `${k.name ?? 'record'} (used by ${n} other ${recordWord(n)})`
     })

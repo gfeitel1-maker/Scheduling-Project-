@@ -993,7 +993,7 @@ export const mockShoresh = {
   // off localStorage on every call (never a live reference), so skipping the
   // final saveState() is sufficient to discard every mutation this run made —
   // CLONE-RUN-DISCARD without a second copy step.
-  async ingestCommit({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, dryRun = false, seenCounts, pinOnlyActivityNames, captureInverse = false, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, placements, sourceFileName, compoundCellDecisions, openDecisions } = {}) {
+  async ingestCommit({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, dryRun = false, seenCounts, pinOnlyActivityNames, captureInverse = false, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, specialDay, placements, sourceFileName, compoundCellDecisions, openDecisions } = {}) {
     const state = loadState()
     if (!state.camp) throw new Error('ingest: no camp')
     // U1 Invariant 3 (docs/adr/2026-08-17-onescreen-reconciliation-undo.md) —
@@ -1576,6 +1576,44 @@ export const mockShoresh = {
       multiBlockEventCreatedIds.push(id)
     }
 
+    let specialDayOutcome = null
+    if (!dryRun && specialDay) {
+      for (const t of ['special_days', 'special_day_time_blocks', 'special_day_slots']) if (!Array.isArray(state[t])) state[t] = []
+      const nameKey = norm(specialDay.name)
+      if (state.special_days.some((r) => r.camp_id === campId && norm(r.name) === nameKey)) {
+        specialDayOutcome = { created: false, periods: 0, cells: 0, activitiesCreated: 0 }
+      } else {
+        const dayId = randomId()
+        state.special_days.push({ id: dayId, camp_id: campId, name: specialDay.name, notes: specialDay.notes ?? null })
+        const activityIdByName = new Map()
+        let activitiesCreated = 0
+        for (const a of specialDay.activities ?? []) {
+          const live = state.activities.find((r) => r.camp_id === campId && norm(r.name) === norm(a.name))
+          if (live) { activityIdByName.set(a.name, live.id); continue }
+          const id = randomId()
+          state.activities.push({ id, camp_id: campId, name: a.name })
+          activityIdByName.set(a.name, id)
+          activitiesCreated += 1
+        }
+        const blockIdByName = new Map()
+        for (const b of specialDay.timeBlocks ?? []) {
+          const id = randomId()
+          state.special_day_time_blocks.push({ id, special_day_id: dayId, name: b.name, sort_order: b.sort_order, start_time: b.start_time ?? null, end_time: b.end_time ?? null })
+          blockIdByName.set(b.name, id)
+        }
+        const groupIdByColumn = new Map((specialDay.columns ?? []).map((c) => [c.columnName, c.groupId]))
+        let cells = 0
+        for (const s of specialDay.slots ?? []) {
+          const groupId = groupIdByColumn.get(s.columnName)
+          const blockId = blockIdByName.get(s.blockName)
+          if (!groupId || !blockId) continue
+          state.special_day_slots.push({ id: randomId(), special_day_id: dayId, group_id: groupId, time_block_id: blockId, activity_id: activityIdByName.get(s.activityName) ?? null })
+          cells += 1
+        }
+        specialDayOutcome = { created: true, specialDayId: dayId, periods: blockIdByName.size, cells, activitiesCreated }
+      }
+    }
+
     let invertibleOps = null
     let createdEntityIds = null
     if (captureInverse) {
@@ -1720,6 +1758,7 @@ export const mockShoresh = {
     if (captureInverse) { outcome.invertibleOps = invertibleOps; outcome.createdEntityIds = createdEntityIds }
     if (!dryRun && Array.isArray(placements) && placements.length > 0) outcome.version = version
     if (compoundCellDecisionsWritten) outcome.compoundCellDecisionsWritten = compoundCellDecisionsWritten
+    if (specialDayOutcome) outcome.specialDay = specialDayOutcome
     return outcome
   },
 

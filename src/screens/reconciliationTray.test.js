@@ -221,6 +221,26 @@ describe('commitTrayState', () => {
     expect(tray.receipt.detail).toEqual(['Kept — still in use: Swim (used by 3 other records)'])
   })
 
+  it('names a saved schedule version, or a kept day, as the reason a record was kept', () => {
+    const tray = commitTrayState({
+      notices: [],
+      undoCapable: true,
+      undoState: {
+        status: 'used',
+        isLive: false,
+        isPending: false,
+        total: 40,
+        deleted: [],
+        skipped: [],
+        kept: [
+          { name: 'Tug', reason: 'used_in_saved_version' },
+          { name: '9:15', reason: 'parent_kept' },
+        ],
+      },
+    })
+    expect(tray.receipt.detail).toEqual(['Kept — still in use: Tug (in a saved schedule version); 9:15 (part of a day that was kept)'])
+  })
+
   it('says there was nothing to undo when deleted, skipped, and kept are all empty', () => {
     const tray = commitTrayState({
       notices: [],

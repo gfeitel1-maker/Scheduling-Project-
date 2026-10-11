@@ -3084,7 +3084,7 @@ function deriveUndoDeleteClientWriteId(outerClientWriteId, entity, entity_id) {
  *
  * Returns `{ ok: true, reverted: [{entity, entity_id, field}], skipped:
  * [{entity, entity_id, field}], deleted: [{entity, entity_id}], kept:
- * [{entity, entity_id, name, reason: 'edited_since_import'|'still_referenced',
+ * [{entity, entity_id, name, reason: 'edited_since_import'|'still_referenced'|'used_in_saved_version'|'parent_kept',
  * referencedByCount?}] }`. A skipped FIELD entry means the field's current
  * latest op is no longer the one this commit wrote (a peer write landed after
  * import touched it, or this exact entry was already reverted by an earlier
@@ -3200,6 +3200,28 @@ export function ingestUndo(db, { invertibleOps, createdEntityIds = [], importRun
       candidateSet.set(`${entity}:${entity_id}`, { entity, entity_id })
     }
 
+    // A kept special day keeps its periods and cells too, or the day survives hollow.
+    const keptDayIds = new Set(kept.filter((k) => k.entity === 'special_days').map((k) => k.entity_id))
+    if (keptDayIds.size > 0) {
+      for (const [key, { entity, entity_id }] of [...candidateSet]) {
+        if (entity !== 'special_day_time_blocks' && entity !== 'special_day_slots') continue
+        const parent = db.prepare(`SELECT special_day_id FROM ${entity} WHERE id = ?`).get(entity_id)?.special_day_id
+        if (!keptDayIds.has(parent)) continue
+        candidateSet.delete(key)
+        kept.push({ entity, entity_id, name: nameOf(entity, entity_id), reason: 'parent_kept' })
+      }
+    }
+
+    // A saved schedule version that names a row would restore with a blank cell; keep the row and say so.
+    const namedInSavedVersions = new Set()
+    for (const { slots } of db.prepare('SELECT slots FROM schedule_snapshots WHERE slots IS NOT NULL').all()) {
+      let parsed
+      try { parsed = JSON.parse(slots) } catch { continue }
+      for (const slot of Array.isArray(parsed) ? parsed : []) {
+        for (const v of Object.values(slot ?? {})) if (typeof v === 'string') namedInSavedVersions.add(v)
+      }
+    }
+
     // Step 2 (Finding 3/4): live single-hop referential check, batch-aware,
     // walked in U2_DELETE_ORDER (children before parents) with excludeSet
     // built up INCREMENTALLY as each row is confirmed deletable — not the
@@ -3222,6 +3244,10 @@ export function ingestUndo(db, { invertibleOps, createdEntityIds = [], importRun
     const deleteSetByEntity = new Map() // entity -> [entity_id, ...]
     for (const entity of U2_DELETE_ORDER) {
       for (const entity_id of candidatesByEntity.get(entity) ?? []) {
+        if (namedInSavedVersions.has(entity_id)) {
+          kept.push({ entity, entity_id, name: nameOf(entity, entity_id), reason: 'used_in_saved_version' })
+          continue
+        }
         const blockers = referencesInto(db, entity, entity_id, excludeSet)
         if (blockers.length > 0) {
           kept.push({
