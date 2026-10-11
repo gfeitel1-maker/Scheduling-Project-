@@ -14,16 +14,35 @@ async function writeField(entity, id, field, value) {
 
 const isEveryDay = (ev) => ev.day_id == null || ev.day_id === ''
 
+// An event is "the same event" on different days when everything but its day matches.
+const sameEventKey = (ev) => JSON.stringify([
+  ev.kind, ev.name, ev.activity_id, ev.time_block_id, ev.span_blocks ?? 1, ev.location_id ?? null,
+  !!ev.is_all_groups, ev.unit_id ?? null, [...(ev.unit_ids || [])].sort(), [...(ev.group_ids || [])].sort(),
+])
+
 // Which camp fixed events a special day takes. A week-scoped override is never
-// carried. Fixed events that run every day come across automatically; a
-// recurring or day-specific event is OFFERED, and only when the special day is
+// carried. A fixed event that runs every day comes across automatically, whether it is
+// stored as one every-day row or as one row per operating day (what an import writes).
+// A recurring or day-specific event is OFFERED, and only when the special day is
 // placed on exactly one weekday (a special day replaces that day), for events
 // that apply to that weekday.
-function splitFixedEvents(fixedEvents, placedDayId) {
+function splitFixedEvents(fixedEvents, placedDayId, operatingDayIds) {
   const live = fixedEvents.filter((ev) => ev.schedule_week_id == null && ev.activity_id != null)
-  const carry = live.filter((ev) => ev.kind === 'fixed' && isEveryDay(ev))
+  const byEvent = new Map()
+  for (const ev of live.filter((e) => e.kind === 'fixed')) {
+    const key = sameEventKey(ev)
+    byEvent.set(key, [...(byEvent.get(key) || []), ev])
+  }
+  const carry = []
+  for (const rows of byEvent.values()) {
+    const everyDayRow = rows.find(isEveryDay)
+    const dayIds = new Set(rows.map((r) => r.day_id))
+    const onEveryOperatingDay = operatingDayIds.length > 0 && operatingDayIds.every((id) => dayIds.has(id))
+    if (!everyDayRow && !onEveryOperatingDay) continue
+    carry.push(everyDayRow ?? (placedDayId ? rows.find((r) => r.day_id === placedDayId) : rows[0]))
+  }
   const offered = placedDayId
-    ? live.filter((ev) => !carry.includes(ev) && (ev.day_id === placedDayId || (ev.kind === 'recurring' && isEveryDay(ev))))
+    ? live.filter((ev) => !carry.includes(ev) && !byEvent.get(sameEventKey(ev))?.some((r) => carry.includes(r)) && (ev.day_id === placedDayId || (ev.kind === 'recurring' && isEveryDay(ev))))
     : []
   return { carry, offered }
 }
@@ -159,7 +178,7 @@ export async function copyCampTimeBlocks({ campId, specialDayId }) {
     }
     const multiDay = placedDayIds.length > 1
     const placedDayId = placedDayIds.length === 1 ? placedDayIds[0] : null
-    const { carry, offered } = splitFixedEvents(fixedEvents, placedDayId)
+    const { carry, offered } = splitFixedEvents(fixedEvents, placedDayId, (days || []).filter((d) => d.camp_id === campId).map((d) => d.id))
 
     const placedCarry = await placeCells(specialDayId, cellsFor(carry, groups, scoped, blockIdMap))
     const notices = [...placedCarry.skipped]

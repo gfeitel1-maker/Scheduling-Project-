@@ -408,6 +408,22 @@ describe('SpecialEventsScreen — seed from camp time blocks', () => {
     expect(note.closest('[role="alert"]')).toBeNull()
   })
 
+  it('closes the prompt and keeps a write failure on screen after Copy', async () => {
+    localClient.list.mockImplementation(byEntityLive({
+      ...emptyEntries,
+      time_blocks: [{ id: 'cb', camp_id: CAMP_ID, name: 'Morning', sort_order: 0 }],
+    }))
+    const ok = localClient.write.getMockImplementation()
+    localClient.write.mockImplementation(async (t, entity, ...rest) =>
+      entity === 'special_day_time_blocks' ? { status: 'rejected' } : ok(t, entity, ...rest))
+    render(<SpecialEventsScreen campId={CAMP_ID} role="admin" />)
+    await waitFor(() => expect(screen.queryByText('No special events yet.')).not.toBeNull())
+    addViaInlineRow({ name: 'Color War', type: 'day' })
+    fireEvent.click(await screen.findByText(/Copy time blocks/))
+    await waitFor(() => expect(screen.queryByText(/Start from your time blocks/)).toBeNull())
+    expect(await screen.findByText(/Couldn't add blocks/)).toBeTruthy()
+  })
+
   it('reports partial completion when seeding fails partway through (non-atomic, design-accepted)', () => {
     expect(seedFailureMessage(1, 2)).toBe(
       'Added 1 of 2 blocks.'

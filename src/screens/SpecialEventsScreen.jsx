@@ -362,19 +362,25 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
     return exclusive(() => seedCopy(specialDayId))
   }
 
+  // The prompt closes the moment Copy is clicked, and loadDays() (which clears `error`)
+  // runs BEFORE the outcome is reported, so a failure it would have wiped stays on screen.
   async function seedCopy(specialDayId) {
+    setSeedPromptForId(null)
+    let outcome
     try {
-      const { offer: found, cellFailure, notice } = await copyCampTimeBlocks({ campId, specialDayId })
-      setOffer(found)
-      setNote(notice)
-      if (cellFailure) setError(cellFailure)
-      setToast(LABELS.createdHint(days.find((d) => d.id === specialDayId)?.name ?? 'Special Day'))
+      outcome = await copyCampTimeBlocks({ campId, specialDayId })
     } catch (err) {
-      setError(describeWriteFailure(err, seedFailureMessage(err.seededCount ?? 0, err.totalCount ?? 0)))
-    } finally {
-      setSeedPromptForId(null)
-      await loadDays()
+      outcome = { failure: describeWriteFailure(err, seedFailureMessage(err.seededCount ?? 0, err.totalCount ?? 0)) }
     }
+    await loadDays()
+    if (outcome.failure) {
+      setError(outcome.failure)
+      return
+    }
+    setOffer(outcome.offer)
+    setNote(outcome.notice)
+    if (outcome.cellFailure) setError(outcome.cellFailure)
+    setToast(LABELS.createdHint(days.find((d) => d.id === specialDayId)?.name ?? 'Special Day'))
   }
 
   function startEmpty(specialDayId) {

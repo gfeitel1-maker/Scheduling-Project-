@@ -71,6 +71,34 @@ describe('copyCampTimeBlocks fixed events', () => {
     expect(r.placed).toBe(false)
   })
 
+  describe('camp-wide events stored as per-day rows (what an import writes)', () => {
+    const perDay = (id, day, extra = {}) => ({ id, camp_id: CAMP, kind: 'fixed', name: 'Carpool', day_id: day, time_block_id: 'b1', is_all_groups: 1, group_ids: '[]', unit_ids: null, activity_id: 'a-carpool', span_blocks: null, ...extra })
+    beforeEach(() => {
+      rows.fixed_events = [perDay('p-mon', 'mon'), perDay('p-tue', 'tue'), perDay('only-mon', 'mon', { name: 'Swim', time_block_id: 'b3', activity_id: 'a-swim' })]
+    })
+
+    it('carries an event present on every operating day when the special day is unplaced', async () => {
+      const r = await copyCampTimeBlocks({ campId: CAMP, specialDayId: SD })
+      expect(filled().map((c) => c.group_id).sort()).toEqual(['g1', 'g2'])
+      expect(filled().every((c) => c.activity_id === 'a-carpool')).toBe(true)
+      expect(r.carriedCount).toBe(2)
+    })
+
+    it('carries the placed weekday rows once, and does not carry an event that is not on every day', async () => {
+      place()
+      const r = await copyCampTimeBlocks({ campId: CAMP, specialDayId: SD })
+      expect(r.carriedCount).toBe(2)
+      expect(filled().every((c) => c.activity_id === 'a-carpool')).toBe(true)
+      expect(r.offer.count).toBe(1)
+    })
+
+    it('does not carry an event missing from one operating day', async () => {
+      rows.fixed_events = [perDay('p-mon', 'mon')]
+      const r = await copyCampTimeBlocks({ campId: CAMP, specialDayId: SD })
+      expect(r.carriedCount).toBe(0)
+    })
+  })
+
   it('offers recurring events from the placed weekday, and places them on accept', async () => {
     place()
     const r = await copyCampTimeBlocks({ campId: CAMP, specialDayId: SD })

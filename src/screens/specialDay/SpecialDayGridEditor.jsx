@@ -211,17 +211,23 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
 
   const copyBlocks = () => exclusive(copyBlocksOnce)
 
+  // load() clears `error`, so it runs before the outcome is reported or a failure would be wiped.
   async function copyBlocksOnce() {
+    let outcome
     try {
-      const { carriedCount, placed, offer: found, cellFailure, notice } = await copyCampTimeBlocks({ campId, specialDayId })
-      setOffer(found)
-      if (cellFailure) setError(cellFailure)
-      setCopyNote(notice)
-      setNotPlaced(carriedCount > 0 && !placed)
+      outcome = await copyCampTimeBlocks({ campId, specialDayId })
     } catch (err) {
-      setError(describeWriteFailure(err, seedFailureMessage(err.seededCount ?? 0, err.totalCount ?? 0)))
+      outcome = { failure: describeWriteFailure(err, seedFailureMessage(err.seededCount ?? 0, err.totalCount ?? 0)) }
     }
     await load()
+    if (outcome.failure) {
+      setError(outcome.failure)
+      return
+    }
+    setOffer(outcome.offer)
+    if (outcome.cellFailure) setError(outcome.cellFailure)
+    setCopyNote(outcome.notice)
+    setNotPlaced(outcome.carriedCount > 0 && !outcome.placed)
   }
 
   const bringOffered = () => exclusive(bringOfferedOnce)
