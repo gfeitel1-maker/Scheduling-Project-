@@ -32,7 +32,7 @@ import { deriveElectiveImportId } from '../../src/ingest/electiveSetPopulate.js'
 import { writeRouteSnapshot, campCatalog } from './deleteRecord.js'
 import { attachNames } from '../../src/utils/snapshotRemap.js'
 import { U2_DELETABLE_ENTITIES, referencesInto } from './undoReferences.js'
-import { deriveSpecialDayActivityId, deriveSpecialDayId, deriveSpecialDayTimeBlockId, deriveSpecialDaySlotId } from './electiveDerivedIds.js'
+import { deriveElectiveSetId, electiveChoiceLabelKey, deriveSpecialDayActivityId, deriveSpecialDayId, deriveSpecialDayTimeBlockId, deriveSpecialDaySlotId } from './electiveDerivedIds.js'
 import { buildReconciliationReport } from '../../src/ingest/reconciliationReport.js'
 import { replaceOpenDecisionsForCommit, removeOpenDecisionsForImport } from './openReconciliationDecisions.js'
 import { recordNotAPlace, isWordDeclinedAsPlace } from './locationWordDecisions.js'
@@ -617,8 +617,12 @@ function writeElectiveChoices(db, { setId, setName, choices, camp_id, author_use
     try {
       runAtomic(db, () => {
         let activityId = reuseActivityId ?? activityIdByKey.get(k)
-        if (!activityId) {
-          activityId = randomUUID()
+        // Shared with the special-day import on purpose: a choice and a
+        // special-day activity of one name converge on one activity id.
+        activityId ??= deriveSpecialDayActivityId(camp_id, choiceName)
+        // A derived id can already have a row (a spacing variant earlier in
+        // this file, or a renamed activity): reuse it, never rewrite its name.
+        if (!db.prepare('SELECT 1 FROM activities WHERE id = ?').get(activityId)) {
           op('activities', activityId, 'name', choiceName)
           op('activities', activityId, 'camp_id', camp_id)
           mine.push({ entity: 'activities', entity_id: activityId })
@@ -685,17 +689,23 @@ function commitElectiveCandidates(db, { confirmedElectiveSets = [], camp_id, aut
   // Loaded once and updated in-memory as this call creates rows, so two
   // same-period candidates (differing only by case) in the SAME
   // confirmedElectiveSets array are caught too, not just across calls.
+  // Keyed the way the derived set id is (T371): names that differ only in
+  // spacing share one id, so they must also count as one set here, or the
+  // second would overwrite the first's name.
   const liveNormalizedNames = new Set(
     db.prepare('SELECT name FROM elective_sets WHERE camp_id = ?').all(camp_id)
-      .map((r) => normalizeName(r.name))
+      .map((r) => electiveChoiceLabelKey(r.name))
   )
   for (const candidate of confirmedElectiveSets) {
     const name = String(candidate?.name ?? '').trim()
     if (!name) continue
-    const key = normalizeName(name)
+    const key = electiveChoiceLabelKey(name)
     if (liveNormalizedNames.has(key)) continue
+    const id = deriveElectiveSetId(camp_id, name)
+    // The derived id is the set's identity: a row under it (e.g. renamed by
+    // the director since the last import) is already present, never rewritten.
+    if (db.prepare('SELECT 1 FROM elective_sets WHERE id = ?').get(id)) continue
     try {
-      const id = randomUUID()
       const commonOp = { entity: 'elective_sets', entity_id: id, author_user_id: author_user_id ?? null, device_id, parent_op_id: null, source: 'human' }
       const mine = [{ entity: 'elective_sets', entity_id: id }]
       runAtomic(db, () => {

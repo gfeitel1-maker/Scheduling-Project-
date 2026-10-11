@@ -420,6 +420,11 @@ function derivedParent(name, value, prefix) {
   return value
 }
 
+// T371: an imported elective set is (camp, name), so two devices importing one file write one row.
+export function deriveElectiveSetId(campId, name) {
+  return `es1:${join([opaque('camp_id', campId), electiveChoiceLabelKey(name)])}`
+}
+
 export function deriveSpecialDayId(campId, name) {
   return `sd1:${join([opaque('camp_id', campId), electiveChoiceLabelKey(name)])}`
 }
