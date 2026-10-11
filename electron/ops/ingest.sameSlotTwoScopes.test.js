@@ -70,3 +70,101 @@ describe('F1 - same name/block/day, two group sets', () => {
     expect(rows()).toHaveLength(before)
   })
 })
+
+const TWO_BLOCKS = {
+  approved: {
+    groups: ['Otters 1', 'Otters 2', 'Otters 3'],
+    days_of_operation: ['Monday'],
+    time_blocks: ['10:00-10:45', '11:00-11:45'],
+    activities: ['Swim'],
+  },
+}
+const ev = (groups, extra = {}) => ({
+  name: 'Lunch', time_block: '10:00-10:45', days: ['Monday'],
+  scope: groups === 'all' ? { is_all_groups: true, groups: [] } : { is_all_groups: false, groups },
+  ...extra,
+})
+
+describe('F1 - span', () => {
+  it('different spans are never unioned: the first event keeps its span and group set, the other is reported', () => {
+    const out = commit({ ...TWO_BLOCKS, fixedEvents: [ev(['Otters 3'], { span_blocks: 2 }), ev(['Otters 1', 'Otters 2'])] })
+    const mon = rows()
+    expect(mon).toHaveLength(1)
+    expect(scopeOf(mon[0])).toEqual(['Otters 3'])
+    expect(mon[0].span_blocks).toBe(2)
+    expect(out.fixedEvents.partial).toContainEqual(expect.objectContaining({ name: 'Lunch', reason: expect.stringContaining('different length') }))
+  })
+
+  it('equal spans are unioned and keep the span', () => {
+    commit({ ...TWO_BLOCKS, fixedEvents: [ev(['Otters 3'], { span_blocks: 2 }), ev(['Otters 1', 'Otters 2'], { span_blocks: 2 })] })
+    const mon = rows()
+    expect(mon).toHaveLength(1)
+    expect(scopeOf(mon[0])).toEqual(['Otters 1', 'Otters 2', 'Otters 3'])
+    expect(mon[0].span_blocks).toBe(2)
+  })
+})
+
+describe('F1 - skipped events and partial group resolution', () => {
+  it('an event the loop skips (no resolvable groups) adds nothing to the union', () => {
+    commit({ ...TWO_BLOCKS, fixedEvents: [ev(['Otters 3']), ev(['Nobody'])] })
+    expect(scopeOf(rows()[0])).toEqual(['Otters 3'])
+  })
+
+  it('an event on an unknown day is skipped and does not widen another slot', () => {
+    commit({ ...TWO_BLOCKS, fixedEvents: [ev(['Otters 3']), ev(['Otters 1'], { days: ['Friday'] })] })
+    expect(scopeOf(rows()[0])).toEqual(['Otters 3'])
+  })
+
+  it('a partly-resolved sibling makes the union uncomparable: no false drift on re-import', () => {
+    const input = { ...TWO_BLOCKS, fixedEvents: [ev(['Otters 1']), ev(['Otters 2', 'Ghost'])] }
+    commit(input)
+    const o1 = [...groupName()].find(([, n]) => n === 'Otters 1')[0]
+    db.prepare('UPDATE fixed_events SET group_ids = ? WHERE camp_id = ?').run(JSON.stringify([o1]), campId)
+    const second = commit(input)
+    expect(second.fixedEvents.scopeChanged).toEqual([])
+    expect(second.fixedEvents.created).toBe(0)
+  })
+})
+
+describe('F1 - all-groups mix, Replace, hand edits', () => {
+  it('an all-groups event plus an explicit one on the same slot is all groups', () => {
+    commit({ ...TWO_BLOCKS, fixedEvents: [ev(['Otters 1']), ev('all')] })
+    const r = rows()
+    expect(r).toHaveLength(1)
+    expect(r[0].is_all_groups).toBe(1)
+    expect(JSON.parse(r[0].group_ids)).toEqual([])
+  })
+
+  it('Replace mode writes the union', () => {
+    commit({ ...TWO_BLOCKS, fixedEvents: [ev(['Otters 3'])] })
+    commit({ ...TWO_BLOCKS, mode: 'replace', fixedEvents: [ev(['Otters 3']), ev(['Otters 1', 'Otters 2'])] })
+    expect(scopeOf(rows()[0])).toEqual(['Otters 1', 'Otters 2', 'Otters 3'])
+  })
+
+  it('Replace mode restores a preserved division scope over the union', () => {
+    const approved = { ...TWO_BLOCKS.approved, tiers: ['Juniors'] }
+    const links = { groups: { 'Otters 1': 'Juniors', 'Otters 2': 'Juniors', 'Otters 3': 'Juniors' } }
+    const fes = [ev(['Otters 3']), ev(['Otters 1', 'Otters 2'])]
+    commit({ approved, links, fixedEvents: fes })
+    const jid = db.prepare('SELECT id FROM tiers WHERE camp_id = ? AND name = ?').get(campId, 'Juniors').id
+    db.prepare("UPDATE fixed_events SET is_all_groups = 0, group_ids = '[]', unit_ids = ? WHERE camp_id = ?").run(JSON.stringify([jid]), campId)
+    const res = commit({ approved, links, mode: 'replace', fixedEvents: fes })
+    const r = rows()
+    expect(r).toHaveLength(1)
+    const newJid = db.prepare('SELECT id FROM tiers WHERE camp_id = ? AND name = ?').get(campId, 'Juniors').id
+    expect(JSON.parse(r[0].unit_ids)).toEqual([newJid])
+    expect(JSON.parse(r[0].group_ids)).toEqual([])
+    expect(res.fixedEvents.scopePreserved).toContainEqual(expect.objectContaining({ name: 'Lunch' }))
+  })
+
+  it('a hand-narrowed unioned row is reported as drift on re-import and not rewritten', () => {
+    const input = { ...TWO_BLOCKS, fixedEvents: [ev(['Otters 3']), ev(['Otters 1', 'Otters 2'])] }
+    commit(input)
+    const o3 = [...groupName()].find(([, n]) => n === 'Otters 3')[0]
+    db.prepare('UPDATE fixed_events SET group_ids = ? WHERE camp_id = ?').run(JSON.stringify([o3]), campId)
+    const second = commit(input)
+    expect(second.fixedEvents.scopeChanged).toHaveLength(1)
+    expect(second.fixedEvents.created).toBe(0)
+    expect(scopeOf(rows()[0])).toEqual(['Otters 3'])
+  })
+})

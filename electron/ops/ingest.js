@@ -2354,22 +2354,36 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     // scope-blind by design (ADR 2026-08-09 §1), so the second would be skipped as
     // already live and its groups silently lost. Union the scopes per slot up front
     // so the one row written per slot covers every group that has the event there.
+    // Only events the loop below will actually write are unioned, and only when their
+    // span matches the slot's first event: span is distinct data, and one row cannot
+    // carry two, so a mismatching event is reported (fixedPartial) rather than merged.
+    const clampSpan = (fe, tb) => {
+      const idx = blockIndexById.get(tb)
+      const remaining = idx !== undefined ? cohortTimeBlockCount - idx : (fe.span_blocks ?? 1)
+      return Math.min(fe.span_blocks ?? 1, Math.max(remaining, 1))
+    }
     const slotScopeUnion = new Map()
     for (const fe of plan.fixedEvents) {
       const tb = blockIdByName.get(normalizeName(fe.time_block))
       if (!tb) continue
       const feAll = Boolean(fe.scope?.is_all_groups)
+      const requested = feAll ? 0 : (fe.scope?.groups ?? []).length
       const feIds = feAll ? [] : (fe.scope?.groups ?? []).map((g) => groupIdByName.get(normalizeName(g))).filter(Boolean)
+      if (!feAll && feIds.length === 0) continue
+      const span = clampSpan(fe, tb)
       for (const d of (fe.days ?? [])) {
         const dId = dayIdByName.get(normalizeName(d))
         if (!dId) continue
         const k = fixedEventSlotKey(cohort_id, dId, tb, fe.name)
-        const u = slotScopeUnion.get(k) ?? { isAll: false, ids: new Set() }
+        const u = slotScopeUnion.get(k) ?? { isAll: false, ids: new Set(), span, dropped: false }
+        if (u.span !== span) continue
         u.isAll = u.isAll || feAll
+        u.dropped = u.dropped || feIds.length < requested
         feIds.forEach((id) => u.ids.add(id))
         slotScopeUnion.set(k, u)
       }
     }
+    const scopeDriftReportedSlots = new Set()
     for (const fe of plan.fixedEvents) {
       const tbId = blockIdByName.get(normalizeName(fe.time_block))
       const requestedDays = (fe.days ?? []).length
@@ -2421,9 +2435,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       // so the director believes more is reserved than actually is. Computed
       // once per fe (constant across its day fan-out below), on the SAME
       // tbId every day of this fe shares.
-      const headIdx = blockIndexById.get(tbId)
-      const blocksRemaining = headIdx !== undefined ? cohortTimeBlockCount - headIdx : (fe.span_blocks ?? 1)
-      const clampedSpanBlocks = Math.min(fe.span_blocks ?? 1, Math.max(blocksRemaining, 1))
+      const clampedSpanBlocks = clampSpan(fe, tbId)
 
       // Per-day fan-out — one row per resolved day, each its own uuid. Matches
       // FixedEventsScreen: is_all_groups 1|0, group_ids a JSON string.
@@ -2435,6 +2447,15 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         // scope per ADR §4).
         const slotKey = fixedEventSlotKey(cohort_id, dayId, tbId, fe.name)
         const union = slotScopeUnion.get(slotKey)
+        if (union.span !== clampedSpanBlocks) {
+          fixedPartial.push({
+            name: fe.name,
+            reason: 'another event with the same name, day and block has a different length; this one was not imported',
+            time_block: fe.time_block,
+            days: fe.days,
+          })
+          continue
+        }
         const slotIsAll = union.isAll ? 1 : 0
         const slotGroupIds = slotIsAll ? [] : [...union.ids]
         // C1b: this exact file slot is the one the cardinality pre-pass
@@ -2472,7 +2493,8 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
           // uncomparable, so skip the drift check for it rather than crash or
           // guess.
           const liveScope = liveFixedEventScope.get(slotKey)
-          if (droppedGroups === 0 && liveScope?.group_ids !== null) {
+          if (droppedGroups === 0 && !union.dropped && liveScope?.group_ids !== null && !scopeDriftReportedSlots.has(slotKey)) {
+            scopeDriftReportedSlots.add(slotKey)
             // Round 2 fix 2: dedup both sides before compare — upstream import
             // sources are not guaranteed to dedup, and a duplicate group name
             // in the incoming scope must not read as a scope change.
