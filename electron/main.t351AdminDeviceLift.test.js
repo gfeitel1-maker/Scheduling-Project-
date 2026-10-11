@@ -72,8 +72,12 @@ const gates = [
     (h, t) => h.ingestCommit({ token: t, mode: 'replace', approved: { activities: ['Archery'] } }),
     () => expect(db.prepare('SELECT COUNT(*) c FROM activities').get().c).toBe(1)],
   ['ingestUndo', null,
-    (h, t) => h.ingestUndo({ token: t, invertibleOps: [], createdEntityIds: [], client_write_id: randomUUID() }),
-    () => {}],
+    // T372: undo names a run this process recorded, so commit one first
+    async (h, t) => {
+      const run = await h.ingestCommit({ token: t, approved: { activities: ['Archery'] }, captureInverse: true })
+      return h.ingestUndo({ token: t, importRunId: run.importRunId, client_write_id: randomUUID() })
+    },
+    () => expect(db.prepare('SELECT COUNT(*) c FROM activities').get().c).toBe(0)],
   ['confirmAlias', 'staff',
     (h, t) => {
       const groupId = randomUUID()
