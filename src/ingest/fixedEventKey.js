@@ -26,5 +26,8 @@ export function fixedEventKey(event) {
       ? 'all-groups'
       : (scope.groups ?? [])
 
-  return JSON.stringify([event?.name, event?.time_block, event?.days ?? [], scopeKey])
+  const base = [event?.name, event?.time_block, event?.days ?? [], scopeKey]
+  // F3/F4 slice 2: a week-bound trip is a distinct item from a same-slot all-weeks event. The week is
+  // appended only when present, so every existing key is byte-identical.
+  return JSON.stringify(event?.weekId ? [...base, event.weekId] : base)
 }

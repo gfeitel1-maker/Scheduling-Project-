@@ -19,7 +19,10 @@ export const LEARNING_BAR = Object.freeze({
   longBlockFrom: 60,
 })
 
-export const QKINDS = Object.freeze(['classify', 'exclusion', 'value', 'drift_ack', 'split', 'merge', 'residue'])
+// 'trip' and 'special_day': F3/F4 slice 2 (docs/adr/2026-10-11-import-special-days-and-field-trips.md, N3).
+// A trip item's answer is remembered by (name, day); a special_day answer is recorded but never auto-applied
+// (it is deliberately absent from AUTO_APPLY_ELIGIBLE), so a remembered answer pre-selects at most.
+export const QKINDS = Object.freeze(['classify', 'exclusion', 'value', 'drift_ack', 'split', 'merge', 'residue', 'trip', 'special_day'])
 
 export const VERDICTS = Object.freeze({
   classify: ['accept', 'reject', 'as_activity'],
@@ -29,6 +32,8 @@ export const VERDICTS = Object.freeze({
   split: ['accept', 'decline'],
   merge: ['accept', 'decline'],
   residue: ['added', 'mapped', 'ignored'],
+  trip: ['event', 'activity'],
+  special_day: ['special_day', 'events'],
 })
 
 // Kinds the report emits that carry nothing worth remembering here. resolve_conflict has its own
@@ -184,11 +189,15 @@ export function signatureOf(d) {
 }
 
 // split / merge / residue are session-state questions with no card in the report; they take explicit input.
-export function signatureOfOther(qkind, { name, variants, patterns, target, candidates }) {
+export function signatureOfOther(qkind, { name, variants, patterns, target, candidates, day }) {
   const features = { dk: qkind, entity: null, proposedClass: qkind, stem: null, isMeal: false, dayShape: null, scopeShape: 'all', blockLenClass: null, excludedSet: null }
   if (qkind === 'split') return { qkind, parts: [normalizeName(name)], baseline: { patterns: stable(patterns ?? null) }, refs: [], features }
   if (qkind === 'merge') return { qkind, parts: [nameSet(variants)], baseline: { target: target ?? null }, refs: target ? [target] : [], features }
   if (qkind === 'residue') return { qkind, parts: [normalizeName(name)], baseline: { candidates: JSON.stringify([...(candidates ?? [])].sort()) }, refs: [], features }
+  // Recall rule (trip / special_day): the same printed name on the same weekday recalls the answer; the
+  // groups and blocks are deliberately not in the key, so a trip that moved by a period or gained a group
+  // is still the director's known trip.
+  if (qkind === 'trip' || qkind === 'special_day') return { qkind, parts: [normalizeName(name), normalizeDay(day)], baseline: {}, refs: [], features }
   return null
 }
 
@@ -264,7 +273,7 @@ export function roleFor(qkind, answer) {
   return 'instance'
 }
 
-const EXPLICIT_VERDICTS = new Set(['reject', 'as_written', 'keep', 'edited', 'decline', 'as_activity'])
+const EXPLICIT_VERDICTS = new Set(['reject', 'as_written', 'keep', 'edited', 'decline', 'as_activity', 'activity', 'events'])
 
 // An edit or a decline on a card that was NOT recalled, or a "Remember as a pattern" tap on one.
 export function isExplicit(record) {
