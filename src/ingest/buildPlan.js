@@ -429,10 +429,14 @@ export function buildPlan(source, existing = null, resolutions = []) {
   // link and silently disable the fixed-event-duplicate suppression, placing the
   // event twice with no error. A MARKER, NOT A HOLE.
   //
-  // tier:'low' is KEPT alongside the marker. It is now orthogonal — whichever way
-  // the director answers the card, the row carries the marker and cannot become a
-  // free choice — so it costs nothing and keeps the director informed that ingest
-  // made a classification.
+  // The row is not demoted to tier:'low' merely for being claimed. That was kept
+  // "alongside the marker" on the claim that it cost nothing, but a low create
+  // becomes an "Add X as an activity?" review question (and, unanswered, a
+  // persisted open item) about a name the importer already classified as an
+  // event. The marker is the exclusion; the row is born 'new' and asks nothing.
+  // A name whose event is held when unanswered is dropped from `approved` together
+  // with that event (src/screens/reconciliationResolutions.js), so the row follows
+  // the event's one question instead of raising a second one.
   const pinOnlyActivityNames = new Set(
     Array.isArray(source?.pinOnlyActivityNames) ? source.pinOnlyActivityNames.map((n) => normalizeName(n)) : []
   )
@@ -702,7 +706,7 @@ export function buildPlan(source, existing = null, resolutions = []) {
         }
         const isPinOnly = entity === 'activities' && pinOnlyActivityNames.has(normalizeName(name))
         const tier = isPinOnly
-          ? 'low'
+          ? 'new'
           : createConfidenceTier(entity, name, seenCounts)
         // T266 — the marker, written at creation. This is the line that turns the
         // demotion into an exclusion. `fields` is the create payload, so the row

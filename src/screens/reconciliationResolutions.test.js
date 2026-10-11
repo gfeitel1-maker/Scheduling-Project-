@@ -382,3 +382,29 @@ describe('applyResolutions — fixed-event hold-back (sub-slice 4)', () => {
     expect(fixedEvents).toEqual([])
   })
 })
+
+describe('applyResolutions — a claimed name\'s backing activity row follows its event', () => {
+  const fe = { name: 'Specialty 4', time_block: 'Morning', days: ['Wednesday'], support: { basis: 'sibling' } }
+  const decision = fixedEventValueDecision({ entityName: 'Specialty 4', id: 'fixed_events:Specialty 4', timeBlock: 'Morning', days: ['Wednesday'] })
+  const run = (answers) => applyResolutions({
+    approved: { activities: ['Archery', 'specialty 4'] },
+    decisions: [decision], answers, fixedEvents: [fe], pinOnlyActivityNames: ['Specialty 4'],
+  })
+
+  it('unanswered: the event is held and the row is not created; other activities untouched', () => {
+    const out = run({})
+    expect(out.fixedEvents).toEqual([])
+    expect(out.approved.activities).toEqual(['Archery'])
+  })
+
+  it('confirmed: the event ships and the row is created', () => {
+    const out = run({ [decision.id]: { action: 'looks_right' } })
+    expect(out.fixedEvents).toEqual([fe])
+    expect(out.approved.activities).toEqual(['Archery', 'specialty 4'])
+  })
+
+  it('a name that is not claimed is never dropped with an event', () => {
+    const out = applyResolutions({ approved: { activities: ['Specialty 4'] }, decisions: [decision], answers: {}, fixedEvents: [fe], pinOnlyActivityNames: [] })
+    expect(out.approved.activities).toEqual(['Specialty 4'])
+  })
+})

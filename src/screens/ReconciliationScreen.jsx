@@ -622,7 +622,7 @@ function OpenDecisionsDoor({ onNavigate }) {
           {items.map((item) => {
             // A domainTag with no edit screen (screenForNode returns null)
             // still shows "Mark handled" — never a dead "Open in" button.
-            const targetScreen = screenForNode(item.domainTag)
+            const targetScreen = screenForNode(item.domainTag, item.childTag)
             return (
               <div key={item.id} style={doorStyles.row}>
                 <div style={doorStyles.rowText}>

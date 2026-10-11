@@ -38,6 +38,8 @@ import { parseTextGrid } from '../src/ingest/textGrid.js'
 import { extractEntities } from '../src/ingest/extractEntities.js'
 import { inferFixedEvents } from '../src/ingest/fixedEvents.js'
 import { derivePinOnlyActivityNames } from '../src/ingest/pinOnlyActivityNames.js'
+import { buildReconciliationReport } from '../src/ingest/reconciliationReport.js'
+import { listOpenReconciliationDecisions } from './ops/openReconciliationDecisions.js'
 import { inferActivityRules } from '../src/ingest/activityRules.js'
 import { filterFreeChoiceActivities, isFreeChoiceActivity } from '../src/engine/freeChoiceActivities.js'
 import { resolveFixedEventActivityIds } from '../src/engine/fixedEventActivityLink.js'
@@ -504,5 +506,55 @@ describe('T266 — the marker is symmetric, and the clear path is as deliberate 
     for (const r of byName(activityRows(), PINNED)) {
       expect(r.catalog_role).toBe('pinned_event')
     }
+  })
+})
+
+// ── A claimed name raises no question ──────────────────────────────────────
+// The marker above is what excludes a claimed event name from the free-choice
+// catalogue; the row it lives on must not ALSO be asked about as if it were a
+// new activity. Pre-fix, the pin-only create was demoted to a low-confidence
+// "Add X as an activity?" decision and, unanswered, persisted as an open item.
+describe('T266 — a claimed name raises no review decision and no open item', () => {
+  it('the dry-run report has no decision about any claimed name', () => {
+    const parsed = parseTextGrid(fs.readFileSync(SAMPLE, 'utf8'))
+    const proposal = extractEntities(parsed)
+    const { fixedEvents, dualUseNames = [] } = inferFixedEvents({ pages: parsed.pages }, proposal, {})
+    const pinOnly = derivePinOnlyActivityNames(fixedEvents, dualUseNames)
+    const dry = commitIngest(db, {
+      approved: { groups: proposal.entities.groups, days_of_operation: proposal.entities.days_of_operation, time_blocks: proposal.entities.time_blocks, activities: proposal.entities.activities },
+      camp_id: campId, cohort_id: cohortId, device_id: deviceId, fixedEvents, dryRun: true,
+      pinOnlyActivityNames: [...pinOnly], seenCounts: proposal.seenCounts ?? null,
+    })
+    const report = buildReconciliationReport({ planItems: dry.planItems ?? [] })
+    expect(pinOnly.size).toBeGreaterThan(10)
+    expect(report.decisions.filter((d) => pinOnly.has(d.entityName)).map((d) => `${d.entity}:${d.entityName}`)).toEqual([])
+  })
+
+  it('a real commit with every question unanswered persists no open item about a claimed name', () => {
+    const { pinOnly } = runRealIngest()
+    const open = listOpenReconciliationDecisions(db, campId)
+    expect(open.filter((r) => pinOnly.has(r.entity_name)).map((r) => `${r.entity_type}:${r.entity_name}`)).toEqual([])
+  })
+})
+
+describe('T266 — open items persisted by an older build are not shown for a claimed name', () => {
+  const insert = (id, { kind = 'confirm_value', entityId = null, name }) => db.prepare(
+    `INSERT INTO open_reconciliation_decisions (id, camp_id, entity_type, cohort_id, entity_id, identity_key, kind, domain_key, child_key, entity_name, reason, import_run_id, created_at)
+     VALUES (?, ?, 'activities', NULL, ?, ?, ?, 'activities', 'x', ?, NULL, 'run', '2026-10-10')`
+  ).run(id, campId, entityId, id, kind, name)
+
+  it('hides the stale create question (matched case-insensitively) and keeps an ordinary activity\'s', () => {
+    runRealIngest()
+    insert(`activities:null:create:${PINNED}`, { name: PINNED })
+    insert('activities:null:create:group time', { name: 'group time' })
+    insert(`activities:null:create:${FREE}`, { name: FREE })
+    expect(listOpenReconciliationDecisions(db, campId).map((r) => r.entity_name)).toEqual([FREE])
+  })
+
+  it('keeps a non-create confirm_value and a confirm_change about a pinned name', () => {
+    runRealIngest()
+    insert('activities:some-id', { entityId: 'some-id', name: PINNED })
+    insert('activities:other-id', { kind: 'confirm_change', entityId: 'other-id', name: PINNED })
+    expect(listOpenReconciliationDecisions(db, campId).map((r) => r.id).sort()).toEqual(['activities:other-id', 'activities:some-id'])
   })
 })

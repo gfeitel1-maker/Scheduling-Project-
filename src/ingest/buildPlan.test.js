@@ -255,7 +255,7 @@ describe('buildPlan create confidence (§1)', () => {
   // as a buildPlan-side rule: a name ticked as a fixed event that is NOT
   // dual-use must never reach tier:'new', even if it would otherwise pass the
   // frequency test.
-  it('forces tier low on a pin-only activity name, even when frequency alone would pass it', () => {
+  it('does not demote a pin-only activity name: the marker excludes it and no question is asked', () => {
     const plan = buildPlan(
       {
         approved: { activities: ['Mifkad'] },
@@ -265,7 +265,8 @@ describe('buildPlan create confidence (§1)', () => {
       },
       null,
     )
-    expect(plan.items[0].evidence.tier).toBe('low')
+    expect(plan.items[0].evidence.tier).toBe('new')
+    expect(plan.items[0].fields.catalog_role.to).toBe('pinned_event')
   })
 })
 
