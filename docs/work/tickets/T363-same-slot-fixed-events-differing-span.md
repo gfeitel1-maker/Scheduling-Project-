@@ -1,7 +1,7 @@
 ---
 title: T363-same-slot-fixed-events-differing-span
 document_type: ticket
-status: open
+status: completed
 created: 2026-10-11
 task_class: architecture
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-08-09-ingest-fixed-event-routing-and-reviewable-units.md, docs/adr/2026-09-26-ingest-category-exclusivity-and-anchor-identity.md]
@@ -50,3 +50,17 @@ The keeper ruled on 2026-10-11 to ticket this rather than fix it now. Reporting 
 - PR #905 (F1 from `docs/work/evidence/2026-10-11-synthetic-15-scorecard.md`): the span-differing case is
   skipped and reported.
 - The test is "spans differ" in `electron/ops/ingest.sameSlotTwoScopes.test.js`.
+
+## Resolution (2026-10-11)
+
+Took the ticket's direction, which keeps the scope-blind slot key: the span joins the slot key
+(`fixedEventSlotKey` in `electron/ops/ingest.js`, ADR 2026-08-09 amended). Both events now import as separate
+rows and `fixedEvents.partial` no longer carries the "different length" report. Checked as the ticket asked:
+Keep re-import writes 0 new rows; rejected-slot tombstones are per span (a deleted long row is honoured and the
+short row is untouched); the Replace division-scope snapshot key includes the span; scope drift is keyed by the
+new slot; the engine places both rows for disjoint groups (`src/engine/buildSchedule.sameSlotSpans.test.js`).
+Tests: `electron/ops/ingest.sameSlotTwoScopes.test.js`. Not covered: the review-screen match key
+(`fixedEventMatchKey`, name + block + days) is still span-blind, so a held-back question for one of the two
+holds both (as it already did for two scopes); a span a director edits by hand makes that row a different slot
+from the file's, so Keep re-importing the original file adds the original-span row; the mock
+(`src/localClient.mock.js`) has no slot recognition or union, so no mirror was needed.

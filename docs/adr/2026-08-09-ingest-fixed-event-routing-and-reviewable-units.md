@@ -619,3 +619,14 @@ confidence-independent, matching what Decision 1 and `buildPlan.js`'s own `pinOn
 comment always said: every inferred fixed/recurring-event name, high or low confidence, minus
 dual-use names. No change to `fixedEvents.js` or `buildPlan.js` — the fix is the seeding set built
 in `ImportScreen.jsx`.
+
+## 2026-10-11 — amendment: the fixed-event slot key includes the span (T363)
+
+The fixed-event slot key (cohort, day, time block, normalized name, week) is now followed by the event's
+span in blocks (`NULL` and `1` are the same). Scope is still not part of the key, so a director narrowing a
+live row's groups still does not get a duplicate on the next Keep re-import. Two events at the same name, day
+and block that differ in span are two slots, so each imports as its own row, recognizes on re-import, and
+carries its own rejected-slot tombstone and division-scope snapshot. Events with the same span at one slot are
+still unioned by scope. Move/drift detection and tombstone-vs-move pairing stay span-blind (they only know
+where an event sits). A director who changes a live row's span by hand makes it a different slot from the
+file's, so a Keep re-import of the original file adds the original-span row again.

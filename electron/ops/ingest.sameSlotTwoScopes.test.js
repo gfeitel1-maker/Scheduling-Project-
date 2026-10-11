@@ -8,6 +8,7 @@ import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { commitIngest } from './ingest.js'
+import { appendOp, DELETE_FIELD } from './operations.js'
 
 afterAll(() => cleanupTemplatedDbs())
 let db, tmpFile, campId
@@ -86,13 +87,35 @@ const ev = (groups, extra = {}) => ({
 })
 
 describe('F1 - span', () => {
-  it('different spans are never unioned: the first event keeps its span and group set, the other is reported', () => {
+  it('T363: different spans are never unioned: both import, each keeping its own span and group set', () => {
     const out = commit({ ...TWO_BLOCKS, fixedEvents: [ev(['Otters 3'], { span_blocks: 2 }), ev(['Otters 1', 'Otters 2'])] })
-    const mon = rows()
-    expect(mon).toHaveLength(1)
+    const mon = rows().sort((a, b) => (b.span_blocks ?? 1) - (a.span_blocks ?? 1))
+    expect(mon).toHaveLength(2)
     expect(scopeOf(mon[0])).toEqual(['Otters 3'])
     expect(mon[0].span_blocks).toBe(2)
-    expect(out.fixedEvents.partial).toContainEqual(expect.objectContaining({ name: 'Lunch', reason: expect.stringContaining('different length') }))
+    expect(scopeOf(mon[1])).toEqual(['Otters 1', 'Otters 2'])
+    expect(mon[1].span_blocks ?? 1).toBe(1)
+    expect(out.fixedEvents.partial).toEqual([])
+  })
+
+  it('T363: Keep re-import of two same-slot events with different spans writes nothing new', () => {
+    const input = { ...TWO_BLOCKS, fixedEvents: [ev(['Otters 3'], { span_blocks: 2 }), ev(['Otters 1', 'Otters 2'])] }
+    commit(input)
+    const second = commit(input)
+    expect(second.fixedEvents.created).toBe(0)
+    expect(second.fixedEvents.scopeChanged).toEqual([])
+    expect(rows()).toHaveLength(2)
+  })
+
+  it('T363: a director deleting one of the two is honoured on re-import (tombstone is per span)', () => {
+    const input = { ...TWO_BLOCKS, fixedEvents: [ev(['Otters 3'], { span_blocks: 2 }), ev(['Otters 1', 'Otters 2'])] }
+    commit(input)
+    const long = rows().find((r) => r.span_blocks === 2)
+    appendOp(db, { entity: 'fixed_events', entity_id: long.id, field: DELETE_FIELD, value: 1, source: 'human', author_user_id: 'u1', device_id: deviceId, parent_op_id: null, client_write_id: randomUUID() })
+    const second = commit(input)
+    expect(second.fixedEvents.rejected).toHaveLength(1)
+    expect(rows()).toHaveLength(1)
+    expect(rows()[0].span_blocks ?? 1).toBe(1)
   })
 
   it('equal spans are unioned and keep the span', () => {
