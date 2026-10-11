@@ -4,6 +4,7 @@ import { inferFixedEvents } from './fixedEvents'
 import { buildPlan } from './buildPlan'
 import { buildReconciliationReport } from './reconciliationReport'
 import { applyResolutions } from '../screens/reconciliationResolutions'
+import { isFreeChoiceActivity, filterFreeChoiceActivities } from '../engine/freeChoiceActivities'
 
 // T141 — docs/work/tickets/T141-fixed-event-eligibility-ignores-group-coverage.md
 //
@@ -176,7 +177,14 @@ describe('T234 — recurring events must not silently mint as activities (owner 
     expect(plan.items[0].evidence.tier).toBe('new')
   })
 
-  it('with the fixed guard (every inferred name minus dual-use, confidence-independent), Ruach is forced to tier "low" — never a silent mint, always an explicit director decision', () => {
+  // SUPERSEDED RULING. T234 (#522) pinned "tier 'low' means the director must
+  // decide". docs/adr/2026-09-26-ingest-category-exclusivity-and-anchor-identity.md
+  // (lines ~186-205: the 'low' demotion "is turned into a question" and that is
+  // the defect; lines ~30-42 and ~290-296: Option A, the pinned_event marker, is
+  // the guard) replaced it. T234's intent -- recurring events must never silently
+  // mint as ACTIVITIES -- is now carried by catalog_role='pinned_event', not by a
+  // question.
+  it('with the fixed guard (every inferred name minus dual-use, confidence-independent), Ruach is created only as the fixed event\'s marker row: pinned_event, no question', () => {
     const dualUseSet = new Set(dualUseNamesRaw)
     const eventNonDualUseNames = [...new Set(inferred.map((fe) => fe.name).filter((n) => !dualUseSet.has(n)))]
     const plan = buildPlan(
@@ -188,7 +196,10 @@ describe('T234 — recurring events must not silently mint as activities (owner 
       },
       null,
     )
-    expect(plan.items[0].evidence.tier).toBe('low')
+    expect(plan.items).toHaveLength(1)
+    expect(plan.items[0].fields.catalog_role.to).toBe('pinned_event')
+    expect(plan.items[0].evidence.tier).toBe('new')
+    expect(buildReconciliationReport({ planItems: plan.items }).decisions).toEqual([])
   })
 })
 
@@ -268,21 +279,42 @@ describe('T234 round 2 — the tier:"low" hold executed end to end (buildPlan ->
     return { plan, report, approved }
   }
 
-  it('holds the name back: with no director resolution, Ruach is ABSENT from the approved list applyResolutions hands to commitIngest', () => {
-    const { plan, report, approved } = runChain({})
-    expect(plan.items[0].evidence.tier).toBe('low')
-    const decision = report.decisions.find((d) => d.entity === 'activities' && d.entityName === 'Ruach')
-    expect(decision).toBeTruthy()
-    expect(decision.kind).toBe('confirm_value')
-    expect(approved.activities).not.toContain('Ruach')
+  // SUPERSEDED RULING. These two tests used to pin T234 (#522): "an unanswered
+  // low-confidence recurring-event name is held back from approved". The 2026-09-26
+  // ADR (docs/adr/2026-09-26-ingest-category-exclusivity-and-anchor-identity.md,
+  // lines ~186-205, ~30-42, ~290-296) names that demotion as the defect and makes
+  // the pinned_event marker the guard. The invariant that replaced it, which is
+  // T234's own intent: a recurring event never silently mints as an activity.
+  it('Ruach is only the fixed event\'s marker row: pinned_event, out of the free-choice catalogue, and no decision is raised', () => {
+    const { plan, report } = runChain({})
+    expect(report.decisions.filter((d) => d.entityName === 'Ruach')).toEqual([])
+    const row = plan.items.find((i) => i.entity === 'activities' && i._name === 'Ruach')
+    expect(row.op).toBe('create')
+    expect(row.fields.catalog_role.to).toBe('pinned_event')
+    const stored = { name: 'Ruach', catalog_role: row.fields.catalog_role.to }
+    expect(isFreeChoiceActivity(stored)).toBe(false)
+    expect(filterFreeChoiceActivities([stored, { name: 'Archery', catalog_role: null }]).map((a) => a.name)).toEqual(['Archery'])
   })
 
-  it('non-vacuity (positive control): with the director explicitly confirming the decision, Ruach DOES survive into approved — proving absence above is the hold-back, not an unrelated reason the name was never there', () => {
-    const { report, approved } = runChain(undefined)
-    const decision = report.decisions.find((d) => d.entity === 'activities' && d.entityName === 'Ruach')
-    const resolved = runChain({ [decision.id]: { action: 'looks_right' } }).approved
-    expect(resolved.activities).toContain('Ruach')
-    // and the unresolved run really did differ from the resolved one
-    expect(approved.activities).not.toContain('Ruach')
+  it('the marker row is created without any director answer (it is not held back, it is not a candidate)', () => {
+    const { approved } = runChain({})
+    expect(approved.activities).toContain('Ruach')
+  })
+
+  it('non-vacuity (control): a NON-claimed low-confidence activity still produces a decision and is held back until answered', () => {
+    const source = {
+      approved: { activities: ['One Off'] },
+      camp_id: 'camp-1',
+      seenCounts: { activities: { 'One Off': 1 }, activityUnitShare: {} },
+      pinOnlyActivityNames,
+    }
+    const plan = buildPlan(source, null)
+    const report = buildReconciliationReport({ planItems: plan.items })
+    const decision = report.decisions.find((d) => d.entity === 'activities' && d.entityName === 'One Off')
+    expect(decision.kind).toBe('confirm_value')
+    const held = applyResolutions({ approved: source.approved, decisions: report.decisions, answers: {}, fixedEvents: plan.fixedEvents }).approved
+    expect(held.activities).not.toContain('One Off')
+    const kept = applyResolutions({ approved: source.approved, decisions: report.decisions, answers: { [decision.id]: { action: 'looks_right' } }, fixedEvents: plan.fixedEvents }).approved
+    expect(kept.activities).toContain('One Off')
   })
 })
