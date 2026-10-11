@@ -1375,6 +1375,7 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
         max_per_week: rule.max_per_week,
         priority: rule.priority,
         ...(rule.span_blocks ? { span_blocks: rule.span_blocks } : {}),
+        ...(rule.min_from_file ? { min_from_file: true } : {}),
         // T114 follow-up — the co-schedule inference computed at parse time
         // above. Until this line existed, `coScheduleRef.current` was assigned
         // and never read by anything: every activity's observed capacity was
@@ -1431,7 +1432,11 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
         const r = recomputed.get(name)
         const edited = new Set(activityHumanFields[name] ?? [])
         if (!r) continue
-        if (!edited.has('min_per_week')) outgoingRules[name].min_per_week = r.min_per_week
+        if (!edited.has('min_per_week')) {
+          outgoingRules[name].min_per_week = r.min_per_week
+          if (r.min_from_file) outgoingRules[name].min_from_file = true
+          else delete outgoingRules[name].min_from_file
+        }
         if (!edited.has('max_per_week')) outgoingRules[name].max_per_week = r.max_per_week
       }
     }

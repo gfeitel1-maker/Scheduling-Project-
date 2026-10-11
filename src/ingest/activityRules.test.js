@@ -80,7 +80,9 @@ describe('inferActivityRules', () => {
     expect(rule.max_per_week).toBeGreaterThanOrEqual(1)
   })
 
-  it('every returned min/max is a finite integer >= 1 across all cases', () => {
+  // A min of 0 is a real answer since the inferred min stopped exceeding the file: an activity opened
+  // to every group on thin evidence was never done by most of them. max stays >= 1.
+  it('every returned min/max is a finite integer, min >= 0 and max >= 1, across all cases', () => {
     const allGroups = ['A', 'B', 'C']
     const activityPages = { rare: ['A'], common: ['A', 'B', 'C'] }
     const counts = seenCounts({ Rare: 1, Common: 30 }, { rare: 0.33, common: 1 })
@@ -88,7 +90,7 @@ describe('inferActivityRules', () => {
     for (const rule of rules.values()) {
       expect(Number.isInteger(rule.min_per_week)).toBe(true)
       expect(Number.isInteger(rule.max_per_week)).toBe(true)
-      expect(rule.min_per_week).toBeGreaterThanOrEqual(1)
+      expect(rule.min_per_week).toBeGreaterThanOrEqual(0)
       expect(rule.max_per_week).toBeGreaterThanOrEqual(1)
     }
   })
@@ -184,5 +186,37 @@ describe('inferActivityRules — min never exceeds the file', () => {
     const spans = new Map([['swim', { span_blocks: 2, sessions: 3 }]])
     const rule = inferActivityRules(['Swim'], { swim: ['A', 'B'] }, counts, 5, groups, [], spans).get('Swim')
     expect(rule.min_per_week).toBe(1)
+  })
+})
+
+describe('inferActivityRules — a split cell is part of a session', () => {
+  it('an activity a group only ever gets as half a split cell carries no weekly minimum', () => {
+    // "Volleyball - Yoga": two activities share one period, so each is half a session.
+    const counts = { ...seenCounts({ Volleyball: 3 }, { volleyball: 1 }), activityGroupCounts: { volleyball: { A: 1, B: 1.5, C: 0.5 } } }
+    const rule = inferActivityRules(['Volleyball'], { volleyball: ['A', 'B', 'C'] }, counts, 5, ['A', 'B', 'C']).get('Volleyball')
+    expect(rule.min_per_week).toBe(0)
+    expect(rule.min_from_file).toBe(true)
+  })
+})
+
+describe('inferActivityRules — max never below what the file shows', () => {
+  it('max covers the busiest group the file shows, not just min + 2', () => {
+    // Music five times a week for one group, once for another: min 1, and max must admit the 5.
+    const counts = { ...seenCounts({ Music: 6 }, { music: 1 }), activityGroupCounts: { music: { A: 5, B: 1 } } }
+    const rule = inferActivityRules(['Music'], { music: ['A', 'B'] }, counts, 5, ['A', 'B', 'C']).get('Music')
+    expect(rule.min_per_week).toBe(1)
+    expect(rule.max_per_week).toBe(5)
+  })
+})
+
+describe('inferActivityRules — an eligibility fallback never invents an obligation', () => {
+  it('a one-off activity opened to all groups requires none of them', () => {
+    // One appearance, one group: too thin to restrict, so every group may do it (T35) —
+    // but the groups the file never shows doing it had 0 sessions, so the minimum is 0.
+    const counts = { ...seenCounts({ 'Gaga Field': 1 }, { 'gaga field': 0.2 }), activityGroupCounts: { 'gaga field': { A: 1 } } }
+    const rule = inferActivityRules(['Gaga Field'], { 'gaga field': ['A'] }, counts, 5, ['A', 'B', 'C']).get('Gaga Field')
+    expect(rule.eligible_group_names).toBeNull()
+    expect(rule.min_per_week).toBe(0)
+    expect(rule.min_from_file).toBe(true)
   })
 })

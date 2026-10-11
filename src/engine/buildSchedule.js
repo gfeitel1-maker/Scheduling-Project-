@@ -837,12 +837,194 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
     }
   }
 
+  // Every cell can be filled while an activity stays below its weekly minimum,
+  // because the cells went to activities at or above theirs (a low-priority span
+  // finds no free run once the high round has filled the day), or another group
+  // holds the activity's only capacity in the slot it needs. minRepair raises each
+  // short (group, activity) by an ejection chain: lift what sits in the cells it
+  // needs, place it, then re-place anything the lift left short, up to
+  // MIN_REPAIR_DEPTH steps deep. A session of a capped activity held by another
+  // group in that slot may move too, and that group is then re-placed the same way.
+  // Every place/unplace is journaled, and a chain that does not end with nothing
+  // newly short is rolled back whole, so no cell empties and nothing ends below its
+  // minimum that was not already. Scans openSlots in order, no rand(): the same
+  // input gives the same week.
+  const MIN_REPAIR_DEPTH = 3
+  const MIN_REPAIR_BUDGET = 1500 // attempts per short (group, activity) or empty cell
+  // Attempts across the whole week: an infeasible week (many cells nothing can fill) must
+  // give up in bounded time rather than spend the per-item budget on every hopeless cell.
+  let repairWorkLeft = 20000 + 200 * openSlots.length
+  const openSlotByKey = new Map(openSlots.map(s => [keyOf(s), s]))
+  // Indexes so each search step reads one group's cells or one period's cells, not the week.
+  const openSlotsByGroup = new Map()
+  const openSlotsByPeriod = new Map()
+  for (const s of openSlots) {
+    if (!openSlotsByGroup.has(s.groupId)) openSlotsByGroup.set(s.groupId, [])
+    openSlotsByGroup.get(s.groupId).push(s)
+    const pk = `${s.dayId}|${s.blockId}`
+    if (!openSlotsByPeriod.has(pk)) openSlotsByPeriod.set(pk, [])
+    openSlotsByPeriod.get(pk).push(s)
+  }
+  const journal = []
+  let minRepairBudget = 0
+  function jPlace(act, g, d, b) { place(act, g, d, b); journal.push([act, g, d, b, true]) }
+  function jUnplace(act, g, d, b) { unplace(act, g, d, b); journal.push([act, g, d, b, false]) }
+  function rollback(mark) {
+    while (journal.length > mark) {
+      const [act, g, d, b, placed] = journal.pop()
+      if (placed) unplace(act, g, d, b)
+      else place(act, g, d, b)
+    }
+  }
+  const movable = k => assigned.has(k) && !spanTails.has(k) && !preplacedKeys.has(k)
+    && (activityById.get(assigned.get(k))?.span_blocks || 1) === 1
+
+  // One more session of `act` for `groupId`, never using a cell in `locked`.
+  function raise(act, groupId, depth, locked) {
+    const span = act.span_blocks || 1
+    for (const head of openSlotsByGroup.get(groupId) ?? []) {
+      if (minRepairBudget-- <= 0 || repairWorkLeft-- <= 0) return false
+      if (!head.eligibleActs.includes(act)) continue
+      const idx = blockOrder.get(head.blockId)
+      const keys = []
+      for (let i = 0; i < span; i++) {
+        const blk = timeBlocksSorted[idx + i]
+        if (!blk) break
+        keys.push(`${groupId}|${head.dayId}|${blk.id}`)
+      }
+      if (keys.length !== span || keys.some(k => locked.has(k) || !openSlotByKey.has(k))) continue
+      if (keys.some(k => assigned.has(k) && (!movable(k) || assigned.get(k) === act.id))) continue
+      const mark = journal.length
+      const lifted = []
+      for (const k of keys) {
+        if (!assigned.has(k)) continue
+        const l = activityById.get(assigned.get(k))
+        const s = openSlotByKey.get(k)
+        jUnplace(l, s.groupId, s.dayId, s.blockId)
+        lifted.push(l)
+      }
+      const nextLocked = new Set([...locked, ...keys])
+      // Another group's session of a capped activity in this slot may move.
+      const moved = []
+      if (blockedBy(act, groupId, head.dayId, head.blockId) === 'activity' && depth > 0) {
+        for (const peer of openSlotsByPeriod.get(`${head.dayId}|${head.blockId}`) ?? []) {
+          if (peer.groupId === groupId) continue
+          const pk = keyOf(peer)
+          if (assigned.get(pk) !== act.id || !movable(pk) || locked.has(pk)) continue
+          jUnplace(act, peer.groupId, peer.dayId, peer.blockId)
+          moved.push(peer)
+          nextLocked.add(pk)
+          if (canPlace(act, groupId, head.dayId, head.blockId)) break
+        }
+      }
+      if (canPlace(act, groupId, head.dayId, head.blockId)) {
+        jPlace(act, groupId, head.dayId, head.blockId)
+        let ok = true
+        for (const l of lifted) {
+          if (getCount(groupId, l.id) >= getMin(l.id)) continue
+          if (depth === 0 || !raise(l, groupId, depth - 1, nextLocked)) { ok = false; break }
+        }
+        for (const peer of moved) {
+          if (!ok) break
+          if (getCount(peer.groupId, act.id) >= getMin(act.id)) continue
+          if (!raise(act, peer.groupId, depth - 1, nextLocked)) ok = false
+        }
+        // The cell a moved session vacated must not stay empty.
+        for (const peer of moved) {
+          if (!ok) break
+          if (assigned.has(keyOf(peer))) continue
+          const fill = fits(peer)[0]
+          if (fill) jPlace(fill, peer.groupId, peer.dayId, peer.blockId)
+          else ok = false
+        }
+        if (ok) return true
+      }
+      rollback(mark)
+    }
+    return false
+  }
+
+  // An empty cell can stay empty when every activity that fits it is blocked by
+  // one of its own sessions: already on that day, at its weekly max, or its slot
+  // capacity held by another group. fillCell moves that one blocking session into
+  // the empty cell and fills the cell the move vacated the same way, up to
+  // FILL_REPAIR_DEPTH steps; a chain that does not end filled is rolled back.
+  // Counts are unchanged except a capacity move; a group that move takes below its
+  // minimum must be raised again (raise) or the chain is rolled back, so no minimum is broken.
+  const FILL_REPAIR_DEPTH = 4
+  function fillCell(u, depth, locked) {
+    if (assigned.has(keyOf(u))) return true
+    const direct = fits(u)[0]
+    if (direct) { jPlace(direct, u.groupId, u.dayId, u.blockId); return true }
+    if (depth === 0) return false
+    locked.add(keyOf(u))
+    const candidates = u.eligibleActs
+      .filter(a => (a.span_blocks || 1) === 1)
+      .sort((a, b) => (PRIORITY_RANK[a.priority] ?? 1) - (PRIORITY_RANK[b.priority] ?? 1)
+        || getCount(u.groupId, a.id) - getCount(u.groupId, b.id))
+    for (const act of candidates) {
+      if (minRepairBudget-- <= 0 || repairWorkLeft-- <= 0) break
+      const blocker = blockedBy(act, u.groupId, u.dayId, u.blockId)
+      // The sessions whose move could clear the blocker; a same-day one first, since moving
+      // it clears "already on today" and "weekly max" together.
+      const vacates = []
+      const pool = blocker === 'activity' ? openSlotsByPeriod.get(`${u.dayId}|${u.blockId}`) ?? [] : openSlotsByGroup.get(u.groupId) ?? []
+      for (const s of pool) {
+        const k = keyOf(s)
+        if (locked.has(k) || assigned.get(k) !== act.id || !movable(k)) continue
+        if ((blocker === 'today' || blocker === 'max') && s.groupId === u.groupId) vacates.push(s)
+        else if (blocker === 'activity' && s.groupId !== u.groupId && s.dayId === u.dayId && s.blockId === u.blockId) vacates.push(s)
+      }
+      vacates.sort((a, b) => (a.dayId === u.dayId ? 0 : 1) - (b.dayId === u.dayId ? 0 : 1))
+      for (const vacate of vacates) {
+        if (minRepairBudget-- <= 0 || repairWorkLeft-- <= 0) break
+        const mark = journal.length
+        jUnplace(act, vacate.groupId, vacate.dayId, vacate.blockId)
+        if (canPlace(act, u.groupId, u.dayId, u.blockId)) {
+          jPlace(act, u.groupId, u.dayId, u.blockId)
+          // A group that gave up a capacity-held session below its minimum gets it back elsewhere.
+          if (fillCell(vacate, depth - 1, locked)
+            && (getCount(vacate.groupId, act.id) >= getMin(act.id) || raise(act, vacate.groupId, depth - 1, locked))) {
+            locked.delete(keyOf(u))
+            return true
+          }
+        }
+        rollback(mark)
+      }
+    }
+    locked.delete(keyOf(u))
+    return false
+  }
+
+  function fillRepair() {
+    for (const u of openSlots) {
+      if (assigned.has(keyOf(u))) continue
+      minRepairBudget = MIN_REPAIR_BUDGET
+      journal.length = 0
+      fillCell(u, FILL_REPAIR_DEPTH, new Set())
+    }
+  }
+
+  function minRepair() {
+    for (const act of activities) {
+      for (const group of groups) {
+        while (getCount(group.id, act.id) < getMin(act.id)) {
+          minRepairBudget = MIN_REPAIR_BUDGET
+          journal.length = 0
+          if (!raise(act, group.id, MIN_REPAIR_DEPTH, new Set())) break
+        }
+      }
+    }
+  }
+
   const unfilledSlots = openSlots.filter(s => !assigned.has(`${s.groupId}|${s.dayId}|${s.blockId}`))
   if (!fixedEventsOnly) {
     runRound(unfilledSlots, 'high')
     const stillUnfilled = openSlots.filter(s => !assigned.has(`${s.groupId}|${s.dayId}|${s.blockId}`))
     runRound(stillUnfilled, 'low')
     repair()
+    minRepair()
+    fillRepair()
   }
 
   // ── Pass 3: audit ─────────────────────────────────────────────────────────

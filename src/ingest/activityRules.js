@@ -104,12 +104,22 @@ export function inferActivityRules(activityNames, activityPages, seenCounts, day
     // Never above what the file shows per week for ANY group (owner, v1 bug):
     // an average put min 2 on activities some groups get once, and the engine
     // then flagged them underserved. Span cells scale to runs the same way.
+    // A split cell is a share of a session, so a group that only ever got part
+    // of one has no whole weekly session to require: the minimum is then 0.
     const perGroup = Object.values(seenCounts?.activityGroupCounts?.[key] ?? {}).filter((n) => n > 0)
+    // Likewise the max is never below the busiest group's week in the file.
+    let fileFloor = Infinity
+    let fileCeiling = 0
     if (perGroup.length > 0) {
       const toRuns = span && appearances > 0 ? span.sessions / appearances : 1
-      perWeek = Math.min(perWeek, Math.round(Math.min(...perGroup) * toRuns))
+      fileFloor = Math.floor(Math.min(...perGroup) * toRuns + 1e-9)
+      fileCeiling = Math.ceil(Math.max(...perGroup) * toRuns - 1e-9)
     }
+    // An eligibility fallback that opens the activity to groups the file never shows doing it
+    // (the ambiguous branch above) must not require it of them: they had 0 sessions.
+    if (eligibleGroupNames === null && matchedGroups.length > 0 && allGroups.length > matchedGroups.length) fileFloor = 0
     if (perWeek < 1) perWeek = 1
+    perWeek = Math.min(perWeek, fileFloor)
 
     rules.set(name, {
       eligible_group_names: eligibleGroupNames,
@@ -118,8 +128,10 @@ export function inferActivityRules(activityNames, activityPages, seenCounts, day
       // Headroom above the observed floor so the engine can vary placement round
       // to round (was a flat +1 → always 2; +2 puts a typical activity in the
       // 3–5 band the director expects rather than a hard ceiling of min+1).
-      max_per_week: perWeek + 2,
+      max_per_week: Math.max(Math.max(perWeek, 1) + 2, fileCeiling),
       ...(span ? { span_blocks: span.span_blocks } : {}),
+      // The file showed some group less than one whole session; the commit keeps this 0 (ingest.js).
+      ...(perWeek === 0 ? { min_from_file: true } : {}),
       _inferred: true,
       // B4 (docs/adr/2026-08-10-ingestion-evidence-persistence.md): the exact
       // observation the derived fields above came from, so a director asking

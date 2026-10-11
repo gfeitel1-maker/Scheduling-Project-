@@ -275,6 +275,40 @@ Owner question: "why aren't we generating more activities to fill slots?" The ha
 
 Cause: `inferActivityRules` set `min_per_week` to the rounded average across groups, so an activity the file shows twice for some groups and once for others got min 2 everywhere. The min is now capped at the lowest per-group weekly count (`seenCounts.activityGroupCounts`, span cells scaled to runs). The capacity and eligibility counts fell as a knock-on effect of the smaller mins.
 
+## Fill-again invariants (same day)
+
+Owner's acceptance criterion: "imagine that a camp imports a schedule - all things have been filled in. it would be reasonable to assume that when we generate it should be again". Last year's file is a feasible week, so two invariants are now hard, CI-failing assertions in the harness. Both run with zero answers and with every card confirmed.
+
+1. **Inference is faithful.** Every rule read from the file admits the file. For each group, the week's session count (a printed span counts once per run) lies within `[min_per_week, max_per_week]`. A group the file shows doing an activity is eligible for it, and each group's minimums fit in the cells the file gives it activities. A planted defect (Music raised to min 9) must be reported.
+2. **Generate fills the week again.** Nothing is left short (`stillNeeded` 0) and no cell is left empty (`unfillable` 0).
+
+**The owner's camp (campB) and seven variants built from it** (`synthetic/campb-variants.mjs`: renamed groups, 8 and 24 groups, times +30 min, 4-day and 6-day weeks, an Aquarium Trip and a Games Day for some groups):
+
+| File | Rule violations | Still needed | Empty cells |
+|---|---|---|---|
+| campB (the owner's file) | 0 | 0 | 0 |
+| b1-renamed | 0 | 0 | 0 |
+| b2-8-groups | 0 | 0 | 0 |
+| b3-24-groups | 0 | 0 | 0 |
+| b4-times-plus-30 | 0 | 0 | 0 |
+| b5-4-day | 0 | 0 | 0 |
+| b6-6-day | 0 | 0 | 0 |
+| b7-trip-and-games-day | 0 | 0 | 0 |
+
+Each row has the same result with zero answers and with every card confirmed. Before this change, campB had 5 rule violations (Music and FBBG shown 4–5 times a week against an inferred max of 3).
+
+**Synthetic corpus:** still needed fell from 140 to 33 (the first fix above) and then to 8. The 8 are all s04's Games Day, which runs a whole day for 8 groups. A whole-day item for some groups is read as an event only when the camp has a schedule week to bind it to (`src/ingest/tripEvents.js`), and a camp's first import has none. So the name becomes a 9-block activity with no room around the inferred daily fixed events. That is a design question for the trips ADR, tracked as `KNOWN_FAILING` (it fails CI the day it is fixed).
+
+What changed to get there:
+
+| Seam | Fix |
+|---|---|
+| Inference (`activityRules.js`) | min ≤ the lowest per-group weekly count. A split cell ("Volleyball - Yoga") counts as a share of a session, so a group that only ever got part of one requires none. max ≥ the busiest group's week. An eligibility fallback that opens an activity to groups the file never shows doing it makes the min 0. |
+| Import (`extractEntities.js`, `fieldUpdate.js`, `buildPlan.js`, `ImportScreen.jsx`, `ops/ingest.js`) | Per-group weekly counts are recorded. A file-shown 0 (`min_from_file`) passes through, and the commit keeps it instead of applying the T61 floor of 1. |
+| Engine (`buildSchedule.js`) | Two repair passes after the greedy rounds and the existing `repair()`. `minRepair` raises a short (group, activity) by an ejection chain: lift what is in its cells, re-place anything that leaves short, or move another group's session of a capped activity. `fillRepair` fills an empty cell by moving the one session blocking it (same day, weekly max, or capacity), then fills the cell that move vacated. Both are journaled and roll back whole, and both are bounded per item and per week. |
+
+Engine evidence: a property test builds 1,000 seeded weeks from a known-feasible schedule and reads the rules off it the way import does. Without the repairs, 462 of the 1,000 leave something short or empty; with them, none do. A wider sweep of 5,000 weeks, run once and not committed, leaves 2 weeks short (bounded search, not an exact solver). The existing 480-cell infeasible-week CPU budget (3 s) still holds.
+
 ## Not covered by this run
 
 - XLSX merges (`blockSpans`) and any non-text input, so real merged-cell spans are untested; the text forms in this corpus are the closest a text grid can express.

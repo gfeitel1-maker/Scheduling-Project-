@@ -69,7 +69,9 @@ describe('applyTripClaims', () => {
     const after = inferActivityRules(['Field Day'], c.activityPages, c.seenCounts, 2, proposal.entities.groups, [], c.textSpans).get('Field Day')
     expect(before.support.appearances).toBe(5)
     expect(after.support.appearances).toBe(1)
-    expect(after.min_per_week).toBe(1)
+    // One unclaimed cell (G3) is too thin to restrict, so every group may do it, but no other group
+    // ever did: the file requires it of none (activityRules.js, the eligibility-fallback floor).
+    expect(after.min_per_week).toBe(0)
   })
 
   it('a name only the trip printed is fully claimed; an inferred fixed event on the trip cells is dropped', () => {

@@ -689,3 +689,13 @@ describe('compound-cell decisions (T118 slice 3)', () => {
     })
   })
 })
+
+describe('extractEntities — per-group weekly counts', () => {
+  it('counts each activity in a split cell as a share of one session', () => {
+    const { seenCounts } = extractEntities({ pages: [{ title: 'Aleph', columns: ['Time', 'Monday', 'Tuesday'], rows: [
+      { label: '9:00', cells: ['9:00', 'Volleyball - Yoga', 'Yoga'] },
+    ] }] })
+    expect(seenCounts.activityGroupCounts.volleyball).toEqual({ Aleph: 0.5 })
+    expect(seenCounts.activityGroupCounts.yoga).toEqual({ Aleph: 1.5 })
+  })
+})

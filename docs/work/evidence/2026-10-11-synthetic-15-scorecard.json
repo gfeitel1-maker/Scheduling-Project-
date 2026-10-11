@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-10-11T17:14:02.202Z",
-  "runtimeMs": 15940,
+  "generatedAt": "2026-10-11T18:09:12.367Z",
+  "runtimeMs": 27788,
   "node": "v22.23.2",
   "camps": {
     "s01-by-day-small-5d": {
@@ -195,27 +195,22 @@
         },
         "unresolvedTimeBlocks": []
       },
+      "faithful": {
+        "checked": 84,
+        "fileSessions": 105,
+        "count": 0,
+        "byWhy": {},
+        "first": []
+      },
       "generate": {
-        "underservedDetail": [
-          {
-            "activity": "Drama",
-            "group": "Herons 3",
-            "needed": 1,
-            "got": 0,
-            "min_per_week": 1,
-            "span_blocks": null,
-            "fileWeekly": 1,
-            "eventKind": null,
-            "groupActivityCells": 19,
-            "groupSumOfMins": 18
-          }
-        ],
+        "underservedDetail": [],
         "cpuMs": 31,
         "slots": 210,
         "placed": 114,
         "unfillable": 0,
-        "stillNeeded": 1,
-        "underservedPairs": 1,
+        "unfillableCells": [],
+        "stillNeeded": 0,
+        "underservedPairs": 0,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -368,7 +363,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 84,
+        "cpuMs": 112,
         "held": false,
         "counts": {
           "groups": 6,
@@ -558,12 +553,20 @@
         },
         "unresolvedTimeBlocks": []
       },
+      "confirmAllFaithful": {
+        "checked": 84,
+        "fileSessions": 105,
+        "count": 0,
+        "byWhy": {},
+        "first": []
+      },
       "confirmAllGenerate": {
         "underservedDetail": [],
-        "cpuMs": 30,
+        "cpuMs": 29,
         "slots": 210,
         "placed": 114,
         "unfillable": 0,
+        "unfillableCells": [],
         "stillNeeded": 0,
         "underservedPairs": 0,
         "overlap": 0,
@@ -711,7 +714,7 @@
         ],
         "electiveCells": {}
       },
-      "runtimeMs": 401
+      "runtimeMs": 531
     },
     "s02-by-day-three-waves": {
       "slug": "s02-by-day-three-waves",
@@ -720,7 +723,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 201,
+          "cpuMs": 165,
           "held": false
         },
         "confirmAll": {
@@ -1096,27 +1099,22 @@
         },
         "unresolvedTimeBlocks": []
       },
+      "faithful": {
+        "checked": 364,
+        "fileSessions": 266,
+        "count": 0,
+        "byWhy": {},
+        "first": []
+      },
       "generate": {
-        "underservedDetail": [
-          {
-            "activity": "Pottery",
-            "group": "Lynx 2",
-            "needed": 1,
-            "got": 0,
-            "min_per_week": 1,
-            "span_blocks": null,
-            "fileWeekly": 1,
-            "eventKind": null,
-            "groupActivityCells": 20,
-            "groupSumOfMins": 26
-          }
-        ],
-        "cpuMs": 47,
+        "underservedDetail": [],
+        "cpuMs": 85,
         "slots": 700,
         "placed": 280,
         "unfillable": 0,
-        "stillNeeded": 1,
-        "underservedPairs": 1,
+        "unfillableCells": [],
+        "stillNeeded": 0,
+        "underservedPairs": 0,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -1294,7 +1292,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 246,
+        "cpuMs": 310,
         "held": false,
         "counts": {
           "groups": 14,
@@ -1671,27 +1669,22 @@
         },
         "unresolvedTimeBlocks": []
       },
+      "confirmAllFaithful": {
+        "checked": 364,
+        "fileSessions": 266,
+        "count": 0,
+        "byWhy": {},
+        "first": []
+      },
       "confirmAllGenerate": {
-        "underservedDetail": [
-          {
-            "activity": "Painting",
-            "group": "Lynx 2",
-            "needed": 1,
-            "got": 0,
-            "min_per_week": 1,
-            "span_blocks": null,
-            "fileWeekly": 1,
-            "eventKind": null,
-            "groupActivityCells": 20,
-            "groupSumOfMins": 26
-          }
-        ],
-        "cpuMs": 45,
+        "underservedDetail": [],
+        "cpuMs": 48,
         "slots": 700,
         "placed": 280,
         "unfillable": 0,
-        "stillNeeded": 1,
-        "underservedPairs": 1,
+        "unfillableCells": [],
+        "stillNeeded": 0,
+        "underservedPairs": 0,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -1842,7 +1835,7 @@
           "fixed_event:chugim": 14
         }
       },
-      "runtimeMs": 842
+      "runtimeMs": 1117
     },
     "s03-by-day-4day-24h-nolunch": {
       "slug": "s03-by-day-4day-24h-nolunch",
@@ -1851,7 +1844,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 37,
+          "cpuMs": 44,
           "held": false
         },
         "confirmAll": {
@@ -1992,12 +1985,20 @@
         },
         "unresolvedTimeBlocks": []
       },
+      "faithful": {
+        "checked": 30,
+        "fileSessions": 34,
+        "count": 0,
+        "byWhy": {},
+        "first": []
+      },
       "generate": {
         "underservedDetail": [],
-        "cpuMs": 9,
+        "cpuMs": 13,
         "slots": 72,
         "placed": 48,
         "unfillable": 0,
+        "unfillableCells": [],
         "stillNeeded": 0,
         "underservedPairs": 0,
         "overlap": 0,
@@ -2116,7 +2117,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 57,
+        "cpuMs": 50,
         "held": false,
         "counts": {
           "groups": 3,
@@ -2262,12 +2263,20 @@
         },
         "unresolvedTimeBlocks": []
       },
+      "confirmAllFaithful": {
+        "checked": 30,
+        "fileSessions": 34,
+        "count": 0,
+        "byWhy": {},
+        "first": []
+      },
       "confirmAllGenerate": {
         "underservedDetail": [],
         "cpuMs": 10,
         "slots": 72,
         "placed": 48,
         "unfillable": 0,
+        "unfillableCells": [],
         "stillNeeded": 0,
         "underservedPairs": 0,
         "overlap": 0,
@@ -2379,7 +2388,7 @@
         ],
         "electiveCells": {}
       },
-      "runtimeMs": 229
+      "runtimeMs": 268
     },
     "s04-by-day-6day-large": {
       "slug": "s04-by-day-6day-large",
@@ -2388,7 +2397,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 232,
+          "cpuMs": 268,
           "held": false
         },
         "confirmAll": {
@@ -2545,7 +2554,7 @@
           "pinnedEventActivities": 7,
           "fixedEvents": 2,
           "recurringEvents": 30,
-          "electiveSets": 0,
+          "electiveSets": 2,
           "specialDays": 0
         },
         "expected": {
@@ -2699,10 +2708,17 @@
         ],
         "electiveSets": {
           "expected": 2,
-          "created": 0,
+          "created": 1,
           "withEligibility": 0
         },
         "unresolvedTimeBlocks": []
+      },
+      "faithful": {
+        "checked": 550,
+        "fileSessions": 338,
+        "count": 0,
+        "byWhy": {},
+        "first": []
       },
       "generate": {
         "underservedDetail": [
@@ -2716,7 +2732,7 @@
             "fileWeekly": 1,
             "eventKind": "allday",
             "groupActivityCells": 31,
-            "groupSumOfMins": 55
+            "groupSumOfMins": 36
           },
           {
             "activity": "Games Day",
@@ -2728,7 +2744,7 @@
             "fileWeekly": 1,
             "eventKind": "allday",
             "groupActivityCells": 31,
-            "groupSumOfMins": 55
+            "groupSumOfMins": 36
           },
           {
             "activity": "Games Day",
@@ -2740,7 +2756,7 @@
             "fileWeekly": 1,
             "eventKind": "allday",
             "groupActivityCells": 31,
-            "groupSumOfMins": 55
+            "groupSumOfMins": 36
           },
           {
             "activity": "Games Day",
@@ -2752,7 +2768,7 @@
             "fileWeekly": 1,
             "eventKind": "allday",
             "groupActivityCells": 31,
-            "groupSumOfMins": 55
+            "groupSumOfMins": 36
           },
           {
             "activity": "Games Day",
@@ -2764,7 +2780,7 @@
             "fileWeekly": 1,
             "eventKind": "allday",
             "groupActivityCells": 31,
-            "groupSumOfMins": 55
+            "groupSumOfMins": 36
           },
           {
             "activity": "Games Day",
@@ -2776,7 +2792,7 @@
             "fileWeekly": 1,
             "eventKind": "allday",
             "groupActivityCells": 31,
-            "groupSumOfMins": 55
+            "groupSumOfMins": 36
           },
           {
             "activity": "Games Day",
@@ -2788,7 +2804,7 @@
             "fileWeekly": 1,
             "eventKind": "allday",
             "groupActivityCells": 31,
-            "groupSumOfMins": 55
+            "groupSumOfMins": 36
           },
           {
             "activity": "Games Day",
@@ -2800,111 +2816,16 @@
             "fileWeekly": 1,
             "eventKind": "allday",
             "groupActivityCells": 31,
-            "groupSumOfMins": 55
-          },
-          {
-            "activity": "Electives",
-            "group": "Moles 1",
-            "needed": 2,
-            "got": 1,
-            "min_per_week": 2,
-            "span_blocks": null,
-            "fileWeekly": 2,
-            "eventKind": "elective",
-            "groupActivityCells": 28,
-            "groupSumOfMins": 55
-          },
-          {
-            "activity": "Electives",
-            "group": "Moles 2",
-            "needed": 2,
-            "got": 1,
-            "min_per_week": 2,
-            "span_blocks": null,
-            "fileWeekly": 2,
-            "eventKind": "elective",
-            "groupActivityCells": 28,
-            "groupSumOfMins": 55
-          },
-          {
-            "activity": "Electives",
-            "group": "Moles 3",
-            "needed": 2,
-            "got": 1,
-            "min_per_week": 2,
-            "span_blocks": null,
-            "fileWeekly": 2,
-            "eventKind": "elective",
-            "groupActivityCells": 28,
-            "groupSumOfMins": 55
-          },
-          {
-            "activity": "Electives",
-            "group": "Moles 4",
-            "needed": 2,
-            "got": 1,
-            "min_per_week": 2,
-            "span_blocks": null,
-            "fileWeekly": 2,
-            "eventKind": "elective",
-            "groupActivityCells": 28,
-            "groupSumOfMins": 55
-          },
-          {
-            "activity": "Electives",
-            "group": "Voles 1",
-            "needed": 2,
-            "got": 1,
-            "min_per_week": 2,
-            "span_blocks": null,
-            "fileWeekly": 2,
-            "eventKind": "elective",
-            "groupActivityCells": 28,
-            "groupSumOfMins": 55
-          },
-          {
-            "activity": "Electives",
-            "group": "Voles 2",
-            "needed": 2,
-            "got": 1,
-            "min_per_week": 2,
-            "span_blocks": null,
-            "fileWeekly": 2,
-            "eventKind": "elective",
-            "groupActivityCells": 28,
-            "groupSumOfMins": 55
-          },
-          {
-            "activity": "Electives",
-            "group": "Voles 3",
-            "needed": 2,
-            "got": 1,
-            "min_per_week": 2,
-            "span_blocks": null,
-            "fileWeekly": 2,
-            "eventKind": "elective",
-            "groupActivityCells": 28,
-            "groupSumOfMins": 55
-          },
-          {
-            "activity": "Electives",
-            "group": "Voles 4",
-            "needed": 2,
-            "got": 1,
-            "min_per_week": 2,
-            "span_blocks": null,
-            "fileWeekly": 2,
-            "eventKind": "elective",
-            "groupActivityCells": 28,
-            "groupSumOfMins": 55
+            "groupSumOfMins": 36
           }
         ],
-        "cpuMs": 525,
+        "cpuMs": 509,
         "slots": 1350,
         "placed": 724,
         "unfillable": 0,
-        "stillNeeded": 16,
-        "underservedPairs": 16,
+        "unfillableCells": [],
+        "stillNeeded": 8,
+        "underservedPairs": 8,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -3145,7 +3066,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 346,
+        "cpuMs": 336,
         "held": false,
         "counts": {
           "groups": 25,
@@ -3155,7 +3076,7 @@
           "activities": 48,
           "locations": 0,
           "fixed_events": 32,
-          "elective_sets": 0
+          "elective_sets": 2
         }
       },
       "confirmAll": {
@@ -3466,6 +3387,13 @@
         },
         "unresolvedTimeBlocks": []
       },
+      "confirmAllFaithful": {
+        "checked": 550,
+        "fileSessions": 338,
+        "count": 0,
+        "byWhy": {},
+        "first": []
+      },
       "confirmAllGenerate": {
         "underservedDetail": [
           {
@@ -3478,7 +3406,7 @@
             "fileWeekly": 1,
             "eventKind": "allday",
             "groupActivityCells": 31,
-            "groupSumOfMins": 55
+            "groupSumOfMins": 36
           },
           {
             "activity": "Games Day",
@@ -3490,7 +3418,7 @@
             "fileWeekly": 1,
             "eventKind": "allday",
             "groupActivityCells": 31,
-            "groupSumOfMins": 55
+            "groupSumOfMins": 36
           },
           {
             "activity": "Games Day",
@@ -3502,7 +3430,7 @@
             "fileWeekly": 1,
             "eventKind": "allday",
             "groupActivityCells": 31,
-            "groupSumOfMins": 55
+            "groupSumOfMins": 36
           },
           {
             "activity": "Games Day",
@@ -3514,7 +3442,7 @@
             "fileWeekly": 1,
             "eventKind": "allday",
             "groupActivityCells": 31,
-            "groupSumOfMins": 55
+            "groupSumOfMins": 36
           },
           {
             "activity": "Games Day",
@@ -3526,7 +3454,7 @@
             "fileWeekly": 1,
             "eventKind": "allday",
             "groupActivityCells": 31,
-            "groupSumOfMins": 55
+            "groupSumOfMins": 36
           },
           {
             "activity": "Games Day",
@@ -3538,7 +3466,7 @@
             "fileWeekly": 1,
             "eventKind": "allday",
             "groupActivityCells": 31,
-            "groupSumOfMins": 55
+            "groupSumOfMins": 36
           },
           {
             "activity": "Games Day",
@@ -3550,7 +3478,7 @@
             "fileWeekly": 1,
             "eventKind": "allday",
             "groupActivityCells": 31,
-            "groupSumOfMins": 55
+            "groupSumOfMins": 36
           },
           {
             "activity": "Games Day",
@@ -3562,111 +3490,16 @@
             "fileWeekly": 1,
             "eventKind": "allday",
             "groupActivityCells": 31,
-            "groupSumOfMins": 55
-          },
-          {
-            "activity": "Electives",
-            "group": "Moles 1",
-            "needed": 2,
-            "got": 1,
-            "min_per_week": 2,
-            "span_blocks": null,
-            "fileWeekly": 2,
-            "eventKind": "elective",
-            "groupActivityCells": 28,
-            "groupSumOfMins": 55
-          },
-          {
-            "activity": "Electives",
-            "group": "Moles 2",
-            "needed": 2,
-            "got": 1,
-            "min_per_week": 2,
-            "span_blocks": null,
-            "fileWeekly": 2,
-            "eventKind": "elective",
-            "groupActivityCells": 28,
-            "groupSumOfMins": 55
-          },
-          {
-            "activity": "Electives",
-            "group": "Moles 3",
-            "needed": 2,
-            "got": 1,
-            "min_per_week": 2,
-            "span_blocks": null,
-            "fileWeekly": 2,
-            "eventKind": "elective",
-            "groupActivityCells": 28,
-            "groupSumOfMins": 55
-          },
-          {
-            "activity": "Electives",
-            "group": "Moles 4",
-            "needed": 2,
-            "got": 1,
-            "min_per_week": 2,
-            "span_blocks": null,
-            "fileWeekly": 2,
-            "eventKind": "elective",
-            "groupActivityCells": 28,
-            "groupSumOfMins": 55
-          },
-          {
-            "activity": "Electives",
-            "group": "Voles 1",
-            "needed": 2,
-            "got": 1,
-            "min_per_week": 2,
-            "span_blocks": null,
-            "fileWeekly": 2,
-            "eventKind": "elective",
-            "groupActivityCells": 28,
-            "groupSumOfMins": 55
-          },
-          {
-            "activity": "Electives",
-            "group": "Voles 2",
-            "needed": 2,
-            "got": 1,
-            "min_per_week": 2,
-            "span_blocks": null,
-            "fileWeekly": 2,
-            "eventKind": "elective",
-            "groupActivityCells": 28,
-            "groupSumOfMins": 55
-          },
-          {
-            "activity": "Electives",
-            "group": "Voles 3",
-            "needed": 2,
-            "got": 1,
-            "min_per_week": 2,
-            "span_blocks": null,
-            "fileWeekly": 2,
-            "eventKind": "elective",
-            "groupActivityCells": 28,
-            "groupSumOfMins": 55
-          },
-          {
-            "activity": "Electives",
-            "group": "Voles 4",
-            "needed": 2,
-            "got": 1,
-            "min_per_week": 2,
-            "span_blocks": null,
-            "fileWeekly": 2,
-            "eventKind": "elective",
-            "groupActivityCells": 28,
-            "groupSumOfMins": 55
+            "groupSumOfMins": 36
           }
         ],
-        "cpuMs": 481,
+        "cpuMs": 501,
         "slots": 1350,
         "placed": 724,
         "unfillable": 0,
-        "stillNeeded": 16,
-        "underservedPairs": 16,
+        "unfillableCells": [],
+        "stillNeeded": 8,
+        "underservedPairs": 8,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -3900,7 +3733,7 @@
           "activity:ceramics / kayaking / yoga / puppetry": 8
         }
       },
-      "runtimeMs": 2048
+      "runtimeMs": 2430
     },
     "s05-by-day-tiny-early": {
       "slug": "s05-by-day-tiny-early",
@@ -3909,7 +3742,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 264,
+          "cpuMs": 135,
           "held": false
         },
         "confirmAll": {
@@ -4166,27 +3999,22 @@
         },
         "unresolvedTimeBlocks": []
       },
+      "faithful": {
+        "checked": 18,
+        "fileSessions": 35,
+        "count": 0,
+        "byWhy": {},
+        "first": []
+      },
       "generate": {
-        "underservedDetail": [
-          {
-            "activity": "Arts and Crafts",
-            "group": "Otters 2",
-            "needed": 3,
-            "got": 2,
-            "min_per_week": 3,
-            "span_blocks": null,
-            "fileWeekly": 3,
-            "eventKind": null,
-            "groupActivityCells": 20,
-            "groupSumOfMins": 19
-          }
-        ],
-        "cpuMs": 8,
+        "underservedDetail": [],
+        "cpuMs": 18,
         "slots": 80,
         "placed": 40,
         "unfillable": 0,
-        "stillNeeded": 1,
-        "underservedPairs": 1,
+        "unfillableCells": [],
+        "stillNeeded": 0,
+        "underservedPairs": 0,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -4351,7 +4179,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 70,
+        "cpuMs": 159,
         "held": false,
         "counts": {
           "groups": 2,
@@ -4610,39 +4438,22 @@
         },
         "unresolvedTimeBlocks": []
       },
+      "confirmAllFaithful": {
+        "checked": 18,
+        "fileSessions": 35,
+        "count": 0,
+        "byWhy": {},
+        "first": []
+      },
       "confirmAllGenerate": {
-        "underservedDetail": [
-          {
-            "activity": "Arts and Crafts",
-            "group": "Otters 2",
-            "needed": 3,
-            "got": 2,
-            "min_per_week": 3,
-            "span_blocks": null,
-            "fileWeekly": 3,
-            "eventKind": null,
-            "groupActivityCells": 20,
-            "groupSumOfMins": 19
-          },
-          {
-            "activity": "Basketball",
-            "group": "Otters 2",
-            "needed": 2,
-            "got": 1,
-            "min_per_week": 2,
-            "span_blocks": null,
-            "fileWeekly": 2,
-            "eventKind": null,
-            "groupActivityCells": 20,
-            "groupSumOfMins": 19
-          }
-        ],
+        "underservedDetail": [],
         "cpuMs": 8,
         "slots": 80,
         "placed": 40,
         "unfillable": 0,
-        "stillNeeded": 2,
-        "underservedPairs": 2,
+        "unfillableCells": [],
+        "stillNeeded": 0,
+        "underservedPairs": 0,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -4780,7 +4591,7 @@
         ],
         "electiveCells": {}
       },
-      "runtimeMs": 399
+      "runtimeMs": 439
     },
     "s06-by-day-40-groups-late": {
       "slug": "s06-by-day-40-groups-late",
@@ -4789,7 +4600,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 332,
+          "cpuMs": 328,
           "held": false
         },
         "confirmAll": {
@@ -4994,7 +4805,7 @@
           "pinnedEventActivities": 8,
           "fixedEvents": 20,
           "recurringEvents": 12,
-          "electiveSets": 0,
+          "electiveSets": 1,
           "specialDays": 0
         },
         "expected": {
@@ -5150,12 +4961,20 @@
         },
         "unresolvedTimeBlocks": []
       },
+      "faithful": {
+        "checked": 1760,
+        "fileSessions": 980,
+        "count": 0,
+        "byWhy": {},
+        "first": []
+      },
       "generate": {
         "underservedDetail": [],
-        "cpuMs": 515,
+        "cpuMs": 509,
         "slots": 2000,
         "placed": 1040,
         "unfillable": 0,
+        "unfillableCells": [],
         "stillNeeded": 0,
         "underservedPairs": 0,
         "overlap": 0,
@@ -5377,7 +5196,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 645,
+        "cpuMs": 575,
         "held": false,
         "counts": {
           "groups": 40,
@@ -5387,7 +5206,7 @@
           "activities": 52,
           "locations": 0,
           "fixed_events": 32,
-          "elective_sets": 0
+          "elective_sets": 1
         }
       },
       "confirmAll": {
@@ -5740,12 +5559,20 @@
         },
         "unresolvedTimeBlocks": []
       },
+      "confirmAllFaithful": {
+        "checked": 1760,
+        "fileSessions": 980,
+        "count": 0,
+        "byWhy": {},
+        "first": []
+      },
       "confirmAllGenerate": {
         "underservedDetail": [],
-        "cpuMs": 479,
+        "cpuMs": 742,
         "slots": 2000,
         "placed": 1040,
         "unfillable": 0,
+        "unfillableCells": [],
         "stillNeeded": 0,
         "underservedPairs": 0,
         "overlap": 0,
@@ -5960,7 +5787,7 @@
           "activity:hiking / fishing / kayaking / orienteering / bocce": 10
         }
       },
-      "runtimeMs": 2798
+      "runtimeMs": 3146
     },
     "s07-by-group-3-divisions": {
       "slug": "s07-by-group-3-divisions",
@@ -5969,7 +5796,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 76,
+          "cpuMs": 149,
           "held": false
         },
         "confirmAll": {
@@ -6065,7 +5892,7 @@
           "pinnedEventActivities": 5,
           "fixedEvents": 11,
           "recurringEvents": 10,
-          "electiveSets": 0,
+          "electiveSets": 1,
           "specialDays": 0
         },
         "expected": {
@@ -6180,17 +6007,25 @@
         ],
         "electiveSets": {
           "expected": 1,
-          "created": 0,
+          "created": 1,
           "withEligibility": 0
         },
         "unresolvedTimeBlocks": []
       },
+      "faithful": {
+        "checked": 144,
+        "fileSessions": 185,
+        "count": 0,
+        "byWhy": {},
+        "first": []
+      },
       "generate": {
         "underservedDetail": [],
-        "cpuMs": 196,
+        "cpuMs": 65,
         "slots": 320,
         "placed": 192,
         "unfillable": 0,
+        "unfillableCells": [],
         "stillNeeded": 0,
         "underservedPairs": 0,
         "overlap": 0,
@@ -6357,7 +6192,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 235,
+        "cpuMs": 109,
         "held": false,
         "counts": {
           "groups": 8,
@@ -6367,7 +6202,7 @@
           "activities": 23,
           "locations": 0,
           "fixed_events": 21,
-          "elective_sets": 0
+          "elective_sets": 1
         }
       },
       "confirmAll": {
@@ -6578,12 +6413,20 @@
         },
         "unresolvedTimeBlocks": []
       },
+      "confirmAllFaithful": {
+        "checked": 144,
+        "fileSessions": 185,
+        "count": 0,
+        "byWhy": {},
+        "first": []
+      },
       "confirmAllGenerate": {
         "underservedDetail": [],
-        "cpuMs": 61,
+        "cpuMs": 64,
         "slots": 320,
         "placed": 192,
         "unfillable": 0,
+        "unfillableCells": [],
         "stillNeeded": 0,
         "underservedPairs": 0,
         "overlap": 0,
@@ -6743,7 +6586,7 @@
           "activity:indoor elective": 2
         }
       },
-      "runtimeMs": 578
+      "runtimeMs": 618
     },
     "s08-by-group-24h-wrapped": {
       "slug": "s08-by-group-24h-wrapped",
@@ -6752,7 +6595,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 119,
+          "cpuMs": 177,
           "held": false
         },
         "confirmAll": {
@@ -6840,7 +6683,7 @@
           "pinnedEventActivities": 3,
           "fixedEvents": 1,
           "recurringEvents": 8,
-          "electiveSets": 0,
+          "electiveSets": 1,
           "specialDays": 0
         },
         "expected": {
@@ -6967,12 +6810,20 @@
         },
         "unresolvedTimeBlocks": []
       },
+      "faithful": {
+        "checked": 288,
+        "fileSessions": 210,
+        "count": 0,
+        "byWhy": {},
+        "first": []
+      },
       "generate": {
         "underservedDetail": [],
-        "cpuMs": 60,
+        "cpuMs": 63,
         "slots": 384,
         "placed": 288,
         "unfillable": 0,
+        "unfillableCells": [],
         "stillNeeded": 0,
         "underservedPairs": 0,
         "overlap": 0,
@@ -7126,7 +6977,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 114,
+        "cpuMs": 111,
         "held": false,
         "counts": {
           "groups": 12,
@@ -7136,7 +6987,7 @@
           "activities": 27,
           "locations": 0,
           "fixed_events": 9,
-          "elective_sets": 0
+          "elective_sets": 1
         }
       },
       "confirmAll": {
@@ -7343,12 +7194,20 @@
         },
         "unresolvedTimeBlocks": []
       },
+      "confirmAllFaithful": {
+        "checked": 288,
+        "fileSessions": 210,
+        "count": 0,
+        "byWhy": {},
+        "first": []
+      },
       "confirmAllGenerate": {
         "underservedDetail": [],
-        "cpuMs": 66,
+        "cpuMs": 61,
         "slots": 384,
         "placed": 288,
         "unfillable": 0,
+        "unfillableCells": [],
         "stillNeeded": 0,
         "underservedPairs": 0,
         "overlap": 0,
@@ -7495,7 +7354,7 @@
           "activity:chess club / robotics / cooking": 6
         }
       },
-      "runtimeMs": 990
+      "runtimeMs": 646
     },
     "s09-by-group-6day-except": {
       "slug": "s09-by-group-6day-except",
@@ -7504,7 +7363,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 178,
+          "cpuMs": 277,
           "held": false
         },
         "confirmAll": {
@@ -7883,27 +7742,22 @@
         },
         "unresolvedTimeBlocks": []
       },
+      "faithful": {
+        "checked": 504,
+        "fileSessions": 246,
+        "count": 0,
+        "byWhy": {},
+        "first": []
+      },
       "generate": {
-        "underservedDetail": [
-          {
-            "activity": "Tie Dye",
-            "group": "Otters 3",
-            "needed": 1,
-            "got": 0,
-            "min_per_week": 1,
-            "span_blocks": null,
-            "fileWeekly": 1,
-            "eventKind": null,
-            "groupActivityCells": 16,
-            "groupSumOfMins": 36
-          }
-        ],
+        "underservedDetail": [],
         "cpuMs": 101,
         "slots": 1008,
         "placed": 340,
         "unfillable": 0,
-        "stillNeeded": 1,
-        "underservedPairs": 1,
+        "unfillableCells": [],
+        "stillNeeded": 0,
+        "underservedPairs": 0,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -8108,7 +7962,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 315,
+        "cpuMs": 590,
         "held": false,
         "counts": {
           "groups": 21,
@@ -8480,39 +8334,22 @@
         },
         "unresolvedTimeBlocks": []
       },
+      "confirmAllFaithful": {
+        "checked": 504,
+        "fileSessions": 246,
+        "count": 0,
+        "byWhy": {},
+        "first": []
+      },
       "confirmAllGenerate": {
-        "underservedDetail": [
-          {
-            "activity": "Storytelling",
-            "group": "Otters 3",
-            "needed": 1,
-            "got": 0,
-            "min_per_week": 1,
-            "span_blocks": null,
-            "fileWeekly": 1,
-            "eventKind": null,
-            "groupActivityCells": 16,
-            "groupSumOfMins": 36
-          },
-          {
-            "activity": "Sailing",
-            "group": "Lynx 2",
-            "needed": 1,
-            "got": 0,
-            "min_per_week": 1,
-            "span_blocks": null,
-            "fileWeekly": 1,
-            "eventKind": null,
-            "groupActivityCells": 16,
-            "groupSumOfMins": 36
-          }
-        ],
-        "cpuMs": 93,
+        "underservedDetail": [],
+        "cpuMs": 97,
         "slots": 1008,
         "placed": 340,
         "unfillable": 0,
-        "stillNeeded": 2,
-        "underservedPairs": 2,
+        "unfillableCells": [],
+        "stillNeeded": 0,
+        "underservedPairs": 0,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -8690,7 +8527,7 @@
           "fixed_event:bechirot": 63
         }
       },
-      "runtimeMs": 1472
+      "runtimeMs": 1381
     },
     "s10-by-group-sun-thu-early": {
       "slug": "s10-by-group-sun-thu-early",
@@ -8699,7 +8536,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 89,
+          "cpuMs": 109,
           "held": false
         },
         "confirmAll": {
@@ -8947,12 +8784,20 @@
         },
         "unresolvedTimeBlocks": []
       },
+      "faithful": {
+        "checked": 48,
+        "fileSessions": 58,
+        "count": 0,
+        "byWhy": {},
+        "first": []
+      },
       "generate": {
         "underservedDetail": [],
-        "cpuMs": 26,
+        "cpuMs": 17,
         "slots": 140,
         "placed": 64,
         "unfillable": 0,
+        "unfillableCells": [],
         "stillNeeded": 0,
         "underservedPairs": 0,
         "overlap": 0,
@@ -9103,7 +8948,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 92,
+        "cpuMs": 85,
         "held": false,
         "counts": {
           "groups": 4,
@@ -9353,12 +9198,20 @@
         },
         "unresolvedTimeBlocks": []
       },
+      "confirmAllFaithful": {
+        "checked": 48,
+        "fileSessions": 58,
+        "count": 0,
+        "byWhy": {},
+        "first": []
+      },
       "confirmAllGenerate": {
         "underservedDetail": [],
-        "cpuMs": 21,
+        "cpuMs": 24,
         "slots": 140,
         "placed": 64,
         "unfillable": 0,
+        "unfillableCells": [],
         "stillNeeded": 0,
         "underservedPairs": 0,
         "overlap": 0,
@@ -9502,7 +9355,7 @@
         ],
         "electiveCells": {}
       },
-      "runtimeMs": 408
+      "runtimeMs": 417
     },
     "s11-daysheet-5d-small": {
       "slug": "s11-daysheet-5d-small",
@@ -9511,7 +9364,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 163,
+          "cpuMs": 74,
           "held": false
         },
         "confirmAll": {
@@ -9717,12 +9570,20 @@
         },
         "unresolvedTimeBlocks": []
       },
+      "faithful": {
+        "checked": 54,
+        "fileSessions": 74,
+        "count": 0,
+        "byWhy": {},
+        "first": []
+      },
       "generate": {
         "underservedDetail": [],
-        "cpuMs": 25,
+        "cpuMs": 10,
         "slots": 180,
         "placed": 76,
         "unfillable": 0,
+        "unfillableCells": [],
         "stillNeeded": 0,
         "underservedPairs": 0,
         "overlap": 0,
@@ -9844,7 +9705,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 166,
+        "cpuMs": 195,
         "held": false,
         "counts": {
           "groups": 6,
@@ -10052,12 +9913,20 @@
         },
         "unresolvedTimeBlocks": []
       },
+      "confirmAllFaithful": {
+        "checked": 54,
+        "fileSessions": 74,
+        "count": 0,
+        "byWhy": {},
+        "first": []
+      },
       "confirmAllGenerate": {
         "underservedDetail": [],
-        "cpuMs": 8,
+        "cpuMs": 50,
         "slots": 180,
         "placed": 76,
         "unfillable": 0,
+        "unfillableCells": [],
         "stillNeeded": 0,
         "underservedPairs": 0,
         "overlap": 0,
@@ -10172,7 +10041,7 @@
           "fixed_event:electives": 6
         }
       },
-      "runtimeMs": 444
+      "runtimeMs": 568
     },
     "s12-daysheet-4d-late": {
       "slug": "s12-daysheet-4d-late",
@@ -10181,7 +10050,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 83,
+          "cpuMs": 175,
           "held": false
         },
         "confirmAll": {
@@ -10316,7 +10185,7 @@
           "pinnedEventActivities": 5,
           "fixedEvents": 1,
           "recurringEvents": 15,
-          "electiveSets": 0,
+          "electiveSets": 1,
           "specialDays": 0
         },
         "expected": {
@@ -10462,51 +10331,22 @@
         },
         "unresolvedTimeBlocks": []
       },
+      "faithful": {
+        "checked": 230,
+        "fileSessions": 210,
+        "count": 0,
+        "byWhy": {},
+        "first": []
+      },
       "generate": {
-        "underservedDetail": [
-          {
-            "activity": "Ropes Course",
-            "group": "2D",
-            "needed": 2,
-            "got": 1,
-            "min_per_week": 2,
-            "span_blocks": null,
-            "fileWeekly": 2,
-            "eventKind": null,
-            "groupActivityCells": 30,
-            "groupSumOfMins": 36
-          },
-          {
-            "activity": "Ropes Course",
-            "group": "3A",
-            "needed": 2,
-            "got": 1,
-            "min_per_week": 2,
-            "span_blocks": null,
-            "fileWeekly": 2,
-            "eventKind": null,
-            "groupActivityCells": 30,
-            "groupSumOfMins": 36
-          },
-          {
-            "activity": "Ropes Course",
-            "group": "3B",
-            "needed": 2,
-            "got": 1,
-            "min_per_week": 2,
-            "span_blocks": null,
-            "fileWeekly": 2,
-            "eventKind": null,
-            "groupActivityCells": 30,
-            "groupSumOfMins": 36
-          }
-        ],
-        "cpuMs": 78,
+        "underservedDetail": [],
+        "cpuMs": 171,
         "slots": 400,
         "placed": 288,
         "unfillable": 0,
-        "stillNeeded": 3,
-        "underservedPairs": 3,
+        "unfillableCells": [],
+        "stillNeeded": 0,
+        "underservedPairs": 0,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -10592,9 +10432,9 @@
             "name": "Ropes Course",
             "expected": 2,
             "activitySpanBlocks": null,
-            "placedGroupDays": 9,
+            "placedGroupDays": 12,
             "runs": {
-              "1": 9
+              "1": 12
             }
           }
         ],
@@ -10722,7 +10562,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 270,
+        "cpuMs": 411,
         "held": false,
         "counts": {
           "groups": 10,
@@ -10732,7 +10572,7 @@
           "activities": 28,
           "locations": 0,
           "fixed_events": 16,
-          "elective_sets": 0
+          "elective_sets": 1
         }
       },
       "confirmAll": {
@@ -11008,63 +10848,22 @@
         },
         "unresolvedTimeBlocks": []
       },
+      "confirmAllFaithful": {
+        "checked": 230,
+        "fileSessions": 210,
+        "count": 0,
+        "byWhy": {},
+        "first": []
+      },
       "confirmAllGenerate": {
-        "underservedDetail": [
-          {
-            "activity": "Ropes Course",
-            "group": "2B",
-            "needed": 2,
-            "got": 1,
-            "min_per_week": 2,
-            "span_blocks": null,
-            "fileWeekly": 2,
-            "eventKind": null,
-            "groupActivityCells": 30,
-            "groupSumOfMins": 36
-          },
-          {
-            "activity": "Ropes Course",
-            "group": "2C",
-            "needed": 2,
-            "got": 1,
-            "min_per_week": 2,
-            "span_blocks": null,
-            "fileWeekly": 2,
-            "eventKind": null,
-            "groupActivityCells": 30,
-            "groupSumOfMins": 36
-          },
-          {
-            "activity": "Ropes Course",
-            "group": "2D",
-            "needed": 2,
-            "got": 1,
-            "min_per_week": 2,
-            "span_blocks": null,
-            "fileWeekly": 2,
-            "eventKind": null,
-            "groupActivityCells": 30,
-            "groupSumOfMins": 36
-          },
-          {
-            "activity": "Ropes Course",
-            "group": "3A",
-            "needed": 2,
-            "got": 1,
-            "min_per_week": 2,
-            "span_blocks": null,
-            "fileWeekly": 2,
-            "eventKind": null,
-            "groupActivityCells": 30,
-            "groupSumOfMins": 36
-          }
-        ],
-        "cpuMs": 87,
+        "underservedDetail": [],
+        "cpuMs": 92,
         "slots": 400,
         "placed": 288,
         "unfillable": 0,
-        "stillNeeded": 4,
-        "underservedPairs": 4,
+        "unfillableCells": [],
+        "stillNeeded": 0,
+        "underservedPairs": 0,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -11150,9 +10949,9 @@
             "name": "Ropes Course",
             "expected": 2,
             "activitySpanBlocks": null,
-            "placedGroupDays": 8,
+            "placedGroupDays": 12,
             "runs": {
-              "1": 8
+              "1": 12
             }
           }
         ],
@@ -11273,7 +11072,7 @@
           "activity:pottery / drama / robotics": 2
         }
       },
-      "runtimeMs": 762
+      "runtimeMs": 1326
     },
     "s13-daysheet-16-splits": {
       "slug": "s13-daysheet-16-splits",
@@ -11282,7 +11081,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 200,
+          "cpuMs": 168,
           "held": false
         },
         "confirmAll": {
@@ -11586,75 +11385,22 @@
         },
         "unresolvedTimeBlocks": []
       },
+      "faithful": {
+        "checked": 128,
+        "fileSessions": 76,
+        "count": 0,
+        "byWhy": {},
+        "first": []
+      },
       "generate": {
-        "underservedDetail": [
-          {
-            "activity": "Woodworking",
-            "group": "3D",
-            "needed": 1,
-            "got": 0,
-            "min_per_week": 1,
-            "span_blocks": null,
-            "fileWeekly": 1,
-            "eventKind": null,
-            "groupActivityCells": 29,
-            "groupSumOfMins": 42
-          },
-          {
-            "activity": "Woodworking",
-            "group": "4A",
-            "needed": 1,
-            "got": 0,
-            "min_per_week": 1,
-            "span_blocks": null,
-            "fileWeekly": 1,
-            "eventKind": null,
-            "groupActivityCells": 29,
-            "groupSumOfMins": 42
-          },
-          {
-            "activity": "Puppetry",
-            "group": "4B",
-            "needed": 1,
-            "got": 0,
-            "min_per_week": 1,
-            "span_blocks": null,
-            "fileWeekly": 1,
-            "eventKind": null,
-            "groupActivityCells": 29,
-            "groupSumOfMins": 42
-          },
-          {
-            "activity": "Lanyard",
-            "group": "4C",
-            "needed": 1,
-            "got": 0,
-            "min_per_week": 1,
-            "span_blocks": null,
-            "fileWeekly": 1,
-            "eventKind": null,
-            "groupActivityCells": 29,
-            "groupSumOfMins": 42
-          },
-          {
-            "activity": "Woodworking",
-            "group": "4D",
-            "needed": 1,
-            "got": 0,
-            "min_per_week": 1,
-            "span_blocks": null,
-            "fileWeekly": 1,
-            "eventKind": null,
-            "groupActivityCells": 29,
-            "groupSumOfMins": 42
-          }
-        ],
-        "cpuMs": 193,
+        "underservedDetail": [],
+        "cpuMs": 243,
         "slots": 720,
         "placed": 440,
         "unfillable": 0,
-        "stillNeeded": 5,
-        "underservedPairs": 5,
+        "unfillableCells": [],
+        "stillNeeded": 0,
+        "underservedPairs": 0,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -11863,7 +11609,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 283,
+        "cpuMs": 205,
         "held": false,
         "counts": {
           "groups": 16,
@@ -12170,87 +11916,22 @@
         },
         "unresolvedTimeBlocks": []
       },
+      "confirmAllFaithful": {
+        "checked": 128,
+        "fileSessions": 76,
+        "count": 0,
+        "byWhy": {},
+        "first": []
+      },
       "confirmAllGenerate": {
-        "underservedDetail": [
-          {
-            "activity": "Tennis",
-            "group": "2D",
-            "needed": 1,
-            "got": 0,
-            "min_per_week": 1,
-            "span_blocks": null,
-            "fileWeekly": 1,
-            "eventKind": null,
-            "groupActivityCells": 26,
-            "groupSumOfMins": 42
-          },
-          {
-            "activity": "Cooking",
-            "group": "3D",
-            "needed": 1,
-            "got": 0,
-            "min_per_week": 1,
-            "span_blocks": null,
-            "fileWeekly": 1,
-            "eventKind": null,
-            "groupActivityCells": 29,
-            "groupSumOfMins": 42
-          },
-          {
-            "activity": "Tennis",
-            "group": "4A",
-            "needed": 1,
-            "got": 0,
-            "min_per_week": 1,
-            "span_blocks": null,
-            "fileWeekly": 1,
-            "eventKind": null,
-            "groupActivityCells": 29,
-            "groupSumOfMins": 42
-          },
-          {
-            "activity": "Sailing",
-            "group": "4B",
-            "needed": 1,
-            "got": 0,
-            "min_per_week": 1,
-            "span_blocks": null,
-            "fileWeekly": 1,
-            "eventKind": null,
-            "groupActivityCells": 29,
-            "groupSumOfMins": 42
-          },
-          {
-            "activity": "Rocketry",
-            "group": "4C",
-            "needed": 1,
-            "got": 0,
-            "min_per_week": 1,
-            "span_blocks": null,
-            "fileWeekly": 1,
-            "eventKind": null,
-            "groupActivityCells": 29,
-            "groupSumOfMins": 42
-          },
-          {
-            "activity": "Soccer",
-            "group": "4D",
-            "needed": 1,
-            "got": 0,
-            "min_per_week": 1,
-            "span_blocks": null,
-            "fileWeekly": 1,
-            "eventKind": null,
-            "groupActivityCells": 29,
-            "groupSumOfMins": 42
-          }
-        ],
-        "cpuMs": 190,
+        "underservedDetail": [],
+        "cpuMs": 272,
         "slots": 720,
         "placed": 440,
         "unfillable": 0,
-        "stillNeeded": 6,
-        "underservedPairs": 6,
+        "unfillableCells": [],
+        "stillNeeded": 0,
+        "underservedPairs": 0,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -12452,7 +12133,7 @@
           "activity:ceramics / pottery": 4
         }
       },
-      "runtimeMs": 1192
+      "runtimeMs": 1945
     },
     "s14-by-day-period-24h": {
       "slug": "s14-by-day-period-24h",
@@ -12461,7 +12142,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 80,
+          "cpuMs": 159,
           "held": false
         },
         "confirmAll": {
@@ -12548,7 +12229,7 @@
           "pinnedEventActivities": 4,
           "fixedEvents": 10,
           "recurringEvents": 10,
-          "electiveSets": 0,
+          "electiveSets": 1,
           "specialDays": 0
         },
         "expected": {
@@ -12670,80 +12351,27 @@
         ],
         "electiveSets": {
           "expected": 1,
-          "created": 0,
+          "created": 1,
           "withEligibility": 0
         },
         "unresolvedTimeBlocks": []
       },
+      "faithful": {
+        "checked": 153,
+        "fileSessions": 213,
+        "count": 0,
+        "byWhy": {},
+        "first": []
+      },
       "generate": {
-        "underservedDetail": [
-          {
-            "activity": "Elective",
-            "group": "Otters 2",
-            "needed": 2,
-            "got": 1,
-            "min_per_week": 2,
-            "span_blocks": null,
-            "fileWeekly": 2,
-            "eventKind": "elective",
-            "groupActivityCells": 25,
-            "groupSumOfMins": 21
-          },
-          {
-            "activity": "Elective",
-            "group": "Otters 3",
-            "needed": 2,
-            "got": 1,
-            "min_per_week": 2,
-            "span_blocks": null,
-            "fileWeekly": 2,
-            "eventKind": "elective",
-            "groupActivityCells": 25,
-            "groupSumOfMins": 21
-          },
-          {
-            "activity": "Swim",
-            "group": "Herons 1",
-            "needed": 2,
-            "got": 1,
-            "min_per_week": 2,
-            "span_blocks": null,
-            "fileWeekly": 1,
-            "eventKind": "weekly",
-            "groupActivityCells": 25,
-            "groupSumOfMins": 21
-          },
-          {
-            "activity": "Swim",
-            "group": "Herons 3",
-            "needed": 2,
-            "got": 1,
-            "min_per_week": 2,
-            "span_blocks": null,
-            "fileWeekly": 2,
-            "eventKind": "weekly",
-            "groupActivityCells": 25,
-            "groupSumOfMins": 21
-          },
-          {
-            "activity": "Swim",
-            "group": "Foxes 2",
-            "needed": 2,
-            "got": 1,
-            "min_per_week": 2,
-            "span_blocks": null,
-            "fileWeekly": 2,
-            "eventKind": "weekly",
-            "groupActivityCells": 25,
-            "groupSumOfMins": 21
-          }
-        ],
-        "cpuMs": 109,
+        "underservedDetail": [],
+        "cpuMs": 134,
         "slots": 360,
         "placed": 225,
         "unfillable": 0,
-        "stillNeeded": 5,
-        "underservedPairs": 5,
+        "unfillableCells": [],
+        "stillNeeded": 0,
+        "underservedPairs": 0,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -12920,7 +12548,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 140,
+        "cpuMs": 143,
         "held": false,
         "counts": {
           "groups": 9,
@@ -12930,7 +12558,7 @@
           "activities": 21,
           "locations": 0,
           "fixed_events": 20,
-          "elective_sets": 0
+          "elective_sets": 1
         }
       },
       "confirmAll": {
@@ -13145,27 +12773,22 @@
         },
         "unresolvedTimeBlocks": []
       },
+      "confirmAllFaithful": {
+        "checked": 144,
+        "fileSessions": 190,
+        "count": 0,
+        "byWhy": {},
+        "first": []
+      },
       "confirmAllGenerate": {
-        "underservedDetail": [
-          {
-            "activity": "Elective",
-            "group": "Otters 2",
-            "needed": 2,
-            "got": 1,
-            "min_per_week": 2,
-            "span_blocks": null,
-            "fileWeekly": 2,
-            "eventKind": "elective",
-            "groupActivityCells": 24,
-            "groupSumOfMins": 19
-          }
-        ],
-        "cpuMs": 82,
+        "underservedDetail": [],
+        "cpuMs": 105,
         "slots": 360,
         "placed": 216,
         "unfillable": 0,
-        "stillNeeded": 1,
-        "underservedPairs": 1,
+        "unfillableCells": [],
+        "stillNeeded": 0,
+        "underservedPairs": 0,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -13323,7 +12946,7 @@
           "activity:elective": 6
         }
       },
-      "runtimeMs": 837
+      "runtimeMs": 1575
     },
     "s15-by-day-period-6day-nolunch": {
       "slug": "s15-by-day-period-6day-nolunch",
@@ -13332,7 +12955,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 156,
+          "cpuMs": 224,
           "held": false
         },
         "confirmAll": {
@@ -13628,12 +13251,20 @@
         },
         "unresolvedTimeBlocks": []
       },
+      "faithful": {
+        "checked": 594,
+        "fileSessions": 427,
+        "count": 0,
+        "byWhy": {},
+        "first": []
+      },
       "generate": {
         "underservedDetail": [],
-        "cpuMs": 289,
+        "cpuMs": 520,
         "slots": 972,
         "placed": 522,
         "unfillable": 0,
+        "unfillableCells": [],
         "stillNeeded": 0,
         "underservedPairs": 0,
         "overlap": 0,
@@ -13813,7 +13444,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 241,
+        "cpuMs": 289,
         "held": false,
         "counts": {
           "groups": 18,
@@ -14111,12 +13742,20 @@
         },
         "unresolvedTimeBlocks": []
       },
+      "confirmAllFaithful": {
+        "checked": 594,
+        "fileSessions": 427,
+        "count": 0,
+        "byWhy": {},
+        "first": []
+      },
       "confirmAllGenerate": {
         "underservedDetail": [],
-        "cpuMs": 282,
+        "cpuMs": 364,
         "slots": 972,
         "placed": 522,
         "unfillable": 0,
+        "unfillableCells": [],
         "stillNeeded": 0,
         "underservedPairs": 0,
         "overlap": 0,
@@ -14289,7 +13928,217 @@
           "fixed_event:electives": 18
         }
       },
-      "runtimeMs": 1347
+      "runtimeMs": 3650
+    }
+  },
+  "ownerCampAndVariants": {
+    "campB": {
+      "zero": {
+        "faithful": {
+          "checked": 252,
+          "violations": {},
+          "first": []
+        },
+        "generate": {
+          "stillNeeded": 0,
+          "unfillable": 0,
+          "short": []
+        }
+      },
+      "all": {
+        "faithful": {
+          "checked": 252,
+          "violations": {},
+          "first": []
+        },
+        "generate": {
+          "stillNeeded": 0,
+          "unfillable": 0,
+          "short": []
+        }
+      }
+    },
+    "b1-renamed": {
+      "zero": {
+        "faithful": {
+          "checked": 252,
+          "violations": {},
+          "first": []
+        },
+        "generate": {
+          "stillNeeded": 0,
+          "unfillable": 0,
+          "short": []
+        }
+      },
+      "all": {
+        "faithful": {
+          "checked": 252,
+          "violations": {},
+          "first": []
+        },
+        "generate": {
+          "stillNeeded": 0,
+          "unfillable": 0,
+          "short": []
+        }
+      }
+    },
+    "b2-8-groups": {
+      "zero": {
+        "faithful": {
+          "checked": 136,
+          "violations": {},
+          "first": []
+        },
+        "generate": {
+          "stillNeeded": 0,
+          "unfillable": 0,
+          "short": []
+        }
+      },
+      "all": {
+        "faithful": {
+          "checked": 128,
+          "violations": {},
+          "first": []
+        },
+        "generate": {
+          "stillNeeded": 0,
+          "unfillable": 0,
+          "short": []
+        }
+      }
+    },
+    "b3-24-groups": {
+      "zero": {
+        "faithful": {
+          "checked": 432,
+          "violations": {},
+          "first": []
+        },
+        "generate": {
+          "stillNeeded": 0,
+          "unfillable": 0,
+          "short": []
+        }
+      },
+      "all": {
+        "faithful": {
+          "checked": 432,
+          "violations": {},
+          "first": []
+        },
+        "generate": {
+          "stillNeeded": 0,
+          "unfillable": 0,
+          "short": []
+        }
+      }
+    },
+    "b4-times-plus-30": {
+      "zero": {
+        "faithful": {
+          "checked": 252,
+          "violations": {},
+          "first": []
+        },
+        "generate": {
+          "stillNeeded": 0,
+          "unfillable": 0,
+          "short": []
+        }
+      },
+      "all": {
+        "faithful": {
+          "checked": 252,
+          "violations": {},
+          "first": []
+        },
+        "generate": {
+          "stillNeeded": 0,
+          "unfillable": 0,
+          "short": []
+        }
+      }
+    },
+    "b5-4-day": {
+      "zero": {
+        "faithful": {
+          "checked": 266,
+          "violations": {},
+          "first": []
+        },
+        "generate": {
+          "stillNeeded": 0,
+          "unfillable": 0,
+          "short": []
+        }
+      },
+      "all": {
+        "faithful": {
+          "checked": 252,
+          "violations": {},
+          "first": []
+        },
+        "generate": {
+          "stillNeeded": 0,
+          "unfillable": 0,
+          "short": []
+        }
+      }
+    },
+    "b6-6-day": {
+      "zero": {
+        "faithful": {
+          "checked": 266,
+          "violations": {},
+          "first": []
+        },
+        "generate": {
+          "stillNeeded": 0,
+          "unfillable": 0,
+          "short": []
+        }
+      },
+      "all": {
+        "faithful": {
+          "checked": 266,
+          "violations": {},
+          "first": []
+        },
+        "generate": {
+          "stillNeeded": 0,
+          "unfillable": 0,
+          "short": []
+        }
+      }
+    },
+    "b7-trip-and-games-day": {
+      "zero": {
+        "faithful": {
+          "checked": 308,
+          "violations": {},
+          "first": []
+        },
+        "generate": {
+          "stillNeeded": 0,
+          "unfillable": 0,
+          "short": []
+        }
+      },
+      "all": {
+        "faithful": {
+          "checked": 308,
+          "violations": {},
+          "first": []
+        },
+        "generate": {
+          "stillNeeded": 0,
+          "unfillable": 0,
+          "short": []
+        }
+      }
     }
   }
 }

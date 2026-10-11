@@ -3,7 +3,7 @@ title: "Activity recurrence tiers — truth-status × binding-vector ontology fo
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: not-started
+implementation_state: in-progress
 date: 2026-08-23
 approved: "Owner-approved 2026-08-23 — ontology selected via divergence pass, this data-model/ingestion design approved with OQ1=two-rows-sharing-a-name, OQ2=keep-column-clarify-label, OQ3=conservative-weekly-detection"
 task_class: architecture
@@ -22,6 +22,8 @@ related_adrs:
 amends: []
 archive_when: Slices 0-5 of the classifier/inference plan below all ship, or this ontology is superseded
 ---
+
+> **Implementation state (audited 2026-10-11):** partly built. Shipped: truth-status tiers, `excludeNames` sequencing, spans counted as sessions, OQ1 two-row split, trip cells removed from inference. Not built: header quarantine (§4.2.5), `truth_status_basis` (§4.3), refusing a tier without provenance (§4.1(a)). Electives still count toward frequency inference, and OQ3's weekly detection shipped broader than written. The audit, and the fill-again invariants that now test inference against the file, are in [the synthetic scorecard](../work/evidence/2026-10-11-synthetic-15-scorecard.md).
 
 # Activity recurrence tiers — truth-status × binding-vector ontology for ingestion
 
