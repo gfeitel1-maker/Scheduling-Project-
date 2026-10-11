@@ -206,7 +206,7 @@ function questionFor(decision) {
   // T114 — the reason string already reads as the question ("X on Wed has 3 of
   // your 4 groups — everyone except Alufim 1. Was this an all-camp activity
   // they were pulled out of?"), built where the counts are known.
-  if (decision.kind === 'all_camp_override') return decision.reason
+  if (decision.kind === 'all_camp_override' || decision.kind === 'name_kind') return decision.reason
   if (decision.kind === 'elective_candidates_truncated') return decision.reason
   return decision.title ?? `Use the file's value for "${name}"?`
 }
@@ -221,6 +221,8 @@ function summaryOf(decision, answer) {
   if (answer.choice === 'not_a_place') return 'Imported with no room — won’t be asked about this word again'
   if (decision.kind === 'all_camp_override' && answer.choice === 'all_camp') return 'For all camp'
   if (decision.kind === 'all_camp_override' && answer.choice === 'as_written') return 'Limited to the groups in the file'
+  if (decision.kind === 'name_kind' && answer.choice === 'fixed') return 'A fixed time'
+  if (decision.kind === 'name_kind' && answer.choice === 'activity') return 'An activity Generate can schedule'
   if (answer.choice === 'skip') return 'Skipped — nothing written for this field'
   if (decision.kind === 'elective_candidate' && answer.choice === 'confirm') return 'Empty elective set created'
   if (decision.kind === 'elective_candidate' && answer.choice === 'decline') return 'Not an elective period — left as-is'
@@ -359,6 +361,24 @@ function ResolutionControls({ decision, onAnswer, locations }) {
           label={`It really excludes ${who}`}
           description="Keep it limited to the groups the file shows."
           onClick={() => onAnswer({ choice: 'as_written' })}
+        />
+      </div>
+    )
+  }
+
+  // OQ3 — a name that is both a catalogue activity and pinned: one question.
+  if (decision.kind === 'name_kind') {
+    return (
+      <div style={{ marginTop: 10 }}>
+        <RadioOption
+          label="A fixed time"
+          description="It stays where the file has it. Generate will not move it."
+          onClick={() => onAnswer({ choice: 'fixed' })}
+        />
+        <RadioOption
+          label="An activity Generate can schedule"
+          description="Where the file has it is kept in the imported week. Generate may place it elsewhere."
+          onClick={() => onAnswer({ choice: 'activity' })}
         />
       </div>
     )

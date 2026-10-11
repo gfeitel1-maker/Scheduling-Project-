@@ -2931,6 +2931,19 @@ export function ingestUndo(db, { invertibleOps, createdEntityIds = [], importRun
   }
 
   const run = () => runAtomic(db, () => {
+    // A renderer reload loses the run id the commit returned. The import's own
+    // evidence rows still name it (read before the deletions below clear them).
+    let runIdToClear = typeof importRunId === 'string' && importRunId.length > 0 ? importRunId : null
+    if (!runIdToClear) {
+      const latestRun = db.prepare('SELECT import_run_id, committed_at FROM import_evidence WHERE entity_type = ? AND entity_id = ? ORDER BY committed_at DESC LIMIT 1')
+      let best = null
+      for (const { entity, entity_id } of [...createdEntityIds, ...invertibleOps]) {
+        const row = entity && entity_id ? latestRun.get(entity, entity_id) : null
+        if (row && (!best || row.committed_at > best.committed_at)) best = row
+      }
+      runIdToClear = best?.import_run_id ?? null
+    }
+
     // --- U1: field-update inversion, unchanged ---------------------------
     for (const entry of invertibleOps) {
       const { entity, entity_id, field, seq, priorValue, prior_source } = entry
@@ -3074,7 +3087,7 @@ export function ingestUndo(db, { invertibleOps, createdEntityIds = [], importRun
     }
 
     // The questions this import left on Roots are about records it just removed.
-    if (typeof importRunId === 'string' && importRunId.length > 0) removeOpenDecisionsForImport(db, importRunId)
+    if (runIdToClear) removeOpenDecisionsForImport(db, runIdToClear)
   })
   run()
 

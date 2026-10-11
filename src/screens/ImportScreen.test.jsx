@@ -652,7 +652,7 @@ describe('ImportScreen — the grace-window undo offer reaches the post-commit t
       invertibleOps: [{ entity: 'activities', entity_id: 'a1', field: 'name', opId: 'op1', seq: 1, priorValue: 'Swim', prior_source: 'import' }],
       createdEntityIds: [{ entity: 'activities', entity_id: 'a2' }],
     })
-    expect(await screen.findByText(/Imported 3 records from the file\. 2 placements were left out/)).toBeTruthy()
+    expect(await screen.findByText(/Imported 1 record from the file\. 2 placements were left out/)).toBeTruthy()
     expect(screen.getByText('Add “Kayak” as an activity')).toBeTruthy()
     expect(screen.queryByText(/ready/i)).toBeNull()
   })

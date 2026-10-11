@@ -647,9 +647,52 @@ export function buildReconciliationReport(input) {
   // for everything else this import is unsure about.
   // A name the file pins as an event is asked about once, as that event; the
   // pulled-out-of-an-all-camp-activity reading is the same subject.
+  const ambiguousEvents = asArray(input?.ambiguousEvents)
   const eventNames = new Set(
-    [...asArray(created), ...asArray(unchanged), ...asArray(partial)].map((e) => normalizeName(e?.name ?? '')),
+    [...asArray(created), ...asArray(unchanged), ...asArray(partial), ...ambiguousEvents].map((e) => normalizeName(e?.name ?? '')),
   )
+  // The groups the file leaves out of an event survive on its one question
+  // ("every group except CIT") instead of in a second one.
+  const excludedByName = new Map()
+  for (const finding of asArray(input?.allCampOverrides)) {
+    const key = normalizeName(finding.activityName)
+    if (!eventNames.has(key)) continue
+    excludedByName.set(key, [...new Set([...(excludedByName.get(key) ?? []), ...(finding.missingGroups ?? [])])].sort())
+  }
+
+  // OQ3 (docs/adr/2026-09-26-ingest-category-exclusivity-and-anchor-identity.md,
+  // amendment 2026-10-11): a catalogue activity that is also pinned is ONE
+  // question, keyed by the name alone so the same camp is asked the same thing
+  // on every import and an answer can be remembered. Unanswered = activity.
+  const ambiguousByName = new Map()
+  for (const fe of ambiguousEvents) {
+    const key = normalizeName(fe.name)
+    if (!ambiguousByName.has(key)) ambiguousByName.set(key, [])
+    ambiguousByName.get(key).push(fe)
+  }
+  for (const [key, events] of ambiguousByName) {
+    const id = `name_kind:${key}`
+    if (decisionsByKey.has(id)) continue
+    buckets.needsAttention += 1
+    const name = events[0].name
+    const everyDay = events.some((e) => e.support?.occupied_days != null && e.support.occupied_days === e.support.operating_days)
+    const days = [...new Set(events.flatMap((e) => e.days ?? []))]
+    const when = everyDay ? 'every day' : `on ${days.join(' and ')}`
+    decisionsByKey.set(id, {
+      id,
+      kind: 'name_kind',
+      entity: 'activities',
+      entityId: null,
+      entityName: name,
+      field: null,
+      confidence: 'inferred',
+      proposedValue: null,
+      unknowns: [],
+      candidateEvents: events,
+      evidence: { events: events.map((e) => ({ time_block: e.time_block, days: e.days, groups: e.scope?.groups ?? null })) },
+      reason: `${name} happens at the same time ${when}. Is it a fixed time (Generate won’t move it), or an activity Generate can schedule?`,
+    })
+  }
   for (const finding of asArray(input?.allCampOverrides)) {
     if (eventNames.has(normalizeName(finding.activityName))) continue
     const id = `all_camp_override:${finding.activityName}:${finding.day}:${finding.block}`
@@ -740,7 +783,13 @@ export function buildReconciliationReport(input) {
     })
   }
 
-  const decisions = [...decisionsByKey.values()].map((decision) => {
+  const decisions = [...decisionsByKey.values()].map((raw) => {
+    const excluded = (raw.entity === 'fixed_events' || raw.kind === 'name_kind') ? excludedByName.get(normalizeName(raw.entityName ?? '')) : null
+    let decision = raw
+    if (excluded?.length) {
+      decision = { ...raw, excludedGroups: excluded }
+      if (raw.kind === 'name_kind') decision.reason = `${raw.reason} It is for every group except ${excluded.join(', ')}.`
+    }
     const appearsAt = (decision.entity === 'activities' || decision.kind === 'elective_candidate') && decision.entityName && decision.kind !== 'all_camp_override'
       ? describeAppearance(placements, decision.entityName, allGroupNames)
       : decision.entityName

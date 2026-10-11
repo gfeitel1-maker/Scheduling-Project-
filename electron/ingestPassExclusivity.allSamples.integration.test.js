@@ -155,13 +155,12 @@ describe.each(SAMPLES)('%s: a name is one kind, in both directions', (file) => {
   })
 
   it('after commit no name is both a non-marker activity and a fixed event', () => {
-    const { fixedEvents } = review()
-    // The ADR's reviewable dual-use exception: a pin held every day (high) may coexist with the free activity.
-    const pinnedEveryDay = new Set(fixedEvents.filter((f) => f.confidence === 'high').map((f) => normalizeName(f.name)))
+    review()
+    // OQ3 (strict, 2026-10-11): no exemptions, not even a pin held every day.
     const both = db.prepare(`
       SELECT DISTINCT a.name FROM activities a
       JOIN fixed_events f ON lower(trim(f.name)) = lower(trim(a.name)) AND f.camp_id = a.camp_id
-      WHERE a.camp_id = ? AND a.catalog_role IS NOT 'pinned_event'`).all(campId).map((r) => r.name).filter((n) => !pinnedEveryDay.has(normalizeName(n)))
+      WHERE a.camp_id = ? AND a.catalog_role IS NOT 'pinned_event'`).all(campId).map((r) => r.name)
     expect(both).toEqual([])
   })
 })
@@ -194,7 +193,9 @@ describe('campB-by-day with zero answers', () => {
       placements,
       allGroupNames: proposal.entities.groups,
     })
-    return report.decisions.map((d) => `${d.entity}:${d.entityName}`)
+    const out = report.decisions.map((d) => `${d.entity}:${d.entityName}`)
+    out.report = report
+    return out
   }
 
   it('Music, Sports and Water Play raise no fixed-event question', () => {
@@ -206,6 +207,12 @@ describe('campB-by-day with zero answers', () => {
     for (const name of ['All Camp Activity', 'Ruach', 'Shabbat']) {
       expect(q.filter((x) => x.endsWith(`:${name}`)).length, name).toBeLessThanOrEqual(1)
     }
+  })
+
+  it('the one remaining Ruach question still says which group is excluded', () => {
+    const ruach = asked().report.decisions.filter((d) => d.entityName === 'Ruach')
+    expect(ruach.length).toBe(1)
+    expect(ruach[0].title).toContain('every group except CIT')
   })
 
   it('meal waves are treated alike: Lunch 1-5 and Menucha raise no question', () => {

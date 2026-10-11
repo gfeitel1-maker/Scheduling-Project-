@@ -295,8 +295,11 @@ describe('dualUseNames (ADR 2026-08-09, Decision 1) — a seed, not a verdict', 
       ],
     }
     const proposal = extractEntities(parsed)
-    const { fixedEvents, dualUseNames } = inferFixedEvents(parsed, proposal)
-    expect(fixedEvents.map((e) => e.name)).toContain('Ceramics')
+    const { fixedEvents, dualUseNames, ambiguousEvents } = inferFixedEvents(parsed, proposal)
+    // OQ3 (strict): a name in both buckets is classified once. Its event leaves
+    // fixedEvents (default: activity) and is offered as ambiguous.
+    expect(fixedEvents.map((e) => e.name)).not.toContain('Ceramics')
+    expect(ambiguousEvents.map((e) => e.name)).toContain('Ceramics')
     expect(dualUseNames).toContain('Ceramics')
   })
 })
@@ -324,13 +327,13 @@ describe('normalizer fix (Red Hat Risk 5) — orientation B with inconsistent gr
     parsed.pages[1].rows.push(row('11:00-11:30', ['Ceramics']))
 
     const proposal = extractEntities(parsed)
-    const { fixedEvents, dualUseNames } = inferFixedEvents(parsed, proposal)
+    const { fixedEvents, dualUseNames, ambiguousEvents } = inferFixedEvents(parsed, proposal)
 
     const mifkad = fixedEvents.find((e) => e.name === 'Mifkad')
     expect(mifkad.confidence).toBe('high')
     expect(mifkad.days.length).toBe(5) // denominator not fragmented by spelling drift
 
-    const ceramics = fixedEvents.find((e) => e.name === 'Ceramics' && e.time_block === '10:00-10:30')
+    const ceramics = ambiguousEvents.find((e) => e.name === 'Ceramics' && e.time_block === '10:00-10:30')
     expect(ceramics.confidence).toBe('high')
     expect(ceramics.days.length).toBe(5)
 

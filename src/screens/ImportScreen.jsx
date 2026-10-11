@@ -164,6 +164,7 @@ export default function ImportScreen({ campId, onNavigate }) {
   // time and must survive staging nulling `proposal` out.
   const divisionsRef = useRef([])
   const allCampOverridesRef = useRef([])
+  const ambiguousEventsRef = useRef([])
   const allGroupNamesRef = useRef([])
   const coScheduleRef = useRef(new Map())
   const groupTierByNameRef = useRef({})
@@ -380,6 +381,7 @@ export default function ImportScreen({ campId, onNavigate }) {
     groupTierByNameRef.current = {}
     coScheduleRef.current = new Map()
     allCampOverridesRef.current = []
+    ambiguousEventsRef.current = []
     allGroupNamesRef.current = []
     fileGroupUnitsRef.current = {}
     fileActivityLocationsRef.current = {}
@@ -641,7 +643,8 @@ export default function ImportScreen({ campId, onNavigate }) {
       // T147 — the camp's live places, kept so buildCommitInputs can re-derive
       // the bindings against a re-parsed proposal (see bindingsForCommit).
       liveLocationsRef.current = existingAll.locations ?? []
-      const { fixedEvents: inferred, dualUseNames: dualUseNamesRaw = [] } = inferFixedEvents({ pages }, proposal, { knownTimeBlockNames })
+      const { fixedEvents: inferred, dualUseNames: dualUseNamesRaw = [], ambiguousEvents = [] } = inferFixedEvents({ pages }, proposal, { knownTimeBlockNames })
+      ambiguousEventsRef.current = ambiguousEvents
       setFixedEvents(inferred)
       setMovedPlacements(findMovedPlacements({ pages }, proposal, inferred))
       setOperatingDayCount(proposal.entities.days_of_operation.length)
@@ -1424,6 +1427,7 @@ export default function ImportScreen({ campId, onNavigate }) {
       divisionSupport,
       cohort_id: activeCohort?.id ?? null,
       fixedEvents: [...fixedEvents, ...multiBlockRecurring],
+      ambiguousEvents: ambiguousEventsRef.current,
       multiBlockEvents: multiBlockOneOff,
       activityRules: outgoingRules,
       mode: importMode === 'replace' ? 'replace' : 'add',

@@ -235,8 +235,23 @@ export function foldTriageInputs(baseInputs, decisions, answers) {
     activityRules = { ...activityRules, [d.entityName]: { ...rule, eligible_group_names: names, eligibility_known: true } }
   }
 
+  // OQ3: "fixed time" puts the name's events back and pins its activity row as
+  // the marker; "activity" or no answer leaves the catalogue activity alone
+  // (its cells stay placements in the imported version).
+  const pinnedByAnswer = []
+  const eventsByAnswer = []
+  for (const d of decisions) {
+    if (d.kind !== 'name_kind' || answers[d.id]?.choice !== 'fixed') continue
+    pinnedByAnswer.push(d.entityName)
+    eventsByAnswer.push(...(d.candidateEvents ?? []))
+  }
+  const pinOnlyActivityNames = pinnedByAnswer.length
+    ? [...new Set([...(baseInputs.pinOnlyActivityNames ?? []), ...pinnedByAnswer])]
+    : baseInputs.pinOnlyActivityNames
+
   return {
-    ...baseInputs, approved, fixedEvents, activityRules,
+    ...baseInputs, approved, activityRules, pinOnlyActivityNames,
+    fixedEvents: eventsByAnswer.length ? [...fixedEvents, ...eventsByAnswer] : fixedEvents,
     resolutions: [...(baseInputs.resolutions ?? []), ...resolutions],
     confirmedElectiveSets: [...(baseInputs.confirmedElectiveSets ?? []), ...confirmedElectiveSets],
   }
@@ -292,6 +307,7 @@ export function isDecisionResolvedFor(decision, answers, dismissedGaps = new Set
   if (decision.kind === 'confirm_change') return a.choice === 'accept' || a.choice === 'keep' || a.ack === true
   if (decision.kind === 'review_legacy_priority') return a.resolved === true
   if (decision.kind === 'all_camp_override') return a.choice === 'all_camp' || a.choice === 'as_written'
+  if (decision.kind === 'name_kind') return a.choice === 'fixed' || a.choice === 'activity'
   // Slice 3a — either answer resolves the card; only 'confirm' folds into
   // confirmedElectiveSets above.
   if (decision.kind === 'elective_candidate') return a.choice === 'confirm' || a.choice === 'decline'

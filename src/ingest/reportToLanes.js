@@ -48,6 +48,11 @@ function laneFor(decision) {
     case 'all_camp_override':
       return 'hold'
 
+    // OQ3: a name that is both catalogue activity and pinned event is asked
+    // once; the director decides which it is.
+    case 'name_kind':
+      return 'hold'
+
     // fix, panel round 2 — the "N more not shown" cap note is informational,
     // not a director decision blocking anything; standard (not hold, not
     // express-silent) matches review_legacy_priority's own batch-note lane.

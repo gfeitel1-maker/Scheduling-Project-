@@ -100,4 +100,16 @@ describe('open questions across commit and undo (campB-by-day)', () => {
     expect(listOpenReconciliationDecisions(db, campId)).toEqual([])
     expect(receipt.deleted.length).toBe(outcome.createdEntityIds.length)
   })
+
+  it('B: undo after a renderer reload (run id lost) still clears the import’s open questions', () => {
+    const outcome = commitIngest(db, { ...base, openDecisions: openQuestions(), captureInverse: true })
+    expect(listOpenReconciliationDecisions(db, campId).length).toBeGreaterThan(0)
+    ingestUndo(db, {
+      invertibleOps: outcome.invertibleOps,
+      createdEntityIds: outcome.createdEntityIds,
+      importRunId: null,
+      author_user_id: 'u1', device_id: deviceId, client_write_id: randomUUID(),
+    })
+    expect(listOpenReconciliationDecisions(db, campId)).toEqual([])
+  })
 })
