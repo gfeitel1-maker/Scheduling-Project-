@@ -399,17 +399,38 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute,
   const [openVersionConfirm, setOpenVersionConfirm] = useState(null)
   const openVersionStarted = useRef(false)
   const finishOpenVersion = () => { setOpenVersionConfirm(null); onOpenVersionHandled?.() }
+  // The route's versions arrive a moment after `loading` clears, so a missing version is only
+  // reported once nothing has turned up for a few seconds; finding it cancels that.
+  const openVersionMissingTimer = useRef(null)
+  useEffect(() => { openVersionStarted.current = false }, [openVersionName])
+  useEffect(() => () => clearTimeout(openVersionMissingTimer.current), [])
   useEffect(() => {
     if (!openVersionName || loading || route !== 'manual' || openVersionStarted.current) return
+    // Snapshots are newest-first, so a re-imported file's newest version wins.
     const snap = routeState.snapshots.find((s) => s.name === openVersionName)
-    if (!snap) return
+    if (!snap) {
+      if (!openVersionMissingTimer.current) {
+        openVersionMissingTimer.current = setTimeout(() => {
+          openVersionMissingTimer.current = null
+          if (openVersionStarted.current) return
+          openVersionStarted.current = true
+          setActionError(`Couldn't find the version "${openVersionName}". Open Versions to pick one.`)
+          finishOpenVersion()
+        }, 3000)
+      }
+      return
+    }
+    clearTimeout(openVersionMissingTimer.current)
+    openVersionMissingTimer.current = null
     openVersionStarted.current = true
     if (routeState.slotsByRoute.manual.length > 0) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setOpenVersionConfirm(snap)
       return
     }
-    restoreSnapshot(snap).finally(finishOpenVersion)
+    restoreSnapshot(snap)
+      .catch((err) => { console.error("open imported version failed", err); setActionError(`Couldn't open "${openVersionName}". Try Versions.`) })
+      .finally(finishOpenVersion)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openVersionName, loading, route, routeState.snapshots])
 

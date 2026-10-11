@@ -1795,6 +1795,21 @@ describe('ScheduleScreen: open an imported version in Manual', () => {
     await waitFor(() => expect(onHandled).toHaveBeenCalled())
   })
 
+  // Code review of #921: a missing version left the click doing nothing at all.
+  it('says so when the imported version is no longer there, and finishes', async () => {
+    mockList({
+      schedule_templates: [{ id: MANUAL_TEMPLATE, camp_id: CAMP_ID, name: '', kind: 'manual', week_id: CAMP_ID }],
+      template_slots: [],
+      schedule_snapshots: [],
+      activities: [activity()],
+    })
+    const onHandled = vi.fn()
+    open(onHandled)
+    expect(await screen.findByText(/Couldn't find the version "Imported from campB\.txt"/, undefined, { timeout: 6000 })).toBeTruthy()
+    await waitFor(() => expect(onHandled).toHaveBeenCalled())
+    expect(localClient.bulkReplace).not.toHaveBeenCalled()
+  })
+
   it('asks first when Manual already has placements, and never restores until confirmed', async () => {
     mockManual({ withSlot: true })
     open()
