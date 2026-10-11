@@ -93,7 +93,7 @@ describe('ImportScreen one-day card — error copy', () => {
     localClient.ingestCommit.mockResolvedValue({ specialDay: { created: false, keptExisting: true, placed: false } })
     const build = await upload({ weeks: WEEKS, weekId: 'w1' })
     await userEvent.click(build)
-    expect(await screen.findByText(/That day already has a special day on it, so "\"Among Us\" Maccabiah Schedule 2022" was not built\. Pick another day, or leave it unplaced\./)).toBeTruthy()
+    expect(await screen.findByText(/That day already has a special day on it, so ""Among Us" Maccabiah Schedule 2022" was not built\. Pick another day, or leave it unplaced\./)).toBeTruthy()
     expect(screen.queryByText(/Special day built/i)).toBeNull()
   })
 
