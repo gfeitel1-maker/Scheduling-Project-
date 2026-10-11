@@ -6,6 +6,7 @@
 // never throws. The write step (replaceOpenDecisionsForCommit) is called
 // from commitPlan (electron/ops/ingest.js) inside its own commit transaction
 // — this module owns no db.transaction() of its own for that reason.
+import { normalizeName } from '../../src/ingest/preview.js'
 import { domainOf, childOf } from '../../src/components/reconciliation/domainRollup.js'
 
 // Duplicated from electron/ops/ingest.js's COHORT_SCOPED rather than
@@ -25,20 +26,23 @@ function hasTable(db) {
 export function listOpenReconciliationDecisions(db, campId) {
   if (!hasTable(db)) return []
   if (!campId) return []
-  // Cleanup for rows an older build persisted: an "Add X as an activity?" question
-  // about a name ingest had already claimed as an event (activities.catalog_role =
-  // 'pinned_event'). The importer no longer raises these; this hides the leftovers.
-  return db
+  const rows = db
     .prepare(
       `SELECT id, camp_id, entity_type, cohort_id, entity_id, identity_key, kind,
               domain_key, child_key, entity_name, reason, import_run_id, created_at
-         FROM open_reconciliation_decisions o WHERE camp_id = ?
-          AND NOT (entity_type = 'activities' AND kind = 'confirm_value' AND EXISTS (
-                SELECT 1 FROM activities a WHERE a.camp_id = o.camp_id
-                   AND a.catalog_role = 'pinned_event' AND a.name = o.entity_name))
-        ORDER BY created_at ASC`
+         FROM open_reconciliation_decisions WHERE camp_id = ? ORDER BY created_at ASC`
     )
     .all(campId)
+  // Cleanup for rows an older build persisted: the "Add X as an activity?" CREATE
+  // question (id `activities:null:create:<name>`) about a name ingest had already
+  // claimed as an event (activities.catalog_role = 'pinned_event'). The importer
+  // no longer raises these; every other open item about such a name stays.
+  if (!rows.some((r) => r.id.startsWith('activities:null:create:'))) return rows
+  const pinned = new Set(
+    db.prepare("SELECT name FROM activities WHERE camp_id = ? AND catalog_role = 'pinned_event'").all(campId)
+      .map((a) => normalizeName(a.name))
+  )
+  return rows.filter((r) => !(r.id.startsWith('activities:null:create:') && r.kind === 'confirm_value' && pinned.has(normalizeName(r.entity_name ?? ''))))
 }
 
 // Dismiss = a plain DELETE ... WHERE id = ?, unconditionally — no join to

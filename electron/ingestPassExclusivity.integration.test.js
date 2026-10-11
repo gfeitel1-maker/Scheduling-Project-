@@ -538,14 +538,23 @@ describe('T266 — a claimed name raises no review decision and no open item', (
 })
 
 describe('T266 — open items persisted by an older build are not shown for a claimed name', () => {
-  it('hides a stale "add as an activity" row for a pinned_event activity and keeps an ordinary one', () => {
+  const insert = (id, { kind = 'confirm_value', entityId = null, name }) => db.prepare(
+    `INSERT INTO open_reconciliation_decisions (id, camp_id, entity_type, cohort_id, entity_id, identity_key, kind, domain_key, child_key, entity_name, reason, import_run_id, created_at)
+     VALUES (?, ?, 'activities', NULL, ?, ?, ?, 'activities', 'x', ?, NULL, 'run', '2026-10-10')`
+  ).run(id, campId, entityId, id, kind, name)
+
+  it('hides the stale create question (matched case-insensitively) and keeps an ordinary activity\'s', () => {
     runRealIngest()
-    const insert = db.prepare(
-      `INSERT INTO open_reconciliation_decisions (id, camp_id, entity_type, cohort_id, entity_id, identity_key, kind, domain_key, child_key, entity_name, reason, import_run_id, created_at)
-       VALUES (?, ?, 'activities', NULL, NULL, ?, 'confirm_value', 'activities', 'x', ?, NULL, 'run', '2026-10-10')`
-    )
-    insert.run('stale-1', campId, 'stale-1', PINNED)
-    insert.run('real-1', campId, 'real-1', FREE)
-    expect(listOpenReconciliationDecisions(db, campId).map((r) => r.id)).toEqual(['real-1'])
+    insert(`activities:null:create:${PINNED}`, { name: PINNED })
+    insert('activities:null:create:group time', { name: 'group time' })
+    insert(`activities:null:create:${FREE}`, { name: FREE })
+    expect(listOpenReconciliationDecisions(db, campId).map((r) => r.entity_name)).toEqual([FREE])
+  })
+
+  it('keeps a non-create confirm_value and a confirm_change about a pinned name', () => {
+    runRealIngest()
+    insert('activities:some-id', { entityId: 'some-id', name: PINNED })
+    insert('activities:other-id', { kind: 'confirm_change', entityId: 'other-id', name: PINNED })
+    expect(listOpenReconciliationDecisions(db, campId).map((r) => r.id).sort()).toEqual(['activities:other-id', 'activities:some-id'])
   })
 })

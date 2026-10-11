@@ -158,6 +158,7 @@ export function foldTriageInputs(baseInputs, decisions, answers) {
     // ImportScreen now (no more chosenFixedEvents pre-filter); the hold-back
     // here is what gates an unresolved one out of the outgoing commit.
     fixedEvents: baseInputs.fixedEvents,
+    pinOnlyActivityNames: baseInputs.pinOnlyActivityNames,
   })
 
   for (const d of decisions) {

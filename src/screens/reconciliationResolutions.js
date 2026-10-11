@@ -10,6 +10,7 @@
 
 // resolve_conflict stays on the existing HeldResolution/finishHeld path
 // (genuine op:conflict, post-commit) — this queue never touches it.
+import { normalizeName } from '../ingest/preview.js'
 import { eventKeptWhenUnanswered } from '../ingest/eventKeptWhenUnanswered.js'
 
 export function filterQueueDecisions(decisions) {
@@ -79,7 +80,7 @@ function fixedEventMatchKey(name, timeBlock, days) {
   return `${name ?? ''}|${timeBlock ?? ''}|${(Array.isArray(days) ? days : []).join(',')}`
 }
 
-export function applyResolutions({ approved, decisions, answers, fixedEvents }) {
+export function applyResolutions({ approved, decisions, answers, fixedEvents, pinOnlyActivityNames = [] }) {
   const nextApproved = {}
   for (const [entity, names] of Object.entries(approved ?? {})) nextApproved[entity] = [...names]
   const resolutions = []
@@ -157,6 +158,19 @@ export function applyResolutions({ approved, decisions, answers, fixedEvents }) 
   const nextFixedEvents = (fixedEvents ?? []).filter(
     (fe) => !heldFixedEventKeys.has(fixedEventMatchKey(fe.name, fe.time_block, fe.days)) || eventKeptWhenUnanswered(fe)
   )
+
+  // A claimed name's backing activity row follows its event: when every event of
+  // that name was held back (unanswered or not confirmed) the row is not created
+  // either, so the one question about the name is the event's.
+  const claimed = new Set(pinOnlyActivityNames.map((n) => normalizeName(n)))
+  const kept = new Set(nextFixedEvents.map((fe) => normalizeName(fe.name)))
+  const heldAway = new Set((fixedEvents ?? []).filter((fe) => !nextFixedEvents.includes(fe)).map((fe) => normalizeName(fe.name)))
+  if (nextApproved.activities) {
+    nextApproved.activities = nextApproved.activities.filter((el) => {
+      const key = normalizeName(String((el && typeof el === 'object' ? el.name : el) ?? ''))
+      return !(claimed.has(key) && heldAway.has(key) && !kept.has(key))
+    })
+  }
 
   return { approved: nextApproved, resolutions, fixedEvents: nextFixedEvents }
 }

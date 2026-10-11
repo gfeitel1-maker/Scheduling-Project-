@@ -268,19 +268,6 @@ describe('buildPlan create confidence (§1)', () => {
     expect(plan.items[0].evidence.tier).toBe('new')
     expect(plan.items[0].fields.catalog_role.to).toBe('pinned_event')
   })
-
-  it('keeps tier low when every event of that name is itself unconfirmed (the event is the question)', () => {
-    const plan = buildPlan(
-      {
-        approved: { activities: ['Specialty 4'] },
-        camp_id: camp,
-        pinOnlyActivityNames: ['Specialty 4'],
-        fixedEvents: [{ name: 'Specialty 4', confidence: 'low' }],
-      },
-      null,
-    )
-    expect(plan.items[0].evidence.tier).toBe('low')
-  })
 })
 
 // Slice 3a content-shape detector.

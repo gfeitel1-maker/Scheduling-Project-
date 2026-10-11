@@ -81,7 +81,7 @@ function importUnanswered(d, id, text, answerFor = () => null) {
   })
   const answers = Object.fromEntries(report.decisions.map((dec) => [dec.id, answerFor(dec)]).filter(([, a]) => a))
   const folded = foldTriageInputs(baseInputs, report.decisions, answers)
-  return { parsed: p, proposal: prop, committed: commitIngest(d, { ...common, ...baseInputs, ...folded }) }
+  return { parsed: p, proposal: prop, report, committed: commitIngest(d, { ...common, ...baseInputs, ...folded }) }
 }
 
 beforeAll(async () => {
@@ -163,8 +163,9 @@ describe('an unanswered numbered-sibling event is held back, not pinned', () => 
 
   it('writes no fixed event and mints no activity for Specialty 4', () => {
     const { d, id } = seedDirectorCamp()
-    const { committed: out } = importUnanswered(d, id, text)
+    const { committed: out, report } = importUnanswered(d, id, text)
     expect(out.held).toBe(false)
+    expect(report.decisions.filter((dec) => dec.entityName === 'Specialty 4').map((dec) => dec.entity)).toEqual(['fixed_events'])
     expect(d.prepare("SELECT COUNT(*) c FROM fixed_events WHERE camp_id = ? AND name = 'Specialty 1'").get(id).c).toBeGreaterThan(0)
     expect(d.prepare("SELECT COUNT(*) c FROM fixed_events WHERE camp_id = ? AND name = 'Specialty 4'").get(id).c).toBe(0)
     expect(d.prepare("SELECT COUNT(*) c FROM activities WHERE camp_id = ? AND name = 'Specialty 4'").get(id).c).toBe(0)
