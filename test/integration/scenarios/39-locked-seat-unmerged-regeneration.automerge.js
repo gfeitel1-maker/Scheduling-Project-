@@ -125,8 +125,15 @@ async function pass({ lockWins }) {
     // A's commit reaches the Host; B's sync link is then restarted so that it
     // pulls the base state (a plain broadcast does not reach B in this harness).
     await waitFor(() => seatRow(host)?.source === 'solver', 20000)
+    // The restart's redial can meet the old connection being torn down (ECONNRESET on CI);
+    // retry like production's redial rather than fail the scenario on transport timing.
     await clientB.restart(`${tmpDir}/clientB-base`, campId)
-    await clientB.reconnect(host)
+    for (let attempt = 1; ; attempt++) {
+      try { await clientB.reconnect(host); break } catch (err) {
+        if (attempt >= 3 || !/ECONNRESET|AbortError|closed/i.test(String(err?.message ?? err))) throw err
+        await new Promise((r) => setTimeout(r, 250 * attempt))
+      }
+    }
     for (const [label, d] of [['clientB', clientB], ['host', host]]) {
       await waitFor(() => seatRow(d)?.source === 'solver' && gen(d) != null, 15000)
         .catch(() => {
