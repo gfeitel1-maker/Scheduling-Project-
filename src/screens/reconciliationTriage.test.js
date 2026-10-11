@@ -292,6 +292,12 @@ describe('foldTriageInputs', () => {
       expect(out.placements.map((p) => p.electiveSetName)).toEqual(['Electives (Arts, Crafts, Games)', 'Electives (Arts, Crafts, Games)'])
     })
 
+    it('confirming a question with fewer than two usable parts creates no set', () => {
+      const d = ask('Trip 7/12', ['Trip 7', '12'])
+      const out = foldTriageInputs(base(), [d], { [d.id]: { choice: 'confirm' } })
+      expect(out.confirmedElectiveSets).toEqual([])
+    })
+
     it('a choices list repeating a name case-insensitively collapses it', () => {
       const out = foldTriageInputs(base(), [split(CELL, ['Hiking', 'hiking', 'Fishing'])], {})
       expect(out.confirmedElectiveSets[0].choices).toEqual(['Hiking', 'Fishing'])

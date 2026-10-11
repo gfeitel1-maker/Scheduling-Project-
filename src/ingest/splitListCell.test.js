@@ -35,6 +35,15 @@ describe('strictSplit tightening', () => {
   })
 })
 
+describe('looksListLike noise', () => {
+  it.each(['Rock,', 'Trip 7/12', 'Day 1, 2'])('%s raises no question', (cell) => {
+    expect(looksListLike(cell)).toBe(false)
+  })
+  it.each(['Arts/Crafts', 'Lunch/Rest Hour'])('%s still asks', (cell) => {
+    expect(looksListLike(cell)).toBe(true)
+  })
+})
+
 describe('looksListLike / looseSplit', () => {
   it('flags an unspaced slash, a two-part list and an & part as list-like', () => {
     expect(looksListLike('Arts/Crafts')).toBe(true)

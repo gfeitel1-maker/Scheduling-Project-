@@ -12,6 +12,7 @@ import { describeWriteFailure } from '../utils/writeErrorMessage.js'
 import { ALIAS_COHORT_SCOPED } from './importAliasScope.js'
 import { normalizeWordKey } from '../utils/normalizeWordKey.js'
 import { unitDisplayName } from '../ingest/fieldUpdate.js'
+import { usablePartCount } from '../ingest/splitListCell.js'
 
 // T257 — see reconciliationReport.js's displayValue: a held `unit` conflict's
 // `to` may be a discriminated token; never let an id reach the fallback card.
@@ -238,7 +239,7 @@ export function foldTriageInputs(baseInputs, decisions, answers) {
     if (Array.isArray(choices)) {
       // D3: a strict split stays split unless declined; an ambiguous cell is
       // one activity unless the director said it is a choice of several.
-      if (d.evidence.detector === 'list_question' && answers[d.id]?.choice !== 'confirm') continue
+      if (d.evidence.detector === 'list_question' && (answers[d.id]?.choice !== 'confirm' || usablePartCount(choices) < 2)) continue
       listCells.push({ cell: d.entityName, choices })
       continue
     }

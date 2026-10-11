@@ -20,6 +20,8 @@ export function strictSplit(text) {
   return null
 }
 
-export const looksListLike = (text) => /[,;/]/.test(String(text ?? ''))
-
 export const looseSplit = (text) => String(text ?? '').split(/\s*[,;/]\s*/).map((p) => p.trim()).filter(Boolean)
+
+export const usablePartCount = (parts) => parts.filter((p) => letterCount(p) >= 2).length
+
+export const looksListLike = (text) => usablePartCount(looseSplit(text)) >= 2
