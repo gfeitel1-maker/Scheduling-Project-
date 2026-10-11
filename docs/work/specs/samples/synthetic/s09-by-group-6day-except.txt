@@ -1,0 +1,440 @@
+              Sparks - Otters 1 Schedule
+
+   Time           Monday         Tuesday        Wednesday       Thursday       Friday         Saturday
+
+08:50–09:05       Arrival        Arrival        Arrival         Arrival        Arrival        Games Day
+
+09:10–09:20       Flag Raising   Flag Raising   Flag Raising    Flag Raising   Flag Raising   Games Day
+
+09:25–10:15       Pottery        Soccer         Aquarium Trip   Tie Dye        Woodworking    Games Day
+
+10:20–11:10       Robotics       Softball       Aquarium Trip   Trampoline     Yoga           Games Day
+
+11:15–12:00       Lunch          Lunch          Lunch           Lunch          Lunch          Games Day
+
+12:05–12:55       Sailing        Storytelling   Tennis          Campfire       Free Swim      Games Day
+
+01:00–01:40       Bechirot       Swim           Bechirot        Volleyball     Bechirot       Games Day
+
+01:45–02:00       Dismissal      Dismissal      Dismissal       Dismissal      Dismissal      Games Day
+
+
+              Sparks - Otters 2 Schedule
+
+   Time           Monday         Tuesday        Wednesday         Thursday       Friday          Saturday
+
+08:50–09:05       Arrival        Arrival        Arrival           Arrival        Arrival         Games Day
+
+09:10–09:20       Flag Raising   Flag Raising   Flag Raising      Flag Raising   Flag Raising    Games Day
+
+09:25–10:15       Rocketry       Magic Show     Aquarium Trip     Basketball     Climbing Wall   Games Day
+
+10:20–11:10       Photography    Puppetry       Aquarium Trip     Ceramics       Dance           Games Day
+
+11:15–12:00       Lunch          Lunch          Lunch             Lunch          Lunch           Games Day
+
+12:05–12:55       Cooking        Bocce          Arts and Crafts   Campfire       Drama           Games Day
+
+01:00–01:40       Bechirot       Archery        Bechirot          Chess Club     Bechirot        Games Day
+
+01:45–02:00       Dismissal      Dismissal      Dismissal         Dismissal      Dismissal       Games Day
+
+
+              Sparks - Otters 3 Schedule
+
+   Time           Monday         Tuesday        Wednesday       Thursday       Friday              Saturday
+
+08:50–09:05       Arrival        Arrival        Arrival         Arrival        Arrival             Games Day
+
+09:10–09:20       Flag Raising   Flag Raising   Flag Raising    Flag Raising   Flag Raising        Games Day
+
+09:25–10:15       Drumming       Robotics       Aquarium Trip   Swim           Trampoline          Games Day
+
+10:20–11:10       Fishing        Sailing        Aquarium Trip   Tennis         Volleyball - Yoga   Games Day
+
+11:15–12:00       Lunch          Lunch          Lunch           Lunch          Lunch               Games Day
+
+12:05–12:55       Pottery        Soccer         Storytelling    Campfire       Woodworking         Games Day
+
+01:00–01:40       Bechirot       Softball       Bechirot        Tie Dye        Bechirot            Games Day
+
+01:45–02:00       Dismissal      Dismissal      Dismissal       Dismissal      Dismissal           Games Day
+
+
+              Sparks - Otters 4 Schedule
+
+   Time           Monday         Tuesday        Wednesday       Thursday          Friday          Saturday
+
+08:50–09:05       Arrival        Arrival        Arrival         Arrival           Arrival         Games Day
+
+09:10–09:20       Flag Raising   Flag Raising   Flag Raising    Flag Raising      Flag Raising    Games Day
+
+09:25–10:15       Yoga           Photography    Aquarium Trip   Archery           Ceramics        Games Day
+
+10:20–11:10       Free Swim      Cooking        Aquarium Trip   Arts and Crafts   Chess Club      Games Day
+
+11:15–12:00       Lunch          Lunch          Lunch           Lunch             Lunch           Games Day
+
+12:05–12:55       Rocketry       Magic Show     Bocce           Campfire          Climbing Wall   Games Day
+
+01:00–01:40       Bechirot       Puppetry       Bechirot        Basketball        Bechirot        Games Day
+
+01:45–02:00       Dismissal      Dismissal      Dismissal       Dismissal         Dismissal       Games Day
+
+
+              Embers - Herons 1 Schedule
+
+   Time           Monday         Tuesday        Wednesday      Thursday       Friday         Saturday
+
+08:50–09:05       Arrival        Arrival        Arrival        Arrival        Arrival        Games Day
+
+09:10–09:20       Flag Raising   Flag Raising   Flag Raising   Flag Raising   Flag Raising   Games Day
+
+09:25–10:15       Dance          Ropes Course   Robotics       Softball       Ropes Course   Games Day
+
+10:20–11:10       Drama          Ropes Course   Sailing        Storytelling   Ropes Course   Games Day
+
+11:15–12:00       Lunch          Lunch          Lunch          Lunch          Lunch          Games Day
+
+12:05–12:55       Drumming       Fishing        Soccer         Campfire       Tennis         Games Day
+
+01:00–01:40       Bechirot       Pottery        Bechirot       Swim           Bechirot       Games Day
+
+01:45–02:00       Dismissal      Dismissal      Dismissal      Dismissal      Dismissal      Games Day
+
+
+              Embers - Herons 2 Schedule
+
+   Time           Monday         Tuesday        Wednesday      Thursday       Friday         Saturday
+
+08:50–09:05       Arrival        Arrival        Arrival        Arrival        Arrival        Games Day
+
+09:10–09:20       Flag Raising   Flag Raising   Flag Raising   Flag Raising   Flag Raising   Games Day
+
+09:25–10:15       Tie Dye        Ropes Course   Free Swim      Cooking        Ropes Course   Games Day
+
+10:20–11:10       Trampoline     Ropes Course   Rocketry       Magic Show     Ropes Course   Games Day
+
+11:15–12:00       Lunch          Lunch          Lunch          Lunch          Lunch          Games Day
+
+12:05–12:55       Volleyball     Woodworking    Photography    Campfire       Bocce          Games Day
+
+01:00–01:40       Bechirot       Yoga           Bechirot       Puppetry       Bechirot       Games Day
+
+01:45–02:00       Dismissal      Dismissal      Dismissal      Dismissal      Dismissal      Games Day
+
+
+              Embers - Herons 3 Schedule
+
+   Time           Monday                       Tuesday        Wednesday       Thursday       Friday         Saturday
+
+08:50–09:05       Arrival                      Arrival        Arrival         Arrival        Arrival        Games Day
+
+09:10–09:20       Flag Raising                 Flag Raising   Flag Raising    Flag Raising   Flag Raising   Games Day
+
+09:25–10:15       Archery                      Ropes Course   Climbing Wall   Drumming       Ropes Course   Games Day
+
+10:20–11:10       Arts and Crafts - Ceramics   Ropes Course   Dance           Fishing        Ropes Course   Games Day
+
+11:15–12:00       Lunch                        Lunch          Lunch           Lunch          Lunch          Games Day
+
+12:05–12:55       Basketball                   Ceramics       Drama           Campfire       Robotics       Games Day
+
+01:00–01:40       Bechirot                     Chess Club     Bechirot        Pottery        Bechirot       Games Day
+
+01:45–02:00       Dismissal                    Dismissal      Dismissal       Dismissal      Dismissal      Games Day
+
+
+              Embers - Herons 4 Schedule
+
+   Time           Monday         Tuesday        Wednesday      Thursday       Friday         Saturday
+
+08:50–09:05       Arrival        Arrival        Arrival        Arrival        Arrival        Games Day
+
+09:10–09:20       Flag Raising   Flag Raising   Flag Raising   Flag Raising   Flag Raising   Games Day
+
+09:25–10:15       Sailing        Ropes Course   Tennis         Volleyball     Ropes Course   Games Day
+
+10:20–11:10       Soccer         Ropes Course   Tie Dye        Woodworking    Ropes Course   Games Day
+
+11:15–12:00       Lunch          Lunch          Lunch          Lunch          Lunch          Games Day
+
+12:05–12:55       Softball       Storytelling   Trampoline     Campfire       Free Swim      Games Day
+
+01:00–01:40       Bechirot       Swim           Bechirot       Yoga           Bechirot       Games Day
+
+01:45–02:00       Dismissal      Dismissal      Dismissal      Dismissal      Dismissal      Games Day
+
+
+              Flints - Foxes 1 Schedule
+
+   Time           Monday         Tuesday        Wednesday         Thursday       Friday          Saturday
+
+08:50–09:05       Arrival        Arrival        Arrival           Arrival        Arrival         Games Day
+
+09:10–09:20       Flag Raising   Flag Raising   Flag Raising      Flag Raising   Flag Raising    Games Day
+
+09:25–10:15       Rocketry       Ropes Course   Bocce             Basketball     Ropes Course    Games Day
+
+10:20–11:10       Photography    Ropes Course   Archery           Ceramics       Ropes Course    Games Day
+
+11:15–12:00       Lunch          Lunch          Lunch             Lunch          Lunch           Games Day
+
+12:05–12:55       Cooking        Magic Show     Arts and Crafts   Campfire       Climbing Wall   Games Day
+
+01:00–01:40       Bechirot       Puppetry       Bechirot          Chess Club     Bechirot        Games Day
+
+01:45–02:00       Dismissal      Dismissal      Dismissal         Dismissal      Dismissal       Games Day
+
+
+              Flints - Foxes 2 Schedule
+
+   Time           Monday         Tuesday        Wednesday            Thursday       Friday         Saturday
+
+08:50–09:05       Arrival        Arrival        Arrival              Arrival        Arrival        Games Day
+
+09:10–09:20       Flag Raising   Flag Raising   Flag Raising         Flag Raising   Flag Raising   Games Day
+
+09:25–10:15       Dance          Ropes Course   Robotics             Softball       Ropes Course   Games Day
+
+10:20–11:10       Drama          Ropes Course   Sailing - Softball   Storytelling   Ropes Course   Games Day
+
+11:15–12:00       Lunch          Lunch          Lunch                Lunch          Lunch          Games Day
+
+12:05–12:55       Drumming       Fishing        Soccer               Campfire       Tennis         Games Day
+
+01:00–01:40       Bechirot       Pottery        Bechirot             Swim           Bechirot       Games Day
+
+01:45–02:00       Dismissal      Dismissal      Dismissal            Dismissal      Dismissal      Games Day
+
+
+              Flints - Foxes 3 Schedule
+
+   Time           Monday         Tuesday        Wednesday      Thursday       Friday         Saturday
+
+08:50–09:05       Arrival        Arrival        Arrival        Arrival        Arrival        Games Day
+
+09:10–09:20       Flag Raising   Flag Raising   Flag Raising   Flag Raising   Flag Raising   Games Day
+
+09:25–10:15       Tie Dye        Ropes Course   Free Swim      Cooking        Ropes Course   Games Day
+
+10:20–11:10       Trampoline     Ropes Course   Rocketry       Magic Show     Ropes Course   Games Day
+
+11:15–12:00       Lunch          Lunch          Lunch          Lunch          Lunch          Games Day
+
+12:05–12:55       Volleyball     Woodworking    Photography    Campfire       Bocce          Games Day
+
+01:00–01:40       Bechirot       Yoga           Bechirot       Puppetry       Bechirot       Games Day
+
+01:45–02:00       Dismissal      Dismissal      Dismissal      Dismissal      Dismissal      Games Day
+
+
+              Flints - Foxes 4 Schedule
+
+   Time           Monday            Tuesday        Wednesday       Thursday       Friday         Saturday
+
+08:50–09:05       Arrival           Arrival        Arrival         Arrival        Arrival        Games Day
+
+09:10–09:20       Flag Raising      Flag Raising   Flag Raising    Flag Raising   Flag Raising   Games Day
+
+09:25–10:15       Archery           Ropes Course   Climbing Wall   Drumming       Ropes Course   Games Day
+
+10:20–11:10       Arts and Crafts   Ropes Course   Dance           Fishing        Ropes Course   Games Day
+
+11:15–12:00       Lunch             Lunch          Lunch           Lunch          Lunch          Games Day
+
+12:05–12:55       Basketball        Ceramics       Drama           Campfire       Robotics       Games Day
+
+01:00–01:40       Bechirot          Chess Club     Bechirot        Pottery        Bechirot       Games Day
+
+01:45–02:00       Dismissal         Dismissal      Dismissal       Dismissal      Dismissal      Games Day
+
+
+              Tinders - Lynx 1 Schedule
+
+   Time           Monday         Tuesday        Wednesday      Thursday                  Friday         Saturday
+
+08:50–09:05       Arrival        Arrival        Arrival        Arrival                   Arrival        Games Day
+
+09:10–09:20       Flag Raising   Flag Raising   Flag Raising   Flag Raising              Flag Raising   Games Day
+
+09:25–10:15       Sailing        Storytelling   Trampoline     Yoga                      Photography    Games Day
+
+10:20–11:10       Soccer         Swim           Volleyball     Free Swim - Photography   Cooking        Games Day
+
+11:15–12:00       Lunch          Lunch          Lunch          Lunch                     Lunch          Games Day
+
+12:05–12:55       Softball       Tennis         Woodworking    Campfire                  Magic Show     Games Day
+
+01:00–01:40       Bechirot       Tie Dye        Bechirot       Rocketry                  Bechirot       Games Day
+
+01:45–02:00       Dismissal      Dismissal      Dismissal      Dismissal                 Dismissal      Games Day
+
+
+              Tinders - Lynx 2 Schedule
+
+   Time           Monday         Tuesday           Wednesday       Thursday       Friday         Saturday
+
+08:50–09:05       Arrival        Arrival           Arrival         Arrival        Arrival        Games Day
+
+09:10–09:20       Flag Raising   Flag Raising      Flag Raising    Flag Raising   Flag Raising   Games Day
+
+09:25–10:15       Puppetry       Arts and Crafts   Climbing Wall   Drumming       Robotics       Games Day
+
+10:20–11:10       Bocce          Basketball        Dance           Fishing        Sailing        Games Day
+
+11:15–12:00       Lunch          Lunch             Lunch           Lunch          Lunch          Games Day
+
+12:05–12:55       Archery        Ceramics          Drama           Campfire       Soccer         Games Day
+
+01:00–01:40       Bechirot       Chess Club        Bechirot        Pottery        Bechirot       Games Day
+
+01:45–02:00       Dismissal      Dismissal         Dismissal       Dismissal      Dismissal      Games Day
+
+
+              Tinders - Lynx 3 Schedule
+
+   Time           Monday         Tuesday        Wednesday      Thursday       Friday         Saturday
+
+08:50–09:05       Arrival        Arrival        Arrival        Arrival        Arrival        Games Day
+
+09:10–09:20       Flag Raising   Flag Raising   Flag Raising   Flag Raising   Flag Raising   Games Day
+
+09:25–10:15       Softball       Tennis         Woodworking    Rocketry       Magic Show     Games Day
+
+10:20–11:10       Storytelling   Tie Dye        Yoga           Photography    Puppetry       Games Day
+
+11:15–12:00       Lunch          Lunch          Lunch          Lunch          Lunch          Games Day
+
+12:05–12:55       Swim           Trampoline     Free Swim      Campfire       Bocce          Games Day
+
+01:00–01:40       Bechirot       Volleyball     Bechirot       Cooking        Bechirot       Games Day
+
+01:45–02:00       Dismissal      Dismissal      Dismissal      Dismissal      Dismissal      Games Day
+
+
+              Tinders - Lynx 4 Schedule
+
+   Time           Monday            Tuesday              Wednesday      Thursday       Friday         Saturday
+
+08:50–09:05       Arrival           Arrival              Arrival        Arrival        Arrival        Games Day
+
+09:10–09:20       Flag Raising      Flag Raising         Flag Raising   Flag Raising   Flag Raising   Games Day
+
+09:25–10:15       Archery           Ceramics             Drama          Pottery        Soccer         Games Day
+
+10:20–11:10       Arts and Crafts   Chess Club - Dance   Drumming       Robotics       Softball       Games Day
+
+11:15–12:00       Lunch             Lunch                Lunch          Lunch          Lunch          Games Day
+
+12:05–12:55       Basketball        Climbing Wall        Fishing        Campfire       Storytelling   Games Day
+
+01:00–01:40       Bechirot          Dance                Bechirot       Sailing        Bechirot       Games Day
+
+01:45–02:00       Dismissal         Dismissal            Dismissal      Dismissal      Dismissal      Games Day
+
+
+              Kindlers - Moles 1 Schedule
+
+   Time           Monday         Tuesday        Wednesday      Thursday       Friday            Saturday
+
+08:50–09:05       Arrival        Arrival        Arrival        Arrival        Arrival           Games Day
+
+09:10–09:20       Flag Raising   Flag Raising   Flag Raising   Flag Raising   Flag Raising      Games Day
+
+09:25–10:15       Swim           Trampoline     Free Swim      Cooking        Bocce             Games Day
+
+10:20–11:10       Tennis         Volleyball     Rocketry       Magic Show     Archery           Games Day
+
+11:15–12:00       Lunch          Lunch          Lunch          Lunch          Lunch             Games Day
+
+12:05–12:55       Tie Dye        Woodworking    Photography    Campfire       Arts and Crafts   Games Day
+
+01:00–01:40       Bechirot       Yoga           Bechirot       Puppetry       Bechirot          Games Day
+
+01:45–02:00       Dismissal      Dismissal      Dismissal      Dismissal      Dismissal         Games Day
+
+
+              Kindlers - Moles 2 Schedule
+
+   Time           Monday         Tuesday         Wednesday      Thursday       Friday                  Saturday
+
+08:50–09:05       Arrival        Arrival         Arrival        Arrival        Arrival                 Games Day
+
+09:10–09:20       Flag Raising   Flag Raising    Flag Raising   Flag Raising   Flag Raising            Games Day
+
+09:25–10:15       Basketball     Climbing Wall   Fishing        Sailing        Storytelling - Tennis   Games Day
+
+10:20–11:10       Ceramics       Dance           Pottery        Soccer         Swim                    Games Day
+
+11:15–12:00       Lunch          Lunch           Lunch          Lunch          Lunch                   Games Day
+
+12:05–12:55       Chess Club     Drama           Robotics       Campfire       Tennis                  Games Day
+
+01:00–01:40       Bechirot       Drumming        Bechirot       Softball       Bechirot                Games Day
+
+01:45–02:00       Dismissal      Dismissal       Dismissal      Dismissal      Dismissal               Games Day
+
+
+              Kindlers - Moles 3 Schedule
+
+   Time           Monday         Tuesday        Wednesday      Thursday       Friday            Saturday
+
+08:50–09:05       Arrival        Arrival        Arrival        Arrival        Arrival           Games Day
+
+09:10–09:20       Flag Raising   Flag Raising   Flag Raising   Flag Raising   Flag Raising      Games Day
+
+09:25–10:15       Tie Dye        Woodworking    Photography    Puppetry       Arts and Crafts   Games Day
+
+10:20–11:10       Trampoline     Yoga           Cooking        Bocce          Basketball        Games Day
+
+11:15–12:00       Lunch          Lunch          Lunch          Lunch          Lunch             Games Day
+
+12:05–12:55       Volleyball     Free Swim      Magic Show     Campfire       Ceramics          Games Day
+
+01:00–01:40       Bechirot       Rocketry       Bechirot       Archery        Bechirot          Games Day
+
+01:45–02:00       Dismissal      Dismissal      Dismissal      Dismissal      Dismissal         Games Day
+
+
+              Kindlers - Moles 4 Schedule
+
+   Time           Monday          Tuesday        Wednesday      Thursday       Friday         Saturday
+
+08:50–09:05       Arrival         Arrival        Arrival        Arrival        Arrival        Games Day
+
+09:10–09:20       Flag Raising    Flag Raising   Flag Raising   Flag Raising   Flag Raising   Games Day
+
+09:25–10:15       Chess Club      Drama          Robotics       Softball       Tennis         Games Day
+
+10:20–11:10       Climbing Wall   Drumming       Sailing        Storytelling   Tie Dye        Games Day
+
+11:15–12:00       Lunch           Lunch          Lunch          Lunch          Lunch          Games Day
+
+12:05–12:55       Dance           Fishing        Soccer         Campfire       Trampoline     Games Day
+
+01:00–01:40       Bechirot        Pottery        Bechirot       Swim           Bechirot       Games Day
+
+01:45–02:00       Dismissal       Dismissal      Dismissal      Dismissal      Dismissal      Games Day
+
+
+              Counselor Aides Schedule
+
+   Time           Monday         Tuesday              Wednesday      Thursday          Friday          Saturday
+
+08:50–09:05       Arrival        Arrival              Arrival        Arrival           Arrival         Arrival
+
+09:10–09:20       Flag Raising   Flag Raising         Flag Raising   Flag Raising      Flag Raising    Flag Raising
+
+09:25–10:15       Volleyball     Free Swim            Magic Show     Archery           Ceramics        Dance
+
+10:20–11:10       Woodworking    Rocketry             Puppetry       Arts and Crafts   Chess Club      Drama
+
+11:15–12:00       Lunch          Lunch                Lunch          Lunch             Lunch           Lunch
+
+12:05–12:55       Yoga           Photography          Bocce          Campfire          Climbing Wall   Drumming
+
+01:00–01:40       Bechirot       Cooking - Puppetry   Bechirot       Basketball        Bechirot        Fishing
+
+01:45–02:00       Dismissal      Dismissal            Dismissal      Dismissal         Dismissal       Dismissal
+

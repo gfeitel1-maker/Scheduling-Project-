@@ -1,0 +1,44 @@
+                        Monday — All Camp
+
+   Time           Otters 1   Otters 2   Otters 3   Otters 4
+
+09:00–09:45       Archery    Music      Drama      Tennis
+
+10:00–10:45       Music      Drama      Tennis     Archery
+
+
+                        Tuesday — All Camp
+
+   Time           Otters 1   Otters 2   Otters 3   Otters 4
+
+09:00–09:45       Archery    Music      Drama      Tennis
+
+10:00–10:45       Music      Drama      Tennis     Archery
+
+
+                        Wednesday — All Camp
+
+   Time           Otters 1   Otters 2   Otters 3   Otters 4
+
+09:00–09:45       Swim       Swim       Swim       Swim
+
+10:00–10:45       Music      Drama      Tennis     Archery
+
+
+                        Thursday — All Camp
+
+   Time           Otters 1   Otters 2   Otters 3   Otters 4
+
+09:00–09:45       Swim       Music      Drama      Tennis
+
+10:00–10:45       Music      Drama      Tennis     Archery
+
+
+                        Friday — All Camp
+
+   Time           Otters 1   Otters 2   Otters 3   Otters 4
+
+09:00–09:45       Archery    Music      Drama      Tennis
+
+10:00–10:45       Music      Drama      Tennis     Archery
+

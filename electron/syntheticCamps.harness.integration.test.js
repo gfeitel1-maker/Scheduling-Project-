@@ -1,0 +1,645 @@
+// @vitest-environment node
+//
+// Synthetic-corpus harness: 15 fictional camps (docs/work/specs/samples/synthetic) pushed through the
+// REAL import pipeline, then through Generate and Manual-from-import, with a scorecard written as JSON.
+//
+//   parseTextGrid -> extractEntities -> inferFixedEvents -> commitIngest (dry run) ->
+//   buildReconciliationReport -> foldTriageInputs -> commitIngest -> real SQLite ->
+//   buildSchedule (Generate) + capturePlacements/materializeImportedVersion (Manual from import)
+//
+// FINDINGS ONLY. This file asserts hard invariants (a crash, the T266 exclusivity invariant, a Keep
+// re-import that writes, a Generate error finding) and RECORDS every quality metric without asserting it.
+// A hard invariant that fails today is listed in KNOWN_FAILING and runs under it.fails, so CI stays green
+// while the finding stays visible; the entry must be deleted the day the product is fixed (it.fails then
+// turns red, which is the prompt to remove it).
+//
+// Glue (importUnanswered) mirrors electron/importDirectorPath.integration.test.js plus the division and
+// co-schedule inference ImportScreen runs before commit. Nothing here reimplements product logic: scope
+// resolution, overlap and span behaviour are read from the product modules.
+//
+// SYNTHETIC_ONLY=s05 runs one camp (debugging aid; the scorecard then holds only that camp).
+// Scorecard path: SYNTHETIC_SCORECARD_PATH, else docs/work/evidence/2026-10-11-synthetic-15-scorecard.json.
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import fs from 'node:fs'
+import path from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { openTemplatedDb, cleanupTemplatedDbs } from './db/testDbTemplate.js'
+import { commitIngest } from './ops/ingest.js'
+import { appendOp } from './ops/operations.js'
+import { listOpenReconciliationDecisions } from './ops/openReconciliationDecisions.js'
+import { materializeImportedVersion, nameMap } from './ops/materializeImportedVersion.js'
+import { normalizeScheduleInputs, SCHEDULE_INPUT_ENTITIES } from './ops/scheduleInputNormalization.js'
+import { normalizeName } from '../src/ingest/preview.js'
+import { parseTextGrid, normalizeTimeLabel } from '../src/ingest/textGrid.js'
+import { extractEntities } from '../src/ingest/extractEntities.js'
+import { inferFixedEvents } from '../src/ingest/fixedEvents.js'
+import { derivePinOnlyActivityNames } from '../src/ingest/pinOnlyActivityNames.js'
+import { inferActivityRules } from '../src/ingest/activityRules.js'
+import { capturePlacements } from '../src/ingest/capturePlacements.js'
+import { buildReconciliationReport } from '../src/ingest/reconciliationReport.js'
+import { inferDivisionEntities } from '../src/ingest/inferDivisions.js'
+import { buildBlastRadiusIndex } from '../src/ingest/blastRadius.js'
+import { detectAllCampOverrides } from '../src/ingest/allCampOverrides.js'
+import { inferCoScheduleRules } from '../src/ingest/coScheduleRules.js'
+import { proposeSpecialDay } from '../src/ingest/specialDayFile.js'
+import { buildSpecialDayPlan } from '../src/ingest/specialDayPlan.js'
+import { commitSpecialDayPlan } from '../src/ingest/commitSpecialDay.js'
+import { foldTriageInputs, heldBackDecisions } from '../src/screens/reconciliationTriage.js'
+import { resolvePriorityForGeneration } from '../src/ingest/resolvePriorityForGeneration.js'
+import { resolveFixedEventGroupIds, resolveFixedEventDayIds } from '../src/engine/fixedEventScope.js'
+import { computeOverlaps } from '../src/utils/computeOverlaps.js'
+import buildSchedule from '../src/engine/buildSchedule.js'
+
+const DIR = path.join(process.cwd(), 'docs/work/specs/samples/synthetic')
+const MANIFEST = JSON.parse(fs.readFileSync(path.join(DIR, 'manifest.json'), 'utf8'))
+const SCORECARD_PATH = process.env.SYNTHETIC_SCORECARD_PATH
+  ?? path.join(process.cwd(), 'docs/work/evidence/2026-10-11-synthetic-15-scorecard.json')
+const deviceId = 'device-1'
+const userId = 'u1'
+const COUNTED_TABLES = ['groups', 'tiers', 'days_of_operation', 'time_blocks', 'activities', 'locations', 'fixed_events', 'elective_sets']
+
+// `<slug>:<invariant>` entries that fail today. Each is a finding in the scorecard (F1: electron/ops/ingest.js
+// fixedEventSlotKey is scope-blind, so a second group scope on the same name/day/block is dropped); remove the
+// entry when fixed.
+const MEAL_ZERO = 'zero answers: every group gets its meal on every day and block the file prints it'
+const MEAL_ALL = 'confirm all: every group gets its meal on every day and block the file prints it'
+const KNOWN_FAILING = new Set(
+  ['s04-by-day-6day-large', 's09-by-group-6day-except', 's12-daysheet-4d-late', 's13-daysheet-16-splits']
+    .flatMap((slug) => [`${slug}:${MEAL_ZERO}`, `${slug}:${MEAL_ALL}`]),
+)
+
+const results = {}
+const startedAt = Date.now()
+
+function seedCamp() {
+  const { db: d } = openTemplatedDb()
+  const id = randomUUID()
+  d.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(id, 'Synthetic Camp', 'a'.repeat(64))
+  d.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(deviceId, 'Test Device')
+  d.prepare("INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role) VALUES (?, ?, 'Ruth', 'h', 's', 'admin')").run(userId, id)
+  d.prepare('INSERT INTO cohorts (id, camp_id, name, sort_order) VALUES (?, ?, ?, 0)').run(randomUUID(), id, 'Main')
+  return { d, id }
+}
+
+// The director's import path: dry run -> report -> answers -> fold -> real commit (openDecisions as the screen sends them).
+function importFile(d, id, text, { answerFor = () => null, mode = 'add' } = {}) {
+  const parsed = parseTextGrid(text)
+  const proposal = extractEntities(parsed)
+  const { fixedEvents, dualUseNames = [] } = inferFixedEvents({ pages: parsed.pages }, proposal, {})
+  const pinOnly = derivePinOnlyActivityNames(fixedEvents, dualUseNames)
+  const { placements } = capturePlacements({ pages: parsed.pages }, proposal)
+  const fixedEventNames = fixedEvents.filter((e) => e.kind === 'fixed').map((e) => e.name)
+  const statedUnits = proposal.groupUnits ?? {}
+  const inferred = inferDivisionEntities(proposal.entities.groups ?? [], placements, fixedEventNames)
+  const divisions = inferred
+    .map((dv) => ({ ...dv, groupNames: dv.groupNames.filter((g) => !statedUnits[g]) }))
+    .filter((dv) => dv.groupNames.length > 0)
+  const groupUnits = {}
+  for (const dv of divisions) for (const g of dv.groupNames) groupUnits[g] = dv.name
+  Object.assign(groupUnits, statedUnits)
+  const tierNames = [...(proposal.entities.tiers ?? [])]
+  for (const dv of divisions) if (!tierNames.some((t) => normalizeName(t) === normalizeName(dv.name))) tierNames.push(dv.name)
+  const coSchedule = inferCoScheduleRules(placements, groupUnits)
+  const rules = inferActivityRules(
+    proposal.entities.activities, proposal.activityPages, proposal.seenCounts,
+    proposal.entities.days_of_operation.length, proposal.entities.groups, pinOnly,
+  )
+  // inferActivityRules returns a Map; ImportScreen sends commitIngest a plain object keyed by activity name.
+  const activityRules = {}
+  for (const name of proposal.entities.activities) {
+    const rule = rules.get(name)
+    if (!rule) continue
+    activityRules[name] = {
+      eligible_group_names: rule.eligible_group_names ?? null,
+      min_per_week: rule.min_per_week,
+      max_per_week: rule.max_per_week,
+      priority: rule.priority,
+      co_schedule: coSchedule.get(name),
+    }
+  }
+  const baseInputs = {
+    approved: {
+      groups: proposal.entities.groups,
+      days_of_operation: proposal.entities.days_of_operation,
+      time_blocks: proposal.entities.time_blocks,
+      activities: proposal.entities.activities,
+      tiers: tierNames,
+    },
+    links: { groups: groupUnits },
+    fixedEvents,
+    activityRules,
+    pinOnlyActivityNames: [...pinOnly],
+    seenCounts: proposal.seenCounts ?? null,
+    electiveHeaderFindings: proposal.electiveHeaderFindings ?? [],
+    activityPeriods: proposal.activityPeriods ?? {},
+  }
+  const common = { camp_id: id, cohort_id: null, author_user_id: userId, device_id: deviceId, mode }
+  const dry = commitIngest(d, { ...common, ...baseInputs, dryRun: true })
+  // The same inputs ReconciliationScreen hands buildReconciliationReport (readiness and the census snapshot are
+  // display-only and are not built here).
+  const report = buildReconciliationReport({
+    planItems: dry.planItems ?? [],
+    fixedEventsReport: { ...dry.fixedEvents, created: dry.fixedEvents?.createdEntries ?? [], unchanged: dry.fixedEvents?.unchangedEntries ?? [] },
+    legacyPriorityActivities: dry.legacyPriorityActivities,
+    fieldProvenance: new Map(Object.entries(dry.fieldProvenance ?? {})),
+    evidenceSupport: dry.evidenceSupport,
+    blastRadiusIndex: buildBlastRadiusIndex(dry.planItems ?? []),
+    unknownFieldEvidence: new Map(Object.entries(dry.unknownFieldEvidence ?? {})),
+    electiveCandidates: dry.electiveCandidates,
+    allCampOverrides: detectAllCampOverrides(placements, proposal.entities.groups ?? []),
+    placements,
+    allGroupNames: proposal.entities.groups ?? [],
+  })
+  const answers = Object.fromEntries(report.decisions.map((dec) => [dec.id, answerFor(dec)]).filter(([, a]) => a))
+  const folded = foldTriageInputs(baseInputs, report.decisions, answers)
+  const committed = commitIngest(d, { ...common, ...baseInputs, ...folded, openDecisions: heldBackDecisions(report.decisions, answers) })
+  return { parsed, proposal, placements, pinOnly, dualUseNames, dry, report, answers, committed }
+}
+
+const CONFIRM_ALL = (dec) => {
+  if (dec.kind === 'confirm_value') return { action: 'looks_right' }
+  if (dec.kind === 'elective_candidate') return { choice: 'confirm' }
+  return null
+}
+
+function tableCounts(d) {
+  return Object.fromEntries(COUNTED_TABLES.map((t) => [t, d.prepare(`SELECT COUNT(*) c FROM ${t}`).get().c]))
+}
+
+function scheduleInput(d, id) {
+  const rowsByEntity = {}
+  for (const entity of SCHEDULE_INPUT_ENTITIES) rowsByEntity[entity] = d.prepare(`SELECT * FROM ${entity}`).all()
+  const { cohorts: _c, ...flat } = normalizeScheduleInputs(rowsByEntity, id)
+  return { ...flat, activities: resolvePriorityForGeneration(flat.activities), campId: id, replacedDayIds: [] }
+}
+
+function safe(fn) {
+  try { return { ok: true, value: fn() } } catch (err) { return { ok: false, error: String(err?.message ?? err).slice(0, 300) } }
+}
+
+// ── expected facts, read from the manifest ───────────────────────────────────
+const groupsOf = (m, sel) => (sel === 'all' ? m.groups : sel)
+const blockKey = (label) => normalizeName(normalizeTimeLabel(label))
+
+// Event cells after displacement: a trip or all-day day replaces whatever else is printed in those cells.
+function expectedEventCells(m) {
+  const cells = new Map()
+  const order = (kind) => (kind === 'trip' || kind === 'allday' ? 0 : 1)
+  const events = [...m.events].sort((a, b) => order(a.kind) - order(b.kind))
+  for (const e of events) {
+    for (const g of groupsOf(m, e.groups)) for (const day of e.days) for (const block of e.blocks) {
+      const k = `${g}|${day}|${blockKey(block)}`
+      if (!cells.has(k)) cells.set(k, { kind: e.kind, name: e.name, group: g, day, block })
+    }
+  }
+  return [...cells.values()]
+}
+
+function expectedElectiveCells(m) {
+  const out = []
+  for (const el of m.electives) for (const g of el.groups) for (const day of el.days) for (const block of el.rows) {
+    out.push({ el, group: g, day, block })
+  }
+  return out
+}
+
+function tally(cells, isHit, describe) {
+  const byKind = {}
+  const byName = {}
+  const firstMisses = []
+  for (const c of cells) {
+    const hit = isHit(c)
+    for (const [bucket, key] of [[byKind, c.kind], [byName, c.name]]) {
+      const slot = (bucket[key] ??= { ok: 0, total: 0 })
+      slot.total++
+      if (hit) slot.ok++
+    }
+    if (!hit && firstMisses.length < 12) firstMisses.push(describe(c))
+  }
+  return { byKind, byName, firstMisses }
+}
+
+const fraction = (ok, total) => ({ ok, total, ratio: total === 0 ? null : Number((ok / total).toFixed(3)) })
+
+// ── reading the result back out of SQLite ────────────────────────────────────
+function lookups(d, id) {
+  return {
+    group: nameMap(d, 'groups', id),
+    day: nameMap(d, 'days_of_operation', id, 'label'),
+    block: nameMap(d, 'time_blocks', id),
+  }
+}
+
+function exclusivity(d, id, imp) {
+  const pinOnly = imp.pinOnly
+  const dual = new Set([...imp.dualUseNames].map((n) => normalizeName(String(n))))
+  // A question about the EVENT itself (entity fixed_events: "is Lunch at 8:00 right?") is a legitimate card and is
+  // recorded as eventQuestions; the invariant is about a claimed name leaking into the ACTIVITY pass.
+  const claimed = imp.report.decisions.filter((x) => pinOnly.has(x.entityName)).map((x) => `${x.entity}:${x.entityName}`)
+  const decisions = claimed.filter((x) => !x.startsWith('fixed_events:'))
+  const claimedOpen = listOpenReconciliationDecisions(d, id).filter((r) => pinOnly.has(r.entity_name)).map((r) => `${r.entity_type}:${r.entity_name}`)
+  const openItems = claimedOpen.filter((x) => !x.startsWith('fixed_events:'))
+  const candidates = (imp.dry.planItems ?? [])
+    .filter((i) => i.entity === 'activities' && pinOnly.has(i._name) && i.fields?.catalog_role?.to !== 'pinned_event')
+    .map((i) => i._name)
+  const eventNames = new Set(d.prepare('SELECT name FROM fixed_events WHERE camp_id = ?').all(id).map((r) => normalizeName(r.name ?? '')))
+  const regular = new Set(d.prepare("SELECT name FROM activities WHERE camp_id = ? AND (catalog_role IS NULL OR catalog_role != 'pinned_event')").all(id).map((r) => normalizeName(r.name)))
+  const inTwoBuckets = [...eventNames].filter((n) => regular.has(n) && !dual.has(n))
+  return { decisions, openItems, candidates, inTwoBuckets, eventQuestions: claimed.filter((x) => x.startsWith('fixed_events:')), eventOpenItems: claimedOpen.filter((x) => x.startsWith('fixed_events:')), ok: !decisions.length && !openItems.length && !candidates.length && !inTwoBuckets.length }
+}
+
+// Event-cell coverage read from fixed_events through the product's own scope resolvers.
+function fixedCoverage(input) {
+  const blockIdx = new Map(input.timeBlocks.map((b, i) => [b.id, i]))
+  const byIndex = input.timeBlocks.map((b) => b.id)
+  const cover = new Map()
+  for (const fe of input.fixedEvents) {
+    const gids = resolveFixedEventGroupIds(fe, input.groups)
+    const dids = resolveFixedEventDayIds(fe, input.days)
+    const start = blockIdx.get(fe.time_block_id)
+    const span = fe.span_blocks || 1
+    const bids = start === undefined ? [fe.time_block_id] : byIndex.slice(start, start + span)
+    for (const g of gids) for (const dd of dids) for (const b of bids) cover.set(`${g}|${dd}|${b}`, normalizeName(fe.name ?? ''))
+  }
+  return cover
+}
+
+function evaluateImport(m, d, id, imp) {
+  const input = scheduleInput(d, id)
+  const lk = lookups(d, id)
+  const activities = d.prepare('SELECT * FROM activities WHERE camp_id = ?').all(id)
+  const regular = activities.filter((a) => a.catalog_role !== 'pinned_event')
+  const feRows = d.prepare('SELECT * FROM fixed_events WHERE camp_id = ?').all(id)
+  const expectedActs = new Map(m.activities.map((n) => [normalizeName(n), n]))
+  const regularNames = new Set(regular.map((a) => normalizeName(a.name)))
+  const eventNames = new Set(m.events.filter((e) => !['trip', 'allday'].includes(e.kind)).map((e) => normalizeName(e.name)))
+  const typoVariants = new Set(m.typos.map((t) => normalizeName(t.variant)))
+
+  const cover = fixedCoverage(input)
+  const cellIds = (c) => `${lk.group.get(normalizeName(c.group))}|${lk.day.get(normalizeName(c.day))}|${lk.block.get(blockKey(c.block))}`
+  const eventCells = expectedEventCells(m)
+  const evTally = tally(eventCells, (c) => cover.get(cellIds(c)) === normalizeName(c.name), (c) => `${c.name} | ${c.group} | ${c.day} | ${c.block}`)
+  const lunchCells = eventCells.filter((c) => c.kind === 'lunch')
+  const lunchOk = lunchCells.filter((c) => cover.get(cellIds(c)) === normalizeName(c.name)).length
+  const lunchAnyBlock = lunchCells.filter((c) => {
+    const [g, dd] = cellIds(c).split('|')
+    return [...cover.entries()].some(([k, n]) => k.startsWith(`${g}|${dd}|`) && n === normalizeName(c.name))
+  }).length
+  const lunchExpectedGroups = new Set(m.lunchWaves.flatMap((w) => w.groups))
+
+  const spanDb = m.spans.map((sp) => {
+    const row = activities.find((a) => normalizeName(a.name) === normalizeName(sp.name))
+    return {
+      name: sp.name, expected: sp.blocks, form: sp.form, dbSpanBlocks: row?.span_blocks ?? null, activityRow: !!row,
+      pinnedAsEvent: row?.catalog_role === 'pinned_event', minPerWeek: row?.min_per_week ?? null, maxPerWeek: row?.max_per_week ?? null,
+      sessionsPerGroupWeekPrinted: sp.days.length,
+    }
+  })
+
+  const elSets = d.prepare('SELECT * FROM elective_sets WHERE camp_id = ?').all(id)
+  const expectedSetNames = [...new Set(m.electives.map((e) => normalizeName(e.name)))]
+  const setsCreated = expectedSetNames.filter((n) => elSets.some((s) => normalizeName(s.name) === n))
+  const eligibilityCaptured = elSets.filter((s) => s.day_id || s.time_block_id || s.is_all_groups || (s.group_ids && s.group_ids !== '[]')).length
+
+  const spurious = regular.map((a) => a.name).filter((n) => !expectedActs.has(normalizeName(n)) && !eventNames.has(normalizeName(n)))
+  const missingActs = [...expectedActs.entries()].filter(([k]) => !regularNames.has(k) && !typoVariants.has(k)).map(([, v]) => v)
+
+  // What the importer actually wrote as events, scoped through the product's own resolvers (for repros).
+  const dayLabel = new Map(input.days.map((x) => [x.id, x.label]))
+  const blockName = new Map(input.timeBlocks.map((x) => [x.id, x.name]))
+  const groupName = new Map(input.groups.map((x) => [x.id, x.name]))
+  const eventRows = input.fixedEvents.map((fe) => {
+    const gids = resolveFixedEventGroupIds(fe, input.groups)
+    return {
+      name: fe.name, kind: fe.kind, block: blockName.get(fe.time_block_id) ?? fe.time_block_id, span: fe.span_blocks ?? 1,
+      days: fe.day_id ? [dayLabel.get(fe.day_id)] : 'every day',
+      groups: gids.length === input.groups.length ? 'all' : gids.length > 6 ? `${gids.length} groups` : gids.map((g) => groupName.get(g)),
+    }
+  })
+  const rolled = new Map()
+  for (const r of eventRows) {
+    const key = `${r.name}|${r.kind}|${r.block}|${r.span}|${JSON.stringify(r.groups)}`
+    const prior = rolled.get(key)
+    if (prior) prior.days = prior.days === 'every day' || r.days === 'every day' ? 'every day' : [...prior.days, ...r.days]
+    else rolled.set(key, { ...r })
+  }
+
+  return {
+    eventRows: [...rolled.values()].slice(0, 80),
+    counts: {
+      groups: d.prepare('SELECT COUNT(*) c FROM groups WHERE camp_id = ?').get(id).c,
+      divisions: d.prepare('SELECT COUNT(*) c FROM tiers WHERE camp_id = ?').get(id).c,
+      days: d.prepare('SELECT COUNT(*) c FROM days_of_operation WHERE camp_id = ?').get(id).c,
+      timeBlocks: d.prepare('SELECT COUNT(*) c FROM time_blocks WHERE camp_id = ?').get(id).c,
+      activities: regular.length,
+      pinnedEventActivities: activities.length - regular.length,
+      fixedEvents: feRows.filter((r) => r.kind === 'fixed').length,
+      recurringEvents: feRows.filter((r) => r.kind === 'recurring').length,
+      electiveSets: elSets.length,
+      specialDays: d.prepare('SELECT COUNT(*) c FROM special_days WHERE camp_id = ?').get(id).c,
+    },
+    expected: { groups: m.groups.length, divisions: m.divisions.length, days: m.days.length, timeBlocks: m.blocks.length, activities: m.activities.length },
+    questions: { total: imp.report.decisions.length, byKind: imp.report.decisions.reduce((acc, x) => { acc[x.kind] = (acc[x.kind] ?? 0) + 1; return acc }, {}) },
+    exclusivity: exclusivity(d, id, imp),
+    lunch: { expectedCells: lunchCells.length, strictOk: lunchOk, groupDayOk: lunchAnyBlock, expectedGroups: lunchExpectedGroups.size, missingGroups: [...new Set(lunchCells.filter((c) => cover.get(cellIds(c)) !== normalizeName(c.name)).map((c) => c.group))].slice(0, 12), ...fraction(lunchOk, lunchCells.length) },
+    events: evTally,
+    activitiesVsManifest: { spurious: spurious.slice(0, 15), spuriousCount: spurious.length, missing: missingActs.slice(0, 15), missingCount: missingActs.length },
+    spansDb: spanDb,
+    electiveSets: { expected: expectedSetNames.length, created: setsCreated.length, withEligibility: eligibilityCaptured },
+    unresolvedTimeBlocks: m.blocks.filter((b) => !lk.block.has(blockKey(b.label))).map((b) => b.label),
+  }
+}
+
+function slotContent(input, activitiesById, feById, setById, slot) {
+  if (!slot) return { type: 'none', name: null }
+  if (slot.type === 'fixed_event') return { type: 'fixed_event', name: normalizeName(feById.get(slot.fixedEventId)?.name ?? '') }
+  if (slot.type === 'activity') return { type: 'activity', name: normalizeName(activitiesById.get(slot.activityId)?.name ?? '') }
+  if (slot.type === 'elective') return { type: 'elective', name: normalizeName(setById.get(slot.electiveSetId)?.name ?? '') }
+  return { type: slot.type, name: null }
+}
+
+function evaluateGenerate(m, d, id) {
+  const input = scheduleInput(d, id)
+  const lk = lookups(d, id)
+  const t0 = process.cpuUsage()
+  const gen = safe(() => buildSchedule(input))
+  const cpu = process.cpuUsage(t0)
+  if (!gen.ok) return { error: gen.error }
+  const { slots, findings } = gen.value
+  const activitiesById = new Map(input.activities.map((a) => [a.id, a]))
+  const feById = new Map(input.fixedEvents.map((f) => [f.id, f]))
+  const setById = new Map((input.electiveSets ?? []).map((s) => [s.id, s]))
+  const at = new Map(slots.map((s) => [`${s.groupId}|${s.dayId}|${s.blockId}`, s]))
+  const idsOf = (c, block) => `${lk.group.get(normalizeName(c.group))}|${lk.day.get(normalizeName(c.day))}|${lk.block.get(blockKey(block))}`
+
+  const eventCells = expectedEventCells(m)
+  const evTally = tally(eventCells, (c) => {
+    const got = slotContent(input, activitiesById, feById, setById, at.get(idsOf(c, c.block)))
+    return got.type === 'fixed_event' && got.name === normalizeName(c.name)
+  }, (c) => {
+    const got = slotContent(input, activitiesById, feById, setById, at.get(idsOf(c, c.block)))
+    return `${c.name} | ${c.group} | ${c.day} | ${c.block} -> ${got.type}:${got.name ?? ''}`
+  })
+
+  const order = new Map(input.timeBlocks.map((b, i) => [b.id, i]))
+  const spanRuns = m.spans.map((sp) => {
+    const act = input.activities.find((a) => normalizeName(a.name) === normalizeName(sp.name))
+    if (!act) return { name: sp.name, expected: sp.blocks, placedBy: 0, runs: {} }
+    const by = new Map()
+    for (const s of slots) {
+      if (s.type !== 'activity' || s.activityId !== act.id) continue
+      const k = `${s.groupId}|${s.dayId}`
+      if (!by.has(k)) by.set(k, [])
+      by.get(k).push(order.get(s.blockId))
+    }
+    const runs = {}
+    for (const arr of by.values()) {
+      arr.sort((a, b) => a - b)
+      let len = 1
+      for (let i = 1; i <= arr.length; i++) {
+        if (i < arr.length && arr[i] === arr[i - 1] + 1) len++
+        else { runs[len] = (runs[len] ?? 0) + 1; len = 1 }
+      }
+    }
+    return { name: sp.name, expected: sp.blocks, activitySpanBlocks: act.span_blocks ?? null, placedGroupDays: by.size, runs }
+  })
+
+  // A trip or all-day name the importer made a catalog ACTIVITY (not an event): where did Generate put it?
+  const displacedNames = [...new Set(eventCells.filter((c) => c.kind === 'trip' || c.kind === 'allday').map((c) => c.name))]
+  const displacedAsActivity = displacedNames.flatMap((name) => {
+    const act = input.activities.find((a) => normalizeName(a.name) === normalizeName(name) && a.catalog_role !== 'pinned_event')
+    if (!act) return []
+    const expectedKeys = new Set(eventCells.filter((c) => c.name === name).map((c) => idsOf(c, c.block)))
+    const placed = slots.filter((x) => x.type === 'activity' && x.activityId === act.id)
+    return [{ name, expectedCells: expectedKeys.size, placedTotal: placed.length, placedAtExpectedCells: placed.filter((x) => expectedKeys.has(`${x.groupId}|${x.dayId}|${x.blockId}`)).length }]
+  })
+
+  const elCells = expectedElectiveCells(m)
+  const elGot = {}
+  for (const c of elCells) {
+    const got = slotContent(input, activitiesById, feById, setById, at.get(idsOf(c, c.block)))
+    elGot[got.type] = (elGot[got.type] ?? 0) + 1
+  }
+
+  const activitySlots = slots.filter((s) => s.type === 'activity')
+  const overlap = safe(() => computeOverlaps({
+    slots: slots.map((s) => ({ group_id: s.groupId, day_id: s.dayId, time_block_id: s.blockId, activity_id: s.activityId, fixed_event_id: s.fixedEventId ?? null, is_fixed_event: s.type === 'fixed_event', flags: s.flags ?? {} })),
+    activities: input.activities, locations: input.locations, electiveSetActivities: input.electiveSetActivities, timeBlocks: input.timeBlocks,
+  }))
+  const underserved = findings.filter((f) => f.kind === 'UNDERSERVED')
+  return {
+    cpuMs: Math.round((cpu.user + cpu.system) / 1000),
+    slots: slots.length,
+    placed: activitySlots.filter((s) => s.activityId).length,
+    unfillable: activitySlots.filter((s) => s.flags?.UNFILLABLE).length,
+    stillNeeded: underserved.reduce((sum, f) => sum + Math.max(0, (f.needed ?? 0) - (f.got ?? 0)), 0),
+    underservedPairs: underserved.length,
+    overlap: overlap.ok ? overlap.value.size : `error: ${overlap.error}`,
+    errorFindings: findings.filter((f) => f.severity === 'error').map((f) => `${f.kind}: ${f.reason}`.slice(0, 160)).slice(0, 8),
+    errorFindingCount: findings.filter((f) => f.severity === 'error').length,
+    eventCells: evTally,
+    spanRuns,
+    displacedAsActivity,
+    electiveCells: { expected: elCells.length, got: elGot },
+  }
+}
+
+async function evaluateManual(m, d, id, imp) {
+  const writeClient = {
+    async write({ entity, entity_id, field, value, author_user_id }) {
+      return { status: 'applied', op: appendOp(d, { entity, entity_id, field, value, author_user_id, device_id: deviceId }) }
+    },
+  }
+  const out = await materializeImportedVersion(d, writeClient, { campId: id, authorUserId: userId, placements: imp.placements, sourceFileName: m.file })
+  const snap = d.prepare("SELECT s.slots FROM schedule_snapshots s JOIN schedule_templates t ON t.id = s.template_id WHERE t.kind = 'manual' AND t.camp_id = ? ORDER BY s.created_at DESC LIMIT 1").get(id)
+  const slots = snap ? JSON.parse(snap.slots) : []
+  const input = scheduleInput(d, id)
+  const lk = lookups(d, id)
+  const activitiesById = new Map(input.activities.map((a) => [a.id, a]))
+  const feById = new Map(input.fixedEvents.map((f) => [f.id, f]))
+  const at = new Map(slots.map((s) => [`${s.group_id}|${s.day_id}|${s.time_block_id}`, s]))
+  const content = (c, block) => {
+    const s = at.get(`${lk.group.get(normalizeName(c.group))}|${lk.day.get(normalizeName(c.day))}|${lk.block.get(blockKey(block))}`)
+    if (!s) return { type: 'none', name: null }
+    if (s.is_fixed_event) return { type: 'fixed_event', name: normalizeName(feById.get(s.fixed_event_id)?.name ?? '') }
+    return { type: 'activity', name: normalizeName(activitiesById.get(s.activity_id)?.name ?? '') }
+  }
+  const evTally = tally(expectedEventCells(m), (c) => {
+    const got = content(c, c.block)
+    return got.type === 'fixed_event' && got.name === normalizeName(c.name)
+  }, (c) => {
+    const got = content(c, c.block)
+    return `${c.name} | ${c.group} | ${c.day} | ${c.block} -> ${got.type}:${got.name ?? ''}`
+  })
+  const spans = m.spans.map((sp) => {
+    let okCells = 0
+    let total = 0
+    for (const g of sp.groups) for (const day of sp.days) for (const block of sp.rows) {
+      total++
+      if (content({ group: g, day }, block).name === normalizeName(sp.name)) okCells++
+    }
+    return { name: sp.name, form: sp.form, blocks: sp.blocks, ...fraction(okCells, total) }
+  })
+  const elGot = {}
+  for (const c of expectedElectiveCells(m)) {
+    const got = content(c, c.block)
+    const label = got.type === 'none' ? 'none' : `${got.type}:${got.name}`
+    elGot[label] = (elGot[label] ?? 0) + 1
+  }
+  return {
+    created: out.created, unresolvedCount: out.unresolvedCount, unresolvedNames: [...new Set(out.unresolvedNames)].slice(0, 12),
+    placements: imp.placements.length, snapshotSlots: slots.length,
+    eventCells: evTally, spans, electiveCells: elGot,
+  }
+}
+
+async function evaluateSpecialDayFiles(m, d, id) {
+  const out = []
+  for (const f of MANIFEST.specialDayFiles.filter((x) => x.slug === m.slug)) {
+    const parsed = parseTextGrid(fs.readFileSync(path.join(DIR, f.file), 'utf8'))
+    const proposal = proposeSpecialDay(parsed.pages)
+    const rec = { file: f.file, name: f.name, pages: parsed.pages.length, recognised: !!proposal }
+    if (proposal) {
+      const live = {
+        groups: d.prepare('SELECT * FROM groups WHERE camp_id = ?').all(id),
+        activities: d.prepare('SELECT * FROM activities WHERE camp_id = ?').all(id),
+        specialDays: d.prepare('SELECT * FROM special_days WHERE camp_id = ?').all(id),
+      }
+      const plan = buildSpecialDayPlan(proposal, live)
+      rec.ready = !!plan?.ready
+      rec.blockedBy = plan?.blockedBy ?? []
+      rec.periods = plan?.periods?.length ?? null
+      if (plan?.ready) {
+        const res = await safe2(() => commitSpecialDayPlan(plan, {
+          writeField: async (entity, entityId, field, value) => { appendOp(d, { entity, entity_id: entityId, field, value, author_user_id: userId, device_id: deviceId }) },
+          newId: () => randomUUID(),
+        }))
+        rec.commit = res
+      }
+    }
+    rec.specialDaysAfter = d.prepare('SELECT COUNT(*) c FROM special_days WHERE camp_id = ?').get(id).c
+    rec.placementsAfter = d.prepare('SELECT COUNT(*) c FROM special_day_placements').get().c
+    out.push(rec)
+  }
+  return out
+}
+
+async function safe2(fn) {
+  try { return { ok: true, ...(await fn()) } } catch (err) { return { ok: false, error: String(err?.message ?? err).slice(0, 300) } }
+}
+
+async function runCamp(m) {
+  const rec = { slug: m.slug, layout: m.layout, traits: m.traits, stages: {} }
+  const text = fs.readFileSync(path.join(DIR, m.file), 'utf8')
+
+  const zero = seedCamp()
+  const t0 = process.cpuUsage()
+  const z = safe(() => importFile(zero.d, zero.id, text))
+  rec.stages.zeroAnswers = z.ok ? { ok: true, cpuMs: Math.round((process.cpuUsage(t0).user + process.cpuUsage(t0).system) / 1000), held: z.value.committed.held } : { ok: false, error: z.error }
+  if (z.ok) {
+    rec.zeroAnswers = evaluateImport(m, zero.d, zero.id, z.value)
+    rec.generate = evaluateGenerate(m, zero.d, zero.id)
+    rec.manual = await evaluateManual(m, zero.d, zero.id, z.value).catch((e) => ({ error: String(e?.message ?? e).slice(0, 300) }))
+    rec.specialDayFiles = await evaluateSpecialDayFiles(m, zero.d, zero.id).catch((e) => [{ error: String(e?.message ?? e).slice(0, 300) }])
+
+    const before = tableCounts(zero.d)
+    const keep = safe(() => importFile(zero.d, zero.id, text, { mode: 'add' }))
+    const after = tableCounts(zero.d)
+    rec.reimportKeep = keep.ok
+      ? { ok: true, newRecords: Object.fromEntries(Object.keys(before).map((k) => [k, after[k] - before[k]]).filter(([, n]) => n !== 0)) }
+      : { ok: false, error: keep.error }
+    const c0 = process.cpuUsage()
+    const repl = safe(() => importFile(zero.d, zero.id, text, { mode: 'replace' }))
+    const cpu = process.cpuUsage(c0)
+    rec.reimportReplace = { ok: repl.ok, cpuMs: Math.round((cpu.user + cpu.system) / 1000), ...(repl.ok ? { held: repl.value.committed.held, counts: tableCounts(zero.d) } : { error: repl.error }) }
+  }
+  zero.d.close()
+
+  const all = seedCamp()
+  const a = safe(() => importFile(all.d, all.id, text, { answerFor: CONFIRM_ALL }))
+  rec.stages.confirmAll = a.ok ? { ok: true, held: a.value.committed.held } : { ok: false, error: a.error }
+  if (a.ok) {
+    rec.confirmAll = evaluateImport(m, all.d, all.id, a.value)
+    rec.confirmAllGenerate = evaluateGenerate(m, all.d, all.id)
+    rec.confirmAllManual = await evaluateManual(m, all.d, all.id, a.value).catch((e) => ({ error: String(e?.message ?? e).slice(0, 300) }))
+  }
+  all.d.close()
+  return rec
+}
+
+// SYNTHETIC_REPRO=<path to a grid .txt> prints what the importer wrote for any single file (used by the scorecard repros):
+//   SYNTHETIC_REPRO=docs/work/specs/samples/synthetic/repro/r1.txt npx vitest run electron/syntheticCamps.harness.integration.test.js
+describe.skipIf(!process.env.SYNTHETIC_REPRO)('repro', () => {
+  it('prints the import result for one file', () => {
+    const { d, id } = seedCamp()
+    const imp = importFile(d, id, fs.readFileSync(path.resolve(process.env.SYNTHETIC_REPRO), 'utf8'))
+    const input = scheduleInput(d, id)
+    const dayLabel = new Map(input.days.map((x) => [x.id, x.label]))
+    const blockName = new Map(input.timeBlocks.map((x) => [x.id, x.name]))
+    const groupName = new Map(input.groups.map((x) => [x.id, x.name]))
+    const events = input.fixedEvents.map((fe) => `${fe.name} | ${blockName.get(fe.time_block_id)} | ${dayLabel.get(fe.day_id)} | ${resolveFixedEventGroupIds(fe, input.groups).map((g) => groupName.get(g)).join(',')}`)
+    const acts = d.prepare('SELECT name, catalog_role, span_blocks, min_per_week FROM activities WHERE camp_id = ?').all(id)
+    console.log('REPRO ' + JSON.stringify({ blocks: [...blockName.values()], events, activities: acts, questions: imp.report.decisions.map((x) => `${x.kind}:${x.entity}:${x.entityName}`) }, null, 1))
+    d.close()
+  })
+})
+
+describe('synthetic corpus: 15 fictional camps through the real pipeline', () => {
+  it('has 15 camps', () => {
+    expect(MANIFEST.camps).toHaveLength(15)
+  })
+
+  afterAll(() => {
+    cleanupTemplatedDbs()
+    const scorecard = { generatedAt: new Date().toISOString(), runtimeMs: Date.now() - startedAt, node: process.version, camps: results }
+    fs.mkdirSync(path.dirname(SCORECARD_PATH), { recursive: true })
+    fs.writeFileSync(SCORECARD_PATH, JSON.stringify(scorecard, null, 2) + '\n')
+  })
+
+  describe.each(MANIFEST.camps.filter((c) => !process.env.SYNTHETIC_ONLY || c.slug.startsWith(process.env.SYNTHETIC_ONLY)))('$slug ($layout)', (m) => {
+    let rec
+    beforeAll(async () => {
+      const t = Date.now()
+      rec = await runCamp(m)
+      rec.runtimeMs = Date.now() - t
+      results[m.slug] = rec
+    }, 900_000)
+
+    // Each hard invariant runs under it.fails when KNOWN_FAILING lists it, so a fixed bug turns the entry red.
+    const hard = (name, check) => {
+      const t = KNOWN_FAILING.has(`${m.slug}:${name}`) ? it.fails : it
+      t(name, () => check(rec))
+    }
+
+    hard('import with zero answers completes', (r) => { expect(r.stages.zeroAnswers).toMatchObject({ ok: true }) })
+    hard('import confirming every card completes', (r) => { expect(r.stages.confirmAll).toMatchObject({ ok: true }) })
+    hard('zero answers: claimed event names raise no decision, no open item, no activity, and sit in one bucket', (r) => {
+      expect(r.zeroAnswers?.exclusivity ?? {}).toMatchObject({ decisions: [], openItems: [], candidates: [], inTwoBuckets: [] })
+    })
+    hard('confirm all: claimed event names raise no decision, no open item, no activity, and sit in one bucket', (r) => {
+      expect(r.confirmAll?.exclusivity ?? {}).toMatchObject({ decisions: [], openItems: [], candidates: [], inTwoBuckets: [] })
+    })
+    hard(MEAL_ZERO, (r) => {
+      expect(r.zeroAnswers?.lunch).toMatchObject({ strictOk: r.zeroAnswers?.lunch?.expectedCells })
+    })
+    hard(MEAL_ALL, (r) => {
+      expect(r.confirmAll?.lunch).toMatchObject({ strictOk: r.confirmAll?.lunch?.expectedCells })
+    })
+    hard('Generate completes with no error findings (zero answers)', (r) => {
+      expect(r.generate).toBeDefined()
+      expect(r.generate.error).toBeUndefined()
+      expect(r.generate.errorFindings).toEqual([])
+    })
+    hard('Generate completes with no error findings (confirm all)', (r) => {
+      expect(r.confirmAllGenerate).toBeDefined()
+      expect(r.confirmAllGenerate.error).toBeUndefined()
+      expect(r.confirmAllGenerate.errorFindings).toEqual([])
+    })
+    hard('re-import with Keep writes zero new records', (r) => {
+      expect(r.reimportKeep).toEqual({ ok: true, newRecords: {} })
+    })
+    hard('re-import with Replace completes', (r) => {
+      expect(r.reimportReplace?.ok).toBe(true)
+    })
+  })
+})
