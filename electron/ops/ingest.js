@@ -3028,11 +3028,11 @@ function recordUndoableRun(db, runId, invertibleOps, createdEntityIds) {
 /**
  * Undo an import by run id alone. The rows and field snapshots come from what the run recorded
  * server-side; nothing the caller sends can widen the set. An unknown run (never committed with
- * captureInverse here, or the process restarted) undoes nothing and says so.
+ * captureInverse here, or the process restarted) undoes nothing and throws, so the caller keeps its undo affordance and shows an error.
  */
 export function undoImportRun(db, { importRunId, author_user_id, device_id, client_write_id }) {
   const rec = typeof importRunId === 'string' ? undoableRuns.get(db)?.get(importRunId) : null
-  if (!rec) return { ok: true, reverted: [], skipped: [], deleted: [], kept: [], unknownRun: true }
+  if (!rec) throw new Error('This import cannot be undone from here: its record is no longer held (the app restarted or the project was switched).')
   return ingestUndo(db, {
     invertibleOps: structuredClone(rec.invertibleOps),
     createdEntityIds: structuredClone(rec.createdEntityIds),

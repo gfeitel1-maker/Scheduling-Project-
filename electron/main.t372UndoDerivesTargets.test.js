@@ -66,12 +66,12 @@ describe('T372 undo derives targets from the recorded run', () => {
     expect(res.deleted.map((d) => d.entity_id)).toEqual([run.createdEntityIds[0].entity_id])
   })
 
-  it('a forged list with an unknown run id deletes nothing', async () => {
+  it('a forged list with an unknown run id deletes nothing and fails loudly, not as success', async () => {
     const forged = handMade('Hand Made')
-    await handlers.ingestUndo({
+    await expect(async () => handlers.ingestUndo({
       token, importRunId: randomUUID(), client_write_id: randomUUID(), invertibleOps: [],
       createdEntityIds: [{ entity: 'activities', entity_id: forged, fieldSnapshot: {} }],
-    })
+    })).rejects.toThrow(/cannot be undone/)
     expect(has(forged)).toBe(true)
   })
 
