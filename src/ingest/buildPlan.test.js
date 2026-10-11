@@ -285,6 +285,28 @@ describe('buildElectiveCandidates (Slice 3a content-shape detector)', () => {
     })
   })
 
+  describe('D3 list cells', () => {
+    const run = (name, existing = { activities: [] }) => buildElectiveCandidates({
+      electiveHeaderFindings: [], activityPeriods: { [name.toLowerCase()]: [false] }, approved: { activities: [name] },
+    }, existing)
+
+    it('a strictly splittable cell carries its parts as choices', () => {
+      const [c] = run('Hiking / Fishing / Kayaking / Orienteering / Bocce')
+      expect(c).toMatchObject({ detector: 'shape', choices: ['Hiking', 'Fishing', 'Kayaking', 'Orienteering', 'Bocce'] })
+    })
+    it('an ambiguous list-like cell becomes one list_question candidate with loose choices', () => {
+      const [c] = run('Arts/Crafts')
+      expect(c).toMatchObject({ detector: 'list_question', sourceExcerpt: 'Arts/Crafts', choices: ['Arts', 'Crafts'] })
+    })
+    it('a plain name raises nothing', () => {
+      expect(run('Swim')).toEqual([])
+    })
+    it('a list name already in the catalogue never splits or asks', () => {
+      expect(run('Lunch/Rest Hour', { activities: [{ id: 'a1', name: 'Lunch/Rest Hour' }] })).toEqual([])
+      expect(run('A / B / C', { activities: [{ id: 'a1', name: 'A / B / C' }] })).toEqual([])
+    })
+  })
+
   // Packaged audit #11 — "Carpool" is a claimed fixed event, not an elective.
   it('does NOT fire on a name claimed as a fixed/recurring event, or a live pinned_event', () => {
     const source = {
