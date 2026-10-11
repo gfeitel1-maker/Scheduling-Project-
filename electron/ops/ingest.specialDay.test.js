@@ -411,3 +411,74 @@ describe('meals and camp events in a one-day file are events, never plain catalo
     expect(rowsNamed('Lunch')).toHaveLength(1)
   })
 })
+
+describe('one-day events: dangling event activity, spacing, cross-import order, undo, plan agreement', () => {
+  const mk = (entity, id, fields) => { for (const [field, value] of Object.entries(fields)) appendOp(d, { entity, entity_id: id, field, value, author_user_id: userId, device_id: deviceId }) }
+  const oneDayFile = (title, names) => proposeSpecialDay([{
+    title, columns: ['Red', 'Blue'],
+    rows: [{ label: '9:15-9:45', cells: [names[0], names[0]] }, { label: '10:15', cells: [names[1], names[1]] }],
+  }])
+  const live = () => ({
+    groups: d.prepare('SELECT id, name FROM groups WHERE camp_id = ?').all(campId),
+    activities: d.prepare('SELECT id, name, catalog_role FROM activities WHERE camp_id = ?').all(campId),
+    specialDays: d.prepare('SELECT id, name FROM special_days WHERE camp_id = ?').all(campId),
+    fixedEvents: d.prepare('SELECT name, activity_id FROM fixed_events WHERE camp_id = ?').all(campId),
+  })
+  const rowsNamed = (name) => d.prepare('SELECT id, catalog_role FROM activities WHERE camp_id = ? AND name = ?').all(campId, name)
+
+  it('a dangling event activity_id: the plan lists the name as an event and the commit mints a marker', () => {
+    mk('fixed_events', randomUUID(), { camp_id: campId, name: 'Mifkad', activity_id: randomUUID() })
+    const p = buildSpecialDayPlan(oneDayFile('Dangling Day', ['Mifkad', 'Relay']), live())
+    expect(p.eventNames).toEqual(['Mifkad'])
+    expect(p.reusedActivityNames).not.toContain('Mifkad')
+    commit(p)
+    expect(rowsNamed('Mifkad')).toMatchObject([{ catalog_role: 'pinned_event' }])
+  })
+
+  it('"Ga Ga" in the file is the fixed event "GaGa": no catalogue activity is minted', () => {
+    const markerId = randomUUID()
+    mk('activities', markerId, { camp_id: campId, name: 'Gaga Marker', catalog_role: 'pinned_event' })
+    mk('fixed_events', randomUUID(), { camp_id: campId, name: 'GaGa', activity_id: markerId })
+    const p = buildSpecialDayPlan(oneDayFile('Spacing Day', ['Ga Ga', 'Relay']), live())
+    commit(p)
+    expect(rowsNamed('Ga Ga')).toEqual([])
+    expect(d.prepare('SELECT COUNT(*) c FROM special_day_slots WHERE activity_id = ?').get(markerId).c).toBeGreaterThan(0)
+  })
+
+  const weeklyLunch = () => {
+    const marker = rowsNamed('Lunch')
+    expect(marker).toHaveLength(1)
+    const feId = randomUUID()
+    mk('fixed_events', feId, { camp_id: campId, name: 'Lunch', activity_id: marker[0].id })
+    return { feId, markerId: marker[0].id }
+  }
+
+  it('(a) one-day Lunch, then a weekly fixed event Lunch: one Lunch activity, referenced by the event', () => {
+    commit(buildSpecialDayPlan(oneDayFile('Day One', ['Lunch', 'Relay']), live()))
+    const { markerId } = weeklyLunch()
+    expect(rowsNamed('Lunch')).toHaveLength(1)
+    expect(d.prepare("SELECT activity_id FROM fixed_events WHERE name = 'Lunch'").get().activity_id).toBe(markerId)
+  })
+
+  it('(b) undoing the one-day import keeps a marker a fixed event still references', () => {
+    const out = commit(buildSpecialDayPlan(oneDayFile('Day One', ['Lunch', 'Relay']), live()), { captureInverse: true })
+    const { markerId } = weeklyLunch()
+    expect(JSON.stringify(out.createdEntityIds)).toContain(markerId)
+    const res = ingestUndo(d, { invertibleOps: out.invertibleOps, createdEntityIds: out.createdEntityIds, importRunId: out.importRunId, author_user_id: userId, device_id: deviceId, client_write_id: randomUUID() })
+    expect(JSON.stringify(res.kept)).toContain(markerId)
+    expect(d.prepare('SELECT 1 FROM special_days').get()).toBeUndefined()
+    const dangling = d.prepare('SELECT fe.id FROM fixed_events fe LEFT JOIN activities a ON a.id = fe.activity_id WHERE fe.activity_id IS NOT NULL AND a.id IS NULL').all()
+    expect(dangling).toEqual([])
+    expect(rowsNamed('Lunch').map((r) => r.id)).toEqual([markerId])
+  })
+
+  it('the plan\'s newActivityNames / eventNames equal what the commit actually creates', () => {
+    const before = new Set(ids('activities'))
+    const p = buildSpecialDayPlan(oneDayFile('Agree Day', ['Lunch', 'Relay2']), live())
+    commit(p)
+    const created = d.prepare('SELECT name, catalog_role FROM activities WHERE camp_id = ?').all(campId)
+      .filter((r) => !before.has(d.prepare('SELECT id FROM activities WHERE name = ?').get(r.name).id))
+    expect(created.filter((r) => r.catalog_role !== 'pinned_event').map((r) => r.name)).toEqual(p.newActivityNames)
+    expect(created.filter((r) => r.catalog_role === 'pinned_event').map((r) => r.name)).toEqual(p.eventNames)
+  })
+})
