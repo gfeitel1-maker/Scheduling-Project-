@@ -576,12 +576,23 @@ export const PROJECTIONS = {
   // Group-level electives (T41 slice 1, data shape + engine-skip only,
   // docs/work/specs/2026-08-20-group-electives-design.md). Camp-scoped
   // parent, same ensureExists shape as special_days above.
-  // T312 — a camp's remembered column mapping. PROJECTION ONLY: no ensureExists,
-  // because a seedling has no parent to stub. Its `camp_id` is a direct scope,
-  // not a soft reference to a row this projector might have to invent.
+  // T312 — a camp's remembered column mapping, and (docs/adr/2026-10-11-import-answer-memory.md)
+  // every import answer. A seedling has no parent to stub, but it DOES need its own row: an
+  // op-log write is one field per op, and without a row the first field's UPDATE matched nothing,
+  // so a locally written seedling was absent from this device's SQLite until the next projection
+  // from the document. The placeholder has an empty `kind`, which no reader selects, and the
+  // remaining fields of the same atomic write fill it in. `camp_id` is the device's own camp.
   camp_seedlings: {
     table: 'camp_seedlings',
     key: 'id',
+    ensureExists: (db, id) => {
+      const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
+      if (!camp) return
+      getStmt(
+        db,
+        "INSERT OR IGNORE INTO camp_seedlings (id, camp_id, kind, match_key, payload, status, confirmed_at) VALUES (?, ?, '', '', '', 'active', '')"
+      ).run(id, camp.id)
+    },
     // `payload` is compact JSON holding header TEXT and rank numbers, never a
     // cell value (ADR 6.0 — this table replicates, so a fingerprint over cells
     // would cache children's names into it). `status` is what a recall filters

@@ -1,3 +1,4 @@
+
 // D2 — folds the decision queue's local answers into the SINGLE existing
 // commit call. Pure, no IO: takes the commit's own `approved` plus Phase C's
 // `decisions[]` and the queue's local answers, returns the `approved`/
