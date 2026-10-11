@@ -578,7 +578,7 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
           localClient.list('days_of_operation').catch(() => []),
         ])
         const resolved = resolveSpecialDayPlacement({
-          texts: [...files.map((f) => f.name), specialDay.name], days: liveDays ?? [], weeks, weekId: openWeekId,
+          texts: files.length === 1 ? [files[0].name, specialDay.name] : [specialDay.name], days: liveDays ?? [], weeks, weekId: openWeekId,
         })
         setSpecialDayDays(liveDays ?? [])
         setSpecialDayPlacement({ weekId: resolved.placement?.weekId ?? '', dayId: resolved.placement?.dayId ?? '', flag: resolved.flag })

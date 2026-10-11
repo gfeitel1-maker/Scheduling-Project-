@@ -155,10 +155,17 @@ export function buildSpecialDayPlan(proposal, live) {
  * with a plain flag, never a forced picker.
  * @returns {{placement: {weekId, dayId}|null, flag: string|null}}
  */
+const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+
 export function resolveSpecialDayPlacement({ texts, days, weeks, weekId }) {
   if (!weeks?.length) return { placement: null, flag: 'This camp has no weeks yet, so the day was not placed.' }
   const week = weeks.find((w) => w.id === weekId) ?? (weeks.length === 1 ? weeks[0] : null)
-  const printed = (texts ?? []).map(dayNameFromTitle).find(Boolean)
+  const named = new Set()
+  for (const t of texts ?? []) {
+    for (const d of WEEKDAYS) if (String(t ?? '').toLowerCase().includes(d)) named.add(d)
+  }
+  if (named.size > 1) return { placement: null, flag: 'The file names more than one weekday, so the day was not placed.' }
+  const printed = named.size ? dayNameFromTitle([...named][0]) : null
   const day = printed ? (days ?? []).find((d) => dayNameFromTitle(d.label) === printed) : null
   if (!day) return { placement: null, flag: 'The file does not say which weekday this is, so the day was not placed.' }
   if (!week) return { placement: null, flag: 'No week is open, so the day was not placed.' }

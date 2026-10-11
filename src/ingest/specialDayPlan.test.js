@@ -249,4 +249,9 @@ describe('F3/F4 slice 4: resolveSpecialDayPlacement', () => {
   it('one week and none open -> that week', () => {
     expect(resolveSpecialDayPlacement({ texts: ['Tuesday games'], days, weeks: [{ id: 'w1' }], weekId: null }).placement).toEqual({ weekId: 'w1', dayId: 'dT' })
   })
+  it('two different weekdays in one name -> unplaced, never the earlier day of the week', () => {
+    const r = resolveSpecialDayPlacement({ texts: ['Tuesday Trip (rain date Monday).pdf'], days: [{ id: 'dM', label: 'Monday' }, { id: 'dT', label: 'Tuesday' }], weeks: [{ id: 'w1' }], weekId: 'w1' })
+    expect(r.placement).toBeNull()
+    expect(r.flag).toMatch(/more than one weekday/)
+  })
 })
