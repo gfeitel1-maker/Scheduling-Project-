@@ -82,6 +82,9 @@ export async function materializeImportedVersion(db, syncClient, { campId, autho
   const maps = {
     activityIdByName: nameMap(db, 'activities', campId),
     fixedEventIdByName: nameMap(db, 'fixed_events', campId),
+    // Built after commitIngest has run (main.js ingestCommit), so a set the
+    // import just created is already here.
+    electiveSetIdByName: nameMap(db, 'elective_sets', campId),
     groupIdByName: nameMap(db, 'groups', campId),
     dayIdByName: nameMap(db, 'days_of_operation', campId, 'label'),
     blockIdByName: nameMap(db, 'time_blocks', campId),
