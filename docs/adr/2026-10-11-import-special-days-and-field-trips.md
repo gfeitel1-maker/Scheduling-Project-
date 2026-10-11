@@ -5,7 +5,7 @@ authority: normative
 status: proposed
 implementation_state: not_started
 date: 2026-10-11
-decided: ""
+decided: "2026-10-11 — accepted by the board keeper under owner delegation (option B + one-day placement + special-day commit in commitPlan; Q1 default: subset all-day = week-bound events, owner may veto)"
 deciders: [product-owner]
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/DESIGN_STANDARD.md]
 supersedes: []
