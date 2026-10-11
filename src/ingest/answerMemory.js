@@ -175,7 +175,7 @@ export function signatureOf(d) {
       instead: stable(Object.fromEntries(Object.entries(ev.insteadByGroup ?? {}).map(([g, xs]) => [normalizeName(g), [...(xs ?? [])].map(normalizeName).sort()]))),
     }
   } else if (qkind === 'value') {
-    parts = [String(d.entity ?? ''), String(d.entityId ?? ''), JSON.stringify([].concat(d.field ?? []).sort()), stable(d.proposedValue ?? null), name]
+    parts = [name, String(d.entity ?? ''), String(d.entityId ?? ''), JSON.stringify([].concat(d.field ?? []).sort()), stable(d.proposedValue ?? null)]
     baseline = { stored: stable(d.currentValue ?? null) }
     if (d.entityId) refs = [d.entityId]
   } else if (qkind === 'drift_ack') {
