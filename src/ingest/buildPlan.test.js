@@ -285,6 +285,11 @@ describe('buildElectiveCandidates (Slice 3a content-shape detector)', () => {
     })
   })
 
+  it('a list cell the camp holds as an elective set is never planned as an activity (unchanged re-import)', () => {
+    const plan = buildPlan({ approved: { activities: [{ name: 'Hiking / Fishing / Kayaking' }, { name: 'Archery' }] }, camp_id: 'c1' }, { activities: [], elective_sets: [{ name: 'Electives (Fishing, Hiking, Kayaking)' }] })
+    expect(plan.items.filter((i) => i.entity === 'activities').map((i) => i._name)).toEqual(['Archery'])
+  })
+
   describe('D3 list cells', () => {
     const run = (name, existing = { activities: [] }) => buildElectiveCandidates({
       electiveHeaderFindings: [], activityPeriods: { [name.toLowerCase()]: [false] }, approved: { activities: [name] },
@@ -293,6 +298,12 @@ describe('buildElectiveCandidates (Slice 3a content-shape detector)', () => {
     it('a strictly splittable cell carries its parts as choices', () => {
       const [c] = run('Hiking / Fishing / Kayaking / Orienteering / Bocce')
       expect(c).toMatchObject({ detector: 'shape', choices: ['Hiking', 'Fishing', 'Kayaking', 'Orienteering', 'Bocce'] })
+    })
+    it('a list the camp already has as an elective set is not proposed again (unchanged re-import asks nothing)', () => {
+      expect(run('Hiking / Fishing / Kayaking', { activities: [], elective_sets: [{ name: 'Electives (Fishing, Hiking, Kayaking)' }] })).toEqual([])
+    })
+    it('a list the camp already has, printed in another order, is not proposed again', () => {
+      expect(run('Kayaking / Hiking / Fishing', { activities: [], elective_sets: [{ name: 'Electives (Fishing, Hiking, Kayaking)' }] })).toEqual([])
     })
     it('a list of the camp\'s own groups asks instead of splitting', () => {
       const [c] = run('Cabin 1, Cabin 2, Cabin 3', { activities: [], groups: [{ name: 'Cabin 1' }, { name: 'Cabin 2' }] })

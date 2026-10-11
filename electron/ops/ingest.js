@@ -599,6 +599,9 @@ function buildExistingSnapshot(db, camp_id, cohort_id, mode) {
   // it too (mirrors the pre-M4 `mode === 'replace' ? null : ...` behavior for
   // the six schedule-content entities — aliases target those, not locations).
   existing.aliases = mode === 'replace' ? {} : listAliasMap(db, camp_id, cohort_id)
+  // Elective sets survive every mode (Replace never deletes them), so the plan can see a list the camp
+  // already holds and not propose it again (ADR 2026-10-11 electives, re-import).
+  existing.elective_sets = db.prepare('SELECT name FROM elective_sets WHERE camp_id = ?').all(camp_id)
   return existing
 }
 

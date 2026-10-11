@@ -14,6 +14,7 @@
 
 import { INGESTIBLE_ENTITIES } from './extractEntities.js'
 import { normalizeName, recognitionKey } from './preview.js'
+import { listSetName } from './electiveSetName.js'
 import { strictSplit, looksListLike, looseSplit } from './splitListCell.js'
 import { dbFieldFor } from './fieldUpdate.js'
 import { startMinutesForOrdering } from './orderTimeBlocks.js'
@@ -344,6 +345,8 @@ export function buildElectiveCandidates(source, existing) {
     ...['groups', 'tiers'].flatMap((e) => Array.isArray(existing?.[e]) ? existing[e] : []),
   ].map(nameOf).filter(Boolean).map((n) => normalizeName(n)))
 
+  const existingSetKeys = new Set((Array.isArray(existing?.elective_sets) ? existing.elective_sets : []).map((r) => normalizeName(r?.name)).filter(Boolean))
+
   const shapeFindings = []
   for (const name of proposedActivityNames) {
     const key = normalizeName(name)
@@ -362,6 +365,8 @@ export function buildElectiveCandidates(source, existing) {
     // splittable cell is an elective period carrying its parts as choices; any
     // other list-like cell is one question whose unanswered default is one activity.
     const parts = strictSplit(name)
+    // A list the camp already holds as an elective set is reused, never proposed again.
+    if (parts && existingSetKeys.has(normalizeName(listSetName(parts)))) continue
     // A list of this camp's own groups or divisions ("Cabin 1, Cabin 2,
     // Cabin 3") is a who-list, not a choice of activities: ask, never split.
     if (parts && !parts.some((p) => groupOrTierKeys.has(normalizeName(p)))) {
@@ -522,8 +527,16 @@ export function buildPlan(source, existing = null, resolutions = []) {
 
   const items = []
 
+  // A list cell the camp already holds as an elective set (named after its choices, D3) is that set,
+  // never an activity: an unchanged re-import must neither ask about it nor mint it.
+  const heldSetKeys = new Set((Array.isArray(have?.elective_sets) ? have.elective_sets : []).map((r) => normalizeName(r?.name)).filter(Boolean))
+  const isHeldList = (rec) => {
+    const parts = strictSplit(String((rec && typeof rec === 'object' ? rec.name : rec) ?? ''))
+    return !!parts && heldSetKeys.has(normalizeName(listSetName(parts)))
+  }
+
   for (const entity of INGESTIBLE_ENTITIES) {
-    const names = Array.isArray(approved[entity]) ? approved[entity] : []
+    const names = (Array.isArray(approved[entity]) ? approved[entity] : []).filter((rec) => entity !== 'activities' || !isHeldList(rec))
     // A LIST of rows per normalized key, not a single row (S1a §3). Two live
     // rows whose raw names differ but normalize to the same string ("Art" /
     // "art ") both legally exist under UNIQUE(camp_id, name); the old single-

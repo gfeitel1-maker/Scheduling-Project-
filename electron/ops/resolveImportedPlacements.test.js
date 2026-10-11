@@ -80,6 +80,13 @@ describe('resolveImportedPlacements', () => {
     expect(unresolved.map((u) => u.reason)).toEqual(['group', 'day', 'block'])
   })
 
+  it('a list cell the camp holds as an elective set resolves to that set, in any printed order', () => {
+    const m = maps({ groups: [['Hawks', 'g1']], days: [['Monday', 'd1']], blocks: [['10:00-10:45', 'b1']], electiveSets: [['Electives (Fishing, Hiking, Kayaking)', 'es1']] })
+    const { slots, unresolved } = resolveImportedPlacements([{ groupName: 'Hawks', dayName: 'Monday', blockLabel: '10:00-10:45', activityName: 'Kayaking / Hiking / Fishing' }], m)
+    expect(unresolved).toEqual([])
+    expect(slots).toMatchObject([{ elective_set_id: 'es1', activity_id: null }])
+  })
+
   it('returns empty slots and unresolved for empty placements', () => {
     const m = maps()
     expect(resolveImportedPlacements([], m)).toEqual({ slots: [], unresolved: [] })

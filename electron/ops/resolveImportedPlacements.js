@@ -8,6 +8,8 @@
 // span-head merging.
 
 import { normalizeName } from '../../src/ingest/preview.js'
+import { strictSplit } from '../../src/ingest/splitListCell.js'
+import { listSetName } from '../../src/ingest/electiveSetName.js'
 import { timeBlockLabel } from '../../src/utils/timeBlockLabel.js'
 import { formatBlockTime12h } from '../../src/ingest/blockTimeText.js'
 
@@ -79,6 +81,16 @@ export function resolveImportedPlacements(placements, maps) {
       slots.push({
         group_id: groupId, day_id: dayId, time_block_id: blockId,
         activity_id: activityId, fixed_event_id: null, is_fixed_event: false, flags: {},
+      })
+      continue
+    }
+    // A list cell the camp holds as an elective set (named after its choices, D3) resolves to that set.
+    const listParts = strictSplit(activityName)
+    const listSetId = listParts ? electiveSetIdByName.get(normalizeName(listSetName(listParts))) : null
+    if (listSetId) {
+      slots.push({
+        group_id: groupId, day_id: dayId, time_block_id: blockId,
+        elective_set_id: listSetId, activity_id: null, fixed_event_id: null, is_fixed_event: false, flags: {},
       })
       continue
     }
