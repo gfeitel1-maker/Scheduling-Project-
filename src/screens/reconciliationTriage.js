@@ -7,6 +7,7 @@
 
 import { applyResolutions } from './reconciliationResolutions.js'
 import { normalizeName } from '../ingest/preview.js'
+import { markElectivePlacements } from '../ingest/capturePlacements.js'
 import { describeWriteFailure } from '../utils/writeErrorMessage.js'
 import { ALIAS_COHORT_SCOPED } from './importAliasScope.js'
 import { normalizeWordKey } from '../utils/normalizeWordKey.js'
@@ -217,11 +218,17 @@ export function foldTriageInputs(baseInputs, decisions, answers) {
   // `confirmedElectiveSets` — never into `approved` (there is no ingestible
   // entity here; INGESTIBLE_ENTITIES stays closed). Declining writes
   // nothing — the answer just resolves the decision locally.
+  // F6: an unanswered period stays an elective; only "Not electives" (decline)
+  // opts a name out. One set per normalized name.
   const confirmedElectiveSets = []
+  const seenElectiveKeys = new Set()
   for (const d of decisions) {
-    if (d.kind !== 'elective_candidate') continue
-    const a = answers[d.id]
-    if (a?.choice === 'confirm') confirmedElectiveSets.push({ name: d.entityName })
+    if (d.kind !== 'elective_candidate' || !d.entityName) continue
+    if (answers[d.id]?.choice === 'decline') continue
+    const key = normalizeName(d.entityName)
+    if (seenElectiveKeys.has(key)) continue
+    seenElectiveKeys.add(key)
+    confirmedElectiveSets.push({ name: d.entityName })
   }
 
   // "It's for all camp": the groups the file left out become eligible too.
@@ -260,6 +267,7 @@ export function foldTriageInputs(baseInputs, decisions, answers) {
     fixedEvents: eventsByAnswer.length ? [...fixedEvents, ...eventsByAnswer] : fixedEvents,
     resolutions: [...(baseInputs.resolutions ?? []), ...resolutions],
     confirmedElectiveSets: [...(baseInputs.confirmedElectiveSets ?? []), ...confirmedElectiveSets],
+    ...(baseInputs.placements ? { placements: markElectivePlacements(baseInputs.placements, confirmedElectiveSets) } : {}),
   }
 }
 

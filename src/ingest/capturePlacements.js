@@ -24,6 +24,19 @@ import { activityNamesFromCell, canonicalDay, dayNameFromTitle, cleanTitle } fro
 import { normalizeName } from './preview.js'
 import { inferTextSpans } from './textSpans.js'
 
+// Turns the activity placements whose name is an elective set into elective
+// cells ({ ..., electiveSetName, choices }), leaving every other placement
+// untouched. Same array back when nothing matches.
+export function markElectivePlacements(placements, electiveSets = []) {
+  const setByKey = new Map(electiveSets.map((set) => [normalizeName(set.name), set]))
+  if (setByKey.size === 0) return placements
+  return placements.map((p) => {
+    const set = setByKey.get(normalizeName(p.activityName))
+    if (!set) return p
+    return { groupName: p.groupName, dayName: p.dayName, blockLabel: p.blockLabel, electiveSetName: set.name, activityName: set.name, choices: set.choices ?? [] }
+  })
+}
+
 /**
  * @param {{ pages: Array }} parsed   the same object passed to extractEntities
  * @param {object} proposal           extractEntities(parsed)'s return
