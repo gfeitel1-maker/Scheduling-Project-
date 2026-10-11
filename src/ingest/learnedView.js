@@ -179,7 +179,16 @@ export function matchesQuery(row, query) {
 
 // ---------------------------------------------------------------- the review cards
 
-const sameAnswer = (a, b) => b != null && a != null && JSON.stringify(a) === JSON.stringify(b)
+// Flags the director's controls add to an answer (the explicit-write taps and the classification
+// control). They change how an answer is written, not which answer it is.
+const FLAG_KEYS = ['tap', 'rememberNear', 'notAnEvent']
+export function answerCore(a) {
+  if (!a || typeof a !== 'object') return a
+  const out = { ...a }
+  for (const k of FLAG_KEYS) delete out[k]
+  return out
+}
+export const sameAnswer = (a, b) => a != null && b != null && JSON.stringify(answerCore(a)) === JSON.stringify(answerCore(b))
 
 // Which recalled decisions to pre-answer on a fresh review. Only an exact memory or a pattern the
 // store itself marked autoApply (the allow-list is the store's, honoured as given); never a

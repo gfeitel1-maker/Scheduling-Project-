@@ -5,6 +5,10 @@ import { isDecisionResolvedFor } from '../../screens/reconciliationTriage.js'
 import { normalizeWordKey } from '../../utils/normalizeWordKey.js'
 import { fieldLabel } from '../../screens/recordLabels.js'
 import { entityNoun } from '../../ingest/decisionTitle.js'
+import { classifyDecision, isAutoApplyEligible } from '../../ingest/answerMemory.js'
+import { memoryStripText, suggestedReason, sameAnswer, NEAR_NOTED_TEXT } from '../../ingest/learnedView.js'
+import { Flag, LinkButton, FailureFlag } from '../learned/parts.jsx'
+import { failureCopy } from '../learned/failureCopy.js'
 
 // Extracted from ReconciliationScreen.jsx (root-map port,
 // docs/adr/2026-08-18-rootmap-screen-port.md §1/"Files affected") so both
@@ -213,6 +217,7 @@ function questionFor(decision) {
 
 function summaryOf(decision, answer) {
   if (!answer) return 'Resolved'
+  if (answer.notAnEvent) return 'Treated as an activity'
   if (answer.action === 'looks_right') return 'Using the file’s value'
   if (answer.choice === 'accept') return 'Will use the file’s value'
   if (answer.choice === 'keep') return 'Keeping the current value'
@@ -230,9 +235,12 @@ function summaryOf(decision, answer) {
   return 'Resolved'
 }
 
-function RadioOption({ label, description, onClick }) {
+// A pre-selected suggestion, never mistaken for something the director chose: a dashed outline.
+const SUGGESTED_OUTLINE = { outlineStyle: 'dashed', outlineWidth: 1, outlineColor: 'var(--primary)', outlineOffset: 2 }
+
+function RadioOption({ label, description, onClick, suggested = false }) {
   return (
-    <label style={cardStyles.radioOption}>
+    <label style={{ ...cardStyles.radioOption, ...(suggested ? SUGGESTED_OUTLINE : null) }}>
       <input type="radio" onChange={onClick} style={{ marginTop: 3 }} />
       <span>
         <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{label}</div>
@@ -288,15 +296,29 @@ function LocationHoldControls({ decision, onAnswer, locations }) {
   )
 }
 
-function ResolutionControls({ decision, onAnswer, locations }) {
+function ResolutionControls({ decision, onAnswer, locations, suggested = null }) {
+  const hit = (payload) => Boolean(suggested) && sameAnswer(payload, suggested)
+  const dash = (payload) => (hit(payload) ? SUGGESTED_OUTLINE : null)
   if (decision.kind === 'confirm_value') {
     // The buttons answer the card's title: "Add X?" is yes or no, "Set X's
     // field to V?" is the file's value or the one already in Shoresh.
     const isChange = Array.isArray(decision.field) && decision.field.length > 0
+    // A fixed-event card is also the place to say "this is just an activity" (ADR 3.4, the one new
+    // classification affordance). It is the same rejecting answer as "Don't add", named as the
+    // director thinks of it, and it stays secondary to the two primary answers.
+    const classifies = decision.entity === 'fixed_events' && !isChange
     return (
-      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-        <button className="press-97" onClick={() => onAnswer({ action: 'looks_right' })} style={cardStyles.btnCompactPrimary}>{isChange ? 'Use the file’s' : 'Add it'}</button>
-        <button className="press-97" onClick={() => onAnswer({ action: 'edited' })} style={cardStyles.btnCompactSecondary}>{isChange ? 'Keep mine' : 'Don’t add'}</button>
+      <div style={{ marginTop: 10 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button className="press-97" onClick={() => onAnswer({ action: 'looks_right' })} style={{ ...cardStyles.btnCompactPrimary, ...dash({ action: 'looks_right' }) }}>{isChange ? 'Use the file’s' : 'Add it'}</button>
+          <button className="press-97" onClick={() => onAnswer({ action: 'edited' })} style={{ ...cardStyles.btnCompactSecondary, ...dash({ action: 'edited' }) }}>{isChange ? 'Keep mine' : 'Don’t add'}</button>
+          {classifies && (
+            <button className="press-97" onClick={() => onAnswer({ action: 'edited', notAnEvent: true })} style={cardStyles.linkButton}>Not an event, treat as an activity</button>
+          )}
+        </div>
+        {classifies && (
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>Choose this if it's a regular activity, not something that blocks the schedule.</div>
+        )}
       </div>
     )
   }
@@ -316,7 +338,7 @@ function ResolutionControls({ decision, onAnswer, locations }) {
             AND JSON.stringify adds its own, so "Field" rendered as ""Field"".
             Pre-existing on this line; surfaced by T96 adding the matching
             current-value line beside it. */}
-        <RadioOption label={`Use the file's value${decision.proposedValue != null ? ` — ${quoteValue(decision.proposedValue)}` : ''}`} description="Overwrites what's in Shoresh now." onClick={() => onAnswer({ choice: 'accept' })} />
+        <RadioOption label={`Use the file's value${decision.proposedValue != null ? ` — ${quoteValue(decision.proposedValue)}` : ''}`} description="Overwrites what's in Shoresh now." onClick={() => onAnswer({ choice: 'accept' })} suggested={hit({ choice: 'accept' })} />
         {/* T96 — name the value being kept. This choice overwrites something
             the director typed themselves; asking them to weigh it against the
             file's value while showing only the file's value made one side of
@@ -327,6 +349,7 @@ function ResolutionControls({ decision, onAnswer, locations }) {
           label={`Keep the current value${decision.currentValue != null ? ` — ${quoteValue(decision.currentValue)}` : ''}`}
           description="Ignores this file's value going forward for this field."
           onClick={() => onAnswer({ choice: 'keep' })}
+          suggested={hit({ choice: 'keep' })}
         />
       </div>
     )
@@ -338,8 +361,8 @@ function ResolutionControls({ decision, onAnswer, locations }) {
   if (decision.kind === 'elective_candidate') {
     return (
       <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-        <button className="press-97" onClick={() => onAnswer({ choice: 'confirm' })} style={cardStyles.btnCompactPrimary}>Create elective set</button>
-        <button className="press-97" onClick={() => onAnswer({ choice: 'decline' })} style={cardStyles.btnCompactSecondary}>Not electives</button>
+        <button className="press-97" onClick={() => onAnswer({ choice: 'confirm' })} style={{ ...cardStyles.btnCompactPrimary, ...dash({ choice: 'confirm' }) }}>Create elective set</button>
+        <button className="press-97" onClick={() => onAnswer({ choice: 'decline' })} style={{ ...cardStyles.btnCompactSecondary, ...dash({ choice: 'decline' }) }}>Not electives</button>
       </div>
     )
   }
@@ -356,11 +379,13 @@ function ResolutionControls({ decision, onAnswer, locations }) {
           label="It's for all camp"
           description={`${who} missed it that week. Everyone is eligible.`}
           onClick={() => onAnswer({ choice: 'all_camp' })}
+          suggested={hit({ choice: 'all_camp' })}
         />
         <RadioOption
           label={`It really excludes ${who}`}
           description="Keep it limited to the groups the file shows."
           onClick={() => onAnswer({ choice: 'as_written' })}
+          suggested={hit({ choice: 'as_written' })}
         />
       </div>
     )
@@ -374,11 +399,13 @@ function ResolutionControls({ decision, onAnswer, locations }) {
           label="A fixed time"
           description="It stays where the file has it. Generate will not move it."
           onClick={() => onAnswer({ choice: 'fixed' })}
+          suggested={hit({ choice: 'fixed' })}
         />
         <RadioOption
           label="An activity Generate can schedule"
           description="Where the file has it is kept in the imported week. Generate may place it elsewhere."
           onClick={() => onAnswer({ choice: 'activity' })}
+          suggested={hit({ choice: 'activity' })}
         />
       </div>
     )
@@ -471,7 +498,18 @@ function quoteValue(value) {
     : formatFieldValue(value)
 }
 
-export function DecisionCard({ decision, rank, answer, onAnswer, expanded, onToggleEvidence, locations, repeatCount = 1 }) {
+function MemoryGlyph() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+      <path d="M7 3h8l4 4v14H7z" /><path d="m10 14 2 2 3-4" />
+    </svg>
+  )
+}
+
+export function DecisionCard({
+  decision, rank, answer, onAnswer, expanded, onToggleEvidence, locations, repeatCount = 1,
+  onRecallShown, onForgetRecall, returned = false, campChangedFlag = false, canWriteMemory = true,
+}) {
   const resolved = isDecisionResolvedFor(decision, { [decision.id]: answer })
   const cardStyle = rank === 'hold' ? cardStyles.cardHold : cardStyles.cardStandard
   const question = questionFor(decision)
@@ -479,9 +517,113 @@ export function DecisionCard({ decision, rank, answer, onAnswer, expanded, onTog
   const showRemember = resolved && isIdentityDecision(decision) && answer?.choice === 'existing'
   const contentFade = useContentCrossfade(resolved)
 
+  // What the camp remembered about this question (docs/adr/2026-10-11-import-answer-memory.md 3.5).
+  const r = decision.recalled?.answer ? decision.recalled : null
+  const hasRecall = Boolean(r)
+  const unanswered = answer === undefined || answer === null
+  const applied = Boolean(r?.autoApply) && !unanswered && sameAnswer(answer, r.answer)
+  const suggestion = hasRecall && !r.autoApply && unanswered
+  const [note, setNote] = useState(null)
+  const [forgetting, setForgetting] = useState(false)
+  const [forgetError, setForgetError] = useState(null)
+  const [tapLocal, setTapLocal] = useState(false)
+  const [nearLocal, setNearLocal] = useState(false)
+  // A recall counts as recalled only once the director could see it (decision.recallShown).
+  useEffect(() => { if (hasRecall) onRecallShown?.() }, [hasRecall, onRecallShown])
+
+  const qkind = classifyDecision(decision)
+  const eligible = isAutoApplyEligible(decision, { verdict: 'accept' })
+  const offerNear = hasRecall && !r.autoApply && r.match === 'near'
+  const offerPattern = hasRecall && !r.autoApply && r.match !== 'exact' && r.nearKind !== 'name_key' && (qkind === 'classify' || qkind === 'exclusion')
+  const tapOn = Boolean(answer?.tap) || tapLocal
+  const nearOn = Boolean(answer?.rememberNear) || nearLocal
+
+  function submit(a) {
+    if (a === null) { onAnswer(null); return }
+    const out = { ...a }
+    if (offerPattern && tapOn) out.tap = true
+    if (offerNear && nearOn) out.rememberNear = true
+    onAnswer(out)
+  }
+  function rememberPattern() {
+    setTapLocal(true)
+    if (!unanswered) onAnswer({ ...answer, tap: true })
+  }
+  function rememberThis(on) {
+    setNearLocal(on)
+    if (unanswered) return
+    const next = { ...answer }
+    if (on) next.rememberNear = true
+    else delete next.rememberNear
+    onAnswer(next)
+  }
+  function change() {
+    setNote('changing')
+    onAnswer(null)
+  }
+  async function forget() {
+    setForgetting(true)
+    setForgetError(null)
+    try {
+      const res = await onForgetRecall(decision)
+      if (res?.ok === false) throw Object.assign(new Error(String(res.error ?? 'failed')), { error: res.error })
+      setNote('forgotten')
+      onAnswer(null)
+    } catch (err) {
+      const c = failureCopy(err)
+      setForgetError({ message: c.message, retry: c.stale ? null : forget })
+    } finally {
+      setForgetting(false)
+    }
+  }
+
+  const showStrip = hasRecall && (r.autoApply ? (applied || unanswered) : r.source === 'instance')
+  const stripText = !showStrip ? null
+    : (r.autoApply && unanswered)
+      ? (note === 'forgotten' ? 'Forgotten. Shoresh will ask this every time from now on.'
+        : returned ? 'Back to unanswered for this import.' : "You're changing a remembered answer")
+      : r.source === 'pattern' ? suggestedReason(r, { eligible: true }) : memoryStripText(r)
+
+  const rememberOptions = (offerPattern || offerNear) && (
+    <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
+      {offerPattern && (tapOn ? (
+        <Flag tone="success">Pattern remembered</Flag>
+      ) : (
+        <div>
+          <LinkButton onClick={rememberPattern}>Remember as a pattern</LinkButton>
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', padding: '0 6px' }}>Next time, similar questions will be pre-selected for you.</div>
+        </div>
+      ))}
+      {offerNear && (
+        <label style={cardStyles.rememberRow}>
+          <input type="checkbox" checked={nearOn} onChange={(e) => rememberThis(e.target.checked)} />
+          Also remember this for next time
+        </label>
+      )}
+    </div>
+  )
+
   return (
     <div style={{ ...cardStyle, opacity: resolved ? 0.6 : 1, transition: 'opacity var(--motion-fast) var(--ease-out)' }}>
-      <div style={{ fontWeight: 600, fontSize: rank === 'hold' ? 14 : 13, color: 'var(--text)' }}>{question}</div>
+      {showStrip && (
+        <div style={cardStyles.strip}>
+          <MemoryGlyph />
+          <span>{stripText}</span>
+          {applied && <Flag tone="success">{r.source === 'pattern' ? 'Applied automatically' : 'Remembered'}</Flag>}
+          {r.asRecorded && <Flag tone="neutral">as recorded</Flag>}
+          {campChangedFlag && <Flag tone="caution">Your camp changed since you answered</Flag>}
+          {applied && canWriteMemory && (
+            <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 2 }}>
+              <LinkButton onClick={change}>Change</LinkButton>
+              {r.source === 'instance' && onForgetRecall && (
+                <LinkButton tone="danger" busy={forgetting} busyLabel="Forgetting..." minWidth={72} onClick={forget}>Forget</LinkButton>
+              )}
+            </span>
+          )}
+        </div>
+      )}
+      {forgetError && <FailureFlag message={forgetError.message} onRetry={forgetError.retry} />}
+      <div style={{ fontWeight: 600, fontSize: rank === 'hold' ? 14 : 13, color: 'var(--text)', marginTop: showStrip ? 6 : 0 }}>{question}</div>
       {repeatCount > 1 && (
         // Said plainly rather than as a badge: it changes what answering DOES,
         // so it belongs in the sentence the director is reading, not in chrome.
@@ -514,9 +656,19 @@ export function DecisionCard({ decision, rank, answer, onAnswer, expanded, onTog
               Remember this for next time
             </label>
           )}
+          {offerNear && !answer?.rememberNear && (
+            <div style={{ fontSize: 11, marginTop: 4 }}>{NEAR_NOTED_TEXT}</div>
+          )}
+          {rememberOptions}
         </div>
       ) : (
         <>
+          {suggestion && (
+            <div style={{ marginTop: 8 }}>
+              <Flag tone="primary">Suggested</Flag>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4, maxWidth: '60ch' }}>{suggestedReason(r, { eligible })}</div>
+            </div>
+          )}
           <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 8 }}>
             {`From this file${decision.confidence ? ` · ${CONFIDENCE_COPY[decision.confidence] ?? decision.confidence}` : ''}`}
             {' '}
@@ -532,7 +684,8 @@ export function DecisionCard({ decision, rank, answer, onAnswer, expanded, onTog
           ) : (
             <EvidenceDetail decision={decision} expanded={expanded} />
           )}
-          <ResolutionControls decision={decision} onAnswer={onAnswer} locations={locations} />
+          <ResolutionControls decision={decision} onAnswer={submit} locations={locations} suggested={suggestion ? r.answer : null} />
+          {rememberOptions}
         </>
       )}
       </div>
@@ -703,6 +856,9 @@ const cardStyles = {
     fontSize: 13,
     cursor: 'pointer',
     fontFamily: 'inherit',
+  },
+  strip: {
+    display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontSize: 12, color: 'var(--text-secondary)',
   },
   rememberRow: {
     display: 'inline-flex',
