@@ -36,6 +36,7 @@ import { inferFixedEvents } from '../src/ingest/fixedEvents.js'
 import { derivePinOnlyActivityNames } from '../src/ingest/pinOnlyActivityNames.js'
 import { inferActivityRules } from '../src/ingest/activityRules.js'
 import { capturePlacements } from '../src/ingest/capturePlacements.js'
+import { inferTextSpans } from '../src/ingest/textSpans.js'
 import { buildReconciliationReport } from '../src/ingest/reconciliationReport.js'
 import { inferDivisionEntities } from '../src/ingest/inferDivisions.js'
 import { buildBlastRadiusIndex } from '../src/ingest/blastRadius.js'
@@ -100,6 +101,7 @@ function importFile(d, id, text, { answerFor = () => null, mode = 'add' } = {}) 
   const rules = inferActivityRules(
     proposal.entities.activities, proposal.activityPages, proposal.seenCounts,
     proposal.entities.days_of_operation.length, proposal.entities.groups, pinOnly,
+    inferTextSpans({ pages: parsed.pages }, proposal).spans,
   )
   // inferActivityRules returns a Map; ImportScreen sends commitIngest a plain object keyed by activity name.
   const activityRules = {}
@@ -111,6 +113,7 @@ function importFile(d, id, text, { answerFor = () => null, mode = 'add' } = {}) 
       min_per_week: rule.min_per_week,
       max_per_week: rule.max_per_week,
       priority: rule.priority,
+      ...(rule.span_blocks ? { span_blocks: rule.span_blocks } : {}),
       co_schedule: coSchedule.get(name),
     }
   }

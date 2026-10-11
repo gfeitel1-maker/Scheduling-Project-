@@ -1542,6 +1542,9 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         if (Number.isInteger(rule.max_per_week) && rule.max_per_week >= 1) fields.max_per_week = rule.max_per_week
         if (rule.priority === 'high' || rule.priority === 'low') fields.priority = rule.priority
         else priorityUnknown = true
+        // F5: a multi-block span read from the file (src/ingest/textSpans.js) — the engine
+        // places span_blocks consecutive blocks as one session.
+        if (Number.isInteger(rule.span_blocks) && rule.span_blocks >= 2) fields.span_blocks = rule.span_blocks
         const groupIds = Array.isArray(rule.eligible_group_names)
           ? rule.eligible_group_names
               .map((n) => groupIdByName.get(normalizeName(n)))

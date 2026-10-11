@@ -13,13 +13,16 @@
 //
 // Scope note (v1): captures one activity name per cell as (group, day, block).
 // Multi-block spans flatten to per-block cells (the same activity in each block
-// it covered) — visually faithful, structurally not a span; events/elective-set
+// it covered) — visually faithful, structurally not a span. A text-grid span
+// printed once with its later blocks blank (F5, textSpans.js) gets those blank
+// blocks filled with its name, so all N cells survive; events/elective-set
 // cells are not part of the main schedule import's grid. Both are accepted v1
 // limitations of the snapshot slot shape (activity_id/fixed_event_id only).
 
 import { isDayName } from './textGrid.js'
 import { activityNamesFromCell, canonicalDay, dayNameFromTitle, cleanTitle } from './extractEntities.js'
 import { normalizeName } from './preview.js'
+import { inferTextSpans } from './textSpans.js'
 
 /**
  * @param {{ pages: Array }} parsed   the same object passed to extractEntities
@@ -75,5 +78,6 @@ export function capturePlacements(parsed, proposal = {}) {
       }
     }
   }
+  placements.push(...inferTextSpans(parsed, proposal).continuations)
   return { placements }
 }

@@ -770,6 +770,8 @@ export function buildPlan(source, existing = null, resolutions = []) {
               // silently dropped every co-schedule value: the reconstruction
               // below is a FIXED field list, so anything not named is lost.
               co_schedule: activityRules?.[name]?.co_schedule,
+              // F5: a file-read multi-block span, same side-channel as co_schedule.
+              span_blocks: activityRules?.[name]?.span_blocks,
             }
           } else {
             item._rule = activityRules?.[name]

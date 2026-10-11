@@ -45,6 +45,9 @@ function normalizeName(name) {
  *        already-computed pin-only set (fixed-event names minus dual-use names); dual-use names are
  *        deliberately NOT excluded, since a dual-use activity legitimately carries both an Asserted
  *        and an Obligation pattern (ADR OQ1: two rows sharing a name).
+ * @param {Map<string, {span_blocks:number, sessions:number}>} [textSpans] F5: inferTextSpans().spans,
+ *        keyed by normalized name. A name found there counts SESSIONS (runs), not blocks,
+ *        toward min_per_week and carries span_blocks.
  * @returns {Map<string, {
  *   eligible_group_names: string[]|null,
  *   eligibility_known: boolean,   // false = no per-group signal existed at all (T35 Fix 2b) —
@@ -56,7 +59,7 @@ function normalizeName(name) {
  *   _inferred: true,
  * }>}
  */
-export function inferActivityRules(activityNames, activityPages, seenCounts, dayCount, allGroupNames, excludeNames) {
+export function inferActivityRules(activityNames, activityPages, seenCounts, dayCount, allGroupNames, excludeNames, textSpans) {
   const pages = activityPages ?? {}
   const counts = seenCounts?.activities ?? {}
   const allGroups = Array.isArray(allGroupNames) ? allGroupNames : []
@@ -95,7 +98,9 @@ export function inferActivityRules(activityNames, activityPages, seenCounts, day
     // director got min 1 / max 2 for every activity regardless of how often it
     // actually ran. `dayCount` stays in the signature (callers unchanged) but no
     // longer divides here. Floor to 1; this is a director-visible inference.
-    let perWeek = Math.round(appearances / eligibleGroupCount)
+    // F5: a multi-block span is ONE session of span_blocks blocks — count runs, not cells.
+    const span = textSpans?.get?.(key)
+    let perWeek = Math.round((span ? span.sessions : appearances) / eligibleGroupCount)
     if (perWeek < 1) perWeek = 1
 
     rules.set(name, {
@@ -106,6 +111,7 @@ export function inferActivityRules(activityNames, activityPages, seenCounts, day
       // to round (was a flat +1 → always 2; +2 puts a typical activity in the
       // 3–5 band the director expects rather than a hard ceiling of min+1).
       max_per_week: perWeek + 2,
+      ...(span ? { span_blocks: span.span_blocks } : {}),
       _inferred: true,
       // B4 (docs/adr/2026-08-10-ingestion-evidence-persistence.md): the exact
       // observation the derived fields above came from, so a director asking
