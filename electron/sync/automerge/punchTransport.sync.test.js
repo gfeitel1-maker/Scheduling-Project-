@@ -15,7 +15,7 @@ import { openLocalDb, CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
 import { createEmptyDoc, applyWrite } from '../../automerge/campDocument.js'
 import { ensureHostSigningKey, issueCampToken } from '../../auth/localAuth.js'
 import { startSyncNode } from './syncNode.js'
-import { punchTransport } from './punchTransport.js'
+import { punchTransport, PunchConnectionFailedError } from './punchTransport.js'
 import { makeSignalingPair } from './punchTestSupport.js'
 import { signAuthorityEntry } from '../../automerge/authorityLogSignature.js'
 
@@ -95,7 +95,20 @@ async function startPunchedPair() {
     punchTransportFactory: punchTransport({ signaling: sigB, role: 'answerer' }),
   })
   nodes.push(a, b)
-  await a.dial(multiaddr(`/ip4/127.0.0.1/udp/9/p2p/${b.peerId}`))
+  // Real WebRTC over loopback: on a loaded CI runner ICE can report 'failed' or 'disconnected'
+  // before the data channel opens, and the transport rejects that attempt with
+  // PunchConnectionFailedError (CI on #921, 2026-10-11). Production retries through the reconnect
+  // ladder; the test does the same for that one error only, a bounded number of times, and still
+  // dials ONLY over the punch transport (dials.a counts every attempt). Any other error fails at once.
+  const PUNCH_ATTEMPTS = 3
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await a.dial(multiaddr(`/ip4/127.0.0.1/udp/9/p2p/${b.peerId}`))
+      break
+    } catch (err) {
+      if (!(err instanceof PunchConnectionFailedError) || attempt >= PUNCH_ATTEMPTS) throw err
+    }
+  }
   await waitFor(() => a.getPeers().length > 0 && b.getPeers().length > 0)
   return { a, b, genesis, dials }
 }
@@ -103,7 +116,8 @@ async function startPunchedPair() {
 describe('punchTransport — libp2p transport over a node-datachannel pipe', () => {
   it('a camp peer is admitted over the punch transport and Automerge sync completes', async () => {
     const { a, b, dials } = await startPunchedPair()
-    expect(dials.a).toBe(1)
+    // At least one punch dial, never a fallback: a retried attempt is counted too.
+    expect(dials.a).toBeGreaterThanOrEqual(1)
 
     const { tokenA, tokenB } = setupAuthorizedDevicePair(dbA, dbB)
     await authenticateBothWays(a, b, tokenA, tokenB)
