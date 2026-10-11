@@ -188,6 +188,7 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
         // T114 — computed at parse time in ImportScreen (placements live there),
         // not by the dry run, so it arrives as a prop rather than on `result`.
         allCampOverrides,
+        ambiguousEvents: baseInputs?.ambiguousEvents,
         placements,
         allGroupNames,
       })
@@ -662,7 +663,7 @@ function CommittedTray({ notices, leftOut, outcome, graceWindow, onNavigate }) {
     notices,
     leftOut,
     undoCapable,
-    undoState: { ...graceWindow, total: outcome?.total ?? 0 },
+    undoState: { ...graceWindow, total: Array.isArray(outcome?.createdEntityIds) ? outcome.createdEntityIds.length : (outcome?.total ?? 0) },
   })
 
   // The secondary action and the receipt each animate in/out via a

@@ -119,10 +119,10 @@ rather than edited in place — this section is the current record.
 
 - **Open questions — resolved status.** OQ1 (Option A vs B) — answered, A, per the owner's
   2026-09-26 ruling already recorded in this ADR's intro. OQ2 (hidden vs greyed) — answered, hidden
-  entirely, also already recorded. **OQ3 (a dual-use name: one row with a partial pin, or two rows)
+  entirely, also already recorded. _Prior (superseded by the 2026-10-11 amendment below, which answers it): **OQ3 (a dual-use name: one row with a partial pin, or two rows)
   remains open.** T266 used the existing `dualUseNames` carve-out to keep dual-use names out of the
   pin-only set entirely, which sidesteps the question rather than answering it, and T267 does not
-  address it either. No ticket currently references it.
+  address it either. No ticket currently references it._
 
 - **The residual duplicate row is the design, not a gap.** The catalogue row for a pinned/recurring
   event continues to exist, marked rather than removed — this is Option A working as designed. T251's
@@ -420,3 +420,39 @@ assertion 3 above does not exist as a checkable fact under C or D.
    2026-08-09 ADR anticipated as a reviewable exception, and `fixedEvents.js` already computes
    `dualUseNames` as a seed for it. Under A, does such a name get one row with a partial pin, or two
    rows the director is asked to distinguish? Nothing should be built until this is answered.
+
+---
+
+## Amendment 2026-10-11 — OQ3 answered: strict, one bucket per name
+
+**OQ3 is answered** (the Implementation record above, which says it "remains open", is superseded by
+this section). The ruling came from the product owner via the keeper on 2026-10-11:
+
+> **Strict. No name sits in two buckets.** A name that is a catalogue activity and is also pinned is
+> classified once. Unambiguous evidence is classified silently. Genuinely ambiguous evidence is ONE
+> question. Unanswered, the name is an activity and its cells are kept as pre-placements in the imported
+> version (no fixed event). The decision is keyed so an answer-memory feature can remember it.
+
+Where this lives, `src/ingest/fixedEvents.js` (`inferFixedEvents`), after `dualUseNames` is computed:
+
+- **Unambiguous, silent: rotating noise.** Every event of a dual-use name is a low-confidence
+  daily-majority tuple (Music at one period three days of five). Activity; no question, no event.
+- **Ambiguous: everything else dual-use.** A pin held every day, a `weekly` class, a numbered
+  `sibling`. These leave `fixedEvents` and are returned as `ambiguousEvents`, so the default is the
+  activity. "Same name, same period, and also free elsewhere" is the evidence this ADR could not decide
+  between, so it is asked rather than guessed.
+- **One question**, kind `name_kind`, id `name_kind:<normalized name>` (the name alone, so the same camp
+  gets the same id on every import). "Fixed time" re-adds the name's events and marks its activity row
+  `pinned_event`; "activity" or no answer leaves the catalogue activity alone. The `all_camp_override`
+  question is not asked for such a name; the excluded groups ride on this one question
+  ("every group except CIT").
+- **Invariant, zero exemptions:** after commit no name is both a non-marker activity and a fixed or
+  recurring event, on every sample, unanswered or answered either way
+  (`electron/ingestPassExclusivity.allSamples.integration.test.js`).
+- **Answer memory from the camp's own state.** A re-import does not re-ask or re-default a classified
+  name (`src/ingest/settleAmbiguousFromCamp.js`): a `pinned_event` marker row with fixed events on file
+  is already "fixed" (events ship again, marker kept); a plain catalogue activity with no events is
+  already "activity". Replace mode deletes those records, so it starts clean.
+- **Known limit.** `ambiguousEvents` is computed at parse time. If a commit-time reparse merges or
+  re-keys names (a compound-cell resolution, a name-variant merge), the question still carries the
+  parse-time spelling, so a re-keyed name can fail to match its answer.

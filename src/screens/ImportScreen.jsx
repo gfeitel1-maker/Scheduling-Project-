@@ -22,6 +22,7 @@ import { inferDivisionEntities, divisionSupportByGroup } from '../ingest/inferDi
 import { inferCoScheduleRules } from '../ingest/coScheduleRules'
 import { detectAllCampOverrides } from '../ingest/allCampOverrides'
 import { inferFixedEvents } from '../ingest/fixedEvents'
+import { settleAmbiguousFromCamp } from '../ingest/settleAmbiguousFromCamp'
 import { derivePinOnlyActivityNames } from '../ingest/pinOnlyActivityNames'
 import { inferMultiBlockCandidates } from '../ingest/multiBlockCandidates'
 import { findNameVariantCandidates } from '../ingest/nearDuplicateNames'
@@ -164,6 +165,8 @@ export default function ImportScreen({ campId, onNavigate }) {
   // time and must survive staging nulling `proposal` out.
   const divisionsRef = useRef([])
   const allCampOverridesRef = useRef([])
+  const ambiguousEventsRef = useRef([])
+  const existingFixedEventsRef = useRef([])
   const allGroupNamesRef = useRef([])
   const coScheduleRef = useRef(new Map())
   const groupTierByNameRef = useRef({})
@@ -380,6 +383,7 @@ export default function ImportScreen({ campId, onNavigate }) {
     groupTierByNameRef.current = {}
     coScheduleRef.current = new Map()
     allCampOverridesRef.current = []
+    ambiguousEventsRef.current = []
     allGroupNamesRef.current = []
     fileGroupUnitsRef.current = {}
     fileActivityLocationsRef.current = {}
@@ -553,6 +557,7 @@ export default function ImportScreen({ campId, onNavigate }) {
         existingAll[entity] = await localClient.list(entity).catch(() => [])
       }
       setExistingRecordsAll(existingAll)
+      existingFixedEventsRef.current = (await localClient.list('fixed_events').catch(() => [])) ?? []
       const allSlots = await localClient.list('template_slots').catch(() => [])
       setSlotCount(allSlots.length)
       const templates = await localClient.list('schedule_templates').catch(() => [])
@@ -641,7 +646,8 @@ export default function ImportScreen({ campId, onNavigate }) {
       // T147 — the camp's live places, kept so buildCommitInputs can re-derive
       // the bindings against a re-parsed proposal (see bindingsForCommit).
       liveLocationsRef.current = existingAll.locations ?? []
-      const { fixedEvents: inferred, dualUseNames: dualUseNamesRaw = [] } = inferFixedEvents({ pages }, proposal, { knownTimeBlockNames })
+      const { fixedEvents: inferred, dualUseNames: dualUseNamesRaw = [], ambiguousEvents = [] } = inferFixedEvents({ pages }, proposal, { knownTimeBlockNames })
+      ambiguousEventsRef.current = ambiguousEvents
       setFixedEvents(inferred)
       setMovedPlacements(findMovedPlacements({ pages }, proposal, inferred))
       setOperatingDayCount(proposal.entities.days_of_operation.length)
@@ -1416,6 +1422,12 @@ export default function ImportScreen({ campId, onNavigate }) {
         })
       }
     }
+    // A name an earlier import already classified is read from the camp's state,
+    // not asked again and not defaulted (Replace deletes those records first).
+    const settledAmbiguous = settleAmbiguousFromCamp(
+      ambiguousEventsRef.current,
+      importMode === 'replace' ? {} : { activities: existingRecordsAll.activities ?? [], fixedEvents: existingFixedEventsRef.current },
+    )
     return {
       approved,
       links: { groups: groupUnits },
@@ -1423,7 +1435,8 @@ export default function ImportScreen({ campId, onNavigate }) {
       humanEditedFields: { groups: groupHumanFields, activities: activityHumanFields },
       divisionSupport,
       cohort_id: activeCohort?.id ?? null,
-      fixedEvents: [...fixedEvents, ...multiBlockRecurring],
+      fixedEvents: [...fixedEvents, ...multiBlockRecurring, ...settledAmbiguous.settledFixed],
+      ambiguousEvents: settledAmbiguous.stillAmbiguous,
       multiBlockEvents: multiBlockOneOff,
       activityRules: outgoingRules,
       mode: importMode === 'replace' ? 'replace' : 'add',
@@ -1432,7 +1445,7 @@ export default function ImportScreen({ campId, onNavigate }) {
       // `proposal`), so a wrapper fold's changed seenCounts/activityPeriods
       // are what buildPlan's create-confidence/rule inference actually sees.
       seenCounts: effectiveProposal?.seenCounts ?? null,
-      pinOnlyActivityNames: [...pinOnlyActivityNames],
+      pinOnlyActivityNames: [...pinOnlyActivityNames, ...settledAmbiguous.settledFixedNames.map(normalizeName)],
       // Slice 3a — plain data extractEntities already computed, carried
       // through unchanged to buildPlan's buildElectiveCandidates.
       electiveHeaderFindings: effectiveProposal?.electiveHeaderFindings ?? [],

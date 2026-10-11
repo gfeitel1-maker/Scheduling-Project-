@@ -32,7 +32,7 @@ import { writeRouteSnapshot, campCatalog } from './deleteRecord.js'
 import { attachNames } from '../../src/utils/snapshotRemap.js'
 import { U2_DELETABLE_ENTITIES, referencesInto } from './undoReferences.js'
 import { buildReconciliationReport } from '../../src/ingest/reconciliationReport.js'
-import { replaceOpenDecisionsForCommit } from './openReconciliationDecisions.js'
+import { replaceOpenDecisionsForCommit, removeOpenDecisionsForImport } from './openReconciliationDecisions.js'
 import { recordNotAPlace, isWordDeclinedAsPlace } from './locationWordDecisions.js'
 
 // U2 (docs/adr/2026-08-17-onescreen-reconciliation-undo.md, "Finding 4 fix").
@@ -2721,7 +2721,11 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       // A Replace deletes these records, so a question about one of them has
       // nothing left to be about.
       const replacedTypes = mode === 'replace' ? [...REPLACEABLE_ENTITIES, 'fixed_events'] : []
-      const touchedEntityTypes = [...new Set([...plan.items.map((item) => item.entity), ...keptForLater.map((d) => d.entity), ...replacedTypes])]
+      // Fixed events are not plan items: a commit that writes them has looked at
+      // every fixed-event question, so an answered one (not held back) must not
+      // linger on Roots.
+      const eventTypes = (plan.fixedEvents ?? []).length > 0 ? ['fixed_events'] : []
+      const touchedEntityTypes = [...new Set([...plan.items.map((item) => item.entity), ...keptForLater.map((d) => d.entity), ...replacedTypes, ...eventTypes])]
       replaceOpenDecisionsForCommit(db, {
         campId: camp_id,
         decisions: openDecisions,
@@ -2799,6 +2803,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
 
   const outcome = {
     held: false,
+    importRunId: evidenceRunId,
     conflicts: [],
     created,
     total,
@@ -2906,7 +2911,7 @@ function deriveUndoDeleteClientWriteId(outerClientWriteId, entity, entity_id) {
  * edited a field the import left blank (or any field) since commit, or a live
  * row outside this undo's own deletion set still references it.
  */
-export function ingestUndo(db, { invertibleOps, createdEntityIds = [], author_user_id, device_id, client_write_id }) {
+export function ingestUndo(db, { invertibleOps, createdEntityIds = [], importRunId = null, author_user_id, device_id, client_write_id }) {
   if (!Array.isArray(invertibleOps)) throw new Error('ingestUndo: invertibleOps must be an array')
   if (!Array.isArray(createdEntityIds)) throw new Error('ingestUndo: createdEntityIds must be an array')
   if (typeof client_write_id !== 'string' || client_write_id.length === 0) {
@@ -2926,6 +2931,19 @@ export function ingestUndo(db, { invertibleOps, createdEntityIds = [], author_us
   }
 
   const run = () => runAtomic(db, () => {
+    // A renderer reload loses the run id the commit returned. The import's own
+    // evidence rows still name it (read before the deletions below clear them).
+    let runIdToClear = typeof importRunId === 'string' && importRunId.length > 0 ? importRunId : null
+    if (!runIdToClear) {
+      const latestRun = db.prepare('SELECT import_run_id, committed_at FROM import_evidence WHERE entity_type = ? AND entity_id = ? ORDER BY committed_at DESC LIMIT 1')
+      let best = null
+      for (const { entity, entity_id } of [...createdEntityIds, ...invertibleOps]) {
+        const row = entity && entity_id ? latestRun.get(entity, entity_id) : null
+        if (row && (!best || row.committed_at > best.committed_at)) best = row
+      }
+      runIdToClear = best?.import_run_id ?? null
+    }
+
     // --- U1: field-update inversion, unchanged ---------------------------
     for (const entry of invertibleOps) {
       const { entity, entity_id, field, seq, priorValue, prior_source } = entry
@@ -3067,6 +3085,9 @@ export function ingestUndo(db, { invertibleOps, createdEntityIds = [], author_us
         deleted.push({ entity, entity_id })
       }
     }
+
+    // The questions this import left on Roots are about records it just removed.
+    if (runIdToClear) removeOpenDecisionsForImport(db, runIdToClear)
   })
   run()
 

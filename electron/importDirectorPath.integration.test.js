@@ -26,6 +26,7 @@ import { normalizeScheduleInputs, SCHEDULE_INPUT_ENTITIES } from './ops/schedule
 import { parseTextGrid } from '../src/ingest/textGrid.js'
 import { extractEntities } from '../src/ingest/extractEntities.js'
 import { inferFixedEvents } from '../src/ingest/fixedEvents.js'
+import { settleAmbiguousFromCamp } from '../src/ingest/settleAmbiguousFromCamp.js'
 import { derivePinOnlyActivityNames } from '../src/ingest/pinOnlyActivityNames.js'
 import { inferActivityRules } from '../src/ingest/activityRules.js'
 import { capturePlacements } from '../src/ingest/capturePlacements.js'
@@ -56,8 +57,17 @@ function seedDirectorCamp() {
 function importUnanswered(d, id, text, answerFor = () => null) {
   const p = parseTextGrid(text)
   const prop = extractEntities(p)
-  const { fixedEvents, dualUseNames = [] } = inferFixedEvents({ pages: p.pages }, prop, {})
+  const inferredEvents = inferFixedEvents({ pages: p.pages }, prop, {})
+  const { dualUseNames = [] } = inferredEvents
+  // The camp's current state settles a name an earlier import already classified.
+  const settled = settleAmbiguousFromCamp(inferredEvents.ambiguousEvents ?? [], {
+    activities: d.prepare('SELECT name, catalog_role FROM activities WHERE camp_id = ?').all(id),
+    fixedEvents: d.prepare('SELECT name FROM fixed_events WHERE camp_id = ?').all(id),
+  })
+  const ambiguousEvents = settled.stillAmbiguous
+  const fixedEvents = [...inferredEvents.fixedEvents, ...settled.settledFixed]
   const pinOnly = derivePinOnlyActivityNames(fixedEvents, dualUseNames)
+  for (const n of settled.settledFixedNames) pinOnly.add(normalizeName(n))
   const baseInputs = {
     approved: {
       groups: prop.entities.groups,
@@ -66,6 +76,7 @@ function importUnanswered(d, id, text, answerFor = () => null) {
       activities: prop.entities.activities,
     },
     fixedEvents,
+    ambiguousEvents,
     activityRules: inferActivityRules(
       prop.entities.activities, prop.activityPages, prop.seenCounts,
       prop.entities.days_of_operation.length, prop.entities.groups, pinOnly,
@@ -77,6 +88,7 @@ function importUnanswered(d, id, text, answerFor = () => null) {
   const dry = commitIngest(d, { ...common, ...baseInputs, dryRun: true })
   const report = buildReconciliationReport({
     planItems: dry.planItems ?? [],
+    ambiguousEvents,
     fixedEventsReport: { ...dry.fixedEvents, created: dry.fixedEvents?.createdEntries ?? [], unchanged: dry.fixedEvents?.unchangedEntries ?? [] },
   })
   const answers = Object.fromEntries(report.decisions.map((dec) => [dec.id, answerFor(dec)]).filter(([, a]) => a))
@@ -240,5 +252,147 @@ describe.each([
     }).map((p) => `${p.groupName}|${p.dayName}|${p.blockLabel}|${p.activityName}`)
     expect(new Set(meals.map((p) => p.groupName)).size).toBe(13) // the file shows no meal for CIT
     expect(missing).toEqual([])
+  })
+})
+
+// OQ3 (strict, 2026-10-11): a name that is a catalogue activity AND pinned is
+// classified once. Unambiguous evidence is silent; ambiguous evidence is ONE
+// question, defaulting to the activity with its cells kept as placements.
+describe('a catalogue activity that is also pinned is asked once (OQ3)', () => {
+  const placementsFor = (text) => capturePlacements({ pages: parseTextGrid(text).pages }, extractEntities(parseTextGrid(text))).placements
+  const swimQuestions = (report) => report.decisions.filter((d) => /^(Instructional |Recreational )?Swim$/.test(d.entityName ?? ''))
+
+  async function materialize(d, id, text) {
+    const writeClient = {
+      async write({ entity, entity_id, field, value, author_user_id }) {
+        return { status: 'applied', op: appendOp(d, { entity, entity_id, field, value, author_user_id, device_id: deviceId }) }
+      },
+    }
+    await materializeImportedVersion(d, writeClient, { campId: id, authorUserId: userId, placements: placementsFor(text), sourceFileName: 'x.txt' })
+    const snap = d.prepare('SELECT s.slots FROM schedule_snapshots s JOIN schedule_templates t ON t.id = s.template_id WHERE t.camp_id = ? LIMIT 1').get(id)
+    return JSON.parse(snap.slots)
+  }
+
+  const campA = () => fs.readFileSync(path.join(process.cwd(), 'docs/work/specs/samples/campA-bunk-schedules.txt'), 'utf8')
+  const swimRows = (d, id) => d.prepare("SELECT name, catalog_role FROM activities WHERE camp_id = ? AND name = 'Swim'").all(id)
+  const swimEvents = (d, id) => d.prepare("SELECT COUNT(*) c FROM fixed_events WHERE camp_id = ? AND name = 'Swim'").get(id).c
+
+  it('campA Swim unanswered: one question, an activity, no fixed event, its cells kept as placements', async () => {
+    const { d, id } = seedDirectorCamp()
+    const text = campA()
+    const { report } = importUnanswered(d, id, text)
+    expect(swimQuestions(report).map((q) => `${q.kind}:${q.entityName}`).filter((q) => q.endsWith(':Swim'))).toEqual(['name_kind:Swim'])
+    expect(swimRows(d, id)).toEqual([{ name: 'Swim', catalog_role: null }])
+    expect(swimEvents(d, id)).toBe(0)
+    const swimId = d.prepare("SELECT id FROM activities WHERE camp_id = ? AND name = 'Swim'").get(id).id
+    const cells = placementsFor(text).filter((p) => p.activityName === 'Swim').length
+    expect(cells).toBeGreaterThan(0)
+    const slots = await materialize(d, id, text)
+    expect(slots.filter((s) => s.activity_id === swimId && !s.is_fixed_event).length).toBe(cells)
+    d.close()
+  })
+
+  it('campA Swim answered "fixed time": an event plus the marker row, not a catalogue activity', () => {
+    const { d, id } = seedDirectorCamp()
+    importUnanswered(d, id, campA(), (dec) => (dec.id === 'name_kind:swim' ? { choice: 'fixed' } : null))
+    expect(swimEvents(d, id)).toBeGreaterThan(0)
+    expect(swimRows(d, id)).toEqual([{ name: 'Swim', catalog_role: 'pinned_event' }])
+    d.close()
+  })
+
+  it('campA Swim answered "activity": a catalogue activity only', () => {
+    const { d, id } = seedDirectorCamp()
+    importUnanswered(d, id, campA(), (dec) => (dec.id === 'name_kind:swim' ? { choice: 'activity' } : null))
+    expect(swimEvents(d, id)).toBe(0)
+    expect(swimRows(d, id)).toEqual([{ name: 'Swim', catalog_role: null }])
+    d.close()
+  })
+
+  // A one-group weekly class that shares its name with a rotating activity.
+  const pad = (s) => String(s).padEnd(20)
+  const groups = ['Alpha', 'Beta', 'Gamma']
+  const cell = (day, b, g) => {
+    if (day === 'Tuesday' && b === 2 && g !== 'Gamma') return 'Swim'
+    const rotating = { Monday: ['Swim', 'Art', 'Clay'], Wednesday: ['Pool', 'Swim', 'Sew'], Thursday: ['Wood', 'Weave', 'Swim'] }
+    const row = rotating[day]?.[b]
+    if (row === 'Swim' && ((day === 'Monday' && b === 0 && g === 'Alpha') || (day === 'Wednesday' && b === 1 && g === 'Beta') || (day === 'Thursday' && b === 2 && g === 'Gamma'))) return 'Swim'
+    return `${day.slice(0, 3)}-${g[0]}${b}`
+  }
+  const plantDay = (day) => [
+    `                    ${day} — All Camp`, '',
+    pad('   Time') + groups.map(pad).join(''), '',
+    ...[0, 1, 2].flatMap((b) => [pad(['09:00–09:45', '10:00–10:45', '11:00–11:45'][b]) + groups.map((g) => pad(cell(day, b, g))).join(''), '']),
+  ].join('\n')
+  const plantText = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].map(plantDay).join('\n\n')
+
+  it('weekly pin sharing a name with a rotating activity: asked once; unanswered it is an activity with its cell placed', async () => {
+    const { d, id } = seedDirectorCamp()
+    const { report } = importUnanswered(d, id, plantText)
+    expect(report.decisions.filter((q) => q.entityName === 'Swim').map((q) => q.kind)).toEqual(['name_kind'])
+    expect(swimEvents(d, id)).toBe(0)
+    expect(swimRows(d, id)).toEqual([{ name: 'Swim', catalog_role: null }])
+    const swimId = d.prepare("SELECT id FROM activities WHERE camp_id = ? AND name = 'Swim'").get(id).id
+    const tuesday = d.prepare("SELECT id FROM days_of_operation WHERE camp_id = ? AND label = 'Tuesday'").get(id).id
+    const slots = await materialize(d, id, plantText)
+    expect(slots.filter((s) => s.activity_id === swimId && s.day_id === tuesday && !s.is_fixed_event).length).toBe(2)
+    d.close()
+  })
+
+  it('weekly pin answered "fixed time": an event plus the marker', () => {
+    const { d, id } = seedDirectorCamp()
+    importUnanswered(d, id, plantText, (dec) => (dec.id === 'name_kind:swim' ? { choice: 'fixed' } : null))
+    expect(swimEvents(d, id)).toBeGreaterThan(0)
+    expect(swimRows(d, id)).toEqual([{ name: 'Swim', catalog_role: 'pinned_event' }])
+    d.close()
+  })
+
+  const bothBuckets = (d, id) => d.prepare(`
+    SELECT DISTINCT a.name FROM activities a
+    JOIN fixed_events f ON lower(trim(f.name)) = lower(trim(a.name)) AND f.camp_id = a.camp_id
+    WHERE a.camp_id = ? AND a.catalog_role IS NOT 'pinned_event'`).all(id)
+  const nameKindAsked = (report) => report.decisions.filter((q) => q.kind === 'name_kind').length
+
+  it('re-import after "fixed": no second question, the marker stays, no name in both buckets', () => {
+    const { d, id } = seedDirectorCamp()
+    importUnanswered(d, id, plantText, (dec) => (dec.id === 'name_kind:swim' ? { choice: 'fixed' } : null))
+    const { report } = importUnanswered(d, id, plantText)
+    expect(nameKindAsked(report)).toBe(0)
+    expect(swimRows(d, id)).toEqual([{ name: 'Swim', catalog_role: 'pinned_event' }])
+    expect(swimEvents(d, id)).toBeGreaterThan(0)
+    expect(bothBuckets(d, id)).toEqual([])
+    d.close()
+  })
+
+  it('re-import after "activity": no second question, it stays an activity with no events', () => {
+    const { d, id } = seedDirectorCamp()
+    importUnanswered(d, id, plantText, (dec) => (dec.id === 'name_kind:swim' ? { choice: 'activity' } : null))
+    const { report } = importUnanswered(d, id, plantText)
+    expect(nameKindAsked(report)).toBe(0)
+    expect(swimRows(d, id)).toEqual([{ name: 'Swim', catalog_role: null }])
+    expect(swimEvents(d, id)).toBe(0)
+    expect(bothBuckets(d, id)).toEqual([])
+    d.close()
+  })
+
+  it('the decision id is the name alone, so it is stable across imports', () => {
+    const a = seedDirectorCamp()
+    const first = importUnanswered(a.d, a.id, plantText).report.decisions.find((q) => q.kind === 'name_kind')
+    const b = seedDirectorCamp()
+    const second = importUnanswered(b.d, b.id, plantText).report.decisions.find((q) => q.kind === 'name_kind')
+    expect(first.id).toBe('name_kind:swim')
+    expect(second.id).toBe(first.id)
+    a.d.close(); b.d.close()
+  })
+})
+
+// Removing the meal question (they are kept either way) must not change what ships.
+describe('meal waves still ship for exactly the right groups and times', () => {
+  it('Lunch 2 and Menucha: same block, same groups as the file', () => {
+    const rows = db.prepare("SELECT f.name, f.is_all_groups, f.group_ids, b.name AS block FROM fixed_events f JOIN time_blocks b ON b.id = f.time_block_id WHERE f.camp_id = ? AND f.name IN ('Lunch 2','Menucha') ORDER BY f.name").all(campId)
+    const byName = Object.fromEntries(rows.map((r) => [r.name, { block: r.block, groups: r.is_all_groups ? 'all' : JSON.parse(r.group_ids).map((g) => db.prepare('SELECT name FROM groups WHERE id = ?').get(g).name).sort() }]))
+    expect(byName['Lunch 2'].block).toBe('12:10-12:50')
+    expect(byName['Lunch 2'].groups).toEqual(['Muskrat 1', 'Muskrat 2', 'Porcupine 1', 'Porcupine 2', 'Porcupine 3'])
+    expect(byName.Menucha.block).toBe('12:10-12:50')
+    expect(byName.Menucha.groups).toEqual(['Beavers 1', 'Beavers 2'])
   })
 })

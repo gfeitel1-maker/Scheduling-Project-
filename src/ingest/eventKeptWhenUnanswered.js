@@ -6,6 +6,8 @@
 // (buildPlan), so the row and its event can never disagree.
 const MEAL_NAME = /^(lunch|menucha|breakfast|dinner|snack)(\s*\d+)?$/i
 
+export const isMealName = (name) => MEAL_NAME.test(String(name ?? '').trim())
+
 export function eventKeptWhenUnanswered(fe) {
-  return fe?.support?.basis === 'daily' || fe?.support?.basis === 'weekly' || MEAL_NAME.test(String(fe?.name ?? '').trim())
+  return fe?.support?.basis === 'daily' || fe?.support?.basis === 'weekly' || isMealName(fe?.name)
 }

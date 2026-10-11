@@ -45,6 +45,12 @@ export function listOpenReconciliationDecisions(db, campId) {
   return rows.filter((r) => !(r.id.startsWith('activities:null:create:') && r.kind === 'confirm_value' && pinned.has(normalizeName(r.entity_name ?? ''))))
 }
 
+// Undoing an import clears the open questions that import itself persisted.
+export function removeOpenDecisionsForImport(db, importRunId) {
+  if (!hasTable(db) || !importRunId) return 0
+  return db.prepare('DELETE FROM open_reconciliation_decisions WHERE import_run_id = ?').run(importRunId).changes
+}
+
 // Dismiss = a plain DELETE ... WHERE id = ?, unconditionally — no join to
 // entity liveness, so it always works even for a row whose underlying
 // entity no longer exists (§4c's "never a dead end" guarantee).

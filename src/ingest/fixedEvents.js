@@ -491,14 +491,41 @@ export function inferFixedEvents(parsed, proposal, options = {}) {
 
   for (const fe of fixedEvents) delete fe._footprintGroups
 
+  // A dual-use name is a catalogue activity that also sits at periods no pin
+  // covers (docs/adr/2026-09-26-ingest-category-exclusivity-and-anchor-identity.md,
+  // OQ3, answered strict 2026-10-11: no name in two buckets. A dual-use name is
+  // classified ONCE, here:
+  //   - rotating noise (every event is a low-confidence daily-majority tuple:
+  //     Music at one period three days of five) is an activity, silently;
+  //   - anything else (a pin held every day, a weekly or numbered-sibling
+  //     class) is genuinely ambiguous. It leaves `fixedEvents` and is returned
+  //     as `ambiguousEvents`, so the default is the activity and a director's
+  //     "fixed time" answer is what puts the events back.
+  const ambiguousEvents = []
+  const keptEvents = []
+  const byDualName = new Map()
+  for (const fe of fixedEvents) {
+    const norm = normalizeName(fe.name)
+    if (!dualUseNorms.has(norm)) { keptEvents.push(fe); continue }
+    if (!byDualName.has(norm)) byDualName.set(norm, [])
+    byDualName.get(norm).push(fe)
+  }
+  for (const events of byDualName.values()) {
+    const rotatingNoise = events.every((fe) => fe.confidence === 'low' && fe.support.basis === 'daily')
+    if (!rotatingNoise) ambiguousEvents.push(...events)
+  }
+  fixedEvents.length = 0
+  fixedEvents.push(...keptEvents)
+
   // Deterministic order so the same fixture in either orientation yields
   // identical output (the transpose invariant).
-  fixedEvents.sort((a, b) =>
+  const byNameBlock = (a, b) =>
     a.name.localeCompare(b.name) ||
     a.time_block.localeCompare(b.time_block) ||
     a.days.join(',').localeCompare(b.days.join(',')) ||
     (a.scope.groups?.join(',') ?? '').localeCompare(b.scope.groups?.join(',') ?? '')
-  )
+  fixedEvents.sort(byNameBlock)
+  ambiguousEvents.sort(byNameBlock)
 
-  return { fixedEvents, dualUseNames }
+  return { fixedEvents, dualUseNames, ambiguousEvents }
 }

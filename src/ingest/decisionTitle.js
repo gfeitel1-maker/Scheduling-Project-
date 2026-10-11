@@ -51,7 +51,8 @@ export function decisionTitle(decision, { placements = [], allGroupNames = [] } 
 
   if (decision.entity === 'fixed_events') {
     const seen = appearancePhrase(placements, name, allGroupNames)
-    if (seen) return `Make ${name} a fixed event for ${seen.groups} at ${seen.times}?`
+    const except = decision.excludedGroups?.length ? ` (every group except ${decision.excludedGroups.join(', ')})` : ''
+    if (seen) return `Make ${name} a fixed event for ${seen.groups}${except} at ${seen.times}?`
     return decision.timeBlock
       ? `Make ${name} a fixed event at ${formatBlockTime12h(decision.timeBlock)}?`
       : `Make ${name} a fixed event?`
