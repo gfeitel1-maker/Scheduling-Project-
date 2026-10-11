@@ -166,3 +166,23 @@ describe('inferActivityRules', () => {
     })
   })
 })
+
+// Owner (2026-10-11, v1 bug): the inferred min must never exceed what the file
+// shows per week for any group. An average over groups put min 2 on an activity
+// the file shows once for some groups, and the engine then reported it underserved.
+describe('inferActivityRules — min never exceeds the file', () => {
+  const groups = ['A', 'B', 'C']
+  it('min is the lowest per-group weekly count, not the rounded average', () => {
+    const counts = { ...seenCounts({ Kayaking: 5 }, { kayaking: 1 }), activityGroupCounts: { kayaking: { A: 2, B: 2, C: 1 } } }
+    const rule = inferActivityRules(['Kayaking'], { kayaking: groups }, counts, 5, groups).get('Kayaking')
+    expect(rule.min_per_week).toBe(1)
+  })
+  it('a printed span counts once per run for the per-group floor', () => {
+    // A shows two 2-block runs (4 cells), B one (2 cells): 3 sessions, average
+    // round(1.5) = 2, but B's file shows Swim once a week.
+    const counts = { ...seenCounts({ Swim: 6 }, { swim: 1 }), activityGroupCounts: { swim: { A: 4, B: 2 } } }
+    const spans = new Map([['swim', { span_blocks: 2, sessions: 3 }]])
+    const rule = inferActivityRules(['Swim'], { swim: ['A', 'B'] }, counts, 5, groups, [], spans).get('Swim')
+    expect(rule.min_per_week).toBe(1)
+  })
+})

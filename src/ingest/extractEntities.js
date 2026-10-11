@@ -441,6 +441,10 @@ export function extractEntities(parsed, compoundCellDecisions, confirmedNameMerg
 
   const groups = []
   const activityPages = new Map()
+  // normalized activity name -> Map(cellKey -> appearances): how often the
+  // file shows the activity per group per week, so an inferred min never
+  // exceeds what any group actually got (seenCounts.activityGroupCounts).
+  const activityGroupCounts = new Map()
   // Slice 3a: which period (row.label) each activity occurrence sat under,
   // keyed the same way activityPages is (normalized activity name -> Set of
   // period labels). Feeds the content-shape detector below: an activity that
@@ -619,6 +623,9 @@ export function extractEntities(parsed, compoundCellDecisions, confirmedNameMerg
           if (cellKey) {
             if (!activityPages.has(key)) activityPages.set(key, new Set())
             activityPages.get(key).add(cellKey)
+            if (!activityGroupCounts.has(key)) activityGroupCounts.set(key, new Map())
+            const perGroup = activityGroupCounts.get(key)
+            perGroup.set(cellKey, (perGroup.get(cellKey) ?? 0) + 1)
           }
           // Flag, don't drop (opposite of NON_GROUP_HEADERS): the value still
           // becomes a normal activity candidate above; this ADDITIONALLY
@@ -737,6 +744,9 @@ export function extractEntities(parsed, compoundCellDecisions, confirmedNameMerg
     unitShare[key] = best
   }
   seenCounts.activityUnitShare = unitShare
+  seenCounts.activityGroupCounts = Object.fromEntries(
+    [...activityGroupCounts].map(([key, perGroup]) => [key, Object.fromEntries(perGroup)])
+  )
 
   // Page title -> the group name that title resolves to (short or full), so
   // both fixed-event detection and activity-rule inference can map a

@@ -101,6 +101,14 @@ export function inferActivityRules(activityNames, activityPages, seenCounts, day
     // F5: a multi-block span is ONE session of span_blocks blocks — count runs, not cells.
     const span = textSpans?.get?.(key)
     let perWeek = Math.round((span ? span.sessions : appearances) / eligibleGroupCount)
+    // Never above what the file shows per week for ANY group (owner, v1 bug):
+    // an average put min 2 on activities some groups get once, and the engine
+    // then flagged them underserved. Span cells scale to runs the same way.
+    const perGroup = Object.values(seenCounts?.activityGroupCounts?.[key] ?? {}).filter((n) => n > 0)
+    if (perGroup.length > 0) {
+      const toRuns = span && appearances > 0 ? span.sessions / appearances : 1
+      perWeek = Math.min(perWeek, Math.round(Math.min(...perGroup) * toRuns))
+    }
     if (perWeek < 1) perWeek = 1
 
     rules.set(name, {

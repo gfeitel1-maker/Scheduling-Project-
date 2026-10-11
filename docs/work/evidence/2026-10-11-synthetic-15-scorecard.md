@@ -260,6 +260,21 @@ The harness now mirrors ImportScreen. It uses `settleAmbiguousFromCamp` against 
 
 **New regressions:** none distinguishable from seed noise (the baseline above was drawn with random seeds, so a per-metric split between product change and noise isn't possible for it). The apparent upticks (s02 and s07 stillNeeded, s05 and s09 questions) are seed noise or a newly imported activity, for example Ropes Course now present on s05 and s14.
 
+## Inferred minimum capped at what the file shows (same day)
+
+Owner question: "why aren't we generating more activities to fill slots?" The harness now records an `underservedDetail` entry per UNDERSERVED finding. Classifying the 140 still-needed sessions (zero answers) by cause:
+
+| Cause | Before | After |
+|---|---|---|
+| (a) trip, subset day or elective treated as an activity | 18 | 18 |
+| (b) span counted per block | 0 | 0 |
+| (c) inferred min above what the file shows for the group | 58 | 1 |
+| (c) group capacity: the group's mins add up to more than its activity cells | 49 | 10 |
+| (d) eligibility or co-scheduling | 15 | 4 |
+| **Total** | **140** | **33** |
+
+Cause: `inferActivityRules` set `min_per_week` to the rounded average across groups, so an activity the file shows twice for some groups and once for others got min 2 everywhere. The min is now capped at the lowest per-group weekly count (`seenCounts.activityGroupCounts`, span cells scaled to runs). The capacity and eligibility counts fell as a knock-on effect of the smaller mins.
+
 ## Not covered by this run
 
 - XLSX merges (`blockSpans`) and any non-text input, so real merged-cell spans are untested; the text forms in this corpus are the closest a text grid can express.

@@ -390,7 +390,7 @@ function slotContent(input, activitiesById, feById, setById, slot) {
   return { type: slot.type, name: null }
 }
 
-function evaluateGenerate(m, d, id) {
+function evaluateGenerate(m, d, id, imp = null) {
   const input = scheduleInput(d, id)
   const lk = lookups(d, id)
   const t0 = process.cpuUsage()
@@ -459,7 +459,44 @@ function evaluateGenerate(m, d, id) {
     activities: input.activities, locations: input.locations, electiveSetActivities: input.electiveSetActivities, timeBlocks: input.timeBlocks,
   }))
   const underserved = findings.filter((f) => f.kind === 'UNDERSERVED')
+  // Why each shortfall exists (owner: "why aren't we generating more activities to fill slots?").
+  // fileWeekly: the distinct days the FILE shows this activity for this group (a printed span counts
+  // once). eventKind: what the manifest says the name really is (trip / allday / elective), if any.
+  const groupNameById = new Map(input.groups.map((g) => [g.id, g.name]))
+  const fileDays = new Map()
+  for (const p of imp?.placements ?? []) {
+    const k = `${normalizeName(p.activityName)}|${normalizeName(p.groupName)}`
+    if (!fileDays.has(k)) fileDays.set(k, new Set())
+    fileDays.get(k).add(normalizeName(p.dayName))
+  }
+  const manifestKind = new Map()
+  for (const e of m.events ?? []) manifestKind.set(normalizeName(e.name), e.kind)
+  for (const e of m.electives ?? []) manifestKind.set(normalizeName(e.name), 'elective')
+  const activityCellsPerGroup = (() => {
+    const free = new Map()
+    for (const sl of slots) if (sl.type === 'activity') free.set(sl.groupId, (free.get(sl.groupId) ?? 0) + 1)
+    return free
+  })()
+  const sumMinsPerGroup = new Map()
+  for (const a of input.activities) {
+    if (!a.min_per_week || a.catalog_role === 'pinned_event') continue
+    for (const g of input.groups) sumMinsPerGroup.set(g.id, (sumMinsPerGroup.get(g.id) ?? 0) + a.min_per_week * (a.span_blocks ?? 1))
+  }
+  const underservedDetail = underserved.map((f) => {
+    const act = activitiesById.get(f.activityId)
+    const name = act?.name ?? f.activityId
+    const group = groupNameById.get(f.groupId) ?? f.groupId
+    return {
+      activity: name, group, needed: f.needed, got: f.got,
+      min_per_week: act?.min_per_week ?? null, span_blocks: act?.span_blocks ?? null,
+      fileWeekly: fileDays.get(`${normalizeName(name)}|${normalizeName(group)}`)?.size ?? 0,
+      eventKind: manifestKind.get(normalizeName(name)) ?? null,
+      groupActivityCells: activityCellsPerGroup.get(f.groupId) ?? 0,
+      groupSumOfMins: sumMinsPerGroup.get(f.groupId) ?? 0,
+    }
+  })
   return {
+    underservedDetail,
     cpuMs: Math.round((cpu.user + cpu.system) / 1000),
     slots: slots.length,
     placed: activitySlots.filter((s) => s.activityId).length,
@@ -567,7 +604,7 @@ async function runCamp(m) {
   rec.stages.zeroAnswers = z.ok ? { ok: true, cpuMs: Math.round((process.cpuUsage(t0).user + process.cpuUsage(t0).system) / 1000), held: z.value.committed.held } : { ok: false, error: z.error }
   if (z.ok) {
     rec.zeroAnswers = evaluateImport(m, zero.d, zero.id, z.value)
-    rec.generate = evaluateGenerate(m, zero.d, zero.id)
+    rec.generate = evaluateGenerate(m, zero.d, zero.id, z.value)
     rec.manual = await evaluateManual(m, zero.d, zero.id, z.value).catch((e) => ({ error: String(e?.message ?? e).slice(0, 300) }))
     rec.specialDayFiles = await evaluateSpecialDayFiles(m, zero.d, zero.id).catch((e) => [{ error: String(e?.message ?? e).slice(0, 300) }])
 
@@ -589,7 +626,7 @@ async function runCamp(m) {
   rec.stages.confirmAll = a.ok ? { ok: true, held: a.value.committed.held } : { ok: false, error: a.error }
   if (a.ok) {
     rec.confirmAll = evaluateImport(m, all.d, all.id, a.value)
-    rec.confirmAllGenerate = evaluateGenerate(m, all.d, all.id)
+    rec.confirmAllGenerate = evaluateGenerate(m, all.d, all.id, a.value)
     rec.confirmAllManual = await evaluateManual(m, all.d, all.id, a.value).catch((e) => ({ error: String(e?.message ?? e).slice(0, 300) }))
   }
   all.d.close()
