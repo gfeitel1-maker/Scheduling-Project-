@@ -1,6 +1,6 @@
 // The renderer-side seam of import answer memory: recall onto decisions, answers out to the store.
 import { describe, it, expect } from 'vitest'
-import { attachRecall, answerMemoryEntries } from './answerRecall.js'
+import { attachRecall, answerMemoryEntries, trackBulk } from './answerRecall.js'
 import { journalEntriesFor } from './decisionJournal.js'
 
 const fixed = (name) => ({
@@ -57,5 +57,17 @@ describe('the journal records what a recalled decision was learned from', () => 
     expect('learned_from_id' in other).toBe(false)
     const [plain] = journalEntriesFor([fixed('B')], { 'fe:B': { action: 'looks_right' } }, 'imp')
     expect('learned_from_id' in plain).toBe(false)
+  })
+})
+
+describe('trackBulk', () => {
+  it('marks every id of a multi-id answer, and un-marks one answered on its own later', () => {
+    const bulk = new Set()
+    trackBulk(bulk, ['a', 'b', 'c'])
+    expect([...bulk]).toEqual(['a', 'b', 'c'])
+    trackBulk(bulk, ['b'])
+    expect([...bulk]).toEqual(['a', 'c'])
+    trackBulk(bulk, ['d'])
+    expect(bulk.has('d')).toBe(false)
   })
 })

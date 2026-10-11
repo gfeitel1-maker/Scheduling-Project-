@@ -49,3 +49,13 @@ export function answerMemoryEntries(decisions, answers, { bulkIds = new Set() } 
   }
   return entries
 }
+
+// A control that answers several decisions at once marks them all bulk; answering one on its own
+// afterwards un-marks it. Bulk answers are remembered but count toward no pattern.
+export function trackBulk(bulkIds, ids) {
+  for (const id of ids) {
+    if (ids.length > 1) bulkIds.add(id)
+    else bulkIds.delete(id)
+  }
+  return bulkIds
+}

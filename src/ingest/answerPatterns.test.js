@@ -16,12 +16,12 @@ const exclusion = (name, missing = ['CIT']) => ({
 
 let n = 0
 // A validated record view, built through the real signature so features cannot drift from it.
-function rec(decision, { verdict = 'accept', importId = 'i1', role = 'instance', seq = ++n, bulk = false, qualifies = true, tap = false, recalled = false, id } = {}) {
+function rec(decision, { verdict = 'accept', importId = 'i1', role = 'instance', seq = ++n, bulk = false, qualifies = true, tap = false, recalled = false, id, at = '2026-10-01T00:00:00.000Z' } = {}) {
   const s = signatureOf(decision)
   return {
     id: id ?? `r${seq}-${decision.entityName}`, kind: 'import_answer', qkind: s.qkind, role, seq, import_id: importId,
     parts: s.parts, features: s.features, answer: { verdict, ...(tap ? { tap: true } : {}), ...(recalled ? { recalled: true } : {}) },
-    bulk, qualifies, confirmed_by: 'u1', confirmed_at: '2026-10-01T00:00:00.000Z',
+    bulk, qualifies, confirmed_by: 'u1', confirmed_at: at,
   }
 }
 const recall = (decision, records, vetoes = []) => recallPattern(decision, records, vetoes)
@@ -178,6 +178,19 @@ describe('T2 meal', () => {
     const records = ['Lunch', 'Menucha 2', 'Snack'].map((x, i) => rec(fixed(x), { importId: `i${i % 2}`, role: i === 0 ? 'instance' : 'evidence', tap: i === 0 }))
     expect(recall(fixed('Dinner'), records).template).toBe('T2')
     expect(recall(fixed('Snack Shack'), records)).toBeNull()
+  })
+})
+
+describe('ordering without clocks', () => {
+  it('orders by seq, not confirmed_at: a record from a device whose clock runs a day ahead does not win', () => {
+    const records = [
+      rec(fixed('Specialty 1'), { verdict: 'reject', seq: 1, at: '2099-01-01T00:00:00.000Z', role: 'evidence' }),
+      rec(fixed('Specialty 2'), { verdict: 'accept', seq: 2, at: '2020-01-01T00:00:00.000Z', role: 'evidence' }),
+      rec(fixed('Specialty 3'), { verdict: 'accept', seq: 3, at: '2020-01-02T00:00:00.000Z', role: 'evidence' }),
+    ]
+    const r = recall(fixed('Specialty 4'), records)
+    expect(r.answer.verdict).toBe('accept')
+    expect(r.band).toBe('suggest')
   })
 })
 

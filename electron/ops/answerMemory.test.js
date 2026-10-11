@@ -512,6 +512,27 @@ describe('coexistence with column mappings', () => {
   })
 })
 
+describe('keys and the projection', () => {
+  it('two 200-character parts sharing a 100-character prefix get different keys (hashed whole, never truncated)', () => {
+    const prefix = 'x'.repeat(100)
+    const a = canonicalKey(signatureOf(fixed(prefix + 'a'.repeat(100))))
+    const b = canonicalKey(signatureOf(fixed(prefix + 'b'.repeat(100))))
+    expect(a.keyHash).not.toBe(b.keyHash)
+    expect(a.parts[0]).toMatch(/^h:[0-9a-f]{64}$/)
+    expect(canonicalKey(signatureOf(fixed('Lunch 1'))).parts[0]).toBe('lunch 1')
+  })
+  it('the replicated projection has no UNIQUE index beyond its primary key', () => {
+    const unique = db.prepare("PRAGMA index_list('camp_seedlings')").all().filter((i) => i.unique && i.origin !== 'pk')
+    expect(unique).toEqual([])
+  })
+  it('the view says a user without groups.import cannot write', () => {
+    remember([one(fixed('Lunch 1'), REJECT)])
+    const noImport = { admin: ['*'], staff: ['trash.read'] }
+    expect(listLearned(db, { campId: CAMP, viewerUserId: 'u-staff', permissions: noImport }).canWrite).toBe(false)
+    expect(listLearned(db, { campId: CAMP, viewerUserId: 'u-staff' }).canWrite).toBe(true)
+  })
+})
+
 describe('guard: one reader', () => {
   it('no other source file names the answer kinds', () => {
     const root = process.cwd()

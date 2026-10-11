@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { localClient } from '../localClient'
 import { journalEntriesFor } from '../ingest/decisionJournal.js'
-import { attachRecall, answerMemoryEntries } from '../ingest/answerRecall.js'
+import { attachRecall, answerMemoryEntries, trackBulk } from '../ingest/answerRecall.js'
 import { S, useEnterTransition, prefersReducedMotion } from '../styles/shared'
 import { buildReconciliationReport } from '../ingest/reconciliationReport.js'
 import { applyTrayState, commitTrayState } from './reconciliationTray'
@@ -231,10 +231,7 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
   // director who clicked through every one of them by hand.
   function stage(decisionId, answer) {
     const ids = Array.isArray(decisionId) ? decisionId : [decisionId]
-    for (const id of ids) {
-      if (ids.length > 1) bulkIdsRef.current.add(id)
-      else bulkIdsRef.current.delete(id)
-    }
+    trackBulk(bulkIdsRef.current, ids)
     const next = { ...answers }
     for (const id of ids) next[id] = answer
     setAnswers(next)
