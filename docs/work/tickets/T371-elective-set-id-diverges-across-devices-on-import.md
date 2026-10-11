@@ -3,7 +3,7 @@ title: T371-elective-set-id-diverges-across-devices-on-import
 document_type: ticket
 status: open
 created: 2026-10-11
-task_class: sync
+task_class: database-sync
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-10-11-import-electives-keep-their-shape.md]
 archive_when: two devices importing the same file converge on one elective set and one activity per choice name, with no nameless stub set, proven by a two-device test
 ---

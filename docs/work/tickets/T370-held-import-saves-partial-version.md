@@ -3,7 +3,7 @@ title: T370-held-import-saves-partial-version
 document_type: ticket
 status: open
 created: 2026-10-11
-task_class: ingest
+task_class: database-sync
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-10-11-import-electives-keep-their-shape.md]
 archive_when: a held import commit either saves no version or its later full commit replaces the partial version instead of stacking a second one, with a red-first test through ingestCommit
 ---
