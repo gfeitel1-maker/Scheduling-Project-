@@ -99,6 +99,34 @@ describe('understood vs. needs-attention', () => {
   })
 })
 
+describe('unknown fields', () => {
+  function unknownResult() {
+    return {
+      planItems: [
+        { op: 'unchanged', entity: 'activities', entity_id: 'a1', _name: 'Swim', fields: {}, evidence: { tier: 'exact_name' } },
+        { op: 'unchanged', entity: 'activities', entity_id: 'a2', _name: 'Art', fields: {}, evidence: { tier: 'exact_name' } },
+      ],
+      fixedEventsReport: {},
+      legacyPriorityActivities: [],
+      fieldProvenance: {},
+      evidenceSupport: {},
+      unknownFieldEvidence: { 'a1:priority': true, 'a2:priority': true },
+    }
+  }
+
+  it('shows one flag with a link to Activities, and asks no question', async () => {
+    localClient.ingestReconcile.mockResolvedValue(unknownResult())
+    const onNavigate = vi.fn()
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={onNavigate} />)
+
+    await screen.findByText(/0 of 0 question/)
+    expect(screen.getByText(/The file doesn.t say how important 2 activities are, so they count as low priority\./)).toBeTruthy()
+    await userEvent.click(screen.getByRole('button', { name: /Set them in Activities/ }))
+    expect(onNavigate).toHaveBeenCalledWith('activities')
+    expect(screen.queryByText(/Not enough information in the source/)).toBeNull()
+  })
+})
+
 describe('resolving a decision', () => {
   it('updates the done count and stages a confirmed decision, without writing anything (read-only reconciliation)', async () => {
     localClient.ingestReconcile.mockResolvedValue(oneChangedResult())

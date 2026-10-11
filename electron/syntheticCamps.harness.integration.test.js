@@ -88,7 +88,12 @@ const FILLS_ALL = 'confirm all: Generate fills the week again (nothing short, no
 // schedule week to bind it to (src/ingest/tripEvents.js planTripEvents), and a camp's first import has
 // none: the name becomes a day-long span activity that the inferred daily fixed events leave no room for.
 const WHOLE_DAY_FOR_SOME = [`s04-by-day-6day-large:${FILLS_ZERO}`, `s04-by-day-6day-large:${FILLS_ALL}`]
-const KNOWN_FAILING = new Set(WHOLE_DAY_FOR_SOME)
+// A Keep re-import of an unchanged file still asks one elective_candidate question per detected elective
+// block in these four camps: the zero-answer first import does not record that block as an elective set, so
+// the same block is proposed again. Not the unknown-field noise (those are now one flag); tracked separately.
+const KEEP_ASKS_NOTHING = 'Keep re-import after Replace asks no question at all, none to add an existing activity, and writes nothing'
+const KEEP_ASKS_ELECTIVE = ['s04-by-day-6day-large', 's06-by-day-40-groups-late', 's08-by-group-24h-wrapped', 's12-daysheet-4d-late'].map((slug) => `${slug}:${KEEP_ASKS_NOTHING}`)
+const KNOWN_FAILING = new Set([...WHOLE_DAY_FOR_SOME, ...KEEP_ASKS_ELECTIVE])
 
 const results = {}
 const startedAt = Date.now()
@@ -715,6 +720,7 @@ async function runCamp(m) {
     rec.keepAfterReplace = keep2.ok
       ? {
           ok: true,
+          questionsAsked: keep2.value.report.decisions.map((dec) => `${dec.kind}: ${dec.entityName ?? dec.entity}`),
           createQuestionsForExisting: keep2.value.report.decisions
             .filter((dec) => /^Add /.test(decisionTitle(dec, { placements: keep2.value.placements, allGroupNames: keep2.value.proposal.entities.groups ?? [] }) ?? '') && liveActivityKeys.has(normalizeName(dec.entityName)))
             .map((dec) => dec.entityName),
@@ -924,8 +930,8 @@ describe('synthetic corpus: 15 fictional camps through the real pipeline', () =>
     hard('re-import with Keep writes zero new records', (r) => {
       expect(r.reimportKeep).toEqual({ ok: true, newRecords: {} })
     })
-    hard('Keep re-import after Replace asks no create question for an existing activity and writes nothing', (r) => {
-      expect(r.keepAfterReplace).toEqual({ ok: true, createQuestionsForExisting: [], newRecords: {} })
+    hard(KEEP_ASKS_NOTHING, (r) => {
+      expect(r.keepAfterReplace).toEqual({ ok: true, questionsAsked: [], createQuestionsForExisting: [], newRecords: {} })
     })
     hard('re-import with Replace completes', (r) => {
       expect(r.reimportReplace?.ok).toBe(true)

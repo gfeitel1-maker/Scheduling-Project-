@@ -629,6 +629,8 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
         </div>
       )}
 
+      <UnknownFieldFlags unknownFields={report?.unknownFields} onNavigate={onNavigate} />
+
       {/* The panel is always rendered here, at the same JSX position — it is
           never remounted by a breakpoint crossing, so its own local state
           (e.g. RootMapPanel's `showResolved`) survives a resize. */}
@@ -696,6 +698,28 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+// Fields the file never states (priority, min_per_week) are one flag with a way to fix them, not a
+// question per activity (docs/adr/2026-08-20-per-field-unknown-reconciliation-state.md, amendment).
+function UnknownFieldFlags({ unknownFields, onNavigate }) {
+  const count = (n) => `${n} ${n === 1 ? 'activity' : 'activities'}`
+  const lines = []
+  const p = unknownFields?.priority?.length ?? 0
+  const m = unknownFields?.min_per_week?.length ?? 0
+  if (p > 0) lines.push(`The file doesn’t say how important ${count(p)} ${p === 1 ? 'is' : 'are'}, so ${p === 1 ? 'it counts' : 'they count'} as low priority.`)
+  if (m > 0) lines.push(`The file doesn’t say how often ${count(m)} should run each week, so ${m === 1 ? 'it is' : 'they are'} scheduled once a week.`)
+  if (lines.length === 0) return null
+  return (
+    <div style={{ marginBottom: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {lines.map((text) => (
+        <div key={text}>
+          <Flag tone="caution">{text}</Flag>{' '}
+          <button className="press-97" onClick={() => onNavigate?.('activities')} style={styles.linkButton}>Set them in Activities</button>
+        </div>
+      ))}
     </div>
   )
 }

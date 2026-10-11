@@ -1300,17 +1300,17 @@ describe('buildReconciliationReport — unknownFieldEvidence (per-field UNKNOWN 
     ]
     const stillUnknown = new Map([['a1:min_per_week', true]])
     const withUnknown = buildReconciliationReport({ planItems, readiness: [], unknownFieldEvidence: stillUnknown })
-    expect(withUnknown.decisions).toHaveLength(1)
-    expect(withUnknown.decisions[0].unknowns).toEqual(['min_per_week'])
+    expect(withUnknown.unknownFields.min_per_week).toEqual(['Swim'])
 
     // A director hand-edited min_per_week; the caller rebuilds its map
     // filtered against the new source and no longer includes this key.
     const healed = buildReconciliationReport({ planItems, readiness: [], unknownFieldEvidence: new Map() })
     expect(healed.decisions).toEqual([])
+    expect(healed.unknownFields.min_per_week).toEqual([])
     expect(healed.buckets.understood).toBe(1)
   })
 
-  it('synthesizes a confirm_value decision with unknowns[] + unknownField:true for an otherwise-understood row', () => {
+  it('does not synthesize a question for an otherwise-understood row; it reports a summary instead', () => {
     const planItems = [
       {
         op: 'unchanged', entity: 'activities', entity_id: 'a1', fields: {},
@@ -1320,33 +1320,25 @@ describe('buildReconciliationReport — unknownFieldEvidence (per-field UNKNOWN 
     const unknownFieldEvidence = new Map([['a1:min_per_week', true], ['a1:priority', true]])
     const report = buildReconciliationReport({ planItems, readiness: [], unknownFieldEvidence })
 
-    expect(report.buckets.understood).toBe(0)
-    expect(report.buckets.needsAttention).toBe(1)
-    expect(report.decisions).toHaveLength(1)
-    const [decision] = report.decisions
-    expect(decision.kind).toBe('confirm_value')
-    expect(decision.entity).toBe('activities')
-    expect(decision.entityId).toBe('a1')
-    expect(decision.unknownField).toBe(true)
-    expect(decision.unknowns).toEqual(['min_per_week', 'priority'])
+    expect(report.buckets.understood).toBe(1)
+    expect(report.buckets.needsAttention).toBe(0)
+    expect(report.decisions).toEqual([])
+    expect(report.unknownFields).toEqual({ priority: ['Swim'], min_per_week: ['Swim'] })
   })
 
-  // Review round follow-up: an 'unchanged' planItem carries no `fields` at
-  // all (buildPlan's zero-op arm), so proposedValue must not silently
-  // degrade to null — it should read the currently-committed value off the
-  // item's own `_rule` (buildPlan carries the same rule forward on every
-  // activities item, unchanged included).
-  it('proposedValue reads the committed value off _rule for an unchanged-op activity, not null', () => {
+  it('summarises a create whose rule supplies no priority, even though it has no entity_id yet', () => {
     const planItems = [
-      {
-        op: 'unchanged', entity: 'activities', entity_id: 'a1', fields: {},
-        evidence: { tier: 'exact_name', matched_name: 'Swim' }, _name: 'Swim',
-        _rule: { min_per_week: 1, support: { appearances: 0 } },
-      },
+      { op: 'create', entity: 'activities', entity_id: null, fields: {}, evidence: { tier: 'new' }, _name: 'Art', _rule: { min_per_week: 2, support: { appearances: 3 } } },
+      { op: 'create', entity: 'activities', entity_id: null, fields: {}, evidence: { tier: 'new' }, _name: 'Drama', _rule: { priority: 'high', min_per_week: 1, support: { appearances: 0 } } },
     ]
-    const unknownFieldEvidence = new Map([['a1:min_per_week', true]])
-    const report = buildReconciliationReport({ planItems, readiness: [], unknownFieldEvidence })
-    expect(report.decisions[0].proposedValue).toBe(1)
+    const report = buildReconciliationReport({ planItems, readiness: [] })
+    expect(report.decisions).toEqual([])
+    expect(report.unknownFields).toEqual({ priority: ['Art'], min_per_week: ['Drama'] })
+  })
+
+  it('reports empty lists when nothing is unknown', () => {
+    const report = buildReconciliationReport({ planItems: [], readiness: [] })
+    expect(report.unknownFields).toEqual({ priority: [], min_per_week: [] })
   })
 
   it('augments an existing decision on the same row rather than emitting a second one', () => {
@@ -1365,22 +1357,6 @@ describe('buildReconciliationReport — unknownFieldEvidence (per-field UNKNOWN 
     expect(decision.field).toEqual(['max_per_week']) // the ordinary decision's own field shape, untouched
     expect(decision.unknownField).toBe(true)
     expect(decision.unknowns).toEqual(['min_per_week'])
-  })
-
-  // Test plan item 6 — golden-report/golden-decisions parity: an
-  // unknownField:true decision still matches on kind: 'confirm_value', so a
-  // consumer's exhaustive `kind` switch (e.g. reportToLanes) needs no new
-  // branch to handle it.
-  it('an unknownField:true decision still carries kind: confirm_value', () => {
-    const planItems = [
-      {
-        op: 'unchanged', entity: 'activities', entity_id: 'a1', fields: {},
-        evidence: { tier: 'exact_name', matched_name: 'Swim' }, _name: 'Swim',
-      },
-    ]
-    const unknownFieldEvidence = new Map([['a1:priority', true]])
-    const report = buildReconciliationReport({ planItems, readiness: [], unknownFieldEvidence })
-    expect(report.decisions[0].kind).toBe('confirm_value')
   })
 })
 

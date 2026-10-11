@@ -389,7 +389,7 @@ describe('buildRootMapModel', () => {
   // actually holds by exercising rootMapModel.js UNCHANGED — an unresolved
   // unknown-field decision on a live activity rolls up to 'attention' at
   // both the roster-row level and the domain level, with zero new branches.
-  it('an unresolved unknown-field decision renders the activity roster row and its domain as attention, not understood', () => {
+  it('an unknown field is a single review-screen flag, so the activity roster row and its domain stay understood (ADR 2026-08-20 amendment 2026-10-11)', () => {
     const planItems = [
       {
         op: 'unchanged', entity: 'activities', entity_id: 'a1', fields: {},
@@ -403,9 +403,9 @@ describe('buildRootMapModel', () => {
     const model = buildRootMapModel(report, { answers: {}, dismissedGaps: new Set(), snapshot })
 
     const scheduling = model.domains.find((d) => d.key === 'Scheduling')
-    expect(scheduling.state).toBe('attention')
+    expect(scheduling.state).not.toBe('attention')
     const activitiesChild = scheduling.children.find((c) => c.roster.some((r) => r.entityId === 'a1'))
     const row = activitiesChild.roster.find((r) => r.entityId === 'a1')
-    expect(row.state).toBe('attention')
+    expect(row.state).not.toBe('attention')
   })
 })
