@@ -22,6 +22,7 @@ vi.mock('../localClient', () => ({
     rememberImportAnswers: vi.fn(),
     recordImportDecisions: vi.fn(),
     forgetImportAnswer: vi.fn(),
+    listLearned: vi.fn(async () => ({ canWrite: true, answers: [], patterns: [] })),
   },
 }))
 

@@ -25,7 +25,7 @@ const near = {
 }
 
 function card(props) {
-  return render(<DecisionCard rank="standard" onToggleEvidence={() => {}} expanded={false} onAnswer={vi.fn()} {...props} />)
+  return render(<DecisionCard rank="standard" onToggleEvidence={() => {}} expanded={false} onAnswer={vi.fn()} canWriteMemory {...props} />)
 }
 
 describe('a card with no recall', () => {
@@ -61,7 +61,7 @@ describe('the remembered strip (exact recall, applied)', () => {
     const { rerender } = card({ decision: fixed(exact), answer: { action: 'looks_right' }, onAnswer })
     fireEvent.click(screen.getByText('Change'))
     expect(onAnswer).toHaveBeenCalledWith(null)
-    rerender(<DecisionCard decision={fixed(exact)} rank="standard" answer={undefined} onAnswer={onAnswer} onToggleEvidence={() => {}} expanded={false} />)
+    rerender(<DecisionCard canWriteMemory decision={fixed(exact)} rank="standard" answer={undefined} onAnswer={onAnswer} onToggleEvidence={() => {}} expanded={false} />)
     expect(screen.getByText("You're changing a remembered answer")).toBeTruthy()
   })
 
@@ -72,7 +72,7 @@ describe('the remembered strip (exact recall, applied)', () => {
     fireEvent.click(screen.getByText('Forget'))
     await waitFor(() => expect(onAnswer).toHaveBeenCalledWith(null))
     expect(onForgetRecall).toHaveBeenCalledWith(expect.objectContaining({ id: 'fe:Specialty 4' }))
-    rerender(<DecisionCard decision={fixed(exact)} rank="standard" answer={undefined} onAnswer={onAnswer} onToggleEvidence={() => {}} expanded={false} />)
+    rerender(<DecisionCard canWriteMemory decision={fixed(exact)} rank="standard" answer={undefined} onAnswer={onAnswer} onToggleEvidence={() => {}} expanded={false} />)
     expect(screen.getByText('Forgotten. Shoresh will ask this every time from now on.')).toBeTruthy()
   })
 
@@ -128,7 +128,7 @@ describe('the Suggested state', () => {
     fireEvent.click(screen.getByText('Remember as a pattern'))
     fireEvent.click(screen.getByText('Add it'))
     expect(onAnswer).toHaveBeenLastCalledWith({ action: 'looks_right', tap: true })
-    rerender(<DecisionCard decision={fixed(patternSuggest)} rank="standard" answer={{ action: 'looks_right', tap: true }} onAnswer={onAnswer} onToggleEvidence={() => {}} expanded={false} />)
+    rerender(<DecisionCard canWriteMemory decision={fixed(patternSuggest)} rank="standard" answer={{ action: 'looks_right', tap: true }} onAnswer={onAnswer} onToggleEvidence={() => {}} expanded={false} />)
     expect(screen.getByText('Pattern remembered')).toBeTruthy()
   })
 
@@ -184,3 +184,15 @@ describe('"Not an event, treat as an activity"', () => {
     expect(screen.queryByText('Not an event, treat as an activity')).toBeNull()
   })
 })
+
+describe('memory controls need permission to write import answers', () => {
+  it('hides Change, Forget, Remember as a pattern and Also remember this without it', () => {
+    for (const recall of [exact, patternSuggest]) {
+      const { unmount } = card({ decision: fixed(recall), canWriteMemory: false })
+      for (const name of [/^Change$/, /^Forget$/, /Remember as a pattern/]) expect(screen.queryByRole('button', { name })).toBeNull()
+      expect(screen.queryByLabelText(/Also remember this/)).toBeNull()
+      unmount()
+    }
+  })
+})
+

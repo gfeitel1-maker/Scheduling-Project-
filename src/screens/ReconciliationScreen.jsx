@@ -122,6 +122,16 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
   // re-seeded when the dry run re-runs.
   const suppressedRef = useRef(new Set())
   const shownRef = useRef(new Set())
+  // Whether this viewer can write import answers: memory controls on the cards render only then.
+  // Unknown (or a failed read) hides them, never shows controls that would fail.
+  const [canWriteMemory, setCanWriteMemory] = useState(false)
+  useEffect(() => {
+    let live = true
+    Promise.resolve(localClient.listLearned?.())
+      .then((res) => { if (live) setCanWriteMemory(res?.canWrite === true) })
+      .catch(() => { if (live) setCanWriteMemory(false) })
+    return () => { live = false }
+  }, [])
   const [returnedIds, setReturnedIds] = useState(new Set())
   const [undoing, setUndoing] = useState(false)
   const [undoneNote, setUndoneNote] = useState(false)
@@ -503,6 +513,7 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
     onForgetRecall: forgetRecalled,
     returned: returnedIds.has(d.id),
     campChangedFlag: campChangedFor(d),
+    canWriteMemory,
   })
 
   const rootMapModel = buildRootMapModel(report, { answers, dismissedGaps, snapshot: censusSnapshot })

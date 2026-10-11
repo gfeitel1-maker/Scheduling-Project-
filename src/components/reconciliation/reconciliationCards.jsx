@@ -508,7 +508,7 @@ function MemoryGlyph() {
 
 export function DecisionCard({
   decision, rank, answer, onAnswer, expanded, onToggleEvidence, locations, repeatCount = 1,
-  onRecallShown, onForgetRecall, returned = false, campChangedFlag = false, canWriteMemory = true,
+  onRecallShown, onForgetRecall, returned = false, campChangedFlag = false, canWriteMemory = false,
 }) {
   const resolved = isDecisionResolvedFor(decision, { [decision.id]: answer })
   const cardStyle = rank === 'hold' ? cardStyles.cardHold : cardStyles.cardStandard
@@ -533,8 +533,9 @@ export function DecisionCard({
 
   const qkind = classifyDecision(decision)
   const eligible = isAutoApplyEligible(decision, { verdict: 'accept' })
-  const offerNear = hasRecall && !r.autoApply && r.match === 'near'
-  const offerPattern = hasRecall && !r.autoApply && r.match !== 'exact' && r.nearKind !== 'name_key' && (qkind === 'classify' || qkind === 'exclusion')
+  // Memory-writing controls render only for someone who can write import answers (no dead controls).
+  const offerNear = canWriteMemory && hasRecall && !r.autoApply && r.match === 'near'
+  const offerPattern = canWriteMemory && hasRecall && !r.autoApply && r.match !== 'exact' && r.nearKind !== 'name_key' && (qkind === 'classify' || qkind === 'exclusion')
   const tapOn = Boolean(answer?.tap) || tapLocal
   const nearOn = Boolean(answer?.rememberNear) || nearLocal
 
