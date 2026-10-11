@@ -224,6 +224,38 @@ Camps: s02, s08 and s13 (`Musik`), s05 (`Archary`). Expected: a near-duplicate q
 
 Observed while building the harness: committing the pipeline with the rule Map from `inferActivityRules` passed straight to `commitIngest` (as `electron/importDirectorPath.integration.test.js` and `electron/ingestPassExclusivity*.integration.test.js` do) stores no rules, and Generate on campB then places 0 activities and flags every free cell "Weekly max reached". `ImportScreen` sends a plain object, so the product import is unaffected, but `src/engine/buildSchedule.js:539` (`getCount(...) >= act.max_per_week`) treats null as 0, so any activity row reaching the engine without a `max_per_week` is unplaceable. Reachability from the product was not established. The harness here passes the object form the screen sends. The existing tests that pass the Map exercise Generate with no activity rules; their Generate assertions (`slots.length > 0`) are satisfied by fixed events alone.
 
+## Re-run against main a7cfb38f (same day, deterministic seeds)
+
+The harness now derives camp and cohort ids from the camp slug and scenario. Previously random ids seeded the engine's PRNG, so identical runs differed: s02 stillNeeded ranged 0 to 3 and s07 ranged 38 to 47. The JSON above was regenerated from this run, and a second run matches it with 0 changed metrics. 153 pass, 1 skipped repro hook, and `KNOWN_FAILING` is empty.
+
+The deltas below compare against the earlier (random-seed) JSON, so small per-camp swings in placed and stillNeeded on unchanged camps are seed noise, not product change.
+
+| Indicator (15 camps, zero answers) | Before | Now |
+|---|---|---|
+| Lunch-coverage invariant (F1) | 8 expected-fail | passes, `KNOWN_FAILING` empty |
+| Daily event cells covered (Generate and Manual) | 1896 / 2160 | 2160 / 2160 |
+| One-off ("single") event cells | 46 / 86 | 86 / 86 |
+| All-day event cells | 882 / 1158 | 906 / 1158 |
+| Weekly event cells (F9) | 49 / 58 | 49 / 58 |
+| Trip event cells (F3) | 8 / 118 | 8 / 118 |
+| Multi-block span, e.g. s14 Ropes Course (F5) | not one session | `runs: {2: 10}`, one double session |
+| Day-sheet camps s12/s13: questions, Manual unresolved (F7) | 8 and 21 questions; 6 and 20 unresolved | 1 and 1; 0 and 0 |
+| Unresolved time blocks (F2) | 4 | 0 |
+| Activities missing vs manifest / spurious | 8 / 31 | 2 / 28 |
+| Generate stillNeeded (sum) | 506 | 140 |
+| Questions asked (sum) | 66 | 43 |
+| Electives created from file (F6, e.g. s14) | 0 / 1 | 0 / 1 (fix in open PR #929) |
+
+**Fixed:** F1, F2, F5 and F7, plus most daily and one-off event coverage.
+
+**Still open:**
+- F3: trips and subset all-day days.
+- F6: electives, in flight in #929.
+- F9: weekly events.
+- Part of all-day coverage.
+
+**New regressions:** none found. The apparent upticks (s02 and s07 stillNeeded, s05 and s09 questions) are seed noise or a newly imported activity, for example Ropes Course now present on s05 and s14.
+
 ## Not covered by this run
 
 - XLSX merges (`blockSpans`) and any non-text input, so real merged-cell spans are untested; the text forms in this corpus are the closest a text grid can express.

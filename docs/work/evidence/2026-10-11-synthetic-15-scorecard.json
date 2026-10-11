@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-10-11T13:29:34.459Z",
-  "runtimeMs": 62807,
-  "node": "v25.8.1",
+  "generatedAt": "2026-10-11T16:57:11.038Z",
+  "runtimeMs": 32694,
+  "node": "v22.23.2",
   "camps": {
     "s01-by-day-small-5d": {
       "slug": "s01-by-day-small-5d",
@@ -10,7 +10,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 222,
+          "cpuMs": 226,
           "held": false
         },
         "confirmAll": {
@@ -101,6 +101,8 @@
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
+          "orphanMarkers": [],
+          "pinnedMarkers": 4,
           "eventQuestions": [],
           "eventOpenItems": [],
           "ok": true
@@ -178,11 +180,11 @@
             "name": "Ropes Course",
             "expected": 2,
             "form": "repeat",
-            "dbSpanBlocks": null,
+            "dbSpanBlocks": 2,
             "activityRow": true,
             "pinnedAsEvent": false,
-            "minPerWeek": 4,
-            "maxPerWeek": 6,
+            "minPerWeek": 2,
+            "maxPerWeek": 4,
             "sessionsPerGroupWeekPrinted": 2
           }
         ],
@@ -194,12 +196,12 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 42,
+        "cpuMs": 93,
         "slots": 210,
         "placed": 114,
         "unfillable": 0,
-        "stillNeeded": 10,
-        "underservedPairs": 5,
+        "stillNeeded": 1,
+        "underservedPairs": 1,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -246,21 +248,21 @@
           },
           "firstMisses": [
             "Museum Trip | Herons 1 | Wednesday | 09:20–10:05 -> activity:fishing",
-            "Museum Trip | Herons 1 | Wednesday | 10:10–10:55 -> activity:drama",
-            "Museum Trip | Herons 2 | Wednesday | 09:20–10:05 -> activity:drama",
-            "Museum Trip | Herons 2 | Wednesday | 10:10–10:55 -> activity:climbing wall",
-            "Museum Trip | Herons 3 | Wednesday | 09:20–10:05 -> activity:drumming",
-            "Museum Trip | Herons 3 | Wednesday | 10:10–10:55 -> activity:arts and crafts"
+            "Museum Trip | Herons 1 | Wednesday | 10:10–10:55 -> activity:drumming",
+            "Museum Trip | Herons 2 | Wednesday | 09:20–10:05 -> activity:dance",
+            "Museum Trip | Herons 2 | Wednesday | 10:10–10:55 -> activity:ceramics",
+            "Museum Trip | Herons 3 | Wednesday | 09:20–10:05 -> activity:ropes course",
+            "Museum Trip | Herons 3 | Wednesday | 10:10–10:55 -> activity:ropes course"
           ]
         },
         "spanRuns": [
           {
             "name": "Ropes Course",
             "expected": 2,
-            "activitySpanBlocks": null,
-            "placedGroupDays": 4,
+            "activitySpanBlocks": 2,
+            "placedGroupDays": 6,
             "runs": {
-              "1": 4
+              "2": 6
             }
           }
         ],
@@ -268,7 +270,7 @@
           {
             "name": "Museum Trip",
             "expectedCells": 6,
-            "placedTotal": 4,
+            "placedTotal": 6,
             "placedAtExpectedCells": 0
           }
         ],
@@ -352,7 +354,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 229,
+        "cpuMs": 200,
         "held": false,
         "counts": {
           "groups": 6,
@@ -448,6 +450,8 @@
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
+          "orphanMarkers": [],
+          "pinnedMarkers": 4,
           "eventQuestions": [],
           "eventOpenItems": [],
           "ok": true
@@ -525,11 +529,11 @@
             "name": "Ropes Course",
             "expected": 2,
             "form": "repeat",
-            "dbSpanBlocks": null,
+            "dbSpanBlocks": 2,
             "activityRow": true,
             "pinnedAsEvent": false,
-            "minPerWeek": 4,
-            "maxPerWeek": 6,
+            "minPerWeek": 2,
+            "maxPerWeek": 4,
             "sessionsPerGroupWeekPrinted": 2
           }
         ],
@@ -541,12 +545,12 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 25,
+        "cpuMs": 67,
         "slots": 210,
         "placed": 114,
         "unfillable": 0,
-        "stillNeeded": 9,
-        "underservedPairs": 6,
+        "stillNeeded": 0,
+        "underservedPairs": 0,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -592,22 +596,22 @@
             }
           },
           "firstMisses": [
-            "Museum Trip | Herons 1 | Wednesday | 09:20–10:05 -> activity:basketball",
-            "Museum Trip | Herons 1 | Wednesday | 10:10–10:55 -> activity:ceramics",
-            "Museum Trip | Herons 2 | Wednesday | 09:20–10:05 -> activity:drumming",
-            "Museum Trip | Herons 2 | Wednesday | 10:10–10:55 -> activity:drama",
-            "Museum Trip | Herons 3 | Wednesday | 09:20–10:05 -> activity:ceramics",
-            "Museum Trip | Herons 3 | Wednesday | 10:10–10:55 -> activity:arts and crafts"
+            "Museum Trip | Herons 1 | Wednesday | 09:20–10:05 -> activity:drumming",
+            "Museum Trip | Herons 1 | Wednesday | 10:10–10:55 -> activity:archery",
+            "Museum Trip | Herons 2 | Wednesday | 09:20–10:05 -> activity:ceramics",
+            "Museum Trip | Herons 2 | Wednesday | 10:10–10:55 -> activity:arts and crafts",
+            "Museum Trip | Herons 3 | Wednesday | 09:20–10:05 -> activity:ropes course",
+            "Museum Trip | Herons 3 | Wednesday | 10:10–10:55 -> activity:ropes course"
           ]
         },
         "spanRuns": [
           {
             "name": "Ropes Course",
             "expected": 2,
-            "activitySpanBlocks": null,
+            "activitySpanBlocks": 2,
             "placedGroupDays": 6,
             "runs": {
-              "1": 6
+              "2": 6
             }
           }
         ],
@@ -615,7 +619,7 @@
           {
             "name": "Museum Trip",
             "expectedCells": 6,
-            "placedTotal": 3,
+            "placedTotal": 6,
             "placedAtExpectedCells": 0
           }
         ],
@@ -692,7 +696,7 @@
         ],
         "electiveCells": {}
       },
-      "runtimeMs": 7976
+      "runtimeMs": 2117
     },
     "s02-by-day-three-waves": {
       "slug": "s02-by-day-three-waves",
@@ -701,7 +705,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 276,
+          "cpuMs": 342,
           "held": false
         },
         "confirmAll": {
@@ -968,6 +972,8 @@
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
+          "orphanMarkers": [],
+          "pinnedMarkers": 10,
           "eventQuestions": [
             "fixed_events:Carpool",
             "fixed_events:Morning Circle",
@@ -1076,7 +1082,7 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 67,
+        "cpuMs": 66,
         "slots": 700,
         "placed": 280,
         "unfillable": 0,
@@ -1243,7 +1249,8 @@
           "periods": null,
           "commit": {
             "ok": true,
-            "specialDayId": "0afd7132-83a4-4e77-af77-eef42f6fb041",
+            "created": true,
+            "specialDayId": "sd1:36.039d882b-df37-40cf-8332-43f827e9cfb111.colorwarday",
             "periods": 10,
             "cells": 60,
             "activitiesCreated": 9
@@ -1258,7 +1265,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 317,
+        "cpuMs": 381,
         "held": false,
         "counts": {
           "groups": 14,
@@ -1530,6 +1537,8 @@
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
+          "orphanMarkers": [],
+          "pinnedMarkers": 10,
           "eventQuestions": [
             "fixed_events:Carpool",
             "fixed_events:Morning Circle",
@@ -1634,12 +1643,12 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 55,
+        "cpuMs": 57,
         "slots": 700,
         "placed": 280,
         "unfillable": 0,
-        "stillNeeded": 0,
-        "underservedPairs": 0,
+        "stillNeeded": 1,
+        "underservedPairs": 1,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -1790,7 +1799,7 @@
           "fixed_event:chugim": 14
         }
       },
-      "runtimeMs": 11355
+      "runtimeMs": 2153
     },
     "s03-by-day-4day-24h-nolunch": {
       "slug": "s03-by-day-4day-24h-nolunch",
@@ -1799,7 +1808,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 124,
+          "cpuMs": 61,
           "held": false
         },
         "confirmAll": {
@@ -1834,36 +1843,6 @@
               "Thursday"
             ],
             "groups": "all"
-          },
-          {
-            "name": "Wilderness Skills",
-            "kind": "fixed",
-            "block": "10:15-10:45",
-            "span": 1,
-            "days": [
-              "Tuesday"
-            ],
-            "groups": "all"
-          },
-          {
-            "name": "Wilderness Skills",
-            "kind": "fixed",
-            "block": "10:45-11:15",
-            "span": 1,
-            "days": [
-              "Tuesday"
-            ],
-            "groups": "all"
-          },
-          {
-            "name": "Wilderness Skills",
-            "kind": "fixed",
-            "block": "11:15-11:45",
-            "span": 1,
-            "days": [
-              "Tuesday"
-            ],
-            "groups": "all"
           }
         ],
         "counts": {
@@ -1871,9 +1850,9 @@
           "divisions": 1,
           "days": 4,
           "timeBlocks": 6,
-          "activities": 9,
-          "pinnedEventActivities": 3,
-          "fixedEvents": 11,
+          "activities": 10,
+          "pinnedEventActivities": 2,
+          "fixedEvents": 8,
           "recurringEvents": 0,
           "electiveSets": 0,
           "specialDays": 0
@@ -1894,6 +1873,8 @@
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
+          "orphanMarkers": [],
+          "pinnedMarkers": 2,
           "eventQuestions": [],
           "eventOpenItems": [],
           "ok": true
@@ -1945,21 +1926,19 @@
             "Farm Trip"
           ],
           "spuriousCount": 1,
-          "missing": [
-            "Wilderness Skills"
-          ],
-          "missingCount": 1
+          "missing": [],
+          "missingCount": 0
         },
         "spansDb": [
           {
             "name": "Wilderness Skills",
             "expected": 3,
             "form": "repeat",
-            "dbSpanBlocks": null,
+            "dbSpanBlocks": 3,
             "activityRow": true,
-            "pinnedAsEvent": true,
-            "minPerWeek": null,
-            "maxPerWeek": null,
+            "pinnedAsEvent": false,
+            "minPerWeek": 1,
+            "maxPerWeek": 3,
             "sessionsPerGroupWeekPrinted": 1
           }
         ],
@@ -1971,12 +1950,12 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 16,
+        "cpuMs": 13,
         "slots": 72,
-        "placed": 39,
+        "placed": 48,
         "unfillable": 0,
-        "stillNeeded": 6,
-        "underservedPairs": 5,
+        "stillNeeded": 3,
+        "underservedPairs": 3,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -2006,27 +1985,29 @@
             }
           },
           "firstMisses": [
-            "Farm Trip | Otters 1 | Thursday | 10:15–10:45 -> activity:farm trip",
-            "Farm Trip | Otters 1 | Thursday | 10:45–11:15 -> activity:dance",
+            "Farm Trip | Otters 1 | Thursday | 10:15–10:45 -> activity:chess club",
+            "Farm Trip | Otters 1 | Thursday | 10:45–11:15 -> activity:arts and crafts",
             "Farm Trip | Otters 1 | Thursday | 11:15–11:45 -> activity:swim test",
-            "Farm Trip | Otters 1 | Thursday | 11:45–12:15 -> activity:arts and crafts"
+            "Farm Trip | Otters 1 | Thursday | 11:45–12:15 -> activity:basketball"
           ]
         },
         "spanRuns": [
           {
             "name": "Wilderness Skills",
             "expected": 3,
-            "activitySpanBlocks": null,
-            "placedGroupDays": 0,
-            "runs": {}
+            "activitySpanBlocks": 3,
+            "placedGroupDays": 3,
+            "runs": {
+              "3": 3
+            }
           }
         ],
         "displacedAsActivity": [
           {
             "name": "Farm Trip",
             "expectedCells": 4,
-            "placedTotal": 2,
-            "placedAtExpectedCells": 1
+            "placedTotal": 4,
+            "placedAtExpectedCells": 0
           }
         ],
         "electiveCells": {
@@ -2091,7 +2072,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 92,
+        "cpuMs": 73,
         "held": false,
         "counts": {
           "groups": 3,
@@ -2100,7 +2081,7 @@
           "time_blocks": 6,
           "activities": 12,
           "locations": 0,
-          "fixed_events": 11,
+          "fixed_events": 8,
           "elective_sets": 0
         }
       },
@@ -2131,36 +2112,6 @@
               "Thursday"
             ],
             "groups": "all"
-          },
-          {
-            "name": "Wilderness Skills",
-            "kind": "fixed",
-            "block": "10:15-10:45",
-            "span": 1,
-            "days": [
-              "Tuesday"
-            ],
-            "groups": "all"
-          },
-          {
-            "name": "Wilderness Skills",
-            "kind": "fixed",
-            "block": "10:45-11:15",
-            "span": 1,
-            "days": [
-              "Tuesday"
-            ],
-            "groups": "all"
-          },
-          {
-            "name": "Wilderness Skills",
-            "kind": "fixed",
-            "block": "11:15-11:45",
-            "span": 1,
-            "days": [
-              "Tuesday"
-            ],
-            "groups": "all"
           }
         ],
         "counts": {
@@ -2168,9 +2119,9 @@
           "divisions": 1,
           "days": 4,
           "timeBlocks": 6,
-          "activities": 9,
-          "pinnedEventActivities": 3,
-          "fixedEvents": 11,
+          "activities": 10,
+          "pinnedEventActivities": 2,
+          "fixedEvents": 8,
           "recurringEvents": 0,
           "electiveSets": 0,
           "specialDays": 0
@@ -2191,6 +2142,8 @@
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
+          "orphanMarkers": [],
+          "pinnedMarkers": 2,
           "eventQuestions": [],
           "eventOpenItems": [],
           "ok": true
@@ -2242,21 +2195,19 @@
             "Farm Trip"
           ],
           "spuriousCount": 1,
-          "missing": [
-            "Wilderness Skills"
-          ],
-          "missingCount": 1
+          "missing": [],
+          "missingCount": 0
         },
         "spansDb": [
           {
             "name": "Wilderness Skills",
             "expected": 3,
             "form": "repeat",
-            "dbSpanBlocks": null,
+            "dbSpanBlocks": 3,
             "activityRow": true,
-            "pinnedAsEvent": true,
-            "minPerWeek": null,
-            "maxPerWeek": null,
+            "pinnedAsEvent": false,
+            "minPerWeek": 1,
+            "maxPerWeek": 3,
             "sessionsPerGroupWeekPrinted": 1
           }
         ],
@@ -2268,12 +2219,12 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 3,
+        "cpuMs": 12,
         "slots": 72,
-        "placed": 39,
+        "placed": 48,
         "unfillable": 0,
-        "stillNeeded": 7,
-        "underservedPairs": 5,
+        "stillNeeded": 3,
+        "underservedPairs": 3,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -2303,9 +2254,9 @@
             }
           },
           "firstMisses": [
-            "Farm Trip | Otters 1 | Thursday | 10:15–10:45 -> activity:arts and crafts",
-            "Farm Trip | Otters 1 | Thursday | 10:45–11:15 -> activity:dance",
-            "Farm Trip | Otters 1 | Thursday | 11:15–11:45 -> activity:basketball",
+            "Farm Trip | Otters 1 | Thursday | 10:15–10:45 -> activity:ceramics",
+            "Farm Trip | Otters 1 | Thursday | 10:45–11:15 -> activity:basketball",
+            "Farm Trip | Otters 1 | Thursday | 11:15–11:45 -> activity:arts and crafts",
             "Farm Trip | Otters 1 | Thursday | 11:45–12:15 -> activity:chess club"
           ]
         },
@@ -2313,16 +2264,18 @@
           {
             "name": "Wilderness Skills",
             "expected": 3,
-            "activitySpanBlocks": null,
-            "placedGroupDays": 0,
-            "runs": {}
+            "activitySpanBlocks": 3,
+            "placedGroupDays": 3,
+            "runs": {
+              "3": 3
+            }
           }
         ],
         "displacedAsActivity": [
           {
             "name": "Farm Trip",
             "expectedCells": 4,
-            "placedTotal": 1,
+            "placedTotal": 4,
             "placedAtExpectedCells": 0
           }
         ],
@@ -2381,7 +2334,7 @@
         ],
         "electiveCells": {}
       },
-      "runtimeMs": 2012
+      "runtimeMs": 701
     },
     "s04-by-day-6day-large": {
       "slug": "s04-by-day-6day-large",
@@ -2390,7 +2343,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 272,
+          "cpuMs": 314,
           "held": false
         },
         "confirmAll": {
@@ -2459,6 +2412,30 @@
             "groups": "17 groups"
           },
           {
+            "name": "Flag Raising",
+            "kind": "recurring",
+            "block": "08:50-09:00",
+            "span": 1,
+            "days": [
+              "Monday",
+              "Tuesday",
+              "Wednesday",
+              "Thursday",
+              "Saturday"
+            ],
+            "groups": "all"
+          },
+          {
+            "name": "Flag Raising",
+            "kind": "recurring",
+            "block": "08:50-09:00",
+            "span": 1,
+            "days": [
+              "Friday"
+            ],
+            "groups": "17 groups"
+          },
+          {
             "name": "Lunch 1",
             "kind": "recurring",
             "block": "11:15-12:00",
@@ -2518,11 +2495,11 @@
           "groups": 25,
           "divisions": 7,
           "days": 6,
-          "timeBlocks": 8,
+          "timeBlocks": 9,
           "activities": 41,
           "pinnedEventActivities": 7,
           "fixedEvents": 2,
-          "recurringEvents": 24,
+          "recurringEvents": 30,
           "electiveSets": 0,
           "specialDays": 0
         },
@@ -2544,6 +2521,8 @@
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
+          "orphanMarkers": [],
+          "pinnedMarkers": 7,
           "eventQuestions": [],
           "eventOpenItems": [],
           "ok": true
@@ -2573,7 +2552,7 @@
               "total": 142
             },
             "daily": {
-              "ok": 284,
+              "ok": 426,
               "total": 426
             },
             "single": {
@@ -2607,7 +2586,7 @@
               "total": 142
             },
             "Flag Raising": {
-              "ok": 0,
+              "ok": 142,
               "total": 142
             },
             "Dismissal": {
@@ -2654,22 +2633,22 @@
             "name": "Ropes Course",
             "expected": 2,
             "form": "repeat",
-            "dbSpanBlocks": null,
+            "dbSpanBlocks": 2,
             "activityRow": true,
             "pinnedAsEvent": false,
-            "minPerWeek": 2,
-            "maxPerWeek": 4,
+            "minPerWeek": 1,
+            "maxPerWeek": 3,
             "sessionsPerGroupWeekPrinted": 1
           },
           {
             "name": "Wilderness Skills",
             "expected": 2,
             "form": "repeat",
-            "dbSpanBlocks": null,
+            "dbSpanBlocks": 2,
             "activityRow": true,
             "pinnedAsEvent": false,
-            "minPerWeek": 4,
-            "maxPerWeek": 6,
+            "minPerWeek": 2,
+            "maxPerWeek": 4,
             "sessionsPerGroupWeekPrinted": 2
           }
         ],
@@ -2678,17 +2657,15 @@
           "created": 0,
           "withEligibility": 0
         },
-        "unresolvedTimeBlocks": [
-          "08:50–09:00"
-        ]
+        "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 172,
-        "slots": 1200,
+        "cpuMs": 658,
+        "slots": 1350,
         "placed": 724,
         "unfillable": 0,
-        "stillNeeded": 103,
-        "underservedPairs": 38,
+        "stillNeeded": 16,
+        "underservedPairs": 16,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -2707,7 +2684,7 @@
               "total": 142
             },
             "daily": {
-              "ok": 284,
+              "ok": 426,
               "total": 426
             },
             "single": {
@@ -2741,7 +2718,7 @@
               "total": 142
             },
             "Flag Raising": {
-              "ok": 0,
+              "ok": 142,
               "total": 142
             },
             "Dismissal": {
@@ -2758,37 +2735,37 @@
             }
           },
           "firstMisses": [
-            "Aquarium Trip | Moles 1 | Wednesday | 09:05–10:05 -> activity:robotics",
-            "Aquarium Trip | Moles 1 | Wednesday | 10:10–11:10 -> activity:gaga pit",
-            "Aquarium Trip | Moles 2 | Wednesday | 09:05–10:05 -> activity:robotics",
-            "Aquarium Trip | Moles 2 | Wednesday | 10:10–11:10 -> activity:painting",
-            "Aquarium Trip | Moles 3 | Wednesday | 09:05–10:05 -> activity:volleyball",
-            "Aquarium Trip | Moles 3 | Wednesday | 10:10–11:10 -> activity:soccer",
-            "Aquarium Trip | Moles 4 | Wednesday | 09:05–10:05 -> activity:kayaking",
-            "Aquarium Trip | Moles 4 | Wednesday | 10:10–11:10 -> activity:trampoline",
-            "Aquarium Trip | Voles 1 | Wednesday | 09:05–10:05 -> activity:kayaking",
-            "Aquarium Trip | Voles 1 | Wednesday | 10:10–11:10 -> activity:hiking",
-            "Aquarium Trip | Voles 2 | Wednesday | 09:05–10:05 -> activity:arts and crafts",
-            "Aquarium Trip | Voles 2 | Wednesday | 10:10–11:10 -> activity:drumming"
+            "Aquarium Trip | Moles 1 | Wednesday | 09:05–10:05 -> activity:pottery",
+            "Aquarium Trip | Moles 1 | Wednesday | 10:10–11:10 -> activity:free swim",
+            "Aquarium Trip | Moles 2 | Wednesday | 09:05–10:05 -> activity:lanyard",
+            "Aquarium Trip | Moles 2 | Wednesday | 10:10–11:10 -> activity:kayaking",
+            "Aquarium Trip | Moles 3 | Wednesday | 09:05–10:05 -> activity:aquarium trip",
+            "Aquarium Trip | Moles 3 | Wednesday | 10:10–11:10 -> activity:aquarium trip",
+            "Aquarium Trip | Moles 4 | Wednesday | 09:05–10:05 -> activity:robotics",
+            "Aquarium Trip | Moles 4 | Wednesday | 10:10–11:10 -> activity:soccer",
+            "Aquarium Trip | Voles 1 | Wednesday | 09:05–10:05 -> activity:sailing",
+            "Aquarium Trip | Voles 1 | Wednesday | 10:10–11:10 -> activity:music",
+            "Aquarium Trip | Voles 2 | Wednesday | 09:05–10:05 -> activity:archery",
+            "Aquarium Trip | Voles 2 | Wednesday | 10:10–11:10 -> activity:volleyball"
           ]
         },
         "spanRuns": [
           {
             "name": "Ropes Course",
             "expected": 2,
-            "activitySpanBlocks": null,
-            "placedGroupDays": 9,
+            "activitySpanBlocks": 2,
+            "placedGroupDays": 10,
             "runs": {
-              "1": 9
+              "2": 10
             }
           },
           {
             "name": "Wilderness Skills",
             "expected": 2,
-            "activitySpanBlocks": null,
-            "placedGroupDays": 10,
+            "activitySpanBlocks": 2,
+            "placedGroupDays": 16,
             "runs": {
-              "1": 10
+              "2": 16
             }
           }
         ],
@@ -2796,14 +2773,14 @@
           {
             "name": "Aquarium Trip",
             "expectedCells": 16,
-            "placedTotal": 9,
-            "placedAtExpectedCells": 0
+            "placedTotal": 16,
+            "placedAtExpectedCells": 2
           },
           {
             "name": "Games Day",
             "expectedCells": 72,
-            "placedTotal": 13,
-            "placedAtExpectedCells": 2
+            "placedTotal": 0,
+            "placedAtExpectedCells": 0
           }
         ],
         "electiveCells": {
@@ -2817,8 +2794,8 @@
         "created": true,
         "unresolvedCount": 0,
         "unresolvedNames": [],
-        "placements": 1219,
-        "snapshotSlots": 1219,
+        "placements": 1369,
+        "snapshotSlots": 1369,
         "eventCells": {
           "byKind": {
             "trip": {
@@ -2834,7 +2811,7 @@
               "total": 142
             },
             "daily": {
-              "ok": 284,
+              "ok": 426,
               "total": 426
             },
             "single": {
@@ -2868,7 +2845,7 @@
               "total": 142
             },
             "Flag Raising": {
-              "ok": 0,
+              "ok": 142,
               "total": 142
             },
             "Dismissal": {
@@ -2929,16 +2906,16 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 488,
+        "cpuMs": 476,
         "held": false,
         "counts": {
           "groups": 25,
           "tiers": 7,
           "days_of_operation": 6,
-          "time_blocks": 8,
+          "time_blocks": 9,
           "activities": 48,
           "locations": 0,
-          "fixed_events": 26,
+          "fixed_events": 32,
           "elective_sets": 0
         }
       },
@@ -2996,6 +2973,30 @@
             "name": "Dismissal",
             "kind": "recurring",
             "block": "03:05-03:20",
+            "span": 1,
+            "days": [
+              "Friday"
+            ],
+            "groups": "17 groups"
+          },
+          {
+            "name": "Flag Raising",
+            "kind": "recurring",
+            "block": "08:50-09:00",
+            "span": 1,
+            "days": [
+              "Monday",
+              "Tuesday",
+              "Wednesday",
+              "Thursday",
+              "Saturday"
+            ],
+            "groups": "all"
+          },
+          {
+            "name": "Flag Raising",
+            "kind": "recurring",
+            "block": "08:50-09:00",
             "span": 1,
             "days": [
               "Friday"
@@ -3062,11 +3063,11 @@
           "groups": 25,
           "divisions": 7,
           "days": 6,
-          "timeBlocks": 8,
+          "timeBlocks": 9,
           "activities": 41,
           "pinnedEventActivities": 7,
           "fixedEvents": 2,
-          "recurringEvents": 24,
+          "recurringEvents": 30,
           "electiveSets": 2,
           "specialDays": 0
         },
@@ -3088,6 +3089,8 @@
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
+          "orphanMarkers": [],
+          "pinnedMarkers": 7,
           "eventQuestions": [],
           "eventOpenItems": [],
           "ok": true
@@ -3117,7 +3120,7 @@
               "total": 142
             },
             "daily": {
-              "ok": 284,
+              "ok": 426,
               "total": 426
             },
             "single": {
@@ -3151,7 +3154,7 @@
               "total": 142
             },
             "Flag Raising": {
-              "ok": 0,
+              "ok": 142,
               "total": 142
             },
             "Dismissal": {
@@ -3198,22 +3201,22 @@
             "name": "Ropes Course",
             "expected": 2,
             "form": "repeat",
-            "dbSpanBlocks": null,
+            "dbSpanBlocks": 2,
             "activityRow": true,
             "pinnedAsEvent": false,
-            "minPerWeek": 2,
-            "maxPerWeek": 4,
+            "minPerWeek": 1,
+            "maxPerWeek": 3,
             "sessionsPerGroupWeekPrinted": 1
           },
           {
             "name": "Wilderness Skills",
             "expected": 2,
             "form": "repeat",
-            "dbSpanBlocks": null,
+            "dbSpanBlocks": 2,
             "activityRow": true,
             "pinnedAsEvent": false,
-            "minPerWeek": 4,
-            "maxPerWeek": 6,
+            "minPerWeek": 2,
+            "maxPerWeek": 4,
             "sessionsPerGroupWeekPrinted": 2
           }
         ],
@@ -3222,17 +3225,15 @@
           "created": 1,
           "withEligibility": 0
         },
-        "unresolvedTimeBlocks": [
-          "08:50–09:00"
-        ]
+        "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 156,
-        "slots": 1200,
+        "cpuMs": 603,
+        "slots": 1350,
         "placed": 724,
         "unfillable": 0,
-        "stillNeeded": 104,
-        "underservedPairs": 38,
+        "stillNeeded": 16,
+        "underservedPairs": 16,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -3251,7 +3252,7 @@
               "total": 142
             },
             "daily": {
-              "ok": 284,
+              "ok": 426,
               "total": 426
             },
             "single": {
@@ -3285,7 +3286,7 @@
               "total": 142
             },
             "Flag Raising": {
-              "ok": 0,
+              "ok": 142,
               "total": 142
             },
             "Dismissal": {
@@ -3302,37 +3303,37 @@
             }
           },
           "firstMisses": [
-            "Aquarium Trip | Moles 1 | Wednesday | 09:05–10:05 -> activity:tie dye",
-            "Aquarium Trip | Moles 1 | Wednesday | 10:10–11:10 -> activity:orienteering",
-            "Aquarium Trip | Moles 2 | Wednesday | 09:05–10:05 -> activity:knitting",
-            "Aquarium Trip | Moles 2 | Wednesday | 10:10–11:10 -> activity:painting",
-            "Aquarium Trip | Moles 3 | Wednesday | 09:05–10:05 -> activity:bocce",
-            "Aquarium Trip | Moles 3 | Wednesday | 10:10–11:10 -> activity:photography",
-            "Aquarium Trip | Moles 4 | Wednesday | 09:05–10:05 -> activity:music",
-            "Aquarium Trip | Moles 4 | Wednesday | 10:10–11:10 -> activity:storytelling",
-            "Aquarium Trip | Voles 1 | Wednesday | 09:05–10:05 -> activity:hiking",
-            "Aquarium Trip | Voles 1 | Wednesday | 10:10–11:10 -> activity:orienteering",
-            "Aquarium Trip | Voles 2 | Wednesday | 09:05–10:05 -> activity:puppetry",
-            "Aquarium Trip | Voles 2 | Wednesday | 10:10–11:10 -> activity:storytelling"
+            "Aquarium Trip | Moles 1 | Wednesday | 09:05–10:05 -> activity:volleyball",
+            "Aquarium Trip | Moles 1 | Wednesday | 10:10–11:10 -> activity:swim",
+            "Aquarium Trip | Moles 2 | Wednesday | 09:05–10:05 -> activity:orienteering",
+            "Aquarium Trip | Moles 2 | Wednesday | 10:10–11:10 -> activity:fishing",
+            "Aquarium Trip | Moles 3 | Wednesday | 09:05–10:05 -> activity:aquarium trip",
+            "Aquarium Trip | Moles 3 | Wednesday | 10:10–11:10 -> activity:aquarium trip",
+            "Aquarium Trip | Moles 4 | Wednesday | 09:05–10:05 -> activity:pottery",
+            "Aquarium Trip | Moles 4 | Wednesday | 10:10–11:10 -> activity:volleyball",
+            "Aquarium Trip | Voles 1 | Wednesday | 09:05–10:05 -> activity:bocce",
+            "Aquarium Trip | Voles 1 | Wednesday | 10:10–11:10 -> activity:soccer",
+            "Aquarium Trip | Voles 2 | Wednesday | 09:05–10:05 -> activity:tennis",
+            "Aquarium Trip | Voles 2 | Wednesday | 10:10–11:10 -> activity:electives"
           ]
         },
         "spanRuns": [
           {
             "name": "Ropes Course",
             "expected": 2,
-            "activitySpanBlocks": null,
-            "placedGroupDays": 10,
+            "activitySpanBlocks": 2,
+            "placedGroupDays": 9,
             "runs": {
-              "1": 10
+              "2": 9
             }
           },
           {
             "name": "Wilderness Skills",
             "expected": 2,
-            "activitySpanBlocks": null,
-            "placedGroupDays": 9,
+            "activitySpanBlocks": 2,
+            "placedGroupDays": 16,
             "runs": {
-              "1": 9
+              "2": 16
             }
           }
         ],
@@ -3340,14 +3341,14 @@
           {
             "name": "Aquarium Trip",
             "expectedCells": 16,
-            "placedTotal": 8,
-            "placedAtExpectedCells": 0
+            "placedTotal": 16,
+            "placedAtExpectedCells": 2
           },
           {
             "name": "Games Day",
             "expectedCells": 72,
-            "placedTotal": 13,
-            "placedAtExpectedCells": 4
+            "placedTotal": 0,
+            "placedAtExpectedCells": 0
           }
         ],
         "electiveCells": {
@@ -3361,8 +3362,8 @@
         "created": true,
         "unresolvedCount": 0,
         "unresolvedNames": [],
-        "placements": 1219,
-        "snapshotSlots": 1219,
+        "placements": 1369,
+        "snapshotSlots": 1369,
         "eventCells": {
           "byKind": {
             "trip": {
@@ -3378,7 +3379,7 @@
               "total": 142
             },
             "daily": {
-              "ok": 284,
+              "ok": 426,
               "total": 426
             },
             "single": {
@@ -3412,7 +3413,7 @@
               "total": 142
             },
             "Flag Raising": {
-              "ok": 0,
+              "ok": 142,
               "total": 142
             },
             "Dismissal": {
@@ -3466,7 +3467,7 @@
           "activity:ceramics / kayaking / yoga / puppetry": 8
         }
       },
-      "runtimeMs": 10761
+      "runtimeMs": 4880
     },
     "s05-by-day-tiny-early": {
       "slug": "s05-by-day-tiny-early",
@@ -3475,7 +3476,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 93,
+          "cpuMs": 287,
           "held": false
         },
         "confirmAll": {
@@ -3485,6 +3486,16 @@
       },
       "zeroAnswers": {
         "eventRows": [
+          {
+            "name": "Games Day",
+            "kind": "fixed",
+            "block": "07:30-07:40",
+            "span": 1,
+            "days": [
+              "Friday"
+            ],
+            "groups": "all"
+          },
           {
             "name": "Games Day",
             "kind": "fixed",
@@ -3546,6 +3557,16 @@
             "groups": "all"
           },
           {
+            "name": "Games Day",
+            "kind": "fixed",
+            "block": "09:40-09:50",
+            "span": 1,
+            "days": [
+              "Friday"
+            ],
+            "groups": "all"
+          },
+          {
             "name": "Lunch",
             "kind": "fixed",
             "block": "08:40-09:00",
@@ -3559,32 +3580,28 @@
             "groups": "all"
           },
           {
-            "name": "Ropes Course",
+            "name": "Reveille",
             "kind": "fixed",
-            "block": "07:40-08:00",
+            "block": "07:30-07:40",
             "span": 1,
             "days": [
-              "Monday"
+              "Monday",
+              "Tuesday",
+              "Wednesday",
+              "Thursday"
             ],
             "groups": "all"
           },
           {
-            "name": "Ropes Course",
+            "name": "Taps",
             "kind": "fixed",
-            "block": "08:00-08:20",
+            "block": "09:40-09:50",
             "span": 1,
             "days": [
-              "Monday"
-            ],
-            "groups": "all"
-          },
-          {
-            "name": "Ropes Course",
-            "kind": "fixed",
-            "block": "08:20-08:40",
-            "span": 1,
-            "days": [
-              "Monday"
+              "Monday",
+              "Tuesday",
+              "Wednesday",
+              "Thursday"
             ],
             "groups": "all"
           }
@@ -3593,10 +3610,10 @@
           "groups": 2,
           "divisions": 1,
           "days": 5,
-          "timeBlocks": 6,
-          "activities": 8,
-          "pinnedEventActivities": 5,
-          "fixedEvents": 13,
+          "timeBlocks": 8,
+          "activities": 9,
+          "pinnedEventActivities": 4,
+          "fixedEvents": 20,
           "recurringEvents": 0,
           "electiveSets": 0,
           "specialDays": 0
@@ -3609,16 +3626,26 @@
           "activities": 7
         },
         "questions": {
-          "total": 0,
-          "byKind": {}
+          "total": 2,
+          "byKind": {
+            "confirm_value": 2
+          }
         },
         "exclusivity": {
           "decisions": [],
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
-          "eventQuestions": [],
-          "eventOpenItems": [],
+          "orphanMarkers": [],
+          "pinnedMarkers": 4,
+          "eventQuestions": [
+            "fixed_events:Reveille",
+            "fixed_events:Taps"
+          ],
+          "eventOpenItems": [
+            "fixed_events:Reveille",
+            "fixed_events:Taps"
+          ],
           "ok": true
         },
         "lunch": {
@@ -3638,7 +3665,7 @@
               "total": 2
             },
             "allday": {
-              "ok": 12,
+              "ok": 16,
               "total": 16
             },
             "lunch": {
@@ -3646,7 +3673,7 @@
               "total": 8
             },
             "daily": {
-              "ok": 0,
+              "ok": 16,
               "total": 16
             }
           },
@@ -3656,7 +3683,7 @@
               "total": 2
             },
             "Games Day": {
-              "ok": 12,
+              "ok": 16,
               "total": 16
             },
             "Lunch": {
@@ -3664,27 +3691,17 @@
               "total": 8
             },
             "Reveille": {
-              "ok": 0,
+              "ok": 8,
               "total": 8
             },
             "Taps": {
-              "ok": 0,
+              "ok": 8,
               "total": 8
             }
           },
           "firstMisses": [
             "Farm Trip | Otters 2 | Thursday | 09:00–09:20",
-            "Farm Trip | Otters 2 | Thursday | 09:20–09:40",
-            "Games Day | Otters 1 | Friday | 07:30–07:40",
-            "Games Day | Otters 1 | Friday | 09:40–09:50",
-            "Games Day | Otters 2 | Friday | 07:30–07:40",
-            "Games Day | Otters 2 | Friday | 09:40–09:50",
-            "Reveille | Otters 1 | Monday | 07:30–07:40",
-            "Reveille | Otters 1 | Tuesday | 07:30–07:40",
-            "Reveille | Otters 1 | Wednesday | 07:30–07:40",
-            "Reveille | Otters 1 | Thursday | 07:30–07:40",
-            "Reveille | Otters 2 | Monday | 07:30–07:40",
-            "Reveille | Otters 2 | Tuesday | 07:30–07:40"
+            "Farm Trip | Otters 2 | Thursday | 09:20–09:40"
           ]
         },
         "activitiesVsManifest": {
@@ -3693,21 +3710,19 @@
             "Farm Trip"
           ],
           "spuriousCount": 2,
-          "missing": [
-            "Ropes Course"
-          ],
-          "missingCount": 1
+          "missing": [],
+          "missingCount": 0
         },
         "spansDb": [
           {
             "name": "Ropes Course",
             "expected": 3,
             "form": "repeat",
-            "dbSpanBlocks": null,
+            "dbSpanBlocks": 3,
             "activityRow": true,
-            "pinnedAsEvent": true,
-            "minPerWeek": null,
-            "maxPerWeek": null,
+            "pinnedAsEvent": false,
+            "minPerWeek": 1,
+            "maxPerWeek": 3,
             "sessionsPerGroupWeekPrinted": 1
           }
         ],
@@ -3716,18 +3731,15 @@
           "created": 0,
           "withEligibility": 0
         },
-        "unresolvedTimeBlocks": [
-          "07:30–07:40",
-          "09:40–09:50"
-        ]
+        "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 5,
-        "slots": 60,
-        "placed": 34,
+        "cpuMs": 9,
+        "slots": 80,
+        "placed": 40,
         "unfillable": 0,
-        "stillNeeded": 7,
-        "underservedPairs": 7,
+        "stillNeeded": 8,
+        "underservedPairs": 8,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -3738,7 +3750,7 @@
               "total": 2
             },
             "allday": {
-              "ok": 12,
+              "ok": 16,
               "total": 16
             },
             "lunch": {
@@ -3746,7 +3758,7 @@
               "total": 8
             },
             "daily": {
-              "ok": 0,
+              "ok": 16,
               "total": 16
             }
           },
@@ -3756,7 +3768,7 @@
               "total": 2
             },
             "Games Day": {
-              "ok": 12,
+              "ok": 16,
               "total": 16
             },
             "Lunch": {
@@ -3764,36 +3776,28 @@
               "total": 8
             },
             "Reveille": {
-              "ok": 0,
+              "ok": 8,
               "total": 8
             },
             "Taps": {
-              "ok": 0,
+              "ok": 8,
               "total": 8
             }
           },
           "firstMisses": [
             "Farm Trip | Otters 2 | Thursday | 09:00–09:20 -> activity:ceramics",
-            "Farm Trip | Otters 2 | Thursday | 09:20–09:40 -> activity:climbing wall",
-            "Games Day | Otters 1 | Friday | 07:30–07:40 -> none:",
-            "Games Day | Otters 1 | Friday | 09:40–09:50 -> none:",
-            "Games Day | Otters 2 | Friday | 07:30–07:40 -> none:",
-            "Games Day | Otters 2 | Friday | 09:40–09:50 -> none:",
-            "Reveille | Otters 1 | Monday | 07:30–07:40 -> none:",
-            "Reveille | Otters 1 | Tuesday | 07:30–07:40 -> none:",
-            "Reveille | Otters 1 | Wednesday | 07:30–07:40 -> none:",
-            "Reveille | Otters 1 | Thursday | 07:30–07:40 -> none:",
-            "Reveille | Otters 2 | Monday | 07:30–07:40 -> none:",
-            "Reveille | Otters 2 | Tuesday | 07:30–07:40 -> none:"
+            "Farm Trip | Otters 2 | Thursday | 09:20–09:40 -> activity:archary"
           ]
         },
         "spanRuns": [
           {
             "name": "Ropes Course",
             "expected": 3,
-            "activitySpanBlocks": null,
-            "placedGroupDays": 0,
-            "runs": {}
+            "activitySpanBlocks": 3,
+            "placedGroupDays": 2,
+            "runs": {
+              "3": 2
+            }
           }
         ],
         "displacedAsActivity": [
@@ -3813,8 +3817,8 @@
         "created": true,
         "unresolvedCount": 0,
         "unresolvedNames": [],
-        "placements": 60,
-        "snapshotSlots": 60,
+        "placements": 80,
+        "snapshotSlots": 80,
         "eventCells": {
           "byKind": {
             "trip": {
@@ -3822,7 +3826,7 @@
               "total": 2
             },
             "allday": {
-              "ok": 12,
+              "ok": 16,
               "total": 16
             },
             "lunch": {
@@ -3830,7 +3834,7 @@
               "total": 8
             },
             "daily": {
-              "ok": 0,
+              "ok": 16,
               "total": 16
             }
           },
@@ -3840,7 +3844,7 @@
               "total": 2
             },
             "Games Day": {
-              "ok": 12,
+              "ok": 16,
               "total": 16
             },
             "Lunch": {
@@ -3848,27 +3852,17 @@
               "total": 8
             },
             "Reveille": {
-              "ok": 0,
+              "ok": 8,
               "total": 8
             },
             "Taps": {
-              "ok": 0,
+              "ok": 8,
               "total": 8
             }
           },
           "firstMisses": [
             "Farm Trip | Otters 2 | Thursday | 09:00–09:20 -> activity:farm trip",
-            "Farm Trip | Otters 2 | Thursday | 09:20–09:40 -> activity:farm trip",
-            "Games Day | Otters 1 | Friday | 07:30–07:40 -> none:",
-            "Games Day | Otters 1 | Friday | 09:40–09:50 -> none:",
-            "Games Day | Otters 2 | Friday | 07:30–07:40 -> none:",
-            "Games Day | Otters 2 | Friday | 09:40–09:50 -> none:",
-            "Reveille | Otters 1 | Monday | 07:30–07:40 -> none:",
-            "Reveille | Otters 1 | Tuesday | 07:30–07:40 -> none:",
-            "Reveille | Otters 1 | Wednesday | 07:30–07:40 -> none:",
-            "Reveille | Otters 1 | Thursday | 07:30–07:40 -> none:",
-            "Reveille | Otters 2 | Monday | 07:30–07:40 -> none:",
-            "Reveille | Otters 2 | Tuesday | 07:30–07:40 -> none:"
+            "Farm Trip | Otters 2 | Thursday | 09:20–09:40 -> activity:farm trip"
           ]
         },
         "spans": [
@@ -3894,7 +3888,8 @@
           "periods": null,
           "commit": {
             "ok": true,
-            "specialDayId": "eae1c44c-5819-411c-af98-008c0c06c4b8",
+            "created": true,
+            "specialDayId": "sd1:36.ac5896e1-43df-44e4-85b4-c2b6e6b180858.gamesday",
             "periods": 8,
             "cells": 16,
             "activitiesCreated": 7
@@ -3909,21 +3904,31 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 102,
+        "cpuMs": 99,
         "held": false,
         "counts": {
           "groups": 2,
           "tiers": 1,
           "days_of_operation": 5,
-          "time_blocks": 6,
+          "time_blocks": 8,
           "activities": 13,
           "locations": 0,
-          "fixed_events": 13,
+          "fixed_events": 20,
           "elective_sets": 0
         }
       },
       "confirmAll": {
         "eventRows": [
+          {
+            "name": "Games Day",
+            "kind": "fixed",
+            "block": "07:30-07:40",
+            "span": 1,
+            "days": [
+              "Friday"
+            ],
+            "groups": "all"
+          },
           {
             "name": "Games Day",
             "kind": "fixed",
@@ -3985,6 +3990,16 @@
             "groups": "all"
           },
           {
+            "name": "Games Day",
+            "kind": "fixed",
+            "block": "09:40-09:50",
+            "span": 1,
+            "days": [
+              "Friday"
+            ],
+            "groups": "all"
+          },
+          {
             "name": "Lunch",
             "kind": "fixed",
             "block": "08:40-09:00",
@@ -3998,32 +4013,28 @@
             "groups": "all"
           },
           {
-            "name": "Ropes Course",
+            "name": "Reveille",
             "kind": "fixed",
-            "block": "07:40-08:00",
+            "block": "07:30-07:40",
             "span": 1,
             "days": [
-              "Monday"
+              "Monday",
+              "Tuesday",
+              "Wednesday",
+              "Thursday"
             ],
             "groups": "all"
           },
           {
-            "name": "Ropes Course",
+            "name": "Taps",
             "kind": "fixed",
-            "block": "08:00-08:20",
+            "block": "09:40-09:50",
             "span": 1,
             "days": [
-              "Monday"
-            ],
-            "groups": "all"
-          },
-          {
-            "name": "Ropes Course",
-            "kind": "fixed",
-            "block": "08:20-08:40",
-            "span": 1,
-            "days": [
-              "Monday"
+              "Monday",
+              "Tuesday",
+              "Wednesday",
+              "Thursday"
             ],
             "groups": "all"
           }
@@ -4032,10 +4043,10 @@
           "groups": 2,
           "divisions": 1,
           "days": 5,
-          "timeBlocks": 6,
-          "activities": 8,
-          "pinnedEventActivities": 5,
-          "fixedEvents": 13,
+          "timeBlocks": 8,
+          "activities": 9,
+          "pinnedEventActivities": 4,
+          "fixedEvents": 20,
           "recurringEvents": 0,
           "electiveSets": 0,
           "specialDays": 0
@@ -4048,15 +4059,22 @@
           "activities": 7
         },
         "questions": {
-          "total": 0,
-          "byKind": {}
+          "total": 2,
+          "byKind": {
+            "confirm_value": 2
+          }
         },
         "exclusivity": {
           "decisions": [],
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
-          "eventQuestions": [],
+          "orphanMarkers": [],
+          "pinnedMarkers": 4,
+          "eventQuestions": [
+            "fixed_events:Reveille",
+            "fixed_events:Taps"
+          ],
           "eventOpenItems": [],
           "ok": true
         },
@@ -4077,7 +4095,7 @@
               "total": 2
             },
             "allday": {
-              "ok": 12,
+              "ok": 16,
               "total": 16
             },
             "lunch": {
@@ -4085,7 +4103,7 @@
               "total": 8
             },
             "daily": {
-              "ok": 0,
+              "ok": 16,
               "total": 16
             }
           },
@@ -4095,7 +4113,7 @@
               "total": 2
             },
             "Games Day": {
-              "ok": 12,
+              "ok": 16,
               "total": 16
             },
             "Lunch": {
@@ -4103,27 +4121,17 @@
               "total": 8
             },
             "Reveille": {
-              "ok": 0,
+              "ok": 8,
               "total": 8
             },
             "Taps": {
-              "ok": 0,
+              "ok": 8,
               "total": 8
             }
           },
           "firstMisses": [
             "Farm Trip | Otters 2 | Thursday | 09:00–09:20",
-            "Farm Trip | Otters 2 | Thursday | 09:20–09:40",
-            "Games Day | Otters 1 | Friday | 07:30–07:40",
-            "Games Day | Otters 1 | Friday | 09:40–09:50",
-            "Games Day | Otters 2 | Friday | 07:30–07:40",
-            "Games Day | Otters 2 | Friday | 09:40–09:50",
-            "Reveille | Otters 1 | Monday | 07:30–07:40",
-            "Reveille | Otters 1 | Tuesday | 07:30–07:40",
-            "Reveille | Otters 1 | Wednesday | 07:30–07:40",
-            "Reveille | Otters 1 | Thursday | 07:30–07:40",
-            "Reveille | Otters 2 | Monday | 07:30–07:40",
-            "Reveille | Otters 2 | Tuesday | 07:30–07:40"
+            "Farm Trip | Otters 2 | Thursday | 09:20–09:40"
           ]
         },
         "activitiesVsManifest": {
@@ -4132,21 +4140,19 @@
             "Farm Trip"
           ],
           "spuriousCount": 2,
-          "missing": [
-            "Ropes Course"
-          ],
-          "missingCount": 1
+          "missing": [],
+          "missingCount": 0
         },
         "spansDb": [
           {
             "name": "Ropes Course",
             "expected": 3,
             "form": "repeat",
-            "dbSpanBlocks": null,
+            "dbSpanBlocks": 3,
             "activityRow": true,
-            "pinnedAsEvent": true,
-            "minPerWeek": null,
-            "maxPerWeek": null,
+            "pinnedAsEvent": false,
+            "minPerWeek": 1,
+            "maxPerWeek": 3,
             "sessionsPerGroupWeekPrinted": 1
           }
         ],
@@ -4155,18 +4161,15 @@
           "created": 0,
           "withEligibility": 0
         },
-        "unresolvedTimeBlocks": [
-          "07:30–07:40",
-          "09:40–09:50"
-        ]
+        "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 2,
-        "slots": 60,
-        "placed": 34,
+        "cpuMs": 9,
+        "slots": 80,
+        "placed": 40,
         "unfillable": 0,
         "stillNeeded": 7,
-        "underservedPairs": 7,
+        "underservedPairs": 6,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -4177,7 +4180,7 @@
               "total": 2
             },
             "allday": {
-              "ok": 12,
+              "ok": 16,
               "total": 16
             },
             "lunch": {
@@ -4185,7 +4188,7 @@
               "total": 8
             },
             "daily": {
-              "ok": 0,
+              "ok": 16,
               "total": 16
             }
           },
@@ -4195,7 +4198,7 @@
               "total": 2
             },
             "Games Day": {
-              "ok": 12,
+              "ok": 16,
               "total": 16
             },
             "Lunch": {
@@ -4203,44 +4206,36 @@
               "total": 8
             },
             "Reveille": {
-              "ok": 0,
+              "ok": 8,
               "total": 8
             },
             "Taps": {
-              "ok": 0,
+              "ok": 8,
               "total": 8
             }
           },
           "firstMisses": [
-            "Farm Trip | Otters 2 | Thursday | 09:00–09:20 -> activity:farm trip",
-            "Farm Trip | Otters 2 | Thursday | 09:20–09:40 -> activity:climbing wall",
-            "Games Day | Otters 1 | Friday | 07:30–07:40 -> none:",
-            "Games Day | Otters 1 | Friday | 09:40–09:50 -> none:",
-            "Games Day | Otters 2 | Friday | 07:30–07:40 -> none:",
-            "Games Day | Otters 2 | Friday | 09:40–09:50 -> none:",
-            "Reveille | Otters 1 | Monday | 07:30–07:40 -> none:",
-            "Reveille | Otters 1 | Tuesday | 07:30–07:40 -> none:",
-            "Reveille | Otters 1 | Wednesday | 07:30–07:40 -> none:",
-            "Reveille | Otters 1 | Thursday | 07:30–07:40 -> none:",
-            "Reveille | Otters 2 | Monday | 07:30–07:40 -> none:",
-            "Reveille | Otters 2 | Tuesday | 07:30–07:40 -> none:"
+            "Farm Trip | Otters 2 | Thursday | 09:00–09:20 -> activity:chess club",
+            "Farm Trip | Otters 2 | Thursday | 09:20–09:40 -> activity:arts and crafts"
           ]
         },
         "spanRuns": [
           {
             "name": "Ropes Course",
             "expected": 3,
-            "activitySpanBlocks": null,
-            "placedGroupDays": 0,
-            "runs": {}
+            "activitySpanBlocks": 3,
+            "placedGroupDays": 2,
+            "runs": {
+              "3": 2
+            }
           }
         ],
         "displacedAsActivity": [
           {
             "name": "Farm Trip",
             "expectedCells": 2,
-            "placedTotal": 3,
-            "placedAtExpectedCells": 1
+            "placedTotal": 2,
+            "placedAtExpectedCells": 0
           }
         ],
         "electiveCells": {
@@ -4252,8 +4247,8 @@
         "created": true,
         "unresolvedCount": 0,
         "unresolvedNames": [],
-        "placements": 60,
-        "snapshotSlots": 60,
+        "placements": 80,
+        "snapshotSlots": 80,
         "eventCells": {
           "byKind": {
             "trip": {
@@ -4261,7 +4256,7 @@
               "total": 2
             },
             "allday": {
-              "ok": 12,
+              "ok": 16,
               "total": 16
             },
             "lunch": {
@@ -4269,7 +4264,7 @@
               "total": 8
             },
             "daily": {
-              "ok": 0,
+              "ok": 16,
               "total": 16
             }
           },
@@ -4279,7 +4274,7 @@
               "total": 2
             },
             "Games Day": {
-              "ok": 12,
+              "ok": 16,
               "total": 16
             },
             "Lunch": {
@@ -4287,27 +4282,17 @@
               "total": 8
             },
             "Reveille": {
-              "ok": 0,
+              "ok": 8,
               "total": 8
             },
             "Taps": {
-              "ok": 0,
+              "ok": 8,
               "total": 8
             }
           },
           "firstMisses": [
             "Farm Trip | Otters 2 | Thursday | 09:00–09:20 -> activity:farm trip",
-            "Farm Trip | Otters 2 | Thursday | 09:20–09:40 -> activity:farm trip",
-            "Games Day | Otters 1 | Friday | 07:30–07:40 -> none:",
-            "Games Day | Otters 1 | Friday | 09:40–09:50 -> none:",
-            "Games Day | Otters 2 | Friday | 07:30–07:40 -> none:",
-            "Games Day | Otters 2 | Friday | 09:40–09:50 -> none:",
-            "Reveille | Otters 1 | Monday | 07:30–07:40 -> none:",
-            "Reveille | Otters 1 | Tuesday | 07:30–07:40 -> none:",
-            "Reveille | Otters 1 | Wednesday | 07:30–07:40 -> none:",
-            "Reveille | Otters 1 | Thursday | 07:30–07:40 -> none:",
-            "Reveille | Otters 2 | Monday | 07:30–07:40 -> none:",
-            "Reveille | Otters 2 | Tuesday | 07:30–07:40 -> none:"
+            "Farm Trip | Otters 2 | Thursday | 09:20–09:40 -> activity:farm trip"
           ]
         },
         "spans": [
@@ -4322,7 +4307,7 @@
         ],
         "electiveCells": {}
       },
-      "runtimeMs": 1998
+      "runtimeMs": 984
     },
     "s06-by-day-40-groups-late": {
       "slug": "s06-by-day-40-groups-late",
@@ -4331,7 +4316,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 305,
+          "cpuMs": 492,
           "held": false
         },
         "confirmAll": {
@@ -4355,16 +4340,6 @@
             "groups": "all"
           },
           {
-            "name": "Ceremony",
-            "kind": "fixed",
-            "block": "03:45-04:35",
-            "span": 1,
-            "days": [
-              "Friday"
-            ],
-            "groups": "all"
-          },
-          {
             "name": "Chugim",
             "kind": "fixed",
             "block": "02:50-03:40",
@@ -4375,7 +4350,7 @@
             "groups": "all"
           },
           {
-            "name": "Closing",
+            "name": "Closing Ceremony",
             "kind": "fixed",
             "block": "03:45-04:35",
             "span": 1,
@@ -4543,8 +4518,8 @@
           "days": 5,
           "timeBlocks": 10,
           "activities": 44,
-          "pinnedEventActivities": 9,
-          "fixedEvents": 21,
+          "pinnedEventActivities": 8,
+          "fixedEvents": 20,
           "recurringEvents": 12,
           "electiveSets": 0,
           "specialDays": 0
@@ -4568,6 +4543,8 @@
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
+          "orphanMarkers": [],
+          "pinnedMarkers": 8,
           "eventQuestions": [
             "fixed_events:Arrival",
             "fixed_events:Dismissal"
@@ -4607,7 +4584,7 @@
               "total": 320
             },
             "single": {
-              "ok": 0,
+              "ok": 40,
               "total": 40
             }
           },
@@ -4641,7 +4618,7 @@
               "total": 160
             },
             "Closing Ceremony": {
-              "ok": 0,
+              "ok": 40,
               "total": 40
             }
           },
@@ -4674,18 +4651,18 @@
             "name": "Wilderness Skills",
             "expected": 3,
             "form": "repeat",
-            "dbSpanBlocks": null,
+            "dbSpanBlocks": 3,
             "activityRow": true,
             "pinnedAsEvent": false,
-            "minPerWeek": 3,
-            "maxPerWeek": 5,
+            "minPerWeek": 1,
+            "maxPerWeek": 3,
             "sessionsPerGroupWeekPrinted": 1
           },
           {
             "name": "Ropes Course",
             "expected": 2,
             "form": "blank",
-            "dbSpanBlocks": null,
+            "dbSpanBlocks": 2,
             "activityRow": true,
             "pinnedAsEvent": false,
             "minPerWeek": 2,
@@ -4701,12 +4678,12 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 228,
+        "cpuMs": 650,
         "slots": 2000,
         "placed": 1040,
         "unfillable": 0,
-        "stillNeeded": 45,
-        "underservedPairs": 31,
+        "stillNeeded": 0,
+        "underservedPairs": 0,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -4729,7 +4706,7 @@
               "total": 320
             },
             "single": {
-              "ok": 0,
+              "ok": 40,
               "total": 40
             }
           },
@@ -4763,42 +4740,42 @@
               "total": 160
             },
             "Closing Ceremony": {
-              "ok": 0,
+              "ok": 40,
               "total": 40
             }
           },
           "firstMisses": [
-            "Aquarium Trip | Foxes 1 | Wednesday | 01:55–02:45 -> activity:cooking",
-            "Aquarium Trip | Foxes 1 | Wednesday | 02:50–03:40 -> activity:rocketry",
-            "Aquarium Trip | Foxes 1 | Wednesday | 03:45–04:35 -> activity:photography",
+            "Aquarium Trip | Foxes 1 | Wednesday | 01:55–02:45 -> activity:basketball",
+            "Aquarium Trip | Foxes 1 | Wednesday | 02:50–03:40 -> activity:fishing",
+            "Aquarium Trip | Foxes 1 | Wednesday | 03:45–04:35 -> activity:climbing wall",
             "Aquarium Trip | Foxes 2 | Wednesday | 01:55–02:45 -> activity:swim",
-            "Aquarium Trip | Foxes 2 | Wednesday | 02:50–03:40 -> activity:pottery",
-            "Aquarium Trip | Foxes 2 | Wednesday | 03:45–04:35 -> activity:kayaking",
-            "Aquarium Trip | Foxes 3 | Wednesday | 01:55–02:45 -> activity:ceramics",
-            "Aquarium Trip | Foxes 3 | Wednesday | 02:50–03:40 -> activity:chess club",
-            "Aquarium Trip | Foxes 3 | Wednesday | 03:45–04:35 -> activity:drumming",
-            "Aquarium Trip | Foxes 4 | Wednesday | 01:55–02:45 -> activity:storytelling",
-            "Aquarium Trip | Foxes 4 | Wednesday | 02:50–03:40 -> activity:free swim",
-            "Aquarium Trip | Foxes 4 | Wednesday | 03:45–04:35 -> activity:painting"
+            "Aquarium Trip | Foxes 2 | Wednesday | 02:50–03:40 -> activity:lanyard",
+            "Aquarium Trip | Foxes 2 | Wednesday | 03:45–04:35 -> activity:knitting",
+            "Aquarium Trip | Foxes 3 | Wednesday | 01:55–02:45 -> activity:aquarium trip",
+            "Aquarium Trip | Foxes 3 | Wednesday | 02:50–03:40 -> activity:magic show",
+            "Aquarium Trip | Foxes 3 | Wednesday | 03:45–04:35 -> activity:climbing wall",
+            "Aquarium Trip | Foxes 4 | Wednesday | 01:55–02:45 -> activity:swim",
+            "Aquarium Trip | Foxes 4 | Wednesday | 02:50–03:40 -> activity:woodworking",
+            "Aquarium Trip | Foxes 4 | Wednesday | 03:45–04:35 -> activity:puppetry"
           ]
         },
         "spanRuns": [
           {
             "name": "Wilderness Skills",
             "expected": 3,
-            "activitySpanBlocks": null,
-            "placedGroupDays": 15,
+            "activitySpanBlocks": 3,
+            "placedGroupDays": 10,
             "runs": {
-              "1": 15
+              "3": 10
             }
           },
           {
             "name": "Ropes Course",
             "expected": 2,
-            "activitySpanBlocks": null,
-            "placedGroupDays": 11,
+            "activitySpanBlocks": 2,
+            "placedGroupDays": 20,
             "runs": {
-              "1": 11
+              "2": 20
             }
           }
         ],
@@ -4806,8 +4783,8 @@
           {
             "name": "Aquarium Trip",
             "expectedCells": 30,
-            "placedTotal": 11,
-            "placedAtExpectedCells": 0
+            "placedTotal": 30,
+            "placedAtExpectedCells": 1
           }
         ],
         "electiveCells": {
@@ -4822,8 +4799,8 @@
         "created": true,
         "unresolvedCount": 0,
         "unresolvedNames": [],
-        "placements": 2020,
-        "snapshotSlots": 2020,
+        "placements": 2000,
+        "snapshotSlots": 2000,
         "eventCells": {
           "byKind": {
             "trip": {
@@ -4843,7 +4820,7 @@
               "total": 320
             },
             "single": {
-              "ok": 0,
+              "ok": 40,
               "total": 40
             }
           },
@@ -4877,7 +4854,7 @@
               "total": 160
             },
             "Closing Ceremony": {
-              "ok": 0,
+              "ok": 40,
               "total": 40
             }
           },
@@ -4909,9 +4886,9 @@
             "name": "Ropes Course",
             "form": "blank",
             "blocks": 2,
-            "ok": 20,
+            "ok": 40,
             "total": 40,
-            "ratio": 0.5
+            "ratio": 1
           }
         ],
         "electiveCells": {
@@ -4926,16 +4903,16 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 754,
+        "cpuMs": 655,
         "held": false,
         "counts": {
           "groups": 40,
           "tiers": 8,
           "days_of_operation": 5,
           "time_blocks": 10,
-          "activities": 53,
+          "activities": 52,
           "locations": 0,
-          "fixed_events": 33,
+          "fixed_events": 32,
           "elective_sets": 0
         }
       },
@@ -4955,16 +4932,6 @@
             "groups": "all"
           },
           {
-            "name": "Ceremony",
-            "kind": "fixed",
-            "block": "03:45-04:35",
-            "span": 1,
-            "days": [
-              "Friday"
-            ],
-            "groups": "all"
-          },
-          {
             "name": "Chugim",
             "kind": "fixed",
             "block": "02:50-03:40",
@@ -4975,7 +4942,7 @@
             "groups": "all"
           },
           {
-            "name": "Closing",
+            "name": "Closing Ceremony",
             "kind": "fixed",
             "block": "03:45-04:35",
             "span": 1,
@@ -5143,8 +5110,8 @@
           "days": 5,
           "timeBlocks": 10,
           "activities": 44,
-          "pinnedEventActivities": 9,
-          "fixedEvents": 21,
+          "pinnedEventActivities": 8,
+          "fixedEvents": 20,
           "recurringEvents": 12,
           "electiveSets": 1,
           "specialDays": 0
@@ -5168,6 +5135,8 @@
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
+          "orphanMarkers": [],
+          "pinnedMarkers": 8,
           "eventQuestions": [
             "fixed_events:Arrival",
             "fixed_events:Dismissal"
@@ -5204,7 +5173,7 @@
               "total": 320
             },
             "single": {
-              "ok": 0,
+              "ok": 40,
               "total": 40
             }
           },
@@ -5238,7 +5207,7 @@
               "total": 160
             },
             "Closing Ceremony": {
-              "ok": 0,
+              "ok": 40,
               "total": 40
             }
           },
@@ -5271,18 +5240,18 @@
             "name": "Wilderness Skills",
             "expected": 3,
             "form": "repeat",
-            "dbSpanBlocks": null,
+            "dbSpanBlocks": 3,
             "activityRow": true,
             "pinnedAsEvent": false,
-            "minPerWeek": 3,
-            "maxPerWeek": 5,
+            "minPerWeek": 1,
+            "maxPerWeek": 3,
             "sessionsPerGroupWeekPrinted": 1
           },
           {
             "name": "Ropes Course",
             "expected": 2,
             "form": "blank",
-            "dbSpanBlocks": null,
+            "dbSpanBlocks": 2,
             "activityRow": true,
             "pinnedAsEvent": false,
             "minPerWeek": 2,
@@ -5298,12 +5267,12 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 233,
+        "cpuMs": 622,
         "slots": 2000,
         "placed": 1040,
         "unfillable": 0,
-        "stillNeeded": 43,
-        "underservedPairs": 30,
+        "stillNeeded": 0,
+        "underservedPairs": 0,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -5326,7 +5295,7 @@
               "total": 320
             },
             "single": {
-              "ok": 0,
+              "ok": 40,
               "total": 40
             }
           },
@@ -5360,42 +5329,42 @@
               "total": 160
             },
             "Closing Ceremony": {
-              "ok": 0,
+              "ok": 40,
               "total": 40
             }
           },
           "firstMisses": [
-            "Aquarium Trip | Foxes 1 | Wednesday | 01:55–02:45 -> activity:puppetry",
-            "Aquarium Trip | Foxes 1 | Wednesday | 02:50–03:40 -> activity:volleyball",
-            "Aquarium Trip | Foxes 1 | Wednesday | 03:45–04:35 -> activity:aquarium trip",
-            "Aquarium Trip | Foxes 2 | Wednesday | 01:55–02:45 -> activity:trampoline",
-            "Aquarium Trip | Foxes 2 | Wednesday | 02:50–03:40 -> activity:nature walk",
-            "Aquarium Trip | Foxes 2 | Wednesday | 03:45–04:35 -> activity:tennis",
-            "Aquarium Trip | Foxes 3 | Wednesday | 01:55–02:45 -> activity:drumming",
-            "Aquarium Trip | Foxes 3 | Wednesday | 02:50–03:40 -> activity:cooking",
-            "Aquarium Trip | Foxes 3 | Wednesday | 03:45–04:35 -> activity:puppetry",
-            "Aquarium Trip | Foxes 4 | Wednesday | 01:55–02:45 -> activity:puppetry",
-            "Aquarium Trip | Foxes 4 | Wednesday | 02:50–03:40 -> activity:trampoline",
-            "Aquarium Trip | Foxes 4 | Wednesday | 03:45–04:35 -> activity:photography"
+            "Aquarium Trip | Foxes 1 | Wednesday | 01:55–02:45 -> activity:magic show",
+            "Aquarium Trip | Foxes 1 | Wednesday | 02:50–03:40 -> activity:swim test",
+            "Aquarium Trip | Foxes 1 | Wednesday | 03:45–04:35 -> activity:rocketry",
+            "Aquarium Trip | Foxes 2 | Wednesday | 01:55–02:45 -> activity:woodworking",
+            "Aquarium Trip | Foxes 2 | Wednesday | 02:50–03:40 -> activity:pottery",
+            "Aquarium Trip | Foxes 2 | Wednesday | 03:45–04:35 -> activity:lanyard",
+            "Aquarium Trip | Foxes 3 | Wednesday | 01:55–02:45 -> activity:aquarium trip",
+            "Aquarium Trip | Foxes 3 | Wednesday | 02:50–03:40 -> activity:drumming",
+            "Aquarium Trip | Foxes 3 | Wednesday | 03:45–04:35 -> activity:ceramics",
+            "Aquarium Trip | Foxes 4 | Wednesday | 01:55–02:45 -> activity:tennis",
+            "Aquarium Trip | Foxes 4 | Wednesday | 02:50–03:40 -> activity:robotics",
+            "Aquarium Trip | Foxes 4 | Wednesday | 03:45–04:35 -> activity:softball"
           ]
         },
         "spanRuns": [
           {
             "name": "Wilderness Skills",
             "expected": 3,
-            "activitySpanBlocks": null,
-            "placedGroupDays": 14,
+            "activitySpanBlocks": 3,
+            "placedGroupDays": 10,
             "runs": {
-              "1": 14
+              "3": 10
             }
           },
           {
             "name": "Ropes Course",
             "expected": 2,
-            "activitySpanBlocks": null,
-            "placedGroupDays": 11,
+            "activitySpanBlocks": 2,
+            "placedGroupDays": 20,
             "runs": {
-              "1": 11
+              "2": 20
             }
           }
         ],
@@ -5403,7 +5372,7 @@
           {
             "name": "Aquarium Trip",
             "expectedCells": 30,
-            "placedTotal": 13,
+            "placedTotal": 30,
             "placedAtExpectedCells": 1
           }
         ],
@@ -5419,8 +5388,8 @@
         "created": true,
         "unresolvedCount": 0,
         "unresolvedNames": [],
-        "placements": 2020,
-        "snapshotSlots": 2020,
+        "placements": 2000,
+        "snapshotSlots": 2000,
         "eventCells": {
           "byKind": {
             "trip": {
@@ -5440,7 +5409,7 @@
               "total": 320
             },
             "single": {
-              "ok": 0,
+              "ok": 40,
               "total": 40
             }
           },
@@ -5474,7 +5443,7 @@
               "total": 160
             },
             "Closing Ceremony": {
-              "ok": 0,
+              "ok": 40,
               "total": 40
             }
           },
@@ -5506,9 +5475,9 @@
             "name": "Ropes Course",
             "form": "blank",
             "blocks": 2,
-            "ok": 20,
+            "ok": 40,
             "total": 40,
-            "ratio": 0.5
+            "ratio": 1
           }
         ],
         "electiveCells": {
@@ -5516,7 +5485,7 @@
           "activity:hiking / fishing / kayaking / orienteering / bocce": 10
         }
       },
-      "runtimeMs": 10307
+      "runtimeMs": 5841
     },
     "s07-by-group-3-divisions": {
       "slug": "s07-by-group-3-divisions",
@@ -5525,7 +5494,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 117,
+          "cpuMs": 133,
           "held": false
         },
         "confirmAll": {
@@ -5642,6 +5611,8 @@
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
+          "orphanMarkers": [],
+          "pinnedMarkers": 5,
           "eventQuestions": [],
           "eventOpenItems": [],
           "ok": true
@@ -5724,11 +5695,11 @@
             "name": "Ropes Course",
             "expected": 2,
             "form": "repeat",
-            "dbSpanBlocks": null,
+            "dbSpanBlocks": 2,
             "activityRow": true,
             "pinnedAsEvent": false,
-            "minPerWeek": 4,
-            "maxPerWeek": 6,
+            "minPerWeek": 2,
+            "maxPerWeek": 4,
             "sessionsPerGroupWeekPrinted": 2
           }
         ],
@@ -5740,12 +5711,12 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 132,
+        "cpuMs": 306,
         "slots": 320,
         "placed": 192,
         "unfillable": 0,
-        "stillNeeded": 43,
-        "underservedPairs": 40,
+        "stillNeeded": 47,
+        "underservedPairs": 47,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -5795,22 +5766,22 @@
             }
           },
           "firstMisses": [
-            "Museum Trip | Herons 1 | Wednesday | 09:40–10:25 -> activity:fishing",
-            "Museum Trip | Herons 1 | Wednesday | 10:30–11:15 -> activity:orienteering",
+            "Museum Trip | Herons 1 | Wednesday | 09:40–10:25 -> activity:painting",
+            "Museum Trip | Herons 1 | Wednesday | 10:30–11:15 -> activity:drumming",
             "Museum Trip | Herons 2 | Wednesday | 09:40–10:25 -> activity:music",
-            "Museum Trip | Herons 2 | Wednesday | 10:30–11:15 -> activity:hiking",
-            "Museum Trip | Herons 3 | Wednesday | 09:40–10:25 -> activity:drumming",
-            "Museum Trip | Herons 3 | Wednesday | 10:30–11:15 -> activity:hiking"
+            "Museum Trip | Herons 2 | Wednesday | 10:30–11:15 -> activity:fishing",
+            "Museum Trip | Herons 3 | Wednesday | 09:40–10:25 -> activity:museum trip",
+            "Museum Trip | Herons 3 | Wednesday | 10:30–11:15 -> activity:museum trip"
           ]
         },
         "spanRuns": [
           {
             "name": "Ropes Course",
             "expected": 2,
-            "activitySpanBlocks": null,
-            "placedGroupDays": 3,
+            "activitySpanBlocks": 2,
+            "placedGroupDays": 4,
             "runs": {
-              "1": 3
+              "2": 4
             }
           }
         ],
@@ -5818,8 +5789,8 @@
           {
             "name": "Museum Trip",
             "expectedCells": 6,
-            "placedTotal": 6,
-            "placedAtExpectedCells": 0
+            "placedTotal": 10,
+            "placedAtExpectedCells": 2
           }
         ],
         "electiveCells": {
@@ -5910,7 +5881,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 267,
+        "cpuMs": 215,
         "held": false,
         "counts": {
           "groups": 8,
@@ -6032,6 +6003,8 @@
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
+          "orphanMarkers": [],
+          "pinnedMarkers": 5,
           "eventQuestions": [],
           "eventOpenItems": [],
           "ok": true
@@ -6114,11 +6087,11 @@
             "name": "Ropes Course",
             "expected": 2,
             "form": "repeat",
-            "dbSpanBlocks": null,
+            "dbSpanBlocks": 2,
             "activityRow": true,
             "pinnedAsEvent": false,
-            "minPerWeek": 4,
-            "maxPerWeek": 6,
+            "minPerWeek": 2,
+            "maxPerWeek": 4,
             "sessionsPerGroupWeekPrinted": 2
           }
         ],
@@ -6130,12 +6103,12 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 24,
+        "cpuMs": 75,
         "slots": 320,
         "placed": 192,
         "unfillable": 0,
         "stillNeeded": 46,
-        "underservedPairs": 43,
+        "underservedPairs": 46,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -6185,22 +6158,22 @@
             }
           },
           "firstMisses": [
-            "Museum Trip | Herons 1 | Wednesday | 09:40–10:25 -> activity:lanyard",
-            "Museum Trip | Herons 1 | Wednesday | 10:30–11:15 -> activity:hiking",
-            "Museum Trip | Herons 2 | Wednesday | 09:40–10:25 -> activity:drumming",
-            "Museum Trip | Herons 2 | Wednesday | 10:30–11:15 -> activity:drama",
-            "Museum Trip | Herons 3 | Wednesday | 09:40–10:25 -> activity:lanyard",
-            "Museum Trip | Herons 3 | Wednesday | 10:30–11:15 -> activity:painting"
+            "Museum Trip | Herons 1 | Wednesday | 09:40–10:25 -> activity:hiking",
+            "Museum Trip | Herons 1 | Wednesday | 10:30–11:15 -> activity:drama",
+            "Museum Trip | Herons 2 | Wednesday | 09:40–10:25 -> activity:nature walk",
+            "Museum Trip | Herons 2 | Wednesday | 10:30–11:15 -> activity:orienteering",
+            "Museum Trip | Herons 3 | Wednesday | 09:40–10:25 -> activity:museum trip",
+            "Museum Trip | Herons 3 | Wednesday | 10:30–11:15 -> activity:museum trip"
           ]
         },
         "spanRuns": [
           {
             "name": "Ropes Course",
             "expected": 2,
-            "activitySpanBlocks": null,
-            "placedGroupDays": 3,
+            "activitySpanBlocks": 2,
+            "placedGroupDays": 4,
             "runs": {
-              "1": 3
+              "2": 4
             }
           }
         ],
@@ -6208,8 +6181,8 @@
           {
             "name": "Museum Trip",
             "expectedCells": 6,
-            "placedTotal": 4,
-            "placedAtExpectedCells": 0
+            "placedTotal": 8,
+            "placedAtExpectedCells": 2
           }
         ],
         "electiveCells": {
@@ -6293,7 +6266,7 @@
           "activity:indoor elective": 2
         }
       },
-      "runtimeMs": 2933
+      "runtimeMs": 1358
     },
     "s08-by-group-24h-wrapped": {
       "slug": "s08-by-group-24h-wrapped",
@@ -6302,7 +6275,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 133,
+          "cpuMs": 179,
           "held": false
         },
         "confirmAll": {
@@ -6386,7 +6359,7 @@
           "divisions": 4,
           "days": 4,
           "timeBlocks": 8,
-          "activities": 25,
+          "activities": 24,
           "pinnedEventActivities": 3,
           "fixedEvents": 1,
           "recurringEvents": 8,
@@ -6412,6 +6385,8 @@
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
+          "orphanMarkers": [],
+          "pinnedMarkers": 3,
           "eventQuestions": [
             "fixed_events:Check In",
             "fixed_events:Check Out"
@@ -6476,27 +6451,24 @@
           "spurious": [
             "Chess Club / Robotics / Cooking",
             "Games Day",
-            "Musik",
-            "Skills",
-            "Wilderness"
+            "Musik"
           ],
-          "spuriousCount": 5,
+          "spuriousCount": 3,
           "missing": [
-            "Wilderness Skills",
             "Ropes Course"
           ],
-          "missingCount": 2
+          "missingCount": 1
         },
         "spansDb": [
           {
             "name": "Wilderness Skills",
             "expected": 3,
             "form": "repeat",
-            "dbSpanBlocks": null,
-            "activityRow": false,
+            "dbSpanBlocks": 3,
+            "activityRow": true,
             "pinnedAsEvent": false,
-            "minPerWeek": null,
-            "maxPerWeek": null,
+            "minPerWeek": 2,
+            "maxPerWeek": 4,
             "sessionsPerGroupWeekPrinted": 2
           },
           {
@@ -6519,12 +6491,12 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 52,
+        "cpuMs": 74,
         "slots": 384,
         "placed": 288,
         "unfillable": 0,
-        "stillNeeded": 61,
-        "underservedPairs": 12,
+        "stillNeeded": 0,
+        "underservedPairs": 0,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -6554,26 +6526,29 @@
             }
           },
           "firstMisses": [
-            "Games Day | Otters 1 | Thursday | 09:00–09:15 -> activity:music",
-            "Games Day | Otters 1 | Thursday | 09:15–09:45 -> activity:orienteering",
-            "Games Day | Otters 1 | Thursday | 09:45–10:15 -> activity:gaga pit",
-            "Games Day | Otters 1 | Thursday | 10:15–10:45 -> activity:wilderness",
-            "Games Day | Otters 1 | Thursday | 10:45–11:15 -> activity:lanyard",
-            "Games Day | Otters 1 | Thursday | 11:15–11:45 -> activity:nature walk",
-            "Games Day | Otters 1 | Thursday | 11:45–12:15 -> activity:knitting",
-            "Games Day | Otters 1 | Thursday | 12:15–12:30 -> activity:painting",
-            "Games Day | Otters 2 | Thursday | 09:00–09:15 -> activity:pottery",
-            "Games Day | Otters 2 | Thursday | 09:15–09:45 -> activity:wilderness",
-            "Games Day | Otters 2 | Thursday | 09:45–10:15 -> activity:trampoline",
-            "Games Day | Otters 2 | Thursday | 10:15–10:45 -> activity:tie dye"
+            "Games Day | Otters 1 | Thursday | 09:00–09:15 -> activity:games day",
+            "Games Day | Otters 1 | Thursday | 09:15–09:45 -> activity:games day",
+            "Games Day | Otters 1 | Thursday | 09:45–10:15 -> activity:games day",
+            "Games Day | Otters 1 | Thursday | 10:15–10:45 -> activity:games day",
+            "Games Day | Otters 1 | Thursday | 10:45–11:15 -> activity:games day",
+            "Games Day | Otters 1 | Thursday | 11:15–11:45 -> activity:games day",
+            "Games Day | Otters 1 | Thursday | 11:45–12:15 -> activity:games day",
+            "Games Day | Otters 1 | Thursday | 12:15–12:30 -> activity:games day",
+            "Games Day | Otters 2 | Thursday | 09:00–09:15 -> activity:games day",
+            "Games Day | Otters 2 | Thursday | 09:15–09:45 -> activity:games day",
+            "Games Day | Otters 2 | Thursday | 09:45–10:15 -> activity:games day",
+            "Games Day | Otters 2 | Thursday | 10:15–10:45 -> activity:games day"
           ]
         },
         "spanRuns": [
           {
             "name": "Wilderness Skills",
             "expected": 3,
-            "placedBy": 0,
-            "runs": {}
+            "activitySpanBlocks": 3,
+            "placedGroupDays": 6,
+            "runs": {
+              "3": 6
+            }
           },
           {
             "name": "Ropes Course",
@@ -6587,8 +6562,8 @@
           {
             "name": "Games Day",
             "expectedCells": 48,
-            "placedTotal": 11,
-            "placedAtExpectedCells": 2
+            "placedTotal": 48,
+            "placedAtExpectedCells": 48
           }
         ],
         "electiveCells": {
@@ -6602,8 +6577,8 @@
         "created": true,
         "unresolvedCount": 0,
         "unresolvedNames": [],
-        "placements": 378,
-        "snapshotSlots": 378,
+        "placements": 360,
+        "snapshotSlots": 360,
         "eventCells": {
           "byKind": {
             "allday": {
@@ -6649,9 +6624,9 @@
             "name": "Wilderness Skills",
             "form": "repeat",
             "blocks": 3,
-            "ok": 0,
+            "ok": 18,
             "total": 18,
-            "ratio": 0
+            "ratio": 1
           },
           {
             "name": "Ropes Course",
@@ -6673,14 +6648,14 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 159,
+        "cpuMs": 142,
         "held": false,
         "counts": {
           "groups": 12,
           "tiers": 4,
           "days_of_operation": 4,
           "time_blocks": 8,
-          "activities": 28,
+          "activities": 27,
           "locations": 0,
           "fixed_events": 9,
           "elective_sets": 0
@@ -6762,7 +6737,7 @@
           "divisions": 4,
           "days": 4,
           "timeBlocks": 8,
-          "activities": 25,
+          "activities": 24,
           "pinnedEventActivities": 3,
           "fixedEvents": 1,
           "recurringEvents": 8,
@@ -6788,6 +6763,8 @@
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
+          "orphanMarkers": [],
+          "pinnedMarkers": 3,
           "eventQuestions": [
             "fixed_events:Check In",
             "fixed_events:Check Out"
@@ -6849,27 +6826,24 @@
           "spurious": [
             "Chess Club / Robotics / Cooking",
             "Games Day",
-            "Musik",
-            "Skills",
-            "Wilderness"
+            "Musik"
           ],
-          "spuriousCount": 5,
+          "spuriousCount": 3,
           "missing": [
-            "Wilderness Skills",
             "Ropes Course"
           ],
-          "missingCount": 2
+          "missingCount": 1
         },
         "spansDb": [
           {
             "name": "Wilderness Skills",
             "expected": 3,
             "form": "repeat",
-            "dbSpanBlocks": null,
-            "activityRow": false,
+            "dbSpanBlocks": 3,
+            "activityRow": true,
             "pinnedAsEvent": false,
-            "minPerWeek": null,
-            "maxPerWeek": null,
+            "minPerWeek": 2,
+            "maxPerWeek": 4,
             "sessionsPerGroupWeekPrinted": 2
           },
           {
@@ -6892,12 +6866,12 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 36,
+        "cpuMs": 73,
         "slots": 384,
         "placed": 288,
         "unfillable": 0,
-        "stillNeeded": 60,
-        "underservedPairs": 12,
+        "stillNeeded": 0,
+        "underservedPairs": 0,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -6927,26 +6901,29 @@
             }
           },
           "firstMisses": [
-            "Games Day | Otters 1 | Thursday | 09:00–09:15 -> activity:kayaking",
-            "Games Day | Otters 1 | Thursday | 09:15–09:45 -> activity:hiking",
-            "Games Day | Otters 1 | Thursday | 09:45–10:15 -> activity:garden",
-            "Games Day | Otters 1 | Thursday | 10:15–10:45 -> activity:painting",
-            "Games Day | Otters 1 | Thursday | 10:45–11:15 -> activity:gaga pit",
-            "Games Day | Otters 1 | Thursday | 11:15–11:45 -> activity:orienteering",
-            "Games Day | Otters 1 | Thursday | 11:45–12:15 -> activity:nature walk",
-            "Games Day | Otters 1 | Thursday | 12:15–12:30 -> activity:knitting",
-            "Games Day | Otters 2 | Thursday | 09:00–09:15 -> activity:pottery",
-            "Games Day | Otters 2 | Thursday | 09:15–09:45 -> activity:robotics",
+            "Games Day | Otters 1 | Thursday | 09:00–09:15 -> activity:games day",
+            "Games Day | Otters 1 | Thursday | 09:15–09:45 -> activity:games day",
+            "Games Day | Otters 1 | Thursday | 09:45–10:15 -> activity:games day",
+            "Games Day | Otters 1 | Thursday | 10:15–10:45 -> activity:games day",
+            "Games Day | Otters 1 | Thursday | 10:45–11:15 -> activity:games day",
+            "Games Day | Otters 1 | Thursday | 11:15–11:45 -> activity:games day",
+            "Games Day | Otters 1 | Thursday | 11:45–12:15 -> activity:games day",
+            "Games Day | Otters 1 | Thursday | 12:15–12:30 -> activity:games day",
+            "Games Day | Otters 2 | Thursday | 09:00–09:15 -> activity:games day",
+            "Games Day | Otters 2 | Thursday | 09:15–09:45 -> activity:games day",
             "Games Day | Otters 2 | Thursday | 09:45–10:15 -> activity:games day",
-            "Games Day | Otters 2 | Thursday | 10:15–10:45 -> activity:storytelling"
+            "Games Day | Otters 2 | Thursday | 10:15–10:45 -> activity:games day"
           ]
         },
         "spanRuns": [
           {
             "name": "Wilderness Skills",
             "expected": 3,
-            "placedBy": 0,
-            "runs": {}
+            "activitySpanBlocks": 3,
+            "placedGroupDays": 6,
+            "runs": {
+              "3": 6
+            }
           },
           {
             "name": "Ropes Course",
@@ -6960,8 +6937,8 @@
           {
             "name": "Games Day",
             "expectedCells": 48,
-            "placedTotal": 12,
-            "placedAtExpectedCells": 5
+            "placedTotal": 48,
+            "placedAtExpectedCells": 48
           }
         ],
         "electiveCells": {
@@ -6975,8 +6952,8 @@
         "created": true,
         "unresolvedCount": 0,
         "unresolvedNames": [],
-        "placements": 378,
-        "snapshotSlots": 378,
+        "placements": 360,
+        "snapshotSlots": 360,
         "eventCells": {
           "byKind": {
             "allday": {
@@ -7022,9 +6999,9 @@
             "name": "Wilderness Skills",
             "form": "repeat",
             "blocks": 3,
-            "ok": 0,
+            "ok": 18,
             "total": 18,
-            "ratio": 0
+            "ratio": 1
           },
           {
             "name": "Ropes Course",
@@ -7039,7 +7016,7 @@
           "activity:chess club / robotics / cooking": 6
         }
       },
-      "runtimeMs": 1951
+      "runtimeMs": 1114
     },
     "s09-by-group-6day-except": {
       "slug": "s09-by-group-6day-except",
@@ -7048,7 +7025,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 188,
+          "cpuMs": 236,
           "held": false
         },
         "confirmAll": {
@@ -7133,6 +7110,32 @@
             ]
           },
           {
+            "name": "Flag Raising",
+            "kind": "recurring",
+            "block": "09:10-09:20",
+            "span": 1,
+            "days": [
+              "Monday",
+              "Tuesday",
+              "Wednesday",
+              "Thursday",
+              "Friday"
+            ],
+            "groups": "all"
+          },
+          {
+            "name": "Flag Raising",
+            "kind": "recurring",
+            "block": "09:10-09:20",
+            "span": 1,
+            "days": [
+              "Saturday"
+            ],
+            "groups": [
+              "Counselor Aides"
+            ]
+          },
+          {
             "name": "Games Day",
             "kind": "recurring",
             "block": "01:00-01:40",
@@ -7156,6 +7159,16 @@
             "name": "Games Day",
             "kind": "recurring",
             "block": "08:50-09:05",
+            "span": 1,
+            "days": [
+              "Saturday"
+            ],
+            "groups": "20 groups"
+          },
+          {
+            "name": "Games Day",
+            "kind": "recurring",
+            "block": "09:10-09:20",
             "span": 1,
             "days": [
               "Saturday"
@@ -7233,11 +7246,11 @@
           "groups": 21,
           "divisions": 6,
           "days": 6,
-          "timeBlocks": 7,
+          "timeBlocks": 8,
           "activities": 32,
           "pinnedEventActivities": 7,
           "fixedEvents": 4,
-          "recurringEvents": 25,
+          "recurringEvents": 32,
           "electiveSets": 0,
           "specialDays": 0
         },
@@ -7249,9 +7262,9 @@
           "activities": 31
         },
         "questions": {
-          "total": 9,
+          "total": 11,
           "byKind": {
-            "confirm_value": 9
+            "confirm_value": 11
           }
         },
         "exclusivity": {
@@ -7259,9 +7272,13 @@
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
+          "orphanMarkers": [],
+          "pinnedMarkers": 7,
           "eventQuestions": [
             "fixed_events:Arrival",
             "fixed_events:Dismissal",
+            "fixed_events:Flag Raising",
+            "fixed_events:Games Day",
             "fixed_events:Games Day",
             "fixed_events:Games Day",
             "fixed_events:Games Day",
@@ -7273,6 +7290,8 @@
           "eventOpenItems": [
             "fixed_events:Arrival",
             "fixed_events:Dismissal",
+            "fixed_events:Flag Raising",
+            "fixed_events:Games Day",
             "fixed_events:Games Day",
             "fixed_events:Games Day",
             "fixed_events:Games Day",
@@ -7300,7 +7319,7 @@
               "total": 8
             },
             "allday": {
-              "ok": 140,
+              "ok": 160,
               "total": 160
             },
             "lunch": {
@@ -7308,7 +7327,7 @@
               "total": 106
             },
             "daily": {
-              "ok": 212,
+              "ok": 318,
               "total": 318
             },
             "single": {
@@ -7322,7 +7341,7 @@
               "total": 8
             },
             "Games Day": {
-              "ok": 140,
+              "ok": 160,
               "total": 160
             },
             "Lunch": {
@@ -7334,7 +7353,7 @@
               "total": 106
             },
             "Flag Raising": {
-              "ok": 0,
+              "ok": 106,
               "total": 106
             },
             "Dismissal": {
@@ -7354,11 +7373,7 @@
             "Aquarium Trip | Otters 3 | Wednesday | 09:25–10:15",
             "Aquarium Trip | Otters 3 | Wednesday | 10:20–11:10",
             "Aquarium Trip | Otters 4 | Wednesday | 09:25–10:15",
-            "Aquarium Trip | Otters 4 | Wednesday | 10:20–11:10",
-            "Games Day | Otters 1 | Saturday | 09:10–09:20",
-            "Games Day | Otters 2 | Saturday | 09:10–09:20",
-            "Games Day | Otters 3 | Saturday | 09:10–09:20",
-            "Games Day | Otters 4 | Saturday | 09:10–09:20"
+            "Aquarium Trip | Otters 4 | Wednesday | 10:20–11:10"
           ]
         },
         "activitiesVsManifest": {
@@ -7374,11 +7389,11 @@
             "name": "Ropes Course",
             "expected": 2,
             "form": "repeat",
-            "dbSpanBlocks": null,
+            "dbSpanBlocks": 2,
             "activityRow": true,
             "pinnedAsEvent": false,
-            "minPerWeek": 4,
-            "maxPerWeek": 6,
+            "minPerWeek": 2,
+            "maxPerWeek": 4,
             "sessionsPerGroupWeekPrinted": 2
           }
         ],
@@ -7387,17 +7402,15 @@
           "created": 0,
           "withEligibility": 0
         },
-        "unresolvedTimeBlocks": [
-          "09:10–09:20"
-        ]
+        "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 51,
-        "slots": 882,
+        "cpuMs": 118,
+        "slots": 1008,
         "placed": 340,
         "unfillable": 0,
-        "stillNeeded": 22,
-        "underservedPairs": 12,
+        "stillNeeded": 1,
+        "underservedPairs": 1,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -7408,7 +7421,7 @@
               "total": 8
             },
             "allday": {
-              "ok": 140,
+              "ok": 160,
               "total": 160
             },
             "lunch": {
@@ -7416,7 +7429,7 @@
               "total": 106
             },
             "daily": {
-              "ok": 212,
+              "ok": 318,
               "total": 318
             },
             "single": {
@@ -7430,7 +7443,7 @@
               "total": 8
             },
             "Games Day": {
-              "ok": 140,
+              "ok": 160,
               "total": 160
             },
             "Lunch": {
@@ -7442,7 +7455,7 @@
               "total": 106
             },
             "Flag Raising": {
-              "ok": 0,
+              "ok": 106,
               "total": 106
             },
             "Dismissal": {
@@ -7455,28 +7468,24 @@
             }
           },
           "firstMisses": [
-            "Aquarium Trip | Otters 1 | Wednesday | 09:25–10:15 -> activity:aquarium trip",
-            "Aquarium Trip | Otters 1 | Wednesday | 10:20–11:10 -> activity:robotics",
-            "Aquarium Trip | Otters 2 | Wednesday | 09:25–10:15 -> activity:ceramics",
-            "Aquarium Trip | Otters 2 | Wednesday | 10:20–11:10 -> activity:photography",
-            "Aquarium Trip | Otters 3 | Wednesday | 09:25–10:15 -> activity:storytelling",
+            "Aquarium Trip | Otters 1 | Wednesday | 09:25–10:15 -> activity:yoga",
+            "Aquarium Trip | Otters 1 | Wednesday | 10:20–11:10 -> activity:softball",
+            "Aquarium Trip | Otters 2 | Wednesday | 09:25–10:15 -> activity:rocketry",
+            "Aquarium Trip | Otters 2 | Wednesday | 10:20–11:10 -> activity:bocce",
+            "Aquarium Trip | Otters 3 | Wednesday | 09:25–10:15 -> activity:aquarium trip",
             "Aquarium Trip | Otters 3 | Wednesday | 10:20–11:10 -> activity:aquarium trip",
-            "Aquarium Trip | Otters 4 | Wednesday | 09:25–10:15 -> activity:rocketry",
-            "Aquarium Trip | Otters 4 | Wednesday | 10:20–11:10 -> activity:bocce",
-            "Games Day | Otters 1 | Saturday | 09:10–09:20 -> none:",
-            "Games Day | Otters 2 | Saturday | 09:10–09:20 -> none:",
-            "Games Day | Otters 3 | Saturday | 09:10–09:20 -> none:",
-            "Games Day | Otters 4 | Saturday | 09:10–09:20 -> none:"
+            "Aquarium Trip | Otters 4 | Wednesday | 09:25–10:15 -> activity:bocce",
+            "Aquarium Trip | Otters 4 | Wednesday | 10:20–11:10 -> activity:ceramics"
           ]
         },
         "spanRuns": [
           {
             "name": "Ropes Course",
             "expected": 2,
-            "activitySpanBlocks": null,
-            "placedGroupDays": 14,
+            "activitySpanBlocks": 2,
+            "placedGroupDays": 16,
             "runs": {
-              "1": 14
+              "2": 16
             }
           }
         ],
@@ -7484,7 +7493,7 @@
           {
             "name": "Aquarium Trip",
             "expectedCells": 8,
-            "placedTotal": 4,
+            "placedTotal": 8,
             "placedAtExpectedCells": 2
           }
         ],
@@ -7499,8 +7508,8 @@
         "created": true,
         "unresolvedCount": 0,
         "unresolvedNames": [],
-        "placements": 889,
-        "snapshotSlots": 889,
+        "placements": 1015,
+        "snapshotSlots": 1015,
         "eventCells": {
           "byKind": {
             "trip": {
@@ -7508,7 +7517,7 @@
               "total": 8
             },
             "allday": {
-              "ok": 140,
+              "ok": 160,
               "total": 160
             },
             "lunch": {
@@ -7516,7 +7525,7 @@
               "total": 106
             },
             "daily": {
-              "ok": 212,
+              "ok": 318,
               "total": 318
             },
             "single": {
@@ -7530,7 +7539,7 @@
               "total": 8
             },
             "Games Day": {
-              "ok": 140,
+              "ok": 160,
               "total": 160
             },
             "Lunch": {
@@ -7542,7 +7551,7 @@
               "total": 106
             },
             "Flag Raising": {
-              "ok": 0,
+              "ok": 106,
               "total": 106
             },
             "Dismissal": {
@@ -7562,11 +7571,7 @@
             "Aquarium Trip | Otters 3 | Wednesday | 09:25–10:15 -> activity:aquarium trip",
             "Aquarium Trip | Otters 3 | Wednesday | 10:20–11:10 -> activity:aquarium trip",
             "Aquarium Trip | Otters 4 | Wednesday | 09:25–10:15 -> activity:aquarium trip",
-            "Aquarium Trip | Otters 4 | Wednesday | 10:20–11:10 -> activity:aquarium trip",
-            "Games Day | Otters 1 | Saturday | 09:10–09:20 -> none:",
-            "Games Day | Otters 2 | Saturday | 09:10–09:20 -> none:",
-            "Games Day | Otters 3 | Saturday | 09:10–09:20 -> none:",
-            "Games Day | Otters 4 | Saturday | 09:10–09:20 -> none:"
+            "Aquarium Trip | Otters 4 | Wednesday | 10:20–11:10 -> activity:aquarium trip"
           ]
         },
         "spans": [
@@ -7594,7 +7599,8 @@
           "periods": null,
           "commit": {
             "ok": true,
-            "specialDayId": "b50418e1-1fdd-4f1c-ae53-f76f85890c80",
+            "created": true,
+            "specialDayId": "sd1:36.206be83a-2fd3-4662-81ba-4c77962d10178.gamesday",
             "periods": 8,
             "cells": 48,
             "activitiesCreated": 7
@@ -7609,16 +7615,16 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 309,
+        "cpuMs": 449,
         "held": false,
         "counts": {
           "groups": 21,
           "tiers": 6,
           "days_of_operation": 6,
-          "time_blocks": 7,
+          "time_blocks": 8,
           "activities": 39,
           "locations": 0,
-          "fixed_events": 29,
+          "fixed_events": 36,
           "elective_sets": 0
         }
       },
@@ -7699,6 +7705,32 @@
             ]
           },
           {
+            "name": "Flag Raising",
+            "kind": "recurring",
+            "block": "09:10-09:20",
+            "span": 1,
+            "days": [
+              "Monday",
+              "Tuesday",
+              "Wednesday",
+              "Thursday",
+              "Friday"
+            ],
+            "groups": "all"
+          },
+          {
+            "name": "Flag Raising",
+            "kind": "recurring",
+            "block": "09:10-09:20",
+            "span": 1,
+            "days": [
+              "Saturday"
+            ],
+            "groups": [
+              "Counselor Aides"
+            ]
+          },
+          {
             "name": "Games Day",
             "kind": "recurring",
             "block": "01:00-01:40",
@@ -7722,6 +7754,16 @@
             "name": "Games Day",
             "kind": "recurring",
             "block": "08:50-09:05",
+            "span": 1,
+            "days": [
+              "Saturday"
+            ],
+            "groups": "20 groups"
+          },
+          {
+            "name": "Games Day",
+            "kind": "recurring",
+            "block": "09:10-09:20",
             "span": 1,
             "days": [
               "Saturday"
@@ -7799,11 +7841,11 @@
           "groups": 21,
           "divisions": 6,
           "days": 6,
-          "timeBlocks": 7,
+          "timeBlocks": 8,
           "activities": 32,
           "pinnedEventActivities": 7,
           "fixedEvents": 4,
-          "recurringEvents": 25,
+          "recurringEvents": 32,
           "electiveSets": 0,
           "specialDays": 0
         },
@@ -7815,9 +7857,9 @@
           "activities": 31
         },
         "questions": {
-          "total": 9,
+          "total": 11,
           "byKind": {
-            "confirm_value": 9
+            "confirm_value": 11
           }
         },
         "exclusivity": {
@@ -7825,9 +7867,13 @@
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
+          "orphanMarkers": [],
+          "pinnedMarkers": 7,
           "eventQuestions": [
             "fixed_events:Arrival",
             "fixed_events:Dismissal",
+            "fixed_events:Flag Raising",
+            "fixed_events:Games Day",
             "fixed_events:Games Day",
             "fixed_events:Games Day",
             "fixed_events:Games Day",
@@ -7856,7 +7902,7 @@
               "total": 8
             },
             "allday": {
-              "ok": 140,
+              "ok": 160,
               "total": 160
             },
             "lunch": {
@@ -7864,7 +7910,7 @@
               "total": 106
             },
             "daily": {
-              "ok": 212,
+              "ok": 318,
               "total": 318
             },
             "single": {
@@ -7878,7 +7924,7 @@
               "total": 8
             },
             "Games Day": {
-              "ok": 140,
+              "ok": 160,
               "total": 160
             },
             "Lunch": {
@@ -7890,7 +7936,7 @@
               "total": 106
             },
             "Flag Raising": {
-              "ok": 0,
+              "ok": 106,
               "total": 106
             },
             "Dismissal": {
@@ -7910,11 +7956,7 @@
             "Aquarium Trip | Otters 3 | Wednesday | 09:25–10:15",
             "Aquarium Trip | Otters 3 | Wednesday | 10:20–11:10",
             "Aquarium Trip | Otters 4 | Wednesday | 09:25–10:15",
-            "Aquarium Trip | Otters 4 | Wednesday | 10:20–11:10",
-            "Games Day | Otters 1 | Saturday | 09:10–09:20",
-            "Games Day | Otters 2 | Saturday | 09:10–09:20",
-            "Games Day | Otters 3 | Saturday | 09:10–09:20",
-            "Games Day | Otters 4 | Saturday | 09:10–09:20"
+            "Aquarium Trip | Otters 4 | Wednesday | 10:20–11:10"
           ]
         },
         "activitiesVsManifest": {
@@ -7930,11 +7972,11 @@
             "name": "Ropes Course",
             "expected": 2,
             "form": "repeat",
-            "dbSpanBlocks": null,
+            "dbSpanBlocks": 2,
             "activityRow": true,
             "pinnedAsEvent": false,
-            "minPerWeek": 4,
-            "maxPerWeek": 6,
+            "minPerWeek": 2,
+            "maxPerWeek": 4,
             "sessionsPerGroupWeekPrinted": 2
           }
         ],
@@ -7943,17 +7985,15 @@
           "created": 0,
           "withEligibility": 0
         },
-        "unresolvedTimeBlocks": [
-          "09:10–09:20"
-        ]
+        "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 44,
-        "slots": 882,
+        "cpuMs": 130,
+        "slots": 1008,
         "placed": 340,
         "unfillable": 0,
-        "stillNeeded": 22,
-        "underservedPairs": 12,
+        "stillNeeded": 2,
+        "underservedPairs": 2,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -7964,7 +8004,7 @@
               "total": 8
             },
             "allday": {
-              "ok": 140,
+              "ok": 160,
               "total": 160
             },
             "lunch": {
@@ -7972,7 +8012,7 @@
               "total": 106
             },
             "daily": {
-              "ok": 212,
+              "ok": 318,
               "total": 318
             },
             "single": {
@@ -7986,7 +8026,7 @@
               "total": 8
             },
             "Games Day": {
-              "ok": 140,
+              "ok": 160,
               "total": 160
             },
             "Lunch": {
@@ -7998,7 +8038,7 @@
               "total": 106
             },
             "Flag Raising": {
-              "ok": 0,
+              "ok": 106,
               "total": 106
             },
             "Dismissal": {
@@ -8011,28 +8051,24 @@
             }
           },
           "firstMisses": [
-            "Aquarium Trip | Otters 1 | Wednesday | 09:25–10:15 -> activity:robotics",
-            "Aquarium Trip | Otters 1 | Wednesday | 10:20–11:10 -> activity:swim",
-            "Aquarium Trip | Otters 2 | Wednesday | 09:25–10:15 -> activity:drama",
-            "Aquarium Trip | Otters 2 | Wednesday | 10:20–11:10 -> activity:bocce",
-            "Aquarium Trip | Otters 3 | Wednesday | 09:25–10:15 -> activity:sailing",
-            "Aquarium Trip | Otters 3 | Wednesday | 10:20–11:10 -> activity:tennis",
-            "Aquarium Trip | Otters 4 | Wednesday | 09:25–10:15 -> activity:climbing wall",
-            "Aquarium Trip | Otters 4 | Wednesday | 10:20–11:10 -> activity:chess club",
-            "Games Day | Otters 1 | Saturday | 09:10–09:20 -> none:",
-            "Games Day | Otters 2 | Saturday | 09:10–09:20 -> none:",
-            "Games Day | Otters 3 | Saturday | 09:10–09:20 -> none:",
-            "Games Day | Otters 4 | Saturday | 09:10–09:20 -> none:"
+            "Aquarium Trip | Otters 1 | Wednesday | 09:25–10:15 -> activity:softball",
+            "Aquarium Trip | Otters 1 | Wednesday | 10:20–11:10 -> activity:pottery",
+            "Aquarium Trip | Otters 2 | Wednesday | 09:25–10:15 -> activity:chess club",
+            "Aquarium Trip | Otters 2 | Wednesday | 10:20–11:10 -> activity:arts and crafts",
+            "Aquarium Trip | Otters 3 | Wednesday | 09:25–10:15 -> activity:aquarium trip",
+            "Aquarium Trip | Otters 3 | Wednesday | 10:20–11:10 -> activity:aquarium trip",
+            "Aquarium Trip | Otters 4 | Wednesday | 09:25–10:15 -> activity:rocketry",
+            "Aquarium Trip | Otters 4 | Wednesday | 10:20–11:10 -> activity:bocce"
           ]
         },
         "spanRuns": [
           {
             "name": "Ropes Course",
             "expected": 2,
-            "activitySpanBlocks": null,
-            "placedGroupDays": 14,
+            "activitySpanBlocks": 2,
+            "placedGroupDays": 16,
             "runs": {
-              "1": 14
+              "2": 16
             }
           }
         ],
@@ -8040,8 +8076,8 @@
           {
             "name": "Aquarium Trip",
             "expectedCells": 8,
-            "placedTotal": 4,
-            "placedAtExpectedCells": 0
+            "placedTotal": 8,
+            "placedAtExpectedCells": 2
           }
         ],
         "electiveCells": {
@@ -8055,8 +8091,8 @@
         "created": true,
         "unresolvedCount": 0,
         "unresolvedNames": [],
-        "placements": 889,
-        "snapshotSlots": 889,
+        "placements": 1015,
+        "snapshotSlots": 1015,
         "eventCells": {
           "byKind": {
             "trip": {
@@ -8064,7 +8100,7 @@
               "total": 8
             },
             "allday": {
-              "ok": 140,
+              "ok": 160,
               "total": 160
             },
             "lunch": {
@@ -8072,7 +8108,7 @@
               "total": 106
             },
             "daily": {
-              "ok": 212,
+              "ok": 318,
               "total": 318
             },
             "single": {
@@ -8086,7 +8122,7 @@
               "total": 8
             },
             "Games Day": {
-              "ok": 140,
+              "ok": 160,
               "total": 160
             },
             "Lunch": {
@@ -8098,7 +8134,7 @@
               "total": 106
             },
             "Flag Raising": {
-              "ok": 0,
+              "ok": 106,
               "total": 106
             },
             "Dismissal": {
@@ -8118,11 +8154,7 @@
             "Aquarium Trip | Otters 3 | Wednesday | 09:25–10:15 -> activity:aquarium trip",
             "Aquarium Trip | Otters 3 | Wednesday | 10:20–11:10 -> activity:aquarium trip",
             "Aquarium Trip | Otters 4 | Wednesday | 09:25–10:15 -> activity:aquarium trip",
-            "Aquarium Trip | Otters 4 | Wednesday | 10:20–11:10 -> activity:aquarium trip",
-            "Games Day | Otters 1 | Saturday | 09:10–09:20 -> none:",
-            "Games Day | Otters 2 | Saturday | 09:10–09:20 -> none:",
-            "Games Day | Otters 3 | Saturday | 09:10–09:20 -> none:",
-            "Games Day | Otters 4 | Saturday | 09:10–09:20 -> none:"
+            "Aquarium Trip | Otters 4 | Wednesday | 10:20–11:10 -> activity:aquarium trip"
           ]
         },
         "spans": [
@@ -8139,7 +8171,7 @@
           "fixed_event:bechirot": 63
         }
       },
-      "runtimeMs": 3425
+      "runtimeMs": 2531
     },
     "s10-by-group-sun-thu-early": {
       "slug": "s10-by-group-sun-thu-early",
@@ -8148,7 +8180,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 86,
+          "cpuMs": 79,
           "held": false
         },
         "confirmAll": {
@@ -8266,26 +8298,6 @@
               "Wednesday"
             ],
             "groups": "all"
-          },
-          {
-            "name": "Wilderness Skills",
-            "kind": "fixed",
-            "block": "07:45-08:45",
-            "span": 1,
-            "days": [
-              "Monday"
-            ],
-            "groups": "all"
-          },
-          {
-            "name": "Wilderness Skills",
-            "kind": "fixed",
-            "block": "08:45-09:45",
-            "span": 1,
-            "days": [
-              "Monday"
-            ],
-            "groups": "all"
           }
         ],
         "counts": {
@@ -8293,9 +8305,9 @@
           "divisions": 2,
           "days": 5,
           "timeBlocks": 7,
-          "activities": 11,
-          "pinnedEventActivities": 5,
-          "fixedEvents": 21,
+          "activities": 12,
+          "pinnedEventActivities": 4,
+          "fixedEvents": 19,
           "recurringEvents": 0,
           "electiveSets": 0,
           "specialDays": 0
@@ -8318,6 +8330,8 @@
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
+          "orphanMarkers": [],
+          "pinnedMarkers": 4,
           "eventQuestions": [
             "fixed_events:Closing",
             "fixed_events:Opening"
@@ -8391,21 +8405,19 @@
             "Farm Trip"
           ],
           "spuriousCount": 1,
-          "missing": [
-            "Wilderness Skills"
-          ],
-          "missingCount": 1
+          "missing": [],
+          "missingCount": 0
         },
         "spansDb": [
           {
             "name": "Wilderness Skills",
             "expected": 2,
             "form": "repeat",
-            "dbSpanBlocks": null,
+            "dbSpanBlocks": 2,
             "activityRow": true,
-            "pinnedAsEvent": true,
-            "minPerWeek": null,
-            "maxPerWeek": null,
+            "pinnedAsEvent": false,
+            "minPerWeek": 1,
+            "maxPerWeek": 3,
             "sessionsPerGroupWeekPrinted": 1
           }
         ],
@@ -8417,12 +8429,12 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 4,
+        "cpuMs": 19,
         "slots": 140,
-        "placed": 56,
+        "placed": 64,
         "unfillable": 0,
-        "stillNeeded": 5,
-        "underservedPairs": 5,
+        "stillNeeded": 7,
+        "underservedPairs": 7,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -8468,26 +8480,28 @@
             }
           },
           "firstMisses": [
-            "Farm Trip | Herons 1 | Wednesday | 10:30–11:30 -> activity:drumming",
-            "Farm Trip | Herons 1 | Wednesday | 11:30–12:30 -> activity:archery",
+            "Farm Trip | Herons 1 | Wednesday | 10:30–11:30 -> activity:basketball",
+            "Farm Trip | Herons 1 | Wednesday | 11:30–12:30 -> activity:drama",
             "Farm Trip | Herons 2 | Wednesday | 10:30–11:30 -> activity:chess club",
-            "Farm Trip | Herons 2 | Wednesday | 11:30–12:30 -> activity:drama"
+            "Farm Trip | Herons 2 | Wednesday | 11:30–12:30 -> activity:drumming"
           ]
         },
         "spanRuns": [
           {
             "name": "Wilderness Skills",
             "expected": 2,
-            "activitySpanBlocks": null,
-            "placedGroupDays": 0,
-            "runs": {}
+            "activitySpanBlocks": 2,
+            "placedGroupDays": 4,
+            "runs": {
+              "2": 4
+            }
           }
         ],
         "displacedAsActivity": [
           {
             "name": "Farm Trip",
             "expectedCells": 4,
-            "placedTotal": 2,
+            "placedTotal": 4,
             "placedAtExpectedCells": 0
           }
         ],
@@ -8569,7 +8583,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 102,
+        "cpuMs": 103,
         "held": false,
         "counts": {
           "groups": 4,
@@ -8578,7 +8592,7 @@
           "time_blocks": 7,
           "activities": 16,
           "locations": 0,
-          "fixed_events": 21,
+          "fixed_events": 19,
           "elective_sets": 0
         }
       },
@@ -8692,26 +8706,6 @@
               "Wednesday"
             ],
             "groups": "all"
-          },
-          {
-            "name": "Wilderness Skills",
-            "kind": "fixed",
-            "block": "07:45-08:45",
-            "span": 1,
-            "days": [
-              "Monday"
-            ],
-            "groups": "all"
-          },
-          {
-            "name": "Wilderness Skills",
-            "kind": "fixed",
-            "block": "08:45-09:45",
-            "span": 1,
-            "days": [
-              "Monday"
-            ],
-            "groups": "all"
           }
         ],
         "counts": {
@@ -8719,9 +8713,9 @@
           "divisions": 2,
           "days": 5,
           "timeBlocks": 7,
-          "activities": 11,
-          "pinnedEventActivities": 5,
-          "fixedEvents": 21,
+          "activities": 12,
+          "pinnedEventActivities": 4,
+          "fixedEvents": 19,
           "recurringEvents": 0,
           "electiveSets": 0,
           "specialDays": 0
@@ -8744,6 +8738,8 @@
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
+          "orphanMarkers": [],
+          "pinnedMarkers": 4,
           "eventQuestions": [
             "fixed_events:Closing",
             "fixed_events:Opening"
@@ -8814,21 +8810,19 @@
             "Farm Trip"
           ],
           "spuriousCount": 1,
-          "missing": [
-            "Wilderness Skills"
-          ],
-          "missingCount": 1
+          "missing": [],
+          "missingCount": 0
         },
         "spansDb": [
           {
             "name": "Wilderness Skills",
             "expected": 2,
             "form": "repeat",
-            "dbSpanBlocks": null,
+            "dbSpanBlocks": 2,
             "activityRow": true,
-            "pinnedAsEvent": true,
-            "minPerWeek": null,
-            "maxPerWeek": null,
+            "pinnedAsEvent": false,
+            "minPerWeek": 1,
+            "maxPerWeek": 3,
             "sessionsPerGroupWeekPrinted": 1
           }
         ],
@@ -8840,12 +8834,12 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 5,
+        "cpuMs": 19,
         "slots": 140,
-        "placed": 56,
+        "placed": 64,
         "unfillable": 0,
-        "stillNeeded": 5,
-        "underservedPairs": 5,
+        "stillNeeded": 6,
+        "underservedPairs": 6,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -8891,26 +8885,28 @@
             }
           },
           "firstMisses": [
-            "Farm Trip | Herons 1 | Wednesday | 10:30–11:30 -> activity:basketball",
-            "Farm Trip | Herons 1 | Wednesday | 11:30–12:30 -> activity:archery",
-            "Farm Trip | Herons 2 | Wednesday | 10:30–11:30 -> activity:arts and crafts",
-            "Farm Trip | Herons 2 | Wednesday | 11:30–12:30 -> activity:chess club"
+            "Farm Trip | Herons 1 | Wednesday | 10:30–11:30 -> activity:archery",
+            "Farm Trip | Herons 1 | Wednesday | 11:30–12:30 -> activity:dance",
+            "Farm Trip | Herons 2 | Wednesday | 10:30–11:30 -> activity:dance",
+            "Farm Trip | Herons 2 | Wednesday | 11:30–12:30 -> activity:arts and crafts"
           ]
         },
         "spanRuns": [
           {
             "name": "Wilderness Skills",
             "expected": 2,
-            "activitySpanBlocks": null,
-            "placedGroupDays": 0,
-            "runs": {}
+            "activitySpanBlocks": 2,
+            "placedGroupDays": 4,
+            "runs": {
+              "2": 4
+            }
           }
         ],
         "displacedAsActivity": [
           {
             "name": "Farm Trip",
             "expectedCells": 4,
-            "placedTotal": 2,
+            "placedTotal": 4,
             "placedAtExpectedCells": 0
           }
         ],
@@ -8985,7 +8981,7 @@
         ],
         "electiveCells": {}
       },
-      "runtimeMs": 1179
+      "runtimeMs": 729
     },
     "s11-daysheet-5d-small": {
       "slug": "s11-daysheet-5d-small",
@@ -8994,7 +8990,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 86,
+          "cpuMs": 88,
           "held": false
         },
         "confirmAll": {
@@ -9117,6 +9113,8 @@
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
+          "orphanMarkers": [],
+          "pinnedMarkers": 5,
           "eventQuestions": [
             "fixed_events:Museum Trip",
             "fixed_events:Museum Trip"
@@ -9183,11 +9181,11 @@
             "name": "Ropes Course",
             "expected": 2,
             "form": "repeat",
-            "dbSpanBlocks": null,
+            "dbSpanBlocks": 2,
             "activityRow": true,
             "pinnedAsEvent": false,
-            "minPerWeek": 2,
-            "maxPerWeek": 4,
+            "minPerWeek": 1,
+            "maxPerWeek": 3,
             "sessionsPerGroupWeekPrinted": 1
           }
         ],
@@ -9199,7 +9197,7 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 6,
+        "cpuMs": 11,
         "slots": 180,
         "placed": 76,
         "unfillable": 0,
@@ -9247,10 +9245,10 @@
           {
             "name": "Ropes Course",
             "expected": 2,
-            "activitySpanBlocks": null,
-            "placedGroupDays": 4,
+            "activitySpanBlocks": 2,
+            "placedGroupDays": 2,
             "runs": {
-              "1": 4
+              "2": 2
             }
           }
         ],
@@ -9324,7 +9322,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 111,
+        "cpuMs": 159,
         "held": false,
         "counts": {
           "groups": 6,
@@ -9452,6 +9450,8 @@
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
+          "orphanMarkers": [],
+          "pinnedMarkers": 5,
           "eventQuestions": [
             "fixed_events:Museum Trip",
             "fixed_events:Museum Trip"
@@ -9515,11 +9515,11 @@
             "name": "Ropes Course",
             "expected": 2,
             "form": "repeat",
-            "dbSpanBlocks": null,
+            "dbSpanBlocks": 2,
             "activityRow": true,
             "pinnedAsEvent": false,
-            "minPerWeek": 2,
-            "maxPerWeek": 4,
+            "minPerWeek": 1,
+            "maxPerWeek": 3,
             "sessionsPerGroupWeekPrinted": 1
           }
         ],
@@ -9531,7 +9531,7 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 6,
+        "cpuMs": 11,
         "slots": 180,
         "placed": 76,
         "unfillable": 0,
@@ -9579,10 +9579,10 @@
           {
             "name": "Ropes Course",
             "expected": 2,
-            "activitySpanBlocks": null,
-            "placedGroupDays": 3,
+            "activitySpanBlocks": 2,
+            "placedGroupDays": 2,
             "runs": {
-              "1": 3
+              "2": 2
             }
           }
         ],
@@ -9649,7 +9649,7 @@
           "fixed_event:electives": 6
         }
       },
-      "runtimeMs": 1023
+      "runtimeMs": 801
     },
     "s12-daysheet-4d-late": {
       "slug": "s12-daysheet-4d-late",
@@ -9658,7 +9658,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 126,
+          "cpuMs": 120,
           "held": false
         },
         "confirmAll": {
@@ -9789,7 +9789,7 @@
           "divisions": 3,
           "days": 4,
           "timeBlocks": 10,
-          "activities": 22,
+          "activities": 23,
           "pinnedEventActivities": 5,
           "fixedEvents": 1,
           "recurringEvents": 15,
@@ -9804,10 +9804,9 @@
           "activities": 20
         },
         "questions": {
-          "total": 8,
+          "total": 1,
           "byKind": {
-            "confirm_value": 6,
-            "elective_candidate": 2
+            "elective_candidate": 1
           }
         },
         "exclusivity": {
@@ -9815,6 +9814,8 @@
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
+          "orphanMarkers": [],
+          "pinnedMarkers": 5,
           "eventQuestions": [],
           "eventOpenItems": [],
           "ok": true
@@ -9900,9 +9901,10 @@
         "activitiesVsManifest": {
           "spurious": [
             "Aquarium Trip",
-            "Games Day"
+            "Games Day",
+            "Pottery / Drama / Robotics"
           ],
-          "spuriousCount": 2,
+          "spuriousCount": 3,
           "missing": [],
           "missingCount": 0
         },
@@ -9911,11 +9913,11 @@
             "name": "Wilderness Skills",
             "expected": 3,
             "form": "repeat",
-            "dbSpanBlocks": null,
+            "dbSpanBlocks": 3,
             "activityRow": true,
             "pinnedAsEvent": false,
-            "minPerWeek": 3,
-            "maxPerWeek": 5,
+            "minPerWeek": 1,
+            "maxPerWeek": 3,
             "sessionsPerGroupWeekPrinted": 1
           },
           {
@@ -9938,12 +9940,12 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 34,
+        "cpuMs": 102,
         "slots": 400,
         "placed": 288,
         "unfillable": 0,
-        "stillNeeded": 59,
-        "underservedPairs": 15,
+        "stillNeeded": 3,
+        "underservedPairs": 3,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -10001,37 +10003,37 @@
             }
           },
           "firstMisses": [
-            "Aquarium Trip | 1A | Tuesday | 02:10 PM–02:55 PM -> activity:robotics",
-            "Aquarium Trip | 1A | Tuesday | 03:00 PM–03:45 PM -> activity:soccer",
-            "Aquarium Trip | 1B | Tuesday | 02:10 PM–02:55 PM -> activity:soccer",
-            "Aquarium Trip | 1B | Tuesday | 03:00 PM–03:45 PM -> activity:knitting",
+            "Aquarium Trip | 1A | Tuesday | 02:10 PM–02:55 PM -> activity:hiking",
+            "Aquarium Trip | 1A | Tuesday | 03:00 PM–03:45 PM -> activity:lanyard",
+            "Aquarium Trip | 1B | Tuesday | 02:10 PM–02:55 PM -> activity:wilderness skills",
+            "Aquarium Trip | 1B | Tuesday | 03:00 PM–03:45 PM -> activity:wilderness skills",
             "Aquarium Trip | 1C | Tuesday | 02:10 PM–02:55 PM -> activity:lanyard",
-            "Aquarium Trip | 1C | Tuesday | 03:00 PM–03:45 PM -> activity:fishing",
-            "Aquarium Trip | 1D | Tuesday | 02:10 PM–02:55 PM -> activity:garden",
-            "Aquarium Trip | 1D | Tuesday | 03:00 PM–03:45 PM -> activity:lanyard",
+            "Aquarium Trip | 1C | Tuesday | 03:00 PM–03:45 PM -> activity:robotics",
+            "Aquarium Trip | 1D | Tuesday | 02:10 PM–02:55 PM -> activity:gaga pit",
+            "Aquarium Trip | 1D | Tuesday | 03:00 PM–03:45 PM -> activity:drama",
             "Games Day | 2A | Monday | 10:20 AM–10:40 AM -> activity:games day",
-            "Games Day | 2A | Monday | 10:50 AM–11:35 AM -> activity:knitting",
-            "Games Day | 2A | Monday | 11:40 AM–12:25 PM -> activity:orienteering",
-            "Games Day | 2A | Monday | 12:30 PM–01:10 PM -> activity:lanyard"
+            "Games Day | 2A | Monday | 10:50 AM–11:35 AM -> activity:games day",
+            "Games Day | 2A | Monday | 11:40 AM–12:25 PM -> activity:games day",
+            "Games Day | 2A | Monday | 12:30 PM–01:10 PM -> activity:games day"
           ]
         },
         "spanRuns": [
           {
             "name": "Wilderness Skills",
             "expected": 3,
-            "activitySpanBlocks": null,
-            "placedGroupDays": 6,
+            "activitySpanBlocks": 3,
+            "placedGroupDays": 5,
             "runs": {
-              "1": 6
+              "3": 5
             }
           },
           {
             "name": "Ropes Course",
             "expected": 2,
             "activitySpanBlocks": null,
-            "placedGroupDays": 11,
+            "placedGroupDays": 9,
             "runs": {
-              "1": 11
+              "1": 9
             }
           }
         ],
@@ -10039,14 +10041,14 @@
           {
             "name": "Aquarium Trip",
             "expectedCells": 8,
-            "placedTotal": 4,
+            "placedTotal": 10,
             "placedAtExpectedCells": 0
           },
           {
             "name": "Games Day",
             "expectedCells": 60,
-            "placedTotal": 12,
-            "placedAtExpectedCells": 6
+            "placedTotal": 60,
+            "placedAtExpectedCells": 60
           }
         ],
         "electiveCells": {
@@ -10058,17 +10060,10 @@
       },
       "manual": {
         "created": true,
-        "unresolvedCount": 6,
-        "unresolvedNames": [
-          "Pottery Lake",
-          "Orienteering Pavilion",
-          "Music Lake",
-          "Knitting Field 2",
-          "Pottery / Drama / Robotics Field 1",
-          "Pottery / Drama / Robotics Field 2"
-        ],
+        "unresolvedCount": 0,
+        "unresolvedNames": [],
         "placements": 388,
-        "snapshotSlots": 382,
+        "snapshotSlots": 388,
         "eventCells": {
           "byKind": {
             "trip": {
@@ -10156,7 +10151,7 @@
           }
         ],
         "electiveCells": {
-          "none": 2
+          "activity:pottery / drama / robotics": 2
         }
       },
       "specialDayFiles": [],
@@ -10166,14 +10161,14 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 182,
+        "cpuMs": 326,
         "held": false,
         "counts": {
           "groups": 10,
           "tiers": 3,
           "days_of_operation": 4,
           "time_blocks": 10,
-          "activities": 27,
+          "activities": 28,
           "locations": 0,
           "fixed_events": 16,
           "elective_sets": 0
@@ -10302,11 +10297,11 @@
           "divisions": 3,
           "days": 4,
           "timeBlocks": 10,
-          "activities": 28,
+          "activities": 23,
           "pinnedEventActivities": 5,
           "fixedEvents": 1,
           "recurringEvents": 15,
-          "electiveSets": 2,
+          "electiveSets": 1,
           "specialDays": 0
         },
         "expected": {
@@ -10317,10 +10312,9 @@
           "activities": 20
         },
         "questions": {
-          "total": 8,
+          "total": 1,
           "byKind": {
-            "confirm_value": 6,
-            "elective_candidate": 2
+            "elective_candidate": 1
           }
         },
         "exclusivity": {
@@ -10328,6 +10322,8 @@
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
+          "orphanMarkers": [],
+          "pinnedMarkers": 5,
           "eventQuestions": [],
           "eventOpenItems": [],
           "ok": true
@@ -10414,14 +10410,9 @@
           "spurious": [
             "Aquarium Trip",
             "Games Day",
-            "Knitting Field 2",
-            "Music Lake",
-            "Orienteering Pavilion",
-            "Pottery / Drama / Robotics Field 1",
-            "Pottery / Drama / Robotics Field 2",
-            "Pottery Lake"
+            "Pottery / Drama / Robotics"
           ],
-          "spuriousCount": 8,
+          "spuriousCount": 3,
           "missing": [],
           "missingCount": 0
         },
@@ -10430,11 +10421,11 @@
             "name": "Wilderness Skills",
             "expected": 3,
             "form": "repeat",
-            "dbSpanBlocks": null,
+            "dbSpanBlocks": 3,
             "activityRow": true,
             "pinnedAsEvent": false,
-            "minPerWeek": 3,
-            "maxPerWeek": 5,
+            "minPerWeek": 1,
+            "maxPerWeek": 3,
             "sessionsPerGroupWeekPrinted": 1
           },
           {
@@ -10457,12 +10448,12 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 52,
+        "cpuMs": 99,
         "slots": 400,
         "placed": 288,
         "unfillable": 0,
-        "stillNeeded": 66,
-        "underservedPairs": 18,
+        "stillNeeded": 4,
+        "underservedPairs": 4,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -10520,28 +10511,28 @@
             }
           },
           "firstMisses": [
-            "Aquarium Trip | 1A | Tuesday | 02:10 PM–02:55 PM -> activity:drama",
-            "Aquarium Trip | 1A | Tuesday | 03:00 PM–03:45 PM -> activity:hiking",
-            "Aquarium Trip | 1B | Tuesday | 02:10 PM–02:55 PM -> activity:drama",
-            "Aquarium Trip | 1B | Tuesday | 03:00 PM–03:45 PM -> activity:hiking",
-            "Aquarium Trip | 1C | Tuesday | 02:10 PM–02:55 PM -> activity:knitting",
-            "Aquarium Trip | 1C | Tuesday | 03:00 PM–03:45 PM -> activity:nature walk",
-            "Aquarium Trip | 1D | Tuesday | 02:10 PM–02:55 PM -> activity:garden",
-            "Aquarium Trip | 1D | Tuesday | 03:00 PM–03:45 PM -> activity:gaga pit",
-            "Games Day | 2A | Monday | 10:20 AM–10:40 AM -> activity:music",
-            "Games Day | 2A | Monday | 10:50 AM–11:35 AM -> activity:drumming",
-            "Games Day | 2A | Monday | 11:40 AM–12:25 PM -> activity:soccer",
-            "Games Day | 2A | Monday | 12:30 PM–01:10 PM -> activity:drama"
+            "Aquarium Trip | 1A | Tuesday | 02:10 PM–02:55 PM -> activity:softball",
+            "Aquarium Trip | 1A | Tuesday | 03:00 PM–03:45 PM -> activity:sailing",
+            "Aquarium Trip | 1B | Tuesday | 02:10 PM–02:55 PM -> activity:wilderness skills",
+            "Aquarium Trip | 1B | Tuesday | 03:00 PM–03:45 PM -> activity:wilderness skills",
+            "Aquarium Trip | 1C | Tuesday | 02:10 PM–02:55 PM -> activity:gaga pit",
+            "Aquarium Trip | 1C | Tuesday | 03:00 PM–03:45 PM -> activity:kayaking",
+            "Aquarium Trip | 1D | Tuesday | 02:10 PM–02:55 PM -> activity:sailing",
+            "Aquarium Trip | 1D | Tuesday | 03:00 PM–03:45 PM -> activity:nature walk",
+            "Games Day | 2A | Monday | 10:20 AM–10:40 AM -> activity:games day",
+            "Games Day | 2A | Monday | 10:50 AM–11:35 AM -> activity:games day",
+            "Games Day | 2A | Monday | 11:40 AM–12:25 PM -> activity:games day",
+            "Games Day | 2A | Monday | 12:30 PM–01:10 PM -> activity:games day"
           ]
         },
         "spanRuns": [
           {
             "name": "Wilderness Skills",
             "expected": 3,
-            "activitySpanBlocks": null,
+            "activitySpanBlocks": 3,
             "placedGroupDays": 4,
             "runs": {
-              "1": 4
+              "3": 4
             }
           },
           {
@@ -10558,14 +10549,14 @@
           {
             "name": "Aquarium Trip",
             "expectedCells": 8,
-            "placedTotal": 4,
+            "placedTotal": 8,
             "placedAtExpectedCells": 0
           },
           {
             "name": "Games Day",
             "expectedCells": 60,
-            "placedTotal": 10,
-            "placedAtExpectedCells": 5
+            "placedTotal": 60,
+            "placedAtExpectedCells": 60
           }
         ],
         "electiveCells": {
@@ -10668,11 +10659,10 @@
           }
         ],
         "electiveCells": {
-          "activity:pottery / drama / robotics field 1": 1,
-          "activity:pottery / drama / robotics field 2": 1
+          "activity:pottery / drama / robotics": 2
         }
       },
-      "runtimeMs": 1317
+      "runtimeMs": 1399
     },
     "s13-daysheet-16-splits": {
       "slug": "s13-daysheet-16-splits",
@@ -10681,7 +10671,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 208,
+          "cpuMs": 249,
           "held": false
         },
         "confirmAll": {
@@ -10837,7 +10827,7 @@
           "divisions": 4,
           "days": 5,
           "timeBlocks": 9,
-          "activities": 32,
+          "activities": 30,
           "pinnedEventActivities": 7,
           "fixedEvents": 4,
           "recurringEvents": 24,
@@ -10852,9 +10842,9 @@
           "activities": 26
         },
         "questions": {
-          "total": 21,
+          "total": 1,
           "byKind": {
-            "confirm_value": 21
+            "confirm_value": 1
           }
         },
         "exclusivity": {
@@ -10862,6 +10852,8 @@
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
+          "orphanMarkers": [],
+          "pinnedMarkers": 7,
           "eventQuestions": [
             "fixed_events:Library"
           ],
@@ -10957,11 +10949,9 @@
             "Aquarium Trip",
             "Ceramics / Pottery",
             "Games Day",
-            "Musik",
-            "Sailing Dock",
-            "Trampoline Field 2"
+            "Musik"
           ],
-          "spuriousCount": 6,
+          "spuriousCount": 4,
           "missing": [],
           "missingCount": 0
         },
@@ -10970,11 +10960,11 @@
             "name": "Ropes Course",
             "expected": 2,
             "form": "repeat",
-            "dbSpanBlocks": null,
+            "dbSpanBlocks": 2,
             "activityRow": true,
             "pinnedAsEvent": false,
-            "minPerWeek": 4,
-            "maxPerWeek": 6,
+            "minPerWeek": 2,
+            "maxPerWeek": 4,
             "sessionsPerGroupWeekPrinted": 2
           }
         ],
@@ -10986,12 +10976,12 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 76,
+        "cpuMs": 244,
         "slots": 720,
         "placed": 440,
         "unfillable": 0,
-        "stillNeeded": 81,
-        "underservedPairs": 19,
+        "stillNeeded": 5,
+        "underservedPairs": 5,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -11053,28 +11043,28 @@
             }
           },
           "firstMisses": [
-            "Aquarium Trip | 3A | Wednesday | 12:55 PM–01:40 PM -> activity:tie dye",
-            "Aquarium Trip | 3A | Wednesday | 01:45 PM–02:30 PM -> activity:music",
-            "Aquarium Trip | 3B | Wednesday | 12:55 PM–01:40 PM -> activity:aquarium trip",
-            "Aquarium Trip | 3B | Wednesday | 01:45 PM–02:30 PM -> activity:photography",
-            "Aquarium Trip | 3C | Wednesday | 12:55 PM–01:40 PM -> activity:swim",
-            "Aquarium Trip | 3C | Wednesday | 01:45 PM–02:30 PM -> activity:aquarium trip",
-            "Aquarium Trip | 3D | Wednesday | 12:55 PM–01:40 PM -> activity:woodworking",
-            "Aquarium Trip | 3D | Wednesday | 01:45 PM–02:30 PM -> activity:yoga",
-            "Games Day | 3A | Tuesday | 08:45 AM–09:05 AM -> activity:softball",
-            "Games Day | 3A | Tuesday | 09:15 AM–10:00 AM -> activity:aquarium trip",
-            "Games Day | 3A | Tuesday | 10:05 AM–10:50 AM -> activity:lanyard",
-            "Games Day | 3A | Tuesday | 10:55 AM–11:30 AM -> activity:nature walk"
+            "Aquarium Trip | 3A | Wednesday | 12:55 PM–01:40 PM -> activity:trampoline",
+            "Aquarium Trip | 3A | Wednesday | 01:45 PM–02:30 PM -> activity:nature walk",
+            "Aquarium Trip | 3B | Wednesday | 12:55 PM–01:40 PM -> activity:cooking",
+            "Aquarium Trip | 3B | Wednesday | 01:45 PM–02:30 PM -> activity:pottery",
+            "Aquarium Trip | 3C | Wednesday | 12:55 PM–01:40 PM -> activity:puppetry",
+            "Aquarium Trip | 3C | Wednesday | 01:45 PM–02:30 PM -> activity:orienteering",
+            "Aquarium Trip | 3D | Wednesday | 12:55 PM–01:40 PM -> activity:pottery",
+            "Aquarium Trip | 3D | Wednesday | 01:45 PM–02:30 PM -> activity:photography",
+            "Games Day | 3A | Tuesday | 08:45 AM–09:05 AM -> activity:games day",
+            "Games Day | 3A | Tuesday | 09:15 AM–10:00 AM -> activity:games day",
+            "Games Day | 3A | Tuesday | 10:05 AM–10:50 AM -> activity:games day",
+            "Games Day | 3A | Tuesday | 10:55 AM–11:30 AM -> activity:games day"
           ]
         },
         "spanRuns": [
           {
             "name": "Ropes Course",
             "expected": 2,
-            "activitySpanBlocks": null,
-            "placedGroupDays": 12,
+            "activitySpanBlocks": 2,
+            "placedGroupDays": 16,
             "runs": {
-              "1": 12
+              "2": 16
             }
           }
         ],
@@ -11082,14 +11072,14 @@
           {
             "name": "Aquarium Trip",
             "expectedCells": 8,
-            "placedTotal": 5,
-            "placedAtExpectedCells": 2
+            "placedTotal": 8,
+            "placedAtExpectedCells": 0
           },
           {
             "name": "Games Day",
             "expectedCells": 72,
-            "placedTotal": 14,
-            "placedAtExpectedCells": 1
+            "placedTotal": 72,
+            "placedAtExpectedCells": 72
           }
         ],
         "electiveCells": {
@@ -11102,23 +11092,10 @@
       },
       "manual": {
         "created": true,
-        "unresolvedCount": 20,
-        "unresolvedNames": [
-          "Painting Shed",
-          "Tie Dye Pavilion",
-          "Music Studio B",
-          "Storytelling Meadow",
-          "Puppetry Barn",
-          "Photography Field 1",
-          "Painting Lake",
-          "Yoga Shed",
-          "Music Dock",
-          "Puppetry Meadow",
-          "Swim Barn",
-          "Photography Pavilion"
-        ],
+        "unresolvedCount": 0,
+        "unresolvedNames": [],
         "placements": 737,
-        "snapshotSlots": 717,
+        "snapshotSlots": 737,
         "eventCells": {
           "byKind": {
             "trip": {
@@ -11213,14 +11190,14 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 297,
+        "cpuMs": 287,
         "held": false,
         "counts": {
           "groups": 16,
           "tiers": 4,
           "days_of_operation": 5,
           "time_blocks": 9,
-          "activities": 39,
+          "activities": 37,
           "locations": 0,
           "fixed_events": 28,
           "elective_sets": 0
@@ -11374,7 +11351,7 @@
           "divisions": 4,
           "days": 5,
           "timeBlocks": 9,
-          "activities": 52,
+          "activities": 30,
           "pinnedEventActivities": 7,
           "fixedEvents": 4,
           "recurringEvents": 24,
@@ -11389,9 +11366,9 @@
           "activities": 26
         },
         "questions": {
-          "total": 21,
+          "total": 1,
           "byKind": {
-            "confirm_value": 21
+            "confirm_value": 1
           }
         },
         "exclusivity": {
@@ -11399,6 +11376,8 @@
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
+          "orphanMarkers": [],
+          "pinnedMarkers": 7,
           "eventQuestions": [
             "fixed_events:Library"
           ],
@@ -11492,20 +11471,9 @@
             "Aquarium Trip",
             "Ceramics / Pottery",
             "Games Day",
-            "Music Dock",
-            "Music Field 1",
-            "Music Shed",
-            "Music Studio B",
-            "Musik",
-            "Painting Lake",
-            "Painting Shed",
-            "Photography Field 1",
-            "Photography Field 2",
-            "Photography Pavilion",
-            "Puppetry Barn",
-            "Puppetry Meadow"
+            "Musik"
           ],
-          "spuriousCount": 26,
+          "spuriousCount": 4,
           "missing": [],
           "missingCount": 0
         },
@@ -11514,11 +11482,11 @@
             "name": "Ropes Course",
             "expected": 2,
             "form": "repeat",
-            "dbSpanBlocks": null,
+            "dbSpanBlocks": 2,
             "activityRow": true,
             "pinnedAsEvent": false,
-            "minPerWeek": 4,
-            "maxPerWeek": 6,
+            "minPerWeek": 2,
+            "maxPerWeek": 4,
             "sessionsPerGroupWeekPrinted": 2
           }
         ],
@@ -11530,12 +11498,12 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 159,
+        "cpuMs": 243,
         "slots": 720,
         "placed": 440,
         "unfillable": 0,
-        "stillNeeded": 307,
-        "underservedPairs": 233,
+        "stillNeeded": 6,
+        "underservedPairs": 6,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -11597,28 +11565,28 @@
             }
           },
           "firstMisses": [
-            "Aquarium Trip | 3A | Wednesday | 12:55 PM–01:40 PM -> activity:tie dye",
-            "Aquarium Trip | 3A | Wednesday | 01:45 PM–02:30 PM -> activity:aquarium trip",
-            "Aquarium Trip | 3B | Wednesday | 12:55 PM–01:40 PM -> activity:free swim",
-            "Aquarium Trip | 3B | Wednesday | 01:45 PM–02:30 PM -> activity:pottery",
-            "Aquarium Trip | 3C | Wednesday | 12:55 PM–01:40 PM -> activity:orienteering",
+            "Aquarium Trip | 3A | Wednesday | 12:55 PM–01:40 PM -> activity:music",
+            "Aquarium Trip | 3A | Wednesday | 01:45 PM–02:30 PM -> activity:nature walk",
+            "Aquarium Trip | 3B | Wednesday | 12:55 PM–01:40 PM -> activity:robotics",
+            "Aquarium Trip | 3B | Wednesday | 01:45 PM–02:30 PM -> activity:painting",
+            "Aquarium Trip | 3C | Wednesday | 12:55 PM–01:40 PM -> activity:knitting",
             "Aquarium Trip | 3C | Wednesday | 01:45 PM–02:30 PM -> activity:nature walk",
-            "Aquarium Trip | 3D | Wednesday | 12:55 PM–01:40 PM -> activity:storytelling",
-            "Aquarium Trip | 3D | Wednesday | 01:45 PM–02:30 PM -> activity:puppetry meadow",
-            "Games Day | 3A | Tuesday | 08:45 AM–09:05 AM -> activity:softball",
-            "Games Day | 3A | Tuesday | 09:15 AM–10:00 AM -> activity:robotics",
-            "Games Day | 3A | Tuesday | 10:05 AM–10:50 AM -> activity:orienteering",
-            "Games Day | 3A | Tuesday | 10:55 AM–11:30 AM -> activity:soccer meadow"
+            "Aquarium Trip | 3D | Wednesday | 12:55 PM–01:40 PM -> activity:swim",
+            "Aquarium Trip | 3D | Wednesday | 01:45 PM–02:30 PM -> activity:free swim",
+            "Games Day | 3A | Tuesday | 08:45 AM–09:05 AM -> activity:games day",
+            "Games Day | 3A | Tuesday | 09:15 AM–10:00 AM -> activity:games day",
+            "Games Day | 3A | Tuesday | 10:05 AM–10:50 AM -> activity:games day",
+            "Games Day | 3A | Tuesday | 10:55 AM–11:30 AM -> activity:games day"
           ]
         },
         "spanRuns": [
           {
             "name": "Ropes Course",
             "expected": 2,
-            "activitySpanBlocks": null,
-            "placedGroupDays": 7,
+            "activitySpanBlocks": 2,
+            "placedGroupDays": 16,
             "runs": {
-              "1": 7
+              "2": 16
             }
           }
         ],
@@ -11626,14 +11594,14 @@
           {
             "name": "Aquarium Trip",
             "expectedCells": 8,
-            "placedTotal": 4,
-            "placedAtExpectedCells": 1
+            "placedTotal": 8,
+            "placedAtExpectedCells": 0
           },
           {
             "name": "Games Day",
             "expectedCells": 72,
-            "placedTotal": 7,
-            "placedAtExpectedCells": 3
+            "placedTotal": 72,
+            "placedAtExpectedCells": 72
           }
         ],
         "electiveCells": {
@@ -11737,7 +11705,7 @@
           "activity:ceramics / pottery": 4
         }
       },
-      "runtimeMs": 2443
+      "runtimeMs": 2882
     },
     "s14-by-day-period-24h": {
       "slug": "s14-by-day-period-24h",
@@ -11746,7 +11714,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 95,
+          "cpuMs": 130,
           "held": false
         },
         "confirmAll": {
@@ -11822,26 +11790,6 @@
               "Friday"
             ],
             "groups": "all"
-          },
-          {
-            "name": "Ropes Course",
-            "kind": "fixed",
-            "block": "12:30-13:15",
-            "span": 1,
-            "days": [
-              "Monday"
-            ],
-            "groups": "all"
-          },
-          {
-            "name": "Ropes Course",
-            "kind": "fixed",
-            "block": "13:20-14:05",
-            "span": 1,
-            "days": [
-              "Monday"
-            ],
-            "groups": "all"
           }
         ],
         "counts": {
@@ -11849,9 +11797,9 @@
           "divisions": 3,
           "days": 5,
           "timeBlocks": 8,
-          "activities": 16,
-          "pinnedEventActivities": 5,
-          "fixedEvents": 12,
+          "activities": 17,
+          "pinnedEventActivities": 4,
+          "fixedEvents": 10,
           "recurringEvents": 10,
           "electiveSets": 0,
           "specialDays": 0
@@ -11874,6 +11822,8 @@
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
+          "orphanMarkers": [],
+          "pinnedMarkers": 4,
           "eventQuestions": [],
           "eventOpenItems": [],
           "ok": true
@@ -11954,21 +11904,19 @@
             "Museum Trip"
           ],
           "spuriousCount": 2,
-          "missing": [
-            "Ropes Course"
-          ],
-          "missingCount": 1
+          "missing": [],
+          "missingCount": 0
         },
         "spansDb": [
           {
             "name": "Ropes Course",
             "expected": 2,
             "form": "repeat",
-            "dbSpanBlocks": null,
+            "dbSpanBlocks": 2,
             "activityRow": true,
-            "pinnedAsEvent": true,
-            "minPerWeek": null,
-            "maxPerWeek": null,
+            "pinnedAsEvent": false,
+            "minPerWeek": 1,
+            "maxPerWeek": 3,
             "sessionsPerGroupWeekPrinted": 1
           }
         ],
@@ -11980,9 +11928,9 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 21,
+        "cpuMs": 118,
         "slots": 360,
-        "placed": 207,
+        "placed": 225,
         "unfillable": 0,
         "stillNeeded": 24,
         "underservedPairs": 21,
@@ -12035,17 +11983,17 @@
             }
           },
           "firstMisses": [
-            "Museum Trip | Herons 1 | Thursday | 12:30–13:15 -> activity:tie dye",
-            "Museum Trip | Herons 1 | Thursday | 13:20–14:05 -> activity:photography",
-            "Museum Trip | Herons 2 | Thursday | 12:30–13:15 -> activity:swim",
-            "Museum Trip | Herons 2 | Thursday | 13:20–14:05 -> activity:tie dye",
-            "Museum Trip | Herons 3 | Thursday | 12:30–13:15 -> activity:volleyball",
-            "Museum Trip | Herons 3 | Thursday | 13:20–14:05 -> activity:puppetry",
-            "Swim | Otters 1 | Wednesday | 09:20–10:05 -> activity:free swim",
-            "Swim | Otters 2 | Wednesday | 09:20–10:05 -> activity:puppetry",
-            "Swim | Otters 3 | Wednesday | 09:20–10:05 -> activity:puppetry",
-            "Swim | Herons 1 | Wednesday | 09:20–10:05 -> activity:tennis",
-            "Swim | Herons 2 | Wednesday | 09:20–10:05 -> activity:rocketry",
+            "Museum Trip | Herons 1 | Thursday | 12:30–13:15 -> activity:woodworking",
+            "Museum Trip | Herons 1 | Thursday | 13:20–14:05 -> activity:puppetry",
+            "Museum Trip | Herons 2 | Thursday | 12:30–13:15 -> activity:ropes course",
+            "Museum Trip | Herons 2 | Thursday | 13:20–14:05 -> activity:cooking",
+            "Museum Trip | Herons 3 | Thursday | 12:30–13:15 -> activity:tie dye",
+            "Museum Trip | Herons 3 | Thursday | 13:20–14:05 -> activity:cooking",
+            "Swim | Otters 1 | Wednesday | 09:20–10:05 -> activity:swim",
+            "Swim | Otters 2 | Wednesday | 09:20–10:05 -> activity:rocketry",
+            "Swim | Otters 3 | Wednesday | 09:20–10:05 -> activity:ropes course",
+            "Swim | Herons 1 | Wednesday | 09:20–10:05 -> activity:woodworking",
+            "Swim | Herons 2 | Wednesday | 09:20–10:05 -> activity:yoga",
             "Swim | Herons 3 | Wednesday | 09:20–10:05 -> activity:museum trip"
           ]
         },
@@ -12053,16 +12001,18 @@
           {
             "name": "Ropes Course",
             "expected": 2,
-            "activitySpanBlocks": null,
-            "placedGroupDays": 0,
-            "runs": {}
+            "activitySpanBlocks": 2,
+            "placedGroupDays": 10,
+            "runs": {
+              "2": 10
+            }
           }
         ],
         "displacedAsActivity": [
           {
             "name": "Museum Trip",
             "expectedCells": 6,
-            "placedTotal": 4,
+            "placedTotal": 8,
             "placedAtExpectedCells": 0
           }
         ],
@@ -12160,7 +12110,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 175,
+        "cpuMs": 230,
         "held": false,
         "counts": {
           "groups": 9,
@@ -12169,7 +12119,7 @@
           "time_blocks": 8,
           "activities": 21,
           "locations": 0,
-          "fixed_events": 22,
+          "fixed_events": 20,
           "elective_sets": 0
         }
       },
@@ -12241,26 +12191,6 @@
               "Friday"
             ],
             "groups": "all"
-          },
-          {
-            "name": "Ropes Course",
-            "kind": "fixed",
-            "block": "12:30-13:15",
-            "span": 1,
-            "days": [
-              "Monday"
-            ],
-            "groups": "all"
-          },
-          {
-            "name": "Ropes Course",
-            "kind": "fixed",
-            "block": "13:20-14:05",
-            "span": 1,
-            "days": [
-              "Monday"
-            ],
-            "groups": "all"
           }
         ],
         "counts": {
@@ -12268,9 +12198,9 @@
           "divisions": 3,
           "days": 5,
           "timeBlocks": 8,
-          "activities": 16,
-          "pinnedEventActivities": 5,
-          "fixedEvents": 12,
+          "activities": 17,
+          "pinnedEventActivities": 4,
+          "fixedEvents": 10,
           "recurringEvents": 10,
           "electiveSets": 1,
           "specialDays": 0
@@ -12293,6 +12223,8 @@
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
+          "orphanMarkers": [],
+          "pinnedMarkers": 4,
           "eventQuestions": [],
           "eventOpenItems": [],
           "ok": true
@@ -12373,21 +12305,19 @@
             "Museum Trip"
           ],
           "spuriousCount": 2,
-          "missing": [
-            "Ropes Course"
-          ],
-          "missingCount": 1
+          "missing": [],
+          "missingCount": 0
         },
         "spansDb": [
           {
             "name": "Ropes Course",
             "expected": 2,
             "form": "repeat",
-            "dbSpanBlocks": null,
+            "dbSpanBlocks": 2,
             "activityRow": true,
-            "pinnedAsEvent": true,
-            "minPerWeek": null,
-            "maxPerWeek": null,
+            "pinnedAsEvent": false,
+            "minPerWeek": 1,
+            "maxPerWeek": 3,
             "sessionsPerGroupWeekPrinted": 1
           }
         ],
@@ -12399,12 +12329,12 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 22,
+        "cpuMs": 109,
         "slots": 360,
-        "placed": 207,
+        "placed": 225,
         "unfillable": 0,
-        "stillNeeded": 18,
-        "underservedPairs": 16,
+        "stillNeeded": 23,
+        "underservedPairs": 21,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -12454,34 +12384,36 @@
             }
           },
           "firstMisses": [
-            "Museum Trip | Herons 1 | Thursday | 12:30–13:15 -> activity:trampoline",
-            "Museum Trip | Herons 1 | Thursday | 13:20–14:05 -> activity:tie dye",
-            "Museum Trip | Herons 2 | Thursday | 12:30–13:15 -> activity:woodworking",
-            "Museum Trip | Herons 2 | Thursday | 13:20–14:05 -> activity:yoga",
-            "Museum Trip | Herons 3 | Thursday | 12:30–13:15 -> activity:storytelling",
-            "Museum Trip | Herons 3 | Thursday | 13:20–14:05 -> activity:photography",
-            "Swim | Otters 1 | Wednesday | 09:20–10:05 -> activity:yoga",
-            "Swim | Otters 2 | Wednesday | 09:20–10:05 -> activity:trampoline",
-            "Swim | Otters 3 | Wednesday | 09:20–10:05 -> activity:cooking",
-            "Swim | Herons 1 | Wednesday | 09:20–10:05 -> activity:volleyball",
-            "Swim | Herons 2 | Wednesday | 09:20–10:05 -> activity:tie dye",
-            "Swim | Herons 3 | Wednesday | 09:20–10:05 -> activity:storytelling"
+            "Museum Trip | Herons 1 | Thursday | 12:30–13:15 -> activity:woodworking",
+            "Museum Trip | Herons 1 | Thursday | 13:20–14:05 -> activity:storytelling",
+            "Museum Trip | Herons 2 | Thursday | 12:30–13:15 -> activity:ropes course",
+            "Museum Trip | Herons 2 | Thursday | 13:20–14:05 -> activity:woodworking",
+            "Museum Trip | Herons 3 | Thursday | 12:30–13:15 -> activity:rocketry",
+            "Museum Trip | Herons 3 | Thursday | 13:20–14:05 -> activity:yoga",
+            "Swim | Otters 1 | Wednesday | 09:20–10:05 -> activity:magic show",
+            "Swim | Otters 2 | Wednesday | 09:20–10:05 -> activity:elective",
+            "Swim | Otters 3 | Wednesday | 09:20–10:05 -> activity:ropes course",
+            "Swim | Herons 1 | Wednesday | 09:20–10:05 -> activity:puppetry",
+            "Swim | Herons 2 | Wednesday | 09:20–10:05 -> activity:puppetry",
+            "Swim | Herons 3 | Wednesday | 09:20–10:05 -> activity:museum trip"
           ]
         },
         "spanRuns": [
           {
             "name": "Ropes Course",
             "expected": 2,
-            "activitySpanBlocks": null,
-            "placedGroupDays": 0,
-            "runs": {}
+            "activitySpanBlocks": 2,
+            "placedGroupDays": 14,
+            "runs": {
+              "2": 14
+            }
           }
         ],
         "displacedAsActivity": [
           {
             "name": "Museum Trip",
             "expectedCells": 6,
-            "placedTotal": 5,
+            "placedTotal": 6,
             "placedAtExpectedCells": 0
           }
         ],
@@ -12572,7 +12504,7 @@
           "activity:elective": 6
         }
       },
-      "runtimeMs": 1298
+      "runtimeMs": 1433
     },
     "s15-by-day-period-6day-nolunch": {
       "slug": "s15-by-day-period-6day-nolunch",
@@ -12581,7 +12513,7 @@
       "stages": {
         "zeroAnswers": {
           "ok": true,
-          "cpuMs": 174,
+          "cpuMs": 199,
           "held": false
         },
         "confirmAll": {
@@ -12720,36 +12652,6 @@
             "groups": "all"
           },
           {
-            "name": "Ropes Course",
-            "kind": "fixed",
-            "block": "11:05-11:50",
-            "span": 1,
-            "days": [
-              "Tuesday"
-            ],
-            "groups": "all"
-          },
-          {
-            "name": "Ropes Course",
-            "kind": "fixed",
-            "block": "11:55-12:25",
-            "span": 1,
-            "days": [
-              "Tuesday"
-            ],
-            "groups": "all"
-          },
-          {
-            "name": "Ropes Course",
-            "kind": "fixed",
-            "block": "12:35-13:30",
-            "span": 1,
-            "days": [
-              "Tuesday"
-            ],
-            "groups": "all"
-          },
-          {
             "name": "Snack",
             "kind": "fixed",
             "block": "10:40-11:00",
@@ -12769,9 +12671,9 @@
           "divisions": 6,
           "days": 6,
           "timeBlocks": 9,
-          "activities": 32,
-          "pinnedEventActivities": 6,
-          "fixedEvents": 28,
+          "activities": 33,
+          "pinnedEventActivities": 5,
+          "fixedEvents": 25,
           "recurringEvents": 0,
           "electiveSets": 0,
           "specialDays": 0
@@ -12794,6 +12696,8 @@
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
+          "orphanMarkers": [],
+          "pinnedMarkers": 5,
           "eventQuestions": [
             "fixed_events:Arrival",
             "fixed_events:Dismissal"
@@ -12871,17 +12775,15 @@
             "Farm Trip"
           ],
           "spuriousCount": 1,
-          "missing": [
-            "Ropes Course"
-          ],
-          "missingCount": 1
+          "missing": [],
+          "missingCount": 0
         },
         "spansDb": [
           {
             "name": "Wilderness Skills",
             "expected": 3,
             "form": "blank",
-            "dbSpanBlocks": null,
+            "dbSpanBlocks": 3,
             "activityRow": true,
             "pinnedAsEvent": false,
             "minPerWeek": 3,
@@ -12892,11 +12794,11 @@
             "name": "Ropes Course",
             "expected": 3,
             "form": "repeat",
-            "dbSpanBlocks": null,
+            "dbSpanBlocks": 3,
             "activityRow": true,
-            "pinnedAsEvent": true,
-            "minPerWeek": null,
-            "maxPerWeek": null,
+            "pinnedAsEvent": false,
+            "minPerWeek": 1,
+            "maxPerWeek": 3,
             "sessionsPerGroupWeekPrinted": 1
           }
         ],
@@ -12908,12 +12810,12 @@
         "unresolvedTimeBlocks": []
       },
       "generate": {
-        "cpuMs": 111,
+        "cpuMs": 367,
         "slots": 972,
-        "placed": 468,
+        "placed": 522,
         "unfillable": 0,
-        "stillNeeded": 15,
-        "underservedPairs": 12,
+        "stillNeeded": 0,
+        "underservedPairs": 0,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -12955,44 +12857,46 @@
             }
           },
           "firstMisses": [
-            "Farm Trip | Moles 1 | Thursday | 08:30–09:00 -> activity:woodworking",
+            "Farm Trip | Moles 1 | Thursday | 08:30–09:00 -> activity:swim test",
             "Farm Trip | Moles 1 | Thursday | 09:10–09:55 -> activity:volleyball",
-            "Farm Trip | Moles 2 | Thursday | 08:30–09:00 -> activity:volleyball",
-            "Farm Trip | Moles 2 | Thursday | 09:10–09:55 -> activity:drumming",
-            "Farm Trip | Moles 3 | Thursday | 08:30–09:00 -> activity:music",
-            "Farm Trip | Moles 3 | Thursday | 09:10–09:55 -> activity:climbing wall",
-            "Farm Trip | Voles 1 | Thursday | 08:30–09:00 -> activity:cooking",
-            "Farm Trip | Voles 1 | Thursday | 09:10–09:55 -> activity:yoga",
-            "Farm Trip | Voles 2 | Thursday | 08:30–09:00 -> activity:kayaking",
-            "Farm Trip | Voles 2 | Thursday | 09:10–09:55 -> activity:nature walk",
-            "Farm Trip | Voles 3 | Thursday | 08:30–09:00 -> activity:drama",
-            "Farm Trip | Voles 3 | Thursday | 09:10–09:55 -> activity:yoga"
+            "Farm Trip | Moles 2 | Thursday | 08:30–09:00 -> activity:ropes course",
+            "Farm Trip | Moles 2 | Thursday | 09:10–09:55 -> activity:ropes course",
+            "Farm Trip | Moles 3 | Thursday | 08:30–09:00 -> activity:basketball",
+            "Farm Trip | Moles 3 | Thursday | 09:10–09:55 -> activity:lanyard",
+            "Farm Trip | Voles 1 | Thursday | 08:30–09:00 -> activity:farm trip",
+            "Farm Trip | Voles 1 | Thursday | 09:10–09:55 -> activity:farm trip",
+            "Farm Trip | Voles 2 | Thursday | 08:30–09:00 -> activity:archery",
+            "Farm Trip | Voles 2 | Thursday | 09:10–09:55 -> activity:basketball",
+            "Farm Trip | Voles 3 | Thursday | 08:30–09:00 -> activity:volleyball",
+            "Farm Trip | Voles 3 | Thursday | 09:10–09:55 -> activity:kayaking"
           ]
         },
         "spanRuns": [
           {
             "name": "Wilderness Skills",
             "expected": 3,
-            "activitySpanBlocks": null,
-            "placedGroupDays": 9,
+            "activitySpanBlocks": 3,
+            "placedGroupDays": 18,
             "runs": {
-              "1": 9
+              "3": 18
             }
           },
           {
             "name": "Ropes Course",
             "expected": 3,
-            "activitySpanBlocks": null,
-            "placedGroupDays": 0,
-            "runs": {}
+            "activitySpanBlocks": 3,
+            "placedGroupDays": 18,
+            "runs": {
+              "3": 18
+            }
           }
         ],
         "displacedAsActivity": [
           {
             "name": "Farm Trip",
             "expectedCells": 12,
-            "placedTotal": 6,
-            "placedAtExpectedCells": 0
+            "placedTotal": 12,
+            "placedAtExpectedCells": 2
           }
         ],
         "electiveCells": {
@@ -13006,8 +12910,8 @@
         "created": true,
         "unresolvedCount": 0,
         "unresolvedNames": [],
-        "placements": 919,
-        "snapshotSlots": 919,
+        "placements": 955,
+        "snapshotSlots": 955,
         "eventCells": {
           "byKind": {
             "trip": {
@@ -13065,9 +12969,9 @@
             "name": "Wilderness Skills",
             "form": "blank",
             "blocks": 3,
-            "ok": 18,
+            "ok": 54,
             "total": 54,
-            "ratio": 0.333
+            "ratio": 1
           },
           {
             "name": "Ropes Course",
@@ -13089,7 +12993,7 @@
       },
       "reimportReplace": {
         "ok": true,
-        "cpuMs": 318,
+        "cpuMs": 350,
         "held": false,
         "counts": {
           "groups": 18,
@@ -13098,7 +13002,7 @@
           "time_blocks": 9,
           "activities": 38,
           "locations": 0,
-          "fixed_events": 28,
+          "fixed_events": 25,
           "elective_sets": 0
         }
       },
@@ -13233,36 +13137,6 @@
             "groups": "all"
           },
           {
-            "name": "Ropes Course",
-            "kind": "fixed",
-            "block": "11:05-11:50",
-            "span": 1,
-            "days": [
-              "Tuesday"
-            ],
-            "groups": "all"
-          },
-          {
-            "name": "Ropes Course",
-            "kind": "fixed",
-            "block": "11:55-12:25",
-            "span": 1,
-            "days": [
-              "Tuesday"
-            ],
-            "groups": "all"
-          },
-          {
-            "name": "Ropes Course",
-            "kind": "fixed",
-            "block": "12:35-13:30",
-            "span": 1,
-            "days": [
-              "Tuesday"
-            ],
-            "groups": "all"
-          },
-          {
             "name": "Snack",
             "kind": "fixed",
             "block": "10:40-11:00",
@@ -13282,9 +13156,9 @@
           "divisions": 6,
           "days": 6,
           "timeBlocks": 9,
-          "activities": 32,
-          "pinnedEventActivities": 6,
-          "fixedEvents": 28,
+          "activities": 33,
+          "pinnedEventActivities": 5,
+          "fixedEvents": 25,
           "recurringEvents": 0,
           "electiveSets": 0,
           "specialDays": 0
@@ -13307,6 +13181,8 @@
           "openItems": [],
           "candidates": [],
           "inTwoBuckets": [],
+          "orphanMarkers": [],
+          "pinnedMarkers": 5,
           "eventQuestions": [
             "fixed_events:Arrival",
             "fixed_events:Dismissal"
@@ -13381,17 +13257,15 @@
             "Farm Trip"
           ],
           "spuriousCount": 1,
-          "missing": [
-            "Ropes Course"
-          ],
-          "missingCount": 1
+          "missing": [],
+          "missingCount": 0
         },
         "spansDb": [
           {
             "name": "Wilderness Skills",
             "expected": 3,
             "form": "blank",
-            "dbSpanBlocks": null,
+            "dbSpanBlocks": 3,
             "activityRow": true,
             "pinnedAsEvent": false,
             "minPerWeek": 3,
@@ -13402,11 +13276,11 @@
             "name": "Ropes Course",
             "expected": 3,
             "form": "repeat",
-            "dbSpanBlocks": null,
+            "dbSpanBlocks": 3,
             "activityRow": true,
-            "pinnedAsEvent": true,
-            "minPerWeek": null,
-            "maxPerWeek": null,
+            "pinnedAsEvent": false,
+            "minPerWeek": 1,
+            "maxPerWeek": 3,
             "sessionsPerGroupWeekPrinted": 1
           }
         ],
@@ -13418,12 +13292,12 @@
         "unresolvedTimeBlocks": []
       },
       "confirmAllGenerate": {
-        "cpuMs": 100,
+        "cpuMs": 391,
         "slots": 972,
-        "placed": 468,
+        "placed": 522,
         "unfillable": 0,
-        "stillNeeded": 13,
-        "underservedPairs": 11,
+        "stillNeeded": 0,
+        "underservedPairs": 0,
         "overlap": 0,
         "errorFindings": [],
         "errorFindingCount": 0,
@@ -13465,44 +13339,46 @@
             }
           },
           "firstMisses": [
-            "Farm Trip | Moles 1 | Thursday | 08:30–09:00 -> activity:orienteering",
-            "Farm Trip | Moles 1 | Thursday | 09:10–09:55 -> activity:nature walk",
-            "Farm Trip | Moles 2 | Thursday | 08:30–09:00 -> activity:drama",
-            "Farm Trip | Moles 2 | Thursday | 09:10–09:55 -> activity:farm trip",
+            "Farm Trip | Moles 1 | Thursday | 08:30–09:00 -> activity:magic show",
+            "Farm Trip | Moles 1 | Thursday | 09:10–09:55 -> activity:drama",
+            "Farm Trip | Moles 2 | Thursday | 08:30–09:00 -> activity:ropes course",
+            "Farm Trip | Moles 2 | Thursday | 09:10–09:55 -> activity:ropes course",
             "Farm Trip | Moles 3 | Thursday | 08:30–09:00 -> activity:chess club",
-            "Farm Trip | Moles 3 | Thursday | 09:10–09:55 -> activity:drumming",
-            "Farm Trip | Voles 1 | Thursday | 08:30–09:00 -> activity:bocce",
-            "Farm Trip | Voles 1 | Thursday | 09:10–09:55 -> activity:woodworking",
-            "Farm Trip | Voles 2 | Thursday | 08:30–09:00 -> activity:volleyball",
-            "Farm Trip | Voles 2 | Thursday | 09:10–09:55 -> activity:swim test",
+            "Farm Trip | Moles 3 | Thursday | 09:10–09:55 -> activity:hiking",
+            "Farm Trip | Voles 1 | Thursday | 08:30–09:00 -> activity:farm trip",
+            "Farm Trip | Voles 1 | Thursday | 09:10–09:55 -> activity:farm trip",
+            "Farm Trip | Voles 2 | Thursday | 08:30–09:00 -> activity:music",
+            "Farm Trip | Voles 2 | Thursday | 09:10–09:55 -> activity:nature walk",
             "Farm Trip | Voles 3 | Thursday | 08:30–09:00 -> activity:yoga",
-            "Farm Trip | Voles 3 | Thursday | 09:10–09:55 -> activity:free swim"
+            "Farm Trip | Voles 3 | Thursday | 09:10–09:55 -> activity:fishing"
           ]
         },
         "spanRuns": [
           {
             "name": "Wilderness Skills",
             "expected": 3,
-            "activitySpanBlocks": null,
-            "placedGroupDays": 10,
+            "activitySpanBlocks": 3,
+            "placedGroupDays": 18,
             "runs": {
-              "1": 10
+              "3": 18
             }
           },
           {
             "name": "Ropes Course",
             "expected": 3,
-            "activitySpanBlocks": null,
-            "placedGroupDays": 0,
-            "runs": {}
+            "activitySpanBlocks": 3,
+            "placedGroupDays": 18,
+            "runs": {
+              "3": 18
+            }
           }
         ],
         "displacedAsActivity": [
           {
             "name": "Farm Trip",
             "expectedCells": 12,
-            "placedTotal": 7,
-            "placedAtExpectedCells": 1
+            "placedTotal": 12,
+            "placedAtExpectedCells": 2
           }
         ],
         "electiveCells": {
@@ -13516,8 +13392,8 @@
         "created": true,
         "unresolvedCount": 0,
         "unresolvedNames": [],
-        "placements": 919,
-        "snapshotSlots": 919,
+        "placements": 955,
+        "snapshotSlots": 955,
         "eventCells": {
           "byKind": {
             "trip": {
@@ -13575,9 +13451,9 @@
             "name": "Wilderness Skills",
             "form": "blank",
             "blocks": 3,
-            "ok": 18,
+            "ok": 54,
             "total": 54,
-            "ratio": 0.333
+            "ratio": 1
           },
           {
             "name": "Ropes Course",
@@ -13592,7 +13468,7 @@
           "fixed_event:electives": 18
         }
       },
-      "runtimeMs": 2301
+      "runtimeMs": 3590
     }
   }
 }

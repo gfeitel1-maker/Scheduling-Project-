@@ -24,7 +24,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { randomUUID, createHash } from 'node:crypto'
 import { openTemplatedDb, cleanupTemplatedDbs } from './db/testDbTemplate.js'
 import { commitIngest } from './ops/ingest.js'
 import { appendOp } from './ops/operations.js'
@@ -75,13 +75,21 @@ const KNOWN_FAILING = new Set()
 const results = {}
 const startedAt = Date.now()
 
-function seedCamp() {
+// The engine seeds its PRNG from camp id + cohort id. Random ids made every scorecard a different
+// draw (s02 stillNeeded ranged 0-3 and s07 38-47 across identical runs), so a delta against the
+// baseline was partly noise. Ids derived from the camp slug and scenario make the run repeatable.
+const stableId = (key) => {
+  const h = createHash('sha256').update(key).digest('hex')
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`
+}
+
+function seedCamp(key = randomUUID()) {
   const { db: d } = openTemplatedDb()
-  const id = randomUUID()
+  const id = stableId(`camp:${key}`)
   d.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(id, 'Synthetic Camp', 'a'.repeat(64))
   d.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(deviceId, 'Test Device')
   d.prepare("INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role) VALUES (?, ?, 'Ruth', 'h', 's', 'admin')").run(userId, id)
-  d.prepare('INSERT INTO cohorts (id, camp_id, name, sort_order) VALUES (?, ?, ?, 0)').run(randomUUID(), id, 'Main')
+  d.prepare('INSERT INTO cohorts (id, camp_id, name, sort_order) VALUES (?, ?, ?, 0)').run(stableId(`cohort:${key}`), id, 'Main')
   return { d, id }
 }
 
@@ -538,7 +546,7 @@ async function runCamp(m) {
   const rec = { slug: m.slug, layout: m.layout, traits: m.traits, stages: {} }
   const text = fs.readFileSync(path.join(DIR, m.file), 'utf8')
 
-  const zero = seedCamp()
+  const zero = seedCamp(`${m.slug}:zero`)
   const t0 = process.cpuUsage()
   const z = safe(() => importFile(zero.d, zero.id, text))
   rec.stages.zeroAnswers = z.ok ? { ok: true, cpuMs: Math.round((process.cpuUsage(t0).user + process.cpuUsage(t0).system) / 1000), held: z.value.committed.held } : { ok: false, error: z.error }
@@ -561,7 +569,7 @@ async function runCamp(m) {
   }
   zero.d.close()
 
-  const all = seedCamp()
+  const all = seedCamp(`${m.slug}:all`)
   const a = safe(() => importFile(all.d, all.id, text, { answerFor: CONFIRM_ALL }))
   rec.stages.confirmAll = a.ok ? { ok: true, held: a.value.committed.held } : { ok: false, error: a.error }
   if (a.ok) {
