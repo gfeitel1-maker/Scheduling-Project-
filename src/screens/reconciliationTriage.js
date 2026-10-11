@@ -222,11 +222,16 @@ export function foldTriageInputs(baseInputs, decisions, answers) {
   // opts a name out. One set per normalized name.
   const confirmedElectiveSets = []
   const seenElectiveKeys = new Set()
+  const declinedElectiveKeys = new Set()
+  for (const d of decisions) {
+    if (d.kind === 'elective_candidate' && d.entityName && answers[d.id]?.choice === 'decline') {
+      declinedElectiveKeys.add(normalizeName(d.entityName))
+    }
+  }
   for (const d of decisions) {
     if (d.kind !== 'elective_candidate' || !d.entityName) continue
-    if (answers[d.id]?.choice === 'decline') continue
     const key = normalizeName(d.entityName)
-    if (seenElectiveKeys.has(key)) continue
+    if (declinedElectiveKeys.has(key) || seenElectiveKeys.has(key)) continue
     seenElectiveKeys.add(key)
     confirmedElectiveSets.push({ name: d.entityName })
   }

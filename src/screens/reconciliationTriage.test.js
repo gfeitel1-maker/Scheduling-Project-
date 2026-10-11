@@ -187,6 +187,19 @@ describe('foldTriageInputs', () => {
     expect(confirmedElectiveSets).toHaveLength(1)
   })
 
+  it('a decline on one candidate opts out the whole normalized name, answered or not', () => {
+    const placements = [{ groupName: 'Hawks', dayName: 'Tuesday', blockLabel: '14:00', activityName: 'Chugim' }]
+    const decisions = [
+      { id: 'e1', kind: 'elective_candidate', entity: 'elective_sets', entityName: 'Chugim' },
+      { id: 'e2', kind: 'elective_candidate', entity: 'elective_sets', entityName: 'CHUGIM ' },
+    ]
+    const out = foldTriageInputs({ ...baseInputs, placements }, decisions, { e1: { choice: 'decline' } })
+    expect(out.confirmedElectiveSets).toEqual([])
+    expect(out.placements).toEqual(placements)
+    const out2 = foldTriageInputs({ ...baseInputs, placements }, decisions, { e1: { choice: 'decline' }, e2: { choice: 'confirm' } })
+    expect(out2.confirmedElectiveSets).toEqual([])
+  })
+
   it('placements of a name that stays elective become elective cells; a declined name keeps its activity placements', () => {
     const placements = [
       { groupName: 'Hawks', dayName: 'Tuesday', blockLabel: '14:00', activityName: 'Chugim' },
