@@ -452,7 +452,8 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
   const resolvedScreen = screen === 'readiness' ? 'roots' : screen
   const Screen = SCREENS[resolvedScreen] || TiersScreen
   const scheduleRoute = SCHEDULE_ROUTE_BY_SCREEN[resolvedScreen]
-  const isWeekScreen = resolvedScreen === 'activities' || resolvedScreen === 'groups' || resolvedScreen === 'locations' || resolvedScreen === 'electives'
+  // 'import': F3/F4 slice 2 binds detected trips to the week open here.
+  const isWeekScreen = resolvedScreen === 'activities' || resolvedScreen === 'groups' || resolvedScreen === 'locations' || resolvedScreen === 'electives' || resolvedScreen === 'import'
   const screenProps = resolvedScreen === 'conflicts'
     ? { campId, role, onNavigate: navigate, pendingConflicts }
     : {

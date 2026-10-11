@@ -26,6 +26,8 @@ import { inferFixedEvents } from '../ingest/fixedEvents'
 import { settleAmbiguousFromCamp } from '../ingest/settleAmbiguousFromCamp'
 import { derivePinOnlyActivityNames } from '../ingest/pinOnlyActivityNames'
 import { inferMultiBlockCandidates } from '../ingest/multiBlockCandidates'
+import { detectTripsAndSpecialDays } from '../ingest/tripDetection.js'
+import { planTripEvents, applyTripClaims, dropMultiBlockForTrips, tripItemKey } from '../ingest/tripEvents.js'
 import { findNameVariantCandidates } from '../ingest/nearDuplicateNames'
 import { findMovedPlacements } from '../ingest/movedPlacements'
 import { detectCompoundCellPatterns } from '../ingest/compoundCellPatterns'
@@ -139,7 +141,7 @@ function computeSplitPreview(name, suffix, proposalActivityNames, existingActivi
   return { degenerate: false, collision: collidesExisting || collidesProposal, newName }
 }
 
-export default function ImportScreen({ campId, onNavigate }) {
+export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = null, weeks = [] }) {
   // Units and time blocks are scoped to a Program; an import files them under
   // the active one so the setup screens will show them (T33).
   const { activeCohort } = useCohorts(campId)
@@ -210,6 +212,31 @@ export default function ImportScreen({ campId, onNavigate }) {
   // not written" rule the rest of this screen already follows.
   const [multiBlockCandidates, setMultiBlockCandidates] = useState([])
   const [multiBlockDecisions, setMultiBlockDecisions] = useState({})
+  // F3/F4 slice 2 (docs/adr/2026-10-11-import-special-days-and-field-trips.md) — field trips and
+  // subset days the detector found. Each is ONE pre-selected item (default from the detector), bound to
+  // a NAMED week the director can change per item. tripAnswers / tripWeeks hold only what the director
+  // (or answer memory) set, keyed by tripItemKey; tripTouched marks the director's own answers, which are
+  // the ones remembered after a successful commit.
+  const [tripDetections, setTripDetections] = useState([])
+  const [tripAnswers, setTripAnswers] = useState({})
+  const [tripWeeks, setTripWeeks] = useState({})
+  const [tripTouched, setTripTouched] = useState({})
+  // The week trips bind to by default: the week open in the app; else the only week; else none, and
+  // every item stays pending until one is picked (a trip is never written for all weeks).
+  const defaultTripWeekId = weeks.some((w) => w.id === openWeekId)
+    ? openWeekId
+    : (weeks.length === 1 ? weeks[0].id : null)
+  const tripPlan = planTripEvents({
+    detections: tripDetections,
+    answers: tripAnswers,
+    weekId: defaultTripWeekId,
+    weekByKey: tripWeeks,
+    hasWeeks: weeks.length > 0,
+    allGroupNames: proposal?.entities?.groups ?? allGroupNamesRef.current,
+  })
+  // Precedence (slice-0 finding 7): an accepted trip wins its cells, so the "Every week" / "Just this
+  // once" question is not offered for that name, start block and day.
+  const offeredMultiBlockCandidates = dropMultiBlockForTrips(multiBlockCandidates, tripPlan.fixedEvents)
   // T118 slice 4 (docs/adr/2026-09-03-compound-cell-interpretation.md) — a
   // compound cell (e.g. "Lunch + Leave") the classifier flagged as unresolved,
   // filtered against this camp's already-confirmed decisions so a resolved
@@ -359,6 +386,10 @@ export default function ImportScreen({ campId, onNavigate }) {
     setSplitDecisions({})
     setMultiBlockCandidates([])
     setMultiBlockDecisions({})
+    setTripDetections([])
+    setTripAnswers({})
+    setTripWeeks({})
+    setTripTouched({})
     setCompoundCellCandidates([])
     setMovedPlacements([])
     setNameVariantCandidates([])
@@ -776,6 +807,23 @@ export default function ImportScreen({ campId, onNavigate }) {
       // multiBlockDecisions above).
       const { multiBlockCandidates: mbc } = inferMultiBlockCandidates({ pages }, proposal)
       setMultiBlockCandidates(mbc)
+
+      // F3/F4 slice 2 — trips and subset days, each recalled from answer memory by (name, day) so a
+      // trip the director declined last time is pre-set to "Activity" this time.
+      const detections = detectTripsAndSpecialDays({ pages }, proposal)
+      setTripDetections(detections)
+      setTripWeeks({})
+      setTripTouched({})
+      const recalledTrips = {}
+      if (detections.length > 0) {
+        const others = detections.map((d) => ({ id: tripItemKey(d), qkind: 'trip', name: d.name, day: d.day }))
+        const recall = (await localClient.matchImportAnswers?.({ others }).catch(() => null)) ?? {}
+        for (const o of others) {
+          const v = recall?.[o.id]?.answer?.verdict
+          if (v === 'event' || v === 'activity') recalledTrips[o.id] = v
+        }
+      }
+      setTripAnswers(recalledTrips)
 
       // T144 — word-form variants the whitespace/case fold deliberately leaves
       // alone. Read from seenCounts (occurrences per spelling) because
@@ -1392,6 +1440,35 @@ export default function ImportScreen({ campId, onNavigate }) {
       const edited = Array.isArray(rule._editedFields) ? rule._editedFields : []
       if (edited.length > 0) activityHumanFields[name] = edited
     }
+    // F3/F4 slice 2 — an accepted trip's cells leave fixed-event and activity inference (ADR "Weekly
+    // import" 3): a name only the trip printed becomes the trip event alone (pinned, no rule, no
+    // min_per_week); a name the file also prints elsewhere keeps a rule computed from those cells only.
+    const tripClaims = applyTripClaims({
+      parsed: { pages: pagesRef.current },
+      proposal: effectiveProposal,
+      claims: tripPlan.claims,
+      fixedEvents,
+      textSpans: inferTextSpans({ pages: pagesRef.current }, effectiveProposal).spans,
+    })
+    const fullyClaimed = new Set(tripClaims.fullyClaimedNames.map(normalizeName))
+    for (const name of Object.keys(outgoingRules)) {
+      if (fullyClaimed.has(normalizeName(name))) delete outgoingRules[name]
+    }
+    const partlyClaimed = Object.keys(outgoingRules).filter((name) =>
+      !fullyClaimed.has(normalizeName(name)) && tripPlan.fixedEvents.some((fe) => normalizeName(fe.name) === normalizeName(name)))
+    if (partlyClaimed.length > 0) {
+      const recomputed = inferActivityRules(
+        partlyClaimed, tripClaims.activityPages, tripClaims.seenCounts,
+        effectiveProposal?.entities?.days_of_operation?.length ?? 0, effectiveProposal?.entities?.groups ?? [], [], tripClaims.textSpans,
+      )
+      for (const name of partlyClaimed) {
+        const r = recomputed.get(name)
+        const edited = new Set(activityHumanFields[name] ?? [])
+        if (!r) continue
+        if (!edited.has('min_per_week')) outgoingRules[name].min_per_week = r.min_per_week
+        if (!edited.has('max_per_week')) outgoingRules[name].max_per_week = r.max_per_week
+      }
+    }
     // Slice B — fold each director-decided "Longer Blocks" candidate into
     // the right existing pipeline. Recurring rides the SAME fixedEvents
     // array/commit block as an ordinary recurring event (just with
@@ -1402,7 +1479,7 @@ export default function ImportScreen({ campId, onNavigate }) {
     // this screen).
     const multiBlockRecurring = []
     const multiBlockOneOff = []
-    for (const c of multiBlockCandidates) {
+    for (const c of offeredMultiBlockCandidates) {
       const decision = multiBlockDecisions[multiBlockKey(c)]
       if (decision === 'recurring') {
         // c.days/c.scope are already the aggregated union/verdict
@@ -1438,7 +1515,7 @@ export default function ImportScreen({ campId, onNavigate }) {
       humanEditedFields: { groups: groupHumanFields, activities: activityHumanFields },
       divisionSupport,
       cohort_id: activeCohort?.id ?? null,
-      fixedEvents: [...fixedEvents, ...multiBlockRecurring, ...settledAmbiguous.settledFixed],
+      fixedEvents: [...tripClaims.fixedEvents, ...tripPlan.fixedEvents, ...multiBlockRecurring, ...settledAmbiguous.settledFixed],
       ambiguousEvents: settledAmbiguous.stillAmbiguous,
       multiBlockEvents: multiBlockOneOff,
       activityRules: outgoingRules,
@@ -1447,8 +1524,8 @@ export default function ImportScreen({ campId, onNavigate }) {
       // T118 slice 4 — reads effectiveProposal (not the stale parse-time
       // `proposal`), so a wrapper fold's changed seenCounts/activityPeriods
       // are what buildPlan's create-confidence/rule inference actually sees.
-      seenCounts: effectiveProposal?.seenCounts ?? null,
-      pinOnlyActivityNames: [...pinOnlyActivityNames, ...settledAmbiguous.settledFixedNames.map(normalizeName)],
+      seenCounts: tripClaims.seenCounts ?? null,
+      pinOnlyActivityNames: [...pinOnlyActivityNames, ...settledAmbiguous.settledFixedNames.map(normalizeName), ...tripClaims.fullyClaimedNames],
       // Slice 3a — plain data extractEntities already computed, carried
       // through unchanged to buildPlan's buildElectiveCandidates.
       electiveHeaderFindings: effectiveProposal?.electiveHeaderFindings ?? [],
@@ -1538,6 +1615,15 @@ export default function ImportScreen({ campId, onNavigate }) {
     // (created, nothing skipped) shows nothing, per the Governor-confirmed copy.
     const version = outcome?.version
     const notices = []
+    // F3/F4 slice 2 — the director's own trip answers (an Activity decline above all) are remembered by
+    // (name, day), so the next import of this camp pre-sets them. A failure is surfaced, never swallowed.
+    const tripEntries = tripPlan.items
+      .filter((i) => tripTouched[i.key] && i.answer)
+      .map((i) => ({ other: { id: i.key, qkind: 'trip', name: i.detection.name, day: i.detection.day }, answer: { verdict: i.answer } }))
+    if (tripEntries.length > 0) {
+      const remembered = await localClient.rememberImportAnswers?.({ importId: crypto.randomUUID(), entries: tripEntries }).catch(() => null)
+      if (!remembered) notices.push(`${tripEntries.length === 1 ? 'Your trip answer' : 'Your trip answers'} couldn't be saved and may be asked about again next time.`)
+    }
     const versionNotice = unresolvedPlacementsNotice(version)
     if (versionNotice) notices.push(versionNotice)
     // T118 slice 4 (Red Hat review) — a compound-cell decision write failing
@@ -2222,7 +2308,73 @@ export default function ImportScreen({ campId, onNavigate }) {
               candidate needs an explicit "Every week" or "Just this once"
               before it ships at commit (buildCommitInputs, below); an
               un-pressed candidate is simply not sent. */}
-          {multiBlockCandidates.length > 0 && (
+          {/* F3/F4 slice 2 — Trips and Group Days. One line per detection, pre-selected from the
+              detector's default; the week it lands in is named on the line and can be changed there.
+              Whole-camp days are not here (slice 3b). A camp with no weeks gets one plain line saying why. */}
+          {tripDetections.length > 0 && weeks.length === 0 && (
+            <div style={{ marginBottom: 20, fontSize: 12, color: 'var(--text-secondary)' }}>
+              This file looks like it has field trips. Add a week on the Schedule screen to import them as trips; until then they import as ordinary activities.
+            </div>
+          )}
+          {tripPlan.items.length > 0 && (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{
+                fontFamily: 'var(--font-condensed)', fontSize: 10, fontWeight: 700,
+                letterSpacing: '0.12em', textTransform: 'uppercase',
+                color: 'var(--text-secondary)', marginBottom: 8,
+              }}>
+                Trips and Group Days
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {tripPlan.items.map((item) => {
+                  const d = item.detection
+                  const pill = (active) => ({
+                    fontSize: 11, padding: '3px 8px', borderRadius: 5, fontFamily: 'inherit', cursor: 'pointer',
+                    border: `1px solid ${active ? 'var(--primary)' : 'var(--border)'}`,
+                    background: active ? `color-mix(in srgb, var(--primary) 12%, var(--surface))` : 'var(--bg)',
+                    color: active ? 'var(--primary)' : 'var(--text-secondary)',
+                  })
+                  const answer = (v) => {
+                    setTripAnswers((a) => ({ ...a, [item.key]: v }))
+                    setTripTouched((t) => ({ ...t, [item.key]: true }))
+                  }
+                  const groupsLabel = d.groupIds.length > 3 ? `${d.groupIds.length} groups` : d.groupIds.join(', ')
+                  return (
+                    <div key={item.key} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 12, color: 'var(--text)' }}>
+                        {d.name}, {d.day}, {groupsLabel}
+                        <span style={{ marginLeft: 6, opacity: 0.6, fontSize: 11 }}>· {d.blocks.length} blocks</span>
+                        {d.kind === 'subset-day' && d.missingGroups.length > 0 && (
+                          <span style={{ marginLeft: 6, opacity: 0.6, fontSize: 11 }}>· not {d.missingGroups.length > 3 ? `${d.missingGroups.length} groups` : d.missingGroups.join(', ')}</span>
+                        )}
+                      </span>
+                      <select
+                        aria-label={`Week for ${d.name}`}
+                        value={item.weekId ?? ''}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          setTripWeeks((w) => ({ ...w, [item.key]: v || undefined }))
+                        }}
+                        style={{ fontSize: 11, padding: '2px 4px', borderRadius: 5, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'inherit' }}
+                      >
+                        {!item.weekId && <option value="">Choose a week</option>}
+                        {weeks.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+                      </select>
+                      <button type="button" onClick={() => answer('event')} style={pill(item.answer === 'event')}>Trip</button>
+                      <button type="button" onClick={() => answer('activity')} style={pill(item.answer === 'activity')}>Activity</button>
+                      {item.pending && (
+                        <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                          {item.weekId ? 'Not decided; imports as an activity' : 'Pick a week; imports as an activity until then'}
+                        </span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {offeredMultiBlockCandidates.length > 0 && (
             <div style={{ marginBottom: 20 }}>
               <div style={{
                 fontFamily: 'var(--font-condensed)', fontSize: 10, fontWeight: 700,
@@ -2232,7 +2384,7 @@ export default function ImportScreen({ campId, onNavigate }) {
                 Longer Blocks
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'flex-start' }}>
-                {multiBlockCandidates.map((c) => {
+                {offeredMultiBlockCandidates.map((c) => {
                   const key = multiBlockKey(c)
                   const decision = multiBlockDecisions[key]
                   const pill = (active) => ({

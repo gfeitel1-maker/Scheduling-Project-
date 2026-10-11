@@ -1258,8 +1258,13 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   // block, on this day, for this cohort." is_all_groups/group_ids are attributes
   // of the occurrence, deliberately NOT part of the key (ADR §1). camp is fixed
   // by the camp-scoped query. Used to recognize-then-skip an fixed event already live.
-  const fixedEventSlotKey = (cohortId, dayId, tbId, name) =>
-    `${cohortId ?? ''}|${dayId}|${tbId}|${normalizeName(name)}`
+  // F3/F4 slice 2 (docs/adr/2026-10-11-import-special-days-and-field-trips.md, slice-0 finding 2):
+  // the week is part of the slot. A week-bound trip (schedule_week_id set) is a different occurrence
+  // from an all-weeks event sharing its name, day and block, so it is neither swallowed as
+  // "unchanged" by that row nor unioned into it. NULL week (every pre-slice-2 row) keys exactly as before
+  // plus an empty trailing segment, so all-weeks identity is unchanged.
+  const fixedEventSlotKey = (cohortId, dayId, tbId, name, weekId = null) =>
+    `${cohortId ?? ''}|${dayId}|${tbId}|${normalizeName(name)}|${weekId ?? ''}`
 
   // T183 PR-2: the slot identity that SURVIVES a Replace teardown. fixedEventSlotKey
   // keys on day_id/time_block_id, but a Replace recreates days and time_blocks
@@ -1314,7 +1319,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       const tbId = fields.get('time_block_id')
       const name = fields.get('name')
       if (!dayId || !tbId || !name) continue
-      rejected.add(fixedEventSlotKey(fields.get('cohort_id') ?? null, dayId, tbId, name))
+      rejected.add(fixedEventSlotKey(fields.get('cohort_id') ?? null, dayId, tbId, name, fields.get('schedule_week_id') ?? null))
     }
     return rejected
   }
@@ -1866,9 +1871,9 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       .prepare('SELECT id, tier_id FROM groups WHERE camp_id = ?')
       .all(camp_id)
     for (const row of db
-      .prepare('SELECT cohort_id, day_id, time_block_id, name, is_all_groups, group_ids, unit_ids, unit_id FROM fixed_events WHERE camp_id = ?')
+      .prepare('SELECT cohort_id, day_id, time_block_id, name, is_all_groups, group_ids, unit_ids, unit_id, schedule_week_id FROM fixed_events WHERE camp_id = ?')
       .all(camp_id)) {
-      const slotKey = fixedEventSlotKey(row.cohort_id, row.day_id, row.time_block_id, row.name)
+      const slotKey = fixedEventSlotKey(row.cohort_id, row.day_id, row.time_block_id, row.name, row.schedule_week_id)
       fixedEventSlots.add(slotKey)
       // Malformed group_ids/unit_ids (partial sync / hand-edited SQLite / old
       // migration) must not crash an unrelated import — mirror
@@ -2269,7 +2274,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     // of creating.
     const liveByGroup = new Map() // groupKey -> Set("dayId|tbId")
     for (const row of db
-      .prepare('SELECT cohort_id, day_id, time_block_id, name FROM fixed_events WHERE camp_id = ?')
+      .prepare('SELECT cohort_id, day_id, time_block_id, name FROM fixed_events WHERE camp_id = ? AND schedule_week_id IS NULL')
       .all(camp_id)) {
       const g = fixedEventGroupKey(row.cohort_id, row.name)
       if (!liveByGroup.has(g)) liveByGroup.set(g, new Set())
@@ -2283,6 +2288,8 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     // without entangling the cardinality analysis with the writes it gates.
     const fileByGroup = new Map() // groupKey -> Map("dayId|tbId" -> fe.name)
     for (const fe of plan.fixedEvents) {
+      // Move/drift pairing is an all-weeks notion; a week-bound trip never pairs (F3/F4 slice 2).
+      if (fe.weekId) continue
       const tbId = blockIdByName.get(normalizeName(fe.time_block))
       if (!tbId) continue
       const g = fixedEventGroupKey(cohort_id, fe.name)
@@ -2365,6 +2372,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       const remaining = idx !== undefined ? cohortTimeBlockCount - idx : (fe.span_blocks ?? 1)
       return Math.min(fe.span_blocks ?? 1, Math.max(remaining, 1))
     }
+    const liveWeekIds = new Set(db.prepare('SELECT id FROM schedule_weeks WHERE camp_id = ?').all(camp_id).map((w) => w.id))
     const slotScopeUnion = new Map()
     for (const fe of plan.fixedEvents) {
       const tb = blockIdByName.get(normalizeName(fe.time_block))
@@ -2377,7 +2385,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       for (const d of (fe.days ?? [])) {
         const dId = dayIdByName.get(normalizeName(d))
         if (!dId) continue
-        const k = fixedEventSlotKey(cohort_id, dId, tb, fe.name)
+        const k = fixedEventSlotKey(cohort_id, dId, tb, fe.name, fe.weekId ?? null)
         const u = slotScopeUnion.get(k) ?? { isAll: false, ids: new Set(), span, dropped: false }
         if (u.span !== span) continue
         u.isAll = u.isAll || feAll
@@ -2401,6 +2409,12 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       }
       if (!tbId || dayIds.length === 0) {
         fixedSkipped.push({ name: fe.name, reason: 'time block or day not created' })
+        continue
+      }
+      // F3/F4 slice 2: a week-bound event (a detected trip) names a week that must exist in this camp.
+      // It is NEVER written with a NULL week (that would repeat it every week), so an unknown week skips it.
+      if (fe.weekId && !liveWeekIds.has(fe.weekId)) {
+        fixedSkipped.push({ name: fe.name, reason: 'week not found' })
         continue
       }
       const isAll = fe.scope?.is_all_groups ? 1 : 0
@@ -2448,7 +2462,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         // no id — the occurrence is unchanged. Group-scope changes on an existing
         // slot are recognized here and left untouched (fixed event updates are out of
         // scope per ADR §4).
-        const slotKey = fixedEventSlotKey(cohort_id, dayId, tbId, fe.name)
+        const slotKey = fixedEventSlotKey(cohort_id, dayId, tbId, fe.name, fe.weekId ?? null)
         const union = slotScopeUnion.get(slotKey)
         if (union.span !== clampedSpanBlocks) {
           fixedPartial.push({
@@ -2643,6 +2657,9 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
           // so leaving it unset is a true byte-identical no-op at the
           // op-log level, not just a value-equivalent one.
           ...(clampedSpanBlocks > 1 ? { span_blocks: clampedSpanBlocks } : {}),
+          // F3/F4 slice 2: a detected trip is bound to the week it was imported into. Omitted for
+          // every all-weeks event, so their op-log writes are unchanged.
+          ...(fe.weekId ? { schedule_week_id: fe.weekId } : {}),
         }
         for (const [field, value] of Object.entries(fields)) {
           if (value === null || value === undefined) continue
