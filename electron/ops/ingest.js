@@ -2515,11 +2515,11 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     }
     // A place splits by span only when the file holds two or more spans there AND their group scopes
     // are pairwise disjoint (an all-groups event overlaps everything). Otherwise it stays one row
-    // carrying the first event's span, and the events at other spans are reported, not imported.
+    // carrying the longest event's span (as the engine's fixedEventOverlapWinner does), and the events at other spans are reported, not imported.
     const splitPlaces = new Set()
     const placeSpan = new Map()
     for (const [place, list] of placeEntries) {
-      placeSpan.set(place, list[0].span)
+      placeSpan.set(place, Math.max(...list.map((e) => e.span)))
       const bySpan = new Map()
       for (const e of list) {
         const b = bySpan.get(e.span) ?? { isAll: false, ids: new Set() }
@@ -2554,6 +2554,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       }
     }
     const scopeDriftReportedSlots = new Set()
+    const overlapPartialReported = new Set()
     for (const fe of plan.fixedEvents) {
       const tbId = blockIdByName.get(normalizeName(fe.time_block))
       const requestedDays = (fe.days ?? []).length
@@ -2624,12 +2625,13 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         const placeKey = fixedEventPlaceKey(cohort_id, dayId, tbId, fe.name, fe.weekId ?? null)
         const slotKey = eventSlotKey(dayId, tbId, fe, clampedSpanBlocks)
         if (!splitPlaces.has(placeKey) && clampedSpanBlocks !== placeSpan.get(placeKey)) {
-          fixedPartial.push({
+          if (!overlapPartialReported.has(fe)) fixedPartial.push({
             name: fe.name,
             reason: 'another event with the same name, day and block has a different length for overlapping groups; this one was not imported',
             time_block: fe.time_block,
             days: fe.days,
           })
+          overlapPartialReported.add(fe)
           continue
         }
         const union = slotScopeUnion.get(slotKey)
