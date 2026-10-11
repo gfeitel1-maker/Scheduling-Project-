@@ -81,10 +81,12 @@ export function findingsContext(route, all) {
 // Pure — no setState. `ctx` is exactly what computeFindings needs beyond the
 // slot list: the setup lists it cross-references.
 export function recalcFindings(slotList, ctx) {
+  // A route that leaves fixedEvents out leaves the key absent (Manual: no FIXED_EVENT_DUPLICATE).
   return computeFindings({
     slots: slotList, groups: ctx.groups, activities: ctx.activities, days: ctx.days,
     replacedDayIds: ctx.replacedDayIds,
-    fixedEvents: ctx.fixedEvents, overlapFixedEvents: ctx.overlapFixedEvents, timeBlocks: ctx.timeBlocks, weekId: ctx.weekId,
+    ...(ctx.fixedEvents !== undefined ? { fixedEvents: ctx.fixedEvents } : {}),
+    overlapFixedEvents: ctx.overlapFixedEvents, timeBlocks: ctx.timeBlocks, weekId: ctx.weekId,
     activityExclusions: ctx.activityExclusions, groupExclusions: ctx.groupExclusions, locationExclusions: ctx.locationExclusions,
   })
 }

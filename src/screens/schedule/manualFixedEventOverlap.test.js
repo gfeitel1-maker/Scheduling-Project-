@@ -29,5 +29,20 @@ describe('Manual route findings', () => {
   it('generated keeps both', () => {
     const f = recalcFindings(slots, findingsContext('generated', all))
     expect(f.some((x) => x.kind === 'FIXED_EVENT_OVERLAP')).toBe(true)
+    expect(f.some((x) => x.kind === 'FIXED_EVENT_DUPLICATE')).toBe(true)
+  })
+})
+
+// Every findings recompute in the schedule screens goes through recalcFindings +
+// findingsContext, so a new site cannot drop the Manual double-booking check again.
+describe('findings recompute sites', () => {
+  it('no screen calls computeFindings directly', async () => {
+    const fs = await import('node:fs')
+    const path = await import('node:path')
+    const dir = path.resolve(__dirname, '..')
+    const files = fs.readdirSync(dir, { recursive: true })
+      .filter((f) => /\.(js|jsx)$/.test(f) && !/\.test\./.test(f) && !f.endsWith('useScheduleData.js'))
+    const offenders = files.filter((f) => /\bcomputeFindings\(/.test(fs.readFileSync(path.join(dir, f), 'utf8')))
+    expect(offenders).toEqual([])
   })
 })

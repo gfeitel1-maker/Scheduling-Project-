@@ -1,4 +1,5 @@
-import buildSchedule, { computeFindings } from '../../engine/buildSchedule'
+import buildSchedule from '../../engine/buildSchedule'
+import { recalcFindings, findingsContext } from './useScheduleData'
 import { describeWriteFailure } from '../../utils/writeErrorMessage'
 import { routeSetter } from './useRouteState'
 import { derivePreplacedSlots } from './preplacedSlots'
@@ -271,10 +272,10 @@ export function useGeneration({
     // under its weekly target, as an honest list of what the week owes you.
     // Computed against the week-effective catalog (effGroups/effActivities) so a
     // closed group or activity does not show up owing time it will never run.
-    // No fixedEvents/weekId here — this is the MANUAL route (placeFixedEvents is the
-    // manual blank-week bootstrap), and FIXED_EVENT_DUPLICATE is generated-route
-    // only (a manual fixed-event/regular clash already surfaces as OVERLAP).
-    setManualFindings(computeFindings({ slots: freshSlots, groups: effGroups, activities: effActivities, days, replacedDayIds }))
+    // The MANUAL route (placeFixedEvents is the manual blank-week bootstrap):
+    // findingsContext keeps FIXED_EVENT_DUPLICATE off and the double-booking
+    // check (FIXED_EVENT_OVERLAP) on.
+    setManualFindings(recalcFindings(freshSlots, findingsContext('manual', { groups: effGroups, activities: effActivities, days, replacedDayIds, fixedEvents, weekId })))
     setManualDismissed(new Set())
     if (groups.length > 0) setSelectedGroup(prev => prev ?? groups[0].id)
     if (unlinkedNames.length > 0) setActionError(unlinkedEventsMessage(unlinkedNames, 'Your blank week is ready, but some events were left out'))

@@ -24,10 +24,10 @@ const EXPECTED = {
     'src/screens/schedule/useGeneration.js': 2,
     'scripts/mcp/tools.js': 1,
   },
+  // Every screen recompute goes through recalcFindings(…, findingsContext(route, …)),
+  // which carries replacedDayIds on both routes (asserted below).
   computeFindings: {
-    'src/screens/schedule/useGeneration.js': 1,
     'src/screens/schedule/useScheduleData.js': 1,
-    'src/screens/schedule/useSnapshots.js': 1,
   },
   recalcStatsPure: {
     // the stats wrapper, plus the export picker's "N of M placed" line (#835)

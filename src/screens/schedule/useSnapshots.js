@@ -1,5 +1,5 @@
 import { describeWriteFailure } from '../../utils/writeErrorMessage'
-import { computeFindings } from '../../engine/buildSchedule'
+import { recalcFindings, findingsContext } from './useScheduleData'
 import { parseSnapshotPayload, unrestorableMessage } from '../snapshotRestore'
 import { routeSetter } from './useRouteState'
 import { toSnapshotSlot } from '../../utils/snapshotSlot'
@@ -187,11 +187,10 @@ export function useSnapshots({
     setSlots(freshSlots)
 
     recalcStats(freshSlots)
-    // FIXED_EVENT_DUPLICATE is generated-route only — see useScheduleData's route
-    // loop for the same gate and reasoning.
-    setFindings(computeFindings(route === 'generated'
-      ? { slots: freshSlots, groups, activities, days, timeBlocks, replacedDayIds, fixedEvents, weekId, activityExclusions, groupExclusions, locationExclusions }
-      : { slots: freshSlots, groups, activities, days, replacedDayIds }))
+    // Same route gate as the load loop: findingsContext (useScheduleData).
+    setFindings(recalcFindings(freshSlots, findingsContext(route, {
+      groups, activities, days, timeBlocks, replacedDayIds, fixedEvents, weekId, activityExclusions, groupExclusions, locationExclusions,
+    })))
     setDismissedFindingKeys(new Set())
 
     if (skipped.length > 0 || otherDropped > 0) {
