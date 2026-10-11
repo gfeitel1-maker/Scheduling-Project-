@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import AuthWatermark from '../components/AuthWatermark'
 import { S, useEnterTransition } from '../styles/shared'
 import { localClient } from '../localClient'
+import { isTransientJoinError } from './joinTransientError'
 
 // Joining a camp with the code shown on the Host — docs/adr/2026-09-08-libp2p-join-flow.md §4.
 //
@@ -36,6 +37,7 @@ const STEP = {
   erasureFailed: 'erasureFailed',
   waitingForApproval: 'waitingForApproval',
   denied: 'denied',
+  unreachable: 'unreachable',
   signIn: 'signIn',
   receiving: 'receiving',
   noData: 'noData',
@@ -44,6 +46,11 @@ const STEP = {
 
 // Pair again: the can't-reach-the-camp flag's action. Same flow, run by a device that already
 // belongs to the camp and keeps its data (electron/sync/automerge/joinSession.js, `rejoin`).
+// Retries live here, not in main: a transient dial error arrives as an IPC rejection from whichever join
+// call dialled, and re-running the whole sequence (joinStart supersedes the old session) is the one
+// seam covering all of them. Gaps exceed 1s so libp2p's per-second inbound threshold clears.
+const RETRY_DELAYS_MS = [1000, 2000, 4000]
+
 export function PairAgainScreen({ onNavigate }) {
   return <JoinByCodeScreen rejoin onBack={() => onNavigate('devices')} onJoined={() => onNavigate('roots')} />
 }
@@ -59,6 +66,8 @@ export default function JoinByCodeScreen({ onBack, onJoined, rejoin = false }) {
   const [deniedReason, setDeniedReason] = useState(null)
   const [versions, setVersions] = useState(null)
   const busyRef = useRef(false)
+  const [retrying, setRetrying] = useState(false)
+  const runRef = useRef(0)
   // Held from the approval so login can present it; never rendered.
   const secretRef = useRef(null)
   // The sign-in this flow already did against the camp. Handed on at Continue so
@@ -67,6 +76,7 @@ export default function JoinByCodeScreen({ onBack, onJoined, rejoin = false }) {
 
   const cancel = useCallback(async () => {
     busyRef.current = false
+    runRef.current += 1
     try {
       const result = await localClient.joinCancel()
       // T274 round 3 completion — joinCancel no longer THROWS on a failed
@@ -93,6 +103,7 @@ export default function JoinByCodeScreen({ onBack, onJoined, rejoin = false }) {
   const stepRef = useRef(step)
   useEffect(() => { stepRef.current = step }, [step])
   useEffect(() => () => {
+    runRef.current += 1
     if (stepRef.current !== STEP.code && stepRef.current !== STEP.joined) {
       localClient.joinCancel().catch(() => {})
     }
@@ -114,9 +125,9 @@ export default function JoinByCodeScreen({ onBack, onJoined, rejoin = false }) {
   const submitCode = useCallback(async () => {
     if (busyRef.current) return
     busyRef.current = true
+    const run = ++runRef.current
     setError(null)
-    setStep(STEP.searching)
-    try {
+    const runOnce = async () => {
       const started = await localClient.joinStart(rejoin ? { code, rejoin: true } : { code })
       if (started.status === 'invalid_code') {
         // A typo, reported as a typo. Deriving a search from nonsense would
@@ -186,11 +197,31 @@ export default function JoinByCodeScreen({ onBack, onJoined, rejoin = false }) {
       }
       secretRef.current = decision.deviceSecretIdentifier
       setStep(STEP.signIn)
-    } catch (err) {
-      setError(err?.message || "Something went wrong while joining. You can try again.")
-      setStep(STEP.code)
+    }
+    try {
+      for (let attempt = 0; ; attempt++) {
+        setStep(STEP.searching)
+        try {
+          await runOnce()
+          return
+        } catch (err) {
+          if (run !== runRef.current) return
+          if (!isTransientJoinError(err)) {
+            setError(err?.message || "Something went wrong while joining. You can try again.")
+            setStep(STEP.code)
+            return
+          }
+          if (attempt >= RETRY_DELAYS_MS.length) {
+            setStep(STEP.unreachable)
+            return
+          }
+          setRetrying(true)
+          await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt]))
+          if (run !== runRef.current) return
+        }
+      }
     } finally {
-      busyRef.current = false
+      if (run === runRef.current) { busyRef.current = false; setRetrying(false) }
     }
   }, [code, rejoin])
 
@@ -269,7 +300,7 @@ export default function JoinByCodeScreen({ onBack, onJoined, rejoin = false }) {
         )}
 
         {step === STEP.searching && (
-          <Waiting title="Looking for your camp…" />
+          <Waiting title={retrying ? "Couldn't reach the camp's computer, trying again…" : 'Looking for your camp…'} onCancel={retrying ? startOver : undefined} />
         )}
 
         {step === STEP.notFound && (
@@ -278,6 +309,15 @@ export default function JoinByCodeScreen({ onBack, onJoined, rejoin = false }) {
             body={<>Check the code, that <strong>Add a device</strong> is still open on the device this camp was set up on, and that both are on the same Wi-Fi.</>}
             actionLabel="Try again"
             onAction={startOver}
+          />
+        )}
+
+        {step === STEP.unreachable && (
+          <Outcome
+            title="Couldn't reach the camp's computer"
+            body={<>Check that it's on and on the same network, then try again.</>}
+            actionLabel="Try again"
+            onAction={submitCode}
           />
         )}
 
