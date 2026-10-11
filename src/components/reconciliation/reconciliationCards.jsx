@@ -204,8 +204,8 @@ function questionFor(decision) {
   // explicitly, names the header text verbatim, and says where offerings
   // actually come from.
   if (decision.kind === 'elective_candidate') {
-    return `This looks like an elective period. Create an empty "${decision.entityName ?? 'Electives'}" elective set? `
-      + `(You'll add the activities on the Electives screen.)`
+    return `"${decision.entityName ?? 'Electives'}" looks like an elective period. It stays an elective unless you say otherwise; `
+      + `confirm or add its choices on the Electives screen.`
   }
   // T114 — the reason string already reads as the question ("X on Wed has 3 of
   // your 4 groups — everyone except Alufim 1. Was this an all-camp activity
@@ -233,7 +233,7 @@ function summaryOf(decision, answer) {
   if (decision.kind === 'name_kind' && answer.choice === 'fixed') return 'A fixed time'
   if (decision.kind === 'name_kind' && answer.choice === 'activity') return 'An activity Generate can schedule'
   if (answer.choice === 'skip') return 'Skipped — nothing written for this field'
-  if (decision.kind === 'elective_candidate' && answer.choice === 'confirm') return 'Empty elective set created'
+  if (decision.kind === 'elective_candidate' && answer.choice === 'confirm') return 'Kept as an elective — confirm or add its choices in Electives'
   if (decision.kind === 'elective_candidate' && answer.choice === 'decline') return 'Not an elective period — left as-is'
   if (answer.resolved) return 'Acknowledged'
   return 'Resolved'
@@ -390,13 +390,13 @@ function ResolutionControls({ decision, onAnswer, locations, suggested = null })
     )
   }
 
-  // Slice 3a — Confirm creates ONE empty elective_set (named the header text
-  // verbatim, editable afterward on the Electives screen); Not electives
-  // writes nothing.
+  // F6 — Keep (or no answer) creates ONE elective_set per normalized name,
+  // with any proposed choices as 'potential'; Not electives opts the whole
+  // name out.
   if (decision.kind === 'elective_candidate') {
     return (
       <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-        <button className="press-97" onClick={() => onAnswer({ choice: 'confirm' })} style={{ ...cardStyles.btnCompactPrimary, ...dash({ choice: 'confirm' }) }}>Create elective set</button>
+        <button className="press-97" onClick={() => onAnswer({ choice: 'confirm' })} style={{ ...cardStyles.btnCompactPrimary, ...dash({ choice: 'confirm' }) }}>Keep as electives</button>
         <button className="press-97" onClick={() => onAnswer({ choice: 'decline' })} style={{ ...cardStyles.btnCompactSecondary, ...dash({ choice: 'decline' }) }}>Not electives</button>
       </div>
     )

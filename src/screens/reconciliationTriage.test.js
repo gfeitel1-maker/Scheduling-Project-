@@ -172,10 +172,50 @@ describe('foldTriageInputs', () => {
     expect(confirmedElectiveSets).toEqual([])
   })
 
-  it('an unanswered elective_candidate folds into nothing (never auto-confirmed)', () => {
+  it('an unanswered elective_candidate still folds into a set (F6: unanswered stays elective)', () => {
     const decisions = [{ id: 'e1', kind: 'elective_candidate', entity: 'elective_sets', entityName: 'Chugim' }]
     const { confirmedElectiveSets } = foldTriageInputs(baseInputs, decisions, {})
-    expect(confirmedElectiveSets).toEqual([])
+    expect(confirmedElectiveSets).toEqual([{ name: 'Chugim' }])
+  })
+
+  it('two candidates for one normalized name fold into ONE set', () => {
+    const decisions = [
+      { id: 'e1', kind: 'elective_candidate', entity: 'elective_sets', entityName: 'Chugim' },
+      { id: 'e2', kind: 'elective_candidate', entity: 'elective_sets', entityName: 'CHUGIM ' },
+    ]
+    const { confirmedElectiveSets } = foldTriageInputs(baseInputs, decisions, {})
+    expect(confirmedElectiveSets).toHaveLength(1)
+  })
+
+  it('a decline on one candidate opts out the whole normalized name, answered or not', () => {
+    const placements = [{ groupName: 'Hawks', dayName: 'Tuesday', blockLabel: '14:00', activityName: 'Chugim' }]
+    const decisions = [
+      { id: 'e1', kind: 'elective_candidate', entity: 'elective_sets', entityName: 'Chugim' },
+      { id: 'e2', kind: 'elective_candidate', entity: 'elective_sets', entityName: 'CHUGIM ' },
+    ]
+    const out = foldTriageInputs({ ...baseInputs, placements }, decisions, { e1: { choice: 'decline' } })
+    expect(out.confirmedElectiveSets).toEqual([])
+    expect(out.placements).toEqual(placements)
+    const out2 = foldTriageInputs({ ...baseInputs, placements }, decisions, { e1: { choice: 'decline' }, e2: { choice: 'confirm' } })
+    expect(out2.confirmedElectiveSets).toEqual([])
+  })
+
+  it('placements of a name that stays elective become elective cells; a declined name keeps its activity placements', () => {
+    const placements = [
+      { groupName: 'Hawks', dayName: 'Tuesday', blockLabel: '14:00', activityName: 'Chugim' },
+      { groupName: 'Hawks', dayName: 'Tuesday', blockLabel: '09:00', activityName: 'Swim' },
+      { groupName: 'Owls', dayName: 'Tuesday', blockLabel: '14:00', activityName: 'Electives' },
+    ]
+    const decisions = [
+      { id: 'e1', kind: 'elective_candidate', entity: 'elective_sets', entityName: 'Chugim' },
+      { id: 'e2', kind: 'elective_candidate', entity: 'elective_sets', entityName: 'Electives' },
+    ]
+    const out = foldTriageInputs({ ...baseInputs, placements }, decisions, { e2: { choice: 'decline' } })
+    expect(out.placements).toEqual([
+      { groupName: 'Hawks', dayName: 'Tuesday', blockLabel: '14:00', electiveSetName: 'Chugim', activityName: 'Chugim', choices: [] },
+      placements[1],
+      placements[2],
+    ])
   })
 
   // T117 slice 2 — foldTriageInputs spreads ...baseInputs into its return, so

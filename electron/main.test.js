@@ -2868,6 +2868,30 @@ describe('ingestCommit: who may import, and from where', () => {
 })
 
 describe('ingestCommit: placements materialize a version end-to-end (T117 slice 2)', () => {
+  it('commits the elective set BEFORE the version is built, so an elective cell resolves (F6 ordering)', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
+    await seedCampAndUser({ name: 'Ruth', pin: '432100', role: 'admin' })
+    const { token } = await handlers.login({ name: 'Ruth', pin: '432100' })
+    const campIdHere = db.prepare('SELECT id FROM camps LIMIT 1').get().id
+    db.prepare('INSERT INTO schedule_weeks (id, camp_id, name, sort_order, is_archived) VALUES (?, ?, ?, 0, 0)').run(randomUUID(), campIdHere, 'Week 1')
+    db.prepare('INSERT INTO groups (id, camp_id, name) VALUES (?, ?, ?)').run(randomUUID(), campIdHere, 'Bunk 1')
+    db.prepare('INSERT INTO days_of_operation (id, camp_id, label) VALUES (?, ?, ?)').run(randomUUID(), campIdHere, 'Monday')
+    db.prepare('INSERT INTO time_blocks (id, camp_id, name) VALUES (?, ?, ?)').run(randomUUID(), campIdHere, '14:00')
+
+    const result = await handlers.ingestCommit({
+      token,
+      approved: { activities: ['Swim'] },
+      confirmedElectiveSets: [{ name: 'Chugim' }],
+      placements: [{ groupName: 'Bunk 1', dayName: 'Monday', blockLabel: '14:00', electiveSetName: 'Chugim', activityName: 'Chugim', choices: [] }],
+    })
+
+    expect(result.version.unresolvedCount).toBe(0)
+    const setId = db.prepare("SELECT id FROM elective_sets WHERE name = 'Chugim'").get().id
+    const snap = db.prepare('SELECT slots FROM schedule_snapshots WHERE id = ?').get(result.version.snapshotId)
+    expect(JSON.parse(snap.slots).map((slot) => slot.elective_set_id)).toEqual([setId])
+  })
+
   it('resolves outcome.version through the Host-local syncClient.write path', async () => {
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })

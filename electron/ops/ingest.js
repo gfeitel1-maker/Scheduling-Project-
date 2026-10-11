@@ -28,6 +28,7 @@ import { activityTruthStatus } from '../../src/ingest/truthStatus.js'
 import { resolveLocationCreateId } from './locationCreate.js'
 import { deriveDayId } from './dayId.js'
 import { PROJECTIONS } from './projections.js'
+import { deriveElectiveImportId } from '../../src/ingest/electiveSetPopulate.js'
 import { writeRouteSnapshot, campCatalog } from './deleteRecord.js'
 import { attachNames } from '../../src/utils/snapshotRemap.js'
 import { U2_DELETABLE_ENTITIES, referencesInto } from './undoReferences.js'
@@ -44,7 +45,7 @@ import { recordNotAPlace, isWordDeclinedAsPlace } from './locationWordDecisions.
 // could reference it is already gone, so one upfront referential pass
 // (referencesInto, run once per candidate before any delete) is sufficient.
 const U2_DELETE_ORDER = Object.freeze([
-  'special_day_placements', 'special_day_slots', 'special_day_time_blocks', 'special_days', 'fixed_events', 'activities', 'locations', 'time_blocks', 'days_of_operation', 'groups', 'tiers', 'cohorts',
+  'elective_set_activities', 'elective_sets', 'special_day_placements', 'special_day_slots', 'special_day_time_blocks', 'special_days', 'fixed_events', 'activities', 'locations', 'time_blocks', 'days_of_operation', 'groups', 'tiers', 'cohorts',
 ])
 
 // ADR §2. Kept here rather than imported from the renderer so the guarantee
@@ -587,6 +588,135 @@ function buildExistingSnapshot(db, camp_id, cohort_id, mode) {
   return existing
 }
 
+// F6 change 5: a set's imported choices, written as POTENTIAL
+// elective_set_activities rows (the director has not vouched for them; the
+// solver counts only confirmed). elective_set_activities has no
+// UNIQUE_FIRST_FIELD entry: its projection only materializes a row once both
+// elective_set_id and activity_id have been written, so those go first, then
+// status. The row id is content-keyed (deriveElectiveImportId), so two devices
+// importing the same choice converge on one row; a choice that is already
+// there (any status) is left exactly as it is. Each choice is isolated: a
+// failure is a soft entry in `failed`, never thrown.
+function writeElectiveChoices(db, { setId, setName, choices, camp_id, author_user_id, device_id, failed, createdEntities }) {
+  const activityIdByKey = new Map()
+  for (const row of db.prepare('SELECT id, name FROM activities WHERE camp_id = ? ORDER BY id ASC').all(camp_id)) {
+    const k = recognitionKey('activities', row.name)
+    if (!activityIdByKey.has(k)) activityIdByKey.set(k, row.id)
+  }
+  const op = (entity, entityId, field, value) => appendOp(db, {
+    entity, entity_id: entityId, field, value, author_user_id: author_user_id ?? null, device_id,
+    parent_op_id: null, source: 'human', client_write_id: randomUUID(),
+  })
+  for (const raw of Array.isArray(choices) ? choices : []) {
+    const choiceName = String(raw ?? '').trim()
+    if (!choiceName) continue
+    const k = recognitionKey('activities', choiceName)
+    const mine = []
+    let reuseActivityId = null
+    for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      runAtomic(db, () => {
+        let activityId = reuseActivityId ?? activityIdByKey.get(k)
+        if (!activityId) {
+          activityId = randomUUID()
+          op('activities', activityId, 'name', choiceName)
+          op('activities', activityId, 'camp_id', camp_id)
+          mine.push({ entity: 'activities', entity_id: activityId })
+        }
+        const joinId = deriveElectiveImportId(setId, activityId)
+        if (db.prepare('SELECT 1 FROM elective_set_activities WHERE elective_set_id = ? AND activity_id = ?').get(setId, activityId)) return
+        op('elective_set_activities', joinId, 'elective_set_id', setId)
+        op('elective_set_activities', joinId, 'activity_id', activityId)
+        op('elective_set_activities', joinId, 'status', 'potential')
+        mine.push({ entity: 'elective_set_activities', entity_id: joinId })
+        activityIdByKey.set(k, activityId)
+      })
+      createdEntities.push(...mine)
+      break
+    } catch (err) {
+      if (/UNIQUE/i.test(err.message) && /elective_set_activities/.test(err.message)) break
+      if (attempt === 0 && /UNIQUE/i.test(err.message)) {
+        reuseActivityId = db.prepare('SELECT id FROM activities WHERE camp_id = ? AND name = ? COLLATE NOCASE ORDER BY id ASC').get(camp_id, choiceName)?.id ?? null
+        if (reuseActivityId) continue
+        failed.push({ name: choiceName, message: `Couldn't add "${choiceName}" as a choice of the "${setName}" elective: an activity with that name already exists but couldn't be found.` })
+        break
+      }
+      failed.push({ name: choiceName, message: `Couldn't add "${choiceName}" as a choice of the "${setName}" elective: ${err.message}` })
+      break
+    }
+    }
+  }
+}
+
+// Slice 3a (docs/adr/2026-08-22-nested-schedules-electives-and-events.md §4
+// addendum): the standing invariant — "electives are authored, never
+// reconstructed from a file" (electron/ops/durableElectiveSets.js) — is
+// honored, not broken, by pre-filling this SAME low-level create mechanism
+// commitPlan's commitCreate uses for every other entity: appendOp per field,
+// which PROJECTIONS.js (registered for 'elective_sets') replays into the
+// table. Never a raw INSERT. Imported choices (F6 change 5, writeElectiveChoices
+// above) land as POTENTIAL rows the director confirms on the Electives screen.
+//
+// Idempotent on repeat: if a live elective_sets row already carries this
+// name for the camp — compared CASE/WHITESPACE-INSENSITIVELY (fix, panel
+// round 2, Red Hat "case-insensitive dedup": "Chugim" and "CHUGIM" are the
+// same period spelled two ways, not two elective_sets) — nothing is written.
+// Covers both a re-confirm of the same nudge and a re-import of a file whose
+// header nudge was already fulfilled (the confirmed-decision half of "don't
+// re-surface"; see the ticket's dedup note for the declined half, which is
+// NOT solved here — no schema exists to record a decline, and none is added
+// silently). The stored name keeps whatever casing this camp's row already
+// has (never renamed by a later re-import spelling it differently).
+//
+// fix, panel round 2 (Red Hat, "non-atomic create can fail a durable
+// import") — this runs AFTER commitPlan's own transaction has already
+// committed (see the call site's comment: an elective_set create never
+// participates in commitPlan's conflict/staleness gates). A failure here
+// (a UNIQUE(camp_id, name) collision the dedup check above raced with, or
+// any other write error) must NEVER read back to the director as "the
+// import failed" — the main reconciliation already committed durably. Each
+// candidate is therefore isolated in its own try/catch: a failure is
+// collected as a soft `failed` entry, never thrown, never allowed to abort
+// a candidate after it in the same list.
+function commitElectiveCandidates(db, { confirmedElectiveSets = [], camp_id, author_user_id, device_id }) {
+  const created = []
+  const createdEntities = []
+  const failed = []
+  // Loaded once and updated in-memory as this call creates rows, so two
+  // same-period candidates (differing only by case) in the SAME
+  // confirmedElectiveSets array are caught too, not just across calls.
+  const liveNormalizedNames = new Set(
+    db.prepare('SELECT name FROM elective_sets WHERE camp_id = ?').all(camp_id)
+      .map((r) => normalizeName(r.name))
+  )
+  for (const candidate of confirmedElectiveSets) {
+    const name = String(candidate?.name ?? '').trim()
+    if (!name) continue
+    const key = normalizeName(name)
+    if (liveNormalizedNames.has(key)) continue
+    try {
+      const id = randomUUID()
+      const commonOp = { entity: 'elective_sets', entity_id: id, author_user_id: author_user_id ?? null, device_id, parent_op_id: null, source: 'human' }
+      const mine = [{ entity: 'elective_sets', entity_id: id }]
+      runAtomic(db, () => {
+        // name FIRST — elective_sets is UNIQUE_FIRST_FIELD-registered (Red Hat, 2026-08-22):
+        // writing the unique `name` before `camp_id` means a cross-device collision on
+        // `name` is rejected BEFORE a blank-name row is materialized, so the loser never
+        // ends up with an orphaned camp_id-only row. Matches the manual-create ordering.
+        appendOp(db, { ...commonOp, field: 'name', value: name, client_write_id: randomUUID() })
+        appendOp(db, { ...commonOp, field: 'camp_id', value: camp_id, client_write_id: randomUUID() })
+        writeElectiveChoices(db, { setId: id, setName: name, choices: candidate.choices, camp_id, author_user_id, device_id, failed, createdEntities: mine })
+      })
+      created.push({ id, name, choiceCount: mine.filter((e) => e.entity === 'elective_set_activities').length })
+      createdEntities.push(...mine)
+      liveNormalizedNames.add(key)
+    } catch (err) {
+      failed.push({ name, message: `Couldn't open the "${name}" elective space: ${err.message}` })
+    }
+  }
+  return { created, failed, createdEntities }
+}
+
 /**
  * Commit an approved import proposal, or commit nothing.
  *
@@ -625,70 +755,6 @@ function buildExistingSnapshot(db, camp_id, cohort_id, mode) {
  * that DOES hold returns the normal `{ held: true, conflicts, ... }` shape,
  * with none of these three fields present — same as a real held commit.
  */
-// Slice 3a (docs/adr/2026-08-22-nested-schedules-electives-and-events.md §4
-// addendum): the standing invariant — "electives are authored, never
-// reconstructed from a file" (electron/ops/durableElectiveSets.js) — is
-// honored, not broken, by pre-filling this SAME low-level create mechanism
-// commitPlan's commitCreate uses for every other entity: appendOp per field,
-// which PROJECTIONS.js (registered for 'elective_sets') replays into the
-// table. Never a raw INSERT, never elective_set_activities (ingest creates
-// the empty set only — offerings stay a director-authored step on the
-// Electives screen).
-//
-// Idempotent on repeat: if a live elective_sets row already carries this
-// name for the camp — compared CASE/WHITESPACE-INSENSITIVELY (fix, panel
-// round 2, Red Hat "case-insensitive dedup": "Chugim" and "CHUGIM" are the
-// same period spelled two ways, not two elective_sets) — nothing is written.
-// Covers both a re-confirm of the same nudge and a re-import of a file whose
-// header nudge was already fulfilled (the confirmed-decision half of "don't
-// re-surface"; see the ticket's dedup note for the declined half, which is
-// NOT solved here — no schema exists to record a decline, and none is added
-// silently). The stored name keeps whatever casing this camp's row already
-// has (never renamed by a later re-import spelling it differently).
-//
-// fix, panel round 2 (Red Hat, "non-atomic create can fail a durable
-// import") — this runs AFTER commitPlan's own transaction has already
-// committed (see the call site's comment: an elective_set create never
-// participates in commitPlan's conflict/staleness gates). A failure here
-// (a UNIQUE(camp_id, name) collision the dedup check above raced with, or
-// any other write error) must NEVER read back to the director as "the
-// import failed" — the main reconciliation already committed durably. Each
-// candidate is therefore isolated in its own try/catch: a failure is
-// collected as a soft `failed` entry, never thrown, never allowed to abort
-// a candidate after it in the same list.
-function commitElectiveCandidates(db, { confirmedElectiveSets = [], camp_id, author_user_id, device_id }) {
-  const created = []
-  const failed = []
-  // Loaded once and updated in-memory as this call creates rows, so two
-  // same-period candidates (differing only by case) in the SAME
-  // confirmedElectiveSets array are caught too, not just across calls.
-  const liveNormalizedNames = new Set(
-    db.prepare('SELECT name FROM elective_sets WHERE camp_id = ?').all(camp_id)
-      .map((r) => normalizeName(r.name))
-  )
-  for (const candidate of confirmedElectiveSets) {
-    const name = String(candidate?.name ?? '').trim()
-    if (!name) continue
-    const key = normalizeName(name)
-    if (liveNormalizedNames.has(key)) continue
-    try {
-      const id = randomUUID()
-      const commonOp = { entity: 'elective_sets', entity_id: id, author_user_id: author_user_id ?? null, device_id, parent_op_id: null, source: 'human' }
-      // name FIRST — elective_sets is UNIQUE_FIRST_FIELD-registered (Red Hat, 2026-08-22):
-      // writing the unique `name` before `camp_id` means a cross-device collision on
-      // `name` is rejected BEFORE a blank-name row is materialized, so the loser never
-      // ends up with an orphaned camp_id-only row. Matches the manual-create ordering.
-      appendOp(db, { ...commonOp, field: 'name', value: name, client_write_id: randomUUID() })
-      appendOp(db, { ...commonOp, field: 'camp_id', value: camp_id, client_write_id: randomUUID() })
-      created.push({ id, name })
-      liveNormalizedNames.add(key)
-    } catch (err) {
-      failed.push({ name, message: `Couldn't open the "${name}" elective space: ${err.message}` })
-    }
-  }
-  return { created, failed }
-}
-
 export function commitIngest(db, { approved, links, clears = {}, humanEditedFields = {}, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {}, mode = 'add', resolutions = [], base_generation = 0, dryRun = false, seenCounts = null, pinOnlyActivityNames = [], captureInverse = false, electiveHeaderFindings = [], activityPeriods = {}, confirmedElectiveSets = [], multiBlockEvents = [], specialDay = null, divisionSupport = {}, openDecisions = [] }) {
   if (!approved || typeof approved !== 'object') throw new Error('ingest: nothing to commit')
   if (!camp_id) throw new Error('ingest: camp_id is required')
@@ -762,10 +828,22 @@ export function commitIngest(db, { approved, links, clears = {}, humanEditedFiel
   // existing row it could collide with — the dedup check above is its own
   // narrower guard), so it does not need that transaction's atomicity.
   if (!dryRun && !outcome.held && confirmedElectiveSets.length > 0) {
-    const { created: electiveSetsCreated, failed: electiveSetsFailed } = commitElectiveCandidates(db, {
+    const { created: electiveSetsCreated, failed: electiveSetsFailed, createdEntities } = commitElectiveCandidates(db, {
       confirmedElectiveSets, camp_id, author_user_id: author_user_id ?? null, device_id,
     })
     outcome.electiveSetsCreated = electiveSetsCreated
+    // Undo must remove what this import minted: the set, its join rows and the
+    // activities made for its choices. Same snapshot commitPlan takes for its own creates.
+    if (captureInverse) {
+      for (const entry of createdEntities) {
+        const fieldSnapshot = {}
+        for (const field of PROJECTIONS[entry.entity]?.fields ?? []) {
+          const latest = latestOp(db, entry.entity, entry.entity_id, field)
+          fieldSnapshot[field] = latest ? latest.seq : null
+        }
+        outcome.createdEntityIds.push({ ...entry, fieldSnapshot })
+      }
+    }
     // Soft warning, never a thrown error — see commitElectiveCandidates'
     // own comment. The main commit above already succeeded; this only ever
     // narrows what the director is told, never what actually happened.
@@ -3179,6 +3257,29 @@ export function ingestUndo(db, { invertibleOps, createdEntityIds = [], importRun
     // undone together" case still resolves correctly because activities is
     // ordered before locations: Kayaking is confirmed deletable (nothing
     // else points at it) and lands in excludeSet before Lake's own check runs.
+    // A set that stays (a director-added choice or an occurrence still points
+    // at it) keeps ALL its import-minted choices: drop the set and its join
+    // rows from the candidates so no partial membership remains.
+    const joinsBySet = new Map()
+    for (const { entity, entity_id } of candidateSet.values()) {
+      if (entity !== 'elective_set_activities') continue
+      const setId = db.prepare('SELECT elective_set_id FROM elective_set_activities WHERE id = ?').get(entity_id)?.elective_set_id
+      if (!joinsBySet.has(setId)) joinsBySet.set(setId, [])
+      joinsBySet.get(setId).push(entity_id)
+    }
+    for (const { entity, entity_id } of [...candidateSet.values()]) {
+      if (entity !== 'elective_sets') continue
+      const joins = joinsBySet.get(entity_id) ?? []
+      const blockers = referencesInto(db, entity, entity_id, new Set(joins.map((j) => `elective_set_activities:${j}`)))
+      if (blockers.length === 0) continue
+      kept.push({
+        entity, entity_id, name: nameOf(entity, entity_id),
+        reason: 'still_referenced', referencedByCount: blockers.length,
+      })
+      candidateSet.delete(`${entity}:${entity_id}`)
+      for (const j of joins) candidateSet.delete(`elective_set_activities:${j}`)
+    }
+
     const candidatesByEntity = new Map() // entity -> [entity_id, ...]
     for (const { entity, entity_id } of candidateSet.values()) {
       if (!candidatesByEntity.has(entity)) candidatesByEntity.set(entity, [])

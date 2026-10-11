@@ -90,3 +90,27 @@ describe('mockShoresh.ingestCommit — placements materialize a version (T117 sl
     expect(state.schedule_snapshots).toHaveLength(0)
   })
 })
+
+describe('mockShoresh.ingestCommit — confirmedElectiveSets parity with the real committer (F6)', () => {
+  it('dedups sets by normalized name and writes choices as potential rows, reusing a matching activity', async () => {
+    const { mockShoresh } = await import('./localClient.mock.js')
+    const first = await mockShoresh.ingestCommit({
+      approved: {}, cohort_id: null,
+      confirmedElectiveSets: [{ name: 'Chugim', choices: ['swim', 'Fishing'] }, { name: 'CHUGIM ', choices: ['Bocce'] }],
+    })
+    expect(first.electiveSetsCreated).toHaveLength(1)
+    expect(first.electiveSetsCreated[0].choiceCount).toBe(2)
+    let state = JSON.parse(globalThis.localStorage.getItem(STORE_KEY))
+    expect(state.elective_sets).toHaveLength(1)
+    const rows = state.elective_set_activities
+    expect(rows.map((r) => r.status)).toEqual(['potential', 'potential'])
+    expect(rows.map((r) => r.activity_id)).toContain('a1')
+    expect(state.activities.filter((a) => a.name.toLowerCase() === 'swim')).toHaveLength(1)
+
+    const again = await mockShoresh.ingestCommit({ approved: {}, cohort_id: null, confirmedElectiveSets: [{ name: 'chugim', choices: ['Fishing'] }] })
+    expect(again.electiveSetsCreated).toBeUndefined()
+    state = JSON.parse(globalThis.localStorage.getItem(STORE_KEY))
+    expect(state.elective_sets).toHaveLength(1)
+    expect(state.elective_set_activities).toHaveLength(2)
+  })
+})

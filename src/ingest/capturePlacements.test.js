@@ -85,4 +85,20 @@ describe('capturePlacements', () => {
       { groupName: 'Bunk 1', dayName: 'Tuesday', blockLabel: '11:25-12:05', activityName: 'Lunch' },
     ])
   })
+
+  it('emits elective cells for names the caller says are elective sets, through the same canonical spellings', () => {
+    const pages = [{
+      title: 'Hawks',
+      columns: ['Monday', 'Tuesday'],
+      rows: [
+        { label: '09:00-09:40', cells: ['Swim', 'Swim'] },
+        { label: '14:00-14:40', cells: ['Chugim', 'electives'] },
+      ],
+    }]
+    const proposal = extractEntities({ pages })
+    const { placements } = capturePlacements({ pages }, proposal, { electiveSets: [{ name: 'Chugim', choices: ['Hiking', 'Fishing'] }] })
+    expect(placements).toContainEqual({ groupName: 'Hawks', dayName: 'Monday', blockLabel: '14:00-14:40', electiveSetName: 'Chugim', activityName: 'Chugim', choices: ['Hiking', 'Fishing'] })
+    expect(placements.filter((p) => p.activityName === 'Swim')).toHaveLength(2)
+    expect(placements.some((p) => p.electiveSetName && p.activityName !== 'Chugim')).toBe(false)
+  })
 })

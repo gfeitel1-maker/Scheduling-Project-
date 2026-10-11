@@ -15,14 +15,28 @@
 // Multi-block spans flatten to per-block cells (the same activity in each block
 // it covered) — visually faithful, structurally not a span. A text-grid span
 // printed once with its later blocks blank (F5, textSpans.js) gets those blank
-// blocks filled with its name, so all N cells survive; events/elective-set
-// cells are not part of the main schedule import's grid. Both are accepted v1
-// limitations of the snapshot slot shape (activity_id/fixed_event_id only).
+// blocks filled with its name, so all N cells survive; events are not part of the main schedule
+// import's grid. Both are accepted v1 limitations of the snapshot slot shape (activity_id/fixed_event_id only).
+// Elective cells are emitted for the names passed in `electiveSets` (the
+// director-answered elective periods), via markElectivePlacements.
 
 import { isDayName } from './textGrid.js'
 import { activityNamesFromCell, canonicalDay, dayNameFromTitle, cleanTitle } from './extractEntities.js'
 import { normalizeName } from './preview.js'
 import { inferTextSpans } from './textSpans.js'
+
+// Turns the activity placements whose name is an elective set into elective
+// cells ({ ..., electiveSetName, choices }), leaving every other placement
+// untouched. Same array back when nothing matches.
+export function markElectivePlacements(placements, electiveSets = []) {
+  const setByKey = new Map(electiveSets.map((set) => [normalizeName(set.name), set]))
+  if (setByKey.size === 0) return placements
+  return placements.map((p) => {
+    const set = setByKey.get(normalizeName(p.activityName))
+    if (!set) return p
+    return { groupName: p.groupName, dayName: p.dayName, blockLabel: p.blockLabel, electiveSetName: set.name, activityName: set.name, choices: set.choices ?? [] }
+  })
+}
 
 /**
  * @param {{ pages: Array }} parsed   the same object passed to extractEntities
@@ -30,7 +44,7 @@ import { inferTextSpans } from './textSpans.js'
  * @returns {{ placements: Array<{ groupName, dayName, blockLabel, activityName }> }}
  *          one entry per activity occurrence in a recognized time-block row.
  */
-export function capturePlacements(parsed, proposal = {}) {
+export function capturePlacements(parsed, proposal = {}, { electiveSets = [] } = {}) {
   const pages = parsed?.pages ?? []
   const orientation = proposal?.orientation ?? {}
   const groupNameByTitle = proposal?.groupNameByTitle ?? {}
@@ -79,5 +93,5 @@ export function capturePlacements(parsed, proposal = {}) {
     }
   }
   placements.push(...inferTextSpans(parsed, proposal).continuations)
-  return { placements }
+  return { placements: markElectivePlacements(placements, electiveSets) }
 }

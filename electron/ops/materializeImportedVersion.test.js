@@ -8,6 +8,7 @@ import { openLocalDb } from '../db/localDb.js'
 import { appendOp } from './operations.js'
 import { materializeImportedVersion, cleanSourceFileName } from './materializeImportedVersion.js'
 import { deriveScheduleTemplateId } from './scheduleTemplateId.js'
+import { leftOutPlacements } from '../../src/ingest/leftOutPlacements.js'
 
 const files = []
 afterEach(() => {
@@ -288,5 +289,43 @@ describe('materializeImportedVersion', () => {
     const result = await materializeImportedVersion(db, fakeSyncClient(db), { campId, authorUserId, placements: [] })
     expect(result).toEqual({ created: false, snapshotId: null, unresolvedCount: 0, unresolvedNames: [] })
     expect(db.prepare('SELECT COUNT(*) c FROM schedule_templates').get().c).toBe(0)
+  })
+
+  describe('elective cells', () => {
+    const electiveCell = (groupName, electiveSetName) => ({ groupName, dayName: 'Monday', blockLabel: '09:00', electiveSetName, activityName: electiveSetName, choices: [] })
+
+    it('writes elective cells into the version with the live elective_set_id', async () => {
+      const db = makeDb()
+      const campId = seedCamp(db)
+      seedWeek(db, campId)
+      const { groupId, dayId, blockId } = seedCatalog(db, campId)
+      const setId = randomUUID()
+      db.prepare('INSERT INTO elective_sets (id, camp_id, name) VALUES (?, ?, ?)').run(setId, campId, 'Chugim')
+
+      const result = await materializeImportedVersion(db, fakeSyncClient(db), { campId, authorUserId, placements: [electiveCell('Bunk 1', 'Chugim')] })
+
+      expect(result.unresolvedCount).toBe(0)
+      expect(result.electiveCellCount).toBe(1)
+      const snap = db.prepare('SELECT slots FROM schedule_snapshots WHERE id = ?').get(result.snapshotId)
+      expect(JSON.parse(snap.slots)).toEqual([
+        { group_id: groupId, day_id: dayId, time_block_id: blockId, elective_set_id: setId, activity_id: null, fixed_event_id: null, is_fixed_event: false, flags: {} },
+      ])
+    })
+
+    it('a held import (no elective set written) yields zero elective slots and one left-out entry per name, without throwing', async () => {
+      const db = makeDb()
+      const campId = seedCamp(db)
+      seedWeek(db, campId)
+      seedCatalog(db, campId)
+      seedGroup(db, campId, 'Bunk 2')
+      const placements = [electiveCell('Bunk 1', 'Chugim'), electiveCell('Bunk 2', 'Chugim'), electiveCell('Bunk 1', 'Electives')]
+
+      const result = await materializeImportedVersion(db, fakeSyncClient(db), { campId, authorUserId, placements })
+
+      expect(result.created).toBe(false)
+      expect(db.prepare('SELECT COUNT(*) c FROM schedule_snapshots').get().c).toBe(0)
+      const leftOut = leftOutPlacements(result)
+      expect(leftOut.entries.map((e) => e.name).sort()).toEqual(['Chugim', 'Electives'])
+    })
   })
 })
