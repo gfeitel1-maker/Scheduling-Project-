@@ -626,21 +626,35 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
     occupyPlace(act, safeGroup, groupId, dayId, blockId)
   }
 
-  // Exact inverse of place() for a single-block placement. Only the repair
-  // pass calls it, and it never lifts a span or a pre-placed slot.
+  // Exact inverse of place(), span tails included. Only the repair pass calls
+  // it: to undo a trial fill (which may be a whole span), or to lift a
+  // single-block placement. It never lifts an existing span or a pre-placed slot.
   function unplace(act, groupId, dayId, blockId) {
-    assigned.delete(`${groupId}|${dayId}|${blockId}`)
     const k = `${groupId}|${act.id}`
     usageCount.set(k, usageCount.get(k) - 1)
     dailyUsage.delete(`${groupId}|${dayId}|${act.id}`)
-    const locId = act.location_id ?? null
-    if (locId != null) {
-      const list = placeUsage.get(`${locId}|${dayId}|${blockId}`)
-      const idx = list.findIndex(o => o.groupId === groupId && o.sourceLabel === null)
-      if (idx >= 0) list.splice(idx, 1)
+    const own = [blockId]
+    const spanCount = act.span_blocks || 1
+    if (spanCount > 1) {
+      const blockIdx = blockOrder.get(blockId)
+      for (let i = 1; i < spanCount; i++) {
+        const nextBlock = timeBlocksSorted[blockIdx + i]
+        if (nextBlock) own.push(nextBlock.id)
+      }
     }
-    const ak = `${act.id}|${dayId}|${blockId}`
-    activityUsage.set(ak, activityUsage.get(ak) - 1)
+    const locId = act.location_id ?? null
+    for (const b of own) {
+      const key = `${groupId}|${dayId}|${b}`
+      assigned.delete(key)
+      spanTails.delete(key)
+      if (locId != null) {
+        const list = placeUsage.get(`${locId}|${dayId}|${b}`)
+        const idx = list.findIndex(o => o.groupId === groupId && o.sourceLabel === null)
+        if (idx >= 0) list.splice(idx, 1)
+      }
+      const ak = `${act.id}|${dayId}|${b}`
+      activityUsage.set(ak, activityUsage.get(ak) - 1)
+    }
   }
 
   const preplacedKeys = new Set()
@@ -676,7 +690,45 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
     return 0
   }
 
+  // F5: span activities (span_blocks N > 1) go FIRST in their round. A span
+  // needs N free blocks in a row, and once singles have taken cells there is
+  // rarely such a run left (a text-grid camp's span went from 6 placed to 0).
+  // Round-robin over groups, one session per group per sweep, up to the
+  // activity's min_per_week; the head is the free fit whose day holds the
+  // fewest of this activity's sessions so far (spreads load across days), then
+  // the earliest in openSlots order. No rand(): a camp with no span activity
+  // draws exactly the same PRNG sequence as before.
+  function placeSpansFirst(slotsToFill, priority) {
+    const spanActs = activities
+      .filter(a => a.priority === priority && (a.span_blocks || 1) > 1)
+      .sort((a, b) => (b.span_blocks || 1) - (a.span_blocks || 1))
+    if (!spanActs.length) return
+    const actDayLoad = new Map() // "actId|dayId" -> sessions placed
+    for (const act of spanActs) {
+      const min = getMin(act.id)
+      for (let session = 0; session < min; session++) {
+        for (const group of groups) {
+          if (getCount(group.id, act.id) >= min) continue
+          let best = null
+          let bestLoad = Infinity
+          for (const s of slotsToFill) {
+            if (s.groupId !== group.id) continue
+            if (assigned.has(keyOf(s))) continue
+            if (!s.eligibleActs.includes(act)) continue
+            if (!canPlace(act, s.groupId, s.dayId, s.blockId)) continue
+            const load = actDayLoad.get(`${act.id}|${s.dayId}`) || 0
+            if (load < bestLoad) { best = s; bestLoad = load }
+          }
+          if (!best) continue
+          place(act, best.groupId, best.dayId, best.blockId)
+          actDayLoad.set(`${act.id}|${best.dayId}`, bestLoad + 1)
+        }
+      }
+    }
+  }
+
   function runRound(slotsToFill, priority) {
+    placeSpansFirst(slotsToFill, priority)
     const roundSlots = slotsToFill.filter(s => {
       const acts = s.eligibleActs.filter(a => a.priority === priority)
       return acts.some(a => canPlace(a, s.groupId, s.dayId, s.blockId))
@@ -713,12 +765,17 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
   // order); no rand(), so the same input gives the same week.
   const keyOf = s => `${s.groupId}|${s.dayId}|${s.blockId}`
   const PRIORITY_RANK = { high: 0, low: 1 }
+  // A span fits with its head at the cell (canPlace checks its tail blocks are
+  // free), so a fill places the whole span; lifting below never touches one,
+  // so a span is never split.
   const fits = s => s.eligibleActs
-    .filter(a => (a.span_blocks || 1) === 1 && canPlace(a, s.groupId, s.dayId, s.blockId))
+    .filter(a => canPlace(a, s.groupId, s.dayId, s.blockId))
     .sort((a, b) => (PRIORITY_RANK[a.priority] ?? 1) - (PRIORITY_RANK[b.priority] ?? 1)
       || getCount(s.groupId, a.id) - getCount(s.groupId, b.id))
 
   function tryFill(u, depth, locked) {
+    // A span filled into a neighbouring cell may already cover u.
+    if (assigned.has(keyOf(u))) return true
     const direct = fits(u)[0]
     if (direct) { place(direct, u.groupId, u.dayId, u.blockId); return true }
     if (depth === 0) return false
