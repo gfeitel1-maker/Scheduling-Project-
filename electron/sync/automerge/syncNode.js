@@ -541,6 +541,8 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
   // already-logged-in device presenting a live token). `pairing_request`/
   // `login` are 5d-2 and are not handled here; any other message type is
   // already rejected by authGate.js before this is even called.
+  // Assigned once wireMutualAuth runs below; read lazily by onAuthenticate and setAuthToken.
+  let mutualAuth = null
   async function onAuthenticate(msg, { fromPeerId }) {
     // T162: peerId binding now happens INSIDE evaluateAuthenticate
     // (bindOrVerifyPeerIdentity) — recordLibp2pPeerId's unconditional
@@ -565,6 +567,8 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
       // — never the client-supplied msg.device_id directly (result.verified.deviceId is the
       // value evaluateAuthenticate itself validated the token against).
       peerDeviceIds.set(String(fromPeerId), result.verified.deviceId)
+      // Authenticate back, so the admission is mutual without waiting on a re-discovery.
+      mutualAuth?.reciprocate(String(fromPeerId))
     }
     return result.ok ? { ok: true } : { ok: false, reason: result.reason }
   }
@@ -796,6 +800,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
     peerSchemaVersions.delete(peerId)
     peerDeviceIds.delete(peerId)
     pendingVersionReset.delete(peerId)
+    mutualAuth?.forget(peerId)
     notifyPeersChanged()
   })
 
@@ -863,7 +868,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
   }).catch((err) => {
     console.error(`syncNode: redialTrustedPeers failed (non-fatal, discovery still proceeds): ${err?.message ?? err}`)
   })
-  wireMutualAuth(
+  mutualAuth = wireMutualAuth(
     { dial: transport.dial, authenticateWith: transport.authenticateWith, onPeerDiscovery: transport.onPeerDiscovery },
     { deviceId, getToken: () => authToken, onRejected: onAuthRejected, isPeerTrusted: isPeerTrusted ?? createBoundPeerTrust(db), emitter, getSchemaVersion: getHandshakeSchemaVersion, getAppliedTombstones }
   )
@@ -903,7 +908,12 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onNothingN
     // received from login/pairing for a Client) — see mutualAuth.js's own
     // doc comment for why a missing token just means "not dialed yet,"
     // never an error.
-    setAuthToken: (token) => { authToken = token },
+    // A token that arrives after peers were already discovered (a joined device's node starts
+    // before the renderer hands over its session) re-runs those peers' attempts at once.
+    setAuthToken: (token) => {
+      authToken = token
+      if (token) mutualAuth?.retryPeersAwaitingToken()
+    },
     // Exposed for adversarial-input tests (sending raw bytes that are not a
     // valid Automerge doc); not part of the normal edit/broadcast flow.
     sendDocTo: transport.sendDocTo,
