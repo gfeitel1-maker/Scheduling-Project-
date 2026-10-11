@@ -1,5 +1,6 @@
 import { localClient } from '../../localClient'
 import { resolveFixedEventGroupIds } from '../../engine/fixedEventScope'
+import { COPY_TIMEOUT_MESSAGE } from './seedFailureMessage'
 import { parseIdList } from '../../utils/normalizeActivityEligibility'
 import { timeBlockLabel } from '../../utils/timeBlockLabel'
 
@@ -77,10 +78,23 @@ function cellsFor(events, groups, campBlocks, blockIdMap) {
 // One IPC carries the whole copy. Main writes every block and cell in a single transaction and
 // skips a cell that already holds an activity (a manual placement or an earlier Bring), reporting
 // it. A refusal or failure means nothing was written.
+// Block ids come from (special day, camp block), so a retry after a lost reply hits
+// `block-exists`: the first attempt landed whole (it is atomic), and that is not a failure.
+const specialDayBlockId = (specialDayId, campBlockId) => `sdb-${specialDayId}-${campBlockId}`
+
 async function copyInOneWrite(specialDayId, blocks, cells) {
-  const r = await localClient.copySpecialDayBlocks({ specialDayId, blocks, cells })
-  if (!r?.ok) throw new Error(`copy refused: ${r?.reason ?? 'no answer'}`)
-  return r
+  let r
+  try {
+    r = await localClient.copySpecialDayBlocks({ specialDayId, blocks, cells })
+  } catch (err) {
+    if (/^write timed out/i.test(err?.message ?? '')) err.timedOut = true
+    throw err
+  }
+  if (r?.ok) return r
+  if (r?.reason === 'block-exists' && blocks.length > 0) {
+    return { ok: true, blocksWritten: 0, cellsWritten: 0, skipped: [], docWarning: false, alreadyCopied: true }
+  }
+  throw new Error(`copy refused: ${r?.reason ?? 'no answer'}`)
 }
 
 // The offer: one entry per offered event (so the director can untick one), and apply(keys)
@@ -101,9 +115,9 @@ function makeOffer({ specialDayId, offered, groups, scoped, blockIdMap, dayLabel
         r = await copyInOneWrite(specialDayId, [], cellsFor(chosen, groups, scoped, blockIdMap))
       } catch (err) {
         console.error('special day copy: could not bring the offered events', err)
-        return { written: 0, failure: "Couldn't add those events \u2014 nothing was added, try again", notice: null }
+        return { written: 0, failure: err.timedOut ? COPY_TIMEOUT_MESSAGE : "Couldn't add those events \u2014 nothing was added, try again", notice: null }
       }
-      return { written: r.cellsWritten, failure: null, notice: r.skipped.length ? r.skipped.join('; ') : null }
+      return { written: r.cellsWritten, failure: null, notice: r.skipped.length ? r.skipped.join('; ') : null, docWarning: Boolean(r.docWarning) }
     },
   }
 }
@@ -156,7 +170,7 @@ export async function copyCampTimeBlocks({ campId, specialDayId }) {
     totalCount = scoped.length
     const blockIdMap = new Map()
     const blocks = scoped.map((b) => {
-      const id = crypto.randomUUID()
+      const id = specialDayBlockId(specialDayId, b.id)
       blockIdMap.set(b.id, id)
       return { id, name: b.name, sort_order: b.sort_order ?? 0, start_time: b.start_time ?? null, end_time: b.end_time ?? null }
     })
@@ -182,6 +196,7 @@ export async function copyCampTimeBlocks({ campId, specialDayId }) {
 
     const copied = await copyInOneWrite(specialDayId, blocks, cellsFor(carry, groups, scoped, blockIdMap))
     const notices = [...copied.skipped]
+    if (copied.alreadyCopied) notices.push('Already copied.')
     if (multiDay) {
       notices.push(`This special day is on ${placedDayIds.map(dayLabel).join(' and ')}, so recurring events aren't offered. Add them by hand.`)
     }
@@ -192,6 +207,7 @@ export async function copyCampTimeBlocks({ campId, specialDayId }) {
       placed: placedDayId != null || multiDay,
       varies,
       offer,
+      docWarning: Boolean(copied.docWarning),
       notice: notices.length ? notices.join('; ') : null,
     }
   } catch (err) {

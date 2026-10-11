@@ -302,9 +302,12 @@ export const localClient = {
   unbindSpecialDay: ({ weekId, dayId }) =>
     shoresh.unbindSpecialDay({ token: currentToken(), weekId, dayId }),
   // The special-day copy as ONE IPC: { specialDayId, blocks, cells } -> { ok, blocksWritten, cellsWritten, skipped }
-  // or { ok:false, reason }. No write timeout: it is one call that carries the whole copy.
+  // or { ok:false, reason }. A timeout means the outcome is unknown (the IPC may still land).
   copySpecialDayBlocks: announcing(({ specialDayId, blocks, cells }) =>
-    shoresh.copySpecialDayBlocks({ token: currentToken(), specialDayId, blocks, cells })),
+    withWriteTimeout(
+      shoresh.copySpecialDayBlocks({ token: currentToken(), specialDayId, blocks, cells }),
+      'copySpecialDayBlocks'
+    )),
   // deleteEventHandler (electron/main.js) destructures { token, eventId } —
   // same wrapper shape as deleteSpecialDay above (Events internal
   // sub-schedule Slice 2, docs/adr/2026-08-22-event-internal-subschedule.md).

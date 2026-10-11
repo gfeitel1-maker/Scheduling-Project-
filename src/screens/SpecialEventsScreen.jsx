@@ -23,7 +23,7 @@ import DuplicateNameDot from '../components/setup/DuplicateNameDot'
 import { duplicateSiblingsByIdFor } from './duplicateSiblings.js'
 import { copyCampTimeBlocks } from './specialDay/copyCampTimeBlocks'
 import RecurringOfferLine from './specialDay/RecurringOfferLine'
-import { seedFailureMessage } from './specialDay/seedFailureMessage'
+import { copyFailureMessage, DOC_WARNING } from './specialDay/seedFailureMessage'
 
 const repository = createSetupCrudRepository({ localClient })
 const eventScopeFilter = (row, campId) => row.camp_id === campId
@@ -354,6 +354,7 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
         else {
           setOffer(null)
           if (result.notice) setNote(result.notice)
+          if (result.docWarning) setError(DOC_WARNING)
         }
       } catch (err) {
         setError(describeWriteFailure(err, 'Could not bring the recurring events.'))
@@ -374,7 +375,7 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
       setCopying(true)
       outcome = await copyCampTimeBlocks({ campId, specialDayId })
     } catch (err) {
-      outcome = { failure: describeWriteFailure(err, seedFailureMessage(err.seededCount ?? 0, err.totalCount ?? 0)) }
+      outcome = { failure: copyFailureMessage(err) }
     } finally {
       setCopying(false)
     }
@@ -384,6 +385,7 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
       return
     }
     setOffer(outcome.offer)
+    if (outcome.docWarning) setError(DOC_WARNING)
     setNote(outcome.notice ?? (outcome.varies && !outcome.placed ? LABELS.varyNote : null))
     setToast(LABELS.createdHint(days.find((d) => d.id === specialDayId)?.name ?? 'Special Day'))
   }

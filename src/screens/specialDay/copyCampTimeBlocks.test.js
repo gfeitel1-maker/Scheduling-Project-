@@ -6,16 +6,21 @@ vi.mock('../../localClient', () => ({
 
 import { localClient } from '../../localClient'
 import { copyCampTimeBlocks } from './copyCampTimeBlocks'
+import { copyFailureMessage, DOC_WARNING, COPY_TIMEOUT_MESSAGE } from './seedFailureMessage'
 
 const CAMP = 'c1'
 const SD = 'sd1'
 let n
 let rows
 let failWhen
+let landedBlocks
+let docWarning
 
 beforeEach(() => {
   n = 0
   failWhen = () => false
+  landedBlocks = new Set()
+  docWarning = false
   vi.stubGlobal('localStorage', { getItem: () => 't' })
   vi.stubGlobal('crypto', { randomUUID: () => `new-${n++}` })
   rows = {
@@ -48,6 +53,8 @@ beforeEach(() => {
   // occupied cell is kept and reported, an existing empty row is filled in place.
   localClient.copySpecialDayBlocks.mockReset().mockImplementation(async ({ specialDayId, blocks, cells }) => {
     if (failWhen(blocks, cells)) return { ok: false, reason: 'failed' }
+    if (blocks.some((b) => landedBlocks.has(b.id))) return { ok: false, reason: 'block-exists' }
+    blocks.forEach((b) => landedBlocks.add(b.id))
     const actName = new Map(rows.activities.map((a) => [a.id, a.name]))
     let cellsWritten = 0
     const skipped = []
@@ -61,7 +68,7 @@ beforeEach(() => {
       else rows.special_day_slots.push({ id: `slot-${rows.special_day_slots.length}`, special_day_id: specialDayId, group_id: c.groupId, time_block_id: c.blockId, activity_id: c.activityId })
       cellsWritten += 1
     }
-    return { ok: true, blocksWritten: blocks.length, cellsWritten, skipped }
+    return { ok: true, blocksWritten: blocks.length, cellsWritten, skipped, docWarning }
   })
 })
 
@@ -74,7 +81,7 @@ describe('copyCampTimeBlocks fixed events', () => {
     const cells = filled()
     expect(cells).toHaveLength(2)
     expect(cells.map((c) => c.group_id).sort()).toEqual(['g1', 'g2'])
-    expect(cells.every((c) => c.activity_id === 'a-carpool' && c.time_block_id === 'new-0' && c.special_day_id === SD)).toBe(true)
+    expect(cells.every((c) => c.activity_id === 'a-carpool' && c.time_block_id === 'sdb-sd1-b1' && c.special_day_id === SD)).toBe(true)
     expect(r.carriedCount).toBe(2)
     expect(r.placed).toBe(false)
   })
@@ -115,8 +122,8 @@ describe('copyCampTimeBlocks fixed events', () => {
     expect(r.offer.dayLabel).toBe('Monday')
     expect(filled()).toHaveLength(2)
     const done = await r.offer.apply()
-    expect(done).toEqual({ written: 1, failure: null, notice: null })
-    expect(filled().filter((c) => c.activity_id === 'a-gt')).toEqual([expect.objectContaining({ group_id: 'g2', time_block_id: 'new-2' })])
+    expect(done).toEqual({ written: 1, failure: null, notice: null, docWarning: false })
+    expect(filled().filter((c) => c.activity_id === 'a-gt')).toEqual([expect.objectContaining({ group_id: 'g2', time_block_id: 'sdb-sd1-b3' })])
   })
 
   it('does not offer day-specific events when the special day is not placed', async () => {
@@ -137,14 +144,14 @@ describe('copyCampTimeBlocks fixed events', () => {
   it('fills every spanned block for a multi-block event', async () => {
     rows.fixed_events = [{ ...rows.fixed_events[0], time_block_id: 'b1', span_blocks: 2 }]
     await copyCampTimeBlocks({ campId: CAMP, specialDayId: SD })
-    expect([...new Set(filled().map((c) => c.time_block_id))].sort()).toEqual(['new-0', 'new-1'])
+    expect([...new Set(filled().map((c) => c.time_block_id))].sort()).toEqual(['sdb-sd1-b1', 'sdb-sd1-b2'])
     expect(filled()).toHaveLength(4)
   })
 
   it('clips a span that runs past the last block', async () => {
     rows.fixed_events = [{ ...rows.fixed_events[0], time_block_id: 'b3', span_blocks: 3 }]
     await copyCampTimeBlocks({ campId: CAMP, specialDayId: SD })
-    expect(filled().map((c) => c.time_block_id)).toEqual(['new-2', 'new-2'])
+    expect(filled().map((c) => c.time_block_id)).toEqual(['sdb-sd1-b3', 'sdb-sd1-b3'])
   })
 })
 
@@ -152,19 +159,19 @@ describe('copyCampTimeBlocks write safety', () => {
   it('Bring after a manual placement keeps the manual cell, writes no second row, and says so', async () => {
     place()
     const r = await copyCampTimeBlocks({ campId: CAMP, specialDayId: SD })
-    rows.special_day_slots.push({ id: 'manual', special_day_id: SD, group_id: 'g2', time_block_id: 'new-2', activity_id: 'a-swim' })
+    rows.special_day_slots.push({ id: 'manual', special_day_id: SD, group_id: 'g2', time_block_id: 'sdb-sd1-b3', activity_id: 'a-swim' })
     const done = await r.offer.apply()
     expect(done.written).toBe(0)
     expect(done.notice).toBe('Swim kept in B Swim (1:00–1:40 PM) — Group Time not added there')
-    expect(rows.special_day_slots.filter((s) => s.group_id === 'g2' && s.time_block_id === 'new-2')).toHaveLength(1)
+    expect(rows.special_day_slots.filter((s) => s.group_id === 'g2' && s.time_block_id === 'sdb-sd1-b3')).toHaveLength(1)
   })
 
   it('fills an existing empty row instead of adding a second one', async () => {
     place()
     const r = await copyCampTimeBlocks({ campId: CAMP, specialDayId: SD })
-    rows.special_day_slots.push({ id: 'empty', special_day_id: SD, group_id: 'g2', time_block_id: 'new-2' })
+    rows.special_day_slots.push({ id: 'empty', special_day_id: SD, group_id: 'g2', time_block_id: 'sdb-sd1-b3' })
     await r.offer.apply()
-    expect(rows.special_day_slots.filter((s) => s.group_id === 'g2' && s.time_block_id === 'new-2')).toEqual([
+    expect(rows.special_day_slots.filter((s) => s.group_id === 'g2' && s.time_block_id === 'sdb-sd1-b3')).toEqual([
       expect.objectContaining({ id: 'empty', activity_id: 'a-gt' }),
     ])
   })
@@ -174,7 +181,7 @@ describe('copyCampTimeBlocks write safety', () => {
     rows.fixed_events.push({ id: 'f3', camp_id: CAMP, kind: 'recurring', name: 'Extra', day_id: 'mon', time_block_id: 'b3', is_all_groups: 1, group_ids: '[]', unit_ids: '[]', activity_id: 'a-x', span_blocks: 1 })
     const r = await copyCampTimeBlocks({ campId: CAMP, specialDayId: SD })
     const done = await r.offer.apply()
-    expect(rows.special_day_slots.filter((s) => s.group_id === 'g2' && s.time_block_id === 'new-2')).toHaveLength(1)
+    expect(rows.special_day_slots.filter((s) => s.group_id === 'g2' && s.time_block_id === 'sdb-sd1-b3')).toHaveLength(1)
     expect(done.notice).toContain('kept in B Swim')
   })
 
@@ -184,11 +191,11 @@ describe('copyCampTimeBlocks write safety', () => {
     const [{ specialDayId, blocks, cells }] = localClient.copySpecialDayBlocks.mock.calls[0]
     expect(specialDayId).toBe(SD)
     expect(blocks).toEqual([
-      { id: 'new-0', name: 'Carpool', sort_order: 0, start_time: '08:00', end_time: '08:40' },
-      { id: 'new-1', name: 'Lunch', sort_order: 1, start_time: '12:00', end_time: '12:40' },
-      { id: 'new-2', name: 'Swim', sort_order: 2, start_time: '13:00', end_time: '13:40' },
+      { id: 'sdb-sd1-b1', name: 'Carpool', sort_order: 0, start_time: '08:00', end_time: '08:40' },
+      { id: 'sdb-sd1-b2', name: 'Lunch', sort_order: 1, start_time: '12:00', end_time: '12:40' },
+      { id: 'sdb-sd1-b3', name: 'Swim', sort_order: 2, start_time: '13:00', end_time: '13:40' },
     ])
-    expect(cells.map((c) => [c.groupId, c.blockId, c.activityId])).toEqual([['g1', 'new-0', 'a-carpool'], ['g2', 'new-0', 'a-carpool']])
+    expect(cells.map((c) => [c.groupId, c.blockId, c.activityId])).toEqual([['g1', 'sdb-sd1-b1', 'a-carpool'], ['g2', 'sdb-sd1-b1', 'a-carpool']])
     expect(localClient.write).not.toHaveBeenCalled()
     expect(localClient.deleteEntity).not.toHaveBeenCalled()
   })
@@ -200,7 +207,7 @@ describe('copyCampTimeBlocks write safety', () => {
     expect(localClient.copySpecialDayBlocks).toHaveBeenCalledTimes(2)
     const [{ blocks, cells }] = localClient.copySpecialDayBlocks.mock.calls[1]
     expect(blocks).toEqual([])
-    expect(cells.map((c) => [c.groupId, c.blockId, c.activityId])).toEqual([['g2', 'new-2', 'a-gt']])
+    expect(cells.map((c) => [c.groupId, c.blockId, c.activityId])).toEqual([['g2', 'sdb-sd1-b3', 'a-gt']])
     expect(localClient.write).not.toHaveBeenCalled()
   })
 
@@ -223,9 +230,51 @@ describe('copyCampTimeBlocks write safety', () => {
     expect(log).toHaveBeenCalled()
     failWhen = () => false
     const second = await r.offer.apply()
-    expect(second).toEqual({ written: 1, failure: null, notice: null })
-    expect(rows.special_day_slots.filter((s) => s.time_block_id === 'new-2')).toHaveLength(1)
+    expect(second).toEqual({ written: 1, failure: null, notice: null, docWarning: false })
+    expect(rows.special_day_slots.filter((s) => s.time_block_id === 'sdb-sd1-b3')).toHaveLength(1)
     log.mockRestore()
+  })
+
+  it('derives block ids from the special day and camp block, so a retry cannot mint new ones', async () => {
+    await copyCampTimeBlocks({ campId: CAMP, specialDayId: SD })
+    const first = localClient.copySpecialDayBlocks.mock.calls[0][0].blocks.map((b) => b.id)
+    expect(first).toEqual(['sdb-sd1-b1', 'sdb-sd1-b2', 'sdb-sd1-b3'])
+    await copyCampTimeBlocks({ campId: CAMP, specialDayId: SD })
+    expect(localClient.copySpecialDayBlocks.mock.calls[1][0].blocks.map((b) => b.id)).toEqual(first)
+  })
+
+  it('a retry after a lost reply finds the blocks already there and counts it as copied', async () => {
+    await copyCampTimeBlocks({ campId: CAMP, specialDayId: SD })
+    const again = await copyCampTimeBlocks({ campId: CAMP, specialDayId: SD })
+    expect(again.carriedCount).toBe(0)
+    expect(again.notice).toBe('Already copied.')
+    expect(rows.special_day_slots).toHaveLength(2)
+  })
+
+  it('a timed-out copy is worded as unconfirmed, not as a plain failure', async () => {
+    localClient.copySpecialDayBlocks.mockRejectedValueOnce(new Error('write timed out after 8000ms (copySpecialDayBlocks)'))
+    const err = await copyCampTimeBlocks({ campId: CAMP, specialDayId: SD }).catch((e) => e)
+    expect(err.timedOut).toBe(true)
+    expect(copyFailureMessage(err)).toBe(COPY_TIMEOUT_MESSAGE)
+    expect(COPY_TIMEOUT_MESSAGE).toBe("Couldn't confirm the copy finished \u2014 check the schedule before copying again.")
+  })
+
+  it('apply() words a timeout as unconfirmed too', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    place()
+    const r = await copyCampTimeBlocks({ campId: CAMP, specialDayId: SD })
+    localClient.copySpecialDayBlocks.mockRejectedValueOnce(new Error('write timed out after 8000ms (copySpecialDayBlocks)'))
+    expect((await r.offer.apply()).failure).toBe(COPY_TIMEOUT_MESSAGE)
+    log.mockRestore()
+  })
+
+  it('carries the document warning from the copy and from Bring', async () => {
+    place()
+    docWarning = true
+    const r = await copyCampTimeBlocks({ campId: CAMP, specialDayId: SD })
+    expect(r.docWarning).toBe(true)
+    expect(DOC_WARNING).toBe('Copied here, but syncing to other devices may be incomplete.')
+    expect((await r.offer.apply()).docWarning).toBe(true)
   })
 
   it('apply() refuses when the special day was deleted meanwhile', async () => {

@@ -23,7 +23,7 @@ import SpecialDayPlacements from './SpecialDayPlacements'
 import FailureLine from './FailureLine'
 import RecurringOfferLine from './RecurringOfferLine'
 import { copyCampTimeBlocks, offerForPlacedDay, campEventsVaryByWeekday } from './copyCampTimeBlocks'
-import { seedFailureMessage } from './seedFailureMessage'
+import { copyFailureMessage, DOC_WARNING } from './seedFailureMessage'
 import GridEditorFrame from '../../components/schedule/GridEditorFrame'
 
 const GRID_REFRESH_MS = 500
@@ -266,7 +266,7 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
     try {
       outcome = await copyCampTimeBlocks({ campId, specialDayId })
     } catch (err) {
-      outcome = { failure: describeWriteFailure(err, seedFailureMessage(err.seededCount ?? 0, err.totalCount ?? 0)) }
+      outcome = { failure: copyFailureMessage(err) }
     }
     await load()
     if (outcome.failure) {
@@ -274,6 +274,7 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
       return
     }
     setOffer(outcome.offer)
+    if (outcome.docWarning) setError(DOC_WARNING)
     setCopyNote(outcome.notice)
     setNotPlaced(Boolean(outcome.varies) && !outcome.placed)
   }
@@ -293,15 +294,18 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
   const bringOffered = (keys) => exclusive(() => bringOfferedOnce(keys))
 
   async function bringOfferedOnce(keys) {
+    let problem = null
     try {
       const result = await offer.apply(keys)
-      if (result.failure) setError(result.failure)
+      if (result.failure) problem = result.failure
       else setOffer(null)
+      if (result.docWarning) problem = problem ?? DOC_WARNING
       if (result.notice) setCopyNote(result.notice)
     } catch (err) {
-      setError(describeWriteFailure(err, 'Could not bring the recurring events.'))
+      problem = describeWriteFailure(err, 'Could not bring the recurring events.')
     }
     await load()
+    if (problem) setError(problem)
   }
 
   async function renameBlock(blockId, name) {

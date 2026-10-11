@@ -1801,7 +1801,7 @@ describe('existing-behavior-preserved: full entity sweep (staff + admin both rea
     expect(db.prepare('SELECT COUNT(*) c FROM special_day_time_blocks').get().c).toBe(0)
     db.exec('DROP TRIGGER boom')
 
-    expect(handlers.copySpecialDayBlocks({ token: staffToken, ...args })).toEqual({ ok: true, blocksWritten: 1, cellsWritten: 1, skipped: [] })
+    expect(handlers.copySpecialDayBlocks({ token: staffToken, ...args })).toEqual({ ok: true, blocksWritten: 1, cellsWritten: 1, skipped: [], docWarning: false })
     expect(db.prepare('SELECT COUNT(*) c FROM special_day_slots').get().c).toBe(1)
   })
 

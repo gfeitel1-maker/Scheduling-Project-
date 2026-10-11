@@ -2,10 +2,14 @@
 //
 // The special-day copy as ONE main-process write: every block and every fixed-event cell lands in a
 // single runAtomic (one SQLite transaction, one deferred Automerge flush), or none do.
-import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest'
 import fs from 'node:fs'
 import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
+import os from 'node:os'
+import path from 'node:path'
 import { copySpecialDayBlocks } from './copySpecialDayBlocks.js'
+import { setUserDataDirGetter, resetForTests as resetLiveDocForTests } from '../sync/automerge/liveDoc.js'
+import { listDocumentWriteFailures } from './documentWriteFailures.js'
 
 afterAll(() => cleanupTemplatedDbs())
 
@@ -108,5 +112,47 @@ describe('copySpecialDayBlocks', () => {
     run({ blocks: [blocks[0]] })
     expect(run({ blocks: [blocks[0]] })).toEqual({ ok: false, reason: 'block-exists' })
     expect(dayBlocks()).toHaveLength(1)
+  })
+})
+
+describe('copySpecialDayBlocks: the document side and request sanity', () => {
+  it('says the copy is complete here but the document did not take it when the flush fails', () => {
+    const blocker = path.join(os.tmpdir(), `shoresh-copy-blocker-${Date.now()}-${Math.random()}`)
+    fs.writeFileSync(blocker, 'not a directory')
+    setUserDataDirGetter(() => blocker)
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const r = run({ cells: [cell('g1', 'nb1')] })
+      expect(r).toMatchObject({ ok: true, blocksWritten: 2, cellsWritten: 1, docWarning: true })
+      expect(dayBlocks()).toHaveLength(2)
+      expect(listDocumentWriteFailures(db).length).toBeGreaterThan(0)
+    } finally {
+      resetLiveDocForTests()
+      fs.rmSync(blocker, { force: true })
+      quiet.mockRestore()
+      warn.mockRestore()
+    }
+  })
+
+  it('has no document warning on an ordinary copy', () => {
+    expect(run({ cells: [cell('g1', 'nb1')] }).docWarning).toBe(false)
+  })
+
+  it('refuses a request that repeats a block id, writing nothing', () => {
+    expect(run({ blocks: [blocks[0], { ...blocks[0] }] })).toEqual({ ok: false, reason: 'duplicate-block' })
+    expect(dayBlocks()).toEqual([])
+  })
+
+  it('refuses a cell with no activity instead of writing a phantom op', () => {
+    expect(run({ cells: [cell('g1', 'nb1', { activityId: null })] })).toEqual({ ok: false, reason: 'bad-cell' })
+    expect(dayBlocks()).toEqual([])
+    expect(opsFor('special_day_slots')).toEqual([])
+  })
+
+  it('refuses an absurd number of cells', () => {
+    const many = Array.from({ length: 5001 }, () => cell('g1', 'nb1'))
+    expect(run({ cells: many })).toEqual({ ok: false, reason: 'too-many-cells' })
+    expect(dayBlocks()).toEqual([])
   })
 })

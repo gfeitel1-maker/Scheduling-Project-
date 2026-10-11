@@ -281,7 +281,7 @@ describe('SpecialEventsScreen — seed from camp time blocks', () => {
     await waitFor(() => expect(localClient.copySpecialDayBlocks).toHaveBeenCalledTimes(1))
     expect(localClient.copySpecialDayBlocks).toHaveBeenCalledWith({
       specialDayId: 'new-id-0',
-      blocks: [{ id: 'new-id-1', name: 'Morning', sort_order: 0, start_time: '09:00:00', end_time: '10:00:00' }],
+      blocks: [{ id: 'sdb-new-id-0-camp-tb-1', name: 'Morning', sort_order: 0, start_time: '09:00:00', end_time: '10:00:00' }],
       cells: [],
     })
 
@@ -425,6 +425,33 @@ describe('SpecialEventsScreen — seed from camp time blocks', () => {
     expect((await screen.findByText(/Copying time blocks/)).textContent).toBe('Copying time blocks\u2026')
     release()
     await waitFor(() => expect(screen.queryByText(/Copying time blocks/)).toBeNull())
+  })
+
+  it('a timed-out copy clears "Copying..." and says the outcome is unconfirmed', async () => {
+    localClient.list.mockImplementation(byEntityLive({
+      ...emptyEntries,
+      time_blocks: [{ id: 'cb', camp_id: CAMP_ID, name: 'Morning', sort_order: 0 }],
+    }))
+    localClient.copySpecialDayBlocks.mockRejectedValue(new Error('write timed out after 8000ms (copySpecialDayBlocks)'))
+    render(<SpecialEventsScreen campId={CAMP_ID} role="admin" />)
+    await waitFor(() => expect(screen.queryByText('No special events yet.')).not.toBeNull())
+    addViaInlineRow({ name: 'Color War', type: 'day' })
+    fireEvent.click(await screen.findByText(/Copy time blocks/))
+    expect(await screen.findByText("Couldn't confirm the copy finished \u2014 check the schedule before copying again.")).toBeTruthy()
+    expect(screen.queryByText(/Copying time blocks/)).toBeNull()
+  })
+
+  it('shows one line when the copy landed here but the document flush failed', async () => {
+    localClient.list.mockImplementation(byEntityLive({
+      ...emptyEntries,
+      time_blocks: [{ id: 'cb', camp_id: CAMP_ID, name: 'Morning', sort_order: 0 }],
+    }))
+    localClient.copySpecialDayBlocks.mockResolvedValue({ ok: true, blocksWritten: 1, cellsWritten: 0, skipped: [], docWarning: true })
+    render(<SpecialEventsScreen campId={CAMP_ID} role="admin" />)
+    await waitFor(() => expect(screen.queryByText('No special events yet.')).not.toBeNull())
+    addViaInlineRow({ name: 'Color War', type: 'day' })
+    fireEvent.click(await screen.findByText(/Copy time blocks/))
+    expect(await screen.findByText('Copied here, but syncing to other devices may be incomplete.')).toBeTruthy()
   })
 
   it('closes the prompt and keeps a write failure on screen after Copy', async () => {

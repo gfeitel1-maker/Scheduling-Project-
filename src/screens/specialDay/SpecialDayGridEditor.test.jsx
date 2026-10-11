@@ -320,6 +320,14 @@ describe('SpecialDayGridEditor — Copy time blocks on an empty special schedule
     expect(screen.queryByRole('button', { name: 'Copy time blocks' })).toBeNull()
   })
 
+  it('shows one line when the copy landed here but the document flush failed', async () => {
+    emptyDayFixtures()
+    localClient.copySpecialDayBlocks.mockResolvedValue({ ok: true, blocksWritten: 2, cellsWritten: 0, skipped: [], docWarning: true })
+    render(<SpecialDayGridEditor campId={CAMP_ID} specialDayId={SD_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy time blocks' }))
+    expect(await screen.findByText('Copied here, but syncing to other devices may be incomplete.')).toBeTruthy()
+  })
+
   it('does not offer the action once the special day has blocks', async () => {
     baseFixtures()
     render(<SpecialDayGridEditor campId={CAMP_ID} specialDayId={SD_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
