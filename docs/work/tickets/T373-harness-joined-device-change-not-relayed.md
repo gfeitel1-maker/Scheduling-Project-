@@ -15,3 +15,5 @@ archive_when: in test/integration a joined client's appendOp-path write reaches 
 **Direction.** Find why the Host does not relay a joined client's change to the other client in scenario 39 but does in 34. If it is a harness gap, fix the harness and drop the restart. If the Host really does not relay in the product, that is a sync bug and moves to the sync owner.
 
 Source: T264 / PR #949 CI failure, 2026-10-11.
+
+**Update (PR #949 CI, three runs).** The failure is earlier than the restart: under 1.1s into scenario 39, on Linux CI only (the full suite passes 29/29 locally), the first join's outbound Noise handshake is reset: `EncryptionFailedError: read ECONNRESET` at `libp2p/dist/src/upgrader.js:289` (`_encryptOutbound`) from `@libp2p/tcp` `dial`. Scenario 39 runs right after scenario 38 and uses the same `setupTwoJoinedDevices` as scenarios 34 and 38, which pass. The scenario now retries its setup once on that error alone. Whether production's join can hit the same reset (and whether the join UI recovers) is part of this ticket.

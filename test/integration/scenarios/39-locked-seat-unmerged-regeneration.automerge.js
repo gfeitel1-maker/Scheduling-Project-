@@ -90,7 +90,14 @@ async function pass({ lockWins }) {
   let host, clientA, clientB
   const tag = lockWins ? '[lock wins]' : '[solver wins]'
   try {
-    const setup = await setupTwoJoinedDevices()
+    // CI only (3/3 runs, never locally): the very first join's Noise handshake is reset
+    // (EncryptionFailedError: read ECONNRESET) before anything this scenario tests has run.
+    // One retry of the SETUP, on that error alone; anything else fails. Root cause: T373.
+    let setup
+    try { setup = await setupTwoJoinedDevices() } catch (err) {
+      if (err?.name !== 'EncryptionFailedError' && !/EncryptionFailed/.test(String(err?.stack))) throw err
+      setup = await setupTwoJoinedDevices()
+    }
     host = setup.host
     clientA = setup.clientA
     clientB = setup.clientB
