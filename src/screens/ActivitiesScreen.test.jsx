@@ -1428,3 +1428,29 @@ describe('duplicate-catcher — the typo a re-import creates', () => {
     await waitFor(() => expect(screen.getByText(/changed while you were looking at it/)).toBeTruthy())
   })
 })
+
+// F11: a null max_per_week means "no cap". The editor must not turn it into 5 on open-and-save.
+describe('ActivitiesScreen — null max_per_week is no cap', () => {
+  it('shows "No cap" and saving unchanged never writes a number', async () => {
+    localClient.list.mockImplementation(entity => (entity === 'activities' ? Promise.resolve([activity({ max_per_week: null })]) : Promise.resolve([])))
+    render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Archery' }))
+    await waitFor(() => expect(screen.queryByPlaceholderText('No cap')).not.toBeNull())
+    expect(screen.getByLabelText('Maximum per week').value).toBe('')
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+    await act(async () => { await new Promise(r => setTimeout(r, 30)) })
+    expect(localClient.write.mock.calls.filter(c => c[3] === 'max_per_week' && c[4] !== null)).toEqual([])
+  })
+
+  it('a blank max saves null', async () => {
+    localClient.list.mockImplementation(entity => (entity === 'activities' ? Promise.resolve([activity({ max_per_week: 3 })]) : Promise.resolve([])))
+    render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Archery' }))
+    await waitFor(() => expect(screen.queryByLabelText('Maximum per week')).not.toBeNull())
+    fireEvent.change(screen.getByLabelText('Maximum per week'), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+    await waitFor(() => expect(localClient.write).toHaveBeenCalledWith('token-abc', 'activities', 'act-1', 'max_per_week', null))
+  })
+})

@@ -34,6 +34,14 @@ describe('a wrap stays a wrap (plants)', () => {
     expect(rows[0].cells[0]).toBe('Instructional Swim')
   })
 
+  it('page with rooms: an "Instructional" over "Swim" wrap with no room stays a name when Swim is an activity elsewhere', () => {
+    const rows = page(
+      '09:30 AM', '             Swim                    Sailing                Drama', '             Pool                    Lake                   Hall', '10:10 AM', '',
+      '10:20 AM', '             Instructional           Sailing                Drama', '             Swim', '11:00 AM',
+    )
+    expect(rows[1].cells[0]).toBe('Instructional Swim')
+  })
+
   it('page with rooms: a wrap followed by its room line still joins', () => {
     const rows = page(
       '09:30 AM', '             Pottery                 Sailing                Drama', '             Loft                    Lake                   Hall', '10:10 AM', '',

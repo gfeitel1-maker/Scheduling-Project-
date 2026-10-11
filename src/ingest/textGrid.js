@@ -423,6 +423,14 @@ function findAmbiguousLocations(pages) {
 }
 
 export function parseTextGrid(text) {
+  // F8 needs to know which texts print as a whole cell anywhere in the file, so the file is read twice:
+  // a probe pass (no wide-wrap joins) collects them, then the real pass uses them.
+  const probe = { collect: true, whole: new Set() }
+  parseGrid(text, probe)
+  return parseGrid(text, { collect: false, whole: probe.whole })
+}
+
+function parseGrid(text, ctx) {
   const lines = String(text ?? '').split(/\r?\n/)
   const pages = []
 
@@ -577,6 +585,8 @@ export function parseTextGrid(text) {
       let labelLines = 0
       // F8: the data tokens of the line just before this one (null when that line carried only a time label).
       let prevData = null
+      const followers = new Set()
+      const candidateLines = new Set()
       // F7: true while the last data line seen was a narrow wrap appended to the row above.
       let tailIsNarrow = false
       for (const tokens of block) {
@@ -597,13 +607,26 @@ export function parseTextGrid(text) {
           continue
         }
         // F8: on a labelled page, a label-less line that reaches only columns the line above already fills,
-        // with no time text in either, is that line's wrapped tail even when it spans half the columns or more.
+        // with no time text in either, MAY be that line's wrapped tail even when it spans half the columns
+        // or more. It is one only when it reads as a wrap: it starts lowercase, the line above ends on a
+        // connector ("Arts and"), or neither line's text is a complete cell anywhere else in the file
+        // ("Swim" over "Archery" is two rows because both print alone elsewhere; "Closing" over
+        // "Ceremony" is one name because neither ever does).
         if (!stripLocations && !lineHasLabel && above && valueRows.length > 0 && isValueRow(tokens)
           && !above.some((t) => looksLikeTime(t.text)) && !dataTokens.some((t) => looksLikeTime(t.text))) {
           const aboveColumns = new Set(above.map((t) => columnFor(t, columns)))
           if (dataTokens.every((t) => aboveColumns.has(columnFor(t, columns)))) {
-            valueRows[valueRows.length - 1].push(dataTokens)
-            continue
+            const wrapColumns = new Set(dataTokens.map((t) => columnFor(t, columns)))
+            const aboveHere = above.filter((t) => wrapColumns.has(columnFor(t, columns)))
+            const readsAsWrap = dataTokens.some((t) => /^[a-z]/.test(t.text)) || aboveHere.some((t) => /(?:\band|\bof|&|\/|-)$/i.test(t.text))
+              || (![...aboveHere, ...dataTokens].some((t) => ctx.whole.has(t.text)))
+            if (ctx.collect) {
+              followers.add(valueRows[valueRows.length - 1])
+              candidateLines.add(dataTokens)
+            } else if (readsAsWrap) {
+              valueRows[valueRows.length - 1].push(dataTokens)
+              continue
+            }
           }
         }
         if (wrapsAcrossNarrow && valueRows.length > 0) {
@@ -675,6 +698,9 @@ export function parseTextGrid(text) {
       }
 
       valueRows.forEach((lineGroup, rowIndex) => {
+        if (ctx.collect && !followers.has(lineGroup) && !lineGroup.some((l) => candidateLines.has(l))) {
+          for (const t of lineGroup[0]) ctx.whole.add(t.text)
+        }
         const row = buildRow(periodLabel, lineGroup, locationLineGroups[rowIndex])
         rows.push(row)
         // F7: remember a row whose last line is a narrow wrap, in case the page turns out to print rooms.
@@ -698,10 +724,14 @@ export function parseTextGrid(text) {
 
     // F7: a page whose other periods print full room lines prints a room under each activity, so a lone
     // narrow line closing a period is one more room (the other columns are room-less events), not a name tail.
+    // The tail must also read as a room: it is printed as a room elsewhere on the page, or it is not a
+    // complete cell anywhere in the file ("Swim" under "Instructional" is an activity, so it stays a name).
     if (!labeled && rows.some((r) => r.locations)) {
+      const roomsOnPage = new Set(rows.flatMap((r) => r.locations ?? []).filter(Boolean))
       rows.forEach((row, i) => {
         const tail = narrowTailRows.get(row)
         if (!tail) return
+        if (!tail.lineGroup[tail.lineGroup.length - 1].every((t) => roomsOnPage.has(t.text) || !ctx.whole.has(t.text))) return
         const captured = [...(tail.captured ?? []), tail.lineGroup[tail.lineGroup.length - 1]]
         rows[i] = buildRow(tail.periodLabel, tail.lineGroup.slice(0, -1), captured)
       })

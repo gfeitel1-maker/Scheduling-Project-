@@ -25,6 +25,11 @@ describe('a wrap that fills half or more of the columns is one cell', () => {
 describe('the join does not swallow a separate row (plants)', () => {
   const header = '   Time           Monday     Tuesday    Wednesday'
   const page = (...body) => parseTextGrid([header, '', ...body].join('\n')).pages[0].rows
+  // Swim and Archery each also print as whole cells elsewhere on the page, so they are complete names.
+  const known = [
+    '09:00-09:45       Swim       Swim       Swim', '',
+    '10:00-10:45       Archery    Archery    Archery', '',
+  ]
 
   it('a second line reaching a column the first lacks stays its own row', () => {
     const rows = page(
@@ -40,5 +45,16 @@ describe('the join does not swallow a separate row (plants)', () => {
       '10:00-10:45       Archery    Archery    Archery',
     )
     expect(rows).toHaveLength(2)
+  })
+
+  it('equal-columns stacked activities stay two rows', () => {
+    const rows = page(...known, '11:00-11:45       Swim       Swim       Swim', '                  Archery    Archery    Archery')
+    expect(rows.flatMap((r) => r.cells)).not.toContain('Swim Archery')
+    expect(rows).toHaveLength(4)
+  })
+
+  it('a room row under an activity on a labelled page is not welded onto the name', () => {
+    const rows = page(...known, '11:00-11:45       Swim       Swim       Swim', '                  Pool       Pool       Pool')
+    expect(rows.flatMap((r) => r.cells)).not.toContain('Swim Pool')
   })
 })

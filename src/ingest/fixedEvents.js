@@ -492,24 +492,24 @@ export function inferFixedEvents(parsed, proposal, options = {}) {
   // routing verdict buildPlan consumes (ADR Decision 1, C2). A confirmed
   // fixed event's name is dual-use iff the SAME normalized name also has an
   // `occupied` tuple (pre-majority-filter) OUTSIDE the union of that name's
-  // own confirmed fixed events' (group, time_block) footprint.
-  const footprintByActivity = new Map() // normalizeName(activity) -> Set("groupNorm|block")
+  // own confirmed fixed events' (group, time_block, day) footprint (per DAY, so a group running the name at the event's block on a day the event does not cover is dual-use).
+  const footprintByActivity = new Map() // normalizeName(activity) -> Set("groupNorm|block|day")
   const displaySpellingByActivity = new Map() // normalizeName(activity) -> display spelling
   for (const fe of fixedEvents) {
     const activityNorm = normalizeName(fe.name)
     if (!footprintByActivity.has(activityNorm)) footprintByActivity.set(activityNorm, new Set())
     if (!displaySpellingByActivity.has(activityNorm)) displaySpellingByActivity.set(activityNorm, fe.name)
     const footprint = footprintByActivity.get(activityNorm)
-    for (const g of fe._footprintGroups) footprint.add(`${g}|${fe.time_block}`)
+    for (const g of fe._footprintGroups) for (const d of fe.days) footprint.add(`${g}|${fe.time_block}|${d}`)
   }
 
   const dualUseNorms = new Set()
-  for (const key of occupied.keys()) {
+  for (const [key, daySet] of occupied) {
     const [group, block, activity] = JSON.parse(key)
     const activityNorm = normalizeName(activity)
     const footprint = footprintByActivity.get(activityNorm)
     if (!footprint) continue // not a confirmed fixed event at all
-    if (!footprint.has(`${group}|${block}`)) dualUseNorms.add(activityNorm)
+    if ([...daySet].some((d) => !footprint.has(`${group}|${block}|${d}`))) dualUseNorms.add(activityNorm)
   }
   const dualUseNames = [...dualUseNorms].map((n) => displaySpellingByActivity.get(n))
 
