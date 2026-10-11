@@ -97,6 +97,23 @@ export function inferTextSpans(parsed, proposal = {}) {
     })
   }
 
+  // A block that is blank in most (group, day) sequences that have it is a
+  // structural free period (or past the end of most groups' day), not a span
+  // tail: whatever is scheduled before it would otherwise read as a span.
+  const cellCount = new Map()
+  const blankCount = new Map()
+  for (const seq of seqs) {
+    for (const cell of seq.cells) {
+      const k = JSON.stringify([seq.dayName, cell.blockLabel])
+      cellCount.set(k, (cellCount.get(k) ?? 0) + 1)
+      if (cell.names.length === 0) blankCount.set(k, (blankCount.get(k) ?? 0) + 1)
+    }
+  }
+  const structurallyFree = (seq, cell) => {
+    const k = JSON.stringify([seq.dayName, cell.blockLabel])
+    return (blankCount.get(k) ?? 0) * 2 > cellCount.get(k)
+  }
+
   const spans = new Map()
   const continuations = []
   for (const [norm, { name, list }] of occ) {
@@ -106,7 +123,8 @@ export function inferTextSpans(parsed, proposal = {}) {
       continue
     }
     const k = list[0].blanks
-    if (list.length >= 2 && k >= 1 && list.every((o) => o.run === 1 && o.singleCell && o.blanks === k)) {
+    if (list.length >= 2 && k >= 1 && list.every((o) => o.run === 1 && o.singleCell && o.blanks === k)
+      && !list.some((o) => o.seq.cells.slice(o.i + 1, o.i + 1 + k).some((c) => structurallyFree(o.seq, c)))) {
       spans.set(norm, { name, span_blocks: k + 1, sessions: list.length, form: 'blank' })
       for (const o of list) {
         for (let j = 1; j <= k; j++) {

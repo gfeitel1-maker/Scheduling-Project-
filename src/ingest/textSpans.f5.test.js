@@ -72,6 +72,18 @@ describe('F5 text-grid spans are one session of N blocks', () => {
     )
   })
 
+  it('a block blank for every group (a free period) is not a span tail', () => {
+    const FREE = [
+      dayPage('Monday', [[T[0], ['Music', 'Drama', 'Swim']], [T[1], ['Archery', 'Swim', 'Drama']], [T[2], ['', '', '']]]),
+      dayPage('Tuesday', [[T[0], ['Drama', 'Swim', 'Music']], [T[1], ['Archery', 'Music', 'Swim']], [T[2], ['', '', '']]]),
+      dayPage('Wednesday', [[T[0], ['Swim', 'Music', 'Drama']], [T[1], ['Archery', 'Drama', 'Music']], [T[2], ['', '', '']]]),
+    ].join('\n\n')
+    const { rules, placements } = importRules(FREE)
+    expect(rules.get('Archery')).toBeDefined()
+    expect(rules.get('Archery').span_blocks).toBeUndefined()
+    expect(placements.filter((p) => p.activityName === 'Archery')).toHaveLength(3)
+  })
+
   it('a single stray blank after one occurrence is not a span', () => {
     const once = BLANK.slice(0, BLANK.lastIndexOf('Wednesday'))
     const { rules } = importRules(once)
