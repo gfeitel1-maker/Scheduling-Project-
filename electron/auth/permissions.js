@@ -157,6 +157,13 @@ export const PERMISSIONS = {
     // mode==='client' device gate on ingestCommit, so this permission now applies
     // on ANY trusted, non-revoked device — staff included unless the owner narrows it.
     'groups.import',
+    // docs/adr/2026-10-11-import-answer-memory.md 3.3: the answers a director gives to import
+    // questions are remembered for the camp. Staff with `groups.import` import and answer, so they
+    // write; reading what Shoresh has learned is open to every signed-in role. `camp_seedlings.write`
+    // stays admin-only for column mappings: the handler behind these writes can only ever write the
+    // two answer kinds.
+    'import_answers.read',
+    'import_answers.write',
     // T304 — the participant domain's ONE staff-readable exception, owner
     // ruling 2026-09-29 amending ADR D9: "administrative staff are the staff in
     // question... you would be saying that a camp's staff cannot read a child's

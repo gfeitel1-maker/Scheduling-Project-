@@ -19,6 +19,7 @@
 import { isDayName } from './textGrid.js'
 import { activityNamesFromCell, canonicalDay, dayNameFromTitle, cleanTitle } from './extractEntities.js'
 import { normalizeName } from './preview.js'
+import { numberedBase } from './nameShape.js'
 import { CONFIDENCE, classifyConfidence, tierFromHighFlag } from './confidence.js'
 
 const DAY_ORDER = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
@@ -300,10 +301,6 @@ export function inferFixedEvents(parsed, proposal, options = {}) {
   // number (one day, a few groups) clears neither arm above, yet it is the
   // same event family as an admitted sibling. Admitted at 'low' so the
   // director is asked, never silently pinned.
-  const numberedBase = (name) => {
-    const m = String(name).match(/^(.*\S)\s+\d+$/)
-    return m ? normalizeName(m[1]) : null
-  }
   const admittedBases = new Set(filtered.map((f) => numberedBase(f.activity)).filter(Boolean))
   for (const [key, daySet] of occupied) {
     if (admitted.has(key)) continue

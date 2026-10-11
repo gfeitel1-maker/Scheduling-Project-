@@ -34,6 +34,10 @@ export const OUTCOMES = Object.freeze({
 // `express` decisions are shown but demand nothing; `standard` wants a look;
 // `hold` must be answered. Recorded as PRESENTED so the journal can later show
 // which lane a question actually arrived in, independent of how it was answered.
+function sameAnswer(a, b) {
+  return b != null && JSON.stringify(a) === JSON.stringify(b)
+}
+
 function laneOf(decision) {
   return decision._lane ?? null
 }
@@ -207,6 +211,9 @@ export function journalEntriesFor(decisions, answers, importId) {
       proposed: proposedOf(d),
       outcome: outcomeFor(d, answer),
       chosen: chosenOf(answer),
+      // docs/adr/2026-10-11-import-answer-memory.md 3.5: a decision answered the way the store
+      // remembered it was learned from that record. Absent otherwise, so older entries keep their shape.
+      ...(answer && d.recallShown === true && d.recalled?.memoryId && sameAnswer(answer, d.recalled.answer) ? { learned_from_id: d.recalled.memoryId } : {}),
     })
   }
   return entries

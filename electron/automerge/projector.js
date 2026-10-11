@@ -33,6 +33,7 @@ import { verifyTombstone } from './tombstoneSignature.js'
 import * as Automerge from '@automerge/automerge'
 import { createAuthorityReplayContext, createVerifiedEntryTrust, isCompleteEntry, AUTHORITY_LOG_ENTITY } from './authorityReplay.js'
 import { recordAuditEvent } from '../audit/auditLog.js'
+import { answerPayloadTombstoned, sweepTombstonedAnswerRecords } from '../ops/answerMemory.js'
 import { PROJECTIONS } from '../ops/projections.js'
 import { REQUIRED_FIRST_ON_WRITE } from '../../src/data/setupCrudRepository.js'
 import { STAGE1_ENTITY, MODELED_ENTITIES, BULK_REPLACE_MODELED_ENTITIES, DEFERRED_ENTITIES } from './campDocument.js'
@@ -372,6 +373,10 @@ function upsertTombstonesEntity(db, doc) {
       applyProjection(db, { entity: 'tombstones', entity_id: id, field, value: row[field], knownRow: row })
     }
   }
+  // Import answer records name entity ids inside their payload, where the id-column denylist below
+  // cannot see them (docs/adr/2026-10-11-import-answer-memory.md 3.6). Drop any that name a now-
+  // tombstoned id; upsertEntity refuses to bring them back.
+  sweepTombstonedAnswerRecords(db)
 }
 
 // T331 ENFORCEMENT (docs/adr/2026-10-02-distributed-revocation-authority.md) — the verify-and-
@@ -550,6 +555,10 @@ function upsertEntity(db, doc, entity, failures = null) {
         db.prepare(`DELETE FROM ${entity} WHERE id = ?`).run(id)
         continue
       }
+    }
+    if (entity === 'camp_seedlings' && answerPayloadTombstoned(db, plainValue(row.kind), plainValue(row.payload))) {
+      db.prepare('DELETE FROM camp_seedlings WHERE id = ?').run(id)
+      continue
     }
     upsertRow(db, entity, id, row, fields, outstandingIds, failures)
   }

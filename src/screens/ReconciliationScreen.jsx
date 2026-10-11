@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { localClient } from '../localClient'
 import { journalEntriesFor } from '../ingest/decisionJournal.js'
+import { attachRecall, answerMemoryEntries, trackBulk } from '../ingest/answerRecall.js'
 import { S, useEnterTransition, prefersReducedMotion } from '../styles/shared'
 import { buildReconciliationReport } from '../ingest/reconciliationReport.js'
 import { applyTrayState, commitTrayState } from './reconciliationTray'
@@ -112,6 +113,9 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
   const [dismissedGaps, setDismissedGaps] = useState(new Set())
 
   const requestGenRef = useRef(0)
+  // Decisions answered by one control that covered several at once ("use the file's values for all",
+  // a grouped card). Remembered, but counted toward no pattern (docs/adr/2026-10-11-import-answer-memory.md 3.4).
+  const bulkIdsRef = useRef(new Set())
   const lastGoodReportRef = useRef(null)
   // HIGH 2 double-submit guard: `applying` state only re-renders the button
   // disabled AFTER React flushes — two clicks dispatched before that flush
@@ -140,6 +144,17 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
     prefersReducedMotion: prefersReducedMotion(),
   }))
   const [momentSettled, setMomentSettled] = useState(false)
+  // What the camp already answered, attached to each decision as `recalled`. A failure to recall is
+  // not a failure to import: every question simply asks, which is where recall always fails toward.
+  async function recallAnswers(nextReport) {
+    try {
+      const recallMap = await localClient.matchImportAnswers({ decisions: nextReport.decisions, mode: baseInputs.mode })
+      return attachRecall(nextReport, recallMap)
+    } catch {
+      return nextReport
+    }
+  }
+
   async function runDryRun(answersForRun) {
     if (phaseRef.current === 'committed') return
     const myGen = ++requestGenRef.current
@@ -193,8 +208,10 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
         allGroupNames,
       })
       if (requestGenRef.current !== myGen) return
-      lastGoodReportRef.current = nextReport
-      setReport(nextReport)
+      const recalledReport = await recallAnswers(nextReport)
+      if (requestGenRef.current !== myGen) return
+      lastGoodReportRef.current = recalledReport
+      setReport(recalledReport)
     } catch (err) {
       if (requestGenRef.current !== myGen) return
       setError(describeWriteFailure(err, 'Couldn’t check this file. Nothing was imported.'))
@@ -214,6 +231,7 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
   // director who clicked through every one of them by hand.
   function stage(decisionId, answer) {
     const ids = Array.isArray(decisionId) ? decisionId : [decisionId]
+    trackBulk(bulkIdsRef.current, ids)
     const next = { ...answers }
     for (const id of ids) next[id] = answer
     setAnswers(next)
@@ -276,6 +294,10 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
       } catch {
         /* diagnostics only — never surfaced, never blocking */
       }
+      // The camp remembers these answers (docs/adr/2026-10-11-import-answer-memory.md 3.5). Same
+      // posture as confirmRemembers: after a successful commit, never blocking, never thrown back
+      // into apply() — but a failure is shown, not swallowed.
+      await rememberAnswers(answerMemoryEntries(decisions, answersForApply, { bulkIds: bulkIdsRef.current }))
       // Undo eligibility is structural, not a recomputed conditional
       // (Invariant 3: commitPlan throws on captureInverse && mode ===
       // 'replace', so this is the only place invertibleOps is ever
@@ -315,6 +337,16 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
       }
     }
     if (notes.length > 0) setRememberNotes(notes)
+  }
+
+  async function rememberAnswers(entries) {
+    if (entries.length === 0) return
+    try {
+      const result = await localClient.rememberImportAnswers({ importId: crypto.randomUUID(), entries })
+      if (result?.error) throw new Error(result.error)
+    } catch {
+      setRememberNotes((prev) => [...prev, 'Couldn’t remember your answers for next time'])
+    }
   }
 
   // Post-commit phase (T253 Amendment) — the import already succeeded; the

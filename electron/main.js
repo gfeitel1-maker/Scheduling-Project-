@@ -43,6 +43,8 @@ import { confirmCompoundCellPattern } from './ops/confirmCompoundCellPattern.js'
 import { recordDeclinedSplit, listDeclinedSplitNames } from './ops/declinedSplits.js'
 import { recordImportDecisions } from './ops/decisionJournal.js'
 import { rememberColumnMapping } from './ops/rememberColumnMapping.js'
+import { createAnswerMemoryHandlers } from './ops/answerMemoryHandlers.js'
+import { logUnreadablePayloads } from './ops/answerMemory.js'
 import { duplicateWeek } from './ops/duplicateWeek.js'
 import { deleteWeek } from './ops/deleteWeek.js'
 import { deleteElectiveSet } from './ops/deleteElectiveSet.js'
@@ -797,6 +799,14 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       authorUserId: session?.userId ?? null, deviceId,
     })
   }
+
+  // docs/adr/2026-10-11-import-answer-memory.md — remembered import answers. Gated on
+  // `import_answers.read` / `import_answers.write` (staff with groups.import hold both), NOT on
+  // `camp_seedlings.write`: that stays admin-only for column mappings, and these handlers can only
+  // ever write the two answer kinds.
+  const answerMemory = createAnswerMemoryHandlers({
+    db, deviceId, authorize: (token, action) => requireAuthorized(db, { token, action }),
+  })
 
   // Slice 2a — the names ImportScreen filters dualUseNames through before
   // rendering the split-suggestion affordance. Read-only, same staff-reachable
@@ -3240,6 +3250,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     recordDeclinedSplit: recordDeclinedSplitHandler,
     recordImportDecisions: recordImportDecisionsHandler,
     rememberColumnMapping: rememberColumnMappingHandler,
+    ...answerMemory,
     listDeclinedSplitNames: listDeclinedSplitNamesHandler,
     listCompoundCellDecisions: listCompoundCellDecisionsHandler,
     latestOpSeq: latestOpSeqHandler,
@@ -3583,6 +3594,13 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:record-declined-split', (_event, args) => handlers.recordDeclinedSplit(args))
     ipcMain.handle('shoresh:record-import-decisions', (_event, args) => handlers.recordImportDecisions(args))
     ipcMain.handle('shoresh:remember-column-mapping', (_event, args) => handlers.rememberColumnMapping(args))
+    ipcMain.handle('shoresh:match-import-answers', (_event, args) => handlers.matchImportAnswers(args))
+    ipcMain.handle('shoresh:remember-import-answers', (_event, args) => handlers.rememberImportAnswers(args))
+    ipcMain.handle('shoresh:list-learned', (_event, args) => handlers.listLearned(args))
+    ipcMain.handle('shoresh:change-import-answer', (_event, args) => handlers.changeImportAnswer(args))
+    ipcMain.handle('shoresh:forget-import-answer', (_event, args) => handlers.forgetImportAnswer(args))
+    ipcMain.handle('shoresh:forget-import-pattern', (_event, args) => handlers.forgetImportPattern(args))
+    ipcMain.handle('shoresh:keep-import-answer', (_event, args) => handlers.keepImportAnswer(args))
     ipcMain.handle('shoresh:list-declined-split-names', (_event, args) => handlers.listDeclinedSplitNames(args))
     ipcMain.handle('shoresh:list-compound-cell-decisions', (_event, args) => handlers.listCompoundCellDecisions(args))
     ipcMain.handle('shoresh:latest-op-seq', () => handlers.latestOpSeq())
@@ -4029,6 +4047,11 @@ if (isElectronEntryPoint()) {
     ...syncStarterHolder.handlerOptions(),
   })
   registerHandlers(initialHandlers, db)
+  {
+    // One line, once, when this build cannot read a remembered answer a newer peer wrote.
+    const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+    if (camp) logUnreadablePayloads(db, camp.id)
+  }
 
   // Deploy smoke-test heartbeat (scripts/deploy-local.sh). The RENDERER invokes
   // `shoresh:smoke-ready` from App's mount effect; only then do we write the
