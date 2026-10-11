@@ -96,3 +96,5 @@ Is "the director is shown one item and restores with one tap" acceptable, or mus
 ## Decision record
 
 2026-10-11, keeper (delegated owner authority): "GO-A: one plain item with one-tap Restore, the solver_generation/source cards stop surfacing, and the activity card is labelled." The automatic lock-wins-on-merge alternative stays deferred.
+
+2026-10-11, Red Hat round 1 (implemented within GO-A, no change of direction): (1) Keep on the activity card re-places the whole seat via `setElectiveAssignment`; keeping the lock gives the manual locked row, keeping the solver's activity gives manual and unlocked (the director chose it, so the declined lock is released). (2) The solver-bookkeeping fold, now including `preference_rank`, applies only when the seat's source conflict has a solver side. (3) An item whose lock activity is unknown says so and offers no Restore. (4) A local write closes only the conflict rows whose competing values it answered. (5) `finalizeElectiveRun` refuses while such items exist.
