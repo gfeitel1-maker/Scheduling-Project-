@@ -95,3 +95,26 @@ describe('buildSchedule: span activities are placed first, contiguously, as one 
     expect(a).toEqual(b)
   })
 })
+
+// The per-activity group limit (max_groups_per_slot) holds in EVERY block a span covers, not only
+// its first block: two groups' spans offset by one block must not over-fill the shared block.
+describe('buildSchedule: a span respects max_groups_per_slot in every block it covers', () => {
+  const overLimit = (slots, activities) => {
+    const limit = new Map(activities.map((a) => [a.id, a.max_groups_per_slot]))
+    const n = new Map()
+    for (const s of slots) {
+      if (s.type !== 'activity' || !limit.get(s.activityId)) continue
+      const k = `${s.activityId}|${s.dayId}|${s.blockId}`
+      n.set(k, (n.get(k) ?? 0) + 1)
+    }
+    return [...n].filter(([k, c]) => c > limit.get(k.split('|')[0]))
+  }
+  const cases = []
+  for (const span of [2, 3]) for (const fixed of [[], [1], [2], [1, 4], [3]]) for (const minW of [1, 2, 3]) cases.push([span, fixed, minW])
+  it.each(cases)('span %i, fixed at %j, min %i', (span, fixed, minW) => {
+    const tight = act('ropes', { span_blocks: span, min_per_week: minW, max_per_week: 5, max_groups_per_slot: 1 })
+    const acts = [...singles.slice(0, 3), tight]
+    const { slots } = buildSchedule(input(acts, fixedAt(fixed)))
+    expect(overLimit(slots, acts)).toEqual([])
+  })
+})

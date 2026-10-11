@@ -581,8 +581,12 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
     // Activity (instructor/equipment) capacity, per activity per (day, block).
     // null/0 mean "no per-activity cap" — unchanged from today, and matching
     // computeOverlaps/normalizeActivityEligibility's documented `null = no cap`.
+    // Checked in every block a span covers, not just its head: two groups' spans offset by one
+    // block would otherwise over-fill the block they share.
     if (act.max_groups_per_slot > 0) {
-      if ((activityUsage.get(`${act.id}|${dayId}|${blockId}`) || 0) >= act.max_groups_per_slot) return 'activity'
+      for (const own of ownBlocks) {
+        if ((activityUsage.get(`${act.id}|${dayId}|${own}`) || 0) >= act.max_groups_per_slot) return 'activity'
+      }
     }
 
     return null
