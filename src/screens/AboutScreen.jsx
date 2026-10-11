@@ -1,4 +1,5 @@
 import { useEnterTransition } from '../styles/shared'
+import { APP_VERSION } from '../appVersion'
 
 // About & Legal — one co-located surface reached from the sidebar footer,
 // holding everything a director might want to look up but never has to act on:
@@ -11,9 +12,6 @@ import { useEnterTransition } from '../styles/shared'
 // auth, no IPC. An accept-gate, the owner's personal About words, and any
 // user-agreement polish (voice, legal review) are the follow-up ticket's job.
 
-// Kept in step with package.json's "version" by hand — the sidebar footer
-// carries the same literal. The follow-up may source both from one place.
-const APP_VERSION = '0.1.0'
 
 // DRAFT user agreement, shipped as-is per the owner's ruling. Plain-language and
 // local-first-honest; the terms remain the owner's and are revisited in the
@@ -29,7 +27,7 @@ const USER_AGREEMENT_POINTS = [
       'information anywhere. Everything you enter lives on the device you enter it ' +
       'on. When you connect a second device to the same camp, the two devices share ' +
       'that camp’s information directly with each other over your local network ' +
-      '— it still never passes through anyone else’s computer, and not through us.',
+      '— it never passes through anyone else’s computer, including mine.',
   },
   {
     heading: 'You are responsible for the information you put in.',
@@ -48,9 +46,9 @@ const USER_AGREEMENT_POINTS = [
   {
     heading: 'It comes with no warranty.',
     body:
-      'Shoresh is provided “as is,” without warranty of any kind. We do our ' +
-      'best to make it correct and reliable, but you use it at your own risk, and we ' +
-      'are not liable for any loss that results from using it. Always keep your own ' +
+      'Shoresh is provided “as is,” without warranty of any kind. I do my ' +
+      'best to make it correct and reliable, but you use it at your own risk, and I ' +
+      'am not liable for any loss that results from using it. Always keep your own ' +
       'record of anything you cannot afford to lose.',
   },
   {
