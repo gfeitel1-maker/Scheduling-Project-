@@ -2085,7 +2085,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     // all: appendOp mirrors every local write into the Automerge document
     // (liveDoc.recordLocalWrite), which reaches connected peers on its own. What
     // is NOT announced here is the renderer-facing op notification._
-    return { ok: true, restored_fields: result.restored_fields, deleted_children: result.deleted_children }
+    return { ok: true, restored_fields: result.restored_fields, deleted_children: result.deleted_children, group_events: result.group_events }
   }
 
   // --- Deleting a record a schedule uses ----------------------------------

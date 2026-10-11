@@ -35,10 +35,23 @@ function outcomeMessage(error, existing) {
   return OUTCOME_COPY[error] ?? 'That restore did not go through. Try again in a moment.'
 }
 
-function restoredMessage(row) {
+function restoredMessage(row, groupEvents) {
   const who = row.name || entityLabel(row.entity)
   const caveat = restoreCaveat(row.entity)
-  return caveat ? `${who} is back. ${caveat}` : `${who} is back.`
+  const parts = [`${who} is back.`]
+  if (groupEvents?.restored > 0) {
+    parts.push(`${groupEvents.restored} event${groupEvents.restored === 1 ? '' : 's'} that only it took part in came back too.`)
+  }
+  if (groupEvents?.readded > 0) {
+    parts.push(`It is back in ${groupEvents.readded} shared event${groupEvents.readded === 1 ? '' : 's'}.`)
+  }
+  if (groupEvents?.not_readded > 0) {
+    parts.push(
+      `${groupEvents.not_readded} shared event${groupEvents.not_readded === 1 ? ' was' : 's were'} changed since, so ${who} was not added back to ${groupEvents.not_readded === 1 ? 'it' : 'them'} — add it on Recurring Events.`
+    )
+  }
+  if (caveat) parts.push(caveat)
+  return parts.join(' ')
 }
 
 function Notice({ tone, children }) {
@@ -109,7 +122,7 @@ export default function TrashScreen({ role }) {
           text: `Waiting for the device this camp was set up on to bring ${row.name || 'this record'} back. It will happen as soon as this device reaches it — you can close the app in the meantime.${caveat ? ` ${caveat}` : ''}`,
         })
       } else if (result?.ok) {
-        setNotice({ tone: 'success', text: restoredMessage(row) })
+        setNotice({ tone: 'success', text: restoredMessage(row, result.group_events) })
         if (result.deleted_children?.length) {
           setChildOffer({ parent: row, children: result.deleted_children })
         }

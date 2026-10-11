@@ -215,6 +215,36 @@ export function lastKnownFieldSources(db, entity, entity_id) {
   return sources
 }
 
+// A group delete (deleteRecord.js) writes its template_slots and fixed_events ops
+// as one contiguous run ending at the group's own delete op. Walking back through
+// that run finds exactly what the delete did to events, without mistaking an
+// event the director deleted deliberately, earlier, for part of it. A delete is
+// one transaction, so its ops land milliseconds apart; the time window keeps a
+// run from bleeding into earlier edits when the group had no slot rows between.
+const GROUP_DELETE_WINDOW_MS = 2000
+function groupDeleteEventOps(db, group_id) {
+  const last = latestOpForEntity(db, 'groups', group_id)
+  const prior = db
+    .prepare('SELECT * FROM operations WHERE seq < ? ORDER BY seq DESC LIMIT 5000')
+    .all(last.seq)
+  const run = []
+  for (const op of prior) {
+    if (op.device_id !== last.device_id || (op.entity !== 'template_slots' && op.entity !== 'fixed_events')) break
+    if (Date.parse(last.timestamp) - Date.parse(op.timestamp) > GROUP_DELETE_WINDOW_MS) break
+    if (op.entity === 'fixed_events') run.push(op)
+  }
+  return run
+}
+
+function parseIdList(raw) {
+  try {
+    const v = JSON.parse(raw ?? '[]')
+    return Array.isArray(v) ? v : []
+  } catch {
+    return []
+  }
+}
+
 export function isDeleted(db, entity, entity_id) {
   const latest = latestOpForEntity(db, entity, entity_id)
   return !!latest && latest.field === DELETE_FIELD
@@ -362,6 +392,8 @@ export function restoreEntity(db, { entity, entity_id, author_user_id, device_id
     }
   }
 
+  const groupEventOps = entity === 'groups' ? groupDeleteEventOps(db, entity_id) : []
+
   const ops = runAtomic(db, () => {
     const emitted = ordered.map(([field, value]) =>
       appendOp(db, { entity, entity_id, field, value, author_user_id, device_id, source: sources.get(field) ?? null })
@@ -376,10 +408,39 @@ export function restoreEntity(db, { entity, entity_id, author_user_id, device_id
     return emitted
   })
 
+  let group_events
+  if (entity === 'groups') {
+    group_events = { restored: 0, readded: 0, not_readded: 0 }
+    for (const op of groupEventOps) {
+      if (op.field === DELETE_FIELD) {
+        const r = restoreEntity(db, { entity: 'fixed_events', entity_id: op.entity_id, author_user_id, device_id })
+        if (r.ok) {
+          group_events.restored += 1
+          ops.push(...r.ops)
+        }
+      } else if (op.field === 'group_ids' && !parseIdList(op.value).includes(entity_id)) {
+        const before = db
+          .prepare("SELECT value FROM operations WHERE entity = 'fixed_events' AND entity_id = ? AND field = 'group_ids' AND seq < ? ORDER BY seq DESC LIMIT 1")
+          .get(op.entity_id, op.seq)
+        const row = db.prepare('SELECT group_ids FROM fixed_events WHERE id = ?').get(op.entity_id)
+        const untouched = row && JSON.stringify(parseIdList(row.group_ids)) === JSON.stringify(parseIdList(op.value))
+        if (before && untouched) {
+          ops.push(
+            appendOp(db, { entity: 'fixed_events', entity_id: op.entity_id, field: 'group_ids', value: before.value, author_user_id, device_id })
+          )
+          group_events.readded += 1
+        } else {
+          group_events.not_readded += 1
+        }
+      }
+    }
+  }
+
   return {
     ok: true,
     restored_fields: ops.length,
     deleted_children: deletedChildrenOf(db, entity, entity_id),
+    ...(group_events ? { group_events } : {}),
     ops,
   }
 }
