@@ -2,10 +2,10 @@
 title: "A locked elective seat is never lost silently when a regeneration runs before the lock has merged"
 document_type: adr
 authority: normative
-status: proposed
+status: accepted
 implementation_state: not_started
 date: 2026-10-11
-decided:
+decided: 2026-10-11
 deciders: [product-owner]
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
 supersedes: []
@@ -92,3 +92,7 @@ A new integration scenario beside `test/integration/scenarios/33-move-convergenc
 ## Open question for the owner
 
 Is "the director is shown one item and restores with one tap" acceptable, or must a lock win automatically? Auto-win is direction E; it is more code and writes on merge. Recommendation: ship C, and only build E if directors report the item as friction.
+
+## Decision record
+
+2026-10-11, keeper (delegated owner authority): "GO-A: one plain item with one-tap Restore, the solver_generation/source cards stop surfacing, and the activity card is labelled." The automatic lock-wins-on-merge alternative stays deferred.
