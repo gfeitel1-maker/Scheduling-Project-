@@ -31,7 +31,7 @@ import { CELL_CHOICE } from '../../../engine/rankKind.js'
 import DeleteRunDialog from './DeleteRunDialog.jsx'
 import { A } from '../assignment/assignmentStyles.js'
 import {
-  DANGLING_MOVE_PLACEHOLDER, FINALIZE_MESSAGES, REMOVE_PLACEMENT_LABEL, RESTORE_LOCK_LABEL, danglingMessage, lockedSeatOverwrittenMessage, occurrenceLabel, overCapacityMessage,
+  DANGLING_MOVE_PLACEHOLDER, FINALIZE_MESSAGES, REMOVE_PLACEMENT_LABEL, RESTORE_LOCK_LABEL, danglingMessage, lockedSeatOverwrittenMessage, lockedSeatsRefusalMessage, occurrenceLabel, overCapacityMessage,
   resolveCamperDisambiguators, satisfactionSummary, stalenessOfferMessage,
   groupBundleTierNotCoveredFindings, bundleTierNotCoveredGroupMessage, finalizeFindingMessage,
   sheetOnlyCampersMessage, UNKNOWN_CAMPER_LABEL,
@@ -220,7 +220,9 @@ function CamperNameDisclosure({ campers = [], disambiguators }) {
 function FinalizeRefusalRow({ refusal, onRegenerate, regenerating, days, timeBlocks }) {
   const { error, findings } = refusal
   const known = FINALIZE_MESSAGES[error]
-  const message = known ?? `Couldn't finalize: ${error}. Nothing changed.`
+  const message = error === 'LOCKED_SEATS_OVERWRITTEN'
+    ? lockedSeatsRefusalMessage(findings.length)
+    : known ?? `Couldn't finalize: ${error}. Nothing changed.`
 
   if (error === 'STALE_OUTER_SCHEDULE') {
     return (
@@ -247,7 +249,9 @@ function FinalizeRefusalRow({ refusal, onRegenerate, regenerating, days, timeBlo
     <RunStateRow
       testId="run-state-finalize-refusal"
       first last alert
-      message={<>{message}<FinalizeFindingsList findings={findings} days={days} timeBlocks={timeBlocks} /></>}
+      message={error === 'LOCKED_SEATS_OVERWRITTEN'
+        ? message
+        : <>{message}<FinalizeFindingsList findings={findings} days={days} timeBlocks={timeBlocks} /></>}
     />
   )
 }

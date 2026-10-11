@@ -149,3 +149,26 @@ describe('finalizeElectiveRun -> getElectiveRun / getElectiveRunOuterSchedule �
     expect(getElectiveRunOuterSchedule(db, { runId }).snapshotIncomplete).toBe(true)
   })
 })
+
+// T264 — a run still holding a lock that lost to a regeneration is not final.
+describe('finalizeElectiveRun — LOCKED_SEAT_OVERWRITTEN items block finalizing', () => {
+  const overwriteOneSeat = (db, runId) => db
+    .prepare("UPDATE elective_assignments SET is_locked = 1, source = 'solver', solver_generation = 'gen-old' WHERE run_id = ? AND id = (SELECT MIN(id) FROM elective_assignments WHERE run_id = ?)")
+    .run(runId, runId)
+
+  it('refuses with LOCKED_SEATS_OVERWRITTEN and the items, and writes nothing', () => {
+    const { db, campId } = freshDb()
+    const { runId } = buildFinalizableRun(db, campId)
+    overwriteOneSeat(db, runId)
+    const out = finalizeElectiveRun(db, { runId, deviceId: 'dev-1' })
+    expect(out).toMatchObject({ ok: false, error: 'LOCKED_SEATS_OVERWRITTEN' })
+    expect(out.findings).toHaveLength(1)
+    expect(db.prepare('SELECT status FROM elective_assignment_runs WHERE id = ?').get(runId).status).toBe('draft')
+  })
+
+  it('finalizes once the item is gone (non-vacuity)', () => {
+    const { db, campId } = freshDb()
+    const { runId } = buildFinalizableRun(db, campId)
+    expect(finalizeElectiveRun(db, { runId, deviceId: 'dev-1' }).ok).toBe(true)
+  })
+})

@@ -241,6 +241,17 @@ describe('T250 A1 — Finalize run', () => {
     expect(row.textContent).not.toContain('OUTER_RESOURCE_CONFLICT')
   })
 
+  it('LOCKED_SEATS_OVERWRITTEN names the count and what to do, inline, with no list of ids', async () => {
+    localClient.finalizeElectiveRun.mockResolvedValue({
+      ok: false, error: 'LOCKED_SEATS_OVERWRITTEN',
+      findings: [{ kind: 'LOCKED_SEAT_OVERWRITTEN', assignment_id: 'a1' }, { kind: 'LOCKED_SEAT_OVERWRITTEN', assignment_id: 'a2' }],
+    })
+    render(<DraftRunView run={DRAFT_RUN} onFinalized={vi.fn()} {...catalogs()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Finalize run' }))
+    const row = await screen.findByTestId('run-state-finalize-refusal')
+    expect(row.textContent).toBe('2 locks were replaced by another device. Restore or choose an activity for each, then finalize.')
+  })
+
   it('ALREADY_FINAL reloads and transitions to the finalized run', async () => {
     localClient.finalizeElectiveRun.mockResolvedValue({ ok: false, error: 'ALREADY_FINAL' })
     const onFinalized = vi.fn()

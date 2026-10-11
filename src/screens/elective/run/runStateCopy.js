@@ -114,6 +114,11 @@ export function danglingMessage({ camperName }) {
 // merged it yet. Activity names, never ids; the solver's activity is omitted
 // when the merge no longer says which one it was.
 const LOST_ACTIVITY_LABEL = 'an activity that is no longer listed'
+export function lockedSeatsRefusalMessage(count) {
+  return count === 1
+    ? '1 lock was replaced by another device. Restore it or choose an activity for it, then finalize.'
+    : `${count} locks were replaced by another device. Restore or choose an activity for each, then finalize.`
+}
 export const RESTORE_LOCK_LABEL = 'Restore lock'
 export function lockedSeatOverwrittenMessage({ camperName, lockedActivityId, lockedActivityName, solverActivityName }) {
   if (lockedActivityId === null) {
