@@ -1,0 +1,167 @@
+              Sparks - Otters 1 Schedule
+
+   Time           Monday            Tuesday    Wednesday      Thursday        Friday
+
+09:15–09:35       Opening           Opening    Opening        Opening         Opening
+
+09:40–10:25       Climbing Wall     Fishing    Knitting       Painting        Swim Meet
+
+10:30–11:15       Dance             Gaga Pit   Lanyard        Climbing Wall   Fishing
+
+11:20–12:00       Lunch 1           Lunch 1    Lunch 1        Lunch 1         Lunch 1
+
+12:05–12:45       Drama             Garden     Music          Dance           Gaga Pit
+
+12:50–01:35       Drumming          Hiking     Nature Walk    Drama           Garden
+
+01:40–02:25       Indoor Elective   Kayaking   Orienteering   Drumming        Hiking
+
+02:30–02:45       Closing           Closing    Closing        Closing         Closing
+
+
+              Sparks - Otters 2 Schedule
+
+   Time           Monday            Tuesday         Wednesday   Thursday   Friday
+
+09:15–09:35       Opening           Opening         Opening     Opening    Opening
+
+09:40–10:25       Kayaking          Nature Walk     Drama       Hiking     Swim Meet
+
+10:30–11:15       Knitting          Orienteering    Drumming    Kayaking   Nature Walk
+
+11:20–12:00       Lunch 1           Lunch 1         Lunch 1     Lunch 1    Lunch 1
+
+12:05–12:45       Lanyard           Painting        Fishing     Knitting   Orienteering
+
+12:50–01:35       Music             Climbing Wall   Gaga Pit    Lanyard    Painting
+
+01:40–02:25       Indoor Elective   Dance           Garden      Music      Climbing Wall
+
+02:30–02:45       Closing           Closing         Closing     Closing    Closing
+
+
+              Sparks - Otters 3 Schedule
+
+   Time           Monday     Tuesday    Wednesday       Thursday   Friday
+
+09:15–09:35       Opening    Opening    Opening         Opening    Opening
+
+09:40–10:25       Dance      Garden     Music           Dance      Swim Meet
+
+10:30–11:15       Drama      Hiking     Nature Walk     Drama      Garden
+
+11:20–12:00       Lunch 1    Lunch 1    Lunch 1         Lunch 1    Lunch 1
+
+12:05–12:45       Drumming   Kayaking   Orienteering    Drumming   Hiking
+
+12:50–01:35       Fishing    Knitting   Painting        Fishing    Kayaking
+
+01:40–02:25       Gaga Pit   Lanyard    Climbing Wall   Gaga Pit   Knitting
+
+02:30–02:45       Closing    Closing    Closing         Closing    Closing
+
+
+              Embers - Herons 1 Schedule
+
+   Time           Monday         Tuesday         Wednesday     Thursday      Friday
+
+09:15–09:35       Opening        Opening         Opening       Opening       Opening
+
+09:40–10:25       Lanyard        Climbing Wall   Museum Trip   Kayaking      Swim Meet
+
+10:30–11:15       Music          Dance           Museum Trip   Knitting      Orienteering
+
+11:20–12:00       Lunch 1        Lunch 1         Lunch 1       Lunch 1       Lunch 1
+
+12:05–12:45       Nature Walk    Drama           Gaga Pit      Lanyard       Painting
+
+12:50–01:35       Orienteering   Drumming        Garden        Music         Climbing Wall
+
+01:40–02:25       Painting       Fishing         Hiking        Nature Walk   Dance
+
+02:30–02:45       Closing        Closing         Closing       Closing       Closing
+
+
+              Embers - Herons 2 Schedule
+
+   Time           Monday     Tuesday    Wednesday      Thursday        Friday
+
+09:15–09:35       Opening    Opening    Opening        Opening         Opening
+
+09:40–10:25       Drama      Hiking     Museum Trip    Climbing Wall   Swim Meet
+
+10:30–11:15       Drumming   Kayaking   Museum Trip    Dance           Gaga Pit
+
+11:20–12:00       Fishing    Knitting   Nature Walk    Drama           Garden
+
+12:05–12:45       Lunch 2    Lunch 2    Lunch 2        Lunch 2         Lunch 2
+
+12:50–01:35       Gaga Pit   Lanyard    Orienteering   Drumming        Hiking
+
+01:40–02:25       Garden     Music      Painting       Fishing         Kayaking
+
+02:30–02:45       Closing    Closing    Closing        Closing         Closing
+
+
+              Embers - Herons 3 Schedule
+
+   Time           Monday         Tuesday         Wednesday     Thursday   Friday
+
+09:15–09:35       Opening        Opening         Opening       Opening    Opening
+
+09:40–10:25       Knitting       Painting        Museum Trip   Hiking     Swim Meet
+
+10:30–11:15       Lanyard        Climbing Wall   Museum Trip   Kayaking   Nature Walk
+
+11:20–12:00       Music          Dance           Fishing       Knitting   Orienteering
+
+12:05–12:45       Lunch 2        Lunch 2         Lunch 2       Lunch 2    Lunch 2
+
+12:50–01:35       Nature Walk    Drama           Gaga Pit      Lanyard    Painting
+
+01:40–02:25       Orienteering   Drumming        Garden        Music      Climbing Wall
+
+02:30–02:45       Closing        Closing         Closing       Closing    Closing
+
+
+              Flints - Foxes 1 Schedule
+
+   Time           Monday     Tuesday        Wednesday      Thursday        Friday
+
+09:15–09:35       Opening    Opening        Opening        Opening         Opening
+
+09:40–10:25       Dance      Garden         Knitting       Painting        Swim Meet
+
+10:30–11:15       Drama      Hiking         Lanyard        Climbing Wall   Drama
+
+11:20–12:00       Drumming   Kayaking       Music          Dance           Drumming
+
+12:05–12:45       Lunch 2    Lunch 2        Lunch 2        Lunch 2         Lunch 2
+
+12:50–01:35       Fishing    Ropes Course   Nature Walk    Ropes Course    Fishing
+
+01:40–02:25       Gaga Pit   Ropes Course   Orienteering   Ropes Course    Gaga Pit
+
+02:30–02:45       Closing    Closing        Closing        Closing         Closing
+
+
+              Flints - Foxes 2 Schedule
+
+   Time           Monday     Tuesday        Wednesday       Thursday       Friday
+
+09:15–09:35       Opening    Opening        Opening         Opening        Opening
+
+09:40–10:25       Garden     Music          Painting        Fishing        Swim Meet
+
+10:30–11:15       Hiking     Nature Walk    Climbing Wall   Gaga Pit       Hiking
+
+11:20–12:00       Kayaking   Orienteering   Dance           Garden         Kayaking
+
+12:05–12:45       Lunch 2    Lunch 2        Lunch 2         Lunch 2        Lunch 2
+
+12:50–01:35       Knitting   Ropes Course   Drama           Ropes Course   Knitting
+
+01:40–02:25       Lanyard    Ropes Course   Drumming        Ropes Course   Lanyard
+
+02:30–02:45       Closing    Closing        Closing         Closing        Closing
+

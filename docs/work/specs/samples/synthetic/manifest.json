@@ -1,0 +1,4520 @@
+{
+  "camps": [
+    {
+      "slug": "s01-by-day-small-5d",
+      "file": "s01-by-day-small-5d.txt",
+      "layout": "byDay",
+      "traits": "Baseline: clean 5-day by-day grid, 6 groups, 2 divisions, one lunch wave for everyone, 12h times, \"Lunch Bunch\" activity beside the Lunch event.",
+      "days": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday"
+      ],
+      "groups": [
+        "Otters 1",
+        "Otters 2",
+        "Otters 3",
+        "Herons 1",
+        "Herons 2",
+        "Herons 3"
+      ],
+      "divisions": [
+        "Otters",
+        "Herons"
+      ],
+      "clock": "12",
+      "blocks": [
+        {
+          "label": "09:00–09:15",
+          "minutes": 15,
+          "kind": "event"
+        },
+        {
+          "label": "09:20–10:05",
+          "minutes": 45,
+          "kind": "activity"
+        },
+        {
+          "label": "10:10–10:55",
+          "minutes": 45,
+          "kind": "activity"
+        },
+        {
+          "label": "11:00–11:40",
+          "minutes": 40,
+          "kind": "lunch"
+        },
+        {
+          "label": "11:45–12:30",
+          "minutes": 45,
+          "kind": "activity"
+        },
+        {
+          "label": "12:35–01:20",
+          "minutes": 45,
+          "kind": "activity"
+        },
+        {
+          "label": "01:25–01:40",
+          "minutes": 15,
+          "kind": "event"
+        }
+      ],
+      "firstStart": "09:00",
+      "lastEnd": "13:40",
+      "lunchWaves": [
+        {
+          "name": "Lunch",
+          "block": "11:00–11:40",
+          "groups": [
+            "Otters 1",
+            "Otters 2",
+            "Otters 3",
+            "Herons 1",
+            "Herons 2",
+            "Herons 3"
+          ]
+        }
+      ],
+      "spans": [
+        {
+          "name": "Ropes Course",
+          "blocks": 2,
+          "form": "repeat",
+          "days": [
+            "Tuesday",
+            "Thursday"
+          ],
+          "groups": [
+            "Herons 1",
+            "Herons 2",
+            "Herons 3"
+          ],
+          "rows": [
+            "11:45–12:30",
+            "12:35–01:20"
+          ]
+        }
+      ],
+      "electives": [],
+      "events": [
+        {
+          "name": "Museum Trip",
+          "kind": "trip",
+          "days": [
+            "Wednesday"
+          ],
+          "blocks": [
+            "09:20–10:05",
+            "10:10–10:55"
+          ],
+          "groups": [
+            "Herons 1",
+            "Herons 2",
+            "Herons 3"
+          ]
+        },
+        {
+          "name": "Lunch",
+          "kind": "lunch",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ],
+          "blocks": [
+            "11:00–11:40"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Arrival",
+          "kind": "daily",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ],
+          "blocks": [
+            "09:00–09:15"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Dismissal",
+          "kind": "daily",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ],
+          "blocks": [
+            "01:25–01:40"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Assembly",
+          "kind": "weekly",
+          "days": [
+            "Monday"
+          ],
+          "blocks": [
+            "09:20–10:05"
+          ],
+          "groups": "all"
+        }
+      ],
+      "activities": [
+        "Lunch Bunch",
+        "Archery",
+        "Arts and Crafts",
+        "Basketball",
+        "Ceramics",
+        "Chess Club",
+        "Climbing Wall",
+        "Dance",
+        "Drama",
+        "Drumming",
+        "Fishing",
+        "Gaga Pit",
+        "Ropes Course"
+      ],
+      "typos": [],
+      "counts": {
+        "blank": 0,
+        "split": 0,
+        "typo": 0,
+        "wrapped": 0
+      }
+    },
+    {
+      "slug": "s02-by-day-three-waves",
+      "file": "s02-by-day-three-waves.txt",
+      "layout": "byDay",
+      "traits": "campB-style: three staggered lunch waves (Lunch 1/2/3) across consecutive blocks, 14 groups in 4 divisions, uneven 35/40-minute blocks, \"Musik\" typo, wrapped long names, every-other-day Library.",
+      "days": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday"
+      ],
+      "groups": [
+        "Otters 1",
+        "Otters 2",
+        "Otters 3",
+        "Otters 4",
+        "Herons 1",
+        "Herons 2",
+        "Herons 3",
+        "Herons 4",
+        "Foxes 1",
+        "Foxes 2",
+        "Foxes 3",
+        "Lynx 1",
+        "Lynx 2",
+        "Lynx 3"
+      ],
+      "divisions": [
+        "Otters",
+        "Herons",
+        "Foxes",
+        "Lynx"
+      ],
+      "clock": "12",
+      "blocks": [
+        {
+          "label": "08:45–09:05",
+          "minutes": 20,
+          "kind": "event"
+        },
+        {
+          "label": "09:10–09:25",
+          "minutes": 15,
+          "kind": "event"
+        },
+        {
+          "label": "09:30–10:10",
+          "minutes": 40,
+          "kind": "activity"
+        },
+        {
+          "label": "10:15–10:55",
+          "minutes": 40,
+          "kind": "activity"
+        },
+        {
+          "label": "11:00–11:40",
+          "minutes": 40,
+          "kind": "lunch"
+        },
+        {
+          "label": "11:45–12:25",
+          "minutes": 40,
+          "kind": "lunch"
+        },
+        {
+          "label": "12:30–01:10",
+          "minutes": 40,
+          "kind": "lunch"
+        },
+        {
+          "label": "01:15–01:55",
+          "minutes": 40,
+          "kind": "activity"
+        },
+        {
+          "label": "02:00–02:35",
+          "minutes": 35,
+          "kind": "activity"
+        },
+        {
+          "label": "02:40–03:00",
+          "minutes": 20,
+          "kind": "event"
+        }
+      ],
+      "firstStart": "08:45",
+      "lastEnd": "15:00",
+      "lunchWaves": [
+        {
+          "name": "Lunch 1",
+          "block": "11:00–11:40",
+          "groups": [
+            "Otters 1",
+            "Otters 2",
+            "Otters 3",
+            "Otters 4",
+            "Herons 1"
+          ]
+        },
+        {
+          "name": "Lunch 2",
+          "block": "11:45–12:25",
+          "groups": [
+            "Herons 2",
+            "Herons 3",
+            "Herons 4",
+            "Foxes 1",
+            "Foxes 2"
+          ]
+        },
+        {
+          "name": "Lunch 3",
+          "block": "12:30–01:10",
+          "groups": [
+            "Foxes 3",
+            "Lynx 1",
+            "Lynx 2",
+            "Lynx 3"
+          ]
+        }
+      ],
+      "spans": [
+        {
+          "name": "Ropes Course",
+          "blocks": 2,
+          "form": "blank",
+          "days": [
+            "Thursday"
+          ],
+          "groups": [
+            "Otters 1",
+            "Otters 2",
+            "Otters 3",
+            "Otters 4",
+            "Herons 1",
+            "Herons 2",
+            "Herons 3",
+            "Herons 4",
+            "Foxes 1",
+            "Foxes 2",
+            "Foxes 3",
+            "Lynx 1",
+            "Lynx 2",
+            "Lynx 3"
+          ],
+          "rows": [
+            "01:15–01:55",
+            "02:00–02:35"
+          ]
+        }
+      ],
+      "electives": [
+        {
+          "name": "Chugim",
+          "form": "header",
+          "days": [
+            "Wednesday"
+          ],
+          "groups": [
+            "Otters 1",
+            "Otters 2",
+            "Otters 3",
+            "Otters 4",
+            "Herons 1",
+            "Herons 2",
+            "Herons 3",
+            "Herons 4",
+            "Foxes 1",
+            "Foxes 2",
+            "Foxes 3",
+            "Lynx 1",
+            "Lynx 2",
+            "Lynx 3"
+          ],
+          "rows": [
+            "10:15–10:55"
+          ],
+          "offerings": [
+            "Ceramics",
+            "Ropes",
+            "Drama",
+            "Chess Club"
+          ]
+        }
+      ],
+      "events": [
+        {
+          "name": "Color War Day",
+          "kind": "allday",
+          "days": [
+            "Friday"
+          ],
+          "blocks": [
+            "08:45–09:05",
+            "09:10–09:25",
+            "09:30–10:10",
+            "10:15–10:55",
+            "11:00–11:40",
+            "11:45–12:25",
+            "12:30–01:10",
+            "01:15–01:55",
+            "02:00–02:35",
+            "02:40–03:00"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Lunch 1",
+          "kind": "lunch",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ],
+          "blocks": [
+            "11:00–11:40"
+          ],
+          "groups": [
+            "Otters 1",
+            "Otters 2",
+            "Otters 3",
+            "Otters 4",
+            "Herons 1"
+          ]
+        },
+        {
+          "name": "Lunch 2",
+          "kind": "lunch",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ],
+          "blocks": [
+            "11:45–12:25"
+          ],
+          "groups": [
+            "Herons 2",
+            "Herons 3",
+            "Herons 4",
+            "Foxes 1",
+            "Foxes 2"
+          ]
+        },
+        {
+          "name": "Lunch 3",
+          "kind": "lunch",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ],
+          "blocks": [
+            "12:30–01:10"
+          ],
+          "groups": [
+            "Foxes 3",
+            "Lynx 1",
+            "Lynx 2",
+            "Lynx 3"
+          ]
+        },
+        {
+          "name": "Carpool",
+          "kind": "daily",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ],
+          "blocks": [
+            "08:45–09:05"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Morning Circle",
+          "kind": "daily",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ],
+          "blocks": [
+            "09:10–09:25"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Pick Up",
+          "kind": "daily",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ],
+          "blocks": [
+            "02:40–03:00"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Library",
+          "kind": "alternate",
+          "days": [
+            "Monday",
+            "Wednesday",
+            "Friday"
+          ],
+          "blocks": [
+            "09:30–10:10"
+          ],
+          "groups": "all"
+        }
+      ],
+      "activities": [
+        "Ceramics",
+        "Chess Club",
+        "Climbing Wall",
+        "Dance",
+        "Drama",
+        "Drumming",
+        "Fishing",
+        "Gaga Pit",
+        "Garden",
+        "Hiking",
+        "Kayaking",
+        "Knitting",
+        "Lanyard",
+        "Music",
+        "Nature Walk",
+        "Orienteering",
+        "Painting",
+        "Pottery",
+        "Robotics",
+        "Sailing",
+        "Soccer",
+        "Softball",
+        "Storytelling",
+        "Swim",
+        "Tennis",
+        "Ropes Course"
+      ],
+      "typos": [
+        {
+          "canonical": "Music",
+          "variant": "Musik"
+        }
+      ],
+      "counts": {
+        "blank": 0,
+        "split": 0,
+        "typo": 3,
+        "wrapped": 0
+      }
+    },
+    {
+      "slug": "s03-by-day-4day-24h-nolunch",
+      "file": "s03-by-day-4day-24h-nolunch.txt",
+      "layout": "byDay",
+      "traits": "4-day week, 3 groups, 30-minute blocks with no gaps, 24h times, no lunch at all, \"Swim Test\" activity beside \"Swim\", blank cells.",
+      "days": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday"
+      ],
+      "groups": [
+        "Otters 1",
+        "Otters 2",
+        "Otters 3"
+      ],
+      "divisions": [
+        "Otters"
+      ],
+      "clock": "24",
+      "blocks": [
+        {
+          "label": "10:00–10:15",
+          "minutes": 15,
+          "kind": "event"
+        },
+        {
+          "label": "10:15–10:45",
+          "minutes": 30,
+          "kind": "activity"
+        },
+        {
+          "label": "10:45–11:15",
+          "minutes": 30,
+          "kind": "activity"
+        },
+        {
+          "label": "11:15–11:45",
+          "minutes": 30,
+          "kind": "activity"
+        },
+        {
+          "label": "11:45–12:15",
+          "minutes": 30,
+          "kind": "activity"
+        },
+        {
+          "label": "12:15–12:30",
+          "minutes": 15,
+          "kind": "event"
+        }
+      ],
+      "firstStart": "10:00",
+      "lastEnd": "12:30",
+      "lunchWaves": [],
+      "spans": [
+        {
+          "name": "Wilderness Skills",
+          "blocks": 3,
+          "form": "repeat",
+          "days": [
+            "Tuesday"
+          ],
+          "groups": [
+            "Otters 1",
+            "Otters 2",
+            "Otters 3"
+          ],
+          "rows": [
+            "10:15–10:45",
+            "10:45–11:15",
+            "11:15–11:45"
+          ]
+        }
+      ],
+      "electives": [],
+      "events": [
+        {
+          "name": "Farm Trip",
+          "kind": "trip",
+          "days": [
+            "Thursday"
+          ],
+          "blocks": [
+            "10:15–10:45",
+            "10:45–11:15",
+            "11:15–11:45",
+            "11:45–12:15"
+          ],
+          "groups": [
+            "Otters 1"
+          ]
+        },
+        {
+          "name": "Welcome Circle",
+          "kind": "daily",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday"
+          ],
+          "blocks": [
+            "10:00–10:15"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Goodbye Song",
+          "kind": "daily",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday"
+          ],
+          "blocks": [
+            "12:15–12:30"
+          ],
+          "groups": "all"
+        }
+      ],
+      "activities": [
+        "Swim Test",
+        "Archery",
+        "Arts and Crafts",
+        "Basketball",
+        "Ceramics",
+        "Chess Club",
+        "Climbing Wall",
+        "Dance",
+        "Wilderness Skills"
+      ],
+      "typos": [],
+      "counts": {
+        "blank": 5,
+        "split": 0,
+        "typo": 0,
+        "wrapped": 0
+      }
+    },
+    {
+      "slug": "s04-by-day-6day-large",
+      "file": "s04-by-day-6day-large.txt",
+      "layout": "byDay",
+      "traits": "6-day week, 24 groups + a lone CIT group in 7 divisions, 60-minute blocks, two lunch waves (CIT lunches with wave 2), 35 activities, split cells (\"A - B\"), single-day Saturday special and a weekly Thursday special.",
+      "days": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday"
+      ],
+      "groups": [
+        "Otters 1",
+        "Otters 2",
+        "Otters 3",
+        "Otters 4",
+        "Herons 1",
+        "Herons 2",
+        "Herons 3",
+        "Herons 4",
+        "Foxes 1",
+        "Foxes 2",
+        "Foxes 3",
+        "Foxes 4",
+        "Lynx 1",
+        "Lynx 2",
+        "Lynx 3",
+        "Lynx 4",
+        "Moles 1",
+        "Moles 2",
+        "Moles 3",
+        "Moles 4",
+        "Voles 1",
+        "Voles 2",
+        "Voles 3",
+        "Voles 4",
+        "CIT"
+      ],
+      "divisions": [
+        "Otters",
+        "Herons",
+        "Foxes",
+        "Lynx",
+        "Moles",
+        "Voles",
+        "CIT"
+      ],
+      "clock": "12",
+      "blocks": [
+        {
+          "label": "08:30–08:45",
+          "minutes": 15,
+          "kind": "event"
+        },
+        {
+          "label": "08:50–09:00",
+          "minutes": 10,
+          "kind": "event"
+        },
+        {
+          "label": "09:05–10:05",
+          "minutes": 60,
+          "kind": "activity"
+        },
+        {
+          "label": "10:10–11:10",
+          "minutes": 60,
+          "kind": "activity"
+        },
+        {
+          "label": "11:15–12:00",
+          "minutes": 45,
+          "kind": "lunch"
+        },
+        {
+          "label": "12:05–12:50",
+          "minutes": 45,
+          "kind": "lunch"
+        },
+        {
+          "label": "12:55–01:55",
+          "minutes": 60,
+          "kind": "activity"
+        },
+        {
+          "label": "02:00–03:00",
+          "minutes": 60,
+          "kind": "activity"
+        },
+        {
+          "label": "03:05–03:20",
+          "minutes": 15,
+          "kind": "event"
+        }
+      ],
+      "firstStart": "08:30",
+      "lastEnd": "15:20",
+      "lunchWaves": [
+        {
+          "name": "Lunch 1",
+          "block": "11:15–12:00",
+          "groups": [
+            "Otters 1",
+            "Otters 2",
+            "Otters 3",
+            "Otters 4",
+            "Herons 1",
+            "Herons 2",
+            "Herons 3",
+            "Herons 4",
+            "Foxes 1",
+            "Foxes 2",
+            "Foxes 3",
+            "Foxes 4",
+            "Lynx 1"
+          ]
+        },
+        {
+          "name": "Lunch 2",
+          "block": "12:05–12:50",
+          "groups": [
+            "Lynx 2",
+            "Lynx 3",
+            "Lynx 4",
+            "Moles 1",
+            "Moles 2",
+            "Moles 3",
+            "Moles 4",
+            "Voles 1",
+            "Voles 2",
+            "Voles 3",
+            "Voles 4",
+            "CIT"
+          ]
+        }
+      ],
+      "spans": [
+        {
+          "name": "Ropes Course",
+          "blocks": 2,
+          "form": "repeat",
+          "days": [
+            "Tuesday"
+          ],
+          "groups": [
+            "Otters 1",
+            "Otters 2",
+            "Otters 3",
+            "Otters 4",
+            "Herons 1",
+            "Herons 2",
+            "Herons 3",
+            "Herons 4"
+          ],
+          "rows": [
+            "09:05–10:05",
+            "10:10–11:10"
+          ]
+        },
+        {
+          "name": "Wilderness Skills",
+          "blocks": 2,
+          "form": "repeat",
+          "days": [
+            "Tuesday",
+            "Wednesday"
+          ],
+          "groups": [
+            "Foxes 1",
+            "Foxes 2",
+            "Foxes 3",
+            "Foxes 4",
+            "Lynx 1",
+            "Lynx 2",
+            "Lynx 3",
+            "Lynx 4"
+          ],
+          "rows": [
+            "12:55–01:55",
+            "02:00–03:00"
+          ]
+        }
+      ],
+      "electives": [
+        {
+          "name": "Electives",
+          "form": "header",
+          "days": [
+            "Monday",
+            "Thursday"
+          ],
+          "groups": [
+            "Moles 1",
+            "Moles 2",
+            "Moles 3",
+            "Moles 4",
+            "Voles 1",
+            "Voles 2",
+            "Voles 3",
+            "Voles 4"
+          ],
+          "rows": [
+            "02:00–03:00"
+          ],
+          "offerings": [
+            "Pottery",
+            "Robotics"
+          ]
+        },
+        {
+          "name": "Chugim",
+          "form": "list",
+          "days": [
+            "Friday"
+          ],
+          "groups": [
+            "Foxes 1",
+            "Foxes 2",
+            "Foxes 3",
+            "Foxes 4",
+            "Lynx 1",
+            "Lynx 2",
+            "Lynx 3",
+            "Lynx 4"
+          ],
+          "rows": [
+            "10:10–11:10"
+          ],
+          "offerings": [
+            "Ceramics",
+            "Kayaking",
+            "Yoga",
+            "Puppetry"
+          ]
+        }
+      ],
+      "events": [
+        {
+          "name": "Aquarium Trip",
+          "kind": "trip",
+          "days": [
+            "Wednesday"
+          ],
+          "blocks": [
+            "09:05–10:05",
+            "10:10–11:10"
+          ],
+          "groups": [
+            "Moles 1",
+            "Moles 2",
+            "Moles 3",
+            "Moles 4",
+            "Voles 1",
+            "Voles 2",
+            "Voles 3",
+            "Voles 4"
+          ]
+        },
+        {
+          "name": "Games Day",
+          "kind": "allday",
+          "days": [
+            "Friday"
+          ],
+          "blocks": [
+            "08:30–08:45",
+            "08:50–09:00",
+            "09:05–10:05",
+            "10:10–11:10",
+            "11:15–12:00",
+            "12:05–12:50",
+            "12:55–01:55",
+            "02:00–03:00",
+            "03:05–03:20"
+          ],
+          "groups": [
+            "Otters 1",
+            "Otters 2",
+            "Otters 3",
+            "Otters 4",
+            "Herons 1",
+            "Herons 2",
+            "Herons 3",
+            "Herons 4"
+          ]
+        },
+        {
+          "name": "Lunch 1",
+          "kind": "lunch",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday"
+          ],
+          "blocks": [
+            "11:15–12:00"
+          ],
+          "groups": [
+            "Otters 1",
+            "Otters 2",
+            "Otters 3",
+            "Otters 4",
+            "Herons 1",
+            "Herons 2",
+            "Herons 3",
+            "Herons 4",
+            "Foxes 1",
+            "Foxes 2",
+            "Foxes 3",
+            "Foxes 4",
+            "Lynx 1"
+          ]
+        },
+        {
+          "name": "Lunch 2",
+          "kind": "lunch",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday"
+          ],
+          "blocks": [
+            "12:05–12:50"
+          ],
+          "groups": [
+            "Lynx 2",
+            "Lynx 3",
+            "Lynx 4",
+            "Moles 1",
+            "Moles 2",
+            "Moles 3",
+            "Moles 4",
+            "Voles 1",
+            "Voles 2",
+            "Voles 3",
+            "Voles 4",
+            "CIT"
+          ]
+        },
+        {
+          "name": "Arrival",
+          "kind": "daily",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday"
+          ],
+          "blocks": [
+            "08:30–08:45"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Flag Raising",
+          "kind": "daily",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday"
+          ],
+          "blocks": [
+            "08:50–09:00"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Dismissal",
+          "kind": "daily",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday"
+          ],
+          "blocks": [
+            "03:05–03:20"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Trip Day",
+          "kind": "single",
+          "days": [
+            "Saturday"
+          ],
+          "blocks": [
+            "09:05–10:05"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Color Games",
+          "kind": "weekly",
+          "days": [
+            "Thursday"
+          ],
+          "blocks": [
+            "12:55–01:55"
+          ],
+          "groups": "all"
+        }
+      ],
+      "activities": [
+        "Drumming",
+        "Fishing",
+        "Gaga Pit",
+        "Garden",
+        "Hiking",
+        "Kayaking",
+        "Knitting",
+        "Lanyard",
+        "Music",
+        "Nature Walk",
+        "Orienteering",
+        "Painting",
+        "Pottery",
+        "Robotics",
+        "Sailing",
+        "Soccer",
+        "Softball",
+        "Storytelling",
+        "Swim",
+        "Tennis",
+        "Tie Dye",
+        "Trampoline",
+        "Volleyball",
+        "Woodworking",
+        "Yoga",
+        "Free Swim",
+        "Rocketry",
+        "Photography",
+        "Cooking",
+        "Magic Show",
+        "Puppetry",
+        "Bocce",
+        "Archery",
+        "Arts and Crafts",
+        "Basketball",
+        "Ropes Course",
+        "Wilderness Skills"
+      ],
+      "typos": [],
+      "counts": {
+        "blank": 0,
+        "split": 19,
+        "typo": 0,
+        "wrapped": 23
+      }
+    },
+    {
+      "slug": "s05-by-day-tiny-early",
+      "file": "s05-by-day-tiny-early.txt",
+      "layout": "byDay",
+      "traits": "Smallest camp: 2 groups, 7:30 start, 20-minute blocks, 24h times, one lunch wave, \"Archary\" typo.",
+      "days": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday"
+      ],
+      "groups": [
+        "Otters 1",
+        "Otters 2"
+      ],
+      "divisions": [
+        "Otters"
+      ],
+      "clock": "24",
+      "blocks": [
+        {
+          "label": "07:30–07:40",
+          "minutes": 10,
+          "kind": "event"
+        },
+        {
+          "label": "07:40–08:00",
+          "minutes": 20,
+          "kind": "activity"
+        },
+        {
+          "label": "08:00–08:20",
+          "minutes": 20,
+          "kind": "activity"
+        },
+        {
+          "label": "08:20–08:40",
+          "minutes": 20,
+          "kind": "activity"
+        },
+        {
+          "label": "08:40–09:00",
+          "minutes": 20,
+          "kind": "lunch"
+        },
+        {
+          "label": "09:00–09:20",
+          "minutes": 20,
+          "kind": "activity"
+        },
+        {
+          "label": "09:20–09:40",
+          "minutes": 20,
+          "kind": "activity"
+        },
+        {
+          "label": "09:40–09:50",
+          "minutes": 10,
+          "kind": "event"
+        }
+      ],
+      "firstStart": "07:30",
+      "lastEnd": "09:50",
+      "lunchWaves": [
+        {
+          "name": "Lunch",
+          "block": "08:40–09:00",
+          "groups": [
+            "Otters 1",
+            "Otters 2"
+          ]
+        }
+      ],
+      "spans": [
+        {
+          "name": "Ropes Course",
+          "blocks": 3,
+          "form": "repeat",
+          "days": [
+            "Monday"
+          ],
+          "groups": [
+            "Otters 1",
+            "Otters 2"
+          ],
+          "rows": [
+            "07:40–08:00",
+            "08:00–08:20",
+            "08:20–08:40"
+          ]
+        }
+      ],
+      "electives": [],
+      "events": [
+        {
+          "name": "Farm Trip",
+          "kind": "trip",
+          "days": [
+            "Thursday"
+          ],
+          "blocks": [
+            "09:00–09:20",
+            "09:20–09:40"
+          ],
+          "groups": [
+            "Otters 2"
+          ]
+        },
+        {
+          "name": "Games Day",
+          "kind": "allday",
+          "days": [
+            "Friday"
+          ],
+          "blocks": [
+            "07:30–07:40",
+            "07:40–08:00",
+            "08:00–08:20",
+            "08:20–08:40",
+            "08:40–09:00",
+            "09:00–09:20",
+            "09:20–09:40",
+            "09:40–09:50"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Lunch",
+          "kind": "lunch",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ],
+          "blocks": [
+            "08:40–09:00"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Reveille",
+          "kind": "daily",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ],
+          "blocks": [
+            "07:30–07:40"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Taps",
+          "kind": "daily",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ],
+          "blocks": [
+            "09:40–09:50"
+          ],
+          "groups": "all"
+        }
+      ],
+      "activities": [
+        "Archery",
+        "Arts and Crafts",
+        "Basketball",
+        "Ceramics",
+        "Chess Club",
+        "Climbing Wall",
+        "Ropes Course"
+      ],
+      "typos": [
+        {
+          "canonical": "Archery",
+          "variant": "Archary"
+        }
+      ],
+      "counts": {
+        "blank": 0,
+        "split": 0,
+        "typo": 2,
+        "wrapped": 0
+      }
+    },
+    {
+      "slug": "s06-by-day-40-groups-late",
+      "file": "s06-by-day-40-groups-late.txt",
+      "layout": "byDay",
+      "traits": "Largest: 40 groups, 8 divisions, 50-minute blocks from 9:00 to a 4:55pm finish, three lunch waves, 40 activities including both colliding names, single-day Friday finale.",
+      "days": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday"
+      ],
+      "groups": [
+        "Otters 1",
+        "Otters 2",
+        "Otters 3",
+        "Otters 4",
+        "Otters 5",
+        "Herons 1",
+        "Herons 2",
+        "Herons 3",
+        "Herons 4",
+        "Herons 5",
+        "Foxes 1",
+        "Foxes 2",
+        "Foxes 3",
+        "Foxes 4",
+        "Foxes 5",
+        "Lynx 1",
+        "Lynx 2",
+        "Lynx 3",
+        "Lynx 4",
+        "Lynx 5",
+        "Moles 1",
+        "Moles 2",
+        "Moles 3",
+        "Moles 4",
+        "Moles 5",
+        "Voles 1",
+        "Voles 2",
+        "Voles 3",
+        "Voles 4",
+        "Voles 5",
+        "Swifts 1",
+        "Swifts 2",
+        "Swifts 3",
+        "Swifts 4",
+        "Swifts 5",
+        "Wrens 1",
+        "Wrens 2",
+        "Wrens 3",
+        "Wrens 4",
+        "Wrens 5"
+      ],
+      "divisions": [
+        "Otters",
+        "Herons",
+        "Foxes",
+        "Lynx",
+        "Moles",
+        "Voles",
+        "Swifts",
+        "Wrens"
+      ],
+      "clock": "12",
+      "blocks": [
+        {
+          "label": "09:00–09:15",
+          "minutes": 15,
+          "kind": "event"
+        },
+        {
+          "label": "09:20–10:10",
+          "minutes": 50,
+          "kind": "activity"
+        },
+        {
+          "label": "10:15–11:05",
+          "minutes": 50,
+          "kind": "activity"
+        },
+        {
+          "label": "11:10–12:00",
+          "minutes": 50,
+          "kind": "lunch"
+        },
+        {
+          "label": "12:05–12:55",
+          "minutes": 50,
+          "kind": "lunch"
+        },
+        {
+          "label": "01:00–01:50",
+          "minutes": 50,
+          "kind": "lunch"
+        },
+        {
+          "label": "01:55–02:45",
+          "minutes": 50,
+          "kind": "activity"
+        },
+        {
+          "label": "02:50–03:40",
+          "minutes": 50,
+          "kind": "activity"
+        },
+        {
+          "label": "03:45–04:35",
+          "minutes": 50,
+          "kind": "activity"
+        },
+        {
+          "label": "04:40–04:55",
+          "minutes": 15,
+          "kind": "event"
+        }
+      ],
+      "firstStart": "09:00",
+      "lastEnd": "16:55",
+      "lunchWaves": [
+        {
+          "name": "Lunch 1",
+          "block": "11:10–12:00",
+          "groups": [
+            "Otters 1",
+            "Otters 2",
+            "Otters 3",
+            "Otters 4",
+            "Otters 5",
+            "Herons 1",
+            "Herons 2",
+            "Herons 3",
+            "Herons 4",
+            "Herons 5",
+            "Foxes 1",
+            "Foxes 2",
+            "Foxes 3",
+            "Foxes 4"
+          ]
+        },
+        {
+          "name": "Lunch 2",
+          "block": "12:05–12:55",
+          "groups": [
+            "Foxes 5",
+            "Lynx 1",
+            "Lynx 2",
+            "Lynx 3",
+            "Lynx 4",
+            "Lynx 5",
+            "Moles 1",
+            "Moles 2",
+            "Moles 3",
+            "Moles 4",
+            "Moles 5",
+            "Voles 1",
+            "Voles 2"
+          ]
+        },
+        {
+          "name": "Lunch 3",
+          "block": "01:00–01:50",
+          "groups": [
+            "Voles 3",
+            "Voles 4",
+            "Voles 5",
+            "Swifts 1",
+            "Swifts 2",
+            "Swifts 3",
+            "Swifts 4",
+            "Swifts 5",
+            "Wrens 1",
+            "Wrens 2",
+            "Wrens 3",
+            "Wrens 4",
+            "Wrens 5"
+          ]
+        }
+      ],
+      "spans": [
+        {
+          "name": "Wilderness Skills",
+          "blocks": 3,
+          "form": "repeat",
+          "days": [
+            "Tuesday"
+          ],
+          "groups": [
+            "Swifts 1",
+            "Swifts 2",
+            "Swifts 3",
+            "Swifts 4",
+            "Swifts 5",
+            "Wrens 1",
+            "Wrens 2",
+            "Wrens 3",
+            "Wrens 4",
+            "Wrens 5"
+          ],
+          "rows": [
+            "01:55–02:45",
+            "02:50–03:40",
+            "03:45–04:35"
+          ]
+        },
+        {
+          "name": "Ropes Course",
+          "blocks": 2,
+          "form": "blank",
+          "days": [
+            "Monday",
+            "Wednesday"
+          ],
+          "groups": [
+            "Otters 1",
+            "Otters 2",
+            "Otters 3",
+            "Otters 4",
+            "Otters 5",
+            "Herons 1",
+            "Herons 2",
+            "Herons 3",
+            "Herons 4",
+            "Herons 5"
+          ],
+          "rows": [
+            "09:20–10:10",
+            "10:15–11:05"
+          ]
+        }
+      ],
+      "electives": [
+        {
+          "name": "Chugim",
+          "form": "header",
+          "days": [
+            "Monday"
+          ],
+          "groups": [
+            "Otters 1",
+            "Otters 2",
+            "Otters 3",
+            "Otters 4",
+            "Otters 5",
+            "Herons 1",
+            "Herons 2",
+            "Herons 3",
+            "Herons 4",
+            "Herons 5",
+            "Foxes 1",
+            "Foxes 2",
+            "Foxes 3",
+            "Foxes 4",
+            "Foxes 5",
+            "Lynx 1",
+            "Lynx 2",
+            "Lynx 3",
+            "Lynx 4",
+            "Lynx 5",
+            "Moles 1",
+            "Moles 2",
+            "Moles 3",
+            "Moles 4",
+            "Moles 5",
+            "Voles 1",
+            "Voles 2",
+            "Voles 3",
+            "Voles 4",
+            "Voles 5",
+            "Swifts 1",
+            "Swifts 2",
+            "Swifts 3",
+            "Swifts 4",
+            "Swifts 5",
+            "Wrens 1",
+            "Wrens 2",
+            "Wrens 3",
+            "Wrens 4",
+            "Wrens 5"
+          ],
+          "rows": [
+            "02:50–03:40"
+          ],
+          "offerings": [
+            "Ceramics",
+            "Ropes",
+            "Drama"
+          ]
+        },
+        {
+          "name": "Outdoor Elective",
+          "form": "list",
+          "days": [
+            "Friday"
+          ],
+          "groups": [
+            "Moles 1",
+            "Moles 2",
+            "Moles 3",
+            "Moles 4",
+            "Moles 5",
+            "Voles 1",
+            "Voles 2",
+            "Voles 3",
+            "Voles 4",
+            "Voles 5"
+          ],
+          "rows": [
+            "01:55–02:45"
+          ],
+          "offerings": [
+            "Hiking",
+            "Fishing",
+            "Kayaking",
+            "Orienteering",
+            "Bocce"
+          ]
+        }
+      ],
+      "events": [
+        {
+          "name": "Aquarium Trip",
+          "kind": "trip",
+          "days": [
+            "Wednesday"
+          ],
+          "blocks": [
+            "01:55–02:45",
+            "02:50–03:40",
+            "03:45–04:35"
+          ],
+          "groups": [
+            "Foxes 1",
+            "Foxes 2",
+            "Foxes 3",
+            "Foxes 4",
+            "Foxes 5",
+            "Lynx 1",
+            "Lynx 2",
+            "Lynx 3",
+            "Lynx 4",
+            "Lynx 5"
+          ]
+        },
+        {
+          "name": "Games Day",
+          "kind": "allday",
+          "days": [
+            "Thursday"
+          ],
+          "blocks": [
+            "09:00–09:15",
+            "09:20–10:10",
+            "10:15–11:05",
+            "11:10–12:00",
+            "12:05–12:55",
+            "01:00–01:50",
+            "01:55–02:45",
+            "02:50–03:40",
+            "03:45–04:35",
+            "04:40–04:55"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Lunch 1",
+          "kind": "lunch",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ],
+          "blocks": [
+            "11:10–12:00"
+          ],
+          "groups": [
+            "Otters 1",
+            "Otters 2",
+            "Otters 3",
+            "Otters 4",
+            "Otters 5",
+            "Herons 1",
+            "Herons 2",
+            "Herons 3",
+            "Herons 4",
+            "Herons 5",
+            "Foxes 1",
+            "Foxes 2",
+            "Foxes 3",
+            "Foxes 4"
+          ]
+        },
+        {
+          "name": "Lunch 2",
+          "kind": "lunch",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ],
+          "blocks": [
+            "12:05–12:55"
+          ],
+          "groups": [
+            "Foxes 5",
+            "Lynx 1",
+            "Lynx 2",
+            "Lynx 3",
+            "Lynx 4",
+            "Lynx 5",
+            "Moles 1",
+            "Moles 2",
+            "Moles 3",
+            "Moles 4",
+            "Moles 5",
+            "Voles 1",
+            "Voles 2"
+          ]
+        },
+        {
+          "name": "Lunch 3",
+          "kind": "lunch",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ],
+          "blocks": [
+            "01:00–01:50"
+          ],
+          "groups": [
+            "Voles 3",
+            "Voles 4",
+            "Voles 5",
+            "Swifts 1",
+            "Swifts 2",
+            "Swifts 3",
+            "Swifts 4",
+            "Swifts 5",
+            "Wrens 1",
+            "Wrens 2",
+            "Wrens 3",
+            "Wrens 4",
+            "Wrens 5"
+          ]
+        },
+        {
+          "name": "Arrival",
+          "kind": "daily",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ],
+          "blocks": [
+            "09:00–09:15"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Dismissal",
+          "kind": "daily",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ],
+          "blocks": [
+            "04:40–04:55"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Closing Ceremony",
+          "kind": "single",
+          "days": [
+            "Friday"
+          ],
+          "blocks": [
+            "03:45–04:35"
+          ],
+          "groups": "all"
+        }
+      ],
+      "activities": [
+        "Lunch Bunch",
+        "Swim Test",
+        "Hiking",
+        "Kayaking",
+        "Knitting",
+        "Lanyard",
+        "Music",
+        "Nature Walk",
+        "Orienteering",
+        "Painting",
+        "Pottery",
+        "Robotics",
+        "Sailing",
+        "Soccer",
+        "Softball",
+        "Storytelling",
+        "Swim",
+        "Tennis",
+        "Tie Dye",
+        "Trampoline",
+        "Volleyball",
+        "Woodworking",
+        "Yoga",
+        "Free Swim",
+        "Rocketry",
+        "Photography",
+        "Cooking",
+        "Magic Show",
+        "Puppetry",
+        "Bocce",
+        "Archery",
+        "Arts and Crafts",
+        "Basketball",
+        "Ceramics",
+        "Chess Club",
+        "Climbing Wall",
+        "Dance",
+        "Drama",
+        "Drumming",
+        "Fishing",
+        "Wilderness Skills",
+        "Ropes Course"
+      ],
+      "typos": [],
+      "counts": {
+        "blank": 0,
+        "split": 0,
+        "typo": 0,
+        "wrapped": 18
+      }
+    },
+    {
+      "slug": "s07-by-group-3-divisions",
+      "file": "s07-by-group-3-divisions.txt",
+      "layout": "byGroup",
+      "traits": "campA-style by-group pages with \"Unit - Bunk\" titles: 8 bunks in 3 units, two lunch waves, weekly Friday Swim Meet.",
+      "days": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday"
+      ],
+      "groups": [
+        "Otters 1",
+        "Otters 2",
+        "Otters 3",
+        "Herons 1",
+        "Herons 2",
+        "Herons 3",
+        "Foxes 1",
+        "Foxes 2"
+      ],
+      "divisions": [
+        "Sparks",
+        "Embers",
+        "Flints"
+      ],
+      "clock": "12",
+      "blocks": [
+        {
+          "label": "09:15–09:35",
+          "minutes": 20,
+          "kind": "event"
+        },
+        {
+          "label": "09:40–10:25",
+          "minutes": 45,
+          "kind": "activity"
+        },
+        {
+          "label": "10:30–11:15",
+          "minutes": 45,
+          "kind": "activity"
+        },
+        {
+          "label": "11:20–12:00",
+          "minutes": 40,
+          "kind": "lunch"
+        },
+        {
+          "label": "12:05–12:45",
+          "minutes": 40,
+          "kind": "lunch"
+        },
+        {
+          "label": "12:50–01:35",
+          "minutes": 45,
+          "kind": "activity"
+        },
+        {
+          "label": "01:40–02:25",
+          "minutes": 45,
+          "kind": "activity"
+        },
+        {
+          "label": "02:30–02:45",
+          "minutes": 15,
+          "kind": "event"
+        }
+      ],
+      "firstStart": "09:15",
+      "lastEnd": "14:45",
+      "lunchWaves": [
+        {
+          "name": "Lunch 1",
+          "block": "11:20–12:00",
+          "groups": [
+            "Otters 1",
+            "Otters 2",
+            "Otters 3",
+            "Herons 1"
+          ]
+        },
+        {
+          "name": "Lunch 2",
+          "block": "12:05–12:45",
+          "groups": [
+            "Herons 2",
+            "Herons 3",
+            "Foxes 1",
+            "Foxes 2"
+          ]
+        }
+      ],
+      "spans": [
+        {
+          "name": "Ropes Course",
+          "blocks": 2,
+          "form": "repeat",
+          "days": [
+            "Tuesday",
+            "Thursday"
+          ],
+          "groups": [
+            "Foxes 1",
+            "Foxes 2"
+          ],
+          "rows": [
+            "12:50–01:35",
+            "01:40–02:25"
+          ]
+        }
+      ],
+      "electives": [
+        {
+          "name": "Indoor Elective",
+          "form": "header",
+          "days": [
+            "Monday"
+          ],
+          "groups": [
+            "Otters 1",
+            "Otters 2"
+          ],
+          "rows": [
+            "01:40–02:25"
+          ],
+          "offerings": [
+            "Chess Club",
+            "Knitting"
+          ]
+        }
+      ],
+      "events": [
+        {
+          "name": "Museum Trip",
+          "kind": "trip",
+          "days": [
+            "Wednesday"
+          ],
+          "blocks": [
+            "09:40–10:25",
+            "10:30–11:15"
+          ],
+          "groups": [
+            "Herons 1",
+            "Herons 2",
+            "Herons 3"
+          ]
+        },
+        {
+          "name": "Lunch 1",
+          "kind": "lunch",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ],
+          "blocks": [
+            "11:20–12:00"
+          ],
+          "groups": [
+            "Otters 1",
+            "Otters 2",
+            "Otters 3",
+            "Herons 1"
+          ]
+        },
+        {
+          "name": "Lunch 2",
+          "kind": "lunch",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ],
+          "blocks": [
+            "12:05–12:45"
+          ],
+          "groups": [
+            "Herons 2",
+            "Herons 3",
+            "Foxes 1",
+            "Foxes 2"
+          ]
+        },
+        {
+          "name": "Opening",
+          "kind": "daily",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ],
+          "blocks": [
+            "09:15–09:35"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Closing",
+          "kind": "daily",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ],
+          "blocks": [
+            "02:30–02:45"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Swim Meet",
+          "kind": "weekly",
+          "days": [
+            "Friday"
+          ],
+          "blocks": [
+            "09:40–10:25"
+          ],
+          "groups": "all"
+        }
+      ],
+      "activities": [
+        "Climbing Wall",
+        "Dance",
+        "Drama",
+        "Drumming",
+        "Fishing",
+        "Gaga Pit",
+        "Garden",
+        "Hiking",
+        "Kayaking",
+        "Knitting",
+        "Lanyard",
+        "Music",
+        "Nature Walk",
+        "Orienteering",
+        "Painting",
+        "Ropes Course"
+      ],
+      "typos": [],
+      "counts": {
+        "blank": 0,
+        "split": 0,
+        "typo": 0,
+        "wrapped": 0
+      }
+    },
+    {
+      "slug": "s08-by-group-24h-wrapped",
+      "file": "s08-by-group-24h-wrapped.txt",
+      "layout": "byGroup",
+      "traits": "By-group, 4-day week, 12 bunks in 4 units, 30-minute blocks, 24h times, no lunch, narrow columns so long names wrap onto two lines, \"Musik\" typo, blank cells.",
+      "days": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday"
+      ],
+      "groups": [
+        "Otters 1",
+        "Otters 2",
+        "Otters 3",
+        "Herons 1",
+        "Herons 2",
+        "Herons 3",
+        "Foxes 1",
+        "Foxes 2",
+        "Foxes 3",
+        "Lynx 1",
+        "Lynx 2",
+        "Lynx 3"
+      ],
+      "divisions": [
+        "Sparks",
+        "Embers",
+        "Flints",
+        "Tinders"
+      ],
+      "clock": "24",
+      "blocks": [
+        {
+          "label": "09:00–09:15",
+          "minutes": 15,
+          "kind": "event"
+        },
+        {
+          "label": "09:15–09:45",
+          "minutes": 30,
+          "kind": "activity"
+        },
+        {
+          "label": "09:45–10:15",
+          "minutes": 30,
+          "kind": "activity"
+        },
+        {
+          "label": "10:15–10:45",
+          "minutes": 30,
+          "kind": "activity"
+        },
+        {
+          "label": "10:45–11:15",
+          "minutes": 30,
+          "kind": "activity"
+        },
+        {
+          "label": "11:15–11:45",
+          "minutes": 30,
+          "kind": "activity"
+        },
+        {
+          "label": "11:45–12:15",
+          "minutes": 30,
+          "kind": "activity"
+        },
+        {
+          "label": "12:15–12:30",
+          "minutes": 15,
+          "kind": "event"
+        }
+      ],
+      "firstStart": "09:00",
+      "lastEnd": "12:30",
+      "lunchWaves": [],
+      "spans": [
+        {
+          "name": "Wilderness Skills",
+          "blocks": 3,
+          "form": "repeat",
+          "days": [
+            "Monday",
+            "Wednesday"
+          ],
+          "groups": [
+            "Otters 1",
+            "Otters 2",
+            "Otters 3"
+          ],
+          "rows": [
+            "09:15–09:45",
+            "09:45–10:15",
+            "10:15–10:45"
+          ]
+        },
+        {
+          "name": "Ropes Course",
+          "blocks": 2,
+          "form": "blank",
+          "days": [
+            "Tuesday"
+          ],
+          "groups": [
+            "Otters 1",
+            "Otters 2",
+            "Otters 3",
+            "Herons 1",
+            "Herons 2",
+            "Herons 3",
+            "Foxes 1",
+            "Foxes 2",
+            "Foxes 3",
+            "Lynx 1",
+            "Lynx 2",
+            "Lynx 3"
+          ],
+          "rows": [
+            "10:45–11:15",
+            "11:15–11:45"
+          ]
+        }
+      ],
+      "electives": [
+        {
+          "name": "Electives",
+          "form": "list",
+          "days": [
+            "Wednesday"
+          ],
+          "groups": [
+            "Foxes 1",
+            "Foxes 2",
+            "Foxes 3",
+            "Lynx 1",
+            "Lynx 2",
+            "Lynx 3"
+          ],
+          "rows": [
+            "11:15–11:45"
+          ],
+          "offerings": [
+            "Chess Club",
+            "Robotics",
+            "Cooking"
+          ]
+        }
+      ],
+      "events": [
+        {
+          "name": "Games Day",
+          "kind": "allday",
+          "days": [
+            "Thursday"
+          ],
+          "blocks": [
+            "09:00–09:15",
+            "09:15–09:45",
+            "09:45–10:15",
+            "10:15–10:45",
+            "10:45–11:15",
+            "11:15–11:45",
+            "11:45–12:15",
+            "12:15–12:30"
+          ],
+          "groups": [
+            "Otters 1",
+            "Otters 2",
+            "Otters 3",
+            "Herons 1",
+            "Herons 2",
+            "Herons 3"
+          ]
+        },
+        {
+          "name": "Check In",
+          "kind": "daily",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday"
+          ],
+          "blocks": [
+            "09:00–09:15"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Check Out",
+          "kind": "daily",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday"
+          ],
+          "blocks": [
+            "12:15–12:30"
+          ],
+          "groups": "all"
+        }
+      ],
+      "activities": [
+        "Gaga Pit",
+        "Garden",
+        "Hiking",
+        "Kayaking",
+        "Knitting",
+        "Lanyard",
+        "Music",
+        "Nature Walk",
+        "Orienteering",
+        "Painting",
+        "Pottery",
+        "Robotics",
+        "Sailing",
+        "Soccer",
+        "Softball",
+        "Storytelling",
+        "Swim",
+        "Tennis",
+        "Tie Dye",
+        "Trampoline",
+        "Wilderness Skills",
+        "Ropes Course"
+      ],
+      "typos": [
+        {
+          "canonical": "Music",
+          "variant": "Musik"
+        }
+      ],
+      "counts": {
+        "blank": 12,
+        "split": 0,
+        "typo": 2,
+        "wrapped": 15
+      }
+    },
+    {
+      "slug": "s09-by-group-6day-except",
+      "file": "s09-by-group-6day-except.txt",
+      "layout": "byGroup",
+      "traits": "6-day by-group, 20 bunks in 5 units plus a lone \"Counselor Aides\" group, uneven 40/50-minute blocks, one lunch wave, split cells, single-day Thursday Campfire.",
+      "days": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday"
+      ],
+      "groups": [
+        "Otters 1",
+        "Otters 2",
+        "Otters 3",
+        "Otters 4",
+        "Herons 1",
+        "Herons 2",
+        "Herons 3",
+        "Herons 4",
+        "Foxes 1",
+        "Foxes 2",
+        "Foxes 3",
+        "Foxes 4",
+        "Lynx 1",
+        "Lynx 2",
+        "Lynx 3",
+        "Lynx 4",
+        "Moles 1",
+        "Moles 2",
+        "Moles 3",
+        "Moles 4",
+        "Counselor Aides"
+      ],
+      "divisions": [
+        "Sparks",
+        "Embers",
+        "Flints",
+        "Tinders",
+        "Kindlers",
+        "Counselor Aides"
+      ],
+      "clock": "12",
+      "blocks": [
+        {
+          "label": "08:50–09:05",
+          "minutes": 15,
+          "kind": "event"
+        },
+        {
+          "label": "09:10–09:20",
+          "minutes": 10,
+          "kind": "event"
+        },
+        {
+          "label": "09:25–10:15",
+          "minutes": 50,
+          "kind": "activity"
+        },
+        {
+          "label": "10:20–11:10",
+          "minutes": 50,
+          "kind": "activity"
+        },
+        {
+          "label": "11:15–12:00",
+          "minutes": 45,
+          "kind": "lunch"
+        },
+        {
+          "label": "12:05–12:55",
+          "minutes": 50,
+          "kind": "activity"
+        },
+        {
+          "label": "01:00–01:40",
+          "minutes": 40,
+          "kind": "activity"
+        },
+        {
+          "label": "01:45–02:00",
+          "minutes": 15,
+          "kind": "event"
+        }
+      ],
+      "firstStart": "08:50",
+      "lastEnd": "14:00",
+      "lunchWaves": [
+        {
+          "name": "Lunch",
+          "block": "11:15–12:00",
+          "groups": [
+            "Otters 1",
+            "Otters 2",
+            "Otters 3",
+            "Otters 4",
+            "Herons 1",
+            "Herons 2",
+            "Herons 3",
+            "Herons 4",
+            "Foxes 1",
+            "Foxes 2",
+            "Foxes 3",
+            "Foxes 4",
+            "Lynx 1",
+            "Lynx 2",
+            "Lynx 3",
+            "Lynx 4",
+            "Moles 1",
+            "Moles 2",
+            "Moles 3",
+            "Moles 4",
+            "Counselor Aides"
+          ]
+        }
+      ],
+      "spans": [
+        {
+          "name": "Ropes Course",
+          "blocks": 2,
+          "form": "repeat",
+          "days": [
+            "Tuesday",
+            "Friday"
+          ],
+          "groups": [
+            "Herons 1",
+            "Herons 2",
+            "Herons 3",
+            "Herons 4",
+            "Foxes 1",
+            "Foxes 2",
+            "Foxes 3",
+            "Foxes 4"
+          ],
+          "rows": [
+            "09:25–10:15",
+            "10:20–11:10"
+          ]
+        }
+      ],
+      "electives": [
+        {
+          "name": "Bechirot",
+          "form": "header",
+          "days": [
+            "Monday",
+            "Wednesday",
+            "Friday"
+          ],
+          "groups": [
+            "Otters 1",
+            "Otters 2",
+            "Otters 3",
+            "Otters 4",
+            "Herons 1",
+            "Herons 2",
+            "Herons 3",
+            "Herons 4",
+            "Foxes 1",
+            "Foxes 2",
+            "Foxes 3",
+            "Foxes 4",
+            "Lynx 1",
+            "Lynx 2",
+            "Lynx 3",
+            "Lynx 4",
+            "Moles 1",
+            "Moles 2",
+            "Moles 3",
+            "Moles 4",
+            "Counselor Aides"
+          ],
+          "rows": [
+            "01:00–01:40"
+          ],
+          "offerings": [
+            "Drama",
+            "Dance",
+            "Yoga"
+          ]
+        }
+      ],
+      "events": [
+        {
+          "name": "Aquarium Trip",
+          "kind": "trip",
+          "days": [
+            "Wednesday"
+          ],
+          "blocks": [
+            "09:25–10:15",
+            "10:20–11:10"
+          ],
+          "groups": [
+            "Otters 1",
+            "Otters 2",
+            "Otters 3",
+            "Otters 4"
+          ]
+        },
+        {
+          "name": "Games Day",
+          "kind": "allday",
+          "days": [
+            "Saturday"
+          ],
+          "blocks": [
+            "08:50–09:05",
+            "09:10–09:20",
+            "09:25–10:15",
+            "10:20–11:10",
+            "11:15–12:00",
+            "12:05–12:55",
+            "01:00–01:40",
+            "01:45–02:00"
+          ],
+          "groups": [
+            "Otters 1",
+            "Otters 2",
+            "Otters 3",
+            "Otters 4",
+            "Herons 1",
+            "Herons 2",
+            "Herons 3",
+            "Herons 4",
+            "Foxes 1",
+            "Foxes 2",
+            "Foxes 3",
+            "Foxes 4",
+            "Lynx 1",
+            "Lynx 2",
+            "Lynx 3",
+            "Lynx 4",
+            "Moles 1",
+            "Moles 2",
+            "Moles 3",
+            "Moles 4"
+          ],
+          "allExcept": [
+            "Counselor Aides"
+          ]
+        },
+        {
+          "name": "Lunch",
+          "kind": "lunch",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday"
+          ],
+          "blocks": [
+            "11:15–12:00"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Arrival",
+          "kind": "daily",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday"
+          ],
+          "blocks": [
+            "08:50–09:05"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Flag Raising",
+          "kind": "daily",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday"
+          ],
+          "blocks": [
+            "09:10–09:20"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Dismissal",
+          "kind": "daily",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday"
+          ],
+          "blocks": [
+            "01:45–02:00"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Campfire",
+          "kind": "single",
+          "days": [
+            "Thursday"
+          ],
+          "blocks": [
+            "12:05–12:55"
+          ],
+          "groups": "all"
+        }
+      ],
+      "activities": [
+        "Pottery",
+        "Robotics",
+        "Sailing",
+        "Soccer",
+        "Softball",
+        "Storytelling",
+        "Swim",
+        "Tennis",
+        "Tie Dye",
+        "Trampoline",
+        "Volleyball",
+        "Woodworking",
+        "Yoga",
+        "Free Swim",
+        "Rocketry",
+        "Photography",
+        "Cooking",
+        "Magic Show",
+        "Puppetry",
+        "Bocce",
+        "Archery",
+        "Arts and Crafts",
+        "Basketball",
+        "Ceramics",
+        "Chess Club",
+        "Climbing Wall",
+        "Dance",
+        "Drama",
+        "Drumming",
+        "Fishing",
+        "Ropes Course"
+      ],
+      "typos": [],
+      "counts": {
+        "blank": 0,
+        "split": 7,
+        "typo": 0,
+        "wrapped": 0
+      }
+    },
+    {
+      "slug": "s10-by-group-sun-thu-early",
+      "file": "s10-by-group-sun-thu-early.txt",
+      "layout": "byGroup",
+      "traits": "Sunday-to-Thursday week starting 7:30, 4 bunks in 2 units, 60-minute blocks, one lunch wave, \"Lunch Bunch\" activity.",
+      "days": [
+        "Sunday",
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday"
+      ],
+      "groups": [
+        "Otters 1",
+        "Otters 2",
+        "Herons 1",
+        "Herons 2"
+      ],
+      "divisions": [
+        "Sparks",
+        "Embers"
+      ],
+      "clock": "12",
+      "blocks": [
+        {
+          "label": "07:30–07:45",
+          "minutes": 15,
+          "kind": "event"
+        },
+        {
+          "label": "07:45–08:45",
+          "minutes": 60,
+          "kind": "activity"
+        },
+        {
+          "label": "08:45–09:45",
+          "minutes": 60,
+          "kind": "activity"
+        },
+        {
+          "label": "09:45–10:30",
+          "minutes": 45,
+          "kind": "lunch"
+        },
+        {
+          "label": "10:30–11:30",
+          "minutes": 60,
+          "kind": "activity"
+        },
+        {
+          "label": "11:30–12:30",
+          "minutes": 60,
+          "kind": "activity"
+        },
+        {
+          "label": "12:30–12:45",
+          "minutes": 15,
+          "kind": "event"
+        }
+      ],
+      "firstStart": "07:30",
+      "lastEnd": "12:45",
+      "lunchWaves": [
+        {
+          "name": "Lunch",
+          "block": "09:45–10:30",
+          "groups": [
+            "Otters 1",
+            "Otters 2",
+            "Herons 1",
+            "Herons 2"
+          ]
+        }
+      ],
+      "spans": [
+        {
+          "name": "Wilderness Skills",
+          "blocks": 2,
+          "form": "repeat",
+          "days": [
+            "Monday"
+          ],
+          "groups": [
+            "Otters 1",
+            "Otters 2",
+            "Herons 1",
+            "Herons 2"
+          ],
+          "rows": [
+            "07:45–08:45",
+            "08:45–09:45"
+          ]
+        }
+      ],
+      "electives": [],
+      "events": [
+        {
+          "name": "Farm Trip",
+          "kind": "trip",
+          "days": [
+            "Wednesday"
+          ],
+          "blocks": [
+            "10:30–11:30",
+            "11:30–12:30"
+          ],
+          "groups": [
+            "Herons 1",
+            "Herons 2"
+          ]
+        },
+        {
+          "name": "Games Day",
+          "kind": "allday",
+          "days": [
+            "Thursday"
+          ],
+          "blocks": [
+            "07:30–07:45",
+            "07:45–08:45",
+            "08:45–09:45",
+            "09:45–10:30",
+            "10:30–11:30",
+            "11:30–12:30",
+            "12:30–12:45"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Lunch",
+          "kind": "lunch",
+          "days": [
+            "Sunday",
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday"
+          ],
+          "blocks": [
+            "09:45–10:30"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Opening",
+          "kind": "daily",
+          "days": [
+            "Sunday",
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday"
+          ],
+          "blocks": [
+            "07:30–07:45"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Closing",
+          "kind": "daily",
+          "days": [
+            "Sunday",
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday"
+          ],
+          "blocks": [
+            "12:30–12:45"
+          ],
+          "groups": "all"
+        }
+      ],
+      "activities": [
+        "Lunch Bunch",
+        "Archery",
+        "Arts and Crafts",
+        "Basketball",
+        "Ceramics",
+        "Chess Club",
+        "Climbing Wall",
+        "Dance",
+        "Drama",
+        "Drumming",
+        "Wilderness Skills"
+      ],
+      "typos": [],
+      "counts": {
+        "blank": 0,
+        "split": 0,
+        "typo": 0,
+        "wrapped": 0
+      }
+    },
+    {
+      "slug": "s11-daysheet-5d-small",
+      "file": "s11-daysheet-5d-small.txt",
+      "layout": "daySheet",
+      "traits": "campC-style day sheets (unlabeled time column, AM/PM, a room under each activity), 6 groups with positional codes 1A-2B, one lunch wave.",
+      "days": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday"
+      ],
+      "groups": [
+        "1A",
+        "1B",
+        "1C",
+        "1D",
+        "2A",
+        "2B"
+      ],
+      "divisions": [
+        "1",
+        "2"
+      ],
+      "clock": "ampm",
+      "blocks": [
+        {
+          "label": "09:00 AM–09:20 AM",
+          "minutes": 20,
+          "kind": "event"
+        },
+        {
+          "label": "09:30 AM–10:10 AM",
+          "minutes": 40,
+          "kind": "activity"
+        },
+        {
+          "label": "10:20 AM–11:00 AM",
+          "minutes": 40,
+          "kind": "activity"
+        },
+        {
+          "label": "11:10 AM–11:50 AM",
+          "minutes": 40,
+          "kind": "lunch"
+        },
+        {
+          "label": "12:00 PM–12:40 PM",
+          "minutes": 40,
+          "kind": "activity"
+        },
+        {
+          "label": "12:50 PM–01:10 PM",
+          "minutes": 20,
+          "kind": "event"
+        }
+      ],
+      "firstStart": "09:00",
+      "lastEnd": "13:10",
+      "lunchWaves": [
+        {
+          "name": "Lunch",
+          "block": "11:10 AM–11:50 AM",
+          "groups": [
+            "1A",
+            "1B",
+            "1C",
+            "1D",
+            "2A",
+            "2B"
+          ]
+        }
+      ],
+      "spans": [
+        {
+          "name": "Ropes Course",
+          "blocks": 2,
+          "form": "repeat",
+          "days": [
+            "Wednesday"
+          ],
+          "groups": [
+            "2A",
+            "2B"
+          ],
+          "rows": [
+            "09:30 AM–10:10 AM",
+            "10:20 AM–11:00 AM"
+          ]
+        }
+      ],
+      "electives": [
+        {
+          "name": "Electives",
+          "form": "header",
+          "days": [
+            "Friday"
+          ],
+          "groups": [
+            "1A",
+            "1B",
+            "1C",
+            "1D",
+            "2A",
+            "2B"
+          ],
+          "rows": [
+            "12:00 PM–12:40 PM"
+          ],
+          "offerings": [
+            "Ceramics",
+            "Drama"
+          ]
+        }
+      ],
+      "events": [
+        {
+          "name": "Museum Trip",
+          "kind": "trip",
+          "days": [
+            "Tuesday"
+          ],
+          "blocks": [
+            "09:30 AM–10:10 AM",
+            "10:20 AM–11:00 AM"
+          ],
+          "groups": [
+            "1A",
+            "1B",
+            "1C",
+            "1D"
+          ]
+        },
+        {
+          "name": "Lunch",
+          "kind": "lunch",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ],
+          "blocks": [
+            "11:10 AM–11:50 AM"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Sign In",
+          "kind": "daily",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ],
+          "blocks": [
+            "09:00 AM–09:20 AM"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Pick Up",
+          "kind": "daily",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ],
+          "blocks": [
+            "12:50 PM–01:10 PM"
+          ],
+          "groups": "all"
+        }
+      ],
+      "activities": [
+        "Lunch Bunch",
+        "Archery",
+        "Arts and Crafts",
+        "Basketball",
+        "Ceramics",
+        "Chess Club",
+        "Climbing Wall",
+        "Dance",
+        "Ropes Course"
+      ],
+      "typos": [],
+      "counts": {
+        "blank": 0,
+        "split": 0,
+        "typo": 0,
+        "wrapped": 0
+      }
+    },
+    {
+      "slug": "s12-daysheet-4d-late",
+      "file": "s12-daysheet-4d-late.txt",
+      "layout": "daySheet",
+      "traits": "Day sheets, 4-day week, 10 groups, two lunch waves, 10:20 start to a 6:00pm finish, weekly Thursday Theme Day.",
+      "days": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday"
+      ],
+      "groups": [
+        "1A",
+        "1B",
+        "1C",
+        "1D",
+        "2A",
+        "2B",
+        "2C",
+        "2D",
+        "3A",
+        "3B"
+      ],
+      "divisions": [
+        "1",
+        "2",
+        "3"
+      ],
+      "clock": "ampm",
+      "blocks": [
+        {
+          "label": "10:20 AM–10:40 AM",
+          "minutes": 20,
+          "kind": "event"
+        },
+        {
+          "label": "10:50 AM–11:35 AM",
+          "minutes": 45,
+          "kind": "activity"
+        },
+        {
+          "label": "11:40 AM–12:25 PM",
+          "minutes": 45,
+          "kind": "activity"
+        },
+        {
+          "label": "12:30 PM–01:10 PM",
+          "minutes": 40,
+          "kind": "lunch"
+        },
+        {
+          "label": "01:20 PM–02:00 PM",
+          "minutes": 40,
+          "kind": "lunch"
+        },
+        {
+          "label": "02:10 PM–02:55 PM",
+          "minutes": 45,
+          "kind": "activity"
+        },
+        {
+          "label": "03:00 PM–03:45 PM",
+          "minutes": 45,
+          "kind": "activity"
+        },
+        {
+          "label": "03:50 PM–04:35 PM",
+          "minutes": 45,
+          "kind": "activity"
+        },
+        {
+          "label": "04:40 PM–05:25 PM",
+          "minutes": 45,
+          "kind": "activity"
+        },
+        {
+          "label": "05:30 PM–06:00 PM",
+          "minutes": 30,
+          "kind": "event"
+        }
+      ],
+      "firstStart": "10:20",
+      "lastEnd": "18:00",
+      "lunchWaves": [
+        {
+          "name": "Lunch 1",
+          "block": "12:30 PM–01:10 PM",
+          "groups": [
+            "1A",
+            "1B",
+            "1C",
+            "1D",
+            "2A"
+          ]
+        },
+        {
+          "name": "Lunch 2",
+          "block": "01:20 PM–02:00 PM",
+          "groups": [
+            "2B",
+            "2C",
+            "2D",
+            "3A",
+            "3B"
+          ]
+        }
+      ],
+      "spans": [
+        {
+          "name": "Wilderness Skills",
+          "blocks": 3,
+          "form": "repeat",
+          "days": [
+            "Monday"
+          ],
+          "groups": [
+            "1A",
+            "1B",
+            "1C",
+            "1D"
+          ],
+          "rows": [
+            "02:10 PM–02:55 PM",
+            "03:00 PM–03:45 PM",
+            "03:50 PM–04:35 PM"
+          ]
+        },
+        {
+          "name": "Ropes Course",
+          "blocks": 2,
+          "form": "blank",
+          "days": [
+            "Tuesday",
+            "Wednesday"
+          ],
+          "groups": [
+            "2A",
+            "2B",
+            "2C",
+            "2D",
+            "3A",
+            "3B"
+          ],
+          "rows": [
+            "03:50 PM–04:35 PM",
+            "04:40 PM–05:25 PM"
+          ]
+        }
+      ],
+      "electives": [
+        {
+          "name": "Electives",
+          "form": "list",
+          "days": [
+            "Thursday"
+          ],
+          "groups": [
+            "3A",
+            "3B"
+          ],
+          "rows": [
+            "04:40 PM–05:25 PM"
+          ],
+          "offerings": [
+            "Pottery",
+            "Drama",
+            "Robotics"
+          ]
+        }
+      ],
+      "events": [
+        {
+          "name": "Aquarium Trip",
+          "kind": "trip",
+          "days": [
+            "Tuesday"
+          ],
+          "blocks": [
+            "02:10 PM–02:55 PM",
+            "03:00 PM–03:45 PM"
+          ],
+          "groups": [
+            "1A",
+            "1B",
+            "1C",
+            "1D"
+          ]
+        },
+        {
+          "name": "Games Day",
+          "kind": "allday",
+          "days": [
+            "Monday"
+          ],
+          "blocks": [
+            "10:20 AM–10:40 AM",
+            "10:50 AM–11:35 AM",
+            "11:40 AM–12:25 PM",
+            "12:30 PM–01:10 PM",
+            "01:20 PM–02:00 PM",
+            "02:10 PM–02:55 PM",
+            "03:00 PM–03:45 PM",
+            "03:50 PM–04:35 PM",
+            "04:40 PM–05:25 PM",
+            "05:30 PM–06:00 PM"
+          ],
+          "groups": [
+            "2A",
+            "2B",
+            "2C",
+            "2D",
+            "3A",
+            "3B"
+          ]
+        },
+        {
+          "name": "Lunch 1",
+          "kind": "lunch",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday"
+          ],
+          "blocks": [
+            "12:30 PM–01:10 PM"
+          ],
+          "groups": [
+            "1A",
+            "1B",
+            "1C",
+            "1D",
+            "2A"
+          ]
+        },
+        {
+          "name": "Lunch 2",
+          "kind": "lunch",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday"
+          ],
+          "blocks": [
+            "01:20 PM–02:00 PM"
+          ],
+          "groups": [
+            "2B",
+            "2C",
+            "2D",
+            "3A",
+            "3B"
+          ]
+        },
+        {
+          "name": "Sign In",
+          "kind": "daily",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday"
+          ],
+          "blocks": [
+            "10:20 AM–10:40 AM"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Pick Up",
+          "kind": "daily",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday"
+          ],
+          "blocks": [
+            "05:30 PM–06:00 PM"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Theme Day",
+          "kind": "weekly",
+          "days": [
+            "Thursday"
+          ],
+          "blocks": [
+            "10:50 AM–11:35 AM"
+          ],
+          "groups": "all"
+        }
+      ],
+      "activities": [
+        "Drama",
+        "Drumming",
+        "Fishing",
+        "Gaga Pit",
+        "Garden",
+        "Hiking",
+        "Kayaking",
+        "Knitting",
+        "Lanyard",
+        "Music",
+        "Nature Walk",
+        "Orienteering",
+        "Painting",
+        "Pottery",
+        "Robotics",
+        "Sailing",
+        "Soccer",
+        "Softball",
+        "Wilderness Skills",
+        "Ropes Course"
+      ],
+      "typos": [],
+      "counts": {
+        "blank": 0,
+        "split": 0,
+        "typo": 0,
+        "wrapped": 0
+      }
+    },
+    {
+      "slug": "s13-daysheet-16-splits",
+      "file": "s13-daysheet-16-splits.txt",
+      "layout": "daySheet",
+      "traits": "Day sheets, 16 groups, three lunch waves, split cells, \"Musik\" typo, every-other-day Library for all groups except 4D.",
+      "days": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday"
+      ],
+      "groups": [
+        "1A",
+        "1B",
+        "1C",
+        "1D",
+        "2A",
+        "2B",
+        "2C",
+        "2D",
+        "3A",
+        "3B",
+        "3C",
+        "3D",
+        "4A",
+        "4B",
+        "4C",
+        "4D"
+      ],
+      "divisions": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "clock": "ampm",
+      "blocks": [
+        {
+          "label": "08:45 AM–09:05 AM",
+          "minutes": 20,
+          "kind": "event"
+        },
+        {
+          "label": "09:15 AM–10:00 AM",
+          "minutes": 45,
+          "kind": "activity"
+        },
+        {
+          "label": "10:05 AM–10:50 AM",
+          "minutes": 45,
+          "kind": "activity"
+        },
+        {
+          "label": "10:55 AM–11:30 AM",
+          "minutes": 35,
+          "kind": "lunch"
+        },
+        {
+          "label": "11:35 AM–12:10 PM",
+          "minutes": 35,
+          "kind": "lunch"
+        },
+        {
+          "label": "12:15 PM–12:50 PM",
+          "minutes": 35,
+          "kind": "lunch"
+        },
+        {
+          "label": "12:55 PM–01:40 PM",
+          "minutes": 45,
+          "kind": "activity"
+        },
+        {
+          "label": "01:45 PM–02:30 PM",
+          "minutes": 45,
+          "kind": "activity"
+        },
+        {
+          "label": "02:35 PM–02:55 PM",
+          "minutes": 20,
+          "kind": "event"
+        }
+      ],
+      "firstStart": "08:45",
+      "lastEnd": "14:55",
+      "lunchWaves": [
+        {
+          "name": "Lunch 1",
+          "block": "10:55 AM–11:30 AM",
+          "groups": [
+            "1A",
+            "1B",
+            "1C",
+            "1D",
+            "2A",
+            "2B"
+          ]
+        },
+        {
+          "name": "Lunch 2",
+          "block": "11:35 AM–12:10 PM",
+          "groups": [
+            "2C",
+            "2D",
+            "3A",
+            "3B",
+            "3C"
+          ]
+        },
+        {
+          "name": "Lunch 3",
+          "block": "12:15 PM–12:50 PM",
+          "groups": [
+            "3D",
+            "4A",
+            "4B",
+            "4C",
+            "4D"
+          ]
+        }
+      ],
+      "spans": [
+        {
+          "name": "Ropes Course",
+          "blocks": 2,
+          "form": "repeat",
+          "days": [
+            "Tuesday",
+            "Thursday"
+          ],
+          "groups": [
+            "1A",
+            "1B",
+            "1C",
+            "1D",
+            "2A",
+            "2B",
+            "2C",
+            "2D"
+          ],
+          "rows": [
+            "12:55 PM–01:40 PM",
+            "01:45 PM–02:30 PM"
+          ]
+        }
+      ],
+      "electives": [
+        {
+          "name": "Chugim",
+          "form": "header",
+          "days": [
+            "Friday"
+          ],
+          "groups": [
+            "1A",
+            "1B",
+            "1C",
+            "1D",
+            "2A",
+            "2B",
+            "2C",
+            "2D",
+            "3A",
+            "3B",
+            "3C",
+            "3D",
+            "4A",
+            "4B",
+            "4C",
+            "4D"
+          ],
+          "rows": [
+            "01:45 PM–02:30 PM"
+          ],
+          "offerings": [
+            "Ceramics",
+            "Ropes"
+          ]
+        },
+        {
+          "name": "Chugim",
+          "form": "list",
+          "days": [
+            "Thursday"
+          ],
+          "groups": [
+            "4A",
+            "4B",
+            "4C",
+            "4D"
+          ],
+          "rows": [
+            "10:05 AM–10:50 AM"
+          ],
+          "offerings": [
+            "Ceramics",
+            "Pottery"
+          ]
+        }
+      ],
+      "events": [
+        {
+          "name": "Aquarium Trip",
+          "kind": "trip",
+          "days": [
+            "Wednesday"
+          ],
+          "blocks": [
+            "12:55 PM–01:40 PM",
+            "01:45 PM–02:30 PM"
+          ],
+          "groups": [
+            "3A",
+            "3B",
+            "3C",
+            "3D"
+          ]
+        },
+        {
+          "name": "Games Day",
+          "kind": "allday",
+          "days": [
+            "Tuesday"
+          ],
+          "blocks": [
+            "08:45 AM–09:05 AM",
+            "09:15 AM–10:00 AM",
+            "10:05 AM–10:50 AM",
+            "10:55 AM–11:30 AM",
+            "11:35 AM–12:10 PM",
+            "12:15 PM–12:50 PM",
+            "12:55 PM–01:40 PM",
+            "01:45 PM–02:30 PM",
+            "02:35 PM–02:55 PM"
+          ],
+          "groups": [
+            "3A",
+            "3B",
+            "3C",
+            "3D",
+            "4A",
+            "4B",
+            "4C",
+            "4D"
+          ]
+        },
+        {
+          "name": "Lunch 1",
+          "kind": "lunch",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ],
+          "blocks": [
+            "10:55 AM–11:30 AM"
+          ],
+          "groups": [
+            "1A",
+            "1B",
+            "1C",
+            "1D",
+            "2A",
+            "2B"
+          ]
+        },
+        {
+          "name": "Lunch 2",
+          "kind": "lunch",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ],
+          "blocks": [
+            "11:35 AM–12:10 PM"
+          ],
+          "groups": [
+            "2C",
+            "2D",
+            "3A",
+            "3B",
+            "3C"
+          ]
+        },
+        {
+          "name": "Lunch 3",
+          "kind": "lunch",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ],
+          "blocks": [
+            "12:15 PM–12:50 PM"
+          ],
+          "groups": [
+            "3D",
+            "4A",
+            "4B",
+            "4C",
+            "4D"
+          ]
+        },
+        {
+          "name": "Sign In",
+          "kind": "daily",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ],
+          "blocks": [
+            "08:45 AM–09:05 AM"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Pick Up",
+          "kind": "daily",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ],
+          "blocks": [
+            "02:35 PM–02:55 PM"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Library",
+          "kind": "alternate",
+          "days": [
+            "Monday",
+            "Wednesday",
+            "Friday"
+          ],
+          "blocks": [
+            "09:15 AM–10:00 AM"
+          ],
+          "groups": "all"
+        }
+      ],
+      "activities": [
+        "Knitting",
+        "Lanyard",
+        "Music",
+        "Nature Walk",
+        "Orienteering",
+        "Painting",
+        "Pottery",
+        "Robotics",
+        "Sailing",
+        "Soccer",
+        "Softball",
+        "Storytelling",
+        "Swim",
+        "Tennis",
+        "Tie Dye",
+        "Trampoline",
+        "Volleyball",
+        "Woodworking",
+        "Yoga",
+        "Free Swim",
+        "Rocketry",
+        "Photography",
+        "Cooking",
+        "Magic Show",
+        "Puppetry",
+        "Ropes Course"
+      ],
+      "typos": [
+        {
+          "canonical": "Music",
+          "variant": "Musik"
+        }
+      ],
+      "counts": {
+        "blank": 0,
+        "split": 17,
+        "typo": 2,
+        "wrapped": 0
+      }
+    },
+    {
+      "slug": "s14-by-day-period-24h",
+      "file": "s14-by-day-period-24h.txt",
+      "layout": "byDayPeriod",
+      "traits": "By-day pages headed \"Period\" with upper-case day titles, 24h times, 9 groups in 3 divisions, two lunch waves, and a weekly all-camp event whose name is also an activity (\"Swim\").",
+      "days": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday"
+      ],
+      "groups": [
+        "Otters 1",
+        "Otters 2",
+        "Otters 3",
+        "Herons 1",
+        "Herons 2",
+        "Herons 3",
+        "Foxes 1",
+        "Foxes 2",
+        "Foxes 3"
+      ],
+      "divisions": [
+        "Otters",
+        "Herons",
+        "Foxes"
+      ],
+      "clock": "24",
+      "blocks": [
+        {
+          "label": "09:00–09:15",
+          "minutes": 15,
+          "kind": "event"
+        },
+        {
+          "label": "09:20–10:05",
+          "minutes": 45,
+          "kind": "activity"
+        },
+        {
+          "label": "10:10–10:55",
+          "minutes": 45,
+          "kind": "activity"
+        },
+        {
+          "label": "11:00–11:40",
+          "minutes": 40,
+          "kind": "lunch"
+        },
+        {
+          "label": "11:45–12:25",
+          "minutes": 40,
+          "kind": "lunch"
+        },
+        {
+          "label": "12:30–13:15",
+          "minutes": 45,
+          "kind": "activity"
+        },
+        {
+          "label": "13:20–14:05",
+          "minutes": 45,
+          "kind": "activity"
+        },
+        {
+          "label": "14:10–14:25",
+          "minutes": 15,
+          "kind": "event"
+        }
+      ],
+      "firstStart": "09:00",
+      "lastEnd": "14:25",
+      "lunchWaves": [
+        {
+          "name": "Lunch 1",
+          "block": "11:00–11:40",
+          "groups": [
+            "Otters 1",
+            "Otters 2",
+            "Otters 3",
+            "Herons 1",
+            "Herons 2"
+          ]
+        },
+        {
+          "name": "Lunch 2",
+          "block": "11:45–12:25",
+          "groups": [
+            "Herons 3",
+            "Foxes 1",
+            "Foxes 2",
+            "Foxes 3"
+          ]
+        }
+      ],
+      "spans": [
+        {
+          "name": "Ropes Course",
+          "blocks": 2,
+          "form": "repeat",
+          "days": [
+            "Monday"
+          ],
+          "groups": [
+            "Otters 1",
+            "Otters 2",
+            "Otters 3",
+            "Herons 1",
+            "Herons 2",
+            "Herons 3",
+            "Foxes 1",
+            "Foxes 2",
+            "Foxes 3"
+          ],
+          "rows": [
+            "12:30–13:15",
+            "13:20–14:05"
+          ]
+        }
+      ],
+      "electives": [
+        {
+          "name": "Elective",
+          "form": "header",
+          "days": [
+            "Monday",
+            "Thursday"
+          ],
+          "groups": [
+            "Otters 1",
+            "Otters 2",
+            "Otters 3"
+          ],
+          "rows": [
+            "10:10–10:55"
+          ],
+          "offerings": [
+            "Chess Club",
+            "Garden",
+            "Yoga",
+            "Drama",
+            "Cooking"
+          ]
+        }
+      ],
+      "events": [
+        {
+          "name": "Museum Trip",
+          "kind": "trip",
+          "days": [
+            "Thursday"
+          ],
+          "blocks": [
+            "12:30–13:15",
+            "13:20–14:05"
+          ],
+          "groups": [
+            "Herons 1",
+            "Herons 2",
+            "Herons 3"
+          ]
+        },
+        {
+          "name": "Lunch 1",
+          "kind": "lunch",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ],
+          "blocks": [
+            "11:00–11:40"
+          ],
+          "groups": [
+            "Otters 1",
+            "Otters 2",
+            "Otters 3",
+            "Herons 1",
+            "Herons 2"
+          ]
+        },
+        {
+          "name": "Lunch 2",
+          "kind": "lunch",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ],
+          "blocks": [
+            "11:45–12:25"
+          ],
+          "groups": [
+            "Herons 3",
+            "Foxes 1",
+            "Foxes 2",
+            "Foxes 3"
+          ]
+        },
+        {
+          "name": "Morning Meeting",
+          "kind": "daily",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ],
+          "blocks": [
+            "09:00–09:15"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Closing Circle",
+          "kind": "daily",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday"
+          ],
+          "blocks": [
+            "14:10–14:25"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Swim",
+          "kind": "weekly",
+          "days": [
+            "Wednesday"
+          ],
+          "blocks": [
+            "09:20–10:05"
+          ],
+          "groups": "all"
+        }
+      ],
+      "activities": [
+        "Storytelling",
+        "Swim",
+        "Tennis",
+        "Tie Dye",
+        "Trampoline",
+        "Volleyball",
+        "Woodworking",
+        "Yoga",
+        "Free Swim",
+        "Rocketry",
+        "Photography",
+        "Cooking",
+        "Magic Show",
+        "Puppetry",
+        "Ropes Course"
+      ],
+      "typos": [],
+      "counts": {
+        "blank": 0,
+        "split": 0,
+        "typo": 0,
+        "wrapped": 0
+      }
+    },
+    {
+      "slug": "s15-by-day-period-6day-nolunch",
+      "file": "s15-by-day-period-6day-nolunch.txt",
+      "layout": "byDayPeriod",
+      "traits": "By-day \"Period\" pages, 6-day week, 18 groups in 6 divisions, uneven 30/35/45/55-minute blocks, no lunch, daily Snack event, blank cells, \"Swim Test\" activity.",
+      "days": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday"
+      ],
+      "groups": [
+        "Otters 1",
+        "Otters 2",
+        "Otters 3",
+        "Herons 1",
+        "Herons 2",
+        "Herons 3",
+        "Foxes 1",
+        "Foxes 2",
+        "Foxes 3",
+        "Lynx 1",
+        "Lynx 2",
+        "Lynx 3",
+        "Moles 1",
+        "Moles 2",
+        "Moles 3",
+        "Voles 1",
+        "Voles 2",
+        "Voles 3"
+      ],
+      "divisions": [
+        "Otters",
+        "Herons",
+        "Foxes",
+        "Lynx",
+        "Moles",
+        "Voles"
+      ],
+      "clock": "24",
+      "blocks": [
+        {
+          "label": "08:15–08:30",
+          "minutes": 15,
+          "kind": "event"
+        },
+        {
+          "label": "08:30–09:00",
+          "minutes": 30,
+          "kind": "activity"
+        },
+        {
+          "label": "09:10–09:55",
+          "minutes": 45,
+          "kind": "activity"
+        },
+        {
+          "label": "10:00–10:35",
+          "minutes": 35,
+          "kind": "activity"
+        },
+        {
+          "label": "10:40–11:00",
+          "minutes": 20,
+          "kind": "event"
+        },
+        {
+          "label": "11:05–11:50",
+          "minutes": 45,
+          "kind": "activity"
+        },
+        {
+          "label": "11:55–12:25",
+          "minutes": 30,
+          "kind": "activity"
+        },
+        {
+          "label": "12:35–13:30",
+          "minutes": 55,
+          "kind": "activity"
+        },
+        {
+          "label": "13:35–13:50",
+          "minutes": 15,
+          "kind": "event"
+        }
+      ],
+      "firstStart": "08:15",
+      "lastEnd": "13:50",
+      "lunchWaves": [],
+      "spans": [
+        {
+          "name": "Wilderness Skills",
+          "blocks": 3,
+          "form": "blank",
+          "days": [
+            "Monday",
+            "Wednesday",
+            "Friday"
+          ],
+          "groups": [
+            "Otters 1",
+            "Otters 2",
+            "Otters 3",
+            "Herons 1",
+            "Herons 2",
+            "Herons 3"
+          ],
+          "rows": [
+            "08:30–09:00",
+            "09:10–09:55",
+            "10:00–10:35"
+          ]
+        },
+        {
+          "name": "Ropes Course",
+          "blocks": 3,
+          "form": "repeat",
+          "days": [
+            "Tuesday"
+          ],
+          "groups": [
+            "Otters 1",
+            "Otters 2",
+            "Otters 3",
+            "Herons 1",
+            "Herons 2",
+            "Herons 3",
+            "Foxes 1",
+            "Foxes 2",
+            "Foxes 3",
+            "Lynx 1",
+            "Lynx 2",
+            "Lynx 3",
+            "Moles 1",
+            "Moles 2",
+            "Moles 3",
+            "Voles 1",
+            "Voles 2",
+            "Voles 3"
+          ],
+          "rows": [
+            "11:05–11:50",
+            "11:55–12:25",
+            "12:35–13:30"
+          ]
+        }
+      ],
+      "electives": [
+        {
+          "name": "Electives",
+          "form": "header",
+          "days": [
+            "Thursday"
+          ],
+          "groups": [
+            "Otters 1",
+            "Otters 2",
+            "Otters 3",
+            "Herons 1",
+            "Herons 2",
+            "Herons 3",
+            "Foxes 1",
+            "Foxes 2",
+            "Foxes 3",
+            "Lynx 1",
+            "Lynx 2",
+            "Lynx 3",
+            "Moles 1",
+            "Moles 2",
+            "Moles 3",
+            "Voles 1",
+            "Voles 2",
+            "Voles 3"
+          ],
+          "rows": [
+            "11:55–12:25"
+          ],
+          "offerings": [
+            "Pottery",
+            "Dance",
+            "Soccer"
+          ]
+        }
+      ],
+      "events": [
+        {
+          "name": "Farm Trip",
+          "kind": "trip",
+          "days": [
+            "Thursday"
+          ],
+          "blocks": [
+            "08:30–09:00",
+            "09:10–09:55"
+          ],
+          "groups": [
+            "Moles 1",
+            "Moles 2",
+            "Moles 3",
+            "Voles 1",
+            "Voles 2",
+            "Voles 3"
+          ]
+        },
+        {
+          "name": "Games Day",
+          "kind": "allday",
+          "days": [
+            "Saturday"
+          ],
+          "blocks": [
+            "08:15–08:30",
+            "08:30–09:00",
+            "09:10–09:55",
+            "10:00–10:35",
+            "10:40–11:00",
+            "11:05–11:50",
+            "11:55–12:25",
+            "12:35–13:30",
+            "13:35–13:50"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Arrival",
+          "kind": "daily",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday"
+          ],
+          "blocks": [
+            "08:15–08:30"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Snack",
+          "kind": "daily",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday"
+          ],
+          "blocks": [
+            "10:40–11:00"
+          ],
+          "groups": "all"
+        },
+        {
+          "name": "Dismissal",
+          "kind": "daily",
+          "days": [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday"
+          ],
+          "blocks": [
+            "13:35–13:50"
+          ],
+          "groups": "all"
+        }
+      ],
+      "activities": [
+        "Swim Test",
+        "Volleyball",
+        "Woodworking",
+        "Yoga",
+        "Free Swim",
+        "Rocketry",
+        "Photography",
+        "Cooking",
+        "Magic Show",
+        "Puppetry",
+        "Bocce",
+        "Archery",
+        "Arts and Crafts",
+        "Basketball",
+        "Ceramics",
+        "Chess Club",
+        "Climbing Wall",
+        "Dance",
+        "Drama",
+        "Drumming",
+        "Fishing",
+        "Gaga Pit",
+        "Garden",
+        "Hiking",
+        "Kayaking",
+        "Knitting",
+        "Lanyard",
+        "Music",
+        "Nature Walk",
+        "Orienteering",
+        "Wilderness Skills",
+        "Ropes Course"
+      ],
+      "typos": [],
+      "counts": {
+        "blank": 17,
+        "split": 0,
+        "typo": 0,
+        "wrapped": 11
+      }
+    }
+  ],
+  "specialDayFiles": [
+    {
+      "slug": "s02-by-day-three-waves",
+      "file": "special-days/s02-color-war-day.txt",
+      "name": "Color War Day",
+      "groups": [
+        "Otters 1",
+        "Otters 2",
+        "Otters 3",
+        "Otters 4",
+        "Herons 1",
+        "Herons 2"
+      ],
+      "blocks": 10
+    },
+    {
+      "slug": "s05-by-day-tiny-early",
+      "file": "special-days/s05-games-day.txt",
+      "name": "Games Day",
+      "groups": [
+        "Otters 1",
+        "Otters 2"
+      ],
+      "blocks": 8
+    },
+    {
+      "slug": "s09-by-group-6day-except",
+      "file": "special-days/s09-games-day.txt",
+      "name": "Games Day",
+      "groups": [
+        "Otters 1",
+        "Otters 2",
+        "Otters 3",
+        "Otters 4",
+        "Herons 1",
+        "Herons 2"
+      ],
+      "blocks": 8
+    }
+  ]
+}
