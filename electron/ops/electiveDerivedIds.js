@@ -409,6 +409,37 @@ export function deriveSpecialDayPlacementId(weekId, dayId) {
   return `sdp1:${join([opaque('week_id', weekId), opaque('day_id', dayId)])}`
 }
 
+// F3/F4 slice 3a (docs/adr/2026-10-11-import-special-days-and-field-trips.md). A one-day file imported
+// twice, or on two devices, must converge on the same rows. Keys: the day is (camp, normalized name);
+// a period is (day, sort_order); a cell is (day, group, period). A parent id is one of these derivations'
+// own output (its name component keeps human characters, so it cannot pass opaque()).
+function derivedParent(name, value, prefix) {
+  if (typeof value !== 'string' || !value.startsWith(prefix)) {
+    throw new Error(`electiveDerivedIds: component ${name} must be a derived id (${prefix}...)`)
+  }
+  return value
+}
+
+export function deriveSpecialDayId(campId, name) {
+  return `sd1:${join([opaque('camp_id', campId), electiveChoiceLabelKey(name)])}`
+}
+
+export function deriveSpecialDayActivityId(campId, name) {
+  return `sda1:${join([opaque('camp_id', campId), electiveChoiceLabelKey(name)])}`
+}
+
+export function deriveSpecialDayTimeBlockId(specialDayId, sortOrder) {
+  return `sdtb1:${join([derivedParent('special_day_id', specialDayId, 'sd1:'), String(Number(sortOrder))])}`
+}
+
+export function deriveSpecialDaySlotId(specialDayId, groupId, timeBlockId) {
+  return `sds1:${join([
+    derivedParent('special_day_id', specialDayId, 'sd1:'),
+    opaque('group_id', groupId),
+    derivedParent('time_block_id', timeBlockId, 'sdtb1:'),
+  ])}`
+}
+
 // Key: (run_id, elective_set_id, day_id, time_block_id, tier_id).
 export function deriveElectiveOccurrenceId(runId, electiveSetId, dayId, timeBlockId, tierId) {
   return `eocc${V}:${join([

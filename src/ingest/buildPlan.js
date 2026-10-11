@@ -929,6 +929,9 @@ export function buildPlan(source, existing = null, resolutions = []) {
     // — director-confirmed one-off multi-block candidates, same passthrough
     // shape as fixedEvents above.
     multiBlockEvents: Array.isArray(source?.multiBlockEvents) ? source.multiBlockEvents : [],
+    // F3/F4 slice 3a: a recognised one-day file's confirmed plan (src/ingest/specialDayPlan.js), committed by
+    // commitPlan in the same transaction as everything else.
+    specialDay: source?.specialDay ?? null,
     // Slice 3a — create-shaped elective nudges, never entity `items` (no
     // elective_set exists yet to diff fields against).
     electiveCandidates: buildElectiveCandidates(source, existing),

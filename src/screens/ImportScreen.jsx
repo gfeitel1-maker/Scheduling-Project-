@@ -13,7 +13,6 @@ import { partitionSchedulePages } from '../ingest/scheduleShape'
 import { proposeSpecialDay } from '../ingest/specialDayFile'
 import { matchActivitiesToLocations, candidatePlaceNames } from '../ingest/locationsFromActivities'
 import { buildSpecialDayPlan } from '../ingest/specialDayPlan'
-import { commitSpecialDayPlan } from '../ingest/commitSpecialDay'
 import { findSuspectRecords } from '../ingest/suspectRecords'
 import { formatEligibility } from './importEligibility'
 import { fixedEventKey } from '../ingest/fixedEventKey'
@@ -1140,53 +1139,20 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
 
   // The exact inputs a commit sends — built once here so a held re-commit (T73)
   // re-sends the SAME inputs plus the director's resolutions (ADR §1).
-  // T40 slice 3b — build the recognised one-day schedule. Nothing here is
-  // silent: the panel above already listed what would be created, and a failure
-  // reports where it stopped, because there is no transaction and claiming
-  // "nothing happened" would be a lie the director acts on.
+  // F3/F4 slice 3a — build the recognised one-day schedule. The main process commits it as one
+  // transaction (ingestCommit's specialDay), so it either lands whole or not at all.
   async function buildSpecialDay() {
     if (!specialDayPlan?.ready || buildingSpecialDayRef.current) return
     buildingSpecialDayRef.current = true
     setBuildingSpecialDay(true)
     setError(null)
     try {
-      const out = await commitSpecialDayPlan(specialDayPlan, {
-        writeField: async (entity, id, field, value) => {
-          // Guarded exactly as localClient.js's own currentToken() is: this
-          // screen must not assume a working localStorage, which is absent or
-          // inert under an opaque origin.
-          const token = typeof localStorage !== 'undefined' && typeof localStorage.getItem === 'function'
-            ? localStorage.getItem('shoresh-token')
-            : null
-          const result = await localClient.write(token, entity, id, field, value)
-          if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
-            // Terse on purpose: commitSpecialDayPlan prefixes this with the
-            // day's name, and describeWriteFailure's full sentence would read
-            // as two apologies welded together.
-            throw new Error(result?.error ? String(result.error) : `writing ${entity}.${field} was refused`)
-          }
-          return result
-        },
-        newId: () => crypto.randomUUID(),
-      })
-      setSpecialDayResult(out)
+      const out = await localClient.ingestCommit({ approved: {}, links: {}, specialDay: specialDayPlan })
+      if (!out?.specialDay?.created) throw new Error(`"${specialDayPlan.name}" already exists, so nothing was built.`)
+      setSpecialDayResult(out.specialDay)
       setSpecialDayPlan(null)
     } catch (err) {
-      // An error from commitSpecialDayPlan carries specialDayId and already
-      // says WHICH day was left half-built — the one detail the director needs
-      // to go and find it. describeWriteFailure only maps known DB error
-      // shapes and would replace that with "the reason was not something the
-      // app recognised", which is strictly less useful here.
-      if (err?.specialDayId) {
-        setError(`${err.message} Find it under Special Events to finish or delete it.`)
-        // The day EXISTS now, half-built. Leaving the panel up would offer to
-        // build it again, which creates a second day of the same name (and
-        // trips special_days' UNIQUE constraint). Clearing it points the
-        // director at the half-built day instead of at a retry that cannot work.
-        setSpecialDayPlan(null)
-      } else {
-        setError(describeWriteFailure(err, 'Special day not built.'))
-      }
+      setError(describeWriteFailure(err, 'Special day not built.'))
     } finally {
       buildingSpecialDayRef.current = false
       setBuildingSpecialDay(false)

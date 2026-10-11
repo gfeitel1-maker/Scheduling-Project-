@@ -186,6 +186,7 @@ describe('ImportScreen — declines a one-day special schedule (T40)', () => {
     expect(screen.getByText(/are not groups/i)).toBeTruthy()
     await userEvent.click(build)
     expect(localClient.write).not.toHaveBeenCalled()
+    expect(localClient.ingestCommit).not.toHaveBeenCalled()
   })
 
   it('says what building it would ADD to the camp before anything is written', async () => {
@@ -202,62 +203,52 @@ describe('ImportScreen — declines a one-day special schedule (T40)', () => {
     expect(screen.getByText((_, el) => /adds 5 new activities/i.test(el?.textContent ?? ''), { selector: 'p' })).toBeTruthy()
     expect(screen.getByText((_, el) => /Opening.*Pool/is.test(el?.textContent ?? ''), { selector: 'p' })).toBeTruthy()
     expect(localClient.write).not.toHaveBeenCalled()
-  })
-
-  it('builds the day, its periods and its cells when the director confirms', async () => {
-    mockSpecialDayFile()
-    localClient.list.mockImplementation((entity) =>
-      Promise.resolve(entity === 'groups' ? FOUR_GROUPS : []))
-    localClient.write.mockResolvedValue({ status: 'applied' })
-    render(<ImportScreen campId="camp-1" onNavigate={() => {}} />)
-    await userEvent.upload(document.querySelector('input[type="file"]'), maccabiahFile())
-
-    await userEvent.click(await screen.findByRole('button', { name: /Build this special day/i }))
-    await waitFor(() => expect(screen.getByText(/Special day built/i)).toBeTruthy())
-
-    const wrote = (entity) => localClient.write.mock.calls.filter((c) => c[1] === entity)
-    expect(wrote('special_days').length).toBeGreaterThan(0)
-    expect(wrote('special_day_time_blocks').length).toBeGreaterThan(0)
-    // Two periods x four groups, every cell filled in this fixture.
-    const slotIds = new Set(wrote('special_day_slots').map((c) => c[2]))
-    expect(slotIds.size).toBe(8)
-    // The weekly path is still untouched.
     expect(localClient.ingestCommit).not.toHaveBeenCalled()
   })
 
-  it('keeps the staff names, which the grid has nowhere to put', async () => {
+  const buildDay = async () => {
     mockSpecialDayFile()
     localClient.list.mockImplementation((entity) =>
       Promise.resolve(entity === 'groups' ? FOUR_GROUPS : []))
-    localClient.write.mockResolvedValue({ status: 'applied' })
     render(<ImportScreen campId="camp-1" onNavigate={() => {}} />)
     await userEvent.upload(document.querySelector('input[type="file"]'), maccabiahFile())
     await userEvent.click(await screen.findByRole('button', { name: /Build this special day/i }))
+  }
+
+  it('builds the day, its periods and its cells when the director confirms', async () => {
+    localClient.ingestCommit.mockResolvedValue({ specialDay: { created: true, name: '"Among Us" Maccabiah Schedule 2022' } })
+    await buildDay()
     await waitFor(() => expect(screen.getByText(/Special day built/i)).toBeTruthy())
 
-    const notes = localClient.write.mock.calls.find((c) => c[1] === 'special_days' && c[4] && String(c[4]).includes('Unit Heads'))
-    expect(notes).toBeTruthy()
+    expect(localClient.ingestCommit).toHaveBeenCalledTimes(1)
+    const payload = localClient.ingestCommit.mock.calls[0][0]
+    expect(payload.approved).toEqual({})
+    expect(payload.links).toEqual({})
+    expect(payload.specialDay.name).toMatch(/Among Us/)
+    expect(payload.specialDay.timeBlocks.length).toBe(2)
+    // Two periods x four groups, every cell filled in this fixture.
+    expect(payload.specialDay.slots.length).toBe(8)
+    expect(localClient.write).not.toHaveBeenCalled()
   })
 
-  it('names the half-built day when a write is refused mid-way', async () => {
-    // There is no transaction. Telling the director "nothing happened" would be
-    // a lie they would act on.
-    mockSpecialDayFile()
-    localClient.list.mockImplementation((entity) =>
-      Promise.resolve(entity === 'groups' ? FOUR_GROUPS : []))
-    let n = 0
-    localClient.write.mockImplementation(async () => (++n > 4 ? { status: 'rejected' } : { status: 'applied' }))
-    render(<ImportScreen campId="camp-1" onNavigate={() => {}} />)
-    await userEvent.upload(document.querySelector('input[type="file"]'), maccabiahFile())
-    await userEvent.click(await screen.findByRole('button', { name: /Build this special day/i }))
+  it('keeps the staff names, which the grid has nowhere to put', async () => {
+    localClient.ingestCommit.mockResolvedValue({ specialDay: { created: true, name: 'x' } })
+    await buildDay()
+    await waitFor(() => expect(screen.getByText(/Special day built/i)).toBeTruthy())
 
-    const banner = await screen.findByText(/only partly built/i)
-    // Names the day, and says where to find it — the day EXISTS now.
-    expect(banner.textContent).toMatch(/Among Us/)
-    expect(banner.textContent).toMatch(/Special Events/)
-    // And does not offer to build it again, which would make a second day of
-    // the same name and trip the UNIQUE constraint.
-    expect(screen.queryByRole('button', { name: /Build this special day/i })).toBeNull()
+    expect(String(localClient.ingestCommit.mock.calls[0][0].specialDay.notes)).toContain('Unit Heads')
+  })
+
+  it('builds nothing and says so when the atomic commit fails', async () => {
+    localClient.ingestCommit.mockRejectedValue(new Error('disk full'))
+    await buildDay()
+
+    const msg = await screen.findByText(/Special day not built/i)
+    expect(msg).toBeTruthy()
+    expect(screen.queryByText(/Special day built/i)).toBeNull()
+    expect(localClient.write).not.toHaveBeenCalled()
+    // Nothing was written, so retrying is honest and offered.
+    expect(screen.getByRole('button', { name: /Build this special day/i })).toBeTruthy()
   })
 })
 

@@ -31,6 +31,7 @@ import { PROJECTIONS } from './projections.js'
 import { writeRouteSnapshot, campCatalog } from './deleteRecord.js'
 import { attachNames } from '../../src/utils/snapshotRemap.js'
 import { U2_DELETABLE_ENTITIES, referencesInto } from './undoReferences.js'
+import { deriveSpecialDayActivityId, deriveSpecialDayId, deriveSpecialDayTimeBlockId, deriveSpecialDaySlotId } from './electiveDerivedIds.js'
 import { buildReconciliationReport } from '../../src/ingest/reconciliationReport.js'
 import { replaceOpenDecisionsForCommit, removeOpenDecisionsForImport } from './openReconciliationDecisions.js'
 import { recordNotAPlace, isWordDeclinedAsPlace } from './locationWordDecisions.js'
@@ -43,7 +44,7 @@ import { recordNotAPlace, isWordDeclinedAsPlace } from './locationWordDecisions.
 // could reference it is already gone, so one upfront referential pass
 // (referencesInto, run once per candidate before any delete) is sufficient.
 const U2_DELETE_ORDER = Object.freeze([
-  'fixed_events', 'activities', 'locations', 'time_blocks', 'days_of_operation', 'groups', 'tiers', 'cohorts',
+  'special_day_placements', 'special_day_slots', 'special_day_time_blocks', 'special_days', 'fixed_events', 'activities', 'locations', 'time_blocks', 'days_of_operation', 'groups', 'tiers', 'cohorts',
 ])
 
 // ADR §2. Kept here rather than imported from the renderer so the guarantee
@@ -176,7 +177,7 @@ export function replaceScope(db, { camp_id, author_user_id = null, device_id, so
 
 // The name column each ingestible entity carries. Only days_of_operation names
 // its label something other than `name`.
-const NAME_COLUMN = Object.freeze({ days_of_operation: 'label' })
+const NAME_COLUMN = Object.freeze({ days_of_operation: 'label', special_day_slots: 'id', special_day_placements: 'id' })
 const nameColumnFor = (entity) => NAME_COLUMN[entity] ?? 'name'
 
 // Program-scoped for duplicate-recognition, exactly as ImportScreen treats them.
@@ -334,7 +335,7 @@ export function listCompoundCellDecisions(db, camp_id) {
 // 'groups' joined the set for T114's division-evidence follow-up: a group's
 // tier_id is inferred from its NAME (src/ingest/inferDivisions.js), so it needs
 // the same auditability the activity rule fields have.
-const EVIDENCE_ENTITY_TYPES = new Set(['activities', 'fixed_events', 'groups'])
+const EVIDENCE_ENTITY_TYPES = new Set(['activities', 'fixed_events', 'groups', 'special_days'])
 const EVIDENCE_TAGS = new Set(['observed', 'inferred', 'unknown'])
 const EVIDENCE_CONFIDENCE = new Set(['high', 'low'])
 
@@ -688,7 +689,7 @@ function commitElectiveCandidates(db, { confirmedElectiveSets = [], camp_id, aut
   return { created, failed }
 }
 
-export function commitIngest(db, { approved, links, clears = {}, humanEditedFields = {}, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {}, mode = 'add', resolutions = [], base_generation = 0, dryRun = false, seenCounts = null, pinOnlyActivityNames = [], captureInverse = false, electiveHeaderFindings = [], activityPeriods = {}, confirmedElectiveSets = [], multiBlockEvents = [], divisionSupport = {}, openDecisions = [] }) {
+export function commitIngest(db, { approved, links, clears = {}, humanEditedFields = {}, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {}, mode = 'add', resolutions = [], base_generation = 0, dryRun = false, seenCounts = null, pinOnlyActivityNames = [], captureInverse = false, electiveHeaderFindings = [], activityPeriods = {}, confirmedElectiveSets = [], multiBlockEvents = [], specialDay = null, divisionSupport = {}, openDecisions = [] }) {
   if (!approved || typeof approved !== 'object') throw new Error('ingest: nothing to commit')
   if (!camp_id) throw new Error('ingest: camp_id is required')
 
@@ -725,7 +726,7 @@ export function commitIngest(db, { approved, links, clears = {}, humanEditedFiel
     // create confidence) and pinOnlyActivityNames (the A3 guard) flow straight
     // through the same way — additive, absent for any caller/fixture that
     // predates this change (S4b workbook re-import included — Risk 2/A4).
-    { approved: recordApproved, links, activityRules, fixedEvents, camp_id, cohort_id, mode, base_generation, humanEditedFields, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents, divisionSupport },
+    { approved: recordApproved, links, activityRules, fixedEvents, camp_id, cohort_id, mode, base_generation, humanEditedFields, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents, specialDay, divisionSupport },
     existing,
     // T73: a director's per-conflict decisions from a prior held commit. buildPlan
     // consumes only the ambiguous_identity picks; stale picks flow to commitPlan.
@@ -1250,6 +1251,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   // placement. Separate from the fixedEvents arrays above: this is not an
   // fixed event and carries no day/block/group resolution.
   const multiBlockEventsCreated = []
+  let specialDayOutcome = null
   // Red Hat HIGH #1 — a candidate recognized against an already-live events
   // row (by normalized name) on a re-import; no op written for it.
   const multiBlockEventsUnchanged = []
@@ -2759,6 +2761,81 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       multiBlockEventsCreated.push({ eventId, name })
     }
 
+    // F3/F4 slice 3a (docs/adr/2026-10-11-import-special-days-and-field-trips.md). A recognised one-day file
+    // commits here, in the one transaction: derived ids make a re-import converge on the same rows, any throw
+    // rolls the whole day back, and `write` captures the creations for Undo. A same-named live day (derived
+    // id or typed by hand) is left alone, never doubled.
+    if (plan.specialDay) {
+      const sd = plan.specialDay
+      if (!sd.ready) {
+        throw new Error(`That special day is not ready to build (${(sd.blockedBy ?? []).join(', ') || 'no plan'}).`)
+      }
+      const dayId = deriveSpecialDayId(camp_id, sd.name)
+      const nameKey = normalizeName(sd.name)
+      const taken = db.prepare('SELECT id, name FROM special_days WHERE camp_id = ?').all(camp_id)
+        .some((r) => r.id === dayId || normalizeName(r.name) === nameKey)
+      if (taken) {
+        specialDayOutcome = { created: false, specialDayId: dayId, periods: 0, cells: 0, activitiesCreated: 0 }
+      } else {
+        const sdOp = (entity, entity_id, field, value) => write(db, {
+          entity, entity_id, field, value, author_user_id: author_user_id ?? null, device_id,
+          parent_op_id: null, client_write_id: randomUUID(), source: IMPORT_SOURCE,
+        })
+        sdOp('special_days', dayId, 'name', sd.name)
+        sdOp('special_days', dayId, 'camp_id', camp_id)
+        if (sd.notes) sdOp('special_days', dayId, 'notes', sd.notes)
+        writeEvidence(db, {
+          camp_id, entity_type: 'special_days', entity_id: dayId, field: 'name', tag: 'observed', confidence: 'high',
+          support: { source: 'one_day_file' }, import_run_id: evidenceRunId, committed_at: evidenceCommittedAt,
+        })
+
+        let activitiesCreated = 0
+        const activityIdByName = new Map()
+        const liveActivities = db.prepare('SELECT id, name FROM activities WHERE camp_id = ?').all(camp_id)
+        for (const a of sd.activities ?? []) {
+          const key = normalizeName(a.name)
+          const live = liveActivities.filter((r) => normalizeName(r.name) === key)
+          if (live.length > 1) throw new Error(`"${a.name}" matches more than one activity; nothing was written.`)
+          if (live.length === 1) { activityIdByName.set(a.name, live[0].id); continue }
+          const id = deriveSpecialDayActivityId(camp_id, a.name)
+          sdOp('activities', id, 'name', a.name)
+          sdOp('activities', id, 'camp_id', camp_id)
+          liveActivities.push({ id, name: a.name })
+          activityIdByName.set(a.name, id)
+          activitiesCreated += 1
+        }
+
+        const blockIdByName = new Map()
+        for (const b of sd.timeBlocks ?? []) {
+          const id = deriveSpecialDayTimeBlockId(dayId, b.sort_order)
+          sdOp('special_day_time_blocks', id, 'special_day_id', dayId)
+          sdOp('special_day_time_blocks', id, 'name', b.name)
+          sdOp('special_day_time_blocks', id, 'sort_order', b.sort_order)
+          if (b.start_time) sdOp('special_day_time_blocks', id, 'start_time', b.start_time)
+          if (b.end_time) sdOp('special_day_time_blocks', id, 'end_time', b.end_time)
+          blockIdByName.set(b.name, id)
+        }
+
+        const groupIdByColumn = new Map((sd.columns ?? []).map((c) => [c.columnName, c.groupId]))
+        const groupExists = db.prepare('SELECT 1 FROM groups WHERE id = ? AND camp_id = ?')
+        let cells = 0
+        for (const s of sd.slots ?? []) {
+          const groupId = groupIdByColumn.get(s.columnName)
+          const blockId = blockIdByName.get(s.blockName)
+          if (!groupId || !blockId) continue
+          if (!groupExists.get(groupId, camp_id)) throw new Error(`Column "${s.columnName}" no longer matches a group; nothing was written.`)
+          const id = deriveSpecialDaySlotId(dayId, groupId, blockId)
+          sdOp('special_day_slots', id, 'special_day_id', dayId)
+          sdOp('special_day_slots', id, 'group_id', groupId)
+          sdOp('special_day_slots', id, 'time_block_id', blockId)
+          const activityId = activityIdByName.get(s.activityName)
+          if (activityId) sdOp('special_day_slots', id, 'activity_id', activityId)
+          cells += 1
+        }
+        specialDayOutcome = { created: true, specialDayId: dayId, periods: blockIdByName.size, cells, activitiesCreated }
+      }
+    }
+
     // Persisted open reconciliation decisions (docs/adr/2026-08-28-persisted-
     // reconciliation-decisions.md §3). Symmetrical to the import_evidence
     // writes above: computed from plan.items — the same input the director's
@@ -2906,6 +2983,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     },
   }
   if (replaced) outcome.replaced = replaced
+  if (specialDayOutcome) outcome.specialDay = specialDayOutcome
   if (dryRunAborted) outcome.dryRun = true
   if (dryRunAborted) {
     outcome.evidenceSupport = { activities: evidenceSupportActivities, fixedEvents: evidenceSupportFixedEvents }
@@ -3130,8 +3208,7 @@ export function ingestUndo(db, { invertibleOps, createdEntityIds = [], importRun
         const rowClientWriteId = deriveUndoDeleteClientWriteId(client_write_id, entity, entity_id)
         const alreadyApplied = findOpByClientWriteId(db, rowClientWriteId)
         if (!alreadyApplied) {
-          const table = PROJECTIONS[entity].table
-          const row = db.prepare(`SELECT camp_id FROM ${table} WHERE id = ?`).get(entity_id)
+          const row = db.prepare('SELECT id AS camp_id FROM camps LIMIT 1').get()
           appendOp(db, {
             entity,
             entity_id,
