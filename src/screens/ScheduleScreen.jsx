@@ -538,7 +538,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     // FIXED_EVENT_DUPLICATE is generated-route only — see useScheduleData's route
     // loop for the same gate and reasoning.
     setFindings(recalcFindingsPure(slotList, route === 'generated'
-      ? { groups, activities, days, replacedDayIds, fixedEvents, weekId, activityExclusions, groupExclusions, locationExclusions }
+      ? { groups, activities, days, timeBlocks, replacedDayIds, fixedEvents, weekId, activityExclusions, groupExclusions, locationExclusions }
       : { groups, activities, days, replacedDayIds }))
   }
 

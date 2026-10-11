@@ -245,7 +245,10 @@ function exclusivity(d, id, imp) {
   const eventNames = new Set(d.prepare('SELECT name FROM fixed_events WHERE camp_id = ?').all(id).map((r) => normalizeName(r.name ?? '')))
   const regular = new Set(d.prepare("SELECT name FROM activities WHERE camp_id = ? AND (catalog_role IS NULL OR catalog_role != 'pinned_event')").all(id).map((r) => normalizeName(r.name)))
   const inTwoBuckets = [...eventNames].filter((n) => regular.has(n) && !dual.has(n))
-  return { decisions, openItems, candidates, inTwoBuckets, eventQuestions: claimed.filter((x) => x.startsWith('fixed_events:')), eventOpenItems: claimedOpen.filter((x) => x.startsWith('fixed_events:')), ok: !decisions.length && !openItems.length && !candidates.length && !inTwoBuckets.length }
+  // A pinned_event marker exists only to back an event: one with no fixed_events row linking to it is an orphan (F2).
+  const orphanMarkers = d.prepare("SELECT a.name FROM activities a WHERE a.camp_id = ? AND a.catalog_role = 'pinned_event' AND NOT EXISTS (SELECT 1 FROM fixed_events f WHERE f.activity_id = a.id)").all(id).map((r) => r.name)
+  const pinnedMarkers = d.prepare("SELECT COUNT(*) AS n FROM activities WHERE camp_id = ? AND catalog_role = 'pinned_event'").get(id).n
+  return { decisions, openItems, candidates, inTwoBuckets, orphanMarkers, pinnedMarkers, eventQuestions: claimed.filter((x) => x.startsWith('fixed_events:')), eventOpenItems: claimedOpen.filter((x) => x.startsWith('fixed_events:')), ok: !decisions.length && !openItems.length && !candidates.length && !inTwoBuckets.length && !orphanMarkers.length }
 }
 
 // Event-cell coverage read from fixed_events through the product's own scope resolvers.
@@ -632,11 +635,11 @@ describe('synthetic corpus: 15 fictional camps through the real pipeline', () =>
 
     hard('import with zero answers completes', (r) => { expect(r.stages.zeroAnswers).toMatchObject({ ok: true }) })
     hard('import confirming every card completes', (r) => { expect(r.stages.confirmAll).toMatchObject({ ok: true }) })
-    hard('zero answers: claimed event names raise no decision, no open item, no activity, and sit in one bucket', (r) => {
-      expect(r.zeroAnswers?.exclusivity ?? {}).toMatchObject({ decisions: [], openItems: [], candidates: [], inTwoBuckets: [] })
+    hard('zero answers: claimed event names raise no decision, no open item, no activity, sit in one bucket, and leave no orphan pinned_event marker', (r) => {
+      expect(r.zeroAnswers?.exclusivity ?? {}).toMatchObject({ decisions: [], openItems: [], candidates: [], inTwoBuckets: [], orphanMarkers: [] })
     })
-    hard('confirm all: claimed event names raise no decision, no open item, no activity, and sit in one bucket', (r) => {
-      expect(r.confirmAll?.exclusivity ?? {}).toMatchObject({ decisions: [], openItems: [], candidates: [], inTwoBuckets: [] })
+    hard('confirm all: claimed event names raise no decision, no open item, no activity, sit in one bucket, and leave no orphan pinned_event marker', (r) => {
+      expect(r.confirmAll?.exclusivity ?? {}).toMatchObject({ decisions: [], openItems: [], candidates: [], inTwoBuckets: [], orphanMarkers: [] })
     })
     hard(MEAL_ZERO, (r) => {
       expect(r.zeroAnswers?.lunch).toMatchObject({ strictOk: r.zeroAnswers?.lunch?.expectedCells })
@@ -660,5 +663,11 @@ describe('synthetic corpus: 15 fictional camps through the real pipeline', () =>
     hard('re-import with Replace completes', (r) => {
       expect(r.reimportReplace?.ok).toBe(true)
     })
+  })
+
+  // The orphanMarkers invariant is only meaningful if markers exist to be checked.
+  it('the corpus produces pinned_event markers, so the orphan check is not vacuous', () => {
+    const total = Object.values(results).reduce((n, r) => n + (r.zeroAnswers?.exclusivity?.pinnedMarkers ?? 0), 0)
+    expect(total).toBeGreaterThan(0)
   })
 })

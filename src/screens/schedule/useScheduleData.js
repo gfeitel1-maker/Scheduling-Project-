@@ -76,7 +76,7 @@ export function recalcFindings(slotList, ctx) {
   return computeFindings({
     slots: slotList, groups: ctx.groups, activities: ctx.activities, days: ctx.days,
     replacedDayIds: ctx.replacedDayIds,
-    fixedEvents: ctx.fixedEvents, weekId: ctx.weekId,
+    fixedEvents: ctx.fixedEvents, timeBlocks: ctx.timeBlocks, weekId: ctx.weekId,
     activityExclusions: ctx.activityExclusions, groupExclusions: ctx.groupExclusions, locationExclusions: ctx.locationExclusions,
   })
 }
@@ -398,7 +398,7 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
         // manual clean.
         nextFindings[r] = r === 'generated'
           ? recalcFindings(saved, {
-              groups: g, activities: a, days: d, replacedDayIds: replaced, fixedEvents: anc, weekId: liveWeekId,
+              groups: g, activities: a, days: d, timeBlocks: b, replacedDayIds: replaced, fixedEvents: anc, weekId: liveWeekId,
               activityExclusions: weekExclusions.activityExclusions,
               groupExclusions: weekExclusions.groupExclusions,
               locationExclusions: weekExclusions.locationExclusions,

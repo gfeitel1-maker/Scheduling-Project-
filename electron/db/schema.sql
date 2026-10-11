@@ -724,7 +724,11 @@ CREATE TABLE IF NOT EXISTS time_blocks (
   start_time TEXT,
   end_time TEXT,
   part_of_day TEXT,
-  sort_order INTEGER
+  sort_order INTEGER,
+  -- v95 (F2): 1 = only fixed events land in this block; Generate never places an activity in it.
+  -- Set by import for a kept <=10-minute block (Flag Raising, Taps); a director can flip it.
+  -- Must stay LAST: ALTER-added on a migrated db, which always appends (column-order trap).
+  events_only INTEGER NOT NULL DEFAULT 0
 );
 -- template_slots.time_block_id is a plain TEXT column (no REFERENCES), so
 -- there is no FK to repoint when deduping, unlike groups.id/template_slots.group_id.

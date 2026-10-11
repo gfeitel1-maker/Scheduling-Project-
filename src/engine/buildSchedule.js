@@ -460,6 +460,13 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
           continue
         }
 
+        // F2: an events-only block (a kept 10-minute Flag Raising/Taps row) takes fixed events
+        // only. A group with no event there gets an empty cell, never an activity.
+        if (block.events_only) {
+          slots.push({ groupId: group.id, dayId: day.id, blockId: block.id, cohort_id: cohortId, type: 'unavailable', activityId: null, fixedEventId: null, is_span_head: true, flags: {} })
+          continue
+        }
+
         const avail = group.availability
         const pod = block.part_of_day
         if (avail !== 'all' && avail !== pod) {
@@ -559,6 +566,7 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
         // even though the visible schedule still renders the elective.
         if (assigned.has(nextKey) || fixedEventLookup.has(nextKey) || electiveLookup.has(nextKey) || eventLookup.has(nextKey)) return 'span'
         // Tail block must also be within the group's available part of day
+        if (nextBlock.events_only) return 'span'
         if (avail !== 'all' && avail !== nextBlock.part_of_day) return 'span'
         // Tail block occupies the place too — same capacity + same_tier_only
         // guard as the head.
@@ -832,8 +840,15 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
   // ── Pass 3: audit ─────────────────────────────────────────────────────────
   const resultSlots = []
 
+  const eventsOnlyBlockIds = new Set(timeBlocksSorted.filter(b => b.events_only).map(b => b.id))
   for (const slot of slots) {
-    resultSlots.push({ ...slot })
+    // F2: a director-locked span can run through an events-only block. Generate never puts a
+    // placement there itself, so any assignment at an events-only cell is a lock's span tail,
+    // and the lock wins: the cell shows the activity, flagged by EVENTS_ONLY_SPAN below.
+    const lockTail = slot.type === 'unavailable' && eventsOnlyBlockIds.has(slot.blockId)
+      ? assigned.get(`${slot.groupId}|${slot.dayId}|${slot.blockId}`)
+      : null
+    resultSlots.push(lockTail ? { ...slot, type: 'activity', activityId: lockTail, is_span_head: false } : { ...slot })
   }
 
   for (const os of openSlots) {
@@ -894,6 +909,18 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
       }
     }
 
+    const seenTails = new Set()
+    for (const key of spanTails) {
+      const [groupId, , blockId] = key.split('|')
+      if (!eventsOnlyBlockIds.has(blockId)) continue
+      const actId = assigned.get(key)
+      if (seenTails.has(`${groupId}|${actId}`)) continue
+      seenTails.add(`${groupId}|${actId}`)
+      const eventName = [...fixedEventLookup.entries()].find(([k]) => k.endsWith(`|${blockId}`))?.[1]?.name
+        ?? timeBlocksSorted.find(b => b.id === blockId)?.name
+      findings.push(eventsOnlySpanFinding(groupId, actId, activities.find(a => a.id === actId)?.name, eventName))
+    }
+
     for (const u of underserved) {
       const groupName = groupMap.get(u.groupId)?.name || u.groupId
       const act = activities.find(a => a.id === u.activityId)
@@ -935,6 +962,10 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
   }
 }
 
+function eventsOnlySpanFinding(groupId, activityId, activityName, eventName) {
+  return { kind: 'EVENTS_ONLY_SPAN', groupId, activityId, severity: 'caution', reason: `${activityName || activityId} runs into ${eventName} (events only)` }
+}
+
 // Pure, placement-free recompute of UNDERSERVED/DISTRIBUTION findings from an
 // already-persisted set of template_slots rows (snake_case DB shape:
 // group_id/day_id/time_block_id/activity_id). Used when the screen loads or
@@ -947,7 +978,7 @@ function scheduleCohort({ cohortEntry, days, replacedDays, activities, rand, loc
 // any stored rows on them are dropped up front, so every loop below — goals,
 // distribution and the fixed-event audit — sees only the days that run, with
 // or without fixedEvents/weekId (the manual route passes neither).
-export function computeFindings({ slots: allSlots, groups, activities, days: allDays, fixedEvents, weekId = null, activityExclusions, groupExclusions, locationExclusions, replacedDayIds }) {
+export function computeFindings({ slots: allSlots, groups, activities, days: allDays, fixedEvents, timeBlocks, weekId = null, activityExclusions, groupExclusions, locationExclusions, replacedDayIds }) {
   const replaced = new Set(requireReplacedDayIds(replacedDayIds, 'computeFindings'))
   const findings = []
   if (!allSlots || !groups || !activities || !allDays) return findings
@@ -1079,6 +1110,19 @@ export function computeFindings({ slots: allSlots, groups, activities, days: all
       const actName = activityById.get(s.activity_id)?.name || s.activity_id
       const reason = `${actName} is also a fixed event this week (group: ${groupName}) — regenerate to clear it`
       findings.push({ kind: 'FIXED_EVENT_DUPLICATE', groupId: s.group_id, activityId: s.activity_id, severity: 'caution', reason })
+    }
+  }
+
+  // F2: a locked span's tail inside an events-only block. Persisted tail rows carry is_span_head false.
+  const eventsOnlyBlocks = new Map((timeBlocks || []).filter(b => b.events_only).map(b => [b.id, b]))
+  if (eventsOnlyBlocks.size > 0) {
+    const seenTails = new Set()
+    for (const s of slots) {
+      if (s.is_span_head !== false || !s.activity_id || !eventsOnlyBlocks.has(s.time_block_id)) continue
+      if (seenTails.has(`${s.group_id}|${s.activity_id}`)) continue
+      seenTails.add(`${s.group_id}|${s.activity_id}`)
+      const eventName = (fixedEvents || []).find(fe => fe.time_block_id === s.time_block_id)?.name ?? eventsOnlyBlocks.get(s.time_block_id).name
+      findings.push(eventsOnlySpanFinding(s.group_id, s.activity_id, activities.find(a => a.id === s.activity_id)?.name, eventName))
     }
   }
 

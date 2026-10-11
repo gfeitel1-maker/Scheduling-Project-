@@ -41,7 +41,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // campers.division_label/is_unattributed and elective_preferences.rank_kind/
 // coordinate_day_label/coordinate_period_label) all land in this file; 79 is the
 // current version.
-export const CURRENT_SCHEMA_VERSION = 94
+export const CURRENT_SCHEMA_VERSION = 95
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -4409,6 +4409,21 @@ const DEVICE_HEALTH_EVENTS_DDL = `
   // `>= 93 && < 94`, never a bare `< 94`.
   if (getSchemaVersion(db) >= 93 && getSchemaVersion(db) < 94) {
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (94, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v95 (F2, 2026-10-11 synthetic scorecard) — time_blocks.events_only. schema.sql already creates it
+  // on a fresh db; this block is for a database upgrading from an earlier version (same two-places
+  // discipline as v87). No backfill: every existing block stays schedulable (DEFAULT 0), which is
+  // what it was before this column existed.
+  //
+  // Guard `>= 94 && < 95`, never a bare `< 95` (this repo's standing gotcha).
+  if (getSchemaVersion(db) >= 94 && getSchemaVersion(db) < 95) {
+    const hasEventsOnly = db.pragma('table_info(time_blocks)').some((c) => c.name === 'events_only')
+    if (!hasEventsOnly) db.exec('ALTER TABLE time_blocks ADD COLUMN events_only INTEGER NOT NULL DEFAULT 0')
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (95, ?)').run(
       new Date().toISOString()
     )
   }

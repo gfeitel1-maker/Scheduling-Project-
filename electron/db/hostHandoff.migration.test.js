@@ -8,7 +8,7 @@ import { describe, it, expect, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { openLocalDb, getSchemaVersion } from './localDb.js'
+import { openLocalDb, getSchemaVersion, CURRENT_SCHEMA_VERSION } from './localDb.js'
 import { PROJECTIONS } from '../ops/projections.js'
 import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES } from '../ops/campScopedEntities.js'
 import { MODELED_ENTITIES } from '../automerge/campDocument.js'
@@ -41,7 +41,9 @@ describe('migration v94: host handoff tables', () => {
     expect(getSchemaVersion(db)).toBe(93)
     db.close()
     db = openLocalDb(file)
-    expect(getSchemaVersion(db)).toBe(94)
+    // The chain runs on to the current version; v94's own effect is that its row is stamped, once.
+    expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 94').get().c).toBe(1)
+    expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
     db.close()
   })
 

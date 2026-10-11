@@ -485,7 +485,7 @@ export const MOCK_WRITE_ALLOWLIST = {
   ],
   groups: ['camp_id', 'name', 'tier_id', 'availability'],
   days_of_operation: ['camp_id', 'label', 'day_of_week', 'sort_order'],
-  time_blocks: ['camp_id', 'cohort_id', 'name', 'start_time', 'end_time', 'part_of_day', 'sort_order'],
+  time_blocks: ['camp_id', 'cohort_id', 'name', 'start_time', 'end_time', 'part_of_day', 'sort_order', 'events_only'],
   tiers: ['camp_id', 'cohort_id', 'name', 'sort_order'],
   activities: [
     'camp_id',

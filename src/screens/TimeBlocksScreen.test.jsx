@@ -590,3 +590,34 @@ describe('TimeBlocksScreen — backwards and overlapping blocks (audit A4/A5/A7)
     await waitFor(() => expect(screen.queryByText('Ends before start')).not.toBeNull())
   })
 })
+
+describe('TimeBlocksScreen — events only (F2)', () => {
+  const eventsOnlyBlock = () => block({ name: 'Flag Raising', start_time: '08:50', end_time: '09:00', events_only: 1 })
+
+  it('shows a kept short block as Events only', async () => {
+    localClient.list.mockImplementation(entity => {
+      if (entity === 'cohorts') return Promise.resolve([cohort()])
+      if (entity === 'time_blocks') return Promise.resolve([eventsOnlyBlock()])
+      return Promise.resolve([])
+    })
+    render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Flag Raising')).not.toBeNull())
+    expect(screen.getByText("Events only — Generate won't place activities here")).toBeTruthy()
+  })
+
+  it('lets the director turn Events only off, writing events_only 0', async () => {
+    localClient.list.mockImplementation(entity => {
+      if (entity === 'cohorts') return Promise.resolve([cohort()])
+      if (entity === 'time_blocks') return Promise.resolve([eventsOnlyBlock()])
+      return Promise.resolve([])
+    })
+    render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Flag Raising')).not.toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Flag Raising' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: "Events only — Generate won't place activities here" }))
+    fireEvent.click(screen.getByText('Save'))
+    await waitFor(() =>
+      expect(localClient.write).toHaveBeenCalledWith('token-abc', 'time_blocks', 'block-1', 'events_only', 0)
+    )
+  })
+})

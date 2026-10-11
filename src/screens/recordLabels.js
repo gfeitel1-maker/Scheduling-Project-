@@ -59,6 +59,7 @@ const FIELD_LABEL = {
   start_time: 'Start',
   end_time: 'End',
   part_of_day: 'Part of day',
+  events_only: 'Events only',
   day_of_week: 'Day of the week',
   session_week_start: 'Session starts',
   session_week_end: 'Session ends',
