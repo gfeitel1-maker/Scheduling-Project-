@@ -221,6 +221,27 @@ describe('ImportScreen — declines a one-day special schedule (T40)', () => {
     expect(localClient.ingestCommit).not.toHaveBeenCalled()
   })
 
+  it('shows a meal as an event, not as a new activity', async () => {
+    parseTextGrid.mockReturnValue({
+      pages: [{
+        title: 'Color War Day',
+        columns: ['Lil Chai', 'Chaverim', 'Shalom', 'Giborim'],
+        rows: [
+          { label: '9:15', cells: ['Lunch', 'Lunch', 'Lunch', 'Lunch'] },
+          { label: '10:15', cells: ['Pool', 'Pool', 'Pool', 'Pool'] },
+        ],
+      }],
+    })
+    localClient.list.mockImplementation((entity) =>
+      Promise.resolve(entity === 'groups' ? FOUR_GROUPS : []))
+    render(<ImportScreen campId="camp-1" onNavigate={() => {}} />)
+    await userEvent.upload(document.querySelector('input[type="file"]'), maccabiahFile())
+
+    await screen.findByRole('button', { name: /Build this special day/i })
+    expect(screen.getByText((_, el) => /adds 1 new activity to your camp: Pool\./i.test(el?.textContent ?? ''), { selector: 'p' })).toBeTruthy()
+    expect(screen.getByText((_, el) => /Shows as events, not activities: Lunch/i.test(el?.textContent ?? ''), { selector: 'p' })).toBeTruthy()
+  })
+
   const buildDay = async () => {
     mockSpecialDayFile()
     localClient.list.mockImplementation((entity) =>

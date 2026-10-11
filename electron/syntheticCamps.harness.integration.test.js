@@ -37,6 +37,7 @@ import { listOpenReconciliationDecisions } from './ops/openReconciliationDecisio
 import { materializeImportedVersion, nameMap } from './ops/materializeImportedVersion.js'
 import { normalizeScheduleInputs, SCHEDULE_INPUT_ENTITIES } from './ops/scheduleInputNormalization.js'
 import { normalizeName } from '../src/ingest/preview.js'
+import { isMealName } from '../src/ingest/eventKeptWhenUnanswered.js'
 import { parseTextGrid, normalizeTimeLabel } from '../src/ingest/textGrid.js'
 import { extractEntities } from '../src/ingest/extractEntities.js'
 import { inferFixedEvents } from '../src/ingest/fixedEvents.js'
@@ -654,8 +655,12 @@ async function evaluateSpecialDayFiles(m, d, id) {
         groups: d.prepare('SELECT * FROM groups WHERE camp_id = ?').all(id),
         activities: d.prepare('SELECT * FROM activities WHERE camp_id = ?').all(id),
         specialDays: d.prepare('SELECT * FROM special_days WHERE camp_id = ?').all(id),
+        fixedEvents: d.prepare('SELECT name, activity_id FROM fixed_events WHERE camp_id = ?').all(id),
       }
+      const fixedEventNames = live.fixedEvents.map((e) => e.name)
       const plan = buildSpecialDayPlan(proposal, live)
+      rec.newActivityNames = plan?.newActivityNames ?? []
+      rec.fixedEventNames = fixedEventNames
       rec.ready = !!plan?.ready
       rec.blockedBy = plan?.blockedBy ?? []
       rec.periods = plan?.periods?.length ?? null
@@ -892,6 +897,13 @@ describe('synthetic corpus: 15 fictional camps through the real pipeline', () =>
     hard('Manual from import leaves no placement unresolved (confirm all)', (r) => {
       expect(r.confirmAllManual?.error).toBeUndefined()
       expect({ unresolvedCount: r.confirmAllManual?.unresolvedCount, unresolvedNames: r.confirmAllManual?.unresolvedNames }).toEqual({ unresolvedCount: 0, unresolvedNames: [] })
+    })
+    hard('no one-day file would add a meal or a camp fixed event to the catalogue as a new activity', (r) => {
+      const offenders = (r.specialDayFiles ?? []).flatMap((f) => {
+        const events = new Set((f.fixedEventNames ?? []).map(normalizeName))
+        return (f.newActivityNames ?? []).filter((n) => isMealName(n) || events.has(normalizeName(n))).map((n) => `${f.file}: ${n}`)
+      })
+      expect(offenders).toEqual([])
     })
     hard('re-import with Keep writes zero new records', (r) => {
       expect(r.reimportKeep).toEqual({ ok: true, newRecords: {} })

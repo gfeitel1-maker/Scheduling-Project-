@@ -11,6 +11,7 @@ import { buildPlan, CLEAR } from './ingest/buildPlan.js'
 import { INGESTIBLE_ENTITIES } from './ingest/extractEntities.js'
 import { domainOf, childOf } from './components/reconciliation/domainRollup.js'
 import { normalizeName, recognitionKey } from './ingest/preview.js'
+import { isMealName } from './ingest/eventKeptWhenUnanswered.js'
 // S2c: the SAME pure field-update helpers the real committer uses, so the mock's
 // fold/snapshot/validation cannot drift from electron/ops/ingest.js.
 import { foldApprovedToRecords, enrichSnapshotRow, resolveFieldWrite, dbFieldFor } from './ingest/fieldUpdate.js'
