@@ -195,3 +195,21 @@ describe('Pair again in main', () => {
     }
   })
 })
+
+describe('node auth token lifetime', () => {
+  it('a new join (or a cancelled one) clears a token left from an earlier session', async () => {
+    db.prepare('DELETE FROM host_signing_key').run()   // this device is a client of the camp
+    const opts = { stopSync: async () => {}, retrySync: () => {} }
+    let handlers = makeHandlers(db, deviceId, opts)
+    await handlers.chooseMode({ mode: 'client', token: 'stale-token' })
+    expect(handlers.getNodeAuthToken()).toBe('stale-token')
+    await handlers.joinStart({ code: 'nope' })
+    expect(handlers.getNodeAuthToken()).toBe(null)
+
+    handlers = makeHandlers(db, deviceId, opts)
+    await handlers.chooseMode({ mode: 'client', token: 'stale-token' })
+    expect(handlers.getNodeAuthToken()).toBe('stale-token')
+    await handlers.joinCancel()
+    expect(handlers.getNodeAuthToken()).toBe(null)
+  })
+})
