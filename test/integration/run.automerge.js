@@ -151,7 +151,7 @@ async function main() {
     } catch (err) {
       const ms = Date.now() - t0
       console.log(`  ${FAIL}  ${label}  ${DIM}${ms}ms${RST}`)
-      console.log(`         ${err.message}`)
+      console.log(`         ${err.stack ?? err.message}`)
       failures++
     }
   }
