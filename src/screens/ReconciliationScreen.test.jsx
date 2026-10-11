@@ -20,6 +20,9 @@ vi.mock('../localClient', () => ({
     latestOpSeq: vi.fn().mockResolvedValue(0),
     // Task 4 — the surviving grace-window undo now lives on Roots.
     ingestUndo: vi.fn().mockResolvedValue({ deleted: [], skipped: [], kept: [] }),
+    // docs/adr/2026-10-11-import-answer-memory.md
+    matchImportAnswers: vi.fn().mockResolvedValue({}),
+    rememberImportAnswers: vi.fn().mockResolvedValue({ written: [], skipped: [] }),
   },
 }))
 
@@ -74,6 +77,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   localClient.list.mockResolvedValue([{ id: 'x' }])
   localClient.confirmAlias.mockResolvedValue({ id: 'alias-1', superseded: null })
+  localClient.matchImportAnswers.mockResolvedValue({})
+  localClient.rememberImportAnswers.mockResolvedValue({ written: [], skipped: [] })
 })
 
 describe('understood vs. needs-attention', () => {
@@ -713,5 +718,49 @@ describe('audit 714: leaving the review', () => {
     expect(localClient.ingestCommit.mock.calls[0][0].openDecisions).toEqual([
       expect.objectContaining({ entity: 'activities', entityName: 'Swim', kind: 'confirm_value' }),
     ])
+  })
+})
+
+// docs/adr/2026-10-11-import-answer-memory.md 3.5 — what the camp already answered comes in as
+// `decision.recalled`, and what the director answers goes out after a successful commit.
+describe('import answer memory seam', () => {
+  it('asks the store about the presented decisions after each dry run, and still renders when it is down', async () => {
+    localClient.ingestReconcile.mockResolvedValue(oneChangedResult())
+    localClient.matchImportAnswers.mockRejectedValue(new Error('offline'))
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
+    await screen.findByText(/0 of 1 question/)
+    expect(localClient.matchImportAnswers).toHaveBeenCalledTimes(1)
+    const call = localClient.matchImportAnswers.mock.calls[0][0]
+    expect(call.decisions.map((d) => d.id)).toEqual(['activities:a1'])
+    expect(call.mode).toBe('add')
+  })
+
+  it('sends the answered decisions to the store after a successful commit', async () => {
+    localClient.ingestReconcile.mockResolvedValue(oneChangedResult())
+    localClient.ingestCommit.mockResolvedValue({ held: false, total: 1 })
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
+    await screen.findByText(/0 of 1 question/)
+    await userEvent.click(screen.getByText('Use the file’s'))
+    await waitFor(() => expect(screen.getByText(/1 of 1 question/)).toBeTruthy())
+    await userEvent.click(screen.getByText('Use this setup'))
+    await waitFor(() => expect(localClient.rememberImportAnswers).toHaveBeenCalledTimes(1))
+    const { entries, importId } = localClient.rememberImportAnswers.mock.calls[0][0]
+    expect(typeof importId).toBe('string')
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({ decision: { id: 'activities:a1', kind: 'confirm_value' }, answer: { action: 'looks_right' }, bulk: false })
+  })
+
+  it('says so when the answers could not be remembered, and the import still succeeds', async () => {
+    localClient.ingestReconcile.mockResolvedValue(oneChangedResult())
+    localClient.ingestCommit.mockResolvedValue({ held: false, total: 1 })
+    localClient.rememberImportAnswers.mockRejectedValue(new Error('forbidden'))
+    const onCommitted = vi.fn()
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={onCommitted} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
+    await screen.findByText(/0 of 1 question/)
+    await userEvent.click(screen.getByText('Use the file’s'))
+    await waitFor(() => expect(screen.getByText(/1 of 1 question/)).toBeTruthy())
+    await userEvent.click(screen.getByText('Use this setup'))
+    await waitFor(() => expect(onCommitted).toHaveBeenCalled())
+    await waitFor(() => expect(screen.getByText(/Couldn’t remember your answers for next time/)).toBeTruthy())
   })
 })

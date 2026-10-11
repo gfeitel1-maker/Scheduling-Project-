@@ -1,0 +1,51 @@
+// The renderer-side seam of import answer memory (docs/adr/2026-10-11-import-answer-memory.md 3.5).
+// Pure. Recall comes IN as `decision.recalled`; answers go OUT as entries for rememberImportAnswers.
+import { classifyDecision } from './answerMemory.js'
+
+// Attach what the store remembered onto each decision it knows about. `recalled` is
+// { tier, source, match, answer, why, progress, autoApply, ... }; a screen may ignore it.
+export function attachRecall(report, recallMap) {
+  if (!report || !recallMap || Object.keys(recallMap).length === 0) return report
+  let touched = false
+  const decisions = report.decisions.map((d) => {
+    const recalled = recallMap[d.id]
+    if (!recalled) return d
+    touched = true
+    return { ...d, recalled }
+  })
+  return touched ? { ...report, decisions } : report
+}
+
+const EVIDENCE_KEYS = ['basis', 'scope', 'day', 'block', 'missingGroups', 'insteadByGroup', 'attendingCount', 'occurrences']
+
+// Only what a signature depends on crosses the bridge: a decision carries the parsed rows behind it.
+function compactDecision(d) {
+  const out = {
+    id: d.id, kind: d.kind, entity: d.entity, entityId: d.entityId ?? null, entityName: d.entityName ?? null,
+    field: d.field ?? null, proposedValue: d.proposedValue ?? null, currentValue: d.currentValue ?? null,
+    timeBlock: d.timeBlock ?? null, days: d.days ?? null, from: d.from ?? null, to: d.to ?? null,
+  }
+  if (d.evidence && typeof d.evidence === 'object') {
+    out.evidence = Object.fromEntries(EVIDENCE_KEYS.filter((k) => d.evidence[k] !== undefined).map((k) => [k, d.evidence[k]]))
+  }
+  return out
+}
+
+/**
+ * @param decisions the decisions as presented
+ * @param answers   the screen's answers, keyed by decision id
+ * @param bulkIds   ids answered by one control that covered several decisions (counts toward nothing)
+ */
+export function answerMemoryEntries(decisions, answers, { bulkIds = new Set() } = {}) {
+  const entries = []
+  for (const d of decisions ?? []) {
+    const answer = (answers ?? {})[d.id]
+    if (!answer || !classifyDecision(d)) continue
+    const entry = { decision: compactDecision(d), answer, bulk: bulkIds.has(d.id) }
+    if (answer.tap === true) entry.tap = true
+    if (answer.rememberNear === true) entry.rememberNear = true
+    if (d.recalled) entry.recalled = { match: d.recalled.match, memoryId: d.recalled.memoryId }
+    entries.push(entry)
+  }
+  return entries
+}
