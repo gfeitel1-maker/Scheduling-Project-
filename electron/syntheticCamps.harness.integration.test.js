@@ -24,7 +24,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { randomUUID, createHash } from 'node:crypto'
 import { openTemplatedDb, cleanupTemplatedDbs } from './db/testDbTemplate.js'
 import { commitIngest } from './ops/ingest.js'
 import { appendOp } from './ops/operations.js'
@@ -35,6 +35,7 @@ import { normalizeName } from '../src/ingest/preview.js'
 import { parseTextGrid, normalizeTimeLabel } from '../src/ingest/textGrid.js'
 import { extractEntities } from '../src/ingest/extractEntities.js'
 import { inferFixedEvents } from '../src/ingest/fixedEvents.js'
+import { settleAmbiguousFromCamp } from '../src/ingest/settleAmbiguousFromCamp.js'
 import { derivePinOnlyActivityNames } from '../src/ingest/pinOnlyActivityNames.js'
 import { inferActivityRules } from '../src/ingest/activityRules.js'
 import { capturePlacements } from '../src/ingest/capturePlacements.js'
@@ -75,13 +76,21 @@ const KNOWN_FAILING = new Set()
 const results = {}
 const startedAt = Date.now()
 
-function seedCamp() {
+// The engine seeds its PRNG from camp id + cohort id. Random ids made every scorecard a different
+// draw (s02 stillNeeded ranged 0-3 and s07 38-47 across identical runs), so a delta against the
+// baseline was partly noise. Ids derived from the camp slug and scenario make the run repeatable.
+const stableId = (key) => {
+  const h = createHash('sha256').update(key).digest('hex')
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`
+}
+
+function seedCamp(key = randomUUID()) {
   const { db: d } = openTemplatedDb()
-  const id = randomUUID()
+  const id = stableId(`camp:${key}`)
   d.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(id, 'Synthetic Camp', 'a'.repeat(64))
   d.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(deviceId, 'Test Device')
   d.prepare("INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role) VALUES (?, ?, 'Ruth', 'h', 's', 'admin')").run(userId, id)
-  d.prepare('INSERT INTO cohorts (id, camp_id, name, sort_order) VALUES (?, ?, ?, 0)').run(randomUUID(), id, 'Main')
+  d.prepare('INSERT INTO cohorts (id, camp_id, name, sort_order) VALUES (?, ?, ?, 0)').run(stableId(`cohort:${key}`), id, 'Main')
   return { d, id }
 }
 
@@ -89,8 +98,17 @@ function seedCamp() {
 function importFile(d, id, text, { answerFor = () => null, mode = 'add' } = {}) {
   const parsed = parseTextGrid(text)
   const proposal = extractEntities(parsed)
-  const { fixedEvents, dualUseNames = [] } = inferFixedEvents({ pages: parsed.pages }, proposal, {})
-  const pinOnly = derivePinOnlyActivityNames(fixedEvents, dualUseNames)
+  // As ImportScreen does: the camp's own time-block names, so a re-import recognizes its named periods.
+  const knownTimeBlockNames = d.prepare('SELECT name FROM time_blocks WHERE camp_id = ?').all(id).map((t) => t.name)
+  const { fixedEvents: inferredEvents, dualUseNames = [], ambiguousEvents = [] } = inferFixedEvents({ pages: parsed.pages }, proposal, { knownTimeBlockNames })
+  // As ImportScreen does: a dual-use name the camp already classified is read from its records, not
+  // asked again (Replace deletes them first); the rest go to the review as one name_kind question.
+  const settled = settleAmbiguousFromCamp(ambiguousEvents, mode === 'replace' ? {} : {
+    activities: d.prepare('SELECT name, catalog_role FROM activities WHERE camp_id = ?').all(id),
+    fixedEvents: d.prepare('SELECT name FROM fixed_events WHERE camp_id = ?').all(id),
+  })
+  const fixedEvents = [...inferredEvents, ...settled.settledFixed]
+  const pinOnly = new Set([...derivePinOnlyActivityNames(inferredEvents, dualUseNames), ...settled.settledFixedNames.map(normalizeName)])
   const { placements } = capturePlacements({ pages: parsed.pages }, proposal)
   const fixedEventNames = fixedEvents.filter((e) => e.kind === 'fixed').map((e) => e.name)
   const statedUnits = proposal.groupUnits ?? {}
@@ -153,6 +171,7 @@ function importFile(d, id, text, { answerFor = () => null, mode = 'add' } = {}) 
     unknownFieldEvidence: new Map(Object.entries(dry.unknownFieldEvidence ?? {})),
     electiveCandidates: dry.electiveCandidates,
     allCampOverrides: detectAllCampOverrides(placements, proposal.entities.groups ?? []),
+    ambiguousEvents: settled.stillAmbiguous,
     placements,
     allGroupNames: proposal.entities.groups ?? [],
   })
@@ -165,6 +184,10 @@ function importFile(d, id, text, { answerFor = () => null, mode = 'add' } = {}) 
 const CONFIRM_ALL = (dec) => {
   if (dec.kind === 'confirm_value') return { action: 'looks_right' }
   if (dec.kind === 'elective_candidate') return { choice: 'confirm' }
+  // F9: a name that is both a pinned event and a catalogue activity is ONE name_kind question
+  // (ADR 2026-09-26 OQ3, unanswered = activity). "Confirm everything" answers it the way the file
+  // reads it: a fixed time. Without this the confirm path never exercised the weekly event at all.
+  if (dec.kind === 'name_kind') return { choice: 'fixed' }
   return null
 }
 
@@ -367,7 +390,7 @@ function slotContent(input, activitiesById, feById, setById, slot) {
   return { type: slot.type, name: null }
 }
 
-function evaluateGenerate(m, d, id) {
+function evaluateGenerate(m, d, id, imp = null) {
   const input = scheduleInput(d, id)
   const lk = lookups(d, id)
   const t0 = process.cpuUsage()
@@ -436,7 +459,44 @@ function evaluateGenerate(m, d, id) {
     activities: input.activities, locations: input.locations, electiveSetActivities: input.electiveSetActivities, timeBlocks: input.timeBlocks,
   }))
   const underserved = findings.filter((f) => f.kind === 'UNDERSERVED')
+  // Why each shortfall exists (owner: "why aren't we generating more activities to fill slots?").
+  // fileWeekly: the distinct days the FILE shows this activity for this group (a printed span counts
+  // once). eventKind: what the manifest says the name really is (trip / allday / elective), if any.
+  const groupNameById = new Map(input.groups.map((g) => [g.id, g.name]))
+  const fileDays = new Map()
+  for (const p of imp?.placements ?? []) {
+    const k = `${normalizeName(p.activityName)}|${normalizeName(p.groupName)}`
+    if (!fileDays.has(k)) fileDays.set(k, new Set())
+    fileDays.get(k).add(normalizeName(p.dayName))
+  }
+  const manifestKind = new Map()
+  for (const e of m.events ?? []) manifestKind.set(normalizeName(e.name), e.kind)
+  for (const e of m.electives ?? []) manifestKind.set(normalizeName(e.name), 'elective')
+  const activityCellsPerGroup = (() => {
+    const free = new Map()
+    for (const sl of slots) if (sl.type === 'activity') free.set(sl.groupId, (free.get(sl.groupId) ?? 0) + 1)
+    return free
+  })()
+  const sumMinsPerGroup = new Map()
+  for (const a of input.activities) {
+    if (!a.min_per_week || a.catalog_role === 'pinned_event') continue
+    for (const g of input.groups) sumMinsPerGroup.set(g.id, (sumMinsPerGroup.get(g.id) ?? 0) + a.min_per_week * (a.span_blocks ?? 1))
+  }
+  const underservedDetail = underserved.map((f) => {
+    const act = activitiesById.get(f.activityId)
+    const name = act?.name ?? f.activityId
+    const group = groupNameById.get(f.groupId) ?? f.groupId
+    return {
+      activity: name, group, needed: f.needed, got: f.got,
+      min_per_week: act?.min_per_week ?? null, span_blocks: act?.span_blocks ?? null,
+      fileWeekly: fileDays.get(`${normalizeName(name)}|${normalizeName(group)}`)?.size ?? 0,
+      eventKind: manifestKind.get(normalizeName(name)) ?? null,
+      groupActivityCells: activityCellsPerGroup.get(f.groupId) ?? 0,
+      groupSumOfMins: sumMinsPerGroup.get(f.groupId) ?? 0,
+    }
+  })
   return {
+    underservedDetail,
     cpuMs: Math.round((cpu.user + cpu.system) / 1000),
     slots: slots.length,
     placed: activitySlots.filter((s) => s.activityId).length,
@@ -538,13 +598,13 @@ async function runCamp(m) {
   const rec = { slug: m.slug, layout: m.layout, traits: m.traits, stages: {} }
   const text = fs.readFileSync(path.join(DIR, m.file), 'utf8')
 
-  const zero = seedCamp()
+  const zero = seedCamp(`${m.slug}:zero`)
   const t0 = process.cpuUsage()
   const z = safe(() => importFile(zero.d, zero.id, text))
   rec.stages.zeroAnswers = z.ok ? { ok: true, cpuMs: Math.round((process.cpuUsage(t0).user + process.cpuUsage(t0).system) / 1000), held: z.value.committed.held } : { ok: false, error: z.error }
   if (z.ok) {
     rec.zeroAnswers = evaluateImport(m, zero.d, zero.id, z.value)
-    rec.generate = evaluateGenerate(m, zero.d, zero.id)
+    rec.generate = evaluateGenerate(m, zero.d, zero.id, z.value)
     rec.manual = await evaluateManual(m, zero.d, zero.id, z.value).catch((e) => ({ error: String(e?.message ?? e).slice(0, 300) }))
     rec.specialDayFiles = await evaluateSpecialDayFiles(m, zero.d, zero.id).catch((e) => [{ error: String(e?.message ?? e).slice(0, 300) }])
 
@@ -561,12 +621,12 @@ async function runCamp(m) {
   }
   zero.d.close()
 
-  const all = seedCamp()
+  const all = seedCamp(`${m.slug}:all`)
   const a = safe(() => importFile(all.d, all.id, text, { answerFor: CONFIRM_ALL }))
   rec.stages.confirmAll = a.ok ? { ok: true, held: a.value.committed.held } : { ok: false, error: a.error }
   if (a.ok) {
     rec.confirmAll = evaluateImport(m, all.d, all.id, a.value)
-    rec.confirmAllGenerate = evaluateGenerate(m, all.d, all.id)
+    rec.confirmAllGenerate = evaluateGenerate(m, all.d, all.id, a.value)
     rec.confirmAllManual = await evaluateManual(m, all.d, all.id, a.value).catch((e) => ({ error: String(e?.message ?? e).slice(0, 300) }))
   }
   all.d.close()
@@ -611,6 +671,16 @@ describe.skipIf(!process.env.SYNTHETIC_REPRO)('repro', () => {
 
 // A normal test run (CI, the gate, a developer's vitest) must not rewrite tracked evidence.
 describe('scorecard write gate', () => {
+  // Standing guard for the deterministic seeds: the same camp run twice gives the same metrics
+  // (timings excluded). Random camp or cohort ids made identical runs differ before.
+  it('one camp run twice gives identical metrics', async () => {
+    const m = MANIFEST.camps.find((c) => c.slug.startsWith('s05'))
+    const strip = (r) => JSON.parse(JSON.stringify(r, (k, v) => (/cpuMs|runtimeMs/.test(k) ? undefined : v)))
+    const first = strip(await runCamp(m))
+    const second = strip(await runCamp(m))
+    expect(second).toEqual(first)
+  }, 120000)
+
   it('writes nowhere unless asked: SHORESH_WRITE_SCORECARD=1 or an explicit SYNTHETIC_SCORECARD_PATH', () => {
     expect(scorecardWriteTarget({})).toBeNull()
     expect(scorecardWriteTarget({ SHORESH_WRITE_SCORECARD: '0' })).toBeNull()
