@@ -12,6 +12,7 @@ import { describeWriteFailure } from '../utils/writeErrorMessage.js'
 import { ALIAS_COHORT_SCOPED } from './importAliasScope.js'
 import { normalizeWordKey } from '../utils/normalizeWordKey.js'
 import { unitDisplayName } from '../ingest/fieldUpdate.js'
+import { usablePartCount } from '../ingest/splitListCell.js'
 
 // T257 — see reconciliationReport.js's displayValue: a held `unit` conflict's
 // `to` may be a discriminated token; never let an id reach the fallback card.
@@ -228,18 +229,38 @@ export function foldTriageInputs(baseInputs, decisions, answers) {
       declinedElectiveKeys.add(normalizeName(d.entityName))
     }
   }
+  const listCells = []
   for (const d of decisions) {
     if (d.kind !== 'elective_candidate' || !d.entityName) continue
     const key = normalizeName(d.entityName)
     if (declinedElectiveKeys.has(key) || seenElectiveKeys.has(key)) continue
     seenElectiveKeys.add(key)
+    const choices = d.evidence?.choices
+    if (Array.isArray(choices)) {
+      // D3: a strict split stays split unless declined; an ambiguous cell is
+      // one activity unless the director said it is a choice of several.
+      if (d.evidence.detector === 'list_question' && (answers[d.id]?.choice !== 'confirm' || usablePartCount(choices) < 2)) continue
+      listCells.push({ cell: d.entityName, choices })
+      continue
+    }
     confirmedElectiveSets.push({ name: d.entityName })
   }
+  const listSets = nameListSets(listCells)
+  confirmedElectiveSets.push(...listSets)
+  const splitCellKeys = new Set(listSets.flatMap((set) => set.cellTexts.map(normalizeName)))
+  const approvedWithoutSplits = splitCellKeys.size
+    ? Object.fromEntries(Object.entries(approved).map(([entity, rows]) => [entity, entity === 'activities'
+      ? rows.filter((r) => !splitCellKeys.has(normalizeName(typeof r === 'object' ? r.name : r)))
+      : rows]))
+    : approved
 
   // "It's for all camp": the groups the file left out become eligible too.
   // Eligibility is per activity, not per slot, so this widens the activity's
   // rule; "It really excludes" and an unanswered card leave the file's groups.
   let activityRules = baseInputs.activityRules
+  if (splitCellKeys.size && activityRules) {
+    activityRules = Object.fromEntries(Object.entries(activityRules).filter(([name]) => !splitCellKeys.has(normalizeName(name))))
+  }
   for (const d of decisions) {
     if (d.kind !== 'all_camp_override' || answers[d.id]?.choice !== 'all_camp') continue
     const rule = activityRules?.[d.entityName]
@@ -268,12 +289,29 @@ export function foldTriageInputs(baseInputs, decisions, answers) {
     : basePins
 
   return {
-    ...baseInputs, approved, activityRules, pinOnlyActivityNames,
+    ...baseInputs, approved: approvedWithoutSplits, activityRules, pinOnlyActivityNames,
     fixedEvents: eventsByAnswer.length ? [...fixedEvents, ...eventsByAnswer] : fixedEvents,
     resolutions: [...(baseInputs.resolutions ?? []), ...resolutions],
     confirmedElectiveSets: [...(baseInputs.confirmedElectiveSets ?? []), ...confirmedElectiveSets],
     ...(baseInputs.placements ? { placements: markElectivePlacements(baseInputs.placements, confirmedElectiveSets) } : {}),
   }
+}
+
+// D3: one set per distinct choice list, named after its own choices (sorted,
+// case-insensitive, deduplicated) so the name depends on the list and nothing
+// else: not the slot, not the order the file printed it.
+function nameListSets(listCells) {
+  const byList = new Map()
+  for (const { cell, choices } of listCells) {
+    const unique = []
+    const seen = new Set()
+    for (const c of choices) if (!seen.has(normalizeName(c))) { seen.add(normalizeName(c)); unique.push(c) }
+    const sorted = [...unique].sort((x, y) => normalizeName(x).localeCompare(normalizeName(y)))
+    const key = sorted.map(normalizeName).join('|')
+    if (!byList.has(key)) byList.set(key, { name: `Electives (${sorted.join(', ')})`, choices: unique, cellTexts: [] })
+    byList.get(key).cellTexts.push(cell)
+  }
+  return [...byList.values()]
 }
 
 // S1b's "Remember this" alias-confirmation, restored from ImportScreen's old

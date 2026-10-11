@@ -281,7 +281,33 @@ describe('buildElectiveCandidates (Slice 3a content-shape detector)', () => {
     const candidates = buildElectiveCandidates(source, { activities: [] })
     expect(candidates).toHaveLength(1)
     expect(candidates[0]).toMatchObject({
-      detector: 'shape', band: 'inferred', sourceExcerpt: 'Arts/Crafts, Sports, Music',
+      detector: 'list_question', band: 'inferred', sourceExcerpt: 'Arts/Crafts, Sports, Music',
+    })
+  })
+
+  describe('D3 list cells', () => {
+    const run = (name, existing = { activities: [] }) => buildElectiveCandidates({
+      electiveHeaderFindings: [], activityPeriods: { [name.toLowerCase()]: [false] }, approved: { activities: [name] },
+    }, existing)
+
+    it('a strictly splittable cell carries its parts as choices', () => {
+      const [c] = run('Hiking / Fishing / Kayaking / Orienteering / Bocce')
+      expect(c).toMatchObject({ detector: 'shape', choices: ['Hiking', 'Fishing', 'Kayaking', 'Orienteering', 'Bocce'] })
+    })
+    it('a list of the camp\'s own groups asks instead of splitting', () => {
+      const [c] = run('Cabin 1, Cabin 2, Cabin 3', { activities: [], groups: [{ name: 'Cabin 1' }, { name: 'Cabin 2' }] })
+      expect(c).toMatchObject({ detector: 'list_question' })
+    })
+    it('an ambiguous list-like cell becomes one list_question candidate with loose choices', () => {
+      const [c] = run('Arts/Crafts')
+      expect(c).toMatchObject({ detector: 'list_question', sourceExcerpt: 'Arts/Crafts', choices: ['Arts', 'Crafts'] })
+    })
+    it('a plain name raises nothing', () => {
+      expect(run('Swim')).toEqual([])
+    })
+    it('a list name already in the catalogue never splits or asks', () => {
+      expect(run('Lunch/Rest Hour', { activities: [{ id: 'a1', name: 'Lunch/Rest Hour' }] })).toEqual([])
+      expect(run('A / B / C', { activities: [{ id: 'a1', name: 'A / B / C' }] })).toEqual([])
     })
   })
 

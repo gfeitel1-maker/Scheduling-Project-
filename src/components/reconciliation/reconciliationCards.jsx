@@ -203,6 +203,11 @@ function questionFor(decision) {
   // authored, never reconstructed from a file); the copy now says so
   // explicitly, names the header text verbatim, and says where offerings
   // actually come from.
+  if (decision.kind === 'elective_candidate' && Array.isArray(decision.evidence?.choices)) {
+    return decision.evidence.detector === 'list_question'
+      ? decision.reason
+      : `${decision.reason} It stays that way unless you say otherwise.`
+  }
   if (decision.kind === 'elective_candidate') {
     return `"${decision.entityName ?? 'Electives'}" looks like an elective period. It stays an elective unless you say otherwise; `
       + `confirm or add its choices on the Electives screen.`
@@ -233,6 +238,9 @@ function summaryOf(decision, answer) {
   if (decision.kind === 'name_kind' && answer.choice === 'fixed') return 'A fixed time'
   if (decision.kind === 'name_kind' && answer.choice === 'activity') return 'An activity Generate can schedule'
   if (answer.choice === 'skip') return 'Skipped — nothing written for this field'
+  if (decision.kind === 'elective_candidate' && Array.isArray(decision.evidence?.choices)) {
+    return answer.choice === 'confirm' ? 'Split into a choice of several — confirm the choices in Electives' : 'Kept as one activity'
+  }
   if (decision.kind === 'elective_candidate' && answer.choice === 'confirm') return 'Kept as an elective — confirm or add its choices in Electives'
   if (decision.kind === 'elective_candidate' && answer.choice === 'decline') return 'Not an elective period — left as-is'
   if (answer.resolved) return 'Acknowledged'
@@ -393,6 +401,15 @@ function ResolutionControls({ decision, onAnswer, locations, suggested = null })
   // F6 — Keep (or no answer) creates ONE elective_set per normalized name,
   // with any proposed choices as 'potential'; Not electives opts the whole
   // name out.
+  if (decision.kind === 'elective_candidate' && Array.isArray(decision.evidence?.choices)) {
+    const asked = decision.evidence.detector === 'list_question'
+    return (
+      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+        <button className="press-97" onClick={() => onAnswer({ choice: 'confirm' })} style={{ ...cardStyles.btnCompactPrimary, ...dash({ choice: 'confirm' }) }}>{asked ? 'A choice of several' : 'Keep as a choice of several'}</button>
+        <button className="press-97" onClick={() => onAnswer({ choice: 'decline' })} style={{ ...cardStyles.btnCompactSecondary, ...dash({ choice: 'decline' }) }}>One activity</button>
+      </div>
+    )
+  }
   if (decision.kind === 'elective_candidate') {
     return (
       <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>

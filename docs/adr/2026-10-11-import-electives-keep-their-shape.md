@@ -96,7 +96,7 @@ Seven coordinated changes, in dependency order:
 
 | Imported fact | Lands in |
 |---|---|
-| Elective name | `elective_sets.name`, one row per normalized name. Cell groups sharing a name but printing different choice lists get the name suffixed with day and time ("Chugim (Tue 2:00)"); same list, one set. |
+| Elective name | `elective_sets.name`, one row per normalized name. A header-found set keeps the printed name. A split list cell's set is named after its own choices, sorted case-insensitively and deduplicated ("Electives (Arts, Crafts, Games)"); the same list in any order or slot is one set, two different lists are two sets. The name depends on the list only: a day/time suffix collided when groups printed different lists in one block and drifted with file order, which would have destabilised derived ids on re-import. |
 | Day + block of each cell | A slot in the imported version (`schedule_snapshots.slots`) with `elective_set_id` and `names.elective_set`; NOT `template_slots` and NOT `elective_sets.day_id`/`time_block_id`. |
 | Eligible groups / divisions | The groups of those cells; a division label expands to its groups via the links the plan holds (`links.groups`, `divisionSupport`). No `elective_bundle_tiers`. |
 | Choices | `elective_set_activities`, `status: 'potential'`. Uneven counts: each set carries its own N. |

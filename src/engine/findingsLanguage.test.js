@@ -101,6 +101,7 @@ const REASON_FAMILY_PATTERNS = [
 // strictly better than the prior failure mode (silent, zero-action shrink),
 // and is accepted.
 const NON_FINDING_MESSAGE_FILES = [
+  'src/components/reconciliation/reconciliationCards.jsx',
   'src/data/setupCrudRepository.js',
   'src/engine/weekCatalog.js',
   'src/ingest/buildPlan.js',

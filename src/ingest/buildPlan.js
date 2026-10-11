@@ -14,6 +14,7 @@
 
 import { INGESTIBLE_ENTITIES } from './extractEntities.js'
 import { normalizeName, recognitionKey } from './preview.js'
+import { strictSplit, looksListLike, looseSplit } from './splitListCell.js'
 import { dbFieldFor } from './fieldUpdate.js'
 import { startMinutesForOrdering } from './orderTimeBlocks.js'
 import { CHANGE_OVER_MAX_MINUTES } from './periodSpan.js'
@@ -289,9 +290,8 @@ function fieldsForUnchecked(entity, name, campId, index, cohortId, eventBlockNam
 //     NOT already flag (an occurrence already explained by a header finding
 //     would otherwise double-nudge for the same period).
 //
-// Recorded as ONE opaque finding per name (the raw text), never split into
-// fake offerings — ingest never invents an elective's roster of offerings.
-const LIST_SHAPED = /[,;]|\/.*\//
+// Recorded as ONE finding per name (the raw text). A strictly splittable list
+// cell carries its parts as `choices`; an ambiguous one is a `list_question`.
 
 export function buildElectiveCandidates(source, existing) {
   const headerFindings = Array.isArray(source?.electiveHeaderFindings) ? source.electiveHeaderFindings : []
@@ -340,6 +340,12 @@ export function buildElectiveCandidates(source, existing) {
     (Array.isArray(source?.pinOnlyActivityNames) ? source.pinOnlyActivityNames : []).map((n) => normalizeName(n))
   )
 
+  const nameOf = (r) => String((r && typeof r === 'object' ? r.name : r) ?? '')
+  const groupOrTierKeys = new Set([
+    ...['groups', 'tiers'].flatMap((e) => Array.isArray(source?.approved?.[e]) ? source.approved[e] : []),
+    ...['groups', 'tiers'].flatMap((e) => Array.isArray(existing?.[e]) ? existing[e] : []),
+  ].map(nameOf).filter(Boolean).map((n) => normalizeName(n)))
+
   const shapeFindings = []
   for (const name of proposedActivityNames) {
     const key = normalizeName(name)
@@ -354,8 +360,17 @@ export function buildElectiveCandidates(source, existing) {
     // I5: a single-offering name ("Sports") is an activity this import is
     // about to create, never a guess at an elective period. Only an
     // unresolved list ("Arts/Crafts, Sports, Music") looks like one.
-    if (!LIST_SHAPED.test(name)) continue
-    shapeFindings.push({ detector: 'shape', band: 'inferred', sourceExcerpt: name, row: null, column: null })
+    // D3 (docs/adr/2026-10-11-import-electives-keep-their-shape.md): a strictly
+    // splittable cell is an elective period carrying its parts as choices; any
+    // other list-like cell is one question whose unanswered default is one activity.
+    const parts = strictSplit(name)
+    // A list of this camp's own groups or divisions ("Cabin 1, Cabin 2,
+    // Cabin 3") is a who-list, not a choice of activities: ask, never split.
+    if (parts && !parts.some((p) => groupOrTierKeys.has(normalizeName(p)))) {
+      shapeFindings.push({ detector: 'shape', band: 'inferred', sourceExcerpt: name, row: null, column: null, choices: parts })
+    } else if (looksListLike(name)) {
+      shapeFindings.push({ detector: 'list_question', band: 'inferred', sourceExcerpt: name, row: null, column: null, choices: looseSplit(name) })
+    }
   }
 
   // Dedup the decision id by column-signature (ADR §4 addendum) so a prior

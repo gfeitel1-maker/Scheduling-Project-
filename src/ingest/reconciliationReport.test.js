@@ -1400,6 +1400,33 @@ describe('buildReconciliationReport — electiveCandidates (Slice 3a)', () => {
     })
   })
 
+  it('a split list cell reads as a choice of N and carries the choices', () => {
+    const electiveCandidates = [
+      { id: 'shape::A / B / C', detector: 'shape', band: 'inferred', sourceExcerpt: 'A / B / C', choices: ['A', 'B', 'C'] },
+    ]
+    const [d] = buildReconciliationReport({ planItems: [], readiness: [], electiveCandidates }).decisions
+    expect(d.evidence.choices).toEqual(['A', 'B', 'C'])
+    expect(d.reason).toBe('Read as a choice of 3: A, B, C.')
+  })
+
+  it('an ambiguous list cell asks whether it is one activity or a choice of several', () => {
+    const electiveCandidates = [
+      { id: 'list_question::Arts/Crafts', detector: 'list_question', band: 'inferred', sourceExcerpt: 'Arts/Crafts', choices: ['Arts', 'Crafts'] },
+    ]
+    const [d] = buildReconciliationReport({ planItems: [], readiness: [], electiveCandidates }).decisions
+    expect(d.kind).toBe('elective_candidate')
+    expect(d.evidence).toMatchObject({ detector: 'list_question', choices: ['Arts', 'Crafts'] })
+    expect(d.reason).toBe("Is 'Arts/Crafts' one activity or a choice of Arts or Crafts?")
+  })
+
+  it('the ambiguous question names three parts as "A, B or C"', () => {
+    const electiveCandidates = [
+      { id: 'list_question::A/B/C', detector: 'list_question', band: 'inferred', sourceExcerpt: 'A/B/C', choices: ['Art', 'Boats', 'Chess'] },
+    ]
+    const [d] = buildReconciliationReport({ planItems: [], readiness: [], electiveCandidates }).decisions
+    expect(d.reason).toBe("Is 'A/B/C' one activity or a choice of Art, Boats or Chess?")
+  })
+
   it('dedups by the candidate id across repeated entries', () => {
     const electiveCandidates = [
       { id: 'header:Monday:Indoor Elective', detector: 'header', band: 'confirmed', sourceExcerpt: 'Indoor Elective' },
