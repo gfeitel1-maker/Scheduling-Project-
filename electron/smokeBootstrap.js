@@ -20,11 +20,17 @@ export function smokeBootstrapRequested({ env = process.env, isPackaged, userDat
   return path.dirname(dir) === real(tmpdir) && path.basename(dir).startsWith(SMOKE_USERDATA_PREFIX)
 }
 
-export async function runSmokeBootstrap({ db, pin, handlers, syncStarterHolder, writeSyncMarker }) {
+// start() can resolve before the node exists (bootstrapping a camp also kicks off a start of its
+// own, which this call joins or races), so the node is waited for rather than read once.
+export async function runSmokeBootstrap({ db, pin, handlers, syncStarterHolder, writeSyncMarker, nodeWaitMs = 60000, pollMs = 250 }) {
   if (db.prepare('SELECT COUNT(*) AS n FROM camps').get().n !== 0) throw new Error('smoke bootstrap refused: a camp already exists')
   handlers.chooseMode({ mode: 'host' })
   await handlers.bootstrapCamp({ campName: 'Smoke Camp', adminName: 'Smoke Admin', adminPin: pin })
   await syncStarterHolder.start()
-  if (!syncStarterHolder.getNode()) throw new Error('smoke bootstrap: the sync node did not start')
+  const deadline = Date.now() + nodeWaitMs
+  while (!syncStarterHolder.getNode()) {
+    if (Date.now() >= deadline) throw new Error('smoke bootstrap: the sync node did not start')
+    await new Promise((resolve) => setTimeout(resolve, pollMs))
+  }
   writeSyncMarker()
 }

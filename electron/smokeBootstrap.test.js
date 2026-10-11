@@ -58,9 +58,19 @@ describe('runSmokeBootstrap', () => {
     await expect(run(m)).rejects.toThrow(/camp already exists/)
     expect(m.handlers.chooseMode).not.toHaveBeenCalled()
   })
+  // The packaged run (2dd5fb7a) logged "sync node did not start" and THEN "node started": start()
+  // can resolve before the node exists, so the node must be waited for, not read once.
+  it('waits for a node that appears after start() resolves, then writes the marker', async () => {
+    let node = null
+    const m = make(null)
+    m.holder.getNode = () => node
+    m.holder.start = vi.fn(async () => { setTimeout(() => { node = {} }, 30) })
+    await runSmokeBootstrap({ db: m.db, pin: '123456', handlers: m.handlers, syncStarterHolder: m.holder, writeSyncMarker: m.writeSyncMarker, nodeWaitMs: 1000, pollMs: 5 })
+    expect(m.writeSyncMarker).toHaveBeenCalledTimes(1)
+  })
   it('writes no marker when the node did not start', async () => {
     const m = make(null)
-    await expect(run(m)).rejects.toThrow(/did not start/)
+    await expect(runSmokeBootstrap({ db: m.db, pin: '123456', handlers: m.handlers, syncStarterHolder: m.holder, writeSyncMarker: m.writeSyncMarker, nodeWaitMs: 50, pollMs: 5 })).rejects.toThrow(/did not start/)
     expect(m.writeSyncMarker).not.toHaveBeenCalled()
   })
 })
