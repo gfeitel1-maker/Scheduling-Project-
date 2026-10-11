@@ -1,3 +1,4 @@
+import { recoverFromRendererGone, wireActivate } from './windowLifecycle.js'
 import { app, BrowserWindow, ipcMain, dialog, safeStorage, Menu, shell, powerMonitor } from 'electron'
 import { createWillQuitHandler, createQuitFlush, wireSessionEndFlush } from './willQuit.js'
 import path from 'node:path'
@@ -4053,6 +4054,8 @@ if (isElectronEntryPoint()) {
     const abandonJoin = () => { Promise.resolve(liveHandlers?.onRendererGone?.()).catch(() => {}) }
     mainWindow.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => { if (isMainFrame && !isInPlace) abandonJoin() })
     mainWindow.webContents.on('render-process-gone', abandonJoin)
+    const win = mainWindow
+    win.webContents.on('render-process-gone', (_event, details) => recoverFromRendererGone(win, details, { createWindow }))
     mainWindow.webContents.on('destroyed', abandonJoin)
   }
 
@@ -4148,6 +4151,7 @@ if (isElectronEntryPoint()) {
     }
     startAutomergeSyncNodeIfEnabled()
   })
+  wireActivate({ app, getWindow: () => mainWindow, createWindow })
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit()
   })
