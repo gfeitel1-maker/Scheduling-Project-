@@ -22,6 +22,7 @@ import { buildReconciliationReport } from '../src/ingest/reconciliationReport.js
 import { capturePlacements } from '../src/ingest/capturePlacements.js'
 import { detectAllCampOverrides } from '../src/ingest/allCampOverrides.js'
 import { normalizeName } from '../src/ingest/preview.js'
+import { foldTriageInputs } from '../src/screens/reconciliationTriage.js'
 
 const DIR = path.join(process.cwd(), 'docs/work/specs/samples')
 // Only the text grids are schedule files; the .csv samples are preference sheets.
@@ -162,6 +163,43 @@ describe.each(SAMPLES)('%s: a name is one kind, in both directions', (file) => {
       JOIN fixed_events f ON lower(trim(f.name)) = lower(trim(a.name)) AND f.camp_id = a.camp_id
       WHERE a.camp_id = ? AND a.catalog_role IS NOT 'pinned_event'`).all(campId).map((r) => r.name)
     expect(both).toEqual([])
+  })
+})
+
+describe.each(SAMPLES)('%s: answered "fixed time" for every ambiguous name', (file) => {
+  it('no name is both a non-marker activity and a fixed event, and each is a marker', () => {
+    const parsed = parseTextGrid(fs.readFileSync(path.join(DIR, file), 'utf8'))
+    const proposal = extractEntities(parsed)
+    const { fixedEvents, dualUseNames = [], ambiguousEvents } = inferFixedEvents({ pages: parsed.pages }, proposal, {})
+    const pinOnly = derivePinOnlyActivityNames(fixedEvents, dualUseNames)
+    const baseInputs = {
+      approved: {
+        groups: proposal.entities.groups,
+        days_of_operation: proposal.entities.days_of_operation,
+        time_blocks: proposal.entities.time_blocks,
+        activities: proposal.entities.activities,
+      },
+      activityRules: inferActivityRules(
+        proposal.entities.activities, proposal.activityPages, proposal.seenCounts,
+        proposal.entities.days_of_operation.length, proposal.entities.groups, pinOnly,
+      ),
+      camp_id: campId, cohort_id: cohortId, device_id: deviceId, fixedEvents,
+      pinOnlyActivityNames: [...pinOnly], seenCounts: proposal.seenCounts ?? null,
+    }
+    const dry = commitIngest(db, { ...baseInputs, dryRun: true })
+    const report = buildReconciliationReport({ planItems: dry.planItems ?? [], ambiguousEvents })
+    const questions = report.decisions.filter((d) => d.kind === 'name_kind')
+    const answers = Object.fromEntries(questions.map((q) => [q.id, { choice: 'fixed' }]))
+    commitIngest(db, foldTriageInputs(baseInputs, report.decisions, answers))
+    const both = db.prepare(`
+      SELECT DISTINCT a.name FROM activities a
+      JOIN fixed_events f ON lower(trim(f.name)) = lower(trim(a.name)) AND f.camp_id = a.camp_id
+      WHERE a.camp_id = ? AND a.catalog_role IS NOT 'pinned_event'`).all(campId).map((r) => r.name)
+    expect(both).toEqual([])
+    for (const q of questions) {
+      const row = db.prepare('SELECT catalog_role FROM activities WHERE camp_id = ? AND lower(trim(name)) = ?').get(campId, normalizeName(q.entityName))
+      expect(row?.catalog_role, q.entityName).toBe('pinned_event')
+    }
   })
 })
 

@@ -26,6 +26,7 @@ import { normalizeScheduleInputs, SCHEDULE_INPUT_ENTITIES } from './ops/schedule
 import { parseTextGrid } from '../src/ingest/textGrid.js'
 import { extractEntities } from '../src/ingest/extractEntities.js'
 import { inferFixedEvents } from '../src/ingest/fixedEvents.js'
+import { settleAmbiguousFromCamp } from '../src/ingest/settleAmbiguousFromCamp.js'
 import { derivePinOnlyActivityNames } from '../src/ingest/pinOnlyActivityNames.js'
 import { inferActivityRules } from '../src/ingest/activityRules.js'
 import { capturePlacements } from '../src/ingest/capturePlacements.js'
@@ -56,8 +57,17 @@ function seedDirectorCamp() {
 function importUnanswered(d, id, text, answerFor = () => null) {
   const p = parseTextGrid(text)
   const prop = extractEntities(p)
-  const { fixedEvents, dualUseNames = [], ambiguousEvents = [] } = inferFixedEvents({ pages: p.pages }, prop, {})
+  const inferredEvents = inferFixedEvents({ pages: p.pages }, prop, {})
+  const { dualUseNames = [] } = inferredEvents
+  // The camp's current state settles a name an earlier import already classified.
+  const settled = settleAmbiguousFromCamp(inferredEvents.ambiguousEvents ?? [], {
+    activities: d.prepare('SELECT name, catalog_role FROM activities WHERE camp_id = ?').all(id),
+    fixedEvents: d.prepare('SELECT name FROM fixed_events WHERE camp_id = ?').all(id),
+  })
+  const ambiguousEvents = settled.stillAmbiguous
+  const fixedEvents = [...inferredEvents.fixedEvents, ...settled.settledFixed]
   const pinOnly = derivePinOnlyActivityNames(fixedEvents, dualUseNames)
+  for (const n of settled.settledFixedNames) pinOnly.add(normalizeName(n))
   const baseInputs = {
     approved: {
       groups: prop.entities.groups,
@@ -333,6 +343,34 @@ describe('a catalogue activity that is also pinned is asked once (OQ3)', () => {
     importUnanswered(d, id, plantText, (dec) => (dec.id === 'name_kind:swim' ? { choice: 'fixed' } : null))
     expect(swimEvents(d, id)).toBeGreaterThan(0)
     expect(swimRows(d, id)).toEqual([{ name: 'Swim', catalog_role: 'pinned_event' }])
+    d.close()
+  })
+
+  const bothBuckets = (d, id) => d.prepare(`
+    SELECT DISTINCT a.name FROM activities a
+    JOIN fixed_events f ON lower(trim(f.name)) = lower(trim(a.name)) AND f.camp_id = a.camp_id
+    WHERE a.camp_id = ? AND a.catalog_role IS NOT 'pinned_event'`).all(id)
+  const nameKindAsked = (report) => report.decisions.filter((q) => q.kind === 'name_kind').length
+
+  it('re-import after "fixed": no second question, the marker stays, no name in both buckets', () => {
+    const { d, id } = seedDirectorCamp()
+    importUnanswered(d, id, plantText, (dec) => (dec.id === 'name_kind:swim' ? { choice: 'fixed' } : null))
+    const { report } = importUnanswered(d, id, plantText)
+    expect(nameKindAsked(report)).toBe(0)
+    expect(swimRows(d, id)).toEqual([{ name: 'Swim', catalog_role: 'pinned_event' }])
+    expect(swimEvents(d, id)).toBeGreaterThan(0)
+    expect(bothBuckets(d, id)).toEqual([])
+    d.close()
+  })
+
+  it('re-import after "activity": no second question, it stays an activity with no events', () => {
+    const { d, id } = seedDirectorCamp()
+    importUnanswered(d, id, plantText, (dec) => (dec.id === 'name_kind:swim' ? { choice: 'activity' } : null))
+    const { report } = importUnanswered(d, id, plantText)
+    expect(nameKindAsked(report)).toBe(0)
+    expect(swimRows(d, id)).toEqual([{ name: 'Swim', catalog_role: null }])
+    expect(swimEvents(d, id)).toBe(0)
+    expect(bothBuckets(d, id)).toEqual([])
     d.close()
   })
 

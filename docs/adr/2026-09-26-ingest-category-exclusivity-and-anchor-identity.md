@@ -119,10 +119,10 @@ rather than edited in place — this section is the current record.
 
 - **Open questions — resolved status.** OQ1 (Option A vs B) — answered, A, per the owner's
   2026-09-26 ruling already recorded in this ADR's intro. OQ2 (hidden vs greyed) — answered, hidden
-  entirely, also already recorded. **OQ3 (a dual-use name: one row with a partial pin, or two rows)
+  entirely, also already recorded. _Prior (superseded by the 2026-10-11 amendment below, which answers it): **OQ3 (a dual-use name: one row with a partial pin, or two rows)
   remains open.** T266 used the existing `dualUseNames` carve-out to keep dual-use names out of the
   pin-only set entirely, which sidesteps the question rather than answering it, and T267 does not
-  address it either. No ticket currently references it.
+  address it either. No ticket currently references it._
 
 - **The residual duplicate row is the design, not a gap.** The catalogue row for a pinned/recurring
   event continues to exist, marked rather than removed — this is Option A working as designed. T251's
@@ -449,3 +449,10 @@ Where this lives, `src/ingest/fixedEvents.js` (`inferFixedEvents`), after `dualU
 - **Invariant, zero exemptions:** after commit no name is both a non-marker activity and a fixed or
   recurring event, on every sample, unanswered or answered either way
   (`electron/ingestPassExclusivity.allSamples.integration.test.js`).
+- **Answer memory from the camp's own state.** A re-import does not re-ask or re-default a classified
+  name (`src/ingest/settleAmbiguousFromCamp.js`): a `pinned_event` marker row with fixed events on file
+  is already "fixed" (events ship again, marker kept); a plain catalogue activity with no events is
+  already "activity". Replace mode deletes those records, so it starts clean.
+- **Known limit.** `ambiguousEvents` is computed at parse time. If a commit-time reparse merges or
+  re-keys names (a compound-cell resolution, a name-variant merge), the question still carries the
+  parse-time spelling, so a re-keyed name can fail to match its answer.
