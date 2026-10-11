@@ -136,4 +136,34 @@ describe('campB answer memory through the real handlers', () => {
     const report = await reconcile(base)
     for (const d of report.decisions) expect(classifyDecision(d), `${d.kind}/${d.entity}`).toBeTruthy()
   })
+
+  it('the three fixed-event cards: Add it and Don\'t add are each remembered by name, listed, and recalled on the next import', async () => {
+    const base = campBInputs()
+    const first = await reconcile(base)
+    const events = first.decisions.filter((d) => d.entity === 'fixed_events')
+    expect(events).toHaveLength(3)
+    const declined = events[2]
+    const answerOf = (d) => (d.id === declined.id ? { action: 'edited' } : { action: 'looks_right' })
+    const answers = Object.fromEntries(events.map((d) => [d.id, answerOf(d)]))
+    const outcome = await handlers.ingestCommit({ token, ...foldTriageInputs(base, first.decisions, answers) })
+    expect(outcome.held).toBe(false)
+    const entries = answerMemoryEntries(first.decisions, answers, { bulkIds: new Set() })
+    const res = await handlers.rememberImportAnswers({ token, importId: randomUUID(), entries })
+    expect(res.skipped).toEqual([])
+    expect(await learnedNames()).toEqual(events.map((d) => d.entityName).sort())
+
+    // Accepted events now exist, so the next import does not ask them (state-derived); only the declined one returns.
+    const { again, attached } = await recalledOn(base)
+    expect(again.decisions.filter((d) => d.entity === 'fixed_events').map((d) => d.entityName)).toEqual([declined.entityName])
+    // The memory itself holds all three: the cards as first raised recall each answer, by name, exactly.
+    const recallMap = await handlers.matchImportAnswers({ token, decisions: first.decisions, mode: 'add' })
+    const recalled = attachRecall(first, recallMap)
+    for (const d of events) {
+      const got = recalled.decisions.find((x) => x.id === d.id)
+      expect(got.recalled?.answer, d.entityName).toEqual(answerOf(d))
+      expect(got.recalled?.match, d.entityName).toBe('exact')
+    }
+    const back = attached.decisions.find((x) => x.entityName === declined.entityName)
+    expect(back.recalled?.answer).toEqual({ action: 'edited' })
+  })
 })

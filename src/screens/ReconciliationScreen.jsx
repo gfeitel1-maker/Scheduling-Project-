@@ -17,7 +17,7 @@ import { getReadiness } from '../engine/readiness.js'
 import { withImportOwnRecords } from '../ingest/importOwnRecords.js'
 import { fetchCensusSnapshot } from '../ingest/existingSnapshot.js'
 import { describeWriteFailure } from '../utils/writeErrorMessage.js'
-import { heldConflictsToDecisions, foldTriageInputs, isDecisionResolvedFor, mapCommitError, identityRememberCalls, heldBackDecisions } from './reconciliationTriage.js'
+import { heldConflictsToDecisions, foldTriageInputs, foldDryRunInputs, isDecisionResolvedFor, mapCommitError, identityRememberCalls, heldBackDecisions } from './reconciliationTriage.js'
 import { computeDomainCounts } from '../components/reconciliation/domainRollup.js'
 import ReconstructionMoment from '../components/reconciliation/ReconstructionMoment.jsx'
 import { shouldShowReconstructionMoment } from '../components/reconciliation/reconstructionMoment.gate.js'
@@ -199,7 +199,7 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
     setError(null)
     try {
       const inputs = lastGoodReportRef.current
-        ? foldTriageInputs(baseInputs, lastGoodReportRef.current.decisions, answersForRun)
+        ? foldDryRunInputs(baseInputs, lastGoodReportRef.current.decisions, answersForRun)
         : baseInputs
       const result = await localClient.ingestReconcile(inputs)
       if (requestGenRef.current !== myGen) return // last-issued-wins: a newer request has already superseded this one

@@ -144,6 +144,13 @@ export function heldConflictsToDecisions(conflicts) {
   return out
 }
 
+// A dry run previews the plan with the answers given so far. It must not hold back what is still
+// unanswered (foldTriageInputs does, for the commit): the next report is built from the plan, so a
+// withheld item stops being asked and drops out of the count.
+export function foldDryRunInputs(baseInputs, decisions, answers) {
+  return foldTriageInputs(baseInputs, decisions.filter((d) => isDecisionResolvedFor(d, answers)), answers)
+}
+
 // Folds the screen's triage answers into the SAME payload shape commitIngest
 // already accepts (ADR Seam 3 / spec's "do not invent a parallel resolution
 // schema"). Non-held decisions reuse reconciliationResolutions.js's
