@@ -12,7 +12,7 @@ import { extractEntities, INGESTIBLE_ENTITIES } from '../ingest/extractEntities'
 import { partitionSchedulePages } from '../ingest/scheduleShape'
 import { proposeSpecialDay } from '../ingest/specialDayFile'
 import { matchActivitiesToLocations, candidatePlaceNames } from '../ingest/locationsFromActivities'
-import { buildSpecialDayPlan } from '../ingest/specialDayPlan'
+import { buildSpecialDayPlan, resolveSpecialDayPlacement } from '../ingest/specialDayPlan'
 import { findSuspectRecords } from '../ingest/suspectRecords'
 import { formatEligibility } from './importEligibility'
 import { fixedEventKey } from '../ingest/fixedEventKey'
@@ -273,6 +273,8 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
   // confirm rather than declined outright.
   const [specialDayPlan, setSpecialDayPlan] = useState(null)
   const [specialDayResult, setSpecialDayResult] = useState(null)
+  const [specialDayDays, setSpecialDayDays] = useState([])
+  const [specialDayPlacement, setSpecialDayPlacement] = useState({ weekId: '', dayId: '', flag: null })
   const [buildingSpecialDay, setBuildingSpecialDay] = useState(false)
   // Checked and set SYNCHRONOUSLY before the first await. The `disabled`
   // attribute and the state flag only take effect once React commits a render,
@@ -569,11 +571,17 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
         // shown what this day would actually add before agreeing to any of it.
         // A read failure here degrades to a plan with nothing matched, which is
         // not-ready and therefore cannot commit — never to a silent build.
-        const [liveGroups, liveActivities, liveSpecialDays] = await Promise.all([
+        const [liveGroups, liveActivities, liveSpecialDays, liveDays] = await Promise.all([
           localClient.list('groups').catch(() => []),
           localClient.list('activities').catch(() => []),
           localClient.list('special_days').catch(() => []),
+          localClient.list('days_of_operation').catch(() => []),
         ])
+        const resolved = resolveSpecialDayPlacement({
+          texts: [...files.map((f) => f.name), specialDay.name], days: liveDays ?? [], weeks, weekId: openWeekId,
+        })
+        setSpecialDayDays(liveDays ?? [])
+        setSpecialDayPlacement({ weekId: resolved.placement?.weekId ?? '', dayId: resolved.placement?.dayId ?? '', flag: resolved.flag })
         setSpecialDayPlan(buildSpecialDayPlan(specialDay, {
           groups: liveGroups ?? [], activities: liveActivities ?? [], specialDays: liveSpecialDays ?? [],
         }))
@@ -1164,7 +1172,10 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
     setBuildingSpecialDay(true)
     setError(null)
     try {
-      const out = await localClient.ingestCommit({ approved: {}, links: {}, specialDay: specialDayPlan })
+      const { weekId, dayId } = specialDayPlacement
+      const placement = weekId && dayId ? { weekId, dayId } : null
+      const out = await localClient.ingestCommit({ approved: {}, links: {}, specialDay: placement ? { ...specialDayPlan, placement } : specialDayPlan })
+      if (out?.specialDay?.keptExisting) throw new Error(`That day already has a special day on it, so "${specialDayPlan.name}" was not built. Pick another day, or leave it unplaced.`)
       if (!out?.specialDay?.created) throw new Error(`"${specialDayPlan.name}" already exists, so nothing was built.`)
       setSpecialDayResult(out.specialDay)
       setSpecialDayPlan(null)
@@ -1687,7 +1698,7 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
           {specialDayResult.periods} periods, {specialDayResult.cells} cells
           {specialDayResult.activitiesCreated > 0
             ? `, ${specialDayResult.activitiesCreated} new ${specialDayResult.activitiesCreated === 1 ? 'activity' : 'activities'}`
-            : ''}. Find it under Special Events.
+            : ''}. {specialDayResult.placed ? 'It is placed on its day.' : 'It is not placed on a day yet.'} Find it under Special Events.
         </div>
       )}
 
@@ -1745,6 +1756,23 @@ export default function ImportScreen({ campId, onNavigate, weekId: openWeekId = 
             <p style={{ margin: '0 0 8px', fontSize: 13 }}>
               A special day called &quot;{specialDayPlan.name}&quot; already exists — rename it, or rename this one in the file.
             </p>
+          )}
+          {weeks.length > 0 && (
+            <p style={{ margin: '0 0 10px', fontSize: 13, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span>{specialDayPlacement.weekId && specialDayPlacement.dayId ? 'Placed on' : 'Not placed.'}</span>
+              <select aria-label="Special day week" value={specialDayPlacement.weekId} onChange={(e) => setSpecialDayPlacement((p) => ({ ...p, weekId: e.target.value }))}>
+                <option value="">No week</option>
+                {weeks.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+              </select>
+              <select aria-label="Special day weekday" value={specialDayPlacement.dayId} onChange={(e) => setSpecialDayPlacement((p) => ({ ...p, dayId: e.target.value }))}>
+                <option value="">No day</option>
+                {specialDayDays.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
+              </select>
+              {specialDayPlacement.flag && <span style={{ color: 'var(--text-secondary)' }}>{specialDayPlacement.flag}</span>}
+            </p>
+          )}
+          {weeks.length === 0 && specialDayPlacement.flag && (
+            <p style={{ margin: '0 0 10px', fontSize: 13, color: 'var(--text-secondary)' }}>{specialDayPlacement.flag}</p>
           )}
           <button
             type="button"

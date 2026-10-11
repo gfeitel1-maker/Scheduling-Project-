@@ -20,7 +20,7 @@ import { appendOp, DELETE_FIELD, latestOp, findOpByClientWriteId, runAtomic } fr
 import { latestOpForEntity, lastKnownFields, lastKnownFieldSources } from './restore.js'
 import { isHumanOwned, isHumanDeleted } from './fieldProvenance.js'
 import { PARENT_SCOPED_ENTITIES } from './campScopedEntities.js'
-import { normalizeName, recognitionKey } from '../../src/ingest/preview.js'
+import { normalizeName, recognitionKey, whitespaceInsensitiveName } from '../../src/ingest/preview.js'
 import { buildPlan, CLEAR } from '../../src/ingest/buildPlan.js'
 import { resolveFixedEventGroupIds } from '../../src/engine/fixedEventScope.js'
 import { foldApprovedToRecords, enrichSnapshotRow, resolveFieldWrite, dbFieldFor } from '../../src/ingest/fieldUpdate.js'
@@ -2860,11 +2860,26 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     // commits here, in the one transaction: derived ids make a re-import converge on the same rows, any throw
     // rolls the whole day back, and `write` captures the creations for Undo. A same-named live day (derived
     // id or typed by hand) is left alone, never doubled.
+    const placementHolder = (placementId) => db.prepare('SELECT special_day_id FROM special_day_placements WHERE id = ?').get(placementId)
+    const writePlacement = (placementId, weekId, dayId, specialDayId) => {
+      for (const [field, value] of [['week_id', weekId], ['day_id', dayId], ['special_day_id', specialDayId]]) {
+        write(db, { entity: 'special_day_placements', entity_id: placementId, field, value, author_user_id: author_user_id ?? null, device_id, parent_op_id: null, client_write_id: randomUUID(), source: IMPORT_SOURCE })
+      }
+    }
+    const aliasedActivities = listAliasMap(db, camp_id, null).activities
     const commitSpecialDay = (sd, { repairGrid = false } = {}) => {
       if (!sd.ready) {
         throw new Error(`That special day is not ready to build (${(sd.blockedBy ?? []).join(', ') || 'no plan'}).`)
       }
       const dayId = deriveSpecialDayId(camp_id, sd.name)
+      let placementId = null
+      if (sd.placement) {
+        if (!db.prepare('SELECT 1 FROM schedule_weeks WHERE id = ? AND camp_id = ?').get(sd.placement.weekId, camp_id)) throw new Error('That placement names a week this camp does not have; nothing was written.')
+        if (!db.prepare('SELECT 1 FROM days_of_operation WHERE id = ? AND camp_id = ?').get(sd.placement.dayId, camp_id)) throw new Error('That placement names a day this camp does not run; nothing was written.')
+        placementId = deriveSpecialDayPlacementId(sd.placement.weekId, sd.placement.dayId)
+        const holder = placementHolder(placementId)
+        if (holder && holder.special_day_id !== dayId) return { created: false, specialDayId: null, periods: 0, cells: 0, activitiesCreated: 0, placed: false, keptExisting: true }
+      }
       const nameKey = normalizeName(sd.name)
       const takenRow = db.prepare('SELECT id, name FROM special_days WHERE camp_id = ?').all(camp_id)
         .find((r) => r.id === dayId || normalizeName(r.name) === nameKey)
@@ -2872,7 +2887,10 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         entity, entity_id, field, value, author_user_id: author_user_id ?? null, device_id,
         parent_op_id: null, client_write_id: randomUUID(), source: IMPORT_SOURCE,
       })
-      if (takenRow && !repairGrid) return { created: false, specialDayId: takenRow.id, periods: 0, cells: 0, activitiesCreated: 0 }
+      if (takenRow && !repairGrid) {
+        const placed = !!placementId && placementHolder(placementId)?.special_day_id === takenRow.id
+        return { created: false, specialDayId: takenRow.id, periods: 0, cells: 0, activitiesCreated: 0, ...(placementId ? { placed } : {}) }
+      }
       if (takenRow) {
         // A Replace import re-mints groups, so an import-made day's cells can point at deleted groups. Drop those
         // cells and write the missing ones for the live groups (derived ids: a day that is intact is untouched).
@@ -2926,10 +2944,12 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       const activityIdByName = new Map()
       const liveActivities = db.prepare('SELECT id, name FROM activities WHERE camp_id = ?').all(camp_id)
       for (const a of sd.activities ?? []) {
-        const key = normalizeName(a.name)
-        const live = liveActivities.filter((r) => normalizeName(r.name) === key)
+        const key = whitespaceInsensitiveName(a.name)
+        const live = liveActivities.filter((r) => whitespaceInsensitiveName(r.name) === key)
         if (live.length > 1) throw new Error(`"${a.name}" matches more than one activity; nothing was written.`)
         if (live.length === 1) { activityIdByName.set(a.name, live[0].id); continue }
+        const aliased = aliasedActivities.get(normalizeName(a.name))
+        if (aliased) { activityIdByName.set(a.name, aliased); continue }
         const id = deriveSpecialDayActivityId(camp_id, a.name)
         // A row under the derived id is already present (the director may have renamed it since the last
         // import): reuse it, never write the imported name back over theirs.
@@ -2967,7 +2987,8 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         if (activityId) sdOp('special_day_slots', id, 'activity_id', activityId)
         cells += 1
       }
-      return { created: true, specialDayId: dayId, periods: blockIdByName.size, cells, activitiesCreated }
+      if (placementId) writePlacement(placementId, sd.placement.weekId, sd.placement.dayId, dayId)
+      return { created: true, specialDayId: dayId, periods: blockIdByName.size, cells, activitiesCreated, ...(placementId ? { placed: true } : {}) }
     }
 
     // F3/F4 slice 3a (docs/adr/2026-10-11-import-special-days-and-field-trips.md). A recognised one-day file
@@ -3016,7 +3037,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       if (existingDay && existingDay.id !== derivedDayId) { skip('a special day with that name already exists'); continue }
       const specialDayId = derivedDayId
       const placementId = deriveSpecialDayPlacementId(w.weekId, dayId)
-      const holder = db.prepare('SELECT special_day_id FROM special_day_placements WHERE id = ?').get(placementId)
+      const holder = placementHolder(placementId)
       if (holder && holder.special_day_id !== specialDayId) {
         wholeCampDaysOutcome.push({ name: w.name, day: w.day, weekId: w.weekId, created: false, placed: false, keptExisting: true })
         continue
@@ -3033,9 +3054,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       const built = commitSpecialDay(sd, { repairGrid: true })
       let placed = false
       if (!holder) {
-        for (const [field, value] of [['week_id', w.weekId], ['day_id', dayId], ['special_day_id', specialDayId]]) {
-          write(db, { entity: 'special_day_placements', entity_id: placementId, field, value, author_user_id: author_user_id ?? null, device_id, parent_op_id: null, client_write_id: randomUUID(), source: IMPORT_SOURCE })
-        }
+        writePlacement(placementId, w.weekId, dayId, specialDayId)
         placed = true
       }
       wholeCampDaysOutcome.push({ name: w.name, day: w.day, weekId: w.weekId, created: built.created, placed, ...(built.repaired ? { repaired: built.repaired } : {}) })

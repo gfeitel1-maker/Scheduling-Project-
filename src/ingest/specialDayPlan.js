@@ -17,6 +17,7 @@
 
 import { whitespaceInsensitiveName } from './preview.js'
 import { mapWithCollisions } from './mapWithCollisions.js'
+import { dayNameFromTitle } from './extractEntities.js'
 
 const key = (s) => whitespaceInsensitiveName(String(s ?? ''))
 
@@ -146,4 +147,20 @@ export function buildSpecialDayPlan(proposal, live) {
     blockedBy,
     ready: blockedBy.length === 0,
   }
+}
+
+/**
+ * F3/F4 slice 4 (ADR "One-day file"). Where a one-day file lands: the weekday printed in the file's name or
+ * title (matched to the camp's days), on the week open in the app. Nothing guessed: no weekday -> unplaced
+ * with a plain flag, never a forced picker.
+ * @returns {{placement: {weekId, dayId}|null, flag: string|null}}
+ */
+export function resolveSpecialDayPlacement({ texts, days, weeks, weekId }) {
+  if (!weeks?.length) return { placement: null, flag: 'This camp has no weeks yet, so the day was not placed.' }
+  const week = weeks.find((w) => w.id === weekId) ?? (weeks.length === 1 ? weeks[0] : null)
+  const printed = (texts ?? []).map(dayNameFromTitle).find(Boolean)
+  const day = printed ? (days ?? []).find((d) => dayNameFromTitle(d.label) === printed) : null
+  if (!day) return { placement: null, flag: 'The file does not say which weekday this is, so the day was not placed.' }
+  if (!week) return { placement: null, flag: 'No week is open, so the day was not placed.' }
+  return { placement: { weekId: week.id, dayId: day.id }, flag: null }
 }

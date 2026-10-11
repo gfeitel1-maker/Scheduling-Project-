@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildSpecialDayPlan } from './specialDayPlan'
+import { buildSpecialDayPlan, resolveSpecialDayPlacement } from './specialDayPlan'
 import { proposeSpecialDay } from './specialDayFile'
 
 // T40 slice 3b — turn the recognised one-day file into a plan a director can
@@ -220,5 +220,33 @@ describe('buildSpecialDayPlan — two columns that resolve to the same group (sl
   it('a plan whose columns are distinct groups is unaffected', () => {
     expect(plan.blockedBy).not.toContain('duplicate_columns')
     expect(plan.duplicateColumns).toEqual([])
+  })
+})
+
+describe('F3/F4 slice 4: resolveSpecialDayPlacement', () => {
+  const days = [{ id: 'dM', label: 'Monday' }, { id: 'dT', label: 'Tuesday' }]
+  const weeks = [{ id: 'w1' }, { id: 'w2' }]
+  it('weekday in the file name + the open week -> a placement', () => {
+    expect(resolveSpecialDayPlacement({ texts: ['Tuesday Color War Day.xlsx'], days, weeks, weekId: 'w2' }))
+      .toEqual({ placement: { weekId: 'w2', dayId: 'dT' }, flag: null })
+  })
+  it('no weekday printed -> unplaced with a flag, never invented', () => {
+    const r = resolveSpecialDayPlacement({ texts: ['Color War Day.xlsx'], days, weeks, weekId: 'w1' })
+    expect(r.placement).toBeNull()
+    expect(r.flag).toMatch(/weekday/)
+  })
+  it('a weekday the camp does not run -> unplaced', () => {
+    expect(resolveSpecialDayPlacement({ texts: ['Friday games'], days, weeks, weekId: 'w1' }).placement).toBeNull()
+  })
+  it('no weeks -> not placed, and the flag says why', () => {
+    const r = resolveSpecialDayPlacement({ texts: ['Tuesday games'], days, weeks: [], weekId: null })
+    expect(r.placement).toBeNull()
+    expect(r.flag).toMatch(/no weeks/)
+  })
+  it('several weeks and none open -> unplaced', () => {
+    expect(resolveSpecialDayPlacement({ texts: ['Tuesday games'], days, weeks, weekId: null }).placement).toBeNull()
+  })
+  it('one week and none open -> that week', () => {
+    expect(resolveSpecialDayPlacement({ texts: ['Tuesday games'], days, weeks: [{ id: 'w1' }], weekId: null }).placement).toEqual({ weekId: 'w1', dayId: 'dT' })
   })
 })
