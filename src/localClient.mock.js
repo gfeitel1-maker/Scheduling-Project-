@@ -28,6 +28,14 @@ import { deriveElectiveRunFindingId } from '../electron/ops/deriveElectiveRunFin
 // this time so :5200 can prove a version got created without a second resolver.
 import { resolveImportedPlacements, describeUnresolved } from '../electron/ops/resolveImportedPlacements.js'
 import { deriveScheduleTemplateId } from '../electron/ops/scheduleTemplateId.js'
+import { createMockLearned } from './localClient.mock.learned.js'
+
+// One in-memory learned dataset per page load (?learned=empty|many|readonly|error picks a state).
+let learnedMockInstance = null
+function learnedMock() {
+  if (!learnedMockInstance) learnedMockInstance = createMockLearned(typeof window === 'undefined' ? '' : window.location.search)
+  return learnedMockInstance
+}
 import { hasContradictoryRanks } from './ingest/preferenceSheet.js'
 // F8 (board item 9b round 3) — the SAME pure validator
 // electron/ops/electiveRunResourceConflicts.js calls, so the mock's
@@ -1882,21 +1890,11 @@ export const mockShoresh = {
   async rememberImportAnswers() {
     return { written: [], skipped: [] }
   },
-  async listLearned() {
-    return { answers: [], patterns: [], vetoes: 0, formerUserAnswers: 0, canWrite: true, diagnostics: { discarded: 0, tombstoned: 0 } }
-  },
-  async changeImportAnswer() {
-    return { ok: false, error: 'NOT_FOUND' }
-  },
-  async forgetImportAnswer() {
-    return { ok: false, error: 'NOT_FOUND' }
-  },
-  async forgetImportPattern() {
-    return { ok: false, error: 'NOT_FOUND' }
-  },
-  async keepImportAnswer() {
-    return { ok: false, error: 'NOT_FOUND' }
-  },
+  listLearned(...args) { return learnedMock().listLearned(...args) },
+  changeImportAnswer(...args) { return learnedMock().changeImportAnswer(...args) },
+  forgetImportAnswer(...args) { return learnedMock().forgetImportAnswer(...args) },
+  forgetImportPattern(...args) { return learnedMock().forgetImportPattern(...args) },
+  keepImportAnswer(...args) { return learnedMock().keepImportAnswer(...args) },
   // T118 slice 4 — mock stand-in for listCompoundCellDecisions
   // (electron/ops/ingest.js), returning entries in the same [pattern, value]
   // shape the real IPC boundary does (localClient.js re-wraps into a Map).

@@ -476,6 +476,21 @@ export default function Sidebar({
           </button>
         )}
         {role === 'admin' && <RestoreControl />}
+        {/* Ungated: staff and directors both see what Shoresh has learned from their import
+            answers. Text only, no count: a footer entry that never asks for attention. */}
+        <button
+          type="button"
+          onClick={() => onNavigate('learned')}
+          style={{
+            display: 'block', width: '100%', textAlign: 'left',
+            padding: '4px 0 0', border: 'none', background: 'none',
+            fontFamily: 'inherit', fontSize: 11, cursor: 'pointer',
+            fontWeight: current === 'learned' ? 600 : 400,
+            color: current === 'learned' ? 'var(--text)' : 'var(--text-secondary)',
+          }}
+        >
+          What Shoresh has learned
+        </button>
         {/* About & Legal — a quiet footer link to the view-only surface
             (about note, version, user agreement, license, attributions). The
             version stays beside it as the plain label it has always been. */}

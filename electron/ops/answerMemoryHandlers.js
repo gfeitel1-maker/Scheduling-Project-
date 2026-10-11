@@ -29,14 +29,18 @@ export function createAnswerMemoryHandlers({ db, deviceId, authorize }) {
 
   return {
     matchImportAnswers({ token, decisions, others, suppressed, mode } = {}) {
-      gate(token, 'import_answers.read')
-      return matchImportAnswers(db, {
+      const session = gate(token, 'import_answers.read')
+      const recalled = matchImportAnswers(db, {
         campId: campId(),
         decisions: list(decisions ?? [], 'decisions'),
         others: list(others ?? [], 'others'),
         suppressed: Array.isArray(suppressed) ? suppressed.filter((s) => typeof s === 'string') : [],
         mode: mode === 'replace' ? 'replace' : 'add',
       })
+      for (const r of Object.values(recalled)) {
+        if (r && r.answeredBy !== undefined) r.answeredByYou = r.answeredBy === session.userId
+      }
+      return recalled
     },
     rememberImportAnswers({ token, importId, entries } = {}) {
       const session = gate(token, 'import_answers.write')
@@ -48,7 +52,7 @@ export function createAnswerMemoryHandlers({ db, deviceId, authorize }) {
     },
     listLearned({ token } = {}) {
       const session = gate(token, 'import_answers.read')
-      return listLearned(db, { campId: campId(), viewerUserId: session.userId })
+      return { ...listLearned(db, { campId: campId(), viewerUserId: session.userId }), viewerUserId: session.userId }
     },
     changeImportAnswer({ token, memoryId, verdict } = {}) {
       const session = gate(token, 'import_answers.write')

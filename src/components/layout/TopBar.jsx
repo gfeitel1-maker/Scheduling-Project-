@@ -34,6 +34,7 @@ const TITLES = {
   devices:      'LAN & Devices',
   about:        'About & Legal',
   pairAgain:    'Pair again',
+  learned:      'What Shoresh has learned',
   // The 'reconciliation' screen key always resolves to entry="openDecisions"
   // (App.jsx) — the fileless "Open items" door, matching its own <h1>.
   reconciliation: 'Open items',

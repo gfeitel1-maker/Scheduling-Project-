@@ -89,6 +89,10 @@ export function applyResolutions({ approved, decisions, answers, fixedEvents, pi
   // collected alongside the approved hold-back below so a single walk over
   // decisions gates both outputs.
   const heldFixedEventKeys = new Set()
+  // "Not an event, treat as an activity": the event is dropped whatever its confidence, and the name
+  // goes to the catalogue as an ordinary activity instead of a pinned event's marker row.
+  const droppedFixedEventKeys = new Set()
+  const asActivityNames = new Set()
 
   for (const decision of filterQueueDecisions(decisions)) {
     const answer = answers?.[decision.id]
@@ -116,6 +120,11 @@ export function applyResolutions({ approved, decisions, answers, fixedEvents, pi
       // side-channel — activityRules/groupUnitOverrides — not a resolution).
       // Unresolved -> held back: remove from approved so it does not write
       // unconditionally (the silent-write risk this module exists to guard).
+      if (decision.entity === 'fixed_events' && answer?.action === 'edited' && answer.notAnEvent === true) {
+        droppedFixedEventKeys.add(fixedEventMatchKey(decision.entityName, decision.timeBlock, decision.days))
+        asActivityNames.add(normalizeName(decision.entityName ?? ''))
+        continue
+      }
       if (!isDecisionResolved(decision, answer)) {
         // Fix round 2026-08-17, FIX 1: 'fixed_events' is never a key in
         // `approved` (buildPlan/commitIngest gate it via the fixedEvents[]
@@ -156,15 +165,18 @@ export function applyResolutions({ approved, decisions, answers, fixedEvents, pi
     }
   }
 
-  const nextFixedEvents = (fixedEvents ?? []).filter(
-    (fe) => !heldFixedEventKeys.has(fixedEventMatchKey(fe.name, fe.time_block, fe.days)) || eventKeptWhenUnanswered(fe)
-  )
+  const nextFixedEvents = (fixedEvents ?? []).filter((fe) => {
+    const key = fixedEventMatchKey(fe.name, fe.time_block, fe.days)
+    if (droppedFixedEventKeys.has(key)) return false
+    return !heldFixedEventKeys.has(key) || eventKeptWhenUnanswered(fe)
+  })
 
   // A claimed name's backing activity row follows its event: when every event of
   // that name was held back (unanswered or not confirmed) the row is not created
   // either, so the one question about the name is the event's.
-  const claimed = new Set(pinOnlyActivityNames.map((n) => normalizeName(n)))
   const kept = new Set(nextFixedEvents.map((fe) => normalizeName(fe.name)))
+  const unpinnedNames = new Set([...asActivityNames].filter((n) => !kept.has(n)))
+  const claimed = new Set(pinOnlyActivityNames.map((n) => normalizeName(n)).filter((n) => !unpinnedNames.has(n)))
   const heldAway = new Set((fixedEvents ?? []).filter((fe) => !nextFixedEvents.includes(fe)).map((fe) => normalizeName(fe.name)))
   if (nextApproved.activities) {
     nextApproved.activities = nextApproved.activities.filter((el) => {
@@ -173,5 +185,14 @@ export function applyResolutions({ approved, decisions, answers, fixedEvents, pi
     })
   }
 
-  return { approved: nextApproved, resolutions, fixedEvents: nextFixedEvents }
+  // The name must reach the catalogue: it is listed when the file named it, and added when it is not.
+  for (const name of unpinnedNames) {
+    const listed = (nextApproved.activities ?? []).some((el) => normalizeName(String((el && typeof el === 'object' ? el.name : el) ?? '')) === name)
+    if (!listed) {
+      const original = (fixedEvents ?? []).find((fe) => normalizeName(fe.name) === name)?.name ?? name
+      nextApproved.activities = [...(nextApproved.activities ?? []), original]
+    }
+  }
+
+  return { approved: nextApproved, resolutions, fixedEvents: nextFixedEvents, unpinnedNames: [...unpinnedNames] }
 }

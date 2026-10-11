@@ -6,6 +6,7 @@
 // (staged-tray-as-dry-run) and Seam 5 (what replaces HeldResolution).
 
 import { applyResolutions } from './reconciliationResolutions.js'
+import { normalizeName } from '../ingest/preview.js'
 import { describeWriteFailure } from '../utils/writeErrorMessage.js'
 import { ALIAS_COHORT_SCOPED } from './importAliasScope.js'
 import { normalizeWordKey } from '../utils/normalizeWordKey.js'
@@ -150,7 +151,7 @@ export function heldConflictsToDecisions(conflicts) {
 // HeldResolution used to build.
 export function foldTriageInputs(baseInputs, decisions, answers) {
   const nonConflict = decisions.filter((d) => d.kind !== 'resolve_conflict')
-  const { approved, resolutions, fixedEvents } = applyResolutions({
+  const { approved, resolutions, fixedEvents, unpinnedNames } = applyResolutions({
     approved: baseInputs.approved,
     decisions: nonConflict,
     answers,
@@ -245,9 +246,14 @@ export function foldTriageInputs(baseInputs, decisions, answers) {
     pinnedByAnswer.push(d.entityName)
     eventsByAnswer.push(...(d.candidateEvents ?? []))
   }
-  const pinOnlyActivityNames = pinnedByAnswer.length
-    ? [...new Set([...(baseInputs.pinOnlyActivityNames ?? []), ...pinnedByAnswer])]
+  // A name the director called an activity is no longer claimed by an event.
+  const unpinned = unpinnedNames ?? []
+  const basePins = unpinned.length
+    ? (baseInputs.pinOnlyActivityNames ?? []).filter((n) => !unpinned.includes(normalizeName(n)))
     : baseInputs.pinOnlyActivityNames
+  const pinOnlyActivityNames = pinnedByAnswer.length
+    ? [...new Set([...(basePins ?? []), ...pinnedByAnswer])]
+    : basePins
 
   return {
     ...baseInputs, approved, activityRules, pinOnlyActivityNames,

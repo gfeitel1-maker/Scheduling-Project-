@@ -108,6 +108,7 @@ const fmtDate = (iso) => {
 }
 
 export function answerLabel(features, verdict) {
+  if (verdict === 'as_activity') return 'Treat as an activity'
   const cls = features?.proposedClass
   if (features?.dk === 'all_camp_override') return verdict === 'all_camp' ? 'All camp' : 'Leave as written'
   if (cls === 'name_kind') return verdict === 'accept' ? 'A fixed time' : 'An activity Generate can schedule'

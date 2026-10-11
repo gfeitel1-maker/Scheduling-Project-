@@ -19,6 +19,7 @@
 // after-commit call site — this is not a new pattern, it is the existing one
 // applied to a second purpose.
 import { isBackedConfirmChange } from '../screens/reconciliationResolutions'
+import { sameAnswer } from './learnedView.js'
 
 // An outcome is about what the DIRECTOR did, not about whether the import
 // succeeded. The four are exhaustive over the states a presented decision can
@@ -34,10 +35,6 @@ export const OUTCOMES = Object.freeze({
 // `express` decisions are shown but demand nothing; `standard` wants a look;
 // `hold` must be answered. Recorded as PRESENTED so the journal can later show
 // which lane a question actually arrived in, independent of how it was answered.
-function sameAnswer(a, b) {
-  return b != null && JSON.stringify(a) === JSON.stringify(b)
-}
-
 function laneOf(decision) {
   return decision._lane ?? null
 }

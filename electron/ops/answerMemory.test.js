@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
-import { signatureOf } from '../../src/ingest/answerMemory.js'
+import { signatureOf, isExplicit } from '../../src/ingest/answerMemory.js'
 import { deriveCampSeedlingId } from './electiveDerivedIds.js'
 import { listDeleted } from './trash.js'
 import { rememberColumnMapping } from './rememberColumnMapping.js'
@@ -272,6 +272,18 @@ describe('Change, Forget, Remember this', () => {
     expect(a[0].supersedes).toEqual([id])
     expect(a[0].confirmed_by).toBe('u-staff')
     expect(matchOne(d).answer).toEqual({ action: 'looks_right' })
+  })
+  it('the view\'s 8-second Undo: changeAnswer on a just-forgotten answer writes it back as a fresh live record', () => {
+    const d = fixed('Lunch 1')
+    remember([one(d, REJECT)])
+    const id = live().answers[0].id
+    forgetAnswer(db, { campId: CAMP, authorUserId: 'u-admin', deviceId: 'dev-1', memoryId: id })
+    expect(matchOne(d)).toBeNull()
+    const back = changeAnswer(db, { campId: CAMP, authorUserId: 'u-admin', deviceId: 'dev-1', memoryId: id, verdict: 'reject' })
+    expect(back.ok).toBe(true)
+    expect(back.id).not.toBe(id)
+    expect(live().answers).toHaveLength(1)
+    expect(matchOne(d).answer).toEqual({ action: 'edited' })
   })
   it('changeAnswer refuses a verdict outside the question\'s vocabulary', () => {
     remember([one(fixed('Lunch 1'), REJECT)])
@@ -601,5 +613,106 @@ describe('guard: one reader', () => {
     const generic = /\.list\(\s*['"`]camp_seedlings['"`]\s*\)/
     const hits = sources().filter(({ text }) => generic.test(text)).map(({ rel }) => rel)
     expect(hits).toEqual(['src/screens/elective/assignment/AssignmentPanel.jsx'])
+  })
+})
+
+describe('Red Hat 2/5 fixes: explicit writes, stale ids, auto-applied votes', () => {
+  const as = { campId: CAMP, authorUserId: 'u-admin', deviceId: 'dev-1' }
+
+  it('an explicit tap on a SHOWN recall is recorded as explicit, not as a tap-through', () => {
+    remember([one(fixed('Lunch 1'), ACCEPT, { tap: true, recalled: { match: 'pattern', memoryId: 'm' } })])
+    const [rec] = live().answers
+    expect(rec.answer).toEqual({ verdict: 'accept', tap: true })
+    expect(isExplicit(rec)).toBe(true)
+  })
+  it('a tap carried by a bulk answer never counts as explicit', () => {
+    remember([one(fixed('Lunch 1'), ACCEPT, { tap: true, bulk: true })])
+    const [rec] = live().answers
+    expect(rec.answer.tap).toBeUndefined()
+    expect(isExplicit(rec)).toBe(false)
+  })
+  it('"Remember this" on a shown near is recorded as explicit (it is not flagged recalled)', () => {
+    const d = fixed('Lunch 1')
+    remember([one(d, REJECT)])
+    const near = fixed('Lunch 1', { timeBlock: '01:00-01:40' })
+    remember([one(near, REJECT, { recalled: { match: 'near' }, rememberNear: true })])
+    const head = live().answers.reduce((m, a) => (a.seq > m.seq ? a : m))
+    expect(head.answer.recalled).toBeUndefined()
+    expect(isExplicit(head)).toBe(true)
+  })
+
+  it('Forget, Keep and Change refuse a stale superseded id and leave the newer head alone', () => {
+    const d = fixed('Lunch 1')
+    remember([one(d, REJECT)])
+    const stale = live().answers[0].id
+    remember([one(d, ACCEPT)])
+    const head = live().answers[0].id
+    expect(head).not.toBe(stale)
+    expect(forgetAnswer(db, { ...as, memoryId: stale })).toEqual({ ok: false, error: 'NOT_FOUND' })
+    expect(keepAnswer(db, { ...as, memoryId: stale })).toEqual({ ok: false, error: 'NOT_FOUND' })
+    expect(changeAnswer(db, { ...as, memoryId: stale, verdict: 'reject' })).toEqual({ ok: false, error: 'NOT_FOUND' })
+    expect(live().answers.map((a) => a.id)).toEqual([head])
+    expect(rows().filter((r) => r.kind === VETO_KIND)).toHaveLength(0)
+  })
+  it('Forget and Keep refuse a just-forgotten id; only Change may bring it back', () => {
+    const d = fixed('Lunch 1')
+    remember([one(d, REJECT)])
+    const id = live().answers[0].id
+    forgetAnswer(db, { ...as, memoryId: id })
+    expect(forgetAnswer(db, { ...as, memoryId: id }).error).toBe('NOT_FOUND')
+    expect(keepAnswer(db, { ...as, memoryId: id }).error).toBe('NOT_FOUND')
+    expect(changeAnswer(db, { ...as, memoryId: id, verdict: 'reject' }).ok).toBe(true)
+  })
+  it('Change does not resurrect a forgotten answer over a newer answer to the same question', () => {
+    const d = fixed('Lunch 1')
+    remember([one(d, REJECT)])
+    const id = live().answers[0].id
+    forgetAnswer(db, { ...as, memoryId: id })
+    remember([one(d, ACCEPT, { tap: true })])
+    const head = live().answers[0].id
+    expect(changeAnswer(db, { ...as, memoryId: id, verdict: 'reject' }).error).toBe('NOT_FOUND')
+    expect(live().answers.map((a) => a.id)).toEqual([head])
+  })
+  it('keepAnswer on a non-qualifying head retires ALL live heads for the key', () => {
+    const d = fixed('Lunch 7')
+    const ghost = forge(d, { author: 'ghost', payload: { seq: 5, answer: { verdict: 'reject' } } })
+    forge(d, { payload: { seq: 2, answer: { verdict: 'accept' } } })
+    expect(live().answers).toHaveLength(2)
+    expect(keepAnswer(db, { ...as, memoryId: ghost }).ok).toBe(true)
+    const a = live().answers
+    expect(a).toHaveLength(1)
+    expect(a[0].answer.verdict).toBe('reject')
+    expect(a[0].supersedes).toHaveLength(2)
+  })
+
+  it('an auto-applied seed is remembered for exact recall but is not a fresh vote for its own pattern', () => {
+    remember([one(fixed('Specialty 1'), ACCEPT)], { importId: 'imp-a' })
+    remember([one(fixed('Specialty 2'), ACCEPT)], { importId: 'imp-a' })
+    remember([one(fixed('Specialty 3'), ACCEPT, { tap: true })], { importId: 'imp-b' })
+    expect(matchOne(fixed('Specialty 4'))).toMatchObject({ band: 'established', autoApply: true })
+    remember([one(fixed('Specialty 4'), ACCEPT, { autoApplied: true })], { importId: 'imp-c' })
+    expect(matchOne(fixed('Specialty 4')).match).toBe('exact')
+    expect(matchOne(fixed('Specialty 5')).progress.agreeing).toBe(3)
+  })
+})
+
+describe('"Not an event, treat as an activity" is its own remembered verdict', () => {
+  const NOT_EVENT = { action: 'edited', notAnEvent: true }
+  it('is stored as as_activity, recalls as that answer, and is labelled "Treat as an activity"', () => {
+    const d = fixed('Specialty 1')
+    remember([one(d, NOT_EVENT)])
+    const [rec] = live().answers
+    expect(rec.answer.verdict).toBe('as_activity')
+    expect(isExplicit(rec)).toBe(true)
+    expect(matchOne(d).answer).toEqual({ action: 'edited', notAnEvent: true })
+    expect(listLearned(db, { campId: CAMP, viewerUserId: 'u-admin' }).answers[0].label).toBe('Treat as an activity')
+  })
+  it('is not the same answer as "Don\'t add", and never auto-applies', () => {
+    const d = fixed('Specialty 1')
+    remember([one(d, REJECT)])
+    remember([one(d, NOT_EVENT)])
+    expect(live().answers).toHaveLength(1)
+    expect(matchOne(d).answer).toEqual({ action: 'edited', notAnEvent: true })
+    expect(matchOne(d).autoApply).toBe(false)
   })
 })
